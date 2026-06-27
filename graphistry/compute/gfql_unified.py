@@ -1679,7 +1679,10 @@ def _chain_dispatch(
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
-    if chain_obj.where and engine in (EngineAbstract.POLARS, "polars", Engine.POLARS):
+    if chain_obj.where and engine in (
+        EngineAbstract.POLARS, "polars", Engine.POLARS,
+        EngineAbstract.POLARS_GPU, "polars-gpu", Engine.POLARS_GPU,
+    ):
         # Cross-entity / same-path WHERE routes through DFSamePathExecutor
         # (df_executor.py), which has no native polars implementation. NO pandas
         # fallback (see plan.md NO-CHEATING) — raise honestly.

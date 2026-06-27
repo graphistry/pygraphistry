@@ -799,17 +799,21 @@ def chain(
     engine_concrete_early = resolve_engine(engine, self)
     self = _coerce_input_formats(self, engine_concrete_early)
 
-    if engine_concrete_early == Engine.POLARS:
+    if engine_concrete_early in (Engine.POLARS, Engine.POLARS_GPU):
         # Native polars chain lives in a dedicated dispatched module so the
         # production pandas/cuDF orchestration below stays untouched (see
         # plans/gfql-polars-engine). Correctness gated by differential parity.
+        # POLARS_GPU = the same lazy engine with the GPU execution target.
         if validate_schema:
             Chain(ops if not isinstance(ops, Chain) else ops.chain).validate(collect_all=False)
         from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
+        from graphistry.compute.gfql.lazy import target_mode, ExecutionTarget
         # NO pandas fallback here (see plan.md NO-CHEATING): chain_polars raises
         # NotImplementedError for deferred features (var-length/multi-hop edges,
         # undirected multi-edge); that honest signal propagates to the caller.
-        return chain_polars(self, ops, start_nodes=start_nodes)
+        _tgt = ExecutionTarget.GPU if engine_concrete_early == Engine.POLARS_GPU else ExecutionTarget.CPU
+        with target_mode(_tgt):
+            return chain_polars(self, ops, start_nodes=start_nodes)
 
     if policy:
         from graphistry.compute.gfql.call.executor import _thread_local as call_thread_local

@@ -109,12 +109,13 @@ def hop(self: Plottable,
     from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
     self = _coerce_input_formats(self, engine_concrete)
 
-    if engine_concrete == Engine.POLARS:
+    if engine_concrete in (Engine.POLARS, Engine.POLARS_GPU):
         # Native polars traversal lives in a dedicated dispatched module so the
         # production pandas/cuDF internals below stay untouched (see
         # plans/gfql-polars-engine). Correctness gated by differential parity.
         # LAZY engine first (one plan, collect-once on the active target); it
         # returns None for cases it doesn't cover -> fall back to the eager hop.
+        # POLARS_GPU = the same lazy engine with the GPU execution target.
         _hop_kwargs = dict(
             min_hops=min_hops, max_hops=max_hops,
             output_min_hops=output_min_hops, output_max_hops=output_max_hops,
@@ -127,7 +128,10 @@ def hop(self: Plottable,
             include_zero_hop_seed=include_zero_hop_seed, target_wave_front=target_wave_front,
         )
         from graphistry.compute.gfql.lazy.engine.polars.hop import hop_lazy_or_eager
-        return hop_lazy_or_eager(self, nodes, hops, **_hop_kwargs)
+        from graphistry.compute.gfql.lazy import target_mode, ExecutionTarget
+        _tgt = ExecutionTarget.GPU if engine_concrete == Engine.POLARS_GPU else ExecutionTarget.CPU
+        with target_mode(_tgt):
+            return hop_lazy_or_eager(self, nodes, hops, **_hop_kwargs)
 
     def _combine_first_no_warn(target, fill):
         """Avoid pandas concat warning when combine_first sees empty inputs."""

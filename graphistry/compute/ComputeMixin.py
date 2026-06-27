@@ -86,7 +86,7 @@ def _coerce_input_formats(g: "Plottable", engine: Engine) -> "Plottable":
             if not has_cudf:
                 return True  # cudf unavailable — skip coercion; downstream handles gracefully
             return 'cudf' in type_mod
-        elif engine == Engine.POLARS:
+        elif engine in (Engine.POLARS, Engine.POLARS_GPU):
             return 'polars' in type_mod
         return True
 

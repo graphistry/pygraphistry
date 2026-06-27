@@ -14,11 +14,15 @@ class Engine(Enum):
     DASK = 'dask'
     DASK_CUDF = 'dask_cudf'
     POLARS = 'polars'
+    # GPU execution TARGET of the lazy Polars engine (cudf_polars): frames stay
+    # ``pl.DataFrame`` (handled exactly like POLARS in all frame ops); only the
+    # lazy ``.collect()`` runs on GPU. Explicit opt-in only — AUTO never selects it.
+    POLARS_GPU = 'polars-gpu'
 
 # Engines whose frames use the polars API (unique/with_columns/...) rather than the
-# pandas API (drop_duplicates/assign/...). The polars-GPU target (Engine.POLARS_GPU)
-# extends this tuple where it is introduced (the lazy GPU engine).
-POLARS_ENGINES = (Engine.POLARS,)
+# pandas API (drop_duplicates/assign/...). POLARS_GPU is the GPU execution target of
+# the same lazy Polars engine — frames stay ``pl.DataFrame``, so it shares the path.
+POLARS_ENGINES = (Engine.POLARS, Engine.POLARS_GPU)
 
 class EngineAbstract(Enum):
     PANDAS = Engine.PANDAS.value
@@ -26,12 +30,13 @@ class EngineAbstract(Enum):
     DASK = Engine.DASK.value
     DASK_CUDF = Engine.DASK_CUDF.value
     POLARS = Engine.POLARS.value
+    POLARS_GPU = Engine.POLARS_GPU.value
     AUTO = 'auto'
 
 
 # Type alias for engine parameter - accepts both enum values and string literals
 # Includes 'auto' for automatic detection
-EngineAbstractType = Union[EngineAbstract, Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'polars', 'auto']]
+EngineAbstractType = Union[EngineAbstract, Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'polars', 'polars-gpu', 'auto']]
 
 DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
@@ -216,7 +221,7 @@ def df_to_engine(df, engine: Engine):
         if not isinstance(df, pd.DataFrame):
             df = df_to_engine(df, Engine.PANDAS)
         return dd.from_pandas(df, npartitions=1)
-    elif engine == Engine.POLARS:
+    elif engine in POLARS_ENGINES:
         import polars as pl
         if isinstance(df, pl.DataFrame):
             return df
@@ -297,7 +302,7 @@ def df_concat(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.concat
-    elif engine == Engine.POLARS:
+    elif engine in POLARS_ENGINES:
         return _pl_concat
     elif engine == Engine.DASK:
         raise NotImplementedError("DASK is an input format, not a compute engine — use engine='auto' or engine='pandas'")
@@ -372,7 +377,7 @@ def df_cons(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.DataFrame
-    elif engine == Engine.POLARS:
+    elif engine in POLARS_ENGINES:
         import polars as pl
         return pl.DataFrame
     raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
@@ -395,7 +400,7 @@ def s_cons(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.Series
-    elif engine == Engine.POLARS:
+    elif engine in POLARS_ENGINES:
         import polars as pl
         return pl.Series
     raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
