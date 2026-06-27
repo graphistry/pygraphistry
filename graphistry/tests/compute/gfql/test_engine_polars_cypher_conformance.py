@@ -129,6 +129,12 @@ CORPUS = [
     "MATCH (n) RETURN n",
     "MATCH (n) RETURN n LIMIT 5",
     "MATCH (n) RETURN DISTINCT n",
+    # UNION / UNION ALL — the distinct de-dup must use the polars-native unique()
+    # (regression: it called pandas drop_duplicates on a polars frame and crashed).
+    "RETURN 1 AS x UNION RETURN 2 AS x",
+    "RETURN 1 AS x UNION RETURN 1 AS x",
+    "RETURN 1 AS x UNION ALL RETURN 1 AS x",
+    "MATCH (n) WHERE n.kind = 'alpha' RETURN n.val UNION MATCH (n) WHERE n.kind = 'beta' RETURN n.val",
 ]
 
 
