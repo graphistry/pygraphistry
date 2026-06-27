@@ -675,6 +675,35 @@ def _chain_otel_attrs(
 
 
 @otel_traced("gfql.chain", attrs_fn=_chain_otel_attrs)
+def _try_chain_fast_path(g_in: Plottable, ops, engine_concrete) -> Optional[Plottable]:
+    """Degenerate-shape fast path (ALL engines): a node-only ``MATCH (n)`` (the
+    dominant tabular/crossfilter shape — node filter, histogram, table search)
+    returns the filtered node table directly + empty edges, skipping the
+    forward/backward/combine BFS machinery. Returns the result Plottable, or
+    ``None`` to fall through to the full path.
+
+    Gated to a single unnamed/unqueried node. Byte-identical to the full machinery
+    (``trackA_golden`` adversarial bar + hop/chain suites). On cuDF this keeps the
+    op on the resident frame (one filter) instead of the BFS + ~31 drop_duplicates.
+    NOTE: the 1-HOP shape is intentionally NOT fast-pathed here — the full
+    machinery's node merges upcast int→float (a pandas artifact), so a join-free
+    fast path would change dtypes (not byte-identical); the polars engine handles
+    1-hop in its own (dtype-consistent) fast path. See plans/gfql-polars-engine."""
+    from graphistry.compute.filter_by_dict import filter_by_dict
+
+    if len(ops) != 1:
+        return None
+    n0 = ops[0]
+    if not (isinstance(n0, ASTNode) and n0._name is None and getattr(n0, "query", None) is None):
+        return None
+    g = g_in.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
+    if g._nodes is None:
+        return None
+    nodes = filter_by_dict(g._nodes, n0.filter_dict, engine_concrete) if n0.filter_dict else g._nodes
+    edges = g._edges.iloc[0:0] if g._edges is not None else None
+    return g.nodes(nodes).edges(edges) if edges is not None else g.nodes(nodes)
+
+
 def chain(
     self: Plottable,
     ops: Union[List[ASTObject], Chain],
@@ -797,6 +826,10 @@ def _chain_impl(
 
     if validate_schema:
         validate_chain_schema(self, ops, collect_all=False)
+
+    _fast = _try_chain_fast_path(self, ops, engine_concrete)
+    if _fast is not None:
+        return _fast
 
     if isinstance(ops[0], ASTEdge):
         logger.debug('adding initial node to ensure initial link has needed reversals')
