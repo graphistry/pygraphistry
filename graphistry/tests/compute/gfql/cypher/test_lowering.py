@@ -45,6 +45,7 @@ from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, Semanti
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import CHILD_SLOTS, Filter, PatternMatch, ProcedureCall as LogicalProcedureCall
 from graphistry.tests.test_compute import CGFull
+from graphistry.tests.compute.gfql.cypher._whole_entity_compat import entity_text_records
 
 
 class _CypherTestGraph(CGFull):
@@ -1815,7 +1816,7 @@ def test_string_cypher_supports_cartesian_with_stage_identity_join_whole_row_pro
         pd.DataFrame({"s": [], "d": []}),
     ).gfql("MATCH (a), (b) WITH a, b WHERE a = b RETURN a, b ORDER BY a.id")
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes", "b": "nodes"}) == [
         {"a": "(:A)", "b": "(:A)"},
         {"a": "(:B)", "b": "(:B)"},
     ]
@@ -1834,7 +1835,7 @@ def test_string_cypher_supports_cartesian_with_stage_property_join_whole_row_pro
         pd.DataFrame({"s": [], "d": []}),
     ).gfql("MATCH (a:A), (b:B) WITH a, b WHERE a.k = b.k RETURN a, b")
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes", "b": "nodes"}) == [
         {"a": "(:A {k: 2})", "b": "(:B {k: 2})"},
     ]
 
@@ -1851,7 +1852,7 @@ def test_string_cypher_supports_cartesian_with_stage_inequality_join_whole_row_p
         pd.DataFrame({"s": [], "d": []}),
     ).gfql("MATCH (a), (b) WITH a, b WHERE a <> b RETURN a, b ORDER BY a.id, b.id")
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes", "b": "nodes"}) == [
         {"a": "(:A)", "b": "(:B)"},
         {"a": "(:B)", "b": "(:A)"},
     ]
@@ -1886,7 +1887,7 @@ def test_string_cypher_supports_cartesian_node_identity_join_with_whole_row_proj
         pd.DataFrame({"s": [], "d": []}),
     ).gfql("MATCH (a), (b) WHERE a = b RETURN a, b ORDER BY a.id")
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes", "b": "nodes"}) == [
         {"a": "(:A)", "b": "(:A)"},
         {"a": "(:B)", "b": "(:B)"},
     ]
@@ -1910,7 +1911,7 @@ def test_string_cypher_supports_cartesian_node_property_join_with_whole_row_proj
         pd.DataFrame({"s": [], "d": []}),
     ).gfql("MATCH (a:A), (b:B) WHERE a.k = b.k RETURN a, b")
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes", "b": "nodes"}) == [
         {"a": "(:A {k: 2})", "b": "(:B {k: 2})"},
     ]
 
@@ -1927,7 +1928,7 @@ def test_string_cypher_supports_cartesian_whole_row_projection_aliases() -> None
         pd.DataFrame({"s": [], "d": []}),
     ).gfql("MATCH (a), (b) WHERE a = b RETURN a AS left, b AS right ORDER BY left.id")
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"left": "nodes", "right": "nodes"}) == [
         {"left": "(:A)", "right": "(:A)"},
         {"left": "(:B)", "right": "(:B)"},
     ]
@@ -2359,7 +2360,7 @@ def test_string_cypher_formats_single_node_entity_projection() -> None:
 
     result = _mk_graph(nodes, edges).gfql("MATCH (p) RETURN p")
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"p": "nodes"}) == [
         {"p": "(:Person {name: 'Alice', score: 2})"}
     ]
     entity_meta = getattr(result, "_cypher_entity_projection_meta")
@@ -2383,7 +2384,7 @@ def test_string_cypher_formats_single_edge_entity_projection() -> None:
 
     result = _mk_graph(nodes, edges).gfql("MATCH ()-[r]->() RETURN r")
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"r": "edges"}) == [
         {"r": "[:KNOWS {weight: 5}]"}
     ]
 
@@ -2505,8 +2506,9 @@ def test_string_cypher_formats_filtered_edge_entity_projection_on_cudf() -> None
         engine="cudf",
     )
 
-    pdf = _to_pandas_df(result._nodes).sort_values("r").reset_index(drop=True)
-    assert pdf.to_dict(orient="records") == [
+    assert sorted(
+        entity_text_records(result, {"r": "edges"}), key=lambda row: row["r"]
+    ) == [
         {"r": "[:HATES]"},
         {"r": "[:KNOWS]"},
     ]
@@ -2548,7 +2550,7 @@ def test_string_cypher_formats_optional_match_projection_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+    assert entity_text_records(result, {"m": "nodes"}) == [
         {"m": "(:A {num: 42})"}
     ]
 
@@ -2571,7 +2573,7 @@ def test_string_cypher_formats_small_float_node_entity_projection_on_cudf() -> N
 
     result = _mk_graph(nodes, edges).gfql("MATCH (a) RETURN a", engine="cudf")
 
-    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes"}) == [
         {"a": "(:B {num: 30.94857, num2: 0.00002})"}
     ]
 
@@ -2582,7 +2584,7 @@ def test_string_cypher_formats_single_node_entity_projection_with_alias() -> Non
 
     result = _mk_graph(nodes, edges).gfql("MATCH (a) RETURN a AS ColumnName")
 
-    assert result._nodes.to_dict(orient="records") == [{"ColumnName": "(:A)"}]
+    assert entity_text_records(result, {"ColumnName": "nodes"}) == [{"ColumnName": "(:A)"}]
     entity_meta = getattr(result, "_cypher_entity_projection_meta")
     assert entity_meta["ColumnName"]["ids"].tolist() == ["a"]
 
@@ -2694,7 +2696,7 @@ def test_issue_1411_connected_join_whole_row_projection_shape() -> None:
         "RETURN city"
     )
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"city": "nodes"}) == [
         {"city": "(:Place {name: 'City'})"}
     ]
     entity_meta = getattr(result, "_cypher_entity_projection_meta")
@@ -2791,7 +2793,7 @@ def test_string_cypher_formats_mixed_node_entity_projection() -> None:
         "MATCH (p:Person) RETURN p AS person, p.name AS person_name ORDER BY person_name DESC LIMIT 1"
     )
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"person": "nodes"}) == [
         {"person": "(:Person {name: 'Bob', score: 9})", "person_name": "Bob"}
     ]
 
@@ -2808,7 +2810,7 @@ def test_string_cypher_formats_mixed_node_entity_and_null_predicate_projection()
 
     result = _mk_graph(nodes, edges).gfql("MATCH (n:X) RETURN n, n.prop IS NULL AS b")
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"n": "nodes"}) == [
         {"n": "(:X {prop: 42})", "b": False},
         {"n": "(:X)", "b": True},
     ]
@@ -2826,7 +2828,7 @@ def test_string_cypher_formats_mixed_node_entity_and_not_null_predicate_projecti
 
     result = _mk_graph(nodes, edges).gfql("MATCH (n:X) RETURN n, n.prop IS NOT NULL AS b")
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"n": "nodes"}) == [
         {"n": "(:X {prop: 42})", "b": True},
         {"n": "(:X)", "b": False},
     ]
@@ -2846,7 +2848,7 @@ def test_string_cypher_formats_mixed_edge_entity_projection() -> None:
 
     result = _mk_graph(nodes, edges).gfql("MATCH ()-[r]->() RETURN r AS rel, type(r) AS rel_type")
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"rel": "edges"}) == [
         {"rel": "[:KNOWS {weight: 5}]", "rel_type": "KNOWS"}
     ]
 
@@ -2990,7 +2992,7 @@ def test_string_cypher_orders_distinct_whole_row_by_missing_property() -> None:
 
     result = graph.gfql("MATCH (a)-->(b) RETURN DISTINCT b ORDER BY b.name")
 
-    assert result._nodes.to_dict(orient="records") == [{"b": "(:B)"}]
+    assert entity_text_records(result, {"b": "nodes"}) == [{"b": "(:B)"}]
 
 
 @pytest.mark.parametrize(
@@ -3033,7 +3035,7 @@ def test_string_cypher_formats_match_node_without_null_type_label() -> None:
 
     result = graph.gfql("MATCH (n {name: 'bar'}) RETURN n")
 
-    assert result._nodes.to_dict(orient="records") == [{"n": "({name: 'bar'})"}]
+    assert entity_text_records(result, {"n": "nodes"}) == [{"n": "({name: 'bar'})"}]
 
 
 def test_string_cypher_ignores_placeholder_label_columns_in_entity_rendering() -> None:
@@ -3050,7 +3052,7 @@ def test_string_cypher_ignores_placeholder_label_columns_in_entity_rendering() -
 
     result = graph.gfql("MATCH (n {name: 'bar'}) RETURN n")
 
-    assert result._nodes.to_dict(orient="records") == [{"n": "({name: 'bar'})"}]
+    assert entity_text_records(result, {"n": "nodes"}) == [{"n": "({name: 'bar'})"}]
 
 
 def test_string_cypher_formats_numeric_id_as_entity_property() -> None:
@@ -3061,7 +3063,7 @@ def test_string_cypher_formats_numeric_id_as_entity_property() -> None:
 
     result = graph.gfql("MATCH (n) RETURN DISTINCT n ORDER BY n.id")
 
-    assert result._nodes.to_dict(orient="records") == [{"n": "({id: 1})"}, {"n": "({id: 10})"}]
+    assert entity_text_records(result, {"n": "nodes"}) == [{"n": "({id: 1})"}, {"n": "({id: 10})"}]
 
 
 def test_string_cypher_formats_small_float_entity_properties_without_scientific_notation() -> None:
@@ -3077,7 +3079,7 @@ def test_string_cypher_formats_small_float_entity_properties_without_scientific_
 
     result = graph.gfql("MATCH (n) RETURN n ORDER BY n.num DESC")
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"n": "nodes"}) == [
         {"n": "({num: 30.94857})"},
         {"n": "({num: 0.00002})"},
         {"n": "({num: -0.00002})"},
@@ -3092,7 +3094,7 @@ def test_string_cypher_supports_return_star_with_order_by() -> None:
 
     result = graph.gfql("MATCH (n) RETURN * ORDER BY n.id")
 
-    assert result._nodes.to_dict(orient="records") == [{"n": "({id: 1})"}, {"n": "({id: 10})"}]
+    assert entity_text_records(result, {"n": "nodes"}) == [{"n": "({id: 1})"}, {"n": "({id: 10})"}]
 
 
 def test_string_cypher_supports_return_label_predicate_expression() -> None:
@@ -3192,7 +3194,7 @@ def test_string_cypher_supports_generic_match_where_boolean_expression() -> None
 
     result = graph.gfql("MATCH (n)\nWHERE NOT(n.name = 'apa' AND false)\nRETURN n")
 
-    assert result._nodes.to_dict(orient="records") == [{"n": "({name: 'a'})"}]
+    assert entity_text_records(result, {"n": "nodes"}) == [{"n": "({name: 'a'})"}]
 
 
 def test_string_cypher_executes_searched_case_projection() -> None:
@@ -3567,6 +3569,8 @@ def test_string_cypher_supports_whole_row_grouping_with_post_aggregate_expressio
 
     result = graph.gfql("MATCH (a) RETURN a, count(a) + 3")
 
+    # Aggregate/grouping projection still renders the entity as a single text
+    # column via a separate path (not the structured #1650 terminal-RETURN path).
     assert result._nodes.to_dict(orient="records") == [{"a": "()", "count(a) + 3": 4}]
 
 
@@ -3583,6 +3587,7 @@ def test_string_cypher_supports_whole_row_grouping_with_count_star() -> None:
 
     result = graph.gfql("MATCH (a:L) RETURN a, count(*)")
 
+    # Aggregate/grouping projection renders entity text via a separate path.
     assert result._nodes.to_dict(orient="records") == [{"a": "(:L)", "count(*)": 1}]
 
 
@@ -3839,6 +3844,7 @@ def test_string_cypher_supports_with_whole_row_grouping_then_return() -> None:
         "RETURN x, c"
     )
 
+    # Aggregate/grouping projection renders entity text via a separate path.
     assert result._nodes.to_dict(orient="records") == [{"x": "(:X)", "c": 1}]
 
 
@@ -4042,7 +4048,7 @@ def test_string_cypher_supports_bare_label_predicate_in_with_where() -> None:
 
     result = graph.gfql("MATCH (:Root {name: 'x'})-->(i:TextNode) WITH i WHERE i.var > 'te' AND i:TextNode RETURN i")
 
-    assert result._nodes.to_dict(orient="records") == [{"i": "(:TextNode {var: 'tf'})"}]
+    assert entity_text_records(result, {"i": "nodes"}) == [{"i": "(:TextNode {var: 'tf'})"}]
 
 
 # OR/NOT WHERE shapes — Earley admits them where LALR rejected.  Pandas
@@ -4069,21 +4075,21 @@ def _or_where_graph() -> "_CypherTestGraph":
 def test_string_cypher_executes_disjunctive_property_predicate_returns_union() -> None:
     result = _or_where_graph().gfql("MATCH (n) WHERE n.p1 = 12 OR n.p2 = 13 RETURN n")
 
-    rendered = sorted(row["n"] for row in result._nodes.to_dict(orient="records"))
+    rendered = sorted(row["n"] for row in entity_text_records(result, {"n": "nodes"}))
     assert rendered == ["(:A {p1: 12})", "(:B {p2: 13})"]
 
 
 def test_string_cypher_executes_disjunctive_same_alias_property_predicate() -> None:
     result = _or_where_graph().gfql("MATCH (n) WHERE n.p1 = 12 OR n.p1 = 99 RETURN n")
 
-    rendered = sorted(row["n"] for row in result._nodes.to_dict(orient="records"))
+    rendered = sorted(row["n"] for row in entity_text_records(result, {"n": "nodes"}))
     assert rendered == ["(:A {p1: 12})"]
 
 
 def test_string_cypher_executes_negation_property_predicate_returns_complement() -> None:
     result = _or_where_graph().gfql("MATCH (n) WHERE NOT n.p1 = 12 RETURN n")
 
-    rendered = sorted(row["n"] for row in result._nodes.to_dict(orient="records"))
+    rendered = sorted(row["n"] for row in entity_text_records(result, {"n": "nodes"}))
     assert rendered == []
 
 
@@ -4092,7 +4098,7 @@ def test_string_cypher_executes_disjunctive_then_conjunction() -> None:
         "MATCH (n) WHERE (n.p1 = 12 OR n.p2 = 13) AND n.id = 'a' RETURN n"
     )
 
-    rendered = [row["n"] for row in result._nodes.to_dict(orient="records")]
+    rendered = [row["n"] for row in entity_text_records(result, {"n": "nodes"})]
     assert rendered == ["(:A {p1: 12})"]
 
 
@@ -6227,7 +6233,12 @@ def test_string_cypher_pattern_predicates_are_existence_checks_not_row_expansion
 
     if engine == "cudf":
         assert type(result._nodes).__module__.startswith("cudf")
-    assert _to_pandas_df(result._nodes).to_dict(orient="records") == expected_rows
+    _entities = {
+        name: ("edges" if str(val).startswith("[") else "nodes")
+        for name, val in (expected_rows[0].items() if expected_rows else [])
+        if str(val).startswith(("(", "["))
+    }
+    assert entity_text_records(result, _entities) == expected_rows
 
 
 @pytest.mark.parametrize(
@@ -6724,6 +6735,8 @@ def test_string_cypher_supports_optional_match_optional_alias_projection_when_al
 
     result = graph.gfql("MATCH (a:Single), (c:C) OPTIONAL MATCH (a)-->(b)-->(c) RETURN b")
 
+    # OPTIONAL row-guard path keeps whole entities as text (structured #1650 flip
+    # is gated off for the reentry/optional machinery; unify in follow-up).
     assert result._nodes.to_dict(orient="records") == [{"b": "(:A {num: 42})"}]
 
 
@@ -6838,7 +6851,7 @@ def test_string_cypher_formats_temporal_constructor_properties_in_entity_project
         "MATCH (a) WITH a, a.date AS date WITH a, date ORDER BY date ASC LIMIT 2 RETURN a, date"
     )
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes"}) == [
         {"a": "(:A {date: '1910-05-06'})", "date": "1910-05-06"},
         {"a": "(:A {date: '1980-10-24'})", "date": "1980-10-24"},
     ]
@@ -6864,7 +6877,7 @@ def test_string_cypher_orders_temporal_constructor_time_properties() -> None:
         "MATCH (a) WITH a, a.time AS time WITH a, time ORDER BY time ASC LIMIT 3 RETURN a, time"
     )
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes"}) == [
         {"a": "(:A {time: '12:35:15+05:00'})", "time": "12:35:15+05:00"},
         {"a": "(:A {time: '12:30:14.645876123+01:01'})", "time": "12:30:14.645876123+01:01"},
         {"a": "(:A {time: '12:31:14.645876123+01:00'})", "time": "12:31:14.645876123+01:00"},
@@ -6909,7 +6922,7 @@ def test_string_cypher_orders_time_plus_duration_expression() -> None:
         "MATCH (a) WITH a ORDER BY a.time + duration({minutes: 6}) ASC LIMIT 3 RETURN a"
     )
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes"}) == [
         {"a": "(:A {time: '12:35:15+05:00'})"},
         {"a": "(:A {time: '12:30:14.645876123+01:01'})"},
         {"a": "(:A {time: '12:31:14.645876123+01:00'})"},
@@ -6936,7 +6949,7 @@ def test_string_cypher_orders_datetime_plus_duration_expression() -> None:
         "MATCH (a) WITH a ORDER BY a.datetime + duration({days: 4, minutes: 6}) ASC LIMIT 3 RETURN a"
     )
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes"}) == [
         {"a": "(:A {datetime: '0001-01-01T01:01:01.000000001-11:59'})"},
         {"a": "(:A {datetime: '1980-12-11T12:31:14-11:59'})"},
         {"a": "(:A {datetime: '1984-10-11T12:31:14.645876123+00:17'})"},
@@ -6964,7 +6977,7 @@ def test_string_cypher_orders_date_plus_duration_expression() -> None:
         "MATCH (a) WITH a ORDER BY a.date + duration({months: 1, days: 2}) ASC LIMIT 2 RETURN a"
     )
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes"}) == [
         {"a": "(:A {date: '1910-05-06'})"},
         {"a": "(:A {date: '1980-10-24'})"},
     ]
@@ -6984,7 +6997,7 @@ def test_string_cypher_formats_list_literal_strings_in_entity_projection() -> No
         "MATCH (a) WITH a, a.list AS list WITH a, list ORDER BY list ASC LIMIT 2 RETURN a, list"
     )
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes"}) == [
         {"a": "(:A {list: [1, 2]})", "list": "[1, 2]"},
         {"a": "(:A {list: [2, -2]})", "list": "[2, -2]"},
     ]
@@ -7162,7 +7175,7 @@ def test_string_cypher_supports_labels_projection_and_relationship_label_predica
     ]
 
     rel_result = graph.gfql("MATCH ()-[r]->() RETURN r, r:T2 AS result ORDER BY result")
-    assert sorted(rel_result._nodes.to_dict(orient="records"), key=lambda row: row["r"]) == [
+    assert sorted(entity_text_records(rel_result, {"r": "edges"}), key=lambda row: row["r"]) == [
         {"r": "[:T1]", "result": False},
         {"r": "[:T2]", "result": True},
     ]
@@ -7347,6 +7360,8 @@ def test_string_cypher_supports_bound_optional_match_whole_row_with_scalar_proje
 
     result = graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:T]->(b) RETURN b, b.id + '!' AS label")
 
+    # OPTIONAL-MATCH null-fill path still renders whole entities as text (the
+    # structured #1650 flip is gated off for reentry; unification is a follow-up).
     assert result._nodes.to_dict(orient="records") == [
         {"b": "()", "label": "b!"},
         {"b": None, "label": None},
@@ -9181,7 +9196,7 @@ def test_string_cypher_executes_match_with_then_return_pipeline() -> None:
         "MATCH (a:A) WITH a ORDER BY a.score DESC LIMIT 2 RETURN a"
     )
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes"}) == [
         {"a": "(:A {score: 9})"},
         {"a": "(:A {score: 5})"},
     ]
@@ -9202,7 +9217,7 @@ def test_string_cypher_executes_match_with_expression_order_pipeline() -> None:
         "MATCH (a) WITH a ORDER BY NOT (a.bool AND a.bool2) LIMIT 2 RETURN a"
     )
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes"}) == [
         {"a": "(:A {bool: true, bool2: true})"},
         {"a": "(:D {bool: true, bool2: true})"},
     ]
@@ -9248,7 +9263,7 @@ def test_string_cypher_executes_match_with_constant_expression_order_pipeline() 
         "RETURN a"
     )
 
-    assert result._nodes.to_dict(orient="records") == [{"a": "({num: 1, text: 'a'})"}]
+    assert entity_text_records(result, {"a": "nodes"}) == [{"a": "({num: 1, text: 'a'})"}]
 
 
 def test_string_cypher_executes_match_with_mixed_whole_row_bool_alias_pipeline() -> None:
@@ -9270,7 +9285,7 @@ def test_string_cypher_executes_match_with_mixed_whole_row_bool_alias_pipeline()
         "RETURN a, bool"
     )
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes"}) == [
         {"a": "(:B {bool: false})", "bool": False},
         {"a": "(:C {bool: false})", "bool": False},
         {"a": "(:E {bool: false})", "bool": False},
@@ -9296,7 +9311,7 @@ def test_string_cypher_executes_match_with_mixed_whole_row_numeric_alias_pipelin
         "RETURN a, num"
     )
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes"}) == [
         {"a": "(:E {num: 7054})", "num": 7054},
         {"a": "(:C {num: 30})", "num": 30},
         {"a": "(:A {num: 9})", "num": 9},
@@ -9321,7 +9336,7 @@ def test_string_cypher_executes_match_with_mixed_whole_row_computed_alias_pipeli
         "RETURN a, score"
     )
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes"}) == [
         {"a": "(:C {num: 3})", "score": 4},
         {"a": "(:B {num: 2})", "score": 3},
         {"a": "(:A {num: 1})", "score": 2},
@@ -9347,7 +9362,7 @@ def test_string_cypher_executes_with_orderby4_style_mixed_whole_row_pipeline() -
         "RETURN a, sum, mod"
     )
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"a": "nodes"}) == [
         {"a": "(:A {num: 4, num2: 1})", "sum": 5, "mod": 1},
         {"a": "(:A {num: 3, num2: 4})", "sum": 7, "mod": 1},
         {"a": "(:A {num: 2, num2: 2})", "sum": 4, "mod": 2},
@@ -9373,7 +9388,7 @@ def test_string_cypher_executes_with_match_reentry_limit_shape() -> None:
         "MATCH (a:A) WITH a ORDER BY a.name LIMIT 1 MATCH (a)-->(b) RETURN a"
     )
 
-    assert result._nodes.to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
+    assert entity_text_records(result, {"a": "nodes"}) == [{"a": "(:A {name: 'alpha'})"}]
 
 
 def test_string_cypher_executes_with_match_reentry_ordered_topk_multi_row_shape() -> None:
@@ -9484,7 +9499,7 @@ def test_string_cypher_executes_with_match_reentry_parameterized_limit_shape() -
         "MATCH (a:A) WITH a ORDER BY a.name LIMIT $n MATCH (a)-->(b) RETURN a",
         params={"n": 1},
     )
-    assert result._nodes.to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
+    assert entity_text_records(result, {"a": "nodes"}) == [{"a": "(:A {name: 'alpha'})"}]
 
 
 def test_string_cypher_rejects_reentry_with_parameterized_non_int_limit_and_order() -> None:
@@ -9531,7 +9546,7 @@ def test_string_cypher_executes_with_match_reentry_limit_shape_on_cudf() -> None
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
+    assert entity_text_records(result, {"a": "nodes"}) == [{"a": "(:A {name: 'alpha'})"}]
 
 
 def test_string_cypher_executes_with_match_reentry_ordered_topk_multi_row_shape_on_cudf() -> None:
@@ -9602,7 +9617,7 @@ def test_string_cypher_executes_with_match_reentry_parameterized_limit_shape_on_
     )
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"a": "(:A {name: 'alpha'})"}]
+    assert entity_text_records(result, {"a": "nodes"}) == [{"a": "(:A {name: 'alpha'})"}]
 
 
 def test_string_cypher_failfast_rejects_with_match_reentry_ordered_skip_shape() -> None:
@@ -9721,7 +9736,12 @@ def test_compile_cypher_tracks_reentry_carried_scalar_columns(
 )
 def test_string_cypher_executes_with_match_reentry_carried_scalar_shapes(query: str, expected: List[Dict[str, Any]]) -> None:
     result = _mk_reentry_carried_scalar_graph().gfql(query)
-    assert result._nodes.to_dict(orient="records") == expected
+    _entities = {
+        name: ("edges" if str(val).startswith("[") else "nodes")
+        for name, val in (expected[0].items() if expected else [])
+        if str(val).startswith(("(", "["))
+    }
+    assert entity_text_records(result, _entities) == expected
 
 
 @pytest.mark.parametrize(
@@ -9751,7 +9771,12 @@ def test_string_cypher_executes_with_match_reentry_carried_scalar_shapes_on_cudf
     result = _mk_reentry_carried_scalar_graph_cudf().gfql(query, engine="cudf")
 
     assert type(result._nodes).__module__.startswith("cudf")
-    assert _to_pandas_df(result._nodes).to_dict(orient="records") == expected
+    _entities = {
+        name: ("edges" if str(val).startswith("[") else "nodes")
+        for name, val in (expected[0].items() if expected else [])
+        if str(val).startswith(("(", "["))
+    }
+    assert entity_text_records(result, _entities) == expected
 
 
 def test_string_cypher_executes_with_match_reentry_carried_scalars_from_connected_prefix_shape() -> None:
@@ -11651,7 +11676,7 @@ def test_string_cypher_executes_connected_whole_row_plus_scalar_projection() -> 
         "RETURN c, b.id AS bid"
     )
 
-    assert result._nodes.to_dict(orient="records") == [{"c": "(:C)", "bid": "b"}]
+    assert entity_text_records(result, {"c": "nodes"}) == [{"c": "(:C)", "bid": "b"}]
 
 
 def test_string_cypher_executes_multi_stage_with_match_reentry_connected_shape() -> None:
@@ -12675,7 +12700,7 @@ def test_multi_alias_with_stage_whole_row_projection_executes_for_joined_row_pro
         pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
     )
     result = g.gfql("MATCH (n)-[rel]->(x) WITH n, x WHERE n.animal = x.animal RETURN n, x")
-    records = result._nodes.to_dict(orient="records")
+    records = entity_text_records(result, {"n": "nodes", "x": "nodes"})
     assert len(records) == 1
     assert "cat" in records[0]["n"]
     assert "cat" in records[0]["x"]
@@ -12686,7 +12711,7 @@ def test_string_cypher_executes_connected_multi_pattern_multi_whole_row_joined_p
         "MATCH (b:B)-[:S]->(c:C), (c)-[:T]->(d:D) RETURN b, c, d.id AS did ORDER BY did"
     )
 
-    records = result._nodes.to_dict(orient="records")
+    records = entity_text_records(result, {"b": "nodes", "c": "nodes"})
     assert records == [
         {"b": "(:B)", "c": "(:C)", "did": "d1"},
         {"b": "(:B)", "c": "(:C)", "did": "d2"},
@@ -12704,7 +12729,7 @@ def test_multi_alias_connected_whole_row_return_with_cross_alias_where_executes_
         pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
     )
     result = g.gfql("MATCH (n)-[rel]->(x) WHERE n.animal = x.animal RETURN n, x")
-    assert result._nodes.to_dict(orient="records") == [{"n": "({animal: 'cat'})", "x": "({animal: 'cat'})"}]
+    assert entity_text_records(result, {"n": "nodes", "x": "nodes"}) == [{"n": "({animal: 'cat'})", "x": "({animal: 'cat'})"}]
 
 
 def test_multi_alias_connected_cross_alias_where_scalar_projection_remains_supported() -> None:
@@ -12732,7 +12757,7 @@ def test_multi_alias_connected_cross_alias_where_single_whole_row_projection_rem
         pd.DataFrame({"s": ["n1", "n2"], "d": ["x1", "x2"], "type": ["R", "R"]}),
     )
     result = g.gfql("MATCH (n)-[rel]->(x) WHERE n.animal = x.animal RETURN n, x.id AS x_id")
-    assert result._nodes.to_dict(orient="records") == [{"n": "({animal: 'cat'})", "x_id": "x1"}]
+    assert entity_text_records(result, {"n": "nodes"}) == [{"n": "({animal: 'cat'})", "x_id": "x1"}]
 
 
 def test_compile_cypher_tracks_seeded_top_level_row_query() -> None:
@@ -12915,7 +12940,8 @@ def test_gfql_preserves_group_order_for_aggregate_order_ties_on_cudf() -> None:
         engine="cudf",
     )
 
-    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+    # Aggregate/grouping projection renders entity text via a separate path.
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
         {"a": "(:L1)", "count(*)": 1},
         {"a": "(:L2)", "count(*)": 1},
         {"a": "(:L3)", "count(*)": 1},
@@ -13336,7 +13362,7 @@ def test_gfql_executes_with_where_or_short_circuit_over_mixed_type_compare() -> 
         "ORDER BY i.id"
     )
 
-    assert result._nodes.to_dict(orient="records") == [
+    assert entity_text_records(result, {"i": "nodes"}) == [
         {"i": "(:TextNode {var: 'text'})"},
         {"i": "(:IntNode {var: 0})"},
     ]

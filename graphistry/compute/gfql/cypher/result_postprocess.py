@@ -116,6 +116,105 @@ def _format_edge_entities(df: DataFrameT, projection: ResultProjectionPlan) -> S
     )
 
 
+def _label_flag_columns(df: DataFrameT) -> list[str]:
+    return [
+        str(col)
+        for col in df.columns
+        if str(col).startswith("label__")
+        and str(col).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
+    ]
+
+
+def _flat_entity_field_names(
+    source_rows_df: DataFrameT, projection: ResultProjectionPlan, id_column: Optional[str]
+) -> list[str]:
+    """Ordered field names for a flattened whole-entity projection (#1650).
+
+    Mirrors the renderer's column selection (``node_property_columns`` /
+    ``edge_property_columns`` honor ``exclude_columns`` so sibling aliases and
+    engine-internal columns are not pulled in), then prepends the entity id and
+    (nodes) appends ``label__*`` flags / (edges) the ``type`` column so
+    :func:`render_entity_text` can losslessly reconstruct the Cypher form.
+    """
+    alias_col = projection.alias
+    if projection.table == "nodes":
+        prop_cols = node_property_columns(source_rows_df, alias_col, projection.exclude_columns)
+        # label sources for faithful reconstruction: label__* flags and/or the
+        # node ``type`` column (both consumed by _node_label_text).
+        extra = _label_flag_columns(source_rows_df)
+        if "type" in source_rows_df.columns:
+            extra = [*extra, "type"]
+    else:
+        prop_cols = edge_property_columns(source_rows_df, alias_col, projection.exclude_columns)
+        extra = ["type"] if "type" in source_rows_df.columns else []
+
+    fields: list[str] = []
+    for col in [id_column, *prop_cols, *extra]:
+        if col is not None and col in source_rows_df.columns and col not in fields:
+            fields.append(str(col))
+    return fields
+
+
+def _flat_entity_columns(
+    source_rows_df: DataFrameT,
+    projection: ResultProjectionPlan,
+    output_name: str,
+    id_column: Optional[str],
+) -> Dict[str, SeriesT]:
+    """Structured (flattened) whole-entity projection (issue #1650).
+
+    Emit one ``{output_name}.{field}`` column per aliased field instead of
+    collapsing the entity into a single Cypher display string. The per-field
+    columns already exist on ``source_rows_df`` (gathered by
+    ``_projection_alias_rows``), so this is "stop collapsing", not "rebuild":
+    near-free, lossless, and directly usable without re-parsing a string.
+    """
+    return {
+        f"{output_name}.{field}": cast(SeriesT, source_rows_df[field])
+        for field in _flat_entity_field_names(source_rows_df, projection, id_column)
+    }
+
+
+def render_entity_text(
+    result: Plottable, alias: str, *, table: Literal["nodes", "edges"] = "nodes"
+) -> SeriesT:
+    """Render a structured whole-entity projection back to Cypher display text.
+
+    Presentation helper: given a result whose ``RETURN <alias>`` was emitted as
+    flattened ``{alias}.{field}`` columns (the default since #1650), reconstruct
+    the Cypher display string (``(:Label {..})`` / ``[:TYPE {..}]``). Used by the
+    conformance/TCK driver and by callers who want the human-readable form. The
+    structured data path itself never pays this cost.
+    """
+    rows_df = cast(DataFrameT, getattr(result, "_nodes", None))
+    if rows_df is None:
+        raise ValueError("result has no _nodes frame to render")
+    prefix = f"{alias}."
+    field_cols = [col for col in rows_df.columns if str(col).startswith(prefix)]
+    if not field_cols:
+        raise ValueError(f"no flattened columns found for alias {alias!r}")
+    frame = cast(
+        DataFrameT,
+        rows_df[field_cols].rename(columns={col: str(col)[len(prefix):] for col in field_cols}),
+    )
+    # An OPTIONAL-MATCH miss flattens to a row whose fields are all null; such
+    # rows must render as null, not "()". Track presence (any field non-null).
+    present: Optional[SeriesT] = None
+    for field in frame.columns:
+        not_na = cast(SeriesT, frame[field].notna())
+        present = not_na if present is None else cast(SeriesT, present | not_na)
+    # _format_*_entities anchors length/null on a bare alias column; render every
+    # row, then null absent rows below.
+    frame = cast(DataFrameT, frame.assign(**{alias: True}))
+    projection = ResultProjectionPlan(alias=alias, table=table, columns=(), exclude_columns=())
+    rendered = _format_node_entities(frame, projection) if table == "nodes" else _format_edge_entities(frame, projection)
+    if present is not None and hasattr(rendered, "where"):
+        # Null absent rows. ``other=None`` fills NaN/None (valid pandas/cuDF);
+        # the pandas-stubs ``where`` overload is stricter than runtime here.
+        rendered = cast(SeriesT, rendered.where(present, None))  # type: ignore[call-overload]
+    return rendered
+
+
 def _project_property_column(
     rows_df: DataFrameT,
     *,
@@ -185,7 +284,17 @@ def _projection_alias_rows(
     return None
 
 
-def apply_result_projection(result: Plottable, projection: ResultProjectionPlan) -> Plottable:
+def apply_result_projection(
+    result: Plottable, projection: ResultProjectionPlan, *, structured: bool = True
+) -> Plottable:
+    """Project Cypher RETURN columns onto ``result._nodes``.
+
+    ``structured=True`` (#1650 default) emits whole-entity returns as flattened
+    ``{alias}.{field}`` columns. ``structured=False`` keeps the legacy single
+    Cypher-display-string column; the reentry / OPTIONAL-MATCH null-fill machinery
+    (which still assumes a single-column entity value) opts out via this flag until
+    it is unified onto the structured path.
+    """
     rows_df = cast(DataFrameT, getattr(result, "_nodes", None))
     if rows_df is None:
         return result
@@ -194,6 +303,7 @@ def apply_result_projection(result: Plottable, projection: ResultProjectionPlan)
         return result
     projected_data: Dict[str, SeriesT] = {}
     projected_entity_meta: Dict[str, WholeRowProjectionMeta] = {}
+    output_columns: list[str] = []
     for column in projection.columns:
         if column.kind == "whole_row":
             source_alias = column.source_name or projection.alias
@@ -201,20 +311,52 @@ def apply_result_projection(result: Plottable, projection: ResultProjectionPlan)
             if source_rows_df is None or source_alias not in source_rows_df.columns:
                 raise ValueError(f"whole-row projection source alias not found: {source_alias!r}")
             source_projection = projection if source_alias == projection.alias else replace(projection, alias=source_alias)
-            projected_data[column.output_name] = (
-                _format_node_entities(source_rows_df, source_projection)
-                if projection.table == "nodes"
-                else _format_edge_entities(source_rows_df, source_projection)
-            )
             id_column = getattr(result, "_node" if source_projection.table == "nodes" else "_edge", None)
+            flat_columns = (
+                _flat_entity_columns(source_rows_df, source_projection, column.output_name, id_column)
+                if structured
+                else {}
+            )
+            if structured and flat_columns:
+                # Structured (flattened) emission (#1650): one column per field
+                # instead of collapsing the entity into a Cypher display string.
+                # Text remains available via render_entity_text() (presentation).
+                projected_data.update(flat_columns)
+                output_columns.extend(flat_columns.keys())
+            elif structured:
+                # No flattenable fields: the entity has no materialized property/id
+                # columns on this frame. This is the synthesized null/absent-entity
+                # row (top-level OPTIONAL-MATCH miss / reentry no-match, built by
+                # _apply_empty_result_row as a single ``{alias: None}`` column). There
+                # is nothing to flatten, so emit the single-column text form (which
+                # renders to ``None`` here) — preserving the legacy shape the
+                # OPTIONAL/reentry machinery consumes. Real rows always carry flat
+                # field columns and take the branch above.
+                projected_data[column.output_name] = (
+                    _format_node_entities(source_rows_df, source_projection)
+                    if source_projection.table == "nodes"
+                    else _format_edge_entities(source_rows_df, source_projection)
+                )
+                output_columns.append(column.output_name)
+            else:
+                projected_data[column.output_name] = (
+                    _format_node_entities(source_rows_df, source_projection)
+                    if source_projection.table == "nodes"
+                    else _format_edge_entities(source_rows_df, source_projection)
+                )
+                output_columns.append(column.output_name)
             if id_column is not None and id_column in source_rows_df.columns:
                 projected_entity_meta[column.output_name] = {
                     "table": source_projection.table,
                     "alias": source_projection.alias,
                     "id_column": id_column,
+                    # Snapshot the id Series: the bounded-reentry path recovers
+                    # carried node identities from this meta and must not alias the
+                    # live working frame (see #1356).
                     "ids": cast(SeriesT, source_rows_df[id_column]).copy(),
                 }
         else:
+            output_columns.append(column.output_name)
             if column.kind == "property":
                 property_rows_df = alias_rows_df
                 if (
@@ -233,7 +375,7 @@ def apply_result_projection(result: Plottable, projection: ResultProjectionPlan)
             key: cast(SeriesT, value.to_pandas() if hasattr(value, "to_pandas") else value)
             for key, value in projected_data.items()
         }
-    projected_nodes = cast(DataFrameT, projected_rows.assign(**projected_data)[[column.output_name for column in projection.columns]])
+    projected_nodes = cast(DataFrameT, projected_rows.assign(**projected_data)[output_columns])
 
     out = result.bind()
     out._nodes = projected_nodes

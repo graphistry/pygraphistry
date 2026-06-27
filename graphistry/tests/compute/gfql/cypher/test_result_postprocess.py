@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 
 import graphistry
 from graphistry.compute.gfql.cypher.lowering import ResultProjectionColumn, ResultProjectionPlan
 from graphistry.compute.gfql.cypher.result_postprocess import apply_result_projection
 
+from graphistry.tests.compute.gfql.cypher._whole_entity_compat import entity_text_records
 
-def test_apply_result_projection_preserves_prefixed_whole_row_metadata() -> None:
+
+def _project_alice() -> Any:
     rows = pd.DataFrame(
         {
             "id": ["a"],
@@ -18,8 +22,7 @@ def test_apply_result_projection_preserves_prefixed_whole_row_metadata() -> None
         }
     )
     result = graphistry.bind(node="id").nodes(rows)
-
-    out = apply_result_projection(
+    return apply_result_projection(
         result,
         ResultProjectionPlan(
             alias="n",
@@ -31,7 +34,26 @@ def test_apply_result_projection_preserves_prefixed_whole_row_metadata() -> None
         ),
     )
 
-    assert out._nodes.to_dict(orient="records") == [{"node": "(:Person {name: 'Alice'})", "name": "Alice"}]
+
+def test_apply_result_projection_emits_flat_whole_row_columns() -> None:
+    # #1650: whole-entity projection is structured (one column per field), not a
+    # Cypher display string. The scalar `name` projection passes through alongside.
+    out = _project_alice()
+    assert out._nodes.to_dict(orient="records") == [
+        {"node.id": "a", "node.name": "Alice", "node.label__Person": True, "name": "Alice"}
+    ]
+
+
+def test_apply_result_projection_renders_whole_row_text_via_helper() -> None:
+    # The structured columns losslessly reconstruct the pre-#1650 Cypher text form.
+    out = _project_alice()
+    assert entity_text_records(out, {"node": "nodes"}) == [
+        {"node": "(:Person {name: 'Alice'})", "name": "Alice"}
+    ]
+
+
+def test_apply_result_projection_preserves_prefixed_whole_row_metadata() -> None:
+    out = _project_alice()
     assert out._cypher_entity_projection_meta["node"]["table"] == "nodes"
     assert out._cypher_entity_projection_meta["node"]["alias"] == "n"
     assert out._cypher_entity_projection_meta["node"]["id_column"] == "id"
