@@ -14,6 +14,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 - **GFQL Cypher `UNION DISTINCT` on the Polars engine**: `RETURN … UNION RETURN …` (distinct) crashed under `engine='polars'`/`'polars-gpu'` with `AttributeError: 'DataFrame' object has no attribute 'drop_duplicates'` — the union de-dup in `gfql_unified._execute_compiled_query` called the pandas-only `drop_duplicates` on a Polars frame. Routed through a new engine-aware `Engine.df_unique` (Polars `unique(maintain_order=True)`; pandas/cuDF `drop_duplicates(keep='first')`), matching the existing `row/frame_ops.distinct` convention. Surfaced by the cross-repo TCK conformance run (`tck-gfql`, `TEST_POLARS=1`).
+- **GFQL Cypher 3-valued boolean over null literals on the Polars engine**: `null AND null`, `null OR null`, and `NOT null` crashed under `engine='polars'` with `InvalidOperationError: bitand operation not supported for dtype null` / `dtype Null not supported in 'not' operation` — a bare `null` literal lowered to a Null-dtype Polars expression, on which `&`/`|`/`~` are undefined. The boolean lowering now casts AND/OR/NOT operands to `pl.Boolean` first, so Cypher Kleene 3-valued logic (`true AND null = null`, `false OR null = null`, `NOT null = null`) evaluates instead of raising; casting a real Boolean column is a no-op. Surfaced by the TCK run (`expr-boolean1/2/4`).
 
 ## [0.57.0 - 2026-06-28]
 

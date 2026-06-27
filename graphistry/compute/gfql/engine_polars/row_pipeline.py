@@ -53,10 +53,15 @@ def _apply_binop(op: str, left: Any, right: Any) -> Optional[Any]:
         return left <= right
     if op == ">=":
         return left >= right
-    if o == "AND":
-        return left & right
-    if o == "OR":
-        return left | right
+    if o in ("AND", "OR"):
+        # Cypher AND/OR are boolean operators with Kleene 3-valued logic (polars
+        # Boolean & / | already match: true|null=true, false&null=false,
+        # null&null=null). Cast operands to Boolean so a bare ``null`` literal
+        # (lowered to a Null-dtype lit) doesn't raise `bitand not supported for
+        # dtype null`; casting a real Boolean column is a no-op.
+        import polars as pl
+        lb, rb = left.cast(pl.Boolean), right.cast(pl.Boolean)
+        return lb & rb if o == "AND" else lb | rb
     return None
 
 
@@ -130,7 +135,10 @@ def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
         if node.op == "-":
             return -operand
         if node.op.upper() == "NOT":
-            return ~operand
+            # Cast to Boolean so ``NOT null`` (Null-dtype lit) yields null instead
+            # of raising `dtype Null not supported in 'not' operation`; Cypher NOT
+            # is 3-valued (NOT null = null). No-op on a real Boolean column.
+            return ~operand.cast(pl.Boolean)
         return None
     if isinstance(node, IsNullOp):
         value = lower_expr(node.value, columns)

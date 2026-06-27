@@ -97,6 +97,13 @@ CORPUS = [
     "MATCH (n) RETURN abs(n.val - 50) AS d",
     "MATCH (n) RETURN n.val > 50 AS big, n.kind",
     "MATCH (n) RETURN n.val >= 50 AND n.val <= 80 AS mid",
+    # 3-valued boolean over bare null literals — must not crash on Null dtype
+    # (polars & / | / ~ need Boolean cast). Cypher Kleene logic. Bare RETURN
+    # (no MATCH) keeps it a single constant row on both engines.
+    "RETURN true AND null AS a, false AND null AS b, null AND null AS c",
+    "RETURN true OR null AS a, false OR null AS b, null OR null AS c",
+    "RETURN NOT true AS a, NOT false AS b, NOT null AS c",
+    "RETURN NOT NOT null AS a",
     # single-entity WHERE (folds into matcher), returning properties
     "MATCH (n) WHERE n.kind = 'alpha' RETURN n.val",
     "MATCH (n) WHERE n.val > 20 AND n.val < 90 RETURN n.name",
