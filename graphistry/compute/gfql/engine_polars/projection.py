@@ -18,6 +18,28 @@ def _is_polars_frame(df: Any) -> bool:
     return df is not None and "polars" in type(df).__module__
 
 
+def _has_temporal_constructor_text(rows_df: Any, col: str) -> bool:
+    """True if a String property column holds Cypher temporal-constructor text
+    (``date({...})``, ``datetime({...})``, …).
+
+    The TCK graph builder stores temporal property values as these constructor
+    strings; the pandas projection normalizes them to ISO (``'1910-05-06'``) via
+    ``_normalize_temporal_constructor_series``. That normalizer is not yet ported
+    natively, so a standalone temporal-property projection must decline honestly
+    (NIE) rather than leak the raw constructor text. Cheap native scan — no pandas
+    bridge. (Whole-entity returns flatten the same raw column but are re-rendered
+    correctly downstream via ``render_entity_text``, so only standalone property
+    projection needs this guard.)"""
+    import polars as pl
+    from graphistry.compute.gfql.temporal.constructors import TEMPORAL_CALL_EXPR_RE
+    try:
+        return bool(
+            rows_df.select(pl.col(col).str.contains(TEMPORAL_CALL_EXPR_RE.pattern).any()).item()
+        )
+    except Exception:
+        return False
+
+
 def _native_scalar_text_expr(col: str, dtype: Any) -> Optional[Any]:
     """Per-dtype cypher value rendering as a polars expression, or None to bail.
 
@@ -141,6 +163,8 @@ def _try_native_projection(result: Plottable, rows_df: Any, projection: Any, str
         dtype = rows_df.schema[src]
         if dtype in (pl.Date, pl.Datetime, pl.Duration, pl.Time) or isinstance(dtype, (pl.List, pl.Struct, pl.Object)):
             return None  # temporal/nested rendering -> defer (NIE)
+        if dtype == pl.String and _has_temporal_constructor_text(rows_df, src):
+            return None  # temporal-constructor-string property -> defer (NIE)
         exprs.append(pl.col(src).alias(column.output_name))
     # pandas tolerates duplicate output column names (e.g. RETURN n, n.val emits
     # n.val twice — once from the flattened entity, once explicit); polars .select

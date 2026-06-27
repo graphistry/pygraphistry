@@ -172,6 +172,21 @@ def test_cypher_deferred_raises_not_bridges(query):
         BASE.gfql(query, engine="polars")
 
 
+def test_temporal_constructor_property_declines_honestly():
+    """A standalone property projection over a temporal-constructor string column
+    (``date({year: 1910, month: 5, day: 6})`` — how Cypher/TCK store temporal
+    values) must raise NotImplementedError, not leak the raw constructor text
+    (pandas normalizes it to ISO; that normalizer is not yet native)."""
+    nodes = pd.DataFrame({
+        "id": [0, 1],
+        "date": ["date({year: 1910, month: 5, day: 6})", "date({year: 1980, month: 10, day: 24})"],
+    })
+    edges = pd.DataFrame({"s": [0], "d": [1]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    with pytest.raises(NotImplementedError):
+        g.gfql("MATCH (n) RETURN n.date", engine="polars")
+
+
 def test_mixed_type_column_declines_honestly():
     """A heterogeneous (int+str) object column — legal for dynamically-typed Cypher
     properties in pandas, but unrepresentable in polars/Arrow — must raise a clear
