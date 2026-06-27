@@ -163,6 +163,10 @@ DEFERRED = [
     "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",   # cross-entity WHERE
     "MATCH (a)-[e]->(b) WHERE a.val < b.val RETURN a.kind, b.kind",
     "MATCH (a)-[e]->(b) WHERE a.kind = b.kind RETURN a.id, b.id",
+    # temporal arithmetic: duration(...) lowers to an ISO string literal, so
+    # a.time + duration(...) must NOT silently become string concatenation
+    "MATCH (n) RETURN n.val + duration({minutes: 6}) AS t",
+    "MATCH (n) WITH n ORDER BY n.val + duration({days: 1}) RETURN n.val",
 ]
 
 
