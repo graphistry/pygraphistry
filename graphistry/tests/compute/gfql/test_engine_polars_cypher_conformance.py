@@ -172,6 +172,17 @@ def test_cypher_deferred_raises_not_bridges(query):
         BASE.gfql(query, engine="polars")
 
 
+def test_mixed_type_column_declines_honestly():
+    """A heterogeneous (int+str) object column — legal for dynamically-typed Cypher
+    properties in pandas, but unrepresentable in polars/Arrow — must raise a clear
+    NotImplementedError (use engine='pandas'), NOT a cryptic pyarrow ArrowInvalid."""
+    nodes = pd.DataFrame({"id": [0, 1, 2], "var": [0, "xx", None]})  # int + str + null
+    edges = pd.DataFrame({"s": [0], "d": [1]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    with pytest.raises(NotImplementedError):
+        g.gfql("MATCH (n) WHERE n.var > 'x' RETURN n.var", engine="polars")
+
+
 def _nullable_graph():
     """Nulls in numeric/string/bool columns + zero/negative — exercises the
     native lowering's NULL / cypher 3-valued-logic semantics vs pandas."""
