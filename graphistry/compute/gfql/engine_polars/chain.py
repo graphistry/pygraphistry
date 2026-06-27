@@ -73,6 +73,36 @@ def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf) -> Plottable:
     raise NotImplementedError(f"polars chain engine does not support op {type(op).__name__}")
 
 
+def _is_lazy(df) -> bool:
+    import polars as pl
+    return isinstance(df, pl.LazyFrame)
+
+
+def _colnames(df):
+    return df.collect_schema().names() if _is_lazy(df) else df.columns
+
+
+class _LazyShim:
+    """Minimal lazy graph/step shim for the Track B collect-once combine: carries
+    ``_nodes``/``_edges`` as LazyFrames (+ col names) so the eager combine helpers
+    run lazily over the already-materialized hop frames without Plottable rebinds."""
+    __slots__ = ("_nodes", "_edges", "_node", "_source", "_destination", "_edge")
+
+    def __init__(self, nodes_lf, edges_lf, node, source, destination, edge):
+        self._nodes = nodes_lf
+        self._edges = edges_lf
+        self._node = node
+        self._source = source
+        self._destination = destination
+        self._edge = edge
+
+    @staticmethod
+    def step(p):
+        nd = p._nodes.lazy() if p._nodes is not None else None
+        ed = p._edges.lazy() if p._edges is not None else None
+        return _LazyShim(nd, ed, None, None, None, None)
+
+
 def _combine_edges(g, steps, label_steps):
     import polars as pl
     src, dst, node_col, edge_id = g._source, g._destination, g._node, g._edge
@@ -81,7 +111,9 @@ def _combine_edges(g, steps, label_steps):
     frames = []
     for idx, (op, g_step) in enumerate(steps):
         edges_df = g_step._edges
-        if edges_df is None or edges_df.height == 0:
+        if edges_df is None:
+            continue
+        if not _is_lazy(edges_df) and edges_df.height == 0:
             continue
         prev_nodes = label_steps[idx - 1][1]._nodes if idx > 0 else g._nodes
         next_nodes = label_steps[idx + 1][1]._nodes if idx + 1 < len(label_steps) else None
@@ -100,14 +132,14 @@ def _combine_edges(g, steps, label_steps):
         frames.append(edges_df.select(pl.col(edge_id)))
 
     if not frames:
-        out_ids = g._edges.select(pl.col(edge_id)).clear()
+        out_ids = g._edges.select(pl.col(edge_id)).limit(0)
     else:
         out_ids = pl.concat(frames, how="vertical_relaxed").unique(subset=[edge_id])
 
     out = g._edges.join(out_ids, on=edge_id, how="semi")
 
     for op, g_step in label_steps:
-        if op._name is not None and isinstance(op, ASTEdge) and g_step._edges is not None and op._name in g_step._edges.columns:
+        if op._name is not None and isinstance(op, ASTEdge) and g_step._edges is not None and op._name in _colnames(g_step._edges):
             named = g_step._edges.filter(pl.col(op._name)).select(pl.col(edge_id)).with_columns(pl.lit(True).alias(op._name))
             out = out.join(named, on=edge_id, how="left").with_columns(pl.col(op._name).fill_null(False))
     return out
@@ -120,12 +152,12 @@ def _combine_nodes(g, steps):
     frames = [
         g_step._nodes.select(pl.col(node_col))
         for _, g_step in steps
-        if g_step._nodes is not None and node_col in g_step._nodes.columns
+        if g_step._nodes is not None and node_col in _colnames(g_step._nodes)
     ]
     if frames:
         ids = pl.concat(frames, how="vertical_relaxed").unique(subset=[node_col])
     else:
-        ids = g._nodes.select(pl.col(node_col)).clear()
+        ids = g._nodes.select(pl.col(node_col)).limit(0)
     return g._nodes.join(ids, on=node_col, how="semi")
 
 
@@ -145,12 +177,12 @@ def _apply_node_names(out, g, steps):
     for idx, (op, g_step) in enumerate(step_list):
         if op._name is None or not isinstance(op, ASTNode) or g_step._nodes is None:
             continue
-        if op._name not in g_step._nodes.columns:
+        if op._name not in _colnames(g_step._nodes):
             continue
         named = g_step._nodes.filter(pl.col(op._name)).select(pl.col(node_col)).unique()
         if idx + 1 < len(step_list):
             next_op, next_step = step_list[idx + 1]
-            if isinstance(next_op, ASTEdge) and next_step._edges is not None and next_step._edges.height > 0:
+            if isinstance(next_op, ASTEdge) and next_step._edges is not None and (_is_lazy(next_step._edges) or next_step._edges.height > 0):
                 e = next_step._edges
                 if next_op.direction == "forward":
                     part = e.select(pl.col(src).alias(node_col))
@@ -378,24 +410,40 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     node_col, src, dst = g._node, g._source, g._destination
     assert node_col is not None and src is not None and dst is not None
 
-    final_nodes = _combine_nodes(g, steps)
-    final_edges = _combine_edges(g, steps, label_steps)
+    # Track B: build the WHOLE combine (combine_nodes/edges + endpoint + names)
+    # as ONE deferred plan over the already-materialized hop frames and collect
+    # ONCE — collapsing the ~dozen eager combine ops (each internally a
+    # lazy().op().collect()) into a single fused pass on the active target. NO
+    # recompute (inputs are materialized; distinct from the disproven full chain
+    # fusion). Stable order columns restore the eager g._nodes / g._edges order
+    # (lazy joins don't preserve it) so a trailing row pipeline's LIMIT/SKIP is
+    # unaffected — byte-identical to the eager combine.
+    from graphistry.compute.util import generate_safe_column_name
+    from graphistry.compute.gfql.lazy import collect_all
+    NORD = generate_safe_column_name("__gfql_norder__", g._nodes, prefix="__gfql_", suffix="__")
+    EORD = generate_safe_column_name("__gfql_eorder__", g._edges, prefix="__gfql_", suffix="__")
+    g_lz = _LazyShim(g._nodes.with_row_index(NORD).lazy(), g._edges.with_row_index(EORD).lazy(),
+                     node_col, src, dst, g._edge)
+    steps_lz = [(op, _LazyShim.step(p)) for op, p in steps]
+    label_lz = [(op, _LazyShim.step(p)) for op, p in label_steps]
 
-    # Endpoint materialization (vectorized: anti-join missing endpoints).
-    if final_edges.height > 0:
-        endpoints = pl.concat(
-            [final_edges.select(pl.col(src).alias(node_col)),
-             final_edges.select(pl.col(dst).alias(node_col))],
-            how="vertical_relaxed",
-        ).unique(subset=[node_col])
-        missing = endpoints.join(final_nodes.select(pl.col(node_col)), on=node_col, how="anti")
-        if missing.height > 0:
-            extra = g._nodes.join(missing, on=node_col, how="semi")
-            final_nodes = pl.concat([final_nodes, extra], how="diagonal_relaxed").unique(subset=[node_col])
+    final_nodes = _combine_nodes(g_lz, steps_lz)
+    final_edges = _combine_edges(g_lz, steps_lz, label_lz)
+    # Endpoint (lazy: always compute; maintain_order keeps the semi-join order).
+    endpoints = pl.concat(
+        [final_edges.select(pl.col(src).alias(node_col)),
+         final_edges.select(pl.col(dst).alias(node_col))],
+        how="vertical_relaxed",
+    ).unique(subset=[node_col])
+    missing = endpoints.join(final_nodes.select(pl.col(node_col)), on=node_col, how="anti")
+    extra = g_lz._nodes.join(missing, on=node_col, how="semi")
+    final_nodes = pl.concat([final_nodes, extra], how="diagonal_relaxed").unique(
+        subset=[node_col], maintain_order=True)
+    final_nodes = _apply_node_names(final_nodes, g_lz, steps_lz)
 
-    final_nodes = _apply_node_names(final_nodes, g, steps)
-
+    final_nodes = final_nodes.sort(NORD).drop(NORD)
+    final_edges = final_edges.sort(EORD).drop(EORD)
     if added_edge_index:
         final_edges = final_edges.drop(EID)
-        return self.nodes(final_nodes, node_col).edges(final_edges, src, dst)
-    return g.nodes(final_nodes, node_col).edges(final_edges, src, dst)
+    final_edges, final_nodes = collect_all([final_edges, final_nodes])
+    return self.nodes(final_nodes, node_col).edges(final_edges, src, dst)
