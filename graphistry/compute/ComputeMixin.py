@@ -86,6 +86,8 @@ def _coerce_input_formats(g: "Plottable", engine: Engine) -> "Plottable":
             if not has_cudf:
                 return True  # cudf unavailable — skip coercion; downstream handles gracefully
             return 'cudf' in type_mod
+        elif engine == Engine.POLARS:
+            return 'polars' in type_mod
         return True
 
     if g._edges is not None and not _is_already_correct(g._edges):
