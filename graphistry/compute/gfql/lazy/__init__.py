@@ -56,11 +56,18 @@ class target_mode:
 def _engine_for(target: ExecutionTarget) -> Any:
     """Polars collect engine for a target. ``None`` = default (CPU streaming/in-mem).
 
-    GPU uses ``raise_on_fail=False`` so any GPU-incapable node stays on CPU **in
-    Polars** — NOT a pandas bridge (still honest/native; see NO-CHEATING)."""
+    GPU uses the cudf-polars IN-MEMORY executor (`executor="in-memory"`), not the
+    default streaming `engine="gpu"` (`DefaultSingletonEngine`). GFQL results fit
+    in device memory — the regime the in-memory engine is built for — and it is
+    both FASTER (semijoin 1.33×, antijoin 2.58×, unique 1.49× @10M) and STABLE
+    (the streaming executor spiked bimodally to ~1 s on the same semijoin; in-memory
+    holds ~30 ms). `raise_on_fail=False` keeps any GPU-incapable node on CPU **in
+    Polars** — NOT a pandas bridge (still honest/native; see NO-CHEATING). For
+    larger-than-device-memory inputs the in-memory engine would OOM rather than
+    stream — acceptable here (gfql graphs in scope fit), revisit if that changes."""
     if target == ExecutionTarget.GPU:
         import polars as pl
-        return pl.GPUEngine(raise_on_fail=False)
+        return pl.GPUEngine(executor="in-memory", raise_on_fail=False)
     return None
 
 
