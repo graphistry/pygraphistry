@@ -335,9 +335,17 @@ def _apply_result_projection_pandas(
                 projected_data.update(flat_columns)
                 output_columns.extend(flat_columns.keys())
             elif structured:
-                # No fields to flatten: the synthesized absent-entity row (OPTIONAL miss
-                # / reentry no-match, a single ``{alias: None}`` column) or a field-less
-                # real entity. Emit the single-column text form (renders to None / []).
+                # ⚠️ REGRESSION GUARD — DO NOT REMOVE (#1650). This fallback fixes
+                # two regressions: top-level OPTIONAL-MATCH miss, and
+                # OPTIONAL-WITH-reentry no-match. It looks redundant but is not.
+                # No flattenable fields: the entity has no materialized property/id
+                # columns on this frame. This is the synthesized null/absent-entity
+                # row (top-level OPTIONAL-MATCH miss / reentry no-match, built by
+                # _apply_empty_result_row as a single ``{alias: None}`` column). There
+                # is nothing to flatten, so emit the single-column text form (which
+                # renders to ``None`` here) — preserving the legacy shape the
+                # OPTIONAL/reentry machinery consumes. Real rows always carry flat
+                # field columns and take the branch above.
                 projected_data[column.output_name] = (
                     _format_node_entities(source_rows_df, source_projection)
                     if source_projection.table == "nodes"
