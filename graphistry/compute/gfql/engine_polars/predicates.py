@@ -1,12 +1,16 @@
 """Vectorized polars filter_by_dict for the native polars GFQL engine.
 
 Predicates are lowered to native polars expressions (no pandas round-trip) for
-the common comparison / membership / string cases; exotic predicates fall back
-to a single-column pandas evaluation. All filtering is a single vectorized
-``df.filter(expr)`` — no per-row work, no Python materialization.
+the common comparison / membership / string / null cases. A predicate with no
+native lowering raises ``NotImplementedError`` (NO-CHEATING: no pandas bridge —
+silently evaluating one column via pandas would misrepresent pandas behavior as
+polars and break the columnar/GPU assumptions; use ``engine='pandas'``). All
+filtering is a single vectorized ``df.filter(expr)`` — no per-row work, no Python
+materialization.
 """
 import operator
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, List, Optional
 
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.filter_by_dict import resolve_filter_column
@@ -53,6 +57,23 @@ def predicate_to_expr(col: str, pred: ASTPredicate):
         if all(isinstance(o, (int, float, str, bool)) for o in opts):
             return c.is_in(opts)
 
+    if name == "AllOf" and hasattr(pred, "predicates"):
+        # Conjunction (e.g. ``n.val > 20 AND n.val < 90`` folds to AllOf[GT, LT]).
+        # Lower each child natively and AND them; if ANY child can't lower, the
+        # whole predicate can't (caller raises NIE — no pandas bridge).
+        child_exprs = [predicate_to_expr(col, p) for p in pred.predicates]
+        if child_exprs and all(e is not None for e in child_exprs):
+            combined = child_exprs[0]
+            for e in child_exprs[1:]:
+                combined = combined & e
+            return combined
+        return None
+
+    if name in ("IsNull", "IsNA"):
+        return c.is_null()
+    if name in ("NotNull", "NotNA"):
+        return c.is_not_null()
+
     if name == "Contains" and hasattr(pred, "pat") and isinstance(pred.pat, str):
         case = getattr(pred, "case", True)
         pat = pred.pat if case else f"(?i){pred.pat}"
@@ -61,6 +82,11 @@ def predicate_to_expr(col: str, pred: ASTPredicate):
     if name in ("Startswith", "Endswith") and hasattr(pred, "pat") and isinstance(pred.pat, str):
         if getattr(pred, "case", True):
             return c.str.starts_with(pred.pat) if name == "Startswith" else c.str.ends_with(pred.pat)
+        # Case-insensitive: anchored regex on the escaped literal (the literal pat
+        # is treated literally; (?i) makes it case-insensitive). Matches the pandas
+        # boundary predicate's lowercase-both-sides semantics for a single str pat.
+        anchored = f"(?i)^{re.escape(pred.pat)}" if name == "Startswith" else f"(?i){re.escape(pred.pat)}$"
+        return c.str.contains(anchored, literal=False)
 
     return None
 
@@ -77,20 +103,21 @@ def filter_by_dict_polars(df, filter_dict: Optional[dict]):
         return df
 
     exprs: List[Any] = []
-    temp_cols: Dict[str, Any] = {}
     for col, val in filter_dict.items():
         resolved_col, resolved_val = resolve_filter_column(df, col, val)
         if isinstance(resolved_val, ASTPredicate):
             expr = predicate_to_expr(resolved_col, resolved_val)
-            if expr is not None:
-                exprs.append(expr)
-            else:
-                # Rare/exotic predicate: evaluate the single column via pandas,
-                # carry the mask as a temp column so it joins the single filter.
-                col_pd = df.select(pl.col(resolved_col)).to_pandas()[resolved_col]
-                tname = f"__gfql_mask_{len(temp_cols)}__"
-                temp_cols[tname] = pl.Series(tname, resolved_val(col_pd).to_numpy())
-                exprs.append(pl.col(tname))
+            if expr is None:
+                # NO-CHEATING: no native lowering for this predicate, and we will
+                # NOT bridge through pandas (evaluating one column via pandas would
+                # present pandas semantics as polars). Decline honestly.
+                raise NotImplementedError(
+                    f"polars engine does not yet natively support the "
+                    f"{type(resolved_val).__name__} predicate on column "
+                    f"{resolved_col!r}; use engine='pandas' for this query "
+                    f"(no pandas fallback — see plans/gfql-polars-engine NO-CHEATING)"
+                )
+            exprs.append(expr)
         elif _is_membership(resolved_val):
             exprs.append(pl.col(resolved_col).is_in(list(resolved_val)))
         else:
@@ -101,7 +128,4 @@ def filter_by_dict_polars(df, filter_dict: Optional[dict]):
     combined = exprs[0]
     for e in exprs[1:]:
         combined = combined & e
-
-    if temp_cols:
-        return df.with_columns(list(temp_cols.values())).filter(combined).drop(list(temp_cols))
     return df.filter(combined)

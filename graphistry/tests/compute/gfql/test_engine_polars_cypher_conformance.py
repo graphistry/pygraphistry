@@ -112,6 +112,9 @@ CORPUS = [
     "MATCH (n) WHERE n.val > 80 OR n.kind = 'alpha' RETURN n.val, n.kind",
     "MATCH (n) WHERE n.val < 20 OR n.val > 80 RETURN n.val ORDER BY n.val",
     "MATCH (n) WHERE NOT n.kind = 'beta' RETURN n.kind",
+    # native predicate lowering (no pandas bridge): STARTS WITH, range (AllOf)
+    "MATCH (n) WHERE n.name STARTS WITH 'node' RETURN n.name",
+    "MATCH (n) WHERE n.val > 20 AND n.val < 90 RETURN n.name",
     "MATCH (n) WHERE n.flag = true OR n.val > 50 RETURN n.name ORDER BY n.name",
     # order_by
     "MATCH (n) RETURN n.val ORDER BY n.val",
@@ -232,6 +235,9 @@ NULLABLE = [
     "MATCH (n) RETURN n.kind, sum(n.val) AS s, avg(n.val) AS a",  # null in agg
     "MATCH (n) RETURN DISTINCT n.kind",
     "MATCH (n) WHERE n.flag = true RETURN n.id",         # nullable bool
+    "MATCH (n) WHERE n.val IS NULL RETURN n.id",          # IsNA -> is_null (native)
+    "MATCH (n) WHERE n.kind IS NOT NULL RETURN n.id",     # NotNA -> is_not_null (native)
+    "MATCH (n) WHERE n.val IS NULL OR n.val > 40 RETURN n.id",  # null check in OR
 ]
 
 
