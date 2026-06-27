@@ -120,6 +120,13 @@ def filter_by_dict_polars(df, filter_dict: Optional[dict]):
             exprs.append(expr)
         elif _is_membership(resolved_val):
             exprs.append(pl.col(resolved_col).is_in(list(resolved_val)))
+        elif isinstance(df.schema.get(resolved_col), pl.List):
+            # Cypher label membership: ``MATCH (n:Label)`` lowers to a scalar match
+            # on the reserved ``labels`` List column. A plain ``==`` would try to
+            # cast the List to String and crash; ``list.contains`` is the correct
+            # semantics (Label ∈ node's labels) and gives empty for a non-existent
+            # label, matching pandas.
+            exprs.append(pl.col(resolved_col).list.contains(resolved_val))
         else:
             exprs.append(pl.col(resolved_col) == resolved_val)
 
