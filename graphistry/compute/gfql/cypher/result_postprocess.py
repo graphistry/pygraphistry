@@ -338,6 +338,9 @@ def _apply_result_projection_pandas(
                 projected_data.update(flat_columns)
                 output_columns.extend(flat_columns.keys())
             elif structured:
+                # ⚠️ REGRESSION GUARD — DO NOT REMOVE (#1650). This fallback fixes
+                # two regressions: top-level OPTIONAL-MATCH miss, and
+                # OPTIONAL-WITH-reentry no-match. It looks redundant but is not.
                 # No flattenable fields: the entity has no materialized property/id
                 # columns on this frame. This is the synthesized null/absent-entity
                 # row (top-level OPTIONAL-MATCH miss / reentry no-match, built by
