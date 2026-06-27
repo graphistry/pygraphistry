@@ -388,14 +388,18 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             "in multi-edge chains; deferred. Use engine='pandas'."
         )
 
-    # Unconstrained 1-hop fast path: [n(), e, n()] where BOTH nodes are
-    # unconstrained (no filter/name/query) and the edge has no match/name/query
-    # (the viz edge-crossfilter shape `MATCH ()-[e]->() WHERE e.x RETURN e`, where
-    # the WHERE/RETURN run later in the row pipeline). The result is then just ALL
-    # edges + their endpoint nodes (isolated nodes excluded), direction-independent
-    # — so skip forward/backward/combine. Byte-identical.
-    def _unconstrained_node(op):
-        return isinstance(op, ASTNode) and not op.filter_dict and op._name is None and op.query is None
+    # Single-hop fast path: [n(), e, n()] where both nodes have no name/query and
+    # the edge has no match/name/query — the basic graph query + "filter then
+    # expand" viz crossfilter (`MATCH (a {f})-[e]->(b)`). The single-hop result is
+    # exactly the edges whose endpoints pass the node filters + those endpoint
+    # nodes (isolated/dead-end nodes excluded). For one hop the backward pass
+    # prunes nothing beyond this, so we skip forward/backward/combine entirely.
+    # Byte-identical (verified vs pandas incl src/dst/both filters, reverse,
+    # dup/self-loop/cycle/isolated). Undirected is only fast-pathed when
+    # UNCONSTRAINED (all edges); filtered-undirected (OR of both directions) falls
+    # through to the full path.
+    def _fp_node(op):
+        return isinstance(op, ASTNode) and op._name is None and op.query is None
 
     def _plain_edge(op):
         return (isinstance(op, ASTEdge) and op.is_simple_single_hop()
@@ -404,17 +408,28 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                 and op.source_node_query is None and op.destination_node_query is None
                 and op.edge_query is None and not op.include_zero_hop_seed)
 
-    if (start_nodes is None and len(ops) == 3
-            and _unconstrained_node(ops[0]) and _plain_edge(ops[1]) and _unconstrained_node(ops[2])):
-        gf = ensure_nodes_polars(self)
-        ncol, scol, dcol = gf._node, gf._source, gf._destination
-        assert ncol is not None and scol is not None and dcol is not None
-        endpoints = pl.concat(
-            [gf._edges.select(pl.col(scol).alias(ncol)), gf._edges.select(pl.col(dcol).alias(ncol))],
-            how="vertical_relaxed",
-        )
-        nodes = gf._nodes.join(endpoints.unique(), on=ncol, how="semi")
-        return gf.nodes(nodes, ncol).edges(gf._edges, scol, dcol)
+    if start_nodes is None and len(ops) == 3 and _fp_node(ops[0]) and _plain_edge(ops[1]) and _fp_node(ops[2]):
+        n0, e1, n2 = ops
+        unconstrained = not n0.filter_dict and not n2.filter_dict
+        if unconstrained or e1.direction in ("forward", "reverse"):
+            gf = ensure_nodes_polars(self)
+            ncol, scol, dcol = gf._node, gf._source, gf._destination
+            assert ncol is not None and scol is not None and dcol is not None
+            edges = gf._edges
+            if not unconstrained:
+                from_col, to_col = (scol, dcol) if e1.direction == "forward" else (dcol, scol)
+                if n0.filter_dict:
+                    from_ids = filter_by_dict_polars(gf._nodes, n0.filter_dict).select(pl.col(ncol))
+                    edges = edges.join(from_ids, left_on=from_col, right_on=ncol, how="semi")
+                if n2.filter_dict:
+                    to_ids = filter_by_dict_polars(gf._nodes, n2.filter_dict).select(pl.col(ncol))
+                    edges = edges.join(to_ids, left_on=to_col, right_on=ncol, how="semi")
+            endpoints = pl.concat(
+                [edges.select(pl.col(scol).alias(ncol)), edges.select(pl.col(dcol).alias(ncol))],
+                how="vertical_relaxed",
+            )
+            nodes = gf._nodes.join(endpoints.unique(), on=ncol, how="semi")
+            return gf.nodes(nodes, ncol).edges(edges, scol, dcol)
 
     if start_nodes is not None:
         from graphistry.Engine import Engine, df_to_engine
