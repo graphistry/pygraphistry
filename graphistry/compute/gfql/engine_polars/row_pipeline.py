@@ -12,6 +12,7 @@ literals, arithmetic/comparison/boolean ``BinaryOp``, ``UnaryOp``, ``IsNullOp``.
 Ops wired to native: ``select``/``with_``/``return_`` projection, ``order_by``.
 Everything else (CASE, list/map, subscript, functions, temporal) → bridge.
 """
+import re
 from typing import Any, List, Optional, Sequence, Tuple
 
 from graphistry.Plottable import Plottable
@@ -103,6 +104,21 @@ def _lower_function(node: Any, columns: Sequence[str]) -> Optional[Any]:
     return None
 
 
+_ISO_DURATION_RE = re.compile(r"^-?P(?=[0-9T])")
+
+
+def _is_iso_duration_literal(node: Any) -> bool:
+    """True if ``node`` is a string Literal holding an ISO-8601 duration (``PT6M``,
+    ``P1Y``, …) — what cypher ``duration({...})`` translates to. ``^-?P(?=[0-9T])``
+    matches a duration without misfiring on ordinary strings like ``'Prefix'``."""
+    from graphistry.compute.gfql.expr_parser import Literal
+    return (
+        isinstance(node, Literal)
+        and isinstance(node.value, str)
+        and _ISO_DURATION_RE.match(node.value) is not None
+    )
+
+
 def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
     """Lower a parsed cypher ExprNode to a polars expression, or None to defer."""
     import polars as pl
@@ -123,6 +139,13 @@ def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
                 return pl.col(src)
         return None
     if isinstance(node, BinaryOp):
+        # Temporal arithmetic: cypher ``duration({...})`` is translated to an ISO
+        # duration string literal (e.g. ``'PT6M'``), so ``a.time + duration(...)``
+        # would lower to STRING CONCATENATION and sort/compare lexicographically —
+        # a silent wrong answer. Decline natively (NIE) when ``+``/``-`` has an ISO
+        # duration literal operand; the pandas engine handles temporal arithmetic.
+        if node.op in ("+", "-") and (_is_iso_duration_literal(node.left) or _is_iso_duration_literal(node.right)):
+            return None
         left = lower_expr(node.left, columns)
         right = lower_expr(node.right, columns)
         if left is None or right is None:
