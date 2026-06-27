@@ -13,6 +13,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Performance
 - **GFQL temporal-detection dtype gate (#1650)**: `order_detect_temporal_mode` now short-circuits for numeric/bool/complex columns, which can never hold temporal *text*, instead of running an `astype(str)` + multi-regex `fullmatch` scan on every comparison. Eliminates spurious row-wise stringification in `where_rows`/comparison paths whose output never contains entity-text. Byte-identical results; measured `where_rows` speedups ~3.1× (pandas) and ~4.4–13.3× (cuDF, scaling with row count). Does not address whole-entity `RETURN a` text rendering, which is tracked separately.
+- **GFQL hop/chain redundant-dedup removal (perf)**: dropped the explicit `.unique()` dedup pass that fed only an `.isin()` membership test in the generic traversal — `_filter_edges_by_endpoint`, the undirected combine masks, and the per-hop wavefront filter (`compute/hop.py`, `compute/chain.py`). `isin(s) == isin(s.unique())` by set membership, so this is byte-identical (verified across 345 adversarial graph×query cases: dup/parallel edges, self-loops, isolated/dead-end nodes, cycles, undirected, multi-hop, fixed-point, min/max hops, names, filters, seeds). Each removed `.unique()` is one fewer kernel launch on GPU, where launch latency — not compute — dominates small/mid traversals: cuDF 1-hop chain ~126→103 ms @1M edges (~18% faster), pandas unaffected within noise.
 
 ## [0.56.1 - 2026-05-27]
 

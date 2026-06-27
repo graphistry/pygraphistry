@@ -31,8 +31,10 @@ logger = setup_logger(__name__)
 def _filter_edges_by_endpoint(edges_df, nodes_df, node_id: str, edge_col: str):
     if nodes_df is None or not node_id or not edge_col or edge_col not in edges_df.columns:
         return edges_df
-    ids = nodes_df[node_id].unique()
-    return edges_df[edges_df[edge_col].isin(ids)]
+    # isin() is set-membership: isin(s) == isin(s.unique()), so the explicit
+    # .unique() pass (a sort/dedup; a kernel launch on GPU) is redundant — pass
+    # the column straight to isin, which dedups internally. Byte-identical.
+    return edges_df[edges_df[edge_col].isin(nodes_df[node_id])]
 
 
 class Chain(ASTSerializable):
@@ -219,8 +221,10 @@ def combine_steps(
                 direction = getattr(op, 'direction', 'forward') if isinstance(op, ASTEdge) else 'forward'
 
                 if direction == 'undirected' and prev_nodes is not None and next_nodes is not None and node_id:
-                    prev_ids = prev_nodes[node_id].unique()
-                    next_ids = next_nodes[node_id].unique()
+                    # isin() dedups internally -> the explicit .unique() pass is
+                    # redundant (cf. the prev_ids at line ~940 which already omits it).
+                    prev_ids = prev_nodes[node_id]
+                    next_ids = next_nodes[node_id]
                     fwd_mask = edges_df[src_col].isin(prev_ids) & edges_df[dst_col].isin(next_ids)
                     rev_mask = edges_df[dst_col].isin(prev_ids) & edges_df[src_col].isin(next_ids)
                     edges_df = edges_df[fwd_mask | rev_mask]
