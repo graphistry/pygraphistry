@@ -5,7 +5,7 @@ from dataclasses import replace
 from types import MappingProxyType
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
 from graphistry.Plottable import Plottable
-from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, df_to_engine, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
@@ -651,7 +651,7 @@ def _execute_compiled_query(
         row_frames = [cast(DataFrameT, getattr(result, "_nodes", None)) for result in branch_results if getattr(result, "_nodes", None) is not None]
         union_rows = df_ctor() if not row_frames else concat(row_frames, ignore_index=True, sort=False)
         if compiled_query.union_kind == "distinct" and len(union_rows) > 0:
-            union_rows = cast(DataFrameT, union_rows.drop_duplicates(ignore_index=True))
+            union_rows = cast(DataFrameT, df_unique(union_rows, concrete_engine))
         out = base_graph.bind()
         out._nodes = union_rows
         out._edges = df_ctor()

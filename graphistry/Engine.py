@@ -15,6 +15,11 @@ class Engine(Enum):
     DASK_CUDF = 'dask_cudf'
     POLARS = 'polars'
 
+# Engines whose frames use the polars API (unique/with_columns/...) rather than the
+# pandas API (drop_duplicates/assign/...). The polars-GPU target (Engine.POLARS_GPU)
+# extends this tuple where it is introduced (the lazy GPU engine).
+POLARS_ENGINES = (Engine.POLARS,)
+
 class EngineAbstract(Enum):
     PANDAS = Engine.PANDAS.value
     CUDF = Engine.CUDF.value
@@ -330,6 +335,18 @@ def df_cons(engine: Engine):
         import polars as pl
         return pl.DataFrame
     raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+
+
+def df_unique(df, engine: Engine):
+    """Row-dedupe keeping first occurrence, engine-aware.
+
+    pandas/cuDF use ``drop_duplicates``; polars uses ``unique(maintain_order=True)``
+    (``maintain_order`` matches ``drop_duplicates(keep='first')`` — same convention as
+    ``compute/gfql/row/frame_ops.distinct``). Avoids calling the pandas-only
+    ``drop_duplicates`` on a polars frame (the UNION DISTINCT crash)."""
+    if engine in POLARS_ENGINES:
+        return df.unique(maintain_order=True)
+    return df.drop_duplicates(ignore_index=True)
 
 def s_cons(engine: Engine):
     if engine == Engine.PANDAS:
