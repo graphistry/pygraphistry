@@ -95,21 +95,44 @@ def _is_membership(value: Any) -> bool:
     return isinstance(value, (list, tuple, set, frozenset))
 
 
+def _dtype_stringlike(dtype) -> bool:
+    """String / Categorical / Enum — all raise vs a numeric operand in polars."""
+    import polars as pl
+    if dtype == pl.String:
+        return True
+    for name in ("Categorical", "Enum"):
+        t = getattr(pl, name, None)
+        if t is not None and (dtype == t or isinstance(dtype, t)):
+            return True
+    return False
+
+
 def _is_cross_type_predicate(df, col: str, pred: ASTPredicate) -> bool:
     """True if a comparison predicate compares a numeric column to a string value
-    (or vice versa) — polars raises ``cannot compare string with numeric type``;
-    pandas/cypher return a value/null. Detect so the caller can decline (NIE)."""
+    (or vice versa) — polars raises ``cannot compare string with numeric type`` (an
+    uncatchable Rust panic when nested) ; pandas/cypher return a value/null. Recurses
+    into ``AllOf`` (the fold of ``x>a AND x<b``) and ``Between`` (lower+upper), since a
+    cross-type comparison hidden inside those is otherwise lowered and panics."""
     import polars as pl
-    val = getattr(pred, "val", None)
-    if val is None or getattr(pred, "op", None) is None:
-        return False
+    name = type(pred).__name__
+    if name == "AllOf" and hasattr(pred, "predicates"):
+        return any(_is_cross_type_predicate(df, col, p) for p in pred.predicates)
     nums = (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64, pl.Float32, pl.Float64)
     dtype = df.schema.get(col)
     col_num = dtype in nums
-    col_str = dtype == pl.String
-    val_str = isinstance(val, str)
-    val_num = isinstance(val, (int, float)) and not isinstance(val, bool)
-    return (col_num and val_str) or (col_str and val_num)
+    col_str = _dtype_stringlike(dtype)
+
+    def _mismatch(v: Any) -> bool:
+        v_str = isinstance(v, str)
+        v_num = isinstance(v, (int, float)) and not isinstance(v, bool)
+        return (col_num and v_str) or (col_str and v_num)
+
+    if name == "Between":
+        return any(_mismatch(getattr(pred, b, None)) for b in ("lower", "upper"))
+    val = getattr(pred, "val", None)
+    if val is None or getattr(pred, "op", None) is None:
+        return False
+    return _mismatch(val)
 
 
 def filter_by_dict_polars(df, filter_dict: Optional[dict]):
@@ -145,12 +168,21 @@ def filter_by_dict_polars(df, filter_dict: Optional[dict]):
         elif _is_membership(resolved_val):
             exprs.append(pl.col(resolved_col).is_in(list(resolved_val)))
         elif isinstance(df.schema.get(resolved_col), pl.List):
-            # Cypher label membership: ``MATCH (n:Label)`` lowers to a scalar match
-            # on the reserved ``labels`` List column. A plain ``==`` would try to
-            # cast the List to String and crash; ``list.contains`` is the correct
-            # semantics (Label ∈ node's labels) and gives empty for a non-existent
-            # label, matching pandas.
-            exprs.append(pl.col(resolved_col).list.contains(resolved_val))
+            if resolved_col == "labels":
+                # Cypher label membership: ``MATCH (n:Label)`` lowers to a scalar match
+                # on the RESERVED ``labels`` List column → ``list.contains`` (Label ∈
+                # node's labels), empty for a non-existent label, matching pandas. A
+                # plain ``==`` would cast the List to String and crash.
+                exprs.append(pl.col(resolved_col).list.contains(resolved_val))
+            else:
+                # A user List-valued property compared to a scalar is NOT membership —
+                # pandas compares the whole list (always unequal to a scalar). Don't
+                # silently apply contains-membership (wrong answer); decline natively.
+                raise NotImplementedError(
+                    f"polars engine does not yet natively support comparing the List "
+                    f"column {resolved_col!r} to a scalar; use engine='pandas' "
+                    f"(no pandas fallback — see plans/gfql-polars-engine NO-CHEATING)"
+                )
         else:
             exprs.append(pl.col(resolved_col) == resolved_val)
 

@@ -30,6 +30,9 @@ _SCHEMA: "contextvars.ContextVar[dict]" = contextvars.ContextVar("gfql_polars_sc
 # polars result to the IEEE answer. ``is_nan()`` is float-only, hence the inference.
 _NAN_GUARD_OPS = frozenset({"<", ">", "<=", ">=", "=", "==", "<>", "!="})
 _NAN_NE_OPS = frozenset({"<>", "!="})
+_ORDER_OPS = frozenset({"<", ">", "<=", ">="})
+# ops whose numeric-vs-string operands make polars raise (compare AND arithmetic)
+_NUMSTR_OPS = _NAN_GUARD_OPS | frozenset({"+", "-", "*", "/", "%"})
 
 
 def _parser():
@@ -158,82 +161,62 @@ def _is_iso_temporal_literal(node: Any) -> bool:
     )
 
 
-def _infer_is_float(node: Any, columns: Sequence[str]) -> bool:
-    """Conservatively infer whether an expr node yields a float (NaN-capable) value.
-
-    Used to gate the float-only ``is_nan()`` NaN-comparison guard — only returns True
-    when SURE (float literal, float column, or arithmetic over a float operand), so a
-    wrong guess never makes ``is_nan()`` raise on a non-float expr."""
+def _expr_output_dtype(expr: Any) -> Any:
+    """Output dtype of a lowered ``pl.Expr`` under the active table schema, or None if
+    unresolvable. Schema-only (no data) on an empty LazyFrame — robust where AST-level
+    type inference misses cases: ``int/int`` → Float (NaN-capable), function results
+    (``abs``/``coalesce``), and Categorical/Enum columns. Drives the NaN + cross-type
+    guards from real dtypes instead of re-deriving types from the parse tree."""
     import polars as pl
-    from graphistry.compute.gfql.expr_parser import Identifier, Literal, BinaryOp, UnaryOp, PropertyAccessExpr
-    floats = (pl.Float32, pl.Float64)
-    schema = _SCHEMA.get()
-    if isinstance(node, Literal):
-        return isinstance(node.value, float) and not isinstance(node.value, bool)
-    if isinstance(node, Identifier):
-        return schema.get(node.name) in floats
-    if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
-        src = _resolve_property(node.value.name, node.property, columns)
-        return src is not None and schema.get(src) in floats
-    if isinstance(node, BinaryOp) and node.op in ("+", "-", "*", "/", "%"):
-        return _infer_is_float(node.left, columns) or _infer_is_float(node.right, columns)
-    if isinstance(node, UnaryOp) and node.op == "-":
-        return _infer_is_float(node.operand, columns)
+    try:
+        return pl.LazyFrame(schema=_SCHEMA.get()).select(expr.alias("__gfql_dt__")).collect_schema()["__gfql_dt__"]
+    except Exception:
+        return None
+
+
+def _dtype_is_float(dt: Any) -> bool:
+    import polars as pl
+    return dt in (pl.Float32, pl.Float64)
+
+
+def _dtype_is_numeric(dt: Any) -> bool:
+    import polars as pl
+    return dt in (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16,
+                  pl.UInt32, pl.UInt64, pl.Float32, pl.Float64)
+
+
+def _dtype_is_stringlike(dt: Any) -> bool:
+    """String / Categorical / Enum — all compare/order like strings and all raise vs a
+    numeric operand in polars (so all must trip the cross-type guard)."""
+    import polars as pl
+    if dt == pl.String:
+        return True
+    for name in ("Categorical", "Enum"):
+        t = getattr(pl, name, None)
+        if t is not None and (dt == t or isinstance(dt, t)):
+            return True
     return False
 
 
-def _infer_is_string(node: Any, columns: Sequence[str]) -> bool:
-    """Conservatively infer whether an expr node yields a String value."""
-    import polars as pl
-    from graphistry.compute.gfql.expr_parser import Identifier, Literal, PropertyAccessExpr
-    schema = _SCHEMA.get()
-    if isinstance(node, Literal):
-        return isinstance(node.value, str)
-    if isinstance(node, Identifier):
-        return schema.get(node.name) == pl.String
-    if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
-        src = _resolve_property(node.value.name, node.property, columns)
-        return src is not None and schema.get(src) == pl.String
-    return False
+def _is_cross_type(ldt: Any, rdt: Any) -> bool:
+    """Numeric operand vs string-like operand — polars raises (compare:
+    ``cannot compare string with numeric``; arithmetic: ``InvalidOperationError``;
+    incl. all-null columns, which ``from_pandas`` types as String). pandas/cypher
+    return a value/null, so decline natively. None dtype = unknown → not flagged."""
+    if ldt is None or rdt is None:
+        return False
+    return (_dtype_is_numeric(ldt) and _dtype_is_stringlike(rdt)) or (_dtype_is_stringlike(ldt) and _dtype_is_numeric(rdt))
 
 
-def _infer_is_numeric(node: Any, columns: Sequence[str]) -> bool:
-    """Conservatively infer whether an expr node yields a numeric (int/float) value."""
-    import polars as pl
-    from graphistry.compute.gfql.expr_parser import Identifier, Literal, BinaryOp, UnaryOp, PropertyAccessExpr
-    nums = (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64, pl.Float32, pl.Float64)
-    schema = _SCHEMA.get()
-    if isinstance(node, Literal):
-        return isinstance(node.value, (int, float)) and not isinstance(node.value, bool)
-    if isinstance(node, Identifier):
-        return schema.get(node.name) in nums
-    if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
-        src = _resolve_property(node.value.name, node.property, columns)
-        return src is not None and schema.get(src) in nums
-    if isinstance(node, BinaryOp) and node.op in ("+", "-", "*", "/", "%"):
-        return _infer_is_numeric(node.left, columns) or _infer_is_numeric(node.right, columns)
-    if isinstance(node, UnaryOp) and node.op == "-":
-        return _infer_is_numeric(node.operand, columns)
-    return False
-
-
-def _is_cross_type_compare(left_node: Any, right_node: Any, columns: Sequence[str]) -> bool:
-    """Numeric-vs-String comparison: polars raises ``ComputeError: cannot compare
-    string with numeric type`` (pandas/cypher return a value/null). Decline natively."""
-    return (
-        (_infer_is_numeric(left_node, columns) and _infer_is_string(right_node, columns))
-        or (_infer_is_string(left_node, columns) and _infer_is_numeric(right_node, columns))
-    )
-
-
-def _nan_guarded(result: Any, op: str, left: Any, right: Any, left_node: Any, right_node: Any, columns: Sequence[str]) -> Any:
-    """Wrap a comparison so NaN operands compare like IEEE/pandas/Cypher, not polars
-    (which treats NaN as the largest value). Only adds ``is_nan()`` terms for operands
-    inferred float, so it is a no-op (and never raises) for int/string/bool comparisons."""
+def _nan_guard(result: Any, op: str, left: Any, right: Any, ldt: Any, rdt: Any) -> Any:
+    """Mask a comparison so NaN operands compare like IEEE/pandas/Cypher (always false;
+    ``!=`` true) instead of polars (NaN = largest value). ``is_nan()`` is applied only
+    to operands whose OUTPUT dtype is float — safe on the lowered float expr, never on
+    a non-float one; int/string/bool comparisons are a no-op."""
     nan_terms = []
-    if _infer_is_float(left_node, columns):
+    if _dtype_is_float(ldt):
         nan_terms.append(left.is_nan())
-    if _infer_is_float(right_node, columns):
+    if _dtype_is_float(rdt):
         nan_terms.append(right.is_nan())
     if not nan_terms:
         return result
@@ -270,17 +253,28 @@ def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
         # duration literal operand; the pandas engine handles temporal arithmetic.
         if node.op in ("+", "-") and (_is_iso_duration_literal(node.left) or _is_iso_duration_literal(node.right)):
             return None
-        if node.op in _NAN_GUARD_OPS and _is_cross_type_compare(node.left, node.right, columns):
-            return None  # numeric-vs-string comparison -> polars raises -> NIE
-        if node.op in _NAN_GUARD_OPS and (_is_iso_temporal_literal(node.left) or _is_iso_temporal_literal(node.right)):
-            return None  # ISO temporal comparison -> polars compares strings lexicographically (wrong) -> NIE
+        # ISO temporal ORDERING of two constructor-string literals lowers to
+        # LEXICOGRAPHIC string ordering (wrong across timezones). Only ordering of
+        # two temporal literals is declined: ``=``/``<>`` are lexicographically
+        # correct, and a literal-vs-real-string-column compare must NOT be declined.
+        if node.op in _ORDER_OPS and _is_iso_temporal_literal(node.left) and _is_iso_temporal_literal(node.right):
+            return None
         left = lower_expr(node.left, columns)
         right = lower_expr(node.right, columns)
         if left is None or right is None:
             return None
+        ldt = rdt = None
+        if node.op in _NUMSTR_OPS:
+            # Numeric-vs-string-like operands make polars raise (compare AND
+            # arithmetic, incl. AllOf-nested, all-null→String, Categorical). Decline
+            # natively. Output dtypes catch int/int→Float division + function results
+            # that AST inference missed.
+            ldt, rdt = _expr_output_dtype(left), _expr_output_dtype(right)
+            if _is_cross_type(ldt, rdt):
+                return None
         result = _apply_binop(node.op, left, right)
         if result is not None and node.op in _NAN_GUARD_OPS:
-            result = _nan_guarded(result, node.op, left, right, node.left, node.right, columns)
+            result = _nan_guard(result, node.op, left, right, ldt, rdt)
         return result
     if isinstance(node, UnaryOp):
         operand = lower_expr(node.operand, columns)

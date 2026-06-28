@@ -32,9 +32,13 @@ def _has_temporal_constructor_text(rows_df: Any, col: str) -> bool:
     projection needs this guard.)"""
     import polars as pl
     from graphistry.compute.gfql.temporal.constructors import TEMPORAL_CALL_EXPR_RE
+    # Anchor with ^ so ordinary string values whose text merely CONTAINS a substring
+    # like "date" (``update({...})``, ``candidate(...)``, ``my date({x})``) don't
+    # false-positive — these columns hold a WHOLE constructor string, not embedded text.
+    pattern = r"^\s*" + TEMPORAL_CALL_EXPR_RE.pattern
     try:
         return bool(
-            rows_df.select(pl.col(col).str.contains(TEMPORAL_CALL_EXPR_RE.pattern).any()).item()
+            rows_df.select(pl.col(col).str.contains(pattern).any()).item()
         )
     except Exception:
         return False
