@@ -218,3 +218,24 @@ def test_polars_chain_pandas_start_nodes():
     gl = BASE.chain([n(), e_forward(), n()], engine="polars", start_nodes=sn)
     assert _nset(gp) == _nset(gl)
     assert _eset(gp) == _eset(gl)
+
+
+def test_lazy_collect_cpu_and_engine_polars_helpers():
+    """Cover the CPU lazy-collect path + the POLARS branches of the engine helpers
+    (df_concat/df_cons/s_cons/df_to_engine) — exercised by the polars engine but not
+    otherwise hit by the coverage suites. The GPU-target collect branches are
+    pragma-no-cover (need a device CI lacks)."""
+    import polars as pl
+    from graphistry.compute.gfql.lazy import collect, collect_all
+    from graphistry.Engine import Engine, df_concat, df_cons, s_cons, df_to_engine
+
+    lf = pl.DataFrame({"a": [1, 2, 3]}).lazy()
+    assert collect(lf).shape[0] == 3                 # CPU target -> eng is None -> collect() CPU branch
+    out = collect_all([lf, lf])                       # collect_all CPU branch
+    assert len(out) == 2 and all(o.shape[0] == 3 for o in out)
+
+    assert df_cons(Engine.POLARS) is pl.DataFrame     # df_cons POLARS branch
+    assert s_cons(Engine.POLARS) is pl.Series         # s_cons POLARS branch
+    pdf = pl.DataFrame({"x": [1, 2]})
+    assert df_concat(Engine.POLARS)([pdf, pdf]).shape[0] == 4   # df_concat POLARS branch
+    assert df_to_engine(pdf, Engine.POLARS).shape[0] == 2       # df_to_engine POLARS branch

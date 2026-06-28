@@ -85,7 +85,7 @@ def collect(lf: Any) -> Any:
     """Collect one polars LazyFrame on the active target (CPU/GPU)."""
     eng = _engine_for(active_target())
     if eng is not None:
-        return lf.collect(engine=eng)
+        return lf.collect(engine=eng)  # pragma: no cover  # GPU-target collect (no GPU in CI)
     return lf.collect(engine="streaming") if _CPU_STREAMING else lf.collect()
 
 
@@ -100,7 +100,7 @@ def collect_all(lfs: List[Any]) -> List[Any]:
     if hasattr(pl, "collect_all"):
         try:
             if eng is not None:
-                return pl.collect_all(lfs, engine=eng)
+                return pl.collect_all(lfs, engine=eng)  # pragma: no cover  # GPU-target collect (no GPU in CI)
             return pl.collect_all(lfs, engine="streaming") if _CPU_STREAMING else pl.collect_all(lfs)
         except TypeError:
             # older signature without engine= — collect individually on target
