@@ -53,7 +53,8 @@ def _sig(g):
     def topd(df):
         mod = type(df).__module__
         return df.to_pandas() if ("cudf" in mod or "polars" in mod) else df
-    nn = topd(g._nodes); ee = topd(g._edges)
+    nn = topd(g._nodes)
+    ee = topd(g._edges)
     nodes = sorted(nn["id"].tolist())
     edges = sorted(map(tuple, ee[["src", "dst"]].itertuples(index=False, name=None)))
     return nodes, edges
