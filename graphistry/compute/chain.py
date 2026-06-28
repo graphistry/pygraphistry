@@ -1108,7 +1108,14 @@ def _chain_impl(
             )
             if added_edge_index:
                 final_edges_df = final_edges_df.drop(columns=[g._edge])
-                g_out = self.nodes(final_nodes_df).edges(final_edges_df, edge=original_edge)
+                # Rebuild from `self` to restore the ORIGINAL edge binding (`self._edge`,
+                # often None — `g` carries the internal edge-index binding instead), but
+                # explicitly carry the materialized node-id binding `g._node`: for an
+                # edges-only input `self._node is None`, so rebuilding from `self` alone
+                # drops it, leaving the endpoint-reconciliation concat below to synthesize
+                # a `None`-named column (corrupt result + a void-block concat crash on
+                # newer pandas).
+                g_out = self.nodes(final_nodes_df, g._node).edges(final_edges_df, edge=original_edge)
             else:
                 g_out = g.nodes(final_nodes_df).edges(final_edges_df)
 
