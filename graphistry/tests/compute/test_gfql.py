@@ -246,8 +246,10 @@ class TestGFQL:
 
         result = g.gfql("MATCH (p:person) RETURN p LIMIT 1")
 
+        # structured whole-entity returns (#1650): RETURN p flattens to p.* columns
+        # (was the display string '(:person)' before the structured-returns change).
         assert len(result._nodes) == 1
-        assert result._nodes.iloc[0]["p"] == "(:person)"
+        assert result._nodes.iloc[0]["p.type"] == "person"
 
     def test_gfql_string_invalid_syntax_surfaces_parser_error(self):
         g = _mk_people_company_graph3()
@@ -401,9 +403,11 @@ class TestGFQL:
 
         result = g.gfql("MATCH (a:A) RETURN a AS a UNION MATCH (b:B) RETURN b AS a")
 
+        # structured whole-entity returns (#1650): RETURN a AS a flattens to a.* columns
+        # (was the display string '(:A)'/'(:B)' before the structured-returns change).
         assert result._nodes.to_dict(orient="records") == [
-            {"a": "(:A)"},
-            {"a": "(:B)"},
+            {"a.id": "a", "a.type": "A"},
+            {"a.id": "b", "a.type": "B"},
         ]
 
     def test_gfql_rejects_cypher_union_with_mismatched_columns(self):
