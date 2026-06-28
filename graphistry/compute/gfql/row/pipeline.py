@@ -59,7 +59,7 @@ from graphistry.compute.gfql.row.entity_text import (
     is_entity_text_scalar,
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN
-from graphistry.compute.gfql.series_str_compat import series_sequence_len, series_str_match
+from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype, series_sequence_len, series_str_match
 from graphistry.compute.gfql.row.ordering import (
     build_list_sort_columns,
     build_temporal_sort_columns,
@@ -1994,8 +1994,7 @@ class RowPipelineMixin:
             return False
         # numeric/bool/complex columns can never be list-like — skip the spurious
         # astype(str)+regex scan (byte-identical; the scan returns False anyway).
-        _dt = getattr(series, "dtype", None)
-        if _dt is not None and getattr(_dt, "kind", "O") in ("i", "u", "f", "b", "c"):
+        if is_non_textual_scalar_dtype(getattr(series, "dtype", None)):
             return False
         null_mask = series.isna()
         non_null = ~null_mask

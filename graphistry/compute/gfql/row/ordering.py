@@ -12,6 +12,7 @@ from graphistry.Engine import Engine, s_cons
 from graphistry.compute.typing import SeriesT
 
 from graphistry.compute.gfql.series_str_compat import (
+    is_non_textual_scalar_dtype,
     series_sequence_len,
     series_str_extract,
     series_str_fullmatch,
@@ -120,8 +121,7 @@ def _is_non_listable_dtype(series: Any) -> bool:
     list-syntax *text*. Lets list/temporal detection skip the spurious
     ``astype(str)`` + regex scan on these columns (byte-identical — the scan
     returns False/None for them anyway). Mirrors the #1650/#1651 dtype gate."""
-    dtype = getattr(series, "dtype", None)
-    return dtype is not None and getattr(dtype, "kind", "O") in ("i", "u", "f", "b", "c")
+    return is_non_textual_scalar_dtype(getattr(series, "dtype", None))
 
 
 def order_detect_list_series(series: Any) -> bool:
@@ -229,8 +229,7 @@ def order_detect_temporal_mode(series: Any) -> Optional[str]:
         return None
     # Temporal values are text (Cypher date/time literals/constructors); numeric/bool/
     # complex can't match those regexes, so skip the astype(str)+scan for them (#1650).
-    dtype_kind = getattr(getattr(series, "dtype", None), "kind", None)
-    if dtype_kind in ("i", "u", "f", "b", "c"):
+    if is_non_textual_scalar_dtype(getattr(series, "dtype", None)):
         return None
     non_null = series.dropna()
     if len(non_null) == 0 or not hasattr(non_null, "astype"):
