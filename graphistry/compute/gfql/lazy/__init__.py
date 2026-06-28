@@ -53,6 +53,16 @@ class target_mode:
             _TARGET.reset(self._token)
 
 
+import os as _os
+
+# CPU collect engine. The polars STREAMING executor benchmarks faster + more stable
+# than the default collect on big traversal joins (isolated 80M-edge 2-hop semijoin
+# 1669→1040 ms, ~1.6×; end-to-end chain dilutes to ~1.04–1.11× as the forward/backward/
+# combine overhead is unaffected), parity-identical. Opt-in (default off) because
+# small/interactive sizes REGRESS (~0.86× at 100K) from streaming overhead.
+_CPU_STREAMING = _os.environ.get("GFQL_POLARS_CPU_STREAMING", "0") == "1"
+
+
 def _engine_for(target: ExecutionTarget) -> Any:
     """Polars collect engine for a target. ``None`` = default (CPU streaming/in-mem).
 
@@ -74,7 +84,9 @@ def _engine_for(target: ExecutionTarget) -> Any:
 def collect(lf: Any) -> Any:
     """Collect one polars LazyFrame on the active target (CPU/GPU)."""
     eng = _engine_for(active_target())
-    return lf.collect(engine=eng) if eng is not None else lf.collect()
+    if eng is not None:
+        return lf.collect(engine=eng)
+    return lf.collect(engine="streaming") if _CPU_STREAMING else lf.collect()
 
 
 def collect_all(lfs: List[Any]) -> List[Any]:
@@ -87,7 +99,9 @@ def collect_all(lfs: List[Any]) -> List[Any]:
     eng = _engine_for(active_target())
     if hasattr(pl, "collect_all"):
         try:
-            return pl.collect_all(lfs, engine=eng) if eng is not None else pl.collect_all(lfs)
+            if eng is not None:
+                return pl.collect_all(lfs, engine=eng)
+            return pl.collect_all(lfs, engine="streaming") if _CPU_STREAMING else pl.collect_all(lfs)
         except TypeError:
             # older signature without engine= — collect individually on target
             pass
