@@ -109,6 +109,31 @@ def hop(self: Plottable,
     from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
     self = _coerce_input_formats(self, engine_concrete)
 
+    # GFQL physical index fast path (pay-as-you-go). When a resident adjacency
+    # index covers this seeded traversal and the planner deems it profitable, run
+    # the O(degree) CSR gather instead of the O(E) scan below. Engine-uniform;
+    # returns None to fall back. Coercion above is a no-op when already in-engine,
+    # so the index fingerprint (keyed on the live edge frame) still matches.
+    from graphistry.compute.gfql.index import get_registry, maybe_index_hop
+    _idx_policy = getattr(self, "_gfql_index_policy", "use")
+    if (not get_registry(self).is_empty()) or _idx_policy in ("auto", "force"):
+        _idx_nodes = df_to_engine(nodes, engine_concrete) if nodes is not None else None
+        _indexed = maybe_index_hop(
+            self, engine_concrete, nodes=_idx_nodes, hops=hops, direction=direction,
+            return_as_wave_front=return_as_wave_front, to_fixed_point=to_fixed_point,
+            policy=_idx_policy,
+            min_hops=min_hops, max_hops=max_hops,
+            output_min_hops=output_min_hops, output_max_hops=output_max_hops,
+            label_node_hops=label_node_hops, label_edge_hops=label_edge_hops,
+            label_seeds=label_seeds, edge_match=edge_match,
+            source_node_match=source_node_match, destination_node_match=destination_node_match,
+            source_node_query=source_node_query, destination_node_query=destination_node_query,
+            edge_query=edge_query, include_zero_hop_seed=include_zero_hop_seed,
+            target_wave_front=target_wave_front,
+        )
+        if _indexed is not None:
+            return _indexed
+
     if engine_concrete in POLARS_ENGINES:
         # Native polars traversal lives in a dedicated dispatched module so the
         # production pandas/cuDF internals below stay untouched (see
