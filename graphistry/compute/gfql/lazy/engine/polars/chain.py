@@ -683,6 +683,28 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                 and op.source_node_query is None and op.destination_node_query is None
                 and op.edge_query is None and not op.include_zero_hop_seed)
 
+    # GFQL physical index fast path for the seeded single-hop shape
+    # `MATCH (a {id-filter})-[e]->(b)` (forward/reverse, no destination filter) —
+    # the canonical seeded query. This native chain fast path does its own O(E)
+    # semi-join, so it must consult the index here too (not just compute/hop.py).
+    _idx_pol = getattr(self, "_gfql_index_policy", "use")
+    if (start_nodes is None and len(ops) == 3 and _fp_node(ops[0]) and _plain_edge(ops[1])
+            and _fp_node(ops[2]) and ops[0].filter_dict and not ops[2].filter_dict
+            and ops[1].direction in ("forward", "reverse")):
+        from graphistry.compute.gfql.index import get_registry, maybe_index_hop
+        if (not get_registry(self).is_empty()) or _idx_pol in ("auto", "force"):
+            gf0 = ensure_nodes_polars(self)
+            seed0 = filter_by_dict_polars(gf0._nodes, ops[0].filter_dict)
+            from graphistry.Engine import Engine
+            from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
+            _eng0 = Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else Engine.POLARS
+            _idxed0 = maybe_index_hop(
+                gf0, _eng0, nodes=seed0, hops=1, direction=ops[1].direction,
+                return_as_wave_front=False, to_fixed_point=False, policy=_idx_pol,
+            )
+            if _idxed0 is not None:
+                return _idxed0
+
     if start_nodes is None and len(ops) == 3 and _fp_node(ops[0]) and _plain_edge(ops[1]) and _fp_node(ops[2]):
         n0, e1, n2 = ops
         unconstrained = not n0.filter_dict and not n2.filter_dict

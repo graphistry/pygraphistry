@@ -512,6 +512,28 @@ class ComputeMixin(Plottable):
         return hop_base(self, *args, **kwargs)
     hop.__doc__ = hop_base.__doc__
 
+    # ---- GFQL physical indexes (pay-as-you-go seeded-traversal acceleration) ----
+    def create_index(self, kind, *, column=None, name=None, engine='auto'):
+        from graphistry.compute.gfql.index import create_index as _ci
+        return _ci(self, kind, column=column, name=name, engine=engine)
+    create_index.__doc__ = "Build a GFQL physical index (edge_out_adj|edge_in_adj|node_id). See graphistry/compute/gfql/index/api.py."
+
+    def drop_index(self, kind=None):
+        from graphistry.compute.gfql.index import drop_index as _di
+        return _di(self, kind)
+
+    def show_indexes(self):
+        from graphistry.compute.gfql.index import show_indexes as _si
+        return _si(self)
+
+    def gfql_index_edges(self, direction='both', engine='auto'):
+        from graphistry.compute.gfql.index import gfql_index_edges as _gie
+        return _gie(self, direction, engine=engine)
+
+    def gfql_index_all(self, engine='auto'):
+        from graphistry.compute.gfql.index import gfql_index_all as _gia
+        return _gia(self, engine=engine)
+
     def filter_nodes_by_dict(self, *args, **kwargs):
         return filter_nodes_by_dict_base(self, *args, **kwargs)
     filter_nodes_by_dict.__doc__ = filter_nodes_by_dict_base.__doc__
@@ -535,8 +557,35 @@ class ComputeMixin(Plottable):
     chain.__doc__ = (chain.__doc__ or "") + "\n\n" + (chain_base.__doc__ or "")
     
     def gfql(self, *args, **kwargs):
-        return gfql_base(self, *args, **kwargs)
+        policy = kwargs.pop('index_policy', None)
+        # Route GFQL index DDL (Python wire op, JSON dict, or Cypher string) to the
+        # registry without touching the traversal executor.
+        query = args[0] if args else kwargs.get('query')
+        from graphistry.compute.gfql.index.wire import (
+            is_index_op, is_index_op_json, index_op_from_json, apply_index_op,
+        )
+        from graphistry.compute.gfql.index.cypher_ddl import parse_index_ddl
+        op = None
+        if is_index_op(query):
+            op = query
+        elif is_index_op_json(query):
+            op = index_op_from_json(query)
+        elif isinstance(query, str):
+            op = parse_index_ddl(query)
+        if op is not None:
+            return apply_index_op(self, op, engine=kwargs.get('engine', 'auto'))
+
+        g = self
+        if policy is not None:
+            import copy as _copy
+            g = _copy.copy(self)
+            g._gfql_index_policy = policy
+        return gfql_base(g, *args, **kwargs)
     gfql.__doc__ = gfql_base.__doc__
+
+    def gfql_explain(self, query, *, index_policy='use', engine='auto'):
+        from graphistry.compute.gfql.index.explain import gfql_explain as _ge
+        return _ge(self, query, index_policy=index_policy, engine=engine)
 
     def gfql_validate(self, *args, **kwargs):
         return gfql_validate_base(self, *args, **kwargs)
