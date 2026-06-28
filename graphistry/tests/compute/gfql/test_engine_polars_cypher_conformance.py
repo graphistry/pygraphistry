@@ -238,7 +238,10 @@ def test_optional_match_absent_entity_renders_null():
     g = graphistry.nodes(empty, "id").edges(edges, "s", "d")
     out = g.gfql("OPTIONAL MATCH (n) RETURN n", engine="polars")._nodes
     out = out.to_pandas() if hasattr(out, "to_pandas") else out
-    assert out["n"].tolist() == [None]
+    # The single absent-entity row must be NULL. polars→pandas renders a null as
+    # None or NaN depending on column dtype / polars version (1.40 gives NaN, newer
+    # gives None) — both are null, so assert is-null rather than `== [None]`.
+    assert len(out) == 1 and pd.isna(out["n"].iloc[0])
 
 
 @pytest.mark.parametrize("nodes,query", [
