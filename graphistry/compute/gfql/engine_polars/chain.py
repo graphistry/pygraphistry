@@ -22,6 +22,34 @@ def _semi(df, ids_df, df_col, id_col):
     return df.join(ids_df.select(id_col).unique(), left_on=df_col, right_on=id_col, how="semi")
 
 
+def _align_edge_endpoints(g, node_col, src, dst):
+    """Cast edge endpoint columns to the node-id dtype so polars join keys match.
+
+    polars won't auto-cast int↔float join keys, and a null in an edge endpoint
+    promotes that column to float while integer node ids stay int — which makes the
+    chain's endpoint↔node-id joins raise ``SchemaError`` where pandas joins fine. The
+    hop already casts internally; the chain (fast paths + combine) did not. Returns
+    ``(aligned_g, restore)`` where ``restore`` is the original ``(src_dtype, dst_dtype)``
+    to put back on the OUTPUT edges (so the result matches pandas' dtype), or None when
+    the dtypes already matched (the common case — a no-op, no table copy)."""
+    import polars as pl
+    ndt = g._nodes.schema[node_col]
+    sdt, ddt = g._edges.schema[src], g._edges.schema[dst]
+    if sdt == ndt and ddt == ndt:
+        return g, None
+    aligned = g.edges(g._edges.with_columns([pl.col(src).cast(ndt), pl.col(dst).cast(ndt)]), src, dst)
+    return aligned, (sdt, ddt)
+
+
+def _restore_edge_dtypes(edges, src, dst, restore):
+    """Restore output edge endpoint dtypes recorded by :func:`_align_edge_endpoints`."""
+    if restore is None:
+        return edges
+    import polars as pl
+    sdt, ddt = restore
+    return edges.with_columns([pl.col(src).cast(sdt), pl.col(dst).cast(ddt)])
+
+
 def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf) -> Plottable:
     import polars as pl
 
@@ -415,6 +443,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             gf = ensure_nodes_polars(self)
             ncol, scol, dcol = gf._node, gf._source, gf._destination
             assert ncol is not None and scol is not None and dcol is not None
+            gf, restore = _align_edge_endpoints(gf, ncol, scol, dcol)
             edges = gf._edges
             if not unconstrained:
                 from_col, to_col = (scol, dcol) if e1.direction == "forward" else (dcol, scol)
@@ -429,7 +458,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                 how="vertical_relaxed",
             )
             nodes = gf._nodes.join(endpoints.unique(), on=ncol, how="semi")
-            return gf.nodes(nodes, ncol).edges(edges, scol, dcol)
+            return gf.nodes(nodes, ncol).edges(_restore_edge_dtypes(edges, scol, dcol, restore), scol, dcol)
 
     if start_nodes is not None:
         from graphistry.Engine import Engine, df_to_engine
@@ -437,6 +466,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
 
     g = ensure_nodes_polars(self)
     assert g._node is not None and g._source is not None and g._destination is not None
+    g, _endpoint_restore = _align_edge_endpoints(g, g._node, g._source, g._destination)
     if g._edge is None:
         EID = "__gfql_edge_index__"
         g = g.edges(g._edges.with_row_index(EID), g._source, g._destination, edge=EID)
@@ -509,4 +539,5 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     if added_edge_index:
         final_edges = final_edges.drop(EID)
     final_edges, final_nodes = collect_all([final_edges, final_nodes])
+    final_edges = _restore_edge_dtypes(final_edges, src, dst, _endpoint_restore)
     return self.nodes(final_nodes, node_col).edges(final_edges, src, dst)

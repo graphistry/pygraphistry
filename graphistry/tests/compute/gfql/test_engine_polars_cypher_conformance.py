@@ -209,6 +209,27 @@ def test_temporal_constructor_property_declines_honestly():
         g.gfql("MATCH (n) RETURN n.date", engine="polars")
 
 
+@pytest.mark.parametrize("edges,chain_cypher", [
+    # null endpoint promotes the column to float64 vs int64 node ids — the chain's
+    # endpoint<->node-id joins used to SchemaError (the hop casts, the chain didn't)
+    (pd.DataFrame({"s": [1, 2, None], "d": [2.0, 3, 3]}), "MATCH (a)-[]->(b) RETURN b.id"),
+    (pd.DataFrame({"s": [1.0, 2.0], "d": [2.0, 3.0]}), "MATCH (a)-[]->(b)-[]->(c) RETURN c.id"),
+])
+def test_chain_dtype_mismatched_endpoints_no_crash(edges, chain_cypher):
+    """Node-id dtype != edge-endpoint dtype (int vs float, e.g. a null endpoint) must
+    not crash the polars chain — align join keys, restore output dtype to match pandas."""
+    nodes = pd.DataFrame({"id": [1, 2, 3, 4]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    _assert_parity(g, chain_cypher)
+
+
+def test_chain_otel_decorator_on_public_chain():
+    """The gfql.chain OTel span must wrap the public chain(), not the fast-path probe."""
+    from graphistry.compute.chain import chain as _chain, _try_chain_fast_path
+    assert hasattr(_chain, "__wrapped__")  # decorated
+    assert not hasattr(_try_chain_fast_path, "__wrapped__")  # not decorated
+
+
 def test_optional_match_absent_entity_renders_null():
     """OPTIONAL MATCH miss → the absent whole-entity must render as null, not '()'
     (the alias marker column is null; mirrors pandas _nullify_missing_alias_rows)."""
