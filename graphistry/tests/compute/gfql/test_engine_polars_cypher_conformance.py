@@ -99,6 +99,9 @@ CORPUS = [
     # LARGEST value (NaN>1 True) but IEEE/pandas/cypher compare any NaN false (!= true)
     "RETURN 0.0 / 0.0 > 1 AS gt, 0.0 / 0.0 >= 1 AS gtE, 0.0 / 0.0 < 1 AS lt, 0.0 / 0.0 <= 1 AS ltE",
     "RETURN 0.0 / 0.0 = 0.0 AS eq, 0.0 / 0.0 <> 0.0 AS ne",
+    # NaN from a FUNCTION / division result (AST inference missed these; output-dtype
+    # guard catches them — polars NaN-as-largest would otherwise leak)
+    "RETURN abs(0.0 / 0.0) > 1 AS a, coalesce(0.0 / 0.0, 0.0) > 1 AS b",
     "MATCH (n) RETURN n.val > 50 AS big, n.kind",
     "MATCH (n) RETURN n.val >= 50 AND n.val <= 80 AS mid",
     # 3-valued boolean over bare null literals — must not crash on Null dtype
@@ -215,6 +218,33 @@ def test_optional_match_absent_entity_renders_null():
     out = g.gfql("OPTIONAL MATCH (n) RETURN n", engine="polars")._nodes
     out = out.to_pandas() if hasattr(out, "to_pandas") else out
     assert out["n"].tolist() == [None]
+
+
+@pytest.mark.parametrize("nodes,query", [
+    # user List-valued property compared to a scalar — must NOT silently apply
+    # list-membership (pandas compares the whole list); decline (not the labels col)
+    (pd.DataFrame({"id": [0, 1], "tags": [["a", "b"], ["c"]]}), "MATCH (n) WHERE n.tags = 'a' RETURN n.id"),
+    # numeric-vs-string nested in AllOf (x>20 AND x<'z') — would PANIC if not detected
+    (pd.DataFrame({"id": [0, 1, 2], "val": [10, 50, 90]}), "MATCH (n) WHERE n.val > 20 AND n.val < 'z' RETURN n.id"),
+    # all-null column types as String in from_pandas → numeric arithmetic crashes
+    (pd.DataFrame({"id": [0, 1], "val": [None, None]}), "MATCH (n) RETURN n.val + 1 AS x"),
+    # categorical column vs numeric — polars ComputeError, must decline
+    (pd.DataFrame({"id": [0, 1], "kind": pd.Series(["a", "b"], dtype="category")}), "MATCH (n) WHERE n.kind > 5 RETURN n.id"),
+])
+def test_polars_engine_declines_cross_type_not_crash(nodes, query):
+    """Review-found cases where polars would CRASH/panic or silently misanswer —
+    must raise an honest NotImplementedError instead (NO-CHEATING)."""
+    g = graphistry.nodes(nodes, "id").edges(pd.DataFrame({"s": [0], "d": [1]}), "s", "d")
+    with pytest.raises(NotImplementedError):
+        g.gfql(query, engine="polars")
+
+
+def test_polars_string_column_vs_date_literal_computes():
+    """A genuine String property compared to a date-looking literal must COMPUTE
+    (lexicographic, like pandas), not be over-declined by the ISO-temporal guard."""
+    nodes = pd.DataFrame({"id": [0, 1], "w": ["2020-06-01", "2022-01-01"]})
+    g = graphistry.nodes(nodes, "id").edges(pd.DataFrame({"s": [0], "d": [1]}), "s", "d")
+    _assert_parity(g, "MATCH (n) RETURN n.w < '2021-01-01' AS x, n.id ORDER BY n.id")
 
 
 def test_mixed_type_column_declines_honestly():
