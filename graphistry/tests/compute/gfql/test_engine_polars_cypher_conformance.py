@@ -95,6 +95,10 @@ CORPUS = [
     # whitelisted scalar functions (native lowering)
     "MATCH (n) RETURN coalesce(n.val, 0) AS c",
     "MATCH (n) RETURN abs(n.val - 50) AS d",
+    # NaN comparison: 0.0/0.0 computes NaN inside polars; polars treats NaN as the
+    # LARGEST value (NaN>1 True) but IEEE/pandas/cypher compare any NaN false (!= true)
+    "RETURN 0.0 / 0.0 > 1 AS gt, 0.0 / 0.0 >= 1 AS gtE, 0.0 / 0.0 < 1 AS lt, 0.0 / 0.0 <= 1 AS ltE",
+    "RETURN 0.0 / 0.0 = 0.0 AS eq, 0.0 / 0.0 <> 0.0 AS ne",
     "MATCH (n) RETURN n.val > 50 AS big, n.kind",
     "MATCH (n) RETURN n.val >= 50 AND n.val <= 80 AS mid",
     # 3-valued boolean over bare null literals — must not crash on Null dtype
@@ -166,6 +170,10 @@ DEFERRED = [
     "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",   # cross-entity WHERE
     "MATCH (a)-[e]->(b) WHERE a.val < b.val RETURN a.kind, b.kind",
     "MATCH (a)-[e]->(b) WHERE a.kind = b.kind RETURN a.id, b.id",
+    # numeric-vs-string comparison: polars raises ComputeError (pandas/cypher return
+    # a value/null), so the lowering must decline rather than crash
+    "MATCH (n) RETURN n.val > 'a' AS x",
+    "MATCH (n) WHERE n.val < 'z' RETURN n.id",
     # temporal arithmetic: duration(...) lowers to an ISO string literal, so
     # a.time + duration(...) must NOT silently become string concatenation
     "MATCH (n) RETURN n.val + duration({minutes: 6}) AS t",

@@ -12,10 +12,24 @@ literals, arithmetic/comparison/boolean ``BinaryOp``, ``UnaryOp``, ``IsNullOp``.
 Ops wired to native: ``select``/``with_``/``return_`` projection, ``order_by``.
 Everything else (CASE, list/map, subscript, functions, temporal) → bridge.
 """
+import contextvars
 import re
 from typing import Any, List, Optional, Sequence, Tuple
 
 from graphistry.Plottable import Plottable
+
+
+# Active row-table schema (col -> polars dtype), set by select/where/order_by around
+# lowering so lower_expr can infer FLOAT operands and apply the NaN-comparison guard
+# (below). Free to populate — the schema is already on the table, no scan.
+_SCHEMA: "contextvars.ContextVar[dict]" = contextvars.ContextVar("gfql_polars_schema", default={})
+
+# Comparison ops needing the NaN guard. Polars defines NaN as the LARGEST value, so
+# NaN compares >/>=/== as TRUE — but IEEE/Python/pandas/Cypher compare any NaN as
+# FALSE (and != as TRUE; the Neo4j TCK agrees). For float operands we mask the
+# polars result to the IEEE answer. ``is_nan()`` is float-only, hence the inference.
+_NAN_GUARD_OPS = frozenset({"<", ">", "<=", ">=", "=", "==", "<>", "!="})
+_NAN_NE_OPS = frozenset({"<>", "!="})
 
 
 def _parser():
@@ -119,6 +133,91 @@ def _is_iso_duration_literal(node: Any) -> bool:
     )
 
 
+def _infer_is_float(node: Any, columns: Sequence[str]) -> bool:
+    """Conservatively infer whether an expr node yields a float (NaN-capable) value.
+
+    Used to gate the float-only ``is_nan()`` NaN-comparison guard — only returns True
+    when SURE (float literal, float column, or arithmetic over a float operand), so a
+    wrong guess never makes ``is_nan()`` raise on a non-float expr."""
+    import polars as pl
+    from graphistry.compute.gfql.expr_parser import Identifier, Literal, BinaryOp, UnaryOp, PropertyAccessExpr
+    floats = (pl.Float32, pl.Float64)
+    schema = _SCHEMA.get()
+    if isinstance(node, Literal):
+        return isinstance(node.value, float) and not isinstance(node.value, bool)
+    if isinstance(node, Identifier):
+        return schema.get(node.name) in floats
+    if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
+        src = _resolve_property(node.value.name, node.property, columns)
+        return src is not None and schema.get(src) in floats
+    if isinstance(node, BinaryOp) and node.op in ("+", "-", "*", "/", "%"):
+        return _infer_is_float(node.left, columns) or _infer_is_float(node.right, columns)
+    if isinstance(node, UnaryOp) and node.op == "-":
+        return _infer_is_float(node.operand, columns)
+    return False
+
+
+def _infer_is_string(node: Any, columns: Sequence[str]) -> bool:
+    """Conservatively infer whether an expr node yields a String value."""
+    import polars as pl
+    from graphistry.compute.gfql.expr_parser import Identifier, Literal, PropertyAccessExpr
+    schema = _SCHEMA.get()
+    if isinstance(node, Literal):
+        return isinstance(node.value, str)
+    if isinstance(node, Identifier):
+        return schema.get(node.name) == pl.String
+    if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
+        src = _resolve_property(node.value.name, node.property, columns)
+        return src is not None and schema.get(src) == pl.String
+    return False
+
+
+def _infer_is_numeric(node: Any, columns: Sequence[str]) -> bool:
+    """Conservatively infer whether an expr node yields a numeric (int/float) value."""
+    import polars as pl
+    from graphistry.compute.gfql.expr_parser import Identifier, Literal, BinaryOp, UnaryOp, PropertyAccessExpr
+    nums = (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64, pl.Float32, pl.Float64)
+    schema = _SCHEMA.get()
+    if isinstance(node, Literal):
+        return isinstance(node.value, (int, float)) and not isinstance(node.value, bool)
+    if isinstance(node, Identifier):
+        return schema.get(node.name) in nums
+    if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
+        src = _resolve_property(node.value.name, node.property, columns)
+        return src is not None and schema.get(src) in nums
+    if isinstance(node, BinaryOp) and node.op in ("+", "-", "*", "/", "%"):
+        return _infer_is_numeric(node.left, columns) or _infer_is_numeric(node.right, columns)
+    if isinstance(node, UnaryOp) and node.op == "-":
+        return _infer_is_numeric(node.operand, columns)
+    return False
+
+
+def _is_cross_type_compare(left_node: Any, right_node: Any, columns: Sequence[str]) -> bool:
+    """Numeric-vs-String comparison: polars raises ``ComputeError: cannot compare
+    string with numeric type`` (pandas/cypher return a value/null). Decline natively."""
+    return (
+        (_infer_is_numeric(left_node, columns) and _infer_is_string(right_node, columns))
+        or (_infer_is_string(left_node, columns) and _infer_is_numeric(right_node, columns))
+    )
+
+
+def _nan_guarded(result: Any, op: str, left: Any, right: Any, left_node: Any, right_node: Any, columns: Sequence[str]) -> Any:
+    """Wrap a comparison so NaN operands compare like IEEE/pandas/Cypher, not polars
+    (which treats NaN as the largest value). Only adds ``is_nan()`` terms for operands
+    inferred float, so it is a no-op (and never raises) for int/string/bool comparisons."""
+    nan_terms = []
+    if _infer_is_float(left_node, columns):
+        nan_terms.append(left.is_nan())
+    if _infer_is_float(right_node, columns):
+        nan_terms.append(right.is_nan())
+    if not nan_terms:
+        return result
+    any_nan = nan_terms[0]
+    for term in nan_terms[1:]:
+        any_nan = any_nan | term
+    return (result | any_nan) if op in _NAN_NE_OPS else (result & ~any_nan)
+
+
 def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
     """Lower a parsed cypher ExprNode to a polars expression, or None to defer."""
     import polars as pl
@@ -146,11 +245,16 @@ def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
         # duration literal operand; the pandas engine handles temporal arithmetic.
         if node.op in ("+", "-") and (_is_iso_duration_literal(node.left) or _is_iso_duration_literal(node.right)):
             return None
+        if node.op in _NAN_GUARD_OPS and _is_cross_type_compare(node.left, node.right, columns):
+            return None  # numeric-vs-string comparison -> polars raises -> NIE
         left = lower_expr(node.left, columns)
         right = lower_expr(node.right, columns)
         if left is None or right is None:
             return None
-        return _apply_binop(node.op, left, right)
+        result = _apply_binop(node.op, left, right)
+        if result is not None and node.op in _NAN_GUARD_OPS:
+            result = _nan_guarded(result, node.op, left, right, node.left, node.right, columns)
+        return result
     if isinstance(node, UnaryOp):
         operand = lower_expr(node.operand, columns)
         if operand is None:
@@ -240,10 +344,20 @@ def _rewrap(g: Plottable, table_df: Any) -> Plottable:
     return frame_ops.row_table(_RowPipelineAdapter(g), table_df)
 
 
+def _lower_with_schema(table: Any, fn):
+    """Run a lowering callable with the active table schema published to ``_SCHEMA``
+    (for the float-operand inference behind the NaN-comparison guard)."""
+    token = _SCHEMA.set(dict(table.schema))
+    try:
+        return fn()
+    finally:
+        _SCHEMA.reset(token)
+
+
 def select_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
     """Native polars projection; None if any item isn't lowerable."""
     table = _active_table(g)
-    exprs = lower_select_items(items, list(table.columns))
+    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)))
     if exprs is None:
         return None
     out = table.select(exprs)
@@ -290,7 +404,7 @@ def where_rows_polars(
     if expr is not None:
         if not isinstance(expr, str):
             return None
-        lowered = lower_expr_str(expr, columns)
+        lowered = _lower_with_schema(table, lambda: lower_expr_str(expr, columns))
         if lowered is None:
             return None
         preds.append(lowered)
@@ -305,7 +419,7 @@ def where_rows_polars(
 def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
     """Native polars sort; None if any key isn't lowerable."""
     table = _active_table(g)
-    lowered = lower_order_by_keys(keys, list(table.columns))
+    lowered = _lower_with_schema(table, lambda: lower_order_by_keys(keys, list(table.columns)))
     if lowered is None:
         return None
     exprs, descending = lowered

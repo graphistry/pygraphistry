@@ -95,6 +95,23 @@ def _is_membership(value: Any) -> bool:
     return isinstance(value, (list, tuple, set, frozenset))
 
 
+def _is_cross_type_predicate(df, col: str, pred: ASTPredicate) -> bool:
+    """True if a comparison predicate compares a numeric column to a string value
+    (or vice versa) — polars raises ``cannot compare string with numeric type``;
+    pandas/cypher return a value/null. Detect so the caller can decline (NIE)."""
+    import polars as pl
+    val = getattr(pred, "val", None)
+    if val is None or getattr(pred, "op", None) is None:
+        return False
+    nums = (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64, pl.Float32, pl.Float64)
+    dtype = df.schema.get(col)
+    col_num = dtype in nums
+    col_str = dtype == pl.String
+    val_str = isinstance(val, str)
+    val_num = isinstance(val, (int, float)) and not isinstance(val, bool)
+    return (col_num and val_str) or (col_str and val_num)
+
+
 def filter_by_dict_polars(df, filter_dict: Optional[dict]):
     """Return rows of polars ``df`` matching all entries in ``filter_dict`` via one filter."""
     import polars as pl
@@ -106,6 +123,13 @@ def filter_by_dict_polars(df, filter_dict: Optional[dict]):
     for col, val in filter_dict.items():
         resolved_col, resolved_val = resolve_filter_column(df, col, val)
         if isinstance(resolved_val, ASTPredicate):
+            if _is_cross_type_predicate(df, resolved_col, resolved_val):
+                # numeric-vs-string comparison -> polars ComputeError; decline (NIE).
+                raise NotImplementedError(
+                    f"polars engine does not yet natively support a numeric-vs-string "
+                    f"comparison on column {resolved_col!r}; use engine='pandas' for this "
+                    f"query (no pandas fallback — see plans/gfql-polars-engine NO-CHEATING)"
+                )
             expr = predicate_to_expr(resolved_col, resolved_val)
             if expr is None:
                 # NO-CHEATING: no native lowering for this predicate, and we will
