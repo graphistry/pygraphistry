@@ -227,3 +227,30 @@ def test_where_rows_numeric_filter_returns_correct_rows() -> None:
 
     out = _mk_graph(nodes_df, edges_df).gfql([rows(), where_rows(expr="val > 50")])._nodes
     assert sorted(out["val"].tolist()) == [51, 60, 99]
+
+
+@pytest.mark.parametrize(
+    "series",
+    [
+        pd.Series([1, 2, 3], dtype="int64"),
+        pd.Series([1, 2, 3], dtype="uint32"),
+        pd.Series([1.0, 2.0], dtype="float64"),
+        pd.Series([True, False], dtype="bool"),
+    ],
+    ids=["int64", "uint32", "float64", "bool"],
+)
+def test_gfql_series_is_list_like_skips_non_listable_dtypes(series: pd.Series) -> None:
+    # pipeline.py sibling of the ordering gate: numeric/bool columns can never be
+    # list-like, so the detector short-circuits before the astype(str)+regex scan.
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+    assert RowPipelineMixin._gfql_series_is_list_like(series) is False
+
+
+def test_gfql_series_is_list_like_still_detects_real_lists() -> None:
+    # Gate must not regress detection of real list/tuple-valued object columns.
+    # (Stringified lists like "[1, 2]" are intentionally NOT list-like here — that
+    # case is handled by order_detect_stringified_list_series, not this helper.)
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+    assert RowPipelineMixin._gfql_series_is_list_like(pd.Series([[1, 2], [3, 4]], dtype="object")) is True
+    assert RowPipelineMixin._gfql_series_is_list_like(pd.Series(["[1, 2]", "[3, 4]"], dtype="object")) is False
+    assert RowPipelineMixin._gfql_series_is_list_like(pd.Series(["abc", "def"], dtype="object")) is False
