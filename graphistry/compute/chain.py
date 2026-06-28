@@ -873,9 +873,14 @@ def _chain_impl(
     if validate_schema:
         validate_chain_schema(self, ops, collect_all=False)
 
-    _fast = _try_chain_fast_path(self, ops, engine_concrete, start_nodes)
-    if _fast is not None:
-        return _fast
+    # The fast path skips the per-op chain machinery — and with it the policy hook
+    # dispatch (prechain/postchain below) and per-op policy inspection. Only take it
+    # when no policy is attached, so policy-bearing queries keep their observable
+    # hook firing + op-level enforcement (correctness over the perf shortcut).
+    if not policy:
+        _fast = _try_chain_fast_path(self, ops, engine_concrete, start_nodes)
+        if _fast is not None:
+            return _fast
 
     if isinstance(ops[0], ASTEdge):
         logger.debug('adding initial node to ensure initial link has needed reversals')
