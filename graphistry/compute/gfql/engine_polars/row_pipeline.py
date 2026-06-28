@@ -120,6 +120,19 @@ def _lower_function(node: Any, columns: Sequence[str]) -> Optional[Any]:
 
 _ISO_DURATION_RE = re.compile(r"^-?P(?=[0-9T])")
 
+# ISO-8601 date / datetime / time-with-seconds-or-timezone. Cypher ``date({...})`` /
+# ``time({...})`` / ``datetime({...})`` are lowered to these ISO strings; comparing
+# them with polars string ``</>`` is LEXICOGRAPHIC (wrong across timezones/precision).
+# Requires seconds or a timezone on bare times so ordinary ``'10:00'`` strings don't match.
+_ISO_TEMPORAL_RE = re.compile(
+    r"""^(
+        \d{4}-\d{2}-\d{2}([T\ ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?
+      | \d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})
+      | \d{2}:\d{2}:\d{2}(\.\d+)?
+    )$""",
+    re.VERBOSE,
+)
+
 
 def _is_iso_duration_literal(node: Any) -> bool:
     """True if ``node`` is a string Literal holding an ISO-8601 duration (``PT6M``,
@@ -130,6 +143,18 @@ def _is_iso_duration_literal(node: Any) -> bool:
         isinstance(node, Literal)
         and isinstance(node.value, str)
         and _ISO_DURATION_RE.match(node.value) is not None
+    )
+
+
+def _is_iso_temporal_literal(node: Any) -> bool:
+    """True if ``node`` is a string Literal holding an ISO date/datetime/time — what
+    cypher ``date()``/``time()``/``datetime()`` constructors lower to. Used to decline
+    (NIE) temporal comparison, which polars would do lexicographically (wrong)."""
+    from graphistry.compute.gfql.expr_parser import Literal
+    return (
+        isinstance(node, Literal)
+        and isinstance(node.value, str)
+        and _ISO_TEMPORAL_RE.match(node.value) is not None
     )
 
 
@@ -247,6 +272,8 @@ def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
             return None
         if node.op in _NAN_GUARD_OPS and _is_cross_type_compare(node.left, node.right, columns):
             return None  # numeric-vs-string comparison -> polars raises -> NIE
+        if node.op in _NAN_GUARD_OPS and (_is_iso_temporal_literal(node.left) or _is_iso_temporal_literal(node.right)):
+            return None  # ISO temporal comparison -> polars compares strings lexicographically (wrong) -> NIE
         left = lower_expr(node.left, columns)
         right = lower_expr(node.right, columns)
         if left is None or right is None:
