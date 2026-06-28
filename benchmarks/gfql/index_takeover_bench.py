@@ -120,6 +120,45 @@ def bench_kuzu(ndf, edf, N, E, reps, outf):
                             edges=E, warm_idx_ms=warm, build_ms=build_ms, rows=rows)) + "\n"); outf.flush()
 
 
+def bench_neo4j(ndf, edf, N, E, reps, outf):
+    uri = os.environ.get("NEO4J_URI")
+    if not uri:
+        print("  neo4j: skipped (no NEO4J_URI)"); return
+    try:
+        from neo4j import GraphDatabase
+    except Exception:
+        print("  neo4j: driver NOT AVAILABLE"); return
+    drv = GraphDatabase.driver(uri, auth=(os.environ.get("NEO4J_USER", "neo4j"),
+                                          os.environ.get("NEO4J_PASS", "testpass123")))
+    node_ids = ndf["id"].tolist(); edge_rows = edf.values.tolist(); BATCH = 20000
+    t0 = time.perf_counter()
+    with drv.session() as s:
+        s.run("MATCH (n) DETACH DELETE n")
+        s.run("CREATE INDEX n_id IF NOT EXISTS FOR (n:N) ON (n.id)")
+        s.run("CALL db.awaitIndexes(300)")
+        for i in range(0, len(node_ids), BATCH):
+            s.run("UNWIND $ids AS x CREATE (:N {id:x})", ids=node_ids[i:i + BATCH])
+        for i in range(0, len(edge_rows), BATCH):
+            s.run("UNWIND $rows AS r MATCH (a:N {id:r[0]}),(b:N {id:r[1]}) CREATE (a)-[:E]->(b)",
+                  rows=edge_rows[i:i + BATCH])
+        s.run("CALL db.awaitIndexes(300)")
+    load_ms = (time.perf_counter() - t0) * 1e3
+    qs = {"SEL1": "MATCH (a:N {id:0})-[:E]->(b:N) RETURN b.id AS id",
+          "SEL2": "MATCH (a:N {id:0})-[:E]->()-[:E]->(b:N) RETURN DISTINCT b.id AS id"}
+    with drv.session() as s:
+        for task, q in qs.items():
+            for _ in range(2):
+                list(s.run(q))
+            ts = []
+            for _ in range(reps):
+                t = time.perf_counter(); data = list(s.run(q)); ts.append((time.perf_counter() - t) * 1e3)
+            ts.sort(); warm = statistics.median(ts)
+            print(f"  neo4j {'':11} {task} warm={warm:8.4f}ms rows={len(data)} load={load_ms:.0f}ms")
+            if outf: outf.write(json.dumps(dict(system="neo4j", engine="neo4j", task=task, n=N,
+                                edges=E, warm_idx_ms=warm, build_ms=load_ms, rows=len(data))) + "\n"); outf.flush()
+    drv.close()
+
+
 def main():
     NS = [int(x) for x in os.environ.get("NS", "800000,8000000").split(",")]
     DEG = int(os.environ.get("DEG", "8"))
@@ -136,6 +175,8 @@ def main():
             bench_gfql(ndf, edf, N, E, ENGINES, REPS, outf)
         if "kuzu" in SYSTEMS:
             bench_kuzu(ndf, edf, N, E, REPS, outf)
+        if "neo4j" in SYSTEMS:
+            bench_neo4j(ndf, edf, N, E, REPS, outf)
     if outf: outf.close()
 
 
