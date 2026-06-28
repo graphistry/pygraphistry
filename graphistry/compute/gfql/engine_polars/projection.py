@@ -2,11 +2,13 @@
 
 Lives in ``engine_polars`` (not the pandas-audited ``cypher`` package) so the
 polars-only rendering doesn't depress the pandas gfql coverage audit. Handles
-the result projection for ``engine='polars'``: native ``rows_df.select`` for
-property/expr columns and native ``({prop: val, ...})`` entity text for
-single-entity int/string/bool nodes; raises NotImplementedError (NO pandas
-bridge — see plan.md NO-CHEATING) for formatting not yet native (whole-row
-floats/temporal/nested, labels, multi-entity, edges, exotic expressions).
+the result projection for ``engine='polars'``. The #1650 default (``structured=True``)
+FLATTENS a whole-entity ``RETURN n`` to ``{output}.{field}`` columns natively for ANY
+dtype (float/temporal/nested included — they just become columns, no rendering), so the
+common whole-entity case is native regardless of dtype. The legacy Cypher display-string
+rendering (``structured=False``) stays native only for single-entity int/string/bool
+nodes; it raises NotImplementedError (NO pandas bridge — see plan.md NO-CHEATING) for
+float/temporal/nested entity text, labels, multi-entity, edges, and exotic expressions.
 Differential-conformance gated. See plans/gfql-polars-engine.
 """
 from typing import Any, Optional
@@ -53,7 +55,8 @@ def _native_scalar_text_expr(col: str, dtype: Any) -> Optional[Any]:
     return None so the caller raises NotImplementedError for those entities.
     """
     import polars as pl
-    if dtype in (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64):
+    from .dtypes import is_int
+    if is_int(dtype):
         return pl.col(col).cast(pl.String)
     if dtype == pl.Boolean:
         return pl.when(pl.col(col)).then(pl.lit("true")).otherwise(pl.lit("false"))
@@ -80,13 +83,13 @@ def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Opt
         return None
     if "type" in cols or any(str(c).startswith("label__") for c in cols):
         return None
+    from .dtypes import is_int
     schema = rows_df.schema
-    _int_dtypes = (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64)
     # Mirror entity_props.node_property_columns but with a polars-aware "numeric
     # id is a property" check (the pandas helper's pd.api.types check drops id).
     internal = {"id", "labels", "type"}
     excluded = set(str(c) for c in (exclude or ()))
-    include_id = "id" in cols and schema["id"] in _int_dtypes
+    include_id = "id" in cols and is_int(schema["id"])
     prop_cols = [
         str(c) for c in cols
         if str(c) != alias and str(c) not in excluded

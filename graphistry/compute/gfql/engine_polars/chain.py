@@ -13,13 +13,28 @@ from typing import Any, List, Optional, Tuple
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
-from .hop import hop_polars, ensure_nodes_polars
+from .hop import ensure_nodes_polars
 from .predicates import filter_by_dict_polars
 
 
 def _semi(df, ids_df, df_col, id_col):
     """Rows of df whose df_col is present in ids_df[id_col] (vectorized semi-join)."""
     return df.join(ids_df.select(id_col).unique(), left_on=df_col, right_on=id_col, how="semi")
+
+
+def _align_seed_dtype(seed, node_col, ref_nodes):
+    """Cast the seed's node-id column to the node table's id dtype so the seed↔node
+    semi-join keys match. A ``start_nodes`` frame can arrive with a divergent id dtype
+    (e.g. an empty crossfilter selection defaults to float64 while node ids are int64),
+    which polars won't auto-cast — the combine semi-join then raises ``SchemaError``
+    where pandas joins fine. No-op when the column is absent or already matches."""
+    import polars as pl
+    if seed is None or node_col not in seed.columns:
+        return seed
+    ndt = ref_nodes.schema[node_col]
+    if seed.schema[node_col] == ndt:
+        return seed
+    return seed.with_columns(pl.col(node_col).cast(ndt))
 
 
 def _align_edge_endpoints(g, node_col, src, dst):
@@ -253,7 +268,6 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     implementation raises ``NotImplementedError`` (NO pandas fallback — see
     plan.md NO-CHEATING) rather than secretly running the pandas row pipeline.
     """
-    from graphistry.Engine import Engine
     from graphistry.compute.ast import ASTCall, ASTNode as _ASTNode, ASTEdge as _ASTEdge, rows as rows_fn
     from graphistry.compute.chain import serialize_binding_ops
 
@@ -328,6 +342,24 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
     if len(ops) == 0:
         return self
 
+    # Reject duplicate alias names (node aliases and edge aliases scoped separately,
+    # mirroring the pandas ``combine_steps`` E201 guard). Without this, a reused name
+    # like ``[n(name='a'), e(), n(name='a')]`` produces a malformed schema (colliding
+    # ``a``/``a_right`` join columns) — a wrong answer where pandas declines.
+    for _alias_type in (ASTNode, ASTEdge):
+        _seen: dict = {}
+        for _idx, _op in enumerate(ops):
+            _name = getattr(_op, "_name", None)
+            if _name is not None and isinstance(_op, _alias_type):
+                if _name in _seen:
+                    from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
+                    raise GFQLValidationError(
+                        code=ErrorCode.E201,
+                        message=f"Duplicate alias name '{_name}' in chain (steps {_seen[_name]} and {_idx})",
+                        suggestion="Use distinct alias names for each step in the chain",
+                    )
+                _seen[_name] = _idx
+
     has_call = any(isinstance(op, ASTCall) for op in ops)
     has_traversal = any(isinstance(op, (ASTNode, ASTEdge)) for op in ops)
 
@@ -393,7 +425,8 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         nodes = filter_by_dict_polars(g0._nodes, op0.filter_dict)
         if start_nodes is not None:
             from graphistry.Engine import Engine as _E, df_to_engine as _d2e
-            nodes = _semi(nodes, _d2e(start_nodes, _E.POLARS), nc, nc)
+            seed = _align_seed_dtype(_d2e(start_nodes, _E.POLARS), nc, g0._nodes)
+            nodes = _semi(nodes, seed, nc, nc)
         if op0._name is not None:
             nodes = nodes.with_columns(pl.lit(True).alias(op0._name))
         return g0.nodes(nodes, nc).edges(g0._edges.clear(), g0._source, g0._destination)
@@ -466,6 +499,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
 
     g = ensure_nodes_polars(self)
     assert g._node is not None and g._source is not None and g._destination is not None
+    start_nodes = _align_seed_dtype(start_nodes, g._node, g._nodes)
     g, _endpoint_restore = _align_edge_endpoints(g, g._node, g._source, g._destination)
     if g._edge is None:
         EID = "__gfql_edge_index__"

@@ -14,9 +14,19 @@ from typing import Any, List, Optional
 
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.filter_by_dict import resolve_filter_column
+from .dtypes import is_numeric as _dtype_numeric, is_stringlike as _dtype_stringlike
 
 
 def _cmp_expr(col_expr, op, val):
+    # NOTE (narrow residual): these comparisons do NOT apply the IEEE NaN mask that the
+    # WHERE/row-pipeline lowering does (``_nan_guard``). On a GENUINE polars NaN (not
+    # null), ``col > x`` keeps the NaN row (polars treats NaN as largest) where pandas
+    # drops it. This is unreachable on the standard ingestion path — ``from_pandas`` /
+    # ``df_to_engine`` convert NaN→null (``nan_to_null``), and filter_by_dict runs on
+    # INGESTED property columns (no in-query float math, which is the WHERE path). Only a
+    # natively-constructed polars frame carrying raw NaN would diverge; documented rather
+    # than guarded to keep the predicate lowering simple. (Mirrors the documented integer
+    # ``0/0`` column-compare residual.)
     if op is operator.gt:
         return col_expr > val
     if op is operator.lt:
@@ -95,31 +105,17 @@ def _is_membership(value: Any) -> bool:
     return isinstance(value, (list, tuple, set, frozenset))
 
 
-def _dtype_stringlike(dtype) -> bool:
-    """String / Categorical / Enum — all raise vs a numeric operand in polars."""
-    import polars as pl
-    if dtype == pl.String:
-        return True
-    for name in ("Categorical", "Enum"):
-        t = getattr(pl, name, None)
-        if t is not None and (dtype == t or isinstance(dtype, t)):
-            return True
-    return False
-
-
 def _is_cross_type_predicate(df, col: str, pred: ASTPredicate) -> bool:
     """True if a comparison predicate compares a numeric column to a string value
     (or vice versa) — polars raises ``cannot compare string with numeric type`` (an
     uncatchable Rust panic when nested) ; pandas/cypher return a value/null. Recurses
     into ``AllOf`` (the fold of ``x>a AND x<b``) and ``Between`` (lower+upper), since a
     cross-type comparison hidden inside those is otherwise lowered and panics."""
-    import polars as pl
     name = type(pred).__name__
     if name == "AllOf" and hasattr(pred, "predicates"):
         return any(_is_cross_type_predicate(df, col, p) for p in pred.predicates)
-    nums = (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64, pl.Float32, pl.Float64)
     dtype = df.schema.get(col)
-    col_num = dtype in nums
+    col_num = _dtype_numeric(dtype)
     col_str = _dtype_stringlike(dtype)
 
     def _mismatch(v: Any) -> bool:
