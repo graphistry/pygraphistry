@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, Dict, Literal, Optional, TypedDict, cast
+from typing import Any, Dict, List, Literal, Optional, Set, TypedDict, cast
 
 import pandas as pd
 
@@ -368,6 +368,22 @@ def apply_result_projection(
                 projected_data[column.output_name] = _project_property_column(property_rows_df, column=column)
             else:
                 projected_data[column.output_name] = _project_expr_column(result, rows_df, column=column)
+    # De-duplicate output columns (#1650): flattening a whole-entity `a` into
+    # `a.id, a.val, ...` shares the `{alias}.{field}` namespace with an explicit
+    # property projection, so `RETURN a, a.val` would otherwise emit `a.val` twice —
+    # a duplicate-named column that breaks selection and silently drops data on
+    # `to_dict`/serialization. The Cypher-level duplicate-name check can't catch it
+    # (it sees distinct `a` vs `a.val`); the collision only appears post-flatten.
+    # Both producers read the same source field (dotted backtick aliases are
+    # rejected by the parser), so the values are identical — keep first occurrence.
+    if len(set(output_columns)) != len(output_columns):
+        seen: Set[str] = set()
+        deduped: List[str] = []
+        for c in output_columns:
+            if c not in seen:
+                seen.add(c)
+                deduped.append(c)
+        output_columns = deduped
     projected_rows = alias_rows_df
     if rows_df.__class__.__module__.startswith("cudf") and any(isinstance(value, pd.Series) for value in projected_data.values()):
         projected_rows = cast(DataFrameT, cast(Any, alias_rows_df).to_pandas())

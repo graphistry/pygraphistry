@@ -410,6 +410,31 @@ class TestGFQL:
             {"a.id": "b", "a.type": "B"},
         ]
 
+    def test_gfql_whole_entity_plus_property_projection_no_duplicate_column(self):
+        """#1650: `RETURN a, a.val` must not emit a duplicate `a.val` column. The
+        whole-entity flatten (`a` -> a.id, a.val, ...) shares the `{alias}.{field}`
+        namespace with the explicit `a.val` projection; the duplicate is collapsed
+        (identical data) so selection + serialization stay well-formed."""
+        nodes_df = pd.DataFrame({"id": ["x", "y"], "val": [1, 2]})
+        g = CGFull().nodes(nodes_df, "id").edges(pd.DataFrame({"s": ["x"], "d": ["y"]}), "s", "d")
+        for q in ("MATCH (a) RETURN a, a.val", "MATCH (a) RETURN a.val, a", "MATCH (a) RETURN a, a.id"):
+            cols = list(g.gfql(q)._nodes.columns)
+            assert len(cols) == len(set(cols)), f"duplicate column for {q!r}: {cols}"
+            assert "a.val" in cols and "a.id" in cols
+            # round-trips without the "columns are not unique" data-dropping warning
+            recs = g.gfql(q)._nodes.to_dict(orient="records")
+            assert recs[0]["a.val"] in (1, 2)
+
+    def test_gfql_whole_entity_with_no_fields_falls_back_to_text(self):
+        """#1650 boundary: a whole entity with no flattenable field (edge with no
+        edge-id binding, no properties, no type) has nothing to flatten, so it emits
+        the single Cypher-display-text column under the bare alias. Value is correct
+        (`[]`); documented in CHANGELOG. Nodes always carry an id field and flatten."""
+        g = CGFull().edges(pd.DataFrame({"s": ["x", "y"], "d": ["y", "z"]}), "s", "d")
+        out = g.gfql("MATCH (a)-[e]->(b) RETURN e")._nodes
+        assert list(out.columns) == ["e"]
+        assert out["e"].tolist() == ["[]", "[]"]
+
     def test_gfql_rejects_cypher_union_with_mismatched_columns(self):
         with pytest.raises(GFQLValidationError) as exc_info:
             _mk_empty_graph().gfql("RETURN 1 AS a UNION RETURN 2 AS b")
