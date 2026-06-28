@@ -2,6 +2,10 @@ from dataclasses import dataclass
 from typing import Literal, Optional, Tuple, Union
 
 
+# INVARIANT: every Cypher AST node below must stay DEEPLY immutable. `parse_cypher`
+# results are shared by reference via an lru_cache (see `_parse_cypher_cached`), so a
+# mutable field (a list/dict/`field(default_factory=...)`) would let one caller's
+# in-place mutation poison every subsequent cache hit. Keep fields scalar/tuple/frozen.
 @dataclass(frozen=True)
 class SourceSpan:
     line: int

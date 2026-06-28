@@ -727,7 +727,11 @@ def _try_chain_fast_path(g_in: Plottable, ops, engine_concrete, start_nodes=None
             and e1.edge_match is None and e1.source_node_match is None
             and e1.destination_node_match is None and e1._name is None
             and e1.source_node_query is None and e1.destination_node_query is None
-            and e1.edge_query is None and not e1.include_zero_hop_seed):
+            and e1.edge_query is None and not e1.include_zero_hop_seed
+            and not e1.prune_to_endpoints):
+        # prune_to_endpoints keeps only the arrival-side endpoints (dest for forward,
+        # src for reverse); the fast path returns both endpoints, so it would diverge.
+        # Fall through to the full path, which honors the flag.
         return None
     direction = e1.direction
     unconstrained = not n0.filter_dict and not n2.filter_dict
