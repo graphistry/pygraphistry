@@ -229,6 +229,20 @@ def test_where_rows_numeric_filter_returns_correct_rows() -> None:
     assert sorted(out["val"].tolist()) == [51, 60, 99]
 
 
+@pytest.mark.skipif("TEST_CUDF" not in __import__("os").environ, reason="cuDF lane: set TEST_CUDF=1 (e.g. dgx-spark)")
+def test_where_rows_numeric_filter_returns_correct_rows_cudf() -> None:
+    # cuDF lane for the numeric dtype-gate end-to-end path: the gate is pure
+    # dtype.kind inspection (engine-agnostic), but compute/gfql/row needs paired
+    # cuDF coverage per the review conventions.
+    cudf = pytest.importorskip("cudf")
+    from graphistry.compute.ast import where_rows
+    nodes_df = cudf.DataFrame({"id": [0, 1, 2, 3], "val": [10, 60, 51, 99]})
+    edges_df = cudf.DataFrame({"s": [0, 1], "d": [2, 3]})
+    out = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d").gfql(
+        [rows(), where_rows(expr="val > 50")])._nodes
+    assert sorted(out["val"].to_pandas().tolist()) == [51, 60, 99]
+
+
 @pytest.mark.parametrize(
     "series",
     [
@@ -276,3 +290,23 @@ def test_is_non_textual_scalar_dtype(dtype_str: str, expected: bool) -> None:
 def test_is_non_textual_scalar_dtype_none() -> None:
     from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
     assert is_non_textual_scalar_dtype(None) is False
+
+
+def test_dtype_gate_kind_set_matches_filter_by_dict_mirror() -> None:
+    """Drift guard: `filter_by_dict._is_numeric_dtype_safe` keeps a SEPARATE copy of
+    the dtype-kind set that `series_str_compat._NON_TEXTUAL_SCALAR_KINDS` is the SSOT
+    for (a cross-layer import would risk an import cycle, so the copy stays — but it
+    MUST NOT drift). Assert the two agree across every numpy dtype kind, so a future
+    edit to one set fails here instead of silently desyncing the gate."""
+    import numpy as np
+    from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
+    from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe
+    # One representative dtype per numpy kind, incl. text/temporal/extension kinds.
+    samples = [
+        np.dtype("int64"), np.dtype("uint8"), np.dtype("float64"), np.dtype("bool"),
+        np.dtype("complex128"), np.dtype("object"), np.dtype("datetime64[ns]"),
+        np.dtype("timedelta64[ns]"), np.dtype("<U5"), np.dtype("S3"),
+    ]
+    for dt in samples:
+        assert is_non_textual_scalar_dtype(dt) == _is_numeric_dtype_safe(dt), \
+            f"dtype-gate kind set drift for {dt!r}: SSOT and filter_by_dict mirror disagree"

@@ -683,6 +683,10 @@ _BYPASS_SHAPES = [
     ("filtered_undirected", lambda: [n({'attr': 10}), e_undirected(hops=1), n({'attr': 30})]),
     ("edge_match", lambda: [n(), e_forward(hops=1, edge_match={'w': 5}), n()]),
     ("named_node", lambda: [n(name='x'), e_forward(hops=1), n()]),
+    # prune_to_endpoints: fast path returns both endpoints; full path keeps only the
+    # arrival side. Must bypass the fast path (regression guard for the prune gate).
+    ("prune_endpoints_fwd", lambda: [n(), e_forward(hops=1, prune_to_endpoints=True), n()]),
+    ("prune_endpoints_rev", lambda: [n(), e_reverse(hops=1, prune_to_endpoints=True), n()]),
 ]
 
 
@@ -691,11 +695,23 @@ _BYPASS_SHAPES = [
                          ids=[s[0] for s in _FAST_SHAPES + _BYPASS_SHAPES])
 def test_fast_path_differential_parity_vs_full_path(engine, label, build):
     """Fast path output == full (policy-forced BFS) path output, by node/edge SET,
-    for every accelerated shape AND every bypass shape, on pandas and cuDF."""
+    for every accelerated shape AND every bypass shape, on pandas and cuDF.
+
+    For FAST shapes `g.gfql(ops)` exercises the fast path and the policy-forced call
+    the full BFS, so this is a true differential. For BYPASS shapes both calls take
+    the full path (the point being they MUST decline the fast path); the decline is
+    asserted directly below so the bypass cases are not merely full-vs-full."""
+    from graphistry.compute.chain import _try_chain_fast_path
+    from graphistry.Engine import Engine
     g = _fast_graph(engine)
     fast = g.gfql(build())
     full = g.gfql(build(), policy=_FAST_NOOP_POLICY)
     assert _setsig(fast) == _setsig(full), f"{engine}/{label}: fast != full"
+    # Bypass shapes must genuinely decline the fast path (not vacuously full==full).
+    if engine == "pandas" and any(label == s[0] for s in _BYPASS_SHAPES):
+        eng = Engine.PANDAS
+        assert _try_chain_fast_path(g, build(), eng, None) is None, \
+            f"{label}: bypass shape must decline the fast path"
 
 
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
@@ -745,6 +761,7 @@ def test_fast_path_gating_returns_none_for_ineligible():
         ("edge_match", [n(), e_forward(hops=1, edge_match={'w': 5}), n()], None, Engine.PANDAS),
         ("named_node", [n(name='x'), e_forward(hops=1), n()], None, Engine.PANDAS),
         ("node_query", [n(query='attr > 5'), e_forward(hops=1), n()], None, Engine.PANDAS),
+        ("prune_endpoints", [n(), e_forward(hops=1, prune_to_endpoints=True), n()], None, Engine.PANDAS),
         ("seeded", [n()], seed, Engine.PANDAS),
         ("non_eager_engine", [n()], None, Engine.DASK),
         ("two_ops", [n(), e_forward(hops=1)], None, Engine.PANDAS),
@@ -812,6 +829,24 @@ def test_fast_path_drops_edges_to_absent_nodes(engine):
               [n({'attr': 2}), e_forward(hops=1), n()]):
         assert _setsig(g.gfql(q)) == _setsig(g.gfql(q, policy=_FAST_NOOP_POLICY)), \
             f"dangling-edge divergence for {q}"
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_fast_path_drops_nan_endpoint_edges(engine):
+    """A NaN node id must not validate a NaN edge endpoint. pandas/cuDF `.isin`
+    treat NaN as matchable (NaN.isin([NaN]) is True), but the full BFS path's joins
+    never match NaN<->NaN, so it drops NaN-endpoint edges. The fast path's `.dropna()`
+    on the node-id column must keep it consistent. Regression guard for the NaN fix."""
+    import numpy as np
+    nodes = pd.DataFrame({'v': [0.0, 1.0, np.nan], 'attr': [1, 2, 3]})  # NaN node id present
+    edges = pd.DataFrame({'s': [0.0, 1.0], 'd': [1.0, np.nan]})  # NaN destination endpoint
+    if engine == "cudf":
+        cudf = _cudf_or_skip()
+        nodes, edges = cudf.DataFrame.from_pandas(nodes), cudf.DataFrame.from_pandas(edges)
+    g = CGFull().nodes(nodes, 'v').edges(edges, 's', 'd')
+    for q in ([n(), e_forward(hops=1), n()], [n(), e_reverse(hops=1), n()]):
+        assert _setsig(g.gfql(q)) == _setsig(g.gfql(q, policy=_FAST_NOOP_POLICY)), \
+            f"NaN-endpoint divergence for {q}"
 
 
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
