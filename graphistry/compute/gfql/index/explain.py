@@ -7,14 +7,14 @@ a mystery — the top human-factors need from the design review (P0-1).
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 from graphistry.Engine import resolve_engine
 from .api import index_trace, get_registry, show_indexes
 
 
 def gfql_explain(g: Any, query: Any, *, index_policy: str = "use", engine: str = "auto") -> Dict[str, Any]:
-    eng = resolve_engine(engine, g)
+    eng = resolve_engine(cast(Any, engine), g)
     resident = show_indexes(g)
     with index_trace() as steps:
         try:

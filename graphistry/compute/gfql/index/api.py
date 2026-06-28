@@ -8,7 +8,7 @@ stale indexes (treated as absent, never a wrong answer).
 from __future__ import annotations
 
 import copy
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 from graphistry.Engine import EngineAbstract, Engine, resolve_engine
 from graphistry.Plottable import Plottable
@@ -86,7 +86,7 @@ def create_index(
     O(E log E) once, amortized over later seeded queries.
     """
     from dataclasses import replace
-    eng = resolve_engine(engine, g)
+    eng = resolve_engine(cast(Any, engine), g)
     # Build over frames already in the target engine so the index arrays land on
     # the right backend (cupy for cudf, numpy otherwise). No-op when already in-engine.
     from graphistry.compute.ComputeMixin import _coerce_input_formats
@@ -112,15 +112,15 @@ def create_index(
         node_col = g2._node
         assert node_col is not None and g2._nodes is not None
         _check_column(column, node_col, kind)
-        idx = build_node_id_index(g2._nodes, node_col, eng)
-        if idx is None:
+        node_idx = build_node_id_index(g2._nodes, node_col, eng)
+        if node_idx is None:
             raise ValueError(
                 f"Cannot build a {NODE_ID!r} index: node id column {node_col!r} has "
                 f"duplicate values (a node-id index requires unique ids). Seeded "
                 f"traversal still works via the un-indexed node materialization path."
             )
-        idx = replace(idx, name=name or index_name(kind, node_col))
-        registry = registry.with_index(NODE_ID, idx)
+        node_idx = replace(node_idx, name=name or index_name(kind, node_col))
+        registry = registry.with_index(NODE_ID, node_idx)
         return _attach(g2, registry)
 
     raise ValueError(f"Unknown GFQL index kind: {kind!r}. Expected one of {ALL_KINDS}.")
@@ -149,7 +149,9 @@ def show_indexes(g: Plottable) -> Any:
     rows = []
     for kind in registry.kinds():
         idx = registry.get(kind)
+        assert idx is not None  # iterating registry.kinds() -> present
         if kind in ADJ_KINDS:
+            assert g._source is not None and g._destination is not None
             valid = registry.get_valid(kind, g._edges, (g._source, g._destination), idx.engine) is not None
             n_keys, n_rows = idx.n_keys, idx.n_edges
         else:  # NODE_ID
