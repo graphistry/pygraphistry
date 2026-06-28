@@ -734,7 +734,14 @@ def _try_chain_fast_path(
     if g._nodes is None or g._edges is None:
         return None
     src, dst, node = g._source, g._destination, g._node
-    edges = g._edges
+    # Restrict to edges whose BOTH endpoints exist in the node table. The full BFS
+    # path enforces this implicitly via its edge<->node joins, so a supplied node
+    # table that omits some edge endpoints (a filtered/subset node frame, or nodes
+    # and edges loaded separately) must drop those dangling edges — otherwise the
+    # fast path emits edges to non-existent nodes, or a non-empty result where the
+    # full path is correctly empty.
+    node_ids = g._nodes[node]
+    edges = g._edges[g._edges[src].isin(node_ids) & g._edges[dst].isin(node_ids)]
     if not unconstrained:
         from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
         if n0.filter_dict:
@@ -749,6 +756,9 @@ def _try_chain_fast_path(
         edges[[dst]].rename(columns={dst: node}),
     ]).drop_duplicates()
     nodes = g._nodes[g._nodes[node].isin(endpoints[node])]
+    # The full path collapses duplicate node-id rows via its merge; match that so a
+    # malformed node table with duplicate ids does not diverge.
+    nodes = nodes.drop_duplicates(subset=[node])
     return g.nodes(nodes).edges(edges)
 
 

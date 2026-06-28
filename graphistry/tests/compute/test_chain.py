@@ -792,3 +792,37 @@ def test_chain_otel_span_attrs_mapped_correctly(monkeypatch):
     # correct mapping is the bool default.
     assert isinstance(attrs.get("gfql.validate_schema"), bool), \
         f"validate_schema attr must be a bool, got {type(attrs.get('gfql.validate_schema'))}"
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_fast_path_drops_edges_to_absent_nodes(engine):
+    """The 1-hop fast path must drop edges whose endpoints are not in the node
+    table (the full BFS path does, via its edge<->node joins). A node table that
+    omits an edge endpoint must not yield dangling edges — nor a non-empty result
+    where the full path is empty."""
+    nodes = pd.DataFrame({'v': [0, 1], 'attr': [1, 2]})
+    edges = pd.DataFrame({'s': [0, 1], 'd': [1, 99]})  # 99 absent from nodes
+    if engine == "cudf":
+        cudf = _cudf_or_skip()
+        nodes, edges = cudf.DataFrame.from_pandas(nodes), cudf.DataFrame.from_pandas(edges)
+    g = CGFull().nodes(nodes, 'v').edges(edges, 's', 'd')
+    for q in ([n(), e_forward(hops=1), n()],
+              [n(), e_reverse(hops=1), n()],
+              [n(), e_undirected(hops=1), n()],
+              [n({'attr': 2}), e_forward(hops=1), n()]):
+        assert _setsig(g.gfql(q)) == _setsig(g.gfql(q, policy=_FAST_NOOP_POLICY)), \
+            f"dangling-edge divergence for {q}"
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_fast_path_dedups_duplicate_node_ids_on_hop(engine):
+    """A malformed node table with duplicate ids must not make the 1-hop fast path
+    diverge from the full path (which collapses dup rows via its merge)."""
+    nodes = pd.DataFrame({'v': [0, 0, 1, 2], 'attr': [1, 1, 2, 3]})
+    edges = pd.DataFrame({'s': [0, 1], 'd': [1, 2]})
+    if engine == "cudf":
+        cudf = _cudf_or_skip()
+        nodes, edges = cudf.DataFrame.from_pandas(nodes), cudf.DataFrame.from_pandas(edges)
+    g = CGFull().nodes(nodes, 'v').edges(edges, 's', 'd')
+    q = [n(), e_forward(hops=1), n()]
+    assert _setsig(g.gfql(q)) == _setsig(g.gfql(q, policy=_FAST_NOOP_POLICY))
