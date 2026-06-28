@@ -740,7 +740,10 @@ def _try_chain_fast_path(
     # and edges loaded separately) must drop those dangling edges — otherwise the
     # fast path emits edges to non-existent nodes, or a non-empty result where the
     # full path is correctly empty.
-    node_ids = g._nodes[node]
+    # dropna: a NaN node id must NOT validate a NaN edge endpoint. pandas/cuDF
+    # `.isin` treat NaN as a matchable value (NaN.isin([NaN]) is True), but the
+    # full BFS path's joins never match NaN<->NaN, so it drops NaN-endpoint edges.
+    node_ids = g._nodes[node].dropna()
     edges = g._edges[g._edges[src].isin(node_ids) & g._edges[dst].isin(node_ids)]
     if not unconstrained:
         from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
