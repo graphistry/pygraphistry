@@ -135,8 +135,12 @@ def hop_polars_lazy(
 
     allowed_source = (
         _idframe_lf(
+            # Mirror the eager hop guard verbatim (engine_polars/hop.py): scope the
+            # source filter to the seed only for a single bounded hop. ``to_fixed_point``
+            # is already declined upstream (always False here) — kept in the predicate so
+            # the two copies stay textually identical and don't drift.
             filter_by_dict_polars(
-                nodes if (nodes is not None and resolved_max_hops == 1) else all_nodes,
+                nodes if (nodes is not None and not to_fixed_point and resolved_max_hops == 1) else all_nodes,
                 source_node_match,
             ).lazy(),
             node_col,

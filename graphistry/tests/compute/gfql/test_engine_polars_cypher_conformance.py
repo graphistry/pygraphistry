@@ -279,6 +279,49 @@ def test_mixed_type_column_declines_honestly():
         g.gfql("MATCH (n) WHERE n.var > 'x' RETURN n.var", engine="polars")
 
 
+def test_polars_duplicate_alias_declines_like_pandas():
+    """A chain reusing an alias name (``[n('a'), e(), n('a')]``) must raise the same
+    GFQLValidationError E201 as pandas — NOT return a malformed colliding-join schema
+    (``a``/``a_right``). NO-CHEATING: decline where the oracle declines."""
+    from graphistry.compute.ast import n, e_forward
+    from graphistry.compute.exceptions import GFQLValidationError
+    g = graphistry.edges(pd.DataFrame({"s": [1, 2, 3], "d": [2, 3, 1]}), "s", "d").materialize_nodes()
+    with pytest.raises(GFQLValidationError):
+        g.chain([n(name="a"), e_forward(), n(name="a")], engine="pandas")
+    with pytest.raises(GFQLValidationError):
+        g.chain([n(name="a"), e_forward(), n(name="a")], engine="polars")
+
+
+def test_polars_integer_literal_division_declines():
+    """Cypher folds integer-literal division (``10/4 == 2``, truncating) but polars
+    does true division (``2.5``) — a silent wrong answer when embedded in a non-monotonic
+    op (``ORDER BY n.val % (10/4)`` sorts differently). Must decline (NIE). Column ``/``
+    int stays Float on both engines, so it must NOT be over-declined."""
+    g = graphistry.nodes(pd.DataFrame({"id": [1, 2, 3, 4, 5, 6], "val": [1, 2, 3, 4, 5, 6]}), "id") \
+        .edges(pd.DataFrame({"s": [1], "d": [2]}), "s", "d")
+    with pytest.raises(NotImplementedError):
+        g.gfql("MATCH (n) RETURN n.val AS v ORDER BY n.val % (10/4)", engine="polars")
+    # column / int-literal is true division on BOTH engines — must still compute natively
+    _assert_parity(g, "MATCH (n) RETURN n.val / 2 AS h, n.id ORDER BY n.id")
+
+
+def test_polars_chain_seed_dtype_alignment():
+    """An internal ``start_nodes`` seed whose id-column dtype diverges from the node-id
+    dtype (e.g. float seed vs int nodes — an empty crossfilter selection defaults to
+    float64) must align join keys rather than crash with SchemaError (mirrors hop)."""
+    import polars as pl
+    from graphistry.compute.gfql.engine_polars.chain import chain_polars
+    from graphistry.compute.ast import n, e_forward
+    # polars frames (as the engine boundary hands chain_polars), int node ids
+    nodes = pl.DataFrame({"id": [1, 2, 3]})
+    edges = pl.DataFrame({"s": [1, 2, 3], "d": [2, 3, 1]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    seed = pl.DataFrame({"id": pl.Series([1.0, 2.0], dtype=pl.Float64)})  # float seed vs int nodes
+    out = chain_polars(g, [n(), e_forward(), n()], start_nodes=seed)  # must not raise SchemaError
+    out_edges = out._edges.to_pandas() if hasattr(out._edges, "to_pandas") else out._edges
+    assert len(out_edges) >= 1
+
+
 def _nullable_graph():
     """Nulls in numeric/string/bool columns + zero/negative — exercises the
     native lowering's NULL / cypher 3-valued-logic semantics vs pandas."""

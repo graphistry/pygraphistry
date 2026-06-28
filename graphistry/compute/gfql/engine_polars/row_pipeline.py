@@ -1,22 +1,25 @@
 """Native polars lowering for the cypher row pipeline (Phase 2, vectorized).
 
-The host-bridge in ``chain._run_calls_polars`` runs not-yet-native row ops via
-the pandas expression engine. This module lowers the *common* cypher
-expressions to native polars expressions so those ops stay vectorized on polars
-(no pandas round-trip). It is deliberately CONSERVATIVE: ``lower_expr`` returns
-``None`` for anything it can't prove equivalent to pandas, and the caller falls
-back to the bridge. Differential parity vs pandas is the correctness gate.
+This module lowers the *common* cypher expressions to native polars expressions
+so the row ops stay vectorized on polars (no pandas round-trip). It is
+deliberately CONSERVATIVE: ``lower_expr`` returns ``None`` for anything it can't
+prove equivalent to pandas, and ``chain._run_calls_polars`` then raises an honest
+``NotImplementedError`` (NO-CHEATING — there is NO pandas bridge; a row op the
+polars engine can't lower natively declines, pointing at ``engine='pandas'``).
+Differential parity vs pandas is the correctness gate.
 
 Currently lowered: property access (``alias.prop`` → column), bare columns,
-literals, arithmetic/comparison/boolean ``BinaryOp``, ``UnaryOp``, ``IsNullOp``.
-Ops wired to native: ``select``/``with_``/``return_`` projection, ``order_by``.
-Everything else (CASE, list/map, subscript, functions, temporal) → bridge.
+literals, arithmetic/comparison/boolean ``BinaryOp``, ``UnaryOp``, ``IsNullOp``,
+``coalesce``/``abs``. Ops wired to native: ``select``/``with_``/``return_``
+projection, ``order_by``, ``where_rows``, ``group_by``, ``unwind``. Everything
+else (CASE, list/map, subscript, other functions, temporal arithmetic) → NIE.
 """
 import contextvars
 import re
 from typing import Any, List, Optional, Sequence, Tuple
 
 from graphistry.Plottable import Plottable
+from .dtypes import is_float as _dtype_is_float, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
 
 
 # Active row-table schema (col -> polars dtype), set by select/where/order_by around
@@ -137,6 +140,15 @@ _ISO_TEMPORAL_RE = re.compile(
 )
 
 
+def _is_int_literal(node: Any) -> bool:
+    """True if ``node`` is an integer Literal (not bool). Cypher integer division
+    (``5/2 == 2``, truncating) diverges from polars true division (``2.5``) ONLY for
+    constant integer operands — a column ``/`` int already returns Float on both
+    engines (so it matches). Used to decline (NIE) literal/literal int division."""
+    from graphistry.compute.gfql.expr_parser import Literal
+    return isinstance(node, Literal) and isinstance(node.value, int) and not isinstance(node.value, bool)
+
+
 def _is_iso_duration_literal(node: Any) -> bool:
     """True if ``node`` is a string Literal holding an ISO-8601 duration (``PT6M``,
     ``P1Y``, …) — what cypher ``duration({...})`` translates to. ``^-?P(?=[0-9T])``
@@ -172,30 +184,6 @@ def _expr_output_dtype(expr: Any) -> Any:
         return pl.LazyFrame(schema=_SCHEMA.get()).select(expr.alias("__gfql_dt__")).collect_schema()["__gfql_dt__"]
     except Exception:
         return None
-
-
-def _dtype_is_float(dt: Any) -> bool:
-    import polars as pl
-    return dt in (pl.Float32, pl.Float64)
-
-
-def _dtype_is_numeric(dt: Any) -> bool:
-    import polars as pl
-    return dt in (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16,
-                  pl.UInt32, pl.UInt64, pl.Float32, pl.Float64)
-
-
-def _dtype_is_stringlike(dt: Any) -> bool:
-    """String / Categorical / Enum — all compare/order like strings and all raise vs a
-    numeric operand in polars (so all must trip the cross-type guard)."""
-    import polars as pl
-    if dt == pl.String:
-        return True
-    for name in ("Categorical", "Enum"):
-        t = getattr(pl, name, None)
-        if t is not None and (dt == t or isinstance(dt, t)):
-            return True
-    return False
 
 
 def _is_cross_type(ldt: Any, rdt: Any) -> bool:
@@ -258,6 +246,13 @@ def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
         # two temporal literals is declined: ``=``/``<>`` are lexicographically
         # correct, and a literal-vs-real-string-column compare must NOT be declined.
         if node.op in _ORDER_OPS and _is_iso_temporal_literal(node.left) and _is_iso_temporal_literal(node.right):
+            return None
+        # Integer-literal division: Cypher folds ``5/2`` to integer division (``2``,
+        # truncating toward zero; ``x/0`` errors) but polars does true division
+        # (``2.5``) — a silent wrong answer when embedded in a non-monotonic op (e.g.
+        # ``ORDER BY n.val % (10/4)`` sorts differently). Decline natively (NIE); the
+        # pandas engine folds it. (Column ``/`` int is Float on both, so not declined.)
+        if node.op == "/" and _is_int_literal(node.left) and _is_int_literal(node.right):
             return None
         left = lower_expr(node.left, columns)
         right = lower_expr(node.right, columns)
@@ -451,7 +446,7 @@ def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
 
 
 # Aggregation funcs lowered to native polars; collect/collect_distinct/stdev/
-# percentile etc. return None → bridge.
+# percentile etc. return None → caller declines (NIE, no pandas bridge).
 def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str) -> Optional[Any]:
     import polars as pl
     func = func.lower()
@@ -500,11 +495,11 @@ def group_by_polars(g: Plottable, keys: Sequence[Any], aggregations: Sequence[An
 
 
 def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plottable]:
-    """Native polars UNWIND for a literal list (cross-join); None to bridge.
+    """Native polars UNWIND for a literal list (cross-join); None → caller NIEs.
 
     ``UNWIND [a, b, ...] AS x`` cross-joins each active row with the list values
     (matching cypher's per-row expansion and empty-list → 0 rows). List-column /
-    expression unwinds (null/empty-element semantics) bridge for now.
+    expression unwinds (null/empty-element semantics) decline (NIE) for now.
     """
     import polars as pl
     from graphistry.compute.gfql.expr_parser import ListLiteral, Literal
