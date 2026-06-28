@@ -2,8 +2,8 @@ import os
 import pandas as pd
 import pytest
 
-from graphistry.compute.ast import ASTEdgeUndirected, ASTNode, ASTEdge, n, e, e_undirected, e_forward
-from graphistry.compute.chain import Chain
+from graphistry.compute.ast import ASTEdgeUndirected, ASTNode, ASTEdge, n, e, e_undirected, e_forward, e_reverse
+from graphistry.compute.chain import Chain, _try_chain_fast_path
 from graphistry.compute.predicates.is_in import IsIn, is_in
 from graphistry.compute.predicates.numeric import gt
 from graphistry.tests.test_compute import CGFull
@@ -620,3 +620,134 @@ def test_fast_path_still_fires_policy_hooks():
     # And without a policy the fast path is still taken (results unchanged).
     res = g.gfql([n()])
     assert sorted(res._nodes['v'].tolist()) == ['a', 'b', 'c']
+
+
+# ---------------------------------------------------------------------------
+# Fast-path amplification: lock the real behaviors of _try_chain_fast_path
+# (chain.py). The fast path (node-only MATCH + single-hop, pandas/cuDF) skips
+# the forward/backward/combine BFS machinery, so it must be observationally
+# equivalent to the full path it replaces. We use an installed (no-op) policy as
+# the equivalence ORACLE: any non-empty policy forces the full, pre-fast-path
+# BFS path (see _chain_impl gate), so `gfql(q)` (fast) vs `gfql(q, policy=NOOP)`
+# (full) is a built-in differential — they must agree on node/edge SETS.
+# ---------------------------------------------------------------------------
+
+_FAST_NOOP_POLICY = {'preload': lambda ctx: None}  # any hook -> full (non-fast) path
+
+
+def _cudf_or_skip():
+    if not (os.environ.get("TEST_CUDF") == "1"):
+        pytest.skip("cuDF lane: set TEST_CUDF=1 (e.g. on dgx-spark)")
+    return pytest.importorskip("cudf")
+
+
+def _fast_graph(engine):
+    nodes = pd.DataFrame({'v': [0, 1, 2, 3, 4], 'attr': [10, 20, 30, 40, 50]})
+    edges = pd.DataFrame({'s': [0, 1, 2, 3, 0], 'd': [1, 2, 3, 4, 2], 'w': [5, 6, 7, 8, 9]})
+    if engine == "cudf":
+        cudf = _cudf_or_skip()
+        nodes = cudf.DataFrame.from_pandas(nodes)
+        edges = cudf.DataFrame.from_pandas(edges)
+    return CGFull().nodes(nodes, 'v').edges(edges, 's', 'd')
+
+
+def _setsig(r):
+    """Engine-agnostic (node-id set, edge (s,d) set) — values, not dtypes."""
+    def topd(df):
+        return df.to_pandas() if df is not None and "cudf" in type(df).__module__ else df
+    nn = topd(r._nodes)
+    ee = topd(r._edges)
+    nodes = sorted(nn['v'].tolist()) if nn is not None else []
+    edges = sorted(map(tuple, ee[['s', 'd']].itertuples(index=False, name=None))) \
+        if ee is not None and len(ee) else []
+    return nodes, edges
+
+
+# shapes that ARE accelerated by the fast path
+_FAST_SHAPES = [
+    ("node_only", lambda: [n()]),
+    ("node_filter", lambda: [n({'attr': 20})]),
+    ("node_pred", lambda: [n({'attr': is_in([10, 30])})]),
+    ("hop_fwd", lambda: [n(), e_forward(hops=1), n()]),
+    ("hop_rev", lambda: [n(), e_reverse(hops=1), n()]),
+    ("hop_undirected_unconstrained", lambda: [n(), e_undirected(hops=1), n()]),
+    ("hop_fwd_src_filter", lambda: [n({'attr': 10}), e_forward(hops=1), n()]),
+    ("hop_fwd_dst_filter", lambda: [n(), e_forward(hops=1), n({'attr': 40})]),
+    ("hop_fwd_both_filter", lambda: [n({'attr': 10}), e_forward(hops=1), n({'attr': 30})]),
+    ("hop_rev_dst_filter", lambda: [n(), e_reverse(hops=1), n({'attr': 10})]),
+]
+
+# shapes that BYPASS the fast path (still must be correct via the full path)
+_BYPASS_SHAPES = [
+    ("hops_2", lambda: [n(), e_forward(hops=2), n()]),
+    ("filtered_undirected", lambda: [n({'attr': 10}), e_undirected(hops=1), n({'attr': 30})]),
+    ("edge_match", lambda: [n(), e_forward(hops=1, edge_match={'w': 5}), n()]),
+    ("named_node", lambda: [n(name='x'), e_forward(hops=1), n()]),
+]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("label,build", _FAST_SHAPES + _BYPASS_SHAPES,
+                         ids=[s[0] for s in _FAST_SHAPES + _BYPASS_SHAPES])
+def test_fast_path_differential_parity_vs_full_path(engine, label, build):
+    """Fast path output == full (policy-forced BFS) path output, by node/edge SET,
+    for every accelerated shape AND every bypass shape, on pandas and cuDF."""
+    g = _fast_graph(engine)
+    fast = g.gfql(build())
+    full = g.gfql(build(), policy=_FAST_NOOP_POLICY)
+    assert _setsig(fast) == _setsig(full), f"{engine}/{label}: fast != full"
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_fast_path_preserves_int_node_dtypes(engine):
+    """Documented behavior change: the 1-hop fast path PRESERVES node-attribute
+    dtypes (int stays int) where the full BFS path upcasts int->float via merge.
+    Lock both sides so neither silently regresses."""
+    g = _fast_graph(engine)
+    q = [n(), e_forward(hops=1), n()]
+    fast = g.gfql(q)
+    full = g.gfql(q, policy=_FAST_NOOP_POLICY)
+
+    def kind(df, col):
+        pdf = df.to_pandas() if "cudf" in type(df).__module__ else df
+        return pdf[col].dtype.kind
+
+    # The feature's promise: the 1-hop fast path keeps int node attrs as int.
+    assert kind(fast._nodes, 'attr') == 'i', "fast path must keep int node attrs as int"
+    # The full BFS path today upcasts int->float (a known merge wart this fast path
+    # sidesteps). Assert only that it stays numeric, so a future full-path dtype fix
+    # does not break this test; the fast-path promise above is what we hard-lock.
+    assert kind(full._nodes, 'attr') in ('i', 'f')
+    # node-only never traverses a merge, so it stays int regardless of path.
+    assert kind(g.gfql([n()])._nodes, 'attr') == 'i'
+
+
+def test_fast_path_gating_returns_none_for_ineligible():
+    """Unit-level gate: _try_chain_fast_path must DECLINE (return None) for every
+    shape/condition it does not cover, so those queries reach the correct full
+    path. Eligible shapes must be accepted (non-None)."""
+    from graphistry.Engine import Engine
+    g = _fast_graph("pandas")
+    seed = pd.DataFrame({'v': [0]})
+
+    eligible = [
+        [n()],
+        [n({'attr': 20})],
+        [n(), e_forward(hops=1), n()],
+        [n(), e_reverse(hops=1), n()],
+    ]
+    for ops in eligible:
+        assert _try_chain_fast_path(g, ops, Engine.PANDAS, None) is not None, f"should accept {ops}"
+
+    ineligible = [
+        ("hops_2", [n(), e_forward(hops=2), n()], None, Engine.PANDAS),
+        ("filtered_undirected", [n({'attr': 10}), e_undirected(hops=1), n({'attr': 30})], None, Engine.PANDAS),
+        ("edge_match", [n(), e_forward(hops=1, edge_match={'w': 5}), n()], None, Engine.PANDAS),
+        ("named_node", [n(name='x'), e_forward(hops=1), n()], None, Engine.PANDAS),
+        ("node_query", [n(query='attr > 5'), e_forward(hops=1), n()], None, Engine.PANDAS),
+        ("seeded", [n()], seed, Engine.PANDAS),
+        ("non_eager_engine", [n()], None, Engine.DASK),
+        ("two_ops", [n(), e_forward(hops=1)], None, Engine.PANDAS),
+    ]
+    for label, ops, sn, eng in ineligible:
+        assert _try_chain_fast_path(g, ops, eng, sn) is None, f"should decline {label}"
