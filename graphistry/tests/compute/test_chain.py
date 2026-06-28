@@ -751,3 +751,44 @@ def test_fast_path_gating_returns_none_for_ineligible():
     ]
     for label, ops, sn, eng in ineligible:
         assert _try_chain_fast_path(g, ops, eng, sn) is None, f"should decline {label}"
+
+
+def test_chain_otel_span_attrs_mapped_correctly(monkeypatch):
+    """Regression: the `gfql.chain` otel decorator must wrap `chain()`, not the
+    `_try_chain_fast_path` helper defined just above it. If it drifts onto the
+    fast path, `_chain_otel_attrs` receives the fast path's positional args
+    (g_in, ops, engine_concrete, start_nodes) so `gfql.validate_schema` gets bound
+    to start_nodes (a DataFrame/None) and `chain()` itself emits no span.
+    Enable otel + detail, capture spans, and assert correct attr mapping."""
+    import importlib
+    import graphistry.compute.chain as chain_mod
+    from contextlib import contextmanager
+    # `import graphistry.otel` binds to a shadowing client attr, so resolve the
+    # real module via importlib. otel_enabled/otel_span are looked up in the otel
+    # module (inside otel_traced's wrapper); otel_detail_enabled is looked up in
+    # chain.py (inside _chain_otel_attrs). Patch each in its own namespace.
+    otel_mod = importlib.import_module("graphistry.otel")
+
+    captured = []
+    monkeypatch.setattr(otel_mod, "otel_enabled", lambda: True)
+    monkeypatch.setattr(chain_mod, "otel_detail_enabled", lambda: True)
+
+    @contextmanager
+    def _fake_span(name, attrs=None):
+        captured.append((name, attrs or {}))
+        yield None
+
+    monkeypatch.setattr(otel_mod, "otel_span", _fake_span)
+
+    g = CGFull().nodes(pd.DataFrame({'v': [0, 1, 2]}), 'v').edges(
+        pd.DataFrame({'s': [0, 1], 'd': [1, 2]}), 's', 'd')
+    g.gfql([n()])  # fast-path-eligible shape
+
+    chain_spans = [a for (nm, a) in captured if nm == "gfql.chain"]
+    assert chain_spans, "chain() must emit a gfql.chain span"
+    attrs = chain_spans[0]
+    assert attrs.get("gfql.chain_len") == 1
+    # The bug bound validate_schema to start_nodes (None / a DataFrame); the
+    # correct mapping is the bool default.
+    assert isinstance(attrs.get("gfql.validate_schema"), bool), \
+        f"validate_schema attr must be a bool, got {type(attrs.get('gfql.validate_schema'))}"

@@ -674,7 +674,6 @@ def _chain_otel_attrs(
     return attrs
 
 
-@otel_traced("gfql.chain", attrs_fn=_chain_otel_attrs)
 def _try_chain_fast_path(g_in: Plottable, ops, engine_concrete, start_nodes=None) -> Optional[Plottable]:
     """Degenerate-shape fast path (ALL engines): a node-only ``MATCH (n)`` (the
     dominant tabular/crossfilter shape — node filter, histogram, table search)
@@ -755,6 +754,7 @@ def _try_chain_fast_path(g_in: Plottable, ops, engine_concrete, start_nodes=None
     return g.nodes(nodes).edges(edges)
 
 
+@otel_traced("gfql.chain", attrs_fn=_chain_otel_attrs)
 def chain(
     self: Plottable,
     ops: Union[List[ASTObject], Chain],
