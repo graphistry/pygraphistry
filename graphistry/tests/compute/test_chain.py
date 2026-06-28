@@ -595,3 +595,28 @@ def test_chain_hop_label_node_hops():
     # gfql chain: combine_steps propagates columns whose name contains 'hop'
     g3 = g.gfql([n({'v': 'a'}), e_forward(hops=2, label_node_hops='node_hop')])
     assert 'node_hop' in g3._nodes.columns, f"Expected 'node_hop' in gfql chain nodes, got: {list(g3._nodes.columns)}"
+
+
+def test_fast_path_still_fires_policy_hooks():
+    """Regression: the node-only / single-hop chain fast path (chain._try_chain_fast_path)
+    must NOT bypass policy hooks. The fast path returns before the prechain/postchain/
+    postload block in _chain_impl, so it is only valid when no policy is installed.
+    With a policy present we must take the full, hook-bearing path for the SAME
+    fast-path-eligible shapes (``[n()]`` and ``[n(), e(), n()]``)."""
+    nodes_df = pd.DataFrame({'v': ['a', 'b', 'c'], 'w': ['1', '2', '3']})
+    edges_df = pd.DataFrame({'s': ['a', 'b'], 'd': ['b', 'c']})
+    g = CGFull().nodes(nodes_df, 'v').edges(edges_df, 's', 'd')
+
+    for query in ([n()], [n(), e_forward(hops=1), n()]):
+        fired = []
+        g.gfql(query, policy={
+            'prechain': lambda ctx: fired.append('prechain'),
+            'postchain': lambda ctx: fired.append('postchain'),
+            'postload': lambda ctx: fired.append('postload'),
+        })
+        assert fired == ['prechain', 'postchain', 'postload'], \
+            f"fast-path shape {query} bypassed hooks: got {fired}"
+
+    # And without a policy the fast path is still taken (results unchanged).
+    res = g.gfql([n()])
+    assert sorted(res._nodes['v'].tolist()) == ['a', 'b', 'c']
