@@ -254,3 +254,25 @@ def test_gfql_series_is_list_like_still_detects_real_lists() -> None:
     assert RowPipelineMixin._gfql_series_is_list_like(pd.Series([[1, 2], [3, 4]], dtype="object")) is True
     assert RowPipelineMixin._gfql_series_is_list_like(pd.Series(["[1, 2]", "[3, 4]"], dtype="object")) is False
     assert RowPipelineMixin._gfql_series_is_list_like(pd.Series(["abc", "def"], dtype="object")) is False
+
+
+@pytest.mark.parametrize(
+    "dtype_str,expected",
+    [
+        ("int64", True), ("uint32", True), ("int8", True), ("float32", True),
+        ("float64", True), ("bool", True), ("complex128", True),
+        ("object", False), ("datetime64[ns]", False), ("timedelta64[ns]", False),
+        ("<U5", False),
+    ],
+)
+def test_is_non_textual_scalar_dtype(dtype_str: str, expected: bool) -> None:
+    # Single source of truth for the #1650/#1651 dtype gate (shared by ordering,
+    # pipeline, and cypher result post-processing).
+    import numpy as np
+    from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
+    assert is_non_textual_scalar_dtype(np.dtype(dtype_str)) is expected
+
+
+def test_is_non_textual_scalar_dtype_none() -> None:
+    from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
+    assert is_non_textual_scalar_dtype(None) is False
