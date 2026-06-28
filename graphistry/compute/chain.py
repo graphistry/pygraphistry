@@ -673,7 +673,6 @@ def _chain_otel_attrs(
     return attrs
 
 
-@otel_traced("gfql.chain", attrs_fn=_chain_otel_attrs)
 def _try_chain_fast_path(
     g_in: Plottable,
     ops: List[ASTObject],
@@ -753,6 +752,7 @@ def _try_chain_fast_path(
     return g.nodes(nodes).edges(edges)
 
 
+@otel_traced("gfql.chain", attrs_fn=_chain_otel_attrs)
 def chain(
     self: Plottable,
     ops: Union[List[ASTObject], Chain],
