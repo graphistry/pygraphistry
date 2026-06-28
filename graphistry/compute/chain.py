@@ -700,11 +700,16 @@ def _try_chain_fast_path(g_in: Plottable, ops, engine_concrete, start_nodes=None
     if start_nodes is not None:
         return None  # seeded chains use the full path (fast path has no seed)
 
+    def _materialize_fast_path_graph() -> Plottable:
+        from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
+        g = g_in.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
+        return _coerce_input_formats(g, engine_concrete)
+
     if len(ops) == 1:
         n0 = ops[0]
         if not (isinstance(n0, ASTNode) and n0._name is None and getattr(n0, "query", None) is None):
             return None
-        g = g_in.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
+        g = _materialize_fast_path_graph()
         if g._nodes is None:
             return None
         nodes = filter_by_dict(g._nodes, n0.filter_dict, engine_concrete) if n0.filter_dict else g._nodes
@@ -728,7 +733,7 @@ def _try_chain_fast_path(g_in: Plottable, ops, engine_concrete, start_nodes=None
     unconstrained = not n0.filter_dict and not n2.filter_dict
     if not unconstrained and direction == "undirected":
         return None  # filtered-undirected (OR of both directions) -> full path
-    g = g_in.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
+    g = _materialize_fast_path_graph()
     if g._nodes is None or g._edges is None:
         return None
     src, dst, node = g._source, g._destination, g._node
