@@ -174,6 +174,10 @@ DEFERRED = [
     # a value/null), so the lowering must decline rather than crash
     "MATCH (n) RETURN n.val > 'a' AS x",
     "MATCH (n) WHERE n.val < 'z' RETURN n.id",
+    # ISO temporal comparison: cypher time()/date()/datetime() lower to ISO strings;
+    # polars would compare them lexicographically (wrong across timezones) -> NIE
+    "RETURN time({hour: 10, timezone: '+01:00'}) > time({hour: 9, timezone: '+00:00'}) AS x",
+    "RETURN date({year: 1984, month: 10, day: 12}) < date({year: 1985, month: 5, day: 6}) AS x",
     # temporal arithmetic: duration(...) lowers to an ISO string literal, so
     # a.time + duration(...) must NOT silently become string concatenation
     "MATCH (n) RETURN n.val + duration({minutes: 6}) AS t",
