@@ -121,6 +121,12 @@ def _lower_function(node: Any, columns: Sequence[str]) -> Optional[Any]:
         return pl.coalesce(args)
     if name == "abs" and len(args) == 1:
         return args[0].abs()
+    if name == "sqrt" and len(args) == 1:
+        # sqrt of a negative -> NaN on both pandas and polars; parity-verified.
+        return args[0].sqrt()
+    if name == "sign" and len(args) == 1:
+        # polars .sign() == np.sign for int/float (-1/0/1; null/NaN preserved); parity-verified.
+        return args[0].sign()
     return None
 
 
@@ -465,6 +471,10 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
         return col.min().alias(alias)
     if func == "max":
         return col.max().alias(alias)
+    if func == "count_distinct":
+        # cypher count(DISTINCT x) drops nulls (pandas nunique(dropna=True)); polars n_unique()
+        # counts null as a value, so drop nulls first for parity.
+        return col.drop_nulls().n_unique().alias(alias)
     return None
 
 
