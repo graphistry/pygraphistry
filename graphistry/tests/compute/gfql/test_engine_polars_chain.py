@@ -239,3 +239,35 @@ def test_lazy_collect_cpu_and_engine_polars_helpers():
     pdf = pl.DataFrame({"x": [1, 2]})
     assert df_concat(Engine.POLARS)([pdf, pdf]).shape[0] == 4   # df_concat POLARS branch
     assert df_to_engine(pdf, Engine.POLARS).shape[0] == 2       # df_to_engine POLARS branch
+
+
+def test_gpu_target_raises_not_silent_cpu_fallback():
+    """NO-CHEATING for the GPU target: a plan node that isn't GPU-executable must
+    RAISE (NotImplementedError pointing at engine='polars'), never silently run on
+    CPU and get reported as a GPU result. We can't exercise a real GPU in CI, so we
+    drive the GPU collect path with a fake LazyFrame whose collect() fails and assert
+    the failure is translated, not swallowed."""
+    import pytest
+    import polars as pl
+    from graphistry.compute.gfql.lazy import (
+        collect, target_mode, ExecutionTarget, _gpu_raise,
+    )
+
+    # pure translation: any GPU-exec failure -> NotImplementedError naming the CPU escape hatch
+    err = _gpu_raise(ValueError("node X has no GPU implementation"))
+    assert isinstance(err, NotImplementedError)
+    assert "polars-gpu" in str(err) and "engine='polars'" in str(err)
+    assert "node X has no GPU implementation" in str(err)
+
+    if not hasattr(pl, "GPUEngine"):
+        pytest.skip("polars build lacks GPUEngine; collect() GPU-target path needs it")
+
+    class _FakeLF:
+        def collect(self, engine=None):  # signature matches pl.LazyFrame.collect(engine=...)
+            assert engine is not None     # GPU target must pass a GPUEngine, not None
+            raise RuntimeError("GPU executor cannot run this node")
+
+    with target_mode(ExecutionTarget.GPU):
+        with pytest.raises(NotImplementedError) as ei:
+            collect(_FakeLF())
+    assert "engine='polars'" in str(ei.value)

@@ -71,21 +71,45 @@ def _engine_for(target: ExecutionTarget) -> Any:
     in device memory — the regime the in-memory engine is built for — and it is
     both FASTER (semijoin 1.33×, antijoin 2.58×, unique 1.49× @10M) and STABLE
     (the streaming executor spiked bimodally to ~1 s on the same semijoin; in-memory
-    holds ~30 ms). `raise_on_fail=False` keeps any GPU-incapable node on CPU **in
-    Polars** — NOT a pandas bridge (still honest/native; see NO-CHEATING). For
-    larger-than-device-memory inputs the in-memory engine would OOM rather than
+    holds ~30 ms). ``raise_on_fail=True`` is the NO-CHEATING contract for the GPU
+    target: if any node of the plan is not GPU-executable we RAISE — we never
+    silently run it on CPU and report it as a GPU result. (``raise_on_fail=False``
+    looked honest — fallback stays *in Polars*, not a pandas bridge — but it makes
+    ``engine='polars-gpu'`` indistinguishable from ``engine='polars'`` whenever the
+    plan isn't fully GPU-capable, which silently mislabels CPU work as GPU. A hard
+    raise forces the truth: ``polars-gpu`` is GPU-or-error; use ``polars`` for CPU.)
+    For larger-than-device-memory inputs the in-memory engine would OOM rather than
     stream — acceptable here (gfql graphs in scope fit), revisit if that changes."""
     if target == ExecutionTarget.GPU:
         import polars as pl
-        return pl.GPUEngine(executor="in-memory", raise_on_fail=False)
+        return pl.GPUEngine(executor="in-memory", raise_on_fail=True)
     return None
+
+
+def _gpu_raise(exc: Exception) -> "NotImplementedError":
+    """Translate a cudf-polars GPU-execution failure into the NO-CHEATING error.
+
+    With ``raise_on_fail=True`` the GPU engine raises when a plan node is not
+    GPU-executable. We surface that as a clear NotImplementedError (chained from the
+    polars error) instead of a cryptic ComputeError, pointing at the CPU engine."""
+    return NotImplementedError(
+        "GFQL engine='polars-gpu': this query plan is not fully GPU-executable on the "
+        "installed cudf-polars (NO-CHEATING: we raise rather than silently run it on CPU "
+        "and call it a GPU result). Rerun with engine='polars' for native CPU execution. "
+        f"Underlying GPU error: {type(exc).__name__}: {exc}"
+    )
 
 
 def collect(lf: Any) -> Any:
     """Collect one polars LazyFrame on the active target (CPU/GPU)."""
     eng = _engine_for(active_target())
     if eng is not None:
-        return lf.collect(engine=eng)  # pragma: no cover  # GPU-target collect (no GPU in CI)
+        try:
+            return lf.collect(engine=eng)  # pragma: no cover  # GPU-target collect (no GPU in CI)
+        except NotImplementedError:
+            raise
+        except Exception as ex:  # pragma: no cover  # GPU-target collect (no GPU in CI)
+            raise _gpu_raise(ex) from ex
     return lf.collect(engine="streaming") if _CPU_STREAMING else lf.collect()
 
 
@@ -105,4 +129,10 @@ def collect_all(lfs: List[Any]) -> List[Any]:
         except TypeError:
             # older signature without engine= — collect individually on target
             pass
+        except NotImplementedError:  # pragma: no cover  # GPU-target collect (no GPU in CI)
+            raise
+        except Exception as ex:  # pragma: no cover  # GPU-target collect (no GPU in CI)
+            if eng is not None:
+                raise _gpu_raise(ex) from ex
+            raise
     return [collect(lf) for lf in lfs]
