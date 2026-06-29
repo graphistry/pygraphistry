@@ -293,3 +293,40 @@ def test_gpu_target_raises_not_silent_cpu_fallback():
         with pytest.raises(NotImplementedError) as ei:
             collect(_FakeLF())
     assert "engine='polars'" in str(ei.value)
+
+
+def test_engine_polars_clean_dependency_errors():
+    """engine='polars'/'polars-gpu' raise a CLEAN, actionable install error when the
+    required library is missing — not a cryptic ImportError deep in coercion / the lazy
+    engine, and not mislabeled as a not-GPU-capable plan. Guards live at the chain dispatch
+    (compute/chain.py), pre-coercion."""
+    import builtins
+    import importlib.util
+    import pytest
+    import pandas as pd
+    import graphistry
+    from graphistry.compute.ast import n
+
+    g = (graphistry.nodes(pd.DataFrame({"id": [0, 1]}), "id")
+         .edges(pd.DataFrame({"s": [0], "d": [1]}), "s", "d"))
+
+    # (1) polars not installed -> clean "requires the 'polars' package" (simulate the import failing)
+    _orig_import = builtins.__import__
+
+    def _block_polars(name, *a, **k):
+        if name == "polars" or name.startswith("polars."):
+            raise ImportError("No module named 'polars'")
+        return _orig_import(name, *a, **k)
+
+    builtins.__import__ = _block_polars
+    try:
+        with pytest.raises(ImportError, match=r"requires the 'polars' package"):
+            g.gfql([n()], engine="polars")
+    finally:
+        builtins.__import__ = _orig_import
+
+    # (2) polars-gpu without the RAPIDS cudf_polars stack -> clean RAPIDS install message
+    # (distinct from the genuine not-GPU-capable signal). Skip where cudf_polars IS present.
+    if importlib.util.find_spec("cudf_polars") is None:
+        with pytest.raises(ImportError, match=r"cudf_polars"):
+            g.gfql([n()], engine="polars-gpu")
