@@ -372,21 +372,30 @@ GFQL is optimized for GPU acceleration using ``cudf`` and ``rapids``. When using
 - GFQL detects ``cudf`` dataframes and runs the query on the GPU.
 - Achieves significant performance improvements on large datasets.
 
-7. Forcing GPU Mode
-~~~~~~~~~~~~~~~~~~~~
+7. Selecting an Engine (CPU and GPU)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-You can explicitly set the engine to ensure GPU execution.
+You can explicitly set the execution engine. The same query returns identical
+results on every engine — see :doc:`Choosing an Engine <engines>`.
 
-**Example: Force GFQL to use GPU engine**
+**Example: CPU columnar speedup (no GPU)**
 
 ::
 
-    g_result = g_gpu.gfql([ ... ], engine='cudf')
+    g_result = g.gfql([ ... ], engine='polars')   # 11-47x over pandas on real graphs
+
+**Example: Force GFQL to use a GPU engine**
+
+::
+
+    g_result = g_gpu.gfql([ ... ], engine='cudf')        # NVIDIA GPU, eager
+    g_result = g_gpu.gfql([ ... ], engine='polars-gpu')  # NVIDIA GPU, fused plan
 
 **Explanation:**
 
-- ``engine='cudf'`` forces the use of the GPU-accelerated engine.
-- Useful when you want to ensure the query runs on the GPU.
+- ``engine='polars'`` runs the columnar CPU engine — the biggest win without a GPU.
+- ``engine='cudf'`` / ``'polars-gpu'`` force GPU-accelerated execution.
+- Useful when you want to ensure the query runs on a specific engine.
 
 Integration with PyData Ecosystem
 ---------------------------------

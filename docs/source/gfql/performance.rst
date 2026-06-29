@@ -1,9 +1,48 @@
 .. _gfql-performance:
 
-GFQL Performance: Unleashing Vectorization and GPU Power for Scalable Graph Analytics
-======================================================================================
+GFQL Performance: Vectorization and GPU Acceleration
+====================================================
 
-GFQL, developed by Graphistry, rethinks graph analytics by harnessing vectorization and GPU acceleration. As datasets grow from thousands to billions of rows, traditional tools struggle to keep up without significant infrastructure investment. GFQL is rewriting the story. Start small with a quick `pip install graphistry` on your CPU system, and scale more smoothly by leveraging the power of vectorization and GPUs to handle historically tricky datasets.
+Engine speedups at a glance
+---------------------------
+
+GFQL runs the **same query** on four interchangeable engines — ``pandas`` (default),
+``polars`` (CPU, columnar), ``cudf`` (NVIDIA GPU), and ``polars-gpu`` (GPU) — and returns
+**identical results** on each (differential parity is a release gate). The biggest, easiest
+win is one keyword, **no GPU required**:
+
+.. code-block:: python
+
+   g.gfql(query)                    # engine='pandas' (default)
+   g.gfql(query, engine='polars')   # 11-47x faster on real graphs, same results
+
+Warm-median latency, same query, identical result rows (**Orkut**, 117M edges, SNAP):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 15 15 15 15
+
+   * - Workload (117M edges)
+     - ``pandas``
+     - ``polars``
+     - ``cudf``
+     - ``polars-gpu``
+   * - 1-hop from 10K seeds
+     - 2613 ms
+     - **68 ms**
+     - 1005 ms
+     - 63 ms
+   * - Full out-degree aggregation
+     - 799 ms
+     - 205 ms
+     - 314 ms
+     - **167 ms**
+
+There is **no universal winner**: below ~1M edges ``pandas`` often wins, and the right GPU
+engine depends on the workload. See :doc:`engines` for the full decision matrix, the honest
+"when *not* to use Polars", the cuDF-vs-Polars-GPU comparison, and the methodology + reproducer
+scripts behind these numbers. The end-to-end CPU/GPU-vs-Neo4j benchmark is in
+:doc:`benchmark_filter_pagerank`.
 
 Built from Real-World Necessity
 -------------------------------
@@ -17,7 +56,7 @@ A New Era of Graph Analytics
 
 Graphistry has a history of award-winning open source data visualization and GPU acceleration engines. With GFQL, we bring our lessons learned to graph querying and analysis for real-time insights on datasets both big and small. Unlike traditional graph databases that process one path at a time, GFQL traverses entire collections simultaneously. Similar to best-of-class analytical CPU databases like Clickhouse and Google BigQuery, our vectorized approach maximizes throughput to drastically reduce query time.
 
-When coupled with GPU acceleration, GFQL's performance reaches Graph 500 levels with even the cheapest cloud GPUs. Modern GPUs execute tens of thousands of threads in parallel, and GFQL is designed to fully saturate this capability. Whether you're traversing graphs with billions of edges or running complex algorithms, GFQL transforms previously impractical tasks into manageable ones.
+When coupled with GPU acceleration, GFQL handles hundred-million-edge traversals in interactive time on a single GPU (see :doc:`engines` and :doc:`benchmark_filter_pagerank` for measured numbers). Modern GPUs execute tens of thousands of threads in parallel, and GFQL is designed to fully saturate this capability. Whether you're traversing graphs with billions of edges or running complex algorithms, GFQL transforms previously impractical tasks into manageable ones.
 
 
 Three Simple Ideas Behind GFQL's Performance
