@@ -17,13 +17,47 @@ from graphistry.compute.filter_by_dict import resolve_filter_column
 from .dtypes import is_numeric as _dtype_numeric, is_stringlike as _dtype_stringlike
 
 
-def _cmp_expr(col_expr, op, val):
-    # Temporal values (datetime/date/time or the GFQL TemporalValue) have no direct
-    # polars-literal comparison here — DECLINE (return None → honest NotImplementedError)
-    # rather than build `col > TemporalValue`, a non-None broken expr that errors at
-    # ``df.filter`` (or silently misorders). Native temporal-comparison lowering is a tracked
-    # feature gap; numeric/string vals are unaffected.
+def _cmp_expr(col_expr, op, val, dtype=None):
     import datetime as _dt
+
+    # NATIVE TEMPORAL (SAFE SUBSET — NO CHEATING): lower a GFQL ``DateValue`` (Cypher
+    # ``date('YYYY-MM-DD')`` or ``p.gt(date(...))``) compared against a NAIVE ``pl.Datetime``
+    # column. The pandas oracle truncates the column to its calendar date (``s.dt.date``) and
+    # compares to a tz-free python ``date`` (``DateValue._parsed``); ``col_expr.dt.date() <op>
+    # pl.lit(date)`` is the exact native equivalent — identical calendar-date truncation, no
+    # timezone on EITHER side, so parity is provable. We REQUIRE ``dtype`` (threaded from the
+    # frame schema) to confirm the column is a naive ``Datetime``; without that proof we fall
+    # through to the decline below. Everything else stays declined: tz-tagged ``DateTimeValue``
+    # (always carries a tz; pandas does tz_localize/convert), ``TimeValue``, tz-aware columns,
+    # and raw python datetimes — lowering any of those risks a silent tz/semantic mismatch.
+    if type(val).__name__ == "DateValue":
+        import polars as pl
+        d = getattr(val, "_parsed", None)
+        if (
+            isinstance(dtype, pl.Datetime) and dtype.time_zone is None
+            and isinstance(d, _dt.date) and not isinstance(d, _dt.datetime)
+        ):
+            date_col = col_expr.dt.date()
+            lit = pl.lit(d)
+            if op is operator.gt:
+                return date_col > lit
+            if op is operator.lt:
+                return date_col < lit
+            if op is operator.ge:
+                return date_col >= lit
+            if op is operator.le:
+                return date_col <= lit
+            if op is operator.eq:
+                return date_col == lit
+            if op is operator.ne:
+                return date_col != lit
+        # naive-Datetime parity unprovable here -> fall through to the decline below.
+
+    # Remaining temporal values (datetime/datetime-tagged/time or the GFQL TemporalValue) have
+    # no SAFE polars-literal comparison here — DECLINE (return None → honest NotImplementedError)
+    # rather than build `col > TemporalValue`, a non-None broken expr that errors at
+    # ``df.filter`` (or silently misorders). Remaining temporal-comparison lowering is a tracked
+    # feature gap; numeric/string vals are unaffected.
     if isinstance(val, (_dt.date, _dt.datetime, _dt.time)) or type(val).__name__ in (
         "TemporalValue", "Timestamp", "Timedelta", "datetime64",
         "DateTimeValue", "TimeValue", "DateValue",
@@ -69,8 +103,12 @@ def _inline_regex_flag_prefix(case: bool, flags: int) -> str:
     return f"(?{letters})" if letters else ""
 
 
-def predicate_to_expr(col: str, pred: ASTPredicate):
-    """Lower an ASTPredicate to a polars boolean expression, or None if unsupported."""
+def predicate_to_expr(col: str, pred: ASTPredicate, dtype=None):
+    """Lower an ASTPredicate to a polars boolean expression, or None if unsupported.
+
+    ``dtype`` is the polars dtype of ``col`` (from the frame schema), threaded so the
+    temporal lowering can confirm a NAIVE ``Datetime`` column before lowering a ``DateValue``
+    comparison (else it declines). ``None`` when the dtype is unknown."""
     import polars as pl
 
     c = pl.col(col)
@@ -78,7 +116,7 @@ def predicate_to_expr(col: str, pred: ASTPredicate):
 
     op = getattr(pred, "op", None)
     if op is not None and hasattr(pred, "val"):
-        expr = _cmp_expr(c, op, pred.val)
+        expr = _cmp_expr(c, op, pred.val, dtype)
         if expr is not None:
             return expr
 
@@ -98,7 +136,7 @@ def predicate_to_expr(col: str, pred: ASTPredicate):
         # Conjunction (e.g. ``n.val > 20 AND n.val < 90`` folds to AllOf[GT, LT]).
         # Lower each child natively and AND them; if ANY child can't lower, the
         # whole predicate can't (caller raises NIE — no pandas bridge).
-        child_exprs = [predicate_to_expr(col, p) for p in pred.predicates]
+        child_exprs = [predicate_to_expr(col, p, dtype) for p in pred.predicates]
         if child_exprs and all(e is not None for e in child_exprs):
             combined = child_exprs[0]
             for e in child_exprs[1:]:
@@ -215,7 +253,7 @@ def filter_by_dict_polars(df, filter_dict: Optional[dict]):
                     f"comparison on column {resolved_col!r}; use engine='pandas' for this "
                     f"query (no pandas fallback; parity-or-error by design)"
                 )
-            expr = predicate_to_expr(resolved_col, resolved_val)
+            expr = predicate_to_expr(resolved_col, resolved_val, df.schema.get(resolved_col))
             if expr is None:
                 # NO-CHEATING: no native lowering for this predicate, and we will
                 # NOT bridge through pandas (evaluating one column via pandas would

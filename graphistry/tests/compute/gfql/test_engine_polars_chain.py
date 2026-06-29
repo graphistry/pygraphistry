@@ -344,7 +344,8 @@ def test_gpu_executor_mode_flag(monkeypatch):
 
     class _FakeGPUEngine:
         def __init__(self, **kw):
-            captured.clear(); captured.update(kw)
+            captured.clear()
+            captured.update(kw)
 
     monkeypatch.setattr(pl, "GPUEngine", _FakeGPUEngine)
 
@@ -365,9 +366,11 @@ def test_gpu_executor_mode_flag(monkeypatch):
 
 
 def test_engine_polars_no_silent_call_bridge():
-    """NO-CHEATING: a DAG let() binding of a Plottable-method call (e.g. get_degrees) raises
-    NotImplementedError under engine='polars' (matching the chain surface) instead of silently
-    running on pandas and coercing the result back. engine='pandas' is unaffected."""
+    """NO-CHEATING: a DAG let() binding of a not-yet-native Plottable-method call (here
+    get_indegrees) raises NotImplementedError under engine='polars' (matching the chain
+    surface) instead of silently running on pandas and coercing the result back.
+    engine='pandas' is unaffected. (get_degrees is now lowered natively — see the conformance
+    matrix — so get_indegrees stands in as the still-declined Plottable-method call.)"""
     import pytest
     import pandas as pd
     import graphistry
@@ -377,11 +380,11 @@ def test_engine_polars_no_silent_call_bridge():
          .edges(pd.DataFrame({"s": [0, 1], "d": [1, 2]}), "s", "d"))
     # chain surface already declines; the DAG surface must too (was a silent bridge).
     with pytest.raises(NotImplementedError):
-        g.gfql([call("get_degrees")], engine="polars")
+        g.gfql([call("get_indegrees")], engine="polars")
     with pytest.raises(NotImplementedError):
-        g.gfql(let({"d": call("get_degrees")}), engine="polars")
+        g.gfql(let({"d": call("get_indegrees")}), engine="polars")
     # pandas DAG path still works.
-    assert g.gfql(let({"d": call("get_degrees")}), engine="pandas") is not None
+    assert g.gfql(let({"d": call("get_indegrees")}), engine="pandas") is not None
 
 
 def test_engine_polars_predicate_correctness_fixes():

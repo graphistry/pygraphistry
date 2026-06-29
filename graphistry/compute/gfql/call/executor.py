@@ -50,9 +50,33 @@ def _run_policy_hook(handler: Any, policy_context: 'PolicyContext', data_size: O
     return None
 
 
+def _active_frames_are_polars(g: Plottable) -> bool:
+    """True when the graph's active frames are polars (the polars-engine path).
+
+    Mirrors ``execute_row_pipeline_call``'s frame-type probe: under engine='polars'/
+    'polars-gpu' the frames are polars; pandas/cuDF inputs were coerced upstream.
+    """
+    nodes = getattr(g, "_nodes", None)
+    if nodes is not None:
+        return "polars" in type(nodes).__module__
+    edges = getattr(g, "_edges", None)
+    return edges is not None and "polars" in type(edges).__module__
+
+
 def _execute_validated_call(g: Plottable, function: str, validated_params: Dict[str, Any]) -> Any:
     if is_row_pipeline_call(function):
         return execute_row_pipeline_call(g, function, validated_params)
+
+    # NATIVE polars get_degrees: pure groupby/count over edge endpoints — NO pandas
+    # bridge (see NO-CHEATING). Reached by the let()/ref() DAG surface (and the
+    # schema-changer chain path); the native chain surface routes the same op through
+    # engine_polars.chain._try_native_row_op. The result is polars, so it passes the
+    # no-bridge guard in execute_call (and ensure_engine_match is then a no-op).
+    # Other Plottable-method calls have no native polars impl and stay declined by
+    # that guard.
+    if function == "get_degrees" and _active_frames_are_polars(g):
+        from graphistry.compute.gfql.engine_polars.chain import get_degrees_polars
+        return get_degrees_polars(g, **validated_params)
 
     if not hasattr(g, function):
         raise AttributeError(

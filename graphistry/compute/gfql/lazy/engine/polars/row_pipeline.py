@@ -179,6 +179,25 @@ def _is_iso_temporal_literal(node: Any) -> bool:
     )
 
 
+def _is_temporal_column_ref(node: Any, columns: Sequence[str]) -> bool:
+    """True if ``node`` references a column whose published schema dtype is TEMPORAL
+    (Datetime/Date/Time). A temporal column compared to an ISO temporal STRING literal
+    (what cypher ``date()/datetime()/time()`` lowers to) makes polars raise — so decline.
+    A String column holding ISO text compares lexicographically (correct), so it is NOT
+    temporal here and must NOT be declined."""
+    import polars as pl
+    from graphistry.compute.gfql.expr_parser import Identifier, PropertyAccessExpr
+    name: Optional[str] = None
+    if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
+        name = _resolve_property(node.value.name, node.property, columns)
+    elif isinstance(node, Identifier) and node.name in columns:
+        name = node.name
+    if name is None:
+        return False
+    dt = _SCHEMA.get().get(name)
+    return dt is not None and (isinstance(dt, pl.Datetime) or dt == pl.Date or dt == pl.Time)
+
+
 def _expr_output_dtype(expr: Any) -> Any:
     """Output dtype of a lowered ``pl.Expr`` under the active table schema, or None if
     unresolvable. Schema-only (no data) on an empty LazyFrame — robust where AST-level
@@ -261,6 +280,18 @@ def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
         # two temporal literals is declined: ``=``/``<>`` are lexicographically
         # correct, and a literal-vs-real-string-column compare must NOT be declined.
         if node.op in _ORDER_OPS and _is_iso_temporal_literal(node.left) and _is_iso_temporal_literal(node.right):
+            return None
+        # A TEMPORAL column compared to an ISO temporal constructor-string literal (cypher
+        # ``n.ts > date('2020-01-15')``): the ISO ``date()/datetime()/time()`` constructor
+        # lowers to a STRING literal, so a real Datetime/Date column vs that string makes
+        # polars raise InvalidOperationError. DECLINE (NIE) — the pandas engine compares
+        # temporally. A String column holding ISO text is NOT temporal here and still computes
+        # lexicographically. (The chain ``p.gt(date(...))`` predicate carries a typed value +
+        # schema dtype and IS lowered natively in predicates.py.)
+        if node.op in _NAN_GUARD_OPS and (
+            (_is_iso_temporal_literal(node.left) and _is_temporal_column_ref(node.right, columns))
+            or (_is_iso_temporal_literal(node.right) and _is_temporal_column_ref(node.left, columns))
+        ):
             return None
         # Integer-literal division: Cypher folds ``5/2`` to integer division (``2``,
         # truncating toward zero; ``x/0`` errors) but polars does true division
@@ -408,6 +439,29 @@ def _select_emits_temporal_constructor_text(out: Any) -> bool:
         if dtype == pl.String and _has_temporal_constructor_text(out, name):
             return True
     return False
+
+
+def with_columns_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
+    """Native polars WITH ... extend=True: add/overwrite columns, keep the rest.
+
+    Mirrors the pandas ``with_(extend=True)`` path (``table_df.assign(**projected)``):
+    polars ``with_columns`` has identical column semantics — an item whose alias
+    matches an existing column REPLACES it in place (original position preserved),
+    a new alias is APPENDED at the end in item order. Reuses the shared
+    ``lower_select_items`` lowering (DRY with ``select_polars``); returns None if any
+    item isn't lowerable — the honest NIE (NO pandas bridge, see NO-CHEATING).
+    """
+    table = _active_table(g)
+    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)))
+    if exprs is None:
+        return None
+    out = table.with_columns(exprs)
+    if _select_emits_temporal_constructor_text(out):
+        # A projected String column holds Cypher temporal-constructor text (date({...})
+        # etc.); the pandas projection normalizes it to ISO, not yet native — decline
+        # honestly rather than leak the raw text (NO-CHEATING), matching select_polars.
+        return None
+    return _rewrap(g, out)
 
 
 def where_rows_polars(
