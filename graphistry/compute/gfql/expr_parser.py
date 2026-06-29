@@ -21,6 +21,8 @@ DEFAULT_ALLOWED_UNARY_OPS: FrozenSet[str] = GFQL_ALLOWED_UNARY_OPS
 DEFAULT_ALLOWED_QUANTIFIERS: FrozenSet[str] = GFQL_ALLOWED_QUANTIFIERS
 
 
+# INVARIANT: keep every ExprNode deeply immutable (scalar/tuple fields only) — parse_expr
+# shares results by reference via lru_cache, so a mutable field would poison cache hits.
 @dataclass(frozen=True)
 class Identifier:
     name: str

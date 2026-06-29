@@ -63,6 +63,34 @@ class TestPolicyHooks:
         g.gfql([n()], policy={'postload': postload_policy})
         assert hook_called['postload'], "Postload hook should have been called"
 
+    @pytest.mark.parametrize("ops_label,ops", [
+        ("node_only", [n()]),                 # 1-op chain fast-path shape
+        ("single_hop", [n(), e(), n()]),      # 3-op chain fast-path shape
+    ])
+    def test_fast_path_shapes_still_invoke_postload(self, ops_label, ops):
+        """Regression (#1650): the degenerate-shape chain fast path must not bypass
+        policy hooks. Node-only and single-hop chains are exactly the shapes the fast
+        path short-circuits; with a policy attached they must take the full path so
+        postload still fires. See chain.py `_try_chain_fast_path` gating.
+
+        Uses an edges-only graph (no node binding) on purpose: the full single-hop
+        path must keep the synthesized node-id binding through endpoint reconciliation
+        and return a valid result, not a corrupt `None`-named column (which also
+        crashes the concat on newer pandas). See chain.py g_out rebuild."""
+        called = {'postload': False}
+
+        def postload_policy(context: PolicyContext) -> None:
+            called['postload'] = True
+
+        df = pd.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']})
+        g = graphistry.edges(df, 's', 'd')
+
+        out = g.gfql(ops, policy={'postload': postload_policy})
+        assert called['postload'], f"postload must fire for {ops_label} fast-path shape"
+        # result must carry a valid node-id binding + no spurious None-named column
+        assert out._node is not None, f"{ops_label}: node-id binding lost"
+        assert None not in list(out._nodes.columns), f"{ops_label}: corrupt None column"
+
     def test_precall_hook_called(self):
         """Test that precall hook is called for call operations."""
         from graphistry.compute.ast import call

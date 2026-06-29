@@ -7,6 +7,7 @@ import pandas as pd
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
+from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
 
 from .lowering import ResultProjectionColumn, ResultProjectionPlan
 from graphistry.compute.gfql.row.entity_props import (
@@ -123,6 +124,12 @@ def _project_property_column(
     if column.source_name is None or column.source_name not in rows_df.columns:
         raise ValueError(f"projection source column not found: {column.source_name!r}")
     series = cast(SeriesT, rows_df[column.source_name])
+    # Temporal-constructor normalization only applies to STRING values; numeric/bool/
+    # complex columns can never hold temporal text, so skip the (otherwise spurious)
+    # ``astype(str)`` + detection scan and return the column as-is — byte-identical,
+    # since the scan returns None for these dtypes. Mirrors the #1650/#1651 gate.
+    if is_non_textual_scalar_dtype(getattr(series, "dtype", None)):
+        return series
     if hasattr(series, "astype") and hasattr(cast(SeriesT, series.astype(str)), "str"):
         normalized = _normalize_temporal_constructor_series(
             rows_df,

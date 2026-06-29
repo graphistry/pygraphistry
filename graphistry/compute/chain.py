@@ -28,11 +28,13 @@ if TYPE_CHECKING:
 logger = setup_logger(__name__)
 
 
-def _filter_edges_by_endpoint(edges_df, nodes_df, node_id: str, edge_col: str):
+def _filter_edges_by_endpoint(
+    edges_df: DataFrameT, nodes_df: Optional[DataFrameT], node_id: str, edge_col: str
+) -> DataFrameT:
     if nodes_df is None or not node_id or not edge_col or edge_col not in edges_df.columns:
         return edges_df
-    ids = nodes_df[node_id].unique()
-    return edges_df[edges_df[edge_col].isin(ids)]
+    # isin() is set-membership, so the dropped .unique() is redundant (byte-identical).
+    return edges_df[edges_df[edge_col].isin(nodes_df[node_id])]
 
 
 class Chain(ASTSerializable):
@@ -219,8 +221,9 @@ def combine_steps(
                 direction = getattr(op, 'direction', 'forward') if isinstance(op, ASTEdge) else 'forward'
 
                 if direction == 'undirected' and prev_nodes is not None and next_nodes is not None and node_id:
-                    prev_ids = prev_nodes[node_id].unique()
-                    next_ids = next_nodes[node_id].unique()
+                    # isin() dedups internally -> the .unique() pass is redundant
+                    prev_ids = prev_nodes[node_id]
+                    next_ids = next_nodes[node_id]
                     fwd_mask = edges_df[src_col].isin(prev_ids) & edges_df[dst_col].isin(next_ids)
                     rev_mask = edges_df[dst_col].isin(prev_ids) & edges_df[src_col].isin(next_ids)
                     edges_df = edges_df[fwd_mask | rev_mask]
@@ -670,6 +673,91 @@ def _chain_otel_attrs(
     return attrs
 
 
+def _try_chain_fast_path(
+    g_in: Plottable,
+    ops: List[ASTObject],
+    engine_concrete: Engine,
+    start_nodes: Optional[DataFrameT] = None,
+) -> Optional[Plottable]:
+    """Degenerate-shape fast path (pandas/cuDF): node-only ``MATCH (n)`` or a plain
+    single-hop ``MATCH (a)-[e]->(b)`` skip the forward/backward/combine BFS machinery.
+    Returns the result Plottable, or ``None`` to fall through to the full path.
+
+    Same node/edge sets + VALUES as the full machinery (trackA_golden + hop/chain
+    suites); the 1-hop additionally preserves int node dtypes (the full path upcasts
+    int→float via merge). Gated to unnamed/unqueried nodes + a plain single-hop edge;
+    filtered-undirected and seeded chains fall through. polars/dask/spark also fall
+    through (own fast path / lazy semantics)."""
+    from graphistry.compute.filter_by_dict import filter_by_dict
+
+    if engine_concrete not in (Engine.PANDAS, Engine.CUDF):
+        return None
+    if start_nodes is not None:
+        return None  # seeded chains use the full path (fast path has no seed)
+    engine_abs = EngineAbstract(engine_concrete.value)
+
+    def _materialize_fast_path_graph() -> Plottable:
+        from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
+        g = g_in.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
+        return _coerce_input_formats(g, engine_concrete)
+
+    if len(ops) == 1:
+        n0 = ops[0]
+        if not (isinstance(n0, ASTNode) and n0._name is None and n0.query is None):
+            return None
+        g = _materialize_fast_path_graph()
+        if g._nodes is None:
+            return None
+        nodes = filter_by_dict(g._nodes, n0.filter_dict, engine_abs) if n0.filter_dict else g._nodes
+        edges = g._edges.iloc[0:0] if g._edges is not None else None
+        return g.nodes(nodes).edges(edges) if edges is not None else g.nodes(nodes)
+
+    if len(ops) != 3:
+        return None
+    n0, e1, n2 = ops
+    if not (isinstance(n0, ASTNode) and n0._name is None and n0.query is None):
+        return None
+    if not (isinstance(n2, ASTNode) and n2._name is None and n2.query is None):
+        return None
+    if not (isinstance(e1, ASTEdge) and e1.is_simple_single_hop()
+            and e1.edge_match is None and e1.source_node_match is None
+            and e1.destination_node_match is None and e1._name is None
+            and e1.source_node_query is None and e1.destination_node_query is None
+            and e1.edge_query is None and not e1.include_zero_hop_seed
+            and not e1.prune_to_endpoints):  # prune keeps only the arrival side -> full path
+        return None
+    direction = e1.direction
+    unconstrained = not n0.filter_dict and not n2.filter_dict
+    if not unconstrained and direction == "undirected":
+        return None  # filtered-undirected (OR of both directions) -> full path
+    g = _materialize_fast_path_graph()
+    if g._nodes is None or g._edges is None:
+        return None
+    src, dst, node = g._source, g._destination, g._node
+    # Keep only edges with BOTH endpoints in the node table (the full path drops
+    # dangling edges via its joins). dropna so a NaN node id can't validate a NaN
+    # endpoint — .isin treats NaN as matchable but the BFS joins never match NaN<->NaN.
+    node_ids = g._nodes[node].dropna()
+    edges = g._edges[g._edges[src].isin(node_ids) & g._edges[dst].isin(node_ids)]
+    if not unconstrained:
+        from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
+        if n0.filter_dict:
+            ids = filter_by_dict(g._nodes, n0.filter_dict, engine_abs)[node]
+            edges = edges[edges[from_col].isin(ids)]
+        if n2.filter_dict:
+            ids = filter_by_dict(g._nodes, n2.filter_dict, engine_abs)[node]
+            edges = edges[edges[to_col].isin(ids)]
+    concat = df_concat(engine_concrete)
+    endpoints = concat([
+        edges[[src]].rename(columns={src: node}),
+        edges[[dst]].rename(columns={dst: node}),
+    ]).drop_duplicates()
+    nodes = g._nodes[g._nodes[node].isin(endpoints[node])]
+    # match the full path's merge, which collapses duplicate node-id rows
+    nodes = nodes.drop_duplicates(subset=[node])
+    return g.nodes(nodes).edges(edges)
+
+
 @otel_traced("gfql.chain", attrs_fn=_chain_otel_attrs)
 def chain(
     self: Plottable,
@@ -793,6 +881,13 @@ def _chain_impl(
 
     if validate_schema:
         validate_chain_schema(self, ops, collect_all=False)
+
+    # The fast path skips the policy hook dispatch (prechain/postchain below), so only
+    # take it when no policy is attached — policy-bearing queries must keep hook firing.
+    if not policy:
+        _fast = _try_chain_fast_path(self, ops, engine_concrete, start_nodes)
+        if _fast is not None:
+            return _fast
 
     if isinstance(ops[0], ASTEdge):
         logger.debug('adding initial node to ensure initial link has needed reversals')
@@ -1002,7 +1097,14 @@ def _chain_impl(
             )
             if added_edge_index:
                 final_edges_df = final_edges_df.drop(columns=[g._edge])
-                g_out = self.nodes(final_nodes_df).edges(final_edges_df, edge=original_edge)
+                # Rebuild from `self` to restore the ORIGINAL edge binding (`self._edge`,
+                # often None — `g` carries the internal edge-index binding instead), but
+                # explicitly carry the materialized node-id binding `g._node`: for an
+                # edges-only input `self._node is None`, so rebuilding from `self` alone
+                # drops it, leaving the endpoint-reconciliation concat below to synthesize
+                # a `None`-named column (corrupt result + a void-block concat crash on
+                # newer pandas).
+                g_out = self.nodes(final_nodes_df, g._node).edges(final_edges_df, edge=original_edge)
             else:
                 g_out = g.nodes(final_nodes_df).edges(final_edges_df)
 
