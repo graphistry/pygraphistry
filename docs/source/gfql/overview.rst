@@ -24,7 +24,7 @@ GFQL addresses a critical gap in the data community by providing an in-process g
 Key Features
 ~~~~~~~~~~~~~
 
-- **Dataframe-Native Integration**: Works directly with Pandas, cuDF, and Apache Arrow dataframes.
+- **Dataframe-Native Integration**: Works directly with Pandas, Polars, cuDF, and Apache Arrow dataframes.
 - **High Performance**: Optimized for both CPU and GPU execution, capable of processing billions of edges.
 - **Ease of Use**: Install via `pip` and start querying without the need for external databases.
 - **Seamless Visualization**: Integrated with PyGraphistry for GPU-accelerated graph visualization.
@@ -316,7 +316,7 @@ Key advantages of GFQL Let:
 Leveraging GPU Acceleration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-GFQL runs the same query on four interchangeable engines, all returning identical results: ``pandas`` (CPU, default), ``polars`` (CPU columnar — up to ~38x over pandas, **no GPU**), ``cudf`` (NVIDIA GPU), and ``polars-gpu`` (NVIDIA GPU). ``engine='auto'`` resolves to ``cudf`` for cuDF input and ``pandas`` otherwise; ``polars`` / ``polars-gpu`` are explicit opt-in (``auto`` never selects them). Neither silently bridges: ``polars-gpu`` is GPU-or-error (it raises rather than silently running on CPU), and ``polars`` (CPU) raises ``NotImplementedError`` for the few unsupported Cypher features rather than falling back to pandas. See :doc:`Choosing an Engine <engines>` for the decision matrix and benchmarks.
+GFQL runs the same query on four interchangeable engines, all returning identical results: ``pandas`` (CPU, default), ``polars`` (CPU columnar — up to ~38x over pandas, **no GPU**), ``cudf`` (NVIDIA GPU), and ``polars-gpu`` (NVIDIA GPU). ``engine='auto'`` resolves to ``cudf`` for cuDF input and ``pandas`` otherwise; ``polars`` / ``polars-gpu`` are explicit opt-in (``auto`` never selects them — **so a Polars-frame graph run with the default is coerced to pandas; pass** ``engine='polars'`` **to stay native**). Neither silently bridges: ``polars-gpu`` is GPU-or-error (it raises rather than silently running on CPU), and ``polars`` (CPU) raises ``NotImplementedError`` for the few unsupported Cypher features rather than falling back to pandas. See :doc:`Choosing an Engine <engines>` for the decision matrix and benchmarks.
 
 When you use cuDF (GPU) dataframes with ``engine='auto'``, GFQL executes queries on the GPU for massive speedups.
 

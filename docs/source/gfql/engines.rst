@@ -19,8 +19,24 @@ engine is a one-keyword change — no GPU, same results:
    g.gfql(query)                    # engine='pandas' (default)
    g.gfql(query, engine='polars')   # up to ~38x faster on real graphs, no GPU, identical results
 
-Your existing pandas (or cuDF) graph works as-is: the input frames are accepted and
-coerced once; the only change is the keyword.
+Your existing pandas, Polars, or cuDF graph works as-is: the input frames are accepted and
+coerced once; the only change is the keyword. The catch: below ~1M edges ``pandas`` can be
+faster (Polars has fixed startup overhead), and a few exotic Cypher features still require
+``engine='pandas'`` — see *When not to use Polars* below.
+
+.. warning::
+   **Already a Polars user? Pass** ``engine='polars'`` **— the default does not.** With the
+   default ``engine='auto'``, a graph built from ``polars.DataFrame`` is **silently coerced to
+   pandas** (``auto`` resolves to ``cudf`` for cuDF input and ``pandas`` for everything else,
+   *including Polars*; it never selects the Polars engine). To stay native end-to-end, pass
+   ``engine='polars'`` explicitly:
+
+   .. code-block:: python
+
+      import polars as pl, graphistry
+      g = graphistry.edges(edges_pl, 'src', 'dst').nodes(nodes_pl, 'id')  # polars frames
+      out = g.gfql(query)                    # auto -> coerced to PANDAS (out._nodes is pandas!)
+      out = g.gfql(query, engine='polars')   # native Polars in and out (out._nodes is polars)
 
 .. note::
    **Result frames match the engine.** With ``engine='polars'`` or ``'polars-gpu'`` the
@@ -272,7 +288,7 @@ Then change one keyword — your existing graph and query are unchanged:
 .. code-block:: python
 
    import graphistry
-   g = graphistry.edges(df, 'src', 'dst')          # your existing pandas/cuDF graph
+   g = graphistry.edges(df, 'src', 'dst')          # your existing pandas, Polars, or cuDF graph
    g.gfql("MATCH (a)-[e]->(b) RETURN b", engine='polars')      # CPU columnar
    g.gfql("MATCH (a)-[e]->(b) RETURN b", engine='polars-gpu')  # same plan on GPU
 
