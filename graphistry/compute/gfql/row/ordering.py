@@ -227,10 +227,8 @@ def parse_stringified_list_series(series: Any) -> Optional[SeriesT]:
 def order_detect_temporal_mode(series: Any) -> Optional[str]:
     if not hasattr(series, "dropna"):
         return None
-    # Temporal values are encoded as *text* (Cypher date/datetime/time literals or
-    # constructor calls). Numeric/bool/complex columns can never match those regexes,
-    # so skip the astype(str) + multi-regex fullmatch scan for them. This avoids
-    # spuriously stringifying numeric columns on every comparison (issue #1650).
+    # Temporal values are text (Cypher date/time literals/constructors); numeric/bool/
+    # complex can't match those regexes, so skip the astype(str)+scan for them (#1650).
     dtype_kind = getattr(getattr(series, "dtype", None), "kind", None)
     if dtype_kind in ("i", "u", "f", "b", "c"):
         return None
