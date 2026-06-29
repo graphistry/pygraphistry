@@ -198,6 +198,20 @@ def test_conformance_hotpath_carveouts(label, query):
     _assert_invariant(_carveout_graph(), query, f"carveout {label}")
 
 
+# ---- cypher expression / aggregation lowerings (value-level: validates sqrt/sign/count_distinct) ----
+@pytest.mark.parametrize("label,query", [
+    ("sqrt", "MATCH (n) RETURN n.id AS id, sqrt(n.num) AS sq"),
+    ("sign", "MATCH (n) RETURN n.id AS id, sign(n.num - 50) AS sg"),
+    ("abs", "MATCH (n) RETURN n.id AS id, abs(n.num - 50) AS ab"),
+    ("coalesce", "MATCH (n) RETURN n.id AS id, coalesce(n.num, 0) AS c"),
+    ("count_distinct_grouped", "MATCH (n) RETURN n.flag AS k, count(DISTINCT n.num) AS cd"),
+    ("count_distinct_all", "MATCH (n) RETURN count(DISTINCT n.flag) AS cd"),
+    ("count_grouped", "MATCH (n) RETURN n.flag AS k, count(n.num) AS c"),
+])
+def test_conformance_cypher_expressions(label, query):
+    _assert_invariant(_graph(4), query, f"cypher {label}")
+
+
 # ---- cross-surface call() consistency (the silent-bridge bug class) ----
 @pytest.mark.parametrize("fn", ["get_degrees", "hypergraph", "limit"])
 def test_conformance_call_chain_vs_dag_consistent(fn):
