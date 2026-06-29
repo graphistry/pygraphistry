@@ -307,10 +307,69 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     return g_cur
 
 
+def get_degrees_polars(
+    g: Plottable,
+    col: str = "degree",
+    degree_in: str = "degree_in",
+    degree_out: str = "degree_out",
+    engine: Optional[str] = None,
+) -> Plottable:
+    """Native polars ``get_degrees`` — parity with ComputeMixin.get_degrees.
+
+    Per-node in/out degree via a group_by-count on the edge endpoint columns,
+    left-joined onto the node table (materialized from edges when absent). Pure
+    polars — NO pandas bridge (see plan.md NO-CHEATING). Parity contract vs the
+    pandas oracle: isolated nodes and src-only / dst-only nodes get 0; self-loops
+    are double-counted (one in + one out); all three columns are Int32. Empty
+    edges need no special case — the left-join + fill_null(0) yields all-zero
+    degrees, matching the pandas empty-edges branch.
+
+    The ``engine`` safelist sub-param is accepted and ignored: execution is already
+    committed to polars and the result stays parity-equal to the pandas oracle.
+    """
+    import polars as pl
+
+    g = ensure_nodes_polars(g)
+    node_col, src, dst = g._node, g._source, g._destination
+    assert node_col is not None and src is not None and dst is not None
+    assert g._nodes is not None and g._edges is not None
+    nodes, edges = g._nodes, g._edges
+
+    # Align the count keys to the node-id dtype so the left-join keys match even when
+    # a user node table's id dtype diverges from the edge endpoint dtype (polars will
+    # not auto-cast int<->float join keys, where pandas merges fine).
+    node_dt = (nodes.collect_schema() if _is_lazy(nodes) else nodes.schema)[node_col]
+
+    in_counts = edges.group_by(pl.col(dst).cast(node_dt).alias(node_col)).agg(
+        pl.len().alias(degree_in)
+    )
+    out_counts = edges.group_by(pl.col(src).cast(node_dt).alias(node_col)).agg(
+        pl.len().alias(degree_out)
+    )
+
+    # Drop any pre-existing degree columns, mirroring the pandas keep-subset, so a
+    # re-run overwrites rather than producing ``*_right`` join collisions.
+    drop_cols = [c for c in _colnames(nodes) if c in (degree_in, degree_out, col)]
+    base = nodes.drop(drop_cols) if drop_cols else nodes
+
+    out = (
+        base.join(in_counts, on=node_col, how="left")
+        .join(out_counts, on=node_col, how="left")
+        .with_columns(
+            pl.col(degree_in).fill_null(0).cast(pl.Int32),
+            pl.col(degree_out).fill_null(0).cast(pl.Int32),
+        )
+        .with_columns(
+            (pl.col(degree_in) + pl.col(degree_out)).cast(pl.Int32).alias(col)
+        )
+    )
+    return g.nodes(out, node_col)
+
+
 def _try_native_row_op(g_cur, op):
     """Run a row-pipeline call natively on polars, or return None to defer (NIE)."""
     from graphistry.Engine import Engine
-    from .row_pipeline import select_polars, order_by_polars, group_by_polars, unwind_polars, where_rows_polars
+    from .row_pipeline import select_polars, with_columns_polars, order_by_polars, group_by_polars, unwind_polars, where_rows_polars
 
     fn = getattr(op, "function", None)
     if _call_native_on_polars(op):
@@ -318,7 +377,11 @@ def _try_native_row_op(g_cur, op):
         return op.execute(g=g_cur, prev_node_wavefront=None, target_wave_front=None, engine=Engine.POLARS)
     if fn in ("select", "return_"):
         return select_polars(g_cur, op.params.get("items", []))
-    if fn == "with_" and not op.params.get("extend", False):
+    if fn == "with_":
+        # extend=True (WITH ... that KEEPS existing columns) -> with_columns; extend=False
+        # (full re-projection) -> select. Both decline (NIE) on an unlowerable item.
+        if op.params.get("extend", False):
+            return with_columns_polars(g_cur, op.params.get("items", []))
         return select_polars(g_cur, op.params.get("items", []))
     if fn == "where_rows":
         return where_rows_polars(g_cur, op.params.get("filter_dict"), op.params.get("expr"))
@@ -328,6 +391,13 @@ def _try_native_row_op(g_cur, op):
         return group_by_polars(g_cur, op.params.get("keys", []), op.params.get("aggregations", []))
     if fn == "unwind":
         return unwind_polars(g_cur, op.params.get("expr", ""), op.params.get("as_", "value"))
+    if fn == "get_degrees":
+        return get_degrees_polars(
+            g_cur,
+            col=op.params.get("col", "degree"),
+            degree_in=op.params.get("degree_in", "degree_in"),
+            degree_out=op.params.get("degree_out", "degree_out"),
+        )
     return None
 
 

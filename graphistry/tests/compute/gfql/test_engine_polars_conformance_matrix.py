@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import graphistry
-from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, call, let
+from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, call, let, rows, with_, return_
 
 
 # ---- graph with diverse dtypes (int, float w/ null, str, bool) ----
@@ -238,10 +238,9 @@ def test_conformance_call_chain_vs_dag_consistent(fn):
 
 # ---- generative predicate fuzz across surfaces (verify-not-trust: broad, seeded) ----
 def test_conformance_predicate_fuzz():
-    from graphistry.compute.predicates.numeric import GT, LT, Between
+    from graphistry.compute.predicates.numeric import GT, Between
     from graphistry.compute.predicates.is_in import IsIn
     from graphistry.compute.predicates.str import Contains, Startswith, Endswith
-    cols_num = ["num", "w_unused"]  # w is on edges; keep node cols
     fails = []
     for t in range(60):
         rng = np.random.default_rng(7000 + t)
@@ -250,7 +249,8 @@ def test_conformance_predicate_fuzz():
         if choice == 0:
             q = [n({"num": GT(val=int(rng.integers(0, 100)))})]
         elif choice == 1:
-            lo = int(rng.integers(0, 50)); q = [n({"num": Between(lower=lo, upper=lo + 30)})]
+            lo = int(rng.integers(0, 50))
+            q = [n({"num": Between(lower=lo, upper=lo + 30)})]
         elif choice == 2:
             q = [n({"num": IsIn(options=[int(x) for x in rng.integers(0, 100, 5)])})]
         elif choice == 3:
@@ -264,4 +264,179 @@ def test_conformance_predicate_fuzz():
             _assert_invariant(g, q, f"fuzz {t}")
         except AssertionError as e:
             fails.append(str(e)[:120])
-    assert not fails, f"predicate-conformance fuzz failures:\n" + "\n".join(fails)
+    assert not fails, "predicate-conformance fuzz failures:\n" + "\n".join(fails)
+
+
+# ============================================================================
+# Phase 2d native-feature wins (session 2): get_degrees / temporal / with_extend
+# Each is native-or-honest; the parity-or-NIE invariant + explicit "must run
+# NATIVELY" assertions gate them across all available engines.
+# ============================================================================
+
+# ---- NATIVE get_degrees (pure groupby/count — a real native polars win) ----
+def _degrees_graph():
+    # node 6 isolated; node 5 src-only; node 4 dst-only; 2->2 self-loop (double-counted)
+    nd = pd.DataFrame({"id": [0, 1, 2, 3, 4, 5, 6], "k": ["a", "b", "c", "d", "e", "f", "g"]})
+    ed = pd.DataFrame({
+        "s":   [0, 1, 2, 5, 3],
+        "d":   [1, 2, 2, 0, 4],
+        "eid": [0, 1, 2, 3, 4],
+    })
+    return graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+
+
+@pytest.mark.parametrize("label,query", [
+    ("default", [call("get_degrees")]),
+    ("custom-cols", [call("get_degrees", {"col": "deg", "degree_in": "din", "degree_out": "dout"})]),
+])
+def test_conformance_get_degrees_chain(label, query):
+    _assert_invariant(_degrees_graph(), query, f"get_degrees chain {label}")
+
+
+@pytest.mark.parametrize("label,binding", [
+    ("default", call("get_degrees")),
+    ("custom-cols", call("get_degrees", {"col": "deg", "degree_in": "din", "degree_out": "dout"})),
+])
+def test_conformance_get_degrees_dag(label, binding):
+    _assert_invariant(_degrees_graph(), let({"a": binding}), f"get_degrees dag {label}")
+
+
+def test_get_degrees_runs_natively_on_polars():
+    """get_degrees is pure groupby/count -> it MUST run NATIVELY under polars: NOT an
+    (honest-but-lazy) NotImplementedError and NOT a silent pandas bridge."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars not installed")
+    g = _degrees_graph()
+    base = _run(g, [call("get_degrees")], "pandas")
+    res = _run(g, [call("get_degrees")], "polars")
+    assert res[0] == "ok", f"get_degrees must be NATIVE on polars, got {res}"
+    assert res == base, f"get_degrees polars must match pandas oracle: {res} != {base}"
+    out = g.gfql([call("get_degrees")], engine="polars")
+    assert "polars" in type(out._nodes).__module__, "get_degrees polars returned non-polars nodes (silent bridge!)"
+
+
+def test_get_degrees_chain_vs_dag_native_consistent():
+    """Cross-surface: chain call() vs let()/ref() DAG must agree — both native-ok with the
+    SAME value signature (or both NIE)."""
+    g = _degrees_graph()
+    chain = _run(g, [call("get_degrees")], "polars")
+    dag = _run(g, let({"a": call("get_degrees")}), "polars")
+    assert chain[0] == dag[0], f"surface divergence: chain {chain[0]} != dag {dag[0]}"
+    if chain[0] == "ok":
+        assert chain[1] == dag[1], f"chain/dag sig mismatch: {chain} vs {dag}"
+
+
+# ---- NATIVE TEMPORAL: SAFE DateValue lowering vs declined tz-aware ----
+def _temporal_graph():
+    """Graph with a NAIVE datetime64[ns] node column -> pl.Datetime(time_zone=None)."""
+    nd = pd.DataFrame({
+        "id": np.arange(6),
+        "ts": pd.to_datetime([
+            "2020-01-01 09:30", "2020-01-15 00:00", "2020-01-15 23:59",
+            "2020-02-01 12:00", "2020-03-10 06:00", "2020-12-31 23:59",
+        ]),
+        "v": [10, 20, 30, 40, 50, 60],
+    })
+    ed = pd.DataFrame({"s": [0, 1, 2, 3], "d": [1, 2, 3, 4], "eid": [0, 1, 2, 3]})
+    return graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+
+
+def _temporal_chain_queries():
+    from graphistry.compute.predicates.comparison import GT, GE, EQ, LT
+    d = datetime.date(2020, 1, 15)
+    return [
+        ("gt-date",      [n({"ts": GT(val=d)})]),
+        ("ge-date",      [n({"ts": GE(val=d)})]),
+        # date truncation: BOTH 2020-01-15 rows (00:00 and 23:59) match the date literal
+        ("eq-date",      [n({"ts": EQ(val=d)})]),
+        ("lt-date",      [n({"ts": LT(val=d)})]),
+        # no-match edge: nothing is after 2099 -> empty result, must still parity/NIE-agree
+        ("nomatch-date", [n({"ts": GT(val=datetime.date(2099, 1, 1))})]),
+    ]
+
+
+@pytest.mark.parametrize("label,query", _temporal_chain_queries())
+def test_conformance_temporal_datevalue_chain(label, query):
+    _assert_invariant(_temporal_graph(), query, f"temporal-chain {label}")
+
+
+@pytest.mark.parametrize("label,query", [
+    ("cy-gt-date", "MATCH (n) WHERE n.ts > date('2020-01-15') RETURN n.id AS id"),
+    ("cy-ge-date", "MATCH (n) WHERE n.ts >= date('2020-01-15') RETURN n.id AS id"),
+    ("cy-eq-date", "MATCH (n) WHERE n.ts = date('2020-01-15') RETURN n.id AS id"),
+])
+def test_conformance_temporal_datevalue_cypher(label, query):
+    # Cypher date('...') folds to a DateValue in the node filter_dict -> same native lowering.
+    _assert_invariant(_temporal_graph(), query, f"temporal-cypher {label}")
+
+
+def test_temporal_naive_datevalue_runs_natively_polars():
+    """The SAFE shape (naive Datetime column + DateValue) MUST lower NATIVELY on polars
+    (result 'ok', not an NIE decline) AND match the pandas oracle."""
+    from graphistry.compute.predicates.comparison import GT
+    g = _temporal_graph()
+    q = [n({"ts": GT(val=datetime.date(2020, 1, 15))})]
+    res = _run(g, q, "polars")
+    assert res[0] == "ok", f"expected native polars lowering (not NIE), got {res}"
+    _assert_invariant(g, q, "temporal native gt-date")
+
+
+def test_temporal_tzaware_datetimevalue_honest_nie_polars():
+    """A tz-tagged DateTimeValue (python datetime -> DateTimeValue, default tz=UTC) must stay an
+    HONEST NotImplementedError on polars — never a silent tz mishandling, never a non-NIE crash."""
+    from graphistry.compute.predicates.comparison import GT
+    g = _temporal_graph()
+    res = _run(g, [n({"ts": GT(val=datetime.datetime(2020, 1, 15, 12, 0))})], "polars")
+    assert res[0] == "nie", f"expected honest NIE for tz-aware DateTimeValue, got {res}"
+
+
+# ---- WITH ... extend=True (native polars `with_columns` column-extension) ----
+def test_conformance_with_extend_arithmetic_native():
+    """extend=True adds a computed column while KEEPING existing node columns, and MUST
+    run natively on polars (with_columns) — not an honest NIE."""
+    g = _graph(5)
+    query = [n(), rows(), with_([("p", "num + 1")], extend=True)]
+    _assert_invariant(g, query, "with_extend arithmetic")
+    res = _run(g, query, "polars")
+    assert res[0] == "ok", f"with_(extend=True) arithmetic must run NATIVELY on polars, got {res}"
+
+
+def test_conformance_with_extend_shadows_existing_column():
+    """A projected alias that SHADOWS an existing column overwrites it in place."""
+    g = _graph(6)
+    query = [n(), rows(), with_([("num", "num * 2"), ("extra", "f + 1.0")], extend=True)]
+    _assert_invariant(g, query, "with_extend shadow")
+    res = _run(g, query, "polars")
+    assert res[0] == "ok", f"with_(extend=True) shadow must run NATIVELY on polars, got {res}"
+
+
+def test_conformance_with_extend_chain_vs_cypher_consistent():
+    """Cross-surface: chain `with_(extend=True)` and Cypher `WITH n, ...` must AGREE —
+    both native+equal, or both honest-NIE (never the silent-bridge bug class)."""
+    g = _graph(7)
+    chain_q = [
+        n(), rows(),
+        with_([("id", "id"), ("num", "num"), ("p", "num + 1")], extend=True),
+        return_([("id", "id"), ("num", "num"), ("p", "p")]),
+    ]
+    cypher_q = "MATCH (n) WITH n, n.num + 1 AS p RETURN n.id AS id, n.num AS num, p AS p"
+    _assert_invariant(g, chain_q, "with_extend chain")
+    _assert_invariant(g, cypher_q, "with_extend cypher")
+    chain = _run(g, chain_q, "polars")
+    cyph = _run(g, cypher_q, "polars")
+    if chain[0] == "nie":
+        assert cyph[0] == "nie", f"chain NIE but cypher {cyph} (cross-surface divergence)"
+    elif chain[0] == "ok":
+        assert cyph[0] == "ok" and cyph[1] == chain[1], f"chain ok but cypher {cyph}"
+
+
+def test_conformance_with_extend_unlowerable_is_honest_nie():
+    """An item lower_expr cannot lower (a list literal) must decline as an honest NIE on
+    polars (NO silent pandas bridge), while the pandas oracle succeeds. Direct pandas-ok +
+    polars-nie check rather than _assert_invariant: the list-literal expr ALSO surfaces an
+    orthogonal cudf element-ordering divergence (filed separately, not the polars with_ path
+    under test here)."""
+    g = _graph(8)
+    query = [n(), rows(), with_([("vals", "[num, num + 1, 99]")], extend=True)]
+    assert _run(g, query, "pandas")[0] == "ok", "pandas oracle should build the list column"
+    assert _run(g, query, "polars")[0] == "nie", "list-literal with_ must be an honest NIE on polars"
