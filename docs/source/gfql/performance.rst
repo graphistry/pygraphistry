@@ -14,7 +14,7 @@ win is one keyword, **no GPU required**:
 .. code-block:: python
 
    g.gfql(query)                    # engine='pandas' (default)
-   g.gfql(query, engine='polars')   # 11-47x faster on real graphs, same results
+   g.gfql(query, engine='polars')   # up to ~38x faster on real graphs, same results
 
 Warm-median latency, same query, identical result rows (**Orkut**, 117M edges, SNAP):
 
