@@ -25,7 +25,7 @@ def _unsupported(**kwargs: Any) -> None:
         raise NotImplementedError(
             "polars hop engine (Phase 1) does not yet support: "
             + ", ".join(sorted(unsupported))
-            + ". Use engine='pandas' or extend graphistry/compute/gfql/engine_polars/hop.py."
+            + ". Use engine='pandas' or extend graphistry/compute/gfql/lazy/engine/polars/hop_eager.py."
         )
 
 

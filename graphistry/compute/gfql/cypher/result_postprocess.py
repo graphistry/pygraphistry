@@ -299,7 +299,7 @@ def apply_result_projection(
     """
     rows_df = getattr(result, "_nodes", None)
     if rows_df is not None and "polars" in type(rows_df).__module__:
-        from graphistry.compute.gfql.engine_polars.projection import apply_result_projection_polars
+        from graphistry.compute.gfql.lazy.engine.polars.projection import apply_result_projection_polars
         return apply_result_projection_polars(result, projection, structured=structured)
     return _apply_result_projection_pandas(result, projection, structured=structured)
 

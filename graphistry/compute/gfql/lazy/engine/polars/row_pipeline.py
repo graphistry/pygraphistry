@@ -388,7 +388,7 @@ def select_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
 
 def _select_emits_temporal_constructor_text(out: Any) -> bool:
     import polars as pl
-    from graphistry.compute.gfql.engine_polars.projection import _has_temporal_constructor_text
+    from graphistry.compute.gfql.lazy.engine.polars.projection import _has_temporal_constructor_text
     for name, dtype in out.schema.items():
         if dtype == pl.String and _has_temporal_constructor_text(out, name):
             return True

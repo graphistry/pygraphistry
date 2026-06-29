@@ -135,7 +135,7 @@ def test_polars_filter_by_dict_exotic_predicate_declines():
     # NotImplementedError, NOT silently evaluate the column via pandas (the old
     # bridge misrepresented pandas semantics as polars).
     from graphistry.compute.predicates.ASTPredicate import ASTPredicate
-    from graphistry.compute.gfql.engine_polars.predicates import filter_by_dict_polars, predicate_to_expr
+    from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars, predicate_to_expr
 
     class IsOdd(ASTPredicate):
         def __call__(self, s):

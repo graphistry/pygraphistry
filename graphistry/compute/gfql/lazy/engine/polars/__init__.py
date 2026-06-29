@@ -7,3 +7,8 @@ lowering from ``engine_polars`` (``lower_expr`` / ``predicate_to_expr`` / agg /
 select / order_by lowering) verbatim — only the materialization strategy differs
 (eager ``.collect()`` per op  ->  lazy plan + collect-once).
 """
+
+from .hop_eager import hop_polars
+from .chain import chain_polars
+
+__all__ = ["hop_polars", "chain_polars"]

@@ -313,7 +313,7 @@ def test_polars_chain_seed_dtype_alignment():
     dtype (e.g. float seed vs int nodes — an empty crossfilter selection defaults to
     float64) must align join keys rather than crash with SchemaError (mirrors hop)."""
     import polars as pl
-    from graphistry.compute.gfql.engine_polars.chain import chain_polars
+    from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
     from graphistry.compute.ast import n, e_forward
     # polars frames (as the engine boundary hands chain_polars), int node ids
     nodes = pl.DataFrame({"id": [1, 2, 3]})

@@ -18,8 +18,8 @@ from typing import Any, Optional
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.util import generate_safe_column_name
-from graphistry.compute.gfql.engine_polars.hop import ensure_nodes_polars
-from graphistry.compute.gfql.engine_polars.predicates import filter_by_dict_polars
+from graphistry.compute.gfql.lazy.engine.polars.hop_eager import ensure_nodes_polars
+from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
 from graphistry.compute.gfql.lazy import collect_all
 
 
@@ -31,7 +31,7 @@ def hop_lazy_or_eager(self: Plottable, nodes: Optional[Any] = None, hops: Option
     result = hop_polars_lazy(self, nodes, hops, **kwargs)
     if result is not None:
         return result
-    from graphistry.compute.gfql.engine_polars.hop import hop_polars
+    from graphistry.compute.gfql.lazy.engine.polars.hop_eager import hop_polars
     return hop_polars(self, nodes, hops, **kwargs)
 
 

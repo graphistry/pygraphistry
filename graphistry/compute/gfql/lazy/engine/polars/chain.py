@@ -13,7 +13,7 @@ from typing import Any, List, Optional, Tuple
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
-from .hop import ensure_nodes_polars
+from .hop_eager import ensure_nodes_polars
 from .predicates import filter_by_dict_polars
 
 

@@ -138,7 +138,7 @@ def test_polars_row_pipeline_deferred_raises(query):
 
 def test_row_expr_lowering_unit():
     """lower_expr_str / lower_select_items / lower_order_by_keys edge cases."""
-    from graphistry.compute.gfql.engine_polars.row_pipeline import (
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
         lower_expr_str, lower_select_items, lower_order_by_keys,
     )
     cols = ["id", "n", "val", "kind"]
@@ -272,7 +272,7 @@ def test_chain_polars_chain_input_and_empty():
 
 def test_call_native_on_polars_classifier():
     """_call_native_on_polars: only frame ops (single-entity rows) are native."""
-    from graphistry.compute.gfql.engine_polars.chain import _call_native_on_polars
+    from graphistry.compute.gfql.lazy.engine.polars.chain import _call_native_on_polars
     from graphistry.compute.ast import call, n
     assert _call_native_on_polars(n()) is False
     assert _call_native_on_polars(call("limit", {"value": 1})) is True
@@ -282,7 +282,7 @@ def test_call_native_on_polars_classifier():
 
 def test_run_calls_polars_empty_and_native():
     """_run_calls_polars: empty-calls short circuit + native select stays polars."""
-    from graphistry.compute.gfql.engine_polars.chain import _run_calls_polars
+    from graphistry.compute.gfql.lazy.engine.polars.chain import _run_calls_polars
     from graphistry.compute.ast import call
     g = _polars_graph()
     assert _run_calls_polars(g, [], None, g, []) is g
@@ -293,7 +293,7 @@ def test_run_calls_polars_empty_and_native():
 def test_run_calls_polars_binding_ops_defers():
     """Named middle + bare rows() rewrites to rows(binding_ops), which is not
     native -> NotImplementedError (NO pandas bridge, see plan.md NO-CHEATING)."""
-    from graphistry.compute.gfql.engine_polars.chain import _run_calls_polars
+    from graphistry.compute.gfql.lazy.engine.polars.chain import _run_calls_polars
     from graphistry.compute.ast import call, n, e_forward
     g = _polars_graph()
     middle = [n(name="a"), e_forward(), n(name="b")]
