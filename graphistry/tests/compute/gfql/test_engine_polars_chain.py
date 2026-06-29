@@ -330,3 +330,35 @@ def test_engine_polars_clean_dependency_errors():
     if importlib.util.find_spec("cudf_polars") is None:
         with pytest.raises(ImportError, match=r"cudf_polars"):
             g.gfql([n()], engine="polars-gpu")
+
+
+def test_gpu_executor_mode_flag(monkeypatch):
+    """GFQL_POLARS_GPU_EXECUTOR selects the cudf-polars executor: default 'in-memory',
+    opt-in 'streaming' (larger-than-device escape hatch), invalid -> in-memory. raise_on_fail
+    stays True (NO-CHEATING) regardless. Mocks pl.GPUEngine so no GPU is needed."""
+    import polars as pl
+    from graphistry.compute.gfql import lazy
+    from graphistry.compute.gfql.lazy import _engine_for, ExecutionTarget
+
+    captured = {}
+
+    class _FakeGPUEngine:
+        def __init__(self, **kw):
+            captured.clear(); captured.update(kw)
+
+    monkeypatch.setattr(pl, "GPUEngine", _FakeGPUEngine)
+
+    monkeypatch.setattr(lazy, "_GPU_EXECUTOR", "in-memory")
+    _engine_for(ExecutionTarget.GPU)
+    assert captured == {"executor": "in-memory", "raise_on_fail": True}
+
+    monkeypatch.setattr(lazy, "_GPU_EXECUTOR", "streaming")
+    _engine_for(ExecutionTarget.GPU)
+    assert captured["executor"] == "streaming" and captured["raise_on_fail"] is True
+
+    monkeypatch.setattr(lazy, "_GPU_EXECUTOR", "bogus")
+    _engine_for(ExecutionTarget.GPU)
+    assert captured["executor"] == "in-memory"  # invalid value falls back
+
+    # CPU target unaffected (returns None, no engine)
+    assert _engine_for(ExecutionTarget.CPU) is None
