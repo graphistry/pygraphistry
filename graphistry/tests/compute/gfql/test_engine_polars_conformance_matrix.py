@@ -37,17 +37,41 @@ def _graph(seed=0):
     return graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
 
 
+def _to_pd(df):
+    """Normalize any engine frame (polars / cudf / pandas) to pandas for comparison."""
+    if df is None:
+        return None
+    if "pandas" in type(df).__module__:
+        return df
+    if hasattr(df, "to_pandas"):  # polars.DataFrame, cudf.DataFrame
+        return df.to_pandas()
+    return df
+
+
+def _frame_repr(df):
+    """Canonical VALUE-level repr of a frame for cross-engine comparison: normalize to pandas,
+    sort columns, round floats (FP tolerance across engines), sort rows (order-insensitive),
+    NaN/NA -> None. Compares actual cell values, not just id-sets/shape."""
+    df = _to_pd(df)
+    if df is None:
+        return None
+    import numpy as np
+    df = df.reindex(sorted(df.columns), axis=1).copy()
+    for c in df.columns:
+        if df[c].dtype.kind == "f":
+            df[c] = df[c].round(6)
+    cols = tuple(df.columns)
+    # rows as tuples (NaN/NA -> None), then sort the LIST of tuples (order-insensitive) with a
+    # None-safe, type-safe key. Avoids per-row agg(join) which is fragile on empty/mixed frames.
+    obj = df.where(df.notna(), None)
+    rows = [tuple(r) for r in obj.to_numpy().tolist()]
+    rows.sort(key=lambda t: tuple((v is None, type(v).__name__, str(v)) for v in t))
+    return (cols, tuple(rows))
+
+
 def _sig(g):
-    """Order-insensitive signature of a graph/row result (node-id set + edge-id set + shape)."""
-    no, ed = g._nodes, g._edges
-    if no is not None and "polars" in type(no).__module__:
-        no = no.to_pandas()
-    if ed is not None and "polars" in type(ed).__module__:
-        ed = ed.to_pandas()
-    nids = frozenset(no["id"].tolist()) if (no is not None and "id" in no.columns) else None
-    eids = frozenset(ed["eid"].tolist()) if (ed is not None and "eid" in ed.columns) else None
-    nshape = None if no is None else (no.shape[0], tuple(sorted(no.columns)))
-    return (nids, eids, nshape)
+    """Full value-level signature of a graph/row result (both frames, values compared)."""
+    return (_frame_repr(g._nodes), _frame_repr(g._edges))
 
 
 def _run(g, query, engine):
@@ -60,16 +84,35 @@ def _run(g, query, engine):
         return ("err", type(ex).__name__)
 
 
+def _available_nonpandas_engines():
+    """polars always; cudf / polars-gpu when the GPU stack is importable (the dgx GPU lane)."""
+    engines = ["polars"]
+    try:
+        import cudf  # noqa: F401
+        engines.append("cudf")
+    except Exception:
+        pass
+    import importlib.util
+    if importlib.util.find_spec("cudf_polars") is not None:
+        engines.append("polars-gpu")
+    return engines
+
+
+_NONPANDAS_ENGINES = _available_nonpandas_engines()
+
+
 def _assert_invariant(g, query, label):
-    """polars result == pandas oracle, OR polars honestly NIEs. Never silent-divergence / crash."""
+    """For EVERY available non-pandas engine: result == pandas oracle, OR honest NIE. Never a
+    silent divergence / non-NIE crash. Runs polars on every box; cudf + polars-gpu on the dgx."""
     base = _run(g, query, "pandas")
-    pol = _run(g, query, "polars")
     if base[0] == "err":
         pytest.skip(f"{label}: pandas oracle itself errored ({base[1]})")
-    if pol[0] == "nie":
-        return  # honest decline — allowed
-    assert pol[0] != "err", f"{label}: polars raised non-NIE {pol[1]} where pandas={base[0]}"
-    assert pol == base, f"{label}: SILENT DIVERGENCE polars{pol} != pandas{base}"
+    for eng in _NONPANDAS_ENGINES:
+        res = _run(g, query, eng)
+        if res[0] == "nie":
+            continue  # honest decline — allowed
+        assert res[0] != "err", f"{label}[{eng}]: non-NIE {res[1]} where pandas={base[0]}"
+        assert res == base, f"{label}[{eng}]: SILENT DIVERGENCE {eng}{res} != pandas{base}"
 
 
 # ---- predicate cross-product (the area that had 2 wrong-answer bugs) ----
@@ -119,6 +162,40 @@ def test_conformance_predicates_dag(label, query):
 ])
 def test_conformance_traversals(label, query):
     _assert_invariant(_graph(2), query, f"traversal {label}")
+
+
+# ---- HOT-PATH CARVE-OUT verification (fast paths bypass the general engine = highest risk) ----
+# Adversarial inputs against each special-cased fast path: node-only MATCH, unconstrained 1-hop,
+# filtered single-hop, filters on BOTH endpoints, empty results, isolated/self-loop topology.
+def _carveout_graph():
+    nd = pd.DataFrame({
+        "id": [0, 1, 2, 3, 4, 5],
+        "k": ["a", "a", "b", "b", "c", "c"],
+        "v": [10, 20, 30, 40, 50, 60],
+    })
+    ed = pd.DataFrame({  # node 5 isolated; 2->2 self-loop; multi-edge 0->1
+        "s": [0, 0, 1, 2, 3],
+        "d": [1, 1, 2, 2, 4],
+        "eid": [0, 1, 2, 3, 4],
+    })
+    return graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+
+
+@pytest.mark.parametrize("label,query", [
+    ("node-only-match", [n({"k": "a"})]),
+    ("node-only-empty", [n({"k": "zzz"})]),
+    ("unconstrained-1hop", [n(), e_forward(), n()]),
+    ("filtered-src", [n({"k": "a"}), e_forward(), n()]),
+    ("filtered-dst", [n(), e_forward(), n({"k": "b"})]),
+    ("filtered-both-endpoints", [n({"k": "a"}), e_forward(), n({"k": "a"})]),
+    ("both-endpoints-empty", [n({"k": "a"}), e_forward(), n({"k": "zzz"})]),
+    ("self-loop-reach", [n({"id": [2]}), e_forward(), n()]),
+    ("isolated-node-seed", [n({"id": [5]}), e_forward(), n()]),
+    ("reverse-filtered", [n({"k": "b"}), e_reverse(), n()]),
+    ("undirected-1hop-filtered", [n({"k": "a"}), e_undirected(), n({"k": "b"})]),
+])
+def test_conformance_hotpath_carveouts(label, query):
+    _assert_invariant(_carveout_graph(), query, f"carveout {label}")
 
 
 # ---- cross-surface call() consistency (the silent-bridge bug class) ----
