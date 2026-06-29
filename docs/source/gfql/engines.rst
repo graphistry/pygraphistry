@@ -215,8 +215,12 @@ result as a GPU run (see *Honesty* below).
 
 **[F5] Selective traversal is an indexing problem, not an engine choice.** A seeded ``hop``
 from a few nodes is fastest with the opt-in **CSR adjacency index** (``g.create_index(...)``,
-``index_policy=``), which turns the O(E) scan into an O(degree) gather — on CPU, independent
-of ``engine=``. (A dedicated index guide is in progress; the methods live under the GFQL API.)
+``index_policy=``), which turns the O(E) scan into an O(degree) gather. The index works on all
+four engines, but seeded work is so small that **CPU wins**: on LiveJournal 35M a typical-seed
+1-hop is ~0.13 ms on pandas and ~0.16 ms on Polars (numpy ``searchsorted``) vs ~3 ms on cuDF
+(GPU kernel-launch floor) — the clean inverse of bulk, where the GPU pulls ahead. So pick the
+index for selective traversal and a CPU engine to drive it. (A dedicated index guide is in
+progress; the methods live under the GFQL API.)
 
 cuDF vs Polars-GPU
 ------------------
