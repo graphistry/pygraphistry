@@ -135,6 +135,16 @@ def predicate_to_expr(col: str, pred: ASTPredicate):
         anchored = f"(?i)^{re.escape(pred.pat)}" if name == "Startswith" else f"(?i){re.escape(pred.pat)}$"
         return c.str.contains(anchored, literal=False)
 
+    if name in ("Match", "Fullmatch") and hasattr(pred, "pat") and isinstance(pred.pat, str):
+        # pandas str.match = regex anchored at START; str.fullmatch = anchored BOTH ends.
+        # Decline when custom regex flags (beyond case) are set, to avoid a flag-semantics gap.
+        if getattr(pred, "flags", 0):
+            return None
+        prefix = "" if getattr(pred, "case", True) else "(?i)"
+        body = f"(?:{pred.pat})"
+        anchored = f"{prefix}^{body}" if name == "Match" else f"{prefix}^{body}$"
+        return c.str.contains(anchored, literal=False)
+
     return None
 
 

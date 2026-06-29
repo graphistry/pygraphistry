@@ -224,11 +224,20 @@ def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
     """Lower a parsed cypher ExprNode to a polars expression, or None to defer."""
     import polars as pl
     from graphistry.compute.gfql.expr_parser import (
-        Identifier, Literal, BinaryOp, UnaryOp, IsNullOp, PropertyAccessExpr, FunctionCall,
+        Identifier, Literal, BinaryOp, UnaryOp, IsNullOp, PropertyAccessExpr, FunctionCall, CaseWhen,
     )
 
     if isinstance(node, Literal):
         return pl.lit(node.value)
+    if isinstance(node, CaseWhen):
+        cond = lower_expr(node.condition, columns)
+        wt = lower_expr(node.when_true, columns)
+        wf = lower_expr(node.when_false, columns)
+        if cond is None or wt is None or wf is None:
+            return None
+        # cast cond to Boolean so a Null-dtype/3-valued condition behaves (Cypher: a null WHEN
+        # takes the ELSE branch, matching pandas); no-op on a real Boolean.
+        return pl.when(cond.cast(pl.Boolean)).then(wt).otherwise(wf)
     if isinstance(node, FunctionCall):
         return _lower_function(node, columns)
     if isinstance(node, Identifier):
