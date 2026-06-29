@@ -75,7 +75,7 @@ def _execute_validated_call(g: Plottable, function: str, validated_params: Dict[
     # Other Plottable-method calls have no native polars impl and stay declined by
     # that guard.
     if function == "get_degrees" and _active_frames_are_polars(g):
-        from graphistry.compute.gfql.engine_polars.chain import get_degrees_polars
+        from graphistry.compute.gfql.lazy.engine.polars.chain import get_degrees_polars
         return get_degrees_polars(g, **validated_params)
 
     if not hasattr(g, function):

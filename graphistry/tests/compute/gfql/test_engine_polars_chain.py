@@ -397,7 +397,7 @@ def test_engine_polars_predicate_correctness_fixes():
     import graphistry
     from graphistry.compute.ast import n
     from graphistry.compute.predicates.str import Contains
-    from graphistry.compute.gfql.engine_polars.predicates import _cmp_expr
+    from graphistry.compute.gfql.lazy.engine.polars.predicates import _cmp_expr
 
     nd = pd.DataFrame({"id": [0, 1, 2, 3], "name": ["a.b", "axb", "a.bxx", "zz"]})
     g = graphistry.nodes(nd, "id").edges(pd.DataFrame({"s": [0], "d": [1]}), "s", "d")
