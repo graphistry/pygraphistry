@@ -132,6 +132,8 @@ def _predicate_queries():
         (Contains, "name", {"pat": "ODE", "regex": False, "case": False}),
         (Startswith, "name", {"pat": "node"}),
         (Endswith, "name", {"pat": ".3"}),
+        (Startswith, "name", {"pat": ("node.1", "node.2")}),  # tuple-of-prefixes (OR)
+        (Endswith, "name", {"pat": (".1", ".2")}),            # tuple-of-suffixes (OR)
         (Match, "name", {"pat": "node"}),            # anchored start
         (Match, "name", {"pat": "ode"}),             # NOT at start -> no match (parity check)
         (Fullmatch, "name", {"pat": r"node\.\d"}),   # full match 'node.X'
