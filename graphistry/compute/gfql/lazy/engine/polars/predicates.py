@@ -18,6 +18,17 @@ from .dtypes import is_numeric as _dtype_numeric, is_stringlike as _dtype_string
 
 
 def _cmp_expr(col_expr, op, val):
+    # Temporal values (datetime/date/time or the GFQL TemporalValue) have no direct
+    # polars-literal comparison here — DECLINE (return None → honest NotImplementedError)
+    # rather than build `col > TemporalValue`, a non-None broken expr that errors at
+    # ``df.filter`` (or silently misorders). Native temporal-comparison lowering is a tracked
+    # feature gap; numeric/string vals are unaffected.
+    import datetime as _dt
+    if isinstance(val, (_dt.date, _dt.datetime, _dt.time)) or type(val).__name__ in (
+        "TemporalValue", "Timestamp", "Timedelta", "datetime64",
+        "DateTimeValue", "TimeValue", "DateValue",
+    ):
+        return None
     # NOTE (narrow residual): these comparisons do NOT apply the IEEE NaN mask that the
     # WHERE/row-pipeline lowering does (``_nan_guard``). On a GENUINE polars NaN (not
     # null), ``col > x`` keeps the NaN row (polars treats NaN as largest) where pandas

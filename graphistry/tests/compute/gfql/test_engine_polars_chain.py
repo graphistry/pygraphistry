@@ -362,3 +362,54 @@ def test_gpu_executor_mode_flag(monkeypatch):
 
     # CPU target unaffected (returns None, no engine)
     assert _engine_for(ExecutionTarget.CPU) is None
+
+
+def test_engine_polars_no_silent_call_bridge():
+    """NO-CHEATING: a DAG let() binding of a Plottable-method call (e.g. get_degrees) raises
+    NotImplementedError under engine='polars' (matching the chain surface) instead of silently
+    running on pandas and coercing the result back. engine='pandas' is unaffected."""
+    import pytest
+    import pandas as pd
+    import graphistry
+    from graphistry.compute.ast import call, let
+
+    g = (graphistry.nodes(pd.DataFrame({"id": [0, 1, 2]}), "id")
+         .edges(pd.DataFrame({"s": [0, 1], "d": [1, 2]}), "s", "d"))
+    # chain surface already declines; the DAG surface must too (was a silent bridge).
+    with pytest.raises(NotImplementedError):
+        g.gfql([call("get_degrees")], engine="polars")
+    with pytest.raises(NotImplementedError):
+        g.gfql(let({"d": call("get_degrees")}), engine="polars")
+    # pandas DAG path still works.
+    assert g.gfql(let({"d": call("get_degrees")}), engine="pandas") is not None
+
+
+def test_engine_polars_predicate_correctness_fixes():
+    """Contains honors the regex flag (a literal pattern with regex metachars matches literally,
+    not as a regex); temporal comparison declines cleanly (no broken expr leak)."""
+    import datetime
+    import operator
+    import polars as pl
+    import pandas as pd
+    import graphistry
+    from graphistry.compute.ast import n
+    from graphistry.compute.predicates.str import Contains
+    from graphistry.compute.gfql.engine_polars.predicates import _cmp_expr
+
+    nd = pd.DataFrame({"id": [0, 1, 2, 3], "name": ["a.b", "axb", "a.bxx", "zz"]})
+    g = graphistry.nodes(nd, "id").edges(pd.DataFrame({"s": [0], "d": [1]}), "s", "d")
+
+    def ids(gg):
+        no = gg._nodes
+        no = no.to_pandas() if "polars" in type(no).__module__ else no
+        return sorted(no["id"].tolist())
+
+    for regex in (False, True):
+        q = [n({"name": Contains(pat="a.b", regex=regex)})]
+        assert ids(g.gfql(q, engine="pandas")) == ids(g.gfql(q, engine="polars")), f"regex={regex}"
+    # literal 'a.b' matches 'a.b' + 'a.bxx' but NOT 'axb' (the metachar bug)
+    assert ids(g.gfql([n({"name": Contains(pat="a.b", regex=False)})], engine="polars")) == [0, 2]
+
+    # temporal val -> _cmp_expr declines (None) so upstream raises honest NIE; numeric still lowers.
+    assert _cmp_expr(None, operator.gt, datetime.date(2020, 1, 1)) is None
+    assert _cmp_expr(pl.col("x"), operator.gt, 5) is not None

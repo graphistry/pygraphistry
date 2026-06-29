@@ -147,6 +147,24 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         # Ensure result matches requested engine (defensive coercion)
         # Schema-changing operations (UMAP, hypergraph) may alter DataFrame types
         if _is_plottable_like(result):
+            # NO-CHEATING: a Plottable-method call (get_degrees / hypergraph / umap / igraph /
+            # cugraph / nx algos) has no native polars implementation — it runs on pandas/cuDF.
+            # Coercing that result back to polars here would be a SILENT polars-engine bridge, and
+            # is inconsistent with the chain surface, which honestly raises NotImplementedError for
+            # the identical op. So under a polars engine, if the result frames are not already
+            # polars, decline instead of bridging. (Native-polars row-pipeline calls — select etc. —
+            # produce polars frames and pass through unchanged; pandas/cuDF engines are unaffected.)
+            from graphistry.Engine import Engine as _Eng
+            if engine in (_Eng.POLARS, _Eng.POLARS_GPU):
+                _res_nodes = getattr(result, '_nodes', None)
+                _res_edges = getattr(result, '_edges', None)
+                _probe = _res_nodes if _res_nodes is not None else _res_edges
+                if _probe is not None and 'polars' not in type(_probe).__module__:
+                    raise NotImplementedError(
+                        f"GFQL engine='{engine.value}' does not natively support call "
+                        f"'{function}'; it runs on pandas/cuDF and coercing the result back to "
+                        "polars would be a silent bridge. Use engine='pandas'."
+                    )
             result = ensure_engine_match(cast(Plottable, result), engine)
             result = apply_call_schema_effect(g, cast(Plottable, result), function, validated_params)
 
@@ -203,6 +221,10 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             suggestion="Check parameter names and types"
         ) from error
     if isinstance(error, GFQLTypeError):
+        raise error
+    if isinstance(error, NotImplementedError):
+        # Honest engine-capability decline (e.g. the polars no-silent-bridge guard above) —
+        # propagate as-is so the DAG surface matches the chain surface's NotImplementedError.
         raise error
     if error is not None:
         raise GFQLTypeError(
