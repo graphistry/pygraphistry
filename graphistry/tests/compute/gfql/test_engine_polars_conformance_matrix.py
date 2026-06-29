@@ -431,12 +431,154 @@ def test_conformance_with_extend_chain_vs_cypher_consistent():
 
 
 def test_conformance_with_extend_unlowerable_is_honest_nie():
-    """An item lower_expr cannot lower (a list literal) must decline as an honest NIE on
-    polars (NO silent pandas bridge), while the pandas oracle succeeds. Direct pandas-ok +
-    polars-nie check rather than _assert_invariant: the list-literal expr ALSO surfaces an
-    orthogonal cudf element-ordering divergence (filed separately, not the polars with_ path
-    under test here)."""
+    """A list literal lower_expr cannot PROVE parity-equal (a MIXED-category list:
+    string + int) must decline as an honest NIE on polars (NO silent pandas bridge), while
+    the pandas oracle builds the heterogeneous python list. Direct pandas-ok + polars-nie
+    (not _assert_invariant): list-literal exprs ALSO surface an orthogonal cudf
+    element-ordering divergence (filed separately, not the polars with_ path under test)."""
+    g = _graph(8)
+    query = [n(), rows(), with_([("vals", "[name, 99]")], extend=True)]
+    assert _run(g, query, "pandas")[0] == "ok", "pandas oracle should build the mixed list column"
+    assert _run(g, query, "polars")[0] == "nie", "mixed-category list-literal with_ must be an honest NIE on polars"
+
+
+# ============================================================================
+# Native list-literal CONSTRUCTION + `x IN [literals]` membership lowering.
+# Construction is scoped pandas-vs-polars (cudf REORDERS list elements — an orthogonal
+# cudf bug; and list-cell repr ndarray-vs-list makes the generic sig comparison fragile).
+# Membership yields a Boolean column (cudf-safe) -> full parity-or-NIE invariant.
+# ============================================================================
+
+def _norm_list_col(df, col):
+    """Normalize a list-valued column from any engine to plain-python lists of ints,
+    id-sorted, so a pandas list cell and a polars (ndarray/list) cell compare cleanly."""
+    df = _to_pd(df).sort_values("id").reset_index(drop=True)
+    return [None if c is None else [int(x) for x in list(c)] for c in df[col].tolist()]
+
+
+def test_conformance_list_literal_construction_native_polars():
+    """A homogeneous-int list literal `[num, num+1, 99]` builds per-row NATIVELY on polars
+    (pl.concat_list), ORDER preserved [e0,e1,e2], element-for-element parity-equal to the
+    pandas oracle. Scoped pandas-vs-polars (cudf reorders list elements; orthogonal bug)."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars not installed")
     g = _graph(8)
     query = [n(), rows(), with_([("vals", "[num, num + 1, 99]")], extend=True)]
-    assert _run(g, query, "pandas")[0] == "ok", "pandas oracle should build the list column"
-    assert _run(g, query, "polars")[0] == "nie", "list-literal with_ must be an honest NIE on polars"
+    res = _run(g, query, "polars")
+    assert res[0] == "ok", f"homogeneous-int list literal must run NATIVELY on polars, got {res}"
+    poldf = g.gfql(query, engine="polars")._nodes
+    assert "polars" in type(poldf).__module__, "list-literal polars returned non-polars nodes (silent bridge!)"
+    pdf = g.gfql(query, engine="pandas")._nodes
+    assert _norm_list_col(poldf, "vals") == _norm_list_col(pdf, "vals"), "list elements/order diverge polars vs pandas"
+
+
+def test_conformance_list_literal_mixed_category_honest_nie():
+    """A mixed-category list `[num, name]` (int + string) is NOT provably parity-equal —
+    polars would coerce/raise on the supertype — so it MUST be an honest NIE while pandas
+    builds the heterogeneous list. Direct pandas-ok + polars-nie (cudf-divergent expr)."""
+    g = _graph(8)
+    query = [n(), rows(), with_([("vals", "[num, name]")], extend=True)]
+    assert _run(g, query, "pandas")[0] == "ok", "pandas oracle should build the mixed list"
+    assert _run(g, query, "polars")[0] == "nie", "mixed int+string list literal must be an honest NIE on polars"
+
+
+@pytest.mark.parametrize("label,query", [
+    ("chain-int", [n(), rows(), with_([("hit", "num IN [1, 2, 3, 50, 51, 52]")], extend=True)]),
+    ("cypher-int", "MATCH (n) RETURN n.id AS id, n.num IN [1, 2, 3, 50, 51, 52] AS hit"),
+    ("cypher-str", "MATCH (n) RETURN n.id AS id, n.name IN ['node.1', 'node.2'] AS hit"),
+])
+def test_conformance_in_membership(label, query):
+    """`x IN [literals]` as a ROW EXPRESSION (projection/WITH/RETURN — distinct from the
+    WHERE/IsIn predicate path) is 3-valued and yields a Boolean column -> cudf-safe, so use
+    the full parity-or-NIE invariant across every available engine."""
+    _assert_invariant(_graph(1), query, f"in-membership {label}")
+
+
+def test_in_membership_runs_natively_on_polars():
+    """`x IN [non-null literals]` MUST lower NATIVELY on polars (result 'ok', not NIE) and
+    match the pandas oracle — never a silent pandas bridge."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars not installed")
+    g = _graph(1)
+    query = [n(), rows(), with_([("hit", "num IN [1, 2, 3, 50, 51, 52]")], extend=True)]
+    res = _run(g, query, "polars")
+    assert res[0] == "ok", f"x IN [literals] row-expression must run NATIVELY on polars, got {res}"
+    _assert_invariant(g, query, "in-membership native chain")
+
+
+# ---- NATIVE TEMPORAL date-part: IsLeapYear lowered; boundary predicates declined ----
+def _leapyear_graph():
+    """Naive datetime64 node column spanning leap + non-leap years, incl. the century
+    edge cases (1900 NOT leap; 2000 leap) — discriminates a real Gregorian leap calc."""
+    nd = pd.DataFrame({
+        "id": np.arange(7),
+        "ts": pd.to_datetime([
+            "1900-06-15", "2000-02-29", "2019-07-01",
+            "2020-01-01", "2021-12-31", "2023-03-03", "2024-08-08",
+        ]),
+        "v": [1, 2, 3, 4, 5, 6, 7],
+    })
+    ed = pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3], "eid": [0, 1, 2]})
+    return graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+
+
+def test_conformance_temporal_is_leap_year_parity():
+    """IsLeapYear on a NAIVE Datetime column matches the pandas oracle across leap/non-leap
+    years (incl. 1900 non-leap, 2000 leap) on every non-pandas engine, or honest-NIEs."""
+    from graphistry.compute.predicates.temporal import is_leap_year
+    _assert_invariant(_leapyear_graph(), [n({"ts": is_leap_year()})], "temporal is_leap_year")
+
+
+def test_temporal_is_leap_year_runs_natively_polars():
+    """IsLeapYear on a naive Datetime column MUST lower NATIVELY on polars (result 'ok',
+    not an NIE decline, not a silent pandas bridge)."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars engine not available")
+    from graphistry.compute.predicates.temporal import is_leap_year
+    res = _run(_leapyear_graph(), [n({"ts": is_leap_year()})], "polars")
+    assert res[0] == "ok", f"expected native polars IsLeapYear lowering, got {res}"
+
+
+def test_temporal_is_leap_year_nontemporal_col_honest_nie_polars():
+    """IsLeapYear on a NON-temporal (int) column has no proven parity -> polars must
+    HONEST-NIE (decline), never a silent wrong answer or non-NIE crash."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars engine not available")
+    from graphistry.compute.predicates.temporal import is_leap_year
+    res = _run(_leapyear_graph(), [n({"v": is_leap_year()})], "polars")
+    assert res[0] == "nie", f"expected honest NIE for IsLeapYear on non-temporal col, got {res}"
+
+
+def test_temporal_is_leap_year_tzaware_honest_nie_polars():
+    """IsLeapYear on a TZ-AWARE Datetime column: local-time year-boundary parity is not
+    proven, so polars must HONEST-NIE rather than risk a silent mismatch."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars engine not available")
+    from graphistry.compute.predicates.temporal import is_leap_year
+    nd = pd.DataFrame({
+        "id": np.arange(3),
+        "ts": pd.to_datetime(["2000-01-01", "2019-06-01", "2020-12-31"]).tz_localize("UTC"),
+        "v": [1, 2, 3],
+    })
+    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [0, 1]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    res = _run(g, [n({"ts": is_leap_year()})], "polars")
+    assert res[0] == "nie", f"expected honest NIE for IsLeapYear on tz-aware col, got {res}"
+
+
+@pytest.mark.parametrize("factory", [
+    "is_month_start", "is_month_end", "is_quarter_start",
+    "is_quarter_end", "is_year_start", "is_year_end",
+])
+def test_temporal_boundary_predicates_honest_nie_polars(factory):
+    """The date-part BOUNDARY predicates (month/quarter/year start/end) have NO faithful
+    polars boolean accessor -> polars must HONEST-NIE (decline), never a silent wrong
+    answer. The pandas oracle still computes them; the parity-or-NIE invariant holds."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars engine not available")
+    import graphistry.compute.predicates.temporal as T
+    g = _leapyear_graph()
+    q = [n({"ts": getattr(T, factory)()})]
+    assert _run(g, q, "pandas")[0] == "ok", f"{factory} pandas oracle should compute"
+    assert _run(g, q, "polars")[0] == "nie", f"{factory} must be an honest NIE on polars"
+    _assert_invariant(g, q, f"temporal boundary {factory}")
