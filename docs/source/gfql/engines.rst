@@ -8,6 +8,10 @@ the engine with one keyword — ``engine=``, accepted uniformly by ``g.gfql()`` 
 ``g.hop()`` — and GFQL returns **identical results** on every one (differential parity
 is a release gate). Pick the engine that fits your hardware and workload; nothing else changes.
 
+.. note::
+   **New to GFQL?** This page assumes you already have a graph ``g`` and a ``query``. If not,
+   build one first — see :doc:`about` (10 Minutes to GFQL).
+
 The one-line speedup
 --------------------
 
@@ -15,6 +19,10 @@ On real graphs, switching the default ``pandas`` engine to the columnar **Polars
 engine is a one-keyword change — no GPU, same results:
 
 .. code-block:: python
+
+   import graphistry
+   g = graphistry.edges(df, 'src', 'dst')   # df: your edges dataframe (pandas / Polars / cuDF)
+   query = "MATCH (a)-[e]->(b) RETURN b"     # any GFQL / Cypher query
 
    g.gfql(query)                    # engine='pandas' (default)
    g.gfql(query, engine='polars')   # up to ~38x faster on real graphs, no GPU, identical results
