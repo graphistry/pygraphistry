@@ -20,9 +20,10 @@ engine is a one-keyword change — no GPU, same results:
    g.gfql(query, engine='polars')   # up to ~38x faster on real graphs, no GPU, identical results
 
 Your existing pandas, Polars, or cuDF graph works as-is: the input frames are accepted and
-coerced once; the only change is the keyword. The catch: below ~1M edges ``pandas`` can be
-faster (Polars has fixed startup overhead), and a few exotic Cypher features still require
-``engine='pandas'`` — see *When not to use Polars* below.
+coerced once; the only change is the keyword. The catch: a few exotic Cypher features still
+require ``engine='pandas'`` (they raise rather than silently bridge), and the GPU engines only
+pay off on larger work. On CPU, Polars wins the common graph-query shapes (traversal,
+``WHERE``/``ORDER``, aggregation) from ~10K edges up — see *When not to use Polars* below.
 
 .. warning::
    **Already a Polars user? Pass** ``engine='polars'`` **— the default does not.** With the
@@ -138,9 +139,14 @@ Reading the table:
   (tens of × over pandas; see ``benchmarks/gfql/`` and the GFQL benchmark notes).
 
 .. note::
-   There is **no universal winner** — route by workload shape and size (next section).
-   Below ~1M edges, ``pandas`` often wins because Polars/GPU pay a fixed startup overhead
-   that the small amount of work cannot amortize.
+   Route by workload shape and size (next section). **CPU Polars wins the common graph-query
+   shapes from ~10K edges up** — on LiveJournal subsampled (CPU, warm-median): 1-hop traversal
+   2.7× / 4.5× / 7.6× and ``WHERE``+``ORDER`` 3.0× / 3.0× / 18× over pandas at 10K / 100K / 1M.
+   The **GPU** engines (cuDF / Polars-GPU) are the ones with a real small-size floor — they need
+   enough work to amortize kernel-launch cost (work-bound, [F2]). The only case pandas edges out
+   is a trivial sub-millisecond operation (e.g. a bare node-equality filter), where its boolean
+   mask beats Polars' plan overhead — but at <1 ms the difference is immaterial. Reproducer:
+   ``benchmarks/gfql/index_crossover_bench.py``.
 
 Decision matrix
 ---------------
@@ -155,15 +161,15 @@ Decision matrix
      - Recommended engine
      - Notes
    * - Filter / ``WHERE`` / aggregation
-     - > ~1M
+     - > ~10K
      - CPU
      - ``polars``
-     - order-of-magnitude over pandas [F1]
+     - wins from ~10K; gap grows with size (up to order-of-magnitude) [F1]
    * - Bulk 1-hop frontier expansion
-     - > ~1M
+     - > ~10K
      - CPU
      - ``polars``
-     - up to ~38x pandas, ~15x cuDF (Orkut 1-hop)
+     - wins from ~10K (2.7x); up to ~38x pandas, ~15x cuDF at 100M [F1]
    * - Heavy multi-hop (2-hop+)
      - large
      - GPU
@@ -179,19 +185,22 @@ Decision matrix
      - GPU
      - ``cudf``
      - Polars-GPU can hit memory pressure here [F3]
-   * - Anything
-     - < ~1M
+   * - Trivial sub-ms op (bare equality filter)
+     - any
      - CPU
      - ``pandas``
-     - fixed Polars/GPU overhead dominates [F1]
+     - boolean mask beats Polars plan overhead; immaterial (<1 ms) [F1]
    * - Selective / seeded traversal
      - any
      - CPU
      - ``pandas``/``polars`` + **CSR index**
      - O(degree), not an engine choice [F5]
 
-**[F1] Crossover ~1M edges.** Below it pandas often wins (Polars/GPU fixed overhead).
-Above it Polars/GPU pull away. Some fast-path shapes (filter/lookup) cross over below 100K.
+**[F1] CPU crossover is ~10K, not ~1M.** For the common graph-query shapes (traversal,
+``WHERE``/``ORDER``, aggregation) CPU Polars beats pandas from ~10K edges up (2.7-18× in our
+runs). Pandas only edges out on a trivial sub-millisecond operation (a bare equality mask),
+where the absolute difference is immaterial. The real small-size floor is **GPU-only** —
+cuDF / Polars-GPU need enough work to amortize kernel launch ([F2]).
 
 **[F2] GPU is work-bound, not size-bound.** A GPU wins when there is enough work to amortize
 its ~3 ms kernel-launch floor: big frontiers, dense joins, full-graph aggregation. Tiny or
@@ -231,8 +240,10 @@ When **not** to use Polars
 
 Honesty matters more than a bigger number:
 
-- **Small graphs (< ~1M edges):** ``pandas`` often wins; the Polars/GPU startup overhead is
-  not worth it (footnote F1).
+- **Trivial sub-millisecond operations** (a bare node-equality filter): pandas' boolean mask
+  beats Polars' plan overhead — but at <1 ms it is immaterial. For traversal / ``WHERE`` /
+  ``ORDER`` / aggregation, CPU Polars wins from ~10K edges up (footnote F1). The real small-size
+  caveat is **GPU-only** (cuDF / Polars-GPU need larger work — footnote F2).
 - **A few exotic Cypher features** are not yet native on Polars (e.g. cross-entity same-path
   ``WHERE``, some temporal/entity-text forms). They raise an honest ``NotImplementedError``
   pointing at ``engine='pandas'`` — GFQL **never** silently bridges Polars to pandas, because
@@ -296,10 +307,12 @@ Why opt-in?
 -----------
 
 Polars and Polars-GPU are explicit (``engine='polars'`` / ``'polars-gpu'``; ``auto`` never
-picks them) for two honest reasons: (1) below the ~1M-edge crossover they can be *slower* than
-pandas, so a blanket default would regress small/interactive workloads; and (2) a few exotic
-Cypher features still require ``engine='pandas'`` and raise rather than silently bridge. Opting
-in keeps the default behavior unchanged and makes the performance trade-off explicit.
+picks them). The main reason is robustness, not speed: a few exotic Cypher features still
+require ``engine='pandas'`` and **raise** rather than silently bridge, so auto-selecting Polars
+would turn queries that work today on pandas into hard errors. (Performance is rarely the
+downside — CPU Polars wins common graph queries from ~10K edges; only trivial sub-millisecond
+operations favor pandas, immaterially.) Opting in keeps the default behavior unchanged and
+guarantees a working result.
 
 See also
 --------
