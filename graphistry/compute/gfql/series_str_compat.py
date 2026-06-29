@@ -8,12 +8,11 @@ from typing import Any, Optional, cast
 from graphistry.compute.typing import SeriesT
 
 
-# Value dtypes whose elements are scalar numbers/booleans — never list-like and
-# never list/temporal *text*. The detection scans below (astype(str) + regex)
-# always return False/None for these, so callers short-circuit before paying for
-# the scan. Single source of truth for the #1650/#1651 dtype gate (shared by the
-# row pipeline + cypher result post-processing). Mirrors the kind set in
-# graphistry.compute.filter_by_dict._is_numeric_dtype_safe.
+# Scalar number/bool dtypes — never list-like, never list/temporal text — so the
+# detection scans (astype(str)+regex) always return False/None and callers can skip
+# them. SSOT for the #1650/#1651 dtype gate; mirrored in
+# filter_by_dict._is_numeric_dtype_safe (kept in sync by a test, not imported, to
+# avoid an import cycle).
 _NON_TEXTUAL_SCALAR_KINDS = frozenset({"i", "u", "f", "b", "c"})
 
 

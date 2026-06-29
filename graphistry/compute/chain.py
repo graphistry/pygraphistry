@@ -734,15 +734,9 @@ def _try_chain_fast_path(
     if g._nodes is None or g._edges is None:
         return None
     src, dst, node = g._source, g._destination, g._node
-    # Restrict to edges whose BOTH endpoints exist in the node table. The full BFS
-    # path enforces this implicitly via its edge<->node joins, so a supplied node
-    # table that omits some edge endpoints (a filtered/subset node frame, or nodes
-    # and edges loaded separately) must drop those dangling edges — otherwise the
-    # fast path emits edges to non-existent nodes, or a non-empty result where the
-    # full path is correctly empty.
-    # dropna: a NaN node id must NOT validate a NaN edge endpoint. pandas/cuDF
-    # `.isin` treat NaN as a matchable value (NaN.isin([NaN]) is True), but the
-    # full BFS path's joins never match NaN<->NaN, so it drops NaN-endpoint edges.
+    # Keep only edges with BOTH endpoints in the node table (the full path drops
+    # dangling edges via its joins). dropna so a NaN node id can't validate a NaN
+    # endpoint — .isin treats NaN as matchable but the BFS joins never match NaN<->NaN.
     node_ids = g._nodes[node].dropna()
     edges = g._edges[g._edges[src].isin(node_ids) & g._edges[dst].isin(node_ids)]
     if not unconstrained:
@@ -759,8 +753,7 @@ def _try_chain_fast_path(
         edges[[dst]].rename(columns={dst: node}),
     ]).drop_duplicates()
     nodes = g._nodes[g._nodes[node].isin(endpoints[node])]
-    # The full path collapses duplicate node-id rows via its merge; match that so a
-    # malformed node table with duplicate ids does not diverge.
+    # match the full path's merge, which collapses duplicate node-id rows
     nodes = nodes.drop_duplicates(subset=[node])
     return g.nodes(nodes).edges(edges)
 

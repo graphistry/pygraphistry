@@ -21,10 +21,8 @@ DEFAULT_ALLOWED_UNARY_OPS: FrozenSet[str] = GFQL_ALLOWED_UNARY_OPS
 DEFAULT_ALLOWED_QUANTIFIERS: FrozenSet[str] = GFQL_ALLOWED_QUANTIFIERS
 
 
-# INVARIANT: every ExprNode below must stay DEEPLY immutable. `parse_expr` results
-# are shared by reference via an lru_cache (see `_parse_expr_cached`), so a mutable
-# field (a list/dict/`field(default_factory=...)`) would let one caller's in-place
-# mutation poison every subsequent cache hit. Keep fields scalar/tuple/frozen.
+# INVARIANT: keep every ExprNode deeply immutable (scalar/tuple fields only) — parse_expr
+# shares results by reference via lru_cache, so a mutable field would poison cache hits.
 @dataclass(frozen=True)
 class Identifier:
     name: str
