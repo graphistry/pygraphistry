@@ -4,9 +4,9 @@ Choosing a GFQL Engine: pandas, Polars, cuDF, Polars-GPU
 ========================================================
 
 GFQL runs the **same query** on four interchangeable execution engines. You pick
-the engine with one keyword — ``engine=`` on :func:`gfql`/:func:`hop`/:func:`chain` —
-and GFQL returns **identical results** on every one (differential parity is a release
-gate). Pick the engine that fits your hardware and workload; nothing else changes.
+the engine with one keyword — ``engine=``, accepted uniformly by ``g.gfql()`` and
+``g.hop()`` — and GFQL returns **identical results** on every one (differential parity
+is a release gate). Pick the engine that fits your hardware and workload; nothing else changes.
 
 The one-line speedup
 --------------------
@@ -17,7 +17,7 @@ engine is a one-keyword change — no GPU, same results:
 .. code-block:: python
 
    g.gfql(query)                    # engine='pandas' (default)
-   g.gfql(query, engine='polars')   # 11-47x faster on real graphs, no GPU, identical results
+   g.gfql(query, engine='polars')   # up to ~38x faster on real graphs, no GPU, identical results
 
 Your existing pandas (or cuDF) graph works as-is: the input frames are accepted and
 coerced once; the only change is the keyword.
@@ -105,7 +105,7 @@ Same query, same answers, four engines. Warm-median latency on **Orkut** (3.1M n
 
 Reading the table:
 
-- **Polars-CPU beats pandas 11-47x** on bulk traversal and ~4x on aggregation — **with no
+- **Polars-CPU beats pandas up to ~38x** on bulk traversal and ~4x on aggregation — **with no
   GPU**. On the 1-hop workload it is ~38x faster than pandas (68 ms vs 2613 ms).
 - **Polars-CPU also beats cuDF** on these shapes (68 ms vs 1005 ms on 1-hop). cuDF runs
   GFQL *eagerly*, op by op (a kernel launch + a materialized intermediate per hop), while
@@ -147,12 +147,12 @@ Decision matrix
      - > ~1M
      - CPU
      - ``polars``
-     - 11-47x pandas, 6-18x cuDF
+     - up to ~38x pandas, ~15x cuDF (Orkut 1-hop)
    * - Heavy multi-hop (2-hop+)
      - large
      - GPU
      - ``polars-gpu``
-     - fastest until extreme materialization [F3]
+     - fastest until extreme materialization [F3]; GPU-or-error [F4]
    * - Full-graph aggregation
      - 100M+
      - GPU
@@ -191,7 +191,7 @@ result as a GPU run (see *Honesty* below).
 **[F5] Selective traversal is an indexing problem, not an engine choice.** A seeded ``hop``
 from a few nodes is fastest with the opt-in **CSR adjacency index** (``g.create_index(...)``,
 ``index_policy=``), which turns the O(E) scan into an O(degree) gather — on CPU, independent
-of ``engine=``. See the index API in :doc:`/api/gfql/index`.
+of ``engine=``. (A dedicated index guide is in progress; the methods live under the GFQL API.)
 
 cuDF vs Polars-GPU
 ------------------
@@ -224,7 +224,8 @@ Honesty matters more than a bigger number:
 - **One extreme materialization (80M+ output rows):** prefer ``cudf`` over ``polars-gpu``
   (footnote F3).
 - **vs graph databases:** GFQL-Polars beats embedded kuzu on frontier expansion (up to ~87x
-  in our runs) and beats Neo4j+GDS end-to-end (:doc:`benchmark_filter_pagerank`). The honest
+  on LiveJournal 1-hop in our runs — reproducer ``benchmarks/gfql/index_vs_kuzu_prepared.py``),
+  and separately beats Neo4j+GDS end-to-end (:doc:`benchmark_filter_pagerank`). The honest
   boundary: kuzu's worst-case-optimal joins target **cyclic / multi-way join** patterns
   (triangles, cliques) that we have **not** yet benchmarked, and kuzu may lead there.
 
@@ -289,5 +290,5 @@ See also
 
 - :doc:`performance` — GFQL performance overview
 - :doc:`benchmark_filter_pagerank` — end-to-end CPU/GPU vs Neo4j+GDS
-- :doc:`/api/gfql/index` — CSR adjacency index for seeded traversal
+- :doc:`/api/gfql/index` — GFQL API reference
 - :doc:`remote` — run GFQL on a remote GPU

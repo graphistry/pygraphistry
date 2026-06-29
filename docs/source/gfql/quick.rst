@@ -27,7 +27,7 @@ Basic Usage
 :meth:`gfql <graphistry.compute.gfql>` sequences multiple matchers for more complex patterns of paths and subgraphs
 
 - **query**: Sequence of graph node/edge matchers and optional row-pipeline call steps (for example, `rows()`, `where_rows()`, `return_()`, `order_by()`, `limit()`), or an equivalent GFQL chain object.
-- **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'polars'` for a CPU columnar speedup (11-47x over pandas, no GPU), `'cudf'` or `'polars-gpu'` for NVIDIA GPU acceleration, and `'pandas'` for the default CPU path. See :doc:`Choosing an Engine <engines>`.
+- **engine**: Optional execution engine. Engine is typically not set, defaulting to `'auto'`. Use `'polars'` for a CPU columnar speedup (up to ~38x over pandas, no GPU), `'cudf'` or `'polars-gpu'` for NVIDIA GPU acceleration, and `'pandas'` for the default CPU path. See :doc:`Choosing an Engine <engines>`.
 
 Native GFQL chains are typed Python inputs. Pass the list, dict envelope, or
 ``Chain`` object itself; strings passed to ``g.gfql(...)`` are interpreted as
@@ -406,7 +406,7 @@ Engine Selection (CPU and GPU)
 The same query runs on four interchangeable engines with identical results. Pick one
 with ``engine=``. See :doc:`Choosing an Engine <engines>` for the full decision matrix.
 
-- **CPU columnar speedup (no GPU):** ``'polars'`` — 11-47x over pandas on real graphs.
+- **CPU columnar speedup (no GPU):** ``'polars'`` — up to ~38x over pandas on real graphs.
 
   .. code-block:: python
 

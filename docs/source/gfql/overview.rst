@@ -316,9 +316,11 @@ Key advantages of GFQL Let:
 Leveraging GPU Acceleration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-GFQL is optimized to take advantage of GPU acceleration using `cudf` and RAPIDS. When you use GPU dataframes, GFQL automatically executes queries on the GPU for massive speedups.
+GFQL runs the same query on four interchangeable engines, all returning identical results: ``pandas`` (CPU, default), ``polars`` (CPU columnar — up to ~38x over pandas, **no GPU**), ``cudf`` (NVIDIA GPU), and ``polars-gpu`` (NVIDIA GPU). ``engine='auto'`` resolves to ``cudf`` for cuDF input and ``pandas`` otherwise; ``polars`` / ``polars-gpu`` are explicit opt-in (``auto`` never selects them). Neither silently bridges: ``polars-gpu`` is GPU-or-error (it raises rather than silently running on CPU), and ``polars`` (CPU) raises ``NotImplementedError`` for the few unsupported Cypher features rather than falling back to pandas. See :doc:`Choosing an Engine <engines>` for the decision matrix and benchmarks.
 
-**Automatic GPU Acceleration**
+When you use cuDF (GPU) dataframes with ``engine='auto'``, GFQL executes queries on the GPU for massive speedups.
+
+**Automatic GPU Acceleration (cuDF)**
 
 Example: Run GFQL queries with GPU dataframes.
 
@@ -338,13 +340,15 @@ Example: Run GFQL queries with GPU dataframes.
     g_result = g_gpu.gfql([ ... ])  # Your GFQL query here
     print('Number of resulting edges:', len(g_result._edges))
 
-**Forcing GPU Mode**
+**Selecting an Engine Explicitly**
 
-Example: Explicitly set the engine to ensure GPU execution.
+Example: set the engine for a CPU columnar speedup or to force a specific GPU engine.
 
 .. code-block:: python
 
-    g_result = g_gpu.gfql([ ... ], engine='cudf')
+    g_result = g.gfql([ ... ], engine='polars')        # CPU columnar, no GPU
+    g_result = g_gpu.gfql([ ... ], engine='cudf')       # NVIDIA GPU, eager
+    g_result = g_gpu.gfql([ ... ], engine='polars-gpu') # NVIDIA GPU, fused plan
 
 Run Remotely
 ~~~~~~~~~~~~~
