@@ -186,7 +186,7 @@ def render_entity_text(
     conformance/TCK driver and by callers who want the human-readable form. The
     structured data path itself never pays this cost.
     """
-    rows_df = cast(DataFrameT, getattr(result, "_nodes", None))
+    rows_df = cast(DataFrameT, result._nodes)
     if rows_df is None:
         raise ValueError("result has no _nodes frame to render")
     prefix = f"{alias}."
@@ -223,10 +223,8 @@ def _project_property_column(
     if column.source_name is None or column.source_name not in rows_df.columns:
         raise ValueError(f"projection source column not found: {column.source_name!r}")
     series = cast(SeriesT, rows_df[column.source_name])
-    # Temporal-constructor normalization only applies to STRING values; numeric/bool/
-    # complex columns can never hold temporal text, so skip the (otherwise spurious)
-    # ``astype(str)`` + detection scan and return the column as-is — byte-identical,
-    # since the scan returns None for these dtypes. Mirrors the #1650/#1651 gate.
+    # Temporal-constructor normalization only applies to strings; numeric/bool/complex
+    # can't hold temporal text, so skip the astype(str)+scan (byte-identical). #1650 gate.
     if is_non_textual_scalar_dtype(getattr(series, "dtype", None)):
         return series
     if hasattr(series, "astype") and hasattr(cast(SeriesT, series.astype(str)), "str"):
@@ -318,20 +316,14 @@ def apply_result_projection(
                 else {}
             )
             if structured and flat_columns:
-                # Structured (flattened) emission (#1650): one column per field
-                # instead of collapsing the entity into a Cypher display string.
-                # Text remains available via render_entity_text() (presentation).
+                # Structured (flattened) emission (#1650): one column per field; text
+                # stays available via render_entity_text().
                 projected_data.update(flat_columns)
                 output_columns.extend(flat_columns.keys())
             elif structured:
-                # No flattenable fields: the entity has no materialized property/id
-                # columns on this frame. This is the synthesized null/absent-entity
-                # row (top-level OPTIONAL-MATCH miss / reentry no-match, built by
-                # _apply_empty_result_row as a single ``{alias: None}`` column). There
-                # is nothing to flatten, so emit the single-column text form (which
-                # renders to ``None`` here) — preserving the legacy shape the
-                # OPTIONAL/reentry machinery consumes. Real rows always carry flat
-                # field columns and take the branch above.
+                # No fields to flatten: the synthesized absent-entity row (OPTIONAL miss
+                # / reentry no-match, a single ``{alias: None}`` column) or a field-less
+                # real entity. Emit the single-column text form (renders to None / []).
                 projected_data[column.output_name] = (
                     _format_node_entities(source_rows_df, source_projection)
                     if source_projection.table == "nodes"
@@ -368,14 +360,10 @@ def apply_result_projection(
                 projected_data[column.output_name] = _project_property_column(property_rows_df, column=column)
             else:
                 projected_data[column.output_name] = _project_expr_column(result, rows_df, column=column)
-    # De-duplicate output columns (#1650): flattening a whole-entity `a` into
-    # `a.id, a.val, ...` shares the `{alias}.{field}` namespace with an explicit
-    # property projection, so `RETURN a, a.val` would otherwise emit `a.val` twice —
-    # a duplicate-named column that breaks selection and silently drops data on
-    # `to_dict`/serialization. The Cypher-level duplicate-name check can't catch it
-    # (it sees distinct `a` vs `a.val`); the collision only appears post-flatten.
-    # Both producers read the same source field (dotted backtick aliases are
-    # rejected by the parser), so the values are identical — keep first occurrence.
+    # De-dup output columns (#1650): a flattened whole entity `a` (-> a.id, a.val, ...)
+    # collides by name with an explicit property projection (`RETURN a, a.val`). Both
+    # read the same source field (dotted aliases are rejected), so values are identical
+    # — keep first occurrence; a duplicate name would drop data on to_dict/serialization.
     if len(set(output_columns)) != len(output_columns):
         seen: Set[str] = set()
         deduped: List[str] = []

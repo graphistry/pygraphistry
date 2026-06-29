@@ -856,10 +856,8 @@ def _execute_compiled_query_chain_non_union(
             empty_result_row=compiled_query.empty_result_row,
         )
     if compiled_query.result_projection is not None:
-        # The OPTIONAL-MATCH null-fill / row-guard machinery still consumes a
-        # single-column entity value, so keep those whole-entity returns on the
-        # legacy text form; plain terminal RETURN flattens (#1650). Unifying the
-        # reentry path onto structured output is tracked as a follow-up.
+        # OPTIONAL null-fill / row-guard still consumes a single-column entity value,
+        # so those keep the legacy text form; plain terminal RETURN flattens (#1650).
         structured_projection = (
             compiled_query.optional_projection_row_guard is None
             and compiled_query.optional_null_fill is None
