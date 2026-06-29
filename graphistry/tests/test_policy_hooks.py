@@ -91,6 +91,29 @@ class TestPolicyHooks:
         assert out._node is not None, f"{ops_label}: node-id binding lost"
         assert None not in list(out._nodes.columns), f"{ops_label}: corrupt None column"
 
+    @pytest.mark.skipif("TEST_CUDF" not in __import__("os").environ, reason="cuDF lane: set TEST_CUDF=1 (e.g. dgx-spark)")
+    @pytest.mark.parametrize("ops_label,ops", [
+        ("node_only", [n()]),
+        ("single_hop", [n(), e(), n()]),
+    ])
+    def test_fast_path_shapes_still_invoke_postload_cudf(self, ops_label, ops):
+        """cuDF lane for the policy-gate + edges-only node-binding fix (chain.py is on
+        the cuDF-pairing list). The void-block crash is pandas-specific, but cuDF must
+        still fire postload and return a valid, non-corrupt result on an edges-only graph."""
+        cudf = pytest.importorskip("cudf")
+        called = {'postload': False}
+
+        def postload_policy(context: PolicyContext) -> None:
+            called['postload'] = True
+
+        df = cudf.DataFrame({'s': ['a', 'b', 'c'], 'd': ['b', 'c', 'd']})
+        g = graphistry.edges(df, 's', 'd')
+
+        out = g.gfql(ops, policy={'postload': postload_policy})
+        assert called['postload'], f"postload must fire for {ops_label} (cuDF)"
+        assert out._node is not None, f"{ops_label} (cuDF): node-id binding lost"
+        assert None not in list(out._nodes.columns), f"{ops_label} (cuDF): corrupt None column"
+
     def test_precall_hook_called(self):
         """Test that precall hook is called for call operations."""
         from graphistry.compute.ast import call

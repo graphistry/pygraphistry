@@ -309,6 +309,33 @@ Row And Row-Pipeline Forms
   including connected suffix projections in the current supported row-binding
   subset.
 
+Whole-Entity RETURN Output Shape
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A terminal ``RETURN`` of a whole node or relationship (``RETURN a`` rather than
+``RETURN a.prop``) emits **structured flattened columns**, one per field, named
+``<alias>.<field>``::
+
+    g.gfql("MATCH (a:Person) RETURN a")
+    # result._nodes columns: a.id, a.name, a.age, ...  (one column per field)
+
+This is directly usable (no string to re-parse) and survives JSON / CSV / Parquet /
+Arrow serialization and ``plot()``. To recover the human-readable Cypher display
+string (``(:Person {name: 'Alice'})``) on demand, use the presentation helper::
+
+    from graphistry.compute.gfql.cypher.result_postprocess import render_entity_text
+    text_series = render_entity_text(result, "a")            # nodes
+    text_series = render_entity_text(result, "r", table="edges")  # relationships
+
+Notes:
+
+- An aliased property projection of the same field (``RETURN a, a.val``) is
+  de-duplicated — you get a single ``a.val`` column, not two.
+- A whole entity with no fields to flatten (no id binding, no properties, no
+  type/label — in practice only an edge whose graph has no edge-id binding) has
+  nothing to flatten and falls back to a single Cypher-display-text column under the
+  bare alias. Nodes always carry an id field and always flatten.
+
 Procedure And Multi-Branch Forms
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
