@@ -119,7 +119,7 @@ def _assert_invariant(g, query, label):
 def _predicate_queries():
     from graphistry.compute.predicates.numeric import GT, LT, GE, LE, Between
     from graphistry.compute.predicates.is_in import IsIn
-    from graphistry.compute.predicates.str import Contains, Startswith, Endswith
+    from graphistry.compute.predicates.str import Contains, Startswith, Endswith, Match, Fullmatch
     from graphistry.compute.predicates.numeric import IsNA, NotNA
     out = []
     for P, col, kw in [
@@ -132,6 +132,9 @@ def _predicate_queries():
         (Contains, "name", {"pat": "ODE", "regex": False, "case": False}),
         (Startswith, "name", {"pat": "node"}),
         (Endswith, "name", {"pat": ".3"}),
+        (Match, "name", {"pat": "node"}),            # anchored start
+        (Match, "name", {"pat": "ode"}),             # NOT at start -> no match (parity check)
+        (Fullmatch, "name", {"pat": r"node\.\d"}),   # full match 'node.X'
         (IsNA, "name", {}), (NotNA, "name", {}),
     ]:
         out.append((f"pred:{P.__name__}({col},{kw})", [n({col: P(**kw)})]))
@@ -204,6 +207,8 @@ def test_conformance_hotpath_carveouts(label, query):
     ("sign", "MATCH (n) RETURN n.id AS id, sign(n.num - 50) AS sg"),
     ("abs", "MATCH (n) RETURN n.id AS id, abs(n.num - 50) AS ab"),
     ("coalesce", "MATCH (n) RETURN n.id AS id, coalesce(n.num, 0) AS c"),
+    ("casewhen", "MATCH (n) RETURN n.id AS id, CASE WHEN n.num > 50 THEN 1 ELSE 0 END AS cw"),
+    ("casewhen_str", "MATCH (n) RETURN n.id AS id, CASE WHEN n.flag THEN 'y' ELSE 'n' END AS cw"),
     ("count_distinct_grouped", "MATCH (n) RETURN n.flag AS k, count(DISTINCT n.num) AS cd"),
     ("count_distinct_all", "MATCH (n) RETURN count(DISTINCT n.flag) AS cd"),
     ("count_grouped", "MATCH (n) RETURN n.flag AS k, count(n.num) AS c"),
