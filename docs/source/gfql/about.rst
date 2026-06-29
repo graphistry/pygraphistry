@@ -27,7 +27,7 @@ GFQL fills a critical gap in the data community by providing an in-process, high
 
 **Key Benefits:**
 
-- **Dataframe-Native:** Works directly with Pandas, cuDF, and other dataframe libraries.
+- **Dataframe-Native:** Works directly with Pandas, Polars, cuDF, and other dataframe libraries.
 - **High Performance:** Optimized for both CPU and GPU execution.
 - **Ease of Use:** No need for external databases or new infrastructure.
 - **Interoperability:** Integrates with the Python data science ecosystem, including PyGraphistry for visualization.
