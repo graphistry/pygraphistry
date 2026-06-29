@@ -149,6 +149,27 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype=None):
     if name in ("NotNull", "NotNA"):
         return c.is_not_null()
 
+    if name == "IsLeapYear":
+        # NATIVE TEMPORAL (SAFE — NO CHEATING): pandas ``s.dt.is_leap_year`` is a Boolean over
+        # each value's calendar year; polars ``expr.dt.is_leap_year()`` is documented as the
+        # identical Boolean over the same year, for Date and Datetime columns — so parity is
+        # provable (Gregorian rule incl. the 1900-not-leap / 2000-leap century cases). REQUIRE a
+        # temporal dtype from the frame schema: a NAIVE ``Datetime`` (a tz would have pandas/polars
+        # derive the year in LOCAL time, whose equality at year boundaries we have NOT proven) or
+        # ``Date``. Anything else (tz-aware Datetime, non-temporal column, unknown dtype) declines
+        # -> honest NotImplementedError. Mirrors the naive-Datetime guard used for ``DateValue``.
+        if (isinstance(dtype, pl.Datetime) and dtype.time_zone is None) or dtype == pl.Date:
+            return c.dt.is_leap_year()
+        return None
+
+    # KEEP DECLINING (NO CHEATING): IsMonthStart / IsMonthEnd / IsQuarterStart / IsQuarterEnd /
+    # IsYearStart / IsYearEnd have NO faithful polars BOOLEAN accessor. Polars exposes only
+    # ``dt.month_start()`` / ``dt.month_end()`` — which return a rolled *Datetime*, not a Boolean —
+    # and has NO quarter/year boundary accessor at all. Re-deriving them (day==1, days_in_month,
+    # month/day combinations) would be a hand-rolled reimplementation of the pandas oracle, not a
+    # proven-identical accessor — exactly the subtle date-part mismatch the NO-CHEATING rule
+    # forbids. They fall through to ``return None`` below -> honest NIE; use engine='pandas'.
+
     if name == "Contains" and hasattr(pred, "pat") and isinstance(pred.pat, str):
         case = getattr(pred, "case", True)
         regex = getattr(pred, "regex", True)

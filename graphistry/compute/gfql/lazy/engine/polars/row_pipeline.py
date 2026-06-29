@@ -10,16 +10,18 @@ Differential parity vs pandas is the correctness gate.
 
 Currently lowered: property access (``alias.prop`` → column), bare columns,
 literals, arithmetic/comparison/boolean ``BinaryOp``, ``UnaryOp``, ``IsNullOp``,
-``coalesce``/``abs``. Ops wired to native: ``select``/``with_``/``return_``
+``coalesce``/``abs``, homogeneous list literals ``[e0, e1, ...]`` and ``x IN
+[literals]`` membership. Ops wired to native: ``select``/``with_``/``return_``
 projection, ``order_by``, ``where_rows``, ``group_by``, ``unwind``. Everything
-else (CASE, list/map, subscript, other functions, temporal arithmetic) → NIE.
+else (CASE, mixed/nested/empty list, map, subscript, other functions, temporal
+arithmetic) → NIE.
 """
 import contextvars
 import re
 from typing import Any, List, Optional, Sequence, Tuple
 
 from graphistry.Plottable import Plottable
-from .dtypes import is_float as _dtype_is_float, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
+from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
 
 
 # Active row-table schema (col -> polars dtype), set by select/where/order_by around
@@ -239,11 +241,98 @@ def _nan_guard(result: Any, op: str, left: Any, right: Any, ldt: Any, rdt: Any) 
     return (result | any_nan) if op in _NAN_NE_OPS else (result & ~any_nan)
 
 
+def _dtype_category(dt: Any) -> Optional[str]:
+    """Coarse category of a polars dtype for list/IN parity gating: ``int`` / ``float`` /
+    ``str`` / ``bool`` (None if unknown/other, e.g. List/Struct/Null/temporal). Only
+    same-category elements coerce to a polars list / ``is_in`` supertype that preserves
+    VALUE + repr vs the pandas oracle, so this drives the homogeneity requirement."""
+    import polars as pl
+    if dt is None:
+        return None
+    if dt == pl.Boolean:
+        return "bool"
+    if _dtype_is_int(dt):
+        return "int"
+    if _dtype_is_float(dt):
+        return "float"
+    if _dtype_is_stringlike(dt):
+        return "str"
+    return None
+
+
+def _value_category(v: Any) -> Optional[str]:
+    """Category of a python literal value, mirroring ``_dtype_category`` (bool BEFORE int —
+    ``bool`` is a subclass of ``int`` in python)."""
+    if isinstance(v, bool):
+        return "bool"
+    if isinstance(v, int):
+        return "int"
+    if isinstance(v, float):
+        return "float"
+    if isinstance(v, str):
+        return "str"
+    return None
+
+
+def _lower_list_literal(items: Sequence[Any], columns: Sequence[str]) -> Optional[Any]:
+    """Lower ``[e0, e1, ...]`` to a per-row polars list via ``pl.concat_list``, or None to defer.
+
+    ``concat_list`` preserves element ORDER exactly as written, matching the pandas oracle
+    ``[e0, e1, e2]`` (NOTE: cudf is known to REORDER list elements — an orthogonal cudf bug
+    NOT inherited here; construction conformance is therefore scoped pandas-vs-polars).
+    SAFE subset only: a NON-EMPTY list whose elements ALL lower and ALL share ONE dtype
+    category (all int / all float / all str / all bool). Same-category coercion preserves
+    value + repr (int widening Int32->Int64; all-float rounds equal). A MIXED category
+    (int+float, str+int — polars coerces to a supertype, drifting value/repr or raising), a
+    nested/temporal element, a null/unknown-dtype element, or an EMPTY list (no inferable
+    element dtype) is NOT provably parity-equal -> decline (NIE)."""
+    import polars as pl
+    if not items:
+        return None
+    lowered: List[Any] = []
+    cats = set()
+    for item in items:
+        expr = lower_expr(item, columns)
+        if expr is None:
+            return None
+        cat = _dtype_category(_expr_output_dtype(expr))
+        if cat is None:
+            return None
+        cats.add(cat)
+        lowered.append(expr)
+    if len(cats) != 1:
+        return None
+    return pl.concat_list(lowered)
+
+
+def _lower_in(left: Any, items: Sequence[Any], columns: Sequence[str]) -> Optional[Any]:
+    """Lower ``x IN [literals]`` to a 3-valued polars membership test, or None to defer.
+
+    SAFE subset: a NON-EMPTY list of NON-NULL literals whose single category matches the
+    lhs dtype category. Cypher IN is 3-valued — a NULL lhs is NULL (not False) — so we mask
+    it explicitly (independent of the polars version's ``is_in`` null handling); with no
+    null elements the only unknown source is a null lhs, so the masked result is parity-equal
+    to pandas. A null element, a cross-type list (polars ``is_in`` would raise), or a
+    non-literal element is NOT provably parity-equal -> decline (NIE)."""
+    import polars as pl
+    from graphistry.compute.gfql.expr_parser import Literal
+    if not items or not all(isinstance(it, Literal) and it.value is not None for it in items):
+        return None
+    cats = {_value_category(it.value) for it in items}
+    if len(cats) != 1 or None in cats:
+        return None
+    if _dtype_category(_expr_output_dtype(left)) != next(iter(cats)):
+        return None
+    values = [it.value for it in items]
+    return pl.when(left.is_null()).then(pl.lit(None, dtype=pl.Boolean)).otherwise(left.is_in(values))
+
+
 def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
     """Lower a parsed cypher ExprNode to a polars expression, or None to defer."""
     import polars as pl
     from graphistry.compute.gfql.expr_parser import (
         Identifier, Literal, BinaryOp, UnaryOp, IsNullOp, PropertyAccessExpr, FunctionCall, CaseWhen,
+        ListLiteral,
     )
 
     if isinstance(node, Literal):
@@ -259,6 +348,8 @@ def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
         return pl.when(cond.cast(pl.Boolean)).then(wt).otherwise(wf)
     if isinstance(node, FunctionCall):
         return _lower_function(node, columns)
+    if isinstance(node, ListLiteral):
+        return _lower_list_literal(node.items, columns)
     if isinstance(node, Identifier):
         return pl.col(node.name) if node.name in columns else None
     if isinstance(node, PropertyAccessExpr):
@@ -268,6 +359,14 @@ def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
                 return pl.col(src)
         return None
     if isinstance(node, BinaryOp):
+        if node.op == "in" and isinstance(node.right, ListLiteral):
+            # ``x IN [literals]`` membership on the row-expression surface (distinct from
+            # the WHERE/IsIn predicate path). 3-valued, parity-checked. A non-literal or
+            # non-list RHS falls through to the generic op handler (-> None -> NIE).
+            left = lower_expr(node.left, columns)
+            if left is None:
+                return None
+            return _lower_in(left, node.right.items, columns)
         # Temporal arithmetic: cypher ``duration({...})`` is translated to an ISO
         # duration string literal (e.g. ``'PT6M'``), so ``a.time + duration(...)``
         # would lower to STRING CONCATENATION and sort/compare lexicographically —
