@@ -20,7 +20,13 @@ engine is a one-keyword change — no GPU, same results:
    g.gfql(query, engine='polars')   # 11-47x faster on real graphs, no GPU, identical results
 
 Your existing pandas (or cuDF) graph works as-is: the input frames are accepted and
-coerced once; results come back as Polars frames. The only change is the keyword.
+coerced once; the only change is the keyword.
+
+.. note::
+   **Result frames match the engine.** With ``engine='polars'`` or ``'polars-gpu'`` the
+   output is Polars — ``result._nodes`` and ``result._edges`` are ``polars.DataFrame`` (and
+   ``cudf.DataFrame`` for ``engine='cudf'``). If downstream code is pandas-specific (``.iloc``,
+   ``.loc``, ``groupby().apply()``), call ``result._nodes.to_pandas()`` to convert back.
 
 The four engines
 ----------------
@@ -88,6 +94,11 @@ Same query, same answers, four engines. Warm-median latency on **Orkut** (3.1M n
      - 205 ms
      - 314 ms
      - **167 ms**
+   * - 2-hop from 100K seeds (~85M output rows)
+     - 28822 ms
+     - 8215 ms
+     - **6002 ms**
+     - 8559 ms
 
 *Warm median, identical result rows across all four engines. Reproducer:*
 ``benchmarks/gfql/index_bulk_olap_bench.py``. *See Methodology below.*
@@ -100,11 +111,15 @@ Reading the table:
   GFQL *eagerly*, op by op (a kernel launch + a materialized intermediate per hop), while
   Polars builds **one fused lazy plan and collects once**. The fused plan wins until the
   work is large enough to amortize GPU launch costs.
-- **Polars-GPU is fastest on heavy multi-hop** (2-hop: 1518 ms) and on aggregation — the
-  same fused plan, executed on the GPU.
+- **Polars-GPU is fastest on heavy multi-hop** (2-hop from 10K seeds: 1518 ms) and on
+  aggregation — the same fused plan, executed on the GPU.
+- **cuDF wins the one extreme case** — a 2-hop from 100K seeds materializing ~85M output rows
+  (6.0 s) — where raw GPU throughput on a single massive join overtakes everything and
+  Polars-GPU comes under memory pressure (footnote F3).
 - On a smaller graph (**LiveJournal**, 35M edges) the pattern holds: 1-hop from 10K seeds is
-  pandas 1129 ms → polars **37 ms** (~30x). On a real **LDBC SNB sf1** filter/lookup
-  workload, Polars is **18-106x** over pandas.
+  pandas 1129 ms → polars **37 ms** (~30x). Filter- and lookup-heavy workloads favor Polars
+  even more strongly — a separate **LDBC SNB sf1** benchmark shows order-of-magnitude gains
+  (tens of × over pandas; see ``benchmarks/gfql/`` and the GFQL benchmark notes).
 
 .. note::
    There is **no universal winner** — route by workload shape and size (next section).
@@ -127,7 +142,7 @@ Decision matrix
      - > ~1M
      - CPU
      - ``polars``
-     - 18-106x over pandas (LDBC sf1) [F1]
+     - order-of-magnitude over pandas [F1]
    * - Bulk 1-hop frontier expansion
      - > ~1M
      - CPU
@@ -228,12 +243,15 @@ Parity and honesty
 Methodology
 -----------
 
-- Host: ``dgx-spark`` (GB10 Grace-Blackwell), RAPIDS container
+- Host: ``dgx-spark`` (GB10 Grace-Blackwell, unified memory — the F3 memory-pressure
+  boundary is partly a property of this box), RAPIDS container
   ``graphistry/test-rapids-official:26.02-gfql-polars``.
 - Datasets: `SNAP <https://snap.stanford.edu/data/>`_ **com-LiveJournal** (35M edges),
-  **com-Orkut** (117M edges); **LDBC SNB sf1** for the filter/lookup figures.
-- Measurement: **warm median** of repeated runs after warmups; every reported cell is
-  **guarded** — the result rows are verified identical across engines before any timing is kept.
+  **com-Orkut** (117M edges). The order-of-magnitude filter/lookup figure is from a separate
+  **LDBC SNB sf1** benchmark, not the table above.
+- Measurement: **warm median** after 2 warmups (5 timed runs on Orkut, 8 on LiveJournal);
+  every reported cell is **guarded** — the result rows are verified identical across engines
+  before any timing is kept.
 - Reproduce: ``benchmarks/gfql/index_bulk_olap_bench.py`` (engine comparison),
   ``benchmarks/gfql/pandas_vs_polars.py``, and ``benchmarks/gfql/index_vs_kuzu_prepared.py``
   (vs kuzu). Numbers on this page are rendered from saved runs; the page does not re-run them.
