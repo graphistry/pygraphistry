@@ -82,6 +82,9 @@ def _engine_for(target: ExecutionTarget) -> Any:
     stream — acceptable here (gfql graphs in scope fit), revisit if that changes."""
     if target == ExecutionTarget.GPU:
         import polars as pl
+        # (The RAPIDS/cudf_polars-not-installed check lives at the chain dispatch, pre-coercion,
+        # so the user-facing engine='polars-gpu' always gets a clean install error there. Here we
+        # only build the engine; a genuine not-GPU-capable plan is reported via _gpu_raise.)
         return pl.GPUEngine(executor="in-memory", raise_on_fail=True)
     return None
 
