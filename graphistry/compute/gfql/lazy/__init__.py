@@ -62,6 +62,13 @@ import os as _os
 # small/interactive sizes REGRESS (~0.86× at 100K) from streaming overhead.
 _CPU_STREAMING = _os.environ.get("GFQL_POLARS_CPU_STREAMING", "0") == "1"
 
+# GPU collect executor (cudf-polars). Default 'in-memory' (fast + stable for results that fit
+# device memory — see _engine_for). 'streaming' is the opt-in escape hatch for
+# larger-than-device-memory results (the in-memory executor would OOM); it can be slower/less
+# stable on small work. Mirrors GFQL_POLARS_CPU_STREAMING. ('auto' = size-aware switch is a
+# planned enhancement; until implemented it resolves to 'in-memory'.)
+_GPU_EXECUTOR = _os.environ.get("GFQL_POLARS_GPU_EXECUTOR", "in-memory").strip().lower()
+
 
 def _engine_for(target: ExecutionTarget) -> Any:
     """Polars collect engine for a target. ``None`` = default (CPU streaming/in-mem).
@@ -85,7 +92,10 @@ def _engine_for(target: ExecutionTarget) -> Any:
         # (The RAPIDS/cudf_polars-not-installed check lives at the chain dispatch, pre-coercion,
         # so the user-facing engine='polars-gpu' always gets a clean install error there. Here we
         # only build the engine; a genuine not-GPU-capable plan is reported via _gpu_raise.)
-        return pl.GPUEngine(executor="in-memory", raise_on_fail=True)
+        # Executor is in-memory by default; GFQL_POLARS_GPU_EXECUTOR=streaming opts into the
+        # streaming executor for larger-than-device-memory results (see _GPU_EXECUTOR).
+        executor = "streaming" if _GPU_EXECUTOR == "streaming" else "in-memory"
+        return pl.GPUEngine(executor=executor, raise_on_fail=True)
     return None
 
 
