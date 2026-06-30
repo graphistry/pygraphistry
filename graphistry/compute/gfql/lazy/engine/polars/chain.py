@@ -366,6 +366,72 @@ def get_degrees_polars(
     return g.nodes(out, node_col)
 
 
+def _single_direction_degree_polars(g: Plottable, key_col: str, col: str) -> Plottable:
+    """Native shared body for get_indegrees / get_outdegrees — parity with
+    ComputeMixin._single_direction_degree. A group_by-count on ONE edge endpoint
+    (``destination`` for in-degree, ``source`` for out-degree), left-joined onto the
+    node table. Isolated / opposite-endpoint-only nodes get 0; a self-loop counts once
+    for the relevant direction (single-direction is NOT double-counted, unlike the
+    get_degrees total); the degree column is Int32. The count key is cast to the node-id
+    dtype so the join keys match even when the edge endpoint dtype diverges (polars won't
+    auto-cast int<->float join keys where pandas merges fine).
+
+    The empty-edges case mirrors the pandas oracle EXACTLY, which differs from
+    get_degrees: when there are no edges AND the target column already exists, the node
+    table is returned UNCHANGED (pandas keeps the pre-existing values); otherwise the
+    column is materialized as all-zero Int32. Pure polars — NO pandas bridge (see
+    NO-CHEATING).
+    """
+    import polars as pl
+
+    g = ensure_nodes_polars(g)
+    node_col = g._node
+    assert node_col is not None
+    assert g._nodes is not None and g._edges is not None
+    nodes, edges = g._nodes, g._edges
+
+    if _is_lazy(edges):
+        edges_empty = edges.select(pl.len()).collect().item() == 0
+    else:
+        edges_empty = edges.height == 0
+    if edges_empty:
+        if col in _colnames(nodes):
+            return g.nodes(nodes, node_col)
+        return g.nodes(nodes.with_columns(pl.lit(0).cast(pl.Int32).alias(col)), node_col)
+
+    node_dt = (nodes.collect_schema() if _is_lazy(nodes) else nodes.schema)[node_col]
+    counts = edges.group_by(pl.col(key_col).cast(node_dt).alias(node_col)).agg(
+        pl.len().alias(col)
+    )
+    # Drop a pre-existing degree column so a re-run overwrites rather than producing a
+    # ``*_right`` join collision (mirrors the pandas keep-subset).
+    base = nodes.drop(col) if col in _colnames(nodes) else nodes
+    out = base.join(counts, on=node_col, how="left").with_columns(
+        pl.col(col).fill_null(0).cast(pl.Int32)
+    )
+    return g.nodes(out, node_col)
+
+
+def get_indegrees_polars(g: Plottable, col: str = "degree_in") -> Plottable:
+    """Native polars ``get_indegrees`` — parity with ComputeMixin.get_indegrees.
+
+    In-degree = count of edges whose DESTINATION endpoint is the node. Pure polars —
+    NO pandas bridge (see NO-CHEATING).
+    """
+    assert g._destination is not None, "Missing destination binding; set via .bind() or .edges()"
+    return _single_direction_degree_polars(g, g._destination, col)
+
+
+def get_outdegrees_polars(g: Plottable, col: str = "degree_out") -> Plottable:
+    """Native polars ``get_outdegrees`` — parity with ComputeMixin.get_outdegrees.
+
+    Out-degree = count of edges whose SOURCE endpoint is the node. Pure polars —
+    NO pandas bridge (see NO-CHEATING).
+    """
+    assert g._source is not None, "Missing source binding; set via .bind() or .edges()"
+    return _single_direction_degree_polars(g, g._source, col)
+
+
 def _try_native_row_op(g_cur, op):
     """Run a row-pipeline call natively on polars, or return None to defer (NIE)."""
     from graphistry.Engine import Engine
@@ -398,6 +464,10 @@ def _try_native_row_op(g_cur, op):
             degree_in=op.params.get("degree_in", "degree_in"),
             degree_out=op.params.get("degree_out", "degree_out"),
         )
+    if fn == "get_indegrees":
+        return get_indegrees_polars(g_cur, col=op.params.get("col", "degree_in"))
+    if fn == "get_outdegrees":
+        return get_outdegrees_polars(g_cur, col=op.params.get("col", "degree_out"))
     return None
 
 

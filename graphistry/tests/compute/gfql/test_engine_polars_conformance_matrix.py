@@ -214,9 +214,85 @@ def test_conformance_hotpath_carveouts(label, query):
     ("count_distinct_grouped", "MATCH (n) RETURN n.flag AS k, count(DISTINCT n.num) AS cd"),
     ("count_distinct_all", "MATCH (n) RETURN count(DISTINCT n.flag) AS cd"),
     ("count_grouped", "MATCH (n) RETURN n.flag AS k, count(n.num) AS c"),
+    ("size_str", "MATCH (n) RETURN n.id AS id, size(n.name) AS sz"),
+    ("substring3", "MATCH (n) RETURN n.id AS id, substring(n.name, 0, 4) AS sub"),
+    ("substring2", "MATCH (n) RETURN n.id AS id, substring(n.name, 2) AS sub"),
 ])
 def test_conformance_cypher_expressions(label, query):
     _assert_invariant(_graph(4), query, f"cypher {label}")
+
+
+# ---- NATIVE size() / substring(): the provable sub-cases lower; the rest honest-NIE ----
+def test_size_string_runs_natively_on_polars():
+    """size(<String column>) MUST lower NATIVELY on polars (str.len_chars == pandas
+    str.len) — not an (honest-but-lazy) NIE and not a silent pandas bridge."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars not installed")
+    g = _graph(4)
+    q = "MATCH (n) RETURN n.id AS id, size(n.name) AS sz"
+    base = _run(g, q, "pandas")
+    res = _run(g, q, "polars")
+    assert res[0] == "ok", f"size(string) must run NATIVELY on polars, got {res}"
+    assert res == base, f"size(string) polars must match pandas oracle: {res} != {base}"
+
+
+def test_substring_runs_natively_on_polars():
+    """substring(<String>, start, length) with non-negative int literals MUST lower
+    NATIVELY on polars (str.slice(offset, length) == pandas str.slice(start, start+length))."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars not installed")
+    g = _graph(4)
+    q = "MATCH (n) RETURN n.id AS id, substring(n.name, 0, 4) AS sub"
+    base = _run(g, q, "pandas")
+    res = _run(g, q, "polars")
+    assert res[0] == "ok", f"substring(string,0,4) must run NATIVELY on polars, got {res}"
+    assert res == base, f"substring polars must match pandas oracle: {res} != {base}"
+
+
+def test_size_list_runs_natively_on_polars():
+    """size(<List column>) MUST lower NATIVELY (list.len). The List column is built by
+    the already-native list-literal with_ so the operand dtype is List, and size is an
+    element COUNT (order-invariant -> no cudf list-reorder exposure). Direct
+    pandas-vs-polars: the intermediate List cell makes the generic sig fragile."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars not installed")
+    g = _graph(4)
+    query = [
+        n(), rows(),
+        with_([("lst", "[num, num + 1, 99]")], extend=True),
+        with_([("sz", "size(lst)")], extend=True),
+    ]
+    res = _run(g, query, "polars")
+    assert res[0] == "ok", f"size(list) must run NATIVELY on polars, got {res}"
+    pol = g.gfql(query, engine="polars")
+    assert "polars" in type(pol._nodes).__module__, "size(list) returned non-polars nodes (silent bridge!)"
+    pdf = _to_pd(g.gfql(query, engine="pandas")._nodes)
+    poldf = _to_pd(pol._nodes)
+    assert poldf["sz"].tolist() == pdf["sz"].tolist(), "size(list) diverges polars vs pandas"
+    assert set(int(x) for x in poldf["sz"].tolist()) == {3}, "size of a 3-element list literal must be 3"
+
+
+def test_size_numeric_honest_nie_polars():
+    """size() over a non-String / non-List column is NOT provably parity-equal — pandas
+    falls through to len(series) = the ROW COUNT (a quirk). polars MUST decline with an
+    honest NIE rather than replicate the quirk or crash."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars not installed")
+    g = _graph(4)
+    q = "MATCH (n) RETURN n.id AS id, size(n.num) AS sz"
+    assert _run(g, q, "pandas")[0] == "ok", "pandas size(numeric) returns the row-count quirk"
+    assert _run(g, q, "polars")[0] == "nie", "size over a non-string/non-list column must be an honest NIE on polars"
+
+
+def test_substring_negative_start_honest_nie_polars():
+    """Negative-start substring diverges (pandas Python-slice vs polars offset/length),
+    so polars MUST decline with an honest NIE — never a silent wrong slice."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars not installed")
+    g = _graph(4)
+    q = "MATCH (n) RETURN n.id AS id, substring(n.name, -2) AS sub"
+    assert _run(g, q, "pandas")[0] == "ok", "pandas substring negative start = last-N chars"
+    assert _run(g, q, "polars")[0] == "nie", "negative-start substring must be an honest NIE on polars"
 
 
 # ---- cross-surface call() consistency (the silent-bridge bug class) ----
@@ -324,6 +400,58 @@ def test_get_degrees_chain_vs_dag_native_consistent():
     assert chain[0] == dag[0], f"surface divergence: chain {chain[0]} != dag {dag[0]}"
     if chain[0] == "ok":
         assert chain[1] == dag[1], f"chain/dag sig mismatch: {chain} vs {dag}"
+
+
+# ---- NATIVE get_indegrees / get_outdegrees (single-direction groupby/count) ----
+# Reuses _degrees_graph (isolated node 6, src-only 5, dst-only 4, 2->2 self-loop). A
+# self-loop is counted ONCE for the relevant direction (not double, unlike get_degrees).
+@pytest.mark.parametrize("fn", ["get_indegrees", "get_outdegrees"])
+@pytest.mark.parametrize("label,params", [
+    ("default", {}),
+    ("custom-col", {"col": "mydeg"}),
+])
+def test_conformance_single_degree_chain(fn, label, params):
+    query = [call(fn, params)] if params else [call(fn)]
+    _assert_invariant(_degrees_graph(), query, f"{fn} chain {label}")
+
+
+@pytest.mark.parametrize("fn", ["get_indegrees", "get_outdegrees"])
+@pytest.mark.parametrize("label,params", [
+    ("default", {}),
+    ("custom-col", {"col": "mydeg"}),
+])
+def test_conformance_single_degree_dag(fn, label, params):
+    binding = call(fn, params) if params else call(fn)
+    _assert_invariant(_degrees_graph(), let({"a": binding}), f"{fn} dag {label}")
+
+
+@pytest.mark.parametrize("fn", ["get_indegrees", "get_outdegrees"])
+def test_single_degree_runs_natively_on_polars(fn):
+    """get_indegrees / get_outdegrees are pure single-direction groupby/count -> they MUST
+    run NATIVELY under polars (parity with the pandas oracle), NOT an (honest-but-lazy)
+    NotImplementedError and NOT a silent pandas bridge."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars not installed")
+    g = _degrees_graph()
+    base = _run(g, [call(fn)], "pandas")
+    res = _run(g, [call(fn)], "polars")
+    assert res[0] == "ok", f"{fn} must be NATIVE on polars, got {res}"
+    assert res == base, f"{fn} polars must match pandas oracle: {res} != {base}"
+    out = g.gfql([call(fn)], engine="polars")
+    assert "polars" in type(out._nodes).__module__, \
+        f"{fn} polars returned non-polars nodes (silent bridge!)"
+
+
+@pytest.mark.parametrize("fn", ["get_indegrees", "get_outdegrees"])
+def test_single_degree_chain_vs_dag_native_consistent(fn):
+    """Cross-surface: chain call() vs let()/ref() DAG must agree — both native-ok with the
+    SAME value signature (or both NIE)."""
+    g = _degrees_graph()
+    chain = _run(g, [call(fn)], "polars")
+    dag = _run(g, let({"a": call(fn)}), "polars")
+    assert chain[0] == dag[0], f"{fn} surface divergence: chain {chain[0]} != dag {dag[0]}"
+    if chain[0] == "ok":
+        assert chain[1] == dag[1], f"{fn} chain/dag sig mismatch: {chain} vs {dag}"
 
 
 # ---- NATIVE TEMPORAL: SAFE DateValue lowering vs declined tz-aware ----
