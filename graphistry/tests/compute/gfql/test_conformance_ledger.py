@@ -176,7 +176,6 @@ _FN_CALL_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
 # honest one-liner (all currently honest-NIE-or-unasserted; none has a dedicated test that the
 # parser misses, unlike the predicate temporal entries).
 KNOWN_UNCOVERED_FUNCTIONS: dict[str, str] = {
-    "tofloat": "pandas-native (astype float); polars _lower_function has NO branch -> honest NIE, not yet asserted. TODO: add a tofloat native-or-NIE case.",
     "keys": "map/entity key-extraction; polars declines (no _lower_function branch) -> NIE; not yet asserted. TODO.",
     "labels": "node-label text function; polars declines -> NIE; not yet asserted. TODO.",
     "type": "edge-type function; polars declines -> NIE; not yet asserted. TODO.",

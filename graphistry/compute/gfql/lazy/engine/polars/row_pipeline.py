@@ -190,6 +190,21 @@ def _lower_function(node: Any, columns: Sequence[str]) -> Optional[Any]:
         # String: pandas astype(float) RAISES on non-numeric content (NOT null-on-failure),
         # which polars strict=False would silently turn into nulls — a divergence. DECLINE (NIE).
         return None
+    if name == "tofloat" and len(args) == 1:
+        import polars as pl
+        # cypher toFloat: pandas oracle = inner.astype(float) with the isna() null_mask restored
+        # via .where(~mask, pd.NA). CRUCIALLY there is NO .fillna(0)/int step (contrast toInteger):
+        # float64 has no separate null sentinel, so an isna()-masked NaN re-materializes as NaN —
+        # NaN is PRESERVED, not nulled. A plain cast preserves both NaN and null, so NO explicit
+        # NaN mask is needed. Admit only dtypes whose pandas astype(float) polars reproduces:
+        dt = _expr_output_dtype(args[0])
+        if _dtype_is_int(dt) or dt == pl.Boolean or _dtype_is_float(dt):
+            # Int/UInt/Bool/Float -> Float64: exact IEEE widening (bool True/False -> 1.0/0.0;
+            # nulls preserved; NaN preserved). Matches inner.astype(float) on pandas.
+            return args[0].cast(pl.Float64)
+        # String: pandas astype(float) RAISES on non-numeric content (data-dependent, NOT
+        # null-on-failure); polars strict=False would silently null -> divergence. DECLINE (NIE).
+        return None
     if name == "toboolean" and len(args) == 1:
         import polars as pl
         # cypher toBoolean: the pandas oracle parses a fixed token set ("true"/"t"/"1"/"yes" vs
@@ -663,9 +678,15 @@ def where_rows_polars(
     preds: List[Any] = []
     if filter_dict:
         for col, val in filter_dict.items():
-            if col not in columns or isinstance(val, (list, tuple, set, dict)):
-                return None  # missing column / IN-list etc. -> defer (NIE)
-            preds.append(pl.col(col) == val)
+            if col not in columns or isinstance(val, dict):
+                return None  # missing column / nested-struct value -> defer (NIE)
+            if isinstance(val, (list, tuple, set)):
+                # membership / IN: polars `is_in` over a null cell yields null -> filter drops it,
+                # i.e. openCypher 3VL (`null IN [...]` = null -> excluded), matching the filter_by_dict
+                # membership fix. (Equality below also drops nulls: `null == v` -> null -> dropped.)
+                preds.append(pl.col(col).is_in(list(val)))
+            else:
+                preds.append(pl.col(col) == val)
     if expr is not None:
         if not isinstance(expr, str):
             return None
@@ -694,8 +715,8 @@ def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
     return _rewrap(g, table.sort(exprs, descending=descending, nulls_last=True))
 
 
-# Aggregation funcs lowered to native polars; collect/collect_distinct/stdev/
-# percentile etc. return None → caller declines (NIE, no pandas bridge).
+# Aggregation funcs lowered to native polars (count/sum/avg/min/max/count_distinct/collect/
+# collect_distinct); stdev/percentile etc. return None → caller declines (NIE, no pandas bridge).
 def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str) -> Optional[Any]:
     import polars as pl
     func = func.lower()
@@ -718,6 +739,19 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
         # cypher count(DISTINCT x) drops nulls (pandas nunique(dropna=True)); polars n_unique()
         # counts null as a value, so drop nulls first for parity.
         return col.drop_nulls().n_unique().alias(alias)
+    if func == "collect":
+        # cypher collect(x) DROPS nulls and preserves within-group row order (pandas
+        # row/pipeline.py:4552-4582 filters ~isna() then agg(list)). In a polars
+        # group_by(maintain_order=True).agg, a multi-valued expr yields a List column, so
+        # drop_nulls() alone reproduces it; an all-null/empty group yields [] (an empty list),
+        # never [null] — matching the oracle's []-coercion (4597-4614). NO .implode() (that would
+        # double-wrap to List(List)).
+        return col.drop_nulls().alias(alias)
+    if func == "collect_distinct":
+        # collect(DISTINCT x): drop nulls, dedup keep-first preserving first-occurrence order
+        # (pandas drop_duplicates(keep="first") + agg(list)). polars unique(maintain_order=True)
+        # is keep-first order-preserving; empty/all-null group -> [].
+        return col.drop_nulls().unique(maintain_order=True).alias(alias)
     return None
 
 
