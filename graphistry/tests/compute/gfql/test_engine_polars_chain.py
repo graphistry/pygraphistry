@@ -33,6 +33,56 @@ def _eset(g):
     return set(zip(df[g._source].tolist(), df[g._destination].tolist()))
 
 
+def _emult(g):
+    """Edge MULTISET (Counter) — catches a dropped parallel/self-loop copy or an edge SWAP
+    that preserves count, which `len()` and `_eset` (a set) both miss. The min_hops
+    recompute-all combine (fuzz seeds 24/48) diverged exactly here."""
+    from collections import Counter
+    df = g._edges
+    if df is None or len(df) == 0:
+        return Counter()
+    if "polars" in type(df).__module__:
+        df = df.to_pandas()
+    return Counter(zip(df[g._source].tolist(), df[g._destination].tolist()))
+
+
+def _node_attrs(g):
+    """Null-aware per-node ATTRIBUTE map — catches a node present in BOTH outputs but with a
+    different (or NULL) attribute cell, which `_nset` (id-set) cannot see. The min_hops
+    null-attr-on-source-side-endpoint rule (fuzz seed-48 n5/n7: kind=y but carried as NaN,
+    so a downstream `kind=y` filter rejects them) lives in exactly this dimension. Normalizes
+    NaN/None→None and int/float→float (pandas upcasts an int col to float once a NaN-stub row
+    is concatenated, while polars keeps Int64+null — without this you get spurious 5 != 5.0)."""
+    df = g._nodes
+    if df is None:
+        return {}
+    if "polars" in type(df).__module__:
+        df = df.to_pandas()
+    key = g._node
+    # Exclude internal engine columns (`__gfql_*`, e.g. the pandas auto hop-label
+    # `__gfql_output_node_hop__` that ASTEdge.execute leaks into the min_hops result but polars
+    # does not) — they are implementation detail, not user-facing data, so not a parity concern.
+    cols = sorted(c for c in df.columns if c != key and not c.startswith("__gfql_"))
+
+    def norm(v):
+        if v is None:
+            return None
+        if isinstance(v, float) and pd.isna(v):
+            return None
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return float(v)
+        try:
+            if pd.isna(v):
+                return None
+        except (TypeError, ValueError):
+            pass
+        return v
+
+    return {row[key]: tuple(norm(row[c]) for c in cols) for _, row in df.iterrows()}
+
+
 def _named(g, col):
     df = g._nodes if col in (g._nodes.columns if g._nodes is not None else []) else g._edges
     if df is None or col not in df.columns:
@@ -150,14 +200,19 @@ def _rand_edge(rng):
     # become live parity cases — no test edit needed.
     if rng.random() < 0.4:
         r = rng.random()
-        if r < 0.4:
+        if r < 0.3:
             hops = rng.randint(2, 3)                       # exact count: hops in {2,3}
             return ctor(match, hops=hops) if match else ctor(hops=hops)
-        if r < 0.8:
+        if r < 0.55:
             mx = rng.randint(2, 4)                         # variable-length 1..max_hops
             return ctor(match, max_hops=mx) if match else ctor(max_hops=mx)
-        # to_fixed_point (unbounded; Stage 4) — forward/reverse only. UNDIRECTED to_fixed_point
-        # stays NIE (needs components/2-core), so for undirected use a fixed multi-hop instead.
+        if r < 0.75 and ctor is not e_undirected:
+            # min_hops>1 lower bound — DIRECTED + finite max_hops only (undirected min_hops and
+            # min_hops+to_fixed_point stay NIE -> skip-masked via the except).
+            lo = rng.randint(2, 3)
+            hi = lo + rng.randint(0, 2)
+            return ctor(match, min_hops=lo, max_hops=hi) if match else ctor(min_hops=lo, max_hops=hi)
+        # to_fixed_point (unbounded) — forward/reverse only. UNDIRECTED to_fixed_point stays NIE.
         if ctor is e_undirected:
             return ctor(match, hops=2) if match else ctor(hops=2)
         return ctor(match, to_fixed_point=True) if match else ctor(to_fixed_point=True)
@@ -208,10 +263,108 @@ def test_polars_chain_fuzz_parity(seed):
         pytest.skip("deferred surface")   # multi-hop fwd/rev NIEs at chain guard today
     assert _nset(gp) == _nset(gl), f"node mismatch seed={seed} chain={ch}"
     assert _eset(gp) == _eset(gl), f"edge mismatch seed={seed} chain={ch}"
-    # multiplicity guard: set(zip) hides a dropped parallel/self-loop edge under multi-hop
-    gpe, gle = gp._edges, gl._edges
-    assert (0 if gpe is None else len(gpe)) == (0 if gle is None else len(gle)), \
-        f"edge-count mismatch seed={seed} chain={ch}"
+    # Stricter than id/endpoint sets: edge MULTIPLICITY (Counter) and null-aware node ATTRIBUTES
+    # are the two dimensions the min_hops bugs (24/404/48) lived in and that set-equality missed.
+    assert _emult(gp) == _emult(gl), f"edge-multiplicity mismatch seed={seed} chain={ch}"
+    assert _node_attrs(gp) == _node_attrs(gl), f"node-attr mismatch seed={seed} chain={ch}"
+
+
+# ---- AMPLIFIED min_hops fuzz: every edge min_hops>1 ALWAYS followed by an attribute filter
+# (seed-48 shape on EVERY seed), multiple min_hops steps (the recompute-all combine that broke
+# seeds 24/48), and a sparse-graph variant (exercises the max_reached<min empty gate that the
+# always-dense _rand_graph under-tests). The base fuzz hits this shape only ~3% of seeds. ----
+
+def _rand_node_attr(rng):
+    """Always attribute-bearing (never bare n()) so a min_hops null-attr carry is CONSUMED by a
+    downstream filter — the only way the seed-48 class becomes observable through the chain.
+    Uses ONLY predicates that agree pandas-vs-polars on NULL (eq/gt/between all EXCLUDE a null
+    cell); ne() is deliberately excluded because pandas `!= x` KEEPS a NaN cell while polars
+    (cypher 3-valued `null<>x`→null) drops it — a SEPARATE pre-existing predicate divergence
+    (see test_polars_ne_on_null_divergence_documented), not a min_hops concern."""
+    r = rng.random()
+    if r < 0.45:
+        return n({"kind": rng.choice(["x", "y", "z"])})
+    if r < 0.75:
+        return n({"score": gt(rng.randint(0, 80))})
+    return n({"score": between(rng.randint(0, 40), rng.randint(50, 100))})
+
+
+def _rand_minhops_edge(rng):
+    ctor = rng.choice([e_forward, e_reverse])                      # directed only (undirected = NIE)
+    match = {"rel": rng.choice(["r1", "r2", "r3"])} if rng.random() < 0.4 else None
+    lo = rng.randint(2, 3)
+    hi = lo + rng.randint(0, 2)
+    return ctor(match, min_hops=lo, max_hops=hi) if match else ctor(min_hops=lo, max_hops=hi)
+
+
+def _rand_graph_sparse(rng):
+    nn = rng.randint(4, 9)
+    ids = [f"n{i}" for i in range(nn)]
+    nodes = pd.DataFrame({
+        "id": ids,
+        "kind": [rng.choice(["x", "y", "z"]) for _ in ids],
+        "score": [rng.randint(0, 100) for _ in ids],
+    })
+    es = [(ids[i], ids[i + 1], "r1") for i in range(nn - 1)]        # path: NO backbone cycle
+    for _ in range(rng.randint(0, nn // 2)):                        # few chords, stays sparse
+        es.append((rng.choice(ids), rng.choice(ids), rng.choice(["r1", "r2"])))
+    edges = pd.DataFrame({"s": [e[0] for e in es], "d": [e[1] for e in es], "rel": [e[2] for e in es]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize("seed", range(0, 400))
+def test_polars_chain_fuzz_minhops_attrfilter_parity(seed):
+    rng = random.Random(seed)
+    g = _rand_graph_sparse(rng) if rng.random() < 0.35 else _rand_graph(rng)
+    ops = [_rand_node(rng)]
+    for _ in range(rng.randint(1, 3)):
+        ops.append(_rand_minhops_edge(rng))
+        ops.append(_rand_node_attr(rng))
+    gp = g.chain(ops, engine="pandas")
+    try:
+        gl = g.chain(ops, engine="polars")
+    except NotImplementedError:
+        pytest.skip("deferred surface")
+    assert _nset(gp) == _nset(gl), f"node mismatch seed={seed} chain={ops}"
+    assert _eset(gp) == _eset(gl), f"edge mismatch seed={seed} chain={ops}"
+    assert _emult(gp) == _emult(gl), f"edge-multiplicity mismatch seed={seed} chain={ops}"
+    assert _node_attrs(gp) == _node_attrs(gl), f"node-attr mismatch seed={seed} chain={ops}"
+
+
+@pytest.mark.parametrize("k", [1, 2, 3])
+def test_polars_chain_minhops1_equiv_default(k):
+    # Metamorphic (no oracle): min_hops=1 is the default lower bound, so e(min_hops=1, max_hops=k)
+    # must be identical to e(max_hops=k) on the SAME engine.
+    rng = random.Random(900 + k)
+    g = _rand_graph(rng)
+    a = g.chain([n(), e_forward(min_hops=1, max_hops=k), n()], engine="polars")
+    b = g.chain([n(), e_forward(max_hops=k), n()], engine="polars")
+    assert _nset(a) == _nset(b) and _emult(a) == _emult(b), f"min_hops=1 != default @k={k}"
+
+
+@pytest.mark.xfail(reason="pre-existing ne()-on-NULL 3-valued-logic divergence (orthogonal to min_hops): "
+                          "pandas `kind != x` KEEPS a NaN cell (NaN compares unequal to all), polars "
+                          "(cypher `null<>x`->null) DROPS it. Surfaced by the min_hops null-attr amplified "
+                          "fuzz. Needs a decision: match pandas (col.is_null() OR col!=x) vs keep cypher 3VL vs NIE.",
+                   strict=True)
+def test_polars_ne_on_null_divergence_documented():
+    # Tracks the known wrong-answer so it is not silently forgotten. NO min_hops involved.
+    nodes = pd.DataFrame({"id": ["n0", "n1", "n2", "n3"], "kind": ["x", "y", None, "z"]})
+    edges = pd.DataFrame({"s": ["n0", "n1", "n2", "n3"], "d": ["n1", "n2", "n3", "n0"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    gp = g.chain([n({"kind": ne("y")})], engine="pandas")
+    gl = g.chain([n({"kind": ne("y")})], engine="polars")
+    assert _nset(gp) == _nset(gl)   # currently FAILS: pandas keeps n2 (null), polars drops it
+
+
+@pytest.mark.parametrize("k", [2, 3, 4])
+def test_polars_chain_maxhops_monotone(k):
+    # Metamorphic (no oracle): the forward-reachable node set is non-decreasing in max_hops.
+    rng = random.Random(950 + k)
+    g = _rand_graph(rng)
+    lo = g.chain([n(), e_forward(max_hops=k), n()], engine="polars")
+    hi = g.chain([n(), e_forward(max_hops=k + 1), n()], engine="polars")
+    assert _nset(lo) <= _nset(hi), f"max_hops node set not monotone @k={k}"
 
 
 # ---- Deferred-surface guards (must raise, never silently wrong) ----
@@ -225,16 +378,16 @@ def test_polars_chain_deferred_raises(ch):
 
 
 @pytest.mark.parametrize("ch", [
-    [n(), e_forward(min_hops=2, max_hops=3), n()],         # min_hops>1
     [n(), e_undirected(to_fixed_point=True), n()],         # undirected to_fixed_point (components/2-core)
-    [n(), e_forward(min_hops=2, max_hops=3), n(), e_undirected(), n()],  # min_hops>1 in a multi-edge chain
+    [n(), e_undirected(min_hops=2, max_hops=3), n()],      # UNDIRECTED min_hops>1 (stays NIE)
 ])
 def test_polars_chain_multihop_deferred_raises(ch):
     # These multi-hop surfaces STAY NIE after native fixed-length hops=N (Stage 1), native
-    # single-hop AND fixed multi-hop undirected (Stage 3 + undirected-multihop), and native
-    # forward/reverse to_fixed_point (Stage 4): min_hops>1 (cudf also diverges — see conformance
-    # matrix) and undirected to_fixed_point (needs pandas connected-components + 2-core seed
-    # retention, hop.py:817-887, with no vectorized polars analogue).
+    # single-hop AND fixed multi-hop undirected (Stage 3 + undirected-multihop), native forward/reverse
+    # to_fixed_point (Stage 4), and native forward/reverse min_hops>1 (Stage 5, the layered backward-tree
+    # walk + endpoint/label/seed-strip node rule): only UNDIRECTED min_hops>1 and undirected
+    # to_fixed_point remain (both need pandas connected-components + 2-core seed retention,
+    # hop.py:817-887, with no vectorized polars analogue).
     with pytest.raises(NotImplementedError):
         BASE.chain(ch, engine="polars")
 

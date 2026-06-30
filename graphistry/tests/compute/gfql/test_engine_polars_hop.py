@@ -21,6 +21,35 @@ def _node_set(g):
     return set(n[g._node].tolist())
 
 
+def _node_attrs_hop(g):
+    """Null-aware per-node attribute map (excludes internal `__gfql_*` columns; int/float
+    normalized). Catches a node present in both outputs but with a divergent/NULL attribute
+    cell — the seed-48 min_hops class — which `_node_set` cannot see."""
+    df = g._nodes
+    if df is None:
+        return {}
+    if "polars" in type(df).__module__:
+        df = df.to_pandas()
+    key = g._node
+    cols = sorted(c for c in df.columns if c != key and not c.startswith("__gfql_"))
+
+    def norm(v):
+        if v is None:
+            return None
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return None if (isinstance(v, float) and pd.isna(v)) else float(v)
+        try:
+            if pd.isna(v):
+                return None
+        except (TypeError, ValueError):
+            pass
+        return v
+
+    return {row[key]: tuple(norm(row[c]) for c in cols) for _, row in df.iterrows()}
+
+
 def _edge_set(g):
     e = g._edges
     if e is None or len(e) == 0:
@@ -72,7 +101,7 @@ def test_polars_hop_parity(gname, case, seed):
     {"label_node_hops": "h"},
     {"label_edge_hops": "h"},
     {"label_seeds": True},
-    {"min_hops": 2},
+    {"min_hops": 2},   # min_hops>1 is native in chain()/gfql() only; a DIRECT hop() stays NIE
     {"output_min_hops": 1},
     {"output_max_hops": 2},
     {"source_node_query": "s == 'a'"},
@@ -90,6 +119,34 @@ def test_polars_hop_min_hops_1_allowed():
     # min_hops=1 is the default and must NOT raise (boundary guard).
     base = graphistry.edges(GRAPHS["line5"], "s", "d").materialize_nodes()
     base.hop(hops=1, min_hops=1, engine="polars")
+
+
+@pytest.mark.parametrize("direction", ["forward", "reverse"])
+@pytest.mark.parametrize("seed_sel", [["a"], ["c"], ["a", "d"]])
+def test_polars_hop_min_hops_labeled_policy_unit_parity(direction, seed_sel):
+    # Unit test of the CHAIN-CONTEXT min_hops node policy (the surface the chain actually uses):
+    # drive the internal polars hop with `min_hops_label_policy=True` and compare the FULL node
+    # frame (incl non-id attrs, null-aware) against pandas' LABELED hop (`label_node_hops=...`, the
+    # track_node_hops path the chain's ASTEdge.execute takes). This asserts the null-attribute /
+    # seed-strip / endpoint contract at the unit level (seed-48 class) without building a chain.
+    # NOTE: a *direct* base.hop(engine='polars', min_hops>1) intentionally stays NIE (see
+    # test_polars_hop_unsupported_raises) — only the chain wires up this policy.
+    from graphistry.compute.gfql.lazy.engine.polars.hop_eager import hop_polars
+    from graphistry.Engine import Engine, df_to_engine
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d", "e"],
+                          "kind": ["x", "y", "y", "z", "x"], "score": [1, 2, 3, 4, 5]})
+    edges = pd.DataFrame({"s": ["a", "b", "c", "d", "a", "c"], "d": ["b", "c", "d", "e", "c", "a"]})
+    base = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    sel = base._nodes[base._nodes["id"].isin(seed_sel)]
+    gp = base.hop(nodes=sel, min_hops=2, max_hops=3, direction=direction, return_as_wave_front=True,
+                  label_node_hops="__gfql_output_node_hop__", label_edge_hops="__gfql_output_edge_hop__",
+                  engine="pandas")
+    gpol = base.nodes(df_to_engine(base._nodes, Engine.POLARS), "id").edges(
+        df_to_engine(base._edges, Engine.POLARS), "s", "d")
+    gl = hop_polars(gpol, nodes=df_to_engine(sel, Engine.POLARS), min_hops=2, max_hops=3,
+                    direction=direction, return_as_wave_front=True, min_hops_label_policy=True)
+    assert _node_set(gp) == _node_set(gl)
+    assert _node_attrs_hop(gp) == _node_attrs_hop(gl), f"labeled-policy attr divergence {direction} {seed_sel}"
 
 
 def test_polars_hop_edges_only_parity():

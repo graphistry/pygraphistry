@@ -65,7 +65,7 @@ def _restore_edge_dtypes(edges, src, dst, restore):
     return edges.with_columns([pl.col(src).cast(sdt), pl.col(dst).cast(ddt)])
 
 
-def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf) -> Plottable:
+def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf, intermediate_universe=None) -> Plottable:
     import polars as pl
 
     node_col = g._node
@@ -105,6 +105,11 @@ def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf) -> Plottable:
             include_zero_hop_seed=op.include_zero_hop_seed,
             return_as_wave_front=True,
             target_wave_front=target_wf,
+            intermediate_universe=intermediate_universe,
+            # The chain wants pandas' LABELED min_hops node policy (null attrs for source-side
+            # endpoints) — mirrors pandas' ASTEdge.execute passing auto hop-labels. A direct
+            # base.hop(engine='polars', min_hops=...) leaves this False -> full attrs (pandas parity).
+            min_hops_label_policy=True,
         )
         if op._name is not None:
             g_step = g_step.edges(
@@ -137,7 +142,10 @@ def _is_native_multihop(op: ASTObject) -> bool:
     # (graphistry/compute/hop.py:817-887) which the vectorized polars hop cannot reproduce -> NIE.
     if op.direction == "undirected" and op.to_fixed_point:
         return False
-    if op.min_hops is not None and op.min_hops > 1:
+    # min_hops>1 (variable-length LOWER bound) IS native for forward/reverse with a finite
+    # max_hops (the hop runs a NON-anti-joined BFS + layered backward-tree walk). UNDIRECTED
+    # min_hops>1 and min_hops+to_fixed_point stay NIE.
+    if op.min_hops is not None and op.min_hops > 1 and (op.direction == "undirected" or op.to_fixed_point):
         return False
     if op.output_min_hops is not None or op.output_max_hops is not None:
         return False
@@ -180,7 +188,7 @@ class _LazyShim:
         return _LazyShim(nd, ed, None, None, None, None)
 
 
-def _combine_edges(g, steps, label_steps):
+def _combine_edges(g, steps, label_steps, has_multihop=False):
     import polars as pl
     src, dst, node_col, edge_id = g._source, g._destination, g._node, g._edge
     assert src is not None and dst is not None and node_col is not None and edge_id is not None
@@ -192,13 +200,13 @@ def _combine_edges(g, steps, label_steps):
             continue
         if not _is_lazy(edges_df) and edges_df.height == 0:
             continue
-        if isinstance(op, ASTEdge) and not op.is_simple_single_hop():
-            # Multi-hop: these edges were recomputed path-valid over the backward-pruned
-            # subgraph (forward re-exec; see the chain recompute). Every id is on a
-            # complete valid path, so append ALL of them and skip the single-hop endpoint
-            # semijoin below — that semijoin keeps only edges whose src/dst sit in the
-            # prev/next wavefront and would drop intermediate-hop edges. Port of the
-            # pandas combine_steps has_multihop branch (recompute then concat as-is).
+        if has_multihop or (isinstance(op, ASTEdge) and not op.is_simple_single_hop()):
+            # has_multihop: EVERY edge step was recomputed path-valid over its backward-pruned
+            # subgraph (forward re-exec; see the chain recompute), so append ALL ids and skip the
+            # single-hop prev/next endpoint semijoin below — that semijoin keeps only edges whose
+            # src/dst sit in the prev/next wavefront and would drop intermediate-hop edges (and,
+            # on mixed single+multi chains, diverged by an edge/node vs pandas). Port of the pandas
+            # combine_steps has_multihop branch (recompute all steps, then concat as-is, no semijoin).
             frames.append(edges_df.select(pl.col(edge_id)))
             continue
         prev_nodes = label_steps[idx - 1][1]._nodes if idx > 0 else g._nodes
@@ -733,11 +741,15 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             prev_orig = g_stack[-(len(g_rev) + 2)]
         prev_wf = prev_loop._nodes
         target_wf = prev_orig._nodes if prev_orig is not None else None
-        # Give the reverse hop the FULL node universe (g_step._nodes is only the
-        # forward wavefront; filtering reached ids against it would truncate the
-        # reverse wavefront and break threading).
+        # OUTPUT universe = FULL g._nodes (so the reverse hop's output isn't truncated / loses node
+        # columns). The INTERMEDIATE-hop gate universe is decoupled: for a MULTI-HOP reverse step pass
+        # the forward wavefront (g_step._nodes, before widening) so intermediate hops can't wander
+        # outside the forward-reached nodes (pandas chain.py:1104 feeds g_step as the multi-hop reverse
+        # node table). Single-hop reverse: None -> gate universe = all_nodes (vacuous), matching the
+        # pandas use_fast_backward path (full g._nodes).
+        _iu = g_step._nodes if (isinstance(op, ASTEdge) and not op.is_simple_single_hop()) else None
         g_step_full = g_step.nodes(g._nodes, g._node)
-        rev = _exec(op.reverse(), g_step_full, prev_wf, target_wf)
+        rev = _exec(op.reverse(), g_step_full, prev_wf, target_wf, intermediate_universe=_iu)
         # Undirected single-hop backward threading: the generic hop returns a
         # ONE-SIDED wavefront (the TO/target-side endpoints only). Pandas' fast
         # backward branch (graphistry/compute/chain.py:1090-1098) instead threads
@@ -775,10 +787,18 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     # combine sees these recomputed frames (pandas gates the recompute on kind=='edges');
     # the node combine + name tagging keep the original backward-pruned steps.
     edge_steps: List[Tuple[ASTObject, Plottable]] = steps
-    if any(isinstance(op, ASTEdge) and not op.is_simple_single_hop() for op, _ in steps):
+    has_multihop = any(isinstance(op, ASTEdge) and not op.is_simple_single_hop() for op, _ in steps)
+    if has_multihop:
+        # pandas combine_steps recomputes EVERY step (not only the multi-hop one) when any step is
+        # multi-hop (chain.py:201-209), and the edge combine then concatenates each recomputed
+        # step's edges with NO per-step prev/next semijoin. Mirror that exactly: recompute ALL
+        # ASTEdge steps (forward re-exec over their backward-pruned subgraph, seeded from the
+        # forward-pass entry wavefront) and let _combine_edges append-all (has_multihop=True).
+        # Recomputing only the multi-hop step + semijoining the single-hop steps diverged by an
+        # edge/node on chains mixing single + multi-hop (fuzz seeds 24/48).
         edge_steps = []
         for idx, (op, g_step) in enumerate(steps):
-            if isinstance(op, ASTEdge) and not op.is_simple_single_hop():
+            if isinstance(op, ASTEdge):
                 prev_src = label_steps[idx - 1][1]._nodes if idx > 0 else g_step._nodes
                 prev_wf = (
                     _semi(g._nodes, prev_src, node_col, node_col)
@@ -808,7 +828,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     label_lz = [(op, _LazyShim.step(p)) for op, p in label_steps]
 
     final_nodes = _combine_nodes(g_lz, steps_lz)
-    final_edges = _combine_edges(g_lz, edge_steps_lz, label_lz)
+    final_edges = _combine_edges(g_lz, edge_steps_lz, label_lz, has_multihop)
     # Endpoint (lazy: always compute; maintain_order keeps the semi-join order).
     endpoints = pl.concat(
         [final_edges.select(pl.col(src).alias(node_col)),
