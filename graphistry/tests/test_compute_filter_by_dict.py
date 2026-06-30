@@ -151,3 +151,25 @@ class TestPredicateIsIn(object):
         assert g.filter_nodes_by_dict({'node': is_in(['a', 'b']), 'type': 'bad'})._nodes.equals(g._nodes[:0])
         assert g.filter_nodes_by_dict({'node': is_in(['a', 'bad']), 'type': 'n'})._nodes.equals(g._nodes[:1])
         assert g.filter_nodes_by_dict({'node': is_in(['a', 'bad']), 'type': 'bad'})._nodes.equals(g._nodes[:0])
+
+
+class TestThreeValuedLogicNull(object):
+    """openCypher/SQL 3-valued logic: a NULL cell is NEVER a match for ne()/<> or membership
+    (`null <> x` and `null IN [...]` are both NULL -> excluded). pandas `NaN != x` is True and
+    cuDF `isin` matches a null against a None list element, so both used to KEEP the null; these
+    assert the fix in filter_by_dict / the NE predicate. Generic (pandas oracle here; the polars
+    engine + 4-engine parity are asserted in the gfql polars suite)."""
+
+    def test_ne_excludes_null(self):
+        # numeric column so the comparison-on-string guard (a separate fix higher in the stack) is
+        # not in play — this isolates the NE 3VL null-masking. score=None -> NaN; `NaN != 20` is
+        # True on pandas (would KEEP), so the row must be excluded by the `& notna()` fix.
+        from graphistry.compute.ast import ne
+        df = pd.DataFrame({"id": ["n0", "n1", "n2", "n3"], "score": [10.0, 20.0, None, 40.0]})
+        out = filter_by_dict(df, {"score": ne(20)})
+        assert sorted(out["id"].tolist()) == ["n0", "n3"]   # n1 fails ne(20); n2 (null) excluded by 3VL
+
+    def test_membership_excludes_null(self):
+        df = pd.DataFrame({"id": ["n0", "n1", "n2", "n3"], "kind": ["x", "y", None, "z"]})
+        out = filter_by_dict(df, {"kind": ["x", "z", None]})
+        assert sorted(out["id"].tolist()) == ["n0", "n3"]   # x,z match; null excluded despite None in list
