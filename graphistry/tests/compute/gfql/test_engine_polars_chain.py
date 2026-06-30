@@ -312,6 +312,11 @@ UND_CHAINS = {
     "und-maxhops3":       [n({"id": ["a"]}), e_undirected(max_hops=3), n()],
     "und-hops2-midfilter": [n({"id": ["a"]}), e_undirected(hops=2), n({"kind": "z"}), e_undirected(), n()],
     "und-hops2-mixed":    [n({"id": ["a"]}), e_undirected(hops=2), n(), e_forward(), n()],
+    # undirected SINGLE-hop + directed FIXED multi-hop (the recompute must not collide with the
+    # undirected both-endpoint backward override on the shared middle wavefront)
+    "und-then-fwdhops2":  [n({"id": ["a"]}), e_undirected(), n(), e_forward(hops=2), n()],
+    "fwdhops2-then-und":  [n({"id": ["a"]}), e_forward(hops=2), n(), e_undirected(), n()],
+    "und-mid-fwdhops2":   [n({"id": ["a"]}), e_undirected(), n({"kind": "y"}), e_forward(hops=2), n({"kind": "z"})],
 }
 
 
