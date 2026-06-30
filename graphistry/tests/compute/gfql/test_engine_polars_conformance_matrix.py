@@ -647,6 +647,68 @@ def test_conformance_temporal_datevalue_chain(label, query):
     _assert_invariant(_temporal_graph(), query, f"temporal-chain {label}")
 
 
+def _temporal_between_queries():
+    from graphistry.compute.predicates.comparison import Between
+    lo, hi = datetime.date(2020, 1, 15), datetime.date(2020, 3, 1)
+    return [
+        # inclusive lower boundary: BOTH 2020-01-15 rows (00:00 AND 23:59) included (date-truncated)
+        ("between-incl",      [n({"ts": Between(lower=lo, upper=hi, inclusive=True)})]),
+        # exclusive lower boundary: the 2020-01-15 rows are EXCLUDED (> not >=)
+        ("between-excl",      [n({"ts": Between(lower=lo, upper=hi, inclusive=False)})]),
+        # single-day window: only the two 2020-01-15 rows
+        ("between-singleday",  [n({"ts": Between(lower=lo, upper=lo, inclusive=True)})]),
+        # empty / out-of-range window -> no rows, must still parity/NIE-agree
+        ("between-empty",     [n({"ts": Between(lower=datetime.date(2099, 1, 1),
+                                                upper=datetime.date(2099, 2, 1))})]),
+    ]
+
+
+@pytest.mark.parametrize("label,query", _temporal_between_queries())
+def test_conformance_temporal_between_chain(label, query):
+    _assert_invariant(_temporal_graph(), query, f"temporal-between {label}")
+
+
+@pytest.mark.parametrize("label,query", _temporal_between_queries())
+def test_conformance_temporal_between_dag(label, query):
+    _assert_invariant(_temporal_graph(), let({"a": query}), f"temporal-between dag {label}")
+
+
+def test_temporal_between_naive_runs_natively_polars():
+    """Naive-Datetime column + DateValue bounds MUST lower NATIVELY (composes two proven
+    date-truncated endpoint compares), not an honest-but-lazy NIE."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars engine not available")
+    from graphistry.compute.predicates.comparison import Between
+    g = _temporal_graph()
+    q = [n({"ts": Between(lower=datetime.date(2020, 1, 15), upper=datetime.date(2020, 3, 1))})]
+    res = _run(g, q, "polars")
+    assert res[0] == "ok", f"naive-Datetime temporal Between must lower NATIVELY, got {res}"
+    _assert_invariant(g, q, "temporal between native")
+
+
+def test_temporal_between_tzaware_bound_honest_nie_polars():
+    """datetime.datetime bounds normalize to tz-tagged DateTimeValue -> _cmp_expr declines an
+    endpoint -> the composed Between must HONEST-NIE (never a silent tz/instant mismatch)."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars engine not available")
+    from graphistry.compute.predicates.comparison import Between
+    g = _temporal_graph()
+    q = [n({"ts": Between(lower=datetime.datetime(2020, 1, 15, 0, 0),
+                          upper=datetime.datetime(2020, 3, 1, 0, 0))})]
+    assert _run(g, q, "polars")[0] == "nie", "tz-aware temporal Between must HONEST-NIE on polars"
+
+
+def test_temporal_isin_honest_nie_polars():
+    """Temporal IsIn stays an honest decline: pandas does EXACT-instant membership (not date-
+    truncated) and the native is_in cross-precision cast is not provable -> NIE, never wrong."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars engine not available")
+    from graphistry.compute.predicates.is_in import IsIn
+    g = _temporal_graph()
+    q = [n({"ts": IsIn(options=[datetime.date(2020, 1, 15), datetime.date(2020, 2, 1)])})]
+    assert _run(g, q, "polars")[0] == "nie", "temporal IsIn must HONEST-NIE on polars (exact-instant)"
+
+
 @pytest.mark.parametrize("label,query", [
     ("cy-gt-date", "MATCH (n) WHERE n.ts > date('2020-01-15') RETURN n.id AS id"),
     ("cy-ge-date", "MATCH (n) WHERE n.ts >= date('2020-01-15') RETURN n.id AS id"),
