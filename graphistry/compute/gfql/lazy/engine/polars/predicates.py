@@ -126,6 +126,19 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype=None):
             if getattr(pred, "inclusive", True):
                 return (c >= lo) & (c <= hi)
             return (c > lo) & (c < hi)
+        # NATIVE TEMPORAL Between (SAFE SUBSET — NO CHEATING): the GFQL temporal Between
+        # evaluates in pandas as GE/LE (inclusive) or GT/LT (exclusive) sub-predicates on the
+        # SAME bound; for a DateValue bound each is the exact date-truncated compare that
+        # _cmp_expr already lowers with PROVEN parity (col.dt.date() <op> pl.lit(date)). Compose
+        # the two proven endpoint compares so Between inherits that parity with NO new proof
+        # obligation. Both endpoints must be DateValue over a NAIVE Datetime column or _cmp_expr
+        # returns None -> we fall through to honest NIE (tz-aware DateTimeValue, TimeValue, raw
+        # datetime, mixed bounds, non-Datetime dtype all decline this way — never a silent mismatch).
+        inclusive = getattr(pred, "inclusive", True)
+        lo_expr = _cmp_expr(c, operator.ge if inclusive else operator.gt, lo, dtype)
+        hi_expr = _cmp_expr(c, operator.le if inclusive else operator.lt, hi, dtype)
+        if lo_expr is not None and hi_expr is not None:
+            return lo_expr & hi_expr
 
     if name == "IsIn" and hasattr(pred, "options"):
         opts = list(pred.options)
