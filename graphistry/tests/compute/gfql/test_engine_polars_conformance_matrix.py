@@ -159,7 +159,7 @@ def test_conformance_predicates_dag(label, query):
 
 
 # ---- traversal cross-product (single-hop parity; multi-hop/undirected-multi-edge NIE) ----
-@pytest.mark.parametrize("label,query", [
+_TRAVERSAL_CASES = [
     ("fwd1", [n({"id": [0]}), e_forward()]),
     ("rev1", [n({"id": [0]}), e_reverse()]),
     ("und1", [n({"id": [0]}), e_undirected()]),
@@ -181,9 +181,20 @@ def test_conformance_predicates_dag(label, query):
     # oracle on the seed node's hop label (pandas: None, cudf: max_hops) for min_hops, an
     # orthogonal cudf bug (see cudf-device-residency-issue.md sibling notes). polars' NIE-decline
     # for min_hops is asserted directly in test_engine_polars_chain.py::*deferred_raises instead.
-])
+]
+
+
+@pytest.mark.parametrize("label,query", _TRAVERSAL_CASES)
 def test_conformance_traversals(label, query):
     _assert_invariant(_graph(2), query, f"traversal {label}")
+
+
+@pytest.mark.parametrize("label,query", _TRAVERSAL_CASES)
+def test_conformance_traversals_dag(label, query):
+    # SAME traversal via a let() DAG binding — must agree with the chain surface (parity or NIE).
+    # Directly guards the silent-bridge bug class (chain NIEs but DAG silently bridges to pandas),
+    # now extended to multi-hop: native multi-hop must reach the DAG/let surface too, not just chain.
+    _assert_invariant(_graph(2), let({"a": query}), f"traversal dag {label}")
 
 
 # ---- HOT-PATH CARVE-OUT verification (fast paths bypass the general engine = highest risk) ----
