@@ -450,9 +450,10 @@ def _rowop_exercised():
     the ledger). `with_` is exercised by the with_extend* / in-membership dedicated tests
     (test_conformance_with_extend_* below). Other row ops are exercised only IMPLICITLY via
     cypher text (RETURN->select, WHERE->where_rows, grouped count->group_by) or not at all —
-    those are tracked as waivers in the ledger until a labeled subject case is added. Keep this
-    set in sync with the labeled-subject row-op tests below."""
-    return {"with_"}
+    those are tracked as waivers in the ledger until a labeled subject case is added. `unwind` is
+    exercised by the test_conformance_unwind_* tests below (native scalar-literal list + honest-NIE
+    for list-column/nested/scalar). Keep this set in sync with the labeled-subject row-op tests."""
+    return {"with_", "unwind"}
 
 
 @pytest.mark.parametrize("fn", _CALL_CONSISTENCY_FNS)
@@ -931,3 +932,66 @@ def test_temporal_boundary_predicates_honest_nie_polars(factory):
     assert _run(g, q, "pandas")[0] == "ok", f"{factory} pandas oracle should compute"
     assert _run(g, q, "polars")[0] == "nie", f"{factory} must be an honest NIE on polars"
     _assert_invariant(g, q, f"temporal boundary {factory}")
+
+
+# ============================================================================
+# NATIVE unwind (scalar-literal list -> per-row cross-join via unwind_polars).
+# Literal-list UNWIND is the ONE native polars path; list-column / string-expr /
+# nested / scalar forms honest-NIE (allowed). Labeled subject for the row-op ledger.
+# ============================================================================
+
+@pytest.mark.parametrize("label,expr,as_", [
+    ("ints", "[1, 2, 3]", "x"),
+    ("strings", "['a', 'b']", "t"),
+    ("with-null", "[1, NULL, 3]", "x"),
+    ("singleton", "[42]", "x"),
+])
+def test_conformance_unwind_literal_list_native(label, expr, as_):
+    """UNWIND of a scalar-literal list expands each active row by the list values (cypher
+    per-row cross-join). NATIVE polars path (unwind_polars cross-join): value-equal to the
+    pandas oracle AND must run natively (not an honest NIE)."""
+    g = _graph(11)
+    query = [n(), rows(), call("unwind", {"expr": expr, "as_": as_})]
+    _assert_invariant(g, query, f"unwind literal {label}")
+    if "polars" in _NONPANDAS_ENGINES:
+        res = _run(g, query, "polars")
+        assert res[0] == "ok", f"UNWIND {expr} must run NATIVELY on polars, got {res}"
+
+
+def test_conformance_unwind_empty_list_drops_all_rows():
+    """UNWIND [] AS x yields ZERO rows on every engine (empty-list -> 0 rows, the documented
+    pandas semantic). Native-or-honest-NIE; never a silent divergence."""
+    g = _graph(12)
+    query = [n(), rows(), call("unwind", {"expr": "[]", "as_": "x"})]
+    _assert_invariant(g, query, "unwind empty list")
+
+
+def test_conformance_unwind_scalar_is_honest_nie():
+    """UNWIND of a non-list scalar literal has no polars ListLiteral lowering -> honest NIE on
+    polars (NO silent bridge), while the pandas oracle expands 1:1 (scalar broadcast)."""
+    g = _graph(13)
+    query = [n(), rows(), call("unwind", {"expr": "5", "as_": "x"})]
+    assert _run(g, query, "pandas")[0] == "ok", "pandas oracle should expand a scalar UNWIND 1:1"
+    if "polars" in _NONPANDAS_ENGINES:
+        assert _run(g, query, "polars")[0] == "nie", "scalar UNWIND must be an honest NIE on polars"
+
+
+def test_conformance_unwind_nested_list_is_honest_nie():
+    """UNWIND [[1,2],[3]] AS x (list-of-lists) is not an all-Literal ListLiteral -> honest NIE
+    on polars; pandas one-level explodes to list cells. Direct pandas-ok + polars-nie (list-cell
+    repr is fragile across engines, so NOT routed through _assert_invariant)."""
+    g = _graph(14)
+    query = [n(), rows(), call("unwind", {"expr": "[[1, 2], [3]]", "as_": "x"})]
+    assert _run(g, query, "pandas")[0] == "ok", "pandas oracle should one-level explode a nested list"
+    if "polars" in _NONPANDAS_ENGINES:
+        assert _run(g, query, "polars")[0] == "nie", "nested-list UNWIND must be an honest NIE on polars"
+
+
+def test_conformance_unwind_chain_vs_cypher_consistent():
+    """Cross-surface: chain UNWIND and Cypher UNWIND must AGREE — both native+equal or both NIE
+    (never the silent-bridge bug class)."""
+    g = _graph(15)
+    chain_q = [n(), rows(), call("unwind", {"expr": "[1, 2, 3]", "as_": "x"})]
+    cypher_q = "MATCH (n) UNWIND [1, 2, 3] AS x RETURN n.id AS id, x AS x"
+    _assert_invariant(g, chain_q, "unwind chain")
+    _assert_invariant(g, cypher_q, "unwind cypher")
