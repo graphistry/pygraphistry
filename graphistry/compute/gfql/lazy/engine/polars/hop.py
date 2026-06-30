@@ -58,6 +58,8 @@ def hop_polars_lazy(
     return_as_wave_front: bool = False,
     include_zero_hop_seed: bool = False,
     target_wave_front: Optional[Any] = None,
+    intermediate_universe: Optional[Any] = None,  # eager-only (multi-hop); ignored on the lazy single-hop path
+    min_hops_label_policy: bool = False,           # eager-only (min_hops>1); the lazy single-hop path declines min_hops
 ) -> Optional[Plottable]:
     import polars as pl
     from graphistry.Engine import Engine, df_to_engine
