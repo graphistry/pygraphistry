@@ -355,6 +355,18 @@ def test_ne_on_null_is_three_valued_logic():
     assert _nset(gp) == {"n0", "n3"} == _nset(gl)   # n1 fails eq, n2 (null) excluded by 3VL
 
 
+def test_membership_on_null_is_three_valued_logic():
+    # openCypher/SQL 3VL: `null IN [...]` is null -> a NULL cell is never a list member (and a null
+    # in the list cannot make a null cell match). n2 has kind=NULL and must be excluded by the
+    # membership filter on BOTH engines (cuDF used to keep it; now fixed in filter_by_dict).
+    nodes = pd.DataFrame({"id": ["n0", "n1", "n2", "n3"], "kind": ["x", "y", None, "z"]})
+    edges = pd.DataFrame({"s": ["n0", "n1", "n2", "n3"], "d": ["n1", "n2", "n3", "n0"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    gp = g.chain([n({"kind": ["x", "z", None]})], engine="pandas")
+    gl = g.chain([n({"kind": ["x", "z", None]})], engine="polars")
+    assert _nset(gp) == {"n0", "n3"} == _nset(gl)   # x,z match; null excluded despite None in list
+
+
 @pytest.mark.parametrize("k", [2, 3, 4])
 def test_polars_chain_maxhops_monotone(k):
     # Metamorphic (no oracle): the forward-reachable node set is non-decreasing in max_hops.
