@@ -169,6 +169,47 @@ def _lower_function(node: Any, columns: Sequence[str]) -> Optional[Any]:
             return None
         # offset>=0, length>=0 (or None=to-end) → identical chars on pandas/polars.
         return args[0].str.slice(start_node.value, length_val)
+    if name == "tointeger" and len(args) == 1:
+        import polars as pl
+        # cypher toInteger: the pandas oracle is inner.astype(float).fillna(0).astype("int64")
+        # with the original null_mask restored. _gfql_null_mask uses isna(), so NaN IS null on
+        # pandas (NaN/null -> null); finite floats TRUNCATE toward zero (== polars float->int
+        # cast). Admit only dtypes whose pandas result polars provably reproduces, by output dtype:
+        dt = _expr_output_dtype(args[0])
+        if _dtype_is_int(dt) or dt == pl.Boolean:
+            # Int/Bool: identity widening (bool True/False -> 1/0); no NaN possible, nulls
+            # preserved on both (pandas int/bool astype(float).astype(int64) == value).
+            return args[0].cast(pl.Int64)
+        if _dtype_is_float(dt):
+            # Float: NaN AND null both map to null on pandas; finite truncates toward zero.
+            # Mask NaN/null EXPLICITLY (don't trust polars' NaN->int cast internals) and
+            # truncate the rest via strict=False (the masked rows then never fail the cast).
+            return pl.when(args[0].is_nan() | args[0].is_null()).then(
+                pl.lit(None, dtype=pl.Int64)
+            ).otherwise(args[0].cast(pl.Int64, strict=False))
+        # String: pandas astype(float) RAISES on non-numeric content (NOT null-on-failure),
+        # which polars strict=False would silently turn into nulls — a divergence. DECLINE (NIE).
+        return None
+    if name == "toboolean" and len(args) == 1:
+        import polars as pl
+        # cypher toBoolean: the pandas oracle parses a fixed token set ("true"/"t"/"1"/"yes" vs
+        # "false"/"f"/"0"/"no") over astype(str), ERRORING on any other token, and is data-
+        # dependent for numerics (only exact 0/1 map; "2"/"1.0" error). The only statically-
+        # provable parity case is a Boolean column -> identity (nulls preserved on both).
+        # Strings (polars cast won't parse "yes"/"t"/...) and numerics decline (NIE).
+        if _expr_output_dtype(args[0]) == pl.Boolean:
+            return args[0].cast(pl.Boolean)
+        return None
+    if name == "tostring" and len(args) == 1:
+        import polars as pl
+        # cypher toString: pandas does astype(str) then rewrites "True"/"False" -> "true"/"false".
+        # Admit only dtypes whose textual form polars reproduces EXACTLY: Boolean (polars casts to
+        # lowercase "true"/"false"), Int (decimal digits), String (identity). DECLINE Float (repr
+        # diverges: pandas str(1e20)='1e+20' vs polars formatting) and temporal/Categorical/other.
+        dt = _expr_output_dtype(args[0])
+        if dt == pl.Boolean or _dtype_is_int(dt) or dt == pl.String:
+            return args[0].cast(pl.String)
+        return None
     return None
 
 
