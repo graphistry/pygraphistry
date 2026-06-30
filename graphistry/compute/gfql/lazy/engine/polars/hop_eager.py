@@ -46,6 +46,38 @@ def ensure_nodes_polars(g: Plottable) -> Plottable:
     return g.nodes(ids, node_id)
 
 
+def _hop_setup_columns(edges, all_nodes, node_col, edge_binding):
+    """Shared eager+lazy hop setup: safe (FROM, TO, NID, EID) column names, the edge-id frame
+    (reuse an existing `edge_binding` like the chain's __gfql_edge_index__, else synthesize a row
+    index), and the node-id join dtype. Identical on pl.DataFrame and pl.LazyFrame edges (the lazy
+    hop and the eager hop kept verbatim copies of this — see hop.py — now de-duplicated)."""
+    FROM = generate_safe_column_name("__gfql_from__", edges, prefix="__gfql_", suffix="__")
+    TO = generate_safe_column_name("__gfql_to__", edges, prefix="__gfql_", suffix="__")
+    NID = generate_safe_column_name("__gfql_nid__", all_nodes, prefix="__gfql_", suffix="__")
+    if edge_binding is not None and edge_binding in edges.columns:
+        EID, edges_idx, synth_eid = edge_binding, edges, False
+    else:
+        EID = generate_safe_column_name("__gfql_eid__", edges, prefix="__gfql_", suffix="__")
+        edges_idx, synth_eid = edges.with_row_index(EID), True
+    return FROM, TO, NID, EID, edges_idx, synth_eid, all_nodes.schema[node_col]
+
+
+def _build_hop_pairs(frame, direction, src, dst, node_dtype, FROM, TO, EID):
+    """Shared directed-(FROM,TO,EID) builder with the join-key dtype aligned (polars won't coerce
+    int/float join keys like pandas). `frame` is the edge-id frame — eager pl.DataFrame or its
+    .lazy() LazyFrame; `.select`/`pl.concat` behave identically on both."""
+    import polars as pl
+
+    def _p(s, d):
+        return frame.select(pl.col(s).cast(node_dtype).alias(FROM),
+                            pl.col(d).cast(node_dtype).alias(TO), pl.col(EID))
+    if direction == "forward":
+        return _p(src, dst)
+    if direction == "reverse":
+        return _p(dst, src)
+    return pl.concat([_p(src, dst), _p(dst, src)], how="vertical_relaxed")
+
+
 def _min_hops_labeled_node_output(all_nodes, needed, labeled, node_col, NID):
     """min_hops CHAIN wavefront node frame, mirroring pandas' labeled (track_node_hops) hop.
 
@@ -156,38 +188,9 @@ def hop_polars(
             f"Must provide integer hops when to_fixed_point is False, received: {resolved_max_hops}"
         )
 
-    FROM = generate_safe_column_name("__gfql_from__", edges, prefix="__gfql_", suffix="__")
-    TO = generate_safe_column_name("__gfql_to__", edges, prefix="__gfql_", suffix="__")
-    NID = generate_safe_column_name("__gfql_nid__", all_nodes, prefix="__gfql_", suffix="__")
-
-    # Reuse an existing edge-id binding (e.g. chain's __gfql_edge_index__) rather
-    # than synthesizing a second monotonic index over the full edge table.
-    if g._edge is not None and g._edge in edges.columns:
-        EID = g._edge
-        edges_idx = edges
-        synth_eid = False
-    else:
-        EID = generate_safe_column_name("__gfql_eid__", edges, prefix="__gfql_", suffix="__")
-        edges_idx = edges.with_row_index(EID)
-        synth_eid = True
-
-    # Align join-key dtype: node ids and edge endpoints must share a dtype for
-    # polars joins (pandas coerces int/float; polars does not).
-    node_dtype = all_nodes.schema[node_col]
-
-    def _pairs(s: str, d: str) -> "pl.DataFrame":
-        return edges_idx.select(
-            pl.col(s).cast(node_dtype).alias(FROM),
-            pl.col(d).cast(node_dtype).alias(TO),
-            pl.col(EID),
-        )
-
-    if direction == "forward":
-        pairs = _pairs(src, dst)
-    elif direction == "reverse":
-        pairs = _pairs(dst, src)
-    else:
-        pairs = pl.concat([_pairs(src, dst), _pairs(dst, src)], how="vertical_relaxed")
+    FROM, TO, NID, EID, edges_idx, synth_eid, node_dtype = _hop_setup_columns(
+        edges, all_nodes, node_col, g._edge)
+    pairs = _build_hop_pairs(edges_idx, direction, src, dst, node_dtype, FROM, TO, EID)
 
     def _idframe(df, col) -> "pl.DataFrame":
         return df.select(pl.col(col).cast(node_dtype).alias(NID)).unique()
