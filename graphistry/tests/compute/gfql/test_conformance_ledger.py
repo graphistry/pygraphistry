@@ -29,9 +29,11 @@ import re
 
 from graphistry.compute.predicates.from_json import type_to_predicate
 from graphistry.compute.gfql.language_defs import GFQL_SCALAR_FUNCTIONS
+from graphistry.compute.gfql.call.validation import SAFELIST_V1
 from graphistry.tests.compute.gfql.test_engine_polars_conformance_matrix import (
     _predicate_queries,
     _cypher_expression_queries,
+    _call_exercised_functions,
 )
 
 
@@ -250,3 +252,113 @@ def test_known_uncovered_functions_are_not_already_exercised():
 def test_known_uncovered_function_reasons_are_nonempty():
     blank = sorted(n for n, r in KNOWN_UNCOVERED_FUNCTIONS.items() if not (r and r.strip()))
     assert not blank, f"KNOWN_UNCOVERED_FUNCTIONS entries with empty reasons: {blank}"
+
+
+# ======================================================================================
+# AXIS 3: call() SAFELIST
+# Universe = SAFELIST_V1 (call/validation.py) — every function invocable via call() / a
+# let() DAG binding. Exercised = `_call_exercised_functions()` (matrix). The bulk of the
+# safelist is architecturally pandas/cuDF-only (layouts / encoders / igraph / cugraph /
+# umap / hypergraph) and honest-NIEs under polars via the no-silent-bridge guard — those
+# are waived with that reason. The ledger fails CI if a NEW safelist entry lands with
+# neither a conformance assertion nor a waiver (e.g. a new unsafe call slips in untracked).
+# ======================================================================================
+
+CALL_KNOWN_UNCOVERED: dict[str, str] = {
+    # row-pipeline ops native under polars via the call()/DAG executor; not yet asserted via call()
+    "rows": "native polars row-pipeline op; exercised via call() only in test_engine_polars_row_pipeline.py, not this matrix. TODO.",
+    "skip": "native polars row-pipeline op; not yet asserted via a matrix call() case. TODO.",
+    "distinct": "native polars row-pipeline op; not yet asserted via a matrix call() case. TODO.",
+    "drop_cols": "native polars row-pipeline op; not yet asserted via a matrix call() case. TODO.",
+    # row-pipeline ops native only on the polars CHAIN surface; honest-NIE via the call()/DAG executor
+    "select": "row projection; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
+    "return_": "RETURN projection (alias of select); chain-native / call()-NIE; not asserted via call(). TODO.",
+    "with_": "WITH projection; chain-native / call()-NIE; not asserted via call(). TODO.",
+    "where_rows": "row filter; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
+    "order_by": "row sort; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
+    "unwind": "list explode; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
+    "group_by": "grouped aggregation; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
+    "semi_apply_mark": "correlated EXISTS-mark; row-pipeline op honest-NIE under polars; not asserted. TODO.",
+    "anti_semi_apply": "anti-semi correlated filter; row-pipeline op honest-NIE under polars; not asserted. TODO.",
+    "join_apply": "correlated row join; row-pipeline op honest-NIE under polars; not asserted. TODO.",
+    # Plottable-method calls: no native polars impl; pandas/cuDF only -> no-silent-bridge NIE under polars.
+    # Class covered by test_engine_polars_no_silent_call_bridge (hypergraph representative); each TODO individually.
+    "filter_nodes_by_dict": "Plottable-method; pandas/cuDF only, polars no-bridge NIE; class covered by test_engine_polars_no_silent_call_bridge. TODO.",
+    "filter_edges_by_dict": "Plottable-method; pandas/cuDF only, polars no-bridge NIE; class covered by test_engine_polars_no_silent_call_bridge. TODO.",
+    "materialize_nodes": "Plottable-method; native node-materialize is the chain surface, call() is pandas/cuDF-only -> polars no-bridge NIE. TODO.",
+    "hop": "Plottable-method; native hop is the polars chain surface, call()/DAG hop is pandas-only -> polars no-bridge NIE. TODO.",
+    "compute_cugraph": "GPU cuGraph algo; cuDF-only, polars no-bridge NIE (honest). TODO.",
+    "compute_igraph": "igraph algo; pandas-only, polars no-bridge NIE (honest). TODO.",
+    "layout_cugraph": "GPU layout; cuDF-only, polars no-bridge NIE (honest). TODO.",
+    "layout_igraph": "igraph layout; pandas-only, polars no-bridge NIE (honest). TODO.",
+    "layout_graphviz": "graphviz layout; pandas-only, polars no-bridge NIE (honest). TODO.",
+    "ring_continuous_layout": "radial layout; pandas/cuDF-only, polars no-bridge NIE (honest). TODO.",
+    "ring_categorical_layout": "radial layout; pandas/cuDF-only, polars no-bridge NIE (honest). TODO.",
+    "time_ring_layout": "time-ring layout; pandas/cuDF-only, polars no-bridge NIE (honest). TODO.",
+    "circle_layout": "circular layout; pandas/cuDF-only, polars no-bridge NIE (honest). TODO.",
+    "tree_layout": "tree layout; pandas-only, polars no-bridge NIE (honest). TODO.",
+    "mercator_layout": "mercator layout; pandas-only, polars no-bridge NIE (honest). TODO.",
+    "modularity_weighted_layout": "community-weighted layout; pandas/cuDF-only, polars no-bridge NIE (honest). TODO.",
+    "fa2_layout": "ForceAtlas2 layout; pandas/cuDF-only, polars no-bridge NIE (honest). TODO.",
+    "prune_self_edges": "Plottable-method; pandas/cuDF only, polars no-bridge NIE (honest). TODO.",
+    "collapse": "node collapse; pandas-only, polars no-bridge NIE (honest). TODO.",
+    "drop_nodes": "Plottable-method; pandas/cuDF only, polars no-bridge NIE (honest). TODO.",
+    "keep_nodes": "Plottable-method; pandas/cuDF only, polars no-bridge NIE (honest). TODO.",
+    "get_topological_levels": "DAG-level compute; pandas-only, polars no-bridge NIE (honest). TODO.",
+    "encode_point_color": "visual encoding; pandas/cuDF-only Plottable method, polars no-bridge NIE (honest). TODO.",
+    "encode_edge_color": "visual encoding; pandas/cuDF-only Plottable method, polars no-bridge NIE (honest). TODO.",
+    "encode_point_size": "visual encoding; pandas/cuDF-only Plottable method, polars no-bridge NIE (honest). TODO.",
+    "encode_edge_size": "visual encoding; pandas/cuDF-only Plottable method, polars no-bridge NIE (honest). TODO.",
+    "encode_edge_weight": "visual encoding; pandas/cuDF-only Plottable method, polars no-bridge NIE (honest). TODO.",
+    "encode_point_opacity": "visual encoding; pandas/cuDF-only Plottable method, polars no-bridge NIE (honest). TODO.",
+    "encode_edge_opacity": "visual encoding; pandas/cuDF-only Plottable method, polars no-bridge NIE (honest). TODO.",
+    "encode_point_label": "visual encoding; pandas/cuDF-only Plottable method, polars no-bridge NIE (honest). TODO.",
+    "encode_edge_label": "visual encoding; pandas/cuDF-only Plottable method, polars no-bridge NIE (honest). TODO.",
+    "encode_point_title": "visual encoding; pandas/cuDF-only Plottable method, polars no-bridge NIE (honest). TODO.",
+    "encode_edge_title": "visual encoding; pandas/cuDF-only Plottable method, polars no-bridge NIE (honest). TODO.",
+    "encode_point_icon": "visual encoding; pandas/cuDF-only Plottable method, polars no-bridge NIE (honest). TODO.",
+    "encode_edge_icon": "visual encoding; pandas/cuDF-only Plottable method, polars no-bridge NIE (honest). TODO.",
+    "encode_axis": "axis encoding; pandas/cuDF-only Plottable method, polars no-bridge NIE (honest). TODO.",
+    "name": "metadata setter; engine-agnostic but not asserted via a parseable call() label. TODO.",
+    "description": "metadata setter; engine-agnostic but not asserted via a parseable call() label. TODO.",
+    "group_in_a_box_layout": "GIB layout; pandas/cuDF-only, polars no-bridge NIE (honest). TODO.",
+    "umap": "UMAP embedding; pandas/cuDF-only, polars no-bridge NIE (honest). TODO.",
+}
+
+
+def test_call_safelist_is_nonempty():
+    assert set(SAFELIST_V1), "SAFELIST_V1 is empty — import wiring broken"
+
+
+def test_exercised_call_set_is_nonempty():
+    assert _call_exercised_functions(), "_call_exercised_functions() is empty — coverage tracking would zero out"
+
+
+def test_every_safelist_entry_is_exercised_or_known_uncovered():
+    registry = set(SAFELIST_V1)
+    accounted = _call_exercised_functions() | set(CALL_KNOWN_UNCOVERED)
+    gap = registry - accounted
+    assert not gap, (
+        "SAFELIST_V1 entries are neither exercised by the matrix nor listed in CALL_KNOWN_UNCOVERED — "
+        f"add a call() conformance case OR a waiver for: {sorted(gap)}"
+    )
+
+
+def test_exercised_calls_are_all_in_safelist():
+    bogus = _call_exercised_functions() - set(SAFELIST_V1)
+    assert not bogus, f"exercised call() names absent from SAFELIST_V1 (typo/removed?): {sorted(bogus)}"
+
+
+def test_call_known_uncovered_entries_are_real_safelist_entries():
+    stale = set(CALL_KNOWN_UNCOVERED) - set(SAFELIST_V1)
+    assert not stale, f"CALL_KNOWN_UNCOVERED waives names not in SAFELIST_V1 (stale — remove): {sorted(stale)}"
+
+
+def test_call_known_uncovered_entries_are_not_already_exercised():
+    overlap = set(CALL_KNOWN_UNCOVERED) & _call_exercised_functions()
+    assert not overlap, f"CALL_KNOWN_UNCOVERED waives already-exercised calls (remove redundant waiver): {sorted(overlap)}"
+
+
+def test_call_known_uncovered_reasons_are_nonempty():
+    blank = sorted(n for n, r in CALL_KNOWN_UNCOVERED.items() if not (r and r.strip()))
+    assert not blank, f"CALL_KNOWN_UNCOVERED entries with empty reasons: {blank}"

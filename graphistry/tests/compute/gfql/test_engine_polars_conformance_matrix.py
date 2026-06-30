@@ -426,7 +426,19 @@ def test_tointeger_string_honest_nie_polars():
 
 
 # ---- cross-surface call() consistency (the silent-bridge bug class) ----
-@pytest.mark.parametrize("fn", ["get_degrees", "hypergraph", "limit"])
+# Shared constant so the coverage ledger can DERIVE the exercised call()-safelist set from the
+# same list the test runs on (no drift between the parametrize and the ledger's exercised source).
+_CALL_CONSISTENCY_FNS = ["get_degrees", "hypergraph", "limit"]
+
+
+def _call_exercised_functions():
+    """call()-safelist function names exercised by this matrix (importable for the ledger).
+    The cross-surface consistency test drives `_CALL_CONSISTENCY_FNS`; the degree trio is
+    additionally exercised by the dedicated get_degrees / single-degree conformance tests."""
+    return set(_CALL_CONSISTENCY_FNS) | {"get_degrees", "get_indegrees", "get_outdegrees"}
+
+
+@pytest.mark.parametrize("fn", _CALL_CONSISTENCY_FNS)
 def test_conformance_call_chain_vs_dag_consistent(fn):
     """A call must behave the SAME (parity or NIE) on the chain and the DAG surfaces — no surface
     may silently bridge where the other declines."""
