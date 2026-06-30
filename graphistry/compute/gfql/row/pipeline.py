@@ -787,6 +787,22 @@ class RowPipelineMixin:
             if not any(hasattr(val, "astype") for val in item_values):
                 return True, list(item_values)
 
+            # cuDF groupby-collect (.agg(list)) gives NO within-group row-order guarantee, so the
+            # melt+sort+groupby path below permutes list ELEMENTS vs construction order on cuDF
+            # (issue #1663 finding 1; pandas groupby(sort=False) is stable so it's correct there).
+            # Build the list column directly column-wise on cuDF — order-deterministic (same logic
+            # as the except-fallback below, which list-TYPED elements already use).
+            if resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF:
+                _rc = len(table_df)
+                _items: List[List[Any]] = []
+                for val in item_values:
+                    if hasattr(val, "astype"):
+                        _items.append(RowPipelineMixin._gfql_series_to_pylist(val))
+                    else:
+                        _items.append([val] * _rc)
+                _out_vals = [[_items[ci][ri] for ci in range(len(_items))] for ri in range(_rc)]
+                return True, self._gfql_series_from_row_values(table_df, _out_vals, "__gfql_ast_list__")
+
             row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_ast_list_row__")
             ord_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_ast_list_ord__")
             val_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_ast_list_val__")
@@ -1409,7 +1425,20 @@ class RowPipelineMixin:
                 inner = values[0]
                 if hasattr(inner, "astype"):
                     null_mask = self._gfql_null_mask(table_df, inner)
-                    out = inner.astype(str)
+                    dtype_txt = str(getattr(inner, "dtype", "")).lower()
+                    is_float = ("float" in dtype_txt) or ("double" in dtype_txt)
+                    is_cudf = type(inner).__module__.startswith("cudf")
+                    if is_float and is_cudf:
+                        # libcudf float->string does not match Python/pandas float repr
+                        # (scientific-notation thresholds, exponent formatting) -> a silent
+                        # cross-engine divergence (issue #1663 finding 2; polars declines this
+                        # too). Round-trip the float column through the pandas oracle on the host
+                        # (arrow -> pandas float -> str = the exact pandas-engine result) so cuDF
+                        # is string-IDENTICAL to pandas. Niche op; one host transfer of one column.
+                        host_str = pd.Series(inner.to_arrow().to_pylist()).astype(str)
+                        out = s_cons(Engine.CUDF)(host_str.to_numpy(), index=inner.index)
+                    else:
+                        out = inner.astype(str)
                     if hasattr(out, "str"):
                         out = out.str.replace(r"^True$", "true", regex=True)
                         out = out.str.replace(r"^False$", "false", regex=True)
@@ -4451,7 +4480,16 @@ class RowPipelineMixin:
         group_order_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_group_order__")
         table_df = table_df.assign(**{group_order_col: range(len(table_df))})
 
-        def _make_grouped(df: Any) -> Any:
+        def _make_grouped(df: Any, value_cols: Any = ()) -> Any:
+            # Group over ONLY the key columns + the value columns THIS call aggregates. Carrying
+            # unrelated non-key/non-agg columns (e.g. an object 'name' or float 'f') into the
+            # groupby pushes cuDF onto a Series-truthiness path that raises "The truth value of a
+            # Series is ambiguous" (issue #1663 finding 4); pandas/polars tolerate the extra cols.
+            # Projecting first yields an IDENTICAL result on every engine (selecting value columns
+            # before grouping cannot change group sizes or per-column reductions) and sidesteps it.
+            keep_cols = list(dict.fromkeys([*key_cols, *(c for c in value_cols if c in df.columns)]))
+            df = df[keep_cols]
+
             def _build_grouped(group_df: Any) -> Any:
                 try:
                     grouped_local = group_df.groupby(key_cols, sort=False, dropna=False)
@@ -4473,7 +4511,7 @@ class RowPipelineMixin:
                     work_df = df.assign(**{col: df[col].astype(str) for col in key_object_cols})
                 return _build_grouped(work_df)
 
-        grouped = _make_grouped(table_df)
+        grouped = _make_grouped(table_df, [group_order_col])
 
         base = grouped.size().reset_index(name="__gfql_group_size__")
         group_order_df = grouped[group_order_col].min().reset_index(name=group_order_col)
@@ -4509,7 +4547,7 @@ class RowPipelineMixin:
                         tmp_col = f"{tmp_col}_x"
                     table_df = table_df.assign(**{tmp_col: expr_values})
                     expr_col = tmp_col
-                grouped = _make_grouped(table_df)
+                grouped = _make_grouped(table_df, [expr_col])
                 if func in {"collect", "collect_distinct"}:
                     # collect() ignores null entries; compute collection on
                     # non-null rows and merge against full key space below.
@@ -4538,7 +4576,7 @@ class RowPipelineMixin:
                                 )
                                 non_null_df = norm_df.drop(columns=[norm_col])
                         agg_df = (
-                            _make_grouped(non_null_df)[expr_col]
+                            _make_grouped(non_null_df, [expr_col])[expr_col]
                             .agg(list)
                             .reset_index(name=alias)
                         )
@@ -4551,7 +4589,7 @@ class RowPipelineMixin:
                         and RowPipelineMixin._gfql_series_object_non_null_str_like(table_df[expr_col])
                     ):
                         table_df = table_df.assign(**{expr_col: table_df[expr_col].astype("string")})
-                        grouped = _make_grouped(table_df)
+                        grouped = _make_grouped(table_df, [expr_col])
                     agg_series = grouped[expr_col]
                     agg_df = getattr(agg_series, method_name)().reset_index(name=alias)
 
