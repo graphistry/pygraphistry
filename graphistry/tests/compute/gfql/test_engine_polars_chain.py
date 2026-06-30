@@ -141,9 +141,20 @@ def _rand_node(rng):
 
 def _rand_edge(rng):
     ctor = rng.choice([e_forward, e_reverse, e_undirected])
-    if rng.random() < 0.5:
-        return ctor({"rel": rng.choice(["r1", "r2", "r3"])})
-    return ctor()
+    match = {"rel": rng.choice(["r1", "r2", "r3"])} if rng.random() < 0.5 else None
+    # Multi-hop ONLY for directed edges. e_undirected stays single-hop on purpose:
+    # undirected-in-a-multi-edge-chain is a SEPARATE deferred defect (chain.py guard),
+    # and a multi-HOP undirected edge would skip-mask it. Forward/reverse multi-hop
+    # NIEs at the chain guard TODAY (is_simple_single_hop -> NotImplementedError), so
+    # the fuzz SKIPs cleanly via the except below; once Stage 1 narrows the guard these
+    # become live parity cases — no test edit needed.
+    if ctor is not e_undirected and rng.random() < 0.4:
+        if rng.random() < 0.6:
+            hops = rng.randint(2, 3)                       # exact count: hops in {2,3}
+            return ctor(match, hops=hops) if match else ctor(hops=hops)
+        mx = rng.randint(2, 4)                             # variable-length 1..max_hops
+        return ctor(match, max_hops=mx) if match else ctor(max_hops=mx)
+    return ctor(match) if match else ctor()
 
 
 def _rand_chain(rng):
@@ -155,23 +166,30 @@ def _rand_chain(rng):
 
 
 def _rand_graph(rng):
-    nn = rng.randint(4, 12)
+    # Denser-than-nodes topology so multi-hop chains actually traverse >1 edge:
+    # a backbone DIRECTED CYCLE (guarantees A->B->...->A multi-hop reachability),
+    # a self-loop (hops>=2 self-reach + multiplicity), a parallel DUPLICATE edge
+    # (multiplicity under multi-hop), plus random chords. Deterministic per seed.
+    nn = rng.randint(4, 8)                                  # fewer nodes => denser
     ids = [f"n{i}" for i in range(nn)]
     nodes = pd.DataFrame({
         "id": ids,
         "kind": [rng.choice(["x", "y", "z"]) for _ in ids],
         "score": [rng.randint(0, 100) for _ in ids],
     })
-    ne = rng.randint(3, 24)
-    edges = pd.DataFrame({
-        "s": [rng.choice(ids) for _ in range(ne)],
-        "d": [rng.choice(ids) for _ in range(ne)],
-        "rel": [rng.choice(["r1", "r2", "r3"]) for _ in range(ne)],
-    })
+    es = []                                                # (src, dst, rel) tuples
+    for i in range(nn):                                    # backbone cycle n0->n1->...->n0
+        es.append((ids[i], ids[(i + 1) % nn], "r1"))
+    sl = rng.choice(ids)                                   # self-loop
+    es.append((sl, sl, "r2"))
+    es.append((ids[0], ids[1 % nn], "r1"))                 # parallel dup of n0->n1
+    for _ in range(rng.randint(nn, 3 * nn)):               # random chords; |E| >> |V|
+        es.append((rng.choice(ids), rng.choice(ids), rng.choice(["r1", "r2", "r3"])))
+    edges = pd.DataFrame({"s": [e[0] for e in es], "d": [e[1] for e in es], "rel": [e[2] for e in es]})
     return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
 
 
-@pytest.mark.parametrize("seed", range(60))
+@pytest.mark.parametrize("seed", range(0, 500))
 def test_polars_chain_fuzz_parity(seed):
     rng = random.Random(seed)
     g = _rand_graph(rng)
@@ -180,9 +198,13 @@ def test_polars_chain_fuzz_parity(seed):
     try:
         gl = g.chain(ch, engine="polars")
     except NotImplementedError:
-        pytest.skip("deferred surface")
+        pytest.skip("deferred surface")   # multi-hop fwd/rev NIEs at chain guard today
     assert _nset(gp) == _nset(gl), f"node mismatch seed={seed} chain={ch}"
     assert _eset(gp) == _eset(gl), f"edge mismatch seed={seed} chain={ch}"
+    # multiplicity guard: set(zip) hides a dropped parallel/self-loop edge under multi-hop
+    gpe, gle = gp._edges, gl._edges
+    assert (0 if gpe is None else len(gpe)) == (0 if gle is None else len(gle)), \
+        f"edge-count mismatch seed={seed} chain={ch}"
 
 
 # ---- Deferred-surface guards (must raise, never silently wrong) ----
@@ -197,9 +219,72 @@ def test_polars_chain_deferred_raises(ch):
         BASE.chain(ch, engine="polars")
 
 
+@pytest.mark.parametrize("ch", [
+    [n(), e_forward(to_fixed_point=True), n()],            # unbounded variable-length
+    [n(), e_forward(min_hops=2, max_hops=3), n()],         # min_hops>1
+    [n(), e_undirected(hops=2), n()],                      # undirected multi-hop
+    [n(), e_undirected(), n(), e_undirected(), n()],       # undirected multi-edge
+])
+def test_polars_chain_multihop_deferred_raises(ch):
+    # These multi-hop surfaces STAY NIE even after native fixed-length hops=N lands (Stage 1):
+    # to_fixed_point (unbounded), min_hops>1 (cudf also diverges here — see conformance matrix),
+    # and any undirected multi-hop (Stage 3). polars must decline, never silently diverge.
+    with pytest.raises(NotImplementedError):
+        BASE.chain(ch, engine="polars")
+
+
 def test_polars_chain_node_query_raises():
     with pytest.raises(NotImplementedError):
         BASE.chain([n(query="score > 10"), e_forward(), n()], engine="polars")
+
+
+# ---- Adversarial multi-hop parity (explicit oracle cases; NIE-skip until Stage 1) ----
+# Small deterministic graph: a<->b 2-cycle, b->c->d path, d->d self-loop, a->b dup, f isolated.
+ADV_NODES = pd.DataFrame({
+    "id":   ["a", "b", "c", "d", "e", "f"],
+    "kind": ["x", "y", "y", "z", "x", "z"],
+    "score": [1, 2, 3, 4, 5, 6],
+})
+ADV_EDGES = pd.DataFrame({
+    "s":   ["a", "b", "b", "c", "d", "a"],
+    "d":   ["b", "a", "c", "d", "d", "b"],
+    "rel": ["r1", "r1", "r2", "r1", "r2", "r1"],
+})
+ADV = graphistry.nodes(ADV_NODES, "id").edges(ADV_EDGES, "s", "d")
+
+ADV_CHAINS = {
+    # 1. A->B->A cycle @hops2: from a, depth-2 forward reaches a (a->b->a) and c (a->b->c)
+    "cycle-hops2":        [n({"id": ["a"]}), e_forward(hops=2), n()],
+    # 2. self-loop @hops2: d->d->d stays {d}; edge (d,d) retained
+    "selfloop-hops2":     [n({"id": ["d"]}), e_forward(hops=2), n()],
+    # 3. parallel dup multiplicity: a->b exists twice; depth-2 must keep BOTH copies (count, not set)
+    "parallel-dup-hops2": [n({"id": ["a"]}), e_forward(hops=2), n()],
+    # 4. unreachable-within-N -> empty: isolated f has no out-edges; any depth -> empty result
+    "isolated-empty":     [n({"id": ["f"]}), e_forward(hops=3), n()],
+    # 5. reverse multi-hop: predecessors of d within 2 hops back = {c (c->d), b (b->c->d), d (self)}
+    "reverse-hops2":      [n({"id": ["d"]}), e_reverse(hops=2), n()],
+    # 6. both-endpoint-filtered multi-hop: x-seed {a,e} -> depth<=3 -> z-end {d,f}; only a->b->c->d reaches d
+    "both-filtered-hops3": [n({"kind": "x"}), e_forward(max_hops=3), n({"kind": "z"})],
+    # 7. hops > diameter: bounded BFS depth 10 == forward closure of a = {a,b,c,d}
+    "hops-gt-diameter":   [n({"id": ["a"]}), e_forward(hops=10), n()],
+    # 8. sandwiched single+multi+single: 1-hop, then 2-hop, then 1-hop
+    "sandwiched":         [n({"id": ["a"]}), e_forward(), n(), e_forward(hops=2), n(), e_forward(), n()],
+}
+
+
+@pytest.mark.parametrize("cname", list(ADV_CHAINS))
+def test_polars_chain_adversarial_multihop_parity(cname):
+    ch = ADV_CHAINS[cname]
+    gp = ADV.chain(ch, engine="pandas")
+    try:
+        gl = ADV.chain(ch, engine="polars")
+    except NotImplementedError:
+        pytest.skip("multi-hop deferred (chain guard) — activates after Stage 1")
+    assert _nset(gp) == _nset(gl), f"node mismatch [{cname}]"
+    assert _eset(gp) == _eset(gl), f"edge mismatch [{cname}]"
+    # multiplicity: the parallel-dup / self-loop cases must not silently drop a duplicate edge
+    gpe, gle = gp._edges, gl._edges
+    assert (0 if gpe is None else len(gpe)) == (0 if gle is None else len(gle)), f"edge-count [{cname}]"
 
 
 # ---- Edge cases: empty graph, duplicate edges (multiplicity), edges-only ----
