@@ -123,7 +123,7 @@ property_entry: NAME ":" expr
 // Unified: every WHERE parses as a generic boolean ``expr`` (so LALR(1) accepts
 // OR/XOR/NOT/parenthesized clauses, no Earley). ``generic_where_clause`` lifts the
 // structured (filter_dict) predicates back out of the parsed tree. ``where_predicate``
-// is retained as the start symbol for the per-atom lift parser.
+// is retained as the building block for the ``where_predicate_chain`` lift parser.
 where_clause: "WHERE"i expr                 -> generic_where_clause
 where_predicate: property_ref COMP_OP where_rhs -> cmp_where
                | property_ref "IS"i "NULL"i -> is_null_where
@@ -132,6 +132,10 @@ where_predicate: property_ref COMP_OP where_rhs -> cmp_where
                | property_ref "STARTS"i "WITH"i where_rhs -> starts_with_where
                | property_ref "ENDS"i "WITH"i where_rhs -> ends_with_where
                | variable labels -> has_labels_where
+// Flat AND-chain of bare predicates; the start symbol for the lift parser. Parens
+// / OR / XOR / NOT are not ``where_predicate``s, so such clauses fail this parse and
+// stay on the row-filter path (which treats a missing property as null).
+where_predicate_chain: where_predicate ("AND"i where_predicate)*
 where_rhs: property_ref
          | value
 
@@ -566,16 +570,15 @@ def _pattern_parser() -> _ParserLike:
 
 
 @lru_cache(maxsize=1)
-def _where_predicate_parser() -> _ParserLike:
+def _where_predicate_chain_parser() -> _ParserLike:
     Lark, _, _, _ = _lark_imports()
-    # Parses a single ``where_predicate`` (cmp / IS NULL / CONTAINS / STARTS /
-    # ENDS / label). Used to lift a flat-AND conjunct out of the generic expr
-    # tree into the structured (filter_dict) form, reusing the existing predicate
-    # builders. A non-predicate atom (arithmetic, OR-group, function) fails to
-    # parse and is kept in the residual ``where_rows`` expression.
+    # Parses a flat ``where_predicate ("AND" where_predicate)*`` chain to lift a WHERE
+    # body into structured (filter_dict) form. Parens / OR / XOR / NOT / arithmetic make
+    # the body NOT a flat chain, so this parse fails and the clause stays on the
+    # ``where_rows`` row-filter path (see _lift_and_spine_predicates for why).
     parser = Lark(
         _GRAMMAR,
-        start="where_predicate",
+        start="where_predicate_chain",
         parser="lalr",
         maybe_placeholders=False,
         propagate_positions=True,
@@ -608,60 +611,32 @@ def _retarget_predicate_spans(pred: "WherePredicate", base: SourceSpan) -> "Wher
     return replace(pred, left=left, right=right, span=_retarget_span(pred.span, base))
 
 
-def _lift_atom_as_where_predicate(
-    atom_text: str, base_span: Optional[SourceSpan] = None
-) -> Optional["WherePredicate"]:
-    """Re-parse one WHERE atom as a structured ``where_predicate``; ``None`` if it
-    is not a simple predicate. A ``None`` makes the caller drop the whole clause to
-    its ``expr_tree`` -> ``where_rows`` (full-lift-only, no partial residual).
+def _lift_and_spine_predicates(
+    expr_text: str, base_span: Optional[SourceSpan] = None
+) -> Optional[List["WherePredicate"]]:
+    """Lift the WHERE body to structured ``filter_dict`` predicates iff it parses as a
+    flat ``where_predicate ("AND" where_predicate)*`` chain (cmp / IS NULL / CONTAINS /
+    STARTS|ENDS WITH / label); else ``None``, leaving it on ``expr_tree`` -> ``where_rows``.
 
-    The atom is parsed in isolation, so Lark reports spans relative to the substring;
-    ``base_span`` (the atom's absolute position in the original query) shifts them back
-    to absolute coordinates so error messages locate the predicate correctly."""
+    Only flat chains lift; parentheses, OR / XOR / NOT and arithmetic stay on
+    ``where_rows``. This is a correctness boundary, not just routing: a parenthesized
+    predicate over a *missing* property (e.g. ``a IS NULL AND (b = 1)`` where ``b`` is
+    absent) must stay on ``where_rows``, which treats an absent property as null
+    (Cypher semantics); ``filter_dict`` requires the column to exist and would raise.
+
+    ``base_span`` is the WHERE body's absolute position; the body is parsed in isolation
+    (spans relative to it), so predicate spans are shifted back to absolute."""
     _, _, LarkError, _ = _lark_imports()
     try:
-        tree = _where_predicate_parser().parse(atom_text)
-        pred = _build_transformer(atom_text).transform(tree)
+        tree = _where_predicate_chain_parser().parse(expr_text)
+        preds = _build_transformer(expr_text).transform(tree)
     except (LarkError, GFQLSyntaxError, GFQLValidationError):
         return None
-    if not isinstance(pred, WherePredicate):
+    if not (isinstance(preds, tuple) and preds and all(isinstance(p, WherePredicate) for p in preds)):
         return None
-    return _retarget_predicate_spans(pred, base_span) if base_span is not None else pred
-
-
-def _lift_and_spine_predicates(
-    expr_tree: BooleanExpr,
-) -> Optional[List["WherePredicate"]]:
-    """Lift a *whole* top-level AND spine to structured predicates (-> ``filter_dict``).
-    Returns the predicate list only when **every** conjunct lifts to a simple
-    ``where_predicate`` (cmp / IS NULL / CONTAINS / label); otherwise ``None`` (leave
-    the entire tree as ``expr_tree`` -> ``where_rows``).
-
-    This is parity-plus machinery, not a perf optimization. For a *flat* AND it
-    reproduces the routing the former dual ``where_predicates | expr`` grammar did
-    in-grammar. It additionally lifts *nested/parenthesized* ANDs (e.g.
-    ``a AND (b AND c)``) that the old flat ``where_predicate ("AND" where_predicate)*``
-    rule could not -- safe by AND-associativity (identical result, just the
-    ``filter_dict`` fast path instead of ``where_rows``). Full-lift-only -- never a
-    partial split -- so the result stays within the documented WhereClause shapes
-    (``structured`` or ``tree``). Routing optimizations beyond this (OR->is_in,
-    partial pushdown) are deferred."""
-    stack = [expr_tree]
-    conjuncts: List[BooleanExpr] = []
-    while stack:
-        cur = stack.pop()
-        if cur.op == "and" and cur.left is not None and cur.right is not None:
-            stack.append(cur.right)
-            stack.append(cur.left)
-        else:
-            conjuncts.append(cur)
-    lifted: List["WherePredicate"] = []
-    for conjunct in conjuncts:
-        pred = _lift_atom_as_where_predicate(conjunct.atom_text, conjunct.atom_span) if conjunct.op == "atom" and conjunct.atom_text is not None else None
-        if pred is None:
-            return None  # a non-liftable conjunct -> keep the whole clause as expr_tree
-        lifted.append(pred)
-    return lifted
+    if base_span is None:
+        return list(preds)
+    return [_retarget_predicate_spans(p, base_span) for p in preds]
 
 
 def _to_syntax_error(message: str, *, line: Optional[int] = None, column: Optional[int] = None, **extra: Any) -> GFQLSyntaxError:
@@ -979,6 +954,10 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("Invalid WHERE right-hand side")
             return _unwrap_primitive_literal(items[0])
 
+        def where_predicate_chain(self, _meta: Any, items: Sequence[Any]) -> Tuple[WherePredicate, ...]:
+            # Flat AND-chain of bare predicates (the lift parser's start symbol).
+            return tuple(cast(WherePredicate, p) for p in items)
+
         def cmp_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
             if len(items) != 3:
                 raise _to_syntax_error("Invalid WHERE comparison", line=meta.line, column=meta.column)
@@ -1204,6 +1183,18 @@ def _build_transformer(source: str) -> _TransformerLike:
         def generic_where_clause(self, meta: Any, items: Sequence[Any]) -> WhereClause:
             span = _span_from_meta(meta)
             expr_text = self._slice(span)[len("WHERE"):].strip()
+            # Absolute span of the WHERE body (drops "WHERE" + whitespace): aligns the
+            # synth single-atom node and is the lift's span base (the lift parses
+            # ``expr_text`` in isolation, so its spans need shifting to absolute).
+            _body = self._slice(span)[len("WHERE"):]
+            _start_off = len("WHERE") + (len(_body) - len(_body.lstrip()))
+            body_span = replace(
+                span,
+                column=span.column + _start_off,
+                start_pos=span.start_pos + _start_off,
+                end_column=span.column + _start_off + len(expr_text),
+                end_pos=span.start_pos + _start_off + len(expr_text),
+            )
             # Capture Lark's structural expression tree.  Only ``and_op`` /
             # ``or_op`` / ``xor_op`` / ``not_op`` produce ``BooleanExpr``;
             # atomic WHERE expressions (single predicate) route here with a
@@ -1213,20 +1204,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             if items and isinstance(items[0], BooleanExpr):
                 expr_tree: BooleanExpr = cast(BooleanExpr, items[0])
             else:
-                # Align the synthesized atom's ``atom_span`` with the stripped
-                # ``expr_text`` (which drops "WHERE" + whitespace) so the span matches
-                # the atom text; otherwise a lifted single-predicate's error position
-                # would point at the WHERE keyword instead of the predicate.
-                body = self._slice(span)[len("WHERE"):]
-                start_off = len("WHERE") + (len(body) - len(body.lstrip()))
-                atom_span = replace(
-                    span,
-                    column=span.column + start_off,
-                    start_pos=span.start_pos + start_off,
-                    end_column=span.column + start_off + len(expr_text),
-                    end_pos=span.start_pos + start_off + len(expr_text),
-                )
-                expr_tree = BooleanExpr(op="atom", span=atom_span, atom_text=expr_text, atom_span=atom_span)
+                expr_tree = BooleanExpr(op="atom", span=body_span, atom_text=expr_text, atom_span=body_span)
             # The unified grammar parses every WHERE as a generic `expr`, so bare
             # label predicates and AND chains of them arrive here as a ``BooleanExpr``.
             # Walk the parsed tree (single source of truth) to lift them to structured
@@ -1263,12 +1241,10 @@ def _build_transformer(source: str) -> _TransformerLike:
                     expr_text=expr_text,
                     span=span,
                 )
-            # Parity lift: a whole top-level AND spine of simple predicates
-            # (cmp / IS NULL / CONTAINS / label) becomes structured ``predicates``
-            # -> ``filter_dict``. If any conjunct is non-liftable (OR/XOR/NOT,
-            # arithmetic, cross-expr) the whole clause stays on ``expr_tree`` ->
-            # ``where_rows``.
-            lifted_preds = _lift_and_spine_predicates(expr_tree)
+            # Lift a flat AND chain of bare predicates to structured ``filter_dict``
+            # predicates; parens / OR / XOR / NOT keep the clause on ``expr_tree`` ->
+            # ``where_rows`` (see _lift_and_spine_predicates for why parens matter).
+            lifted_preds = _lift_and_spine_predicates(expr_text, body_span)
             if lifted_preds is not None:
                 return WhereClause(predicates=tuple(lifted_preds), span=span)
             return WhereClause(

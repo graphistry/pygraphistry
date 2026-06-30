@@ -1256,19 +1256,32 @@ def test_unified_where_lifts_label_and_property_to_structured() -> None:
     assert len(parsed.where.predicates) == 2
 
 
-# --- Flat-AND spine lift in generic_where_clause -------------------------------
-# A parenthesized / nested pure-AND of simple predicates lifts wholly to the
-# structured (filter_dict) form instead of dropping to the where_rows engine.
-# Anything with a non-liftable conjunct (OR/XOR/NOT, arithmetic) keeps the WHOLE
-# clause on expr_tree -- full-lift-only, never a partial split.
+# --- Flat-AND-chain lift in generic_where_clause -------------------------------
+# Only a FLAT ``where_predicate ("AND" where_predicate)*`` chain lifts to the
+# structured (filter_dict) form. Parens / OR / XOR / NOT keep the WHOLE clause on
+# expr_tree -> where_rows.
 
-def test_nested_pure_and_lifts_to_structured() -> None:
+def test_flat_and_chain_lifts_to_structured() -> None:
     w = cast(CypherQuery, parse_cypher(
-        "MATCH (n) WHERE n.x = 1 AND (n.y = 2 AND n.z = 3) RETURN n"
+        "MATCH (n) WHERE n.x = 1 AND n.y = 2 AND n.z = 3 RETURN n"
     )).where
     assert w is not None
     assert w.expr_tree is None            # structured, not a tree
     assert len(w.predicates) == 3         # x, y, z all lifted
+
+
+def test_parenthesized_and_stays_on_expr_tree() -> None:
+    # Parens make the body NOT a flat predicate chain, so it stays on where_rows,
+    # which (unlike filter_dict) treats an absent property as null.
+    for q in (
+        "MATCH (n) WHERE n.x = 1 AND (n.y = 2 AND n.z = 3) RETURN n",
+        "MATCH (n) WHERE (n.x = 1 AND n.y = 2) AND n.z = 3 RETURN n",
+        "MATCH (n) WHERE n.missing IS NULL AND (n.x = 1) RETURN n",
+    ):
+        w = cast(CypherQuery, parse_cypher(q)).where
+        assert w is not None
+        assert w.predicates == ()
+        assert w.expr_tree is not None
 
 
 def test_and_with_or_stays_on_expr_tree() -> None:
