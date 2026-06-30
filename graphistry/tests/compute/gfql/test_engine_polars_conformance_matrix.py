@@ -63,7 +63,10 @@ def _frame_repr(df):
     cols = tuple(df.columns)
     # rows as tuples (NaN/NA -> None), then sort the LIST of tuples (order-insensitive) with a
     # None-safe, type-safe key. Avoids per-row agg(join) which is fragile on empty/mixed frames.
-    obj = df.where(df.notna(), None)
+    # astype(object) FIRST so pandas nullable-extension dtypes (cudf->pandas yields these) turn
+    # pd.NA into a real None; .where(notna, None) on the original extension array would re-coerce
+    # back to pd.NA, and a pd.NA in the signature makes `res == base` raise "bool of NA ambiguous".
+    obj = df.astype(object).where(df.notna(), None)
     rows = [tuple(r) for r in obj.to_numpy().tolist()]
     rows.sort(key=lambda t: tuple((v is None, type(v).__name__, str(v)) for v in t))
     return (cols, tuple(rows))
@@ -164,6 +167,20 @@ def test_conformance_predicates_dag(label, query):
     ("fwd-fwd", [n({"id": [0]}), e_forward(), e_forward()]),
     ("multihop", [n({"id": [0]}), e_forward(hops=2)]),                 # NIE expected
     ("und-multi", [n({"id": [0]}), e_undirected(), e_undirected()]),   # NIE expected
+    # ---- multi-hop (NIE today @ chain guard; PARITY-NATIVE after Stage 1) ----
+    ("fwd-hops2", [n({"id": [0]}), e_forward(hops=2), n()]),
+    ("rev-hops2", [n({"id": [0]}), e_reverse(hops=2), n()]),
+    ("fwd-maxhops3", [n({"id": [0]}), e_forward(max_hops=3), n()]),     # 1..3 (max_hops wins over default hops=1)
+    ("multihop-midfilter", [n({"id": [0]}), e_forward(hops=2), n({"num": 50}), e_forward(hops=2), n()]),
+    ("multihop-named", [n({"id": [0]}, name="src"), e_forward(hops=2, name="h"), n(name="dst")]),
+    ("sandwiched", [n({"id": [0]}), e_forward(), n(), e_forward(hops=2), n(), e_forward(), n()]),
+    # ---- STAYS NIE even after Stage 1 (separately deferred surfaces) ----
+    ("fwd-tofixed", [n({"id": [0]}), e_forward(to_fixed_point=True), n()]),     # to_fixed_point
+    ("und-hops2-single", [n({"id": [0]}), e_undirected(hops=2), n()]),          # undirected multi-hop
+    # NOTE: min_hops>1 is NOT in this 4-engine parity matrix — cudf diverges from the pandas
+    # oracle on the seed node's hop label (pandas: None, cudf: max_hops) for min_hops, an
+    # orthogonal cudf bug (see cudf-device-residency-issue.md sibling notes). polars' NIE-decline
+    # for min_hops is asserted directly in test_engine_polars_chain.py::*deferred_raises instead.
 ])
 def test_conformance_traversals(label, query):
     _assert_invariant(_graph(2), query, f"traversal {label}")
