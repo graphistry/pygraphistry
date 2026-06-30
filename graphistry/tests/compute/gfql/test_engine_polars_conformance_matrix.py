@@ -263,6 +263,9 @@ def _cypher_expression_queries():
         ("tointeger_int", "MATCH (n) RETURN n.id AS id, toInteger(n.num) AS i"),
         ("tointeger_float", "MATCH (n) RETURN n.id AS id, toInteger(n.f) AS i"),
         ("tointeger_bool", "MATCH (n) RETURN n.id AS id, toInteger(n.flag) AS i"),
+        ("tofloat_int", "MATCH (n) RETURN n.id AS id, toFloat(n.num) AS f"),
+        ("tofloat_float", "MATCH (n) RETURN n.id AS id, toFloat(n.f) AS f"),
+        ("tofloat_bool", "MATCH (n) RETURN n.id AS id, toFloat(n.flag) AS f"),
         ("toboolean_bool", "MATCH (n) RETURN n.id AS id, toBoolean(n.flag) AS b"),
         ("tostring_bool", "MATCH (n) RETURN n.id AS id, toString(n.flag) AS s"),
         ("tostring_int", "MATCH (n) RETURN n.id AS id, toString(n.num) AS s"),
@@ -304,6 +307,41 @@ def test_substring_runs_natively_on_polars():
     res = _run(g, q, "polars")
     assert res[0] == "ok", f"substring(string,0,4) must run NATIVELY on polars, got {res}"
     assert res == base, f"substring polars must match pandas oracle: {res} != {base}"
+
+
+def test_tofloat_string_honest_nie_polars():
+    """toFloat(<non-numeric String>) RAISES on the pandas oracle (astype(float) fails) — NOT
+    null-on-failure. polars MUST decline with an honest NIE rather than fabricate strict=False
+    nulls. (Int/Float/Bool toFloat is native + parity — covered by the matrix tofloat_* cases.)"""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars not installed")
+    g = _graph(4)
+    q = "MATCH (n) RETURN n.id AS id, toFloat(n.name) AS f"
+    assert _run(g, q, "pandas")[0] != "ok", "pandas toFloat(non-numeric string) raises (not null-on-failure)"
+    assert _run(g, q, "polars")[0] == "nie", "string toFloat must be an honest NIE on polars (no strict=False null fabrication)"
+
+
+def test_collect_aggregations_native_parity_polars():
+    """collect(x) / collect(DISTINCT x) lower NATIVELY on polars and match pandas: drop nulls,
+    preserve within-group order (collect keeps dups; distinct dedups keep-first), all-null group
+    -> []. List cells normalized to python lists for the cross-engine compare."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars not installed")
+    import pandas as pd
+    e = pd.DataFrame({"s": [0, 1, 2, 3, 4, 5], "d": [1, 2, 3, 4, 5, 6],
+                      "k": ["a", "a", "a", "b", "b", "c"], "v": ["x", "w", None, "y", "y", None]})
+    g = graphistry.edges(e, "s", "d")
+
+    def collected(engine, q):
+        df = _to_pd(g.gfql(q, engine=engine)._nodes).sort_values("k")
+        return {r["k"]: list(r["vs"]) for _, r in df.iterrows()}
+
+    for q, expected in [
+        ("MATCH ()-[r]->() RETURN r.k AS k, collect(r.v) AS vs", {"a": ["x", "w"], "b": ["y", "y"], "c": []}),
+        ("MATCH ()-[r]->() RETURN r.k AS k, collect(DISTINCT r.v) AS vs", {"a": ["x", "w"], "b": ["y"], "c": []}),
+    ]:
+        assert collected("pandas", q) == expected
+        assert collected("polars", q) == expected
 
 
 def test_size_list_runs_natively_on_polars():
