@@ -1041,10 +1041,8 @@ _ROW_OP_CASES = [
     ("select",     [n(), rows(), call("select", {"items": [("nid", "id"), ("n2", "num + 1")]})]),
     ("return_",    [n(), rows(), call("return_", {"items": [("nid", "id"), ("k", "flag")]})]),
     ("where_rows", [n(), rows(), call("where_rows", {"expr": "num > 50"})]),
-    # NOTE: group_by is NOT in this 4-engine list — cudf raises GFQLTypeError ("truth value of a
-    # Series is ambiguous") in the GFQL group_by execution path when the source frame carries extra
-    # non-key/non-agg columns (an orthogonal cudf bug; see cudf-cross-engine-findings.md). polars+
-    # pandas agree, so group_by is asserted polars-vs-pandas in test_conformance_group_by_rowop below.
+    ("group_by",   [n(), rows(), call("group_by", {"keys": ["flag"],
+                    "aggregations": [("c", "count"), ("s", "sum", "num")]})]),
 ]
 
 
@@ -1069,31 +1067,30 @@ def test_conformance_rowop_dag(label, query):
     _assert_invariant(_graph(20), let({"a": query}), f"rowop dag {label}")
 
 
-def _assert_polars_parity_or_nie(g, query, label):
-    """polars-vs-pandas ONLY (cudf/polars-gpu scoped out): polars == pandas oracle OR honest NIE.
-    For ops where cudf itself diverges from pandas (an orthogonal cudf bug), so the 4-engine matrix
-    can't gate it but the polars intent still must."""
-    base = _run(g, query, "pandas")
-    if base[0] == "err":
-        pytest.skip(f"{label}: pandas oracle itself errored ({base[1]})")
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars engine not available")
-    res = _run(g, query, "polars")
-    if res[0] == "nie":
-        return
-    assert res[0] != "err", f"{label}[polars]: non-NIE {res[1]} where pandas={base[0]}"
-    assert res == base, f"{label}[polars]: SILENT DIVERGENCE polars{res} != pandas{base}"
+# group_by is now in the 4-engine _ROW_OP_CASES above — cuDF's "truth value of a Series is
+# ambiguous" bug (issue #1663 finding 4) is FIXED (group_by projects to key+value cols before
+# grouping, sidestepping the cuDF Series-truthiness path); pandas == cudf == polars == polars-gpu.
 
 
-_GROUP_BY_Q = [n(), rows(), call("group_by", {"keys": ["flag"],
-               "aggregations": [("c", "count"), ("s", "sum", "num")]})]
+def test_cudf_list_literal_order_matches_pandas():
+    """issue #1663 finding 1 FIXED: cuDF list-literal `[a,b,c]` now preserves element order
+    (cuDF routed to the order-deterministic host build, not groupby-collect)."""
+    if "cudf" not in _NONPANDAS_ENGINES:
+        pytest.skip("cudf not available")
+    nd = pd.DataFrame({"id": np.arange(4), "num": [10, 20, 30, 40]})
+    ed = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    q = [n(), rows(), call("select", {"items": [("id", "id"), ("lst", "[num, num + 1, 99]")]})]
+    assert _run(g, q, "cudf") == _run(g, q, "pandas"), "cudf list-literal order must match pandas (#1663)"
 
 
-def test_conformance_group_by_rowop_chain():
-    """group_by row-op: native+parity on polars (cudf scoped out — orthogonal cudf GFQLTypeError
-    'truth value of a Series is ambiguous' on the group_by path with extra columns)."""
-    _assert_polars_parity_or_nie(_graph(20), _GROUP_BY_Q, "rowop group_by chain")
-
-
-def test_conformance_group_by_rowop_dag():
-    _assert_polars_parity_or_nie(_graph(20), let({"a": _GROUP_BY_Q}), "rowop group_by dag")
+def test_cudf_tostring_float_matches_pandas():
+    """issue #1663 finding 2 FIXED: cuDF toString(float) now string-matches pandas (host round-trip
+    through the pandas float-repr oracle), incl. the scientific-notation boundary 1e20."""
+    if "cudf" not in _NONPANDAS_ENGINES:
+        pytest.skip("cudf not available")
+    nd = pd.DataFrame({"id": np.arange(5), "f": [0.1, 1.5, -2.0, 1e10, 1e20]})
+    ed = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    q = [n(), rows(), call("select", {"items": [("id", "id"), ("sf", "toString(f)")]})]
+    assert _run(g, q, "cudf") == _run(g, q, "pandas"), "cudf toString(float) must match pandas (#1663)"
