@@ -120,14 +120,17 @@ def _assert_invariant(g, query, label):
 
 # ---- predicate cross-product (the area that had 2 wrong-answer bugs) ----
 def _predicate_queries():
-    from graphistry.compute.predicates.numeric import GT, LT, GE, LE, Between
+    from graphistry.compute.predicates.numeric import GT, LT, GE, LE, Between, EQ, NE
     from graphistry.compute.predicates.is_in import IsIn
-    from graphistry.compute.predicates.str import Contains, Startswith, Endswith, Match, Fullmatch
+    from graphistry.compute.predicates.str import (
+        Contains, Startswith, Endswith, Match, Fullmatch, IsNull, NotNull,
+    )
     from graphistry.compute.predicates.numeric import IsNA, NotNA
     out = []
     for P, col, kw in [
         (GT, "num", {"val": 50}), (LT, "num", {"val": 50}), (GE, "num", {"val": 50}),
         (LE, "num", {"val": 50}),
+        (EQ, "num", {"val": 50}), (NE, "num", {"val": 50}),    # scalar equality / inequality
         (Between, "num", {"lower": 20, "upper": 80}),
         (IsIn, "num", {"options": [1, 2, 3, 50, 51, 52]}),
         (Contains, "name", {"pat": "e.1", "regex": False}),   # literal metachar trap
@@ -141,6 +144,7 @@ def _predicate_queries():
         (Match, "name", {"pat": "ode"}),             # NOT at start -> no match (parity check)
         (Fullmatch, "name", {"pat": r"node\.\d"}),   # full match 'node.X'
         (IsNA, "name", {}), (NotNA, "name", {}),
+        (IsNull, "name", {}), (NotNull, "name", {}),   # str-module null predicates (distinct from numeric IsNA/NotNA)
     ]:
         out.append((f"pred:{P.__name__}({col},{kw})", [n({col: P(**kw)})]))
     return out
@@ -450,10 +454,16 @@ def _rowop_exercised():
     the ledger). `with_` is exercised by the with_extend* / in-membership dedicated tests
     (test_conformance_with_extend_* below). Other row ops are exercised only IMPLICITLY via
     cypher text (RETURN->select, WHERE->where_rows, grouped count->group_by) or not at all —
-    those are tracked as waivers in the ledger until a labeled subject case is added. `unwind` is
-    exercised by the test_conformance_unwind_* tests below (native scalar-literal list + honest-NIE
-    for list-column/nested/scalar). Keep this set in sync with the labeled-subject row-op tests."""
-    return {"with_", "unwind"}
+    those are tracked as waivers in the ledger until a labeled subject case is added. `with_`
+    (with_extend* / in-membership), `unwind` (unwind_* native+NIE), and the 10 ops driven by
+    `_ROW_OP_CASES` (rows/skip/limit/distinct/drop_cols frame ops + order_by/select/return_/
+    where_rows/group_by row_pipeline lowerings, chain+dag) are all labeled subjects now. Only the
+    correlated-subquery ops (semi_apply_mark/anti_semi_apply/join_apply) remain honest-NIE waivers."""
+    return {
+        "with_", "unwind",
+        "rows", "skip", "limit", "distinct", "drop_cols",
+        "order_by", "select", "return_", "where_rows", "group_by",
+    }
 
 
 @pytest.mark.parametrize("fn", _CALL_CONSISTENCY_FNS)
@@ -995,3 +1005,50 @@ def test_conformance_unwind_chain_vs_cypher_consistent():
     cypher_q = "MATCH (n) UNWIND [1, 2, 3] AS x RETURN n.id AS id, x AS x"
     _assert_invariant(g, chain_q, "unwind chain")
     _assert_invariant(g, cypher_q, "unwind cypher")
+
+
+# ============================================================================
+# NATIVE row-pipeline OP SUBJECTS (close the ROW_PIPELINE_CALLS ledger gaps).
+# Each target op is native on the polars CHAIN surface via _try_native_row_op,
+# and equally native on the let() DAG surface because a LIST binding is wrapped
+# into a Chain (ASTLet.__init__) and run through chain_polars — NOT the bare
+# single-call execute_row_pipeline_call path (that NIEs for the chain-only ops
+# and is tracked on the call() axis). order_by is paired with limit on the
+# UNIQUE id key so the surviving ROW SET depends on correct ordering (the
+# order-insensitive signature can't see order alone). float `f` is dropped /
+# never projected to dodge cross-engine float-repr noise.
+_ROW_OP_CASES = [
+    ("rows",       [n(), call("rows", {"table": "nodes"})]),
+    ("skip",       [n(), rows(), call("skip", {"value": 5})]),
+    ("limit",      [n(), rows(), call("limit", {"value": 3})]),
+    ("distinct",   [n(), rows(), call("distinct", {})]),
+    ("drop_cols",  [n(), rows(), call("drop_cols", {"cols": ["f", "name"]})]),
+    ("order_by",   [n(), rows(), call("order_by", {"keys": [("id", "desc")]}),
+                    call("limit", {"value": 5})]),
+    ("select",     [n(), rows(), call("select", {"items": [("nid", "id"), ("n2", "num + 1")]})]),
+    ("return_",    [n(), rows(), call("return_", {"items": [("nid", "id"), ("k", "flag")]})]),
+    ("where_rows", [n(), rows(), call("where_rows", {"expr": "num > 50"})]),
+    ("group_by",   [n(), rows(), call("group_by", {"keys": ["flag"],
+                    "aggregations": [("c", "count"), ("s", "sum", "num")]})]),
+]
+
+
+@pytest.mark.parametrize("label,query", _ROW_OP_CASES)
+def test_conformance_rowop_chain(label, query):
+    """Each native row-pipeline op as a labeled CHAIN subject: parity-or-NIE on every engine
+    AND must run natively on polars (not an honest-but-lazy NIE, not a silent pandas bridge)."""
+    g = _graph(20)
+    _assert_invariant(g, query, f"rowop chain {label}")
+    if "polars" in _NONPANDAS_ENGINES:
+        res = _run(g, query, "polars")
+        assert res[0] == "ok", f"row op {label} must run NATIVELY on polars (chain), got {res}"
+        out = g.gfql(query, engine="polars")
+        probe = out._nodes if out._nodes is not None else out._edges
+        assert "polars" in type(probe).__module__, f"row op {label} returned non-polars (silent bridge!)"
+
+
+@pytest.mark.parametrize("label,query", _ROW_OP_CASES)
+def test_conformance_rowop_dag(label, query):
+    """SAME row op via a let() DAG binding (list binding -> Chain -> chain_polars): must AGREE
+    with the chain surface — native + parity here too (never a silent bridge / divergence)."""
+    _assert_invariant(_graph(20), let({"a": query}), f"rowop dag {label}")
