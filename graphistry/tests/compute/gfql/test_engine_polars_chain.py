@@ -342,19 +342,17 @@ def test_polars_chain_minhops1_equiv_default(k):
     assert _nset(a) == _nset(b) and _emult(a) == _emult(b), f"min_hops=1 != default @k={k}"
 
 
-@pytest.mark.xfail(reason="pre-existing ne()-on-NULL 3-valued-logic divergence (orthogonal to min_hops): "
-                          "pandas `kind != x` KEEPS a NaN cell (NaN compares unequal to all), polars "
-                          "(cypher `null<>x`->null) DROPS it. Surfaced by the min_hops null-attr amplified "
-                          "fuzz. Needs a decision: match pandas (col.is_null() OR col!=x) vs keep cypher 3VL vs NIE.",
-                   strict=True)
-def test_polars_ne_on_null_divergence_documented():
-    # Tracks the known wrong-answer so it is not silently forgotten. NO min_hops involved.
+def test_ne_on_null_is_three_valued_logic():
+    # openCypher/SQL 3-valued logic: `null <> x` is NULL -> a null cell is NOT a match (you cannot
+    # prove an unknown value is unequal to x), so a null-kind node is EXCLUDED by ne() — same as
+    # eq/gt and as `NOT a.kind = x`. pandas used to KEEP it (NaN != x -> True); now fixed to match
+    # cudf + the polars engine. n2 has kind=NULL and must be absent from BOTH engines' results.
     nodes = pd.DataFrame({"id": ["n0", "n1", "n2", "n3"], "kind": ["x", "y", None, "z"]})
     edges = pd.DataFrame({"s": ["n0", "n1", "n2", "n3"], "d": ["n1", "n2", "n3", "n0"]})
     g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
     gp = g.chain([n({"kind": ne("y")})], engine="pandas")
     gl = g.chain([n({"kind": ne("y")})], engine="polars")
-    assert _nset(gp) == _nset(gl)   # currently FAILS: pandas keeps n2 (null), polars drops it
+    assert _nset(gp) == {"n0", "n3"} == _nset(gl)   # n1 fails eq, n2 (null) excluded by 3VL
 
 
 @pytest.mark.parametrize("k", [2, 3, 4])
