@@ -49,10 +49,6 @@ KNOWN_UNCOVERED: dict[str, str] = {
     "AllOf": "logical AND-combinator over sub-predicates; compositional, not yet asserted in the matrix. TODO: add a nested-predicate conformance case.",
     "Duplicated": "categorical duplicate-row predicate; not yet asserted for parity/NIE. TODO: add a chain+dag conformance case.",
 
-    # --- equality (EQ/NE) ---
-    "EQ": "equality predicate; exercised only via the temporal DateValue path (label 'eq-date' in test_conformance_temporal_datevalue_chain), not the scalar `_predicate_queries()` path. TODO: add scalar EQ.",
-    "NE": "not-equal predicate; not yet asserted for parity/NIE. TODO: add a scalar NE conformance case.",
-
     # --- string char-class predicates (.str.is*) ---
     "IsNumeric": "str .is_numeric char-class predicate; not yet asserted (native-or-NIE undecided). TODO.",
     "IsAlpha": "str .is_alpha char-class predicate; not yet asserted (native-or-NIE undecided). TODO.",
@@ -63,10 +59,6 @@ KNOWN_UNCOVERED: dict[str, str] = {
     "IsSpace": "str .is_space char-class predicate; not yet asserted (native-or-NIE undecided). TODO.",
     "IsAlnum": "str .is_alnum char-class predicate; not yet asserted (native-or-NIE undecided). TODO.",
     "IsTitle": "str .is_title char-class predicate; not yet asserted (native-or-NIE undecided). TODO.",
-
-    # --- string null predicates (distinct from numeric IsNA/NotNA which ARE exercised) ---
-    "IsNull": "str-module null predicate (distinct from numeric IsNA, which is exercised); not yet asserted. TODO.",
-    "NotNull": "str-module not-null predicate (distinct from numeric NotNA, which is exercised); not yet asserted. TODO.",
 
     # --- temporal date-part predicates: asserted by DEDICATED tests, not _predicate_queries ---
     "IsLeapYear": "native polars lowering; covered by dedicated tests test_conformance_temporal_is_leap_year_parity / test_temporal_is_leap_year_runs_natively_polars (not via _predicate_queries).",
@@ -377,18 +369,6 @@ def test_call_known_uncovered_reasons_are_nonempty():
 # ======================================================================================
 
 ROW_OP_KNOWN_UNCOVERED: dict[str, str] = {
-    # native polars frame ops, simply not exercised as a labeled subject yet
-    "skip": "native polars frame op; no conformance case yet. TODO: add skip(N) chain+dag parity.",
-    "drop_cols": "native polars frame op; no conformance case yet. TODO: add drop_cols parity.",
-    "distinct": "native polars frame op; only count(DISTINCT) cypher AGGREGATION is tested, not the distinct ROW op. TODO.",
-    "limit": "native polars frame op; exercised only for chain-vs-dag consistency (call axis fn='limit'), no labeled row-op parity. TODO.",
-    # native lowerings exercised only IMPLICITLY via cypher text (no labeled op subject)
-    "rows": "native frame op; exercised only as a [n(), rows(), ...] query component, never a labeled subject. TODO.",
-    "select": "native via select_polars; exercised only implicitly via cypher RETURN. TODO: add a labeled select subject.",
-    "return_": "native via select_polars (alias of select); exercised only via cypher RETURN / a return_() AST. TODO.",
-    "where_rows": "native via where_rows_polars; exercised only implicitly via cypher WHERE; the where_rows AST op is never directly asserted. TODO.",
-    "order_by": "native via order_by_polars; NOT exercised anywhere in the matrix. TODO: add ORDER BY parity+NIE.",
-    "group_by": "native via group_by_polars; exercised only implicitly via cypher grouped count(); group_by AST never directly asserted. TODO.",
     # honest NIE — correlated-subquery ops with no native polars lowering (_try_native_row_op returns None)
     "semi_apply_mark": "honest NIE — correlated EXISTS-mark op has no native polars lowering. TODO: add an explicit NIE-assertion case.",
     "anti_semi_apply": "honest NIE — correlated anti-semi op has no native polars lowering. TODO: add an explicit NIE-assertion case.",
