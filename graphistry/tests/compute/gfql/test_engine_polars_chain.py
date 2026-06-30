@@ -148,7 +148,7 @@ def _rand_edge(rng):
     # NIEs at the chain guard TODAY (is_simple_single_hop -> NotImplementedError), so
     # the fuzz SKIPs cleanly via the except below; once Stage 1 narrows the guard these
     # become live parity cases — no test edit needed.
-    if ctor is not e_undirected and rng.random() < 0.4:
+    if rng.random() < 0.4:
         r = rng.random()
         if r < 0.4:
             hops = rng.randint(2, 3)                       # exact count: hops in {2,3}
@@ -156,8 +156,10 @@ def _rand_edge(rng):
         if r < 0.8:
             mx = rng.randint(2, 4)                         # variable-length 1..max_hops
             return ctor(match, max_hops=mx) if match else ctor(max_hops=mx)
-        # to_fixed_point: unbounded variable-length (Stage 4). The cyclic fuzz graph
-        # stresses termination; native via the recompute (hop fixed-point detection).
+        # to_fixed_point (unbounded; Stage 4) — forward/reverse only. UNDIRECTED to_fixed_point
+        # stays NIE (needs components/2-core), so for undirected use a fixed multi-hop instead.
+        if ctor is e_undirected:
+            return ctor(match, hops=2) if match else ctor(hops=2)
         return ctor(match, to_fixed_point=True) if match else ctor(to_fixed_point=True)
     return ctor(match) if match else ctor()
 
@@ -215,8 +217,7 @@ def test_polars_chain_fuzz_parity(seed):
 # ---- Deferred-surface guards (must raise, never silently wrong) ----
 
 @pytest.mark.parametrize("ch", [
-    [n(), e(hops=2), n()],                # undirected multi-hop (e = undirected)
-    [n(), e(to_fixed_point=True), n()],   # undirected to_fixed_point
+    [n(), e(to_fixed_point=True), n()],          # undirected to_fixed_point (components/2-core)
 ])
 def test_polars_chain_deferred_raises(ch):
     with pytest.raises(NotImplementedError):
@@ -225,15 +226,15 @@ def test_polars_chain_deferred_raises(ch):
 
 @pytest.mark.parametrize("ch", [
     [n(), e_forward(min_hops=2, max_hops=3), n()],         # min_hops>1
-    [n(), e_undirected(hops=2), n()],                      # undirected multi-hop
-    [n(), e_undirected(to_fixed_point=True), n()],         # undirected to_fixed_point
-    [n(), e_undirected(), n(), e_forward(hops=2), n()],    # undirected mixed with fixed multi-hop
+    [n(), e_undirected(to_fixed_point=True), n()],         # undirected to_fixed_point (components/2-core)
+    [n(), e_forward(min_hops=2, max_hops=3), n(), e_undirected(), n()],  # min_hops>1 in a multi-edge chain
 ])
 def test_polars_chain_multihop_deferred_raises(ch):
     # These multi-hop surfaces STAY NIE after native fixed-length hops=N (Stage 1), native
-    # single-hop undirected-multi-edge (Stage 3), and native forward/reverse to_fixed_point
-    # (Stage 4): min_hops>1 (cudf also diverges — see conformance matrix), undirected MULTI-hop,
-    # undirected to_fixed_point, and undirected mixed with a fixed-length multi-hop edge.
+    # single-hop AND fixed multi-hop undirected (Stage 3 + undirected-multihop), and native
+    # forward/reverse to_fixed_point (Stage 4): min_hops>1 (cudf also diverges — see conformance
+    # matrix) and undirected to_fixed_point (needs pandas connected-components + 2-core seed
+    # retention, hop.py:817-887, with no vectorized polars analogue).
     with pytest.raises(NotImplementedError):
         BASE.chain(ch, engine="polars")
 
@@ -306,6 +307,11 @@ UND_CHAINS = {
     "und-named":          [n(name="s"), e_undirected(name="ue"), n({"kind": "y"}, name="m"), e_undirected(), n(name="t")],
     # self-loop / parallel-dup adjacent to undirected edges (multiplicity)
     "und-selfloop":       [n({"id": ["d"]}), e_undirected(), n(), e_undirected(), n()],
+    # fixed-length UNDIRECTED multi-hop (uses generic backward hop + path-aware recompute)
+    "und-hops2":          [n({"id": ["a"]}), e_undirected(hops=2), n()],
+    "und-maxhops3":       [n({"id": ["a"]}), e_undirected(max_hops=3), n()],
+    "und-hops2-midfilter": [n({"id": ["a"]}), e_undirected(hops=2), n({"kind": "z"}), e_undirected(), n()],
+    "und-hops2-mixed":    [n({"id": ["a"]}), e_undirected(hops=2), n(), e_forward(), n()],
 }
 
 
