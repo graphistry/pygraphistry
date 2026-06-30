@@ -62,12 +62,12 @@ KNOWN_UNCOVERED: dict[str, str] = {
 
     # --- temporal date-part predicates: asserted by DEDICATED tests, not _predicate_queries ---
     "IsLeapYear": "native polars lowering; covered by dedicated tests test_conformance_temporal_is_leap_year_parity / test_temporal_is_leap_year_runs_natively_polars (not via _predicate_queries).",
-    "IsMonthStart": "no faithful polars boolean accessor -> honest NIE; covered by dedicated test test_temporal_boundary_predicates_honest_nie_polars (not via _predicate_queries).",
-    "IsMonthEnd": "no faithful polars boolean accessor -> honest NIE; covered by dedicated test test_temporal_boundary_predicates_honest_nie_polars (not via _predicate_queries).",
-    "IsQuarterStart": "no faithful polars boolean accessor -> honest NIE; covered by dedicated test test_temporal_boundary_predicates_honest_nie_polars (not via _predicate_queries).",
-    "IsQuarterEnd": "no faithful polars boolean accessor -> honest NIE; covered by dedicated test test_temporal_boundary_predicates_honest_nie_polars (not via _predicate_queries).",
-    "IsYearStart": "no faithful polars boolean accessor -> honest NIE; covered by dedicated test test_temporal_boundary_predicates_honest_nie_polars (not via _predicate_queries).",
-    "IsYearEnd": "no faithful polars boolean accessor -> honest NIE; covered by dedicated test test_temporal_boundary_predicates_honest_nie_polars (not via _predicate_queries).",
+    "IsMonthStart": "native polars (provable calendar-field derivation); covered by dedicated test test_temporal_boundary_predicates_native_parity (not via _predicate_queries).",
+    "IsMonthEnd": "native polars (provable calendar-field derivation); covered by dedicated test test_temporal_boundary_predicates_native_parity (not via _predicate_queries).",
+    "IsQuarterStart": "native polars (provable calendar-field derivation); covered by dedicated test test_temporal_boundary_predicates_native_parity (not via _predicate_queries).",
+    "IsQuarterEnd": "native polars (provable calendar-field derivation); covered by dedicated test test_temporal_boundary_predicates_native_parity (not via _predicate_queries).",
+    "IsYearStart": "native polars (provable calendar-field derivation); covered by dedicated test test_temporal_boundary_predicates_native_parity (not via _predicate_queries).",
+    "IsYearEnd": "native polars (provable calendar-field derivation); covered by dedicated test test_temporal_boundary_predicates_native_parity (not via _predicate_queries).",
 }
 
 

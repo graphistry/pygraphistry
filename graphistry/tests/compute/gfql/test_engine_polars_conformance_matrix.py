@@ -930,18 +930,31 @@ def test_temporal_is_leap_year_tzaware_honest_nie_polars():
     "is_month_start", "is_month_end", "is_quarter_start",
     "is_quarter_end", "is_year_start", "is_year_end",
 ])
-def test_temporal_boundary_predicates_honest_nie_polars(factory):
-    """The date-part BOUNDARY predicates (month/quarter/year start/end) have NO faithful
-    polars boolean accessor -> polars must HONEST-NIE (decline), never a silent wrong
-    answer. The pandas oracle still computes them; the parity-or-NIE invariant holds."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars engine not available")
+def test_temporal_boundary_predicates_native_parity(factory):
+    """The date-part BOUNDARY predicates (month/quarter/year start/end) now lower NATIVELY on a
+    naive Datetime column via a PROVABLE calendar-field derivation (day==1 / day==days_in_month /
+    month-set, leap-aware, NaT->False) — parity with the pandas oracle on every engine, AND must
+    run natively on polars (not an honest-but-lazy NIE). _leapyear_graph spans true+false for each."""
     import graphistry.compute.predicates.temporal as T
     g = _leapyear_graph()
     q = [n({"ts": getattr(T, factory)()})]
     assert _run(g, q, "pandas")[0] == "ok", f"{factory} pandas oracle should compute"
-    assert _run(g, q, "polars")[0] == "nie", f"{factory} must be an honest NIE on polars"
     _assert_invariant(g, q, f"temporal boundary {factory}")
+    if "polars" in _NONPANDAS_ENGINES:
+        assert _run(g, q, "polars")[0] == "ok", f"{factory} must lower NATIVELY on polars, got NIE"
+
+
+def test_temporal_boundary_predicates_tzaware_honest_nie_polars():
+    """tz-aware Datetime boundary predicate: the wall-clock calendar fields shift under tz, whose
+    boundary parity we have NOT proven -> polars must HONEST-NIE (like IsLeapYear), never silently."""
+    if "polars" not in _NONPANDAS_ENGINES:
+        pytest.skip("polars engine not available")
+    import graphistry.compute.predicates.temporal as T
+    nd = pd.DataFrame({"id": np.arange(2),
+                       "ts": pd.to_datetime(["2020-01-01", "2020-12-31"]).tz_localize("UTC")})
+    ed = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    assert _run(g, [n({"ts": T.is_month_start()})], "polars")[0] == "nie", "tz-aware boundary must NIE"
 
 
 # ============================================================================
