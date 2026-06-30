@@ -175,13 +175,34 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype=None):
             return c.dt.is_leap_year()
         return None
 
-    # KEEP DECLINING (NO CHEATING): IsMonthStart / IsMonthEnd / IsQuarterStart / IsQuarterEnd /
-    # IsYearStart / IsYearEnd have NO faithful polars BOOLEAN accessor. Polars exposes only
-    # ``dt.month_start()`` / ``dt.month_end()`` — which return a rolled *Datetime*, not a Boolean —
-    # and has NO quarter/year boundary accessor at all. Re-deriving them (day==1, days_in_month,
-    # month/day combinations) would be a hand-rolled reimplementation of the pandas oracle, not a
-    # proven-identical accessor — exactly the subtle date-part mismatch the NO-CHEATING rule
-    # forbids. They fall through to ``return None`` below -> honest NIE; use engine='pandas'.
+    if name in ("IsMonthStart", "IsMonthEnd", "IsQuarterStart",
+                "IsQuarterEnd", "IsYearStart", "IsYearEnd"):
+        # NATIVE TEMPORAL boundary (PROVABLE parity — NO CHEATING): polars has NO is_month_start/.../
+        # is_year_end BOOLEAN accessor (month_start()/month_end() ROLL to a Datetime), but the pandas
+        # oracle with freq=None is a pure CALENDAR-FIELD test: is_month_start = day==1; is_month_end =
+        # day==days_in_month; quarter/year add a month-set / month==N. polars dt.day()/dt.month()/
+        # dt.days_in_month() extract the SAME fields from a naive Datetime/Date (both proleptic
+        # Gregorian, days_in_month leap-aware), so each compose is BIT-IDENTICAL to the oracle on
+        # non-null rows — a proven derivation, not a guess. pandas returns False for NaT; a polars
+        # comparison yields null -> fill_null(False) restores parity. Require naive Datetime or Date
+        # (a tz shifts the wall-clock fields), exactly like IsLeapYear above; else honest NIE.
+        if (isinstance(dtype, pl.Datetime) and dtype.time_zone is None) or dtype == pl.Date:
+            day = c.dt.day()
+            month = c.dt.month()
+            if name == "IsMonthStart":
+                expr = day == 1
+            elif name == "IsMonthEnd":
+                expr = day == c.dt.days_in_month()
+            elif name == "IsQuarterStart":
+                expr = (day == 1) & month.is_in([1, 4, 7, 10])
+            elif name == "IsQuarterEnd":
+                expr = (day == c.dt.days_in_month()) & month.is_in([3, 6, 9, 12])
+            elif name == "IsYearStart":
+                expr = (day == 1) & (month == 1)
+            else:  # IsYearEnd
+                expr = (day == c.dt.days_in_month()) & (month == 12)
+            return expr.fill_null(False)
+        return None
 
     if name == "Contains" and hasattr(pred, "pat") and isinstance(pred.pat, str):
         case = getattr(pred, "case", True)
