@@ -21,6 +21,8 @@ DEFAULT_ALLOWED_UNARY_OPS: FrozenSet[str] = GFQL_ALLOWED_UNARY_OPS
 DEFAULT_ALLOWED_QUANTIFIERS: FrozenSet[str] = GFQL_ALLOWED_QUANTIFIERS
 
 
+# INVARIANT: keep every ExprNode deeply immutable (scalar/tuple fields only) — parse_expr
+# shares results by reference via lru_cache, so a mutable field would poison cache hits.
 @dataclass(frozen=True)
 class Identifier:
     name: str
@@ -765,9 +767,21 @@ def _normalize_dotted_identifiers(node: ExprNode) -> ExprNode:
 
 
 def parse_expr(expr: str) -> ExprNode:
+    """Parse a GFQL row-expression string into its frozen-dataclass AST.
+
+    Memoized per expression string: parsing is a pure function of the text and the
+    returned ``ExprNode`` is immutable, so identical expressions — re-run on every
+    query compile, and recurring across queries (e.g. ``a.val > 50``) — skip the
+    Lark parse and the per-call transformer rebuild. The non-str/empty guard stays
+    outside the cache so invalid input still raises (and is never cached).
+    """
     if not isinstance(expr, str) or expr.strip() == "":
         raise GFQLExprParseError("Expression must be a non-empty string")
+    return _parse_expr_cached(expr)
 
+
+@lru_cache(maxsize=1024)
+def _parse_expr_cached(expr: str) -> ExprNode:
     parser = _parser()
     transformer = _build_transformer()
     try:

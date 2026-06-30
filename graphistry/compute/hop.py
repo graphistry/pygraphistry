@@ -472,7 +472,9 @@ def hop(self: Plottable,
             wave_front_iter = wave_front_base[wave_front_base[node_col].isin(allowed_source_series)]
         first_iter = False
 
-        wavefront_ids = wave_front_iter[node_col].unique()
+        # isin() dedups internally; wavefront_ids feeds only isin -> skip the
+        # explicit .unique() dedup pass (a kernel launch on GPU). Byte-identical.
+        wavefront_ids = wave_front_iter[node_col]
         hop_edges = pairs[pairs[FROM_COL].isin(wavefront_ids)]
 
         if allowed_target_intermediate is not None:

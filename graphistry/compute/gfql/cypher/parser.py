@@ -1943,7 +1943,19 @@ def parse_cypher(query: str) -> Union[CypherQuery, CypherUnionQuery, CypherGraph
     """
     if not isinstance(query, str) or query.strip() == "":
         raise _to_syntax_error("Cypher query must be a non-empty string")
+    return _parse_cypher_cached(query)
 
+
+@lru_cache(maxsize=512)
+def _parse_cypher_cached(query: str) -> Union[CypherQuery, CypherUnionQuery, CypherGraphQuery]:
+    """Cached parse body: pure function of the query text -> immutable frozen AST.
+
+    Memoizing skips the ~15ms lark parse+transform on repeated identical queries
+    (the dominant per-call cost of small cypher queries). Safe to share the cached
+    result: every cypher AST node is ``@dataclass(frozen=True)`` and the downstream
+    ``compile_cypher_query`` does not mutate the parsed tree (verified). Validation
+    errors raise (and are not cached by ``lru_cache``), preserving error behavior.
+    """
     # Pre-parse detection of known-but-unsupported Cypher forms
     _check_unsupported_syntax_patterns(query)
 

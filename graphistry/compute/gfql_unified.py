@@ -856,7 +856,15 @@ def _execute_compiled_query_chain_non_union(
             empty_result_row=compiled_query.empty_result_row,
         )
     if compiled_query.result_projection is not None:
-        result = apply_result_projection(result, compiled_query.result_projection)
+        # OPTIONAL null-fill / row-guard still consumes a single-column entity value,
+        # so those keep the legacy text form; plain terminal RETURN flattens (#1650).
+        structured_projection = (
+            compiled_query.optional_projection_row_guard is None
+            and compiled_query.optional_null_fill is None
+        )
+        result = apply_result_projection(
+            result, compiled_query.result_projection, structured=structured_projection
+        )
     if compiled_query.optional_projection_row_guard is not None:
         expected_rows = 1
         for base_chain in compiled_query.optional_projection_row_guard.base_chains:
@@ -892,6 +900,7 @@ def _execute_compiled_query_chain_non_union(
                 context,
             ),
             compiled_query.optional_null_fill.alignment_projection,
+            structured=False,
         )
         result = _apply_optional_null_fill(
             result,

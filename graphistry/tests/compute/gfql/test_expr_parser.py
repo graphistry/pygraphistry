@@ -358,3 +358,33 @@ def test_validate_expr_capabilities_rejects_wildcard_function_arg() -> None:
     errors = validate_expr_capabilities(node)
     assert "unsupported function: count" in errors
     assert "unsupported wildcard: *" in errors
+
+
+def test_parse_expr_memoizes_identical_expressions() -> None:
+    from graphistry.compute.gfql import expr_parser as _ep
+
+    expr = "a.val > 50 AND a.kind = 'x'"
+    first = _ep.parse_expr(expr)
+    second = _ep.parse_expr(expr)
+    # Same object identity => cache hit (no re-parse / transformer rebuild).
+    assert first is second
+
+
+def test_parse_expr_cache_distinguishes_and_registers_hits() -> None:
+    from graphistry.compute.gfql import expr_parser as _ep
+
+    a = _ep.parse_expr("zzz_expr_probe.k + 1")
+    b = _ep.parse_expr("zzz_expr_probe.k + 2")
+    assert a is not b
+    before = _ep._parse_expr_cached.cache_info().hits
+    _ep.parse_expr("zzz_expr_probe.k + 1")
+    after = _ep._parse_expr_cached.cache_info().hits
+    assert after == before + 1
+
+
+def test_parse_expr_does_not_cache_invalid_expressions() -> None:
+    from graphistry.compute.gfql.expr_parser import GFQLExprParseError, parse_expr
+
+    for _ in range(2):
+        with pytest.raises(GFQLExprParseError):
+            parse_expr("")

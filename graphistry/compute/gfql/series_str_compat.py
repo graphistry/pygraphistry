@@ -8,6 +8,24 @@ from typing import Any, Optional, cast
 from graphistry.compute.typing import SeriesT
 
 
+# Scalar number/bool dtypes — never list-like, never list/temporal text — so the
+# detection scans (astype(str)+regex) always return False/None and callers can skip
+# them. SSOT for the #1650/#1651 dtype gate; mirrored in
+# filter_by_dict._is_numeric_dtype_safe (kept in sync by a test, not imported, to
+# avoid an import cycle).
+_NON_TEXTUAL_SCALAR_KINDS = frozenset({"i", "u", "f", "b", "c"})
+
+
+def is_non_textual_scalar_dtype(dtype: Any) -> bool:
+    """True for numeric/bool/complex dtypes (whose values can never be list-like or
+    list/temporal text), so list/temporal detection can skip the spurious
+    ``astype(str)`` + regex scan — byte-identical, since the scan returns
+    False/None for these dtypes anyway."""
+    if dtype is None:
+        return False
+    return getattr(dtype, "kind", "O") in _NON_TEXTUAL_SCALAR_KINDS
+
+
 def _fill_string_mask_na(mask: Any, series: Any, na: Optional[bool]) -> Any:
     if na is None or not hasattr(mask, "where") or not hasattr(series, "isna"):
         return mask
