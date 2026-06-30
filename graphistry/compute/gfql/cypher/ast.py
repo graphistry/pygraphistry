@@ -192,11 +192,12 @@ class WhereClause:
     populated by the parser; consumers MUST handle all three:
 
     - **Structured path**: ``predicates`` populated, ``expr_tree is None``.
-      ``predicates`` carries either ``WherePredicate`` entries (pure AND of
-      comparable / has-labels predicates routed via the ``where_predicates``
-      grammar rule, or AND-joined bare label predicates lifted by
-      ``generic_where_clause`` via label narrowing) or a single
-      ``WherePatternPredicate`` (pattern-only WHERE: ``WHERE (n)-[]->(m)``).
+      ``predicates`` carries either ``WherePredicate`` entries (a flat top-level
+      AND of simple predicates -- cmp / IS NULL / CONTAINS / STARTS/ENDS WITH /
+      has-labels -- lifted post-parse from the generic ``expr_tree`` by
+      ``generic_where_clause`` via ``_lift_label_only_and_spine`` /
+      ``_lift_and_spine_predicates``) or a single ``WherePatternPredicate``
+      (pattern-only WHERE: ``WHERE (n)-[]->(m)``).
     - **Tree path**: ``predicates == ()``, ``expr_tree`` populated.  Fires
       when ``generic_where_clause`` cannot lift to structured predicates
       (OR / XOR / NOT / parenthesized boolean / non-label atoms); consumers
