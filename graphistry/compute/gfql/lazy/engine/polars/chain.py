@@ -627,11 +627,30 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         )
 
     edge_ops = [op for op in ops if isinstance(op, ASTEdge)]
-    if len(edge_ops) > 1 and any(op.direction == "undirected" for op in edge_ops):
-        raise NotImplementedError(
-            "polars chain engine (Phase 1) does not yet support undirected edges "
-            "in multi-edge chains; deferred. Use engine='pandas'."
+    # Undirected edges in multi-edge chains: NATIVE for plain single-hop undirected
+    # (the backward pass threads BOTH endpoints — see the undirected override below —
+    # mirroring pandas' fast backward branch graphistry/compute/chain.py:1090-1098).
+    # STILL deferred (NIE): undirected mixed with fixed-length multi-hop edges (the
+    # multi-hop forward-recompute combine path is unverified against undirected
+    # threading), and undirected single-hop carrying include_zero_hop_seed / *_query
+    # (zero-hop-seed + query semantics in the undirected combine are unverified).
+    if len(edge_ops) > 1:
+        _undirected = [op for op in edge_ops if op.direction == "undirected"]
+        _has_multihop = any(not op.is_simple_single_hop() for op in edge_ops)
+        _undirected_unsupported = any(
+            op.include_zero_hop_seed
+            or op.source_node_query is not None
+            or op.destination_node_query is not None
+            or op.edge_query is not None
+            for op in _undirected
         )
+        if _undirected and (_has_multihop or _undirected_unsupported):
+            raise NotImplementedError(
+                "polars chain engine supports plain single-hop undirected edges in "
+                "multi-edge chains; deferred undirected sub-cases — mixed with "
+                "fixed-length multi-hop, include_zero_hop_seed, or *_query — require "
+                "engine='pandas'."
+            )
 
     # Single-hop fast path: [n(), e, n()] where both nodes have no name/query and
     # the edge has no match/name/query — the basic graph query + "filter then
@@ -693,6 +712,9 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         EID = g._edge
         added_edge_index = False
 
+    node_col, src, dst = g._node, g._source, g._destination
+    assert node_col is not None and src is not None and dst is not None
+
     # Forward pass.
     g_stack: List[Plottable] = []
     for i, op in enumerate(ops):
@@ -713,13 +735,30 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         # forward wavefront; filtering reached ids against it would truncate the
         # reverse wavefront and break threading).
         g_step_full = g_step.nodes(g._nodes, g._node)
-        g_rev.append(_exec(op.reverse(), g_step_full, prev_wf, target_wf))
+        rev = _exec(op.reverse(), g_step_full, prev_wf, target_wf)
+        # Undirected single-hop backward threading: the generic hop returns a
+        # ONE-SIDED wavefront (the TO/target-side endpoints only). Pandas' fast
+        # backward branch (graphistry/compute/chain.py:1090-1098) instead threads
+        # BOTH endpoints of the surviving edges as the step's node frame. For an
+        # undirected edge the one-sided wavefront drops an intermediate node that is
+        # only reachable as the frontier-side endpoint of a sibling edge, which then
+        # drops that node's incident edge in the combine (repo fuzz seed-18: >1
+        # undirected edge + intermediate node filters loses a node vs pandas). The
+        # edge set already matches pandas (both edge orientations are joined), so we
+        # override ONLY the node frame, carrying FULL node columns so the next
+        # backward node step can still filter on them.
+        if (isinstance(op, ASTEdge) and op.direction == "undirected"
+                and op.is_simple_single_hop() and rev._edges is not None):
+            _both = pl.concat(
+                [rev._edges.select(pl.col(src).alias(node_col)),
+                 rev._edges.select(pl.col(dst).alias(node_col))],
+                how="vertical_relaxed",
+            ).unique(subset=[node_col])
+            rev = rev.nodes(g._nodes.join(_both, on=node_col, how="semi"), node_col)
+        g_rev.append(rev)
 
     steps: List[Tuple[ASTObject, Plottable]] = list(zip(ops, list(reversed(g_rev))))
     label_steps: List[Tuple[ASTObject, Plottable]] = list(zip(ops, g_stack))
-
-    node_col, src, dst = g._node, g._source, g._destination
-    assert node_col is not None and src is not None and dst is not None
 
     # Native multi-hop edges: port of the pandas combine_steps ``has_multihop`` branch
     # (graphistry/compute/chain.py:201-209). For a fixed-length multi-hop edge step the

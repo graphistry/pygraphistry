@@ -210,9 +210,8 @@ def test_polars_chain_fuzz_parity(seed):
 # ---- Deferred-surface guards (must raise, never silently wrong) ----
 
 @pytest.mark.parametrize("ch", [
-    [n(), e(hops=2), n()],
-    [n(), e(to_fixed_point=True), n()],
-    [n(), e_undirected(), n(), e_undirected(), n()],  # undirected multi-edge
+    [n(), e(hops=2), n()],                # undirected multi-hop (e = undirected)
+    [n(), e(to_fixed_point=True), n()],   # undirected to_fixed_point
 ])
 def test_polars_chain_deferred_raises(ch):
     with pytest.raises(NotImplementedError):
@@ -223,12 +222,13 @@ def test_polars_chain_deferred_raises(ch):
     [n(), e_forward(to_fixed_point=True), n()],            # unbounded variable-length
     [n(), e_forward(min_hops=2, max_hops=3), n()],         # min_hops>1
     [n(), e_undirected(hops=2), n()],                      # undirected multi-hop
-    [n(), e_undirected(), n(), e_undirected(), n()],       # undirected multi-edge
+    [n(), e_undirected(), n(), e_forward(hops=2), n()],    # undirected mixed with fixed multi-hop
 ])
 def test_polars_chain_multihop_deferred_raises(ch):
-    # These multi-hop surfaces STAY NIE even after native fixed-length hops=N lands (Stage 1):
-    # to_fixed_point (unbounded), min_hops>1 (cudf also diverges here — see conformance matrix),
-    # and any undirected multi-hop (Stage 3). polars must decline, never silently diverge.
+    # These multi-hop surfaces STAY NIE even after native fixed-length hops=N (Stage 1) and
+    # native single-hop undirected-multi-edge (Stage 3): to_fixed_point (unbounded), min_hops>1
+    # (cudf also diverges here — see conformance matrix), undirected MULTI-hop, and undirected
+    # mixed with a fixed-length multi-hop edge. polars must decline, never silently diverge.
     with pytest.raises(NotImplementedError):
         BASE.chain(ch, engine="polars")
 
@@ -285,6 +285,39 @@ def test_polars_chain_adversarial_multihop_parity(cname):
     # multiplicity: the parallel-dup / self-loop cases must not silently drop a duplicate edge
     gpe, gle = gp._edges, gl._edges
     assert (0 if gpe is None else len(gpe)) == (0 if gle is None else len(gle)), f"edge-count [{cname}]"
+
+
+# ---- Adversarial UNDIRECTED-multi-edge parity (Stage 3: native single-hop undirected in
+# multi-edge chains; the seed-18 defect class — backward pass must thread BOTH endpoints) ----
+UND_CHAINS = {
+    # seed-18 class: >1 undirected edge + intermediate node filter (the original drop-a-node bug)
+    "und-und-midfilter":  [n({"id": ["a"]}), e_undirected(), n({"kind": "y"}), e_undirected(), n()],
+    "und-und-und":        [n({"id": ["a"]}), e_undirected(), n(), e_undirected(), n(), e_undirected(), n()],
+    "und-alt-filter":     [n(), e_undirected(), n({"kind": "z"}), e_undirected(), n({"kind": "x"})],
+    # mixed directed + undirected single-hop (newly enabled by Stage 3)
+    "fwd-then-und":       [n({"id": ["a"]}), e_forward(), n(), e_undirected(), n()],
+    "und-then-rev":       [n({"id": ["d"]}), e_undirected(), n(), e_reverse(), n()],
+    # named node/edge across an undirected boundary (exercises _apply_node_names + named edge combine)
+    "und-named":          [n(name="s"), e_undirected(name="ue"), n({"kind": "y"}, name="m"), e_undirected(), n(name="t")],
+    # self-loop / parallel-dup adjacent to undirected edges (multiplicity)
+    "und-selfloop":       [n({"id": ["d"]}), e_undirected(), n(), e_undirected(), n()],
+}
+
+
+@pytest.mark.parametrize("cname", list(UND_CHAINS))
+def test_polars_chain_undirected_multiedge_parity(cname):
+    ch = UND_CHAINS[cname]
+    gp = ADV.chain(ch, engine="pandas")
+    gl = ADV.chain(ch, engine="polars")  # Stage 3: native, must NOT raise
+    assert "polars" in type(gl._nodes).__module__, f"[{cname}] not native polars (silent bridge!)"
+    assert _nset(gp) == _nset(gl), f"node mismatch [{cname}]"
+    assert _eset(gp) == _eset(gl), f"edge mismatch [{cname}]"
+    gpe, gle = gp._edges, gl._edges
+    assert (0 if gpe is None else len(gpe)) == (0 if gle is None else len(gle)), f"edge-count [{cname}]"
+    for op in ch:
+        nm = getattr(op, "_name", None)
+        if nm:
+            assert _named(gp, nm) == _named(gl, nm), f"alias[{nm}] mismatch [{cname}]"
 
 
 # ---- Edge cases: empty graph, duplicate edges (multiplicity), edges-only ----
