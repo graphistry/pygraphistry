@@ -178,8 +178,9 @@ _TRAVERSAL_CASES = [
     ("multihop-deep-midfilter", [n({"id": [0]}), e_forward(hops=3), n({"flag": True}), e_forward(hops=2), n()]),
     ("multihop-srcmatch", [n({"id": [0]}), e_forward(hops=2, source_node_match={"flag": True}), n()]),
     ("multihop-dstmatch", [n({"id": [0]}), e_forward(hops=2, destination_node_match={"flag": True}), n()]),
-    # ---- STAYS NIE even after Stage 1 (separately deferred surfaces) ----
-    ("fwd-tofixed", [n({"id": [0]}), e_forward(to_fixed_point=True), n()]),     # to_fixed_point
+    ("fwd-tofixed", [n({"id": [0]}), e_forward(to_fixed_point=True), n()]),        # Stage 4: native
+    ("rev-tofixed", [n({"id": [0]}), e_reverse(to_fixed_point=True), n()]),        # Stage 4: native
+    # ---- STAYS NIE (separately deferred surfaces) ----
     ("und-hops2-single", [n({"id": [0]}), e_undirected(hops=2), n()]),          # undirected multi-hop
     # NOTE: min_hops>1 is NOT in this 4-engine parity matrix — cudf diverges from the pandas
     # oracle on the seed node's hop label (pandas: None, cudf: max_hops) for min_hops, an
