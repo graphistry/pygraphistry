@@ -16823,3 +16823,18 @@ def test_order_by_multi_column_no_crash() -> None:
             assert rows[i]["name"] <= rows[i + 1]["name"], (
                 f"Rows with equal score not sorted by name: {rows}"
             )
+
+
+def test_string_cypher_parenthesized_and_preserves_missing_property_as_null() -> None:
+    # A parenthesized AND must stay on the row-filter path, not the filter_dict path:
+    # the row engine treats an absent property as null (Cypher semantics), whereas
+    # filter_dict requires the column to exist and would raise.
+    g = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"], "x": [1, 2, 1, 1]}),  # no 'missing' col
+        pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "d"]}),
+    )
+    got = g.gfql("MATCH (n) WHERE n.missing IS NULL AND (n.x = 1) RETURN n.id AS id")
+    assert sorted(got._nodes["id"].tolist()) == ["a", "c", "d"]
+    # IS NOT NULL on the same absent property yields no rows (absent -> null)
+    none = g.gfql("MATCH (n) WHERE n.missing IS NOT NULL AND (n.x = 1) RETURN n.id AS id")
+    assert none._nodes["id"].tolist() == [] if "id" in none._nodes.columns else len(none._nodes) == 0
