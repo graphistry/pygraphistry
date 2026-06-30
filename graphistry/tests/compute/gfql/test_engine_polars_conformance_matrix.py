@@ -174,6 +174,10 @@ _TRAVERSAL_CASES = [
     ("multihop-midfilter", [n({"id": [0]}), e_forward(hops=2), n({"num": 50}), e_forward(hops=2), n()]),
     ("multihop-named", [n({"id": [0]}, name="src"), e_forward(hops=2, name="h"), n(name="dst")]),
     ("sandwiched", [n({"id": [0]}), e_forward(), n(), e_forward(hops=2), n(), e_forward(), n()]),
+    # hardening (adversarial-review): stranded-endpoint attr probe + *_match on a multi-hop edge
+    ("multihop-deep-midfilter", [n({"id": [0]}), e_forward(hops=3), n({"flag": True}), e_forward(hops=2), n()]),
+    ("multihop-srcmatch", [n({"id": [0]}), e_forward(hops=2, source_node_match={"flag": True}), n()]),
+    ("multihop-dstmatch", [n({"id": [0]}), e_forward(hops=2, destination_node_match={"flag": True}), n()]),
     # ---- STAYS NIE even after Stage 1 (separately deferred surfaces) ----
     ("fwd-tofixed", [n({"id": [0]}), e_forward(to_fixed_point=True), n()]),     # to_fixed_point
     ("und-hops2-single", [n({"id": [0]}), e_undirected(hops=2), n()]),          # undirected multi-hop
