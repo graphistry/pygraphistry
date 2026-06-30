@@ -389,7 +389,6 @@ ROW_OP_KNOWN_UNCOVERED: dict[str, str] = {
     "where_rows": "native via where_rows_polars; exercised only implicitly via cypher WHERE; the where_rows AST op is never directly asserted. TODO.",
     "order_by": "native via order_by_polars; NOT exercised anywhere in the matrix. TODO: add ORDER BY parity+NIE.",
     "group_by": "native via group_by_polars; exercised only implicitly via cypher grouped count(); group_by AST never directly asserted. TODO.",
-    "unwind": "native via unwind_polars; NOT exercised anywhere in the matrix. TODO: add UNWIND parity+NIE.",
     # honest NIE — correlated-subquery ops with no native polars lowering (_try_native_row_op returns None)
     "semi_apply_mark": "honest NIE — correlated EXISTS-mark op has no native polars lowering. TODO: add an explicit NIE-assertion case.",
     "anti_semi_apply": "honest NIE — correlated anti-semi op has no native polars lowering. TODO: add an explicit NIE-assertion case.",
