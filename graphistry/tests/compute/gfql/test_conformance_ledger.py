@@ -30,10 +30,12 @@ import re
 from graphistry.compute.predicates.from_json import type_to_predicate
 from graphistry.compute.gfql.language_defs import GFQL_SCALAR_FUNCTIONS
 from graphistry.compute.gfql.call.validation import SAFELIST_V1
+from graphistry.compute.gfql.row.pipeline import ROW_PIPELINE_CALLS
 from graphistry.tests.compute.gfql.test_engine_polars_conformance_matrix import (
     _predicate_queries,
     _cypher_expression_queries,
     _call_exercised_functions,
+    _rowop_exercised,
 )
 
 
@@ -362,3 +364,72 @@ def test_call_known_uncovered_entries_are_not_already_exercised():
 def test_call_known_uncovered_reasons_are_nonempty():
     blank = sorted(n for n, r in CALL_KNOWN_UNCOVERED.items() if not (r and r.strip()))
     assert not blank, f"CALL_KNOWN_UNCOVERED entries with empty reasons: {blank}"
+
+
+# ======================================================================================
+# AXIS 4: ROW-PIPELINE OPS
+# Universe = ROW_PIPELINE_CALLS (row/pipeline.py) — the cypher row-pipeline ops. Exercised =
+# `_rowop_exercised()` (ops asserted as a labeled subject; today just `with_`). The rest are
+# either native-but-only-implicitly-exercised (via cypher RETURN/WHERE/grouped-count) or
+# honest-NIE correlated-subquery ops; all waived with that reason. (The degree calls
+# get_degrees/in/out are NOT in ROW_PIPELINE_CALLS — they are tracked on the call() axis.)
+# The ledger fails CI if a NEW row-pipeline op lands without an assertion or a waiver.
+# ======================================================================================
+
+ROW_OP_KNOWN_UNCOVERED: dict[str, str] = {
+    # native polars frame ops, simply not exercised as a labeled subject yet
+    "skip": "native polars frame op; no conformance case yet. TODO: add skip(N) chain+dag parity.",
+    "drop_cols": "native polars frame op; no conformance case yet. TODO: add drop_cols parity.",
+    "distinct": "native polars frame op; only count(DISTINCT) cypher AGGREGATION is tested, not the distinct ROW op. TODO.",
+    "limit": "native polars frame op; exercised only for chain-vs-dag consistency (call axis fn='limit'), no labeled row-op parity. TODO.",
+    # native lowerings exercised only IMPLICITLY via cypher text (no labeled op subject)
+    "rows": "native frame op; exercised only as a [n(), rows(), ...] query component, never a labeled subject. TODO.",
+    "select": "native via select_polars; exercised only implicitly via cypher RETURN. TODO: add a labeled select subject.",
+    "return_": "native via select_polars (alias of select); exercised only via cypher RETURN / a return_() AST. TODO.",
+    "where_rows": "native via where_rows_polars; exercised only implicitly via cypher WHERE; the where_rows AST op is never directly asserted. TODO.",
+    "order_by": "native via order_by_polars; NOT exercised anywhere in the matrix. TODO: add ORDER BY parity+NIE.",
+    "group_by": "native via group_by_polars; exercised only implicitly via cypher grouped count(); group_by AST never directly asserted. TODO.",
+    "unwind": "native via unwind_polars; NOT exercised anywhere in the matrix. TODO: add UNWIND parity+NIE.",
+    # honest NIE — correlated-subquery ops with no native polars lowering (_try_native_row_op returns None)
+    "semi_apply_mark": "honest NIE — correlated EXISTS-mark op has no native polars lowering. TODO: add an explicit NIE-assertion case.",
+    "anti_semi_apply": "honest NIE — correlated anti-semi op has no native polars lowering. TODO: add an explicit NIE-assertion case.",
+    "join_apply": "honest NIE — correlated join op has no native polars lowering. TODO: add an explicit NIE-assertion case.",
+}
+
+
+def test_row_pipeline_registry_is_nonempty():
+    assert set(ROW_PIPELINE_CALLS), "ROW_PIPELINE_CALLS registry is empty — import wiring broken"
+
+
+def test_exercised_rowop_set_is_nonempty():
+    assert _rowop_exercised(), "_rowop_exercised() is empty — coverage tracking would zero out"
+
+
+def test_every_rowop_is_exercised_or_known_uncovered():
+    registry = set(ROW_PIPELINE_CALLS)
+    accounted = _rowop_exercised() | set(ROW_OP_KNOWN_UNCOVERED)
+    gap = registry - accounted
+    assert not gap, (
+        "ROW_PIPELINE_CALLS ops are neither exercised by the matrix nor listed in ROW_OP_KNOWN_UNCOVERED — "
+        f"add a labeled conformance case OR a waiver for: {sorted(gap)}"
+    )
+
+
+def test_exercised_rowops_are_all_in_registry():
+    bogus = _rowop_exercised() - set(ROW_PIPELINE_CALLS)
+    assert not bogus, f"exercised row-op names absent from ROW_PIPELINE_CALLS (typo/removed?): {sorted(bogus)}"
+
+
+def test_rowop_known_uncovered_entries_are_real():
+    stale = set(ROW_OP_KNOWN_UNCOVERED) - set(ROW_PIPELINE_CALLS)
+    assert not stale, f"ROW_OP_KNOWN_UNCOVERED waives names not in ROW_PIPELINE_CALLS (stale — remove): {sorted(stale)}"
+
+
+def test_rowop_known_uncovered_entries_are_not_already_exercised():
+    overlap = set(ROW_OP_KNOWN_UNCOVERED) & _rowop_exercised()
+    assert not overlap, f"ROW_OP_KNOWN_UNCOVERED waives already-exercised ops (remove redundant waiver): {sorted(overlap)}"
+
+
+def test_rowop_known_uncovered_reasons_are_nonempty():
+    blank = sorted(n for n, r in ROW_OP_KNOWN_UNCOVERED.items() if not (r and r.strip()))
+    assert not blank, f"ROW_OP_KNOWN_UNCOVERED entries with empty reasons: {blank}"

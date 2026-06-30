@@ -438,6 +438,16 @@ def _call_exercised_functions():
     return set(_CALL_CONSISTENCY_FNS) | {"get_degrees", "get_indegrees", "get_outdegrees"}
 
 
+def _rowop_exercised():
+    """ROW_PIPELINE_CALLS op names asserted as a labeled SUBJECT by this matrix (importable for
+    the ledger). `with_` is exercised by the with_extend* / in-membership dedicated tests
+    (test_conformance_with_extend_* below). Other row ops are exercised only IMPLICITLY via
+    cypher text (RETURN->select, WHERE->where_rows, grouped count->group_by) or not at all —
+    those are tracked as waivers in the ledger until a labeled subject case is added. Keep this
+    set in sync with the labeled-subject row-op tests below."""
+    return {"with_"}
+
+
 @pytest.mark.parametrize("fn", _CALL_CONSISTENCY_FNS)
 def test_conformance_call_chain_vs_dag_consistent(fn):
     """A call must behave the SAME (parity or NIE) on the chain and the DAG surfaces — no surface
