@@ -116,6 +116,35 @@ def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf) -> Plottable:
     raise NotImplementedError(f"polars chain engine does not support op {type(op).__name__}")
 
 
+def _is_native_multihop(op: ASTObject) -> bool:
+    """Whether a non-simple-single-hop edge op is a fixed-length multi-hop the native
+    polars combine supports: plain ``hops=N`` / ``max_hops``, forward or reverse,
+    optionally with edge/endpoint match or a name. Everything that needs features the
+    polars hop/combine has not ported — ``to_fixed_point``, ``min_hops>1``, output
+    slicing, hop labels, ``*_query`` strings, ``include_zero_hop_seed``,
+    ``prune_to_endpoints``, or undirected direction (deferred) — returns False so the
+    guard defers it (NotImplementedError) rather than risk a silent divergence."""
+    if not isinstance(op, ASTEdge):
+        return False
+    if op.is_simple_single_hop():
+        return False
+    if op.direction not in ("forward", "reverse"):
+        return False
+    if op.to_fixed_point:
+        return False
+    if op.min_hops is not None and op.min_hops > 1:
+        return False
+    if op.output_min_hops is not None or op.output_max_hops is not None:
+        return False
+    if op.label_node_hops is not None or op.label_edge_hops is not None or op.label_seeds:
+        return False
+    if op.source_node_query is not None or op.destination_node_query is not None or op.edge_query is not None:
+        return False
+    if op.include_zero_hop_seed or op.prune_to_endpoints:
+        return False
+    return True
+
+
 def _is_lazy(df) -> bool:
     import polars as pl
     return isinstance(df, pl.LazyFrame)
@@ -157,6 +186,15 @@ def _combine_edges(g, steps, label_steps):
         if edges_df is None:
             continue
         if not _is_lazy(edges_df) and edges_df.height == 0:
+            continue
+        if isinstance(op, ASTEdge) and not op.is_simple_single_hop():
+            # Multi-hop: these edges were recomputed path-valid over the backward-pruned
+            # subgraph (forward re-exec; see the chain recompute). Every id is on a
+            # complete valid path, so append ALL of them and skip the single-hop endpoint
+            # semijoin below — that semijoin keeps only edges whose src/dst sit in the
+            # prev/next wavefront and would drop intermediate-hop edges. Port of the
+            # pandas combine_steps has_multihop branch (recompute then concat as-is).
+            frames.append(edges_df.select(pl.col(edge_id)))
             continue
         prev_nodes = label_steps[idx - 1][1]._nodes if idx > 0 else g._nodes
         next_nodes = label_steps[idx + 1][1]._nodes if idx + 1 < len(label_steps) else None
@@ -576,10 +614,16 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     if isinstance(ops[-1], ASTEdge):
         ops = ops + [ASTNode()]
 
-    if any(isinstance(op, ASTEdge) and not op.is_simple_single_hop() for op in ops):
+    if any(
+        isinstance(op, ASTEdge) and not op.is_simple_single_hop() and not _is_native_multihop(op)
+        for op in ops
+    ):
         raise NotImplementedError(
-            "polars chain engine (Phase 1) supports single-hop edges only; "
-            "variable-length/multi-hop chains are deferred. Use engine='pandas'."
+            "polars chain engine supports single-hop and plain fixed-length "
+            "(hops=N / max_hops, forward/reverse) multi-hop edges; deferred "
+            "variable-length features (to_fixed_point, min_hops>1, output slicing, "
+            "hop labels, *_query, include_zero_hop_seed, prune_to_endpoints, "
+            "undirected) require engine='pandas'."
         )
 
     edge_ops = [op for op in ops if isinstance(op, ASTEdge)]
@@ -677,6 +721,33 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     node_col, src, dst = g._node, g._source, g._destination
     assert node_col is not None and src is not None and dst is not None
 
+    # Native multi-hop edges: port of the pandas combine_steps ``has_multihop`` branch
+    # (graphistry/compute/chain.py:201-209). For a fixed-length multi-hop edge step the
+    # per-step single-hop endpoint semijoin in _combine_edges keeps only edges whose
+    # src/dst sit in the prev/next wavefront, dropping intermediate-hop edges (observed
+    # e=3 vs pandas e=10). Instead recompute the path-valid edge set by RE-EXECUTING the
+    # FORWARD hop over this step's backward-pruned edge subgraph, seeded from the
+    # forward-pass entry wavefront: the backward prune enforces "reaches a valid
+    # endpoint", the forward re-exec enforces "reachable from the seed", and their
+    # composition along the BFS frontier is exactly the valid-path edges (NOT a flat
+    # forward∩backward set intersection — that was the reverted shortcut). Only the EDGE
+    # combine sees these recomputed frames (pandas gates the recompute on kind=='edges');
+    # the node combine + name tagging keep the original backward-pruned steps.
+    edge_steps: List[Tuple[ASTObject, Plottable]] = steps
+    if any(isinstance(op, ASTEdge) and not op.is_simple_single_hop() for op, _ in steps):
+        edge_steps = []
+        for idx, (op, g_step) in enumerate(steps):
+            if isinstance(op, ASTEdge) and not op.is_simple_single_hop():
+                prev_src = label_steps[idx - 1][1]._nodes if idx > 0 else g_step._nodes
+                prev_wf = (
+                    _semi(g._nodes, prev_src, node_col, node_col)
+                    if prev_src is not None else None
+                )
+                g_sub = g.edges(g_step._edges, src, dst, edge=g._edge)
+                edge_steps.append((op, _exec(op, g_sub, prev_wf, None)))
+            else:
+                edge_steps.append((op, g_step))
+
     # Track B: build the WHOLE combine (combine_nodes/edges + endpoint + names)
     # as ONE deferred plan over the already-materialized hop frames and collect
     # ONCE — collapsing the ~dozen eager combine ops (each internally a
@@ -692,10 +763,11 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     g_lz = _LazyShim(g._nodes.with_row_index(NORD).lazy(), g._edges.with_row_index(EORD).lazy(),
                      node_col, src, dst, g._edge)
     steps_lz = [(op, _LazyShim.step(p)) for op, p in steps]
+    edge_steps_lz = [(op, _LazyShim.step(p)) for op, p in edge_steps]
     label_lz = [(op, _LazyShim.step(p)) for op, p in label_steps]
 
     final_nodes = _combine_nodes(g_lz, steps_lz)
-    final_edges = _combine_edges(g_lz, steps_lz, label_lz)
+    final_edges = _combine_edges(g_lz, edge_steps_lz, label_lz)
     # Endpoint (lazy: always compute; maintain_order keeps the semi-join order).
     endpoints = pl.concat(
         [final_edges.select(pl.col(src).alias(node_col)),
