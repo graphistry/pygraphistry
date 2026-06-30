@@ -15,4 +15,5 @@ python -B -m pytest -vv \
     graphistry/tests/compute/gfql/test_engine_polars_chain.py \
     graphistry/tests/compute/gfql/test_engine_polars_row_pipeline.py \
     graphistry/tests/compute/gfql/test_engine_polars_cypher_conformance.py \
-    graphistry/tests/compute/gfql/test_engine_polars_conformance_matrix.py
+    graphistry/tests/compute/gfql/test_engine_polars_conformance_matrix.py \
+    graphistry/tests/compute/gfql/test_conformance_ledger.py

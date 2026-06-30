@@ -129,6 +129,46 @@ def _lower_function(node: Any, columns: Sequence[str]) -> Optional[Any]:
     if name == "sign" and len(args) == 1:
         # polars .sign() == np.sign for int/float (-1/0/1; null/NaN preserved); parity-verified.
         return args[0].sign()
+    if name == "size" and len(args) == 1:
+        import polars as pl
+        # cypher size(x) = #chars of a String OR #elements of a List. These map to
+        # DIFFERENT polars ops by dtype, so resolve the operand's output dtype and
+        # lower only the two provable shapes. polars str.len_chars == pandas str.len
+        # (code points); list.len == pandas str.len over list elements; null/empty
+        # preserved on both — parity-verified. Numeric / Categorical / unknown decline
+        # (NIE): pandas' size() over a non-sequence Series returns the ROW COUNT — a
+        # quirk we refuse to replicate, and Categorical .str raises in polars only.
+        dt = _expr_output_dtype(args[0])
+        if dt == pl.String:
+            return args[0].str.len_chars()
+        if isinstance(dt, pl.List):
+            return args[0].list.len()
+        return None
+    if name == "substring" and len(args) in (2, 3):
+        import polars as pl
+        from graphistry.compute.gfql.expr_parser import Literal
+        # cypher substring(s, start[, length]) is 0-based. The pandas engine computes
+        # s.str.slice(start, start+length) (Python slice); polars str.slice(offset,
+        # length) is offset+length. They agree EXACTLY only for NON-NEGATIVE integer
+        # start/length (negative start with a length diverges: pandas s[-2:1]=='' vs
+        # polars slice(-2,3) keeps chars — a silent wrong answer). Admit only int
+        # literals >= 0 (negatives parse as UnaryOp, so the Literal gate declines them
+        # too) over a String column (polars str.slice raises otherwise; pandas declines).
+        start_node = node.args[1]
+        length_node = node.args[2] if len(node.args) == 3 else None
+        if not (isinstance(start_node, Literal) and isinstance(start_node.value, int)
+                and not isinstance(start_node.value, bool) and start_node.value >= 0):
+            return None
+        length_val = None
+        if length_node is not None:
+            if not (isinstance(length_node, Literal) and isinstance(length_node.value, int)
+                    and not isinstance(length_node.value, bool) and length_node.value >= 0):
+                return None
+            length_val = length_node.value
+        if _expr_output_dtype(args[0]) != pl.String:
+            return None
+        # offset>=0, length>=0 (or None=to-end) → identical chars on pandas/polars.
+        return args[0].str.slice(start_node.value, length_val)
     return None
 
 
