@@ -130,8 +130,9 @@ def _is_native_multihop(op: ASTObject) -> bool:
         return False
     if op.direction not in ("forward", "reverse"):
         return False
-    if op.to_fixed_point:
-        return False
+    # to_fixed_point (unbounded variable-length) IS native: the recompute re-runs the
+    # forward to_fixed_point hop over the backward-pruned subgraph (the hop's own
+    # fixed-point detection guarantees termination), same path-aware combine as hops=N.
     if op.min_hops is not None and op.min_hops > 1:
         return False
     if op.output_min_hops is not None or op.output_max_hops is not None:

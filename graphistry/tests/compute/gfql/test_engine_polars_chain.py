@@ -149,11 +149,16 @@ def _rand_edge(rng):
     # the fuzz SKIPs cleanly via the except below; once Stage 1 narrows the guard these
     # become live parity cases — no test edit needed.
     if ctor is not e_undirected and rng.random() < 0.4:
-        if rng.random() < 0.6:
+        r = rng.random()
+        if r < 0.4:
             hops = rng.randint(2, 3)                       # exact count: hops in {2,3}
             return ctor(match, hops=hops) if match else ctor(hops=hops)
-        mx = rng.randint(2, 4)                             # variable-length 1..max_hops
-        return ctor(match, max_hops=mx) if match else ctor(max_hops=mx)
+        if r < 0.8:
+            mx = rng.randint(2, 4)                         # variable-length 1..max_hops
+            return ctor(match, max_hops=mx) if match else ctor(max_hops=mx)
+        # to_fixed_point: unbounded variable-length (Stage 4). The cyclic fuzz graph
+        # stresses termination; native via the recompute (hop fixed-point detection).
+        return ctor(match, to_fixed_point=True) if match else ctor(to_fixed_point=True)
     return ctor(match) if match else ctor()
 
 
@@ -219,16 +224,16 @@ def test_polars_chain_deferred_raises(ch):
 
 
 @pytest.mark.parametrize("ch", [
-    [n(), e_forward(to_fixed_point=True), n()],            # unbounded variable-length
     [n(), e_forward(min_hops=2, max_hops=3), n()],         # min_hops>1
     [n(), e_undirected(hops=2), n()],                      # undirected multi-hop
+    [n(), e_undirected(to_fixed_point=True), n()],         # undirected to_fixed_point
     [n(), e_undirected(), n(), e_forward(hops=2), n()],    # undirected mixed with fixed multi-hop
 ])
 def test_polars_chain_multihop_deferred_raises(ch):
-    # These multi-hop surfaces STAY NIE even after native fixed-length hops=N (Stage 1) and
-    # native single-hop undirected-multi-edge (Stage 3): to_fixed_point (unbounded), min_hops>1
-    # (cudf also diverges here — see conformance matrix), undirected MULTI-hop, and undirected
-    # mixed with a fixed-length multi-hop edge. polars must decline, never silently diverge.
+    # These multi-hop surfaces STAY NIE after native fixed-length hops=N (Stage 1), native
+    # single-hop undirected-multi-edge (Stage 3), and native forward/reverse to_fixed_point
+    # (Stage 4): min_hops>1 (cudf also diverges — see conformance matrix), undirected MULTI-hop,
+    # undirected to_fixed_point, and undirected mixed with a fixed-length multi-hop edge.
     with pytest.raises(NotImplementedError):
         BASE.chain(ch, engine="polars")
 
@@ -302,6 +307,35 @@ UND_CHAINS = {
     # self-loop / parallel-dup adjacent to undirected edges (multiplicity)
     "und-selfloop":       [n({"id": ["d"]}), e_undirected(), n(), e_undirected(), n()],
 }
+
+
+# ---- Adversarial to_fixed_point parity (Stage 4: unbounded variable-length forward/reverse;
+# the cyclic ADV graph stresses termination — a<->b cycle, d->d self-loop, parallel a->b) ----
+TOFP_CHAINS = {
+    "tofp-fwd-from-a":   [n({"id": ["a"]}), e_forward(to_fixed_point=True), n()],
+    "tofp-rev-from-d":   [n({"id": ["d"]}), e_reverse(to_fixed_point=True), n()],
+    "tofp-fwd-selfloop": [n({"id": ["d"]}), e_forward(to_fixed_point=True), n()],
+    "tofp-midfilter":    [n({"id": ["a"]}), e_forward(to_fixed_point=True), n({"kind": "z"})],
+    "tofp-isolated":     [n({"id": ["f"]}), e_forward(to_fixed_point=True), n()],
+    "tofp-sandwiched":   [n({"id": ["a"]}), e_forward(), n(), e_forward(to_fixed_point=True), n()],
+    "tofp-named":        [n({"id": ["a"]}, name="s"), e_forward(to_fixed_point=True, name="te"), n(name="t")],
+}
+
+
+@pytest.mark.parametrize("cname", list(TOFP_CHAINS))
+def test_polars_chain_to_fixed_point_parity(cname):
+    ch = TOFP_CHAINS[cname]
+    gp = ADV.chain(ch, engine="pandas")
+    gl = ADV.chain(ch, engine="polars")  # Stage 4: native, must NOT raise nor hang
+    assert "polars" in type(gl._nodes).__module__, f"[{cname}] not native polars (silent bridge!)"
+    assert _nset(gp) == _nset(gl), f"node mismatch [{cname}]"
+    assert _eset(gp) == _eset(gl), f"edge mismatch [{cname}]"
+    gpe, gle = gp._edges, gl._edges
+    assert (0 if gpe is None else len(gpe)) == (0 if gle is None else len(gle)), f"edge-count [{cname}]"
+    for op in ch:
+        nm = getattr(op, "_name", None)
+        if nm:
+            assert _named(gp, nm) == _named(gl, nm), f"alias[{nm}] mismatch [{cname}]"
 
 
 @pytest.mark.parametrize("cname", list(UND_CHAINS))
