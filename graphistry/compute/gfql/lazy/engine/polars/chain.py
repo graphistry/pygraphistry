@@ -128,11 +128,15 @@ def _is_native_multihop(op: ASTObject) -> bool:
         return False
     if op.is_simple_single_hop():
         return False
-    if op.direction not in ("forward", "reverse"):
+    if op.direction not in ("forward", "reverse", "undirected"):
         return False
-    # to_fixed_point (unbounded variable-length) IS native: the recompute re-runs the
-    # forward to_fixed_point hop over the backward-pruned subgraph (the hop's own
-    # fixed-point detection guarantees termination), same path-aware combine as hops=N.
+    # to_fixed_point (unbounded variable-length) IS native for forward/reverse: the recompute
+    # re-runs the forward to_fixed_point hop over the backward-pruned subgraph (the hop's own
+    # fixed-point detection guarantees termination), same path-aware combine as hops=N. But
+    # UNDIRECTED to_fixed_point needs pandas' connected-components + 2-core seed retention
+    # (graphistry/compute/hop.py:817-887) which the vectorized polars hop cannot reproduce -> NIE.
+    if op.direction == "undirected" and op.to_fixed_point:
+        return False
     if op.min_hops is not None and op.min_hops > 1:
         return False
     if op.output_min_hops is not None or op.output_max_hops is not None:
@@ -628,16 +632,14 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         )
 
     edge_ops = [op for op in ops if isinstance(op, ASTEdge)]
-    # Undirected edges in multi-edge chains: NATIVE for plain single-hop undirected
-    # (the backward pass threads BOTH endpoints — see the undirected override below —
-    # mirroring pandas' fast backward branch graphistry/compute/chain.py:1090-1098).
-    # STILL deferred (NIE): undirected mixed with fixed-length multi-hop edges (the
-    # multi-hop forward-recompute combine path is unverified against undirected
-    # threading), and undirected single-hop carrying include_zero_hop_seed / *_query
-    # (zero-hop-seed + query semantics in the undirected combine are unverified).
+    # Undirected edges in multi-edge chains: NATIVE for single-hop AND fixed-length multi-hop
+    # undirected (the backward pass threads BOTH endpoints for single-hop — see the override
+    # below; fixed multi-hop undirected uses the generic backward hop + the path-aware
+    # recompute, same as directed). STILL deferred (NIE): undirected single-hop/multi-hop
+    # carrying include_zero_hop_seed / *_query (unverified combine semantics). Undirected
+    # to_fixed_point is NIE'd upstream by _is_native_multihop (needs components/2-core).
     if len(edge_ops) > 1:
         _undirected = [op for op in edge_ops if op.direction == "undirected"]
-        _has_multihop = any(not op.is_simple_single_hop() for op in edge_ops)
         _undirected_unsupported = any(
             op.include_zero_hop_seed
             or op.source_node_query is not None
@@ -645,12 +647,11 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             or op.edge_query is not None
             for op in _undirected
         )
-        if _undirected and (_has_multihop or _undirected_unsupported):
+        if _undirected and _undirected_unsupported:
             raise NotImplementedError(
-                "polars chain engine supports plain single-hop undirected edges in "
-                "multi-edge chains; deferred undirected sub-cases — mixed with "
-                "fixed-length multi-hop, include_zero_hop_seed, or *_query — require "
-                "engine='pandas'."
+                "polars chain engine supports single-hop and fixed-length multi-hop "
+                "undirected edges in multi-edge chains; deferred undirected sub-cases — "
+                "include_zero_hop_seed or *_query — require engine='pandas'."
             )
 
     # Single-hop fast path: [n(), e, n()] where both nodes have no name/query and

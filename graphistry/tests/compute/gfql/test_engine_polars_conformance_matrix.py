@@ -180,8 +180,10 @@ _TRAVERSAL_CASES = [
     ("multihop-dstmatch", [n({"id": [0]}), e_forward(hops=2, destination_node_match={"flag": True}), n()]),
     ("fwd-tofixed", [n({"id": [0]}), e_forward(to_fixed_point=True), n()]),        # Stage 4: native
     ("rev-tofixed", [n({"id": [0]}), e_reverse(to_fixed_point=True), n()]),        # Stage 4: native
+    ("und-hops2", [n({"id": [0]}), e_undirected(hops=2), n()]),                    # undirected multi-hop: native
+    ("und-maxhops3", [n({"id": [0]}), e_undirected(max_hops=3), n()]),             # undirected variable-length: native
     # ---- STAYS NIE (separately deferred surfaces) ----
-    ("und-hops2-single", [n({"id": [0]}), e_undirected(hops=2), n()]),          # undirected multi-hop
+    ("und-tofixed", [n({"id": [0]}), e_undirected(to_fixed_point=True), n()]),  # undirected to_fixed_point
     # NOTE: min_hops>1 is NOT in this 4-engine parity matrix — cudf diverges from the pandas
     # oracle on the seed node's hop label (pandas: None, cudf: max_hops) for min_hops, an
     # orthogonal cudf bug (see cudf-device-residency-issue.md sibling notes). polars' NIE-decline

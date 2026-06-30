@@ -7,7 +7,7 @@ import time
 import numpy as np
 import pandas as pd
 import graphistry
-from graphistry.compute.ast import n, e_forward
+from graphistry.compute.ast import n, e_forward, e_undirected
 
 
 def _graph(nn, ne, seed=0):
@@ -39,6 +39,9 @@ CHAINS = {
     "fwd-hops3":  [n({"id": [0]}), e_forward(hops=3), n()],
     "maxhops4":   [n({"id": [0]}), e_forward(max_hops=4), n()],
     "sandwiched": [n({"id": [0]}), e_forward(), n(), e_forward(hops=2), n()],
+    "fwd-tofixed": [n({"id": [0]}), e_forward(to_fixed_point=True), n()],
+    "und-hops2":  [n({"id": [0]}), e_undirected(hops=2), n()],
+    "und-maxhops3": [n({"id": [0]}), e_undirected(max_hops=3), n()],
 }
 
 for (nn, ne) in [(10_000, 50_000), (100_000, 500_000), (500_000, 2_000_000)]:
