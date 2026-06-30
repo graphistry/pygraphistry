@@ -232,31 +232,38 @@ def test_conformance_hotpath_carveouts(label, query):
 
 
 # ---- cypher expression / aggregation lowerings (value-level: validates sqrt/sign/count_distinct) ----
-@pytest.mark.parametrize("label,query", [
-    ("sqrt", "MATCH (n) RETURN n.id AS id, sqrt(n.num) AS sq"),
-    ("sign", "MATCH (n) RETURN n.id AS id, sign(n.num - 50) AS sg"),
-    ("abs", "MATCH (n) RETURN n.id AS id, abs(n.num - 50) AS ab"),
-    ("coalesce", "MATCH (n) RETURN n.id AS id, coalesce(n.num, 0) AS c"),
-    ("casewhen", "MATCH (n) RETURN n.id AS id, CASE WHEN n.num > 50 THEN 1 ELSE 0 END AS cw"),
-    ("casewhen_str", "MATCH (n) RETURN n.id AS id, CASE WHEN n.flag THEN 'y' ELSE 'n' END AS cw"),
-    ("count_distinct_grouped", "MATCH (n) RETURN n.flag AS k, count(DISTINCT n.num) AS cd"),
-    ("count_distinct_all", "MATCH (n) RETURN count(DISTINCT n.flag) AS cd"),
-    ("count_grouped", "MATCH (n) RETURN n.flag AS k, count(n.num) AS c"),
-    ("size_str", "MATCH (n) RETURN n.id AS id, size(n.name) AS sz"),
-    ("substring3", "MATCH (n) RETURN n.id AS id, substring(n.name, 0, 4) AS sub"),
-    ("substring2", "MATCH (n) RETURN n.id AS id, substring(n.name, 2) AS sub"),
-    ("tointeger_int", "MATCH (n) RETURN n.id AS id, toInteger(n.num) AS i"),
-    ("tointeger_float", "MATCH (n) RETURN n.id AS id, toInteger(n.f) AS i"),
-    ("tointeger_bool", "MATCH (n) RETURN n.id AS id, toInteger(n.flag) AS i"),
-    ("toboolean_bool", "MATCH (n) RETURN n.id AS id, toBoolean(n.flag) AS b"),
-    ("tostring_bool", "MATCH (n) RETURN n.id AS id, toString(n.flag) AS s"),
-    ("tostring_int", "MATCH (n) RETURN n.id AS id, toString(n.num) AS s"),
-    ("tostring_str", "MATCH (n) RETURN n.id AS id, toString(n.name) AS s"),
-    # NOTE: toString(float) is intentionally NOT here — polars declines it (NIE, covered by
-    # test_tostring_float_honest_nie_polars), but cudf formats floats differently than pandas
-    # (an orthogonal cudf float-repr divergence, like the list-literal element-order one), which
-    # _assert_invariant would flag. The dedicated pandas-vs-polars test covers the real intent.
-])
+def _cypher_expression_queries():
+    """Cypher-expression conformance cases ``(label, cypher)``. Importable so the coverage
+    ledger (test_conformance_ledger.py) can DERIVE the exercised scalar-function set by
+    parsing function calls out of the cypher strings — mirrors `_predicate_queries()`."""
+    return [
+        ("sqrt", "MATCH (n) RETURN n.id AS id, sqrt(n.num) AS sq"),
+        ("sign", "MATCH (n) RETURN n.id AS id, sign(n.num - 50) AS sg"),
+        ("abs", "MATCH (n) RETURN n.id AS id, abs(n.num - 50) AS ab"),
+        ("coalesce", "MATCH (n) RETURN n.id AS id, coalesce(n.num, 0) AS c"),
+        ("casewhen", "MATCH (n) RETURN n.id AS id, CASE WHEN n.num > 50 THEN 1 ELSE 0 END AS cw"),
+        ("casewhen_str", "MATCH (n) RETURN n.id AS id, CASE WHEN n.flag THEN 'y' ELSE 'n' END AS cw"),
+        ("count_distinct_grouped", "MATCH (n) RETURN n.flag AS k, count(DISTINCT n.num) AS cd"),
+        ("count_distinct_all", "MATCH (n) RETURN count(DISTINCT n.flag) AS cd"),
+        ("count_grouped", "MATCH (n) RETURN n.flag AS k, count(n.num) AS c"),
+        ("size_str", "MATCH (n) RETURN n.id AS id, size(n.name) AS sz"),
+        ("substring3", "MATCH (n) RETURN n.id AS id, substring(n.name, 0, 4) AS sub"),
+        ("substring2", "MATCH (n) RETURN n.id AS id, substring(n.name, 2) AS sub"),
+        ("tointeger_int", "MATCH (n) RETURN n.id AS id, toInteger(n.num) AS i"),
+        ("tointeger_float", "MATCH (n) RETURN n.id AS id, toInteger(n.f) AS i"),
+        ("tointeger_bool", "MATCH (n) RETURN n.id AS id, toInteger(n.flag) AS i"),
+        ("toboolean_bool", "MATCH (n) RETURN n.id AS id, toBoolean(n.flag) AS b"),
+        ("tostring_bool", "MATCH (n) RETURN n.id AS id, toString(n.flag) AS s"),
+        ("tostring_int", "MATCH (n) RETURN n.id AS id, toString(n.num) AS s"),
+        ("tostring_str", "MATCH (n) RETURN n.id AS id, toString(n.name) AS s"),
+        # NOTE: toString(float) is intentionally NOT here — polars declines it (NIE, covered by
+        # test_tostring_float_honest_nie_polars), but cudf formats floats differently than pandas
+        # (an orthogonal cudf float-repr divergence, like the list-literal element-order one), which
+        # _assert_invariant would flag. The dedicated pandas-vs-polars test covers the real intent.
+    ]
+
+
+@pytest.mark.parametrize("label,query", _cypher_expression_queries())
 def test_conformance_cypher_expressions(label, query):
     _assert_invariant(_graph(4), query, f"cypher {label}")
 

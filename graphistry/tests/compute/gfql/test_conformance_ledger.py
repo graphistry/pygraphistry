@@ -28,8 +28,10 @@ from __future__ import annotations
 import re
 
 from graphistry.compute.predicates.from_json import type_to_predicate
+from graphistry.compute.gfql.language_defs import GFQL_SCALAR_FUNCTIONS
 from graphistry.tests.compute.gfql.test_engine_polars_conformance_matrix import (
     _predicate_queries,
+    _cypher_expression_queries,
 )
 
 
@@ -160,3 +162,91 @@ def test_known_uncovered_entries_are_not_already_exercised():
 def test_known_uncovered_reasons_are_nonempty():
     blank = sorted(n for n, r in KNOWN_UNCOVERED.items() if not (r and r.strip()))
     assert not blank, f"KNOWN_UNCOVERED entries with empty reasons: {blank}"
+
+
+# ======================================================================================
+# AXIS 2: CYPHER SCALAR FUNCTIONS
+# Universe = GFQL_SCALAR_FUNCTIONS (language_defs.py). Exercised = scalar-function names
+# parsed out of the cypher strings of `_cypher_expression_queries()`. Same four drift
+# tests (a)-(d). Aggregations (count/count_distinct) live in a DIFFERENT registry and are
+# intentionally not in this universe.
+# ======================================================================================
+
+# A cypher call is `name(...)`; lowercase and intersect with the registry (cypher uses
+# camelCase `toInteger`, registry keys are lowercase `tointeger` — both engines `.lower()`).
+_FN_CALL_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+
+# Registry scalar functions NOT exercised by a parseable cypher call in the matrix. Each an
+# honest one-liner (all currently honest-NIE-or-unasserted; none has a dedicated test that the
+# parser misses, unlike the predicate temporal entries).
+KNOWN_UNCOVERED_FUNCTIONS: dict[str, str] = {
+    "tofloat": "pandas-native (astype float); polars _lower_function has NO branch -> honest NIE, not yet asserted. TODO: add a tofloat native-or-NIE case.",
+    "keys": "map/entity key-extraction; polars declines (no _lower_function branch) -> NIE; not yet asserted. TODO.",
+    "labels": "node-label text function; polars declines -> NIE; not yet asserted. TODO.",
+    "type": "edge-type function; polars declines -> NIE; not yet asserted. TODO.",
+    "properties": "entity-properties map function; polars declines -> NIE; not yet asserted. TODO.",
+    "range": "list-generating range(a,b[,step]); polars declines -> NIE; not yet asserted. TODO.",
+    "__node_keys__": "internal cypher-lowering helper (node entity keys); not a standalone user function. internal.",
+    "__edge_keys__": "internal cypher-lowering helper (edge entity keys); not a standalone user function. internal.",
+    "__node_entity__": "internal cypher-lowering helper (node entity text); not a standalone user function. internal.",
+    "__edge_entity__": "internal cypher-lowering helper (edge entity text); not a standalone user function. internal.",
+    "__cypher_case_eq__": "internal simple-CASE equality helper; matrix exercises the SEARCHED CASE form (CaseWhen AST), not this function. internal.",
+}
+
+
+def _exercised_function_names() -> set:
+    """Scalar-function names actually exercised by `_cypher_expression_queries()` cypher
+    strings (lowercased, intersected with the registry so non-function tokens like
+    aggregations / `count` / bare identifiers drop out)."""
+    names = set()
+    for _label, cypher in _cypher_expression_queries():
+        for tok in _FN_CALL_RE.findall(cypher):
+            names.add(tok.lower())
+    return names & set(GFQL_SCALAR_FUNCTIONS)
+
+
+def test_function_registry_is_nonempty():
+    assert set(GFQL_SCALAR_FUNCTIONS), "GFQL_SCALAR_FUNCTIONS registry is empty — import wiring broken"
+
+
+def test_exercised_function_set_is_nonempty():
+    assert _exercised_function_names(), (
+        "_cypher_expression_queries() yielded no parseable scalar-function calls — "
+        "cypher format drift would silently zero out function coverage tracking"
+    )
+
+
+def test_every_registry_function_is_exercised_or_known_uncovered():
+    registry = set(GFQL_SCALAR_FUNCTIONS)
+    accounted = _exercised_function_names() | set(KNOWN_UNCOVERED_FUNCTIONS)
+    gap = registry - accounted
+    assert not gap, (
+        "GFQL_SCALAR_FUNCTIONS entries are neither exercised by _cypher_expression_queries() "
+        f"nor listed in KNOWN_UNCOVERED_FUNCTIONS — add a conformance case OR a waiver for: {sorted(gap)}"
+    )
+
+
+def test_exercised_functions_are_all_in_registry():
+    bogus = _exercised_function_names() - set(GFQL_SCALAR_FUNCTIONS)
+    assert not bogus, f"exercised function names absent from GFQL_SCALAR_FUNCTIONS: {sorted(bogus)}"
+
+
+def test_known_uncovered_functions_are_real_registry_functions():
+    stale = set(KNOWN_UNCOVERED_FUNCTIONS) - set(GFQL_SCALAR_FUNCTIONS)
+    assert not stale, (
+        "KNOWN_UNCOVERED_FUNCTIONS waives names not in GFQL_SCALAR_FUNCTIONS (stale — remove): "
+        f"{sorted(stale)}"
+    )
+
+
+def test_known_uncovered_functions_are_not_already_exercised():
+    overlap = set(KNOWN_UNCOVERED_FUNCTIONS) & _exercised_function_names()
+    assert not overlap, (
+        "KNOWN_UNCOVERED_FUNCTIONS waives functions already exercised (remove redundant waiver): "
+        f"{sorted(overlap)}"
+    )
+
+
+def test_known_uncovered_function_reasons_are_nonempty():
+    blank = sorted(n for n, r in KNOWN_UNCOVERED_FUNCTIONS.items() if not (r and r.strip()))
+    assert not blank, f"KNOWN_UNCOVERED_FUNCTIONS entries with empty reasons: {blank}"
