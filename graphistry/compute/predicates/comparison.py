@@ -283,9 +283,21 @@ class NE(_ScalarTemporalComparison):
     op = staticmethod(operator.ne)
     safe_scalar_compare = False
 
+    def __call__(self, s: SeriesT) -> SeriesT:
+        # openCypher/SQL three-valued logic: `null <> x` is NULL, so a NULL cell is NOT a match
+        # (an unknown value cannot be proven unequal to x). pandas `NaN != x` returns True, which
+        # would wrongly KEEP the null; AND with notna() so a null is excluded — matching cuDF and
+        # the polars engine. The other comparisons (eq/gt/lt/ge/le) already drop nulls (their
+        # operator returns False on a null cell).
+        mask = super().__call__(s)
+        return mask & s.notna()
+
 def ne(val: ComparisonInput) -> NE:
     """
-    Return whether a given value is not equal to a threshold
+    Return whether a given value is not equal to a threshold.
+
+    Follows openCypher/SQL three-valued logic: a NULL/NA cell is NOT a match (``null <> x`` is
+    unknown), so null rows are excluded — the same as ``eq`` and the other comparisons.
     """
     return NE(val)
 
