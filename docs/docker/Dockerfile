@@ -23,7 +23,7 @@ COPY ../../graphistry /docs/graphistry
 # Install graphistry in editable mode so it's available for notebook execution
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install -e .[docs] && \
-    python3 -m pip install pygraphviz igraph lark pytest && \
+    python3 -m pip install pygraphviz igraph lark pytest polars && \
     python3 -m ipykernel install --sys-prefix --name python3
 
 # Step 5: Copy the build script and config files into the container
