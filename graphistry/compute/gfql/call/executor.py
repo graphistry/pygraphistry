@@ -253,9 +253,11 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         ) from error
     if isinstance(error, GFQLTypeError):
         raise error
-    if isinstance(error, NotImplementedError):
+    if isinstance(error, NotImplementedError) and engine in (Engine.POLARS, Engine.POLARS_GPU):
         # Honest engine-capability decline (e.g. the polars no-silent-bridge guard above) —
         # propagate as-is so the DAG surface matches the chain surface's NotImplementedError.
+        # Gated to the polars engines: a pandas/cudf NIE (e.g. fa2_layout requiring a GPU) must
+        # still fall through to the GFQLTypeError(E303) wrapper below, not leak as a bare NIE.
         raise error
     if error is not None:
         raise GFQLTypeError(

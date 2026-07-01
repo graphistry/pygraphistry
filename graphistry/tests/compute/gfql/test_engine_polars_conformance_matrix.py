@@ -15,6 +15,11 @@ import pytest
 import graphistry
 from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, call, let, rows, with_, return_
 
+# The whole matrix is the CPU polars lane (plus a GPU lane when present) — it requires polars.
+# On interpreters without a polars wheel (e.g. Python 3.14, which has no cp314 wheel yet), skip
+# the module cleanly rather than reporting every case as a non-NIE ImportError "conformance" fail.
+pytest.importorskip("polars")
+
 
 # ---- graph with diverse dtypes (int, float w/ null, str, bool) ----
 def _graph(seed=0):
