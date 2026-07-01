@@ -23,11 +23,20 @@ def gfql_explain(g: Any, query: Any, *, index_policy: str = "use", engine: str =
         except Exception as ex:  # report, don't raise — explain is diagnostic
             error = f"{type(ex).__name__}: {ex}"
     used_index = any(s.get("path") == "index" for s in steps)
+    # Surface the planner's cost signal at the top level (LP1): prefer the step that
+    # actually took the index, else the last decision. `est_seed_cardinality` = number
+    # of seeds; `est_result_rows` = estimated fanout (Σ seed degree, free from CSR).
+    ref = [s for s in steps if s.get("path") == "index"] or list(steps)
+    last = ref[-1] if ref else {}
     return {
         "engine": eng.value,
         "index_policy": index_policy,
         "resident_indexes": resident["name"].tolist() if len(resident) else [],
         "steps": list(steps),
         "used_index": used_index,
+        "est_seed_cardinality": last.get("frontier_n"),
+        "est_result_rows": last.get("est_result_rows"),
+        "chosen_direction": last.get("direction"),
+        "decision_reason": last.get("decision_reason"),
         "error": error,
     }
