@@ -18,6 +18,8 @@ The one-line speedup
 On real graphs, switching the default ``pandas`` engine to the columnar **Polars**
 engine is a one-keyword change — no GPU, same results:
 
+.. doc-test: skip
+
 .. code-block:: python
 
    import graphistry
@@ -369,6 +371,74 @@ Both run on an NVIDIA GPU, so which do you use?
 - **Install.** ``cudf`` and ``polars-gpu`` both need the RAPIDS GPU stack; ``polars-gpu``
   additionally uses ``cudf_polars``. ``polars`` (CPU) only needs ``pip install polars``.
 
+.. _gfql-larger-than-memory:
+
+Larger-than-memory: streaming execution
+---------------------------------------
+
+The default Polars engines run **in-memory**: fastest and most stable while the
+graph and its query intermediates fit in RAM (or device memory). When a query's
+*intermediates* would blow past memory — a wide multi-hop frontier, a large
+join, a big aggregation — GFQL has two **opt-in** streaming modes that trade a
+little latency for a much larger working set:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 20 58
+
+   * - Mode
+     - Engine
+     - What it does
+   * - ``GFQL_POLARS_CPU_STREAMING=1``
+     - ``polars``
+     - Collects the fused plan with Polars' **streaming engine** — processes in
+       batches and **spills to disk**, so intermediates can exceed RAM.
+   * - ``GFQL_POLARS_GPU_EXECUTOR=streaming``
+     - ``polars-gpu``
+     - Uses the **cudf-polars streaming executor** — the escape hatch for
+       results **larger than device memory** (the default in-memory executor
+       would OOM).
+
+Both are **off by default** on purpose: they add overhead that *regresses*
+small/interactive work (~0.86× at 100K edges), and for the in-memory regime this
+page measures, the default is faster and more stable. Results are
+**parity-identical** to the default — streaming changes *how* the plan runs, not
+*what* it returns.
+
+The flags are read at import time, so set them **before your process starts** (or
+before ``import graphistry``):
+
+.. code-block:: bash
+
+   # CPU: batched + disk-spill for larger-than-RAM intermediates
+   export GFQL_POLARS_CPU_STREAMING=1
+
+   # GPU: streaming executor for larger-than-device-memory results
+   export GFQL_POLARS_GPU_EXECUTOR=streaming
+
+Then use ``engine='polars'`` / ``engine='polars-gpu'`` exactly as before — no code
+change:
+
+.. doc-test: skip
+
+.. code-block:: python
+
+   import graphistry            # env vars above must be set first
+   g = graphistry.edges(edges_df, 'src', 'dst')
+   result = g.gfql(query, engine='polars')       # streaming collect (CPU, disk-spill)
+   # result = g.gfql(query, engine='polars-gpu')  # streaming executor (GPU)
+
+.. note::
+   **What streaming does and does not cover today.** These flags stream the
+   **query** (collect), which helps when the *input fits but the intermediates or
+   result do not*. They do **not** yet give out-of-core *input*: ``graphistry``
+   currently materializes edge/node frames at ingestion (a passed
+   ``polars.LazyFrame`` is collected immediately), so the source graph must still
+   fit in memory. True out-of-core-from-disk — building GFQL directly on a lazy
+   ``pl.scan_parquet`` source so a graph larger than RAM never fully materializes —
+   is **work in progress**; see the Friendster (~1.8B edges) discussion in
+   :doc:`benchmark_graphframes`.
+
 When **not** to use Polars
 --------------------------
 
@@ -429,6 +499,8 @@ Install
    # 'polars-gpu' additionally uses cudf_polars.
 
 Then change one keyword — your existing graph and query are unchanged:
+
+.. doc-test: skip
 
 .. code-block:: python
 
