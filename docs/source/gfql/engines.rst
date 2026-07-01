@@ -205,10 +205,14 @@ benchmarked** rather than guess.
      - Head-to-head on Ladybug's own suite (seeded out-degree, rel ``COUNT(*)``, rel-scan
        rowids, id range query) is **in progress** — GFQL's angle is dataframe-native,
        in-process, and GPU-accelerated with no separate store to load/index.
-     - **Genuine complement / where GFQL does not claim:** Ladybug's out-of-core loader does
-       billion-scale on a laptop; GFQL is in-memory (its loaders hit the single-node ceiling
-       at ~1.8B edges — see :doc:`benchmark_graphframes`). Use Ladybug as the durable embedded
-       / out-of-core store; pull a resident subgraph into GFQL for GPU analytics.
+     - **Complement:** Ladybug is a durable embedded store with an out-of-core mode
+       (billion-scale in <8 GB RAM); GFQL is a query engine over your dataframes. GFQL's
+       *default* is in-memory, but it is **not limited to it** — Polars streaming
+       (``GFQL_POLARS_CPU_STREAMING=1``, disk-spill) and the cudf-polars streaming executor
+       (``GFQL_POLARS_GPU_EXECUTOR=streaming``) are larger-than-memory paths
+       (billion-scale head-to-head not yet benchmarked — see :doc:`benchmark_graphframes`).
+       Natural split: Ladybug as the persistent/out-of-core store; pull a subgraph into GFQL
+       for GPU analytics — or run GFQL streaming directly on your columnar files.
    * - **igraph**
      - Pure-Python/C graph library.
      - — (not a standalone competitor here)
