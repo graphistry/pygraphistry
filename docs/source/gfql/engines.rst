@@ -193,6 +193,17 @@ benchmarked** rather than guess.
        seeds): **22× Kuzu**, up to **87× at k=100k**. See :doc:`index_adjacency`.
      - **Not claimed:** cyclic / multi-way-join patterns (triangles, cliques) where Kuzu's
        worst-case-optimal joins can win. Use Kuzu as the store; GFQL for bulk read analytics.
+   * - **LadybugDB**
+     - Actively-maintained **Kuzu fork** (Kuzu is archived); embedded C++, strongly-typed
+       Cypher, opt-in ART *or* hash indexing, zero-copy Arrow/CSR scans, and **out-of-core
+       billion-scale** (query a 1.8B-edge graph in <8 GB RAM).
+     - Head-to-head on Ladybug's own suite (seeded out-degree, rel ``COUNT(*)``, rel-scan
+       rowids, id range query) is **in progress** — GFQL's angle is dataframe-native,
+       in-process, and GPU-accelerated with no separate store to load/index.
+     - **Genuine complement / where GFQL does not claim:** Ladybug's out-of-core loader does
+       billion-scale on a laptop; GFQL is in-memory (its loaders hit the single-node ceiling
+       at ~1.8B edges — see :doc:`benchmark_graphframes`). Use Ladybug as the durable embedded
+       / out-of-core store; pull a resident subgraph into GFQL for GPU analytics.
    * - **igraph**
      - Pure-Python/C graph library.
      - — (not a standalone competitor here)
