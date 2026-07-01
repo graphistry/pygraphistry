@@ -156,6 +156,61 @@ Reading the table:
    mask beats Polars' plan overhead — but at <1 ms the difference is immaterial. Reproducer:
    ``benchmarks/gfql/index_crossover_bench.py``.
 
+.. _gfql-vs-external-tools:
+
+GFQL vs external graph tools
+----------------------------
+
+GFQL is **dataframe-native**: ``pip install``, then query your existing pandas / Polars /
+cuDF frame in-process — no separate database to stand up, no ETL to load, no cluster. Graph
+databases (Neo4j, Kuzu) are a **system-of-record** you provision and ingest into first. The
+table below is deliberately conservative: every speedup is stated with its condition, ``>``
+and did-not-finish markers are kept, and where we have no head-to-head we say **not
+benchmarked** rather than guess.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 14 22 30 34
+
+   * - Tool
+     - What it is / Setup
+     - Where GFQL wins (with condition)
+     - Where it complements / GFQL doesn't claim
+   * - **Neo4j + GDS**
+     - Server + GDS library; stand up a DB and ETL your data in.
+     - **Filter→PageRank→filter pipeline**, dgx-spark GB10, warm median: Twitter 2.4M —
+       13.83 s Neo4j vs 2.55 s GFQL-CPU / **0.30 s GFQL-GPU (46×)**; GPlus 30M —
+       **>187 s (did-not-finish)** vs 75.78 s CPU / **3.33 s GPU (>56×)**.
+     - Neo4j remains the transactional system-of-record; run the read-heavy analytics in
+       GFQL. See :doc:`benchmark_filter_pagerank`.
+   * - **Kuzu**
+     - Embedded graph DB; still a separate store to load + index.
+     - **Seeded index lookup** (0.8M nodes / 6.4M edges): 1-hop **0.123 ms vs 1.15 ms
+       (9.4×)**, 2-hop **0.150 ms vs 4.25 ms (28×)**; prepared-Kuzu LiveJournal 35M ≈ **17×**
+       typical seed, 6× hub. **Bulk frontier expansion** (LiveJournal 35M, 1-hop, many
+       seeds): **22× Kuzu**, up to **87× at k=100k**. See :doc:`index_adjacency`.
+     - **Not claimed:** cyclic / multi-way-join patterns (triangles, cliques) where Kuzu's
+       worst-case-optimal joins can win. Use Kuzu as the store; GFQL for bulk read analytics.
+   * - **igraph**
+     - Pure-Python/C graph library.
+     - — (not a standalone competitor here)
+     - **Complement, not competitor:** igraph is the CPU PageRank backend *inside* GFQL.
+       No head-to-head benchmarked.
+   * - **networkx**
+     - Pure-Python graph library; the floor most analysts start from.
+     - **not benchmarked** — expect order-of-magnitude headroom qualitatively (no measured
+       head-to-head).
+     - Fine for small/interactive graphs; GFQL is the columnar/GPU path when they grow.
+
+GFQL **complements** a graph database more than it replaces one: keep Neo4j or Kuzu as the
+system-of-record, and do the read-heavy search + analytics in GFQL so ETL, traversal, and
+scoring stay in one in-process dataframe pipeline. Route by shape — **selective** seeded
+lookups favor the GFQL index (up to 28× Kuzu, 16.9× Neo4j on 2-hop), **bulk** frontier
+expansion and full pipelines favor Polars / GPU (22–87× Kuzu; **46–56× Neo4j** on the
+filter→PageRank→filter pipeline). The one case we explicitly **do not** claim is
+cyclic / multi-way-join patterns (triangles, cliques), where Kuzu's worst-case-optimal
+joins can beat a dataframe plan.
+
 Decision matrix
 ---------------
 
@@ -230,6 +285,54 @@ typical-seed 1-hop is ~0.13 ms on pandas and ~0.16 ms on Polars (numpy ``searchs
 ~3 ms on cuDF (GPU kernel-launch floor) — the clean inverse of bulk, where the GPU pulls
 ahead. So pick the index for selective traversal and a CPU engine to drive it. See
 :doc:`index_adjacency` for the full guide.
+
+Switching engines
+-----------------
+
+The engine is a single keyword on ``g.gfql()`` (and ``g.hop()``). The graph and
+the query never change — only ``engine=`` does, and the answer stays identical
+(or raises ``NotImplementedError`` rather than silently changing it).
+
+.. code-block:: python
+
+   import graphistry
+   g = graphistry.edges(df, 'src', 'dst')   # your existing graph (any frame type)
+   query = "MATCH (a)-[e]->(b) RETURN b"     # any GFQL / Cypher query
+
+   g.gfql(query)                       # engine='pandas' (default)
+   g.gfql(query, engine='polars')      # CPU columnar, no GPU, identical results
+   g.gfql(query, engine='cudf')        # NVIDIA GPU (RAPIDS)
+   g.gfql(query, engine='polars-gpu')  # same fused plan on GPU
+
+Getting results back as pandas
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The result's ``._nodes`` / ``._edges`` come back in the engine's frame type: a
+``polars.DataFrame`` for ``'polars'`` / ``'polars-gpu'``, a ``cudf.DataFrame``
+for ``'cudf'``. When downstream code is pandas-only (matplotlib, scikit-learn,
+``.iloc`` / ``groupby().apply()``), convert once with ``.to_pandas()``:
+
+.. code-block:: python
+
+   out = g.gfql(query, engine='polars')       # or 'cudf' / 'polars-gpu'
+   nodes_pd = out._nodes.to_pandas()          # -> pandas for matplotlib / sklearn / ...
+   nodes_pd.plot.scatter(x='x', y='y')        # pandas-only downstream code, unchanged
+
+Mixing engines
+~~~~~~~~~~~~~~~
+
+The build frame type and the run engine are independent — GFQL coerces the input
+frames to the engine you ask for. A pandas graph runs on ``engine='polars'``, a
+Polars graph runs on ``engine='pandas'``, and so on. The only cost is a
+**one-time convert** of the input frames at the start of the call; the query then
+runs fully on the chosen engine. Note that ``engine='auto'`` (the default)
+resolves to ``cudf`` for cuDF input and ``pandas`` for everything else — **it
+never selects Polars or Polars-GPU**, so those two are always an explicit opt-in.
+
+.. tip::
+   For selective, seeded traversal, build the CSR adjacency index once with
+   ``g.gfql_index_all()`` (or ``index_policy=``) — it works on all four engines
+   and turns the O(E) scan into an O(degree) gather. See :doc:`index_adjacency`.
 
 cuDF vs Polars-GPU
 ------------------
