@@ -245,10 +245,22 @@ def _extract_code_blocks(path: Path) -> List[Tuple[int, str, Marker]]:
     return blocks
 
 
+try:
+    import polars as _polars_probe  # noqa: F401
+    _POLARS_AVAILABLE = True
+except Exception:
+    _POLARS_AVAILABLE = False
+
+
 def _should_skip(code: str) -> Optional[str]:
     for pat in SKIP_PATTERNS:
         if pat in code:
             return pat
+    # engine='polars' examples run when polars is installed, but must be SKIPPED (not failed)
+    # where it isn't — e.g. the minimal-deps job, or Python 3.14 which has no polars wheel yet.
+    # (cudf examples are already covered by SKIP_PATTERNS above.)
+    if not _POLARS_AVAILABLE and ("engine='polars'" in code or 'engine="polars"' in code):
+        return "polars-not-installed"
     return None
 
 
