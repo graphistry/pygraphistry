@@ -12,9 +12,11 @@ GFQL Graph Benchmark: DataFrame-Native vs Apache Spark GraphFrames
    warmups, result-size parity enforced per task. One cell — LiveJournal GPU
    PageRank — is median of 3 after 1 warmup (a re-run after a transient GPU
    fault on the first pass); every other cell, including Orkut GPU PageRank, is
-   the full 5/2. Friendster (~1.8B edges) was the stretch target; it exceeds a
-   single 119 GB node for every engine tested and is documented below as the
-   single-node memory ceiling rather than a timing row.
+   the full 5/2. Friendster (~1.8B edges) was the stretch target; our *eager
+   in-memory* harness runs out of RAM loading it (documented below) — this is a
+   harness/loader limit, not an engine ceiling. Polars' streaming engine and the
+   cudf-polars streaming executor are the larger-than-memory paths, not yet
+   benchmarked here.
 
 Run graph filters, k-hop neighborhoods, and PageRank directly on Python
 dataframes — no cluster required. This benchmark compares **GFQL**
@@ -242,45 +244,55 @@ Result-size parity per task: filter **308,666**; 1-hop **434,973**; 2-hop
 outright, the GPU wins PageRank by ~10x, and CPU-igraph PageRank falls further
 behind Spark (0.23x) as the graph grows.*
 
-Friendster (~1.8B edges) — the single-node ceiling, found honestly
-------------------------------------------------------------------
+Friendster (~1.8B edges) — our eager-load harness stops here; streaming is next
+--------------------------------------------------------------------------------
 
-Friendster (1,806,067,135 edges, 65.6M nodes) was the stretch target, and it
-found the ceiling this page keeps pointing at. On the same **119 GB** single
-node, **every engine we tested runs out of headroom at 1.8B edges** — the result
-is a documented wall, not a benchmark row:
+Friendster (1,806,067,135 edges, 65.6M nodes) was the stretch target. Every path
+we *ran* ran out of headroom on the **119 GB** node — but the honest framing is
+that this is where **our benchmark harness's eager, in-memory load** stops, **not
+a hard ceiling of the engines.** The harness reads the whole graph into memory up
+front (``pandas.read_parquet`` → a ~29 GB edge frame, plus a second ~29 GB pass to
+build the degree/node table) *before the query runs*; that materialization is what
+the OS kills.
 
 .. list-table::
    :header-rows: 1
-   :widths: 24 76
+   :widths: 26 74
 
-   * - Engine / path
+   * - Path (as configured in this harness)
      - Outcome at 1.8B edges on one 119 GB node
-   * - GFQL polars (CPU)
-     - **OOM at load.** The pandas edge frame (~29 GB) plus the degree/node-table
-       build (a second ~29 GB pass) peaks past physical RAM before the query
-       runs. Killed by the OS.
-   * - GFQL polars-gpu (GPU)
-     - **Exceeds unified memory.** Even a lean cudf-direct load (edges only, no
-       pandas degree table) drives the 119 GB unified pool into swap during the
-       1.8B-row read; no clean steady-state timing is obtainable on this node.
+   * - GFQL polars (CPU), eager load
+     - **OOM in the load**, before the query: the pandas edge frame + degree build
+       peak past physical RAM. The *query* engine never runs.
+   * - GFQL polars-gpu (GPU), eager cudf load
+     - **Exceeds memory in the load**: even a lean cudf-direct edge read drives the
+       119 GB unified pool into swap. The in-memory GPU executor is not the
+       larger-than-memory path (see below).
    * - GraphFrames (local[*])
      - **Swap-thrash.** A ``local[*]`` driver with a 90 GB heap on a 1.8B-edge
-       GraphFrame saturates memory and thrashes; the run does not finish in a
-       usable time on a single box.
+       GraphFrame saturates memory and does not finish in usable time on one box.
 
-This is the boundary, stated plainly: **1.8B edges is past what a single 119 GB
-node holds for any of these engines.** It is exactly the "when to go back to a
-cluster — or a bigger / multi-GPU node" line from earlier. The honest read of
-LiveJournal (35M) and Orkut (117M) is that GFQL wins decisively *while the graph
-fits one node* — comfortably through ~10^8 edges here — and the right next step
-above that is more memory (a larger unified-memory or multi-GPU host) or a
-distributed engine, not a heroic single-node run. We report the failure rather
-than quietly dropping the dataset.
+**What we did *not* run — the larger-than-memory paths that exist.** GFQL's Polars
+engine already ships opt-in streaming escape hatches, and this harness did not use
+them:
 
-*Reproducing at this scale needs either a larger-memory node or an
-out-of-core / multi-GPU loader; a streaming cudf/dask-cudf loader for GFQL is
-tracked as future work.*
+- **CPU:** ``GFQL_POLARS_CPU_STREAMING=1`` collects the plan with Polars' streaming
+  engine (batched, spills to disk), parity-identical to the default. Paired with a
+  **lazy** source (``pl.scan_parquet`` instead of an eager ``pandas.read_parquet``),
+  the 1.8B-edge input is never fully materialized.
+- **GPU:** ``GFQL_POLARS_GPU_EXECUTOR=streaming`` selects the cudf-polars *streaming*
+  executor — explicitly the escape hatch for **larger-than-device-memory** results,
+  where the default in-memory executor would OOM.
+
+Both are **off by default** because in-scope GFQL graphs/results fit in memory and
+streaming regresses small/interactive sizes — the right default for the 35M–117M
+regime this page measures. What we have *not yet* done is wire a lazy
+``scan_parquet`` ingestion path through GFQL and benchmark the streaming collect at
+1.8B; that is the correct larger-than-memory test (comparable to Ladybug's
+out-of-core mode and to a Spark cluster) and is **tracked as follow-up work**, not a
+limitation we're conceding. So: GFQL wins decisively *in-memory* through ~10^8 edges
+here; at ~10^9 the question is streaming-vs-out-of-core-vs-cluster, which we will
+measure rather than assert.
 
 Why this matters
 ----------------
@@ -297,14 +309,17 @@ When the workload shifts to whole-graph analytics like PageRank, the GPU engine
 engine's PageRank is a convenience for when no GPU is present, not a performance
 claim.
 
-**When to go back to Spark.** GFQL is a single-node engine: it wins while the
-graph — and its intermediates — fit in one machine's memory (here, 119 GB
-unified host/GPU memory comfortably holds Orkut's 117M edges, and Friendster's
-1.8B edges is the stress test). Once a graph genuinely exceeds one node's RAM,
-or you are already running on a managed Spark cluster where the data lives, a
-distributed engine is the right tool and these single-node numbers do not
-transfer. This benchmark is about the single-node regime, not a claim that GFQL
-replaces a cluster at every scale.
+**When to go back to Spark.** These *in-memory* numbers hold while the graph and
+its intermediates fit in one machine's memory (here, 119 GB unified host/GPU
+memory comfortably holds Orkut's 117M edges). Above that, GFQL has two moves
+before a cluster: Polars' **streaming engine** (``GFQL_POLARS_CPU_STREAMING=1``,
+disk-spill) and the **cudf-polars streaming executor**
+(``GFQL_POLARS_GPU_EXECUTOR=streaming``, larger-than-device-memory) — both
+opt-in, both untested at 1.8B here (see the Friendster section). A managed Spark
+cluster is the right tool when the data already lives there, or when the graph
+outgrows even streaming on one node. This page measures the in-memory single-node
+regime; it does not claim GFQL replaces a cluster at every scale, nor that
+one node is a hard ceiling.
 
 Fairness and caveats (documented, not hidden)
 ---------------------------------------------
@@ -333,10 +348,14 @@ that favors or disfavors either side:
   ρ = 1.00, top-100 overlap 100/100 — ``bench_graphframes_pagerank_parity.json``),
   not per-iteration cost — the algorithms converge to the same ranking at
   different cost.
-- **Single-node memory ceiling.** These results assume the graph fits in one
-  node's RAM. GFQL does not spill to disk or shard across machines; above the
-  memory ceiling a distributed engine is the correct tool (see "When to go back
-  to Spark" above). We report the host memory (119 GB) so the ceiling is explicit.
+- **In-memory by default (streaming is opt-in).** These results are the default
+  *in-memory* configuration, which assumes the graph fits in one node's RAM — the
+  regime this page measures. GFQL does **not** shard across machines, but it *can*
+  spill to disk / stream: Polars' streaming engine
+  (``GFQL_POLARS_CPU_STREAMING=1``) and the cudf-polars streaming executor
+  (``GFQL_POLARS_GPU_EXECUTOR=streaming``) are larger-than-memory paths, off by
+  default and not exercised in these numbers. We report the host memory (119 GB)
+  so the in-memory envelope is explicit.
 - **Runs are blocked, not interleaved.** On this shared box, GFQL and
   GraphFrames were run in separate blocks (all GFQL cells, then all GraphFrames
   cells), not interleaved, and only medians are retained per cell. Validation and
