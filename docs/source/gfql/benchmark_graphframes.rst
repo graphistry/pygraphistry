@@ -113,6 +113,8 @@ graphs carry no attributes, so ``degree`` is precomputed at cold-load (charged
 to load, not to the query, for *both* systems) and used as the natural
 threshold column.
 
+.. doc-test: skip
+
 .. code-block:: python
 
    # GFQL
@@ -132,6 +134,8 @@ trivial on both.
 --------------------------------------------
 
 Undirected 1-hop expansion from a fixed 50-node high-degree seed set.
+
+.. doc-test: skip
 
 .. code-block:: python
 
