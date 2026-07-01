@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from typing import Literal, Optional, Tuple, Union
 
 
+# INVARIANT: keep every node deeply immutable (scalar/tuple fields only) — parse_cypher
+# shares results by reference via lru_cache, so a mutable field would poison cache hits.
 @dataclass(frozen=True)
 class SourceSpan:
     line: int

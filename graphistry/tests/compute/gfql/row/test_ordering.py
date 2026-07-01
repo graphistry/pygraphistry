@@ -5,6 +5,7 @@ import pytest
 
 from graphistry.compute.ast import limit, order_by, rows, select
 from graphistry.compute.exceptions import GFQLTypeError
+from graphistry.compute.gfql.row.ordering import order_detect_temporal_mode
 from graphistry.tests.test_compute import CGFull
 
 
@@ -193,3 +194,119 @@ def test_row_pipeline_order_by_multi_key_stringified_list_with_scalar() -> None:
     assert result["num"].tolist() == [20, 10, 15, 5]
     leaked = [c for c in result.columns if "__gfql_sort_listparsed" in str(c)]
     assert leaked == [], f"aux columns leaked: {leaked}"
+
+
+@pytest.mark.parametrize(
+    "series",
+    [
+        pd.Series([1, 2, 3], dtype="int64"),
+        pd.Series([1, 2, 3], dtype="uint32"),
+        pd.Series([1.5, 2.5], dtype="float64"),
+        pd.Series([True, False], dtype="bool"),
+    ],
+    ids=["int64", "uint32", "float64", "bool"],
+)
+def test_order_detect_temporal_mode_skips_non_text_dtypes(series: pd.Series) -> None:
+    # Numeric/bool columns can never hold temporal *text*; the detector must
+    # short-circuit without the astype(str) + multi-regex scan (issue #1650).
+    assert order_detect_temporal_mode(series) is None
+
+
+def test_order_detect_temporal_mode_still_detects_text_temporals() -> None:
+    # Gate must not regress detection on object/string columns.
+    assert order_detect_temporal_mode(pd.Series(["2020-01-01", "2020-02-02"], dtype="object")) == "date"
+    assert order_detect_temporal_mode(pd.Series(["abc", "def"], dtype="object")) is None
+
+
+def test_where_rows_numeric_filter_returns_correct_rows() -> None:
+    # End-to-end: a numeric where_rows comparison still filters correctly with the
+    # temporal-detection gate in place.
+    nodes_df = pd.DataFrame({"id": [0, 1, 2, 3], "val": [10, 60, 51, 99]})
+    edges_df = pd.DataFrame({"s": [0, 1], "d": [2, 3]})
+    from graphistry.compute.ast import where_rows
+
+    out = _mk_graph(nodes_df, edges_df).gfql([rows(), where_rows(expr="val > 50")])._nodes
+    assert sorted(out["val"].tolist()) == [51, 60, 99]
+
+
+@pytest.mark.skipif("TEST_CUDF" not in __import__("os").environ, reason="cuDF lane: set TEST_CUDF=1 (e.g. dgx-spark)")
+def test_where_rows_numeric_filter_returns_correct_rows_cudf() -> None:
+    # cuDF lane for the numeric dtype-gate end-to-end path: the gate is pure
+    # dtype.kind inspection (engine-agnostic), but compute/gfql/row needs paired
+    # cuDF coverage per the review conventions.
+    cudf = pytest.importorskip("cudf")
+    from graphistry.compute.ast import where_rows
+    nodes_df = cudf.DataFrame({"id": [0, 1, 2, 3], "val": [10, 60, 51, 99]})
+    edges_df = cudf.DataFrame({"s": [0, 1], "d": [2, 3]})
+    out = CGFull().nodes(nodes_df, "id").edges(edges_df, "s", "d").gfql(
+        [rows(), where_rows(expr="val > 50")])._nodes
+    assert sorted(out["val"].to_pandas().tolist()) == [51, 60, 99]
+
+
+@pytest.mark.parametrize(
+    "series",
+    [
+        pd.Series([1, 2, 3], dtype="int64"),
+        pd.Series([1, 2, 3], dtype="uint32"),
+        pd.Series([1.0, 2.0], dtype="float64"),
+        pd.Series([True, False], dtype="bool"),
+    ],
+    ids=["int64", "uint32", "float64", "bool"],
+)
+def test_gfql_series_is_list_like_skips_non_listable_dtypes(series: pd.Series) -> None:
+    # pipeline.py sibling of the ordering gate: numeric/bool columns can never be
+    # list-like, so the detector short-circuits before the astype(str)+regex scan.
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+    assert RowPipelineMixin._gfql_series_is_list_like(series) is False
+
+
+def test_gfql_series_is_list_like_still_detects_real_lists() -> None:
+    # Gate must not regress detection of real list/tuple-valued object columns.
+    # (Stringified lists like "[1, 2]" are intentionally NOT list-like here — that
+    # case is handled by order_detect_stringified_list_series, not this helper.)
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+    assert RowPipelineMixin._gfql_series_is_list_like(pd.Series([[1, 2], [3, 4]], dtype="object")) is True
+    assert RowPipelineMixin._gfql_series_is_list_like(pd.Series(["[1, 2]", "[3, 4]"], dtype="object")) is False
+    assert RowPipelineMixin._gfql_series_is_list_like(pd.Series(["abc", "def"], dtype="object")) is False
+
+
+@pytest.mark.parametrize(
+    "dtype_str,expected",
+    [
+        ("int64", True), ("uint32", True), ("int8", True), ("float32", True),
+        ("float64", True), ("bool", True), ("complex128", True),
+        ("object", False), ("datetime64[ns]", False), ("timedelta64[ns]", False),
+        ("<U5", False),
+    ],
+)
+def test_is_non_textual_scalar_dtype(dtype_str: str, expected: bool) -> None:
+    # Single source of truth for the #1650/#1651 dtype gate (shared by ordering,
+    # pipeline, and cypher result post-processing).
+    import numpy as np
+    from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
+    assert is_non_textual_scalar_dtype(np.dtype(dtype_str)) is expected
+
+
+def test_is_non_textual_scalar_dtype_none() -> None:
+    from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
+    assert is_non_textual_scalar_dtype(None) is False
+
+
+def test_dtype_gate_kind_set_matches_filter_by_dict_mirror() -> None:
+    """Drift guard: `filter_by_dict._is_numeric_dtype_safe` keeps a SEPARATE copy of
+    the dtype-kind set that `series_str_compat._NON_TEXTUAL_SCALAR_KINDS` is the SSOT
+    for (a cross-layer import would risk an import cycle, so the copy stays — but it
+    MUST NOT drift). Assert the two agree across every numpy dtype kind, so a future
+    edit to one set fails here instead of silently desyncing the gate."""
+    import numpy as np
+    from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
+    from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe
+    # One representative dtype per numpy kind, incl. text/temporal/extension kinds.
+    samples = [
+        np.dtype("int64"), np.dtype("uint8"), np.dtype("float64"), np.dtype("bool"),
+        np.dtype("complex128"), np.dtype("object"), np.dtype("datetime64[ns]"),
+        np.dtype("timedelta64[ns]"), np.dtype("<U5"), np.dtype("S3"),
+    ]
+    for dt in samples:
+        assert is_non_textual_scalar_dtype(dt) == _is_numeric_dtype_safe(dt), \
+            f"dtype-gate kind set drift for {dt!r}: SSOT and filter_by_dict mirror disagree"
