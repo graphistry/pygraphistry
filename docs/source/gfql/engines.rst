@@ -201,15 +201,33 @@ benchmarked** rather than guess.
      - **not benchmarked** — expect order-of-magnitude headroom qualitatively (no measured
        head-to-head).
      - Fine for small/interactive graphs; GFQL is the columnar/GPU path when they grow.
+   * - **Spark GraphFrames**
+     - *Distributed* graph engine on a Spark cluster; provision + tune the cluster.
+     - GFQL is *single-node* (CPU or one GPU): 100M+ edges in-process on **one machine**,
+       no cluster to stand up, interactive latency — and a single GPU often matches or beats
+       a Spark cluster on read-heavy traversal + PageRank at a fraction of the cost.
+       *Head-to-head not yet published.*
+     - Reach for GraphFrames when the graph genuinely exceeds one machine's memory. Motif /
+       triangle / multi-way-join queries **run** in GFQL but are not yet perf-benchmarked.
+   * - **PuppyGraph**
+     - Graph query layer *over your warehouse tables in place* (zero-ETL, query pushdown).
+     - GFQL adds GPU/CPU graph **analytics PuppyGraph does not offer — PageRank, centrality,
+       community** — on a pulled subgraph, in one pipeline. *No head-to-head yet.*
+     - **Complement:** use PuppyGraph for ad-hoc graph SQL across the whole warehouse; pull the
+       relevant subgraph into GFQL when you need GPU-accelerated analytics on it.
 
 GFQL **complements** a graph database more than it replaces one: keep Neo4j or Kuzu as the
 system-of-record, and do the read-heavy search + analytics in GFQL so ETL, traversal, and
 scoring stay in one in-process dataframe pipeline. Route by shape — **selective** seeded
 lookups favor the GFQL index (up to 28× Kuzu, 16.9× Neo4j on 2-hop), **bulk** frontier
 expansion and full pipelines favor Polars / GPU (22–87× Kuzu; **46–56× Neo4j** on the
-filter→PageRank→filter pipeline). The one case we explicitly **do not** claim is
-cyclic / multi-way-join patterns (triangles, cliques), where Kuzu's worst-case-optimal
-joins can beat a dataframe plan.
+filter→PageRank→filter pipeline). Against the **distributed** engines the axis is different:
+GFQL trades horizontal scale-out for zero cluster/warehouse setup and interactive latency —
+choose it below the single-machine ceiling (100M+ edges fit in-process; a cluster is only
+needed once the graph genuinely exceeds one node's memory), and complement PuppyGraph's
+zero-ETL warehouse graph with GFQL's GPU analytics. The one case we explicitly **do not**
+claim is cyclic / multi-way-join patterns (triangles, cliques): they **run**, but Kuzu's
+worst-case-optimal joins can beat a dataframe plan there and we have not yet perf-tuned them.
 
 Decision matrix
 ---------------
