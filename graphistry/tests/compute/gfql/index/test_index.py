@@ -135,6 +135,30 @@ def test_index_policy_force_and_explain(graph, engine):
     assert _sig(r_scan) == _sig(r_force)
 
 
+@pytest.mark.parametrize("engine", ENGINES)
+def test_cost_gate_engine_aware_never_loses_to_scan(engine):
+    """F1: the index-vs-scan crossover depends on scan speed, so the cost gate
+    (maybe_index_hop) is engine-aware. A mid-frontier seeded hop (~frac 0.25 of source
+    keys) still beats the slow pandas scan (→ index path) but would lose to the fast
+    vectorized scan on polars/cudf/GPU (→ scan fallback), so a resident index never
+    runs slower than the un-indexed path. Result is identical on either path."""
+    from graphistry.compute.gfql.index import index_trace
+    rng = np.random.default_rng(1)
+    N, deg = 4000, 8
+    m = N * deg
+    edf = pd.DataFrame({"src": rng.integers(0, N, m), "dst": rng.integers(0, N, m)})
+    ndf = pd.DataFrame({"id": np.arange(N)})
+    g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+    seeds = pd.DataFrame({"id": np.arange(N // 4, dtype=np.int64)})  # frac ~0.25 of n_keys (~N)
+    gi = g.gfql_index_all(engine=engine)
+    with index_trace() as steps:
+        out = gi.hop(nodes=seeds, engine=engine, hops=1, direction="forward")
+    took_index = any(s.get("path") == "index" for s in steps)
+    assert took_index is (engine == "pandas"), (engine, steps)  # vectorized engines → scan
+    scan_out = g.hop(nodes=seeds, engine=engine, hops=1, direction="forward")  # no resident index
+    assert _sig(out) == _sig(scan_out), engine  # correctness path-independent
+
+
 def test_column_mismatch_raises_not_silent(graph):
     # A custom column that doesn't match the binding must raise, not silently no-op.
     with pytest.raises(NotImplementedError):
