@@ -334,12 +334,9 @@ def maybe_index_hop(
         except Exception:
             pass
 
-    def _bail(reason: str, extra: Optional[dict] = None) -> Optional[Plottable]:
+    def _bail(reason: str) -> Optional[Plottable]:
         if trace:
-            rec = {**diag, "path": "scan", "decision_reason": reason}
-            if extra:
-                rec.update(extra)
-            _record(rec)
+            _record({**diag, "path": "scan", "decision_reason": reason})
         return None
 
     if policy == "off":

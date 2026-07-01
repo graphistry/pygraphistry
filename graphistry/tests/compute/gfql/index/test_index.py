@@ -161,6 +161,58 @@ def test_explain_exposes_planner_diagnostics(graph, engine):
     assert rep_off["decision_reason"] == "policy=off", rep_off
 
 
+def test_seed_diagnostic_helpers_are_robust():
+    """LP1 helpers degrade to None instead of crashing on odd inputs (they run under
+    the explain trace and must never take down a real query)."""
+    from graphistry.compute.gfql.index.api import _seed_id_array, _seed_deg_sum
+
+    class _Col:  # a seed column with .values but no .to_numpy() (fallback branch)
+        values = np.array([1, 2, 3])
+
+    class _Frame:
+        def __getitem__(self, k):
+            return _Col()
+
+    assert list(_seed_id_array(_Frame(), "id")) == [1, 2, 3]
+    assert _seed_id_array(None, "id") is None  # nodes[None] raises → None, not a crash
+
+    class _BadIdx:  # missing keys_sorted/group_offsets → None, not AttributeError
+        pass
+
+    assert _seed_deg_sum(_BadIdx(), np.array([0, 1])) is None
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_explain_decision_reasons_for_scan_fallbacks(engine):
+    """LP1: when the planner declines the index it records *why*, so a silent scan is
+    diagnosable. Covers the two fall-back branches: (a) a frontier past the cost gate,
+    (b) a query the index doesn't cover (min_hops>1)."""
+    from graphistry.compute.gfql.index import index_trace
+    rng = np.random.default_rng(2)
+    N, deg = 1000, 6
+    edf = pd.DataFrame({"src": rng.integers(0, N, N * deg), "dst": rng.integers(0, N, N * deg)})
+    ndf = pd.DataFrame({"id": np.arange(N)})
+    g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+    gi = g.gfql_index_all(engine=engine)
+
+    # (a) cost-gate fallback: frontier = all keys >> frac*n_keys → scan, with a reason
+    allseeds = pd.DataFrame({"id": np.arange(N, dtype=np.int64)})
+    with index_trace() as steps:
+        gi.hop(nodes=allseeds, engine=engine, hops=1, direction="forward")
+    assert any("scan cheaper" in (s.get("decision_reason") or "") for s in steps), (engine, steps)
+    assert not any(s.get("path") == "index" for s in steps), (engine, steps)
+
+    # (b) not-coverable fallback: a feature outside the index fast path (zero-hop seed).
+    # pandas-only: the Phase-1 polars hop rejects these features at its own engine layer
+    # before the index planner is consulted, so the index "not-coverable" bail is
+    # reachable via the pandas hop path here.
+    if engine == "pandas":
+        few = pd.DataFrame({"id": np.arange(4, dtype=np.int64)})
+        with index_trace() as steps2:
+            gi.hop(nodes=few, engine=engine, hops=1, direction="forward", include_zero_hop_seed=True)
+        assert any(s.get("decision_reason") == "query not index-coverable" for s in steps2), (engine, steps2)
+
+
 @pytest.mark.parametrize("engine", ENGINES)
 def test_cost_gate_engine_aware_never_loses_to_scan(engine):
     """F1: the index-vs-scan crossover depends on scan speed, so the cost gate
