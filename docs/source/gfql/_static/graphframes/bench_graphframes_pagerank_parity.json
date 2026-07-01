@@ -1,0 +1,15 @@
+{
+  "n_common_vertices": 3997962,
+  "spearman": {
+    "igraph_vs_cugraph": 1.0,
+    "igraph_vs_graphframes": 1.0,
+    "cugraph_vs_graphframes": 1.0
+  },
+  "top100_overlap": {
+    "igraph_vs_cugraph": 100,
+    "igraph_vs_graphframes": 100,
+    "cugraph_vs_graphframes": 100
+  },
+  "dataset": "lj",
+  "note": "PageRank score agreement across engines; GraphFrames maxIter=20, igraph eps=1e-3, cugraph tol=1e-5"
+}
