@@ -173,8 +173,23 @@ pandas / cuDF). That is what makes the CPU-to-GPU switch a configuration
 flag (``engine="cudf"``) rather than a rewrite, and what keeps ETL, search,
 and analytics in the same in-process pipeline.
 
+**Same answer on every engine.** The CPU and GPU results above are not just
+comparable — they are *identical*. Differential parity across ``pandas`` /
+``polars`` / ``cudf`` / ``polars-gpu`` is a GFQL release gate: an engine either
+returns the same result or raises ``NotImplementedError`` — never a silently
+different answer. So the speedups here are a pure hardware/engine choice, not a
+change in what the query means.
+
+This page is one workload (a filter → PageRank → filter pipeline) against one
+external baseline (Neo4j+GDS). For the full four-engine picture — when Polars
+beats pandas on CPU, when the GPU pulls ahead, and how to choose — see
+:doc:`engines`. For sub-millisecond *seeded* lookups that beat Kuzu and Neo4j
+by 9–28×, see :doc:`index_adjacency`.
+
 For more on the GFQL design and supported surface:
 
+- :doc:`engines` — choosing pandas / Polars / cuDF / Polars-GPU
+- :doc:`index_adjacency` — seeded-traversal CSR adjacency index
 - :doc:`cypher` — Cypher syntax through ``g.gfql("MATCH ...")``
 - :doc:`overview` — GFQL design, features, and GPU acceleration
 - :doc:`about` — 10-minute introduction to GFQL
