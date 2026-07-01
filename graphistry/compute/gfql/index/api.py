@@ -21,6 +21,15 @@ from .traverse import index_seeded_hop
 
 REGISTRY_ATTR = "_gfql_index_registry"
 
+# Index-vs-scan crossover fraction (of distinct source keys): past this frontier a
+# full scan is cheaper than per-seed index probes, so `use` falls back to scan and
+# never loses to the un-indexed path. Engine-aware because vectorized-scan engines
+# (polars/cudf/GPU) scan far faster than pandas, so their crossover is much smaller
+# (F1). Measured N=1e5 deg8: pandas ~0.5, polars ~0.02. GPU values provisional
+# (dgx-gated) — conservatively grouped with polars.
+_COST_GATE_FRAC = {Engine.PANDAS: 0.5}
+_COST_GATE_FRAC_DEFAULT = 0.02
+
 # --- lightweight, thread-local index decision trace (for gfql_explain) -------
 import threading as _threading
 _TRACE = _threading.local()
@@ -315,7 +324,8 @@ def maybe_index_hop(
     elif policy != "force":
         try:
             frontier_n = int(nodes.shape[0])
-            if idx0.n_keys > 0 and frontier_n >= 0.5 * idx0.n_keys:
+            frac = _COST_GATE_FRAC.get(engine, _COST_GATE_FRAC_DEFAULT)
+            if idx0.n_keys > 0 and frontier_n >= frac * idx0.n_keys:
                 return None
         except Exception:
             pass
