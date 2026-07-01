@@ -136,6 +136,32 @@ def test_index_policy_force_and_explain(graph, engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+def test_explain_exposes_planner_diagnostics(graph, engine):
+    """LP1: gfql_explain surfaces the planner's cost signal — seed cardinality, the
+    free Σ-degree fanout estimate (from CSR group_offsets), chosen direction, the
+    cost-gate threshold, and a human-readable decision_reason — not just a used-index
+    yes/no. This is the EXPLAIN enrichment the indexing roadmap calls for."""
+    chain = [n({"id": 0}), e_forward(hops=1)]
+    # force → index path taken → per-step + top-level diagnostics populated
+    rep = graph.gfql_explain(chain, index_policy="force", engine=engine)
+    assert rep["used_index"] is True, (engine, rep)
+    assert rep["chosen_direction"] == "forward"
+    assert isinstance(rep["est_result_rows"], int) and rep["est_result_rows"] >= 0
+    assert "index" in (rep["decision_reason"] or ""), rep["decision_reason"]
+    step = next(s for s in rep["steps"] if s.get("path") == "index")
+    for k in ("frontier_n", "n_keys", "seed_deg_sum", "est_result_rows", "threshold_frac"):
+        assert k in step, (k, step)
+    assert step["est_result_rows"] == step["seed_deg_sum"]  # est == free Σ-degree
+    assert step["seed_deg_sum"] >= 0
+
+    # off (index resident) → the planner records *why* it scanned, not just that it did
+    gi = graph.gfql_index_all(engine=engine)
+    rep_off = gi.gfql_explain(chain, index_policy="off", engine=engine)
+    assert rep_off["used_index"] is False
+    assert rep_off["decision_reason"] == "policy=off", rep_off
+
+
+@pytest.mark.parametrize("engine", ENGINES)
 def test_cost_gate_engine_aware_never_loses_to_scan(engine):
     """F1: the index-vs-scan crossover depends on scan speed, so the cost gate
     (maybe_index_hop) is engine-aware. A mid-frontier seeded hop (~frac 0.25 of source
