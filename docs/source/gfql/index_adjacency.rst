@@ -30,15 +30,16 @@ Quick start
 .. code-block:: python
 
    import graphistry
+   from graphistry import n, e_forward, is_in
 
    g = graphistry.edges(edges_df, "src", "dst").nodes(nodes_df, "id")
 
    # Build the indexes once (out+in adjacency, plus a node-id accelerator when ids are unique)
    g = g.gfql_index_all()
 
-   # Seeded query — the index is used automatically (default index_policy='use')
-   out = g.gfql("MATCH (a)-[e]->(b) WHERE a.id IN $seeds RETURN a, e, b",
-                params={"seeds": my_seed_ids})
+   # Seeded traversal — the index is used automatically (default index_policy='use')
+   my_seed_ids = ["a", "b"]   # your seed node ids
+   out = g.gfql([n({"id": is_in(my_seed_ids)}), e_forward(), n()])
 
 ``gfql_index_all()`` is the one-liner. For finer control, build a single kind:
 
