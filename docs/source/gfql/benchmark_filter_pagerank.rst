@@ -30,7 +30,10 @@ no database required. This benchmark compares **Graphistry's local Cypher**
      - **3.33s**
      - **>56x**
 
-*Warm median of 5 runs, 2 warmup iterations. DGX dgx-spark, GB10 GPU.*
+*Pipeline time (search + PageRank + search), warm median of 5 runs, 2 warmup iterations. DGX
+dgx-spark, GB10 GPU. The per-graph sections below report full-lifecycle totals that also include
+one-time ETL/load — hence the slightly larger numbers there (e.g. GPlus GPU 3.33s pipeline vs
+~7.1s lifecycle).*
 
 The pipeline
 ------------
