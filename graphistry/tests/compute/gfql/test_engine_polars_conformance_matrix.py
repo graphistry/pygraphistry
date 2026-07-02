@@ -294,8 +294,6 @@ def test_conformance_cypher_expressions(label, query):
 def test_size_string_runs_natively_on_polars():
     """size(<String column>) MUST lower NATIVELY on polars (str.len_chars == pandas
     str.len) — not an (honest-but-lazy) NIE and not a silent pandas bridge."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _graph(4)
     q = "MATCH (n) RETURN n.id AS id, size(n.name) AS sz"
     base = _run(g, q, "pandas")
@@ -307,8 +305,6 @@ def test_size_string_runs_natively_on_polars():
 def test_substring_runs_natively_on_polars():
     """substring(<String>, start, length) with non-negative int literals MUST lower
     NATIVELY on polars (str.slice(offset, length) == pandas str.slice(start, start+length))."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _graph(4)
     q = "MATCH (n) RETURN n.id AS id, substring(n.name, 0, 4) AS sub"
     base = _run(g, q, "pandas")
@@ -321,8 +317,6 @@ def test_tofloat_string_honest_nie_polars():
     """toFloat(<non-numeric String>) RAISES on the pandas oracle (astype(float) fails) — NOT
     null-on-failure. polars MUST decline with an honest NIE rather than fabricate strict=False
     nulls. (Int/Float/Bool toFloat is native + parity — covered by the matrix tofloat_* cases.)"""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _graph(4)
     q = "MATCH (n) RETURN n.id AS id, toFloat(n.name) AS f"
     assert _run(g, q, "pandas")[0] != "ok", "pandas toFloat(non-numeric string) raises (not null-on-failure)"
@@ -333,8 +327,6 @@ def test_collect_aggregations_native_parity_polars():
     """collect(x) / collect(DISTINCT x) lower NATIVELY on polars and match pandas: drop nulls,
     preserve within-group order (collect keeps dups; distinct dedups keep-first), all-null group
     -> []. List cells normalized to python lists for the cross-engine compare."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     import pandas as pd
     e = pd.DataFrame({"s": [0, 1, 2, 3, 4, 5], "d": [1, 2, 3, 4, 5, 6],
                       "k": ["a", "a", "a", "b", "b", "c"], "v": ["x", "w", None, "y", "y", None]})
@@ -357,8 +349,6 @@ def test_size_list_runs_natively_on_polars():
     the already-native list-literal with_ so the operand dtype is List, and size is an
     element COUNT (order-invariant -> no cudf list-reorder exposure). Direct
     pandas-vs-polars: the intermediate List cell makes the generic sig fragile."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _graph(4)
     query = [
         n(), rows(),
@@ -379,8 +369,6 @@ def test_size_numeric_honest_nie_polars():
     """size() over a non-String / non-List column is NOT provably parity-equal — pandas
     falls through to len(series) = the ROW COUNT (a quirk). polars MUST decline with an
     honest NIE rather than replicate the quirk or crash."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _graph(4)
     q = "MATCH (n) RETURN n.id AS id, size(n.num) AS sz"
     assert _run(g, q, "pandas")[0] == "ok", "pandas size(numeric) returns the row-count quirk"
@@ -390,8 +378,6 @@ def test_size_numeric_honest_nie_polars():
 def test_substring_negative_start_honest_nie_polars():
     """Negative-start substring diverges (pandas Python-slice vs polars offset/length),
     so polars MUST decline with an honest NIE — never a silent wrong slice."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _graph(4)
     q = "MATCH (n) RETURN n.id AS id, substring(n.name, -2) AS sub"
     assert _run(g, q, "pandas")[0] == "ok", "pandas substring negative start = last-N chars"
@@ -401,8 +387,6 @@ def test_substring_negative_start_honest_nie_polars():
 # ---- NATIVE toInteger/toBoolean/toString: provable dtypes lower; the rest honest-NIE ----
 def test_tointeger_float_runs_natively_on_polars():
     """toInteger(<Float column>) MUST lower NATIVELY (truncate toward zero, NaN/null -> null)."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _graph(4)
     q = "MATCH (n) RETURN n.id AS id, toInteger(n.f) AS i"
     base = _run(g, q, "pandas")
@@ -413,8 +397,6 @@ def test_tointeger_float_runs_natively_on_polars():
 
 def test_tointeger_int_runs_natively_on_polars():
     """toInteger(<Int column>) MUST lower NATIVELY (identity cast)."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _graph(4)
     q = "MATCH (n) RETURN n.id AS id, toInteger(n.num) AS i"
     base = _run(g, q, "pandas")
@@ -425,8 +407,6 @@ def test_tointeger_int_runs_natively_on_polars():
 
 def test_toboolean_bool_runs_natively_on_polars():
     """toBoolean(<Boolean column>) MUST lower NATIVELY (identity, nulls preserved)."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _graph(4)
     q = "MATCH (n) RETURN n.id AS id, toBoolean(n.flag) AS b"
     base = _run(g, q, "pandas")
@@ -438,8 +418,6 @@ def test_toboolean_bool_runs_natively_on_polars():
 def test_tostring_bool_runs_natively_on_polars():
     """toString(<Boolean column>) MUST lower NATIVELY: polars casts Boolean to lowercase
     "true"/"false", matching the pandas astype(str)+rewrite."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _graph(4)
     q = "MATCH (n) RETURN n.id AS id, toString(n.flag) AS s"
     base = _run(g, q, "pandas")
@@ -450,8 +428,6 @@ def test_tostring_bool_runs_natively_on_polars():
 
 def test_tostring_int_runs_natively_on_polars():
     """toString(<Int column>) MUST lower NATIVELY (decimal digits identical)."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _graph(4)
     q = "MATCH (n) RETURN n.id AS id, toString(n.num) AS s"
     base = _run(g, q, "pandas")
@@ -463,8 +439,6 @@ def test_tostring_int_runs_natively_on_polars():
 def test_tostring_float_honest_nie_polars():
     """toString(<Float column>) is NOT provably parity-equal — float repr diverges across
     engines. pandas SUCCEEDS, so polars MUST decline with an honest NIE."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _graph(4)
     q = "MATCH (n) RETURN n.id AS id, toString(n.f) AS s"
     assert _run(g, q, "pandas")[0] == "ok", "pandas toString(float) formats the floats"
@@ -474,8 +448,6 @@ def test_tostring_float_honest_nie_polars():
 def test_tointeger_string_honest_nie_polars():
     """toInteger(<non-numeric String>) RAISES on the pandas oracle (astype(float) fails) — NOT
     null-on-failure. polars MUST decline with an honest NIE rather than fabricate strict=False nulls."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _graph(4)
     q = "MATCH (n) RETURN n.id AS id, toInteger(n.name) AS i"
     assert _run(g, q, "pandas")[0] != "ok", "pandas toInteger(non-numeric string) raises (not null-on-failure)"
@@ -597,8 +569,6 @@ def test_conformance_get_degrees_dag(label, binding):
 def test_get_degrees_runs_natively_on_polars():
     """get_degrees is pure groupby/count -> it MUST run NATIVELY under polars: NOT an
     (honest-but-lazy) NotImplementedError and NOT a silent pandas bridge."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _degrees_graph()
     base = _run(g, [call("get_degrees")], "pandas")
     res = _run(g, [call("get_degrees")], "polars")
@@ -647,8 +617,6 @@ def test_single_degree_runs_natively_on_polars(fn):
     """get_indegrees / get_outdegrees are pure single-direction groupby/count -> they MUST
     run NATIVELY under polars (parity with the pandas oracle), NOT an (honest-but-lazy)
     NotImplementedError and NOT a silent pandas bridge."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _degrees_graph()
     base = _run(g, [call(fn)], "pandas")
     res = _run(g, [call(fn)], "polars")
@@ -867,8 +835,6 @@ def test_conformance_list_literal_construction_native_polars():
     """A homogeneous-int list literal `[num, num+1, 99]` builds per-row NATIVELY on polars
     (pl.concat_list), ORDER preserved [e0,e1,e2], element-for-element parity-equal to the
     pandas oracle. Scoped pandas-vs-polars (cudf reorders list elements; orthogonal bug)."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _graph(8)
     query = [n(), rows(), with_([("vals", "[num, num + 1, 99]")], extend=True)]
     res = _run(g, query, "polars")
@@ -904,8 +870,6 @@ def test_conformance_in_membership(label, query):
 def test_in_membership_runs_natively_on_polars():
     """`x IN [non-null literals]` MUST lower NATIVELY on polars (result 'ok', not NIE) and
     match the pandas oracle — never a silent pandas bridge."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars not installed")
     g = _graph(1)
     query = [n(), rows(), with_([("hit", "num IN [1, 2, 3, 50, 51, 52]")], extend=True)]
     res = _run(g, query, "polars")

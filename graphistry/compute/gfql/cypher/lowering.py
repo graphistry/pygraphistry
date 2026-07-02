@@ -2325,8 +2325,10 @@ def _is_pure_count_star_shortcircuit(
     Guards the count_table fast path (skip the full-frame materialize + constant-
     key group_by): the count then equals the height (or source-mask sum) of the
     active table. Requires a lone non-DISTINCT ``count(*)`` with no group keys,
-    post-aggregate exprs, row-level WHERE, UNWIND, or multi-relationship binding,
-    and a plain ``rows(table=nodes|edges[, source])`` as the only prior step.
+    row-level WHERE, UNWIND, or multi-relationship binding, and a plain
+    ``rows(table=nodes|edges[, source])`` as the only prior step. Post-aggregate
+    exprs (``count(*) + 1``) compose fine: the count lands in a temp column and
+    the trailing ``select`` applies the expr, same as the group_by path.
     Sound only for a pure node scan (``relationship_count == 0``) or a single
     relationship counted on its edge alias (``relationship_count == 1`` with an
     ``ASTEdge`` active alias) — exactly the cases

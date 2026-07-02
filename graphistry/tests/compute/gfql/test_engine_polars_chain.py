@@ -280,7 +280,7 @@ def _rand_node_attr(rng):
     Uses ONLY predicates that agree pandas-vs-polars on NULL (eq/gt/between all EXCLUDE a null
     cell); ne() is deliberately excluded because pandas `!= x` KEEPS a NaN cell while polars
     (cypher 3-valued `null<>x`→null) drops it — a SEPARATE pre-existing predicate divergence
-    (see test_polars_ne_on_null_divergence_documented), not a min_hops concern."""
+    (see test_ne_on_null_is_three_valued_logic), not a min_hops concern."""
     r = rng.random()
     if r < 0.45:
         return n({"kind": rng.choice(["x", "y", "z"])})

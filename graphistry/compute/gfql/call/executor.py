@@ -185,8 +185,7 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             # the identical op. So under a polars engine, if the result frames are not already
             # polars, decline instead of bridging. (Native-polars row-pipeline calls — select etc. —
             # produce polars frames and pass through unchanged; pandas/cuDF engines are unaffected.)
-            from graphistry.Engine import Engine as _Eng
-            if engine in (_Eng.POLARS, _Eng.POLARS_GPU):
+            if engine in (Engine.POLARS, Engine.POLARS_GPU):
                 _res_nodes = getattr(result, '_nodes', None)
                 _res_edges = getattr(result, '_edges', None)
                 _probe = _res_nodes if _res_nodes is not None else _res_edges
