@@ -1379,22 +1379,46 @@ class RowPipelineMixin:
                 return True, float(math.ceil(inner) if use_ceil else math.floor(inner))
 
             if fn == "round" and len(values) in {1, 2}:
+                # neo4j tie-breaking (standards-vetted, #1673): precision 0 (or 1-arg)
+                # rounds ties toward +inf (round(-1.5) = -1.0); precision > 0 rounds ties
+                # away from zero (HALF_UP: round(-1.55, 1) = -1.6). numpy/pandas .round is
+                # half-to-even (round(2.5) -> 2.0) — a wrong answer vs the neo4j spec.
                 inner = values[0]
                 ndigits = int(values[1]) if len(values) == 2 else 0
                 if hasattr(inner, "astype"):
                     null_mask = self._gfql_null_mask(table_df, inner)
-                    out = inner.astype(float).round(ndigits)
+                    f = inner.astype(float)
+
+                    def _floor_series(s: Any) -> Any:
+                        if hasattr(s, "floor"):  # cuDF native
+                            return s.floor()
+                        import numpy as np
+                        return np.floor(s)
+
+                    if ndigits == 0:
+                        out = _floor_series(f + 0.5)
+                    else:
+                        scale = 10.0 ** ndigits
+                        shifted = f * scale
+                        sig = (shifted > 0).astype(float) - (shifted < 0).astype(float)
+                        out = _floor_series(shifted.abs() + 0.5) * sig / scale
                     return True, out.where(~null_mask, pd.NA)
                 if is_null_scalar(inner):
                     return True, None
-                return True, round(float(inner), ndigits)
+                x = float(inner)
+                if ndigits == 0:
+                    return True, float(math.floor(x + 0.5))
+                scale = 10.0 ** ndigits
+                return True, math.copysign(math.floor(abs(x * scale) + 0.5), x) / scale
 
-            # neo4j/openCypher toLower/toUpper (the idiomatic case-insensitive-match helper).
-            if fn in {"tolower", "toupper"} and len(values) == 1:
+            # neo4j/openCypher toLower/toUpper (the idiomatic case-insensitive-match helper),
+            # plus the GQL-conformance aliases lower/upper (ISO GQL §20.24; neo4j accepts both).
+            if fn in {"tolower", "toupper", "lower", "upper"} and len(values) == 1:
                 inner = values[0]
+                to_lower = fn in {"tolower", "lower"}
                 if hasattr(inner, "str"):
                     null_mask = self._gfql_null_mask(table_df, inner)
-                    out = inner.str.lower() if fn == "tolower" else inner.str.upper()
+                    out = inner.str.lower() if to_lower else inner.str.upper()
                     return True, out.where(~null_mask, pd.NA)
                 if is_null_scalar(inner):
                     return True, None
@@ -1403,7 +1427,7 @@ class RowPipelineMixin:
                     # too (no .str accessor): str(inner) would broadcast the lowercased
                     # Series REPR to every row — decline instead (dgx-repro'd).
                     return False, None
-                return True, inner.lower() if fn == "tolower" else inner.upper()
+                return True, inner.lower() if to_lower else inner.upper()
 
             if fn == "tofloat" and len(values) == 1:
                 inner = values[0]

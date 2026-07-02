@@ -127,14 +127,24 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
                     or isinstance(arg1.value, bool):
                 return None  # non-literal precision -> defer (honest NIE)
             ndigits = arg1.value
-        return args[0].cast(pl.Float64).round(ndigits)
-    if name in {"tolower", "toupper"} and len(args) == 1:
+        # neo4j tie-breaking (matches the pandas engine): precision 0 -> ties toward
+        # +inf (floor(x+0.5)); precision > 0 -> ties away from zero (HALF_UP).
+        # polars' .round default (half-to-even) would be a wrong answer vs the spec.
+        # Use the native mode= for p>0 (bit-exact; a manual scale/divide formula picks
+        # up 1-ulp noise from polars' reassociating optimizer).
+        x = args[0].cast(pl.Float64)
+        if ndigits == 0:
+            return (x + 0.5).floor()
+        return x.round(ndigits, mode="half_away_from_zero")
+    if name in {"tolower", "toupper", "lower", "upper"} and len(args) == 1:
+        # toLower/toUpper + GQL-conformance aliases lower/upper (as neo4j accepts both).
         # String-only like neo4j (type error there); a non-string column must decline —
         # pandas declines too, and bare .str here raised a non-NIE SchemaError on
         # polars-gpu (dgx-repro'd).
         if _expr_output_dtype(args[0]) != pl.String:
             return None
-        return args[0].str.to_lowercase() if name == "tolower" else args[0].str.to_uppercase()
+        to_lower = name in {"tolower", "lower"}
+        return args[0].str.to_lowercase() if to_lower else args[0].str.to_uppercase()
     if name == "size" and len(args) == 1:
         # size(x): #chars (String) or #elements (List) — different polars ops, so gate by output
         # dtype. str.len_chars == pandas str.len (code points); list.len parity; null/empty
