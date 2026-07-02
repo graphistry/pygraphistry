@@ -4620,7 +4620,7 @@ _ROW_PIPELINE_DISPATCH: Dict[str, Callable[..., "Plottable"]] = {
 
 # Row-pipeline ops with native polars implementations (frame-level only — no
 # cypher expression engine). Everything else falls back through the guard below
-# until lowered natively. See plans/gfql-polars-engine (Phase 2).
+# until lowered natively (no-silent-fallback policy).
 _POLARS_NATIVE_ROW_PIPELINE_CALLS = frozenset(
     {"rows", "skip", "limit", "distinct", "drop_cols"}
 )
@@ -4652,7 +4652,7 @@ def execute_row_pipeline_call(
         if unsupported:
             raise NotImplementedError(
                 f"polars row pipeline does not yet support op {function!r}; "
-                "use engine='pandas' for this query (see plans/gfql-polars-engine)"
+                "use engine='pandas' for this query"
             )
     adapter = _RowPipelineAdapter(g)
     method = _ROW_PIPELINE_DISPATCH[function]

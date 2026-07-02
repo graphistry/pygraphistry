@@ -266,7 +266,7 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     ``rows(binding_ops=...)`` rewrite. Each call runs natively on
     ``Engine.POLARS`` via ``_try_native_row_op``; an op with no native polars
     implementation raises ``NotImplementedError`` (NO pandas fallback — see
-    plan.md NO-CHEATING) rather than secretly running the pandas row pipeline.
+    the no-silent-fallback policy) rather than secretly running the pandas row pipeline.
     """
     from graphistry.compute.ast import ASTCall, ASTNode as _ASTNode, ASTEdge as _ASTEdge, rows as rows_fn
     from graphistry.compute.chain import serialize_binding_ops
@@ -301,7 +301,7 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
             raise NotImplementedError(
                 f"polars engine does not yet natively support cypher row op "
                 f"{getattr(op, 'function', op)!r}; use engine='pandas' for this query "
-                f"(no pandas fallback — see plans/gfql-polars-engine NO-CHEATING)"
+                f"(no pandas fallback; parity-or-error by design)"
             )
         g_cur = native
     return g_cur

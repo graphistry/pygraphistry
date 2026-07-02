@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from typing import Any, Dict, List, Optional, Union
 from typing_extensions import Literal
-from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, resolve_engine, df_to_engine, df_concat, safe_merge
+from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, POLARS_ENGINES, resolve_engine, df_to_engine, df_concat, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
@@ -86,7 +86,7 @@ def _coerce_input_formats(g: "Plottable", engine: Engine) -> "Plottable":
             if not has_cudf:
                 return True  # cudf unavailable — skip coercion; downstream handles gracefully
             return 'cudf' in type_mod
-        elif engine in (Engine.POLARS, Engine.POLARS_GPU):
+        elif engine in POLARS_ENGINES:
             return 'polars' in type_mod
         return True
 

@@ -171,7 +171,7 @@ def _apply_optional_null_fill(
             raise NotImplementedError(
                 "polars engine does not yet natively support this OPTIONAL MATCH "
                 "null-row fill alignment shape; use engine='pandas' for this query "
-                "(no pandas fallback — see plans/gfql-polars-engine NO-CHEATING)"
+                "(no pandas fallback; parity-or-error by design)"
             )
     matched_ids = _entity_projection_meta_entry(
         alignment_result,
@@ -1679,17 +1679,15 @@ def _chain_dispatch(
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
-    if chain_obj.where and engine in (
-        EngineAbstract.POLARS, "polars", Engine.POLARS,
-        EngineAbstract.POLARS_GPU, "polars-gpu", Engine.POLARS_GPU,
-    ):
+    engine_name = engine.value if hasattr(engine, "value") else str(engine)
+    if chain_obj.where and engine_name in (Engine.POLARS.value, Engine.POLARS_GPU.value):
         # Cross-entity / same-path WHERE routes through DFSamePathExecutor
         # (df_executor.py), which has no native polars implementation. NO pandas
-        # fallback (see plan.md NO-CHEATING) — raise honestly.
+        # fallback (no-silent-fallback policy) — raise honestly.
         raise NotImplementedError(
             "polars engine does not yet natively support cross-entity (same-path) "
             "WHERE; use engine='pandas' for this query "
-            "(no pandas fallback — see plans/gfql-polars-engine NO-CHEATING)"
+            "(no pandas fallback; parity-or-error by design)"
         )
     if chain_obj.where:
         if start_nodes is not None:

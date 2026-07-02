@@ -1,6 +1,6 @@
 """Lazy Polars hop — build ONE ``pl.LazyFrame`` plan, collect ONCE on the target.
 
-Mirrors the eager ``engine_polars.hop`` join logic but (a) unrolls the fixed-hop
+Mirrors the eager ``hop_eager`` join logic but (a) unrolls the fixed-hop
 BFS into a single lazy plan — the only data-dependent control flow in the eager
 loop is the ``frontier.height==0`` early-break, which merely *short-circuits*; for
 a fixed hop count the straight-line plan is equivalent (empty frontier → empty
@@ -135,7 +135,7 @@ def hop_polars_lazy(
 
     allowed_source = (
         _idframe_lf(
-            # Mirror the eager hop guard verbatim (engine_polars/hop.py): scope the
+            # Mirror the eager hop guard verbatim (hop_eager.py): scope the
             # source filter to the seed only for a single bounded hop. ``to_fixed_point``
             # is already declined upstream (always False here) — kept in the predicate so
             # the two copies stay textually identical and don't drift.

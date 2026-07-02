@@ -306,7 +306,7 @@ def df_concat(engine: Engine):
         return _pl_concat
     elif engine == Engine.DASK:
         raise NotImplementedError("DASK is an input format, not a compute engine — use engine='auto' or engine='pandas'")
-    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+    raise ValueError(f'Only engines pandas/cudf/polars supported, got: {engine}')
 
 
 def align_shared_column_dtypes(
@@ -380,7 +380,7 @@ def df_cons(engine: Engine):
     elif engine in POLARS_ENGINES:
         import polars as pl
         return pl.DataFrame
-    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+    raise ValueError(f'Only engines pandas/cudf/polars supported, got: {engine}')
 
 
 def df_unique(df, engine: Engine):
@@ -403,7 +403,7 @@ def s_cons(engine: Engine):
     elif engine in POLARS_ENGINES:
         import polars as pl
         return pl.Series
-    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+    raise ValueError(f'Only engines pandas/cudf/polars supported, got: {engine}')
 
 def s_sqrt(engine: Engine):
     if engine == Engine.PANDAS:

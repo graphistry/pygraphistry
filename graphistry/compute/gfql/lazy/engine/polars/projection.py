@@ -1,15 +1,15 @@
 """Native polars cypher result projection (Phase 2).
 
-Lives in ``engine_polars`` (not the pandas-audited ``cypher`` package) so the
+Lives in ``gfql.lazy.engine.polars`` (not the pandas-audited ``cypher`` package) so the
 polars-only rendering doesn't depress the pandas gfql coverage audit. Handles
 the result projection for ``engine='polars'``. The #1650 default (``structured=True``)
 FLATTENS a whole-entity ``RETURN n`` to ``{output}.{field}`` columns natively for ANY
 dtype (float/temporal/nested included — they just become columns, no rendering), so the
 common whole-entity case is native regardless of dtype. The legacy Cypher display-string
 rendering (``structured=False``) stays native only for single-entity int/string/bool
-nodes; it raises NotImplementedError (NO pandas bridge — see plan.md NO-CHEATING) for
+nodes; it raises NotImplementedError (NO pandas bridge — no-silent-fallback policy) for
 float/temporal/nested entity text, labels, multi-entity, edges, and exotic expressions.
-Differential-conformance gated. See plans/gfql-polars-engine.
+Differential-conformance gated. Differential parity vs pandas is the release gate.
 """
 from typing import Any, Optional
 
@@ -200,7 +200,7 @@ def apply_result_projection_polars(
 ) -> Plottable:
     """Native polars result projection, or honest NotImplementedError.
 
-    NO pandas fallback (see plan.md NO-CHEATING). ``structured=True`` (#1650
+    NO pandas fallback (no-silent-fallback policy). ``structured=True`` (#1650
     default) flattens whole-entity returns to ``{output}.{field}`` columns (any
     dtype, near-free); ``structured=False`` renders the legacy Cypher display
     string natively for int/string/bool single-entity nodes. Multi-entity
@@ -215,5 +215,5 @@ def apply_result_projection_polars(
         "polars engine does not yet natively render this cypher result projection "
         "(whole-entity RETURN over float/temporal/nested/label/multi-entity columns); "
         "use engine='pandas' for this query "
-        "(no pandas fallback — see plans/gfql-polars-engine NO-CHEATING)"
+        "(no pandas fallback; parity-or-error by design)"
     )

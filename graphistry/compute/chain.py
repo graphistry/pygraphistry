@@ -1,6 +1,6 @@
 import logging
 from typing import Any, Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
-from graphistry.Engine import Engine, EngineAbstract, align_shared_column_dtypes, df_concat, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_na
+from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, align_shared_column_dtypes, df_concat, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_na
 from graphistry.compute.dataframe_utils import dbg_df
 
 from graphistry.Plottable import Plottable
@@ -799,16 +799,16 @@ def chain(
     engine_concrete_early = resolve_engine(engine, self)
     self = _coerce_input_formats(self, engine_concrete_early)
 
-    if engine_concrete_early in (Engine.POLARS, Engine.POLARS_GPU):
+    if engine_concrete_early in POLARS_ENGINES:
         # Native polars chain lives in a dedicated dispatched module so the
         # production pandas/cuDF orchestration below stays untouched (see
-        # plans/gfql-polars-engine). Correctness gated by differential parity.
+        # no-silent-fallback policy). Correctness gated by differential parity.
         # POLARS_GPU = the same lazy engine with the GPU execution target.
         if validate_schema:
             Chain(ops if not isinstance(ops, Chain) else ops.chain).validate(collect_all=False)
         from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
         from graphistry.compute.gfql.lazy import target_mode, ExecutionTarget
-        # NO pandas fallback here (see plan.md NO-CHEATING): chain_polars raises
+        # NO pandas fallback here (no-silent-fallback policy): chain_polars raises
         # NotImplementedError for deferred features (var-length/multi-hop edges,
         # undirected multi-edge); that honest signal propagates to the caller.
         _tgt = ExecutionTarget.GPU if engine_concrete_early == Engine.POLARS_GPU else ExecutionTarget.CPU

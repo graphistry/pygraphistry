@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union, cast
 import pandas as pd
 
 from graphistry.Engine import (
-    EngineAbstract, align_shared_column_dtypes, df_concat, df_cons, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_series, s_to_numeric, s_na, Engine
+    EngineAbstract, POLARS_ENGINES, align_shared_column_dtypes, df_concat, df_cons, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_series, s_to_numeric, s_na, Engine
 )
 from graphistry.Plottable import Plottable
 from graphistry.otel import otel_traced, otel_detail_enabled
@@ -109,10 +109,10 @@ def hop(self: Plottable,
     from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
     self = _coerce_input_formats(self, engine_concrete)
 
-    if engine_concrete in (Engine.POLARS, Engine.POLARS_GPU):
+    if engine_concrete in POLARS_ENGINES:
         # Native polars traversal lives in a dedicated dispatched module so the
         # production pandas/cuDF internals below stay untouched (see
-        # plans/gfql-polars-engine). Correctness gated by differential parity.
+        # no-silent-fallback policy). Correctness gated by differential parity.
         # LAZY engine first (one plan, collect-once on the active target); it
         # returns None for cases it doesn't cover -> fall back to the eager hop.
         # POLARS_GPU = the same lazy engine with the GPU execution target.

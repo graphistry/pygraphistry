@@ -147,7 +147,7 @@ def filter_by_dict_polars(df, filter_dict: Optional[dict]):
                 raise NotImplementedError(
                     f"polars engine does not yet natively support a numeric-vs-string "
                     f"comparison on column {resolved_col!r}; use engine='pandas' for this "
-                    f"query (no pandas fallback — see plans/gfql-polars-engine NO-CHEATING)"
+                    f"query (no pandas fallback; parity-or-error by design)"
                 )
             expr = predicate_to_expr(resolved_col, resolved_val)
             if expr is None:
@@ -158,7 +158,7 @@ def filter_by_dict_polars(df, filter_dict: Optional[dict]):
                     f"polars engine does not yet natively support the "
                     f"{type(resolved_val).__name__} predicate on column "
                     f"{resolved_col!r}; use engine='pandas' for this query "
-                    f"(no pandas fallback — see plans/gfql-polars-engine NO-CHEATING)"
+                    f"(no pandas fallback; parity-or-error by design)"
                 )
             exprs.append(expr)
         elif _is_membership(resolved_val):
@@ -177,7 +177,7 @@ def filter_by_dict_polars(df, filter_dict: Optional[dict]):
                 raise NotImplementedError(
                     f"polars engine does not yet natively support comparing the List "
                     f"column {resolved_col!r} to a scalar; use engine='pandas' "
-                    f"(no pandas fallback — see plans/gfql-polars-engine NO-CHEATING)"
+                    f"(no pandas fallback; parity-or-error by design)"
                 )
         else:
             exprs.append(pl.col(resolved_col) == resolved_val)

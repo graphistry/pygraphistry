@@ -293,9 +293,9 @@ def apply_result_projection(
     (which still assumes a single-column entity value) opts out via this flag until
     it is unified onto the structured path.
 
-    For ``engine='polars'`` the native projection lives in engine_polars (not this
+    For ``engine='polars'`` the native projection lives in gfql.lazy.engine.polars (not this
     pandas-audited module); it renders natively or raises NotImplementedError — NO
-    pandas bridge (see plans/gfql-polars-engine NO-CHEATING).
+    pandas bridge (no-silent-fallback policy).
     """
     rows_df = getattr(result, "_nodes", None)
     if rows_df is not None and "polars" in type(rows_df).__module__:
