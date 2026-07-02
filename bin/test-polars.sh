@@ -28,3 +28,12 @@ if [ -n "${POLARS_COV:-}" ]; then
 fi
 
 python -B -m pytest -vv "${COV_ARGS[@]}" "${POLARS_TEST_FILES[@]}" "$@"
+
+# cypher-lowering polars-parametrized cases (round ties, lower/upper, =~, numeric fns);
+# appended into the same coverage data file when POLARS_COV=1 (CI audit reads it)
+COV_APPEND_ARGS=()
+if [ -n "${POLARS_COV:-}" ]; then
+    COV_APPEND_ARGS=(--cov=graphistry/compute --cov-report= --cov-append)
+fi
+python -B -m pytest -vv "${COV_APPEND_ARGS[@]}" \
+    graphistry/tests/compute/gfql/cypher/test_lowering.py -k polars
