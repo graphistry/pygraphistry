@@ -1751,6 +1751,28 @@ def drop_cols(cols: Iterable[str]) -> ASTCall:
     return ASTCall("drop_cols", {"cols": list(cols)})
 
 
+def count_table(
+    table: str = "nodes",
+    source: Optional[str] = None,
+    alias: str = "count(*)",
+) -> ASTCall:
+    """Count matched rows without materializing them (fast path for a lone ``count(*)``).
+
+    Emitted by the Cypher lowering when a RETURN is exactly ``count(*)`` over a
+    single node/edge pattern (no DISTINCT, GROUP BY, row-level WHERE, UNWIND,
+    paging, or multi-relationship binding). Produces a one-row table
+    ``{alias: n}`` where ``n`` is the height of the active ``table`` (or, when a
+    ``source`` alias-mask column is present, the count of its truthy rows). This
+    avoids the full-frame materialize + constant-key ``group_by`` the general
+    aggregate path performs — the win that turns count(*) from O(N) into a single
+    reduction. See plans/gfql-engine-followups (BEAT LADYBUG).
+    """
+    params: Dict[str, Any] = {"table": table, "alias": alias}
+    if source is not None:
+        params["source"] = source
+    return ASTCall("count_table", params)
+
+
 def group_by(
     keys: Iterable[str],
     aggregations: Iterable[Sequence[Any]],
