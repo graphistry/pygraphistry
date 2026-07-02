@@ -3,14 +3,14 @@
 Seeded queries are cheap once indexed, so explain *executes* the query under a
 decision trace and reports the real per-hop index-vs-scan path (plus resident
 indexes). This makes "it silently scanned" detectable and assertable rather than
-a mystery — the top human-factors need from the design review (P0-1).
+a mystery — the top human-factors need from the design review.
 """
 from __future__ import annotations
 
 from typing import Any, Dict, cast
 
 from graphistry.Engine import resolve_engine
-from .api import index_trace, get_registry, show_indexes
+from .api import index_trace, show_indexes
 
 
 def gfql_explain(g: Any, query: Any, *, index_policy: str = "use", engine: str = "auto") -> Dict[str, Any]:

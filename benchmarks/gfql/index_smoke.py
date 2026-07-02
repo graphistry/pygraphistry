@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Differential parity smoke test for GFQL physical indexes.
 
+Container-runnable MIRROR of graphistry/tests/compute/gfql/index/test_index.py
+(the pytest suite is canonical); kept for quick in-container smoke without pytest.
+
 Oracle: the index fast path MUST return the same subgraph (node-id set + edge
 multiset) as the scan/join path, across engines / directions / hops / wavefront.
 A fast wrong answer is not a win.

@@ -114,7 +114,9 @@ def degall(edf, engine, reps, warm):
         import polars as pl
         df = pl.from_pandas(edf)
         if engine == "polars-gpu":
-            eng = pl.GPUEngine(executor="in-memory", raise_on_fail=False)
+            # raise_on_fail=True: GPU-or-error — a silent CPU fallback would report
+            # CPU time as a polars-gpu result (banned; see the polars-gpu CHANGELOG fix)
+            eng = pl.GPUEngine(executor="in-memory", raise_on_fail=True)
             fn = lambda: df.lazy().group_by("src").len().collect(engine=eng)
         else:
             fn = lambda: df.group_by("src").len()

@@ -73,7 +73,7 @@ def index_seeded_hop(
 
     xp, _backend = array_namespace(engine)
 
-    # I6: do NOT narrow the seed to the index key dtype (a node-id int64 seed cast to
+    # Do NOT narrow the seed to the index key dtype (a node-id int64 seed cast to
     # an int32 edge-endpoint key wraps large ids → false match). lookup promotes both
     # sides to a common dtype; numpy/cupy set ops promote on concat. So we keep ids at
     # their natural width throughout and only ever widen.
@@ -130,7 +130,7 @@ def index_seeded_hop(
     if materialize_endpoints and int(all_rows.shape[0]) > 0:
         src_vals = col_to_array(out_edges, src, engine)
         dst_vals = col_to_array(out_edges, dst, engine)
-        endpoints = xp.unique(xp.concatenate([src_vals, dst_vals]))  # natural dtype (I6)
+        endpoints = xp.unique(xp.concatenate([src_vals, dst_vals]))  # natural dtype, never narrowed
         needed = union1d(needed, endpoints, xp)
 
     # Materialize node rows. Prefer the node_id index (O(result·log N) searchsorted
@@ -138,14 +138,14 @@ def index_seeded_hop(
     node_idx = registry.get_valid(NODE_ID, g._nodes, (node_col,), engine)
     if node_idx is not None:
         node_rows = lookup_node_rows(node_idx, needed, xp)
-        # I4: lookup returns rows in id-hit order; sort ascending so out_nodes keep
+        # lookup returns rows in id-hit order; sort ascending so out_nodes keep
         # the original .nodes table order (the index must never reorder .nodes).
         node_rows = xp.sort(node_rows)
         out_nodes = take_rows(g._nodes, node_rows, engine)
     else:
         out_nodes = select_by_ids(g._nodes, node_col, needed, engine)
 
-    # B3: the scan synthesizes a node row for EVERY edge endpoint, including ids
+    # The scan synthesizes a node row for EVERY edge endpoint, including ids
     # absent from the node table (compute/hop.py "Ensure all edge endpoints are
     # present in nodes"); the index only materializes existing rows. If any needed id
     # is missing from the materialized nodes, fall back to scan (return None) rather

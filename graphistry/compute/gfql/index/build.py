@@ -78,7 +78,7 @@ def build_node_id_index(
     row position per unique key (``row_positions[group_offsets[:-1]]``, length U,
     aligned with ``unique_keys``) and (b) REFUSE (return None) when ids aren't unique:
     a unique-key CSR can't reproduce the scan's "all rows per id" semantics, so the
-    caller falls back to the correct ``select_by_ids`` isin path. (B2: a non-unique
+    caller falls back to the correct ``select_by_ids`` isin path. (Regression guard: a non-unique
     node-id index dropped reached nodes / emitted unrelated rows.)"""
     xp, backend = array_namespace(engine)
     keys = col_to_array(nodes, node_col, engine)
