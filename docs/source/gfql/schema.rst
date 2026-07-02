@@ -73,6 +73,8 @@ check against.
    )
 
    g.gfql_validate("MATCH (p:Person)-[:WORKS_AT]->(c:Company) RETURN p.name")
+   assert g.schema is schema
+   assert g.schema is not None
 
 Schema Objects
 --------------
@@ -100,6 +102,22 @@ Schema Objects
   type for every edge type that declares it. Use separate column names when two
   labels or relationship types need incompatible values under the same property
   name.
+
+``g.schema``
+  Read back the experimental ``GraphSchema`` bound with ``bind(schema=...)``.
+  ``g.schema`` returns the bound object or ``None``. Use
+  ``g.schema is not None`` when only a predicate is needed. Use
+  ``bind(schema=...)`` to attach schemas, not assignment.
+  This is local declaration introspection only. It does not infer schemas from
+  data, fetch or hydrate remote dataset schemas, or serialize schemas into
+  ``gfql_remote()`` requests in this release.
+
+  Per-type declarations such as Cat, Dog, and Car are represented by
+  ``GraphSchema.node_types``. The stable public type identity is
+  ``NodeType.name``; ``NodeType.labels`` are the GFQL label predicates that map
+  onto label columns such as ``label__Cat``. For example, Cat and Dog can both
+  carry an ``Animal`` label while still preserving separate Cat and Dog
+  property contracts.
 
 ``NodeType.to_arrow()`` and ``EdgeType.to_arrow()``
   Export declarations as ``pyarrow.Schema`` objects through GFQL's row-schema
@@ -222,12 +240,17 @@ The public schema is consumed by local validation APIs, including:
 ``gfql_remote(...)`` is different. It compiles Cypher strings locally and sends
 the resulting GFQL wire payload to the server, but this release does **not**
 serialize a bound ``GraphSchema`` into remote GFQL requests. Remote execution
-therefore still depends on the server-side dataset schema and GFQL support. If
-you want declared schema checks before a remote call, run
+therefore still depends on the server-side dataset metadata and GFQL support. If
+you want local declared-schema checks before a remote call, run
 ``g.gfql_validate(query)`` locally first, then call ``g.gfql_remote(query)``.
 
 Remote schema transport is planned as a follow-on after the local schema
-contract and serialization boundary are stable.
+contract and serialization boundary are stable. The intended direction is a
+versioned graph-schema envelope derived from ``GraphSchema.to_arrow()``: exact
+Arrow schemas for merged node/edge tables and per-type declarations, plus a
+JSON summary for dataset metadata, UI, and REST consumers. That future transport
+should live beside ``gfql_query`` / ``gfql_operations`` rather than as fake data
+tables.
 
 Compatibility Notes
 -------------------

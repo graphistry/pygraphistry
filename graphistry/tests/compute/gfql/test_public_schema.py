@@ -333,8 +333,32 @@ def test_bind_schema_is_chainable_and_used_by_preflight() -> None:
     g = _graph(schema).bind(point_color="name")
 
     assert g._gfql_schema is schema
+    assert g.schema is schema
     report = g.gfql_validate("MATCH (p:Person)-[:WORKS_AT]->(c:Company) RETURN p.name AS name")
     assert report["ok"] is True
+
+
+def test_schema_accessor_returns_bound_schema() -> None:
+    schema = _schema()
+    g = _graph(schema)
+
+    assert g.schema is schema
+
+
+def test_schema_accessor_is_read_only() -> None:
+    schema = _schema()
+    g = _graph(schema)
+
+    with pytest.raises(AttributeError):
+        g.schema = None  # type: ignore[misc]
+
+    assert g.schema is schema
+
+
+def test_schema_accessor_returns_none_when_unbound() -> None:
+    g = graphistry.bind()
+
+    assert g.schema is None
 
 
 def test_bound_schema_arrow_boundary_strict_passes() -> None:
