@@ -2946,21 +2946,18 @@ def test_regex_operator_composes_or_not(query: str, expected: list[dict[str, obj
 @pytest.mark.parametrize(
     ("expr", "expected"),
     [
-        # openCypher/neo4j numeric functions + `^` operator (standard). Values are floats.
+        # openCypher/neo4j numeric functions (standard). Column form -> floats.
         ("floor(n.x)", [2.0, -3.0, 4.0]),
         ("ceil(n.x)", [3.0, -2.0, 4.0]),
         ("ceiling(n.x)", [3.0, -2.0, 4.0]),
         ("round(n.x)", [2.0, -3.0, 4.0]),
         ("round(n.x, 1)", [2.3, -2.7, 4.0]),
         ("sqrt(abs(n.x))", [pytest.approx(1.5165750888), pytest.approx(1.6431676725), 2.0]),
-        ("n.x ^ 2", [pytest.approx(5.29), pytest.approx(7.29), 16.0]),
-        ("2 ^ 3 ^ 2", [512.0, 512.0, 512.0]),   # right-associative
-        ("2 * 3 ^ 2", [18.0, 18.0, 18.0]),      # `^` binds tighter than `*`
         ("sign(n.x)", [1, -1, 1]),              # neo4j sign() -> Integer (both engines)
     ],
 )
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
-def test_numeric_functions_and_power_operator(engine: str, expr: str, expected: list[object]) -> None:
+def test_numeric_functions(engine: str, expr: str, expected: list[object]) -> None:
     if engine == "polars":
         pytest.importorskip("polars")
     nodes = pd.DataFrame({"id": [0, 1, 2], "x": [2.3, -2.7, 4.0]})
@@ -2969,6 +2966,35 @@ def test_numeric_functions_and_power_operator(engine: str, expr: str, expected: 
     col = g.gfql(q, engine=engine)._nodes["v"]
     got = col.to_list() if hasattr(col, "to_list") else col.tolist()
     assert got == expected
+
+
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        # scalar (constant-folded) forms exercise the scalar code paths
+        ("floor(2.7)", 2.0),
+        ("ceil(2.1)", 3.0),
+        ("ceiling(-2.1)", -2.0),
+        ("round(2.5)", 2.0),        # numpy default (round-half-to-even)
+        ("round(2.567, 2)", 2.57),
+        ("sign(-9)", -1),
+        ("sqrt(9.0)", 3.0),
+        ("toLower('ABC')", "abc"),
+        ("toUpper('abc')", "ABC"),
+    ],
+)
+def test_numeric_functions_scalar(expr: str, expected: object) -> None:
+    nodes = pd.DataFrame({"id": [0], "x": [1.0]})
+    g = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []}))
+    assert g.gfql(f"MATCH (n) RETURN {expr} AS v, n.id AS id")._nodes["v"].tolist() == [expected]
+
+
+@pytest.mark.parametrize("expr", ["floor(null)", "ceil(null)", "round(null)", "toLower(null)", "toUpper(null)"])
+def test_numeric_string_fns_null_scalar(expr: str) -> None:
+    """null literal -> null (exercises the scalar null-guard branches)."""
+    g = _mk_graph(pd.DataFrame({"id": [0]}), pd.DataFrame({"s": [], "d": []}))
+    v = g.gfql(f"MATCH (n) RETURN {expr} AS v, n.id AS id")._nodes["v"].tolist()[0]
+    assert v is None or pd.isna(v)
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])

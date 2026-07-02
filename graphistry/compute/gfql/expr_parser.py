@@ -205,10 +205,7 @@ _GRAMMAR = r"""
 
 ?unary: "+" unary                        -> uplus
       | MINUS unary                      -> uminus
-      | power
-
-?power: postfix
-      | postfix "^" unary                -> pow_op
+      | postfix
 
 ?postfix: primary
         | postfix "[" subscript_key "]"  -> subscript
@@ -670,9 +667,6 @@ def _build_transformer() -> _TransformerLike:
 
         def mul_op(self, items: Sequence[Any]) -> BinaryOp:
             return self._bin("*", items)
-
-        def pow_op(self, items: Sequence[Any]) -> BinaryOp:
-            return self._bin("^", items)
 
         def div_op(self, items: Sequence[Any]) -> BinaryOp:
             return self._bin("/", items)

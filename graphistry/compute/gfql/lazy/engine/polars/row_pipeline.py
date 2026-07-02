@@ -65,11 +65,6 @@ def _apply_binop(op: str, left: pl.Expr, right: pl.Expr) -> Optional[pl.Expr]:
     if fn is not None:
         return fn(left, right)
     o = op.upper()
-    if op == "^":
-        # openCypher/neo4j exponentiation; returns float to match the pandas engine
-        # (not in _BINOP_FNS: needs the Float64 cast, not bare operator.pow).
-        import polars as pl
-        return (left ** right).cast(pl.Float64)
     if o in ("AND", "OR"):
         # Kleene 3VL: polars Boolean &/| already match (true|null=true, false&null=false,
         # null&null=null). Cast to Boolean so a bare null lit doesn't raise
