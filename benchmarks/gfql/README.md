@@ -382,3 +382,30 @@ So the honest current comparison is:
 - Neo4j is workable for the smaller Twitter analog, but already materially slower than both Graphistry CPU and GPU on the exact same shape.
 - On the selected GPlus benchmark shape, Neo4j is already dramatically slower than Graphistry CPU (`83.61s`) and Graphistry GPU (`3.41s`) before teardown/cleanup is even done.
 - Raw notes: `plans/gfql-gpu-pagerank-benchmark/results/neo4j_summary.md`
+
+## GFQL physical-index harnesses (`index_*.py`)
+
+Catalog for the seeded-traversal adjacency-index work (PR #1658; see
+`docs/source/gfql/index_adjacency.rst` for the user guide + published numbers):
+
+- `index_smoke.py` / `index_ddl_smoke.py` — correctness smokes: differential
+  parity (index path == scan path) and DDL/wire/`index_policy`/`gfql_explain`
+  round-trips. Container-runnable MIRRORS of the canonical pytest suite
+  (`graphistry/tests/compute/gfql/index/test_index.py`).
+- `index_perf.py` — microbenchmark: seeded 1-hop/2-hop index-vs-scan across
+  engines and frontier sizes; the cost-gate calibration numbers come from here.
+- `index_takeover_bench.py` + `index_vs_kuzu_prepared.py` — **canonical
+  competitor pair** behind the published "9–36x vs Kuzu" seeded-traversal
+  claims: guarded timings (path-taken assertions + result==scan oracle),
+  prepared-statement fairness on the Kuzu side.
+- `index_vs_dbs.py` — broader 3-way sweep (GFQL / Kuzu / Neo4j) over the same
+  seeded shapes; superset of the pair above, heavier setup (dockerized Neo4j).
+- `index_bulk_olap_bench.py` — bulk group-by/degree OLAP shapes across the 4
+  engines (answers "does the index help bulk scans?" — it does not; scans win).
+- `index_largegraph_bench.py` — scale probe on large real graphs
+  (flat-in-N behavior of the seeded path up to ~80M edges).
+
+Methodology for all: warm medians, one engine per process for large runs,
+NO-CHEATING guards (a timing is void unless the intended path was taken AND
+the result matches the scan oracle). Run on an idle box; GPU rows need
+`--gpus all` and RAPIDS.
