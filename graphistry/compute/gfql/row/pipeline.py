@@ -1048,6 +1048,12 @@ class RowPipelineMixin:
                 return True, left - right
             if op == "*":
                 return True, left * right
+            if op == "^":
+                # openCypher/neo4j exponentiation (right-assoc); returns float (10^5 -> 100000.0).
+                result = left ** right
+                if hasattr(result, "astype"):
+                    return True, result.astype(float)
+                return True, float(result)
             if op == "/":
                 if (
                     isinstance(left, int)
@@ -1342,6 +1348,47 @@ class RowPipelineMixin:
                 if is_null_scalar(inner):
                     return True, None
                 return True, float(inner) ** 0.5
+
+            # neo4j/openCypher numeric fns: floor/ceil (alias ceiling), round(x[, precision]).
+            # Return FLOAT like neo4j; null in -> null out.
+            if fn in {"floor", "ceil", "ceiling"} and len(values) == 1:
+                inner = values[0]
+                use_ceil = fn in {"ceil", "ceiling"}
+                if hasattr(inner, "astype"):
+                    null_mask = self._gfql_null_mask(table_df, inner)
+                    f = inner.astype(float)
+                    if hasattr(f, "ceil" if use_ceil else "floor"):  # cuDF native
+                        out = f.ceil() if use_ceil else f.floor()
+                    else:  # pandas: no Series.floor/ceil method
+                        import numpy as np
+                        out = np.ceil(f) if use_ceil else np.floor(f)
+                    return True, out.where(~null_mask, pd.NA)
+                if is_null_scalar(inner):
+                    return True, None
+                return True, float(math.ceil(inner) if use_ceil else math.floor(inner))
+
+            if fn == "round" and len(values) in {1, 2}:
+                inner = values[0]
+                ndigits = int(values[1]) if len(values) == 2 else 0
+                if hasattr(inner, "astype"):
+                    null_mask = self._gfql_null_mask(table_df, inner)
+                    out = inner.astype(float).round(ndigits)
+                    return True, out.where(~null_mask, pd.NA)
+                if is_null_scalar(inner):
+                    return True, None
+                return True, round(float(inner), ndigits)
+
+            # neo4j/openCypher toLower/toUpper (the idiomatic case-insensitive-match helper).
+            if fn in {"tolower", "toupper"} and len(values) == 1:
+                inner = values[0]
+                if hasattr(inner, "str"):
+                    null_mask = self._gfql_null_mask(table_df, inner)
+                    out = inner.str.lower() if fn == "tolower" else inner.str.upper()
+                    return True, out.where(~null_mask, pd.NA)
+                if is_null_scalar(inner):
+                    return True, None
+                s = str(inner)
+                return True, s.lower() if fn == "tolower" else s.upper()
 
             if fn == "tofloat" and len(values) == 1:
                 inner = values[0]

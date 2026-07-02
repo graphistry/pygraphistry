@@ -2944,6 +2944,41 @@ def test_regex_operator_composes_or_not(query: str, expected: list[dict[str, obj
 
 
 @pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        # openCypher/neo4j numeric functions + `^` operator (standard). Values are floats.
+        ("floor(n.x)", [2.0, -3.0, 4.0]),
+        ("ceil(n.x)", [3.0, -2.0, 4.0]),
+        ("ceiling(n.x)", [3.0, -2.0, 4.0]),
+        ("round(n.x)", [2.0, -3.0, 4.0]),
+        ("round(n.x, 1)", [2.3, -2.7, 4.0]),
+        ("sqrt(abs(n.x))", [pytest.approx(1.5165750888), pytest.approx(1.6431676725), 2.0]),
+        ("n.x ^ 2", [pytest.approx(5.29), pytest.approx(7.29), 16.0]),
+        ("2 ^ 3 ^ 2", [512.0, 512.0, 512.0]),   # right-associative
+        ("2 * 3 ^ 2", [18.0, 18.0, 18.0]),      # `^` binds tighter than `*`
+    ],
+)
+def test_numeric_functions_and_power_operator(expr: str, expected: list[object]) -> None:
+    nodes = pd.DataFrame({"id": [0, 1, 2], "x": [2.3, -2.7, 4.0]})
+    g = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []}))
+    q = f"MATCH (n) RETURN {expr} AS v, n.id AS id ORDER BY id"
+    assert g.gfql(q)._nodes["v"].tolist() == expected
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("MATCH (n) WHERE toLower(n.name) = 'bob' RETURN n.id AS id", [{"id": 1}]),
+        ("MATCH (n) WHERE toUpper(n.name) = 'BOB' RETURN n.id AS id", [{"id": 1}]),
+    ],
+)
+def test_tolower_toupper(query: str, expected: list[dict[str, object]]) -> None:
+    nodes = pd.DataFrame({"id": [0, 1, 2], "name": ["Alice", "BOB", "carol"]})
+    result = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+@pytest.mark.parametrize(
     "query",
     [
         "MATCH (a) WHERE a.name STARTS WITH null RETURN a.name AS name ORDER BY name",

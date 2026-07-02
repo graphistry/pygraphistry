@@ -58,6 +58,10 @@ def _apply_binop(op: str, left: Any, right: Any) -> Optional[Any]:
         return left - right
     if op == "*":
         return left * right
+    if op == "^":
+        # openCypher/neo4j exponentiation; returns float to match the pandas engine.
+        import polars as pl
+        return (left ** right).cast(pl.Float64)
     if op == "/":
         return left / right
     if op == "%":
@@ -121,6 +125,24 @@ def _lower_function(node: Any, columns: Sequence[str]) -> Optional[Any]:
         return pl.coalesce(args)
     if name == "abs" and len(args) == 1:
         return args[0].abs()
+    # neo4j/openCypher numeric fns (parity-verified vs the pandas engine).
+    if name == "sqrt" and len(args) == 1:
+        import polars as pl
+        return args[0].cast(pl.Float64).sqrt()
+    if name == "sign" and len(args) == 1:
+        return args[0].sign()
+    if name in {"floor", "ceil", "ceiling"} and len(args) == 1:
+        return args[0].ceil() if name in {"ceil", "ceiling"} else args[0].floor()
+    if name == "round" and len(args) in {1, 2}:
+        ndigits = 0
+        if len(args) == 2:
+            lit = getattr(node.args[1], "value", None)
+            if not isinstance(lit, int) or isinstance(lit, bool):
+                return None  # non-literal precision -> defer (honest NIE)
+            ndigits = lit
+        return args[0].round(ndigits)
+    if name in {"tolower", "toupper"} and len(args) == 1:
+        return args[0].str.to_lowercase() if name == "tolower" else args[0].str.to_uppercase()
     return None
 
 

@@ -22,7 +22,7 @@ GFQL_EQUALITY_COMPARISON_BINARY_OPS: Final[frozenset[str]] = frozenset({"=", "!=
 GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS: Final[frozenset[str]] = frozenset({"!=", "<>"})
 GFQL_ORDERED_COMPARISON_BINARY_OPS: Final[frozenset[str]] = frozenset({"<", "<=", ">", ">="})
 GFQL_STRING_PREDICATE_OPS: Final[frozenset[str]] = frozenset({"contains", "starts_with", "ends_with", "regex"})
-GFQL_ARITHMETIC_BINARY_OPS: Final[frozenset[str]] = frozenset({"+", "-", "*", "/", "%"})
+GFQL_ARITHMETIC_BINARY_OPS: Final[frozenset[str]] = frozenset({"+", "-", "*", "/", "%", "^"})
 GFQL_ALLOWED_BINARY_OPS: Final[frozenset[str]] = (
     GFQL_BOOLEAN_BINARY_OPS
     | GFQL_COMPARISON_BINARY_OP_NAMES
@@ -39,6 +39,12 @@ GFQL_SCALAR_FUNCTIONS: Final[frozenset[str]] = frozenset(
         "size",
         "abs",
         "sqrt",
+        "floor",
+        "ceil",
+        "ceiling",
+        "round",
+        "tolower",
+        "toupper",
         "substring",
         "tointeger",
         "tofloat",
