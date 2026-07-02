@@ -154,15 +154,19 @@ class GFQLLadybug:
         return run
 
 
+# (name, method, args, engine_exec): engine_exec=False ops run on the raw pandas
+# ingest frames regardless of --engine (dataframe-level baselines) and are labeled
+# system='gfql-pandas-df' so an --engine cudf run never reports pandas timings
+# under a GPU label. Engine-native Cypher timings live in bench_ladybug_cypher.py.
 OPS = [
-    ("full_scan", "op_full_scan", ()),
-    ("range", "op_range", None),          # args filled from size
-    ("point", "op_point", None),
-    ("count_rel", "op_count_rel", ()),
-    ("out_degree_seeded", "op_out_degree_seeded", ()),
-    ("scan_rel", "op_scan_rel", ()),
-    ("scan_rel_rowid", "op_scan_rel_rowid", ()),
-    ("arrow_csr", "op_arrow_csr", ()),
+    ("full_scan", "op_full_scan", (), True),
+    ("range", "op_range", None, True),          # args filled from size
+    ("point", "op_point", None, True),
+    ("count_rel", "op_count_rel", (), False),
+    ("out_degree_seeded", "op_out_degree_seeded", (), False),
+    ("scan_rel", "op_scan_rel", (), False),
+    ("scan_rel_rowid", "op_scan_rel_rowid", (), False),
+    ("arrow_csr", "op_arrow_csr", (), True),
 ]
 
 
@@ -195,31 +199,41 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Fill parametrized op args.
     resolved = []
-    for name, meth, a in OPS:
+    for name, meth, a, engine_exec in OPS:
         if name == "range":
             a = (lo, hi)
         elif name == "point":
             a = (mid,)
-        resolved.append((name, meth, a))
+        resolved.append((name, meth, a, engine_exec))
 
+    expected: dict = {}
     if args.validate:
-        # pandas oracle checks on the (tiny) dataset
-        exp_range = int(((nodes["id"] >= lo) & (nodes["id"] <= hi)).sum())
-        exp_point = int((nodes["id"] == mid).sum())
-        exp_scan = n_edges
-        print(f"[oracle] range={exp_range} point={exp_point} edges={exp_scan}", file=sys.stderr)
+        # pandas oracle: a timing is void unless the op's result size matches
+        expected = {
+            "full_scan": n_nodes,
+            "range": int(((nodes["id"] >= lo) & (nodes["id"] <= hi)).sum()),
+            "point": int((nodes["id"] == mid).sum()),
+            "count_rel": n_edges,
+            "scan_rel": n_edges,
+            "scan_rel_rowid": n_edges,
+        }
+        print(f"[oracle] {expected}", file=sys.stderr)
 
     results = []
-    for name, meth, a in resolved:
+    for name, meth, a, engine_exec in resolved:
+        system = f"gfql-{args.engine}" if engine_exec else "gfql-pandas-df"
         fn = getattr(adapter, meth)(*a)
         try:
             med, size = timed_median(fn, args.warmups, args.iters)
-            row = {"system": f"gfql-{args.engine}", "op": name, "n_nodes": n_nodes,
+            if args.validate and name in expected and size != expected[name]:
+                raise AssertionError(
+                    f"oracle mismatch: {name} size={size} expected={expected[name]} — timing void")
+            row = {"system": system, "op": name, "n_nodes": n_nodes,
                    "n_edges": n_edges, "median_ms": round(med, 3), "size": size, "status": "ok"}
             print(f"[OK] {name:20} median={med:8.3f}ms size={size}", file=sys.stderr)
         except Exception as ex:
             import traceback as _tb
-            row = {"system": f"gfql-{args.engine}", "op": name, "status": "error",
+            row = {"system": system, "op": name, "status": "error",
                    "error": str(ex)[:300]}
             print(f"[ERR] {name}: {ex}", file=sys.stderr)
             if args.debug:

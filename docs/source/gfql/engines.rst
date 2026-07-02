@@ -197,14 +197,16 @@ benchmarked** rather than guess.
      - Actively-maintained **Kuzu fork** (Kuzu is archived); embedded C++, strongly-typed
        Cypher, opt-in ART *or* hash indexing, zero-copy Arrow/CSR scans, and **out-of-core
        billion-scale** (query a 1.8B-edge graph in <8 GB RAM).
-     - Head-to-head on Ladybug's own suite (5M nodes / 20M edges, GFQL running the
-       identical Cypher ``MATCH … RETURN`` row pipeline, each engine on its **native**
-       frames): GFQL **wins the scan-shaped ops** — full node scan **~65×** (polars
+     - Against **LadybugDB's published numbers** for their own 5M-node / 20M-edge suite
+       (their figures, their hardware; GFQL measured separately on an NVIDIA DGX Spark
+       GB10 running the identical Cypher ``MATCH … RETURN`` row pipeline, each engine on
+       its **native** frames — a cross-machine comparison, so read the ratios as
+       indicative): GFQL **wins the scan-shaped ops** — full node scan **~65×** (polars
        58 ms vs 3789 ms), id **range ~1.2×** (polars 6.1 ms vs 7.5 ms), relationship
        property/rowid scans **~3.5–3.7×** (cuDF 4.2 s vs ~15 s). **Point lookup** (single
        id) is ~4 ms vs Ladybug's ~0.3 ms — a full columnar scan vs a B-tree/hash **index
-       seek**; close in absolute terms, and a resident GFQL adjacency index (see
-       :doc:`index_adjacency`) closes it. Ladybug still wins the two ops backed by
+       seek**; close in absolute terms, and a resident GFQL node-id index (tracked in
+       issue #1676) should close it. Ladybug still wins the two ops backed by
        persistent structure: point lookups and a relationship ``COUNT(*)`` (an O(1) cached
        count vs GFQL's O(E) endpoint-validated scan — a dataframe has no referential
        integrity). GFQL's angle is dataframe-native, in-process, and GPU-accelerated with
@@ -232,7 +234,7 @@ benchmarked** rather than guess.
      - GFQL is *single-node* (CPU or one GPU): 100M+ edges in-process on **one machine**,
        no cluster to stand up, interactive latency — and a single node often matches or beats
        Spark on read-heavy traversal + PageRank at a fraction of the cost.
-       Head-to-head on LiveJournal (35M) and Orkut (117M): GFQL wins filter/traversal 2–43×
+       Head-to-head on LiveJournal (35M) and Orkut (117M): GFQL wins filter/traversal 1.3–43×
        even on CPU, and the GPU engine wins PageRank ~10–15×; on CPU, PageRank via igraph is
        *slower* than GraphFrames — see :doc:`benchmark_graphframes`.
      - Reach for GraphFrames when the graph genuinely exceeds one machine's memory. Motif /
@@ -501,7 +503,7 @@ Parity and honesty
 Methodology
 -----------
 
-- Host: ``dgx-spark`` (GB10 Grace-Blackwell, unified memory — the F3 memory-pressure
+- Host: NVIDIA DGX Spark (GB10 Grace-Blackwell, unified memory — the F3 memory-pressure
   boundary is partly a property of this box), RAPIDS container
   ``graphistry/test-rapids-official:26.02-gfql-polars``.
 - Datasets: `SNAP <https://snap.stanford.edu/data/>`_ **com-LiveJournal** (35M edges),
@@ -513,6 +515,10 @@ Methodology
 - Reproduce: ``benchmarks/gfql/index_bulk_olap_bench.py`` (engine comparison),
   ``benchmarks/gfql/pandas_vs_polars.py``, and ``benchmarks/gfql/index_vs_kuzu_prepared.py``
   (vs kuzu). Numbers on this page are rendered from saved runs; the page does not re-run them.
+- **LadybugDB row**: the Ladybug figures are **their published results on their hardware**;
+  the GFQL side ran on the host above via ``benchmarks/gfql/bench_ladybug_cypher.py``
+  (5M/20M synthetic per their suite shape, native frames per engine, warm medians) — a
+  cross-machine comparison, disclosed as such in the row.
 
 Install
 -------
