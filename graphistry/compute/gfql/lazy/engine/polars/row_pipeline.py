@@ -132,15 +132,26 @@ def _lower_function(node: Any, columns: Sequence[str]) -> Optional[Any]:
     if name in {"floor", "ceil", "ceiling"} and len(args) == 1:
         return args[0].ceil() if name in {"ceil", "ceiling"} else args[0].floor()
     if name == "round" and len(args) in {1, 2}:
+        import polars as pl
         ndigits = 0
         if len(args) == 2:
             lit = getattr(node.args[1], "value", None)
             if not isinstance(lit, int) or isinstance(lit, bool):
                 return None  # non-literal precision -> defer (honest NIE)
             ndigits = lit
-        return args[0].round(ndigits)
-    if name in {"tolower", "toupper"} and len(args) == 1:
-        return args[0].str.to_lowercase() if name == "tolower" else args[0].str.to_uppercase()
+        # neo4j tie-breaking (matches the pandas engine): precision 0 -> ties toward
+        # +inf (floor(x+0.5)); precision > 0 -> ties away from zero (HALF_UP).
+        # polars' .round default (half-to-even) would be a wrong answer vs the spec.
+        # Use the native mode= for p>0 (bit-exact; a manual scale/divide formula picks
+        # up 1-ulp noise from polars' reassociating optimizer).
+        x = args[0].cast(pl.Float64)
+        if ndigits == 0:
+            return (x + 0.5).floor()
+        return x.round(ndigits, mode="half_away_from_zero")
+    if name in {"tolower", "toupper", "lower", "upper"} and len(args) == 1:
+        # toLower/toUpper + GQL-conformance aliases lower/upper (as neo4j accepts both).
+        to_lower = name in {"tolower", "lower"}
+        return args[0].str.to_lowercase() if to_lower else args[0].str.to_uppercase()
     return None
 
 
