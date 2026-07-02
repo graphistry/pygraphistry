@@ -33,7 +33,7 @@ def lookup_edge_rows(index: AdjacencyIndex, frontier: Any, xp: Any):
 
     f = frontier
     if f.dtype != keys.dtype:
-        # I6: promote BOTH sides to a common dtype — never narrow the query to the key
+        # Promote BOTH sides to a common dtype — never narrow the query to the key
         # dtype (an int64 id cast to int32 keys wraps and false-matches). Widening a
         # sorted int array preserves order, so searchsorted stays valid.
         common = xp.promote_types(f.dtype, keys.dtype)
@@ -85,7 +85,7 @@ def lookup_node_rows(index: NodeIdIndex, ids: Any, xp: Any) -> Any:
         return index.row_positions[:0]
     f = ids
     if f.dtype != keys.dtype:
-        common = xp.promote_types(f.dtype, keys.dtype)  # I6: promote, never narrow
+        common = xp.promote_types(f.dtype, keys.dtype)  # promote, never narrow
         f = f.astype(common)
         keys = keys.astype(common)
     pos = xp.searchsorted(keys, f)

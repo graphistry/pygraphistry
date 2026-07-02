@@ -51,27 +51,6 @@ def ids_to_array(ids: Any, col: str, engine: Engine) -> Any:
     return col_to_array(ids, col, engine)
 
 
-def to_backend(arr: Any, backend: str) -> Any:
-    """Move a host/device array to the index backend (numpy<->cupy)."""
-    import numpy as np
-
-    if backend == "cupy":
-        import cupy as cp  # type: ignore
-
-        return cp.asarray(arr)
-    if "cupy" in type(arr).__module__:
-        return cp_to_numpy(arr)
-    return np.asarray(arr)
-
-
-def cp_to_numpy(arr: Any) -> Any:
-    try:
-        return arr.get()
-    except Exception:
-        import numpy as np
-
-        return np.asarray(arr)
-
 
 def take_rows(df: Any, positions: Any, engine: Engine) -> Any:
     """Positionally gather rows of ``df`` by an integer array ``positions``.

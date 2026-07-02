@@ -25,7 +25,7 @@ REGISTRY_ATTR = "_gfql_index_registry"
 # full scan is cheaper than per-seed index probes, so `use` falls back to scan and
 # never loses to the un-indexed path. Engine-aware because vectorized-scan engines
 # (polars/cudf/GPU) scan far faster than pandas, so their crossover is much smaller
-# (F1). Measured N=1e5 deg8: pandas ~0.5, polars ~0.02. GPU values provisional
+# (see test_index_cost_gate_engine_aware). Measured N=1e5 deg8: pandas ~0.5, polars ~0.02. GPU values provisional
 # (dgx-gated) — conservatively grouped with polars.
 _COST_GATE_FRAC = {Engine.PANDAS: 0.5}
 _COST_GATE_FRAC_DEFAULT = 0.02
@@ -332,7 +332,7 @@ def maybe_index_hop(
 
     # Honor max_hops: the scan resolves the hop count as ``max_hops or hops``
     # (compute/hop.py); the index must run the SAME number of accumulating hops.
-    # (B1: max_hops was passed through *rest and silently ignored — the index ran
+    # (regression: max_hops was passed through *rest and silently ignored — the index ran
     # `hops` (default 1) while the scan ran max_hops → wrong answer.)
     _max_hops = rest.get("max_hops")
     eff_hops = _max_hops if _max_hops is not None else hops

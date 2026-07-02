@@ -29,7 +29,7 @@ def frame_fingerprint(df: Any, cols: Tuple[str, ...], engine: Engine) -> Tuple:
     + bound columns + engine. This is a SECONDARY guard; the primary validity check
     is object IDENTITY (``source_ref is df``, see ``get_valid``). We deliberately do
     NOT use ``id(df)`` here — a GC'd frame's id can be recycled by a new same-shape
-    frame, which `id`-equality would accept (stale index → wrong answer, I5). Holding
+    frame, which `id`-equality would accept (stale index → wrong answer). Holding
     a strong ref + identity is recycle-proof. (Pure-functional rebind via
     ``.edges()``/``.nodes()`` yields a new object → identity miss → safe scan.)"""
     try:
@@ -57,7 +57,7 @@ class AdjacencyIndex:
     backend: str              # 'numpy' | 'cupy'
     engine: Engine
     fingerprint: Tuple = field(compare=False, default=())
-    source_ref: Any = field(compare=False, default=None)  # the indexed frame (identity guard, I5)
+    source_ref: Any = field(compare=False, default=None)  # the indexed frame (identity guard)
     n_edges: int = 0
     n_keys: int = 0
     name: Optional[str] = None
@@ -112,7 +112,7 @@ class GfqlIndexRegistry:
             return None
         if idx.engine != engine:
             return None
-        # Primary: object IDENTITY (I5) — recycle-proof, since the index holds a strong
+        # Primary: object IDENTITY — recycle-proof, since the index holds a strong
         # ref so the frame's id can't be reused while indexed. `is` on a rebound frame
         # is False → safe miss. (source_ref None only for legacy/hand-built indexes.)
         if idx.source_ref is not None and idx.source_ref is not df:

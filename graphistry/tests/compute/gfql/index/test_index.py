@@ -310,3 +310,31 @@ def test_drop_index_by_custom_name():
     # unresolvable name raises (not silent)
     with pytest.raises(ValueError):
         g.gfql("DROP GFQL INDEX nonexistent_name")
+
+
+def test_drop_index_if_exists_semantics():
+    # missing_ok / IF EXISTS: plain DROP of a missing index raises (SQL-style);
+    # IF EXISTS makes it a no-op. Applies to both name- and kind-form.
+    g = graphistry.edges(pd.DataFrame({"src": [0, 1], "dst": [1, 2]}), "src", "dst").materialize_nodes()
+
+    # no-op forms succeed unchanged
+    g2 = g.gfql("DROP GFQL INDEX IF EXISTS nonexistent_name")
+    assert g2.show_indexes().shape[0] == 0
+    g3 = g.gfql("DROP GFQL INDEX IF EXISTS FOR edge_out_adj")
+    assert g3.show_indexes().shape[0] == 0
+
+    # plain forms raise when missing
+    with pytest.raises(ValueError):
+        g.gfql("DROP GFQL INDEX nonexistent_name")
+    with pytest.raises(ValueError):
+        g.gfql("DROP GFQL INDEX FOR edge_out_adj")
+
+    # wire JSON honors missing_ok both ways
+    g4 = g.gfql({"type": "DropIndex", "name": "nope", "missing_ok": True})
+    assert g4.show_indexes().shape[0] == 0
+    with pytest.raises(ValueError):
+        g.gfql({"type": "DropIndex", "name": "nope", "missing_ok": False})
+
+    # and a resident index still drops through the plain form
+    gi = g.create_index("edge_out_adj")
+    assert gi.gfql("DROP GFQL INDEX FOR edge_out_adj").show_indexes().shape[0] == 0

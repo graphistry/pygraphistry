@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Smoke test: Cypher DDL + JSON wire + index_policy auto/force + gfql_explain."""
+"""Smoke test: Cypher DDL + JSON wire + index_policy auto/force + gfql_explain.
+
+Container-runnable MIRROR of graphistry/tests/compute/gfql/index/test_index.py
+(the pytest suite is canonical); kept for quick in-container smoke without pytest.
+"""
 from __future__ import annotations
 
 import sys
@@ -63,9 +67,7 @@ def main():
 
     # --- index_policy auto/force build-on-demand + explain ---
     gp = make_graph()  # fresh, no resident indexes
-    exp_use = gp.gfql_explain([], index_policy="use") if False else None  # explain needs a real query
-    # explain with a seeded 1-hop chain expressed in cypher
-    q = "MATCH (a)-[e]->(b) RETURN b"  # not seeded -> not coverable; use python chain instead
+    # explain with a seeded 1-hop chain (explain needs a real, seeded query)
     from graphistry.compute.ast import n, e_forward
     seeded_chain = [n({"id": 0}), e_forward(hops=1)]
     rep_off = gp.gfql_explain(seeded_chain, index_policy="off")

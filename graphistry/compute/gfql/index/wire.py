@@ -5,7 +5,7 @@ JSON convention ``{"type": ClassName, ...fields}``. They round-trip via
 ``to_json``/``from_json`` and are dispatched by ``index_op_from_json``.
 
     {"type": "CreateIndex", "kind": "edge_out_adj", "column": null, "name": null, "replace": false}
-    {"type": "DropIndex",   "name": "edge_out_adj:src", "missing_ok": true}
+    {"type": "DropIndex",   "name": "edge_out_adj:src", "missing_ok": true}   # true = IF EXISTS (no-op when missing; default false = raise)
     {"type": "DropIndex",   "kind": "edge_in_adj", "column": "dst", "missing_ok": true}
     {"type": "ShowIndexes"}
 
@@ -45,7 +45,7 @@ class DropIndex:
     name: Optional[str] = None
     kind: Optional[str] = None
     column: Optional[str] = None
-    missing_ok: bool = True
+    missing_ok: bool = False  # IF EXISTS semantics: True = dropping a missing index is a no-op
 
     def to_json(self) -> Dict[str, Any]:
         return {"type": "DropIndex", "name": self.name, "kind": self.kind,
@@ -54,7 +54,7 @@ class DropIndex:
     @staticmethod
     def from_json(d: Dict[str, Any]) -> "DropIndex":
         return DropIndex(name=d.get("name"), kind=d.get("kind"), column=d.get("column"),
-                         missing_ok=bool(d.get("missing_ok", True)))
+                         missing_ok=bool(d.get("missing_ok", False)))
 
 
 @dataclass(frozen=True)
@@ -112,10 +112,14 @@ def apply_index_op(g: Any, op: Any, *, engine: Any = "auto") -> Any:
             kind = next((k for k, ix in reg.indexes.items()
                          if getattr(ix, "name", None) == op.name), None)
             if kind is None:
+                if op.missing_ok:
+                    return g  # IF EXISTS semantics: dropping a missing index is a no-op
                 raise ValueError(
                     f"DROP GFQL INDEX: no resident index named {op.name!r} "
                     f"(resident: {sorted(getattr(ix, 'name', k) for k, ix in reg.indexes.items())})"
                 )
+        if kind is not None and not op.missing_ok and not get_registry(g).has(kind):
+            raise ValueError(f"DROP GFQL INDEX: no resident index of kind {kind!r}")
         return drop_index(g, kind)
     if isinstance(op, ShowIndexes):
         return show_indexes(g)
