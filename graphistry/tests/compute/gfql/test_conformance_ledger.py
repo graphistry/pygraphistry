@@ -271,6 +271,7 @@ CALL_KNOWN_UNCOVERED: dict[str, str] = {
     "order_by": "row sort; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
     "unwind": "list explode; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
     "group_by": "grouped aggregation; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
+    "count_table": "count(*) short-circuit fast path (table height / source-mask sum); native frame op emitted by the cypher lowering, exercised as a labeled subject via _ROW_OP_CASES + the count_all_nodes/edges cypher cases, not via a direct call() consistency label. TODO.",
     "semi_apply_mark": "correlated EXISTS-mark; row-pipeline op honest-NIE under polars; not asserted. TODO.",
     "anti_semi_apply": "anti-semi correlated filter; row-pipeline op honest-NIE under polars; not asserted. TODO.",
     "join_apply": "correlated row join; row-pipeline op honest-NIE under polars; not asserted. TODO.",

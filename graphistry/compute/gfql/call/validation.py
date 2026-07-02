@@ -491,6 +491,19 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         description='Drop duplicate rows from active row table',
     ),
 
+    'count_table': _safelist_entry(
+        {'table', 'source', 'alias'},
+        param_validators={
+            'table': lambda v: v in ['nodes', 'edges'],
+            'source': is_string_or_none,
+            'alias': is_non_empty_string,
+        },
+        description='Count matched rows (node/edge table height or source-alias mask) into a one-row table, without materializing the frame — fast path for a lone count(*)',
+        schema_effects=_schema_effects(
+            adds_node_cols=lambda p: [p.get('alias', 'count(*)')],
+        ),
+    ),
+
     'get_degrees': _safelist_entry(
         {'col', 'degree_in', 'degree_out', 'engine'},
         param_validators={

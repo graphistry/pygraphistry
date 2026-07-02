@@ -167,6 +167,64 @@ def rows(
     return row_table(ctx, table_df)
 
 
+def count_table(
+    ctx: Any,
+    table: str = "nodes",
+    source: Optional[str] = None,
+    alias: str = "count(*)",
+) -> "Plottable":
+    """Count matched rows and set a one-row ``{alias: n}`` result table.
+
+    Fast path for a lone ``count(*)``: reads the height of the active node/edge
+    table (or the truthy count of the ``source`` alias-mask column) with a single
+    reduction, never materializing/copying the whole frame the way ``rows`` +
+    ``group_by`` would. Engine-polymorphic across pandas/cuDF/polars (eager or
+    lazy). See ``graphistry.compute.ast.count_table`` and the Cypher lowering
+    short-circuit.
+    """
+    if table not in {"nodes", "edges"}:
+        raise ValueError(
+            f"count_table(table=...) must be one of 'nodes' or 'edges', got {table!r}"
+        )
+    table_df = ctx._nodes if table == "nodes" else ctx._edges
+
+    if table_df is None:
+        return row_table(ctx, pd.DataFrame({alias: [0]}))
+
+    if _is_polars(table_df):
+        import polars as pl
+        if source is not None:
+            # LazyFrame lacks .columns without a resolve; collect_schema is lazy-safe.
+            cols = table_df.collect_schema().names()
+            if source not in cols:
+                raise ValueError(
+                    f"count_table(source=...) alias column not found: {source!r}"
+                )
+            count_expr = pl.col(source).fill_null(False).cast(pl.Boolean).sum()
+        else:
+            count_expr = pl.len()
+        res = table_df.select(count_expr.alias(alias))
+        # eager DataFrame.select -> DataFrame (no collect); LazyFrame.select -> LazyFrame.
+        if hasattr(res, "collect"):
+            res = res.collect()
+        n = int(res.item())
+        return row_table(ctx, pl.DataFrame({alias: [n]}))
+
+    # pandas / cuDF (API-compatible)
+    if source is not None:
+        if source not in table_df.columns:
+            raise ValueError(
+                f"count_table(source=...) alias column not found: {source!r}"
+            )
+        mask = table_df[source]
+        if hasattr(mask, "fillna"):
+            mask = mask.fillna(False)
+        n = int(mask.astype(bool).sum())
+    else:
+        n = int(len(table_df))
+    return row_table(ctx, template_df_cons(table_df, {alias: [n]}))
+
+
 def drop_cols(ctx: Any, cols: Sequence[str]) -> "Plottable":
     """Drop named columns from the active row table, ignoring any that don't exist."""
     table_df = get_active_table(ctx)

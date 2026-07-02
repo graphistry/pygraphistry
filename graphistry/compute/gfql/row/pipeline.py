@@ -180,6 +180,7 @@ ROW_PIPELINE_CALLS = frozenset(
         "unwind",
         "group_by",
         "drop_cols",
+        "count_table",
     }
 )
 
@@ -4403,6 +4404,7 @@ class RowPipelineMixin:
     skip = row_frame_ops.skip
     limit = row_frame_ops.limit
     distinct = row_frame_ops.distinct
+    count_table = row_frame_ops.count_table
 
     def unwind(self, expr: Any, as_: str = "value") -> "Plottable":
         """Vectorized UNWIND for column or literal list expressions."""
@@ -4653,6 +4655,7 @@ _ROW_PIPELINE_DISPATCH: Dict[str, Callable[..., "Plottable"]] = {
     "unwind": RowPipelineMixin.unwind,
     "group_by": RowPipelineMixin.group_by,
     "drop_cols": RowPipelineMixin.drop_cols,
+    "count_table": RowPipelineMixin.count_table,
 }
 
 
@@ -4660,7 +4663,7 @@ _ROW_PIPELINE_DISPATCH: Dict[str, Callable[..., "Plottable"]] = {
 # cypher expression engine). Everything else falls back through the guard below
 # until lowered natively (no-silent-fallback policy).
 _POLARS_NATIVE_ROW_PIPELINE_CALLS = frozenset(
-    {"rows", "skip", "limit", "distinct", "drop_cols"}
+    {"rows", "skip", "limit", "distinct", "drop_cols", "count_table"}
 )
 
 

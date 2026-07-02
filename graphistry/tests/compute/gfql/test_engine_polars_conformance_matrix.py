@@ -262,6 +262,9 @@ def _cypher_expression_queries():
         ("count_distinct_grouped", "MATCH (n) RETURN n.flag AS k, count(DISTINCT n.num) AS cd"),
         ("count_distinct_all", "MATCH (n) RETURN count(DISTINCT n.flag) AS cd"),
         ("count_grouped", "MATCH (n) RETURN n.flag AS k, count(n.num) AS c"),
+        # count(*) short-circuit (count_table fast path): whole-graph node / edge counts.
+        ("count_all_nodes", "MATCH (n) RETURN count(*) AS c"),
+        ("count_all_edges", "MATCH ()-[r]->() RETURN count(*) AS c"),
         ("size_str", "MATCH (n) RETURN n.id AS id, size(n.name) AS sz"),
         ("substring3", "MATCH (n) RETURN n.id AS id, substring(n.name, 0, 4) AS sub"),
         ("substring2", "MATCH (n) RETURN n.id AS id, substring(n.name, 2) AS sub"),
@@ -506,6 +509,7 @@ def _rowop_exercised():
         "with_", "unwind",
         "rows", "skip", "limit", "distinct", "drop_cols",
         "order_by", "select", "return_", "where_rows", "group_by",
+        "count_table",
     }
 
 
@@ -1086,6 +1090,7 @@ _ROW_OP_CASES = [
     ("where_rows", [n(), rows(), call("where_rows", {"expr": "num > 50"})]),
     ("group_by",   [n(), rows(), call("group_by", {"keys": ["flag"],
                     "aggregations": [("c", "count"), ("s", "sum", "num")]})]),
+    ("count_table", [n(), rows(), call("count_table", {"table": "nodes", "alias": "cnt"})]),
 ]
 
 
