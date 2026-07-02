@@ -436,8 +436,8 @@ change:
    ``polars.LazyFrame`` is collected immediately), so the source graph must still
    fit in memory. True out-of-core-from-disk — building GFQL directly on a lazy
    ``pl.scan_parquet`` source so a graph larger than RAM never fully materializes —
-   is **work in progress**; see the Friendster (~1.8B edges) discussion in
-   :doc:`benchmark_graphframes`.
+   is **work in progress**; see the Friendster (~1.8B edges) discussion in the
+   GraphFrames benchmark page.
 
 When **not** to use Polars
 --------------------------
@@ -466,7 +466,7 @@ Parity and honesty
 - **Identical results across engines.** Differential parity — every engine's output must match
   the pandas oracle — is a release gate, exercised across forward/reverse/undirected, 1-3 hop,
   filters, and aggregations.
-- **No silent fallback (NO-CHEATING).** The Polars engine runs natively or raises
+- **No silent fallback — parity-verified.** The Polars engine runs natively or raises
   ``NotImplementedError`` — it never quietly converts to pandas. ``polars-gpu`` is
   **GPU-or-error**: if any step of the plan cannot run on the GPU it raises (pointing at
   ``engine='polars'``) rather than silently running on CPU and labelling it a GPU result.

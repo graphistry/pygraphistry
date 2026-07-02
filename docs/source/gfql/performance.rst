@@ -40,7 +40,8 @@ Warm-median latency, same query, identical result rows (**Orkut**, 117M edges, S
      - 314 ms
      - **167 ms**
 
-There is **no universal winner**: below ~1M edges ``pandas`` often wins, and the right GPU
+There is **no universal winner**: ``polars`` typically takes over from ~10K edges up
+(``pandas`` still wins trivial sub-millisecond operations), and the right GPU
 engine depends on the workload. See :doc:`engines` for the full decision matrix, the honest
 "when *not* to use Polars", the cuDF-vs-Polars-GPU comparison, and the methodology + reproducer
 scripts behind these numbers. The end-to-end CPU/GPU-vs-Neo4j benchmark is in
