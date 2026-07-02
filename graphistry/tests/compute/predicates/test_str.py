@@ -856,3 +856,32 @@ def test_boundary_string_tuple_pandas_cudf_parity(
             pd.testing.assert_series_equal(result_pandas, result_cudf)
         except AssertionError as e:
             pytest.fail(f"Parity check failed for {name} {predicate}: {e}")
+
+
+class TestCudfRegexPrep:
+    """_cudf_regex_prep is a pure pattern transform (no cuDF needed): libcudf rejects
+    inline flag groups, so a leading (?i) folds to the case=False path and any other
+    flag declines honestly. Direct CPU coverage of every branch (viz-filter #1673)."""
+
+    def test_non_string_passthrough(self):
+        from graphistry.compute.predicates.str import _cudf_regex_prep
+        assert _cudf_regex_prep(123, True) == (123, True)
+        assert _cudf_regex_prep(None, False) == (None, False)
+
+    def test_no_inline_flags_passthrough(self):
+        from graphistry.compute.predicates.str import _cudf_regex_prep
+        assert _cudf_regex_prep("al.*", True) == ("al.*", True)
+        assert _cudf_regex_prep("a(?:b|c)d", True) == ("a(?:b|c)d", True)  # (?: not a flag group
+
+    def test_leading_case_flag_folds(self):
+        from graphistry.compute.predicates.str import _cudf_regex_prep
+        assert _cudf_regex_prep("(?i)Al.*", True) == ("Al.*", False)
+        assert _cudf_regex_prep("(?i)x", False) == ("x", False)
+        assert _cudf_regex_prep("(?ii)x", True) == ("x", False)  # repeated i still i-only
+
+    def test_other_inline_flags_decline(self):
+        import pytest as _pytest
+        from graphistry.compute.predicates.str import _cudf_regex_prep
+        for pat in ["(?m)^a", "(?s).*", "(?im)a", "(?x) a b"]:
+            with _pytest.raises(NotImplementedError):
+                _cudf_regex_prep(pat, True)
