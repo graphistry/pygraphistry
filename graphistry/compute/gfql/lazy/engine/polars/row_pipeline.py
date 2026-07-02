@@ -65,6 +65,11 @@ def _apply_binop(op: str, left: pl.Expr, right: pl.Expr) -> Optional[pl.Expr]:
     if fn is not None:
         return fn(left, right)
     o = op.upper()
+    if op == "^":
+        # openCypher/neo4j exponentiation; returns float to match the pandas engine
+        # (not in _BINOP_FNS: needs the Float64 cast, not bare operator.pow).
+        import polars as pl
+        return (left ** right).cast(pl.Float64)
     if o in ("AND", "OR"):
         # Kleene 3VL: polars Boolean &/| already match (true|null=true, false&null=false,
         # null&null=null). Cast to Boolean so a bare null lit doesn't raise
@@ -103,12 +108,26 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         return pl.coalesce(args)
     if name == "abs" and len(args) == 1:
         return args[0].abs()
+    # neo4j/openCypher numeric fns (parity-verified vs the pandas engine).
     if name == "sqrt" and len(args) == 1:
-        # sqrt of a negative -> NaN on both pandas and polars; parity-verified.
-        return args[0].sqrt()
+        # sqrt of a negative -> NaN on both pandas and polars; Float64 cast so sqrt(int)
+        # returns float like neo4j/pandas; parity-verified.
+        return args[0].cast(pl.Float64).sqrt()
     if name == "sign" and len(args) == 1:
         # polars .sign() == np.sign for int/float (-1/0/1; null/NaN preserved); parity-verified.
         return args[0].sign()
+    if name in {"floor", "ceil", "ceiling"} and len(args) == 1:
+        return args[0].ceil() if name in {"ceil", "ceiling"} else args[0].floor()
+    if name == "round" and len(args) in {1, 2}:
+        ndigits = 0
+        if len(args) == 2:
+            lit = getattr(node.args[1], "value", None)
+            if not isinstance(lit, int) or isinstance(lit, bool):
+                return None  # non-literal precision -> defer (honest NIE)
+            ndigits = lit
+        return args[0].round(ndigits)
+    if name in {"tolower", "toupper"} and len(args) == 1:
+        return args[0].str.to_lowercase() if name == "tolower" else args[0].str.to_uppercase()
     if name == "size" and len(args) == 1:
         # size(x): #chars (String) or #elements (List) — different polars ops, so gate by output
         # dtype. str.len_chars == pandas str.len (code points); list.len parity; null/empty

@@ -244,7 +244,10 @@ order_expr: expr
 
 ?unary: "+" unary                           -> uplus
       | MINUS unary                         -> uminus
-      | postfix
+      | power
+
+?power: postfix
+      | postfix "^" unary                   -> pow_op
 
 // Dotted chains rooted at a bare NAME derive ONLY via qualified_name (a.b.c);
 // property_access applies ONLY to composite roots (calls, groups, subscripts:

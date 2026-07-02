@@ -268,6 +268,27 @@ WHERE Forms
 - Pattern predicates can be combined with row predicates in the current
   boolean subset, including ``AND`` / ``OR`` / ``XOR`` and ``NOT`` forms.
 
+Scalar Functions and Operators
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Standard openCypher/neo4j scalar functions and operators usable in ``WHERE``
+and ``RETURN`` expressions:
+
+- Arithmetic ``+ - * / %`` and exponentiation ``^`` (right-associative, binds
+  tighter than ``* / %``; returns a float, e.g. ``10 ^ 5`` → ``100000.0``).
+  Chained comparisons such as ``WHERE 1 < n.age < 65`` are supported.
+- Numeric functions ``abs``, ``sqrt``, ``sign``, ``floor``, ``ceil`` (alias
+  ``ceiling``), and ``round(x)`` / ``round(x, precision)`` (returns a float).
+- String helpers ``toLower`` / ``toUpper`` (the idiomatic case-insensitive
+  compare, e.g. ``WHERE toLower(n.name) = 'bob'``), plus ``substring`` and
+  ``size``, and conversions ``toInteger`` / ``toFloat`` / ``toString`` /
+  ``toBoolean`` and ``coalesce``.
+- Regex ``=~`` (see WHERE Forms above).
+
+``LIKE`` / ``ILIKE`` and ``BETWEEN`` are intentionally not provided — they are
+not part of Cypher or GQL; use ``=~`` / ``CONTAINS`` / ``STARTS WITH`` and
+``a <= x AND x <= b`` (or chained ``a <= x <= b``) respectively.
+
 Variable-Length Relationship Boundary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
