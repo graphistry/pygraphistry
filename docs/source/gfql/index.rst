@@ -56,6 +56,7 @@ See also:
    Seeded Traversal Indexes <index_adjacency>
    GFQL CPU & GPU Acceleration <performance>
    End-to-End Benchmark <benchmark_filter_pagerank>
+   vs Spark GraphFrames <benchmark_graphframes>
    translate
    combo
    quick
