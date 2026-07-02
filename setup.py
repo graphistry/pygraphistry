@@ -57,7 +57,7 @@ base_extras_light = {
     'jupyter': ['ipython'],
     'spanner': ['google-cloud-spanner'],
     'kusto': ['azure-kusto-data', 'azure-identity'],
-    'polars': ['polars'],
+    'polars': ['polars>=1.5'],
 }
 
 base_extras_heavy = {
