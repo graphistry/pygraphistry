@@ -1,3 +1,4 @@
+import re as _re
 from typing import Any, Callable, Dict
 
 from graphistry.compute.gfql.language_defs import GFQL_COMPARISON_BINARY_OPS, GFQL_GROUPBY_AGG_METHODS
@@ -6,12 +7,15 @@ _GFQL_STRING_PREDICATE_SCALAR_OPS: Dict[str, Callable[[str, str], bool]] = {
     "contains": lambda left_txt, right_txt: right_txt in left_txt,
     "starts_with": lambda left_txt, right_txt: left_txt.startswith(right_txt),
     "ends_with": lambda left_txt, right_txt: left_txt.endswith(right_txt),
+    # openCypher/neo4j `=~`: Java-regex, FULL/anchored match (inline flags like `(?i)` honored).
+    "regex": lambda left_txt, right_txt: _re.fullmatch(right_txt, left_txt) is not None,
 }
 
 _GFQL_STRING_PREDICATE_SERIES_OPS: Dict[str, Callable[[Any, str], Any]] = {
     "contains": lambda left_txt, needle: left_txt.str.contains(needle, regex=False),
     "starts_with": lambda left_txt, needle: left_txt.str.startswith(needle),
     "ends_with": lambda left_txt, needle: left_txt.str.endswith(needle),
+    "regex": lambda left_txt, needle: left_txt.str.fullmatch(needle),
 }
 
 _GFQL_SEQUENCE_FN_SERIES_OPS: Dict[str, Callable[[Any], Any]] = {

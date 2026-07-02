@@ -54,7 +54,7 @@ from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.comparison import eq, ge, gt, isna, le, lt, ne, notna
 from graphistry.compute.predicates.is_in import is_in
 from graphistry.compute.predicates.logical import all_of
-from graphistry.compute.predicates.str import contains as str_contains, endswith, never_match, startswith
+from graphistry.compute.predicates.str import contains as str_contains, endswith, fullmatch, never_match, startswith
 from graphistry.compute.gfql.language_defs import GFQL_AGGREGATION_FUNCTIONS
 from graphistry.compute.gfql.expr_parser import (
     BinaryOp,
@@ -3509,6 +3509,10 @@ def _predicate_value(op: str, value: Any) -> Any:
         return never_match() if value is None else startswith(str(value), na=False)
     if op == "ends_with":
         return never_match() if value is None else endswith(str(value), na=False)
+    if op == "regex":
+        # openCypher/neo4j `=~`: Java-regex, full-string/anchored match → fullmatch.
+        # Inline flags in the pattern (e.g. `(?i)`) are honored by the regex engine.
+        return never_match() if value is None else fullmatch(str(value), na=False)
     raise ValueError(f"Unsupported predicate op: {op}")
 
 
