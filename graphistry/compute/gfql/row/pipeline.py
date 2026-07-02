@@ -1366,8 +1366,14 @@ class RowPipelineMixin:
                 # rounds ties toward +inf (round(-1.5) = -1.0); precision > 0 rounds ties
                 # away from zero (HALF_UP: round(-1.55, 1) = -1.6). numpy/pandas .round is
                 # half-to-even (round(2.5) -> 2.0) — a wrong answer vs the neo4j spec.
+                # Uses a floor+frac kernel, NOT floor(x+0.5): the +0.5 addition itself
+                # rounds up when x sits 1 ulp below a tie (JDK-6430675 class), e.g.
+                # round(0.49999999999999994) must be 0.0, round(0.0499…96, 1) → 0.0.
                 inner = values[0]
                 ndigits = int(values[1]) if len(values) == 2 else 0
+                if ndigits < 0:
+                    # neo4j raises on negative precision; decline (no silent wrong value).
+                    return False, None
                 if hasattr(inner, "astype"):
                     null_mask = self._gfql_null_mask(table_df, inner)
                     f = inner.astype(float)
@@ -1379,20 +1385,35 @@ class RowPipelineMixin:
                         return np.floor(s)
 
                     if ndigits == 0:
-                        out = _floor_series(f + 0.5)
+                        fl = _floor_series(f)
+                        out = fl + ((f - fl) >= 0.5).astype(float)  # ties toward +inf
                     else:
                         scale = 10.0 ** ndigits
                         shifted = f * scale
+                        a = shifted.abs()
+                        fl = _floor_series(a)
+                        mag = fl + ((a - fl) >= 0.5).astype(float)  # ties away from zero
                         sig = (shifted > 0).astype(float) - (shifted < 0).astype(float)
-                        out = _floor_series(shifted.abs() + 0.5) * sig / scale
+                        out = mag * sig / scale + 0.0  # +0.0 normalizes -0.0
+                        # scaled overflow (|x·10^p| = inf): rounding is the identity
+                        out = out.where(a != float("inf"), f)
                     return True, out.where(~null_mask, pd.NA)
                 if is_null_scalar(inner):
                     return True, None
                 x = float(inner)
+                if not math.isfinite(x):
+                    return True, x
                 if ndigits == 0:
-                    return True, float(math.floor(x + 0.5))
+                    fl0 = math.floor(x)
+                    return True, float(fl0 + (1 if (x - fl0) >= 0.5 else 0))
                 scale = 10.0 ** ndigits
-                return True, math.copysign(math.floor(abs(x * scale) + 0.5), x) / scale
+                shifted_x = x * scale
+                if not math.isfinite(shifted_x):
+                    return True, x  # scaled overflow -> identity
+                a2 = abs(shifted_x)
+                fl2 = math.floor(a2)
+                mag2 = fl2 + (1 if (a2 - fl2) >= 0.5 else 0)
+                return True, math.copysign(mag2, shifted_x) / scale + 0.0
 
             # neo4j/openCypher toLower/toUpper (the idiomatic case-insensitive-match helper),
             # plus the GQL-conformance aliases lower/upper (ISO GQL §20.24; neo4j accepts both).

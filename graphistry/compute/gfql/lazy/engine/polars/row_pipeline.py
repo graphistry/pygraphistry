@@ -139,14 +139,19 @@ def _lower_function(node: Any, columns: Sequence[str]) -> Optional[Any]:
             if not isinstance(lit, int) or isinstance(lit, bool):
                 return None  # non-literal precision -> defer (honest NIE)
             ndigits = lit
+        if ndigits < 0:
+            return None  # neo4j raises on negative precision; decline (honest NIE)
         # neo4j tie-breaking (matches the pandas engine): precision 0 -> ties toward
-        # +inf (floor(x+0.5)); precision > 0 -> ties away from zero (HALF_UP).
-        # polars' .round default (half-to-even) would be a wrong answer vs the spec.
-        # Use the native mode= for p>0 (bit-exact; a manual scale/divide formula picks
-        # up 1-ulp noise from polars' reassociating optimizer).
+        # +inf; precision > 0 -> ties away from zero (HALF_UP). polars' .round default
+        # (half-to-even) would be a wrong answer vs the spec. p=0 uses a floor+frac
+        # kernel (NOT floor(x+0.5): the +0.5 rounds when x is 1 ulp below a tie —
+        # round(0.49999999999999994) must be 0.0). p>0 uses the native mode= (bit-exact;
+        # a manual scale/divide formula picks up 1-ulp noise from polars' reassociating
+        # optimizer). Requires polars >= 1.5 for the mode kwarg (see setup.py extra).
         x = args[0].cast(pl.Float64)
         if ndigits == 0:
-            return (x + 0.5).floor()
+            fl = x.floor()
+            return fl + ((x - fl) >= 0.5).cast(pl.Float64)  # ties toward +inf
         return x.round(ndigits, mode="half_away_from_zero")
     if name in {"tolower", "toupper", "lower", "upper"} and len(args) == 1:
         # toLower/toUpper + GQL-conformance aliases lower/upper (as neo4j accepts both).

@@ -3028,6 +3028,28 @@ def test_round_neo4j_tie_breaking(engine: str) -> None:
     prec = pd.DataFrame({"id": [0, 1], "x": [1.25, -1.55]})
     assert vals(prec, "round(n.x, 1)") == [pytest.approx(1.3), pytest.approx(-1.6)]  # away from zero
 
+    # 1-ulp-below-a-tie (JDK-6430675 class): a floor(x+0.5) kernel wrongly rounds UP;
+    # the correct answer (Java Math.round post-fix, BigDecimal, polars native) is down.
+    ulp = pd.DataFrame({"id": [0, 1], "x": [0.49999999999999994, 0.049999999999999996]})
+    assert vals(ulp, "round(n.x)") == [0.0, 0.0]
+    assert vals(ulp, "round(n.x, 1)") == [pytest.approx(0.5), pytest.approx(0.0)]
+    # infinity passes through (rounding is the identity; no overflow to inf/crash)
+    inf = pd.DataFrame({"id": [0, 1], "x": [float("inf"), 1e300]})
+    assert vals(inf, "round(n.x)") == [float("inf"), 1e300]
+    assert vals(inf, "round(n.x, 2)") == [float("inf"), 1e300]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_round_negative_precision_declines(engine: str) -> None:
+    """neo4j raises on negative round() precision; we decline honestly (error, never a
+    silent value — and never a raw polars OverflowError crash)."""
+    if engine == "polars":
+        pytest.importorskip("polars")
+    g = _mk_graph(pd.DataFrame({"id": [0], "x": [25.0]}), pd.DataFrame({"s": [], "d": []}))
+    with pytest.raises(Exception) as exc_info:
+        g.gfql("MATCH (n) RETURN round(n.x, -1) AS v, n.id AS id", engine=engine)
+    assert "OverflowError" not in type(exc_info.value).__name__
+
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
 @pytest.mark.parametrize(
