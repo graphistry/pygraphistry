@@ -54,6 +54,46 @@ def _record(decision: dict) -> None:
         steps.append(decision)
 
 
+def _trace_active() -> bool:
+    """True only inside an ``index_trace()`` / ``gfql_explain`` context. Diagnostic
+    enrichment (LP1) is computed only when this is True → zero hot-path cost."""
+    return getattr(_TRACE, "steps", None) is not None
+
+
+def _seed_id_array(nodes, node_col):
+    """Seed ids of the frontier as a host numpy array (device→host copy is fine —
+    only called under an explain trace). None on any failure."""
+    try:
+        col = nodes[node_col]
+        if hasattr(col, "to_numpy"):
+            return col.to_numpy()
+        arr = getattr(col, "values", col)
+        return arr.get() if hasattr(arr, "get") else arr
+    except Exception:
+        return None
+
+
+def _seed_deg_sum(idx, seed_ids) -> Optional[int]:
+    """Σ degree of the resident seeds — the true index expansion cost, FREE from the
+    CSR ``group_offsets`` already on the AdjacencyIndex. Diagnostic only (LP1); the
+    report's planner needs this fanout estimate exposed via EXPLAIN."""
+    try:
+        import numpy as np
+        ks = idx.keys_sorted
+        ks = ks.get() if hasattr(ks, "get") else np.asarray(ks)
+        off = idx.group_offsets
+        off = off.get() if hasattr(off, "get") else np.asarray(off)
+        seed_ids = np.asarray(seed_ids)
+        pos = np.searchsorted(ks, seed_ids)
+        valid = pos < ks.size
+        pos_v = pos[valid]
+        seed_v = seed_ids[valid]
+        hit = pos_v[ks[pos_v] == seed_v]  # keep only real key hits (robust to seed order)
+        return int((off[hit + 1] - off[hit]).sum())
+    except Exception:
+        return None
+
+
 def get_registry(g: Plottable) -> GfqlIndexRegistry:
     return getattr(g, REGISTRY_ATTR, EMPTY_REGISTRY)
 
@@ -279,11 +319,31 @@ def maybe_index_hop(
     (or buildable under auto/force), (b) the query is covered, (c) the frontier is
     not so large that a full scan is cheaper. Correctness is identical either way.
     """
-    if policy == "off":
+    # Diagnostic trace (LP1) is populated only inside an explain context — build the
+    # base record + a `_bail` helper that logs *why* we fell back to scan. All of this
+    # is skipped entirely when not tracing, so the hot path pays nothing.
+    trace = _trace_active()
+    diag: dict = {}
+    if trace:
+        diag = {
+            "op": "hop", "direction": direction, "hops": hops,
+            "policy": policy, "engine": engine.value,
+        }
+        try:
+            diag["frontier_n"] = int(nodes.shape[0])
+        except Exception:
+            pass
+
+    def _bail(reason: str) -> Optional[Plottable]:
+        if trace:
+            _record({**diag, "path": "scan", "decision_reason": reason})
         return None
+
+    if policy == "off":
+        return _bail("policy=off")
     registry = get_registry(g)
     if registry.is_empty() and policy not in ("auto", "force"):
-        return None
+        return _bail("no resident index (policy=use)")
     if not _hop_is_index_coverable(
         nodes=nodes, to_fixed_point=to_fixed_point, hops=hops,
         min_hops=rest.get("min_hops"), max_hops=rest.get("max_hops"),
@@ -301,32 +361,44 @@ def maybe_index_hop(
         include_zero_hop_seed=rest.get("include_zero_hop_seed", False),
         target_wave_front=rest.get("target_wave_front"),
     ):
-        return None
+        return _bail("query not index-coverable")
 
     node_col = g._node
     src, dst = g._source, g._destination
     if node_col is None or src is None or dst is None or g._edges is None or g._nodes is None:
-        return None
+        return _bail("graph missing node/edge columns")
 
     if policy in ("auto", "force"):
         registry = _ensure_indexes(g, registry, direction, engine, policy, nodes, src, dst, node_col)
     if registry.is_empty():
-        return None
+        return _bail("no index available (build declined)")
 
     # Cost gate: if the frontier covers a large fraction of distinct sources, the
     # scan path is competitive — fall back (avoids index overhead on bulk-ish hops).
     idx0 = registry.get_valid(
         EDGE_OUT_ADJ if direction != "reverse" else EDGE_IN_ADJ, g._edges, (src, dst), engine
     )
+    frac = _COST_GATE_FRAC.get(engine, _COST_GATE_FRAC_DEFAULT)
+    if trace and idx0 is not None:
+        # Free fanout estimate (Σ seed degree) from the CSR offsets — the planner
+        # signal the report wants EXPLAIN to surface (not just used-index yes/no).
+        seed_ids = _seed_id_array(nodes, node_col)
+        deg_sum = _seed_deg_sum(idx0, seed_ids) if seed_ids is not None else None
+        diag["n_keys"] = int(idx0.n_keys)
+        diag["seed_deg_sum"] = deg_sum
+        diag["est_result_rows"] = deg_sum
+        diag["threshold_frac"] = frac
     if idx0 is None:
         # required direction not resident (undirected needs both); let driver decide
         pass
     elif policy != "force":
         try:
             frontier_n = int(nodes.shape[0])
-            frac = _COST_GATE_FRAC.get(engine, _COST_GATE_FRAC_DEFAULT)
             if idx0.n_keys > 0 and frontier_n >= frac * idx0.n_keys:
-                return None
+                return _bail(
+                    f"frontier {frontier_n} >= {frac}*n_keys "
+                    f"({frac * idx0.n_keys:.0f}) -> scan cheaper"
+                )
         except Exception:
             pass
 
@@ -341,9 +413,13 @@ def maybe_index_hop(
         hops=eff_hops, to_fixed_point=to_fixed_point, direction=direction,
         return_as_wave_front=return_as_wave_front,
     )
-    _record({
-        "op": "hop", "direction": direction, "hops": eff_hops,
-        "path": "index" if result is not None else "scan",
-        "policy": policy, "engine": engine.value,
-    })
+    if trace:
+        _record({
+            **diag, "hops": eff_hops,
+            "path": "index" if result is not None else "scan",
+            "decision_reason": (
+                "frontier below cost gate -> index" if result is not None
+                else "index path not applicable -> scan"
+            ),
+        })
     return result
