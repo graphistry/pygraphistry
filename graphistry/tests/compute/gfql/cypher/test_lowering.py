@@ -2956,26 +2956,33 @@ def test_regex_operator_composes_or_not(query: str, expected: list[dict[str, obj
         ("n.x ^ 2", [pytest.approx(5.29), pytest.approx(7.29), 16.0]),
         ("2 ^ 3 ^ 2", [512.0, 512.0, 512.0]),   # right-associative
         ("2 * 3 ^ 2", [18.0, 18.0, 18.0]),      # `^` binds tighter than `*`
+        ("sign(n.x)", [1, -1, 1]),              # neo4j sign() -> Integer (both engines)
     ],
 )
-def test_numeric_functions_and_power_operator(expr: str, expected: list[object]) -> None:
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_numeric_functions_and_power_operator(engine: str, expr: str, expected: list[object]) -> None:
     nodes = pd.DataFrame({"id": [0, 1, 2], "x": [2.3, -2.7, 4.0]})
     g = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []}))
     q = f"MATCH (n) RETURN {expr} AS v, n.id AS id ORDER BY id"
-    assert g.gfql(q)._nodes["v"].tolist() == expected
+    col = g.gfql(q, engine=engine)._nodes["v"]
+    got = col.to_list() if hasattr(col, "to_list") else col.tolist()
+    assert got == expected
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
 @pytest.mark.parametrize(
     ("query", "expected"),
     [
-        ("MATCH (n) WHERE toLower(n.name) = 'bob' RETURN n.id AS id", [{"id": 1}]),
-        ("MATCH (n) WHERE toUpper(n.name) = 'BOB' RETURN n.id AS id", [{"id": 1}]),
+        ("MATCH (n) WHERE toLower(n.name) = 'bob' RETURN n.id AS id ORDER BY id", [0]),
+        ("MATCH (n) WHERE toUpper(n.name) = 'BOB' RETURN n.id AS id ORDER BY id", [0]),
     ],
 )
-def test_tolower_toupper(query: str, expected: list[dict[str, object]]) -> None:
-    nodes = pd.DataFrame({"id": [0, 1, 2], "name": ["Alice", "BOB", "carol"]})
-    result = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query)
-    assert result._nodes.to_dict(orient="records") == expected
+def test_tolower_toupper(engine: str, query: str, expected: list[int]) -> None:
+    # node with matching name is id 0 after we make BOB id 0; keep ids stable for both engines
+    nodes = pd.DataFrame({"id": [0, 1, 2], "name": ["BOB", "Alice", "carol"]})
+    col = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query, engine=engine)._nodes["id"]
+    got = col.to_list() if hasattr(col, "to_list") else col.tolist()
+    assert got == expected
 
 
 @pytest.mark.parametrize(

@@ -114,8 +114,9 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         # returns float like neo4j/pandas; parity-verified.
         return args[0].cast(pl.Float64).sqrt()
     if name == "sign" and len(args) == 1:
-        # polars .sign() == np.sign for int/float (-1/0/1; null/NaN preserved); parity-verified.
-        return args[0].sign()
+        # polars .sign() == np.sign (-1/0/1; null/NaN preserved); neo4j sign() returns an
+        # Integer, so cast to match the pandas engine (which yields int). Parity-verified.
+        return args[0].sign().cast(pl.Int64)
     if name in {"floor", "ceil", "ceiling"} and len(args) == 1:
         return args[0].ceil() if name in {"ceil", "ceiling"} else args[0].floor()
     if name == "round" and len(args) in {1, 2}:
