@@ -11,6 +11,8 @@ GFQL runs the **same query** on four interchangeable engines — ``pandas`` (def
 **identical results** on each (differential parity is a release gate). The biggest, easiest
 win is one keyword, **no GPU required**:
 
+.. doc-test: skip
+
 .. code-block:: python
 
    g.gfql(query)                    # engine='pandas' (default)
