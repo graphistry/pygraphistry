@@ -202,9 +202,18 @@ benchmarked** rather than guess.
      - Actively-maintained **Kuzu fork** (Kuzu is archived); embedded C++, strongly-typed
        Cypher, opt-in ART *or* hash indexing, zero-copy Arrow/CSR scans, and **out-of-core
        billion-scale** (query a 1.8B-edge graph in <8 GB RAM).
-     - Head-to-head on Ladybug's own suite (seeded out-degree, rel ``COUNT(*)``, rel-scan
-       rowids, id range query) is **in progress** — GFQL's angle is dataframe-native,
-       in-process, and GPU-accelerated with no separate store to load/index.
+     - Head-to-head on Ladybug's own suite (5M nodes / 20M edges, GFQL running the
+       identical Cypher ``MATCH … RETURN`` row pipeline, each engine on its **native**
+       frames): GFQL **wins the scan-shaped ops** — full node scan **~65×** (polars
+       58 ms vs 3789 ms), id **range ~1.2×** (polars 6.1 ms vs 7.5 ms), relationship
+       property/rowid scans **~3.5–3.7×** (cuDF 4.2 s vs ~15 s). **Point lookup** (single
+       id) is ~4 ms vs Ladybug's ~0.3 ms — a full columnar scan vs a B-tree/hash **index
+       seek**; close in absolute terms, and a resident GFQL adjacency index (see
+       :doc:`index_adjacency`) closes it. Ladybug still wins the two ops backed by
+       persistent structure: point lookups and a relationship ``COUNT(*)`` (an O(1) cached
+       count vs GFQL's O(E) endpoint-validated scan — a dataframe has no referential
+       integrity). GFQL's angle is dataframe-native, in-process, and GPU-accelerated with
+       no separate store to load/index.
      - **Complement:** Ladybug is a durable embedded store with an out-of-core mode
        (billion-scale in <8 GB RAM); GFQL is a query engine over your dataframes. GFQL's
        *default* is in-memory, but it is **not limited to it** — Polars streaming
