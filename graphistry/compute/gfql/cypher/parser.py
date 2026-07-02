@@ -129,6 +129,7 @@ where_predicate: property_ref COMP_OP where_rhs -> cmp_where
                | property_ref "CONTAINS"i where_rhs -> contains_where
                | property_ref "STARTS"i "WITH"i where_rhs -> starts_with_where
                | property_ref "ENDS"i "WITH"i where_rhs -> ends_with_where
+               | property_ref "=~" where_rhs -> regex_where
                | variable labels -> has_labels_where
 where_rhs: property_ref
          | value
@@ -195,6 +196,7 @@ order_expr: expr
            | additive "CONTAINS"i additive   -> contains_op
            | additive "STARTS"i "WITH"i additive -> starts_with_op
            | additive "ENDS"i "WITH"i additive -> ends_with_op
+           | additive "=~" additive          -> regex_op
 
 ?additive: multiplicative
          | additive "+" multiplicative      -> add_op
@@ -925,6 +927,10 @@ def _build_transformer(source: str) -> _TransformerLike:
 
         def ends_with_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
             return self._where_predicate(meta, items, op="ends_with", message="Invalid WHERE ENDS WITH predicate", rhs=True)
+
+        def regex_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
+            # openCypher/neo4j `=~` — Java-regex, full/anchored match (lowered to fullmatch).
+            return self._where_predicate(meta, items, op="regex", message="Invalid WHERE =~ regex predicate", rhs=True)
 
         def has_labels_where(self, meta: Any, items: Sequence[Any]) -> WherePredicate:
             if len(items) != 2:

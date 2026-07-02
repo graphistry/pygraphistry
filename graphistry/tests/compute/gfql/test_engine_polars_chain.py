@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry import gt, lt, ge, le, eq, ne, between, is_in, contains, startswith, endswith
+from graphistry import gt, lt, ge, le, eq, ne, between, is_in, contains, startswith, endswith, match, fullmatch
 from graphistry.compute.ast import n, e, e_forward, e_reverse, e_undirected
 
 pl = pytest.importorskip("polars")
@@ -102,6 +102,27 @@ def test_polars_chain_parity(cname):
         nm = getattr(op, "_name", None)
         if nm:
             assert _named(gp, nm) == _named(gl, nm), f"alias[{nm}] mismatch [{cname}]"
+
+
+@pytest.mark.parametrize("label,pred", [
+    ("match start",     match("a.c")),                 # start-anchored: 'a.c','a.c.d'  (not 'xa.c')
+    ("match ci",        match("A.C", case=False)),
+    ("match alt",       match("ab|zz")),               # top-level alternation anchors as a whole
+    ("fullmatch",       fullmatch("a.c")),             # full: only 'a.c'  (not 'a.c.d')
+    ("fullmatch ci",    fullmatch("A.C", case=False)),
+    ("fullmatch alt",   fullmatch("abc|zzz")),
+])
+def test_polars_match_fullmatch_parity(label, pred):
+    """I1 (B2): polars Match/Fullmatch native lowering — start-anchored vs fully anchored
+    regex, matching the pandas oracle (the surface Cypher ``=~`` lowers to)."""
+    nodes = pd.DataFrame({"id": ["p", "q", "r", "s", "t", "u"],
+                          "name": ["a.c", "xa.c", "AxC", "a.c.d", "abc", "zzz"]})
+    edges = pd.DataFrame({"s": ["p", "q", "r", "s", "t"], "d": ["q", "r", "s", "t", "u"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    gp = g.chain([n({"name": pred})], engine="pandas")
+    gl = g.chain([n({"name": pred})], engine="polars")
+    assert "polars" in type(gl._nodes).__module__
+    assert _nset(gp) == _nset(gl), f"[{label}] pandas {_nset(gp)} != polars {_nset(gl)}"
 
 
 @pytest.mark.parametrize("label,pred", [

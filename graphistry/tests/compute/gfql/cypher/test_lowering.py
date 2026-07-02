@@ -2885,6 +2885,23 @@ def test_string_cypher_formats_mixed_edge_entity_projection() -> None:
             "RETURN a.name AS name ORDER BY name",
             [{"name": "ABCDEF"}],
         ),
+        # openCypher/neo4j `=~` — Java-regex, FULL/anchored match (not partial), inline flags.
+        (
+            "MATCH (a) WHERE a.name =~ 'AB.*' RETURN a.name AS name ORDER BY name",
+            [{"name": "AB"}, {"name": "ABCDEF"}],
+        ),
+        (  # full-match, not partial: 'AB' matches only 'AB', NOT 'ABCDEF'
+            "MATCH (a) WHERE a.name =~ 'AB' RETURN a.name AS name ORDER BY name",
+            [{"name": "AB"}],
+        ),
+        (  # inline case-insensitive flag
+            "MATCH (a) WHERE a.name =~ '(?i)abcdef' RETURN a.name AS name ORDER BY name",
+            [{"name": "ABCDEF"}, {"name": "abcdef"}],
+        ),
+        (  # null rhs → never matches (mirrors CONTAINS/STARTS WITH null)
+            "MATCH (a) WHERE a.name =~ null RETURN a.name AS name ORDER BY name",
+            [],
+        ),
     ],
 )
 def test_string_cypher_executes_match_where_string_predicates(
@@ -2899,6 +2916,117 @@ def test_string_cypher_executes_match_where_string_predicates(
     result = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query)
 
     assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        # `=~` composes through OR / NOT / RETURN-expression (shared expr engine path),
+        # not just the simple WHERE-predicate path.
+        (
+            "MATCH (a) WHERE a.name =~ 'al.*' OR a.name = 'bob' RETURN a.name AS name ORDER BY name",
+            [{"name": "alba"}, {"name": "alice"}, {"name": "bob"}],
+        ),
+        (
+            "MATCH (a) WHERE NOT (a.name =~ 'al.*') RETURN a.name AS name ORDER BY name",
+            [{"name": "Alice"}, {"name": "bob"}],
+        ),
+        (  # regex leaf under both AND and NOT, with inline (?i)
+            "MATCH (a) WHERE a.name =~ 'a.*' AND NOT a.name =~ '(?i)alice' RETURN a.name AS name ORDER BY name",
+            [{"name": "alba"}],
+        ),
+    ],
+)
+def test_regex_operator_composes_or_not(query: str, expected: list[dict[str, object]]) -> None:
+    nodes = pd.DataFrame({"id": ["p", "q", "r", "s"], "name": ["alice", "Alice", "bob", "alba"]})
+    result = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query)
+    assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
+
+
+def test_regex_cudf_inline_flag_parity() -> None:
+    """cuDF/libcudf rejects inline regex flags (``(?i)``/``(?m)``/``(?s)``) at ANY position
+    ("invalid regex pattern"), so a bare ``=~ '(?i)…'`` used to CRASH on ``engine='cudf'``.
+    The Match/Fullmatch cuDF path now translates a leading ``(?i)`` to the lowercase
+    case-folding workaround (parity with pandas). Regression for viz-filter #1673."""
+    pytest.importorskip("cudf")
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3], "name": ["bob", "ALICE", "abc", "a.c"]})
+    g = _mk_graph(nodes, pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3]}))
+    q = "MATCH (n) WHERE n.name =~ '(?i)a.c' RETURN n.id AS id ORDER BY id"
+    oracle = g.gfql(q)._nodes["id"].tolist()  # pandas
+    got = g.gfql(q, engine="cudf")._nodes.to_pandas()["id"].tolist()
+    assert got == oracle == [2, 3]
+
+
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        # openCypher/neo4j numeric functions (standard). Column form -> floats.
+        ("floor(n.x)", [2.0, -3.0, 4.0]),
+        ("ceil(n.x)", [3.0, -2.0, 4.0]),
+        ("ceiling(n.x)", [3.0, -2.0, 4.0]),
+        ("round(n.x)", [2.0, -3.0, 4.0]),
+        ("round(n.x, 1)", [2.3, -2.7, 4.0]),
+        ("sqrt(abs(n.x))", [pytest.approx(1.5165750888), pytest.approx(1.6431676725), 2.0]),
+        ("sign(n.x)", [1, -1, 1]),              # neo4j sign() -> Integer (both engines)
+    ],
+)
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_numeric_functions(engine: str, expr: str, expected: list[object]) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({"id": [0, 1, 2], "x": [2.3, -2.7, 4.0]})
+    g = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []}))
+    q = f"MATCH (n) RETURN {expr} AS v, n.id AS id ORDER BY id"
+    col = g.gfql(q, engine=engine)._nodes["v"]
+    got = col.to_list() if hasattr(col, "to_list") else col.tolist()
+    assert got == expected
+
+
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        # scalar (constant-folded) forms exercise the scalar code paths
+        ("floor(2.7)", 2.0),
+        ("ceil(2.1)", 3.0),
+        ("ceiling(-2.1)", -2.0),
+        ("round(2.5)", 2.0),        # numpy default (round-half-to-even)
+        ("round(2.567, 2)", 2.57),
+        ("sign(-9)", -1),
+        ("sqrt(9.0)", 3.0),
+        ("toLower('ABC')", "abc"),
+        ("toUpper('abc')", "ABC"),
+    ],
+)
+def test_numeric_functions_scalar(expr: str, expected: object) -> None:
+    nodes = pd.DataFrame({"id": [0], "x": [1.0]})
+    g = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []}))
+    assert g.gfql(f"MATCH (n) RETURN {expr} AS v, n.id AS id")._nodes["v"].tolist() == [expected]
+
+
+@pytest.mark.parametrize("expr", ["floor(null)", "ceil(null)", "round(null)", "toLower(null)", "toUpper(null)"])
+def test_numeric_string_fns_null_scalar(expr: str) -> None:
+    """null literal -> null (exercises the scalar null-guard branches)."""
+    g = _mk_graph(pd.DataFrame({"id": [0]}), pd.DataFrame({"s": [], "d": []}))
+    v = g.gfql(f"MATCH (n) RETURN {expr} AS v, n.id AS id")._nodes["v"].tolist()[0]
+    assert v is None or pd.isna(v)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("MATCH (n) WHERE toLower(n.name) = 'bob' RETURN n.id AS id ORDER BY id", [0]),
+        ("MATCH (n) WHERE toUpper(n.name) = 'BOB' RETURN n.id AS id ORDER BY id", [0]),
+    ],
+)
+def test_tolower_toupper(engine: str, query: str, expected: list[int]) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    # node with matching name is id 0 after we make BOB id 0; keep ids stable for both engines
+    nodes = pd.DataFrame({"id": [0, 1, 2], "name": ["BOB", "Alice", "carol"]})
+    col = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query, engine=engine)._nodes["id"]
+    got = col.to_list() if hasattr(col, "to_list") else col.tolist()
+    assert got == expected
 
 
 @pytest.mark.parametrize(

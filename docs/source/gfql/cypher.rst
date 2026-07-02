@@ -253,6 +253,13 @@ WHERE Forms
 - Same-path alias comparisons such as ``WHERE p.team = q.team``.
 - ``IS NULL`` and ``IS NOT NULL`` predicates.
 - String predicates ``STARTS WITH``, ``ENDS WITH``, and ``CONTAINS``.
+- Regex match ``=~`` (openCypher/neo4j-standard), e.g.
+  ``WHERE n.name =~ '(?i)al.*'``. Uses a **full-string / anchored** match
+  (like neo4j's Java-regex ``=~``), so ``n.name =~ 'AB'`` matches only
+  ``'AB'`` — use ``.*`` / ``^..$`` for partial matches. Inline flags such as
+  ``(?i)`` (case-insensitive), ``(?m)``, and ``(?s)`` are honored. Composes
+  through ``AND`` / ``OR`` / ``NOT``. (``LIKE`` / ``ILIKE`` are not part of
+  Cypher or GQL — use ``=~``, ``CONTAINS``, or ``STARTS WITH`` instead.)
 - Label predicates such as ``WHERE b:Foo:Bar``.
 - Relationship-type predicates such as ``WHERE type(r) = 'KNOWS'``.
 - Positive relationship-existence pattern predicates such as
@@ -260,6 +267,27 @@ WHERE Forms
   ``WHERE (n)-[*]-()`` and ``WHERE (n)-[:R*2]->()``.
 - Pattern predicates can be combined with row predicates in the current
   boolean subset, including ``AND`` / ``OR`` / ``XOR`` and ``NOT`` forms.
+
+Scalar Functions and Operators
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Standard openCypher/neo4j scalar functions and operators usable in ``WHERE``
+and ``RETURN`` expressions:
+
+- Arithmetic ``+ - * / %``. Chained comparisons such as
+  ``WHERE 1 < n.age < 65`` are supported. (The ``^`` exponentiation operator is
+  not yet available.)
+- Numeric functions ``abs``, ``sqrt``, ``sign``, ``floor``, ``ceil`` (alias
+  ``ceiling``), and ``round(x)`` / ``round(x, precision)`` (returns a float).
+- String helpers ``toLower`` / ``toUpper`` (the idiomatic case-insensitive
+  compare, e.g. ``WHERE toLower(n.name) = 'bob'``), plus ``substring`` and
+  ``size``, and conversions ``toInteger`` / ``toFloat`` / ``toString`` /
+  ``toBoolean`` and ``coalesce``.
+- Regex ``=~`` (see WHERE Forms above).
+
+``LIKE`` / ``ILIKE`` and ``BETWEEN`` are intentionally not provided — they are
+not part of Cypher or GQL; use ``=~`` / ``CONTAINS`` / ``STARTS WITH`` and
+``a <= x AND x <= b`` (or chained ``a <= x <= b``) respectively.
 
 Variable-Length Relationship Boundary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -115,6 +115,17 @@ def predicate_to_expr(col: str, pred: ASTPredicate):
         prefix = _inline_regex_flag_prefix(case, flags)
         return c.str.contains(f"{prefix}{pred.pat}", literal=False)
 
+    if name in ("Match", "Fullmatch") and hasattr(pred, "pat") and isinstance(pred.pat, str):
+        # Regex predicates: Match = start-anchored (``re.match`` semantics), Fullmatch =
+        # fully anchored (``^..$``) — the target for Cypher's ``=~`` (full/anchored, Java
+        # ``Matcher.matches()``). Wrap the user pattern in a non-capturing group so a
+        # top-level alternation (``a|b``) anchors as a whole. ``case``/``flags`` → inline prefix.
+        case = getattr(pred, "case", True)
+        flags = getattr(pred, "flags", 0)
+        prefix = _inline_regex_flag_prefix(case, flags)
+        body = f"^(?:{pred.pat})$" if name == "Fullmatch" else f"^(?:{pred.pat})"
+        return c.str.contains(f"{prefix}{body}", literal=False)
+
     if name in ("Startswith", "Endswith") and hasattr(pred, "pat") and isinstance(pred.pat, str):
         if getattr(pred, "case", True):
             return c.str.starts_with(pred.pat) if name == "Startswith" else c.str.ends_with(pred.pat)

@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union, cast
+from typing import Any, Optional, Tuple, Union, cast
 import re
 
 import pandas as pd
@@ -424,21 +424,42 @@ class _RegexStringPredicate(ASTPredicate):
             )
 
 
+def _cudf_regex_prep(pat: object, case: bool) -> Tuple[object, bool]:
+    """Adapt a regex for libcudf, which rejects inline flag groups (``(?i)``,
+    ``(?m)``, ``(?s)`` …) at ANY position (raises "invalid regex pattern").
+
+    A leading ``(?i)`` (case-insensitive) is translated to the caller's existing
+    lowercase-folding workaround (returns the flag-stripped pattern + ``case=False``);
+    any other inline flag has no cuDF equivalent, so decline honestly with
+    ``NotImplementedError`` rather than crash. Surfaced by the openCypher ``=~``
+    operator, which lowers ``=~ '(?i)…'`` to Match/Fullmatch (viz-filter #1673).
+    """
+    if not isinstance(pat, str):
+        return pat, case
+    m = re.match(r'\(\?([aiLmsux]+)\)', pat)
+    if not m:
+        return pat, case
+    flag_chars = m.group(1)
+    rest = pat[m.end():]
+    if set(flag_chars) <= {'i'}:
+        return rest, False  # case-insensitive -> lowercase-folding path
+    raise NotImplementedError(
+        f"cuDF regex does not support inline flags '(?{flag_chars})'; use engine='pandas'"
+    )
+
+
 class Match(_RegexStringPredicate):
     def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         # workaround cuDF not supporting 'case' and 'na' parameters
         # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
         # cudf.core.accessors.string.stringmethods.match/
         if is_cudf:
-            if not self.case:
+            pat, case = _cudf_regex_prep(self.pat, self.case)
+            if not case:
                 s_modified = s.str.lower()
-                pat_modified = (
-                    self.pat.lower()
-                    if isinstance(self.pat, str)
-                    else self.pat
-                )
+                pat_modified = pat.lower() if isinstance(pat, str) else pat
                 return s_modified.str.match(pat_modified, flags=self.flags)
-            return s.str.match(self.pat, flags=self.flags)
+            return s.str.match(pat, flags=self.flags)
 
         effective_flags = self.flags
         if not self.case:
@@ -463,11 +484,13 @@ def match(
 class Fullmatch(_RegexStringPredicate):
     def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         if is_cudf:
-            # cuDF doesn't have fullmatch, use match() with anchors as
-            # workaround. fullmatch('abc') is equivalent to match('^abc$')
-            anchored_pat = f'^{self.pat}$'
-
-            if not self.case:
+            # cuDF has no fullmatch; emulate with match() + ``^…$`` anchors.
+            # libcudf rejects inline flag groups (``(?i)`` …) entirely, so
+            # translate them first (``(?i)`` -> lowercase-folding; others NIE).
+            # Surfaced by the openCypher ``=~`` operator (viz-filter #1673).
+            pat, case = _cudf_regex_prep(self.pat, self.case)
+            anchored_pat = f'^{pat}$' if isinstance(pat, str) else pat
+            if not case:
                 s_modified = s.str.lower()
                 pat_modified = (
                     anchored_pat.lower()
