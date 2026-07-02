@@ -2943,6 +2943,20 @@ def test_regex_operator_composes_or_not(query: str, expected: list[dict[str, obj
     assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
 
 
+def test_regex_cudf_inline_flag_parity() -> None:
+    """cuDF/libcudf rejects inline regex flags (``(?i)``/``(?m)``/``(?s)``) at ANY position
+    ("invalid regex pattern"), so a bare ``=~ '(?i)…'`` used to CRASH on ``engine='cudf'``.
+    The Match/Fullmatch cuDF path now translates a leading ``(?i)`` to the lowercase
+    case-folding workaround (parity with pandas). Regression for viz-filter #1673."""
+    pytest.importorskip("cudf")
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3], "name": ["bob", "ALICE", "abc", "a.c"]})
+    g = _mk_graph(nodes, pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3]}))
+    q = "MATCH (n) WHERE n.name =~ '(?i)a.c' RETURN n.id AS id ORDER BY id"
+    oracle = g.gfql(q)._nodes["id"].tolist()  # pandas
+    got = g.gfql(q, engine="cudf")._nodes.to_pandas()["id"].tolist()
+    assert got == oracle == [2, 3]
+
+
 @pytest.mark.parametrize(
     ("expr", "expected"),
     [
