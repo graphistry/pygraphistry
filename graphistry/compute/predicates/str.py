@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union, cast
+from typing import Any, Optional, Tuple, Union, cast
 import re
 
 import pandas as pd
@@ -424,7 +424,7 @@ class _RegexStringPredicate(ASTPredicate):
             )
 
 
-def _cudf_regex_prep(pat: object, case: bool) -> "tuple[object, bool]":
+def _cudf_regex_prep(pat: object, case: bool) -> Tuple[object, bool]:
     """Adapt a regex for libcudf, which rejects inline flag groups (``(?i)``,
     ``(?m)``, ``(?s)`` …) at ANY position (raises "invalid regex pattern").
 
