@@ -104,6 +104,28 @@ def test_polars_chain_parity(cname):
             assert _named(gp, nm) == _named(gl, nm), f"alias[{nm}] mismatch [{cname}]"
 
 
+@pytest.mark.parametrize("label,pred", [
+    ("literal dot",    contains("a.c", regex=False)),               # literal: no metachar
+    ("regex dot",      contains("a.c", regex=True)),                # '.' is a wildcard
+    ("ci literal",     contains("A.C", regex=False, case=False)),   # literal + case-insensitive
+    ("ci regex",       contains("A.C", regex=True, case=False)),    # regex + case-insensitive
+])
+def test_polars_contains_regex_and_case_parity(label, pred):
+    """B1: polars Contains must honor ``regex=``/``flags=``/``case=`` like pandas — a
+    literal contains with a regex metacharacter must NOT over-match (before the fix the
+    polars lowering always used ``literal=False``, so ``contains('a.c', regex=False)``
+    matched 'abc'). Differential parity vs the pandas oracle."""
+    nodes = pd.DataFrame({"id": ["p", "q", "r", "s", "t"],
+                          "name": ["a.c", "abc", "AxC", "a.c.d", "zzz"]})
+    edges = pd.DataFrame({"s": ["p", "q", "r", "s"], "d": ["q", "r", "s", "t"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    ch = [n({"name": pred})]
+    gp = g.chain(ch, engine="pandas")
+    gl = g.chain(ch, engine="polars")
+    assert "polars" in type(gl._nodes).__module__
+    assert _nset(gp) == _nset(gl), f"[{label}] pandas {_nset(gp)} != polars {_nset(gl)}"
+
+
 # ---- Randomized differential fuzzer (the CHANGELOG-advertised fuzzer) ----
 
 def _rand_node(rng):
