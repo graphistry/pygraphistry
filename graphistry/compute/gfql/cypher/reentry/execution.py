@@ -20,13 +20,41 @@ REENTRY_SCALAR_SUGGESTION = "Carry scalar columns through WITH before MATCH re-e
 REENTRY_DUPLICATE_CARRIED_ROWS_REASON = "duplicate_carried_node_rows"
 
 
+def _is_polars_df(df: Any) -> bool:
+    return df is not None and "polars" in type(df).__module__
+
+
+def _reentry_row(prefix_rows: Any, row_index: int) -> Any:
+    """One prefix row as a col->scalar mapping, engine-aware (``row[col]`` works for
+    both the pandas Series and the polars named-row dict)."""
+    if _is_polars_df(prefix_rows):
+        return prefix_rows.row(row_index, named=True)
+    return prefix_rows.iloc[row_index]
+
+
+def _assign_constant_columns(df: Any, values: Dict[str, Any]) -> Any:
+    """Broadcast scalar ``values`` as constant columns, engine-aware."""
+    if not values:
+        return df
+    if _is_polars_df(df):
+        import polars as pl
+        return df.with_columns([pl.lit(v).alias(k) for k, v in values.items()])
+    return df.assign(**values)
+
+
+def _drop_columns(df: Any, cols: Sequence[str]) -> Any:
+    if _is_polars_df(df):
+        return df.drop(list(cols))
+    return df.drop(columns=list(cols))
+
+
 def _bind_reentry_graph(graph: Plottable, node_rows: Optional[DataFrameT], *, empty_edges: bool = False) -> Plottable:
     out = graph.bind()
     out._nodes = node_rows
     if empty_edges:
         edges_df = getattr(graph, "_edges", None)
         if edges_df is not None:
-            out._edges = cast(DataFrameT, edges_df.iloc[0:0])
+            out._edges = cast(DataFrameT, edges_df.head(0) if _is_polars_df(edges_df) else edges_df.iloc[0:0])
     return out
 
 
@@ -370,14 +398,15 @@ def compiled_query_scalar_reentry_state(
             value=missing_column,
             suggestion="Project the scalar column explicitly before MATCH re-entry.",
         )
-    row = prefix_rows.iloc[row_index]
+    row = _reentry_row(prefix_rows, row_index)
     node_rows = cast(
         DataFrameT,
-        base_nodes.assign(
-            **{
+        _assign_constant_columns(
+            base_nodes,
+            {
                 _reentry_hidden_column_name(output_name): row[output_name]
                 for output_name in carried_columns
-            }
+            },
         ),
     )
     return _bind_reentry_graph(base_graph, node_rows), None
@@ -392,7 +421,7 @@ def freeform_broadcast_row_to_nodes(
     row_index: int,
 ) -> Plottable:
     """Broadcast one free-form prefix row's hidden carries onto the base nodes."""
-    row = prefix_rows.iloc[row_index]
+    row = _reentry_row(prefix_rows, row_index)
     broadcast_values: Dict[str, Any] = {
         _reentry_hidden_column_name(col): row[col]
         for col in plan.scalar_columns
@@ -407,11 +436,11 @@ def freeform_broadcast_row_to_nodes(
     if broadcast_values:
         existing_hidden = [c for c in base_nodes.columns if isinstance(c, str) and c.startswith("__cypher_reentry_")]
         node_rows = (
-            cast(DataFrameT, base_nodes.drop(columns=existing_hidden))
+            cast(DataFrameT, _drop_columns(base_nodes, existing_hidden))
             if existing_hidden
             else base_nodes
         )
-        node_rows = cast(DataFrameT, node_rows.assign(**broadcast_values))
+        node_rows = cast(DataFrameT, _assign_constant_columns(node_rows, broadcast_values))
     else:
         node_rows = cast(DataFrameT, base_nodes)
 

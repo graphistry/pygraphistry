@@ -4618,11 +4618,42 @@ _ROW_PIPELINE_DISPATCH: Dict[str, Callable[..., "Plottable"]] = {
 }
 
 
+# Row-pipeline ops with native polars implementations (frame-level only — no
+# cypher expression engine). Everything else falls back through the guard below
+# until lowered natively (no-silent-fallback policy).
+_POLARS_NATIVE_ROW_PIPELINE_CALLS = frozenset(
+    {"rows", "skip", "limit", "distinct", "drop_cols"}
+)
+
+
+def _row_pipeline_active_is_polars(g: "Plottable") -> bool:
+    nodes = getattr(g, "_nodes", None)
+    if nodes is not None:
+        return "polars" in type(nodes).__module__
+    edges = getattr(g, "_edges", None)
+    return edges is not None and "polars" in type(edges).__module__
+
+
 def execute_row_pipeline_call(
     g: "Plottable", function: str, params: Dict[str, Any]
 ) -> "Plottable":
     if function not in ROW_PIPELINE_CALLS:
         raise ValueError(f"not a row-pipeline call: {function!r}")
+    if _row_pipeline_active_is_polars(g):
+        unsupported = function not in _POLARS_NATIVE_ROW_PIPELINE_CALLS
+        # ``rows`` is native only for the single-entity (table/source) shape; the
+        # multi-entity binding_ops / alias_endpoints shapes route into the pandas
+        # expression engine, so defer them explicitly rather than crash.
+        if function == "rows" and (
+            params.get("binding_ops") is not None
+            or params.get("alias_endpoints") is not None
+        ):
+            unsupported = True
+        if unsupported:
+            raise NotImplementedError(
+                f"polars row pipeline does not yet support op {function!r}; "
+                "use engine='pandas' for this query"
+            )
     adapter = _RowPipelineAdapter(g)
     method = _ROW_PIPELINE_DISPATCH[function]
     out = method(adapter, **params)

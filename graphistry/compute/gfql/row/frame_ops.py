@@ -10,15 +10,35 @@ if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
 
 
+def _is_polars(df: Any) -> bool:
+    """Cheap, import-light check for a polars DataFrame.
+
+    Polars only participates here when a query is run with explicit
+    ``engine='polars'`` (``resolve_engine`` deliberately maps polars frames to
+    pandas under AUTO), so the active table is a real ``pl.DataFrame`` whenever
+    this returns True. Differential parity vs pandas is the release gate.
+    """
+    return df is not None and "polars" in type(df).__module__
+
+
+def _empty_like(df: Any) -> Any:
+    """Zero-row copy preserving schema, for pandas/cuDF and polars frames."""
+    if _is_polars(df):
+        return df.clear()
+    return df.iloc[0:0].copy()
+
+
 def row_table(ctx: Any, table_df: Any) -> "Plottable":
     """Return a plottable that treats ``table_df`` as the active row table."""
     out = ctx.bind()
-    table_df = table_df.reset_index(drop=True)
+    # polars has no row index, so reset_index is both unnecessary and absent.
+    if not _is_polars(table_df):
+        table_df = table_df.reset_index(drop=True)
     out._nodes = table_df
     if ctx._edges is not None:
-        out._edges = ctx._edges.iloc[0:0].copy()
+        out._edges = _empty_like(ctx._edges)
     else:
-        out._edges = table_df.iloc[0:0].copy()
+        out._edges = _empty_like(table_df)
     out._source = None
     out._destination = None
     out._edge = ctx._edge if ctx._edge is not None and ctx._edge in table_df.columns else None
@@ -59,7 +79,10 @@ def empty_frame(
 
     if template_df is not None:
         if columns is None:
-            return template_df.iloc[0:0].copy()
+            return _empty_like(template_df)
+        if _is_polars(template_df):
+            import polars as pl
+            return pl.DataFrame(schema={str(col): pl.Object for col in columns})
         return template_df_cons(template_df, {str(col): [] for col in columns})
 
     if columns is None:
@@ -119,23 +142,27 @@ def rows(
     table_df = ctx._nodes if table == "nodes" else ctx._edges
     if table_df is None:
         if ctx._nodes is not None:
-            table_df = ctx._nodes.iloc[0:0].copy()
+            table_df = _empty_like(ctx._nodes)
         elif ctx._edges is not None:
-            table_df = ctx._edges.iloc[0:0].copy()
+            table_df = _empty_like(ctx._edges)
         else:
             table_df = empty_frame(ctx)
-    else:
+    elif not _is_polars(table_df):
         table_df = table_df.copy()
 
     if source is not None:
         if source not in table_df.columns:
             raise ValueError(f"rows(source=...) alias column not found: {source!r}")
-        mask = table_df[source]
-        if hasattr(mask, "isna") and hasattr(mask, "where"):
-            mask = mask.where(~mask.isna(), False)
-        elif hasattr(mask, "fillna"):
-            mask = mask.fillna(False)
-        table_df = table_df.loc[mask.astype(bool)]
+        if _is_polars(table_df):
+            import polars as pl
+            table_df = table_df.filter(pl.col(source).fill_null(False).cast(pl.Boolean))
+        else:
+            mask = table_df[source]
+            if hasattr(mask, "isna") and hasattr(mask, "where"):
+                mask = mask.where(~mask.isna(), False)
+            elif hasattr(mask, "fillna"):
+                mask = mask.fillna(False)
+            table_df = table_df.loc[mask.astype(bool)]
 
     return row_table(ctx, table_df)
 
@@ -145,24 +172,34 @@ def drop_cols(ctx: Any, cols: Sequence[str]) -> "Plottable":
     table_df = get_active_table(ctx)
     to_drop = [c for c in cols if c in table_df.columns]
     if to_drop:
-        table_df = table_df.drop(columns=to_drop)
+        if _is_polars(table_df):
+            table_df = table_df.drop(to_drop)
+        else:
+            table_df = table_df.drop(columns=to_drop)
     return row_table(ctx, table_df)
 
 
 def skip(ctx: Any, value: Any) -> "Plottable":
     table_df = get_active_table(ctx)
     skip_count = coerce_non_negative_int(value, "skip")
+    if _is_polars(table_df):
+        return row_table(ctx, table_df.slice(skip_count))
     return row_table(ctx, table_df.iloc[skip_count:])
 
 
 def limit(ctx: Any, value: Any) -> "Plottable":
     table_df = get_active_table(ctx)
     limit_count = coerce_non_negative_int(value, "limit")
+    if _is_polars(table_df):
+        return row_table(ctx, table_df.head(limit_count))
     return row_table(ctx, table_df.iloc[:limit_count])
 
 
 def distinct(ctx: Any) -> "Plottable":
     table_df = get_active_table(ctx)
+    if _is_polars(table_df):
+        # maintain_order matches pandas drop_duplicates(keep='first') semantics.
+        return row_table(ctx, table_df.unique(maintain_order=True))
     try:
         out_df = table_df.drop_duplicates()
     except Exception:

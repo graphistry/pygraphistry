@@ -13,18 +13,30 @@ class Engine(Enum):
     CUDF = 'cudf'
     DASK = 'dask'
     DASK_CUDF = 'dask_cudf'
+    POLARS = 'polars'
+    # GPU execution TARGET of the lazy Polars engine (cudf_polars): frames stay
+    # ``pl.DataFrame`` (handled exactly like POLARS in all frame ops); only the
+    # lazy ``.collect()`` runs on GPU. Explicit opt-in only — AUTO never selects it.
+    POLARS_GPU = 'polars-gpu'
+
+# Engines whose frames use the polars API (unique/with_columns/...) rather than the
+# pandas API (drop_duplicates/assign/...). POLARS_GPU is the GPU execution target of
+# the same lazy Polars engine — frames stay ``pl.DataFrame``, so it shares the path.
+POLARS_ENGINES = (Engine.POLARS, Engine.POLARS_GPU)
 
 class EngineAbstract(Enum):
     PANDAS = Engine.PANDAS.value
     CUDF = Engine.CUDF.value
     DASK = Engine.DASK.value
     DASK_CUDF = Engine.DASK_CUDF.value
+    POLARS = Engine.POLARS.value
+    POLARS_GPU = Engine.POLARS_GPU.value
     AUTO = 'auto'
 
 
 # Type alias for engine parameter - accepts both enum values and string literals
 # Includes 'auto' for automatic detection
-EngineAbstractType = Union[EngineAbstract, Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']]
+EngineAbstractType = Union[EngineAbstract, Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'polars', 'polars-gpu', 'auto']]
 
 DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
@@ -209,7 +221,80 @@ def df_to_engine(df, engine: Engine):
         if not isinstance(df, pd.DataFrame):
             df = df_to_engine(df, Engine.PANDAS)
         return dd.from_pandas(df, npartitions=1)
-    raise ValueError(f'Only engines pandas/cudf/dask supported, got: {engine}')
+    elif engine in POLARS_ENGINES:
+        import polars as pl
+        if isinstance(df, pl.DataFrame):
+            return df
+        if isinstance(df, pl.LazyFrame):
+            return df.collect()
+        if isinstance(df, pa.Table):
+            return pl.from_arrow(df)
+        if isinstance(df, pd.DataFrame):
+            return _pl_from_pandas(df)
+        # cudf/dask/spark and anything else: route through pandas first
+        return _pl_from_pandas(df_to_engine(df, Engine.PANDAS))
+    raise ValueError(f'Only engines pandas/cudf/dask/polars supported, got: {engine}')
+
+
+def _mixed_type_object_columns(df) -> List[str]:
+    """Object columns holding >1 Python scalar type among non-null values.
+
+    Cypher properties are dynamically typed, so a pandas object column can hold
+    e.g. ``int`` and ``str`` together; polars/Arrow cannot represent that in one
+    column. Used to name the offender in the honest ``NotImplementedError``."""
+    bad: List[str] = []
+    for col in df.columns:
+        if str(getattr(df[col], "dtype", "")) != "object":
+            continue
+        types = set()
+        for value in df[col].to_numpy():
+            if value is None or (isinstance(value, float) and value != value):  # None / NaN
+                continue
+            types.add(type(value))
+            if len(types) > 1:
+                bad.append(str(col))
+                break
+    return bad
+
+
+def _pl_from_pandas(df):
+    """``pl.from_pandas`` that declines honestly on heterogeneous columns.
+
+    Polars/Arrow cannot represent a mixed-type (e.g. int+str) object column, which
+    pandas allows for dynamically-typed Cypher properties. Rather than surface a
+    cryptic ``pyarrow.lib.ArrowInvalid`` from deep inside construction, raise a
+    clear ``NotImplementedError`` pointing at ``engine='pandas'`` (NO-CHEATING: no
+    silent string-coercion, which would change comparison semantics)."""
+    import polars as pl
+    try:
+        return pl.from_pandas(df)
+    except Exception as e:
+        bad = _mixed_type_object_columns(df)
+        hint = f" (mixed-type column(s): {bad})" if bad else ""
+        raise NotImplementedError(
+            "engine='polars' cannot represent a heterogeneous/mixed-type column"
+            f"{hint}; use engine='pandas' for this data"
+        ) from e
+
+def _pl_concat(frames, *, ignore_index: bool = True, sort: bool = False, **_kw):
+    """pandas/cudf-signature-compatible row concat for polars.
+
+    polars has no row index and no ``sort`` kwarg; ``ignore_index``/``sort`` are
+    accepted-and-ignored so generic call sites (hop/chain) work unchanged.
+    ``vertical_relaxed`` aligns to a common supertype like pandas does for
+    mixed-but-compatible column dtypes.
+    """
+    import polars as pl
+    frames = list(frames)
+    if len(frames) == 0:
+        return pl.DataFrame()
+    if len(frames) == 1:
+        return frames[0]
+    if isinstance(frames[0], pl.Series):
+        # Series concat only supports the default vertical strategy.
+        return pl.concat(frames)
+    return pl.concat(frames, how="vertical_relaxed")
+
 
 def df_concat(engine: Engine):
     if engine == Engine.PANDAS:
@@ -217,9 +302,11 @@ def df_concat(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.concat
+    elif engine in POLARS_ENGINES:
+        return _pl_concat
     elif engine == Engine.DASK:
         raise NotImplementedError("DASK is an input format, not a compute engine — use engine='auto' or engine='pandas'")
-    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+    raise ValueError(f'Only engines pandas/cudf/polars supported, got: {engine}')
 
 
 def align_shared_column_dtypes(
@@ -290,7 +377,22 @@ def df_cons(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.DataFrame
-    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+    elif engine in POLARS_ENGINES:
+        import polars as pl
+        return pl.DataFrame
+    raise ValueError(f'Only engines pandas/cudf/polars supported, got: {engine}')
+
+
+def df_unique(df, engine: Engine):
+    """Row-dedupe keeping first occurrence, engine-aware.
+
+    pandas/cuDF use ``drop_duplicates``; polars uses ``unique(maintain_order=True)``
+    (``maintain_order`` matches ``drop_duplicates(keep='first')`` — same convention as
+    ``compute/gfql/row/frame_ops.distinct``). Avoids calling the pandas-only
+    ``drop_duplicates`` on a polars frame (the UNION DISTINCT crash)."""
+    if engine in POLARS_ENGINES:
+        return df.unique(maintain_order=True)
+    return df.drop_duplicates(ignore_index=True)
 
 def s_cons(engine: Engine):
     if engine == Engine.PANDAS:
@@ -298,7 +400,10 @@ def s_cons(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.Series
-    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+    elif engine in POLARS_ENGINES:
+        import polars as pl
+        return pl.Series
+    raise ValueError(f'Only engines pandas/cudf/polars supported, got: {engine}')
 
 def s_sqrt(engine: Engine):
     if engine == Engine.PANDAS:

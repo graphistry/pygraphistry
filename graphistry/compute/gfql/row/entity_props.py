@@ -34,6 +34,11 @@ def _include_numeric_id_as_property(df: DataFrameT) -> bool:
     if "id" not in df.columns:
         return False
     try:
+        # polars frames: pd.api.types.is_numeric_dtype doesn't understand polars
+        # dtypes; use the dtype's own numeric check so structured whole-entity
+        # returns (#1650) flatten an integer ``id`` identically on both engines.
+        if "polars" in type(df).__module__:
+            return bool(df.schema["id"].is_numeric())
         return bool(pd.api.types.is_numeric_dtype(df["id"]))
     except Exception:
         return False
