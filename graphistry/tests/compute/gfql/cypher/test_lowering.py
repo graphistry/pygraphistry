@@ -16920,3 +16920,35 @@ def test_count_table_row_op_rejects_unknown_table() -> None:
 
     with pytest.raises(GFQLValidationError):
         graph.gfql([ASTNode(), rows(), count_table(table="everything", alias="cnt")])
+
+
+def test_count_table_frame_op_error_and_empty_paths() -> None:
+    # Direct frame-op coverage (the GFQL call path validates params BEFORE the
+    # frame op, so these branches need direct exercise): bad table name, missing
+    # source column, and the no-table 0-count fallback.
+    from graphistry.compute.gfql.row import frame_ops
+
+    nodes = pd.DataFrame({"id": ["a", "b"], "__mask__": [True, None]})
+    edges = pd.DataFrame({"s": ["a"], "d": ["b"]})
+    ctx = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+    with pytest.raises(ValueError, match="must be one of"):
+        frame_ops.count_table(ctx, table="everything", alias="c")
+    with pytest.raises(ValueError, match="not found"):
+        frame_ops.count_table(ctx, table="nodes", source="nope", alias="c")
+
+    # source mask: null counts as False
+    out = frame_ops.count_table(ctx, table="nodes", source="__mask__", alias="c")
+    assert out._nodes.to_dict(orient="records") == [{"c": 1}]
+
+    # no node table -> 0-count row templated from the sibling edges frame
+    ctx2 = graphistry.edges(edges, "s", "d")
+    assert ctx2._nodes is None
+    out2 = frame_ops.count_table(ctx2, table="nodes", alias="c")
+    assert out2._nodes.to_dict(orient="records") == [{"c": 0}]
+
+    # no tables at all -> plain pandas 0-count row
+    ctx3 = graphistry.bind()
+    assert ctx3._nodes is None and ctx3._edges is None
+    out3 = frame_ops.count_table(ctx3, table="nodes", alias="c")
+    assert out3._nodes.to_dict(orient="records") == [{"c": 0}]
