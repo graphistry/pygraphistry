@@ -189,6 +189,15 @@ def count_table(
     table_df = ctx._nodes if table == "nodes" else ctx._edges
 
     if table_df is None:
+        # Keep the 0-count result in the pipeline's engine (mirror empty_frame's
+        # template discovery) — a pandas frame inside a polars pipeline would
+        # break the engine-consistency the executor asserts.
+        other_df = ctx._edges if table == "nodes" else ctx._nodes
+        if other_df is not None:
+            if _is_polars(other_df):
+                import polars as pl
+                return row_table(ctx, pl.DataFrame({alias: [0]}))
+            return row_table(ctx, template_df_cons(other_df, {alias: [0]}))
         return row_table(ctx, pd.DataFrame({alias: [0]}))
 
     if _is_polars(table_df):

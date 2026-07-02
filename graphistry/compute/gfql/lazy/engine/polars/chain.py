@@ -122,13 +122,14 @@ def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf, intermediate_universe
 
 
 def _is_native_multihop(op: ASTObject) -> bool:
-    """Whether a non-simple-single-hop edge op is a fixed-length multi-hop the native
-    polars combine supports: plain ``hops=N`` / ``max_hops``, forward or reverse,
-    optionally with edge/endpoint match or a name. Everything that needs features the
-    polars hop/combine has not ported — ``to_fixed_point``, ``min_hops>1``, output
-    slicing, hop labels, ``*_query`` strings, ``include_zero_hop_seed``,
-    ``prune_to_endpoints``, or undirected direction (deferred) — returns False so the
-    guard defers it (NotImplementedError) rather than risk a silent divergence."""
+    """Whether a non-simple-single-hop edge op is a multi-hop the native polars
+    combine supports: ``hops=N`` / ``max_hops`` (fwd/rev/undirected),
+    ``to_fixed_point`` (fwd/rev), and ``min_hops>1`` (fwd/rev, finite max),
+    optionally with edge/endpoint match or a name. Deferred combos — undirected
+    ``to_fixed_point`` / undirected ``min_hops>1``, output slicing, hop labels,
+    ``*_query`` strings, ``include_zero_hop_seed``, ``prune_to_endpoints`` —
+    return False so the guard defers (NotImplementedError) rather than risk a
+    silent divergence (see the inline comments for why each stays deferred)."""
     if not isinstance(op, ASTEdge):
         return False
     if op.is_simple_single_hop():
@@ -632,11 +633,11 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         for op in ops
     ):
         raise NotImplementedError(
-            "polars chain engine supports single-hop and plain fixed-length "
-            "(hops=N / max_hops, forward/reverse) multi-hop edges; deferred "
-            "variable-length features (to_fixed_point, min_hops>1, output slicing, "
-            "hop labels, *_query, include_zero_hop_seed, prune_to_endpoints, "
-            "undirected) require engine='pandas'."
+            "polars chain engine supports single-hop and multi-hop edges "
+            "(hops=N / max_hops fwd/rev/undirected; to_fixed_point and min_hops>1 "
+            "fwd/rev); deferred features (undirected to_fixed_point / undirected "
+            "min_hops>1, output slicing, hop labels, *_query, "
+            "include_zero_hop_seed, prune_to_endpoints) require engine='pandas'."
         )
 
     edge_ops = [op for op in ops if isinstance(op, ASTEdge)]
