@@ -2,10 +2,18 @@ from inspect import getmodule
 import warnings
 import numpy as np
 import pandas as pd
-import pyarrow as pa
 from typing import Any, List, Optional, Union
 from typing_extensions import Literal
 from enum import Enum
+
+try:
+    import pyarrow as pa
+except ImportError:
+    pa = None
+
+
+def _is_pyarrow_table(value: Any) -> bool:
+    return pa is not None and isinstance(value, pa.Table)
 
 
 class Engine(Enum):
@@ -72,7 +80,7 @@ def resolve_engine(
             return Engine.PANDAS
 
         # Arrow and Spark are input formats, not compute engines — coerce to pandas at call sites
-        if isinstance(g_or_df, pa.Table):
+        if _is_pyarrow_table(g_or_df):
             return Engine.PANDAS
 
         try:
@@ -167,7 +175,7 @@ def df_to_engine(df, engine: Engine):
     if engine == Engine.PANDAS:
         if isinstance(df, pd.DataFrame):
             return df
-        if isinstance(df, pa.Table):
+        if _is_pyarrow_table(df):
             return df.to_pandas()
         type_module = str(type(df).__module__)
         if 'pyspark' in type_module:

@@ -1,0 +1,12 @@
+{
+  "type": "module",
+  "scripts": {
+    "build": "node build-bundle.mjs",
+    "build:cdn": "node build-bundle.mjs --flavor cdn",
+    "build:self-hosted": "node build-bundle.mjs --flavor self-hosted",
+    "test:browser": "node test-browser.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.60.0"
+  }
+}

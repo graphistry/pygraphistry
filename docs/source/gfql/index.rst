@@ -56,6 +56,7 @@ See also:
    combo
    quick
    cypher
+   pyodide
    where
    return
    predicates/quick

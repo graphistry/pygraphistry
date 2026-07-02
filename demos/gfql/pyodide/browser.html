@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GFQL Pyodide live demo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fb;
+        --panel: #ffffff;
+        --ink: #18202f;
+        --muted: #5c6678;
+        --line: #d8dee9;
+        --accent: #1f7a8c;
+        --accent-strong: #155e6d;
+        --code: #f0f3f7;
+        --ok: #197b4f;
+        --warn: #a35f00;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.45;
+      }
+
+      main {
+        display: grid;
+        gap: 18px;
+        margin: 0 auto;
+        max-width: 1180px;
+        padding: 24px;
+      }
+
+      header {
+        display: grid;
+        gap: 6px;
+      }
+
+      h1,
+      h2 {
+        line-height: 1.15;
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 28px;
+        font-weight: 720;
+      }
+
+      h2 {
+        font-size: 16px;
+        font-weight: 680;
+      }
+
+      p {
+        color: var(--muted);
+        margin: 0;
+      }
+
+      .workspace {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: minmax(320px, 0.95fr) minmax(360px, 1.2fr);
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      button,
+      input,
+      textarea {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        font: inherit;
+      }
+
+      button {
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+        font-weight: 650;
+        min-height: 36px;
+        padding: 0 12px;
+      }
+
+      button.secondary {
+        background: #fff;
+        color: var(--accent-strong);
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.65;
+      }
+
+      label {
+        color: var(--muted);
+        display: grid;
+        font-size: 13px;
+        gap: 5px;
+      }
+
+      input {
+        min-height: 36px;
+        padding: 6px 8px;
+        width: 110px;
+      }
+
+      textarea {
+        background: var(--code);
+        color: var(--ink);
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-size: 13px;
+        min-height: 110px;
+        padding: 10px;
+        resize: vertical;
+        width: 100%;
+      }
+
+      .status {
+        align-items: center;
+        color: var(--muted);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        min-height: 28px;
+      }
+
+      .pill {
+        background: var(--code);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--muted);
+        display: inline-flex;
+        font-size: 12px;
+        gap: 5px;
+        padding: 4px 8px;
+      }
+
+      .pill.ok {
+        color: var(--ok);
+      }
+
+      .pill.warn {
+        color: var(--warn);
+      }
+
+      table {
+        border-collapse: collapse;
+        font-size: 13px;
+        width: 100%;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--line);
+        padding: 7px 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--muted);
+        font-weight: 650;
+      }
+
+      pre {
+        background: var(--code);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        font-size: 12px;
+        margin: 0;
+        max-height: 280px;
+        overflow: auto;
+        padding: 10px;
+        white-space: pre-wrap;
+      }
+
+      .result-grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .table-wrap {
+        overflow: auto;
+      }
+
+      @media (max-width: 820px) {
+        main {
+          padding: 16px;
+        }
+
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>GFQL in the browser</h1>
+        <p>Pyodide loads a local PyGraphistry wheel, reads CSV edges, and runs GFQL without a Python install or backend.</p>
+      </header>
+
+      <section class="workspace">
+        <div class="panel">
+          <h2>Input</h2>
+          <label>
+            CSV edges
+            <textarea id="csvInput" spellcheck="false">src,dst,weight
+alice,bob,1
+bob,carol,2
+alice,carol,3
+carol,dana,4
+dana,erin,1
+</textarea>
+          </label>
+          <div class="controls">
+            <label>
+              Min weight
+              <input id="minWeight" type="number" value="2" min="0" step="1" />
+            </label>
+          </div>
+          <label>
+            Cypher
+            <textarea id="cypherInput" spellcheck="false">MATCH (a)-[e]->(b) WHERE e.weight >= 2 RETURN e</textarea>
+          </label>
+          <div class="controls">
+            <button id="runBoth">Run examples</button>
+            <button id="runNative" class="secondary">Native GFQL</button>
+            <button id="runCypher" class="secondary">Cypher</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Output</h2>
+          <div id="status" class="status">
+            <span class="pill">Ready</span>
+          </div>
+          <div id="metrics" class="table-wrap"></div>
+          <div class="result-grid">
+            <section>
+              <h2>Native GFQL edges</h2>
+              <div id="astTable" class="table-wrap"></div>
+            </section>
+            <section>
+              <h2>Cypher rows</h2>
+              <div id="cypherTable" class="table-wrap"></div>
+            </section>
+            <section>
+              <h2>JSON</h2>
+              <pre id="jsonOutput">{}</pre>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module">
+      import { createGFQLRuntime } from "./gfql.js";
+
+      const statusEl = document.getElementById("status");
+      const metricsEl = document.getElementById("metrics");
+      const jsonOutput = document.getElementById("jsonOutput");
+      const astTable = document.getElementById("astTable");
+      const cypherTable = document.getElementById("cypherTable");
+      const csvInput = document.getElementById("csvInput");
+      const cypherInput = document.getElementById("cypherInput");
+      const minWeight = document.getElementById("minWeight");
+      const buttons = [...document.querySelectorAll("button")];
+
+      let runtimePromise;
+      const metrics = [];
+
+      function setBusy(isBusy) {
+        for (const button of buttons) {
+          button.disabled = isBusy;
+        }
+      }
+
+      function setStatus(items) {
+        statusEl.innerHTML = items.map(({ text, kind = "" }) => (
+          `<span class="pill ${kind}">${text}</span>`
+        )).join("");
+      }
+
+      function htmlEscape(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      function renderTable(target, rows) {
+        if (!rows || rows.length === 0) {
+          target.innerHTML = "<p>No rows</p>";
+          return;
+        }
+        const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+        target.innerHTML = `
+          <table>
+            <thead><tr>${columns.map((column) => `<th>${htmlEscape(column)}</th>`).join("")}</tr></thead>
+            <tbody>
+              ${rows.map((row) => `
+                <tr>${columns.map((column) => `<td>${htmlEscape(row[column] ?? "")}</td>`).join("")}</tr>
+              `).join("")}
+            </tbody>
+          </table>
+        `;
+      }
+
+      function renderMetrics() {
+        metricsEl.innerHTML = `
+          <table>
+            <thead><tr><th>Step</th><th>Milliseconds</th></tr></thead>
+            <tbody>
+              ${metrics.map((metric) => `
+                <tr><td>${htmlEscape(metric.name)}</td><td>${metric.ms.toFixed(1)}</td></tr>
+              `).join("")}
+            </tbody>
+          </table>
+        `;
+      }
+
+      async function timed(name, fn) {
+        const start = performance.now();
+        const value = await fn();
+        metrics.push({ name, ms: performance.now() - start });
+        renderMetrics();
+        return value;
+      }
+
+      async function getRuntime() {
+        if (runtimePromise) {
+          return runtimePromise;
+        }
+        runtimePromise = (async () => {
+          setStatus([{ text: "Loading Pyodide", kind: "warn" }]);
+          const manifest = await fetch("./manifest.json").then((response) => response.json());
+          const { loadPyodide } = await import(manifest.pyodideModule || "./pyodide/pyodide.mjs");
+          const wheelData = new Uint8Array(
+            await fetch(manifest.graphistryWheel).then((response) => response.arrayBuffer()),
+          );
+          const runtime = await timed("Create Pyodide GFQL runtime", () => createGFQLRuntime({
+            loadPyodide,
+            indexURL: manifest.indexURL,
+            packageBaseUrl: manifest.packageBaseUrl,
+            pyodidePackages: manifest.pyodidePackages,
+            requirements: manifest.requirements,
+            graphistryWheel: {
+              path: `/tmp/${manifest.graphistryWheel.split("/").pop()}`,
+              data: wheelData,
+            },
+          }));
+          setStatus([{ text: `Pyodide ${manifest.pyodideVersion}`, kind: "ok" }]);
+          return runtime;
+        })();
+        return runtimePromise;
+      }
+
+      async function run(mode) {
+        setBusy(true);
+        try {
+          const runtime = await getRuntime();
+          const csv = csvInput.value;
+          const output = {};
+          if (mode === "both" || mode === "native") {
+            const astResult = await timed("Native GFQL query", () => runtime.runEdgeWeightAtLeast({
+              csv,
+              minWeight: Number(minWeight.value),
+            }));
+            output.astEdges = astResult.edges;
+            renderTable(astTable, astResult.edges);
+          }
+          if (mode === "both" || mode === "cypher") {
+            const cypherResult = await timed("Cypher query", () => runtime.runCypherCsv({
+              csv,
+              query: cypherInput.value,
+            }));
+            output.cypherRows = cypherResult.nodes;
+            renderTable(cypherTable, cypherResult.nodes);
+          }
+          jsonOutput.textContent = JSON.stringify(output, null, 2);
+          setStatus([{ text: "Ready", kind: "ok" }]);
+        } catch (error) {
+          setStatus([{ text: "Error", kind: "warn" }]);
+          jsonOutput.textContent = String(error.stack || error.message || error);
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      document.getElementById("runBoth").addEventListener("click", () => run("both"));
+      document.getElementById("runNative").addEventListener("click", () => run("native"));
+      document.getElementById("runCypher").addEventListener("click", () => run("cypher"));
+
+      run("both");
+    </script>
+  </body>
+</html>

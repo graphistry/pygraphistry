@@ -1,8 +1,15 @@
+from __future__ import annotations
+
 import sys, threading, hashlib
 from typing import Any, Optional, Dict, Tuple
-import pyarrow as pa
-import pyarrow.ipc as pa_ipc
 import requests
+
+try:
+    import pyarrow as pa
+    import pyarrow.ipc as pa_ipc
+except ImportError:
+    pa = None
+    pa_ipc = None
 
 from graphistry.utils.requests import log_requests_error
 from graphistry.otel import inject_trace_headers
