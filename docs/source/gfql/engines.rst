@@ -188,7 +188,7 @@ benchmarked** rather than guess.
    * - **Kuzu**
      - Embedded graph DB; still a separate store to load + index.
      - **Seeded index lookup** (0.8M nodes / 6.4M edges): 1-hop **0.123 ms vs 1.15 ms
-       (9.4×)**, 2-hop **0.150 ms vs 4.25 ms (28×)**; prepared-Kuzu LiveJournal 35M ≈ **17×**
+       (9.4×)**, 2-hop **0.150 ms vs 4.25 ms (28×)**; prepared-Kuzu LiveJournal 35M ~ **17×**
        typical seed, 6× hub. **Bulk frontier expansion** (LiveJournal 35M, 1-hop, many
        seeds): **22× Kuzu**, up to **87× at k=100k**. See :doc:`index_adjacency`.
      - **Not claimed:** cyclic / multi-way-join patterns (triangles, cliques) where Kuzu's
