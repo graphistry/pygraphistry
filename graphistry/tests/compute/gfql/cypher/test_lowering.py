@@ -2961,6 +2961,8 @@ def test_regex_operator_composes_or_not(query: str, expected: list[dict[str, obj
 )
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
 def test_numeric_functions_and_power_operator(engine: str, expr: str, expected: list[object]) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
     nodes = pd.DataFrame({"id": [0, 1, 2], "x": [2.3, -2.7, 4.0]})
     g = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []}))
     q = f"MATCH (n) RETURN {expr} AS v, n.id AS id ORDER BY id"
@@ -2978,6 +2980,8 @@ def test_numeric_functions_and_power_operator(engine: str, expr: str, expected: 
     ],
 )
 def test_tolower_toupper(engine: str, query: str, expected: list[int]) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
     # node with matching name is id 0 after we make BOB id 0; keep ids stable for both engines
     nodes = pd.DataFrame({"id": [0, 1, 2], "name": ["BOB", "Alice", "carol"]})
     col = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query, engine=engine)._nodes["id"]
