@@ -209,10 +209,7 @@ order_expr: expr
 
 ?unary: "+" unary                           -> uplus
       | MINUS unary                         -> uminus
-      | power
-
-?power: postfix
-      | postfix "^" unary                   -> pow_op
+      | postfix
 
 ?postfix: primary
         | postfix "[" subscript_key "]"     -> subscript

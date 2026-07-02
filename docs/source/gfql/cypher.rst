@@ -274,9 +274,9 @@ Scalar Functions and Operators
 Standard openCypher/neo4j scalar functions and operators usable in ``WHERE``
 and ``RETURN`` expressions:
 
-- Arithmetic ``+ - * / %`` and exponentiation ``^`` (right-associative, binds
-  tighter than ``* / %``; returns a float, e.g. ``10 ^ 5`` → ``100000.0``).
-  Chained comparisons such as ``WHERE 1 < n.age < 65`` are supported.
+- Arithmetic ``+ - * / %``. Chained comparisons such as
+  ``WHERE 1 < n.age < 65`` are supported. (The ``^`` exponentiation operator is
+  not yet available.)
 - Numeric functions ``abs``, ``sqrt``, ``sign``, ``floor``, ``ceil`` (alias
   ``ceiling``), and ``round(x)`` / ``round(x, precision)`` (returns a float).
 - String helpers ``toLower`` / ``toUpper`` (the idiomatic case-insensitive

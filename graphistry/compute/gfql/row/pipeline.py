@@ -1048,12 +1048,6 @@ class RowPipelineMixin:
                 return True, left - right
             if op == "*":
                 return True, left * right
-            if op == "^":
-                # openCypher/neo4j exponentiation (right-assoc); returns float (10^5 -> 100000.0).
-                result = left ** right
-                if hasattr(result, "astype"):
-                    return True, result.astype(float)
-                return True, float(result)
             if op == "/":
                 if (
                     isinstance(left, int)

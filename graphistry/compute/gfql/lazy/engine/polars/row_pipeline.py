@@ -58,10 +58,6 @@ def _apply_binop(op: str, left: Any, right: Any) -> Optional[Any]:
         return left - right
     if op == "*":
         return left * right
-    if op == "^":
-        # openCypher/neo4j exponentiation; returns float to match the pandas engine.
-        import polars as pl
-        return (left ** right).cast(pl.Float64)
     if op == "/":
         return left / right
     if op == "%":
