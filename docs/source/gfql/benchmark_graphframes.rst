@@ -198,7 +198,7 @@ route wins by an order of magnitude. Because GraphFrames uses a fixed
 ``maxIter`` while igraph/cugraph iterate to a tolerance, the raw scores are not
 bit-identical, so we compare **wall-clock-to-usable-scores**: the three engines
 return the identical vertex set (**3,997,962**), and their PageRank rankings
-agree **exactly** — pairwise Spearman ρ = **1.00** and top-100 overlap
+agree **exactly** — pairwise Spearman rho = **1.00** and top-100 overlap
 **100/100** across igraph, cugraph, and GraphFrames (parity check saved to
 ``bench_graphframes_pagerank_parity.json``). This is a "same answer, different
 cost" comparison, not a raced approximation.
@@ -345,7 +345,7 @@ that favors or disfavors either side:
   ``maxIter=20``; igraph iterates to ``eps=1e-3`` and cugraph to ``tol=1e-5``.
   The comparison is wall-clock-to-usable-scores; we verify all three return the
   identical vertex set and rank it identically (LiveJournal: pairwise Spearman
-  ρ = 1.00, top-100 overlap 100/100 — ``bench_graphframes_pagerank_parity.json``),
+  rho = 1.00, top-100 overlap 100/100 — ``bench_graphframes_pagerank_parity.json``),
   not per-iteration cost — the algorithms converge to the same ranking at
   different cost.
 - **In-memory by default (streaming is opt-in).** These results are the default
