@@ -42,6 +42,22 @@ def _cmp_expr(col_expr, op, val):
     return None
 
 
+def _inline_regex_flag_prefix(case: bool, flags: int) -> str:
+    """Translate a pandas-style ``re`` ``flags`` int + ``case`` bool into a Rust-regex
+    inline flag prefix like ``(?im)`` (polars' regex engine honors inline flags). Empty
+    when nothing applies. Keeps the polars regex lowering faithful to the pandas one."""
+    letters = ""
+    if not case or (flags & re.IGNORECASE):
+        letters += "i"
+    if flags & re.MULTILINE:
+        letters += "m"
+    if flags & re.DOTALL:
+        letters += "s"
+    if flags & re.VERBOSE:
+        letters += "x"
+    return f"(?{letters})" if letters else ""
+
+
 def predicate_to_expr(col: str, pred: ASTPredicate):
     """Lower an ASTPredicate to a polars boolean expression, or None if unsupported."""
     import polars as pl
@@ -86,8 +102,18 @@ def predicate_to_expr(col: str, pred: ASTPredicate):
 
     if name == "Contains" and hasattr(pred, "pat") and isinstance(pred.pat, str):
         case = getattr(pred, "case", True)
-        pat = pred.pat if case else f"(?i){pred.pat}"
-        return c.str.contains(pat, literal=False)
+        regex = getattr(pred, "regex", True)
+        flags = getattr(pred, "flags", 0)
+        if not regex:
+            # Literal substring: must NOT be regex-interpreted, or a metacharacter
+            # (``.``/``*``/``(`` …) over-matches. polars has no literal+case flag, so
+            # fold both sides for the case-insensitive literal (matches pandas' result).
+            if case:
+                return c.str.contains(pred.pat, literal=True)
+            return c.str.to_lowercase().str.contains(pred.pat.lower(), literal=True)
+        # Regex: mirror pandas' ``case``/``flags`` via a Rust-regex inline flag prefix.
+        prefix = _inline_regex_flag_prefix(case, flags)
+        return c.str.contains(f"{prefix}{pred.pat}", literal=False)
 
     if name in ("Startswith", "Endswith") and hasattr(pred, "pat") and isinstance(pred.pat, str):
         if getattr(pred, "case", True):
