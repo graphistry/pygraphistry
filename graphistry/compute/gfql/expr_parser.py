@@ -192,6 +192,7 @@ _GRAMMAR = r"""
            | additive "CONTAINS"i additive      -> contains_op
            | additive "STARTS"i "WITH"i additive -> starts_with_op
            | additive "ENDS"i "WITH"i additive  -> ends_with_op
+           | additive REGEX_MATCH additive       -> regex_op
 
 ?additive: multiplicative
          | additive "+" multiplicative   -> add_op
@@ -267,6 +268,7 @@ literal: "NULL"i                            -> null_lit
        | NUMBER                          -> number_lit
        | STRING                          -> string_lit
 
+REGEX_MATCH.2: "=~"
 COMP_OP: __GFQL_COMPARISON_GRAMMAR_ALTS__
 MINUS: /-(?!-)/
 NAME: /(?!(?i:AND|OR|XOR|NOT|IN|IS|NULL|CASE|WHEN|THEN|ELSE|END|CONTAINS|STARTS|WITH|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
@@ -688,6 +690,10 @@ def _build_transformer() -> _TransformerLike:
 
         def contains_op(self, items: Sequence[Any]) -> BinaryOp:
             return self._bin("contains", items)
+
+        def regex_op(self, items: Sequence[Any]) -> BinaryOp:
+            stripped = _strip_tokens(items)
+            return BinaryOp(op="regex", left=cast(ExprNode, stripped[0]), right=cast(ExprNode, stripped[1]))
 
         def starts_with_op(self, items: Sequence[Any]) -> BinaryOp:
             stripped = _strip_tokens(items)

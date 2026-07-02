@@ -2885,6 +2885,23 @@ def test_string_cypher_formats_mixed_edge_entity_projection() -> None:
             "RETURN a.name AS name ORDER BY name",
             [{"name": "ABCDEF"}],
         ),
+        # openCypher/neo4j `=~` — Java-regex, FULL/anchored match (not partial), inline flags.
+        (
+            "MATCH (a) WHERE a.name =~ 'AB.*' RETURN a.name AS name ORDER BY name",
+            [{"name": "AB"}, {"name": "ABCDEF"}],
+        ),
+        (  # full-match, not partial: 'AB' matches only 'AB', NOT 'ABCDEF'
+            "MATCH (a) WHERE a.name =~ 'AB' RETURN a.name AS name ORDER BY name",
+            [{"name": "AB"}],
+        ),
+        (  # inline case-insensitive flag
+            "MATCH (a) WHERE a.name =~ '(?i)abcdef' RETURN a.name AS name ORDER BY name",
+            [{"name": "ABCDEF"}, {"name": "abcdef"}],
+        ),
+        (  # null rhs → never matches (mirrors CONTAINS/STARTS WITH null)
+            "MATCH (a) WHERE a.name =~ null RETURN a.name AS name ORDER BY name",
+            [],
+        ),
     ],
 )
 def test_string_cypher_executes_match_where_string_predicates(
@@ -2898,6 +2915,31 @@ def test_string_cypher_executes_match_where_string_predicates(
     )
     result = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query)
 
+    assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        # `=~` composes through OR / NOT / RETURN-expression (shared expr engine path),
+        # not just the simple WHERE-predicate path.
+        (
+            "MATCH (a) WHERE a.name =~ 'al.*' OR a.name = 'bob' RETURN a.name AS name ORDER BY name",
+            [{"name": "alba"}, {"name": "alice"}, {"name": "bob"}],
+        ),
+        (
+            "MATCH (a) WHERE NOT (a.name =~ 'al.*') RETURN a.name AS name ORDER BY name",
+            [{"name": "Alice"}, {"name": "bob"}],
+        ),
+        (  # regex leaf under both AND and NOT, with inline (?i)
+            "MATCH (a) WHERE a.name =~ 'a.*' AND NOT a.name =~ '(?i)alice' RETURN a.name AS name ORDER BY name",
+            [{"name": "alba"}],
+        ),
+    ],
+)
+def test_regex_operator_composes_or_not(query: str, expected: list[dict[str, object]]) -> None:
+    nodes = pd.DataFrame({"id": ["p", "q", "r", "s"], "name": ["alice", "Alice", "bob", "alba"]})
+    result = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query)
     assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
 
 

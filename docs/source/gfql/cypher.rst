@@ -253,6 +253,13 @@ WHERE Forms
 - Same-path alias comparisons such as ``WHERE p.team = q.team``.
 - ``IS NULL`` and ``IS NOT NULL`` predicates.
 - String predicates ``STARTS WITH``, ``ENDS WITH``, and ``CONTAINS``.
+- Regex match ``=~`` (openCypher/neo4j-standard), e.g.
+  ``WHERE n.name =~ '(?i)al.*'``. Uses a **full-string / anchored** match
+  (like neo4j's Java-regex ``=~``), so ``n.name =~ 'AB'`` matches only
+  ``'AB'`` — use ``.*`` / ``^..$`` for partial matches. Inline flags such as
+  ``(?i)`` (case-insensitive), ``(?m)``, and ``(?s)`` are honored. Composes
+  through ``AND`` / ``OR`` / ``NOT``. (``LIKE`` / ``ILIKE`` are not part of
+  Cypher or GQL — use ``=~``, ``CONTAINS``, or ``STARTS WITH`` instead.)
 - Label predicates such as ``WHERE b:Foo:Bar``.
 - Relationship-type predicates such as ``WHERE type(r) = 'KNOWS'``.
 - Positive relationship-existence pattern predicates such as

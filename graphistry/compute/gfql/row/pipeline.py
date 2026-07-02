@@ -1010,6 +1010,8 @@ class RowPipelineMixin:
                 return True, self._gfql_eval_string_predicate_expr(table_df, left, right, "starts_with", "ast STARTS WITH")
             if op == "ends_with":
                 return True, self._gfql_eval_string_predicate_expr(table_df, left, right, "ends_with", "ast ENDS WITH")
+            if op == "regex":
+                return True, self._gfql_eval_string_predicate_expr(table_df, left, right, "regex", "ast =~")
 
             if op == "+":
                 if isinstance(left, (list, tuple)) and not isinstance(right, (list, tuple)):
