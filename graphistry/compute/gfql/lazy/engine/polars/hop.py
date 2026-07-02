@@ -58,6 +58,8 @@ def hop_polars_lazy(
     return_as_wave_front: bool = False,
     include_zero_hop_seed: bool = False,
     target_wave_front: Optional[Any] = None,
+    intermediate_universe: Optional[Any] = None,  # eager-only (multi-hop); ignored on the lazy single-hop path
+    min_hops_label_policy: bool = False,           # eager-only (min_hops>1); the lazy single-hop path declines min_hops
 ) -> Optional[Plottable]:
     import polars as pl
     from graphistry.Engine import Engine, df_to_engine
@@ -99,36 +101,12 @@ def hop_polars_lazy(
     if edge_match is not None:
         edges = filter_by_dict_polars(edges, edge_match)
 
-    FROM = generate_safe_column_name("__gfql_from__", edges, prefix="__gfql_", suffix="__")
-    TO = generate_safe_column_name("__gfql_to__", edges, prefix="__gfql_", suffix="__")
-    NID = generate_safe_column_name("__gfql_nid__", all_nodes, prefix="__gfql_", suffix="__")
-
-    if g._edge is not None and g._edge in edges.columns:
-        EID = g._edge
-        edges_idx = edges
-        synth_eid = False
-    else:
-        EID = generate_safe_column_name("__gfql_eid__", edges, prefix="__gfql_", suffix="__")
-        edges_idx = edges.with_row_index(EID)
-        synth_eid = True
-
-    node_dtype = all_nodes.schema[node_col]
+    from graphistry.compute.gfql.lazy.engine.polars.hop_eager import _hop_setup_columns, _build_hop_pairs
+    FROM, TO, NID, EID, edges_idx, synth_eid, node_dtype = _hop_setup_columns(
+        edges, all_nodes, node_col, g._edge)
     edges_lf = edges_idx.lazy()
     all_nodes_lf = all_nodes.lazy()
-
-    def _pairs(s: str, d: str) -> Any:
-        return edges_lf.select(
-            pl.col(s).cast(node_dtype).alias(FROM),
-            pl.col(d).cast(node_dtype).alias(TO),
-            pl.col(EID),
-        )
-
-    if direction == "forward":
-        pairs = _pairs(src, dst)
-    elif direction == "reverse":
-        pairs = _pairs(dst, src)
-    else:
-        pairs = pl.concat([_pairs(src, dst), _pairs(dst, src)], how="vertical_relaxed")
+    pairs = _build_hop_pairs(edges_lf, direction, src, dst, node_dtype, FROM, TO, EID)
 
     def _idframe_lf(lf: Any, col: str) -> Any:
         return lf.select(pl.col(col).cast(node_dtype).alias(NID)).unique()

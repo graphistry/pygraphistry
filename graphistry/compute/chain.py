@@ -797,6 +797,27 @@ def chain(
         engine = EngineAbstract(engine)
     from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
     engine_concrete_early = resolve_engine(engine, self)
+    if engine_concrete_early in (Engine.POLARS, Engine.POLARS_GPU):
+        # Clean dependency errors BEFORE _coerce_input_formats (which imports polars to
+        # coerce frames) so the user sees actionable install guidance, not a raw ImportError
+        # deep in coercion / the lazy engine. Both engines need polars; polars-gpu also needs
+        # the RAPIDS cudf_polars stack (checked here so it's consistent regardless of whether a
+        # given query reaches a GPU collect, and reads as an install issue rather than the
+        # genuine not-GPU-capable signal from lazy._engine_for).
+        try:
+            import polars  # noqa: F401
+        except ImportError as e:
+            raise ImportError(
+                f"GFQL engine={engine_concrete_early.value!r} requires the 'polars' package; "
+                "install it with `pip install polars` (or use engine='pandas')."
+            ) from e
+        if engine_concrete_early == Engine.POLARS_GPU:
+            import importlib.util
+            if importlib.util.find_spec("cudf_polars") is None:
+                raise ImportError(
+                    "GFQL engine='polars-gpu' requires the RAPIDS cudf_polars stack (NVIDIA GPU). "
+                    "Install RAPIDS/cudf_polars, or use engine='polars' for native CPU execution."
+                )
     self = _coerce_input_formats(self, engine_concrete_early)
 
     if engine_concrete_early in POLARS_ENGINES:
@@ -804,6 +825,7 @@ def chain(
         # production pandas/cuDF orchestration below stays untouched (see
         # no-silent-fallback policy). Correctness gated by differential parity.
         # POLARS_GPU = the same lazy engine with the GPU execution target.
+        # (Dependency guards for polars / cudf_polars are above, pre-coercion.)
         if validate_schema:
             Chain(ops if not isinstance(ops, Chain) else ops.chain).validate(collect_all=False)
         from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars

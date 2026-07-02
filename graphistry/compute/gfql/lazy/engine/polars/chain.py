@@ -65,7 +65,7 @@ def _restore_edge_dtypes(edges, src, dst, restore):
     return edges.with_columns([pl.col(src).cast(sdt), pl.col(dst).cast(ddt)])
 
 
-def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf) -> Plottable:
+def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf, intermediate_universe=None) -> Plottable:
     import polars as pl
 
     node_col = g._node
@@ -105,6 +105,11 @@ def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf) -> Plottable:
             include_zero_hop_seed=op.include_zero_hop_seed,
             return_as_wave_front=True,
             target_wave_front=target_wf,
+            intermediate_universe=intermediate_universe,
+            # The chain wants pandas' LABELED min_hops node policy (null attrs for source-side
+            # endpoints) — mirrors pandas' ASTEdge.execute passing auto hop-labels. A direct
+            # base.hop(engine='polars', min_hops=...) leaves this False -> full attrs (pandas parity).
+            min_hops_label_policy=True,
         )
         if op._name is not None:
             g_step = g_step.edges(
@@ -114,6 +119,44 @@ def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf) -> Plottable:
         return g_step
 
     raise NotImplementedError(f"polars chain engine does not support op {type(op).__name__}")
+
+
+def _is_native_multihop(op: ASTObject) -> bool:
+    """Whether a non-simple-single-hop edge op is a multi-hop the native polars
+    combine supports: ``hops=N`` / ``max_hops`` (fwd/rev/undirected),
+    ``to_fixed_point`` (fwd/rev), and ``min_hops>1`` (fwd/rev, finite max),
+    optionally with edge/endpoint match or a name. Deferred combos — undirected
+    ``to_fixed_point`` / undirected ``min_hops>1``, output slicing, hop labels,
+    ``*_query`` strings, ``include_zero_hop_seed``, ``prune_to_endpoints`` —
+    return False so the guard defers (NotImplementedError) rather than risk a
+    silent divergence (see the inline comments for why each stays deferred)."""
+    if not isinstance(op, ASTEdge):
+        return False
+    if op.is_simple_single_hop():
+        return False
+    if op.direction not in ("forward", "reverse", "undirected"):
+        return False
+    # to_fixed_point (unbounded variable-length) IS native for forward/reverse: the recompute
+    # re-runs the forward to_fixed_point hop over the backward-pruned subgraph (the hop's own
+    # fixed-point detection guarantees termination), same path-aware combine as hops=N. But
+    # UNDIRECTED to_fixed_point needs pandas' connected-components + 2-core seed retention
+    # (graphistry/compute/hop.py:817-887) which the vectorized polars hop cannot reproduce -> NIE.
+    if op.direction == "undirected" and op.to_fixed_point:
+        return False
+    # min_hops>1 (variable-length LOWER bound) IS native for forward/reverse with a finite
+    # max_hops (the hop runs a NON-anti-joined BFS + layered backward-tree walk). UNDIRECTED
+    # min_hops>1 and min_hops+to_fixed_point stay NIE.
+    if op.min_hops is not None and op.min_hops > 1 and (op.direction == "undirected" or op.to_fixed_point):
+        return False
+    if op.output_min_hops is not None or op.output_max_hops is not None:
+        return False
+    if op.label_node_hops is not None or op.label_edge_hops is not None or op.label_seeds:
+        return False
+    if op.source_node_query is not None or op.destination_node_query is not None or op.edge_query is not None:
+        return False
+    if op.include_zero_hop_seed or op.prune_to_endpoints:
+        return False
+    return True
 
 
 def _is_lazy(df) -> bool:
@@ -146,7 +189,7 @@ class _LazyShim:
         return _LazyShim(nd, ed, None, None, None, None)
 
 
-def _combine_edges(g, steps, label_steps):
+def _combine_edges(g, steps, label_steps, has_multihop=False):
     import polars as pl
     src, dst, node_col, edge_id = g._source, g._destination, g._node, g._edge
     assert src is not None and dst is not None and node_col is not None and edge_id is not None
@@ -157,6 +200,15 @@ def _combine_edges(g, steps, label_steps):
         if edges_df is None:
             continue
         if not _is_lazy(edges_df) and edges_df.height == 0:
+            continue
+        if has_multihop or (isinstance(op, ASTEdge) and not op.is_simple_single_hop()):
+            # has_multihop: EVERY edge step was recomputed path-valid over its backward-pruned
+            # subgraph (forward re-exec; see the chain recompute), so append ALL ids and skip the
+            # single-hop prev/next endpoint semijoin below — that semijoin keeps only edges whose
+            # src/dst sit in the prev/next wavefront and would drop intermediate-hop edges (and,
+            # on mixed single+multi chains, diverged by an edge/node vs pandas). Port of the pandas
+            # combine_steps has_multihop branch (recompute all steps, then concat as-is, no semijoin).
+            frames.append(edges_df.select(pl.col(edge_id)))
             continue
         prev_nodes = label_steps[idx - 1][1]._nodes if idx > 0 else g._nodes
         next_nodes = label_steps[idx + 1][1]._nodes if idx + 1 < len(label_steps) else None
@@ -307,10 +359,135 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     return g_cur
 
 
+def get_degrees_polars(
+    g: Plottable,
+    col: str = "degree",
+    degree_in: str = "degree_in",
+    degree_out: str = "degree_out",
+    engine: Optional[str] = None,
+) -> Plottable:
+    """Native polars ``get_degrees`` — parity with ComputeMixin.get_degrees.
+
+    Per-node in/out degree via a group_by-count on the edge endpoint columns,
+    left-joined onto the node table (materialized from edges when absent). Pure
+    polars — NO pandas bridge (see plan.md NO-CHEATING). Parity contract vs the
+    pandas oracle: isolated nodes and src-only / dst-only nodes get 0; self-loops
+    are double-counted (one in + one out); all three columns are Int32. Empty
+    edges need no special case — the left-join + fill_null(0) yields all-zero
+    degrees, matching the pandas empty-edges branch.
+
+    The ``engine`` safelist sub-param is accepted and ignored: execution is already
+    committed to polars and the result stays parity-equal to the pandas oracle.
+    """
+    import polars as pl
+
+    g = ensure_nodes_polars(g)
+    node_col, src, dst = g._node, g._source, g._destination
+    assert node_col is not None and src is not None and dst is not None
+    assert g._nodes is not None and g._edges is not None
+    nodes, edges = g._nodes, g._edges
+
+    # Align the count keys to the node-id dtype so the left-join keys match even when
+    # a user node table's id dtype diverges from the edge endpoint dtype (polars will
+    # not auto-cast int<->float join keys, where pandas merges fine).
+    node_dt = (nodes.collect_schema() if _is_lazy(nodes) else nodes.schema)[node_col]
+
+    in_counts = edges.group_by(pl.col(dst).cast(node_dt).alias(node_col)).agg(
+        pl.len().alias(degree_in)
+    )
+    out_counts = edges.group_by(pl.col(src).cast(node_dt).alias(node_col)).agg(
+        pl.len().alias(degree_out)
+    )
+
+    # Drop any pre-existing degree columns, mirroring the pandas keep-subset, so a
+    # re-run overwrites rather than producing ``*_right`` join collisions.
+    drop_cols = [c for c in _colnames(nodes) if c in (degree_in, degree_out, col)]
+    base = nodes.drop(drop_cols) if drop_cols else nodes
+
+    out = (
+        base.join(in_counts, on=node_col, how="left")
+        .join(out_counts, on=node_col, how="left")
+        .with_columns(
+            pl.col(degree_in).fill_null(0).cast(pl.Int32),
+            pl.col(degree_out).fill_null(0).cast(pl.Int32),
+        )
+        .with_columns(
+            (pl.col(degree_in) + pl.col(degree_out)).cast(pl.Int32).alias(col)
+        )
+    )
+    return g.nodes(out, node_col)
+
+
+def _single_direction_degree_polars(g: Plottable, key_col: str, col: str) -> Plottable:
+    """Native shared body for get_indegrees / get_outdegrees — parity with
+    ComputeMixin._single_direction_degree. A group_by-count on ONE edge endpoint
+    (``destination`` for in-degree, ``source`` for out-degree), left-joined onto the
+    node table. Isolated / opposite-endpoint-only nodes get 0; a self-loop counts once
+    for the relevant direction (single-direction is NOT double-counted, unlike the
+    get_degrees total); the degree column is Int32. The count key is cast to the node-id
+    dtype so the join keys match even when the edge endpoint dtype diverges (polars won't
+    auto-cast int<->float join keys where pandas merges fine).
+
+    The empty-edges case mirrors the pandas oracle EXACTLY, which differs from
+    get_degrees: when there are no edges AND the target column already exists, the node
+    table is returned UNCHANGED (pandas keeps the pre-existing values); otherwise the
+    column is materialized as all-zero Int32. Pure polars — NO pandas bridge (see
+    NO-CHEATING).
+    """
+    import polars as pl
+
+    g = ensure_nodes_polars(g)
+    node_col = g._node
+    assert node_col is not None
+    assert g._nodes is not None and g._edges is not None
+    nodes, edges = g._nodes, g._edges
+
+    if _is_lazy(edges):
+        edges_empty = edges.select(pl.len()).collect().item() == 0
+    else:
+        edges_empty = edges.height == 0
+    if edges_empty:
+        if col in _colnames(nodes):
+            return g.nodes(nodes, node_col)
+        return g.nodes(nodes.with_columns(pl.lit(0).cast(pl.Int32).alias(col)), node_col)
+
+    node_dt = (nodes.collect_schema() if _is_lazy(nodes) else nodes.schema)[node_col]
+    counts = edges.group_by(pl.col(key_col).cast(node_dt).alias(node_col)).agg(
+        pl.len().alias(col)
+    )
+    # Drop a pre-existing degree column so a re-run overwrites rather than producing a
+    # ``*_right`` join collision (mirrors the pandas keep-subset).
+    base = nodes.drop(col) if col in _colnames(nodes) else nodes
+    out = base.join(counts, on=node_col, how="left").with_columns(
+        pl.col(col).fill_null(0).cast(pl.Int32)
+    )
+    return g.nodes(out, node_col)
+
+
+def get_indegrees_polars(g: Plottable, col: str = "degree_in") -> Plottable:
+    """Native polars ``get_indegrees`` — parity with ComputeMixin.get_indegrees.
+
+    In-degree = count of edges whose DESTINATION endpoint is the node. Pure polars —
+    NO pandas bridge (see NO-CHEATING).
+    """
+    assert g._destination is not None, "Missing destination binding; set via .bind() or .edges()"
+    return _single_direction_degree_polars(g, g._destination, col)
+
+
+def get_outdegrees_polars(g: Plottable, col: str = "degree_out") -> Plottable:
+    """Native polars ``get_outdegrees`` — parity with ComputeMixin.get_outdegrees.
+
+    Out-degree = count of edges whose SOURCE endpoint is the node. Pure polars —
+    NO pandas bridge (see NO-CHEATING).
+    """
+    assert g._source is not None, "Missing source binding; set via .bind() or .edges()"
+    return _single_direction_degree_polars(g, g._source, col)
+
+
 def _try_native_row_op(g_cur, op):
     """Run a row-pipeline call natively on polars, or return None to defer (NIE)."""
     from graphistry.Engine import Engine
-    from .row_pipeline import select_polars, order_by_polars, group_by_polars, unwind_polars, where_rows_polars
+    from .row_pipeline import select_polars, with_columns_polars, order_by_polars, group_by_polars, unwind_polars, where_rows_polars
 
     fn = getattr(op, "function", None)
     if _call_native_on_polars(op):
@@ -318,7 +495,11 @@ def _try_native_row_op(g_cur, op):
         return op.execute(g=g_cur, prev_node_wavefront=None, target_wave_front=None, engine=Engine.POLARS)
     if fn in ("select", "return_"):
         return select_polars(g_cur, op.params.get("items", []))
-    if fn == "with_" and not op.params.get("extend", False):
+    if fn == "with_":
+        # extend=True (WITH ... that KEEPS existing columns) -> with_columns; extend=False
+        # (full re-projection) -> select. Both decline (NIE) on an unlowerable item.
+        if op.params.get("extend", False):
+            return with_columns_polars(g_cur, op.params.get("items", []))
         return select_polars(g_cur, op.params.get("items", []))
     if fn == "where_rows":
         return where_rows_polars(g_cur, op.params.get("filter_dict"), op.params.get("expr"))
@@ -328,6 +509,17 @@ def _try_native_row_op(g_cur, op):
         return group_by_polars(g_cur, op.params.get("keys", []), op.params.get("aggregations", []))
     if fn == "unwind":
         return unwind_polars(g_cur, op.params.get("expr", ""), op.params.get("as_", "value"))
+    if fn == "get_degrees":
+        return get_degrees_polars(
+            g_cur,
+            col=op.params.get("col", "degree"),
+            degree_in=op.params.get("degree_in", "degree_in"),
+            degree_out=op.params.get("degree_out", "degree_out"),
+        )
+    if fn == "get_indegrees":
+        return get_indegrees_polars(g_cur, col=op.params.get("col", "degree_in"))
+    if fn == "get_outdegrees":
+        return get_outdegrees_polars(g_cur, col=op.params.get("col", "degree_out"))
     return None
 
 
@@ -436,18 +628,40 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     if isinstance(ops[-1], ASTEdge):
         ops = ops + [ASTNode()]
 
-    if any(isinstance(op, ASTEdge) and not op.is_simple_single_hop() for op in ops):
+    if any(
+        isinstance(op, ASTEdge) and not op.is_simple_single_hop() and not _is_native_multihop(op)
+        for op in ops
+    ):
         raise NotImplementedError(
-            "polars chain engine (Phase 1) supports single-hop edges only; "
-            "variable-length/multi-hop chains are deferred. Use engine='pandas'."
+            "polars chain engine supports single-hop and multi-hop edges "
+            "(hops=N / max_hops fwd/rev/undirected; to_fixed_point and min_hops>1 "
+            "fwd/rev); deferred features (undirected to_fixed_point / undirected "
+            "min_hops>1, output slicing, hop labels, *_query, "
+            "include_zero_hop_seed, prune_to_endpoints) require engine='pandas'."
         )
 
     edge_ops = [op for op in ops if isinstance(op, ASTEdge)]
-    if len(edge_ops) > 1 and any(op.direction == "undirected" for op in edge_ops):
-        raise NotImplementedError(
-            "polars chain engine (Phase 1) does not yet support undirected edges "
-            "in multi-edge chains; deferred. Use engine='pandas'."
+    # Undirected edges in multi-edge chains: NATIVE for single-hop AND fixed-length multi-hop
+    # undirected (the backward pass threads BOTH endpoints for single-hop — see the override
+    # below; fixed multi-hop undirected uses the generic backward hop + the path-aware
+    # recompute, same as directed). STILL deferred (NIE): undirected single-hop/multi-hop
+    # carrying include_zero_hop_seed / *_query (unverified combine semantics). Undirected
+    # to_fixed_point is NIE'd upstream by _is_native_multihop (needs components/2-core).
+    if len(edge_ops) > 1:
+        _undirected = [op for op in edge_ops if op.direction == "undirected"]
+        _undirected_unsupported = any(
+            op.include_zero_hop_seed
+            or op.source_node_query is not None
+            or op.destination_node_query is not None
+            or op.edge_query is not None
+            for op in _undirected
         )
+        if _undirected and _undirected_unsupported:
+            raise NotImplementedError(
+                "polars chain engine supports single-hop and fixed-length multi-hop "
+                "undirected edges in multi-edge chains; deferred undirected sub-cases — "
+                "include_zero_hop_seed or *_query — require engine='pandas'."
+            )
 
     # Single-hop fast path: [n(), e, n()] where both nodes have no name/query and
     # the edge has no match/name/query — the basic graph query + "filter then
@@ -509,6 +723,9 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         EID = g._edge
         added_edge_index = False
 
+    node_col, src, dst = g._node, g._source, g._destination
+    assert node_col is not None and src is not None and dst is not None
+
     # Forward pass.
     g_stack: List[Plottable] = []
     for i, op in enumerate(ops):
@@ -525,17 +742,73 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             prev_orig = g_stack[-(len(g_rev) + 2)]
         prev_wf = prev_loop._nodes
         target_wf = prev_orig._nodes if prev_orig is not None else None
-        # Give the reverse hop the FULL node universe (g_step._nodes is only the
-        # forward wavefront; filtering reached ids against it would truncate the
-        # reverse wavefront and break threading).
+        # OUTPUT universe = FULL g._nodes (so the reverse hop's output isn't truncated / loses node
+        # columns). The INTERMEDIATE-hop gate universe is decoupled: for a MULTI-HOP reverse step pass
+        # the forward wavefront (g_step._nodes, before widening) so intermediate hops can't wander
+        # outside the forward-reached nodes (pandas chain.py:1104 feeds g_step as the multi-hop reverse
+        # node table). Single-hop reverse: None -> gate universe = all_nodes (vacuous), matching the
+        # pandas use_fast_backward path (full g._nodes).
+        _iu = g_step._nodes if (isinstance(op, ASTEdge) and not op.is_simple_single_hop()) else None
         g_step_full = g_step.nodes(g._nodes, g._node)
-        g_rev.append(_exec(op.reverse(), g_step_full, prev_wf, target_wf))
+        rev = _exec(op.reverse(), g_step_full, prev_wf, target_wf, intermediate_universe=_iu)
+        # Undirected single-hop backward threading: the generic hop returns a
+        # ONE-SIDED wavefront (the TO/target-side endpoints only). Pandas' fast
+        # backward branch (graphistry/compute/chain.py:1090-1098) instead threads
+        # BOTH endpoints of the surviving edges as the step's node frame. For an
+        # undirected edge the one-sided wavefront drops an intermediate node that is
+        # only reachable as the frontier-side endpoint of a sibling edge, which then
+        # drops that node's incident edge in the combine (repo fuzz seed-18: >1
+        # undirected edge + intermediate node filters loses a node vs pandas). The
+        # edge set already matches pandas (both edge orientations are joined), so we
+        # override ONLY the node frame, carrying FULL node columns so the next
+        # backward node step can still filter on them.
+        if (isinstance(op, ASTEdge) and op.direction == "undirected"
+                and op.is_simple_single_hop() and rev._edges is not None):
+            _both = pl.concat(
+                [rev._edges.select(pl.col(src).alias(node_col)),
+                 rev._edges.select(pl.col(dst).alias(node_col))],
+                how="vertical_relaxed",
+            ).unique(subset=[node_col])
+            rev = rev.nodes(g._nodes.join(_both, on=node_col, how="semi"), node_col)
+        g_rev.append(rev)
 
     steps: List[Tuple[ASTObject, Plottable]] = list(zip(ops, list(reversed(g_rev))))
     label_steps: List[Tuple[ASTObject, Plottable]] = list(zip(ops, g_stack))
 
-    node_col, src, dst = g._node, g._source, g._destination
-    assert node_col is not None and src is not None and dst is not None
+    # Native multi-hop edges: port of the pandas combine_steps ``has_multihop`` branch
+    # (graphistry/compute/chain.py:201-209). For a fixed-length multi-hop edge step the
+    # per-step single-hop endpoint semijoin in _combine_edges keeps only edges whose
+    # src/dst sit in the prev/next wavefront, dropping intermediate-hop edges (observed
+    # e=3 vs pandas e=10). Instead recompute the path-valid edge set by RE-EXECUTING the
+    # FORWARD hop over this step's backward-pruned edge subgraph, seeded from the
+    # forward-pass entry wavefront: the backward prune enforces "reaches a valid
+    # endpoint", the forward re-exec enforces "reachable from the seed", and their
+    # composition along the BFS frontier is exactly the valid-path edges (NOT a flat
+    # forward∩backward set intersection — that was the reverted shortcut). Only the EDGE
+    # combine sees these recomputed frames (pandas gates the recompute on kind=='edges');
+    # the node combine + name tagging keep the original backward-pruned steps.
+    edge_steps: List[Tuple[ASTObject, Plottable]] = steps
+    has_multihop = any(isinstance(op, ASTEdge) and not op.is_simple_single_hop() for op, _ in steps)
+    if has_multihop:
+        # pandas combine_steps recomputes EVERY step (not only the multi-hop one) when any step is
+        # multi-hop (chain.py:201-209), and the edge combine then concatenates each recomputed
+        # step's edges with NO per-step prev/next semijoin. Mirror that exactly: recompute ALL
+        # ASTEdge steps (forward re-exec over their backward-pruned subgraph, seeded from the
+        # forward-pass entry wavefront) and let _combine_edges append-all (has_multihop=True).
+        # Recomputing only the multi-hop step + semijoining the single-hop steps diverged by an
+        # edge/node on chains mixing single + multi-hop (fuzz seeds 24/48).
+        edge_steps = []
+        for idx, (op, g_step) in enumerate(steps):
+            if isinstance(op, ASTEdge):
+                prev_src = label_steps[idx - 1][1]._nodes if idx > 0 else g_step._nodes
+                prev_wf = (
+                    _semi(g._nodes, prev_src, node_col, node_col)
+                    if prev_src is not None else None
+                )
+                g_sub = g.edges(g_step._edges, src, dst, edge=g._edge)
+                edge_steps.append((op, _exec(op, g_sub, prev_wf, None)))
+            else:
+                edge_steps.append((op, g_step))
 
     # Track B: build the WHOLE combine (combine_nodes/edges + endpoint + names)
     # as ONE deferred plan over the already-materialized hop frames and collect
@@ -552,10 +825,11 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     g_lz = _LazyShim(g._nodes.with_row_index(NORD).lazy(), g._edges.with_row_index(EORD).lazy(),
                      node_col, src, dst, g._edge)
     steps_lz = [(op, _LazyShim.step(p)) for op, p in steps]
+    edge_steps_lz = [(op, _LazyShim.step(p)) for op, p in edge_steps]
     label_lz = [(op, _LazyShim.step(p)) for op, p in label_steps]
 
     final_nodes = _combine_nodes(g_lz, steps_lz)
-    final_edges = _combine_edges(g_lz, steps_lz, label_lz)
+    final_edges = _combine_edges(g_lz, edge_steps_lz, label_lz, has_multihop)
     # Endpoint (lazy: always compute; maintain_order keeps the semi-join order).
     endpoints = pl.concat(
         [final_edges.select(pl.col(src).alias(node_col)),

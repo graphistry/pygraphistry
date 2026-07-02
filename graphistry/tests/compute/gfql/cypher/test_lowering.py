@@ -16849,3 +16849,106 @@ def test_order_by_multi_column_no_crash() -> None:
             assert rows[i]["name"] <= rows[i + 1]["name"], (
                 f"Rows with equal score not sorted by name: {rows}"
             )
+
+
+# ---------------------------------------------------------------------------
+# count(*) short-circuit (count_table row op) — pandas-lane coverage
+# ---------------------------------------------------------------------------
+
+
+def test_count_star_node_shortcircuit_lowers_to_count_table() -> None:
+    chain = cypher_to_gfql("MATCH (n) RETURN count(*) AS c")
+    ops = chain.chain if hasattr(chain, "chain") else chain
+    calls = [op for op in ops if isinstance(op, ASTCall) and op.function == "count_table"]
+    assert len(calls) == 1
+    assert calls[0].params["alias"] == "c"
+    assert calls[0].params.get("table", "nodes") == "nodes"
+
+
+def test_count_star_node_shortcircuit_executes_pandas() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+    )
+
+    result = graph.gfql("MATCH (n) RETURN count(*) AS c")
+
+    assert result._nodes.to_dict(orient="records") == [{"c": 3}]
+
+
+def test_count_star_edge_shortcircuit_counts_only_valid_endpoint_edges() -> None:
+    # 3 edges but 'zz' is not a node: MATCH ()-[r]->() requires both endpoints
+    # to exist, so the dangling edge is excluded (count is 2, not 3).
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"]}),
+        pd.DataFrame({"s": ["a", "b", "a"], "d": ["b", "a", "zz"], "type": ["R", "R", "R"]}),
+    )
+
+    result = graph.gfql("MATCH ()-[r]->() RETURN count(*) AS c")
+
+    assert result._nodes.to_dict(orient="records") == [{"c": 2}]
+
+
+def test_count_star_with_group_key_does_not_shortcircuit() -> None:
+    # A grouped count is NOT the pure-count shape: it must keep the
+    # rows + group_by pipeline, not lower to count_table.
+    chain = cypher_to_gfql("MATCH (n) RETURN n.id AS i, count(*) AS c")
+    ops = chain.chain if hasattr(chain, "chain") else chain
+    assert not any(isinstance(op, ASTCall) and op.function == "count_table" for op in ops)
+
+
+def test_count_table_row_op_direct_pandas() -> None:
+    from graphistry.compute.ast import ASTNode, count_table, rows
+
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+    )
+
+    result = graph.gfql([ASTNode(), rows(), count_table(table="nodes", alias="cnt")])
+
+    assert result._nodes.to_dict(orient="records") == [{"cnt": 2}]
+
+
+def test_count_table_row_op_rejects_unknown_table() -> None:
+    from graphistry.compute.ast import ASTNode, count_table, rows
+
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": [], "d": [], "type": []}),
+    )
+
+    with pytest.raises(GFQLValidationError):
+        graph.gfql([ASTNode(), rows(), count_table(table="everything", alias="cnt")])
+
+
+def test_count_table_frame_op_error_and_empty_paths() -> None:
+    # Direct frame-op coverage (the GFQL call path validates params BEFORE the
+    # frame op, so these branches need direct exercise): bad table name, missing
+    # source column, and the no-table 0-count fallback.
+    from graphistry.compute.gfql.row import frame_ops
+
+    nodes = pd.DataFrame({"id": ["a", "b"], "__mask__": [True, None]})
+    edges = pd.DataFrame({"s": ["a"], "d": ["b"]})
+    ctx = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+    with pytest.raises(ValueError, match="must be one of"):
+        frame_ops.count_table(ctx, table="everything", alias="c")
+    with pytest.raises(ValueError, match="not found"):
+        frame_ops.count_table(ctx, table="nodes", source="nope", alias="c")
+
+    # source mask: null counts as False
+    out = frame_ops.count_table(ctx, table="nodes", source="__mask__", alias="c")
+    assert out._nodes.to_dict(orient="records") == [{"c": 1}]
+
+    # no node table -> 0-count row templated from the sibling edges frame
+    ctx2 = graphistry.edges(edges, "s", "d")
+    assert ctx2._nodes is None
+    out2 = frame_ops.count_table(ctx2, table="nodes", alias="c")
+    assert out2._nodes.to_dict(orient="records") == [{"c": 0}]
+
+    # no tables at all -> plain pandas 0-count row
+    ctx3 = graphistry.bind()
+    assert ctx3._nodes is None and ctx3._edges is None
+    out3 = frame_ops.count_table(ctx3, table="nodes", alias="c")
+    assert out3._nodes.to_dict(orient="records") == [{"c": 0}]

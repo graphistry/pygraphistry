@@ -50,9 +50,40 @@ def _run_policy_hook(handler: Any, policy_context: 'PolicyContext', data_size: O
     return None
 
 
+def _active_frames_are_polars(g: Plottable) -> bool:
+    """True when the graph's active frames are polars (the polars-engine path).
+
+    Mirrors ``execute_row_pipeline_call``'s frame-type probe: under engine='polars'/
+    'polars-gpu' the frames are polars; pandas/cuDF inputs were coerced upstream.
+    """
+    nodes = getattr(g, "_nodes", None)
+    if nodes is not None:
+        return "polars" in type(nodes).__module__
+    edges = getattr(g, "_edges", None)
+    return edges is not None and "polars" in type(edges).__module__
+
+
 def _execute_validated_call(g: Plottable, function: str, validated_params: Dict[str, Any]) -> Any:
     if is_row_pipeline_call(function):
         return execute_row_pipeline_call(g, function, validated_params)
+
+    # NATIVE polars degree calls (get_degrees / get_indegrees / get_outdegrees): pure
+    # groupby/count over edge endpoints — NO pandas bridge (see NO-CHEATING). Reached by
+    # the let()/ref() DAG surface (and the schema-changer chain path); the native chain
+    # surface routes the same ops through polars.chain._try_native_row_op. The result is
+    # polars, so it passes the no-bridge guard in execute_call (and ensure_engine_match is
+    # then a no-op). Other Plottable-method calls have no native polars impl and stay
+    # declined by that guard.
+    if _active_frames_are_polars(g):
+        if function == "get_degrees":
+            from graphistry.compute.gfql.lazy.engine.polars.chain import get_degrees_polars
+            return get_degrees_polars(g, **validated_params)
+        if function == "get_indegrees":
+            from graphistry.compute.gfql.lazy.engine.polars.chain import get_indegrees_polars
+            return get_indegrees_polars(g, **validated_params)
+        if function == "get_outdegrees":
+            from graphistry.compute.gfql.lazy.engine.polars.chain import get_outdegrees_polars
+            return get_outdegrees_polars(g, **validated_params)
 
     if not hasattr(g, function):
         raise AttributeError(
@@ -147,6 +178,23 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         # Ensure result matches requested engine (defensive coercion)
         # Schema-changing operations (UMAP, hypergraph) may alter DataFrame types
         if _is_plottable_like(result):
+            # NO-CHEATING: a Plottable-method call (get_degrees / hypergraph / umap / igraph /
+            # cugraph / nx algos) has no native polars implementation — it runs on pandas/cuDF.
+            # Coercing that result back to polars here would be a SILENT polars-engine bridge, and
+            # is inconsistent with the chain surface, which honestly raises NotImplementedError for
+            # the identical op. So under a polars engine, if the result frames are not already
+            # polars, decline instead of bridging. (Native-polars row-pipeline calls — select etc. —
+            # produce polars frames and pass through unchanged; pandas/cuDF engines are unaffected.)
+            if engine in (Engine.POLARS, Engine.POLARS_GPU):
+                _res_nodes = getattr(result, '_nodes', None)
+                _res_edges = getattr(result, '_edges', None)
+                _probe = _res_nodes if _res_nodes is not None else _res_edges
+                if _probe is not None and 'polars' not in type(_probe).__module__:
+                    raise NotImplementedError(
+                        f"GFQL engine='{engine.value}' does not natively support call "
+                        f"'{function}'; it runs on pandas/cuDF and coercing the result back to "
+                        "polars would be a silent bridge. Use engine='pandas'."
+                    )
             result = ensure_engine_match(cast(Plottable, result), engine)
             result = apply_call_schema_effect(g, cast(Plottable, result), function, validated_params)
 
@@ -203,6 +251,12 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
             suggestion="Check parameter names and types"
         ) from error
     if isinstance(error, GFQLTypeError):
+        raise error
+    if isinstance(error, NotImplementedError) and engine in (Engine.POLARS, Engine.POLARS_GPU):
+        # Honest engine-capability decline (e.g. the polars no-silent-bridge guard above) —
+        # propagate as-is so the DAG surface matches the chain surface's NotImplementedError.
+        # Gated to the polars engines: a pandas/cudf NIE (e.g. fa2_layout requiring a GPU) must
+        # still fall through to the GFQLTypeError(E303) wrapper below, not leak as a bare NIE.
         raise error
     if error is not None:
         raise GFQLTypeError(

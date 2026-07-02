@@ -17,7 +17,52 @@ from graphistry.compute.filter_by_dict import resolve_filter_column
 from .dtypes import is_numeric as _dtype_numeric, is_stringlike as _dtype_stringlike
 
 
-def _cmp_expr(col_expr, op, val):
+def _cmp_expr(col_expr, op, val, dtype=None):
+    import datetime as _dt
+
+    # NATIVE TEMPORAL (SAFE SUBSET — NO CHEATING): lower a GFQL ``DateValue`` (Cypher
+    # ``date('YYYY-MM-DD')`` or ``p.gt(date(...))``) compared against a NAIVE ``pl.Datetime``
+    # column. The pandas oracle truncates the column to its calendar date (``s.dt.date``) and
+    # compares to a tz-free python ``date`` (``DateValue._parsed``); ``col_expr.dt.date() <op>
+    # pl.lit(date)`` is the exact native equivalent — identical calendar-date truncation, no
+    # timezone on EITHER side, so parity is provable. We REQUIRE ``dtype`` (threaded from the
+    # frame schema) to confirm the column is a naive ``Datetime``; without that proof we fall
+    # through to the decline below. Everything else stays declined: tz-tagged ``DateTimeValue``
+    # (always carries a tz; pandas does tz_localize/convert), ``TimeValue``, tz-aware columns,
+    # and raw python datetimes — lowering any of those risks a silent tz/semantic mismatch.
+    if type(val).__name__ == "DateValue":
+        import polars as pl
+        d = getattr(val, "_parsed", None)
+        if (
+            isinstance(dtype, pl.Datetime) and dtype.time_zone is None
+            and isinstance(d, _dt.date) and not isinstance(d, _dt.datetime)
+        ):
+            date_col = col_expr.dt.date()
+            lit = pl.lit(d)
+            if op is operator.gt:
+                return date_col > lit
+            if op is operator.lt:
+                return date_col < lit
+            if op is operator.ge:
+                return date_col >= lit
+            if op is operator.le:
+                return date_col <= lit
+            if op is operator.eq:
+                return date_col == lit
+            if op is operator.ne:
+                return date_col != lit
+        # naive-Datetime parity unprovable here -> fall through to the decline below.
+
+    # Remaining temporal values (datetime/datetime-tagged/time or the GFQL TemporalValue) have
+    # no SAFE polars-literal comparison here — DECLINE (return None → honest NotImplementedError)
+    # rather than build `col > TemporalValue`, a non-None broken expr that errors at
+    # ``df.filter`` (or silently misorders). Remaining temporal-comparison lowering is a tracked
+    # feature gap; numeric/string vals are unaffected.
+    if isinstance(val, (_dt.date, _dt.datetime, _dt.time)) or type(val).__name__ in (
+        "TemporalValue", "Timestamp", "Timedelta", "datetime64",
+        "DateTimeValue", "TimeValue", "DateValue",
+    ):
+        return None
     # NOTE (narrow residual): these comparisons do NOT apply the IEEE NaN mask that the
     # WHERE/row-pipeline lowering does (``_nan_guard``). On a GENUINE polars NaN (not
     # null), ``col > x`` keeps the NaN row (polars treats NaN as largest) where pandas
@@ -42,8 +87,12 @@ def _cmp_expr(col_expr, op, val):
     return None
 
 
-def predicate_to_expr(col: str, pred: ASTPredicate):
-    """Lower an ASTPredicate to a polars boolean expression, or None if unsupported."""
+def predicate_to_expr(col: str, pred: ASTPredicate, dtype=None):
+    """Lower an ASTPredicate to a polars boolean expression, or None if unsupported.
+
+    ``dtype`` is the polars dtype of ``col`` (from the frame schema), threaded so the
+    temporal lowering can confirm a NAIVE ``Datetime`` column before lowering a ``DateValue``
+    comparison (else it declines). ``None`` when the dtype is unknown."""
     import polars as pl
 
     c = pl.col(col)
@@ -51,7 +100,7 @@ def predicate_to_expr(col: str, pred: ASTPredicate):
 
     op = getattr(pred, "op", None)
     if op is not None and hasattr(pred, "val"):
-        expr = _cmp_expr(c, op, pred.val)
+        expr = _cmp_expr(c, op, pred.val, dtype)
         if expr is not None:
             return expr
 
@@ -61,6 +110,19 @@ def predicate_to_expr(col: str, pred: ASTPredicate):
             if getattr(pred, "inclusive", True):
                 return (c >= lo) & (c <= hi)
             return (c > lo) & (c < hi)
+        # NATIVE TEMPORAL Between (SAFE SUBSET — NO CHEATING): the GFQL temporal Between
+        # evaluates in pandas as GE/LE (inclusive) or GT/LT (exclusive) sub-predicates on the
+        # SAME bound; for a DateValue bound each is the exact date-truncated compare that
+        # _cmp_expr already lowers with PROVEN parity (col.dt.date() <op> pl.lit(date)). Compose
+        # the two proven endpoint compares so Between inherits that parity with NO new proof
+        # obligation. Both endpoints must be DateValue over a NAIVE Datetime column or _cmp_expr
+        # returns None -> we fall through to honest NIE (tz-aware DateTimeValue, TimeValue, raw
+        # datetime, mixed bounds, non-Datetime dtype all decline this way — never a silent mismatch).
+        inclusive = getattr(pred, "inclusive", True)
+        lo_expr = _cmp_expr(c, operator.ge if inclusive else operator.gt, lo, dtype)
+        hi_expr = _cmp_expr(c, operator.le if inclusive else operator.lt, hi, dtype)
+        if lo_expr is not None and hi_expr is not None:
+            return lo_expr & hi_expr
 
     if name == "IsIn" and hasattr(pred, "options"):
         opts = list(pred.options)
@@ -71,7 +133,7 @@ def predicate_to_expr(col: str, pred: ASTPredicate):
         # Conjunction (e.g. ``n.val > 20 AND n.val < 90`` folds to AllOf[GT, LT]).
         # Lower each child natively and AND them; if ANY child can't lower, the
         # whole predicate can't (caller raises NIE — no pandas bridge).
-        child_exprs = [predicate_to_expr(col, p) for p in pred.predicates]
+        child_exprs = [predicate_to_expr(col, p, dtype) for p in pred.predicates]
         if child_exprs and all(e is not None for e in child_exprs):
             combined = child_exprs[0]
             for e in child_exprs[1:]:
@@ -84,10 +146,61 @@ def predicate_to_expr(col: str, pred: ASTPredicate):
     if name in ("NotNull", "NotNA"):
         return c.is_not_null()
 
+    if name == "IsLeapYear":
+        # NATIVE TEMPORAL (SAFE — NO CHEATING): pandas ``s.dt.is_leap_year`` is a Boolean over
+        # each value's calendar year; polars ``expr.dt.is_leap_year()`` is documented as the
+        # identical Boolean over the same year, for Date and Datetime columns — so parity is
+        # provable (Gregorian rule incl. the 1900-not-leap / 2000-leap century cases). REQUIRE a
+        # temporal dtype from the frame schema: a NAIVE ``Datetime`` (a tz would have pandas/polars
+        # derive the year in LOCAL time, whose equality at year boundaries we have NOT proven) or
+        # ``Date``. Anything else (tz-aware Datetime, non-temporal column, unknown dtype) declines
+        # -> honest NotImplementedError. Mirrors the naive-Datetime guard used for ``DateValue``.
+        if (isinstance(dtype, pl.Datetime) and dtype.time_zone is None) or dtype == pl.Date:
+            return c.dt.is_leap_year()
+        return None
+
+    if name in ("IsMonthStart", "IsMonthEnd", "IsQuarterStart",
+                "IsQuarterEnd", "IsYearStart", "IsYearEnd"):
+        # NATIVE TEMPORAL boundary (PROVABLE parity — NO CHEATING): polars has NO is_month_start/.../
+        # is_year_end BOOLEAN accessor (month_start()/month_end() ROLL to a Datetime), but the pandas
+        # oracle with freq=None is a pure CALENDAR-FIELD test: is_month_start = day==1; is_month_end =
+        # day==days_in_month; quarter/year add a month-set / month==N. polars dt.day()/dt.month()/
+        # dt.days_in_month() extract the SAME fields from a naive Datetime/Date (both proleptic
+        # Gregorian, days_in_month leap-aware), so each compose is BIT-IDENTICAL to the oracle on
+        # non-null rows — a proven derivation, not a guess. pandas returns False for NaT; a polars
+        # comparison yields null -> fill_null(False) restores parity. Require naive Datetime or Date
+        # (a tz shifts the wall-clock fields), exactly like IsLeapYear above; else honest NIE.
+        if (isinstance(dtype, pl.Datetime) and dtype.time_zone is None) or dtype == pl.Date:
+            day = c.dt.day()
+            month = c.dt.month()
+            if name == "IsMonthStart":
+                expr = day == 1
+            elif name == "IsMonthEnd":
+                expr = day == c.dt.days_in_month()
+            elif name == "IsQuarterStart":
+                expr = (day == 1) & month.is_in([1, 4, 7, 10])
+            elif name == "IsQuarterEnd":
+                expr = (day == c.dt.days_in_month()) & month.is_in([3, 6, 9, 12])
+            elif name == "IsYearStart":
+                expr = (day == 1) & (month == 1)
+            else:  # IsYearEnd
+                expr = (day == c.dt.days_in_month()) & (month == 12)
+            return expr.fill_null(False)
+        return None
+
     if name == "Contains" and hasattr(pred, "pat") and isinstance(pred.pat, str):
         case = getattr(pred, "case", True)
-        pat = pred.pat if case else f"(?i){pred.pat}"
-        return c.str.contains(pat, literal=False)
+        # Honor the predicate's regex flag: hardcoding literal=False treats a LITERAL pattern
+        # containing regex metacharacters (e.g. "a.b") as a regex — a wrong answer. When
+        # regex=False, match the substring literally. (Polars has no case-insensitive literal
+        # flag, so case-insensitive literal lowercases both sides.)
+        use_regex = getattr(pred, "regex", True)
+        if use_regex:
+            pat = pred.pat if case else f"(?i){pred.pat}"
+            return c.str.contains(pat, literal=False)
+        if case:
+            return c.str.contains(pred.pat, literal=True)
+        return c.str.to_lowercase().str.contains(pred.pat.lower(), literal=True)
 
     if name in ("Startswith", "Endswith") and hasattr(pred, "pat") and isinstance(pred.pat, str):
         if getattr(pred, "case", True):
@@ -96,6 +209,35 @@ def predicate_to_expr(col: str, pred: ASTPredicate):
         # is treated literally; (?i) makes it case-insensitive). Matches the pandas
         # boundary predicate's lowercase-both-sides semantics for a single str pat.
         anchored = f"(?i)^{re.escape(pred.pat)}" if name == "Startswith" else f"(?i){re.escape(pred.pat)}$"
+        return c.str.contains(anchored, literal=False)
+
+    if name in ("Startswith", "Endswith") and hasattr(pred, "pat") and isinstance(pred.pat, (tuple, list)):
+        # pandas boundary predicates accept a tuple of prefixes/suffixes (match if ANY) — OR-fold.
+        case = getattr(pred, "case", True)
+        parts = []
+        for p in pred.pat:
+            if not isinstance(p, str):
+                return None
+            if case:
+                parts.append(c.str.starts_with(p) if name == "Startswith" else c.str.ends_with(p))
+            else:
+                anc = f"(?i)^{re.escape(p)}" if name == "Startswith" else f"(?i){re.escape(p)}$"
+                parts.append(c.str.contains(anc, literal=False))
+        if not parts:
+            return pl.lit(False)
+        expr = parts[0]
+        for p in parts[1:]:
+            expr = expr | p
+        return expr
+
+    if name in ("Match", "Fullmatch") and hasattr(pred, "pat") and isinstance(pred.pat, str):
+        # pandas str.match = regex anchored at START; str.fullmatch = anchored BOTH ends.
+        # Decline when custom regex flags (beyond case) are set, to avoid a flag-semantics gap.
+        if getattr(pred, "flags", 0):
+            return None
+        prefix = "" if getattr(pred, "case", True) else "(?i)"
+        body = f"(?:{pred.pat})"
+        anchored = f"{prefix}^{body}" if name == "Match" else f"{prefix}^{body}$"
         return c.str.contains(anchored, literal=False)
 
     return None
@@ -149,7 +291,7 @@ def filter_by_dict_polars(df, filter_dict: Optional[dict]):
                     f"comparison on column {resolved_col!r}; use engine='pandas' for this "
                     f"query (no pandas fallback; parity-or-error by design)"
                 )
-            expr = predicate_to_expr(resolved_col, resolved_val)
+            expr = predicate_to_expr(resolved_col, resolved_val, df.schema.get(resolved_col))
             if expr is None:
                 # NO-CHEATING: no native lowering for this predicate, and we will
                 # NOT bridge through pandas (evaluating one column via pandas would

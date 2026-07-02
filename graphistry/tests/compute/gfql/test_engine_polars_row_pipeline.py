@@ -153,7 +153,8 @@ def test_row_expr_lowering_unit():
     assert lower_expr_str("n.val + 1", cols) is not None
     assert lower_expr_str("n.val > 5 AND n.val < 100", cols) is not None
     assert lower_expr_str("count(n)", cols) is None
-    assert lower_expr_str("[1, 2, 3]", cols) is None
+    assert lower_expr_str("[1, 2, 3]", cols) is not None      # homogeneous-int list -> native concat_list
+    assert lower_expr_str("[1, 2.5]", cols) is None           # mixed int/float category -> NIE
     # select items: all-lowerable -> list; any unlowerable -> None
     assert lower_select_items([("v", "n.val"), ("k", "n.kind")], cols) is not None
     assert lower_select_items([("c", "count(n)")], cols) is None
