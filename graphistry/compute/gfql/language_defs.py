@@ -45,6 +45,8 @@ GFQL_SCALAR_FUNCTIONS: Final[frozenset[str]] = frozenset(
         "round",
         "tolower",
         "toupper",
+        "lower",
+        "upper",
         "substring",
         "tointeger",
         "tofloat",

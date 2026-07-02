@@ -132,15 +132,31 @@ def _lower_function(node: Any, columns: Sequence[str]) -> Optional[Any]:
     if name in {"floor", "ceil", "ceiling"} and len(args) == 1:
         return args[0].ceil() if name in {"ceil", "ceiling"} else args[0].floor()
     if name == "round" and len(args) in {1, 2}:
+        import polars as pl
         ndigits = 0
         if len(args) == 2:
             lit = getattr(node.args[1], "value", None)
             if not isinstance(lit, int) or isinstance(lit, bool):
                 return None  # non-literal precision -> defer (honest NIE)
             ndigits = lit
-        return args[0].round(ndigits)
-    if name in {"tolower", "toupper"} and len(args) == 1:
-        return args[0].str.to_lowercase() if name == "tolower" else args[0].str.to_uppercase()
+        if ndigits < 0:
+            return None  # neo4j raises on negative precision; decline (honest NIE)
+        # neo4j tie-breaking (matches the pandas engine): precision 0 -> ties toward
+        # +inf; precision > 0 -> ties away from zero (HALF_UP). polars' .round default
+        # (half-to-even) would be a wrong answer vs the spec. p=0 uses a floor+frac
+        # kernel (NOT floor(x+0.5): the +0.5 rounds when x is 1 ulp below a tie —
+        # round(0.49999999999999994) must be 0.0). p>0 uses the native mode= (bit-exact;
+        # a manual scale/divide formula picks up 1-ulp noise from polars' reassociating
+        # optimizer). Requires polars >= 1.5 for the mode kwarg (see setup.py extra).
+        x = args[0].cast(pl.Float64)
+        if ndigits == 0:
+            fl = x.floor()
+            return fl + ((x - fl) >= 0.5).cast(pl.Float64)  # ties toward +inf
+        return x.round(ndigits, mode="half_away_from_zero")
+    if name in {"tolower", "toupper", "lower", "upper"} and len(args) == 1:
+        # toLower/toUpper + GQL-conformance aliases lower/upper (as neo4j accepts both).
+        to_lower = name in {"tolower", "lower"}
+        return args[0].str.to_lowercase() if to_lower else args[0].str.to_uppercase()
     return None
 
 
