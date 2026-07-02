@@ -79,11 +79,10 @@ PageRank the identical vertex count (**3,997,962**). A size mismatch flags a bug
 When GFQL wins, and when it doesn't
 -----------------------------------
 
-We are handing this page to a Spark GraphFrames user (persona: Raj, on
-Databricks). The point is not to spin — it is to be trustworthy. Two findings,
-both true:
+This page is written for a Spark GraphFrames user evaluating alternatives.
+The point is not to spin — it is to be trustworthy. Two findings, both true:
 
-**1. Filter and traversal: GFQL wins decisively (2–43x), even on CPU.**
+**1. Filter and traversal: GFQL wins across the board (1.3–43x; most cells 2x+), even on CPU.**
 There is no JVM to warm, no task graph to serialize, no shuffle to schedule. A
 single-node columnar engine is simply the right tool for sub-second graph
 queries. Spark's ``local[*]`` per-query scheduler overhead dominates at these
@@ -238,8 +237,8 @@ Orkut (~117M edges)
      - **~10.5x** (GPU) / *0.23x* (CPU)
 
 *Median of 5 after 2 warmups (all cells, including GPU PageRank).
-Result-size parity per task: filter **308,666**; 1-hop **434,973**; 2-hop
-**1,991,366**; PageRank **3,072,441**. Cold load 5.1s (GFQL) vs 14.7s
+Result-size parity per task: filter* **308,666**; *1-hop* **434,973**; *2-hop*
+**1,991,366**; *PageRank* **3,072,441**. *Cold load 5.1s (GFQL) vs 14.7s
 (GraphFrames). The pattern holds at 117M edges: GFQL wins filter/traversal
 outright, the GPU wins PageRank by ~10x, and CPU-igraph PageRank falls further
 behind Spark (0.23x) as the graph grows.*
@@ -301,7 +300,8 @@ Most graph work in a notebook or a pipeline is single-node and latency
 sensitive: filter to a subgraph, expand a few hops, score it. For that regime,
 standing up or paying for a Spark cluster is the wrong shape — the per-query
 scheduling and serialization cost swamps the actual work. GFQL runs the same
-queries in-process on your dataframe, on CPU, and wins by 2–43x here.
+queries in-process on your dataframe, on CPU, and wins by 1.3–43x here
+(most cells 2x+; the closest is Orkut's heavy 2-hop at 1.3x).
 
 When the workload shifts to whole-graph analytics like PageRank, the GPU engine
 (``engine="polars-gpu"``, cugraph) is the tool that beats Spark — by ~10–15x
