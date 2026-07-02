@@ -130,7 +130,9 @@ def _lower_function(node: Any, columns: Sequence[str]) -> Optional[Any]:
         import polars as pl
         return args[0].cast(pl.Float64).sqrt()
     if name == "sign" and len(args) == 1:
-        return args[0].sign()
+        import polars as pl
+        # neo4j sign() returns an Integer; cast to match the pandas engine (which yields int).
+        return args[0].sign().cast(pl.Int64)
     if name in {"floor", "ceil", "ceiling"} and len(args) == 1:
         return args[0].ceil() if name in {"ceil", "ceiling"} else args[0].floor()
     if name == "round" and len(args) in {1, 2}:
