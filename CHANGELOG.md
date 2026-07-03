@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Fixed
+
+- **GFQL `ne()`/`<>` and `IN`/membership on NULL follow openCypher/SQL 3-valued logic (pandas + cuDF)**: a `ne()` / `<>` filter or a list-membership (`IN`) filter over a NULL cell now EXCLUDES the row — per 3VL, `null <> x` and `null IN [...]` evaluate to `null` (not a match) — consistent with `eq`/`gt`/`lt` (which already dropped nulls) and with the cuDF/polars engines. Previously the pandas `NE` predicate kept null rows (`NaN != x` → True) and cuDF matched a null cell against a `None`/`NaN` list element. Behavior change for `ne()` / `NOT IN` on nullable columns under the default pandas engine. (Broader openCypher null-semantics tracked in #1664.)
+
 ## [0.57.0 - 2026-06-28]
 
 ### Changed
