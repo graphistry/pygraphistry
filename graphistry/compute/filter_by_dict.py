@@ -192,7 +192,11 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
             if original_col.startswith("label__") and resolved_col == "labels" and isinstance(resolved_val, str):
                 hits = hits & _label_series_contains(df[resolved_col], resolved_val)
             elif _is_membership_filter_value(resolved_val):
-                hits = hits & df[resolved_col].isin(list(resolved_val))
+                # openCypher/SQL 3VL: `null IN [...]` is null -> a NULL cell is NOT a member (and a
+                # NULL in the list cannot make a null cell match). `& notna()` excludes null cells —
+                # a no-op for pandas (its isin already excludes a NaN cell here) but fixes cuDF, which
+                # otherwise matches a null cell against a None/NaN list element.
+                hits = hits & df[resolved_col].isin(list(resolved_val)) & df[resolved_col].notna()
             else:
                 hits = hits & (df[resolved_col] == resolved_val)
     if predicates:
