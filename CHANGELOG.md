@@ -15,6 +15,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Infrastructure
 
 - **dgx GB10 benchmark safety harness**: `benchmarks/dgx/{safe_run.sh, preflight.py, sitecustomize.py, local_run.sh}` — an RMM device-allocation cap + host-memory watchdog + preflight refusal + hard timeout for running GPU / large-graph benchmarks on the unified-memory GB10 box without OOM-wedging it. Developer/benchmark tooling only; no runtime or library behavior change.
+- **Docs CI: polars in the doc-test image (pinned)**: the Sphinx doc-example runner now installs `polars` (pinned to cooldown-safe versions) so `engine='polars'` documentation examples execute — and are SKIPPED, not failed, where polars is unavailable (e.g. the minimal-deps job, Python 3.14). Doc-build / CI only; no runtime or library change.
 
 ## [0.57.0 - 2026-06-28]
 
