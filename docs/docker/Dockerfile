@@ -23,7 +23,13 @@ COPY ../../graphistry /docs/graphistry
 # Install graphistry in editable mode so it's available for notebook execution
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install -e .[docs] && \
-    python3 -m pip install pygraphviz igraph lark pytest polars && \
+    # Pin doc-test-only deps (not in .[docs]/the RTD lock) to cooldown-safe versions —
+    # uv-resolved at the repo's supply-chain anchor (exclude-newer 2026-05-14, matches
+    # requirements/rtd-py3.12.lock), so a plain pip build never pulls an unpinned latest
+    # (0-day) release. Regenerate: uv pip compile <(printf 'pygraphviz\nigraph\nlark\npytest\npolars')
+    #   --python-version 3.12 --exclude-newer <rtd-lock-anchor> --no-deps
+    # Follow-up (#1669): fold into a single hashed lock like RTD for transitive+hash pinning.
+    python3 -m pip install pygraphviz==1.14 igraph==1.0.0 lark==1.3.1 pytest==9.0.3 polars==1.40.1 && \
     python3 -m ipykernel install --sys-prefix --name python3
 
 # Step 5: Copy the build script and config files into the container
