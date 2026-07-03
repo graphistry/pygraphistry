@@ -12,6 +12,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **GFQL `ne()`/`<>` and `IN`/membership on NULL follow openCypher/SQL 3-valued logic (pandas + cuDF)**: a `ne()` / `<>` filter or a list-membership (`IN`) filter over a NULL cell now EXCLUDES the row — per 3VL, `null <> x` and `null IN [...]` evaluate to `null` (not a match) — consistent with `eq`/`gt`/`lt` (which already dropped nulls) and with the cuDF/polars engines. Previously the pandas `NE` predicate kept null rows (`NaN != x` → True) and cuDF matched a null cell against a `None`/`NaN` list element. Behavior change for `ne()` / `NOT IN` on nullable columns under the default pandas engine. (Broader openCypher null-semantics tracked in #1664.)
 
+### Infrastructure
+
+- **dgx GB10 benchmark safety harness**: `benchmarks/dgx/{safe_run.sh, preflight.py, sitecustomize.py, local_run.sh}` — an RMM device-allocation cap + host-memory watchdog + preflight refusal + hard timeout for running GPU / large-graph benchmarks on the unified-memory GB10 box without OOM-wedging it. Developer/benchmark tooling only; no runtime or library behavior change.
+
 ## [0.57.0 - 2026-06-28]
 
 ### Changed
