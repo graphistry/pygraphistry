@@ -405,8 +405,7 @@ page measures, the default is faster and more stable. Results are
 **parity-identical** to the default — streaming changes *how* the plan runs, not
 *what* it returns.
 
-The flags are read at import time, so set them **before your process starts** (or
-before ``import graphistry``):
+Set them by environment variable:
 
 .. code-block:: bash
 
@@ -415,6 +414,20 @@ before ``import graphistry``):
 
    # GPU: streaming executor for larger-than-device-memory results
    export GFQL_POLARS_GPU_EXECUTOR=streaming
+
+...or from Python at runtime — the setting is read **live** (per collect), and a Python
+override takes precedence over the environment variable:
+
+.. doc-test: skip
+
+.. code-block:: python
+
+   from graphistry.compute.gfql.lazy import (
+       set_cpu_streaming, set_gpu_executor, GPU_EXECUTORS,
+   )
+
+   set_cpu_streaming(True)          # CPU streaming collect (pass None to reset to env/default)
+   set_gpu_executor('streaming')    # one of GPU_EXECUTORS == ('in-memory', 'streaming')
 
 Then use ``engine='polars'`` / ``engine='polars-gpu'`` exactly as before — no code
 change:
