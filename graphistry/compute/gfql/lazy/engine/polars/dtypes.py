@@ -63,6 +63,11 @@ def colnames(df: "PolarsFrame") -> List[str]:
     return df.collect_schema().names() if is_lazy(df) else df.columns
 
 
+def col_dtype(df: "PolarsFrame", col: str) -> "pl.DataType":
+    """One column's dtype for an eager or lazy polars frame (no collect for lazy)."""
+    return (df.collect_schema() if is_lazy(df) else df.schema)[col]
+
+
 def endpoint_ids(frame: "PolarsT", src: str, dst: str, out_col: str,
                  dtype: "Optional[pl.DataType]" = None) -> "PolarsT":
     """One-column frame of edge endpoints (src stacked on dst) as ``out_col`` — the

@@ -139,16 +139,9 @@ def _execute_validated_call(g: Plottable, function: str, validated_params: Dict[
     # polars, so it passes the no-bridge guard in execute_call (and ensure_engine_match is
     # then a no-op). Other Plottable-method calls have no native polars impl and stay
     # declined by that guard.
-    if _active_frames_are_polars(g):
-        if function == "get_degrees":
-            from graphistry.compute.gfql.lazy.engine.polars.degrees import get_degrees_polars
-            return get_degrees_polars(g, **validated_params)
-        if function == "get_indegrees":
-            from graphistry.compute.gfql.lazy.engine.polars.degrees import get_indegrees_polars
-            return get_indegrees_polars(g, **validated_params)
-        if function == "get_outdegrees":
-            from graphistry.compute.gfql.lazy.engine.polars.degrees import get_outdegrees_polars
-            return get_outdegrees_polars(g, **validated_params)
+    if _active_frames_are_polars(g) and function in ("get_degrees", "get_indegrees", "get_outdegrees"):
+        from graphistry.compute.gfql.lazy.engine.polars import degrees as _pl_degrees
+        return getattr(_pl_degrees, function + "_polars")(g, **validated_params)
 
     if not hasattr(g, function):
         raise AttributeError(

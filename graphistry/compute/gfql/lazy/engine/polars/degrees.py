@@ -8,8 +8,18 @@ and the GFQL ``CALL`` executor.
 from typing import Optional
 
 from graphistry.Plottable import Plottable
-from .dtypes import is_lazy, colnames
+from .dtypes import is_lazy, colnames, col_dtype
 from .hop_eager import ensure_nodes_polars
+
+
+def _endpoint_counts(edges, key_col: str, node_dt, node_col: str, alias: str):
+    """group_by-count on ONE edge endpoint, the key cast to the node-id dtype so the
+    left-join keys match even when a user node table's id dtype diverges from the edge
+    endpoint dtype (polars won't auto-cast int<->float join keys where pandas merges fine)."""
+    import polars as pl
+    return edges.group_by(pl.col(key_col).cast(node_dt).alias(node_col)).agg(
+        pl.len().alias(alias)
+    )
 
 
 def get_degrees_polars(
@@ -40,17 +50,9 @@ def get_degrees_polars(
     assert g._nodes is not None and g._edges is not None
     nodes, edges = g._nodes, g._edges
 
-    # Align the count keys to the node-id dtype so the left-join keys match even when
-    # a user node table's id dtype diverges from the edge endpoint dtype (polars will
-    # not auto-cast int<->float join keys, where pandas merges fine).
-    node_dt = (nodes.collect_schema() if is_lazy(nodes) else nodes.schema)[node_col]
-
-    in_counts = edges.group_by(pl.col(dst).cast(node_dt).alias(node_col)).agg(
-        pl.len().alias(degree_in)
-    )
-    out_counts = edges.group_by(pl.col(src).cast(node_dt).alias(node_col)).agg(
-        pl.len().alias(degree_out)
-    )
+    node_dt = col_dtype(nodes, node_col)
+    in_counts = _endpoint_counts(edges, dst, node_dt, node_col, degree_in)
+    out_counts = _endpoint_counts(edges, src, node_dt, node_col, degree_out)
 
     # Drop any pre-existing degree columns, mirroring the pandas keep-subset, so a
     # re-run overwrites rather than producing ``*_right`` join collisions.
@@ -104,10 +106,7 @@ def _single_direction_degree_polars(g: Plottable, key_col: str, col: str) -> Plo
             return g.nodes(nodes, node_col)
         return g.nodes(nodes.with_columns(pl.lit(0).cast(pl.Int32).alias(col)), node_col)
 
-    node_dt = (nodes.collect_schema() if is_lazy(nodes) else nodes.schema)[node_col]
-    counts = edges.group_by(pl.col(key_col).cast(node_dt).alias(node_col)).agg(
-        pl.len().alias(col)
-    )
+    counts = _endpoint_counts(edges, key_col, col_dtype(nodes, node_col), node_col, col)
     # Drop a pre-existing degree column so a re-run overwrites rather than producing a
     # ``*_right`` join collision (mirrors the pandas keep-subset).
     base = nodes.drop(col) if col in colnames(nodes) else nodes
