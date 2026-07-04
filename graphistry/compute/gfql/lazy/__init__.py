@@ -63,6 +63,10 @@ import os as _os
 # Two knobs. Each resolves THREE ways, checked in order and LIVE (at call time, not
 # frozen at import): (1) a Python override (set_*), None = unset; (2) the env var;
 # (3) the default. So both env and Python settings take effect without a re-import.
+# NOTE: these overrides are PROCESS-GLOBAL (plain module state), unlike the per-collect
+# execution TARGET (_TARGET is a ContextVar because target_mode sets it transiently). They are
+# meant as a global default set once at startup, not a per-request/per-thread override — a
+# concurrent set_cpu_streaming() affects all in-flight GFQL queries in the process.
 _cpu_streaming_override: Optional[bool] = None
 _gpu_executor_override: "Optional[GpuExecutor]" = None
 
