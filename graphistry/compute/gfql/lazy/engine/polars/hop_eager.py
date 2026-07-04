@@ -9,12 +9,18 @@ pandas is the oracle; not-yet-ported features (hop labeling, min_hops>1 outside 
 policy, output_min/max slicing, *_query, prune_to_endpoints, include_zero_hop_seed) raise
 NotImplementedError.
 """
-from typing import Any, Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.util import generate_safe_column_name
 from .dtypes import endpoint_ids
 from .predicates import filter_by_dict_polars
+
+if TYPE_CHECKING:
+    import polars as pl
+    from .dtypes import PolarsT
 
 
 def _unsupported(**kwargs: Any) -> None:
@@ -41,7 +47,9 @@ def ensure_nodes_polars(g: Plottable) -> Plottable:
     return g.nodes(ids, node_id)
 
 
-def _hop_setup_columns(edges, all_nodes, node_col, edge_binding):
+def _hop_setup_columns(
+    edges: "pl.DataFrame", all_nodes: "pl.DataFrame", node_col: str, edge_binding: Optional[str],
+) -> Tuple[str, str, str, str, "pl.DataFrame", bool, "pl.DataType"]:
     """Shared eager+lazy hop setup: safe (FROM, TO, NID, EID) names, the edge-id frame (reuse
     `edge_binding` like the chain's __gfql_edge_index__, else synthesize a row index), and the
     node-id join dtype. Identical on pl.DataFrame and pl.LazyFrame (previously duplicated
@@ -57,12 +65,15 @@ def _hop_setup_columns(edges, all_nodes, node_col, edge_binding):
     return FROM, TO, NID, EID, edges_idx, synth_eid, all_nodes.schema[node_col]
 
 
-def _build_hop_pairs(frame, direction, src, dst, node_dtype, FROM, TO, EID):
+def _build_hop_pairs(
+    frame: "PolarsT", direction: str, src: str, dst: str,
+    node_dtype: "pl.DataType", FROM: str, TO: str, EID: str,
+) -> "PolarsT":
     """Directed-(FROM,TO,EID) builder with join-key dtype aligned (polars won't coerce int/float
     join keys like pandas). `frame` = edge-id frame, eager or lazy; select/concat identical on both."""
     import polars as pl
 
-    def _p(s, d):
+    def _p(s: str, d: str) -> "PolarsT":
         return frame.select(pl.col(s).cast(node_dtype).alias(FROM),
                             pl.col(d).cast(node_dtype).alias(TO), pl.col(EID))
     if direction == "forward":
@@ -72,7 +83,10 @@ def _build_hop_pairs(frame, direction, src, dst, node_dtype, FROM, TO, EID):
     return pl.concat([_p(src, dst), _p(dst, src)], how="vertical_relaxed")
 
 
-def _min_hops_labeled_node_output(all_nodes, needed, labeled, node_col, NID):
+def _min_hops_labeled_node_output(
+    all_nodes: "pl.DataFrame", needed: "pl.DataFrame", labeled: "pl.DataFrame",
+    node_col: str, NID: str,
+) -> "pl.DataFrame":
     """min_hops CHAIN wavefront node frame, mirroring pandas' labeled (track_node_hops) hop:
     FULL-attribute rows for hop-LABELED nodes (retained-path destinations; rich_nodes inner-merge,
     hop.py:944) + id-only NULL-attribute stubs for remaining retained-edge endpoints (source-side
@@ -183,7 +197,7 @@ def hop_polars(
         edges, all_nodes, node_col, g._edge)
     pairs = _build_hop_pairs(edges_idx, direction, src, dst, node_dtype, FROM, TO, EID)
 
-    def _idframe(df, col) -> "pl.DataFrame":
+    def _idframe(df: "pl.DataFrame", col: str) -> "pl.DataFrame":
         return df.select(pl.col(col).cast(node_dtype).alias(NID)).unique()
 
     # --- SINGLE BOUNDED HOP (the dominant case — every chain edge): ONE lazy plan, ONE
@@ -200,7 +214,7 @@ def hop_polars(
         edges_lf = edges_idx.lazy()
         pairs_lf = _build_hop_pairs(edges_lf, direction, src, dst, node_dtype, FROM, TO, EID)
 
-        def _idframe_lf(lf, col):
+        def _idframe_lf(lf: "pl.LazyFrame", col: str) -> "pl.LazyFrame":
             return lf.select(pl.col(col).cast(node_dtype).alias(NID)).unique()
 
         allowed_source_lf = (
@@ -217,21 +231,21 @@ def hop_polars(
         frontier_lf = _idframe_lf((nodes if nodes is not None else all_nodes).lazy(), node_col)
         if allowed_source_lf is not None:
             frontier_lf = frontier_lf.join(allowed_source_lf, on=NID, how="semi")
-        hop_edges = pairs_lf.join(frontier_lf.rename({NID: FROM}), on=FROM, how="semi")
+        hop_edges_lf = pairs_lf.join(frontier_lf.rename({NID: FROM}), on=FROM, how="semi")
         if target_final_lf is not None:   # single hop IS the last hop -> final gate only
-            hop_edges = hop_edges.join(target_final_lf.rename({NID: TO}), on=TO, how="semi")
+            hop_edges_lf = hop_edges_lf.join(target_final_lf.rename({NID: TO}), on=TO, how="semi")
         if allowed_dest_lf is not None:
-            hop_edges = hop_edges.join(allowed_dest_lf.rename({NID: TO}), on=TO, how="semi")
-        visited_edges_lf = hop_edges.select(pl.col(EID)).unique(subset=[EID])
+            hop_edges_lf = hop_edges_lf.join(allowed_dest_lf.rename({NID: TO}), on=TO, how="semi")
+        visited_edges_lf = hop_edges_lf.select(pl.col(EID)).unique(subset=[EID])
         out_edges_lf = edges_lf.join(visited_edges_lf, on=EID, how="semi")
         if synth_eid:
             out_edges_lf = out_edges_lf.drop(EID)
         # Node set == one eager iteration: DESTINATIONS ∪ (FROM side unless wavefront); then
         # ∪ retained-edge endpoints unless wavefront-with-seeds (the wave front IS the
         # destinations). Empty out_edges yields empty endpoints — no height guard needed.
-        dest_lf = hop_edges.select(pl.col(TO).alias(NID)).unique()
+        dest_lf = hop_edges_lf.select(pl.col(TO).alias(NID)).unique()
         needed_lf = (dest_lf if return_as_wave_front else pl.concat(
-            [hop_edges.select(pl.col(FROM).alias(NID)), dest_lf],
+            [hop_edges_lf.select(pl.col(FROM).alias(NID)), dest_lf],
             how="vertical_relaxed").unique(subset=[NID]))
         if not (return_as_wave_front and nodes is not None):
             endpoints_lf = endpoint_ids(out_edges_lf, src, dst, NID, node_dtype).unique(subset=[NID])
