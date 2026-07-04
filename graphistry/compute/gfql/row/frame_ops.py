@@ -7,7 +7,22 @@ import pandas as pd
 from graphistry.compute.dataframe_utils import df_cons as template_df_cons
 
 if TYPE_CHECKING:
+    from typing import Protocol
     from graphistry.Plottable import Plottable
+
+    class RowPipelineCtx(Protocol):
+        """Structural contract the row-pipeline frame ops need from their host graph.
+
+        Satisfied by ``RowPipelineMixin`` / ``_RowPipelineAdapter`` (pipeline.py). Replaces the
+        former ``ctx: Any`` so the attribute/method access is type-checked instead of duck-typed.
+        Type-check-only (annotations are strings under ``from __future__ import annotations``) —
+        zero runtime effect, no runtime Protocol import."""
+        _nodes: Any
+        _edges: Any
+        _edge: Any
+        def bind(self) -> "Plottable": ...
+        def _gfql_binding_ops_row_table(self, binding_ops: Any) -> "Plottable": ...
+        def _gfql_bindings_row_table(self, alias_endpoints: Any) -> "Plottable": ...
 
 
 from graphistry.Engine import is_polars_df as _is_polars
@@ -20,7 +35,7 @@ def _empty_like(df: Any) -> Any:
     return df.iloc[0:0].copy()
 
 
-def row_table(ctx: Any, table_df: Any) -> "Plottable":
+def row_table(ctx: RowPipelineCtx, table_df: Any) -> "Plottable":
     """Return a plottable that treats ``table_df`` as the active row table."""
     out = ctx.bind()
     # polars has no row index, so reset_index is both unnecessary and absent.
@@ -51,7 +66,7 @@ def row_table(ctx: Any, table_df: Any) -> "Plottable":
 
 
 def empty_frame(
-    ctx: Any,
+    ctx: RowPipelineCtx,
     template_df: Optional[Any] = None,
     columns: Optional[Sequence[str]] = None,
 ) -> Any:
@@ -82,7 +97,7 @@ def empty_frame(
     return pd.DataFrame({str(col): pd.Series(dtype="object") for col in columns})
 
 
-def get_active_table(ctx: Any) -> Any:
+def get_active_table(ctx: RowPipelineCtx) -> Any:
     if ctx._nodes is not None:
         return ctx._nodes
     if ctx._edges is not None:
@@ -115,7 +130,7 @@ def coerce_non_negative_int(value: Any, op_name: str) -> int:
 
 
 def rows(
-    ctx: Any,
+    ctx: RowPipelineCtx,
     table: str = "nodes",
     source: Optional[str] = None,
     alias_endpoints: Optional[Dict[str, str]] = None,
@@ -160,7 +175,7 @@ def rows(
 
 
 def count_table(
-    ctx: Any,
+    ctx: RowPipelineCtx,
     table: str = "nodes",
     source: Optional[str] = None,
     alias: str = "count(*)",
@@ -226,7 +241,7 @@ def count_table(
     return row_table(ctx, template_df_cons(table_df, {alias: [n]}))
 
 
-def drop_cols(ctx: Any, cols: Sequence[str]) -> "Plottable":
+def drop_cols(ctx: RowPipelineCtx, cols: Sequence[str]) -> "Plottable":
     """Drop named columns from the active row table, ignoring any that don't exist."""
     table_df = get_active_table(ctx)
     to_drop = [c for c in cols if c in table_df.columns]
@@ -238,7 +253,7 @@ def drop_cols(ctx: Any, cols: Sequence[str]) -> "Plottable":
     return row_table(ctx, table_df)
 
 
-def skip(ctx: Any, value: Any) -> "Plottable":
+def skip(ctx: RowPipelineCtx, value: Any) -> "Plottable":
     table_df = get_active_table(ctx)
     skip_count = coerce_non_negative_int(value, "skip")
     if _is_polars(table_df):
@@ -246,7 +261,7 @@ def skip(ctx: Any, value: Any) -> "Plottable":
     return row_table(ctx, table_df.iloc[skip_count:])
 
 
-def limit(ctx: Any, value: Any) -> "Plottable":
+def limit(ctx: RowPipelineCtx, value: Any) -> "Plottable":
     table_df = get_active_table(ctx)
     limit_count = coerce_non_negative_int(value, "limit")
     if _is_polars(table_df):
@@ -254,7 +269,7 @@ def limit(ctx: Any, value: Any) -> "Plottable":
     return row_table(ctx, table_df.iloc[:limit_count])
 
 
-def distinct(ctx: Any) -> "Plottable":
+def distinct(ctx: RowPipelineCtx) -> "Plottable":
     table_df = get_active_table(ctx)
     if _is_polars(table_df):
         # maintain_order matches pandas drop_duplicates(keep='first') semantics.
