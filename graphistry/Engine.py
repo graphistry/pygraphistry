@@ -137,12 +137,25 @@ def df_to_pdf(df, engine: Engine):
         return df.compute()
     raise ValueError('Only engines pandas/cudf supported')
 
-def _cudf_from_pandas_best_effort(df: pd.DataFrame):
+def _cudf_from_pandas_best_effort(df: pd.DataFrame, *, validate: Optional[ValidationParam] = None, warn: bool = True):
+    """pandas -> cuDF honoring the repo-wide ``validate``/``warn`` convention.
+
+    Default (``validate=None`` -> ``autofix``): best-effort per-column coercion of
+    mixed-type object columns to string (numeric-looking columns kept numeric), warning
+    once. ``strict``/``strict-fast``: raise ``ArrowConversionError`` instead of coercing
+    (matching the plot()/upload() boundary and the polars converter's strict mode).
+    ``validate=False`` == autofix but suppresses the warning.
+    """
     import cudf
+    from graphistry.validate.common import normalize_validation_params
+    validate_mode, warn = normalize_validation_params('autofix' if validate is None else validate, warn)
 
     try:
         return cudf.from_pandas(df)
-    except Exception:
+    except Exception as e:
+        if validate_mode in ('strict', 'strict-fast'):
+            from graphistry.exceptions import ArrowConversionError
+            raise ArrowConversionError(columns=_mixed_type_object_columns(df), original_error=e) from e
         failed_cols: List[str] = []
         out_gdf = cudf.from_pandas(df[[]])
         for col in df.columns:
@@ -168,7 +181,7 @@ def _cudf_from_pandas_best_effort(df: pd.DataFrame):
                 failed_cols.append(str(col))
                 string_df = pd.DataFrame({col: series.astype("string")})
                 out_gdf[col] = cudf.from_pandas(string_df)[col]
-        if failed_cols:
+        if failed_cols and warn:
             warnings.warn(
                 "Best-effort pandas->cuDF coercion converted mixed-type columns to string dtype: "
                 + ", ".join(f"{col}[{df[col].dtype}]" for col in failed_cols),
@@ -181,10 +194,11 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
     """Convert ``df`` to ``engine``'s frame type.
 
     ``validate``/``warn`` (see ``graphistry.models.types.ValidationParam``) control how
-    mixed-type object columns that cannot go to Arrow are handled on the polars target.
-    ``validate=None`` (default) means "use the engine's own default" — ``strict`` for
-    polars (parity-or-raise), matching ``_cudf_from_pandas_best_effort``'s autofix default
-    for cuDF. Only the polars branch reads it today.
+    mixed-type object columns that cannot go to Arrow are handled. ``validate=None``
+    (default) means "use the engine's own default": cuDF defaults ``autofix`` (best-effort
+    coerce mixed cols to string + warn, its shipped behavior), polars defaults ``strict``
+    (parity-or-raise). ``strict``/``strict-fast`` raise ``ArrowConversionError`` (cuDF) or
+    ``NotImplementedError`` (polars); ``autofix`` coerces + warns on both.
     """
     if engine == Engine.PANDAS:
         if isinstance(df, pd.DataFrame):
@@ -223,7 +237,7 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
             return df
         if not isinstance(df, pd.DataFrame):
             df = df_to_engine(df, Engine.PANDAS)
-        return _cudf_from_pandas_best_effort(df)
+        return _cudf_from_pandas_best_effort(df, validate=validate, warn=warn)
     elif engine == Engine.DASK:
         import dask.dataframe as dd
         if isinstance(df, dd.DataFrame):
