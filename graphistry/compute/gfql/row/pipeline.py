@@ -5,7 +5,7 @@ import re
 import warnings
 from functools import lru_cache
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Sequence, Tuple, cast
 from typing_extensions import Literal
 
 import pandas as pd
@@ -1122,7 +1122,7 @@ class RowPipelineMixin:
                 source_alias_name = alias_names[0]
                 source_alias = source_alias_name
                 source_table_df = table_df
-                entity_id = getattr(self, "_node" if fn == "__node_keys__" else "_edge", None)
+                entity_id = (self._node if fn == "__node_keys__" else self._edge)
                 prefixed_id_col = f"{source_alias_name}.{entity_id}" if entity_id else None
                 if prefixed_id_col is not None and prefixed_id_col in table_df.columns:
                     prefix = f"{source_alias_name}."
@@ -1162,7 +1162,7 @@ class RowPipelineMixin:
                 source_table_df = table_df
                 # On bindings-row tables, prefer alias.{id} even when a same-name
                 # marker column exists for the alias.
-                entity_id = getattr(self, "_node" if fn == "__node_entity__" else "_edge", None)
+                entity_id = (self._node if fn == "__node_entity__" else self._edge)
                 id_col = f"{source_alias_name}.{entity_id}" if entity_id else None
                 if id_col is not None and id_col in table_df.columns:
                     prefix = f"{source_alias_name}."
@@ -2596,9 +2596,9 @@ class RowPipelineMixin:
         excluded = [
             str(x)
             for x in (
-                getattr(self, "_source", None),
-                getattr(self, "_destination", None),
-                getattr(self, "_edge", None),
+                self._source,
+                self._destination,
+                self._edge,
                 alias,
                 presence_col,
             )
@@ -3082,7 +3082,7 @@ class RowPipelineMixin:
     rows = row_frame_ops.rows
 
     @staticmethod
-    def _gfql_bindings_error(message: str) -> None:
+    def _gfql_bindings_error(message: str) -> NoReturn:
         raise GFQLValidationError(
             ErrorCode.E108,
             message,
@@ -3299,16 +3299,16 @@ class RowPipelineMixin:
             self._gfql_bindings_error(
                 "Cypher multi-alias row bindings require a graph-backed row pipeline context"
             )
-        node_id_col = getattr(base_graph, "_node", None)
-        src_col = getattr(base_graph, "_source", None)
-        dst_col = getattr(base_graph, "_destination", None)
+        node_id_col = base_graph._node
+        src_col = base_graph._source
+        dst_col = base_graph._destination
         if node_id_col is None or src_col is None or dst_col is None:
             self._gfql_bindings_error(
                 "Cypher multi-alias row bindings require node id, edge source, and edge destination columns"
             )
         src_col = str(src_col)
         dst_col = str(dst_col)
-        base_nodes = getattr(base_graph, "_nodes", None)
+        base_nodes = base_graph._nodes
         if base_nodes is None or node_id_col not in base_nodes.columns:
             return self._nodes.iloc[0:0].copy(), {}
 
@@ -3529,7 +3529,7 @@ class RowPipelineMixin:
                 "Cypher multi-alias row bindings require a node id column"
             )
         base_graph = self._gfql_base_graph()
-        base_nodes = getattr(base_graph, "_nodes", None) if base_graph is not None else None
+        base_nodes = base_graph._nodes if base_graph is not None else None
         empty_lookup_source = (
             base_nodes.iloc[0:0].copy()
             if base_nodes is not None and node_id in base_nodes.columns
@@ -3595,8 +3595,8 @@ class RowPipelineMixin:
         base_graph = self._gfql_base_graph()
         if base_graph is None:
             return None
-        src_col = getattr(base_graph, "_source", None)
-        dst_col = getattr(base_graph, "_destination", None)
+        src_col = base_graph._source
+        dst_col = base_graph._destination
         if src_col is None or dst_col is None:
             return None
         src_col, dst_col = str(src_col), str(dst_col)
@@ -3618,7 +3618,7 @@ class RowPipelineMixin:
         engine = resolve_engine(EngineAbstract.AUTO, base_df)
 
         # Get the full filtered edge set by running edge_op across all nodes
-        base_nodes = getattr(base_graph, "_nodes", None)
+        base_nodes = base_graph._nodes
         if base_nodes is None:
             return None
         edge_result = edge_op.execute(
@@ -3739,8 +3739,8 @@ class RowPipelineMixin:
             self._gfql_bindings_error(
                 "Cypher multi-alias row bindings require a graph-backed row pipeline context"
             )
-        node_id = getattr(base_graph, "_node", None)
-        base_nodes = getattr(base_graph, "_nodes", None)
+        node_id = base_graph._node
+        base_nodes = base_graph._nodes
         if node_id is None or base_nodes is None or node_id not in base_nodes.columns:
             return self._gfql_row_table(self._gfql_empty_frame(base_nodes))
 
@@ -4628,12 +4628,12 @@ class _RowPipelineAdapter(RowPipelineMixin):
         self._gfql_start_nodes = getattr(g, "_gfql_start_nodes", None)
         self._gfql_rows_base_graph = getattr(g, "_gfql_rows_base_graph", None)
         self._gfql_rows_edge_aliases = getattr(g, "_gfql_rows_edge_aliases", None)
-        self._nodes = getattr(g, "_nodes", None)
-        self._edges = getattr(g, "_edges", None)
-        self._node = getattr(g, "_node", None)
-        self._source = getattr(g, "_source", None)
-        self._destination = getattr(g, "_destination", None)
-        self._edge = getattr(g, "_edge", None)
+        self._nodes = g._nodes
+        self._edges = g._edges
+        self._node = g._node
+        self._source = g._source
+        self._destination = g._destination
+        self._edge = g._edge
 
     def bind(self) -> "Plottable":
         return self._g.bind()
@@ -4668,10 +4668,10 @@ _POLARS_NATIVE_ROW_PIPELINE_CALLS = frozenset(
 
 
 def _row_pipeline_active_is_polars(g: "Plottable") -> bool:
-    nodes = getattr(g, "_nodes", None)
+    nodes = g._nodes
     if nodes is not None:
         return "polars" in type(nodes).__module__
-    edges = getattr(g, "_edges", None)
+    edges = g._edges
     return edges is not None and "polars" in type(edges).__module__
 
 
