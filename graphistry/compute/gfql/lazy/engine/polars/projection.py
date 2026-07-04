@@ -11,16 +11,22 @@ nodes; it raises NotImplementedError (NO pandas bridge — no-silent-fallback po
 float/temporal/nested entity text, labels, multi-entity, edges, and exotic expressions.
 Differential-conformance gated. Differential parity vs pandas is the release gate.
 """
-from typing import Any, Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from graphistry.Plottable import Plottable
+
+if TYPE_CHECKING:
+    import polars as pl
+    from graphistry.compute.gfql.cypher.lowering import ResultProjectionPlan
 
 
 def _is_polars_frame(df: Any) -> bool:
     return df is not None and "polars" in type(df).__module__
 
 
-def _has_temporal_constructor_text(rows_df: Any, col: str) -> bool:
+def _has_temporal_constructor_text(rows_df: pl.DataFrame, col: str) -> bool:
     """True if a String property column holds Cypher temporal-constructor text
     (``date({...})``, ``datetime({...})``, …).
 
@@ -114,7 +120,7 @@ def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Opt
     return pl.when(pl.col(alias).is_null()).then(None).otherwise(rendered)
 
 
-def _flat_entity_exprs_polars(rows_df: Any, projection: Any, source_alias: str, output_name: str, id_column: Any) -> Optional[list]:
+def _flat_entity_exprs_polars(rows_df: pl.DataFrame, projection: ResultProjectionPlan, source_alias: str, output_name: str, id_column: Optional[str]) -> Optional[List[pl.Expr]]:
     """Structured (flattened) whole-entity projection (#1650), polars edition.
 
     Mirrors the pandas ``_flat_entity_columns`` exactly (same field selection +
@@ -144,7 +150,7 @@ def _flat_entity_exprs_polars(rows_df: Any, projection: Any, source_alias: str, 
     return out
 
 
-def _try_native_projection(result: Plottable, rows_df: Any, projection: Any, structured: bool) -> Optional[Plottable]:
+def _try_native_projection(result: Plottable, rows_df: pl.DataFrame, projection: ResultProjectionPlan, structured: bool) -> Optional[Plottable]:
     """Native polars projection for property/expr columns already present in the
     (polars) row table + structured-flat or entity-text whole-entity returns.
     None → caller raises NIE."""
@@ -159,7 +165,7 @@ def _try_native_projection(result: Plottable, rows_df: Any, projection: Any, str
             if structured:
                 # #1650 default: flatten to {output}.{field} columns (near-free,
                 # any dtype). Falls back to text only for synthesized-absent rows.
-                id_column = getattr(result, "_node", None)
+                id_column = result._node
                 flat = _flat_entity_exprs_polars(rows_df, projection, source_alias, column.output_name, id_column)
                 if flat is not None:
                     exprs.extend(flat)
@@ -186,7 +192,7 @@ def _try_native_projection(result: Plottable, rows_df: Any, projection: Any, str
         return None
     out = result.bind()
     out._nodes = rows_df.select(exprs)
-    edges_df = getattr(result, "_edges", None)
+    edges_df = result._edges
     if edges_df is not None:
         out._edges = edges_df.clear() if _is_polars_frame(edges_df) else edges_df[:0]
     return out
@@ -194,7 +200,7 @@ def _try_native_projection(result: Plottable, rows_df: Any, projection: Any, str
 
 def apply_result_projection_polars(
     result: Plottable,
-    projection: Any,
+    projection: ResultProjectionPlan,
     *,
     structured: bool = True,
 ) -> Plottable:
@@ -207,7 +213,7 @@ def apply_result_projection_polars(
     bindings, edge entity-text, and (text mode) float/temporal/nested/label
     columns are not yet native → raise rather than secretly run the pandas renderer.
     """
-    rows_df = getattr(result, "_nodes", None)
+    rows_df = result._nodes
     native = _try_native_projection(result, rows_df, projection, structured)
     if native is not None:
         return native
