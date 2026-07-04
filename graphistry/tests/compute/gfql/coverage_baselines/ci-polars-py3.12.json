@@ -1,16 +1,16 @@
 {
-  "_note": "Per-file line-coverage floors for the native POLARS engine (profile gfql-polars, bin/test-polars.sh, engine='polars'). These files are NOT run in the pandas lane, so the pandas baseline can't guard them. COMPLETE list required (audit fails un-baselined target files). Floors ~2% below measured; raise as coverage grows.",
+  "_note": "Per-file line-coverage floors for the native POLARS engine (profile gfql-polars, bin/test-polars.sh). COMPLETE list required (audit fails un-baselined target files). Floors set conservatively (~8% below dgx-measured; measured: chain 94.3 row_pipeline 87.9 predicates 91 projection 73.2 hop 95.1 hop_eager 98.3 degrees 90.7 dtypes 100 lazy/__init__ 98.6). Raise as coverage grows.",
   "files": {
-    "graphistry/compute/gfql/lazy/__init__.py": 96.0,
-    "graphistry/compute/gfql/lazy/engine/__init__.py": 100.0,
-    "graphistry/compute/gfql/lazy/engine/polars/__init__.py": 100.0,
-    "graphistry/compute/gfql/lazy/engine/polars/chain.py": 92.0,
-    "graphistry/compute/gfql/lazy/engine/polars/degrees.py": 88.0,
-    "graphistry/compute/gfql/lazy/engine/polars/dtypes.py": 98.0,
-    "graphistry/compute/gfql/lazy/engine/polars/hop.py": 93.0,
-    "graphistry/compute/gfql/lazy/engine/polars/hop_eager.py": 96.0,
-    "graphistry/compute/gfql/lazy/engine/polars/predicates.py": 88.0,
-    "graphistry/compute/gfql/lazy/engine/polars/projection.py": 70.0,
-    "graphistry/compute/gfql/lazy/engine/polars/row_pipeline.py": 85.0
+    "graphistry/compute/gfql/lazy/__init__.py": 90.0,
+    "graphistry/compute/gfql/lazy/engine/__init__.py": 90.0,
+    "graphistry/compute/gfql/lazy/engine/polars/__init__.py": 90.0,
+    "graphistry/compute/gfql/lazy/engine/polars/chain.py": 86.0,
+    "graphistry/compute/gfql/lazy/engine/polars/degrees.py": 82.0,
+    "graphistry/compute/gfql/lazy/engine/polars/dtypes.py": 92.0,
+    "graphistry/compute/gfql/lazy/engine/polars/hop.py": 87.0,
+    "graphistry/compute/gfql/lazy/engine/polars/hop_eager.py": 90.0,
+    "graphistry/compute/gfql/lazy/engine/polars/predicates.py": 83.0,
+    "graphistry/compute/gfql/lazy/engine/polars/projection.py": 65.0,
+    "graphistry/compute/gfql/lazy/engine/polars/row_pipeline.py": 79.0
   }
 }

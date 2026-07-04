@@ -1419,7 +1419,7 @@ jobs:
           --output-dir build/polars-coverage-audit \
           --data-file build/polars-coverage/coverage.polars-py3.12 \
           --baseline-file graphistry/tests/compute/gfql/coverage_baselines/ci-polars-py3.12.json
-        cat build/polars-coverage-audit/gfql-coverage-audit.md >> "$GITHUB_STEP_SUMMARY"
+        cat build/polars-coverage-audit/gfql-polars-coverage-audit.md | tee -a "$GITHUB_STEP_SUMMARY"
 
     - name: Upload polars coverage
       if: ${{ matrix.python-version == '3.12' }}
