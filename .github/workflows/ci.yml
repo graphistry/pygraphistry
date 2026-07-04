@@ -1408,6 +1408,19 @@ jobs:
         mkdir -p build/polars-coverage
         COVERAGE_FILE=build/polars-coverage/coverage.polars-py3.12 POLARS_COV=1 ./bin/test-polars.sh
 
+    - name: Polars GFQL coverage audit (per-file floors)
+      if: ${{ matrix.python-version == '3.12' }}
+      run: |
+        source pygraphistry/bin/activate
+        python bin/coverage_audit.py \
+          --profile gfql-polars \
+          --skip-tests \
+          --engine-label ci-polars-py3.12 \
+          --output-dir build/polars-coverage-audit \
+          --data-file build/polars-coverage/coverage.polars-py3.12 \
+          --baseline-file graphistry/tests/compute/gfql/coverage_baselines/ci-polars-py3.12.json
+        cat build/polars-coverage-audit/gfql-coverage-audit.md >> "$GITHUB_STEP_SUMMARY"
+
     - name: Upload polars coverage
       if: ${{ matrix.python-version == '3.12' }}
       uses: actions/upload-artifact@v4
