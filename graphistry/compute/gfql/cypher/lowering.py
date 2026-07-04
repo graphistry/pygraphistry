@@ -13,6 +13,7 @@ from graphistry.compute.ast import (
     ASTObject,
     ASTNode,
     anti_semi_apply,
+    count_table,
     distinct,
     drop_cols,
     e_forward,
@@ -1236,7 +1237,7 @@ def _connected_join_alias_identity_expr(
         if isinstance(node_in, PropertyAccessExpr) and isinstance(node_in.value, Identifier):
             if "." not in node_in.value.name and node_in.value.name in alias_targets:
                 return node_in
-            return PropertyAccessExpr(cast(ExprNode, _rewrite(node_in.value)), node_in.property)
+            return PropertyAccessExpr(_rewrite(node_in.value), node_in.property)
         if isinstance(node_in, Identifier) and "." not in node_in.name and node_in.name in alias_targets:
             target = alias_targets[node_in.name]
             prop = NODE_IDENTITY_COLUMN if isinstance(target, ASTNode) else "__gfql_edge_index_0__"
@@ -2308,6 +2309,62 @@ def _match_relationship_count(clause: MatchClause) -> int:
     return sum(1 for element in _match_pattern_elements(clause) if isinstance(element, RelationshipPattern))
 
 
+def _is_pure_count_star_shortcircuit(
+    *,
+    aggregate_specs: Sequence[_AggregateSpec],
+    pre_items: Sequence[Tuple[str, Any]],
+    row_steps: Sequence[ASTObject],
+    query: CypherQuery,
+    binding_row_aliases: AbstractSet[str],
+    relationship_count: int,
+    active_match_alias: Optional[str],
+    alias_targets: Mapping[str, ASTObject],
+) -> bool:
+    """True when a RETURN is exactly ``count(*)`` over a single node/edge scan.
+
+    Guards the count_table fast path (skip the full-frame materialize + constant-
+    key group_by): the count then equals the height (or source-mask sum) of the
+    active table. Requires a lone non-DISTINCT ``count(*)`` with no group keys,
+    row-level WHERE, UNWIND, or multi-relationship binding, and a plain
+    ``rows(table=nodes|edges[, source])`` as the only prior step. Post-aggregate
+    exprs (``count(*) + 1``) compose fine: the count lands in a temp column and
+    the trailing ``select`` applies the expr, same as the group_by path.
+    Sound only for a pure node scan (``relationship_count == 0``) or a single
+    relationship counted on its edge alias (``relationship_count == 1`` with an
+    ``ASTEdge`` active alias) — exactly the cases
+    ``_reject_unsound_relationship_multiplicity_aggregates`` permits; any other
+    shape (node-alias-over-relationship, multi-hop paths) falls through to the
+    general aggregate path (which counts bindings or rejects as unsound).
+    """
+    if len(aggregate_specs) != 1:
+        return False
+    agg = aggregate_specs[0]
+    if agg.func != "count" or agg.expr_text is not None or agg.distinct:
+        return False
+    if pre_items or binding_row_aliases or query.unwinds:
+        return False
+    # Exactly the initial rows() step: any row-level WHERE or UNWIND would have
+    # appended further steps, so len == 1 proves the count is over the raw scan.
+    if len(row_steps) != 1:
+        return False
+    base = row_steps[0]
+    if not (isinstance(base, ASTCall) and base.function == "rows"):
+        return False
+    if base.params.get("table") not in ("nodes", "edges"):
+        return False
+    if base.params.get("binding_ops") is not None or base.params.get("alias_endpoints") is not None:
+        return False
+    if relationship_count == 0:
+        return True
+    if (
+        relationship_count == 1
+        and active_match_alias is not None
+        and isinstance(alias_targets.get(active_match_alias), ASTEdge)
+    ):
+        return True
+    return False
+
+
 def _reject_unsound_relationship_multiplicity_aggregates_common(
     *,
     aggregate_specs: Sequence[_AggregateSpec],
@@ -2928,7 +2985,7 @@ def _stitch_patterns(
         merged = _merge_node_patterns(left_end, cast(NodePattern, reversed_right[0]))
         return tuple(left[:-1]) + (merged,) + tuple(reversed_right[1:])
     if _node_can_join(left_start, right_end):
-        merged = _merge_node_patterns(cast(NodePattern, right_end), left_start)
+        merged = _merge_node_patterns(right_end, left_start)
         return tuple(right[:-1]) + (merged,) + tuple(left[1:])
     if _node_can_join(left_start, right_start):
         reversed_right = _reverse_pattern(right)
@@ -5948,8 +6005,8 @@ def lower_match_query(
             stack: List[BooleanExpr] = [query.where.expr_tree]
             while stack:
                 cur = stack.pop()
-                expr_left = cast(Optional[BooleanExpr], cur.left)
-                expr_right = cast(Optional[BooleanExpr], cur.right)
+                expr_left = cur.left
+                expr_right = cur.right
                 if cur.op in {"or", "xor"} and ((expr_left is not None and _where_expr_tree_pattern_predicates(expr_left)) or (expr_right is not None and _where_expr_tree_pattern_predicates(expr_right))):
                     raise _unsupported_at_span("Cypher WHERE pattern predicates mixed with OR/XOR are not yet supported for cartesian MATCH patterns", field="where", value=where_expr_upper, span=query.where.span)
                 if expr_left is not None:
@@ -6573,6 +6630,35 @@ def _lower_general_row_projection(
             if len(pre_items) > 0:
                 row_steps.append(with_(pre_items, extend=bindings_row_path))
             row_steps.append(group_by(key_names, aggregations, key_prefixes=alias_key_prefixes))
+        elif _is_pure_count_star_shortcircuit(
+            aggregate_specs=aggregate_specs,
+            pre_items=pre_items,
+            row_steps=row_steps,
+            query=query,
+            binding_row_aliases=binding_row_aliases,
+            relationship_count=relationship_count,
+            active_match_alias=active_match_alias,
+            alias_targets=alias_targets,
+        ):
+            # Fast path: count_table reads the scanned table's height (or the
+            # source-alias mask sum) with one reduction — no full-frame
+            # materialize + constant-key group_by. It replaces the sole rows()
+            # step and produces the same ``count(*)`` column the group_by would,
+            # so the trailing identity projection (elif not key_names, below) is
+            # unchanged. empty_result_row is belt-and-suspenders here (count_table
+            # always emits a 1-row result), kept for parity with the group_by path.
+            base_rows = cast(ASTCall, row_steps[0])
+            count_alias = aggregate_specs[0].output_name
+            row_steps = [
+                count_table(
+                    table=cast(str, base_rows.params.get("table", "nodes")),
+                    source=cast(Optional[str], base_rows.params.get("source")),
+                    alias=count_alias,
+                )
+            ]
+            available_columns = {count_alias}
+            empty_aggregate_row = _empty_aggregate_row(aggregate_specs)
+            empty_result_row = empty_aggregate_row
         else:
             global_key = _fresh_temp_name(temp_names, "__cypher_group__")
             row_steps.append(with_([(global_key, 1)] + pre_items))

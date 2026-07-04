@@ -7,6 +7,7 @@ import pandas as pd
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
+from graphistry.Engine import is_polars_df
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
 
 from .lowering import ResultProjectionColumn, ResultProjectionPlan
@@ -292,8 +293,22 @@ def apply_result_projection(
     Cypher-display-string column; the reentry / OPTIONAL-MATCH null-fill machinery
     (which still assumes a single-column entity value) opts out via this flag until
     it is unified onto the structured path.
+
+    For ``engine='polars'`` the native projection lives in gfql.lazy.engine.polars (not this
+    pandas-audited module); it renders natively or raises NotImplementedError — NO
+    pandas bridge (no-silent-fallback policy).
     """
-    rows_df = cast(DataFrameT, getattr(result, "_nodes", None))
+    rows_df = result._nodes
+    if is_polars_df(rows_df):
+        from graphistry.compute.gfql.lazy.engine.polars.projection import apply_result_projection_polars
+        return apply_result_projection_polars(result, projection, structured=structured)
+    return _apply_result_projection_pandas(result, projection, structured=structured)
+
+
+def _apply_result_projection_pandas(
+    result: Plottable, projection: ResultProjectionPlan, *, structured: bool = True
+) -> Plottable:
+    rows_df = cast(Optional[DataFrameT], result._nodes)
     if rows_df is None:
         return result
     alias_rows_df = _projection_alias_rows(rows_df, alias=projection.alias)
@@ -309,7 +324,7 @@ def apply_result_projection(
             if source_rows_df is None or source_alias not in source_rows_df.columns:
                 raise ValueError(f"whole-row projection source alias not found: {source_alias!r}")
             source_projection = projection if source_alias == projection.alias else replace(projection, alias=source_alias)
-            id_column = getattr(result, "_node" if source_projection.table == "nodes" else "_edge", None)
+            id_column = result._node if source_projection.table == "nodes" else result._edge
             flat_columns = (
                 _flat_entity_columns(source_rows_df, source_projection, column.output_name, id_column)
                 if structured
@@ -321,9 +336,17 @@ def apply_result_projection(
                 projected_data.update(flat_columns)
                 output_columns.extend(flat_columns.keys())
             elif structured:
-                # No fields to flatten: the synthesized absent-entity row (OPTIONAL miss
-                # / reentry no-match, a single ``{alias: None}`` column) or a field-less
-                # real entity. Emit the single-column text form (renders to None / []).
+                # ⚠️ REGRESSION GUARD — DO NOT REMOVE (#1650). This fallback fixes
+                # two regressions: top-level OPTIONAL-MATCH miss, and
+                # OPTIONAL-WITH-reentry no-match. It looks redundant but is not.
+                # No flattenable fields: the entity has no materialized property/id
+                # columns on this frame. This is the synthesized null/absent-entity
+                # row (top-level OPTIONAL-MATCH miss / reentry no-match, built by
+                # _apply_empty_result_row as a single ``{alias: None}`` column). There
+                # is nothing to flatten, so emit the single-column text form (which
+                # renders to ``None`` here) — preserving the legacy shape the
+                # OPTIONAL/reentry machinery consumes. Real rows always carry flat
+                # field columns and take the branch above.
                 projected_data[column.output_name] = (
                     _format_node_entities(source_rows_df, source_projection)
                     if source_projection.table == "nodes"
@@ -385,7 +408,7 @@ def apply_result_projection(
     out._nodes = projected_nodes
     if projected_entity_meta:
         setattr(out, "_cypher_entity_projection_meta", projected_entity_meta)
-    edges_df = getattr(result, "_edges", None)
+    edges_df = result._edges
     if edges_df is not None:
         out._edges = edges_df[:0]
     return out

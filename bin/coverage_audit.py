@@ -76,7 +76,23 @@ class AuditProfile:
     next_triage: Tuple[str, ...]
 
 
+POLARS_TARGET_PATTERNS = (
+    "graphistry/compute/gfql/lazy/**/*.py",
+)
+
 PROFILES: Dict[str, AuditProfile] = {
+    "gfql-polars": AuditProfile(
+        name="gfql-polars",
+        title="GFQL Polars Engine Coverage Audit",
+        coverage_basis="line coverage from `coverage.py` over the polars lane (bin/test-polars.sh)",
+        target_patterns=POLARS_TARGET_PATTERNS,
+        source_paths=GFQL_SOURCE_PATHS,
+        default_pytest_args=GFQL_DEFAULT_PYTEST_ARGS,
+        next_triage=(
+            "The native polars engine files are exercised only by the polars lane (engine='polars').",
+            "Raise floors as coverage grows; keep parity/NIE behavior gated by the conformance suite.",
+        ),
+    ),
     "gfql": AuditProfile(
         name="gfql",
         title="GFQL Coverage Audit",

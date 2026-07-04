@@ -317,7 +317,7 @@ def _networkx_graph(
     assert graph_with_nodes._destination is not None
 
     nodes_pdf = as_pandas_frame(graph_with_nodes._nodes, (graph_with_nodes._node,))
-    edges_df = getattr(graph_with_nodes, "_edges", None)
+    edges_df = graph_with_nodes._edges
     edge_columns = (graph_with_nodes._source, graph_with_nodes._destination)
     edges_pdf = pd.DataFrame(columns=list(edge_columns)) if edges_df is None else as_pandas_frame(edges_df, edge_columns)
 
@@ -355,7 +355,7 @@ def networkx_edge_rows(base_graph: Plottable, compiled_call: CompiledCypherProce
     assert graph_with_nodes._source is not None
     assert graph_with_nodes._destination is not None
     edge_columns = (graph_with_nodes._source, graph_with_nodes._destination)
-    edges_df = getattr(graph_with_nodes, "_edges", None)
+    edges_df = graph_with_nodes._edges
     edges_pdf = pd.DataFrame(columns=list(edge_columns)) if edges_df is None else as_pandas_frame(edges_df, edge_columns)
 
     scores = _networkx_algorithm_result(compiled_call, graph_nx, params)

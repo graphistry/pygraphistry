@@ -1020,7 +1020,7 @@ jobs:
     # PR hygiene only: combine coverage collected by existing CPU test jobs and
     # gate executable package lines touched by this PR. Historical uncovered
     # lines outside the diff are intentionally ignored.
-    needs: [changes, test-core-python, test-gfql-core, generate-lockfiles]
+    needs: [changes, test-core-python, test-gfql-core, test-polars, generate-lockfiles]
     if: ${{ github.event_name == 'pull_request' && (needs.changes.outputs.python == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true') && !(needs.changes.outputs.docs_only_latest == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1063,6 +1063,12 @@ jobs:
         name: gfql-coverage-audit-py3.12
         path: build/changed-line-coverage/artifacts/gfql
 
+    - name: Download Polars coverage data
+      uses: actions/download-artifact@v4
+      with:
+        name: polars-coverage-py3.12
+        path: build/changed-line-coverage/artifacts/polars
+
     - name: Changed-line coverage gate
       env:
         BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -1073,7 +1079,8 @@ jobs:
         python -m coverage combine \
           --data-file=build/changed-line-coverage/combined.coverage \
           build/changed-line-coverage/artifacts/core/coverage.core-py3.14 \
-          build/changed-line-coverage/artifacts/gfql/coverage.gfql-py3.12
+          build/changed-line-coverage/artifacts/gfql/coverage.gfql-py3.12 \
+          build/changed-line-coverage/artifacts/polars/coverage.polars-py3.12
         python bin/changed_line_coverage.py \
           --data-file build/changed-line-coverage/combined.coverage \
           --base-ref "$BASE_SHA" \
@@ -1389,9 +1396,38 @@ jobs:
         uv pip install -e . --no-deps
 
     - name: Polars tests
+      if: ${{ matrix.python-version != '3.12' }}
       run: |
         source pygraphistry/bin/activate
         ./bin/test-polars.sh
+
+    - name: Polars tests with coverage
+      if: ${{ matrix.python-version == '3.12' }}
+      run: |
+        source pygraphistry/bin/activate
+        mkdir -p build/polars-coverage
+        COVERAGE_FILE=build/polars-coverage/coverage.polars-py3.12 POLARS_COV=1 ./bin/test-polars.sh
+
+    - name: Polars GFQL coverage audit (per-file floors)
+      if: ${{ matrix.python-version == '3.12' }}
+      run: |
+        source pygraphistry/bin/activate
+        python bin/coverage_audit.py \
+          --profile gfql-polars \
+          --skip-tests \
+          --engine-label ci-polars-py3.12 \
+          --output-dir build/polars-coverage-audit \
+          --data-file build/polars-coverage/coverage.polars-py3.12 \
+          --baseline-file graphistry/tests/compute/gfql/coverage_baselines/ci-polars-py3.12.json
+        cat build/polars-coverage-audit/gfql-polars-coverage-audit.md | tee -a "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload polars coverage
+      if: ${{ matrix.python-version == '3.12' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: polars-coverage-py3.12
+        path: build/polars-coverage/
+        retention-days: 14
 
   test-core-umap:
     needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]

@@ -5,7 +5,7 @@ import re
 import warnings
 from functools import lru_cache
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Sequence, Tuple, cast
 from typing_extensions import Literal
 
 import pandas as pd
@@ -180,6 +180,7 @@ ROW_PIPELINE_CALLS = frozenset(
         "unwind",
         "group_by",
         "drop_cols",
+        "count_table",
     }
 )
 
@@ -787,6 +788,22 @@ class RowPipelineMixin:
             if not any(hasattr(val, "astype") for val in item_values):
                 return True, list(item_values)
 
+            # cuDF groupby-collect (.agg(list)) gives NO within-group row-order guarantee, so the
+            # melt+sort+groupby path below permutes list ELEMENTS vs construction order on cuDF
+            # (issue #1663 finding 1; pandas groupby(sort=False) is stable so it's correct there).
+            # Build the list column directly column-wise on cuDF — order-deterministic (same logic
+            # as the except-fallback below, which list-TYPED elements already use).
+            if resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF:
+                _rc = len(table_df)
+                _items: List[List[Any]] = []
+                for val in item_values:
+                    if hasattr(val, "astype"):
+                        _items.append(RowPipelineMixin._gfql_series_to_pylist(val))
+                    else:
+                        _items.append([val] * _rc)
+                _out_vals = [[_items[ci][ri] for ci in range(len(_items))] for ri in range(_rc)]
+                return True, self._gfql_series_from_row_values(table_df, _out_vals, "__gfql_ast_list__")
+
             row_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_ast_list_row__")
             ord_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_ast_list_ord__")
             val_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_ast_list_val__")
@@ -1105,7 +1122,7 @@ class RowPipelineMixin:
                 source_alias_name = alias_names[0]
                 source_alias = source_alias_name
                 source_table_df = table_df
-                entity_id = getattr(self, "_node" if fn == "__node_keys__" else "_edge", None)
+                entity_id = (self._node if fn == "__node_keys__" else self._edge)
                 prefixed_id_col = f"{source_alias_name}.{entity_id}" if entity_id else None
                 if prefixed_id_col is not None and prefixed_id_col in table_df.columns:
                     prefix = f"{source_alias_name}."
@@ -1145,7 +1162,7 @@ class RowPipelineMixin:
                 source_table_df = table_df
                 # On bindings-row tables, prefer alias.{id} even when a same-name
                 # marker column exists for the alias.
-                entity_id = getattr(self, "_node" if fn == "__node_entity__" else "_edge", None)
+                entity_id = (self._node if fn == "__node_entity__" else self._edge)
                 id_col = f"{source_alias_name}.{entity_id}" if entity_id else None
                 if id_col is not None and id_col in table_df.columns:
                     prefix = f"{source_alias_name}."
@@ -1409,7 +1426,37 @@ class RowPipelineMixin:
                 inner = values[0]
                 if hasattr(inner, "astype"):
                     null_mask = self._gfql_null_mask(table_df, inner)
-                    out = inner.astype(str)
+                    dtype_txt = str(getattr(inner, "dtype", "")).lower()
+                    is_float = ("float" in dtype_txt) or ("double" in dtype_txt)
+                    is_cudf = type(inner).__module__.startswith("cudf")
+                    if is_float and is_cudf:
+                        # libcudf float->string does not match Python/pandas float repr
+                        # (scientific-notation thresholds, exponent formatting) -> a silent
+                        # cross-engine divergence (issue #1663 finding 2; polars declines this
+                        # too). Round-trip the float column through the pandas oracle on the host
+                        # (arrow -> pandas float -> str = the exact pandas-engine result) so cuDF
+                        # is string-IDENTICAL to pandas. Niche op; one host transfer of one column.
+                        #
+                        # MAINTENANCE NOTE (2026-07-04, persona-tested engine-fidelity review):
+                        # This is a HIDDEN device->host->device transfer inside a 'cudf' timing —
+                        # correct-for-parity but invisible to a benchmarker attributing time to the
+                        # cuDF engine. We deliberately did NOT add a warn-once here yet: (a) this
+                        # branch sits in _gfql_eval_expr_ast (the AST-eval FALLBACK); 9 cypher
+                        # toString(float) shapes all took the vectorized projection path instead and
+                        # did NOT reach here, so its live reachability via the cypher surface is
+                        # UNCONFIRMED (may be non-cypher-only, or dead) — instrumenting it before
+                        # confirming that would ship an unfirable/misleading warning; and (b) the
+                        # honesty knob belongs to the deferred UNIFIED engine-fidelity work, not a
+                        # 3rd bespoke mode. When that lands: pick ONE of — confirm reachability +
+                        # warn-once + a triggering test; add an opt-in 'native' mode that tolerates
+                        # the on-device repr (no host transfer) for benchmark users; or, if proven
+                        # dead, delete this branch. Do NOT bolt a standalone warn on in isolation.
+                        # (See plan PHASE 13 P13.5; the same applies to the sibling
+                        # _gfql_series_to_pylist host-transfer sites.)
+                        host_str = pd.Series(inner.to_arrow().to_pylist()).astype(str)
+                        out = s_cons(Engine.CUDF)(host_str.to_numpy(), index=inner.index)
+                    else:
+                        out = inner.astype(str)
                     if hasattr(out, "str"):
                         out = out.str.replace(r"^True$", "true", regex=True)
                         out = out.str.replace(r"^False$", "false", regex=True)
@@ -2566,9 +2613,9 @@ class RowPipelineMixin:
         excluded = [
             str(x)
             for x in (
-                getattr(self, "_source", None),
-                getattr(self, "_destination", None),
-                getattr(self, "_edge", None),
+                self._source,
+                self._destination,
+                self._edge,
                 alias,
                 presence_col,
             )
@@ -3052,7 +3099,7 @@ class RowPipelineMixin:
     rows = row_frame_ops.rows
 
     @staticmethod
-    def _gfql_bindings_error(message: str) -> None:
+    def _gfql_bindings_error(message: str) -> NoReturn:
         raise GFQLValidationError(
             ErrorCode.E108,
             message,
@@ -3269,16 +3316,16 @@ class RowPipelineMixin:
             self._gfql_bindings_error(
                 "Cypher multi-alias row bindings require a graph-backed row pipeline context"
             )
-        node_id_col = getattr(base_graph, "_node", None)
-        src_col = getattr(base_graph, "_source", None)
-        dst_col = getattr(base_graph, "_destination", None)
+        node_id_col = base_graph._node
+        src_col = base_graph._source
+        dst_col = base_graph._destination
         if node_id_col is None or src_col is None or dst_col is None:
             self._gfql_bindings_error(
                 "Cypher multi-alias row bindings require node id, edge source, and edge destination columns"
             )
         src_col = str(src_col)
         dst_col = str(dst_col)
-        base_nodes = getattr(base_graph, "_nodes", None)
+        base_nodes = base_graph._nodes
         if base_nodes is None or node_id_col not in base_nodes.columns:
             return self._nodes.iloc[0:0].copy(), {}
 
@@ -3499,7 +3546,7 @@ class RowPipelineMixin:
                 "Cypher multi-alias row bindings require a node id column"
             )
         base_graph = self._gfql_base_graph()
-        base_nodes = getattr(base_graph, "_nodes", None) if base_graph is not None else None
+        base_nodes = base_graph._nodes if base_graph is not None else None
         empty_lookup_source = (
             base_nodes.iloc[0:0].copy()
             if base_nodes is not None and node_id in base_nodes.columns
@@ -3565,8 +3612,8 @@ class RowPipelineMixin:
         base_graph = self._gfql_base_graph()
         if base_graph is None:
             return None
-        src_col = getattr(base_graph, "_source", None)
-        dst_col = getattr(base_graph, "_destination", None)
+        src_col = base_graph._source
+        dst_col = base_graph._destination
         if src_col is None or dst_col is None:
             return None
         src_col, dst_col = str(src_col), str(dst_col)
@@ -3588,7 +3635,7 @@ class RowPipelineMixin:
         engine = resolve_engine(EngineAbstract.AUTO, base_df)
 
         # Get the full filtered edge set by running edge_op across all nodes
-        base_nodes = getattr(base_graph, "_nodes", None)
+        base_nodes = base_graph._nodes
         if base_nodes is None:
             return None
         edge_result = edge_op.execute(
@@ -3709,8 +3756,8 @@ class RowPipelineMixin:
             self._gfql_bindings_error(
                 "Cypher multi-alias row bindings require a graph-backed row pipeline context"
             )
-        node_id = getattr(base_graph, "_node", None)
-        base_nodes = getattr(base_graph, "_nodes", None)
+        node_id = base_graph._node
+        base_nodes = base_graph._nodes
         if node_id is None or base_nodes is None or node_id not in base_nodes.columns:
             return self._gfql_row_table(self._gfql_empty_frame(base_nodes))
 
@@ -4374,6 +4421,7 @@ class RowPipelineMixin:
     skip = row_frame_ops.skip
     limit = row_frame_ops.limit
     distinct = row_frame_ops.distinct
+    count_table = row_frame_ops.count_table
 
     def unwind(self, expr: Any, as_: str = "value") -> "Plottable":
         """Vectorized UNWIND for column or literal list expressions."""
@@ -4451,7 +4499,16 @@ class RowPipelineMixin:
         group_order_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_group_order__")
         table_df = table_df.assign(**{group_order_col: range(len(table_df))})
 
-        def _make_grouped(df: Any) -> Any:
+        def _make_grouped(df: Any, value_cols: Any = ()) -> Any:
+            # Group over ONLY the key columns + the value columns THIS call aggregates. Carrying
+            # unrelated non-key/non-agg columns (e.g. an object 'name' or float 'f') into the
+            # groupby pushes cuDF onto a Series-truthiness path that raises "The truth value of a
+            # Series is ambiguous" (issue #1663 finding 4); pandas/polars tolerate the extra cols.
+            # Projecting first yields an IDENTICAL result on every engine (selecting value columns
+            # before grouping cannot change group sizes or per-column reductions) and sidesteps it.
+            keep_cols = list(dict.fromkeys([*key_cols, *(c for c in value_cols if c in df.columns)]))
+            df = df[keep_cols]
+
             def _build_grouped(group_df: Any) -> Any:
                 try:
                     grouped_local = group_df.groupby(key_cols, sort=False, dropna=False)
@@ -4473,7 +4530,7 @@ class RowPipelineMixin:
                     work_df = df.assign(**{col: df[col].astype(str) for col in key_object_cols})
                 return _build_grouped(work_df)
 
-        grouped = _make_grouped(table_df)
+        grouped = _make_grouped(table_df, [group_order_col])
 
         base = grouped.size().reset_index(name="__gfql_group_size__")
         group_order_df = grouped[group_order_col].min().reset_index(name=group_order_col)
@@ -4509,7 +4566,7 @@ class RowPipelineMixin:
                         tmp_col = f"{tmp_col}_x"
                     table_df = table_df.assign(**{tmp_col: expr_values})
                     expr_col = tmp_col
-                grouped = _make_grouped(table_df)
+                grouped = _make_grouped(table_df, [expr_col])
                 if func in {"collect", "collect_distinct"}:
                     # collect() ignores null entries; compute collection on
                     # non-null rows and merge against full key space below.
@@ -4538,7 +4595,7 @@ class RowPipelineMixin:
                                 )
                                 non_null_df = norm_df.drop(columns=[norm_col])
                         agg_df = (
-                            _make_grouped(non_null_df)[expr_col]
+                            _make_grouped(non_null_df, [expr_col])[expr_col]
                             .agg(list)
                             .reset_index(name=alias)
                         )
@@ -4551,7 +4608,7 @@ class RowPipelineMixin:
                         and RowPipelineMixin._gfql_series_object_non_null_str_like(table_df[expr_col])
                     ):
                         table_df = table_df.assign(**{expr_col: table_df[expr_col].astype("string")})
-                        grouped = _make_grouped(table_df)
+                        grouped = _make_grouped(table_df, [expr_col])
                     agg_series = grouped[expr_col]
                     agg_df = getattr(agg_series, method_name)().reset_index(name=alias)
 
@@ -4588,12 +4645,12 @@ class _RowPipelineAdapter(RowPipelineMixin):
         self._gfql_start_nodes = getattr(g, "_gfql_start_nodes", None)
         self._gfql_rows_base_graph = getattr(g, "_gfql_rows_base_graph", None)
         self._gfql_rows_edge_aliases = getattr(g, "_gfql_rows_edge_aliases", None)
-        self._nodes = getattr(g, "_nodes", None)
-        self._edges = getattr(g, "_edges", None)
-        self._node = getattr(g, "_node", None)
-        self._source = getattr(g, "_source", None)
-        self._destination = getattr(g, "_destination", None)
-        self._edge = getattr(g, "_edge", None)
+        self._nodes = g._nodes
+        self._edges = g._edges
+        self._node = g._node
+        self._source = g._source
+        self._destination = g._destination
+        self._edge = g._edge
 
     def bind(self) -> "Plottable":
         return self._g.bind()
@@ -4615,7 +4672,19 @@ _ROW_PIPELINE_DISPATCH: Dict[str, Callable[..., "Plottable"]] = {
     "unwind": RowPipelineMixin.unwind,
     "group_by": RowPipelineMixin.group_by,
     "drop_cols": RowPipelineMixin.drop_cols,
+    "count_table": RowPipelineMixin.count_table,
 }
+
+
+# Row-pipeline ops with native polars implementations (frame-level only — no
+# cypher expression engine). Everything else falls back through the guard below
+# until lowered natively (no-silent-fallback policy).
+_POLARS_NATIVE_ROW_PIPELINE_CALLS = frozenset(
+    {"rows", "skip", "limit", "distinct", "drop_cols", "count_table"}
+)
+
+
+from graphistry.Engine import active_frames_are_polars as _row_pipeline_active_is_polars
 
 
 def execute_row_pipeline_call(
@@ -4623,6 +4692,21 @@ def execute_row_pipeline_call(
 ) -> "Plottable":
     if function not in ROW_PIPELINE_CALLS:
         raise ValueError(f"not a row-pipeline call: {function!r}")
+    if _row_pipeline_active_is_polars(g):
+        unsupported = function not in _POLARS_NATIVE_ROW_PIPELINE_CALLS
+        # ``rows`` is native only for the single-entity (table/source) shape; the
+        # multi-entity binding_ops / alias_endpoints shapes route into the pandas
+        # expression engine, so defer them explicitly rather than crash.
+        if function == "rows" and (
+            params.get("binding_ops") is not None
+            or params.get("alias_endpoints") is not None
+        ):
+            unsupported = True
+        if unsupported:
+            raise NotImplementedError(
+                f"polars row pipeline does not yet support op {function!r}; "
+                "use engine='pandas' for this query"
+            )
     adapter = _RowPipelineAdapter(g)
     method = _ROW_PIPELINE_DISPATCH[function]
     out = method(adapter, **params)
