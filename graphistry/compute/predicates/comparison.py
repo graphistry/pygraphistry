@@ -313,7 +313,12 @@ class Between(ASTPredicate):
         self.upper = self._normalize_value(upper)
         self.inclusive = inclusive
 
-    def _normalize_value(self, val: BetweenBoundInput) -> Union[int, float, np.number, TemporalValue]:
+    def _normalize_value(self, val: BetweenBoundInput) -> Union[int, float, np.number, TemporalValue, str]:
+        # Delegates to ComparisonPredicate's normalizer (Between is not a subclass, hence the
+        # arg-type ignore for the borrowed self). That method raises on str, so a str is never
+        # actually returned for Between's numeric/temporal bounds — but the return type must
+        # match the delegated method's declared union (incl. str) to type-check; __call__'s
+        # isinstance(int/float/TemporalValue) guards route any non-numeric/temporal to a raise.
         return ComparisonPredicate._normalize_value(self, val)  # type: ignore[arg-type]
 
     def __call__(self, s: SeriesT) -> SeriesT:
