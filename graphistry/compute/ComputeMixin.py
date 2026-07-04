@@ -100,10 +100,10 @@ def _coerce_input_formats(g: "Plottable", engine: Engine) -> "Plottable":
     # should drop (silent divergence from the pandas oracle, which treats NaN as missing).
     # _pl_nan_to_null is idempotent, so re-running it on a just-converted frame is a no-op.
     if engine in POLARS_ENGINES:
-        from graphistry.Engine import _pl_nan_to_null
-        if g._edges is not None and 'polars' in str(type(g._edges).__module__):
+        from graphistry.Engine import _pl_nan_to_null, is_polars_df
+        if g._edges is not None and is_polars_df(g._edges):
             g = g.edges(_pl_nan_to_null(g._edges), g._source, g._destination)
-        if g._nodes is not None and 'polars' in str(type(g._nodes).__module__):
+        if g._nodes is not None and is_polars_df(g._nodes):
             g = g.nodes(_pl_nan_to_null(g._nodes), g._node)
     return g
 

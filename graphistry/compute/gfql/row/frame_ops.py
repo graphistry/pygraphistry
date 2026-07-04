@@ -35,6 +35,18 @@ def _empty_like(df: Any) -> Any:
     return df.iloc[0:0].copy()
 
 
+def _alias_true_mask(table_df: Any, source: str) -> Any:
+    """Boolean row mask of an alias-marker column with NULL→False (pandas/cuDF; the
+    polars equivalent expr is ``pl.col(source).fill_null(False).cast(pl.Boolean)``).
+    Shared by ``rows``/``count_table`` so the null handling can't diverge."""
+    mask = table_df[source]
+    if hasattr(mask, "isna") and hasattr(mask, "where"):
+        mask = mask.where(~mask.isna(), False)
+    elif hasattr(mask, "fillna"):
+        mask = mask.fillna(False)
+    return mask.astype(bool)
+
+
 def row_table(ctx: RowPipelineCtx, table_df: Any) -> "Plottable":
     """Return a plottable that treats ``table_df`` as the active row table."""
     out = ctx.bind()
@@ -164,12 +176,7 @@ def rows(
             import polars as pl
             table_df = table_df.filter(pl.col(source).fill_null(False).cast(pl.Boolean))
         else:
-            mask = table_df[source]
-            if hasattr(mask, "isna") and hasattr(mask, "where"):
-                mask = mask.where(~mask.isna(), False)
-            elif hasattr(mask, "fillna"):
-                mask = mask.fillna(False)
-            table_df = table_df.loc[mask.astype(bool)]
+            table_df = table_df.loc[_alias_true_mask(table_df, source)]
 
     return row_table(ctx, table_df)
 
@@ -232,10 +239,7 @@ def count_table(
             raise ValueError(
                 f"count_table(source=...) alias column not found: {source!r}"
             )
-        mask = table_df[source]
-        if hasattr(mask, "fillna"):
-            mask = mask.fillna(False)
-        n = int(mask.astype(bool).sum())
+        n = int(_alias_true_mask(table_df, source).sum())
     else:
         n = int(len(table_df))
     return row_table(ctx, template_df_cons(table_df, {alias: [n]}))
