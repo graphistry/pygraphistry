@@ -127,6 +127,57 @@ def set_gpu_executor(value: Optional[str]) -> None:
     _gpu_executor_override = "streaming" if v == "streaming" else "in-memory"
 
 
+# --- off-engine call() modality policy -------------------------------------------
+# A GFQL ``call()`` op may run a Plottable-method ANALYTIC (umap / hypergraph /
+# compute_cugraph / compute_igraph / layout_* / collapse / ...) that has NO native
+# polars implementation and never will — it runs eagerly on pandas/cuDF. Under
+# ``engine='polars'|'polars-gpu'`` this knob decides what happens:
+#   'auto'   (default): transparently BRIDGE — run the analytic off-engine on
+#            pandas (polars) / cuDF (polars-gpu), coerce the result back to polars
+#            losslessly (Arrow), warn once per (process, function).
+#   'strict': DECLINE with NotImplementedError (the parity-or-NIE behavior) — for
+#            benchmark integrity (no hidden modality switch) or a hard memory ceiling.
+# This is DELIBERATELY distinct from CHAIN traversal/filter/row ops, which stay
+# parity-or-NIE (a bridge there would hide a missing impl + cheat a benchmark). It
+# mirrors the existing ``GRAPHISTRY_CUDF_SAME_PATH_MODE`` auto/strict precedent.
+_call_mode_override: "Optional[CallMode]" = None
+
+#: Valid off-engine call() modality modes (public; see :func:`set_call_mode`).
+CALL_MODES = ("auto", "strict")
+CallMode = Literal["auto", "strict"]
+
+
+def call_mode() -> CallMode:
+    """Off-engine ``call()`` analytic policy under a polars engine: ``'auto'`` | ``'strict'``.
+
+    ``'auto'`` (default) bridges an analytic with no native polars impl (umap / hypergraph /
+    compute_cugraph / ...) to pandas/cuDF, runs it, and coerces the result back to polars
+    losslessly (warn once per function). ``'strict'`` declines with ``NotImplementedError``
+    (no hidden modality switch — for benchmarking / a hard memory ceiling).
+    Resolution: :func:`set_call_mode` override > ``$GFQL_POLARS_CALL_MODE`` > ``'auto'``
+    (an invalid env value also resolves to 'auto').
+    """
+    if _call_mode_override is not None:
+        return _call_mode_override
+    raw = _os.environ.get("GFQL_POLARS_CALL_MODE", "auto").strip().lower()
+    return "strict" if raw == "strict" else "auto"
+
+
+def set_call_mode(value: Optional[str]) -> None:
+    """Select the off-engine call() policy from Python (``'auto'`` | ``'strict'``).
+
+    ``None`` resets to env/default; an invalid value raises ``ValueError`` (the Python
+    setter is strict, unlike the env path which falls back to 'auto')."""
+    global _call_mode_override
+    if value is None:
+        _call_mode_override = None
+        return
+    v = value.strip().lower()
+    if v not in CALL_MODES:
+        raise ValueError(f"call_mode must be one of {CALL_MODES}, got {value!r}")
+    _call_mode_override = "strict" if v == "strict" else "auto"
+
+
 def _engine_for(target: ExecutionTarget) -> "Optional[pl.GPUEngine]":
     """Polars collect engine for a target. ``None`` = default (CPU streaming/in-mem).
 

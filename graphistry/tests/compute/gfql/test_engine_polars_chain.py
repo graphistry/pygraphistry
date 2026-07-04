@@ -730,29 +730,41 @@ def test_polars_config_python_settable_and_live(monkeypatch):
         lazy.set_gpu_executor(None)
 
 
-def test_engine_polars_no_silent_call_bridge():
-    """NO-CHEATING: a DAG let() binding of a not-yet-native Plottable-method call (here
-    hypergraph) raises NotImplementedError under engine='polars' (matching the chain
-    surface) instead of silently running on pandas and coercing the result back.
-    engine='pandas' is unaffected. (get_degrees / get_indegrees / get_outdegrees are now
-    lowered natively — see the conformance matrix — so hypergraph, an architecturally
-    pandas-only entity-transform with no native polars impl, stands in as the still-declined
-    Plottable-method call: it runs on pandas internally and the no-bridge guard declines
-    coercing its pandas result back to polars.)"""
+def test_engine_polars_call_offengine_modality_gated():
+    """PHASE 12: a Plottable-method analytic with no native polars impl (hypergraph) runs
+    OFF-ENGINE under a polars engine as a MODE-GATED modality switch — not a silent bridge.
+    call_mode='auto' (default) runs it on pandas and coerces the result back to polars (both the
+    chain and DAG surfaces, consistently); call_mode='strict' declines with NotImplementedError on
+    both surfaces. engine='pandas' unaffected. (get_degrees/in/out are lowered natively; hypergraph
+    stands in as the architecturally pandas-only analytic.)"""
+    import warnings
     import pytest
     import pandas as pd
     import graphistry
     from graphistry.compute.ast import call, let
+    from graphistry.compute.gfql.lazy import set_call_mode
 
-    g = (graphistry.nodes(pd.DataFrame({"id": [0, 1, 2]}), "id")
-         .edges(pd.DataFrame({"s": [0, 1], "d": [1, 2]}), "s", "d"))
-    # chain surface already declines; the DAG surface must too (was a silent bridge).
-    with pytest.raises(NotImplementedError):
-        g.gfql([call("hypergraph")], engine="polars")
-    with pytest.raises(NotImplementedError):
-        g.gfql(let({"d": call("hypergraph")}), engine="polars")
-    # pandas DAG path still works.
-    assert g.gfql(let({"d": call("hypergraph")}), engine="pandas") is not None
+    events = pd.DataFrame({"user": ["a", "b", "a"], "product": ["x", "y", "z"]})
+    g = graphistry.nodes(events)
+    hg = call("hypergraph", {"entity_types": ["user", "product"], "direct": True})
+    try:
+        # auto (default): bridges off-engine and returns polars on BOTH surfaces (consistent).
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            chain_out = g.gfql([hg], engine="polars")
+            dag_out = g.gfql(let({"d": hg}), engine="polars")
+        assert "polars" in type(chain_out._nodes).__module__
+        assert "polars" in type(dag_out._nodes).__module__
+        # strict: honest decline on both surfaces (no hidden modality switch).
+        set_call_mode("strict")
+        with pytest.raises(NotImplementedError):
+            g.gfql([hg], engine="polars")
+        with pytest.raises(NotImplementedError):
+            g.gfql(let({"d": hg}), engine="polars")
+    finally:
+        set_call_mode(None)
+    # pandas DAG path always works.
+    assert g.gfql(let({"d": hg}), engine="pandas") is not None
 
 
 def test_engine_polars_predicate_correctness_fixes():

@@ -337,18 +337,35 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     ):
         calls = [rows_fn(binding_ops=serialize_binding_ops(middle))] + list(calls[1:])
 
-    # Per-op NATIVE-OR-DEFER: run each call natively on polars; an op we can't
-    # lower natively raises NotImplementedError (NO pandas fallback — see plan.md
-    # NO-CHEATING). The honest signal tells the caller to use engine='pandas'.
+    # Per-op NATIVE-OR-DEFER: run each call natively on polars. An op we can't lower:
+    #  - a non-native ROW-pipeline op (correlated-subquery semi_apply/anti_semi_apply/
+    #    join_apply): parity-or-NIE — it SHOULD be polars-native, a bridge would hide that.
+    #  - an ANALYTIC (compute_cugraph/compute_igraph/layout_*/collapse/get_topological_levels
+    #    /...) with no native polars impl by nature: route through execute_call, which applies
+    #    the off-engine modality policy (call_mode='auto' bridges to pandas/cuDF + coerces back;
+    #    'strict' declines). This is the SAME path the DAG/let() surface uses (execute_call), so
+    #    the chain and DAG surfaces stay consistent. The row-vs-analytic split is MECHANICAL
+    #    (is_row_pipeline_call), not a curated list. (umap/hypergraph never reach here — the
+    #    generic chain routes those schema-changers straight to execute_call.)
+    from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
     for op in calls:
         native = _try_native_row_op(g_cur, op)
-        if native is None:
-            raise NotImplementedError(
-                f"polars engine does not yet natively support cypher row op "
-                f"{getattr(op, 'function', op)!r}; use engine='pandas' for this query "
-                f"(no pandas fallback; parity-or-error by design)"
-            )
-        g_cur = native
+        if native is not None:
+            g_cur = native
+            continue
+        fn = getattr(op, "function", None)
+        if fn is not None and not is_row_pipeline_call(fn):
+            from graphistry.compute.gfql.call.executor import execute_call
+            from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
+            from graphistry.Engine import Engine as _Engine
+            _eng = _Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else _Engine.POLARS
+            g_cur = execute_call(g_cur, fn, getattr(op, "params", {}) or {}, _eng)
+            continue
+        raise NotImplementedError(
+            f"polars engine does not yet natively support cypher row op "
+            f"{getattr(op, 'function', op)!r}; use engine='pandas' for this query "
+            f"(no pandas fallback; parity-or-error by design)"
+        )
     return g_cur
 
 
