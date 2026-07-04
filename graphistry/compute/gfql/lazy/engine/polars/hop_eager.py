@@ -186,6 +186,60 @@ def hop_polars(
     def _idframe(df, col) -> "pl.DataFrame":
         return df.select(pl.col(col).cast(node_dtype).alias(NID)).unique()
 
+    # --- SINGLE BOUNDED HOP (the dominant case — every chain edge): ONE lazy plan, ONE
+    # collect_all on the active target (GPU: edge table read/transferred once — the 2.84x
+    # collect-once path, formerly the separate hop.py twin). Placed BEFORE the eager gate
+    # construction: the seed/gate/target id-frame .unique()s must stay INSIDE the lazy plan
+    # (eagerly materializing them over chain wavefronts cost +5-14% at 1M-10M edges — A/B
+    # measured, twice). Multi-hop/min_hops/to_fixed_point use the eager loop below: the
+    # early-break + revisit bookkeeping need per-hop materialization, and for hops>=2 an
+    # unrolled lazy plan recomputes the big edge-join per hop (polars CSE doesn't dedup it).
+    if (not to_fixed_point and resolved_max_hops == 1
+            and not (min_hops is not None and min_hops > 1 and direction in ("forward", "reverse"))):
+        from graphistry.compute.gfql.lazy import collect_all
+        edges_lf = edges_idx.lazy()
+        pairs_lf = _build_hop_pairs(edges_lf, direction, src, dst, node_dtype, FROM, TO, EID)
+
+        def _idframe_lf(lf, col):
+            return lf.select(pl.col(col).cast(node_dtype).alias(NID)).unique()
+
+        allowed_source_lf = (
+            _idframe_lf(filter_by_dict_polars(nodes if nodes is not None else all_nodes,
+                                              source_node_match).lazy(), node_col)
+            if source_node_match is not None else None
+        )
+        allowed_dest_lf = (
+            _idframe_lf(filter_by_dict_polars(all_nodes, destination_node_match).lazy(), node_col)
+            if destination_node_match is not None else None
+        )
+        target_final_lf = (_idframe_lf(target_wave_front.lazy(), node_col)
+                           if target_wave_front is not None else None)
+        frontier_lf = _idframe_lf((nodes if nodes is not None else all_nodes).lazy(), node_col)
+        if allowed_source_lf is not None:
+            frontier_lf = frontier_lf.join(allowed_source_lf, on=NID, how="semi")
+        hop_edges = pairs_lf.join(frontier_lf.rename({NID: FROM}), on=FROM, how="semi")
+        if target_final_lf is not None:   # single hop IS the last hop -> final gate only
+            hop_edges = hop_edges.join(target_final_lf.rename({NID: TO}), on=TO, how="semi")
+        if allowed_dest_lf is not None:
+            hop_edges = hop_edges.join(allowed_dest_lf.rename({NID: TO}), on=TO, how="semi")
+        visited_edges_lf = hop_edges.select(pl.col(EID)).unique(subset=[EID])
+        out_edges_lf = edges_lf.join(visited_edges_lf, on=EID, how="semi")
+        if synth_eid:
+            out_edges_lf = out_edges_lf.drop(EID)
+        # Node set == one eager iteration: DESTINATIONS ∪ (FROM side unless wavefront); then
+        # ∪ retained-edge endpoints unless wavefront-with-seeds (the wave front IS the
+        # destinations). Empty out_edges yields empty endpoints — no height guard needed.
+        dest_lf = hop_edges.select(pl.col(TO).alias(NID)).unique()
+        needed_lf = (dest_lf if return_as_wave_front else pl.concat(
+            [hop_edges.select(pl.col(FROM).alias(NID)), dest_lf],
+            how="vertical_relaxed").unique(subset=[NID]))
+        if not (return_as_wave_front and nodes is not None):
+            endpoints_lf = endpoint_ids(out_edges_lf, src, dst, NID, node_dtype).unique(subset=[NID])
+            needed_lf = pl.concat([needed_lf, endpoints_lf], how="vertical_relaxed").unique(subset=[NID])
+        out_nodes_lf = all_nodes.lazy().join(needed_lf.rename({NID: node_col}), on=node_col, how="semi")
+        out_edges_c, out_nodes_c = collect_all([out_edges_lf, out_nodes_lf])
+        return g.nodes(out_nodes_c, node_col).edges(out_edges_c, src, dst)
+
     allowed_source = (
         _idframe(filter_by_dict_polars(nodes if (nodes is not None and not to_fixed_point and resolved_max_hops == 1) else all_nodes, source_node_match), node_col)
         if source_node_match is not None else None
@@ -207,8 +261,6 @@ def hop_polars(
     else:
         target_intermediate = None
 
-    seed = _idframe(nodes if nodes is not None else all_nodes, node_col)
-
     # min_hops>1 (fwd/rev, finite max): pandas runs a NON-anti-joined BFS (wavefront carries
     # REVISITS, hop.py:535,620) so a cycle keeps bumping max_reached_hop until max_hops — what
     # lets the lower bound be satisfied on cyclic graphs. The anti-joined (shortest-path)
@@ -223,6 +275,8 @@ def hop_polars(
     reached_for_attrs = None  # set in the min_hops gate: the reached-destination set (full attrs)
 
     empty_ids = all_nodes.select(pl.col(node_col).cast(node_dtype).alias(NID)).clear()
+
+    seed = _idframe(nodes if nodes is not None else all_nodes, node_col)
     frontier = seed                      # DataFrame[NID]
     visited_nodes = empty_ids            # DataFrame[NID]
     visited_edge_frames = []             # collect per-hop EID frames; concat once at end
