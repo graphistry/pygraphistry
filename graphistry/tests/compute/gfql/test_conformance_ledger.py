@@ -1,32 +1,21 @@
-"""Conformance COVERAGE LEDGER for the GFQL polars engine (Phase-0 prong #4).
+"""Conformance COVERAGE LEDGER for the GFQL polars engine (Phase-0 prong #4). PURE
+INTROSPECTION — no engine execution, no GPU; runs on any CPU-only box. Keeps the conformance
+matrix honest about its own coverage across FOUR axes (see ``AXES``). Each axis DERIVES its
+universe from the live code registry (type_to_predicate / GFQL_SCALAR_FUNCTIONS / SAFELIST_V1 /
+ROW_PIPELINE_CALLS — new registrations auto-enter the ledger), DERIVES the "exercised" set from
+test_engine_polars_conformance_matrix.py (parsed labels / cypher strings / exported case lists),
+and keeps a hand-maintained waiver dict, each entry with an honest one-line reason (native/NIE
+rationale, "covered by dedicated test X", or an explicit TODO).
 
-PURE INTROSPECTION — NO engine execution, NO GPU, runs on any box (CPU-only).
+The tests FAIL CI naming the exact gap: (a) registry entry neither exercised nor waived =
+coverage hole; (b) exercised name not in registry = stale/typo label; (c) waived name not in
+registry = stale waiver; (d) waived name that IS exercised = redundant waiver. Nonempty canaries
+per axis: empty registry = import wiring broke; empty exercised set = label/cypher FORMAT drift
+silently zeroing coverage tracking.
 
-This ledger keeps the differential-conformance matrix HONEST about its own coverage,
-across FOUR axes (predicates / cypher scalar functions / call() safelist / row-pipeline
-ops — see ``AXES``). Each axis:
-  * DERIVES its universe from the live code registry (e.g. `type_to_predicate`,
-    ``GFQL_SCALAR_FUNCTIONS``, ``SAFELIST_V1``, ``ROW_PIPELINE_CALLS``) — so a newly
-    registered entry automatically enters the ledger.
-  * DERIVES the "exercised" set from the conformance matrix module (parsed labels /
-    cypher strings / exported case lists in test_engine_polars_conformance_matrix.py).
-  * Keeps a hand-maintained waiver dict of entries deliberately not (yet) asserted —
-    each with a one-line honest reason (native/NIE rationale, "covered by dedicated
-    test X", or an explicit TODO).
-
-The parametrized tests then FAIL CI when those drift apart, naming the exact gap:
-  (a) a registry entry that is neither exercised nor waived  -> coverage hole
-  (b) an exercised name that is not a real registry entry    -> stale/typo label
-  (c) a waived name that is not in the registry              -> stale waiver
-  (d) a waived name that IS exercised                        -> redundant waiver
-plus per-axis nonempty canaries: an empty registry means import wiring broke; an empty
-exercised set means the parsed label/cypher FORMAT drifted and coverage tracking would
-silently zero out.
-
-NB: each axis's exercised-set parser reads ONE source (see AXES). Entries asserted via
-OTHER dedicated tests in the matrix file (e.g. the temporal IsLeapYear / boundary-predicate
-tests) are invisible to the parser and therefore MUST carry a waiver pointing at their
-dedicated test.
+NB: each axis's parser reads ONE source (see AXES) — entries asserted only by other dedicated
+tests (e.g. temporal IsLeapYear / boundary predicates) are invisible to it and MUST carry a
+waiver pointing at their dedicated test.
 """
 from __future__ import annotations
 
@@ -47,16 +36,11 @@ from graphistry.tests.compute.gfql.test_engine_polars_conformance_matrix import 
 )
 
 
-# ======================================================================================
-# AXIS 1: PREDICATES — universe `type_to_predicate` (predicates/from_json.py); exercised =
-# class names parsed from `_predicate_queries()` labels (shaped `pred:<ClassName>(...)`).
-# ======================================================================================
+# ---- AXIS 1: PREDICATES — universe `type_to_predicate` (predicates/from_json.py); exercised =
+# class names parsed from `_predicate_queries()` labels (shaped `pred:<ClassName>(...)`) ----
 
-# --------------------------------------------------------------------------------------
-# Hand-maintained waiver: registry predicates NOT exercised by `_predicate_queries()`.
-# Derived once by set-differencing the registry against the parsed exercised set; keep it
-# in sync (the tests below fail loudly if it drifts). Each value is an honest one-liner.
-# --------------------------------------------------------------------------------------
+# Hand-maintained waiver: registry predicates NOT exercised by _predicate_queries(). Derived
+# once by set-differencing; the tests below fail loudly if it drifts. Honest one-liner each.
 KNOWN_UNCOVERED: dict[str, str] = {
     # --- logical / categorical combinators (compositional; matrix asserts leaves) ---
     "AllOf": "logical AND-combinator over sub-predicates; compositional, not yet asserted in the matrix. TODO: add a nested-predicate conformance case.",
@@ -84,9 +68,8 @@ KNOWN_UNCOVERED: dict[str, str] = {
 }
 
 
-# `_predicate_queries()` labels are built as f"pred:{P.__name__}({col},{kw})"; the class
-# name is everything between the "pred:" prefix and the first "(" (kw repr may itself
-# contain parens, e.g. tuple patterns, so anchor on the FIRST paren only).
+# Labels are f"pred:{P.__name__}({col},{kw})"; the class name ends at the FIRST "(" — kw repr
+# may itself contain parens (tuple patterns), so anchor on the first paren only.
 _PRED_LABEL_RE = re.compile(r"^pred:(?P<name>\w+)\(")
 
 
@@ -100,20 +83,16 @@ def _exercised_predicate_names() -> set:
     return names
 
 
-# ======================================================================================
-# AXIS 2: CYPHER SCALAR FUNCTIONS — universe GFQL_SCALAR_FUNCTIONS (language_defs.py);
-# exercised = scalar-function names parsed out of the cypher strings of
-# `_cypher_expression_queries()`. Aggregations (count/count_distinct) live in a DIFFERENT
-# registry and are intentionally not in this universe.
-# ======================================================================================
+# ---- AXIS 2: CYPHER SCALAR FUNCTIONS — universe GFQL_SCALAR_FUNCTIONS (language_defs.py);
+# exercised = function names parsed from `_cypher_expression_queries()` cypher strings.
+# Aggregations (count/count_distinct) live in a DIFFERENT registry: intentionally excluded ----
 
-# A cypher call is `name(...)`; lowercase and intersect with the registry (cypher uses
-# camelCase `toInteger`, registry keys are lowercase `tointeger` — both engines `.lower()`).
+# A cypher call is `name(...)`; lowercase and intersect with the registry (cypher camelCase
+# `toInteger` vs lowercase registry key `tointeger` — both engines `.lower()`).
 _FN_CALL_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
 
-# Registry scalar functions NOT exercised by a parseable cypher call in the matrix. Each an
-# honest one-liner (all currently honest-NIE-or-unasserted; none has a dedicated test that the
-# parser misses, unlike the predicate temporal entries).
+# Registry scalar functions NOT exercised by a parseable cypher call in the matrix — all
+# honest-NIE-or-unasserted; none has a parser-invisible dedicated test (unlike the temporals).
 KNOWN_UNCOVERED_FUNCTIONS: dict[str, str] = {
     "keys": "map/entity key-extraction; polars declines (no _lower_function branch) -> NIE; not yet asserted. TODO.",
     "labels": "node-label text function; polars declines -> NIE; not yet asserted. TODO.",
@@ -129,9 +108,8 @@ KNOWN_UNCOVERED_FUNCTIONS: dict[str, str] = {
 
 
 def _exercised_function_names() -> set:
-    """Scalar-function names actually exercised by `_cypher_expression_queries()` cypher
-    strings (lowercased, intersected with the registry so non-function tokens like
-    aggregations / `count` / bare identifiers drop out)."""
+    """Scalar-function names in _cypher_expression_queries() cypher strings (lowercased;
+    registry-intersected so non-function tokens like aggregations/`count` drop out)."""
     names = set()
     for _label, cypher in _cypher_expression_queries():
         for tok in _FN_CALL_RE.findall(cypher):
@@ -139,15 +117,11 @@ def _exercised_function_names() -> set:
     return names & set(GFQL_SCALAR_FUNCTIONS)
 
 
-# ======================================================================================
-# AXIS 3: call() SAFELIST — universe SAFELIST_V1 (call/validation.py): every function
-# invocable via call() / a let() DAG binding; exercised = `_call_exercised_functions()`
-# (matrix). The bulk of the safelist is architecturally pandas/cuDF-only (layouts /
-# encoders / igraph / cugraph / umap / hypergraph) and honest-NIEs under polars via the
-# no-silent-bridge guard — those are waived with that reason. The ledger fails CI if a
-# NEW safelist entry lands with neither a conformance assertion nor a waiver (e.g. a new
-# unsafe call slips in untracked).
-# ======================================================================================
+# ---- AXIS 3: call() SAFELIST — universe SAFELIST_V1 (call/validation.py): everything invocable
+# via call() / a let() DAG binding; exercised = `_call_exercised_functions()` (matrix). The
+# bulk is architecturally pandas/cuDF-only (layouts/encoders/igraph/cugraph/umap/hypergraph)
+# and honest-NIEs under polars via the no-silent-bridge guard — waived with that reason.
+# Fails CI if a NEW safelist entry lands with neither an assertion nor a waiver (untracked) ----
 
 CALL_KNOWN_UNCOVERED: dict[str, str] = {
     # row-pipeline ops native under polars via the call()/DAG executor; not yet asserted via call()
@@ -212,15 +186,11 @@ CALL_KNOWN_UNCOVERED: dict[str, str] = {
 }
 
 
-# ======================================================================================
-# AXIS 4: ROW-PIPELINE OPS — universe ROW_PIPELINE_CALLS (row/pipeline.py): the cypher
-# row-pipeline ops; exercised = `_rowop_exercised()` (ops asserted as a labeled subject;
-# today just `with_`). The rest are either native-but-only-implicitly-exercised (via
-# cypher RETURN/WHERE/grouped-count) or honest-NIE correlated-subquery ops; all waived
-# with that reason. (The degree calls get_degrees/in/out are NOT in ROW_PIPELINE_CALLS —
-# they are tracked on the call() axis.) The ledger fails CI if a NEW row-pipeline op
-# lands without an assertion or a waiver.
-# ======================================================================================
+# ---- AXIS 4: ROW-PIPELINE OPS — universe ROW_PIPELINE_CALLS (row/pipeline.py); exercised =
+# `_rowop_exercised()` (ops asserted as a labeled subject). The rest are either native-but-
+# only-implicitly-exercised (via cypher RETURN/WHERE/grouped-count) or honest-NIE correlated-
+# subquery ops — waived with that reason. (get_degrees/in/out are NOT in ROW_PIPELINE_CALLS;
+# they're tracked on the call() axis.) Fails CI if a NEW op lands unasserted and unwaived ----
 
 ROW_OP_KNOWN_UNCOVERED: dict[str, str] = {
     # honest NIE — correlated-subquery ops with no native polars lowering (_try_native_row_op returns None)
@@ -230,10 +200,8 @@ ROW_OP_KNOWN_UNCOVERED: dict[str, str] = {
 }
 
 
-# ======================================================================================
-# THE LEDGER MACHINERY — one axis table, seven parametrized drift checks. Adding a new
-# coverage axis = one AXES entry (registry + exercised + waivers + names for messages).
-# ======================================================================================
+# ---- LEDGER MACHINERY: one axis table, seven parametrized drift checks; a new coverage
+# axis = one AXES entry (registry + exercised + waivers + names for messages) ----
 
 class _Axis(NamedTuple):
     registry: Callable[[], set]      # live-code universe

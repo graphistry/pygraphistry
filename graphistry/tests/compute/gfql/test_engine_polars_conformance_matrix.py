@@ -1,13 +1,9 @@
-"""Generative differential-conformance matrix for the polars engine (Phase 0 strategy).
-
-THE CORE INVARIANT: for any query, on a non-pandas engine the result is EITHER parity-equal to
-the pandas oracle OR an honest NotImplementedError — NEVER silently different, NEVER a silent
-bridge, NEVER a non-NIE crash. This is checked across the cross-product of SURFACES
-(native chain / Cypher string / let() DAG / call() on both) × OPS/PREDICATES, which is exactly
-what the prior chain-only gates missed (the DAG silent-bridge bug et al.).
-
-CPU lane (pandas-vs-polars) runs everywhere; a GPU lane (cudf / polars-gpu) is added on the dgx.
-"""
+"""Generative differential-conformance matrix for the polars engine (Phase 0). CORE INVARIANT:
+on any non-pandas engine a query is parity-equal to the pandas oracle OR an honest
+NotImplementedError — never silently different, silently bridged, or a non-NIE crash. Checked
+across SURFACES (chain / Cypher / let() DAG / call()) × OPS/PREDICATES — the cross-product the
+prior chain-only gates missed (DAG silent-bridge bug et al.). CPU lane (pandas-vs-polars) runs
+everywhere; the GPU lane (cudf / polars-gpu) joins on the dgx."""
 import datetime
 import numpy as np
 import pandas as pd
@@ -15,9 +11,7 @@ import pytest
 import graphistry
 from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, call, let, rows, with_, return_
 
-# The whole matrix is the CPU polars lane (plus a GPU lane when present) — it requires polars.
-# On interpreters without a polars wheel (e.g. Python 3.14, which has no cp314 wheel yet), skip
-# the module cleanly rather than reporting every case as a non-NIE ImportError "conformance" fail.
+# No polars wheel (e.g. cp314) -> skip module cleanly, not per-case non-NIE ImportError "fails".
 pytest.importorskip("polars")
 
 
@@ -42,8 +36,7 @@ def _graph(seed=0):
     return graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
 
 
-# Comparison machinery (frame sig / run status / parity-or-NIE) is shared across the
-# polars test suite — one definition, loud-failure contracts documented there.
+# Shared suite-wide comparison machinery; loud-failure contracts documented there.
 from graphistry.tests.compute.gfql.polars_test_utils import (  # noqa: E402
     to_pandas_any as _to_pd,
     run_status as _run,
@@ -60,9 +53,8 @@ def _assert_invariant(g, query, label):
 
 
 def test_pandas_oracle_sanity():
-    """Canary: assert_parity_or_nie SKIPS a case when the pandas oracle errors (so one
-    broken case doesn't fail the whole matrix) — but a GLOBAL oracle break would then
-    silently skip everything. This known-good query must stay 'ok'."""
+    """Canary: assert_parity_or_nie SKIPS when the pandas oracle errors, so a GLOBAL oracle
+    break would silently skip the whole matrix — this known-good query must stay 'ok'."""
     assert _run(_graph(0), [n()], "pandas")[0] == "ok", "pandas oracle broken — matrix would silently skip"
 
 
@@ -105,7 +97,7 @@ def test_conformance_predicates_chain(label, query):
 
 @pytest.mark.parametrize("label,query", _predicate_queries())
 def test_conformance_predicates_dag(label, query):
-    # SAME predicate via a let() DAG binding — must agree with the chain surface (parity or NIE).
+    # SAME predicate via a let() DAG binding — must agree with the chain surface (parity or NIE)
     g = _graph(1)
     _assert_invariant(g, let({"a": query}), f"dag {label}")
 
@@ -136,10 +128,8 @@ _TRAVERSAL_CASES = [
     ("und-maxhops3", [n({"id": [0]}), e_undirected(max_hops=3), n()]),             # undirected variable-length: native
     # ---- STAYS NIE (separately deferred surfaces) ----
     ("und-tofixed", [n({"id": [0]}), e_undirected(to_fixed_point=True), n()]),  # undirected to_fixed_point
-    # NOTE: min_hops>1 is NOT in this 4-engine parity matrix — cudf diverges from the pandas
-    # oracle on the seed node's hop label (pandas: None, cudf: max_hops) for min_hops, an
-    # orthogonal cudf bug (see cudf-device-residency-issue.md sibling notes). polars' NIE-decline
-    # for min_hops is asserted directly in test_engine_polars_chain.py::*deferred_raises instead.
+    # NOTE: min_hops>1 excluded — orthogonal cudf bug (seed-node hop label: pandas None vs cudf
+    # max_hops; cudf-device-residency-issue.md); polars' NIE-decline: test_engine_polars_chain.py::*deferred_raises
 ]
 
 
@@ -150,15 +140,13 @@ def test_conformance_traversals(label, query):
 
 @pytest.mark.parametrize("label,query", _TRAVERSAL_CASES)
 def test_conformance_traversals_dag(label, query):
-    # SAME traversal via a let() DAG binding — must agree with the chain surface (parity or NIE).
-    # Directly guards the silent-bridge bug class (chain NIEs but DAG silently bridges to pandas),
-    # now extended to multi-hop: native multi-hop must reach the DAG/let surface too, not just chain.
+    # SAME traversal via let() DAG: guards the silent-bridge class (chain NIEs, DAG bridges to
+    # pandas) and proves native multi-hop reaches the DAG/let surface too, not just chain.
     _assert_invariant(_graph(2), let({"a": query}), f"traversal dag {label}")
 
 
-# ---- HOT-PATH CARVE-OUT verification (fast paths bypass the general engine = highest risk) ----
-# Adversarial inputs against each special-cased fast path: node-only MATCH, unconstrained 1-hop,
-# filtered single-hop, filters on BOTH endpoints, empty results, isolated/self-loop topology.
+# ---- HOT-PATH CARVE-OUTS — adversarial inputs per fast path (they bypass the general engine =
+# highest risk): node-only MATCH, (un)filtered 1-hop, both-endpoint filters, empties, self-loop/isolated ----
 def _carveout_graph():
     nd = pd.DataFrame({
         "id": [0, 1, 2, 3, 4, 5],
@@ -192,9 +180,8 @@ def test_conformance_hotpath_carveouts(label, query):
 
 # ---- cypher expression / aggregation lowerings (value-level: validates sqrt/sign/count_distinct) ----
 def _cypher_expression_queries():
-    """Cypher-expression conformance cases ``(label, cypher)``. Importable so the coverage
-    ledger (test_conformance_ledger.py) can DERIVE the exercised scalar-function set by
-    parsing function calls out of the cypher strings — mirrors `_predicate_queries()`."""
+    """(label, cypher) cases; importable so the ledger (test_conformance_ledger.py) DERIVES the
+    exercised scalar-function set by parsing the cypher strings — mirrors _predicate_queries()."""
     return [
         ("sqrt", "MATCH (n) RETURN n.id AS id, sqrt(n.num) AS sq"),
         ("sign", "MATCH (n) RETURN n.id AS id, sign(n.num - 50) AS sg"),
@@ -221,10 +208,9 @@ def _cypher_expression_queries():
         ("tostring_bool", "MATCH (n) RETURN n.id AS id, toString(n.flag) AS s"),
         ("tostring_int", "MATCH (n) RETURN n.id AS id, toString(n.num) AS s"),
         ("tostring_str", "MATCH (n) RETURN n.id AS id, toString(n.name) AS s"),
-        # NOTE: toString(float) is intentionally NOT here — polars declines it (NIE, covered by
-        # test_tostring_float_honest_nie_polars), but cudf formats floats differently than pandas
-        # (an orthogonal cudf float-repr divergence, like the list-literal element-order one), which
-        # _assert_invariant would flag. The dedicated pandas-vs-polars test covers the real intent.
+        # NOTE: toString(float) intentionally absent — polars NIEs (test_tostring_float_honest_nie
+        # _polars covers that), and cudf's orthogonal float-repr divergence from pandas would trip
+        # _assert_invariant; the dedicated pandas-vs-polars test carries the real intent.
     ]
 
 
@@ -233,11 +219,9 @@ def test_conformance_cypher_expressions(label, query):
     _assert_invariant(_graph(4), query, f"cypher {label}")
 
 
-# ---- NATIVE-vs-honest-NIE cypher scalar functions ------------------------------------
-# The provable sub-cases MUST lower natively on polars (never an honest-but-lazy NIE,
-# never a silent bridge); the unprovable ones MUST decline (never fabricate values or
-# replicate a pandas quirk). Each row carries its one-line parity rationale ("why") —
-# the full proofs live at the lowering sites in lazy/engine/polars/row_pipeline.py.
+# ---- NATIVE-vs-honest-NIE cypher scalar functions: provable sub-cases MUST lower natively (no
+# lazy NIE, no silent bridge); unprovable ones MUST decline (never fabricate / replicate a pandas
+# quirk); one-line "why" per row, full proofs at lowering sites (lazy/engine/polars/row_pipeline.py) ----
 _NATIVE_OK_CYPHER = [
     # (id, cypher over _graph(4), why-native-is-provable)
     ("size_string", "MATCH (n) RETURN n.id AS id, size(n.name) AS sz",
@@ -291,9 +275,8 @@ def test_scalar_fn_honest_nie_on_polars(label, cypher, pandas_expect, why):
 
 
 def test_collect_aggregations_native_parity_polars():
-    """collect(x) / collect(DISTINCT x) lower NATIVELY on polars and match pandas: drop nulls,
-    preserve within-group order (collect keeps dups; distinct dedups keep-first), all-null group
-    -> []. List cells normalized to python lists for the cross-engine compare."""
+    """collect(x)/collect(DISTINCT x) lower NATIVELY == pandas: nulls dropped, within-group order
+    kept (collect keeps dups; distinct dedups keep-first), all-null -> []; list cells normalized."""
     import pandas as pd
     e = pd.DataFrame({"s": [0, 1, 2, 3, 4, 5], "d": [1, 2, 3, 4, 5, 6],
                       "k": ["a", "a", "a", "b", "b", "c"], "v": ["x", "w", None, "y", "y", None]})
@@ -312,10 +295,9 @@ def test_collect_aggregations_native_parity_polars():
 
 
 def test_size_list_runs_natively_on_polars():
-    """size(<List column>) MUST lower NATIVELY (list.len). The List column is built by
-    the already-native list-literal with_ so the operand dtype is List, and size is an
-    element COUNT (order-invariant -> no cudf list-reorder exposure). Direct
-    pandas-vs-polars: the intermediate List cell makes the generic sig fragile."""
+    """size(<List col>) MUST lower NATIVELY (list.len); operand from the native list-literal with_
+    (dtype List); count is order-invariant (no cudf reorder exposure); direct pandas-vs-polars
+    because the intermediate List cell makes the generic sig fragile."""
     g = _graph(4)
     query = [
         n(), rows(),
@@ -332,29 +314,22 @@ def test_size_list_runs_natively_on_polars():
     assert set(int(x) for x in poldf["sz"].tolist()) == {3}, "size of a 3-element list literal must be 3"
 
 
-# ---- cross-surface call() consistency (the silent-bridge bug class) ----
-# Shared constant so the coverage ledger can DERIVE the exercised call()-safelist set from the
-# same list the test runs on (no drift between the parametrize and the ledger's exercised source).
+# ---- cross-surface call() consistency (silent-bridge class); shared constant so the ledger
+# derives the exercised call()-safelist from the SAME list the test runs on (no drift) ----
 _CALL_CONSISTENCY_FNS = ["get_degrees", "hypergraph", "limit"]
 
 
 def _call_exercised_functions():
-    """call()-safelist function names exercised by this matrix (importable for the ledger).
-    The cross-surface consistency test drives `_CALL_CONSISTENCY_FNS`; the degree trio is
-    additionally exercised by the dedicated get_degrees / single-degree conformance tests."""
+    """call()-safelist names this matrix exercises (importable for the ledger): the consistency
+    test drives _CALL_CONSISTENCY_FNS; the degree trio also has dedicated conformance tests."""
     return set(_CALL_CONSISTENCY_FNS) | {"get_degrees", "get_indegrees", "get_outdegrees"}
 
 
 def _rowop_exercised():
-    """ROW_PIPELINE_CALLS op names asserted as a labeled SUBJECT by this matrix (importable for
-    the ledger). `with_` is exercised by the with_extend* / in-membership dedicated tests
-    (test_conformance_with_extend_* below). Other row ops are exercised only IMPLICITLY via
-    cypher text (RETURN->select, WHERE->where_rows, grouped count->group_by) or not at all —
-    those are tracked as waivers in the ledger until a labeled subject case is added. `with_`
-    (with_extend* / in-membership), `unwind` (unwind_* native+NIE), and the 10 ops driven by
-    `_ROW_OP_CASES` (rows/skip/limit/distinct/drop_cols frame ops + order_by/select/return_/
-    where_rows/group_by row_pipeline lowerings, chain+dag) are all labeled subjects now. Only the
-    correlated-subquery ops (semi_apply_mark/anti_semi_apply/join_apply) remain honest-NIE waivers."""
+    """ROW_PIPELINE_CALLS ops with a labeled SUBJECT here (importable for the ledger): `with_`
+    (with_extend*/in-membership), `unwind` (unwind_* native+NIE), and the _ROW_OP_CASES ops
+    (chain+dag). Ops exercised only implicitly via cypher text (RETURN->select etc.) stay ledger
+    waivers; only semi_apply_mark/anti_semi_apply/join_apply remain honest-NIE waivers now."""
     return {
         "with_", "unwind",
         "rows", "skip", "limit", "distinct", "drop_cols",
@@ -365,9 +340,8 @@ def _rowop_exercised():
 
 @pytest.mark.parametrize("fn", _CALL_CONSISTENCY_FNS)
 def test_conformance_call_chain_vs_dag_consistent(fn):
-    """A call must behave the SAME (parity or NIE) on the chain and the DAG surfaces — no surface
-    may silently bridge where the other declines. (assert_surfaces_agree also fails on a non-NIE
-    error on EITHER surface — stricter than the earlier inline check, which let 'err' pass.)"""
+    """A call must behave the SAME (parity or NIE) on chain and DAG — no silent bridge where the
+    other declines; assert_surfaces_agree also fails non-NIE errors (old inline check let 'err' pass)."""
     g = _graph(3)
     params = {"value": 2} if fn == "limit" else {}
     chain_q = [call(fn, params)] if params else [call(fn)]
@@ -407,11 +381,8 @@ def test_conformance_predicate_fuzz():
     assert not fails, "predicate-conformance fuzz failures:\n" + "\n".join(fails)
 
 
-# ============================================================================
-# Phase 2d native-feature wins (session 2): get_degrees / temporal / with_extend
-# Each is native-or-honest; the parity-or-NIE invariant + explicit "must run
-# NATIVELY" assertions gate them across all available engines.
-# ============================================================================
+# ==== Phase 2d native wins (session 2): get_degrees / temporal / with_extend — each gated by
+# the parity-or-NIE invariant PLUS explicit "must run NATIVELY" assertions ====
 
 # ---- NATIVE get_degrees (pure groupby/count — a real native polars win) ----
 def _degrees_graph():
@@ -443,8 +414,7 @@ def test_conformance_get_degrees_dag(label, binding):
 
 @pytest.mark.parametrize("fn", ["get_degrees", "get_indegrees", "get_outdegrees"])
 def test_degree_fn_runs_natively_on_polars(fn):
-    """The degree trio is pure groupby/count -> each MUST run NATIVELY under polars: NOT an
-    (honest-but-lazy) NotImplementedError and NOT a silent pandas bridge (native-frame probe)."""
+    """Degree trio = pure groupby/count -> MUST be NATIVE on polars: no lazy NIE, no silent bridge (frame probe)."""
     g = _degrees_graph()
     base = _run(g, [call(fn)], "pandas")
     res = _run(g, [call(fn)], "polars")
@@ -456,17 +426,15 @@ def test_degree_fn_runs_natively_on_polars(fn):
 
 @pytest.mark.parametrize("fn", ["get_degrees", "get_indegrees", "get_outdegrees"])
 def test_degree_fn_chain_vs_dag_native_consistent(fn):
-    """Cross-surface: chain call() vs let()/ref() DAG must agree — both native-ok with the
-    SAME value signature (or both NIE; a non-NIE error on either surface fails)."""
+    """Chain call() vs let()/ref() DAG: both native-ok with the SAME signature (or both NIE; non-NIE errors fail)."""
     g = _degrees_graph()
     assert_surfaces_agree(_run(g, [call(fn)], "polars"),
                           _run(g, let({"a": call(fn)}), "polars"),
                           f"{fn} chain-vs-dag")
 
 
-# ---- NATIVE get_indegrees / get_outdegrees (single-direction groupby/count) ----
-# Reuses _degrees_graph (isolated node 6, src-only 5, dst-only 4, 2->2 self-loop). A
-# self-loop is counted ONCE for the relevant direction (not double, unlike get_degrees).
+# ---- NATIVE get_indegrees/get_outdegrees on _degrees_graph; a self-loop counts ONCE per
+# direction (not double, unlike get_degrees) ----
 @pytest.mark.parametrize("fn", ["get_indegrees", "get_outdegrees"])
 @pytest.mark.parametrize("label,params", [
     ("default", {}),
@@ -553,14 +521,13 @@ def test_conformance_temporal_between_dag(label, query):
     ("cy-eq-date", "MATCH (n) WHERE n.ts = date('2020-01-15') RETURN n.id AS id"),
 ])
 def test_conformance_temporal_datevalue_cypher(label, query):
-    # Cypher date('...') folds to a DateValue in the node filter_dict -> same native lowering.
+    # Cypher date('...') folds to a DateValue in the node filter_dict -> same native lowering
     _assert_invariant(_temporal_graph(), query, f"temporal-cypher {label}")
 
 
 # ---- WITH ... extend=True (native polars `with_columns` column-extension) ----
 def test_conformance_with_extend_arithmetic_native():
-    """extend=True adds a computed column while KEEPING existing node columns, and MUST
-    run natively on polars (with_columns) — not an honest NIE."""
+    """extend=True adds a computed column KEEPING existing ones; MUST be native (with_columns), not an honest NIE."""
     g = _graph(5)
     query = [n(), rows(), with_([("p", "num + 1")], extend=True)]
     _assert_invariant(g, query, "with_extend arithmetic")
@@ -578,8 +545,7 @@ def test_conformance_with_extend_shadows_existing_column():
 
 
 def test_conformance_with_extend_chain_vs_cypher_consistent():
-    """Cross-surface: chain `with_(extend=True)` and Cypher `WITH n, ...` must AGREE —
-    both native+equal, or both honest-NIE (never the silent-bridge bug class)."""
+    """Chain with_(extend=True) vs Cypher `WITH n, ...`: both native+equal or both NIE (no silent bridge)."""
     g = _graph(7)
     chain_q = [
         n(), rows(),
@@ -593,12 +559,9 @@ def test_conformance_with_extend_chain_vs_cypher_consistent():
                           "with_extend chain-vs-cypher")
 
 
-# ============================================================================
-# Native list-literal CONSTRUCTION + `x IN [literals]` membership lowering.
-# Construction is scoped pandas-vs-polars (cudf REORDERS list elements — an orthogonal
-# cudf bug; and list-cell repr ndarray-vs-list makes the generic sig comparison fragile).
-# Membership yields a Boolean column (cudf-safe) -> full parity-or-NIE invariant.
-# ============================================================================
+# ==== Native list-literal CONSTRUCTION + `x IN [literals]` membership. Construction is scoped
+# pandas-vs-polars (cudf REORDERS list elements — orthogonal bug; ndarray-vs-list cell repr also
+# breaks the generic sig); membership yields a Boolean column (cudf-safe) -> full invariant ====
 
 def _norm_list_col(df, col):
     """Normalize a list-valued column from any engine to plain-python lists of ints,
@@ -608,9 +571,8 @@ def _norm_list_col(df, col):
 
 
 def test_conformance_list_literal_construction_native_polars():
-    """A homogeneous-int list literal `[num, num+1, 99]` builds per-row NATIVELY on polars
-    (pl.concat_list), ORDER preserved [e0,e1,e2], element-for-element parity-equal to the
-    pandas oracle. Scoped pandas-vs-polars (cudf reorders list elements; orthogonal bug)."""
+    """Homogeneous-int list literal builds per-row NATIVELY on polars (pl.concat_list), order
+    preserved, element-for-element equal to pandas; scoped pandas-vs-polars (cudf reorder bug)."""
     g = _graph(8)
     query = [n(), rows(), with_([("vals", "[num, num + 1, 99]")], extend=True)]
     res = _run(g, query, "polars")
@@ -627,16 +589,14 @@ def test_conformance_list_literal_construction_native_polars():
     ("cypher-str", "MATCH (n) RETURN n.id AS id, n.name IN ['node.1', 'node.2'] AS hit"),
 ])
 def test_conformance_in_membership(label, query):
-    """`x IN [literals]` as a ROW EXPRESSION (projection/WITH/RETURN — distinct from the
-    WHERE/IsIn predicate path) is 3-valued and yields a Boolean column -> cudf-safe, so use
-    the full parity-or-NIE invariant across every available engine."""
+    """`x IN [literals]` as a ROW EXPRESSION (vs the WHERE/IsIn predicate path): 3-valued, Boolean
+    output (cudf-safe) -> full invariant on every engine."""
     _assert_invariant(_graph(1), query, f"in-membership {label}")
 
 
 # ---- NATIVE TEMPORAL date-part: IsLeapYear lowered; boundary predicates declined ----
 def _leapyear_graph():
-    """Naive datetime64 node column spanning leap + non-leap years, incl. the century
-    edge cases (1900 NOT leap; 2000 leap) — discriminates a real Gregorian leap calc."""
+    """Naive datetime64 spanning leap/non-leap years incl. century cases (1900 NOT leap; 2000 leap) — real Gregorian calc."""
     nd = pd.DataFrame({
         "id": np.arange(7),
         "ts": pd.to_datetime([
@@ -650,8 +610,7 @@ def _leapyear_graph():
 
 
 def test_conformance_temporal_is_leap_year_parity():
-    """IsLeapYear on a NAIVE Datetime column matches the pandas oracle across leap/non-leap
-    years (incl. 1900 non-leap, 2000 leap) on every non-pandas engine, or honest-NIEs."""
+    """IsLeapYear on NAIVE Datetime matches pandas across leap/non-leap (incl. 1900/2000) on every engine, or honest-NIEs."""
     from graphistry.compute.predicates.temporal import is_leap_year
     _assert_invariant(_leapyear_graph(), [n({"ts": is_leap_year()})], "temporal is_leap_year")
 
@@ -661,10 +620,9 @@ def test_conformance_temporal_is_leap_year_parity():
     "is_quarter_end", "is_year_start", "is_year_end",
 ])
 def test_temporal_boundary_predicates_native_parity(factory):
-    """The date-part BOUNDARY predicates (month/quarter/year start/end) now lower NATIVELY on a
-    naive Datetime column via a PROVABLE calendar-field derivation (day==1 / day==days_in_month /
-    month-set, leap-aware, NaT->False) — parity with the pandas oracle on every engine, AND must
-    run natively on polars (not an honest-but-lazy NIE). _leapyear_graph spans true+false for each."""
+    """Date-part BOUNDARY predicates lower NATIVELY on naive Datetime via a provable calendar-field
+    derivation (day==1 / day==days_in_month / month-set, leap-aware, NaT->False): pandas parity on
+    every engine AND native on polars (no lazy NIE); _leapyear_graph spans true+false for each."""
     import graphistry.compute.predicates.temporal as T
     g = _leapyear_graph()
     q = [n({"ts": getattr(T, factory)()})]
@@ -675,8 +633,7 @@ def test_temporal_boundary_predicates_native_parity(factory):
 
 
 def _tzaware_graph():
-    """tz-aware (UTC) Datetime node column — the tz shape polars must DECLINE (spans a
-    year/quarter/month start 2000-01-01, a mid-year date, and a year/month end 2020-12-31)."""
+    """tz-aware (UTC) Datetime — the shape polars must DECLINE (spans year/quarter/month start, mid-year, year/month end)."""
     nd = pd.DataFrame({
         "id": np.arange(3),
         "ts": pd.to_datetime(["2000-01-01", "2019-06-01", "2020-12-31"]).tz_localize("UTC"),
@@ -688,9 +645,8 @@ def _tzaware_graph():
 
 # ---- NATIVE-vs-honest-NIE over QUERY OBJECTS (predicates / row ops; cypher tables above) ----
 def _native_ok_query_cases():
-    """(id, graph_fn, query, why-native-is-provable) — each MUST lower natively on polars
-    (never an honest-but-lazy NIE) AND satisfy the full parity-or-NIE invariant. The full
-    proofs live at the lowering sites (predicates.py / row_pipeline.py)."""
+    """(id, graph_fn, query, why-native-is-provable): each MUST lower natively on polars (no lazy
+    NIE) AND satisfy the full invariant; proofs at the lowering sites (predicates/row_pipeline)."""
     from graphistry.compute.predicates.comparison import GT, Between
     from graphistry.compute.predicates.temporal import is_leap_year
     return [
@@ -709,13 +665,10 @@ def _native_ok_query_cases():
 
 
 def _polars_nie_query_cases():
-    """(id, graph_fn, query, pandas_expect, why-polars-declines). pandas_expect: 'ok' (the
-    oracle computes — a decline is the ONLY honest polars answer), 'raises' (the oracle
-    itself errors), None (oracle behavior not load-bearing for this case).
-
-    NB the pandas-ok+polars-nie cases here are deliberately NOT routed through
-    _assert_invariant: their exprs also surface orthogonal cudf divergences (list-literal
-    element ordering; list-cell repr) filed separately — not the polars decline under test."""
+    """(id, graph_fn, query, pandas_expect, why-polars-declines); pandas_expect: 'ok' (oracle
+    computes — declining is the only honest polars answer), 'raises', None (not load-bearing).
+    Deliberately NOT routed through _assert_invariant: these exprs also surface orthogonal cudf
+    divergences (list-literal element order; list-cell repr), not the polars decline under test."""
     from graphistry.compute.predicates.comparison import GT, Between
     from graphistry.compute.predicates.is_in import IsIn
     import graphistry.compute.predicates.temporal as T
@@ -771,11 +724,8 @@ def test_query_honest_nie_on_polars(label, graph_fn, query, pandas_expect, why):
     assert _run(g, query, "polars")[0] == "nie", f"{label} must be an honest NIE on polars: {why}"
 
 
-# ============================================================================
-# NATIVE unwind (scalar-literal list -> per-row cross-join via unwind_polars).
-# Literal-list UNWIND is the ONE native polars path; list-column / string-expr /
-# nested / scalar forms honest-NIE (allowed). Labeled subject for the row-op ledger.
-# ============================================================================
+# ==== NATIVE unwind: scalar-literal list is the ONE native polars path (per-row cross-join via
+# unwind_polars); list-column/string-expr/nested/scalar forms honest-NIE. Ledger subject. ====
 
 @pytest.mark.parametrize("label,expr,as_", [
     ("ints", "[1, 2, 3]", "x"),
@@ -784,9 +734,8 @@ def test_query_honest_nie_on_polars(label, graph_fn, query, pandas_expect, why):
     ("singleton", "[42]", "x"),
 ])
 def test_conformance_unwind_literal_list_native(label, expr, as_):
-    """UNWIND of a scalar-literal list expands each active row by the list values (cypher
-    per-row cross-join). NATIVE polars path (unwind_polars cross-join): value-equal to the
-    pandas oracle AND must run natively (not an honest NIE)."""
+    """UNWIND of a scalar-literal list expands each active row by the list values (cypher per-row
+    cross-join): value-equal to pandas AND native on polars (not an honest NIE)."""
     g = _graph(11)
     query = [n(), rows(), call("unwind", {"expr": expr, "as_": as_})]
     _assert_invariant(g, query, f"unwind literal {label}")
@@ -796,16 +745,14 @@ def test_conformance_unwind_literal_list_native(label, expr, as_):
 
 
 def test_conformance_unwind_empty_list_drops_all_rows():
-    """UNWIND [] AS x yields ZERO rows on every engine (empty-list -> 0 rows, the documented
-    pandas semantic). Native-or-honest-NIE; never a silent divergence."""
+    """UNWIND [] AS x -> ZERO rows on every engine (documented pandas semantic); never a silent divergence."""
     g = _graph(12)
     query = [n(), rows(), call("unwind", {"expr": "[]", "as_": "x"})]
     _assert_invariant(g, query, "unwind empty list")
 
 
 def test_conformance_unwind_chain_vs_cypher_consistent():
-    """Cross-surface: chain UNWIND and Cypher UNWIND must AGREE — both native+equal or both NIE
-    (never the silent-bridge bug class)."""
+    """Chain UNWIND vs Cypher UNWIND: both native+equal or both NIE (no silent bridge)."""
     g = _graph(15)
     chain_q = [n(), rows(), call("unwind", {"expr": "[1, 2, 3]", "as_": "x"})]
     cypher_q = "MATCH (n) UNWIND [1, 2, 3] AS x RETURN n.id AS id, x AS x"
@@ -813,16 +760,12 @@ def test_conformance_unwind_chain_vs_cypher_consistent():
     _assert_invariant(g, cypher_q, "unwind cypher")
 
 
-# ============================================================================
-# NATIVE row-pipeline OP SUBJECTS (close the ROW_PIPELINE_CALLS ledger gaps).
-# Each target op is native on the polars CHAIN surface via _try_native_row_op,
-# and equally native on the let() DAG surface because a LIST binding is wrapped
-# into a Chain (ASTLet.__init__) and run through chain_polars — NOT the bare
-# single-call execute_row_pipeline_call path (that NIEs for the chain-only ops
-# and is tracked on the call() axis). order_by is paired with limit on the
-# UNIQUE id key so the surviving ROW SET depends on correct ordering (the
-# order-insensitive signature can't see order alone). float `f` is dropped /
-# never projected to dodge cross-engine float-repr noise.
+# ==== NATIVE row-pipeline OP SUBJECTS (close the ROW_PIPELINE_CALLS ledger gaps). Each op is
+# native on the CHAIN surface via _try_native_row_op, and equally native on let() DAG because a
+# LIST binding wraps into a Chain (ASTLet.__init__) -> chain_polars — NOT the bare single-call
+# execute_row_pipeline_call path (that NIEs for chain-only ops; tracked on the call() axis).
+# order_by pairs with limit on the UNIQUE id key so the surviving ROW SET depends on ordering
+# (the order-insensitive sig can't see order alone); float `f` dropped to dodge repr noise.
 _ROW_OP_CASES = [
     ("rows",       [n(), call("rows", {"table": "nodes"})]),
     ("skip",       [n(), rows(), call("skip", {"value": 5})]),
@@ -842,8 +785,7 @@ _ROW_OP_CASES = [
 
 @pytest.mark.parametrize("label,query", _ROW_OP_CASES)
 def test_conformance_rowop_chain(label, query):
-    """Each native row-pipeline op as a labeled CHAIN subject: parity-or-NIE on every engine
-    AND must run natively on polars (not an honest-but-lazy NIE, not a silent pandas bridge)."""
+    """Labeled CHAIN subject per row op: parity-or-NIE on every engine AND native on polars (no lazy NIE / bridge)."""
     g = _graph(20)
     _assert_invariant(g, query, f"rowop chain {label}")
     if "polars" in _NONPANDAS_ENGINES:
@@ -856,19 +798,16 @@ def test_conformance_rowop_chain(label, query):
 
 @pytest.mark.parametrize("label,query", _ROW_OP_CASES)
 def test_conformance_rowop_dag(label, query):
-    """SAME row op via a let() DAG binding (list binding -> Chain -> chain_polars): must AGREE
-    with the chain surface — native + parity here too (never a silent bridge / divergence)."""
+    """SAME op via let() DAG (list binding -> Chain -> chain_polars): native + parity too, no silent bridge/divergence."""
     _assert_invariant(_graph(20), let({"a": query}), f"rowop dag {label}")
 
 
-# group_by is now in the 4-engine _ROW_OP_CASES above — cuDF's "truth value of a Series is
-# ambiguous" bug (issue #1663 finding 4) is FIXED (group_by projects to key+value cols before
-# grouping, sidestepping the cuDF Series-truthiness path); pandas == cudf == polars == polars-gpu.
+# group_by is in the 4-engine _ROW_OP_CASES above — cuDF Series-truthiness bug (#1663 finding 4)
+# FIXED by projecting to key+value cols before grouping; pandas == cudf == polars == polars-gpu.
 
 
 def test_cudf_list_literal_order_matches_pandas():
-    """issue #1663 finding 1 FIXED: cuDF list-literal `[a,b,c]` now preserves element order
-    (cuDF routed to the order-deterministic host build, not groupby-collect)."""
+    """#1663 finding 1 FIXED: cuDF list-literal keeps element order (order-deterministic host build, not groupby-collect)."""
     if "cudf" not in _NONPANDAS_ENGINES:
         pytest.skip("cudf not available")
     nd = pd.DataFrame({"id": np.arange(4), "num": [10, 20, 30, 40]})
@@ -879,8 +818,8 @@ def test_cudf_list_literal_order_matches_pandas():
 
 
 def test_cudf_tostring_float_matches_pandas():
-    """issue #1663 finding 2 FIXED: cuDF toString(float) now string-matches pandas (host round-trip
-    through the pandas float-repr oracle), incl. the scientific-notation boundary 1e20."""
+    """#1663 finding 2 FIXED: cuDF toString(float) string-matches pandas (host round-trip via the
+    pandas float-repr oracle), incl. the scientific-notation boundary 1e20."""
     if "cudf" not in _NONPANDAS_ENGINES:
         pytest.skip("cudf not available")
     nd = pd.DataFrame({"id": np.arange(5), "f": [0.1, 1.5, -2.0, 1e10, 1e20]})

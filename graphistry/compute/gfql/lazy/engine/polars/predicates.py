@@ -1,12 +1,10 @@
 """Vectorized polars filter_by_dict for the native polars GFQL engine.
 
-Predicates are lowered to native polars expressions (no pandas round-trip) for
-the common comparison / membership / string / null cases. A predicate with no
-native lowering raises ``NotImplementedError`` (NO-CHEATING: no pandas bridge —
-silently evaluating one column via pandas would misrepresent pandas behavior as
-polars and break the columnar/GPU assumptions; use ``engine='pandas'``). All
-filtering is a single vectorized ``df.filter(expr)`` — no per-row work, no Python
-materialization.
+Common comparison/membership/string/null predicates lower to native polars expressions.
+NO-CHEATING contract: no pandas bridge — a predicate with no native lowering raises
+NotImplementedError (bridging one column would misrepresent pandas semantics as polars and
+break columnar/GPU assumptions; use engine='pandas'). All filtering is one vectorized
+``df.filter(expr)`` — no per-row work, no Python materialization.
 """
 from __future__ import annotations
 
@@ -22,15 +20,14 @@ if TYPE_CHECKING:
     import datetime
     import polars as pl
 
-# The scalar-or-temporal RHS a comparison predicate carries. Genuinely dynamic (Cypher
-# properties are dynamically typed): a python scalar, or a GFQL/py temporal value matched
-# structurally by ``type(val).__name__`` (DateValue/TemporalValue/…, never imported here).
+# Comparison-predicate RHS: genuinely dynamic (Cypher properties are dynamically typed) — a
+# python scalar or a GFQL/py temporal matched structurally by type(val).__name__
+# (DateValue/TemporalValue/…, never imported here).
 CmpValue = Union[int, float, str, bool, "datetime.date", "datetime.time", Any]
 
-# Python-`re` features the Rust regex engine (polars) rejects or evaluates differently:
-# lookaround ((?=/(?!/(?<=/(?<!) and backreferences (\\1, (?P=name), \\k<name>). polars would
-# ComputeError (lookaround) or silently differ, so a pattern using them must decline (NIE),
-# never guess. The pandas engine evaluates these with Python `re`.
+# Python-`re` features Rust regex (polars) rejects or evaluates differently: lookaround
+# ((?=/(?!/(?<=/(?<!) and backreferences (\\1, (?P=name), \\k<name>) — ComputeError or silent
+# difference, so such patterns decline (NIE), never guess; pandas evaluates them with Python `re`.
 _REGEX_RUST_INCOMPAT = re.compile(r"\(\?<?[=!]|\\[1-9]|\(\?P=|\\k<")
 
 
@@ -53,10 +50,9 @@ def _homogeneous_scalar_category(opts: List[Any]) -> Optional[str]:
     return next(iter(cats)) if (len(cats) == 1 and None not in cats) else None
 
 
-# The comparison callables predicates declare (``op = staticmethod(operator.gt)`` etc.).
-# ``pl.Expr`` implements the Python rich-comparison protocol, so for these ops
-# ``op(lhs, rhs)`` builds exactly the ``lhs > rhs`` / ... expression; anything outside
-# this whitelist has no proven lowering and falls through to the decline paths.
+# Comparison callables predicates declare (op = staticmethod(operator.gt) etc.); pl.Expr
+# implements Python rich comparison so op(lhs, rhs) builds exactly `lhs > rhs`/... . Ops outside
+# this whitelist have no proven lowering and fall through to the decline paths.
 _CMP_OPS = frozenset({operator.gt, operator.lt, operator.ge, operator.le, operator.eq, operator.ne})
 
 
@@ -68,16 +64,13 @@ def _cmp_expr(
 ) -> "Optional[pl.Expr]":
     import datetime as _dt
 
-    # NATIVE TEMPORAL (SAFE SUBSET — NO CHEATING): lower a GFQL ``DateValue`` (Cypher
-    # ``date('YYYY-MM-DD')`` or ``p.gt(date(...))``) compared against a NAIVE ``pl.Datetime``
-    # column. The pandas oracle truncates the column to its calendar date (``s.dt.date``) and
-    # compares to a tz-free python ``date`` (``DateValue._parsed``); ``col_expr.dt.date() <op>
-    # pl.lit(date)`` is the exact native equivalent — identical calendar-date truncation, no
-    # timezone on EITHER side, so parity is provable. We REQUIRE ``dtype`` (threaded from the
-    # frame schema) to confirm the column is a naive ``Datetime``; without that proof we fall
-    # through to the decline below. Everything else stays declined: tz-tagged ``DateTimeValue``
-    # (always carries a tz; pandas does tz_localize/convert), ``TimeValue``, tz-aware columns,
-    # and raw python datetimes — lowering any of those risks a silent tz/semantic mismatch.
+    # Native temporal SAFE SUBSET: DateValue (Cypher date('YYYY-MM-DD') / p.gt(date(...))) vs a
+    # NAIVE pl.Datetime column. pandas oracle: s.dt.date compared to the tz-free python date
+    # (DateValue._parsed); col_expr.dt.date() <op> pl.lit(date) is the exact equivalent — same
+    # calendar-date truncation, no tz on either side, parity provable. REQUIRE dtype (from the
+    # frame schema) to prove naive Datetime, else fall through to the decline. All else declines:
+    # tz-tagged DateTimeValue (always carries tz; pandas tz_localize/convert), TimeValue,
+    # tz-aware columns, raw python datetimes — each risks a silent tz/semantic mismatch.
     if type(val).__name__ == "DateValue":
         import polars as pl
         d = getattr(val, "_parsed", None)
@@ -89,34 +82,29 @@ def _cmp_expr(
                 return op(col_expr.dt.date(), pl.lit(d))
         # naive-Datetime parity unprovable here -> fall through to the decline below.
 
-    # Remaining temporal values (datetime/datetime-tagged/time or the GFQL TemporalValue) have
-    # no SAFE polars-literal comparison here — DECLINE (return None → honest NotImplementedError)
-    # rather than build `col > TemporalValue`, a non-None broken expr that errors at
-    # ``df.filter`` (or silently misorders). Remaining temporal-comparison lowering is a tracked
-    # feature gap; numeric/string vals are unaffected.
+    # decline (NIE): remaining temporal values (datetime/time/TemporalValue etc.) have no SAFE
+    # polars-literal comparison — returning `col > TemporalValue` would be a non-None broken expr
+    # erroring at df.filter (or silently misordering). Tracked feature gap; numeric/string
+    # vals unaffected.
     if isinstance(val, (_dt.date, _dt.datetime, _dt.time)) or type(val).__name__ in (
         "TemporalValue", "Timestamp", "Timedelta", "datetime64",
         "DateTimeValue", "TimeValue", "DateValue",
     ):
         return None
-    # NOTE (narrow residual): these comparisons do NOT apply the IEEE NaN mask that the
-    # WHERE/row-pipeline lowering does (``_nan_guard``). On a GENUINE polars NaN (not
-    # null), ``col > x`` keeps the NaN row (polars treats NaN as largest) where pandas
-    # drops it. This is unreachable on the standard ingestion path — ``from_pandas`` /
-    # ``df_to_engine`` convert NaN→null (``nan_to_null``), and filter_by_dict runs on
-    # INGESTED property columns (no in-query float math, which is the WHERE path). Only a
-    # natively-constructed polars frame carrying raw NaN would diverge; documented rather
-    # than guarded to keep the predicate lowering simple. (Mirrors the documented integer
-    # ``0/0`` column-compare residual.)
+    # Narrow residual: no IEEE NaN mask here (unlike the WHERE/row-pipeline _nan_guard) — on a
+    # GENUINE polars NaN, `col > x` keeps the row (NaN = largest) where pandas drops it.
+    # Unreachable on standard ingestion: from_pandas/df_to_engine convert NaN→null (nan_to_null)
+    # and filter_by_dict runs on INGESTED columns (no in-query float math — that's the WHERE
+    # path). Only a natively-built polars frame with raw NaN diverges; documented, not guarded,
+    # to keep the lowering simple. (Mirrors the documented integer 0/0 column-compare residual.)
     if op in _CMP_OPS:
         return op(col_expr, val)
     return None
 
 
 def _inline_regex_flag_prefix(case: bool, flags: int) -> str:
-    """Translate a pandas-style ``re`` ``flags`` int + ``case`` bool into a Rust-regex
-    inline flag prefix like ``(?im)`` (polars' regex engine honors inline flags). Empty
-    when nothing applies. Keeps the polars regex lowering faithful to the pandas one."""
+    """Translate pandas-style `re` flags int + case bool to a Rust-regex inline prefix like
+    ``(?im)`` (empty when nothing applies), keeping the polars regex lowering faithful to pandas."""
     letters = ""
     if not case or (flags & re.IGNORECASE):
         letters += "i"
@@ -130,11 +118,9 @@ def _inline_regex_flag_prefix(case: bool, flags: int) -> str:
 
 
 def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType]" = None) -> "Optional[pl.Expr]":
-    """Lower an ASTPredicate to a polars boolean expression, or None if unsupported.
-
-    ``dtype`` is the polars dtype of ``col`` (from the frame schema), threaded so the
-    temporal lowering can confirm a NAIVE ``Datetime`` column before lowering a ``DateValue``
-    comparison (else it declines). ``None`` when the dtype is unknown."""
+    """Lower an ASTPredicate to a polars boolean expression, or None if unsupported. ``dtype`` =
+    schema dtype of ``col`` (None if unknown), letting the temporal lowering prove a NAIVE
+    Datetime column before lowering a DateValue comparison (else decline)."""
     import polars as pl
 
     c = pl.col(col)
@@ -152,14 +138,12 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
             if getattr(pred, "inclusive", True):
                 return (c >= lo) & (c <= hi)
             return (c > lo) & (c < hi)
-        # NATIVE TEMPORAL Between (SAFE SUBSET — NO CHEATING): the GFQL temporal Between
-        # evaluates in pandas as GE/LE (inclusive) or GT/LT (exclusive) sub-predicates on the
-        # SAME bound; for a DateValue bound each is the exact date-truncated compare that
-        # _cmp_expr already lowers with PROVEN parity (col.dt.date() <op> pl.lit(date)). Compose
-        # the two proven endpoint compares so Between inherits that parity with NO new proof
-        # obligation. Both endpoints must be DateValue over a NAIVE Datetime column or _cmp_expr
-        # returns None -> we fall through to honest NIE (tz-aware DateTimeValue, TimeValue, raw
-        # datetime, mixed bounds, non-Datetime dtype all decline this way — never a silent mismatch).
+        # Temporal Between: pandas evaluates as GE/LE (inclusive) or GT/LT (exclusive)
+        # sub-predicates, and for DateValue bounds each is the date-truncated compare _cmp_expr
+        # already lowers with proven parity — composing the two endpoint compares adds NO new
+        # proof obligation. Both endpoints must be DateValue over a naive Datetime or _cmp_expr
+        # returns None -> honest NIE (tz-aware DateTimeValue, TimeValue, raw datetime, mixed
+        # bounds, non-Datetime dtype all decline this way — never a silent mismatch).
         inclusive = getattr(pred, "inclusive", True)
         lo_expr = _cmp_expr(c, operator.ge if inclusive else operator.gt, lo, dtype)
         hi_expr = _cmp_expr(c, operator.le if inclusive else operator.lt, hi, dtype)
@@ -168,17 +152,16 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
 
     if name == "IsIn" and hasattr(pred, "options"):
         opts = list(pred.options)
-        # Only a NON-EMPTY, single-category literal list is parity-safe: polars is_in raises
-        # (ComputeError) on a cross-type list (e.g. [1, 'a'] over an Int column), so mixed/empty
-        # declines (NIE) — matching the row-pipeline _lower_in discipline.
+        # Only non-empty single-category literal lists are parity-safe: is_in raises ComputeError
+        # on a cross-type list ([1, 'a'] over Int), so mixed/empty declines (NIE) — matching the
+        # row-pipeline _lower_in discipline.
         if opts and _homogeneous_scalar_category(opts) is not None:
             return c.is_in(opts)
         return None
 
     if name == "AllOf" and hasattr(pred, "predicates"):
-        # Conjunction (e.g. ``n.val > 20 AND n.val < 90`` folds to AllOf[GT, LT]).
-        # Lower each child natively and AND them; if ANY child can't lower, the
-        # whole predicate can't (caller raises NIE — no pandas bridge).
+        # Conjunction (n.val > 20 AND n.val < 90 folds to AllOf[GT, LT]): lower each child and
+        # AND them; if ANY child can't lower, the whole predicate can't (caller NIEs).
         child_exprs = [predicate_to_expr(col, p, dtype) for p in pred.predicates]
         if child_exprs and all(e is not None for e in child_exprs):
             lowered: "List[pl.Expr]" = [e for e in child_exprs if e is not None]
@@ -194,29 +177,26 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
         return c.is_not_null()
 
     if name == "IsLeapYear":
-        # NATIVE TEMPORAL (SAFE — NO CHEATING): pandas ``s.dt.is_leap_year`` is a Boolean over
-        # each value's calendar year; polars ``expr.dt.is_leap_year()`` is documented as the
-        # identical Boolean over the same year, for Date and Datetime columns — so parity is
-        # provable (Gregorian rule incl. the 1900-not-leap / 2000-leap century cases). REQUIRE a
-        # temporal dtype from the frame schema: a NAIVE ``Datetime`` (a tz would have pandas/polars
-        # derive the year in LOCAL time, whose equality at year boundaries we have NOT proven) or
-        # ``Date``. Anything else (tz-aware Datetime, non-temporal column, unknown dtype) declines
-        # -> honest NotImplementedError. Mirrors the naive-Datetime guard used for ``DateValue``.
+        # pandas s.dt.is_leap_year and polars expr.dt.is_leap_year() are the identical Boolean
+        # over the calendar year (Gregorian rule incl. 1900-not-leap / 2000-leap) — parity
+        # provable. Require naive Datetime or Date from the schema (a tz derives the year in
+        # LOCAL time; year-boundary equality unproven); else decline (NIE). Mirrors the
+        # naive-Datetime guard used for DateValue.
         if (isinstance(dtype, pl.Datetime) and dtype.time_zone is None) or dtype == pl.Date:
             return c.dt.is_leap_year()
         return None
 
     if name in ("IsMonthStart", "IsMonthEnd", "IsQuarterStart",
                 "IsQuarterEnd", "IsYearStart", "IsYearEnd"):
-        # NATIVE TEMPORAL boundary (PROVABLE parity — NO CHEATING): polars has NO is_month_start/.../
-        # is_year_end BOOLEAN accessor (month_start()/month_end() ROLL to a Datetime), but the pandas
-        # oracle with freq=None is a pure CALENDAR-FIELD test: is_month_start = day==1; is_month_end =
-        # day==days_in_month; quarter/year add a month-set / month==N. polars dt.day()/dt.month()/
-        # dt.days_in_month() extract the SAME fields from a naive Datetime/Date (both proleptic
-        # Gregorian, days_in_month leap-aware), so each compose is BIT-IDENTICAL to the oracle on
-        # non-null rows — a proven derivation, not a guess. pandas returns False for NaT; a polars
-        # comparison yields null -> fill_null(False) restores parity. Require naive Datetime or Date
-        # (a tz shifts the wall-clock fields), exactly like IsLeapYear above; else honest NIE.
+        # Temporal boundary predicates: polars has no is_month_start/... BOOLEAN accessor
+        # (month_start()/month_end() ROLL to a Datetime), but the pandas oracle with freq=None is
+        # a pure calendar-field test (is_month_start = day==1; is_month_end = day==days_in_month;
+        # quarter/year add a month-set / month==N). polars dt.day()/dt.month()/dt.days_in_month()
+        # extract the SAME fields (both proleptic Gregorian, days_in_month leap-aware), so each
+        # compose is BIT-IDENTICAL on non-null rows — a proven derivation, not a guess. pandas
+        # returns False for NaT; polars comparison yields null -> fill_null(False) restores
+        # parity. Require naive Datetime or Date (tz shifts wall-clock fields), like IsLeapYear;
+        # else honest NIE.
         if (isinstance(dtype, pl.Datetime) and dtype.time_zone is None) or dtype == pl.Date:
             day = c.dt.day()
             month = c.dt.month()
@@ -240,15 +220,14 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
         regex = getattr(pred, "regex", True)
         flags = getattr(pred, "flags", 0)
         if not regex:
-            # Literal substring: must NOT be regex-interpreted, or a metacharacter
-            # (``.``/``*``/``(`` …) over-matches. polars has no literal+case flag, so
-            # fold both sides for the case-insensitive literal (matches pandas' result).
+            # Literal substring must NOT be regex-interpreted (metachars like ./*/( over-match).
+            # polars has no literal+case flag, so lowercase both sides for the case-insensitive
+            # literal (matches pandas).
             if case:
                 return c.str.contains(pred.pat, literal=True)
             return c.str.to_lowercase().str.contains(pred.pat.lower(), literal=True)
-        # Regex: mirror pandas' ``case``/``flags`` via a Rust-regex inline flag prefix.
-        # Decline (NIE) patterns using Python-re-only features the Rust engine rejects /
-        # evaluates differently (lookaround, backreferences) — no silent wrong answer.
+        # Regex: mirror pandas case/flags via a Rust inline flag prefix. decline (NIE):
+        # Python-re-only features (lookaround, backreferences) — no silent wrong answer.
         if _regex_rust_incompatible(pred.pat):
             return None
         prefix = _inline_regex_flag_prefix(case, flags)
@@ -257,8 +236,7 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
     if name in ("Startswith", "Endswith") and hasattr(pred, "pat") and isinstance(pred.pat, str):
         if getattr(pred, "case", True):
             return c.str.starts_with(pred.pat) if name == "Startswith" else c.str.ends_with(pred.pat)
-        # Case-insensitive: anchored regex on the escaped literal (the literal pat
-        # is treated literally; (?i) makes it case-insensitive). Matches the pandas
+        # Case-insensitive: anchored (?i) regex on the escaped literal — matches the pandas
         # boundary predicate's lowercase-both-sides semantics for a single str pat.
         anchored = f"(?i)^{re.escape(pred.pat)}" if name == "Startswith" else f"(?i){re.escape(pred.pat)}$"
         return c.str.contains(anchored, literal=False)
@@ -283,8 +261,8 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
         return expr
 
     if name in ("Match", "Fullmatch") and hasattr(pred, "pat") and isinstance(pred.pat, str):
-        # pandas str.match = regex anchored at START; str.fullmatch = anchored BOTH ends.
-        # Decline when custom regex flags (beyond case) are set, to avoid a flag-semantics gap.
+        # pandas str.match = anchored at START; str.fullmatch = anchored BOTH ends. decline (NIE):
+        # custom regex flags beyond case — avoids a flag-semantics gap.
         if getattr(pred, "flags", 0):
             return None
         prefix = "" if getattr(pred, "case", True) else "(?i)"
@@ -300,11 +278,10 @@ def _is_membership(value: Any) -> bool:
 
 
 def _is_cross_type_predicate(df: "pl.DataFrame", col: str, pred: ASTPredicate) -> bool:
-    """True if a comparison predicate compares a numeric column to a string value
-    (or vice versa) — polars raises ``cannot compare string with numeric type`` (an
-    uncatchable Rust panic when nested) ; pandas/cypher return a value/null. Recurses
-    into ``AllOf`` (the fold of ``x>a AND x<b``) and ``Between`` (lower+upper), since a
-    cross-type comparison hidden inside those is otherwise lowered and panics."""
+    """True iff the predicate compares a numeric column to a string value (or vice versa):
+    polars raises `cannot compare string with numeric type` (an uncatchable Rust panic when
+    nested); pandas/cypher return a value/null. Recurses into AllOf (fold of x>a AND x<b) and
+    Between (lower+upper) — a cross-type compare hidden inside those would otherwise panic."""
     name = type(pred).__name__
     if name == "AllOf" and hasattr(pred, "predicates"):
         return any(_is_cross_type_predicate(df, col, p) for p in pred.predicates)
@@ -345,9 +322,7 @@ def filter_by_dict_polars(df: "pl.DataFrame", filter_dict: "Optional[Dict[str, A
                 )
             expr = predicate_to_expr(resolved_col, resolved_val, df.schema.get(resolved_col))
             if expr is None:
-                # NO-CHEATING: no native lowering for this predicate, and we will
-                # NOT bridge through pandas (evaluating one column via pandas would
-                # present pandas semantics as polars). Decline honestly.
+                # decline (NIE): no native lowering for this predicate; no pandas bridge.
                 raise NotImplementedError(
                     f"polars engine does not yet natively support the "
                     f"{type(resolved_val).__name__} predicate on column "
@@ -359,15 +334,14 @@ def filter_by_dict_polars(df: "pl.DataFrame", filter_dict: "Optional[Dict[str, A
             exprs.append(pl.col(resolved_col).is_in(list(resolved_val)))
         elif isinstance(df.schema.get(resolved_col), pl.List):
             if resolved_col == "labels":
-                # Cypher label membership: ``MATCH (n:Label)`` lowers to a scalar match
-                # on the RESERVED ``labels`` List column → ``list.contains`` (Label ∈
-                # node's labels), empty for a non-existent label, matching pandas. A
-                # plain ``==`` would cast the List to String and crash.
+                # MATCH (n:Label) = scalar match on the RESERVED `labels` List column ->
+                # list.contains (empty for a non-existent label, matching pandas). A plain ==
+                # would cast the List to String and crash.
                 exprs.append(pl.col(resolved_col).list.contains(resolved_val))
             else:
-                # A user List-valued property compared to a scalar is NOT membership —
-                # pandas compares the whole list (always unequal to a scalar). Don't
-                # silently apply contains-membership (wrong answer); decline natively.
+                # decline (NIE): a user List property vs scalar is NOT membership — pandas
+                # compares the whole list (always unequal to a scalar); contains-membership
+                # would be a silent wrong answer.
                 raise NotImplementedError(
                     f"polars engine does not yet natively support comparing the List "
                     f"column {resolved_col!r} to a scalar; use engine='pandas' "

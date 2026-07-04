@@ -1,11 +1,9 @@
 """Shared polars dtype classifiers for the native polars GFQL engine.
 
-These encode the engine's cross-type / NaN-guard correctness CONTRACT (which dtypes
-are numeric, float, or string-like), used by the predicate lowering, the expression
-lowering, and the result projection. Keeping ONE definition avoids the guards
-silently diverging when a polars dtype is added or a classification is fixed at one
-site only. Polars is imported lazily (optional dependency), matching the engine's
-convention.
+Encodes the cross-type / NaN-guard correctness CONTRACT (which dtypes are numeric, float,
+string-like) used by predicate lowering, expression lowering, and result projection — ONE
+definition so the guards can't silently diverge when a dtype is added or a classification is
+fixed at one site. Polars imported lazily (optional dependency), per engine convention.
 """
 from __future__ import annotations
 
@@ -48,9 +46,8 @@ def is_stringlike(dt: "Optional[pl.DataType]") -> bool:
     return False
 
 
-# --- frame-shape helpers (lazy/eager agnostic) -----------------------------------
-# Shared so both the chain orchestration and the degree helpers introspect frames the
-# same way regardless of DataFrame-vs-LazyFrame.
+# --- frame-shape helpers (lazy/eager agnostic), shared by chain orchestration + degree
+# helpers so frame introspection is uniform across DataFrame-vs-LazyFrame ------------
 
 def is_lazy(df: "PolarsFrame") -> bool:
     """True for a ``pl.LazyFrame`` (vs an eager ``pl.DataFrame``)."""
@@ -70,13 +67,12 @@ def col_dtype(df: "PolarsFrame", col: str) -> "pl.DataType":
 
 def endpoint_ids(frame: "PolarsT", src: str, dst: str, out_col: str,
                  dtype: "Optional[pl.DataType]" = None) -> "PolarsT":
-    """One-column frame of edge endpoints (src stacked on dst) as ``out_col`` — the
-    engine's node-id-universe builder, shared by hop/hop_eager/chain. ``dtype``
-    casts both sides to the node-id join dtype (polars won't coerce int/float join
-    keys like pandas does). NOT deduplicated: each caller applies its own
-    ``.unique(...)`` variant, preserved verbatim from the pre-refactor sites (on this
-    one-column output, plain vs ``subset=`` are equivalent — kept per-site for a
-    byte-identical diff, not semantics). Eager/lazy agnostic."""
+    """One-column frame of edge endpoints (src stacked on dst) as ``out_col`` — the engine's
+    node-id-universe builder, shared by hop/hop_eager/chain; eager/lazy agnostic. ``dtype`` casts
+    both sides to the node-id join dtype (polars won't coerce int/float join keys like pandas).
+    NOT deduplicated: each caller applies its own ``.unique(...)`` variant, preserved verbatim
+    from pre-refactor sites (plain vs ``subset=`` are equivalent on this one-column output —
+    kept per-site for a byte-identical diff, not semantics)."""
     import polars as pl
 
     def _side(c: str) -> "pl.Expr":

@@ -1,15 +1,12 @@
 """Native polars cypher result projection (Phase 2).
 
-Lives in ``gfql.lazy.engine.polars`` (not the pandas-audited ``cypher`` package) so the
-polars-only rendering doesn't depress the pandas gfql coverage audit. Handles
-the result projection for ``engine='polars'``. The #1650 default (``structured=True``)
-FLATTENS a whole-entity ``RETURN n`` to ``{output}.{field}`` columns natively for ANY
-dtype (float/temporal/nested included — they just become columns, no rendering), so the
-common whole-entity case is native regardless of dtype. The legacy Cypher display-string
-rendering (``structured=False``) stays native only for single-entity int/string/bool
-nodes; it raises NotImplementedError (NO pandas bridge — no-silent-fallback policy) for
-float/temporal/nested entity text, labels, multi-entity, edges, and exotic expressions.
-Differential-conformance gated. Differential parity vs pandas is the release gate.
+Lives in ``gfql.lazy.engine.polars`` (not the pandas-audited ``cypher`` package) so polars-only
+rendering doesn't depress the pandas gfql coverage audit. Parity-or-NIE: no pandas bridge;
+differential parity vs pandas is the release gate. The #1650 default (``structured=True``)
+FLATTENS whole-entity ``RETURN n`` to ``{output}.{field}`` columns natively for ANY dtype
+(float/temporal/nested just become columns, no rendering). Legacy display-string rendering
+(``structured=False``) is native only for single-entity int/string/bool nodes; float/temporal/
+nested entity text, labels, multi-entity, edges, and exotic expressions raise NotImplementedError.
 """
 from __future__ import annotations
 
@@ -26,22 +23,17 @@ from graphistry.Engine import is_polars_df as _is_polars_frame
 
 
 def _has_temporal_constructor_text(rows_df: pl.DataFrame, col: str) -> bool:
-    """True if a String property column holds Cypher temporal-constructor text
-    (``date({...})``, ``datetime({...})``, …).
-
-    The TCK graph builder stores temporal property values as these constructor
-    strings; the pandas projection normalizes them to ISO (``'1910-05-06'``) via
-    ``_normalize_temporal_constructor_series``. That normalizer is not yet ported
-    natively, so a standalone temporal-property projection must decline honestly
-    (NIE) rather than leak the raw constructor text. Cheap native scan — no pandas
-    bridge. (Whole-entity returns flatten the same raw column but are re-rendered
-    correctly downstream via ``render_entity_text``, so only standalone property
-    projection needs this guard.)"""
+    """True if a String property column holds Cypher temporal-constructor text (``date({...})``,
+    ``datetime({...})``, …). The TCK graph builder stores temporal properties as these strings;
+    the pandas projection normalizes them to ISO ('1910-05-06') via
+    _normalize_temporal_constructor_series, not yet ported — so standalone temporal-property
+    projection declines (NIE) rather than leak raw constructor text. Cheap native scan. Only
+    standalone property projection needs this guard: whole-entity returns flatten the same raw
+    column but are re-rendered downstream via render_entity_text."""
     import polars as pl
     from graphistry.compute.gfql.temporal.constructors import TEMPORAL_CALL_EXPR_RE
-    # Anchor with ^ so ordinary string values whose text merely CONTAINS a substring
-    # like "date" (``update({...})``, ``candidate(...)``, ``my date({x})``) don't
-    # false-positive — these columns hold a WHOLE constructor string, not embedded text.
+    # ^-anchored so values merely CONTAINING "date" (update({...}), candidate(...),
+    # my date({x})) don't false-positive — these columns hold a WHOLE constructor string.
     pattern = r"^\s*" + TEMPORAL_CALL_EXPR_RE.pattern
     try:
         return bool(
@@ -52,13 +44,10 @@ def _has_temporal_constructor_text(rows_df: pl.DataFrame, col: str) -> bool:
 
 
 def _native_scalar_text_expr(col: str, dtype: Any) -> Optional[Any]:
-    """Per-dtype cypher value rendering as a polars expression, or None to bail.
-
-    Matches the pandas entity renderer for the safe scalar dtypes: ints raw,
-    bools lowercased, strings single-quoted with ``\\``→``\\\\`` then ``'``→``\\'``.
-    Floats (scientific/NaN repr diverges from pandas), temporal and nested types
-    return None so the caller raises NotImplementedError for those entities.
-    """
+    """Per-dtype cypher value rendering as a polars expression, or None to bail. Matches the
+    pandas entity renderer for safe scalars: ints raw, bools lowercased, strings single-quoted
+    with ``\\``→``\\\\`` then ``'``→``\\'``. Floats (scientific/NaN repr diverges from pandas),
+    temporal, and nested types return None → caller NIEs for those entities."""
     import polars as pl
     from .dtypes import is_int
     if is_int(dtype):
@@ -72,12 +61,9 @@ def _native_scalar_text_expr(col: str, dtype: Any) -> Optional[Any]:
 
 
 def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Optional[Any]:
-    """Native polars ``({prop: val, ...})`` node entity text for the single-entity
-    case with int/string/bool properties and no labels; None → caller raises.
-
-    ``pl.concat_str(..., ignore_nulls=True)`` joins only the non-null property
-    segments with ``", "``, exactly matching the pandas renderer's null-omission.
-    """
+    """Native ``({prop: val, ...})`` node entity text for the single-entity int/string/bool
+    no-labels case; None → caller raises. ``pl.concat_str(..., ignore_nulls=True)`` joins only
+    non-null property segments with ", ", exactly matching the pandas renderer's null-omission."""
     import polars as pl
 
     cols = list(rows_df.columns)
@@ -90,8 +76,8 @@ def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Opt
         return None
     from .dtypes import is_int
     schema = rows_df.schema
-    # Mirror entity_props.node_property_columns but with a polars-aware "numeric
-    # id is a property" check (the pandas helper's pd.api.types check drops id).
+    # Mirror entity_props.node_property_columns with a polars-aware "numeric id is a property"
+    # check (the pandas helper's pd.api.types check drops id).
     internal = {"id", "labels", "type"}
     excluded = set(str(c) for c in (exclude or ()))
     include_id = "id" in cols and is_int(schema["id"])
@@ -113,21 +99,18 @@ def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Opt
         props = pl.concat_str(segments, separator=", ", ignore_nulls=True)
         has_props = props.str.len_chars() > 0
         rendered = pl.lit("(") + pl.when(has_props).then(pl.lit("{") + props + pl.lit("}")).otherwise(pl.lit("")) + pl.lit(")")
-    # Nullify absent (OPTIONAL-MATCH miss) rows: the alias marker column is null
-    # there, and an absent entity must render as null, not "()" (mirrors the pandas
-    # renderer's _nullify_missing_alias_rows). A real property-less node keeps "()".
+    # Nullify absent (OPTIONAL-MATCH miss) rows — alias marker is null there and an absent
+    # entity must render null, not "()" (mirrors pandas _nullify_missing_alias_rows); a real
+    # property-less node keeps "()".
     return pl.when(pl.col(alias).is_null()).then(None).otherwise(rendered)
 
 
 def _flat_entity_exprs_polars(rows_df: pl.DataFrame, projection: ResultProjectionPlan, source_alias: str, output_name: str, id_column: Optional[str]) -> Optional[List[pl.Expr]]:
-    """Structured (flattened) whole-entity projection (#1650), polars edition.
-
-    Mirrors the pandas ``_flat_entity_columns`` exactly (same field selection +
-    ordering via the shared ``_flat_entity_field_names``) so polars == pandas:
-    one ``pl.col(field).alias("{output}.{field}")`` per entity field. Single-entity
-    only (bail to None on multi-entity prefixed columns or absent fields). Works
-    for ANY dtype (float/temporal/nested just become columns — no rendering), so
-    structured returns cover cases the entity-text path had to defer."""
+    """Structured (flattened) whole-entity projection (#1650), polars edition. Mirrors pandas
+    ``_flat_entity_columns`` exactly (same field selection + ordering via the shared
+    ``_flat_entity_field_names``): one ``pl.col(field).alias("{output}.{field}")`` per field.
+    Single-entity only (None on multi-entity prefixed columns or absent fields). Works for ANY
+    dtype (float/temporal/nested just become columns), covering cases entity-text defers."""
     import polars as pl
     from dataclasses import replace
     from graphistry.compute.gfql.cypher.result_postprocess import _flat_entity_field_names
@@ -150,9 +133,8 @@ def _flat_entity_exprs_polars(rows_df: pl.DataFrame, projection: ResultProjectio
 
 
 def _try_native_projection(result: Plottable, rows_df: pl.DataFrame, projection: ResultProjectionPlan, structured: bool) -> Optional[Plottable]:
-    """Native polars projection for property/expr columns already present in the
-    (polars) row table + structured-flat or entity-text whole-entity returns.
-    None → caller raises NIE."""
+    """Native projection for property/expr columns already in the polars row table + structured-
+    flat or entity-text whole-entity returns; None → caller raises NIE."""
     import polars as pl
 
     exprs = []
@@ -162,8 +144,8 @@ def _try_native_projection(result: Plottable, rows_df: pl.DataFrame, projection:
                 return None  # edge entity rendering -> defer (NIE)
             source_alias = column.source_name or projection.alias
             if structured:
-                # #1650 default: flatten to {output}.{field} columns (near-free,
-                # any dtype). Falls back to text only for synthesized-absent rows.
+                # #1650 default: flatten to {output}.{field} (near-free, any dtype);
+                # text fallback only for synthesized-absent rows.
                 id_column = result._node
                 flat = _flat_entity_exprs_polars(rows_df, projection, source_alias, column.output_name, id_column)
                 if flat is not None:
@@ -183,9 +165,8 @@ def _try_native_projection(result: Plottable, rows_df: pl.DataFrame, projection:
         if dtype == pl.String and _has_temporal_constructor_text(rows_df, src):
             return None  # temporal-constructor-string property -> defer (NIE)
         exprs.append(pl.col(src).alias(column.output_name))
-    # pandas tolerates duplicate output column names (e.g. RETURN n, n.val emits
-    # n.val twice — once from the flattened entity, once explicit); polars .select
-    # rejects duplicate names. Defer (NIE) rather than diverge or crash.
+    # decline (NIE): duplicate output names — pandas tolerates them (RETURN n, n.val emits n.val
+    # twice: flattened entity + explicit) but polars .select rejects them; don't diverge or crash.
     out_names = [e.meta.output_name() for e in exprs]
     if len(out_names) != len(set(out_names)):
         return None
@@ -203,14 +184,13 @@ def apply_result_projection_polars(
     *,
     structured: bool = True,
 ) -> Plottable:
-    """Native polars result projection, or honest NotImplementedError.
+    """Native polars result projection, or honest NotImplementedError (no pandas fallback).
 
-    NO pandas fallback (no-silent-fallback policy). ``structured=True`` (#1650
-    default) flattens whole-entity returns to ``{output}.{field}`` columns (any
-    dtype, near-free); ``structured=False`` renders the legacy Cypher display
-    string natively for int/string/bool single-entity nodes. Multi-entity
-    bindings, edge entity-text, and (text mode) float/temporal/nested/label
-    columns are not yet native → raise rather than secretly run the pandas renderer.
+    ``structured=True`` (#1650 default): flatten whole-entity returns to ``{output}.{field}``
+    columns (any dtype, near-free). ``structured=False``: legacy Cypher display string, native
+    for int/string/bool single-entity nodes. Multi-entity bindings, edge entity-text, and (text
+    mode) float/temporal/nested/label columns are not yet native → raise rather than secretly
+    run the pandas renderer.
     """
     rows_df = result._nodes
     native = _try_native_projection(result, rows_df, projection, structured)

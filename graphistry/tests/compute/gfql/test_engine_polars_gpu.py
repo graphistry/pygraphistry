@@ -1,11 +1,7 @@
-"""Differential: engine='polars-gpu' == engine='polars'.
-
-The GPU execution mode of the native Polars engine (cudf_polars) runs the same
-ops but collects the hot joins on GPU; it MUST produce identical results to CPU
-Polars (which is itself parity-gated vs pandas). Reuses the cypher conformance
-corpus + core traversals. Skips when no GPU / cudf_polars is available.
-See plans/gfql-polars-engine (GPU engine, stacked on the CPU engine).
-"""
+"""Differential: engine='polars-gpu' == engine='polars'. The GPU mode (cudf_polars) runs the same
+ops but collects the hot joins on GPU; it MUST match CPU Polars (itself parity-gated vs pandas).
+Reuses the cypher conformance corpus + core traversals; skips when no GPU / cudf_polars.
+See plans/gfql-polars-engine (GPU engine)."""
 import pandas as pd
 import pytest
 
@@ -67,10 +63,9 @@ def test_gpu_chain_parity(ops_name):
 
 @pytest.mark.parametrize("executor", ["in-memory", "streaming"])
 def test_gpu_executor_modes_parity(executor):
-    """Both cudf-polars GPU executors (``in-memory`` default + ``streaming`` opt-in) must produce
-    results identical to CPU Polars (itself pandas-gated). Locks in the streaming executor on a
-    real GPU — otherwise only covered by a mock-wiring assertion (test_engine_polars_chain) plus
-    manual dgx runs. Skipped in CI (no GPU); runs on the dgx GPU lane."""
+    """Both GPU executors (in-memory default + streaming opt-in) must match CPU Polars. Locks in
+    the streaming executor on a REAL GPU — otherwise only mock-wiring-covered
+    (test_engine_polars_chain) + manual dgx runs. Skipped in CI (no GPU); dgx GPU lane."""
     from graphistry.compute.gfql import lazy
     g = _graph(seed=7, n=60)
     ops = [n(), e_forward(), n()]
@@ -86,7 +81,7 @@ def test_gpu_executor_modes_parity(executor):
 
 
 def test_polars_gpu_engine_enum_is_explicit_only():
-    # AUTO must never resolve to the GPU engine — opt-in only.
+    # AUTO must never resolve to the GPU engine — opt-in only
     from graphistry.Engine import Engine, resolve_engine, EngineAbstract
     assert Engine.POLARS_GPU.value == "polars-gpu"
     assert resolve_engine(EngineAbstract.AUTO) != Engine.POLARS_GPU
@@ -95,9 +90,9 @@ def test_polars_gpu_engine_enum_is_explicit_only():
 
 @pytest.mark.parametrize("target", ["polars", "polars-gpu"])
 def test_cudf_to_polars_via_arrow_preserves_dtypes_and_nulls(target):
-    # A cuDF frame converts to polars via Arrow (cuDF's native interchange), not a
-    # cuDF -> pandas -> polars double-convert. The pandas detour is lossy: a nullable
-    # Int64 degrades to Float64 (null -> NaN). Arrow preserves dtypes and nulls.
+    # cuDF converts to polars via Arrow (native interchange), NOT a cuDF->pandas->polars
+    # double-convert — the pandas detour is lossy (nullable Int64 degrades to Float64,
+    # null -> NaN); Arrow preserves dtypes and nulls
     cudf = pytest.importorskip("cudf")
     from graphistry.Engine import Engine, df_to_engine
 

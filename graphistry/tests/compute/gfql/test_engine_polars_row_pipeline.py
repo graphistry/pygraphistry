@@ -1,13 +1,8 @@
-"""Differential parity: native polars cypher row pipeline == pandas.
-
-Phase 2 of the GFQL polars engine. Covers the boundary-call dispatch
-(``chain_polars`` splitting traversal from trailing ``call()`` ops) plus the
-native polars frame ops (rows / limit / skip / distinct / drop_cols) and the
-host-bridged result projection. Pandas is the oracle: for every supported
-cypher query the polars engine must return an identical result table (and a
-polars-typed frame). Not-yet-ported ops must raise NotImplementedError, never
-silently diverge. See plans/gfql-polars-engine.
-"""
+"""Differential parity: native polars cypher row pipeline == pandas (the oracle). Phase 2:
+boundary-call dispatch (chain_polars splits traversal from trailing call() ops), native frame
+ops (rows/limit/skip/distinct/drop_cols), host-bridged projection. Supported queries return an
+identical polars-typed table; not-yet-ported ops raise NotImplementedError, never silently
+diverge. See plans/gfql-polars-engine."""
 import pandas as pd
 import pytest
 
@@ -81,9 +76,8 @@ SUPPORTED = [
     "MATCH (n) RETURN n",
 ]
 
-# Row ops lowered to NATIVE polars (no pandas) — select/with_/return_ projection
-# (property/arithmetic/comparison/boolean/literal), order_by, group_by
-# (count/sum/avg/min/max), unwind. Parity vs pandas; results are polars-typed.
+# Row ops lowered to NATIVE polars (no pandas): select/with_/return_ projection (property/
+# arith/comparison/boolean/literal), order_by, group_by (count/sum/avg/min/max), unwind.
 NATIVE_LOWERED = [
     "MATCH (n) RETURN n.val",
     "MATCH (n) RETURN n.val AS v, n.kind",
@@ -108,8 +102,7 @@ NATIVE_LOWERED = [
     "MATCH (n) UNWIND [1, 2, 3] AS x RETURN x",
 ]
 
-# NO-CHEATING (see plan.md): no native impl yet -> NotImplementedError, never a
-# silent pandas bridge. Multi-entity bindings + cross-entity same-path WHERE.
+# NO-CHEATING (plan.md): no native impl yet -> NotImplementedError, never a silent pandas bridge
 DEFERRED = [
     "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",   # cross-entity WHERE
     "MATCH (n)-[e]->(m) RETURN n, m",                       # multi-entity bindings
@@ -192,9 +185,8 @@ def test_polars_empty_result_shape():
     assert list(g._nodes.columns) == list(g_pd._nodes.columns)
 
 
-# Direct frame-op coverage: exercises each native polars branch on a real
-# polars-framed graph, independent of which cypher shapes happen to compile to
-# which ops. Keeps the engine-polymorphic frame_ops layer pinned.
+# Direct frame-op coverage: each native polars branch on a real polars-framed graph, independent
+# of which cypher shapes compile to which ops — pins the engine-polymorphic frame_ops layer.
 def _polars_graph():
     from graphistry.Engine import Engine, df_to_engine
     nodes = pd.DataFrame({"id": [0, 1, 2, 3], "k": ["a", "a", "b", "b"], "v": [1, 2, 3, 4]})
@@ -292,8 +284,8 @@ def test_run_calls_polars_empty_and_native():
 
 
 def test_run_calls_polars_binding_ops_defers():
-    """Named middle + bare rows() rewrites to rows(binding_ops), which is not
-    native -> NotImplementedError (NO pandas bridge, see plan.md NO-CHEATING)."""
+    """Named middle + bare rows() rewrites to rows(binding_ops) — not native, so
+    NotImplementedError (NO pandas bridge; plan.md NO-CHEATING)."""
     from graphistry.compute.gfql.lazy.engine.polars.chain import _run_calls_polars
     from graphistry.compute.ast import call, n, e_forward
     g = _polars_graph()

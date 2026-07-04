@@ -1,22 +1,15 @@
 """Native polars lowering for the cypher row pipeline (Phase 2, vectorized).
 
-This module lowers the *common* cypher expressions to native polars expressions
-so the row ops stay vectorized on polars (no pandas round-trip). It is
-deliberately CONSERVATIVE: ``lower_expr`` returns ``None`` for anything it can't
-prove equivalent to pandas, and ``chain._run_calls_polars`` then raises an honest
-``NotImplementedError`` (NO-CHEATING — there is NO pandas bridge; a row op the
-polars engine can't lower natively declines, pointing at ``engine='pandas'``).
-Differential parity vs pandas is the correctness gate.
+NO-CHEATING contract: no pandas bridge — ``lower_expr`` returns ``None`` for anything not
+provably pandas-equivalent, and ``chain._run_calls_polars`` raises NotImplementedError (NIE)
+pointing at ``engine='pandas'``. Differential parity vs pandas is the correctness gate.
 
-Currently lowered: property access (``alias.prop`` → column), bare columns,
-literals, arithmetic/comparison/boolean ``BinaryOp``, ``UnaryOp``, ``IsNullOp``,
-``CaseWhen`` (ternary form), the ``_lower_function`` whitelist (``coalesce``/
-``abs``/``sqrt``/``sign`` + dtype-gated ``size``/``substring``/``toInteger``/
-``toFloat``/``toBoolean``/``toString``), homogeneous list literals ``[e0, e1,
-...]`` and ``x IN [literals]`` membership. Ops wired to native: ``select``/
-``with_``/``return_`` projection, ``order_by``, ``where_rows``, ``group_by``,
-``unwind``. Everything else (mixed/nested/empty list, map, subscript, other
-functions, temporal arithmetic) → NIE.
+Lowered: property access / bare columns / literals; arithmetic/comparison/boolean BinaryOp,
+UnaryOp, IsNullOp, CaseWhen (ternary); function whitelist (coalesce/abs/sqrt/sign + dtype-gated
+size/substring/toInteger/toFloat/toBoolean/toString); homogeneous list literals and
+``x IN [literals]``. Ops wired native: select/with_/return_ projection, order_by, where_rows,
+group_by, unwind. Everything else (mixed/nested/empty list, map, subscript, other functions,
+temporal arithmetic) → NIE.
 """
 from __future__ import annotations
 
@@ -33,15 +26,13 @@ from graphistry.Plottable import Plottable
 from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
 
 
-# Active row-table schema (col -> polars dtype), set by select/where/order_by around
-# lowering so lower_expr can infer FLOAT operands and apply the NaN-comparison guard
-# (below). Free to populate — the schema is already on the table, no scan.
+# Active row-table schema (col -> dtype), set around lowering so lower_expr can infer FLOAT
+# operands for the NaN guard. Free to populate — schema is already on the table, no scan.
 _SCHEMA: "contextvars.ContextVar[dict]" = contextvars.ContextVar("gfql_polars_schema", default={})
 
-# Comparison ops needing the NaN guard. Polars defines NaN as the LARGEST value, so
-# NaN compares >/>=/== as TRUE — but IEEE/Python/pandas/Cypher compare any NaN as
-# FALSE (and != as TRUE; the Neo4j TCK agrees). For float operands we mask the
-# polars result to the IEEE answer. ``is_nan()`` is float-only, hence the inference.
+# Ops needing the NaN guard: polars treats NaN as the LARGEST value (>/>=/== TRUE), but
+# IEEE/Python/pandas/Cypher compare NaN as FALSE (!= TRUE; Neo4j TCK agrees). Float operands
+# get masked to the IEEE answer; ``is_nan()`` is float-only, hence the dtype inference.
 _NAN_GUARD_OPS = frozenset({"<", ">", "<=", ">=", "=", "==", "<>", "!="})
 _NAN_NE_OPS = frozenset({"<>", "!="})
 _ORDER_OPS = frozenset({"<", ">", "<=", ">="})
@@ -58,11 +49,9 @@ def _parser():
     return parse_expr
 
 
-# Cypher binary operators → polars expression methods. Comparison/boolean use
-# polars' null-propagating semantics, which match pandas for these scalar cases
-# (verified by differential parity); anything subtler returns None upstream.
-# ``pl.Expr`` implements the Python arithmetic/rich-comparison protocol, so
-# ``operator.*`` builds exactly the ``left <op> right`` expression per token.
+# Cypher binary op → polars expr via operator.* (pl.Expr implements the Python arithmetic/
+# rich-comparison protocol). Null-propagating semantics match pandas here (parity-verified);
+# anything subtler returns None upstream.
 _BINOP_FNS: Dict[str, Callable[[Any, Any], Any]] = {
     "+": operator.add, "-": operator.sub, "*": operator.mul, "/": operator.truediv,
     "%": operator.mod,  # polars mod is floored, like pandas (NOTE: no negative-operand % conformance case yet)
@@ -77,11 +66,9 @@ def _apply_binop(op: str, left: pl.Expr, right: pl.Expr) -> Optional[pl.Expr]:
         return fn(left, right)
     o = op.upper()
     if o in ("AND", "OR"):
-        # Cypher AND/OR are boolean operators with Kleene 3-valued logic (polars
-        # Boolean & / | already match: true|null=true, false&null=false,
-        # null&null=null). Cast operands to Boolean so a bare ``null`` literal
-        # (lowered to a Null-dtype lit) doesn't raise `bitand not supported for
-        # dtype null`; casting a real Boolean column is a no-op.
+        # Kleene 3VL: polars Boolean &/| already match (true|null=true, false&null=false,
+        # null&null=null). Cast to Boolean so a bare null lit doesn't raise
+        # `bitand not supported for dtype null`; no-op on a real Boolean column.
         import polars as pl
         lb, rb = left.cast(pl.Boolean), right.cast(pl.Boolean)
         return lb & rb if o == "AND" else lb | rb
@@ -89,12 +76,9 @@ def _apply_binop(op: str, left: pl.Expr, right: pl.Expr) -> Optional[pl.Expr]:
 
 
 def _resolve_property(alias: str, prop: str, columns: Sequence[str]) -> Optional[str]:
-    """Resolve ``alias.prop`` to a row-table column (None if ambiguous/absent).
-
-    Multi-entity bindings tables prefix columns (``n.val``); single-entity row
-    tables expose the bare property column (``val``) plus an ``alias`` marker
-    column. Prefer the prefixed form to avoid cross-entity collisions.
-    """
+    """Resolve ``alias.prop`` to a row-table column (None if ambiguous/absent). Prefer the
+    multi-entity prefixed form (``n.val``) over single-entity bare ``val`` + ``alias`` marker
+    column, avoiding cross-entity collisions."""
     prefixed = f"{alias}.{prop}"
     if prefixed in columns:
         return prefixed
@@ -104,12 +88,8 @@ def _resolve_property(alias: str, prop: str, columns: Sequence[str]) -> Optional
 
 
 def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.Expr]:
-    """Lower a whitelisted scalar cypher function to polars, or None to defer.
-
-    Only functions whose polars mapping matches the pandas engine's semantics
-    (verified by differential parity) are admitted; everything else returns None
-    so the caller raises NotImplementedError rather than guessing.
-    """
+    """Lower a whitelisted scalar cypher function to polars, or None to defer. Only
+    parity-verified mappings admitted; anything else returns None (caller NIEs, never guesses)."""
     import polars as pl  # function-local: polars is an optional dependency
     name = node.name.lower()
     args: List[pl.Expr] = []
@@ -130,13 +110,11 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         # polars .sign() == np.sign for int/float (-1/0/1; null/NaN preserved); parity-verified.
         return args[0].sign()
     if name == "size" and len(args) == 1:
-        # cypher size(x) = #chars of a String OR #elements of a List. These map to
-        # DIFFERENT polars ops by dtype, so resolve the operand's output dtype and
-        # lower only the two provable shapes. polars str.len_chars == pandas str.len
-        # (code points); list.len == pandas str.len over list elements; null/empty
-        # preserved on both — parity-verified. Numeric / Categorical / unknown decline
-        # (NIE): pandas' size() over a non-sequence Series returns the ROW COUNT — a
-        # quirk we refuse to replicate, and Categorical .str raises in polars only.
+        # size(x): #chars (String) or #elements (List) — different polars ops, so gate by output
+        # dtype. str.len_chars == pandas str.len (code points); list.len parity; null/empty
+        # preserved — parity-verified. Numeric/Categorical/unknown decline (NIE): pandas size()
+        # over a non-sequence Series returns the ROW COUNT (quirk we refuse to replicate), and
+        # Categorical .str raises in polars only.
         dt = _expr_output_dtype(args[0])
         if dt == pl.String:
             return args[0].str.len_chars()
@@ -145,13 +123,11 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         return None
     if name == "substring" and len(args) in (2, 3):
         from graphistry.compute.gfql.expr_parser import Literal
-        # cypher substring(s, start[, length]) is 0-based. The pandas engine computes
-        # s.str.slice(start, start+length) (Python slice); polars str.slice(offset,
-        # length) is offset+length. They agree EXACTLY only for NON-NEGATIVE integer
-        # start/length (negative start with a length diverges: pandas s[-2:1]=='' vs
-        # polars slice(-2,3) keeps chars — a silent wrong answer). Admit only int
-        # literals >= 0 (negatives parse as UnaryOp, so the Literal gate declines them
-        # too) over a String column (polars str.slice raises otherwise; pandas declines).
+        # substring(s, start[, length]), 0-based: pandas slices s[start:start+length]; polars
+        # str.slice(offset, length). Equal ONLY for non-negative int start/length (negative start
+        # + length diverges: pandas s[-2:1]=='' vs polars slice(-2,3) keeps chars — silent wrong
+        # answer). Admit int literals >= 0 (negatives parse as UnaryOp, so the Literal gate also
+        # declines them) over a String column (polars raises otherwise; pandas declines).
         start_node = node.args[1]
         length_node = node.args[2] if len(node.args) == 3 else None
         if not (isinstance(start_node, Literal) and isinstance(start_node.value, int)
@@ -168,53 +144,49 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         # offset>=0, length>=0 (or None=to-end) → identical chars on pandas/polars.
         return args[0].str.slice(start_node.value, length_val)
     if name == "tointeger" and len(args) == 1:
-        # cypher toInteger: the pandas oracle is inner.astype(float).fillna(0).astype("int64")
-        # with the original null_mask restored. _gfql_null_mask uses isna(), so NaN IS null on
-        # pandas (NaN/null -> null); finite floats TRUNCATE toward zero (== polars float->int
-        # cast). Admit only dtypes whose pandas result polars provably reproduces, by output dtype:
+        # toInteger oracle: pandas inner.astype(float).fillna(0).astype("int64") + isna() null_mask
+        # restored, so NaN IS null (NaN/null -> null); finite floats truncate toward zero
+        # (== polars float->int cast). Admit only output dtypes polars provably reproduces:
         dt = _expr_output_dtype(args[0])
         if _dtype_is_int(dt) or dt == pl.Boolean:
-            # Int/Bool: identity widening (bool True/False -> 1/0); no NaN possible, nulls
-            # preserved on both (pandas int/bool astype(float).astype(int64) == value).
+            # Int/Bool: identity widening (True/False -> 1/0); no NaN possible, nulls preserved.
             return args[0].cast(pl.Int64)
         if _dtype_is_float(dt):
-            # Float: NaN AND null both map to null on pandas; finite truncates toward zero.
-            # Mask NaN/null EXPLICITLY (don't trust polars' NaN->int cast internals) and
-            # truncate the rest via strict=False (the masked rows then never fail the cast).
+            # Float: NaN AND null -> null on pandas; finite truncates. Mask NaN/null EXPLICITLY
+            # (don't trust polars' NaN->int cast internals); strict=False truncates the rest
+            # (masked rows never fail the cast).
             return pl.when(args[0].is_nan() | args[0].is_null()).then(
                 pl.lit(None, dtype=pl.Int64)
             ).otherwise(args[0].cast(pl.Int64, strict=False))
-        # String: pandas astype(float) RAISES on non-numeric content (NOT null-on-failure),
-        # which polars strict=False would silently turn into nulls — a divergence. DECLINE (NIE).
+        # String: pandas astype(float) RAISES on non-numeric (not null-on-failure); polars
+        # strict=False would silently null -> divergence. Decline (NIE).
         return None
     if name == "tofloat" and len(args) == 1:
-        # cypher toFloat: pandas oracle = inner.astype(float) with the isna() null_mask restored
-        # via .where(~mask, pd.NA). CRUCIALLY there is NO .fillna(0)/int step (contrast toInteger):
-        # float64 has no separate null sentinel, so an isna()-masked NaN re-materializes as NaN —
-        # NaN is PRESERVED, not nulled. A plain cast preserves both NaN and null, so NO explicit
-        # NaN mask is needed. Admit only dtypes whose pandas astype(float) polars reproduces:
+        # toFloat oracle: pandas inner.astype(float) + isna() mask via .where(~mask, pd.NA).
+        # CRUCIALLY no .fillna(0)/int step (contrast toInteger): float64 has no null sentinel, so
+        # a masked NaN re-materializes as NaN — NaN is PRESERVED, not nulled. A plain cast
+        # preserves both NaN and null, so no explicit NaN mask. Admit provable dtypes only:
         dt = _expr_output_dtype(args[0])
         if _dtype_is_int(dt) or dt == pl.Boolean or _dtype_is_float(dt):
-            # Int/UInt/Bool/Float -> Float64: exact IEEE widening (bool True/False -> 1.0/0.0;
-            # nulls preserved; NaN preserved). Matches inner.astype(float) on pandas.
+            # Int/UInt/Bool/Float -> Float64: exact IEEE widening (True/False -> 1.0/0.0;
+            # nulls + NaN preserved) == pandas inner.astype(float).
             return args[0].cast(pl.Float64)
-        # String: pandas astype(float) RAISES on non-numeric content (data-dependent, NOT
-        # null-on-failure); polars strict=False would silently null -> divergence. DECLINE (NIE).
+        # String: pandas astype(float) RAISES on non-numeric (data-dependent); polars
+        # strict=False would silently null -> divergence. Decline (NIE).
         return None
     if name == "toboolean" and len(args) == 1:
-        # cypher toBoolean: the pandas oracle parses a fixed token set ("true"/"t"/"1"/"yes" vs
-        # "false"/"f"/"0"/"no") over astype(str), ERRORING on any other token, and is data-
-        # dependent for numerics (only exact 0/1 map; "2"/"1.0" error). The only statically-
-        # provable parity case is a Boolean column -> identity (nulls preserved on both).
+        # toBoolean oracle: pandas parses fixed tokens ("true"/"t"/"1"/"yes" vs "false"/"f"/"0"/
+        # "no") over astype(str), ERRORING otherwise; numerics data-dependent (only exact 0/1;
+        # "2"/"1.0" error). Only statically-provable case: Boolean identity (nulls preserved).
         # Strings (polars cast won't parse "yes"/"t"/...) and numerics decline (NIE).
         if _expr_output_dtype(args[0]) == pl.Boolean:
             return args[0].cast(pl.Boolean)
         return None
     if name == "tostring" and len(args) == 1:
-        # cypher toString: pandas does astype(str) then rewrites "True"/"False" -> "true"/"false".
-        # Admit only dtypes whose textual form polars reproduces EXACTLY: Boolean (polars casts to
-        # lowercase "true"/"false"), Int (decimal digits), String (identity). DECLINE Float (repr
-        # diverges: pandas str(1e20)='1e+20' vs polars formatting) and temporal/Categorical/other.
+        # toString oracle: pandas astype(str) + "True"/"False" -> "true"/"false" rewrite. Admit
+        # dtypes whose text polars reproduces EXACTLY: Boolean (lowercase), Int (decimal digits),
+        # String (identity). Decline Float (repr diverges: pandas str(1e20)='1e+20' vs polars
+        # formatting) and temporal/Categorical/other.
         dt = _expr_output_dtype(args[0])
         if dt == pl.Boolean or _dtype_is_int(dt) or dt == pl.String:
             return args[0].cast(pl.String)
@@ -224,10 +196,9 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
 
 _ISO_DURATION_RE = re.compile(r"^-?P(?=[0-9T])")
 
-# ISO-8601 date / datetime / time-with-seconds-or-timezone. Cypher ``date({...})`` /
-# ``time({...})`` / ``datetime({...})`` are lowered to these ISO strings; comparing
-# them with polars string ``</>`` is LEXICOGRAPHIC (wrong across timezones/precision).
-# Requires seconds or a timezone on bare times so ordinary ``'10:00'`` strings don't match.
+# ISO-8601 date/datetime/time-with-seconds-or-timezone — what cypher date()/time()/datetime()
+# lower to; polars string </> compares these LEXICOGRAPHICALLY (wrong across timezones/precision).
+# Bare times require seconds or a timezone so ordinary '10:00' strings don't match.
 _ISO_TEMPORAL_RE = re.compile(
     r"""^(
         \d{4}-\d{2}-\d{2}([T\ ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?
@@ -239,18 +210,15 @@ _ISO_TEMPORAL_RE = re.compile(
 
 
 def _is_int_literal(node: ExprNode) -> bool:
-    """True if ``node`` is an integer Literal (not bool). Cypher integer division
-    (``5/2 == 2``, truncating) diverges from polars true division (``2.5``) ONLY for
-    constant integer operands — a column ``/`` int already returns Float on both
-    engines (so it matches). Used to decline (NIE) literal/literal int division."""
+    """True iff integer Literal (not bool). Gates the literal/literal int-division decline (NIE):
+    cypher 5/2 == 2 (truncating) vs polars 2.5; column / int is Float on both, so it matches."""
     from graphistry.compute.gfql.expr_parser import Literal
     return isinstance(node, Literal) and isinstance(node.value, int) and not isinstance(node.value, bool)
 
 
 def _is_iso_duration_literal(node: ExprNode) -> bool:
-    """True if ``node`` is a string Literal holding an ISO-8601 duration (``PT6M``,
-    ``P1Y``, …) — what cypher ``duration({...})`` translates to. ``^-?P(?=[0-9T])``
-    matches a duration without misfiring on ordinary strings like ``'Prefix'``."""
+    """True iff string Literal is an ISO-8601 duration (``PT6M``, ``P1Y``, …) — what cypher
+    ``duration({...})`` lowers to. ``^-?P(?=[0-9T])`` avoids misfiring on strings like 'Prefix'."""
     from graphistry.compute.gfql.expr_parser import Literal
     return (
         isinstance(node, Literal)
@@ -260,9 +228,8 @@ def _is_iso_duration_literal(node: ExprNode) -> bool:
 
 
 def _is_iso_temporal_literal(node: ExprNode) -> bool:
-    """True if ``node`` is a string Literal holding an ISO date/datetime/time — what
-    cypher ``date()``/``time()``/``datetime()`` constructors lower to. Used to decline
-    (NIE) temporal comparison, which polars would do lexicographically (wrong)."""
+    """True iff string Literal is ISO date/datetime/time (cypher date()/time()/datetime() output).
+    Gates the temporal-comparison decline (NIE) — polars would compare lexicographically (wrong)."""
     from graphistry.compute.gfql.expr_parser import Literal
     return (
         isinstance(node, Literal)
@@ -272,11 +239,9 @@ def _is_iso_temporal_literal(node: ExprNode) -> bool:
 
 
 def _is_temporal_column_ref(node: ExprNode, columns: Sequence[str]) -> bool:
-    """True if ``node`` references a column whose published schema dtype is TEMPORAL
-    (Datetime/Date/Time). A temporal column compared to an ISO temporal STRING literal
-    (what cypher ``date()/datetime()/time()`` lowers to) makes polars raise — so decline.
-    A String column holding ISO text compares lexicographically (correct), so it is NOT
-    temporal here and must NOT be declined."""
+    """True iff ``node`` references a column with TEMPORAL schema dtype (Datetime/Date/Time).
+    Temporal column vs ISO temporal STRING literal makes polars raise -> decline; a String
+    column holding ISO text compares lexicographically (correct) and must NOT be declined."""
     import polars as pl
     from graphistry.compute.gfql.expr_parser import Identifier, PropertyAccessExpr
     name: Optional[str] = None
@@ -291,11 +256,9 @@ def _is_temporal_column_ref(node: ExprNode, columns: Sequence[str]) -> bool:
 
 
 def _expr_output_dtype(expr: pl.Expr) -> Optional[pl.DataType]:
-    """Output dtype of a lowered ``pl.Expr`` under the active table schema, or None if
-    unresolvable. Schema-only (no data) on an empty LazyFrame — robust where AST-level
-    type inference misses cases: ``int/int`` → Float (NaN-capable), function results
-    (``abs``/``coalesce``), and Categorical/Enum columns. Drives the NaN + cross-type
-    guards from real dtypes instead of re-deriving types from the parse tree."""
+    """Output dtype of a lowered expr under the active schema (None if unresolvable). Schema-only
+    (empty LazyFrame, no data); catches what AST inference misses — int/int → Float (NaN-capable),
+    function results (abs/coalesce), Categorical/Enum. Drives the NaN + cross-type guards."""
     import polars as pl
     try:
         return pl.LazyFrame(schema=_SCHEMA.get()).select(expr.alias("__gfql_dt__")).collect_schema()["__gfql_dt__"]
@@ -304,20 +267,18 @@ def _expr_output_dtype(expr: pl.Expr) -> Optional[pl.DataType]:
 
 
 def _is_cross_type(ldt: Optional[pl.DataType], rdt: Optional[pl.DataType]) -> bool:
-    """Numeric operand vs string-like operand — polars raises (compare:
-    ``cannot compare string with numeric``; arithmetic: ``InvalidOperationError``;
-    incl. all-null columns, which ``from_pandas`` types as String). pandas/cypher
-    return a value/null, so decline natively. None dtype = unknown → not flagged."""
+    """Numeric vs string-like operand: polars raises (compare + arithmetic; incl. all-null
+    columns, which from_pandas types as String) where pandas/cypher return a value/null, so
+    decline natively. None dtype = unknown → not flagged."""
     if ldt is None or rdt is None:
         return False
     return (_dtype_is_numeric(ldt) and _dtype_is_stringlike(rdt)) or (_dtype_is_stringlike(ldt) and _dtype_is_numeric(rdt))
 
 
 def _nan_guard(result: pl.Expr, op: str, left: pl.Expr, right: pl.Expr, ldt: Optional[pl.DataType], rdt: Optional[pl.DataType]) -> pl.Expr:
-    """Mask a comparison so NaN operands compare like IEEE/pandas/Cypher (always false;
-    ``!=`` true) instead of polars (NaN = largest value). ``is_nan()`` is applied only
-    to operands whose OUTPUT dtype is float — safe on the lowered float expr, never on
-    a non-float one; int/string/bool comparisons are a no-op."""
+    """Mask a comparison so NaN compares IEEE/pandas/Cypher-style (false; ``!=`` true), not
+    polars-style (NaN = largest). ``is_nan()`` applied only to float-OUTPUT operands; no-op
+    for int/string/bool comparisons."""
     nan_terms = []
     if _dtype_is_float(ldt):
         nan_terms.append(left.is_nan())
@@ -332,10 +293,9 @@ def _nan_guard(result: pl.Expr, op: str, left: pl.Expr, right: pl.Expr, ldt: Opt
 
 
 def _dtype_category(dt: Optional[pl.DataType]) -> Optional[str]:
-    """Coarse category of a polars dtype for list/IN parity gating: ``int`` / ``float`` /
-    ``str`` / ``bool`` (None if unknown/other, e.g. List/Struct/Null/temporal). Only
-    same-category elements coerce to a polars list / ``is_in`` supertype that preserves
-    VALUE + repr vs the pandas oracle, so this drives the homogeneity requirement."""
+    """Coarse dtype category for list/IN parity gating: int/float/str/bool (None if unknown/other,
+    e.g. List/Struct/Null/temporal). Only same-category elements coerce to a list/``is_in``
+    supertype preserving VALUE + repr vs pandas — drives the homogeneity requirement."""
     import polars as pl
     if dt is None:
         return None
@@ -351,8 +311,7 @@ def _dtype_category(dt: Optional[pl.DataType]) -> Optional[str]:
 
 
 def _value_category(v: Any) -> Optional[str]:
-    """Category of a python literal value, mirroring ``_dtype_category`` (bool BEFORE int —
-    ``bool`` is a subclass of ``int`` in python)."""
+    """Python-literal mirror of ``_dtype_category`` (bool checked BEFORE int — bool subclasses int)."""
     if isinstance(v, bool):
         return "bool"
     if isinstance(v, int):
@@ -365,17 +324,14 @@ def _value_category(v: Any) -> Optional[str]:
 
 
 def _lower_list_literal(items: Sequence[ExprNode], columns: Sequence[str]) -> Optional[pl.Expr]:
-    """Lower ``[e0, e1, ...]`` to a per-row polars list via ``pl.concat_list``, or None to defer.
+    """Lower ``[e0, e1, ...]`` to a per-row list via ``pl.concat_list``, or None to defer.
 
-    ``concat_list`` preserves element ORDER exactly as written, matching the pandas oracle
-    ``[e0, e1, e2]`` (NOTE: cudf is known to REORDER list elements — an orthogonal cudf bug
-    NOT inherited here; construction conformance is therefore scoped pandas-vs-polars).
-    SAFE subset only: a NON-EMPTY list whose elements ALL lower and ALL share ONE dtype
-    category (all int / all float / all str / all bool). Same-category coercion preserves
-    value + repr (int widening Int32->Int64; all-float rounds equal). A MIXED category
-    (int+float, str+int — polars coerces to a supertype, drifting value/repr or raising), a
-    nested/temporal element, a null/unknown-dtype element, or an EMPTY list (no inferable
-    element dtype) is NOT provably parity-equal -> decline (NIE)."""
+    concat_list preserves written element ORDER, matching the pandas oracle (cudf is known to
+    REORDER list elements — an orthogonal cudf bug not inherited; conformance scoped
+    pandas-vs-polars). SAFE subset: non-empty, all elements lower, all ONE dtype category —
+    same-category coercion preserves value + repr (Int32->Int64 widening; all-float rounds
+    equal). Mixed category (supertype coercion drifts value/repr or raises), nested/temporal,
+    null/unknown-dtype element, or EMPTY list (no inferable dtype) -> decline (NIE)."""
     import polars as pl
     if not items:
         return None
@@ -396,14 +352,13 @@ def _lower_list_literal(items: Sequence[ExprNode], columns: Sequence[str]) -> Op
 
 
 def _lower_in(left: pl.Expr, items: Sequence[ExprNode], columns: Sequence[str]) -> Optional[pl.Expr]:
-    """Lower ``x IN [literals]`` to a 3-valued polars membership test, or None to defer.
+    """Lower ``x IN [literals]`` to a 3-valued membership test, or None to defer.
 
-    SAFE subset: a NON-EMPTY list of NON-NULL literals whose single category matches the
-    lhs dtype category. Cypher IN is 3-valued — a NULL lhs is NULL (not False) — so we mask
-    it explicitly (independent of the polars version's ``is_in`` null handling); with no
-    null elements the only unknown source is a null lhs, so the masked result is parity-equal
-    to pandas. A null element, a cross-type list (polars ``is_in`` would raise), or a
-    non-literal element is NOT provably parity-equal -> decline (NIE)."""
+    SAFE subset: non-empty, non-null literals, single category matching the lhs dtype category.
+    Cypher IN is 3-valued (NULL lhs -> NULL, not False): mask explicitly, independent of the
+    polars version's ``is_in`` null handling; with no null elements the null lhs is the only
+    unknown source, so the masked result is parity-equal to pandas. Null element, cross-type
+    list (``is_in`` would raise), or non-literal element -> decline (NIE)."""
     import polars as pl
     from graphistry.compute.gfql.expr_parser import Literal
     if not items or not all(isinstance(it, Literal) and it.value is not None for it in items):
@@ -434,8 +389,8 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         wf = lower_expr(node.when_false, columns)
         if cond is None or wt is None or wf is None:
             return None
-        # cast cond to Boolean so a Null-dtype/3-valued condition behaves (Cypher: a null WHEN
-        # takes the ELSE branch, matching pandas); no-op on a real Boolean.
+        # cast cond to Boolean: a Null-dtype/3-valued WHEN takes the ELSE branch (Cypher,
+        # matching pandas); no-op on a real Boolean.
         return pl.when(cond.cast(pl.Boolean)).then(wt).otherwise(wf)
     if isinstance(node, FunctionCall):
         return _lower_function(node, columns)
@@ -451,43 +406,35 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         return None
     if isinstance(node, BinaryOp):
         if node.op == "in" and isinstance(node.right, ListLiteral):
-            # ``x IN [literals]`` membership on the row-expression surface (distinct from
-            # the WHERE/IsIn predicate path). 3-valued, parity-checked. A non-literal or
-            # non-list RHS falls through to the generic op handler (-> None -> NIE).
+            # x IN [literals] on the row-expression surface (distinct from the WHERE/IsIn
+            # predicate path); 3-valued, parity-checked. Non-literal/non-list RHS falls
+            # through to the generic handler (-> None -> NIE).
             left = lower_expr(node.left, columns)
             if left is None:
                 return None
             return _lower_in(left, node.right.items, columns)
-        # Temporal arithmetic: cypher ``duration({...})`` is translated to an ISO
-        # duration string literal (e.g. ``'PT6M'``), so ``a.time + duration(...)``
-        # would lower to STRING CONCATENATION and sort/compare lexicographically —
-        # a silent wrong answer. Decline natively (NIE) when ``+``/``-`` has an ISO
-        # duration literal operand; the pandas engine handles temporal arithmetic.
+        # decline (NIE): temporal arithmetic — duration({...}) lowers to an ISO duration STRING
+        # ('PT6M'), so +/- would become string concatenation (silent wrong answer); pandas handles it.
         if node.op in ("+", "-") and (_is_iso_duration_literal(node.left) or _is_iso_duration_literal(node.right)):
             return None
-        # ISO temporal ORDERING of two constructor-string literals lowers to
-        # LEXICOGRAPHIC string ordering (wrong across timezones). Only ordering of
-        # two temporal literals is declined: ``=``/``<>`` are lexicographically
-        # correct, and a literal-vs-real-string-column compare must NOT be declined.
+        # decline (NIE): ORDERING two ISO temporal constructor-string literals = lexicographic
+        # (wrong across timezones). Only literal-vs-literal ordering declines: =/<> are
+        # lexicographically correct, and literal-vs-real-string-column must NOT decline.
         if node.op in _ORDER_OPS and _is_iso_temporal_literal(node.left) and _is_iso_temporal_literal(node.right):
             return None
-        # A TEMPORAL column compared to an ISO temporal constructor-string literal (cypher
-        # ``n.ts > date('2020-01-15')``): the ISO ``date()/datetime()/time()`` constructor
-        # lowers to a STRING literal, so a real Datetime/Date column vs that string makes
-        # polars raise InvalidOperationError. DECLINE (NIE) — the pandas engine compares
-        # temporally. A String column holding ISO text is NOT temporal here and still computes
-        # lexicographically. (The chain ``p.gt(date(...))`` predicate carries a typed value +
-        # schema dtype and IS lowered natively in predicates.py.)
+        # decline (NIE): TEMPORAL column vs ISO constructor-string literal (n.ts > date('2020-01-15'))
+        # — the constructor lowers to a STRING literal, so Datetime/Date vs string makes polars raise
+        # InvalidOperationError; pandas compares temporally. A String column holding ISO text is NOT
+        # temporal here and still computes lexicographically. (The chain p.gt(date(...)) predicate
+        # carries a typed value + schema dtype and IS lowered natively in predicates.py.)
         if node.op in _NAN_GUARD_OPS and (
             (_is_iso_temporal_literal(node.left) and _is_temporal_column_ref(node.right, columns))
             or (_is_iso_temporal_literal(node.right) and _is_temporal_column_ref(node.left, columns))
         ):
             return None
-        # Integer-literal division: Cypher folds ``5/2`` to integer division (``2``,
-        # truncating toward zero; ``x/0`` errors) but polars does true division
-        # (``2.5``) — a silent wrong answer when embedded in a non-monotonic op (e.g.
-        # ``ORDER BY n.val % (10/4)`` sorts differently). Decline natively (NIE); the
-        # pandas engine folds it. (Column ``/`` int is Float on both, so not declined.)
+        # decline (NIE): int-literal division — Cypher folds 5/2 to 2 (truncating; x/0 errors) vs
+        # polars true division 2.5, silently wrong inside a non-monotonic op (e.g. ORDER BY
+        # n.val % (10/4) sorts differently); pandas folds it. Column / int is Float on both, so kept.
         if node.op == "/" and _is_int_literal(node.left) and _is_int_literal(node.right):
             return None
         left = lower_expr(node.left, columns)
@@ -496,16 +443,15 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             return None
         ldt = rdt = None
         if node.op in _NUMSTR_OPS:
-            # Numeric-vs-string-like operands make polars raise (compare AND
-            # arithmetic, incl. AllOf-nested, all-null→String, Categorical). Decline
-            # natively. Output dtypes catch int/int→Float division + function results
-            # that AST inference missed.
+            # decline (NIE): numeric-vs-string-like makes polars raise (compare AND arithmetic;
+            # incl. AllOf-nested, all-null→String, Categorical). Output dtypes catch
+            # int/int→Float division + function results AST inference missed.
             ldt, rdt = _expr_output_dtype(left), _expr_output_dtype(right)
             if _is_cross_type(ldt, rdt):
                 return None
-            # pandas declines Boolean modulo (``n.flag % 2`` -> GFQLTypeError) while polars
-            # computes it (bool coerces to int). Decline (NIE) to match — verified that bool
-            # +,-,*,/ compute IDENTICALLY on both engines, so only ``%`` diverges.
+            # decline (NIE): Boolean modulo — pandas raises GFQLTypeError on n.flag % 2 while
+            # polars computes it (bool→int). Verified bool +,-,*,/ are IDENTICAL on both
+            # engines; only % diverges.
             if node.op == "%" and (ldt == pl.Boolean or rdt == pl.Boolean):
                 return None
         result = _apply_binop(node.op, left, right)
@@ -519,9 +465,9 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         if node.op == "-":
             return -operand
         if node.op.upper() == "NOT":
-            # Cast to Boolean so ``NOT null`` (Null-dtype lit) yields null instead
-            # of raising `dtype Null not supported in 'not' operation`; Cypher NOT
-            # is 3-valued (NOT null = null). No-op on a real Boolean column.
+            # Cast to Boolean so NOT null (Null-dtype lit) yields null (Cypher 3VL: NOT null =
+            # null) instead of raising `dtype Null not supported in 'not' operation`; no-op
+            # on a real Boolean column.
             return ~operand.cast(pl.Boolean)
         return None
     if isinstance(node, IsNullOp):
@@ -558,8 +504,8 @@ def lower_select_items(items: Sequence[Any], columns: Sequence[str]) -> Optional
         else:
             return None
         if not isinstance(expr, str):
-            # Non-string projection value = constant literal (e.g. the synthetic
-            # ``__cypher_group__`` = 1 for keyless aggregation).
+            # Non-string value = constant literal (e.g. synthetic __cypher_group__=1 for
+            # keyless aggregation).
             import polars as pl
             out.append(pl.lit(expr).alias(alias))
             continue
@@ -602,8 +548,8 @@ def _rewrap(g: Plottable, table_df: Any) -> Plottable:
 
 
 def _lower_with_schema(table: Any, fn):
-    """Run a lowering callable with the active table schema published to ``_SCHEMA``
-    (for the float-operand inference behind the NaN-comparison guard)."""
+    """Run a lowering callable with the table schema published to ``_SCHEMA`` (float-operand
+    inference for the NaN guard)."""
     token = _SCHEMA.set(dict(table.schema))
     try:
         return fn()
@@ -612,18 +558,17 @@ def _lower_with_schema(table: Any, fn):
 
 
 def _project_polars(g: Plottable, items: Sequence[Any], extend: bool) -> Optional[Plottable]:
-    """Shared body of ``select_polars`` / ``with_columns_polars``; None if any item
-    isn't lowerable — the honest NIE (NO pandas bridge, see NO-CHEATING)."""
+    """Shared body of ``select_polars`` / ``with_columns_polars``; None if any item isn't
+    lowerable (honest NIE, no pandas bridge)."""
     table = _active_table(g)
     exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)))
     if exprs is None:
         return None
     out = table.with_columns(exprs) if extend else table.select(exprs)
     if _select_emits_temporal_constructor_text(out):
-        # A projected String column holds Cypher temporal-constructor text
-        # (date({...}) etc.); the pandas projection normalizes it to ISO, not yet
-        # native — decline honestly rather than leak the raw text (NO-CHEATING).
-        # Only scans String columns, so numeric/bool projections pay nothing.
+        # decline (NIE): projected String column holds temporal-constructor text (date({...})
+        # etc.) that pandas normalizes to ISO, not yet native — don't leak the raw text.
+        # Only String columns are scanned, so numeric/bool projections pay nothing.
         return None
     return _rewrap(g, out)
 
@@ -643,11 +588,9 @@ def select_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
 
 
 def with_columns_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
-    """Native polars WITH ... extend=True: add/overwrite columns, keep the rest.
-    Mirrors the pandas ``with_(extend=True)`` path (``table_df.assign(**projected)``):
-    polars ``with_columns`` has identical column semantics — an alias matching an
-    existing column REPLACES it in place (position preserved), a new alias APPENDS
-    at the end in item order."""
+    """Native polars WITH extend=True: add/overwrite columns, keep the rest. Mirrors pandas
+    ``with_(extend=True)`` (``table_df.assign``): ``with_columns`` matches — an existing alias
+    REPLACES in place (position kept), a new alias APPENDS at the end in item order."""
     return _project_polars(g, items, extend=True)
 
 
@@ -658,11 +601,9 @@ def where_rows_polars(
 ) -> Optional[Plottable]:
     """Native polars row-table WHERE; None if the predicate isn't lowerable.
 
-    Cypher's 3-valued WHERE keeps only rows whose predicate is TRUE (NULL and
-    FALSE are both dropped) — polars ``DataFrame.filter`` has exactly this
-    semantics, and polars boolean ``|``/``&`` use Kleene logic, so a lowered
-    ``pl.Expr`` predicate matches the pandas engine / cypher NULL handling
-    without special-casing. filter_dict entries are scalar-equality conjuncts.
+    Cypher 3-valued WHERE keeps only TRUE rows (NULL and FALSE dropped) — polars ``filter``
+    plus Kleene ``|``/``&`` match pandas/cypher NULL handling with no special-casing.
+    filter_dict entries are scalar-equality conjuncts.
     """
     import polars as pl
     table = _active_table(g)
@@ -673,9 +614,9 @@ def where_rows_polars(
             if col not in columns or isinstance(val, dict):
                 return None  # missing column / nested-struct value -> defer (NIE)
             if isinstance(val, (list, tuple, set)):
-                # membership / IN: polars `is_in` over a null cell yields null -> filter drops it,
-                # i.e. openCypher 3VL (`null IN [...]` = null -> excluded), matching the filter_by_dict
-                # membership fix. (Equality below also drops nulls: `null == v` -> null -> dropped.)
+                # IN: `is_in` on a null cell -> null -> filter drops it, i.e. openCypher 3VL
+                # (`null IN [...]` = null -> excluded), matching the filter_by_dict membership
+                # fix. (Equality below also drops nulls: `null == v` -> null -> dropped.)
                 preds.append(pl.col(col).is_in(list(val)))
             else:
                 preds.append(pl.col(col) == val)
@@ -701,14 +642,13 @@ def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
     if lowered is None:
         return None
     exprs, descending = lowered
-    # nulls_last=False matches pandas sort_values default (NaN last only for asc);
-    # cypher ORDER BY puts NULLs last — polars default is nulls_last=False, so set
-    # it explicitly to match the pandas engine's na_position='last'.
+    # cypher ORDER BY puts NULLs last; polars defaults to nulls_last=False (pandas sort_values
+    # default puts NaN last only for asc), so set nulls_last=True to match pandas na_position='last'.
     return _rewrap(g, table.sort(exprs, descending=descending, nulls_last=True))
 
 
-# Aggregation funcs lowered to native polars (count/sum/avg/min/max/count_distinct/collect/
-# collect_distinct); stdev/percentile etc. return None → caller declines (NIE, no pandas bridge).
+# Native aggs: count/sum/avg/min/max/count_distinct/collect/collect_distinct; stdev/percentile
+# etc. return None → caller declines (NIE).
 def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str, schema: Optional[dict] = None) -> Optional[pl.Expr]:
     import polars as pl
     func = func.lower()
@@ -717,11 +657,11 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     if not isinstance(expr, str) or expr not in columns:
         return None
     col = pl.col(expr)
-    # pandas aggregations skip NaN (skipna / dropna); polars skips NULL but treats NaN as a real
-    # value (and polars NaN == NaN is True, so a self-inequality can't detect it). For a FLOAT
-    # column, convert in-query NaN -> null first so every agg below matches the oracle
-    # (pandas sum([nan, 1]) == 1 vs raw polars == nan). fill_nan is float-only, hence the dtype
-    # gate. (Stored NaN is nulled at ingestion; this covers NaN created mid-query, e.g. 0.0/0.0.)
+    # pandas aggs skip NaN (skipna); polars skips only NULL and treats NaN as a value (NaN == NaN
+    # is True, so self-inequality can't detect it). For FLOAT columns convert in-query NaN -> null
+    # first so every agg matches the oracle (pandas sum([nan, 1]) == 1 vs raw polars == nan).
+    # fill_nan is float-only, hence the dtype gate. Stored NaN is nulled at ingestion; this covers
+    # NaN created mid-query (e.g. 0.0/0.0).
     if schema is not None and _dtype_is_float(schema.get(expr)):
         col = col.fill_nan(None)
     if func == "count":
@@ -735,32 +675,28 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     if func == "max":
         return col.max().alias(alias)
     if func == "count_distinct":
-        # cypher count(DISTINCT x) drops nulls (pandas nunique(dropna=True)); polars n_unique()
-        # counts null as a value, so drop nulls first for parity.
+        # count(DISTINCT x) drops nulls (pandas nunique(dropna=True)); polars n_unique() counts
+        # null, so drop_nulls first.
         return col.drop_nulls().n_unique().alias(alias)
     if func == "collect":
-        # cypher collect(x) DROPS nulls and preserves within-group row order (pandas
-        # row/pipeline.py:4552-4582 filters ~isna() then agg(list)). In a polars
-        # group_by(maintain_order=True).agg, a multi-valued expr yields a List column, so
-        # drop_nulls() alone reproduces it; an all-null/empty group yields [] (an empty list),
-        # never [null] — matching the oracle's []-coercion (4597-4614). NO .implode() (that would
-        # double-wrap to List(List)).
+        # collect(x) drops nulls, keeps within-group row order (pandas row/pipeline.py:4552-4582:
+        # ~isna() then agg(list)). Inside group_by(maintain_order=True).agg a multi-valued expr
+        # yields a List column, so drop_nulls() alone reproduces it; all-null/empty group -> []
+        # never [null], matching the oracle's []-coercion (4597-4614). NO .implode() — that
+        # would double-wrap to List(List).
         return col.drop_nulls().alias(alias)
     if func == "collect_distinct":
-        # collect(DISTINCT x): drop nulls, dedup keep-first preserving first-occurrence order
-        # (pandas drop_duplicates(keep="first") + agg(list)). polars unique(maintain_order=True)
-        # is keep-first order-preserving; empty/all-null group -> [].
+        # collect(DISTINCT x): drop nulls + keep-first dedup in first-occurrence order (pandas
+        # drop_duplicates(keep="first") + agg(list)); unique(maintain_order=True) matches;
+        # empty/all-null group -> [].
         return col.drop_nulls().unique(maintain_order=True).alias(alias)
     return None
 
 
 def group_by_polars(g: Plottable, keys: Sequence[Any], aggregations: Sequence[Any]) -> Optional[Plottable]:
-    """Native polars group-by; None if a key/agg isn't lowerable.
-
-    Matches the pandas engine's ``dropna=False`` (null keys kept) and non-null
-    aggregation semantics. Output order is first-occurrence (maintain_order),
-    though the differential parity gate compares order-insensitively.
-    """
+    """Native polars group-by; None if a key/agg isn't lowerable. Matches pandas dropna=False
+    (null keys kept) + non-null agg semantics; output order is first-occurrence (maintain_order),
+    though the parity gate compares order-insensitively."""
     table = _active_table(g)
     cols = list(table.columns)
     if not keys or not all(isinstance(k, str) and k in cols for k in keys):
@@ -781,12 +717,9 @@ def group_by_polars(g: Plottable, keys: Sequence[Any], aggregations: Sequence[An
 
 
 def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plottable]:
-    """Native polars UNWIND for a literal list (cross-join); None → caller NIEs.
-
-    ``UNWIND [a, b, ...] AS x`` cross-joins each active row with the list values
-    (matching cypher's per-row expansion and empty-list → 0 rows). List-column /
-    expression unwinds (null/empty-element semantics) decline (NIE) for now.
-    """
+    """Native UNWIND for a literal list: cross-join each row with the values (cypher per-row
+    expansion; empty list → 0 rows); None → caller NIEs. List-column / expression unwinds
+    (null/empty-element semantics) decline (NIE) for now."""
     import polars as pl
     from graphistry.compute.gfql.expr_parser import ListLiteral, Literal
 

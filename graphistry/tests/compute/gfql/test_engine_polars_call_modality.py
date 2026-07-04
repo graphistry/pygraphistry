@@ -1,12 +1,9 @@
-"""PHASE 12: off-engine ``call()`` modality policy (``call_mode`` auto/strict) under polars.
-
-An analytic ``call()`` with no native polars impl (hypergraph / umap / compute_cugraph /
-prune_self_edges / ...) runs OFF-ENGINE on pandas (polars) / cuDF (polars-gpu) by default
-(``call_mode='auto'``) and its result is coerced back to polars losslessly (Arrow), warning once
-per (process, function). ``call_mode='strict'`` declines with ``NotImplementedError``. Traversal/
-row ops stay parity-or-NIE (tested elsewhere). This is the CPU lane (polars); GPU parity for
-cugraph / polars-gpu (incl. the GPU-or-error decline) lives on the dgx GPU conformance lane.
-"""
+"""PHASE 12: off-engine ``call()`` modality policy (call_mode auto/strict) under polars. An
+analytic call() with no native polars impl (hypergraph/umap/compute_cugraph/...) runs OFF-ENGINE
+on pandas (polars) / cuDF (polars-gpu) under the default call_mode='auto', coerced back to polars
+losslessly (Arrow), warning once per (process, function); 'strict' declines with
+NotImplementedError. Traversal/row ops stay parity-or-NIE (tested elsewhere). CPU lane only; GPU
+parity (incl. the GPU-or-error decline) lives on the dgx GPU conformance lane."""
 import warnings
 import pandas as pd
 import pytest
@@ -64,9 +61,9 @@ def test_set_call_mode_invalid_raises():
 
 # --------------------------------------------------------------------------- fixtures / helpers
 def _selfedge_graph():
-    # (1,1) and (2,2) are self-loops that prune_self_edges must drop. Explicit nodes so the
-    # let() DAG surface does not pre-materialize nodes (materialize_nodes has a separate
-    # pandas-only gap under polars for edges-only graphs — tracked as a PHASE 12 follow-up).
+    # (1,1)/(2,2) self-loops for prune_self_edges to drop. Explicit nodes so the let() DAG
+    # surface doesn't pre-materialize (materialize_nodes had a pandas-only gap under polars for
+    # edges-only graphs — PHASE 12 follow-up).
     nodes = pd.DataFrame({"id": [0, 1, 2]})
     edges = pd.DataFrame({"s": [0, 1, 2, 2], "d": [1, 1, 2, 0]})
     return CGFull().nodes(nodes, "id").edges(edges, "s", "d")
@@ -94,10 +91,9 @@ def _val_sig(df):
 
 # --------------------------------------------------------------------------- regressions
 def test_materialize_nodes_polars_edges_only_let_dag():
-    """Regression (P13.6-fix): a let() DAG on an EDGES-ONLY graph under engine='polars'
-    pre-materializes nodes (chain_let), which crashed when ComputeMixin.materialize_nodes used
-    pandas-only `.drop_duplicates()`/`.reset_index()` on a polars Series. Now polars-aware
-    (`.unique(maintain_order=True)`). Must match the pandas oracle."""
+    """Regression (P13.6-fix): a let() DAG on an EDGES-ONLY polars graph pre-materializes nodes
+    (chain_let), which crashed while materialize_nodes used pandas-only .drop_duplicates()/
+    .reset_index() on a polars Series; now polars-aware (.unique(maintain_order=True))."""
     edges = pd.DataFrame({"s": [0, 1, 2, 2], "d": [1, 1, 2, 0]})
     g = CGFull().edges(edges, "s", "d")   # NO explicit nodes -> triggers materialize_nodes
     with warnings.catch_warnings():
@@ -109,9 +105,9 @@ def test_materialize_nodes_polars_edges_only_let_dag():
 
 # --------------------------------------------------------------------------- auto bridge (default)
 def test_prune_self_edges_auto_bridges_and_matches_pandas_oracle():
-    """call_mode='auto' (default): a non-native analytic runs off-engine and its result is
-    coerced back to polars, byte-parity with the pandas oracle (NO-CHEATING: bridge OK, wrong
-    answer NOT). Exercises the polars CHAIN _run_calls_polars -> execute_call delegation."""
+    """call_mode='auto' (default): non-native analytic runs off-engine, coerced back to polars,
+    byte-parity with the pandas oracle (NO-CHEATING: bridge OK, wrong answer NOT); exercises the
+    polars CHAIN _run_calls_polars -> execute_call delegation."""
     g = _selfedge_graph()
     oracle = g.gfql([call("prune_self_edges")], engine="pandas")
     with warnings.catch_warnings():

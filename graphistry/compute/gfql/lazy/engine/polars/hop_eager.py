@@ -1,16 +1,13 @@
 """Native Polars hop() — Phase 1, vectorized.
 
-Forward / reverse / undirected, integer hops (and to_fixed_point), default +
-return_as_wave_front seed semantics, edge_match / source_node_match /
-destination_node_match predicates, and target_wave_front (chain reverse pass).
-
-Vectorization-first: the BFS keeps frontier / visited / allowed sets as polars
-frames and advances via semi/anti joins — no Python-level per-element work, no
-``.to_list()`` / ``is_in(python_list)`` ping-pong. Each hop is one big join.
-
-Not yet ported (explicit NotImplementedError): hop labeling, min_hops>1,
-output_min/max slicing, *_query strings, prune_to_endpoints,
-include_zero_hop_seed. Parity vs pandas is the oracle.
+Supports forward/reverse/undirected, integer hops + to_fixed_point, default and
+return_as_wave_front seed semantics, edge/source/destination match predicates, and
+target_wave_front (chain reverse pass). Vectorization-first: BFS frontier/visited/allowed sets
+are polars frames advanced by semi/anti joins — no per-element Python work, no
+``.to_list()``/``is_in(python_list)`` ping-pong; each hop is one big join. Parity-or-NIE:
+pandas is the oracle; not-yet-ported features (hop labeling, min_hops>1 outside the chain
+policy, output_min/max slicing, *_query, prune_to_endpoints, include_zero_hop_seed) raise
+NotImplementedError.
 """
 from typing import Any, Optional
 
@@ -45,10 +42,10 @@ def ensure_nodes_polars(g: Plottable) -> Plottable:
 
 
 def _hop_setup_columns(edges, all_nodes, node_col, edge_binding):
-    """Shared eager+lazy hop setup: safe (FROM, TO, NID, EID) column names, the edge-id frame
-    (reuse an existing `edge_binding` like the chain's __gfql_edge_index__, else synthesize a row
-    index), and the node-id join dtype. Identical on pl.DataFrame and pl.LazyFrame edges (the lazy
-    hop and the eager hop kept verbatim copies of this — see hop.py — now de-duplicated)."""
+    """Shared eager+lazy hop setup: safe (FROM, TO, NID, EID) names, the edge-id frame (reuse
+    `edge_binding` like the chain's __gfql_edge_index__, else synthesize a row index), and the
+    node-id join dtype. Identical on pl.DataFrame and pl.LazyFrame (previously duplicated
+    verbatim in hop.py; now de-duplicated)."""
     FROM = generate_safe_column_name("__gfql_from__", edges, prefix="__gfql_", suffix="__")
     TO = generate_safe_column_name("__gfql_to__", edges, prefix="__gfql_", suffix="__")
     NID = generate_safe_column_name("__gfql_nid__", all_nodes, prefix="__gfql_", suffix="__")
@@ -61,9 +58,8 @@ def _hop_setup_columns(edges, all_nodes, node_col, edge_binding):
 
 
 def _build_hop_pairs(frame, direction, src, dst, node_dtype, FROM, TO, EID):
-    """Shared directed-(FROM,TO,EID) builder with the join-key dtype aligned (polars won't coerce
-    int/float join keys like pandas). `frame` is the edge-id frame — eager pl.DataFrame or its
-    .lazy() LazyFrame; `.select`/`pl.concat` behave identically on both."""
+    """Directed-(FROM,TO,EID) builder with join-key dtype aligned (polars won't coerce int/float
+    join keys like pandas). `frame` = edge-id frame, eager or lazy; select/concat identical on both."""
     import polars as pl
 
     def _p(s, d):
@@ -77,16 +73,13 @@ def _build_hop_pairs(frame, direction, src, dst, node_dtype, FROM, TO, EID):
 
 
 def _min_hops_labeled_node_output(all_nodes, needed, labeled, node_col, NID):
-    """min_hops CHAIN wavefront node frame, mirroring pandas' labeled (track_node_hops) hop.
-
-    FULL-attribute rows for the hop-LABELED nodes (retained-path destinations; pandas rich_nodes
-    inner-merge, hop.py:944), plus id-ONLY NULL-attribute stub rows for the remaining retained-edge
-    endpoints (source-side nodes pandas adds via the edge-endpoint concat, hop.py:994-1011, leaving
-    their non-id columns NaN). A downstream node-attribute filter therefore rejects those source-side
-    endpoints (fuzz seed-48: reverse n5/n7, kind->NaN, dropped by `kind=y`). Used ONLY when the chain
-    requests this policy (min_hops_label_policy); a direct hop takes the plain full-attr join instead,
-    matching pandas' un-labeled direct hop (hop.py:978-983).
-    """
+    """min_hops CHAIN wavefront node frame, mirroring pandas' labeled (track_node_hops) hop:
+    FULL-attribute rows for hop-LABELED nodes (retained-path destinations; rich_nodes inner-merge,
+    hop.py:944) + id-only NULL-attribute stubs for remaining retained-edge endpoints (source-side
+    nodes pandas adds via the edge-endpoint concat, hop.py:994-1011, non-id cols NaN) — so a
+    downstream attribute filter rejects those source-side endpoints (fuzz seed-48: reverse n5/n7,
+    kind->NaN, dropped by `kind=y`). Used ONLY under min_hops_label_policy; a direct hop takes the
+    plain full-attr join, matching pandas' un-labeled direct hop (hop.py:978-983)."""
     import polars as pl
     full = all_nodes.join(
         needed.join(labeled, on=NID, how="semi").rename({NID: node_col}), on=node_col, how="semi")
@@ -135,14 +128,14 @@ def hop_polars(
         )
 
     _unsupported(
-        # min_hops>1 is NATIVE for forward/reverse with a finite max_hops, but ONLY in the CHAIN
-        # context (chain._exec passes min_hops_label_policy=True): the layered walk + NON-anti-joined
-        # BFS below port pandas' CHAIN/labeled min_hops node policy (hop.py:509-776 + the track_node_hops
-        # node-output rule). A DIRECT base.hop(engine='polars', min_hops>1) needs pandas' UN-labeled
-        # direct-hop node-output (a different code path, hop.py:978-983) + the target_wave_front
-        # threading the chain supplies — without those it silently diverges (drops genuinely-reachable
-        # nodes), so it stays NIE: use chain()/gfql(), or engine='pandas' for a direct hop. UNDIRECTED
-        # min_hops>1 (2-core/components, hop.py:817-887) and min_hops+to_fixed_point also stay deferred.
+        # min_hops>1 is NATIVE fwd/rev with finite max_hops, but ONLY in the CHAIN context
+        # (min_hops_label_policy=True): the layered walk + NON-anti-joined BFS port pandas'
+        # CHAIN/labeled min_hops policy (hop.py:509-776 + track_node_hops node-output rule).
+        # decline (NIE): a DIRECT base.hop(engine='polars', min_hops>1) needs pandas' UN-labeled
+        # direct-hop node-output (hop.py:978-983) + the chain's target_wave_front threading —
+        # without them it silently drops genuinely-reachable nodes; use chain()/gfql() or
+        # engine='pandas'. UNDIRECTED min_hops>1 (2-core/components, hop.py:817-887) and
+        # min_hops+to_fixed_point also stay deferred.
         min_hops=min_hops if (min_hops is not None and min_hops > 1
                               and (direction == "undirected" or to_fixed_point
                                    or not min_hops_label_policy)) else None,
@@ -203,12 +196,11 @@ def hop_polars(
     )
     target_final = _idframe(target_wave_front, node_col) if target_wave_front is not None else None
     # Intermediate-hop target gate (pandas hop.py:319-349,529-533): a NON-final hop's TO-node must
-    # land in target_wave_front UNION the INTERMEDIATE node universe. The chain passes the multi-hop
-    # reverse step's FORWARD WAVEFRONT as `intermediate_universe` (the nodes the forward pass reached
-    # — the only valid intermediate path nodes); standalone hops pass None -> universe = all_nodes,
-    # making the gate vacuous (correct: a standalone hop may pass through any node). Decoupled from
-    # the OUTPUT universe (all_nodes, used at materialization) so a reduced gate-universe never
-    # truncates returned nodes. Only the FINAL hop is gated by target alone.
+    # land in target_wave_front UNION the intermediate universe. The chain passes the multi-hop
+    # reverse step's FORWARD WAVEFRONT as intermediate_universe (the only valid intermediate path
+    # nodes); standalone hops pass None -> all_nodes, gate vacuous (a standalone hop may pass
+    # through any node). Decoupled from the OUTPUT universe (all_nodes at materialization) so a
+    # reduced gate never truncates returned nodes. Only the FINAL hop is gated by target alone.
     if target_final is not None:
         _univ = _idframe(intermediate_universe, node_col) if intermediate_universe is not None else _idframe(all_nodes, node_col)
         target_intermediate = pl.concat([target_final, _univ], how="vertical_relaxed").unique(subset=[NID])
@@ -217,14 +209,14 @@ def hop_polars(
 
     seed = _idframe(nodes if nodes is not None else all_nodes, node_col)
 
-    # min_hops>1 (forward/reverse, finite max_hops): pandas runs a NON-anti-joined BFS (the wave
-    # front carries REVISITS, hop.py:535,620) so a cycle keeps bumping max_reached_hop until
-    # max_hops — this is what lets the lower bound be satisfied on cyclic graphs. The anti-joined
-    # (shortest-path) frontier used for plain hops STOPS after one pass and under-counts the bound.
+    # min_hops>1 (fwd/rev, finite max): pandas runs a NON-anti-joined BFS (wavefront carries
+    # REVISITS, hop.py:535,620) so a cycle keeps bumping max_reached_hop until max_hops — what
+    # lets the lower bound be satisfied on cyclic graphs. The anti-joined (shortest-path)
+    # frontier used for plain hops stops after one pass and under-counts the bound.
     min_hops_active = (
         min_hops is not None and min_hops > 1 and direction in ("forward", "reverse") and not to_fixed_point
     )
-    # Per-hop label column (only populated when min_hops_active; computed unconditionally so it
+    # Per-hop label column (populated only when min_hops_active; computed unconditionally so it
     # is a plain str — every use is guarded by `if min_hops_active`).
     HOP = generate_safe_column_name("__gfql_hop__", edges, prefix="__gfql_", suffix="__")
     max_reached_hop = 0
@@ -272,10 +264,10 @@ def hop_polars(
         new_frontier = cand.join(visited_nodes, on=NID, how="anti")
         visited_nodes = pl.concat([visited_nodes, new_frontier], how="vertical_relaxed").unique(subset=[NID])
         if min_hops_active:
-            # Advance the wavefront with ALL destinations (revisits, pandas hop.py:620) so a node
-            # re-entered via a cycle re-traverses its edges — BUT terminate as soon as the cumulative
-            # reachable set stops growing (pandas hop.py:617). max_reached_hop (set above when this
-            # hop had any edge) is then the closure hop, which the 3-case gate compares to min_hops.
+            # Advance with ALL destinations (revisits, hop.py:620) so a cycle-re-entered node
+            # re-traverses its edges, but terminate once the cumulative reachable set stops
+            # growing (hop.py:617). max_reached_hop (set above when the hop had any edge) is then
+            # the closure hop the 3-case gate compares to min_hops.
             if new_frontier.height == 0:
                 break
             frontier = cand
@@ -289,8 +281,8 @@ def hop_polars(
 
     if min_hops_active:
         assert min_hops is not None
-        # `visited_nodes` here = the loop's cumulative reached-DEST accumulation = pandas matches_nodes
-        # (hop.py:609-621). `reached` drives the seed-strip; `labeled` drives the attribute carry.
+        # visited_nodes here = the loop's cumulative reached-DEST accumulation = pandas
+        # matches_nodes (hop.py:609-621). `reached` drives the seed-strip; `labeled` the attr carry.
         reached = visited_nodes
         labeled = empty_ids   # nodes that get a retained-path HOP LABEL (-> full attributes)
         # Port of the pandas min_hops gate (hop.py:623-776). Three cases on max_reached_hop / goal:
@@ -306,10 +298,10 @@ def hop_polars(
                 # max_reached_hop>=min_hops but NO edge labeled >=min_hops: a cyclic REVISIT
                 # satisfied the bound (no NEW node at that depth). pandas skips the prune
                 # (hop.py:660 else) -> return the UNPRUNED ball; reached = full loop accumulation.
-                # No layered prune -> node_hop_records keeps ALL BFS-reached nodes as rows (hop.py
-                # track_node_hops accumulation; seed labels may be reset to NA but the ROW remains, so
-                # they still get full attrs via the rich-node merge). So every reached node is "labeled".
-                # edge_hops is already grouped by EID, so its key column IS the distinct retained set.
+                # With no layered prune, track_node_hops keeps ALL BFS-reached node rows (seed
+                # labels may reset to NA but the ROW remains -> full attrs via the rich-node
+                # merge), so every reached node is "labeled". edge_hops is already grouped by
+                # EID, so its key column IS the distinct retained set.
                 visited_edges = edge_hops.select(pl.col(EID))
                 labeled = reached
             else:
@@ -317,9 +309,9 @@ def hop_polars(
                 # label, keep edges whose TO is a current target, reset targets = their FROM.
                 current_targets = goal.select(pl.col(TO).alias(NID)).unique()
                 valid_node = current_targets
-                # node hop-labels (hop.py:676-723): goal DESTINATIONS get a label, plus the FROM of a
-                # retained edge at hop_level>=2 (label=level-1). A FROM appearing ONLY at level 1
-                # (seed/source side, e.g. seed-48 reverse n5/n7) gets NO label -> null attrs later.
+                # node hop-labels (hop.py:676-723): goal DESTINATIONS labeled, plus the FROM of a
+                # retained edge at level>=2 (label=level-1). A FROM only at level 1 (seed/source
+                # side, e.g. seed-48 reverse n5/n7) gets NO label -> null attrs later.
                 labeled = current_targets
                 max_edge_hop = int(edge_hops.select(pl.col(HOP).max()).item())
                 valid_edge_frames = []
@@ -338,16 +330,14 @@ def hop_polars(
                 # matches_nodes ∩ valid_node_series (hop.py:783) — restrict reached to the pruned tree.
                 reached = reached.join(valid_node, on=NID, how="semi")
 
-        # Node output for min_hops = endpoints (src ∪ dst) of the RETAINED edges, MINUS seed nodes not
-        # genuinely re-reached at >=min_hops. Pandas' labeled min_hops hop (ASTEdge.execute sets auto
-        # hop-labels -> hop.py track_node_hops path) keeps a node only if its retained-path label is in
-        # [output_min..output_max] OR it is a retained-edge endpoint (hop.py:1117-1140 output-slice mask,
-        # output_max defaulting to max_hops) — with no slicing this collapses to exactly the retained-edge
-        # endpoints — and THEN strips SEED nodes absent from matches_nodes (hop.py:1144-1170 seed-strip).
-        # So a seed that is a retained-edge endpoint but never re-reached on a >=min path is dropped
-        # (fuzz seed-404 reverse n1), while a seed re-reached at >=min is kept (seed-24 forward n2/n5),
-        # and a reached non-endpoint seed is dropped (seed-24 n0). The polars chain runs this hop WITHOUT
-        # labels, so replicate the labeled+stripped result directly.
+        # min_hops node output = endpoints (src ∪ dst) of RETAINED edges, MINUS seeds not
+        # genuinely re-reached at >=min_hops. Pandas' labeled hop keeps a node iff its
+        # retained-path label is in [output_min..output_max] OR it's a retained-edge endpoint
+        # (hop.py:1117-1140 output-slice mask; no slicing collapses to exactly the endpoints),
+        # THEN strips SEEDS absent from matches_nodes (hop.py:1144-1170). So an endpoint seed
+        # never re-reached on a >=min path drops (fuzz seed-404 reverse n1), a seed re-reached
+        # at >=min keeps (seed-24 forward n2/n5), a reached non-endpoint seed drops (seed-24 n0).
+        # The polars chain runs this hop WITHOUT labels, so replicate the labeled+stripped result.
         ep = pairs.join(visited_edges, on=EID, how="semi")
         visited_nodes = endpoint_ids(ep, FROM, TO, NID).unique(subset=[NID])
         if nodes is not None:  # seeds provided (chain wavefront) -> strip unreached seeds

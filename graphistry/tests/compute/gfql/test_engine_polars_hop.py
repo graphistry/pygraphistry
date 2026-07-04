@@ -1,9 +1,5 @@
-"""Differential parity: native polars hop() == pandas hop().
-
-Phase 1 (core BFS) of the GFQL polars engine. The pandas engine is the
-correctness oracle; the polars lane must produce identical node-id and edge
-sets. See plans/gfql-polars-engine.
-"""
+"""Differential parity: native polars hop() == pandas hop() (Phase 1 core BFS; pandas = oracle;
+identical node-id and edge sets). See plans/gfql-polars-engine."""
 import pandas as pd
 import pytest
 
@@ -75,7 +71,7 @@ def test_polars_hop_unsupported_raises(kw):
 
 
 def test_polars_hop_min_hops_1_allowed():
-    # min_hops=1 is the default and must NOT raise (boundary guard).
+    # min_hops=1 is the default and must NOT raise (boundary guard)
     base = graphistry.edges(GRAPHS["line5"], "s", "d").materialize_nodes()
     base.hop(hops=1, min_hops=1, engine="polars")
 
@@ -83,13 +79,11 @@ def test_polars_hop_min_hops_1_allowed():
 @pytest.mark.parametrize("direction", ["forward", "reverse"])
 @pytest.mark.parametrize("seed_sel", [["a"], ["c"], ["a", "d"]])
 def test_polars_hop_min_hops_labeled_policy_unit_parity(direction, seed_sel):
-    # Unit test of the CHAIN-CONTEXT min_hops node policy (the surface the chain actually uses):
-    # drive the internal polars hop with `min_hops_label_policy=True` and compare the FULL node
-    # frame (incl non-id attrs, null-aware) against pandas' LABELED hop (`label_node_hops=...`, the
-    # track_node_hops path the chain's ASTEdge.execute takes). This asserts the null-attribute /
-    # seed-strip / endpoint contract at the unit level (seed-48 class) without building a chain.
-    # NOTE: a *direct* base.hop(engine='polars', min_hops>1) intentionally stays NIE (see
-    # test_polars_hop_unsupported_raises) — only the chain wires up this policy.
+    # CHAIN-CONTEXT min_hops node-policy unit test: drive the internal polars hop with
+    # min_hops_label_policy=True; compare the FULL node frame (non-id attrs, null-aware) to pandas'
+    # LABELED hop (label_node_hops=..., the track_node_hops path ASTEdge.execute takes) — asserts
+    # the null-attr/seed-strip/endpoint contract (seed-48 class) without a chain. Direct
+    # base.hop(min_hops>1) stays NIE (test_polars_hop_unsupported_raises); only chain wires this.
     from graphistry.compute.gfql.lazy.engine.polars.hop_eager import hop_polars
     from graphistry.Engine import Engine, df_to_engine
     nodes = pd.DataFrame({"id": ["a", "b", "c", "d", "e"],
@@ -117,8 +111,8 @@ def test_polars_hop_edges_only_parity():
 
 
 def test_polars_hop_dtype_mismatch_parity():
-    # node ids float (with a null), edge endpoints int — pandas coerces; polars
-    # must align join-key dtypes rather than crash.
+    # float node ids (with a null) vs int edge endpoints — pandas coerces; polars must align
+    # join-key dtypes rather than crash
     nodes = pd.DataFrame({"id": [0.0, 1.0, 2.0, None], "k": ["x", "y", "z", "x"]})
     edges = pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0]})
     g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
@@ -133,8 +127,7 @@ def test_polars_hop_predicate_matches_parity():
     edges = pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "d"], "rel": ["r1", "r2", "r1"]})
     g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
     from graphistry import gt
-    # all-nodes hop (no custom seed) so node-match resolves against the full
-    # node table for both engines.
+    # all-nodes hop (no custom seed) so node-match resolves against the full table on both engines
     for kw in (
         {"edge_match": {"rel": "r1"}},
         {"source_node_match": {"score": gt(15)}},
@@ -147,9 +140,8 @@ def test_polars_hop_predicate_matches_parity():
 
 
 def test_polars_filter_by_dict_exotic_predicate_declines():
-    # NO-CHEATING: an exotic predicate with no native polars lowering must raise
-    # NotImplementedError, NOT silently evaluate the column via pandas (the old
-    # bridge misrepresented pandas semantics as polars).
+    # NO-CHEATING: an exotic predicate with no native lowering must NIE, NOT silently evaluate
+    # via pandas (the old bridge misrepresented pandas semantics as polars)
     from graphistry.compute.predicates.ASTPredicate import ASTPredicate
     from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars, predicate_to_expr
 

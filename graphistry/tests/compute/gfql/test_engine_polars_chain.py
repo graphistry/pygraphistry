@@ -1,8 +1,5 @@
-"""Differential parity: native polars chain() == pandas chain().
-
-Phase 1 of the GFQL polars engine. Pandas is the oracle; polars must produce
-identical node/edge sets and alias columns. See plans/gfql-polars-engine.
-"""
+"""Differential parity: native polars chain() == pandas chain() (Phase 1; pandas = oracle;
+identical node/edge sets + alias columns). See plans/gfql-polars-engine."""
 import random
 
 import pandas as pd
@@ -25,12 +22,11 @@ from graphistry.tests.compute.gfql.polars_test_utils import (  # noqa: E402
 
 def _assert_chain_parity(g, ch, label, nie_skip=None, native=False, edge_count=False,
                          multiplicity=False, attrs=False, aliases=False):
-    """Differential chain parity vs the pandas oracle: node/edge id-sets always; flags OPT IN
-    the stricter dimensions each case table needs — ``multiplicity`` (Counter) and ``attrs``
-    (null-aware cells) are the two dimensions the min_hops bugs (fuzz seeds 24/404/48) lived
-    in and that set-equality missed; ``native`` probes the frame type (silent-bridge guard);
-    ``edge_count`` guards dropped parallel/self-loop copies; ``aliases`` compares every named
-    op's flag column. ``nie_skip`` = skip-reason for surfaces that may still honestly NIE."""
+    """Chain parity vs the pandas oracle: node/edge id-sets always; opt-in stricter dims — multiplicity
+    (Counter) + attrs (null-aware cells) are where the min_hops bugs (fuzz seeds 24/404/48) lived and
+    set-equality missed; native = frame-type silent-bridge probe; edge_count guards dropped parallel/
+    self-loop copies; aliases compares each named op's flag column; nie_skip = skip-reason for
+    surfaces that may still honestly NIE."""
     gp = g.chain(ch, engine="pandas")
     if nie_skip is not None:
         try:
@@ -116,10 +112,9 @@ def test_polars_chain_parity(cname):
     ("ci regex",       contains("A.C", regex=True, case=False)),    # regex + case-insensitive
 ])
 def test_polars_contains_regex_and_case_parity(label, pred):
-    """B1: polars Contains must honor ``regex=``/``flags=``/``case=`` like pandas — a
-    literal contains with a regex metacharacter must NOT over-match (before the fix the
-    polars lowering always used ``literal=False``, so ``contains('a.c', regex=False)``
-    matched 'abc'). Differential parity vs the pandas oracle."""
+    """B1: polars Contains honors regex=/flags=/case= like pandas — a literal pattern with a regex
+    metachar must NOT over-match (old lowering hardcoded literal=False: contains('a.c', regex=False)
+    matched 'abc')."""
     nodes = pd.DataFrame({"id": ["p", "q", "r", "s", "t"],
                           "name": ["a.c", "abc", "AxC", "a.c.d", "zzz"]})
     edges = pd.DataFrame({"s": ["p", "q", "r", "s"], "d": ["q", "r", "s", "t"]})
@@ -147,12 +142,10 @@ def _rand_node(rng):
 def _rand_edge(rng):
     ctor = rng.choice([e_forward, e_reverse, e_undirected])
     match = {"rel": rng.choice(["r1", "r2", "r3"])} if rng.random() < 0.5 else None
-    # Multi-hop ONLY for directed edges. e_undirected stays single-hop on purpose:
-    # undirected-in-a-multi-edge-chain is a SEPARATE deferred defect (chain.py guard),
-    # and a multi-HOP undirected edge would skip-mask it. Forward/reverse multi-hop
-    # NIEs at the chain guard TODAY (is_simple_single_hop -> NotImplementedError), so
-    # the fuzz SKIPs cleanly via the except below; once Stage 1 narrows the guard these
-    # become live parity cases — no test edit needed.
+    # Multi-hop for DIRECTED only; e_undirected stays single-hop on purpose (undirected-in-a-
+    # multi-edge-chain is a SEPARATE deferred defect at the chain.py guard, and a multi-HOP
+    # undirected edge would skip-mask it). Fwd/rev multi-hop NIEs at the guard today
+    # (is_simple_single_hop) -> fuzz SKIPs via the except; Stage 1 makes these live, no test edit.
     if rng.random() < 0.4:
         r = rng.random()
         if r < 0.3:
@@ -162,8 +155,8 @@ def _rand_edge(rng):
             mx = rng.randint(2, 4)                         # variable-length 1..max_hops
             return ctor(match, max_hops=mx) if match else ctor(max_hops=mx)
         if r < 0.75 and ctor is not e_undirected:
-            # min_hops>1 lower bound — DIRECTED + finite max_hops only (undirected min_hops and
-            # min_hops+to_fixed_point stay NIE -> skip-masked via the except).
+            # min_hops>1: DIRECTED + finite max_hops only (undirected min_hops and
+            # min_hops+to_fixed_point stay NIE -> skip-masked via the except)
             lo = rng.randint(2, 3)
             hi = lo + rng.randint(0, 2)
             return ctor(match, min_hops=lo, max_hops=hi) if match else ctor(min_hops=lo, max_hops=hi)
@@ -183,10 +176,9 @@ def _rand_chain(rng):
 
 
 def _rand_graph(rng):
-    # Denser-than-nodes topology so multi-hop chains actually traverse >1 edge:
-    # a backbone DIRECTED CYCLE (guarantees A->B->...->A multi-hop reachability),
-    # a self-loop (hops>=2 self-reach + multiplicity), a parallel DUPLICATE edge
-    # (multiplicity under multi-hop), plus random chords. Deterministic per seed.
+    # Dense (|E| >> |V|) so multi-hop chains actually traverse: backbone DIRECTED CYCLE
+    # (guaranteed multi-hop reachability), self-loop (hops>=2 self-reach + multiplicity),
+    # parallel DUPLICATE edge (multiplicity), random chords. Deterministic per seed.
     nn = rng.randint(4, 8)                                  # fewer nodes => denser
     ids = [f"n{i}" for i in range(nn)]
     nodes = pd.DataFrame({
@@ -215,18 +207,16 @@ def test_polars_chain_fuzz_parity(seed):
                          multiplicity=True, attrs=True)
 
 
-# ---- AMPLIFIED min_hops fuzz: every edge min_hops>1 ALWAYS followed by an attribute filter
-# (seed-48 shape on EVERY seed), multiple min_hops steps (the recompute-all combine that broke
-# seeds 24/48), and a sparse-graph variant (exercises the max_reached<min empty gate that the
-# always-dense _rand_graph under-tests). The base fuzz hits this shape only ~3% of seeds. ----
+# ---- AMPLIFIED min_hops fuzz (base fuzz hits this shape only ~3% of seeds): every min_hops>1
+# edge followed by an attribute filter (seed-48 shape), multiple min_hops steps (the recompute-all
+# combine that broke seeds 24/48), plus a sparse-graph variant (the max_reached<min empty gate
+# the always-dense _rand_graph under-tests) ----
 
 def _rand_node_attr(rng):
-    """Always attribute-bearing (never bare n()) so a min_hops null-attr carry is CONSUMED by a
-    downstream filter — the only way the seed-48 class becomes observable through the chain.
-    Uses ONLY predicates that agree pandas-vs-polars on NULL (eq/gt/between all EXCLUDE a null
-    cell); ne() is deliberately excluded because pandas `!= x` KEEPS a NaN cell while polars
-    (cypher 3-valued `null<>x`→null) drops it — a SEPARATE pre-existing predicate divergence
-    (see test_ne_on_null_is_three_valued_logic), not a min_hops concern."""
+    """Always attribute-bearing (never bare n()) so a min_hops null-attr carry is CONSUMED downstream —
+    the only way the seed-48 class is observable through the chain. Only NULL-agreeing predicates
+    (eq/gt/between all EXCLUDE a null cell); ne() deliberately excluded: pandas `!= x` KEEPS NaN, polars
+    3VL (`null<>x`→null) drops it — separate divergence (test_ne_on_null_is_three_valued_logic)."""
     r = rng.random()
     if r < 0.45:
         return n({"kind": rng.choice(["x", "y", "z"])})
@@ -272,8 +262,8 @@ def test_polars_chain_fuzz_minhops_attrfilter_parity(seed):
 
 @pytest.mark.parametrize("k", [1, 2, 3])
 def test_polars_chain_minhops1_equiv_default(k):
-    # Metamorphic (no oracle): min_hops=1 is the default lower bound, so e(min_hops=1, max_hops=k)
-    # must be identical to e(max_hops=k) on the SAME engine.
+    # Metamorphic (no oracle): min_hops=1 is the default bound, so e(min_hops=1, max_hops=k)
+    # must equal e(max_hops=k) on the SAME engine
     rng = random.Random(900 + k)
     g = _rand_graph(rng)
     a = g.chain([n(), e_forward(min_hops=1, max_hops=k), n()], engine="polars")
@@ -282,10 +272,9 @@ def test_polars_chain_minhops1_equiv_default(k):
 
 
 def test_ne_on_null_is_three_valued_logic():
-    # openCypher/SQL 3-valued logic: `null <> x` is NULL -> a null cell is NOT a match (you cannot
-    # prove an unknown value is unequal to x), so a null-kind node is EXCLUDED by ne() — same as
-    # eq/gt and as `NOT a.kind = x`. pandas used to KEEP it (NaN != x -> True); now fixed to match
-    # cudf + the polars engine. n2 has kind=NULL and must be absent from BOTH engines' results.
+    # openCypher/SQL 3VL: `null <> x` is NULL -> a null cell is EXCLUDED by ne(), same as eq/gt
+    # and `NOT a.kind = x`. pandas used to KEEP it (NaN != x -> True); now fixed to match cudf +
+    # polars. n2 (kind=NULL) must be absent from BOTH engines' results.
     nodes = pd.DataFrame({"id": ["n0", "n1", "n2", "n3"], "kind": ["x", "y", None, "z"]})
     edges = pd.DataFrame({"s": ["n0", "n1", "n2", "n3"], "d": ["n1", "n2", "n3", "n0"]})
     g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
@@ -295,9 +284,8 @@ def test_ne_on_null_is_three_valued_logic():
 
 
 def test_membership_on_null_is_three_valued_logic():
-    # openCypher/SQL 3VL: `null IN [...]` is null -> a NULL cell is never a list member (and a null
-    # in the list cannot make a null cell match). n2 has kind=NULL and must be excluded by the
-    # membership filter on BOTH engines (cuDF used to keep it; now fixed in filter_by_dict).
+    # 3VL: `null IN [...]` is null -> a NULL cell is never a member, even with None IN the list.
+    # n2 (kind=NULL) excluded on BOTH engines (cuDF used to keep it; fixed in filter_by_dict).
     nodes = pd.DataFrame({"id": ["n0", "n1", "n2", "n3"], "kind": ["x", "y", None, "z"]})
     edges = pd.DataFrame({"s": ["n0", "n1", "n2", "n3"], "d": ["n1", "n2", "n3", "n0"]})
     g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
@@ -331,12 +319,10 @@ def test_polars_chain_deferred_raises(ch):
     [n(), e_undirected(min_hops=2, max_hops=3), n()],      # UNDIRECTED min_hops>1 (stays NIE)
 ])
 def test_polars_chain_multihop_deferred_raises(ch):
-    # These multi-hop surfaces STAY NIE after native fixed-length hops=N (Stage 1), native
-    # single-hop AND fixed multi-hop undirected (Stage 3 + undirected-multihop), native forward/reverse
-    # to_fixed_point (Stage 4), and native forward/reverse min_hops>1 (Stage 5, the layered backward-tree
-    # walk + endpoint/label/seed-strip node rule): only UNDIRECTED min_hops>1 and undirected
-    # to_fixed_point remain (both need pandas connected-components + 2-core seed retention,
-    # hop.py:817-887, with no vectorized polars analogue).
+    # STILL NIE after Stages 1 (fixed hops=N), 3 (undirected single-hop + fixed multi-hop), 4
+    # (fwd/rev to_fixed_point), 5 (fwd/rev min_hops>1 layered backward-tree walk + endpoint/label/
+    # seed-strip rule): only UNDIRECTED min_hops>1 + undirected to_fixed_point remain — both need
+    # pandas connected-components + 2-core seed retention (hop.py:817-887), no vectorized analogue.
     with pytest.raises(NotImplementedError):
         BASE.chain(ch, engine="polars")
 
@@ -460,11 +446,9 @@ def test_polars_chain_duplicate_edges_multiplicity():
 
 
 def test_polars_chain_edges_only_runs():
-    # No node table / binding: this used to crash the polars engine (the prior
-    # BLOCKER). The pandas engine is itself degenerate on this input (it raises
-    # in pandas concat internals on newer pandas, or returns a nan node), so we
-    # do NOT compare to pandas here — we assert the polars engine runs and
-    # returns the sensible materialized result.
+    # No node table/binding used to CRASH the polars engine (the prior BLOCKER). The pandas
+    # engine is itself degenerate here (raises in concat internals on newer pandas, or returns a
+    # nan node), so no oracle compare — just assert polars runs and materializes sensibly.
     g = graphistry.edges(pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0]}), "s", "d")
     gl = g.chain([n(), e_forward(), n()], engine="polars")
     assert _nset(gl) == {0, 1, 2}
@@ -480,10 +464,8 @@ def test_polars_chain_pandas_start_nodes():
 
 
 def test_lazy_collect_cpu_and_engine_polars_helpers():
-    """Cover the CPU lazy-collect path + the POLARS branches of the engine helpers
-    (df_concat/df_cons/s_cons/df_to_engine) — exercised by the polars engine but not
-    otherwise hit by the coverage suites. The GPU-target collect branches are
-    pragma-no-cover (need a device CI lacks)."""
+    """Cover the CPU lazy-collect path + the POLARS branches of df_concat/df_cons/s_cons/df_to_engine
+    (not otherwise hit); GPU-target collect branches are pragma-no-cover (need a device CI lacks)."""
     import polars as pl
     from graphistry.compute.gfql.lazy import collect, collect_all
     from graphistry.Engine import Engine, df_concat, df_cons, s_cons, df_to_engine
@@ -501,11 +483,9 @@ def test_lazy_collect_cpu_and_engine_polars_helpers():
 
 
 def test_gpu_target_raises_not_silent_cpu_fallback():
-    """NO-CHEATING for the GPU target: a plan node that isn't GPU-executable must
-    RAISE (NotImplementedError pointing at engine='polars'), never silently run on
-    CPU and get reported as a GPU result. We can't exercise a real GPU in CI, so we
-    drive the GPU collect path with a fake LazyFrame whose collect() fails and assert
-    the failure is translated, not swallowed."""
+    """NO-CHEATING: a non-GPU-executable plan node must RAISE (NIE naming engine='polars'),
+    never silently run on CPU as a "GPU result". No real GPU in CI, so a fake LazyFrame whose
+    collect() fails drives the path; the failure must be translated, not swallowed."""
     import pytest
     import polars as pl
     from graphistry.compute.gfql.lazy import (
@@ -533,10 +513,8 @@ def test_gpu_target_raises_not_silent_cpu_fallback():
 
 
 def test_engine_polars_clean_dependency_errors():
-    """engine='polars'/'polars-gpu' raise a CLEAN, actionable install error when the
-    required library is missing — not a cryptic ImportError deep in coercion / the lazy
-    engine, and not mislabeled as a not-GPU-capable plan. Guards live at the chain dispatch
-    (compute/chain.py), pre-coercion."""
+    """Missing polars / cudf_polars -> a CLEAN actionable install error, not a cryptic deep ImportError
+    nor mislabeled not-GPU-capable; guards live at the chain dispatch (compute/chain.py), pre-coercion."""
     import builtins
     import importlib.util
     import pytest
@@ -570,9 +548,9 @@ def test_engine_polars_clean_dependency_errors():
 
 
 def test_gpu_executor_mode_flag(monkeypatch):
-    """GFQL_POLARS_GPU_EXECUTOR selects the cudf-polars executor: default 'in-memory',
-    opt-in 'streaming' (larger-than-device escape hatch), invalid -> in-memory. raise_on_fail
-    stays True (NO-CHEATING) regardless. Mocks pl.GPUEngine so no GPU is needed."""
+    """GFQL_POLARS_GPU_EXECUTOR selects the cudf-polars executor: default 'in-memory', opt-in
+    'streaming' (larger-than-device escape hatch), invalid -> in-memory; raise_on_fail stays True
+    (NO-CHEATING) regardless. Mocks pl.GPUEngine so no GPU is needed."""
     import polars as pl
     from graphistry.compute.gfql import lazy
     from graphistry.compute.gfql.lazy import _engine_for, ExecutionTarget
@@ -610,8 +588,8 @@ def test_gpu_executor_mode_flag(monkeypatch):
 
 
 def test_polars_config_python_settable_and_live(monkeypatch):
-    """The polars execution knobs are settable from Python (not env-only) and read
-    LIVE (not frozen at import): Python override > env var > default."""
+    """Polars execution knobs are Python-settable (not env-only) and read LIVE (not frozen at
+    import): Python override > env var > default."""
     from graphistry.compute.gfql import lazy
     try:
         # defaults
@@ -642,12 +620,10 @@ def test_polars_config_python_settable_and_live(monkeypatch):
 
 
 def test_engine_polars_call_offengine_modality_gated():
-    """PHASE 12: a Plottable-method analytic with no native polars impl (hypergraph) runs
-    OFF-ENGINE under a polars engine as a MODE-GATED modality switch — not a silent bridge.
-    call_mode='auto' (default) runs it on pandas and coerces the result back to polars (both the
-    chain and DAG surfaces, consistently); call_mode='strict' declines with NotImplementedError on
-    both surfaces. engine='pandas' unaffected. (get_degrees/in/out are lowered natively; hypergraph
-    stands in as the architecturally pandas-only analytic.)"""
+    """PHASE 12: an analytic with no native polars impl runs OFF-ENGINE as a MODE-GATED modality
+    switch, not a silent bridge: call_mode='auto' (default) runs on pandas and coerces back to
+    polars on BOTH chain and DAG surfaces; 'strict' declines (NIE) on both; engine='pandas'
+    unaffected. (Degrees lower natively; hypergraph stands in as the pandas-only analytic.)"""
     import warnings
     import pytest
     import pandas as pd

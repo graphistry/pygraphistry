@@ -1,12 +1,7 @@
-"""Differential cypher conformance: engine='polars' == engine='pandas'.
-
-A broad TCK-style conformance lane for the native polars engine: a large curated
-corpus plus a seeded query fuzzer, each run on both engines and asserted to
-produce identical result tables. Pandas is the oracle. This is the polars
-counterpart of the cross-repo Cypher TCK harness (graphistry/tck-gfql) — it
-keeps the polars row pipeline honest across the whole cypher surface, native and
-host-bridged paths alike. See plans/gfql-polars-engine.
-"""
+"""Differential cypher conformance (TCK-style): engine='polars' == engine='pandas' (the oracle)
+on a curated corpus + seeded query fuzzer — identical result tables. Polars counterpart of the
+cross-repo Cypher TCK harness (graphistry/tck-gfql); keeps the row pipeline honest across the
+whole cypher surface, native and host-bridged alike. See plans/gfql-polars-engine."""
 import random
 
 import pandas as pd
@@ -42,8 +37,7 @@ def _to_pd(df):
 
 
 def _round_floats(df):
-    """Dampen last-ULP float differences (e.g. sum/avg summation order) so the
-    differential check tests semantics, not IEEE-754 reduction order."""
+    """Dampen last-ULP float diffs (sum/avg order) — test semantics, not IEEE-754 reduction."""
     out = df.copy()
     for col in out.columns:
         if pd.api.types.is_float_dtype(out[col]):
@@ -52,9 +46,8 @@ def _round_floats(df):
 
 
 def _normalize_nulls(df):
-    """Collapse pandas NaN/None and polars null to a single sentinel so the
-    differential check compares null SEMANTICS, not the engines' null repr
-    (``nan`` vs ``None``) which astype(str) would otherwise render differently."""
+    """Collapse pandas NaN/None and polars null to one sentinel: compare null SEMANTICS, not the
+    engines' null repr (nan vs None), which astype(str) would render differently."""
     return df.where(df.notna(), "∅")
 
 
@@ -65,9 +58,8 @@ def _assert_parity(g, query):
     assert len(a) == len(b), f"row count differs for {query!r}: {len(a)} vs {len(b)}"
     if len(a) == 0:
         return
-    # Bare LIMIT without ORDER BY selects an arbitrary k rows (cypher: order
-    # undefined) — the engines may legitimately pick different rows, so only the
-    # column shape + row count are conformant here.
+    # Bare LIMIT without ORDER BY picks an arbitrary k rows (cypher: order undefined) — engines
+    # may legitimately differ, so only column shape + row count are conformant here
     if "LIMIT" in query and "ORDER BY" not in query:
         return
     a, b = _normalize_nulls(_round_floats(a)), _normalize_nulls(_round_floats(b))
@@ -104,9 +96,8 @@ CORPUS = [
     "RETURN abs(0.0 / 0.0) > 1 AS a, coalesce(0.0 / 0.0, 0.0) > 1 AS b",
     "MATCH (n) RETURN n.val > 50 AS big, n.kind",
     "MATCH (n) RETURN n.val >= 50 AND n.val <= 80 AS mid",
-    # 3-valued boolean over bare null literals — must not crash on Null dtype
-    # (polars & / | / ~ need Boolean cast). Cypher Kleene logic. Bare RETURN
-    # (no MATCH) keeps it a single constant row on both engines.
+    # Kleene 3-valued booleans over bare null literals — must not crash on Null dtype (polars
+    # &/|/~ need Boolean cast); bare RETURN keeps a single constant row on both engines
     "RETURN true AND null AS a, false AND null AS b, null AND null AS c",
     "RETURN true OR null AS a, false OR null AS b, null OR null AS c",
     "RETURN NOT true AS a, NOT false AS b, NOT null AS c",
@@ -138,11 +129,9 @@ CORPUS = [
     # unwind
     "MATCH (n) UNWIND [1, 2, 3] AS x RETURN n.val, x",
     "MATCH (n) UNWIND ['a', 'b'] AS t RETURN n.kind, t",
-    # whole-entity returns — now FLATTEN to {alias}.{field} columns (#1650
-    # structured returns), native for ANY dtype incl BASE.score (float).
-    # (Single-MATCH only here: MATCH (n)-[e]->(m) RETURN m is correct on polars
-    # but pandas upcasts m.val int->float in the binding merge, so it's not a
-    # clean differential case — polars is more correct. See plan.md.)
+    # whole-entity returns FLATTEN to {alias}.{field} (#1650 structured returns), native for ANY
+    # dtype incl float. Single-MATCH only: on (n)-[e]->(m) RETURN m pandas upcasts m.val
+    # int->float in the binding merge (polars is more correct), so not a clean differential case.
     "MATCH (n) RETURN n",
     "MATCH (n) RETURN n LIMIT 5",
     "MATCH (n) RETURN DISTINCT n",
@@ -160,14 +149,10 @@ def test_cypher_conformance_corpus(query):
     _assert_parity(BASE, query)
 
 
-# NO-CHEATING (see plan.md): the polars engine has no native implementation for
-# these yet, so it must raise NotImplementedError (NOT silently run pandas).
-# Whole-entity RETURN over a float column (BASE.score), multi-entity bindings,
-# and cross-entity same-path WHERE.
+# NO-CHEATING (plan.md): no native polars impl yet -> NotImplementedError, NOT silently pandas.
 DEFERRED = [
-    # Whole-entity RETURN now FLATTENS (#1650 structured returns) instead of
-    # rendering text, so float/whole-entity returns are native — moved to CORPUS.
-    # These remain deferred (honest NIE, no pandas bridge):
+    # Whole-entity RETURN now FLATTENS (#1650) so float/whole-entity cases moved to CORPUS;
+    # these remain deferred (honest NIE, no pandas bridge):
     "MATCH (n) RETURN n, n.val",                            # duplicate output col (polars .select rejects)
     "MATCH (n)-[e]->(m) RETURN n.val, m.val",               # multi-entity bindings
     "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",   # cross-entity WHERE
@@ -195,10 +180,8 @@ def test_cypher_deferred_raises_not_bridges(query):
 
 
 def test_temporal_constructor_property_declines_honestly():
-    """A standalone property projection over a temporal-constructor string column
-    (``date({year: 1910, month: 5, day: 6})`` — how Cypher/TCK store temporal
-    values) must raise NotImplementedError, not leak the raw constructor text
-    (pandas normalizes it to ISO; that normalizer is not yet native)."""
+    """Property projection over a temporal-constructor string column (how Cypher/TCK store temporal
+    values) must NIE, not leak raw constructor text (pandas ISO-normalizes; not yet native)."""
     nodes = pd.DataFrame({
         "id": [0, 1],
         "date": ["date({year: 1910, month: 5, day: 6})", "date({year: 1980, month: 10, day: 24})"],
@@ -238,9 +221,8 @@ def test_optional_match_absent_entity_renders_null():
     g = graphistry.nodes(empty, "id").edges(edges, "s", "d")
     out = g.gfql("OPTIONAL MATCH (n) RETURN n", engine="polars")._nodes
     out = out.to_pandas() if hasattr(out, "to_pandas") else out
-    # The single absent-entity row must be NULL. polars→pandas renders a null as
-    # None or NaN depending on column dtype / polars version (1.40 gives NaN, newer
-    # gives None) — both are null, so assert is-null rather than `== [None]`.
+    # polars->pandas renders the null as None or NaN depending on dtype / polars version
+    # (1.40 NaN, newer None) — both are null, so assert is-null rather than `== [None]`
     assert len(out) == 1 and pd.isna(out["n"].iloc[0])
 
 
@@ -256,25 +238,23 @@ def test_optional_match_absent_entity_renders_null():
     (pd.DataFrame({"id": [0, 1], "kind": pd.Series(["a", "b"], dtype="category")}), "MATCH (n) WHERE n.kind > 5 RETURN n.id"),
 ])
 def test_polars_engine_declines_cross_type_not_crash(nodes, query):
-    """Review-found cases where polars would CRASH/panic or silently misanswer —
-    must raise an honest NotImplementedError instead (NO-CHEATING)."""
+    """Review-found polars CRASH/panic/silent-misanswer cases — must raise honest NIE instead (NO-CHEATING)."""
     g = graphistry.nodes(nodes, "id").edges(pd.DataFrame({"s": [0], "d": [1]}), "s", "d")
     with pytest.raises(NotImplementedError):
         g.gfql(query, engine="polars")
 
 
 def test_polars_string_column_vs_date_literal_computes():
-    """A genuine String property compared to a date-looking literal must COMPUTE
-    (lexicographic, like pandas), not be over-declined by the ISO-temporal guard."""
+    """A genuine String property vs a date-looking literal must COMPUTE (lexicographic, like
+    pandas), not be over-declined by the ISO-temporal guard."""
     nodes = pd.DataFrame({"id": [0, 1], "w": ["2020-06-01", "2022-01-01"]})
     g = graphistry.nodes(nodes, "id").edges(pd.DataFrame({"s": [0], "d": [1]}), "s", "d")
     _assert_parity(g, "MATCH (n) RETURN n.w < '2021-01-01' AS x, n.id ORDER BY n.id")
 
 
 def test_mixed_type_column_declines_honestly():
-    """A heterogeneous (int+str) object column — legal for dynamically-typed Cypher
-    properties in pandas, but unrepresentable in polars/Arrow — must raise a clear
-    NotImplementedError (use engine='pandas'), NOT a cryptic pyarrow ArrowInvalid."""
+    """Heterogeneous (int+str) object column — legal in pandas Cypher, unrepresentable in
+    polars/Arrow — must raise a clear NIE (use engine='pandas'), NOT a cryptic ArrowInvalid."""
     nodes = pd.DataFrame({"id": [0, 1, 2], "var": [0, "xx", None]})  # int + str + null
     edges = pd.DataFrame({"s": [0], "d": [1]})
     g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
@@ -283,10 +263,9 @@ def test_mixed_type_column_declines_honestly():
 
 
 def test_mixed_type_column_validate_autofix_coerces_to_string():
-    """The mixed-type object column honors the repo-wide validate/warn convention.
-    Default (strict) raises; validate='autofix' coerces the offending column to string
-    and warns (validate=False coerces without warning) — matching the plot()/upload()
-    and cuDF-conversion behavior instead of hardcoding one policy."""
+    """Mixed-type column honors the repo-wide validate/warn convention: strict default raises;
+    validate='autofix' coerces to string + warns; validate=False coerces silently — matching
+    plot()/upload() and cuDF-conversion behavior instead of hardcoding one policy."""
     import warnings as _warnings
     from graphistry.Engine import Engine, df_to_engine
     pl = pytest.importorskip("polars")
@@ -310,9 +289,8 @@ def test_mixed_type_column_validate_autofix_coerces_to_string():
 
 
 def test_polars_duplicate_alias_declines_like_pandas():
-    """A chain reusing an alias name (``[n('a'), e(), n('a')]``) must raise the same
-    GFQLValidationError E201 as pandas — NOT return a malformed colliding-join schema
-    (``a``/``a_right``). NO-CHEATING: decline where the oracle declines."""
+    """A chain reusing an alias must raise the same GFQLValidationError E201 as pandas — NOT a
+    malformed colliding-join schema (a/a_right). NO-CHEATING: decline where the oracle does."""
     from graphistry.compute.ast import n, e_forward
     from graphistry.compute.exceptions import GFQLValidationError
     g = graphistry.edges(pd.DataFrame({"s": [1, 2, 3], "d": [2, 3, 1]}), "s", "d").materialize_nodes()
@@ -323,10 +301,9 @@ def test_polars_duplicate_alias_declines_like_pandas():
 
 
 def test_polars_integer_literal_division_declines():
-    """Cypher folds integer-literal division (``10/4 == 2``, truncating) but polars
-    does true division (``2.5``) — a silent wrong answer when embedded in a non-monotonic
-    op (``ORDER BY n.val % (10/4)`` sorts differently). Must decline (NIE). Column ``/``
-    int stays Float on both engines, so it must NOT be over-declined."""
+    """Cypher truncates integer-literal division (10/4 == 2) but polars true-divides (2.5) — a
+    silent wrong answer inside a non-monotonic op (ORDER BY n.val % (10/4)); must NIE. Column /
+    int is Float on both engines, so it must NOT be over-declined."""
     g = graphistry.nodes(pd.DataFrame({"id": [1, 2, 3, 4, 5, 6], "val": [1, 2, 3, 4, 5, 6]}), "id") \
         .edges(pd.DataFrame({"s": [1], "d": [2]}), "s", "d")
     with pytest.raises(NotImplementedError):
@@ -336,9 +313,9 @@ def test_polars_integer_literal_division_declines():
 
 
 def test_polars_chain_seed_dtype_alignment():
-    """An internal ``start_nodes`` seed whose id-column dtype diverges from the node-id
-    dtype (e.g. float seed vs int nodes — an empty crossfilter selection defaults to
-    float64) must align join keys rather than crash with SchemaError (mirrors hop)."""
+    """A start_nodes seed whose id dtype diverges from the node-id dtype (float seed vs int
+    nodes — empty crossfilter selections default to float64) must align join keys rather than
+    crash with SchemaError (mirrors hop)."""
     import polars as pl
     from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
     from graphistry.compute.ast import n, e_forward
@@ -353,8 +330,7 @@ def test_polars_chain_seed_dtype_alignment():
 
 
 def _nullable_graph():
-    """Nulls in numeric/string/bool columns + zero/negative — exercises the
-    native lowering's NULL / cypher 3-valued-logic semantics vs pandas."""
+    """Nulls in numeric/string/bool + zero/negative — the native lowering's NULL / cypher 3VL semantics vs pandas."""
     nodes = pd.DataFrame({
         "id": [0, 1, 2, 3, 4, 5, 6],
         "val": [10, None, 30, None, 50, 0, -5],
@@ -394,8 +370,7 @@ def test_cypher_conformance_nullable(query):
 
 
 def _scalar_graph():
-    """int/string/bool only — eligible for native polars entity-text rendering,
-    incl. quote/backslash escaping and null omission."""
+    """int/string/bool only — native entity-text eligible, incl. quote/backslash escaping and null omission."""
     nodes = pd.DataFrame({
         "id": [0, 1, 2, 3],
         "amount": [10, 20, 30, 40],
@@ -407,8 +382,7 @@ def _scalar_graph():
 
 
 def test_native_entity_text_parity():
-    """Whole-entity RETURN n FLATTENS to a.* columns natively in polars (#1650
-    structured returns) and matches pandas. No pandas bridge. The legacy display
+    """RETURN n FLATTENS to a.* columns natively (#1650) == pandas, no bridge; legacy display
     string is presentation-only via render_entity_text()."""
     g = _scalar_graph()
     _assert_parity(g, "MATCH (n) RETURN n")
@@ -463,10 +437,9 @@ def test_cypher_conformance_fuzz(seed):
 
 
 def test_native_polars_nan_input_treated_as_missing():
-    """Review C1 regression: a NATIVE polars input carrying a real NaN must be treated as
-    MISSING (the pandas oracle drops a NaN row under a gt/eq filter), not kept. The
-    pandas->polars ingestion nan_to_null's; the native-polars path (skipped by
-    _coerce_input_formats as 'already correct') did NOT, keeping the row = silent wrong answer."""
+    """Review C1: a NATIVE polars input carrying a real NaN must be treated as MISSING (pandas drops
+    the NaN row under gt/eq), not kept — pandas->polars ingestion nan_to_null's, but the native-polars
+    path (skipped by _coerce_input_formats as 'already correct') did NOT: silent wrong answer."""
     import pandas as pd
     from graphistry.compute.ast import n
     from graphistry.compute.predicates.numeric import gt
@@ -480,9 +453,9 @@ def test_native_polars_nan_input_treated_as_missing():
 
 
 def test_in_query_nan_aggregation_matches_pandas_skipna():
-    """Review I1 regression: an IN-QUERY NaN (0.0/0.0 in a WITH) then aggregated must match the
-    pandas oracle's skipna/dropna. polars propagates NaN through sum/mean (and NaN==NaN is True,
-    so it can't be detected by self-inequality); the agg lowering now nulls NaN in float columns."""
+    """Review I1: an IN-QUERY NaN (0.0/0.0 in WITH) then aggregated must match pandas
+    skipna/dropna. polars propagates NaN through sum/mean (and NaN==NaN is True, so no
+    self-inequality detection); the agg lowering now nulls NaN in float columns."""
     import pandas as pd
     for eng_frame in (pd, pl):
         nodes = eng_frame.DataFrame({"id": [0, 1, 2], "a": [0.0, 2.0, 4.0]})
@@ -495,9 +468,8 @@ def test_in_query_nan_aggregation_matches_pandas_skipna():
 
 
 def test_bool_modulo_declines_like_pandas():
-    """Review S2: pandas declines Boolean modulo (n.flag % 2 -> GFQLTypeError) while polars
-    would compute it (bool->int). The polars engine now declines (NIE) to match — bool +,-,*,/
-    compute identically on both, so only % diverges."""
+    """Review S2: pandas declines Boolean modulo (GFQLTypeError) while polars would compute it
+    (bool->int) — polars now NIEs to match; bool +,-,*,/ agree, only % diverges."""
     import pandas as pd
     g = graphistry.nodes(pd.DataFrame({"id": [0, 1, 2], "flag": [True, False, True]}), "id").edges(
         pd.DataFrame({"s": [0], "d": [1]}), "s", "d")

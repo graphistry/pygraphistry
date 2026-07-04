@@ -1,18 +1,15 @@
 """Lazy Polars hop — build ONE ``pl.LazyFrame`` plan, collect ONCE on the target.
 
-Mirrors the eager ``hop_eager`` join logic but (a) unrolls the fixed-hop
-BFS into a single lazy plan — the only data-dependent control flow in the eager
-loop is the ``frontier.height==0`` early-break, which merely *short-circuits*; for
-a fixed hop count the straight-line plan is equivalent (empty frontier → empty
-joins) — and (b) materializes ``out_edges`` + ``out_nodes`` in ONE
-``collect_all`` so their shared subplan (the edge table) is read/transferred once.
-That single collect is what makes GPU pay off (vs the eager engine's many small
-per-op collects).
+Mirrors the eager ``hop_eager`` join logic but (a) unrolls the fixed-hop BFS into one lazy plan —
+the eager loop's only data-dependent control flow is the ``frontier.height==0`` early-break,
+which merely short-circuits, so for a fixed hop count the straight-line plan is equivalent
+(empty frontier → empty joins) — and (b) materializes out_edges + out_nodes in ONE
+``collect_all`` so their shared edge-table subplan is read/transferred once. That single collect
+is what makes GPU pay off vs the eager engine's many small per-op collects.
 
-DRY: reuses ``ensure_nodes_polars`` / ``filter_by_dict_polars`` /
-``generate_safe_column_name`` from the eager engine verbatim. Returns ``None`` for
-anything it doesn't cover (to_fixed_point, labels, min_hops>1, *_query, output
-slicing) so the dispatcher falls back to the eager hop. Parity-gated vs eager.
+DRY: reuses ensure_nodes_polars / filter_by_dict_polars / generate_safe_column_name from the
+eager engine verbatim. Returns None for anything uncovered (to_fixed_point, labels, min_hops>1,
+*_query, output slicing) so the dispatcher falls back to the eager hop. Parity-gated vs eager.
 """
 from typing import Any, Optional
 
@@ -25,10 +22,9 @@ from graphistry.compute.gfql.lazy import collect_all
 
 
 def hop_lazy_or_eager(self: Plottable, nodes: Optional[Any] = None, hops: Optional[int] = 1, **kwargs: Any) -> Plottable:
-    """Polars hop entry: lazy single-hop (collect-once) if covered, else eager hop.
-
-    The single point both the ``hop()`` dispatch and ``chain_polars`` go through,
-    so chains get the lazy collect-once path (and the GPU target) per edge."""
+    """Polars hop entry: lazy single-hop (collect-once) if covered, else eager hop. The single
+    point both hop() dispatch and chain_polars go through, so chains get the lazy collect-once
+    path (and the GPU target) per edge."""
     result = hop_polars_lazy(self, nodes, hops, **kwargs)
     if result is not None:
         return result
@@ -77,12 +73,11 @@ def hop_polars_lazy(
     resolved_max_hops = max_hops if max_hops is not None else hops
     if not isinstance(resolved_max_hops, int):
         return None
-    # Single-hop only (the dominant case — every chain edge is a single hop):
-    # collect-once is a clean win here (GPU 2.84x @1M, CPU parity). For hops>=2 the
-    # unrolled lazy plan recomputes the big edge-join inside later hops (polars CSE
-    # doesn't dedup the deep BFS), so it loses to the eager engine which
-    # materializes the small frontier between hops -> defer to eager. Multi-hop
-    # lazy (collect small frontier per hop, heavy join on target) is a follow-up.
+    # Single-hop only (the dominant case — every chain edge is one hop): collect-once is a clean
+    # win (GPU 2.84x @1M, CPU parity). For hops>=2 the unrolled plan recomputes the big edge-join
+    # in later hops (polars CSE doesn't dedup the deep BFS) and loses to eager, which materializes
+    # the small frontier between hops -> defer. Multi-hop lazy (collect small frontier per hop,
+    # heavy join on target) is a follow-up.
     if resolved_max_hops != 1:
         return None
     if target_wave_front is not None and nodes is None:
@@ -114,10 +109,9 @@ def hop_polars_lazy(
 
     allowed_source = (
         _idframe_lf(
-            # Mirror the eager hop guard verbatim (hop_eager.py): scope the
-            # source filter to the seed only for a single bounded hop. ``to_fixed_point``
-            # is already declined upstream (always False here) — kept in the predicate so
-            # the two copies stay textually identical and don't drift.
+            # Mirror the eager hop guard verbatim (hop_eager.py): source filter scoped to the
+            # seed only for a single bounded hop. to_fixed_point is already declined upstream
+            # (always False here) — kept so the two copies stay textually identical.
             filter_by_dict_polars(
                 nodes if (nodes is not None and not to_fixed_point and resolved_max_hops == 1) else all_nodes,
                 source_node_match,
@@ -167,8 +161,8 @@ def hop_polars_lazy(
     if synth_eid:
         out_edges_lf = out_edges_lf.drop(EID)
 
-    # Endpoint materialization: always compute (drop the eager .height guard — an
-    # empty out_edges yields empty endpoints, a no-op concat; same result).
+    # Endpoint materialization: always compute (no eager .height guard — empty out_edges
+    # yields empty endpoints, a no-op concat; same result).
     needed = visited_nodes
     if not (return_as_wave_front and nodes is not None):
         endpoints = endpoint_ids(out_edges_lf, src, dst, NID, node_dtype).unique(subset=[NID])

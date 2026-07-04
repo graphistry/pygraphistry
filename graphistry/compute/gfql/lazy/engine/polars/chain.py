@@ -1,13 +1,11 @@
 """Native Polars chain() — Phase 1, vectorized.
 
-Reimplements the chain forward/backward/combine orchestration in polars,
-reusing the polars hop for edge steps. Vectorization-first: node/edge set
-operations are semi/anti joins, alias tags are join-based flag columns — no
-Python-level id lists or ``is_in(python_list)``. Correctness gated by
-differential parity vs the pandas chain.
-
-Deferred (explicit NotImplementedError): variable-length/multi-hop edges,
-undirected edges in multi-edge chains, node query=.
+Reimplements the chain forward/backward/combine orchestration in polars, reusing the polars hop
+for edge steps. Vectorization-first: set ops are semi/anti joins, alias tags are join-based flag
+columns — no Python id lists or ``is_in(python_list)``. Parity-or-NIE contract: differential
+parity vs the pandas chain gates correctness; unsupported shapes raise NotImplementedError
+(no silent pandas fallback). Deferred: variable-length/multi-hop edge sub-cases, some
+undirected multi-edge combos, node query=.
 """
 from typing import Any, List, Optional, Tuple
 
@@ -25,11 +23,10 @@ def _semi(df, ids_df, df_col, id_col):
 
 
 def _align_seed_dtype(seed, node_col, ref_nodes):
-    """Cast the seed's node-id column to the node table's id dtype so the seed↔node
-    semi-join keys match. A ``start_nodes`` frame can arrive with a divergent id dtype
-    (e.g. an empty crossfilter selection defaults to float64 while node ids are int64),
-    which polars won't auto-cast — the combine semi-join then raises ``SchemaError``
-    where pandas joins fine. No-op when the column is absent or already matches."""
+    """Cast the seed's node-id column to the node table's id dtype. start_nodes can arrive with a
+    divergent dtype (e.g. empty crossfilter selection defaults float64 vs int64 ids); polars won't
+    auto-cast, so the combine semi-join raises SchemaError where pandas joins fine. No-op when the
+    column is absent or already matches."""
     import polars as pl
     if seed is None or node_col not in seed.columns:
         return seed
@@ -40,15 +37,13 @@ def _align_seed_dtype(seed, node_col, ref_nodes):
 
 
 def _align_edge_endpoints(g, node_col, src, dst):
-    """Cast edge endpoint columns to the node-id dtype so polars join keys match.
+    """Cast edge endpoint columns to the node-id dtype so join keys match.
 
-    polars won't auto-cast int↔float join keys, and a null in an edge endpoint
-    promotes that column to float while integer node ids stay int — which makes the
-    chain's endpoint↔node-id joins raise ``SchemaError`` where pandas joins fine. The
-    hop already casts internally; the chain (fast paths + combine) did not. Returns
-    ``(aligned_g, restore)`` where ``restore`` is the original ``(src_dtype, dst_dtype)``
-    to put back on the OUTPUT edges (so the result matches pandas' dtype), or None when
-    the dtypes already matched (the common case — a no-op, no table copy)."""
+    polars won't auto-cast int↔float join keys, and a null endpoint promotes its column to float
+    while int node ids stay int — endpoint↔node-id joins then raise SchemaError where pandas joins
+    fine. The hop casts internally; the chain (fast paths + combine) did not. Returns
+    ``(aligned_g, restore)``: restore = original (src_dtype, dst_dtype) to put back on the OUTPUT
+    edges (matching pandas' dtype), or None when already matched (common case — no table copy)."""
     import polars as pl
     ndt = g._nodes.schema[node_col]
     sdt, ddt = g._edges.schema[src], g._edges.schema[dst]
@@ -108,9 +103,9 @@ def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf, intermediate_universe
             return_as_wave_front=True,
             target_wave_front=target_wf,
             intermediate_universe=intermediate_universe,
-            # The chain wants pandas' LABELED min_hops node policy (null attrs for source-side
-            # endpoints) — mirrors pandas' ASTEdge.execute passing auto hop-labels. A direct
-            # base.hop(engine='polars', min_hops=...) leaves this False -> full attrs (pandas parity).
+            # Chain wants pandas' LABELED min_hops node policy (null attrs on source-side
+            # endpoints; mirrors ASTEdge.execute's auto hop-labels). Direct base.hop(
+            # engine='polars', min_hops=...) leaves this False -> full attrs (pandas parity).
             min_hops_label_policy=True,
         )
         if op._name is not None:
@@ -124,30 +119,25 @@ def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf, intermediate_universe
 
 
 def _is_native_multihop(op: ASTObject) -> bool:
-    """Whether a non-simple-single-hop edge op is a multi-hop the native polars
-    combine supports: ``hops=N`` / ``max_hops`` (fwd/rev/undirected),
-    ``to_fixed_point`` (fwd/rev), and ``min_hops>1`` (fwd/rev, finite max),
-    optionally with edge/endpoint match or a name. Deferred combos — undirected
-    ``to_fixed_point`` / undirected ``min_hops>1``, output slicing, hop labels,
-    ``*_query`` strings, ``include_zero_hop_seed``, ``prune_to_endpoints`` —
-    return False so the guard defers (NotImplementedError) rather than risk a
-    silent divergence (see the inline comments for why each stays deferred)."""
+    """Multi-hop shapes the native combine supports: hops=N / max_hops (fwd/rev/undirected),
+    to_fixed_point (fwd/rev), min_hops>1 (fwd/rev, finite max), optionally with match/name.
+    Deferred combos (undirected to_fixed_point / undirected min_hops>1, output slicing, hop
+    labels, *_query, include_zero_hop_seed, prune_to_endpoints) return False so the guard
+    NIEs rather than risk silent divergence — inline comments give per-case reasons."""
     if not isinstance(op, ASTEdge):
         return False
     if op.is_simple_single_hop():
         return False
     if op.direction not in ("forward", "reverse", "undirected"):
         return False
-    # to_fixed_point (unbounded variable-length) IS native for forward/reverse: the recompute
-    # re-runs the forward to_fixed_point hop over the backward-pruned subgraph (the hop's own
-    # fixed-point detection guarantees termination), same path-aware combine as hops=N. But
-    # UNDIRECTED to_fixed_point needs pandas' connected-components + 2-core seed retention
-    # (graphistry/compute/hop.py:817-887) which the vectorized polars hop cannot reproduce -> NIE.
+    # to_fixed_point IS native fwd/rev: recompute re-runs the forward tfp hop over the
+    # backward-pruned subgraph (hop's fixed-point detection guarantees termination), same
+    # path-aware combine as hops=N. decline (NIE): UNDIRECTED tfp needs pandas' connected-
+    # components + 2-core seed retention (hop.py:817-887), not reproducible in the vectorized hop.
     if op.direction == "undirected" and op.to_fixed_point:
         return False
-    # min_hops>1 (variable-length LOWER bound) IS native for forward/reverse with a finite
-    # max_hops (the hop runs a NON-anti-joined BFS + layered backward-tree walk). UNDIRECTED
-    # min_hops>1 and min_hops+to_fixed_point stay NIE.
+    # min_hops>1 IS native fwd/rev with finite max_hops (NON-anti-joined BFS + layered
+    # backward-tree walk). decline (NIE): undirected min_hops>1 and min_hops+to_fixed_point.
     if op.min_hops is not None and op.min_hops > 1 and (op.direction == "undirected" or op.to_fixed_point):
         return False
     if op.output_min_hops is not None or op.output_max_hops is not None:
@@ -162,9 +152,8 @@ def _is_native_multihop(op: ASTObject) -> bool:
 
 
 class _LazyShim:
-    """Minimal lazy graph/step shim for the Track B collect-once combine: carries
-    ``_nodes``/``_edges`` as LazyFrames (+ col names) so the eager combine helpers
-    run lazily over the already-materialized hop frames without Plottable rebinds."""
+    """Track B collect-once shim: carries _nodes/_edges as LazyFrames (+ col names) so the eager
+    combine helpers run lazily over already-materialized hop frames without Plottable rebinds."""
     __slots__ = ("_nodes", "_edges", "_node", "_source", "_destination", "_edge")
 
     def __init__(self, nodes_lf, edges_lf, node, source, destination, edge):
@@ -195,12 +184,11 @@ def _combine_edges(g, steps, label_steps, has_multihop=False):
         if not is_lazy(edges_df) and edges_df.height == 0:
             continue
         if has_multihop or (isinstance(op, ASTEdge) and not op.is_simple_single_hop()):
-            # has_multihop: EVERY edge step was recomputed path-valid over its backward-pruned
-            # subgraph (forward re-exec; see the chain recompute), so append ALL ids and skip the
-            # single-hop prev/next endpoint semijoin below — that semijoin keeps only edges whose
-            # src/dst sit in the prev/next wavefront and would drop intermediate-hop edges (and,
-            # on mixed single+multi chains, diverged by an edge/node vs pandas). Port of the pandas
-            # combine_steps has_multihop branch (recompute all steps, then concat as-is, no semijoin).
+            # has_multihop: every edge step was already recomputed path-valid (forward re-exec over
+            # its backward-pruned subgraph), so append ALL ids and skip the prev/next endpoint
+            # semijoin below — it would drop intermediate-hop edges (and diverged by an edge/node
+            # vs pandas on mixed single+multi chains). Port of pandas combine_steps has_multihop
+            # branch: recompute all steps, concat as-is, no semijoin.
             frames.append(edges_df.select(pl.col(edge_id)))
             continue
         prev_nodes = label_steps[idx - 1][1]._nodes if idx > 0 else g._nodes
@@ -250,14 +238,11 @@ def _combine_nodes(g, steps):
 
 
 def _apply_node_names(out, g, steps):
-    """Tag node aliases on the FINAL node frame (after endpoint materialization).
-
-    A node carries the alias if it matched the named node step (in the
-    backward-PRUNED step, so dead-end matches are excluded) AND, when that step
-    is followed by an edge step, participates in that edge's PRUNED edges.
-    Using the pruned ``steps`` (not the forward-pass frames) is essential — the
-    forward frames over-include and would tag nodes absent from the final graph.
-    """
+    """Tag node aliases on the FINAL node frame (after endpoint materialization). A node carries
+    the alias iff it matched the named step in the backward-PRUNED frame (dead-end matches
+    excluded) AND, when followed by an edge step, participates in that edge's PRUNED edges.
+    Pruned ``steps`` (not forward frames) are essential — forward frames over-include and would
+    tag nodes absent from the final graph."""
     import polars as pl
     node_col, src, dst = g._node, g._source, g._destination
     assert node_col is not None and src is not None and dst is not None
@@ -303,12 +288,10 @@ def _call_native_on_polars(op) -> bool:
 def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     """Execute a boundary run of ASTCall ops on a polars graph.
 
-    Mirrors the suffix/prefix handling in ``chain._handle_boundary_calls``:
-    threads the row-pipeline context attrs and applies the named-middle →
-    ``rows(binding_ops=...)`` rewrite. Each call runs natively on
-    ``Engine.POLARS`` via ``_try_native_row_op``; an op with no native polars
-    implementation raises ``NotImplementedError`` (NO pandas fallback — see
-    the no-silent-fallback policy) rather than secretly running the pandas row pipeline.
+    Mirrors ``chain._handle_boundary_calls``: threads the row-pipeline context attrs and applies
+    the named-middle → ``rows(binding_ops=...)`` rewrite. Each call runs natively via
+    ``_try_native_row_op``; a row op with no native impl raises NotImplementedError (no pandas
+    fallback) rather than secretly running the pandas row pipeline.
     """
     from graphistry.compute.ast import ASTCall, ASTNode as _ASTNode, ASTEdge as _ASTEdge, rows as rows_fn
     from graphistry.compute.chain import serialize_binding_ops
@@ -334,16 +317,15 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     ):
         calls = [rows_fn(binding_ops=serialize_binding_ops(middle))] + list(calls[1:])
 
-    # Per-op NATIVE-OR-DEFER: run each call natively on polars. An op we can't lower:
-    #  - a non-native ROW-pipeline op (correlated-subquery semi_apply/anti_semi_apply/
-    #    join_apply): parity-or-NIE — it SHOULD be polars-native, a bridge would hide that.
-    #  - an ANALYTIC (compute_cugraph/compute_igraph/layout_*/collapse/get_topological_levels
-    #    /...) with no native polars impl by nature: route through execute_call, which applies
-    #    the off-engine modality policy (call_mode='auto' bridges to pandas/cuDF + coerces back;
-    #    'strict' declines). This is the SAME path the DAG/let() surface uses (execute_call), so
-    #    the chain and DAG surfaces stay consistent. The row-vs-analytic split is MECHANICAL
-    #    (is_row_pipeline_call), not a curated list. (umap/hypergraph never reach here — the
-    #    generic chain routes those schema-changers straight to execute_call.)
+    # Per-op NATIVE-OR-DEFER. Ops that don't lower:
+    #  - non-native ROW op (correlated-subquery semi_apply/anti_semi_apply/join_apply):
+    #    parity-or-NIE — it SHOULD be polars-native; a bridge would hide that.
+    #  - ANALYTIC (compute_cugraph/compute_igraph/layout_*/collapse/get_topological_levels/...),
+    #    no native impl by nature: route via execute_call, which applies the off-engine modality
+    #    policy (call_mode='auto' bridges to pandas/cuDF + coerces back; 'strict' declines) — the
+    #    SAME path as the DAG/let() surface, keeping surfaces consistent. Row-vs-analytic split
+    #    is MECHANICAL (is_row_pipeline_call), not curated. (umap/hypergraph never reach here —
+    #    the generic chain routes schema-changers straight to execute_call.)
     from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
     for op in calls:
         native = _try_native_row_op(g_cur, op)
@@ -378,8 +360,8 @@ def _try_native_row_op(g_cur, op):
     if fn in ("select", "return_"):
         return select_polars(g_cur, op.params.get("items", []))
     if fn == "with_":
-        # extend=True (WITH ... that KEEPS existing columns) -> with_columns; extend=False
-        # (full re-projection) -> select. Both decline (NIE) on an unlowerable item.
+        # extend=True (WITH keeping existing columns) -> with_columns; extend=False (full
+        # re-projection) -> select. Both decline (NIE) on an unlowerable item.
         if op.params.get("extend", False):
             return with_columns_polars(g_cur, op.params.get("items", []))
         return select_polars(g_cur, op.params.get("items", []))
@@ -416,10 +398,9 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
     if len(ops) == 0:
         return self
 
-    # Reject duplicate alias names (node aliases and edge aliases scoped separately,
-    # mirroring the pandas ``combine_steps`` E201 guard). Without this, a reused name
-    # like ``[n(name='a'), e(), n(name='a')]`` produces a malformed schema (colliding
-    # ``a``/``a_right`` join columns) — a wrong answer where pandas declines.
+    # Reject duplicate alias names (node/edge aliases scoped separately; mirrors the pandas
+    # combine_steps E201 guard). A reused name like [n(name='a'), e(), n(name='a')] would
+    # produce a malformed schema (colliding a/a_right join cols) — wrong where pandas declines.
     for _alias_type in (ASTNode, ASTEdge):
         _seen: dict = {}
         for _idx, _op in enumerate(ops):
@@ -458,10 +439,9 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
         )
 
     if prefix:
-        # Leading call() ops produce a row table that a following traversal would
-        # have to re-enter as a graph; the pandas path handles this via cascading
-        # _chain_impl, but it is not a cypher shape (MATCH always comes first) and
-        # the polars traversal does not yet consume a row-table input. Defer.
+        # decline (NIE): leading call() yields a row table the following traversal would have to
+        # re-enter as a graph. pandas cascades via _chain_impl, but it's not a cypher shape
+        # (MATCH comes first) and the polars traversal doesn't yet consume a row-table input.
         raise NotImplementedError(
             "polars chain engine does not yet support call() before a traversal; "
             "use engine='pandas' for this chain."
@@ -484,13 +464,11 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     if len(ops) == 0:
         return self
 
-    # Node-only fast path: a single MATCH (n) (no edge traversal) — the dominant
-    # tabular/viz/crossfilter shape (MATCH (n) WHERE/RETURN ...). The result is
-    # just the filtered node table + empty edges, so skip the whole
-    # forward/backward/combine + collect_all (a ~2.5 ms fixed cost at small sizes
-    # — exactly the interactive crossfilter regime). Byte-identical: the combine
-    # for one node step yields g._nodes (filtered) in order + empty edges + the
-    # alias flag on every matched node.
+    # Node-only fast path: single MATCH (n) — the dominant tabular/viz/crossfilter shape.
+    # Result is just the filtered node table + empty edges, so skip forward/backward/combine +
+    # collect_all (~2.5 ms fixed cost at small sizes — the interactive crossfilter regime).
+    # Byte-identical: the one-node-step combine yields filtered g._nodes in order + empty edges
+    # + the alias flag on every matched node.
     if len(ops) == 1 and isinstance(ops[0], ASTNode) and ops[0].query is None:
         op0 = ops[0]
         g0 = ensure_nodes_polars(self)
@@ -523,12 +501,11 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         )
 
     edge_ops = [op for op in ops if isinstance(op, ASTEdge)]
-    # Undirected edges in multi-edge chains: NATIVE for single-hop AND fixed-length multi-hop
-    # undirected (the backward pass threads BOTH endpoints for single-hop — see the override
-    # below; fixed multi-hop undirected uses the generic backward hop + the path-aware
-    # recompute, same as directed). STILL deferred (NIE): undirected single-hop/multi-hop
-    # carrying include_zero_hop_seed / *_query (unverified combine semantics). Undirected
-    # to_fixed_point is NIE'd upstream by _is_native_multihop (needs components/2-core).
+    # Undirected edges in multi-edge chains: NATIVE for single-hop (backward pass threads BOTH
+    # endpoints — see override below) and fixed-length multi-hop (generic backward hop +
+    # path-aware recompute, same as directed). decline (NIE): undirected carrying
+    # include_zero_hop_seed / *_query (unverified combine semantics); undirected to_fixed_point
+    # is NIE'd upstream by _is_native_multihop (needs components/2-core).
     if len(edge_ops) > 1:
         _undirected = [op for op in edge_ops if op.direction == "undirected"]
         _undirected_unsupported = any(
@@ -545,16 +522,13 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                 "include_zero_hop_seed or *_query — require engine='pandas'."
             )
 
-    # Single-hop fast path: [n(), e, n()] where both nodes have no name/query and
-    # the edge has no match/name/query — the basic graph query + "filter then
-    # expand" viz crossfilter (`MATCH (a {f})-[e]->(b)`). The single-hop result is
-    # exactly the edges whose endpoints pass the node filters + those endpoint
-    # nodes (isolated/dead-end nodes excluded). For one hop the backward pass
-    # prunes nothing beyond this, so we skip forward/backward/combine entirely.
-    # Byte-identical (verified vs pandas incl src/dst/both filters, reverse,
-    # dup/self-loop/cycle/isolated). Undirected is only fast-pathed when
-    # UNCONSTRAINED (all edges); filtered-undirected (OR of both directions) falls
-    # through to the full path.
+    # Single-hop fast path: [n(), e, n()] with no names/queries/matches — the basic
+    # "filter then expand" crossfilter (`MATCH (a {f})-[e]->(b)`). Result = edges whose
+    # endpoints pass the node filters + those endpoint nodes (isolated/dead-ends excluded);
+    # one hop means the backward pass prunes nothing more, so skip forward/backward/combine.
+    # Byte-identical vs pandas (verified: src/dst/both filters, reverse, dup/self-loop/cycle/
+    # isolated). Undirected fast-paths only when UNCONSTRAINED; filtered-undirected (OR of
+    # both directions) falls through to the full path.
     def _fp_node(op):
         return isinstance(op, ASTNode) and op._name is None and op.query is None
 
@@ -621,26 +595,22 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             prev_orig = g_stack[-(len(g_rev) + 2)]
         prev_wf = prev_loop._nodes
         target_wf = prev_orig._nodes if prev_orig is not None else None
-        # OUTPUT universe = FULL g._nodes (so the reverse hop's output isn't truncated / loses node
-        # columns). The INTERMEDIATE-hop gate universe is decoupled: for a MULTI-HOP reverse step pass
-        # the forward wavefront (g_step._nodes, before widening) so intermediate hops can't wander
-        # outside the forward-reached nodes (pandas chain.py:1104 feeds g_step as the multi-hop reverse
-        # node table). Single-hop reverse: None -> gate universe = all_nodes (vacuous), matching the
-        # pandas use_fast_backward path (full g._nodes).
+        # OUTPUT universe = FULL g._nodes (reverse hop output not truncated / keeps node columns);
+        # the INTERMEDIATE-hop gate universe is decoupled. Multi-hop reverse: pass the forward
+        # wavefront (g_step._nodes, pre-widening) so intermediate hops can't wander outside
+        # forward-reached nodes (pandas chain.py:1104 feeds g_step as the multi-hop reverse node
+        # table). Single-hop reverse: None -> gate = all_nodes (vacuous), matching pandas
+        # use_fast_backward (full g._nodes).
         _iu = g_step._nodes if (isinstance(op, ASTEdge) and not op.is_simple_single_hop()) else None
         g_step_full = g_step.nodes(g._nodes, g._node)
         rev = _exec(op.reverse(), g_step_full, prev_wf, target_wf, intermediate_universe=_iu)
-        # Undirected single-hop backward threading: the generic hop returns a
-        # ONE-SIDED wavefront (the TO/target-side endpoints only). Pandas' fast
-        # backward branch (graphistry/compute/chain.py:1090-1098) instead threads
-        # BOTH endpoints of the surviving edges as the step's node frame. For an
-        # undirected edge the one-sided wavefront drops an intermediate node that is
-        # only reachable as the frontier-side endpoint of a sibling edge, which then
-        # drops that node's incident edge in the combine (repo fuzz seed-18: >1
-        # undirected edge + intermediate node filters loses a node vs pandas). The
-        # edge set already matches pandas (both edge orientations are joined), so we
-        # override ONLY the node frame, carrying FULL node columns so the next
-        # backward node step can still filter on them.
+        # Undirected single-hop backward threading: the generic hop returns a ONE-SIDED
+        # (TO-side) wavefront; pandas' fast backward branch (chain.py:1090-1098) threads BOTH
+        # endpoints of surviving edges. One-sided drops an intermediate node reachable only as
+        # the frontier-side endpoint of a sibling edge, and the combine then drops its incident
+        # edge (fuzz seed-18: >1 undirected edge + intermediate node filters loses a node vs
+        # pandas). Edge set already matches (both orientations joined), so override ONLY the
+        # node frame — with FULL node columns so the next backward node step can still filter.
         if (isinstance(op, ASTEdge) and op.direction == "undirected"
                 and op.is_simple_single_hop() and rev._edges is not None):
             _both = endpoint_ids(rev._edges, src, dst, node_col).unique(subset=[node_col])
@@ -650,28 +620,23 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     steps: List[Tuple[ASTObject, Plottable]] = list(zip(ops, list(reversed(g_rev))))
     label_steps: List[Tuple[ASTObject, Plottable]] = list(zip(ops, g_stack))
 
-    # Native multi-hop edges: port of the pandas combine_steps ``has_multihop`` branch
-    # (graphistry/compute/chain.py:201-209). For a fixed-length multi-hop edge step the
-    # per-step single-hop endpoint semijoin in _combine_edges keeps only edges whose
-    # src/dst sit in the prev/next wavefront, dropping intermediate-hop edges (observed
-    # e=3 vs pandas e=10). Instead recompute the path-valid edge set by RE-EXECUTING the
-    # FORWARD hop over this step's backward-pruned edge subgraph, seeded from the
-    # forward-pass entry wavefront: the backward prune enforces "reaches a valid
-    # endpoint", the forward re-exec enforces "reachable from the seed", and their
+    # Native multi-hop: port of pandas combine_steps has_multihop branch (chain.py:201-209).
+    # The per-step single-hop endpoint semijoin in _combine_edges would drop intermediate-hop
+    # edges (observed e=3 vs pandas e=10). Instead RE-EXECUTE the FORWARD hop over each step's
+    # backward-pruned edge subgraph, seeded from the forward-pass entry wavefront: backward
+    # prune = "reaches a valid endpoint", forward re-exec = "reachable from seed", and their
     # composition along the BFS frontier is exactly the valid-path edges (NOT a flat
-    # forward∩backward set intersection — that was the reverted shortcut). Only the EDGE
-    # combine sees these recomputed frames (pandas gates the recompute on kind=='edges');
-    # the node combine + name tagging keep the original backward-pruned steps.
+    # forward∩backward intersection — the reverted shortcut). Only the EDGE combine sees the recomputed
+    # frames (pandas gates on kind=='edges'); node combine + name tagging keep the original
+    # backward-pruned steps.
     edge_steps: List[Tuple[ASTObject, Plottable]] = steps
     has_multihop = any(isinstance(op, ASTEdge) and not op.is_simple_single_hop() for op, _ in steps)
     if has_multihop:
-        # pandas combine_steps recomputes EVERY step (not only the multi-hop one) when any step is
-        # multi-hop (chain.py:201-209), and the edge combine then concatenates each recomputed
-        # step's edges with NO per-step prev/next semijoin. Mirror that exactly: recompute ALL
-        # ASTEdge steps (forward re-exec over their backward-pruned subgraph, seeded from the
-        # forward-pass entry wavefront) and let _combine_edges append-all (has_multihop=True).
-        # Recomputing only the multi-hop step + semijoining the single-hop steps diverged by an
-        # edge/node on chains mixing single + multi-hop (fuzz seeds 24/48).
+        # pandas recomputes EVERY step when any is multi-hop (chain.py:201-209), then concats
+        # with NO per-step semijoin. Mirror exactly: recompute ALL ASTEdge steps and let
+        # _combine_edges append-all (has_multihop=True). Recomputing only the multi-hop step +
+        # semijoining the single-hop steps diverged by an edge/node on mixed chains
+        # (fuzz seeds 24/48).
         edge_steps = []
         for idx, (op, g_step) in enumerate(steps):
             if isinstance(op, ASTEdge):
@@ -685,14 +650,12 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             else:
                 edge_steps.append((op, g_step))
 
-    # Track B: build the WHOLE combine (combine_nodes/edges + endpoint + names)
-    # as ONE deferred plan over the already-materialized hop frames and collect
-    # ONCE — collapsing the ~dozen eager combine ops (each internally a
-    # lazy().op().collect()) into a single fused pass on the active target. NO
-    # recompute (inputs are materialized; distinct from the disproven full chain
-    # fusion). Stable order columns restore the eager g._nodes / g._edges order
-    # (lazy joins don't preserve it) so a trailing row pipeline's LIMIT/SKIP is
-    # unaffected — byte-identical to the eager combine.
+    # Track B: build the WHOLE combine (combine_nodes/edges + endpoint + names) as ONE deferred
+    # plan over already-materialized hop frames and collect ONCE — collapsing the ~dozen eager
+    # combine ops (each internally lazy().op().collect()) into a single fused pass on the active
+    # target. NO recompute (inputs materialized; distinct from the disproven full-chain fusion).
+    # Stable order columns restore the eager g._nodes/g._edges order (lazy joins don't preserve
+    # it) so a trailing row pipeline's LIMIT/SKIP is unaffected — byte-identical to eager combine.
     from graphistry.compute.util import generate_safe_column_name
     from graphistry.compute.gfql.lazy import collect_all
     NORD = generate_safe_column_name("__gfql_norder__", g._nodes, prefix="__gfql_", suffix="__")
