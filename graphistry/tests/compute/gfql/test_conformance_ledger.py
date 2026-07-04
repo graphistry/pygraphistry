@@ -2,30 +2,38 @@
 
 PURE INTROSPECTION — NO engine execution, NO GPU, runs on any box (CPU-only).
 
-This ledger keeps the differential-conformance matrix HONEST about its own coverage. It:
-  * DERIVES the predicate universe from the live code registry
-    `type_to_predicate` (graphistry/compute/predicates/from_json.py) — so a newly
-    registered predicate automatically enters the ledger.
-  * DERIVES the "exercised" set by parsing the labels of `_predicate_queries()` in
-    test_engine_polars_conformance_matrix.py (labels shaped `pred:<ClassName>(...)`).
-  * Keeps a hand-maintained KNOWN_UNCOVERED waiver of predicates deliberately not (yet)
-    asserted through `_predicate_queries()` — each with a one-line honest reason
-    (native/NIE rationale, "covered by dedicated test X", or an explicit TODO).
+This ledger keeps the differential-conformance matrix HONEST about its own coverage,
+across FOUR axes (predicates / cypher scalar functions / call() safelist / row-pipeline
+ops — see ``AXES``). Each axis:
+  * DERIVES its universe from the live code registry (e.g. `type_to_predicate`,
+    ``GFQL_SCALAR_FUNCTIONS``, ``SAFELIST_V1``, ``ROW_PIPELINE_CALLS``) — so a newly
+    registered entry automatically enters the ledger.
+  * DERIVES the "exercised" set from the conformance matrix module (parsed labels /
+    cypher strings / exported case lists in test_engine_polars_conformance_matrix.py).
+  * Keeps a hand-maintained waiver dict of entries deliberately not (yet) asserted —
+    each with a one-line honest reason (native/NIE rationale, "covered by dedicated
+    test X", or an explicit TODO).
 
-The tests then FAIL CI when those drift apart, naming the exact gap:
-  (a) a registry predicate that is neither exercised nor waived  -> coverage hole
-  (b) an exercised label that is not a real registry predicate   -> stale/typo label
-  (c) a KNOWN_UNCOVERED name that is not in the registry          -> stale waiver
-  (d) a KNOWN_UNCOVERED name that IS exercised                    -> redundant waiver
+The parametrized tests then FAIL CI when those drift apart, naming the exact gap:
+  (a) a registry entry that is neither exercised nor waived  -> coverage hole
+  (b) an exercised name that is not a real registry entry    -> stale/typo label
+  (c) a waived name that is not in the registry              -> stale waiver
+  (d) a waived name that IS exercised                        -> redundant waiver
+plus per-axis nonempty canaries: an empty registry means import wiring broke; an empty
+exercised set means the parsed label/cypher FORMAT drifted and coverage tracking would
+silently zero out.
 
-NB: `_predicate_queries()` is the ONLY exercised-set source the parser reads. Predicates
-asserted via OTHER dedicated tests in the matrix file (e.g. the temporal IsLeapYear /
-boundary-predicate tests, the EQ DateValue temporal test) are invisible to this parser and
-therefore MUST carry a KNOWN_UNCOVERED waiver pointing at their dedicated test.
+NB: each axis's exercised-set parser reads ONE source (see AXES). Entries asserted via
+OTHER dedicated tests in the matrix file (e.g. the temporal IsLeapYear / boundary-predicate
+tests) are invisible to the parser and therefore MUST carry a waiver pointing at their
+dedicated test.
 """
 from __future__ import annotations
 
 import re
+from typing import Callable, Dict, NamedTuple
+
+import pytest
 
 from graphistry.compute.predicates.from_json import type_to_predicate
 from graphistry.compute.gfql.language_defs import GFQL_SCALAR_FUNCTIONS
@@ -38,6 +46,11 @@ from graphistry.tests.compute.gfql.test_engine_polars_conformance_matrix import 
     _rowop_exercised,
 )
 
+
+# ======================================================================================
+# AXIS 1: PREDICATES — universe `type_to_predicate` (predicates/from_json.py); exercised =
+# class names parsed from `_predicate_queries()` labels (shaped `pred:<ClassName>(...)`).
+# ======================================================================================
 
 # --------------------------------------------------------------------------------------
 # Hand-maintained waiver: registry predicates NOT exercised by `_predicate_queries()`.
@@ -87,85 +100,11 @@ def _exercised_predicate_names() -> set:
     return names
 
 
-def _registry_names() -> set:
-    return set(type_to_predicate)
-
-
-# --------------------------------------------------------------------------------------
-# Sanity: the introspection sources are actually wired up.
-# --------------------------------------------------------------------------------------
-def test_registry_is_nonempty():
-    assert _registry_names(), "type_to_predicate registry is empty — import wiring broken"
-
-
-def test_exercised_set_is_nonempty():
-    assert _exercised_predicate_names(), (
-        "_predicate_queries() yielded no parseable `pred:<Class>(...)` labels — "
-        "label format drift would silently zero out coverage tracking"
-    )
-
-
-# --------------------------------------------------------------------------------------
-# (a) Every registry predicate is EITHER exercised by _predicate_queries() OR waived.
-# --------------------------------------------------------------------------------------
-def test_every_registry_predicate_is_exercised_or_known_uncovered():
-    registry = _registry_names()
-    accounted = _exercised_predicate_names() | set(KNOWN_UNCOVERED)
-    gap = registry - accounted
-    assert not gap, (
-        "registry predicates are neither exercised by _predicate_queries() nor listed in "
-        "KNOWN_UNCOVERED — add a conformance case OR a KNOWN_UNCOVERED reason for: "
-        f"{sorted(gap)}"
-    )
-
-
-# --------------------------------------------------------------------------------------
-# (b) Every exercised label maps to a REAL registry predicate (no typo / dead label).
-# --------------------------------------------------------------------------------------
-def test_exercised_predicates_are_all_in_registry():
-    bogus = _exercised_predicate_names() - _registry_names()
-    assert not bogus, (
-        "_predicate_queries() exercises predicate names absent from the registry "
-        f"(typo or removed predicate?): {sorted(bogus)}"
-    )
-
-
-# --------------------------------------------------------------------------------------
-# (c) No STALE KNOWN_UNCOVERED entries: every waived name is a real registry predicate.
-# --------------------------------------------------------------------------------------
-def test_known_uncovered_entries_are_real_registry_predicates():
-    stale = set(KNOWN_UNCOVERED) - _registry_names()
-    assert not stale, (
-        "KNOWN_UNCOVERED waives names not in the registry (stale waiver — remove them): "
-        f"{sorted(stale)}"
-    )
-
-
-# --------------------------------------------------------------------------------------
-# (d) Nothing is BOTH exercised and waived (redundant waiver hiding real coverage).
-# --------------------------------------------------------------------------------------
-def test_known_uncovered_entries_are_not_already_exercised():
-    overlap = set(KNOWN_UNCOVERED) & _exercised_predicate_names()
-    assert not overlap, (
-        "KNOWN_UNCOVERED waives predicates that _predicate_queries() already exercises "
-        f"(remove the redundant waiver): {sorted(overlap)}"
-    )
-
-
-# --------------------------------------------------------------------------------------
-# Every waiver carries an honest, non-empty reason.
-# --------------------------------------------------------------------------------------
-def test_known_uncovered_reasons_are_nonempty():
-    blank = sorted(n for n, r in KNOWN_UNCOVERED.items() if not (r and r.strip()))
-    assert not blank, f"KNOWN_UNCOVERED entries with empty reasons: {blank}"
-
-
 # ======================================================================================
-# AXIS 2: CYPHER SCALAR FUNCTIONS
-# Universe = GFQL_SCALAR_FUNCTIONS (language_defs.py). Exercised = scalar-function names
-# parsed out of the cypher strings of `_cypher_expression_queries()`. Same four drift
-# tests (a)-(d). Aggregations (count/count_distinct) live in a DIFFERENT registry and are
-# intentionally not in this universe.
+# AXIS 2: CYPHER SCALAR FUNCTIONS — universe GFQL_SCALAR_FUNCTIONS (language_defs.py);
+# exercised = scalar-function names parsed out of the cypher strings of
+# `_cypher_expression_queries()`. Aggregations (count/count_distinct) live in a DIFFERENT
+# registry and are intentionally not in this universe.
 # ======================================================================================
 
 # A cypher call is `name(...)`; lowercase and intersect with the registry (cypher uses
@@ -200,61 +139,14 @@ def _exercised_function_names() -> set:
     return names & set(GFQL_SCALAR_FUNCTIONS)
 
 
-def test_function_registry_is_nonempty():
-    assert set(GFQL_SCALAR_FUNCTIONS), "GFQL_SCALAR_FUNCTIONS registry is empty — import wiring broken"
-
-
-def test_exercised_function_set_is_nonempty():
-    assert _exercised_function_names(), (
-        "_cypher_expression_queries() yielded no parseable scalar-function calls — "
-        "cypher format drift would silently zero out function coverage tracking"
-    )
-
-
-def test_every_registry_function_is_exercised_or_known_uncovered():
-    registry = set(GFQL_SCALAR_FUNCTIONS)
-    accounted = _exercised_function_names() | set(KNOWN_UNCOVERED_FUNCTIONS)
-    gap = registry - accounted
-    assert not gap, (
-        "GFQL_SCALAR_FUNCTIONS entries are neither exercised by _cypher_expression_queries() "
-        f"nor listed in KNOWN_UNCOVERED_FUNCTIONS — add a conformance case OR a waiver for: {sorted(gap)}"
-    )
-
-
-def test_exercised_functions_are_all_in_registry():
-    bogus = _exercised_function_names() - set(GFQL_SCALAR_FUNCTIONS)
-    assert not bogus, f"exercised function names absent from GFQL_SCALAR_FUNCTIONS: {sorted(bogus)}"
-
-
-def test_known_uncovered_functions_are_real_registry_functions():
-    stale = set(KNOWN_UNCOVERED_FUNCTIONS) - set(GFQL_SCALAR_FUNCTIONS)
-    assert not stale, (
-        "KNOWN_UNCOVERED_FUNCTIONS waives names not in GFQL_SCALAR_FUNCTIONS (stale — remove): "
-        f"{sorted(stale)}"
-    )
-
-
-def test_known_uncovered_functions_are_not_already_exercised():
-    overlap = set(KNOWN_UNCOVERED_FUNCTIONS) & _exercised_function_names()
-    assert not overlap, (
-        "KNOWN_UNCOVERED_FUNCTIONS waives functions already exercised (remove redundant waiver): "
-        f"{sorted(overlap)}"
-    )
-
-
-def test_known_uncovered_function_reasons_are_nonempty():
-    blank = sorted(n for n, r in KNOWN_UNCOVERED_FUNCTIONS.items() if not (r and r.strip()))
-    assert not blank, f"KNOWN_UNCOVERED_FUNCTIONS entries with empty reasons: {blank}"
-
-
 # ======================================================================================
-# AXIS 3: call() SAFELIST
-# Universe = SAFELIST_V1 (call/validation.py) — every function invocable via call() / a
-# let() DAG binding. Exercised = `_call_exercised_functions()` (matrix). The bulk of the
-# safelist is architecturally pandas/cuDF-only (layouts / encoders / igraph / cugraph /
-# umap / hypergraph) and honest-NIEs under polars via the no-silent-bridge guard — those
-# are waived with that reason. The ledger fails CI if a NEW safelist entry lands with
-# neither a conformance assertion nor a waiver (e.g. a new unsafe call slips in untracked).
+# AXIS 3: call() SAFELIST — universe SAFELIST_V1 (call/validation.py): every function
+# invocable via call() / a let() DAG binding; exercised = `_call_exercised_functions()`
+# (matrix). The bulk of the safelist is architecturally pandas/cuDF-only (layouts /
+# encoders / igraph / cugraph / umap / hypergraph) and honest-NIEs under polars via the
+# no-silent-bridge guard — those are waived with that reason. The ledger fails CI if a
+# NEW safelist entry lands with neither a conformance assertion nor a waiver (e.g. a new
+# unsafe call slips in untracked).
 # ======================================================================================
 
 CALL_KNOWN_UNCOVERED: dict[str, str] = {
@@ -320,52 +212,14 @@ CALL_KNOWN_UNCOVERED: dict[str, str] = {
 }
 
 
-def test_call_safelist_is_nonempty():
-    assert set(SAFELIST_V1), "SAFELIST_V1 is empty — import wiring broken"
-
-
-def test_exercised_call_set_is_nonempty():
-    assert _call_exercised_functions(), "_call_exercised_functions() is empty — coverage tracking would zero out"
-
-
-def test_every_safelist_entry_is_exercised_or_known_uncovered():
-    registry = set(SAFELIST_V1)
-    accounted = _call_exercised_functions() | set(CALL_KNOWN_UNCOVERED)
-    gap = registry - accounted
-    assert not gap, (
-        "SAFELIST_V1 entries are neither exercised by the matrix nor listed in CALL_KNOWN_UNCOVERED — "
-        f"add a call() conformance case OR a waiver for: {sorted(gap)}"
-    )
-
-
-def test_exercised_calls_are_all_in_safelist():
-    bogus = _call_exercised_functions() - set(SAFELIST_V1)
-    assert not bogus, f"exercised call() names absent from SAFELIST_V1 (typo/removed?): {sorted(bogus)}"
-
-
-def test_call_known_uncovered_entries_are_real_safelist_entries():
-    stale = set(CALL_KNOWN_UNCOVERED) - set(SAFELIST_V1)
-    assert not stale, f"CALL_KNOWN_UNCOVERED waives names not in SAFELIST_V1 (stale — remove): {sorted(stale)}"
-
-
-def test_call_known_uncovered_entries_are_not_already_exercised():
-    overlap = set(CALL_KNOWN_UNCOVERED) & _call_exercised_functions()
-    assert not overlap, f"CALL_KNOWN_UNCOVERED waives already-exercised calls (remove redundant waiver): {sorted(overlap)}"
-
-
-def test_call_known_uncovered_reasons_are_nonempty():
-    blank = sorted(n for n, r in CALL_KNOWN_UNCOVERED.items() if not (r and r.strip()))
-    assert not blank, f"CALL_KNOWN_UNCOVERED entries with empty reasons: {blank}"
-
-
 # ======================================================================================
-# AXIS 4: ROW-PIPELINE OPS
-# Universe = ROW_PIPELINE_CALLS (row/pipeline.py) — the cypher row-pipeline ops. Exercised =
-# `_rowop_exercised()` (ops asserted as a labeled subject; today just `with_`). The rest are
-# either native-but-only-implicitly-exercised (via cypher RETURN/WHERE/grouped-count) or
-# honest-NIE correlated-subquery ops; all waived with that reason. (The degree calls
-# get_degrees/in/out are NOT in ROW_PIPELINE_CALLS — they are tracked on the call() axis.)
-# The ledger fails CI if a NEW row-pipeline op lands without an assertion or a waiver.
+# AXIS 4: ROW-PIPELINE OPS — universe ROW_PIPELINE_CALLS (row/pipeline.py): the cypher
+# row-pipeline ops; exercised = `_rowop_exercised()` (ops asserted as a labeled subject;
+# today just `with_`). The rest are either native-but-only-implicitly-exercised (via
+# cypher RETURN/WHERE/grouped-count) or honest-NIE correlated-subquery ops; all waived
+# with that reason. (The degree calls get_degrees/in/out are NOT in ROW_PIPELINE_CALLS —
+# they are tracked on the call() axis.) The ledger fails CI if a NEW row-pipeline op
+# lands without an assertion or a waiver.
 # ======================================================================================
 
 ROW_OP_KNOWN_UNCOVERED: dict[str, str] = {
@@ -376,39 +230,98 @@ ROW_OP_KNOWN_UNCOVERED: dict[str, str] = {
 }
 
 
-def test_row_pipeline_registry_is_nonempty():
-    assert set(ROW_PIPELINE_CALLS), "ROW_PIPELINE_CALLS registry is empty — import wiring broken"
+# ======================================================================================
+# THE LEDGER MACHINERY — one axis table, seven parametrized drift checks. Adding a new
+# coverage axis = one AXES entry (registry + exercised + waivers + names for messages).
+# ======================================================================================
+
+class _Axis(NamedTuple):
+    registry: Callable[[], set]      # live-code universe
+    exercised: Callable[[], set]     # parsed from the conformance matrix module
+    waivers: Dict[str, str]          # hand-maintained; the ledger content itself
+    registry_name: str               # for failure messages
+    exercised_name: str
+    waiver_name: str
 
 
-def test_exercised_rowop_set_is_nonempty():
-    assert _rowop_exercised(), "_rowop_exercised() is empty — coverage tracking would zero out"
+AXES: Dict[str, _Axis] = {
+    "predicates": _Axis(
+        lambda: set(type_to_predicate), _exercised_predicate_names, KNOWN_UNCOVERED,
+        "type_to_predicate", "_predicate_queries()", "KNOWN_UNCOVERED"),
+    "functions": _Axis(
+        lambda: set(GFQL_SCALAR_FUNCTIONS), _exercised_function_names, KNOWN_UNCOVERED_FUNCTIONS,
+        "GFQL_SCALAR_FUNCTIONS", "_cypher_expression_queries()", "KNOWN_UNCOVERED_FUNCTIONS"),
+    "calls": _Axis(
+        lambda: set(SAFELIST_V1), lambda: set(_call_exercised_functions()), CALL_KNOWN_UNCOVERED,
+        "SAFELIST_V1", "_call_exercised_functions()", "CALL_KNOWN_UNCOVERED"),
+    "rowops": _Axis(
+        lambda: set(ROW_PIPELINE_CALLS), lambda: set(_rowop_exercised()), ROW_OP_KNOWN_UNCOVERED,
+        "ROW_PIPELINE_CALLS", "_rowop_exercised()", "ROW_OP_KNOWN_UNCOVERED"),
+}
+
+_axis = pytest.mark.parametrize("axis", list(AXES), ids=list(AXES))
 
 
-def test_every_rowop_is_exercised_or_known_uncovered():
-    registry = set(ROW_PIPELINE_CALLS)
-    accounted = _rowop_exercised() | set(ROW_OP_KNOWN_UNCOVERED)
-    gap = registry - accounted
-    assert not gap, (
-        "ROW_PIPELINE_CALLS ops are neither exercised by the matrix nor listed in ROW_OP_KNOWN_UNCOVERED — "
-        f"add a labeled conformance case OR a waiver for: {sorted(gap)}"
+@_axis
+def test_registry_is_nonempty(axis):
+    ax = AXES[axis]
+    assert ax.registry(), f"{ax.registry_name} registry is empty — import wiring broken"
+
+
+@_axis
+def test_exercised_set_is_nonempty(axis):
+    # Anti-format-drift canary: a parser/label/cypher format change must not silently
+    # zero out coverage tracking (every check below would then vacuously pass).
+    ax = AXES[axis]
+    assert ax.exercised(), (
+        f"{ax.exercised_name} yielded no parseable exercised entries — format drift "
+        "would silently zero out coverage tracking"
     )
 
 
-def test_exercised_rowops_are_all_in_registry():
-    bogus = _rowop_exercised() - set(ROW_PIPELINE_CALLS)
-    assert not bogus, f"exercised row-op names absent from ROW_PIPELINE_CALLS (typo/removed?): {sorted(bogus)}"
+@_axis
+def test_every_registry_entry_is_exercised_or_waived(axis):
+    ax = AXES[axis]
+    gap = ax.registry() - (ax.exercised() | set(ax.waivers))
+    assert not gap, (
+        f"{ax.registry_name} entries are neither exercised by {ax.exercised_name} nor "
+        f"listed in {ax.waiver_name} — add a conformance case OR a waiver reason for: "
+        f"{sorted(gap)}"
+    )
 
 
-def test_rowop_known_uncovered_entries_are_real():
-    stale = set(ROW_OP_KNOWN_UNCOVERED) - set(ROW_PIPELINE_CALLS)
-    assert not stale, f"ROW_OP_KNOWN_UNCOVERED waives names not in ROW_PIPELINE_CALLS (stale — remove): {sorted(stale)}"
+@_axis
+def test_exercised_entries_are_all_in_registry(axis):
+    ax = AXES[axis]
+    bogus = ax.exercised() - ax.registry()
+    assert not bogus, (
+        f"{ax.exercised_name} exercises names absent from {ax.registry_name} "
+        f"(typo or removed entry?): {sorted(bogus)}"
+    )
 
 
-def test_rowop_known_uncovered_entries_are_not_already_exercised():
-    overlap = set(ROW_OP_KNOWN_UNCOVERED) & _rowop_exercised()
-    assert not overlap, f"ROW_OP_KNOWN_UNCOVERED waives already-exercised ops (remove redundant waiver): {sorted(overlap)}"
+@_axis
+def test_waived_entries_are_real_registry_entries(axis):
+    ax = AXES[axis]
+    stale = set(ax.waivers) - ax.registry()
+    assert not stale, (
+        f"{ax.waiver_name} waives names not in {ax.registry_name} (stale waiver — "
+        f"remove them): {sorted(stale)}"
+    )
 
 
-def test_rowop_known_uncovered_reasons_are_nonempty():
-    blank = sorted(n for n, r in ROW_OP_KNOWN_UNCOVERED.items() if not (r and r.strip()))
-    assert not blank, f"ROW_OP_KNOWN_UNCOVERED entries with empty reasons: {blank}"
+@_axis
+def test_waived_entries_are_not_already_exercised(axis):
+    ax = AXES[axis]
+    overlap = set(ax.waivers) & ax.exercised()
+    assert not overlap, (
+        f"{ax.waiver_name} waives entries {ax.exercised_name} already exercises "
+        f"(remove the redundant waiver): {sorted(overlap)}"
+    )
+
+
+@_axis
+def test_waiver_reasons_are_nonempty(axis):
+    ax = AXES[axis]
+    blank = sorted(n for n, r in ax.waivers.items() if not (r and r.strip()))
+    assert not blank, f"{ax.waiver_name} entries with empty reasons: {blank}"
