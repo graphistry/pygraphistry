@@ -375,6 +375,17 @@ always will). Under ``engine='polars'`` / ``'polars-gpu'`` GFQL runs them as a
   bridging — for benchmark integrity (no hidden modality switch attributed to the
   Polars engine) or a hard memory ceiling.
 
+.. note::
+   **Memory on a very large graph.** The bridge materializes a copy of the graph in
+   the off-engine format — pandas (host) for ``polars``, cuDF (device / unified
+   memory) for ``polars-gpu``. That transient copy is the *same* allocation you'd
+   incur running the analytic on ``engine='cudf'`` directly, so GFQL does **not** add
+   a per-call size cap (a row count is a poor memory proxy, and the real cap belongs
+   at the RMM / container / deployment layer). For a graph large enough that the copy
+   is a concern, either set ``call_mode='strict'`` (decline the bridge) or run the
+   analytic under an RMM device-memory limit / container memory limit, exactly as you
+   would for any cuDF workload.
+
 This is **deliberately narrower** than traversal / filter / row ops (``hop``,
 ``WHERE``, ``RETURN`` …), which stay **parity-or-``NotImplementedError``** and are
 never bridged — a bridge there would hide a missing native impl and misreport
