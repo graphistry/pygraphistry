@@ -282,7 +282,16 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
         if isinstance(df, pl.DataFrame):
             return _pl_nan_to_null(df)
         if isinstance(df, pl.LazyFrame):
-            return _pl_nan_to_null(df.collect())
+            # Collect via the target-aware lazy collect so the executor knobs apply:
+            # engine=POLARS_GPU collects on the cudf-polars GPU executor (gpu_executor()),
+            # engine=POLARS honors cpu_streaming(). A bare df.collect() would materialize on
+            # the CPU default executor and ignore both — the POLARS_ENGINES branch does not
+            # otherwise distinguish POLARS from POLARS_GPU for a LazyFrame input. Function-local
+            # import: lazy/__init__ imports no heavy deps and never imports Engine (no cycle).
+            from graphistry.compute.gfql.lazy import collect as _lazy_collect, target_mode, ExecutionTarget
+            _tgt = ExecutionTarget.GPU if engine == Engine.POLARS_GPU else ExecutionTarget.CPU
+            with target_mode(_tgt):
+                return _pl_nan_to_null(_lazy_collect(df))
         if isinstance(df, pa.Table):
             return _pl_nan_to_null(pl.from_arrow(df))
         pl_validate: ValidationParam = 'strict' if validate is None else validate

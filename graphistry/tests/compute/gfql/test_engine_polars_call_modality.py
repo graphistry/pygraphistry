@@ -92,6 +92,21 @@ def _val_sig(df):
     return (tuple(sorted(str(c) for c in pdf.columns)), tuple(rows))
 
 
+# --------------------------------------------------------------------------- regressions
+def test_materialize_nodes_polars_edges_only_let_dag():
+    """Regression (P13.6-fix): a let() DAG on an EDGES-ONLY graph under engine='polars'
+    pre-materializes nodes (chain_let), which crashed when ComputeMixin.materialize_nodes used
+    pandas-only `.drop_duplicates()`/`.reset_index()` on a polars Series. Now polars-aware
+    (`.unique(maintain_order=True)`). Must match the pandas oracle."""
+    edges = pd.DataFrame({"s": [0, 1, 2, 2], "d": [1, 1, 2, 0]})
+    g = CGFull().edges(edges, "s", "d")   # NO explicit nodes -> triggers materialize_nodes
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        out = g.gfql(let({"a": call("prune_self_edges")}), engine="polars")
+    oracle = g.gfql(let({"a": call("prune_self_edges")}), engine="pandas")
+    assert _val_sig(out._edges) == _val_sig(oracle._edges)
+
+
 # --------------------------------------------------------------------------- auto bridge (default)
 def test_prune_self_edges_auto_bridges_and_matches_pandas_oracle():
     """call_mode='auto' (default): a non-native analytic runs off-engine and its result is

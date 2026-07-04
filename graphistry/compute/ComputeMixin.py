@@ -228,16 +228,25 @@ class ComputeMixin(Plottable):
             )
         node_id = g._node if g._node is not None else "id"
         if _safe_len(g._edges) == 0:
-            empty_nodes_df = (
-                g._edges[[g._source]]
-                .rename(columns={g._source: node_id})
-                .reset_index(drop=True)
-            )
+            if engine_concrete in POLARS_ENGINES:
+                empty_nodes_df = g._edges.select(g._source).rename({g._source: node_id})
+            else:
+                empty_nodes_df = (
+                    g._edges[[g._source]]
+                    .rename(columns={g._source: node_id})
+                    .reset_index(drop=True)
+                )
             return g.nodes(empty_nodes_df, node_id)
 
         concat_fn = df_concat(engine_concrete)
         concat_df = concat_fn([g._edges[g._source], g._edges[g._destination]])
-        nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
+        if engine_concrete in POLARS_ENGINES:
+            # polars Series has no row index and uses .unique() (== pandas drop_duplicates
+            # keep-first with maintain_order) + .to_frame(); .drop_duplicates()/.reset_index
+            # are pandas-only and raise on a polars Series (edges-only graph under engine='polars').
+            nodes_df = concat_df.rename(node_id).unique(maintain_order=True).to_frame()
+        else:
+            nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
         return g.nodes(nodes_df, node_id)
 
     def _single_direction_degree(self, key_col: str, col: str) -> "Plottable":
