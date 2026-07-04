@@ -297,7 +297,7 @@ def apply_result_projection(
     pandas-audited module); it renders natively or raises NotImplementedError — NO
     pandas bridge (no-silent-fallback policy).
     """
-    rows_df = getattr(result, "_nodes", None)
+    rows_df = result._nodes
     if rows_df is not None and "polars" in type(rows_df).__module__:
         from graphistry.compute.gfql.lazy.engine.polars.projection import apply_result_projection_polars
         return apply_result_projection_polars(result, projection, structured=structured)
@@ -307,7 +307,7 @@ def apply_result_projection(
 def _apply_result_projection_pandas(
     result: Plottable, projection: ResultProjectionPlan, *, structured: bool = True
 ) -> Plottable:
-    rows_df = cast(DataFrameT, getattr(result, "_nodes", None))
+    rows_df = cast(Optional[DataFrameT], result._nodes)
     if rows_df is None:
         return result
     alias_rows_df = _projection_alias_rows(rows_df, alias=projection.alias)
@@ -323,7 +323,7 @@ def _apply_result_projection_pandas(
             if source_rows_df is None or source_alias not in source_rows_df.columns:
                 raise ValueError(f"whole-row projection source alias not found: {source_alias!r}")
             source_projection = projection if source_alias == projection.alias else replace(projection, alias=source_alias)
-            id_column = getattr(result, "_node" if source_projection.table == "nodes" else "_edge", None)
+            id_column = result._node if source_projection.table == "nodes" else result._edge
             flat_columns = (
                 _flat_entity_columns(source_rows_df, source_projection, column.output_name, id_column)
                 if structured
@@ -407,7 +407,7 @@ def _apply_result_projection_pandas(
     out._nodes = projected_nodes
     if projected_entity_meta:
         setattr(out, "_cypher_entity_projection_meta", projected_entity_meta)
-    edges_df = getattr(result, "_edges", None)
+    edges_df = result._edges
     if edges_df is not None:
         out._edges = edges_df[:0]
     return out

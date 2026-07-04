@@ -622,7 +622,7 @@ def compile_cypher_call(
 def _graph_row_result(base_graph: Plottable, rows_df: DataFrameT) -> Plottable:
     out = base_graph.bind()
     out._nodes = rows_df
-    edges_df = getattr(base_graph, "_edges", None)
+    edges_df = base_graph._edges
     if edges_df is not None:
         out._edges = cast(DataFrameT, edges_df[:0])
     else:

@@ -52,7 +52,7 @@ def _bind_reentry_graph(graph: Plottable, node_rows: Optional[DataFrameT], *, em
     out = graph.bind()
     out._nodes = node_rows
     if empty_edges:
-        edges_df = getattr(graph, "_edges", None)
+        edges_df = graph._edges
         if edges_df is not None:
             out._edges = cast(DataFrameT, edges_df.head(0) if _is_polars_df(edges_df) else edges_df.iloc[0:0])
     return out
@@ -86,8 +86,8 @@ def apply_optional_reentry_null_fill(
     reentry_plan: Optional[ReentryPlan] = None,
 ) -> Plottable:
     """Null-fill result rows for prefix rows that the optional reentry didn't match."""
-    prefix_df = getattr(prefix_result, "_nodes", None)
-    result_df = getattr(result, "_nodes", None)
+    prefix_df = prefix_result._nodes
+    result_df = result._nodes
 
     if prefix_df is None or len(prefix_df) == 0:
         return result
@@ -224,7 +224,7 @@ def compiled_query_reentry_state(
         )
     output_name = plan.reentry_alias_name
     carried_columns = tuple(plan.scalar_columns)
-    prefix_rows = cast(Optional[DataFrameT], getattr(prefix_result, "_nodes", None))
+    prefix_rows = cast(Optional[DataFrameT], prefix_result._nodes)
     prefix_alias_values: Optional[SeriesT] = None
     if prefix_rows is not None and output_name in prefix_rows.columns:
         prefix_alias_values = cast(SeriesT, prefix_rows[output_name])
@@ -243,8 +243,8 @@ def compiled_query_reentry_state(
         non_null_mask = cast(SeriesT, prefix_alias_values.notna())
         has_non_null_ids = bool(non_null_mask.any()) if hasattr(non_null_mask, "any") else True
         if not has_non_null_ids:
-            base_nodes = cast(Optional[DataFrameT], getattr(base_graph, "_nodes", None))
-            id_column = cast(Optional[str], getattr(base_graph, "_node", None))
+            base_nodes = cast(Optional[DataFrameT], base_graph._nodes)
+            id_column = cast(Optional[str], base_graph._node)
             if base_nodes is None or id_column is None or id_column not in base_nodes.columns:
                 raise reentry_validation_error(
                     "Cypher MATCH after WITH could not recover the base node table for re-entry",
@@ -281,7 +281,7 @@ def compiled_query_reentry_state(
             value=output_name,
             suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
         )
-    base_nodes = getattr(base_graph, "_nodes", None)
+    base_nodes = base_graph._nodes
     if base_nodes is None or id_column not in base_nodes.columns:
         raise reentry_validation_error(
             "Cypher MATCH after WITH could not recover the base node table for re-entry",
@@ -291,7 +291,7 @@ def compiled_query_reentry_state(
     concrete_engine = resolve_engine(cast(Any, engine), base_graph)
     carried_ids, aligned_prefix_rows = aligned_reentry_rows(
         ids=cast(SeriesT, ids),
-        prefix_rows=getattr(prefix_result, "_nodes", None),
+        prefix_rows=prefix_result._nodes,
         output_name=output_name,
     )
     carried_node_ids = cast(DataFrameT, df_cons(concrete_engine)({id_column: carried_ids}))
@@ -344,7 +344,7 @@ def union_scalar_reentry_results(
     """Union per-row suffix results from a multi-row scalar prefix."""
     node_frames = []
     for r in row_results:
-        nodes = getattr(r, "_nodes", None)
+        nodes = r._nodes
         if nodes is not None and len(cast(Any, nodes)) > 0:
             node_frames.append(nodes)
     if node_frames:
@@ -352,7 +352,7 @@ def union_scalar_reentry_results(
         concat = df_concat(concrete_engine)
         node_rows = cast(DataFrameT, concat(node_frames, ignore_index=True))
     else:
-        base_nodes = getattr(base_graph, "_nodes", None)
+        base_nodes = base_graph._nodes
         node_rows = cast(DataFrameT, base_nodes.iloc[0:0]) if base_nodes is not None else None
     return _bind_reentry_graph(base_graph, node_rows)
 
@@ -364,7 +364,7 @@ def compiled_query_scalar_reentry_state(
     carried_columns: Sequence[str],
     row_index: int = 0,
 ) -> Tuple[Plottable, Optional[DataFrameT]]:
-    prefix_rows = getattr(prefix_result, "_nodes", None)
+    prefix_rows = prefix_result._nodes
     if prefix_rows is None:
         raise reentry_validation_error(
             "Cypher MATCH after WITH scalar-only prefix stages could not recover prefix rows",
@@ -372,7 +372,7 @@ def compiled_query_scalar_reentry_state(
             suggestion="Project scalar columns directly before MATCH re-entry.",
         )
     prefix_row_count = len(prefix_rows)
-    base_nodes = getattr(base_graph, "_nodes", None)
+    base_nodes = base_graph._nodes
     if prefix_row_count == 0:
         if base_nodes is None:
             return base_graph, None
@@ -454,8 +454,8 @@ def compiled_query_freeform_reentry_state(
     plan: ReentryPlan,
 ) -> Tuple[Plottable, Optional[DataFrameT]]:
     """Build the single-row dispatch state for free-form intermediate MATCH."""
-    prefix_rows = getattr(prefix_result, "_nodes", None)
-    base_nodes = getattr(base_graph, "_nodes", None)
+    prefix_rows = prefix_result._nodes
+    base_nodes = base_graph._nodes
     if base_nodes is None:
         raise reentry_validation_error(
             "Cypher MATCH after WITH (free-form intermediate MATCH; #1263) "
