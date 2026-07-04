@@ -16,9 +16,15 @@ projection, ``order_by``, ``where_rows``, ``group_by``, ``unwind``. Everything
 else (CASE, mixed/nested/empty list, map, subscript, other functions, temporal
 arithmetic) → NIE.
 """
+from __future__ import annotations
+
 import contextvars
 import re
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, List, Optional, Sequence, Tuple
+
+if TYPE_CHECKING:
+    import polars as pl
+    from graphistry.compute.gfql.expr_parser import ExprNode
 
 from graphistry.Plottable import Plottable
 from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
@@ -52,7 +58,7 @@ def _parser():
 # Cypher binary operators → polars expression methods. Comparison/boolean use
 # polars' null-propagating semantics, which match pandas for these scalar cases
 # (verified by differential parity); anything subtler returns None upstream.
-def _apply_binop(op: str, left: Any, right: Any) -> Optional[Any]:
+def _apply_binop(op: str, left: pl.Expr, right: pl.Expr) -> Optional[pl.Expr]:
     o = op.upper()
     if op == "+":
         return left + right
@@ -296,7 +302,7 @@ def _is_temporal_column_ref(node: Any, columns: Sequence[str]) -> bool:
     return dt is not None and (isinstance(dt, pl.Datetime) or dt == pl.Date or dt == pl.Time)
 
 
-def _expr_output_dtype(expr: Any) -> Any:
+def _expr_output_dtype(expr: pl.Expr) -> Optional[pl.DataType]:
     """Output dtype of a lowered ``pl.Expr`` under the active table schema, or None if
     unresolvable. Schema-only (no data) on an empty LazyFrame — robust where AST-level
     type inference misses cases: ``int/int`` → Float (NaN-capable), function results
@@ -309,7 +315,7 @@ def _expr_output_dtype(expr: Any) -> Any:
         return None
 
 
-def _is_cross_type(ldt: Any, rdt: Any) -> bool:
+def _is_cross_type(ldt: Optional[pl.DataType], rdt: Optional[pl.DataType]) -> bool:
     """Numeric operand vs string-like operand — polars raises (compare:
     ``cannot compare string with numeric``; arithmetic: ``InvalidOperationError``;
     incl. all-null columns, which ``from_pandas`` types as String). pandas/cypher
@@ -319,7 +325,7 @@ def _is_cross_type(ldt: Any, rdt: Any) -> bool:
     return (_dtype_is_numeric(ldt) and _dtype_is_stringlike(rdt)) or (_dtype_is_stringlike(ldt) and _dtype_is_numeric(rdt))
 
 
-def _nan_guard(result: Any, op: str, left: Any, right: Any, ldt: Any, rdt: Any) -> Any:
+def _nan_guard(result: pl.Expr, op: str, left: pl.Expr, right: pl.Expr, ldt: Optional[pl.DataType], rdt: Optional[pl.DataType]) -> pl.Expr:
     """Mask a comparison so NaN operands compare like IEEE/pandas/Cypher (always false;
     ``!=`` true) instead of polars (NaN = largest value). ``is_nan()`` is applied only
     to operands whose OUTPUT dtype is float — safe on the lowered float expr, never on
@@ -337,7 +343,7 @@ def _nan_guard(result: Any, op: str, left: Any, right: Any, ldt: Any, rdt: Any) 
     return (result | any_nan) if op in _NAN_NE_OPS else (result & ~any_nan)
 
 
-def _dtype_category(dt: Any) -> Optional[str]:
+def _dtype_category(dt: Optional[pl.DataType]) -> Optional[str]:
     """Coarse category of a polars dtype for list/IN parity gating: ``int`` / ``float`` /
     ``str`` / ``bool`` (None if unknown/other, e.g. List/Struct/Null/temporal). Only
     same-category elements coerce to a polars list / ``is_in`` supertype that preserves

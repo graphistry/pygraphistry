@@ -9,31 +9,31 @@ convention.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, List, Optional, Union
 
 if TYPE_CHECKING:
     import polars as pl
     PolarsFrame = Union["pl.DataFrame", "pl.LazyFrame"]
 
 
-def is_int(dt: "pl.DataType") -> bool:
+def is_int(dt: "Optional[pl.DataType]") -> bool:
     """Signed/unsigned integer dtype (not bool, not float)."""
     import polars as pl
     return dt in (pl.Int8, pl.Int16, pl.Int32, pl.Int64,
                   pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64)
 
 
-def is_float(dt: "pl.DataType") -> bool:
+def is_float(dt: "Optional[pl.DataType]") -> bool:
     import polars as pl
     return dt in (pl.Float32, pl.Float64)
 
 
-def is_numeric(dt: "pl.DataType") -> bool:
+def is_numeric(dt: "Optional[pl.DataType]") -> bool:
     """Integer or float — the operand types polars arithmetic/comparison accepts."""
     return is_int(dt) or is_float(dt)
 
 
-def is_stringlike(dt: "pl.DataType") -> bool:
+def is_stringlike(dt: "Optional[pl.DataType]") -> bool:
     """String / Categorical / Enum — all compare/order like strings and all raise vs a
     numeric operand in polars (so all must trip the cross-type guard)."""
     import polars as pl
