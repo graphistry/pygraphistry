@@ -16,6 +16,31 @@ from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.filter_by_dict import resolve_filter_column
 from .dtypes import is_numeric as _dtype_numeric, is_stringlike as _dtype_stringlike
 
+# Python-`re` features the Rust regex engine (polars) rejects or evaluates differently:
+# lookaround ((?=/(?!/(?<=/(?<!) and backreferences (\\1, (?P=name), \\k<name>). polars would
+# ComputeError (lookaround) or silently differ, so a pattern using them must decline (NIE),
+# never guess. The pandas engine evaluates these with Python `re`.
+_REGEX_RUST_INCOMPAT = re.compile(r"\(\?<?[=!]|\\[1-9]|\(\?P=|\\k<")
+
+
+def _regex_rust_incompatible(pat: str) -> bool:
+    return _REGEX_RUST_INCOMPAT.search(pat) is not None
+
+
+def _homogeneous_scalar_category(opts: list) -> Optional[str]:
+    """The single value-category (num/str/bool) of a literal list, else None (mixed/empty).
+    polars ``is_in`` raises on a cross-type list, so a non-homogeneous IN must decline (NIE)."""
+    def _cat(o: Any) -> Optional[str]:
+        if isinstance(o, bool):
+            return "bool"
+        if isinstance(o, (int, float)):
+            return "num"
+        if isinstance(o, str):
+            return "str"
+        return None
+    cats = {_cat(o) for o in opts}
+    return next(iter(cats)) if (len(cats) == 1 and None not in cats) else None
+
 
 def _cmp_expr(col_expr, op, val, dtype=None):
     import datetime as _dt
@@ -142,8 +167,12 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype=None):
 
     if name == "IsIn" and hasattr(pred, "options"):
         opts = list(pred.options)
-        if all(isinstance(o, (int, float, str, bool)) for o in opts):
+        # Only a NON-EMPTY, single-category literal list is parity-safe: polars is_in raises
+        # (ComputeError) on a cross-type list (e.g. [1, 'a'] over an Int column), so mixed/empty
+        # declines (NIE) — matching the row-pipeline _lower_in discipline.
+        if opts and _homogeneous_scalar_category(opts) is not None:
             return c.is_in(opts)
+        return None
 
     if name == "AllOf" and hasattr(pred, "predicates"):
         # Conjunction (e.g. ``n.val > 20 AND n.val < 90`` folds to AllOf[GT, LT]).
@@ -216,6 +245,10 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype=None):
                 return c.str.contains(pred.pat, literal=True)
             return c.str.to_lowercase().str.contains(pred.pat.lower(), literal=True)
         # Regex: mirror pandas' ``case``/``flags`` via a Rust-regex inline flag prefix.
+        # Decline (NIE) patterns using Python-re-only features the Rust engine rejects /
+        # evaluates differently (lookaround, backreferences) — no silent wrong answer.
+        if _regex_rust_incompatible(pred.pat):
+            return None
         prefix = _inline_regex_flag_prefix(case, flags)
         return c.str.contains(f"{prefix}{pred.pat}", literal=False)
 
