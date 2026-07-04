@@ -20,7 +20,11 @@ from __future__ import annotations
 
 import contextvars
 from enum import Enum
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
+from typing_extensions import Literal
+
+if TYPE_CHECKING:
+    import polars as pl
 
 
 class ExecutionTarget(Enum):
@@ -60,9 +64,11 @@ import os as _os
 # frozen at import): (1) a Python override (set_*), None = unset; (2) the env var;
 # (3) the default. So both env and Python settings take effect without a re-import.
 _cpu_streaming_override: Optional[bool] = None
-_gpu_executor_override: Optional[str] = None
+_gpu_executor_override: "Optional[GpuExecutor]" = None
 
-_GPU_EXECUTORS = ("in-memory", "streaming")
+#: Valid cudf-polars GPU collect executors (public; see :func:`set_gpu_executor`).
+GPU_EXECUTORS = ("in-memory", "streaming")
+GpuExecutor = Literal["in-memory", "streaming"]
 
 
 def cpu_streaming() -> bool:
@@ -86,7 +92,7 @@ def set_cpu_streaming(value: Optional[bool]) -> None:
     _cpu_streaming_override = None if value is None else bool(value)
 
 
-def gpu_executor() -> str:
+def gpu_executor() -> GpuExecutor:
     """cudf-polars GPU collect executor: ``'in-memory'`` (default) or ``'streaming'``.
 
     'in-memory' is fast + stable for results that fit device memory (the GFQL regime —
@@ -99,7 +105,7 @@ def gpu_executor() -> str:
     if _gpu_executor_override is not None:
         return _gpu_executor_override
     raw = _os.environ.get("GFQL_POLARS_GPU_EXECUTOR", "in-memory").strip().lower()
-    return raw if raw in _GPU_EXECUTORS else "in-memory"
+    return "streaming" if raw == "streaming" else "in-memory"
 
 
 def set_gpu_executor(value: Optional[str]) -> None:
@@ -112,12 +118,12 @@ def set_gpu_executor(value: Optional[str]) -> None:
         _gpu_executor_override = None
         return
     v = value.strip().lower()
-    if v not in _GPU_EXECUTORS:
-        raise ValueError(f"gpu_executor must be one of {_GPU_EXECUTORS}, got {value!r}")
-    _gpu_executor_override = v
+    if v not in GPU_EXECUTORS:
+        raise ValueError(f"gpu_executor must be one of {GPU_EXECUTORS}, got {value!r}")
+    _gpu_executor_override = "streaming" if v == "streaming" else "in-memory"
 
 
-def _engine_for(target: ExecutionTarget) -> Any:
+def _engine_for(target: ExecutionTarget) -> "Optional[pl.GPUEngine]":
     """Polars collect engine for a target. ``None`` = default (CPU streaming/in-mem).
 
     GPU uses the cudf-polars IN-MEMORY executor (`executor="in-memory"`), not the
@@ -160,7 +166,7 @@ def _gpu_raise(exc: Exception) -> "NotImplementedError":
     )
 
 
-def collect(lf: Any) -> Any:
+def collect(lf: "pl.LazyFrame") -> "pl.DataFrame":
     """Collect one polars LazyFrame on the active target (CPU/GPU)."""
     eng = _engine_for(active_target())
     if eng is not None:
@@ -173,7 +179,7 @@ def collect(lf: Any) -> Any:
     return lf.collect(engine="streaming") if cpu_streaming() else lf.collect()
 
 
-def collect_all(lfs: List[Any]) -> List[Any]:
+def collect_all(lfs: "List[pl.LazyFrame]") -> "List[pl.DataFrame]":
     """Collect several LazyFrames in ONE pass on the active target.
 
     Sharing the plan means common subplans (e.g. the edge table loaded once) are

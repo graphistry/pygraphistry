@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, List, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:
     import polars as pl
-    from graphistry.compute.gfql.expr_parser import ExprNode
+    from graphistry.compute.gfql.expr_parser import ExprNode, FunctionCall
 
 from graphistry.Plottable import Plottable
 from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
@@ -109,7 +109,7 @@ def _resolve_property(alias: str, prop: str, columns: Sequence[str]) -> Optional
     return None
 
 
-def _lower_function(node: Any, columns: Sequence[str]) -> Optional[pl.Expr]:
+def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower a whitelisted scalar cypher function to polars, or None to defer.
 
     Only functions whose polars mapping matches the pandas engine's semantics
@@ -250,7 +250,7 @@ _ISO_TEMPORAL_RE = re.compile(
 )
 
 
-def _is_int_literal(node: Any) -> bool:
+def _is_int_literal(node: ExprNode) -> bool:
     """True if ``node`` is an integer Literal (not bool). Cypher integer division
     (``5/2 == 2``, truncating) diverges from polars true division (``2.5``) ONLY for
     constant integer operands — a column ``/`` int already returns Float on both
@@ -259,7 +259,7 @@ def _is_int_literal(node: Any) -> bool:
     return isinstance(node, Literal) and isinstance(node.value, int) and not isinstance(node.value, bool)
 
 
-def _is_iso_duration_literal(node: Any) -> bool:
+def _is_iso_duration_literal(node: ExprNode) -> bool:
     """True if ``node`` is a string Literal holding an ISO-8601 duration (``PT6M``,
     ``P1Y``, …) — what cypher ``duration({...})`` translates to. ``^-?P(?=[0-9T])``
     matches a duration without misfiring on ordinary strings like ``'Prefix'``."""
@@ -271,7 +271,7 @@ def _is_iso_duration_literal(node: Any) -> bool:
     )
 
 
-def _is_iso_temporal_literal(node: Any) -> bool:
+def _is_iso_temporal_literal(node: ExprNode) -> bool:
     """True if ``node`` is a string Literal holding an ISO date/datetime/time — what
     cypher ``date()``/``time()``/``datetime()`` constructors lower to. Used to decline
     (NIE) temporal comparison, which polars would do lexicographically (wrong)."""
@@ -283,7 +283,7 @@ def _is_iso_temporal_literal(node: Any) -> bool:
     )
 
 
-def _is_temporal_column_ref(node: Any, columns: Sequence[str]) -> bool:
+def _is_temporal_column_ref(node: ExprNode, columns: Sequence[str]) -> bool:
     """True if ``node`` references a column whose published schema dtype is TEMPORAL
     (Datetime/Date/Time). A temporal column compared to an ISO temporal STRING literal
     (what cypher ``date()/datetime()/time()`` lowers to) makes polars raise — so decline.
@@ -376,7 +376,7 @@ def _value_category(v: Any) -> Optional[str]:
     return None
 
 
-def _lower_list_literal(items: Sequence[Any], columns: Sequence[str]) -> Optional[pl.Expr]:
+def _lower_list_literal(items: Sequence[ExprNode], columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower ``[e0, e1, ...]`` to a per-row polars list via ``pl.concat_list``, or None to defer.
 
     ``concat_list`` preserves element ORDER exactly as written, matching the pandas oracle
@@ -407,7 +407,7 @@ def _lower_list_literal(items: Sequence[Any], columns: Sequence[str]) -> Optiona
     return pl.concat_list(lowered)
 
 
-def _lower_in(left: pl.Expr, items: Sequence[Any], columns: Sequence[str]) -> Optional[pl.Expr]:
+def _lower_in(left: pl.Expr, items: Sequence[ExprNode], columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower ``x IN [literals]`` to a 3-valued polars membership test, or None to defer.
 
     SAFE subset: a NON-EMPTY list of NON-NULL literals whose single category matches the
@@ -420,16 +420,17 @@ def _lower_in(left: pl.Expr, items: Sequence[Any], columns: Sequence[str]) -> Op
     from graphistry.compute.gfql.expr_parser import Literal
     if not items or not all(isinstance(it, Literal) and it.value is not None for it in items):
         return None
-    cats = {_value_category(it.value) for it in items}
+    literals: List[Literal] = [it for it in items if isinstance(it, Literal)]
+    cats = {_value_category(it.value) for it in literals}
     if len(cats) != 1 or None in cats:
         return None
     if _dtype_category(_expr_output_dtype(left)) != next(iter(cats)):
         return None
-    values = [it.value for it in items]
+    values = [it.value for it in literals]
     return pl.when(left.is_null()).then(pl.lit(None, dtype=pl.Boolean)).otherwise(left.is_in(values))
 
 
-def lower_expr(node: Any, columns: Sequence[str]) -> Optional[pl.Expr]:
+def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower a parsed cypher ExprNode to a polars expression, or None to defer."""
     import polars as pl
     from graphistry.compute.gfql.expr_parser import (
