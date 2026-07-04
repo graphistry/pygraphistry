@@ -19,8 +19,9 @@ arithmetic) → NIE.
 from __future__ import annotations
 
 import contextvars
+import operator
 import re
-from typing import TYPE_CHECKING, Any, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:
     import polars as pl
@@ -58,30 +59,21 @@ def _parser():
 # Cypher binary operators → polars expression methods. Comparison/boolean use
 # polars' null-propagating semantics, which match pandas for these scalar cases
 # (verified by differential parity); anything subtler returns None upstream.
+# ``pl.Expr`` implements the Python arithmetic/rich-comparison protocol, so
+# ``operator.*`` builds exactly the ``left <op> right`` expression per token.
+_BINOP_FNS: Dict[str, Callable[[Any, Any], Any]] = {
+    "+": operator.add, "-": operator.sub, "*": operator.mul, "/": operator.truediv,
+    "%": operator.mod,  # polars mod is floored, matching pandas (verified by parity)
+    "=": operator.eq, "==": operator.eq, "<>": operator.ne, "!=": operator.ne,
+    "<": operator.lt, ">": operator.gt, "<=": operator.le, ">=": operator.ge,
+}
+
+
 def _apply_binop(op: str, left: pl.Expr, right: pl.Expr) -> Optional[pl.Expr]:
+    fn = _BINOP_FNS.get(op)
+    if fn is not None:
+        return fn(left, right)
     o = op.upper()
-    if op == "+":
-        return left + right
-    if op == "-":
-        return left - right
-    if op == "*":
-        return left * right
-    if op == "/":
-        return left / right
-    if op == "%":
-        return left % right
-    if op in ("=", "=="):
-        return left == right
-    if op in ("<>", "!="):
-        return left != right
-    if op == "<":
-        return left < right
-    if op == ">":
-        return left > right
-    if op == "<=":
-        return left <= right
-    if op == ">=":
-        return left >= right
     if o in ("AND", "OR"):
         # Cypher AND/OR are boolean operators with Kleene 3-valued logic (polars
         # Boolean & / | already match: true|null=true, false&null=false,

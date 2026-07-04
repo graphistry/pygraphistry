@@ -53,6 +53,13 @@ def _homogeneous_scalar_category(opts: List[Any]) -> Optional[str]:
     return next(iter(cats)) if (len(cats) == 1 and None not in cats) else None
 
 
+# The comparison callables predicates declare (``op = staticmethod(operator.gt)`` etc.).
+# ``pl.Expr`` implements the Python rich-comparison protocol, so for these ops
+# ``op(lhs, rhs)`` builds exactly the ``lhs > rhs`` / ... expression; anything outside
+# this whitelist has no proven lowering and falls through to the decline paths.
+_CMP_OPS = frozenset({operator.gt, operator.lt, operator.ge, operator.le, operator.eq, operator.ne})
+
+
 def _cmp_expr(
     col_expr: "pl.Expr",
     op: Callable[[Any, Any], Any],
@@ -78,20 +85,8 @@ def _cmp_expr(
             isinstance(dtype, pl.Datetime) and dtype.time_zone is None
             and isinstance(d, _dt.date) and not isinstance(d, _dt.datetime)
         ):
-            date_col = col_expr.dt.date()
-            lit = pl.lit(d)
-            if op is operator.gt:
-                return date_col > lit
-            if op is operator.lt:
-                return date_col < lit
-            if op is operator.ge:
-                return date_col >= lit
-            if op is operator.le:
-                return date_col <= lit
-            if op is operator.eq:
-                return date_col == lit
-            if op is operator.ne:
-                return date_col != lit
+            if op in _CMP_OPS:
+                return op(col_expr.dt.date(), pl.lit(d))
         # naive-Datetime parity unprovable here -> fall through to the decline below.
 
     # Remaining temporal values (datetime/datetime-tagged/time or the GFQL TemporalValue) have
@@ -113,18 +108,8 @@ def _cmp_expr(
     # natively-constructed polars frame carrying raw NaN would diverge; documented rather
     # than guarded to keep the predicate lowering simple. (Mirrors the documented integer
     # ``0/0`` column-compare residual.)
-    if op is operator.gt:
-        return col_expr > val
-    if op is operator.lt:
-        return col_expr < val
-    if op is operator.ge:
-        return col_expr >= val
-    if op is operator.le:
-        return col_expr <= val
-    if op is operator.eq:
-        return col_expr == val
-    if op is operator.ne:
-        return col_expr != val
+    if op in _CMP_OPS:
+        return op(col_expr, val)
     return None
 
 
