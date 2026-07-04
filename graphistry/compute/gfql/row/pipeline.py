@@ -1436,6 +1436,23 @@ class RowPipelineMixin:
                         # too). Round-trip the float column through the pandas oracle on the host
                         # (arrow -> pandas float -> str = the exact pandas-engine result) so cuDF
                         # is string-IDENTICAL to pandas. Niche op; one host transfer of one column.
+                        #
+                        # MAINTENANCE NOTE (2026-07-04, persona-tested engine-fidelity review):
+                        # This is a HIDDEN device->host->device transfer inside a 'cudf' timing —
+                        # correct-for-parity but invisible to a benchmarker attributing time to the
+                        # cuDF engine. We deliberately did NOT add a warn-once here yet: (a) this
+                        # branch sits in _gfql_eval_expr_ast (the AST-eval FALLBACK); 9 cypher
+                        # toString(float) shapes all took the vectorized projection path instead and
+                        # did NOT reach here, so its live reachability via the cypher surface is
+                        # UNCONFIRMED (may be non-cypher-only, or dead) — instrumenting it before
+                        # confirming that would ship an unfirable/misleading warning; and (b) the
+                        # honesty knob belongs to the deferred UNIFIED engine-fidelity work, not a
+                        # 3rd bespoke mode. When that lands: pick ONE of — confirm reachability +
+                        # warn-once + a triggering test; add an opt-in 'native' mode that tolerates
+                        # the on-device repr (no host transfer) for benchmark users; or, if proven
+                        # dead, delete this branch. Do NOT bolt a standalone warn on in isolation.
+                        # (See plan PHASE 13 P13.5; the same applies to the sibling
+                        # _gfql_series_to_pylist host-transfer sites.)
                         host_str = pd.Series(inner.to_arrow().to_pylist()).astype(str)
                         out = s_cons(Engine.CUDF)(host_str.to_numpy(), index=inner.index)
                     else:
