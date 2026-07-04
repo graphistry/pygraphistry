@@ -15,6 +15,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
 from .hop_eager import ensure_nodes_polars
 from .dtypes import is_lazy, colnames
+from .degrees import get_degrees_polars, get_indegrees_polars, get_outdegrees_polars
 from .predicates import filter_by_dict_polars
 
 
