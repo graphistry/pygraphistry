@@ -42,85 +42,28 @@ def _graph(seed=0):
     return graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
 
 
-def _to_pd(df):
-    """Normalize any engine frame (polars / cudf / pandas) to pandas for comparison."""
-    if df is None:
-        return None
-    if "pandas" in type(df).__module__:
-        return df
-    if hasattr(df, "to_pandas"):  # polars.DataFrame, cudf.DataFrame
-        return df.to_pandas()
-    return df
+# Comparison machinery (frame sig / run status / parity-or-NIE) is shared across the
+# polars test suite — one definition, loud-failure contracts documented there.
+from graphistry.tests.compute.gfql.polars_test_utils import (  # noqa: E402
+    to_pandas_any as _to_pd,
+    run_status as _run,
+    available_nonpandas_engines,
+    assert_parity_or_nie,
+    assert_surfaces_agree,
+)
 
-
-def _frame_repr(df):
-    """Canonical VALUE-level repr of a frame for cross-engine comparison: normalize to pandas,
-    sort columns, round floats (FP tolerance across engines), sort rows (order-insensitive),
-    NaN/NA -> None. Compares actual cell values, not just id-sets/shape."""
-    df = _to_pd(df)
-    if df is None:
-        return None
-    import numpy as np
-    df = df.reindex(sorted(df.columns), axis=1).copy()
-    for c in df.columns:
-        if df[c].dtype.kind == "f":
-            df[c] = df[c].round(6)
-    cols = tuple(df.columns)
-    # rows as tuples (NaN/NA -> None), then sort the LIST of tuples (order-insensitive) with a
-    # None-safe, type-safe key. Avoids per-row agg(join) which is fragile on empty/mixed frames.
-    # astype(object) FIRST so pandas nullable-extension dtypes (cudf->pandas yields these) turn
-    # pd.NA into a real None; .where(notna, None) on the original extension array would re-coerce
-    # back to pd.NA, and a pd.NA in the signature makes `res == base` raise "bool of NA ambiguous".
-    obj = df.astype(object).where(df.notna(), None)
-    rows = [tuple(r) for r in obj.to_numpy().tolist()]
-    rows.sort(key=lambda t: tuple((v is None, type(v).__name__, str(v)) for v in t))
-    return (cols, tuple(rows))
-
-
-def _sig(g):
-    """Full value-level signature of a graph/row result (both frames, values compared)."""
-    return (_frame_repr(g._nodes), _frame_repr(g._edges))
-
-
-def _run(g, query, engine):
-    """('ok', sig) | ('nie',) | ('err', ExcTypeName)."""
-    try:
-        return ("ok", _sig(g.gfql(query, engine=engine)))
-    except NotImplementedError:
-        return ("nie",)
-    except Exception as ex:  # any non-NIE error is itself a conformance failure to surface
-        return ("err", type(ex).__name__)
-
-
-def _available_nonpandas_engines():
-    """polars always; cudf / polars-gpu when the GPU stack is importable (the dgx GPU lane)."""
-    engines = ["polars"]
-    try:
-        import cudf  # noqa: F401
-        engines.append("cudf")
-    except Exception:
-        pass
-    import importlib.util
-    if importlib.util.find_spec("cudf_polars") is not None:
-        engines.append("polars-gpu")
-    return engines
-
-
-_NONPANDAS_ENGINES = _available_nonpandas_engines()
+_NONPANDAS_ENGINES = available_nonpandas_engines()
 
 
 def _assert_invariant(g, query, label):
-    """For EVERY available non-pandas engine: result == pandas oracle, OR honest NIE. Never a
-    silent divergence / non-NIE crash. Runs polars on every box; cudf + polars-gpu on the dgx."""
-    base = _run(g, query, "pandas")
-    if base[0] == "err":
-        pytest.skip(f"{label}: pandas oracle itself errored ({base[1]})")
-    for eng in _NONPANDAS_ENGINES:
-        res = _run(g, query, eng)
-        if res[0] == "nie":
-            continue  # honest decline — allowed
-        assert res[0] != "err", f"{label}[{eng}]: non-NIE {res[1]} where pandas={base[0]}"
-        assert res == base, f"{label}[{eng}]: SILENT DIVERGENCE {eng}{res} != pandas{base}"
+    assert_parity_or_nie(g, query, label, _NONPANDAS_ENGINES)
+
+
+def test_pandas_oracle_sanity():
+    """Canary: assert_parity_or_nie SKIPS a case when the pandas oracle errors (so one
+    broken case doesn't fail the whole matrix) — but a GLOBAL oracle break would then
+    silently skip everything. This known-good query must stay 'ok'."""
+    assert _run(_graph(0), [n()], "pandas")[0] == "ok", "pandas oracle broken — matrix would silently skip"
 
 
 # ---- predicate cross-product (the area that had 2 wrong-answer bugs) ----
@@ -290,37 +233,61 @@ def test_conformance_cypher_expressions(label, query):
     _assert_invariant(_graph(4), query, f"cypher {label}")
 
 
-# ---- NATIVE size() / substring(): the provable sub-cases lower; the rest honest-NIE ----
-def test_size_string_runs_natively_on_polars():
-    """size(<String column>) MUST lower NATIVELY on polars (str.len_chars == pandas
-    str.len) — not an (honest-but-lazy) NIE and not a silent pandas bridge."""
+# ---- NATIVE-vs-honest-NIE cypher scalar functions ------------------------------------
+# The provable sub-cases MUST lower natively on polars (never an honest-but-lazy NIE,
+# never a silent bridge); the unprovable ones MUST decline (never fabricate values or
+# replicate a pandas quirk). Each row carries its one-line parity rationale ("why") —
+# the full proofs live at the lowering sites in lazy/engine/polars/row_pipeline.py.
+_NATIVE_OK_CYPHER = [
+    # (id, cypher over _graph(4), why-native-is-provable)
+    ("size_string", "MATCH (n) RETURN n.id AS id, size(n.name) AS sz",
+     "str.len_chars == pandas str.len"),
+    ("substring_0_4", "MATCH (n) RETURN n.id AS id, substring(n.name, 0, 4) AS sub",
+     "non-negative int literals: str.slice(offset,len) == pandas str.slice(start,start+len)"),
+    ("tointeger_float", "MATCH (n) RETURN n.id AS id, toInteger(n.f) AS i",
+     "truncate toward zero, NaN/null -> null"),
+    ("tointeger_int", "MATCH (n) RETURN n.id AS id, toInteger(n.num) AS i",
+     "identity cast"),
+    ("toboolean_bool", "MATCH (n) RETURN n.id AS id, toBoolean(n.flag) AS b",
+     "identity, nulls preserved"),
+    ("tostring_bool", "MATCH (n) RETURN n.id AS id, toString(n.flag) AS s",
+     "polars Boolean casts to lowercase true/false == pandas astype(str)+rewrite"),
+    ("tostring_int", "MATCH (n) RETURN n.id AS id, toString(n.num) AS s",
+     "decimal digits identical"),
+]
+
+_HONEST_NIE_CYPHER = [
+    # (id, cypher over _graph(4), pandas_expect 'ok'|'raises', why-polars-declines)
+    ("tofloat_string", "MATCH (n) RETURN n.id AS id, toFloat(n.name) AS f", "raises",
+     "pandas astype(float) RAISES on non-numeric strings; strict=False nulls would fabricate data"),
+    ("tointeger_string", "MATCH (n) RETURN n.id AS id, toInteger(n.name) AS i", "raises",
+     "pandas astype(float) RAISES on non-numeric strings; strict=False nulls would fabricate data"),
+    ("size_numeric", "MATCH (n) RETURN n.id AS id, size(n.num) AS sz", "ok",
+     "pandas size(non-string/non-list) = ROW-COUNT quirk we refuse to replicate"),
+    ("substring_negative_start", "MATCH (n) RETURN n.id AS id, substring(n.name, -2) AS sub", "ok",
+     "negative start diverges: pandas Python-slice vs polars offset/length — silent wrong slice"),
+    ("tostring_float", "MATCH (n) RETURN n.id AS id, toString(n.f) AS s", "ok",
+     "float repr diverges across engines"),
+]
+
+
+@pytest.mark.parametrize("label,cypher,why", _NATIVE_OK_CYPHER, ids=[c[0] for c in _NATIVE_OK_CYPHER])
+def test_scalar_fn_runs_natively_on_polars(label, cypher, why):
     g = _graph(4)
-    q = "MATCH (n) RETURN n.id AS id, size(n.name) AS sz"
-    base = _run(g, q, "pandas")
-    res = _run(g, q, "polars")
-    assert res[0] == "ok", f"size(string) must run NATIVELY on polars, got {res}"
-    assert res == base, f"size(string) polars must match pandas oracle: {res} != {base}"
+    base = _run(g, cypher, "pandas")
+    res = _run(g, cypher, "polars")
+    assert res[0] == "ok", f"{label} must run NATIVELY on polars ({why}), got {res}"
+    assert res == base, f"{label} polars must match pandas oracle: {res} != {base}"
 
 
-def test_substring_runs_natively_on_polars():
-    """substring(<String>, start, length) with non-negative int literals MUST lower
-    NATIVELY on polars (str.slice(offset, length) == pandas str.slice(start, start+length))."""
+@pytest.mark.parametrize("label,cypher,pandas_expect,why", _HONEST_NIE_CYPHER,
+                         ids=[c[0] for c in _HONEST_NIE_CYPHER])
+def test_scalar_fn_honest_nie_on_polars(label, cypher, pandas_expect, why):
     g = _graph(4)
-    q = "MATCH (n) RETURN n.id AS id, substring(n.name, 0, 4) AS sub"
-    base = _run(g, q, "pandas")
-    res = _run(g, q, "polars")
-    assert res[0] == "ok", f"substring(string,0,4) must run NATIVELY on polars, got {res}"
-    assert res == base, f"substring polars must match pandas oracle: {res} != {base}"
-
-
-def test_tofloat_string_honest_nie_polars():
-    """toFloat(<non-numeric String>) RAISES on the pandas oracle (astype(float) fails) — NOT
-    null-on-failure. polars MUST decline with an honest NIE rather than fabricate strict=False
-    nulls. (Int/Float/Bool toFloat is native + parity — covered by the matrix tofloat_* cases.)"""
-    g = _graph(4)
-    q = "MATCH (n) RETURN n.id AS id, toFloat(n.name) AS f"
-    assert _run(g, q, "pandas")[0] != "ok", "pandas toFloat(non-numeric string) raises (not null-on-failure)"
-    assert _run(g, q, "polars")[0] == "nie", "string toFloat must be an honest NIE on polars (no strict=False null fabrication)"
+    base = _run(g, cypher, "pandas")[0]
+    assert (base == "ok") == (pandas_expect == "ok"), \
+        f"{label}: pandas-oracle expectation drifted (expected {pandas_expect}, got {base})"
+    assert _run(g, cypher, "polars")[0] == "nie", f"{label} must be an honest NIE on polars: {why}"
 
 
 def test_collect_aggregations_native_parity_polars():
@@ -365,95 +332,6 @@ def test_size_list_runs_natively_on_polars():
     assert set(int(x) for x in poldf["sz"].tolist()) == {3}, "size of a 3-element list literal must be 3"
 
 
-def test_size_numeric_honest_nie_polars():
-    """size() over a non-String / non-List column is NOT provably parity-equal — pandas
-    falls through to len(series) = the ROW COUNT (a quirk). polars MUST decline with an
-    honest NIE rather than replicate the quirk or crash."""
-    g = _graph(4)
-    q = "MATCH (n) RETURN n.id AS id, size(n.num) AS sz"
-    assert _run(g, q, "pandas")[0] == "ok", "pandas size(numeric) returns the row-count quirk"
-    assert _run(g, q, "polars")[0] == "nie", "size over a non-string/non-list column must be an honest NIE on polars"
-
-
-def test_substring_negative_start_honest_nie_polars():
-    """Negative-start substring diverges (pandas Python-slice vs polars offset/length),
-    so polars MUST decline with an honest NIE — never a silent wrong slice."""
-    g = _graph(4)
-    q = "MATCH (n) RETURN n.id AS id, substring(n.name, -2) AS sub"
-    assert _run(g, q, "pandas")[0] == "ok", "pandas substring negative start = last-N chars"
-    assert _run(g, q, "polars")[0] == "nie", "negative-start substring must be an honest NIE on polars"
-
-
-# ---- NATIVE toInteger/toBoolean/toString: provable dtypes lower; the rest honest-NIE ----
-def test_tointeger_float_runs_natively_on_polars():
-    """toInteger(<Float column>) MUST lower NATIVELY (truncate toward zero, NaN/null -> null)."""
-    g = _graph(4)
-    q = "MATCH (n) RETURN n.id AS id, toInteger(n.f) AS i"
-    base = _run(g, q, "pandas")
-    res = _run(g, q, "polars")
-    assert res[0] == "ok", f"toInteger(float) must run NATIVELY on polars, got {res}"
-    assert res == base, f"toInteger(float) polars must match pandas oracle: {res} != {base}"
-
-
-def test_tointeger_int_runs_natively_on_polars():
-    """toInteger(<Int column>) MUST lower NATIVELY (identity cast)."""
-    g = _graph(4)
-    q = "MATCH (n) RETURN n.id AS id, toInteger(n.num) AS i"
-    base = _run(g, q, "pandas")
-    res = _run(g, q, "polars")
-    assert res[0] == "ok", f"toInteger(int) must run NATIVELY on polars, got {res}"
-    assert res == base, f"toInteger(int) polars must match pandas oracle: {res} != {base}"
-
-
-def test_toboolean_bool_runs_natively_on_polars():
-    """toBoolean(<Boolean column>) MUST lower NATIVELY (identity, nulls preserved)."""
-    g = _graph(4)
-    q = "MATCH (n) RETURN n.id AS id, toBoolean(n.flag) AS b"
-    base = _run(g, q, "pandas")
-    res = _run(g, q, "polars")
-    assert res[0] == "ok", f"toBoolean(bool) must run NATIVELY on polars, got {res}"
-    assert res == base, f"toBoolean(bool) polars must match pandas oracle: {res} != {base}"
-
-
-def test_tostring_bool_runs_natively_on_polars():
-    """toString(<Boolean column>) MUST lower NATIVELY: polars casts Boolean to lowercase
-    "true"/"false", matching the pandas astype(str)+rewrite."""
-    g = _graph(4)
-    q = "MATCH (n) RETURN n.id AS id, toString(n.flag) AS s"
-    base = _run(g, q, "pandas")
-    res = _run(g, q, "polars")
-    assert res[0] == "ok", f"toString(bool) must run NATIVELY on polars, got {res}"
-    assert res == base, f"toString(bool) polars must match pandas oracle: {res} != {base}"
-
-
-def test_tostring_int_runs_natively_on_polars():
-    """toString(<Int column>) MUST lower NATIVELY (decimal digits identical)."""
-    g = _graph(4)
-    q = "MATCH (n) RETURN n.id AS id, toString(n.num) AS s"
-    base = _run(g, q, "pandas")
-    res = _run(g, q, "polars")
-    assert res[0] == "ok", f"toString(int) must run NATIVELY on polars, got {res}"
-    assert res == base, f"toString(int) polars must match pandas oracle: {res} != {base}"
-
-
-def test_tostring_float_honest_nie_polars():
-    """toString(<Float column>) is NOT provably parity-equal — float repr diverges across
-    engines. pandas SUCCEEDS, so polars MUST decline with an honest NIE."""
-    g = _graph(4)
-    q = "MATCH (n) RETURN n.id AS id, toString(n.f) AS s"
-    assert _run(g, q, "pandas")[0] == "ok", "pandas toString(float) formats the floats"
-    assert _run(g, q, "polars")[0] == "nie", "toString over a float column must be an honest NIE on polars"
-
-
-def test_tointeger_string_honest_nie_polars():
-    """toInteger(<non-numeric String>) RAISES on the pandas oracle (astype(float) fails) — NOT
-    null-on-failure. polars MUST decline with an honest NIE rather than fabricate strict=False nulls."""
-    g = _graph(4)
-    q = "MATCH (n) RETURN n.id AS id, toInteger(n.name) AS i"
-    assert _run(g, q, "pandas")[0] != "ok", "pandas toInteger(non-numeric string) raises (not null-on-failure)"
-    assert _run(g, q, "polars")[0] == "nie", "string toInteger must be an honest NIE on polars (no strict=False null fabrication)"
-
-
 # ---- cross-surface call() consistency (the silent-bridge bug class) ----
 # Shared constant so the coverage ledger can DERIVE the exercised call()-safelist set from the
 # same list the test runs on (no drift between the parametrize and the ledger's exercised source).
@@ -488,17 +366,14 @@ def _rowop_exercised():
 @pytest.mark.parametrize("fn", _CALL_CONSISTENCY_FNS)
 def test_conformance_call_chain_vs_dag_consistent(fn):
     """A call must behave the SAME (parity or NIE) on the chain and the DAG surfaces — no surface
-    may silently bridge where the other declines."""
+    may silently bridge where the other declines. (assert_surfaces_agree also fails on a non-NIE
+    error on EITHER surface — stricter than the earlier inline check, which let 'err' pass.)"""
     g = _graph(3)
     params = {"value": 2} if fn == "limit" else {}
     chain_q = [call(fn, params)] if params else [call(fn)]
     chain = _run(g, chain_q, "polars")
     dag = _run(g, let({"a": (call(fn, params) if params else call(fn))}), "polars")
-    # Both honest-NIE, or both ok-with-equal-sig. Never one ok and the other NIE (the bug).
-    if chain[0] == "nie":
-        assert dag[0] == "nie", f"call '{fn}': chain NIE but DAG {dag} (silent-bridge regression)"
-    elif chain[0] == "ok":
-        assert dag[0] == "ok" and dag[1] == chain[1], f"call '{fn}': chain ok but DAG {dag}"
+    assert_surfaces_agree(chain, dag, f"call '{fn}' chain-vs-dag")
 
 
 # ---- generative predicate fuzz across surfaces (verify-not-trust: broad, seeded) ----
@@ -566,27 +441,27 @@ def test_conformance_get_degrees_dag(label, binding):
     _assert_invariant(_degrees_graph(), let({"a": binding}), f"get_degrees dag {label}")
 
 
-def test_get_degrees_runs_natively_on_polars():
-    """get_degrees is pure groupby/count -> it MUST run NATIVELY under polars: NOT an
-    (honest-but-lazy) NotImplementedError and NOT a silent pandas bridge."""
+@pytest.mark.parametrize("fn", ["get_degrees", "get_indegrees", "get_outdegrees"])
+def test_degree_fn_runs_natively_on_polars(fn):
+    """The degree trio is pure groupby/count -> each MUST run NATIVELY under polars: NOT an
+    (honest-but-lazy) NotImplementedError and NOT a silent pandas bridge (native-frame probe)."""
     g = _degrees_graph()
-    base = _run(g, [call("get_degrees")], "pandas")
-    res = _run(g, [call("get_degrees")], "polars")
-    assert res[0] == "ok", f"get_degrees must be NATIVE on polars, got {res}"
-    assert res == base, f"get_degrees polars must match pandas oracle: {res} != {base}"
-    out = g.gfql([call("get_degrees")], engine="polars")
-    assert "polars" in type(out._nodes).__module__, "get_degrees polars returned non-polars nodes (silent bridge!)"
+    base = _run(g, [call(fn)], "pandas")
+    res = _run(g, [call(fn)], "polars")
+    assert res[0] == "ok", f"{fn} must be NATIVE on polars, got {res}"
+    assert res == base, f"{fn} polars must match pandas oracle: {res} != {base}"
+    out = g.gfql([call(fn)], engine="polars")
+    assert "polars" in type(out._nodes).__module__, f"{fn} polars returned non-polars nodes (silent bridge!)"
 
 
-def test_get_degrees_chain_vs_dag_native_consistent():
+@pytest.mark.parametrize("fn", ["get_degrees", "get_indegrees", "get_outdegrees"])
+def test_degree_fn_chain_vs_dag_native_consistent(fn):
     """Cross-surface: chain call() vs let()/ref() DAG must agree — both native-ok with the
-    SAME value signature (or both NIE)."""
+    SAME value signature (or both NIE; a non-NIE error on either surface fails)."""
     g = _degrees_graph()
-    chain = _run(g, [call("get_degrees")], "polars")
-    dag = _run(g, let({"a": call("get_degrees")}), "polars")
-    assert chain[0] == dag[0], f"surface divergence: chain {chain[0]} != dag {dag[0]}"
-    if chain[0] == "ok":
-        assert chain[1] == dag[1], f"chain/dag sig mismatch: {chain} vs {dag}"
+    assert_surfaces_agree(_run(g, [call(fn)], "polars"),
+                          _run(g, let({"a": call(fn)}), "polars"),
+                          f"{fn} chain-vs-dag")
 
 
 # ---- NATIVE get_indegrees / get_outdegrees (single-direction groupby/count) ----
@@ -610,33 +485,6 @@ def test_conformance_single_degree_chain(fn, label, params):
 def test_conformance_single_degree_dag(fn, label, params):
     binding = call(fn, params) if params else call(fn)
     _assert_invariant(_degrees_graph(), let({"a": binding}), f"{fn} dag {label}")
-
-
-@pytest.mark.parametrize("fn", ["get_indegrees", "get_outdegrees"])
-def test_single_degree_runs_natively_on_polars(fn):
-    """get_indegrees / get_outdegrees are pure single-direction groupby/count -> they MUST
-    run NATIVELY under polars (parity with the pandas oracle), NOT an (honest-but-lazy)
-    NotImplementedError and NOT a silent pandas bridge."""
-    g = _degrees_graph()
-    base = _run(g, [call(fn)], "pandas")
-    res = _run(g, [call(fn)], "polars")
-    assert res[0] == "ok", f"{fn} must be NATIVE on polars, got {res}"
-    assert res == base, f"{fn} polars must match pandas oracle: {res} != {base}"
-    out = g.gfql([call(fn)], engine="polars")
-    assert "polars" in type(out._nodes).__module__, \
-        f"{fn} polars returned non-polars nodes (silent bridge!)"
-
-
-@pytest.mark.parametrize("fn", ["get_indegrees", "get_outdegrees"])
-def test_single_degree_chain_vs_dag_native_consistent(fn):
-    """Cross-surface: chain call() vs let()/ref() DAG must agree — both native-ok with the
-    SAME value signature (or both NIE)."""
-    g = _degrees_graph()
-    chain = _run(g, [call(fn)], "polars")
-    dag = _run(g, let({"a": call(fn)}), "polars")
-    assert chain[0] == dag[0], f"{fn} surface divergence: chain {chain[0]} != dag {dag[0]}"
-    if chain[0] == "ok":
-        assert chain[1] == dag[1], f"{fn} chain/dag sig mismatch: {chain} vs {dag}"
 
 
 # ---- NATIVE TEMPORAL: SAFE DateValue lowering vs declined tz-aware ----
@@ -699,42 +547,6 @@ def test_conformance_temporal_between_dag(label, query):
     _assert_invariant(_temporal_graph(), let({"a": query}), f"temporal-between dag {label}")
 
 
-def test_temporal_between_naive_runs_natively_polars():
-    """Naive-Datetime column + DateValue bounds MUST lower NATIVELY (composes two proven
-    date-truncated endpoint compares), not an honest-but-lazy NIE."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars engine not available")
-    from graphistry.compute.predicates.comparison import Between
-    g = _temporal_graph()
-    q = [n({"ts": Between(lower=datetime.date(2020, 1, 15), upper=datetime.date(2020, 3, 1))})]
-    res = _run(g, q, "polars")
-    assert res[0] == "ok", f"naive-Datetime temporal Between must lower NATIVELY, got {res}"
-    _assert_invariant(g, q, "temporal between native")
-
-
-def test_temporal_between_tzaware_bound_honest_nie_polars():
-    """datetime.datetime bounds normalize to tz-tagged DateTimeValue -> _cmp_expr declines an
-    endpoint -> the composed Between must HONEST-NIE (never a silent tz/instant mismatch)."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars engine not available")
-    from graphistry.compute.predicates.comparison import Between
-    g = _temporal_graph()
-    q = [n({"ts": Between(lower=datetime.datetime(2020, 1, 15, 0, 0),
-                          upper=datetime.datetime(2020, 3, 1, 0, 0))})]
-    assert _run(g, q, "polars")[0] == "nie", "tz-aware temporal Between must HONEST-NIE on polars"
-
-
-def test_temporal_isin_honest_nie_polars():
-    """Temporal IsIn stays an honest decline: pandas does EXACT-instant membership (not date-
-    truncated) and the native is_in cross-precision cast is not provable -> NIE, never wrong."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars engine not available")
-    from graphistry.compute.predicates.is_in import IsIn
-    g = _temporal_graph()
-    q = [n({"ts": IsIn(options=[datetime.date(2020, 1, 15), datetime.date(2020, 2, 1)])})]
-    assert _run(g, q, "polars")[0] == "nie", "temporal IsIn must HONEST-NIE on polars (exact-instant)"
-
-
 @pytest.mark.parametrize("label,query", [
     ("cy-gt-date", "MATCH (n) WHERE n.ts > date('2020-01-15') RETURN n.id AS id"),
     ("cy-ge-date", "MATCH (n) WHERE n.ts >= date('2020-01-15') RETURN n.id AS id"),
@@ -743,26 +555,6 @@ def test_temporal_isin_honest_nie_polars():
 def test_conformance_temporal_datevalue_cypher(label, query):
     # Cypher date('...') folds to a DateValue in the node filter_dict -> same native lowering.
     _assert_invariant(_temporal_graph(), query, f"temporal-cypher {label}")
-
-
-def test_temporal_naive_datevalue_runs_natively_polars():
-    """The SAFE shape (naive Datetime column + DateValue) MUST lower NATIVELY on polars
-    (result 'ok', not an NIE decline) AND match the pandas oracle."""
-    from graphistry.compute.predicates.comparison import GT
-    g = _temporal_graph()
-    q = [n({"ts": GT(val=datetime.date(2020, 1, 15))})]
-    res = _run(g, q, "polars")
-    assert res[0] == "ok", f"expected native polars lowering (not NIE), got {res}"
-    _assert_invariant(g, q, "temporal native gt-date")
-
-
-def test_temporal_tzaware_datetimevalue_honest_nie_polars():
-    """A tz-tagged DateTimeValue (python datetime -> DateTimeValue, default tz=UTC) must stay an
-    HONEST NotImplementedError on polars — never a silent tz mishandling, never a non-NIE crash."""
-    from graphistry.compute.predicates.comparison import GT
-    g = _temporal_graph()
-    res = _run(g, [n({"ts": GT(val=datetime.datetime(2020, 1, 15, 12, 0))})], "polars")
-    assert res[0] == "nie", f"expected honest NIE for tz-aware DateTimeValue, got {res}"
 
 
 # ---- WITH ... extend=True (native polars `with_columns` column-extension) ----
@@ -797,24 +589,8 @@ def test_conformance_with_extend_chain_vs_cypher_consistent():
     cypher_q = "MATCH (n) WITH n, n.num + 1 AS p RETURN n.id AS id, n.num AS num, p AS p"
     _assert_invariant(g, chain_q, "with_extend chain")
     _assert_invariant(g, cypher_q, "with_extend cypher")
-    chain = _run(g, chain_q, "polars")
-    cyph = _run(g, cypher_q, "polars")
-    if chain[0] == "nie":
-        assert cyph[0] == "nie", f"chain NIE but cypher {cyph} (cross-surface divergence)"
-    elif chain[0] == "ok":
-        assert cyph[0] == "ok" and cyph[1] == chain[1], f"chain ok but cypher {cyph}"
-
-
-def test_conformance_with_extend_unlowerable_is_honest_nie():
-    """A list literal lower_expr cannot PROVE parity-equal (a MIXED-category list:
-    string + int) must decline as an honest NIE on polars (NO silent pandas bridge), while
-    the pandas oracle builds the heterogeneous python list. Direct pandas-ok + polars-nie
-    (not _assert_invariant): list-literal exprs ALSO surface an orthogonal cudf
-    element-ordering divergence (filed separately, not the polars with_ path under test)."""
-    g = _graph(8)
-    query = [n(), rows(), with_([("vals", "[name, 99]")], extend=True)]
-    assert _run(g, query, "pandas")[0] == "ok", "pandas oracle should build the mixed list column"
-    assert _run(g, query, "polars")[0] == "nie", "mixed-category list-literal with_ must be an honest NIE on polars"
+    assert_surfaces_agree(_run(g, chain_q, "polars"), _run(g, cypher_q, "polars"),
+                          "with_extend chain-vs-cypher")
 
 
 # ============================================================================
@@ -845,16 +621,6 @@ def test_conformance_list_literal_construction_native_polars():
     assert _norm_list_col(poldf, "vals") == _norm_list_col(pdf, "vals"), "list elements/order diverge polars vs pandas"
 
 
-def test_conformance_list_literal_mixed_category_honest_nie():
-    """A mixed-category list `[num, name]` (int + string) is NOT provably parity-equal —
-    polars would coerce/raise on the supertype — so it MUST be an honest NIE while pandas
-    builds the heterogeneous list. Direct pandas-ok + polars-nie (cudf-divergent expr)."""
-    g = _graph(8)
-    query = [n(), rows(), with_([("vals", "[num, name]")], extend=True)]
-    assert _run(g, query, "pandas")[0] == "ok", "pandas oracle should build the mixed list"
-    assert _run(g, query, "polars")[0] == "nie", "mixed int+string list literal must be an honest NIE on polars"
-
-
 @pytest.mark.parametrize("label,query", [
     ("chain-int", [n(), rows(), with_([("hit", "num IN [1, 2, 3, 50, 51, 52]")], extend=True)]),
     ("cypher-int", "MATCH (n) RETURN n.id AS id, n.num IN [1, 2, 3, 50, 51, 52] AS hit"),
@@ -865,16 +631,6 @@ def test_conformance_in_membership(label, query):
     WHERE/IsIn predicate path) is 3-valued and yields a Boolean column -> cudf-safe, so use
     the full parity-or-NIE invariant across every available engine."""
     _assert_invariant(_graph(1), query, f"in-membership {label}")
-
-
-def test_in_membership_runs_natively_on_polars():
-    """`x IN [non-null literals]` MUST lower NATIVELY on polars (result 'ok', not NIE) and
-    match the pandas oracle — never a silent pandas bridge."""
-    g = _graph(1)
-    query = [n(), rows(), with_([("hit", "num IN [1, 2, 3, 50, 51, 52]")], extend=True)]
-    res = _run(g, query, "polars")
-    assert res[0] == "ok", f"x IN [literals] row-expression must run NATIVELY on polars, got {res}"
-    _assert_invariant(g, query, "in-membership native chain")
 
 
 # ---- NATIVE TEMPORAL date-part: IsLeapYear lowered; boundary predicates declined ----
@@ -900,43 +656,6 @@ def test_conformance_temporal_is_leap_year_parity():
     _assert_invariant(_leapyear_graph(), [n({"ts": is_leap_year()})], "temporal is_leap_year")
 
 
-def test_temporal_is_leap_year_runs_natively_polars():
-    """IsLeapYear on a naive Datetime column MUST lower NATIVELY on polars (result 'ok',
-    not an NIE decline, not a silent pandas bridge)."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars engine not available")
-    from graphistry.compute.predicates.temporal import is_leap_year
-    res = _run(_leapyear_graph(), [n({"ts": is_leap_year()})], "polars")
-    assert res[0] == "ok", f"expected native polars IsLeapYear lowering, got {res}"
-
-
-def test_temporal_is_leap_year_nontemporal_col_honest_nie_polars():
-    """IsLeapYear on a NON-temporal (int) column has no proven parity -> polars must
-    HONEST-NIE (decline), never a silent wrong answer or non-NIE crash."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars engine not available")
-    from graphistry.compute.predicates.temporal import is_leap_year
-    res = _run(_leapyear_graph(), [n({"v": is_leap_year()})], "polars")
-    assert res[0] == "nie", f"expected honest NIE for IsLeapYear on non-temporal col, got {res}"
-
-
-def test_temporal_is_leap_year_tzaware_honest_nie_polars():
-    """IsLeapYear on a TZ-AWARE Datetime column: local-time year-boundary parity is not
-    proven, so polars must HONEST-NIE rather than risk a silent mismatch."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars engine not available")
-    from graphistry.compute.predicates.temporal import is_leap_year
-    nd = pd.DataFrame({
-        "id": np.arange(3),
-        "ts": pd.to_datetime(["2000-01-01", "2019-06-01", "2020-12-31"]).tz_localize("UTC"),
-        "v": [1, 2, 3],
-    })
-    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [0, 1]})
-    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
-    res = _run(g, [n({"ts": is_leap_year()})], "polars")
-    assert res[0] == "nie", f"expected honest NIE for IsLeapYear on tz-aware col, got {res}"
-
-
 @pytest.mark.parametrize("factory", [
     "is_month_start", "is_month_end", "is_quarter_start",
     "is_quarter_end", "is_year_start", "is_year_end",
@@ -955,17 +674,100 @@ def test_temporal_boundary_predicates_native_parity(factory):
         assert _run(g, q, "polars")[0] == "ok", f"{factory} must lower NATIVELY on polars, got NIE"
 
 
-def test_temporal_boundary_predicates_tzaware_honest_nie_polars():
-    """tz-aware Datetime boundary predicate: the wall-clock calendar fields shift under tz, whose
-    boundary parity we have NOT proven -> polars must HONEST-NIE (like IsLeapYear), never silently."""
-    if "polars" not in _NONPANDAS_ENGINES:
-        pytest.skip("polars engine not available")
+def _tzaware_graph():
+    """tz-aware (UTC) Datetime node column — the tz shape polars must DECLINE (spans a
+    year/quarter/month start 2000-01-01, a mid-year date, and a year/month end 2020-12-31)."""
+    nd = pd.DataFrame({
+        "id": np.arange(3),
+        "ts": pd.to_datetime(["2000-01-01", "2019-06-01", "2020-12-31"]).tz_localize("UTC"),
+        "v": [1, 2, 3],
+    })
+    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [0, 1]})
+    return graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+
+
+# ---- NATIVE-vs-honest-NIE over QUERY OBJECTS (predicates / row ops; cypher tables above) ----
+def _native_ok_query_cases():
+    """(id, graph_fn, query, why-native-is-provable) — each MUST lower natively on polars
+    (never an honest-but-lazy NIE) AND satisfy the full parity-or-NIE invariant. The full
+    proofs live at the lowering sites (predicates.py / row_pipeline.py)."""
+    from graphistry.compute.predicates.comparison import GT, Between
+    from graphistry.compute.predicates.temporal import is_leap_year
+    return [
+        ("temporal-between-naive", _temporal_graph,
+         [n({"ts": Between(lower=datetime.date(2020, 1, 15), upper=datetime.date(2020, 3, 1))})],
+         "composes two proven date-truncated endpoint compares"),
+        ("temporal-gt-datevalue", _temporal_graph,
+         [n({"ts": GT(val=datetime.date(2020, 1, 15))})],
+         "naive Datetime column + DateValue = the proven SAFE temporal shape"),
+        ("leapyear-naive", _leapyear_graph, [n({"ts": is_leap_year()})],
+         "provable Gregorian leap-year derivation on a naive Datetime column"),
+        ("in-membership-row-expr", lambda: _graph(1),
+         [n(), rows(), with_([("hit", "num IN [1, 2, 3, 50, 51, 52]")], extend=True)],
+         "homogeneous non-null literal is_in"),
+    ]
+
+
+def _polars_nie_query_cases():
+    """(id, graph_fn, query, pandas_expect, why-polars-declines). pandas_expect: 'ok' (the
+    oracle computes — a decline is the ONLY honest polars answer), 'raises' (the oracle
+    itself errors), None (oracle behavior not load-bearing for this case)."""
+    from graphistry.compute.predicates.comparison import GT, Between
+    from graphistry.compute.predicates.is_in import IsIn
     import graphistry.compute.predicates.temporal as T
-    nd = pd.DataFrame({"id": np.arange(2),
-                       "ts": pd.to_datetime(["2020-01-01", "2020-12-31"]).tz_localize("UTC")})
-    ed = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
-    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
-    assert _run(g, [n({"ts": T.is_month_start()})], "polars")[0] == "nie", "tz-aware boundary must NIE"
+    return [
+        ("temporal-between-tzaware-bounds", _temporal_graph,
+         [n({"ts": Between(lower=datetime.datetime(2020, 1, 15, 0, 0),
+                           upper=datetime.datetime(2020, 3, 1, 0, 0))})], None,
+         "datetime bounds normalize to tz-tagged DateTimeValue -> an endpoint declines -> the composed Between declines"),
+        ("temporal-isin", _temporal_graph,
+         [n({"ts": IsIn(options=[datetime.date(2020, 1, 15), datetime.date(2020, 2, 1)])})], None,
+         "pandas is EXACT-instant membership (not date-truncated); cross-precision is_in unproven"),
+        ("temporal-gt-tzaware-datetimevalue", _temporal_graph,
+         [n({"ts": GT(val=datetime.datetime(2020, 1, 15, 12, 0))})], None,
+         "python datetime -> tz-tagged DateTimeValue (default UTC): silent tz-mishandling risk"),
+        ("leapyear-nontemporal-col", _leapyear_graph, [n({"v": T.is_leap_year()})], None,
+         "IsLeapYear on an int column has no proven parity"),
+        ("leapyear-tzaware", _tzaware_graph, [n({"ts": T.is_leap_year()})], None,
+         "local-time year boundary shifts under tz; parity unproven"),
+        ("boundary-tzaware", _tzaware_graph, [n({"ts": T.is_month_start()})], None,
+         "wall-clock calendar fields shift under tz; boundary parity unproven"),
+        ("with-extend-mixed-list", lambda: _graph(8),
+         [n(), rows(), with_([("vals", "[name, 99]")], extend=True)], "ok",
+         "mixed-category (str+int) list literal: pandas builds the heterogeneous python list; polars would coerce/raise"),
+        ("list-literal-mixed", lambda: _graph(8),
+         [n(), rows(), with_([("vals", "[num, name]")], extend=True)], "ok",
+         "mixed int+string list literal not provably parity-equal"),
+        ("unwind-scalar", lambda: _graph(13),
+         [n(), rows(), call("unwind", {"expr": "5", "as_": "x"})], "ok",
+         "no ListLiteral lowering for a scalar; pandas broadcasts 1:1"),
+        ("unwind-nested-list", lambda: _graph(14),
+         [n(), rows(), call("unwind", {"expr": "[[1, 2], [3]]", "as_": "x"})], "ok",
+         "list-of-lists is not an all-Literal ListLiteral; pandas one-level explodes to list cells"),
+    ]
+    # NB the pandas-ok+polars-nie cases here are deliberately NOT routed through
+    # _assert_invariant: their exprs also surface orthogonal cudf divergences (list-literal
+    # element ordering; list-cell repr) filed separately — not the polars decline under test.
+
+
+@pytest.mark.parametrize("label,graph_fn,query,why", _native_ok_query_cases(),
+                         ids=[c[0] for c in _native_ok_query_cases()])
+def test_query_runs_natively_on_polars(label, graph_fn, query, why):
+    g = graph_fn()
+    res = _run(g, query, "polars")
+    assert res[0] == "ok", f"{label} must lower NATIVELY on polars ({why}), got {res}"
+    _assert_invariant(g, query, f"native {label}")
+
+
+@pytest.mark.parametrize("label,graph_fn,query,pandas_expect,why", _polars_nie_query_cases(),
+                         ids=[c[0] for c in _polars_nie_query_cases()])
+def test_query_honest_nie_on_polars(label, graph_fn, query, pandas_expect, why):
+    g = graph_fn()
+    if pandas_expect is not None:
+        base = _run(g, query, "pandas")[0]
+        assert (base == "ok") == (pandas_expect == "ok"), \
+            f"{label}: pandas-oracle expectation drifted (expected {pandas_expect}, got {base})"
+    assert _run(g, query, "polars")[0] == "nie", f"{label} must be an honest NIE on polars: {why}"
 
 
 # ============================================================================
@@ -998,27 +800,6 @@ def test_conformance_unwind_empty_list_drops_all_rows():
     g = _graph(12)
     query = [n(), rows(), call("unwind", {"expr": "[]", "as_": "x"})]
     _assert_invariant(g, query, "unwind empty list")
-
-
-def test_conformance_unwind_scalar_is_honest_nie():
-    """UNWIND of a non-list scalar literal has no polars ListLiteral lowering -> honest NIE on
-    polars (NO silent bridge), while the pandas oracle expands 1:1 (scalar broadcast)."""
-    g = _graph(13)
-    query = [n(), rows(), call("unwind", {"expr": "5", "as_": "x"})]
-    assert _run(g, query, "pandas")[0] == "ok", "pandas oracle should expand a scalar UNWIND 1:1"
-    if "polars" in _NONPANDAS_ENGINES:
-        assert _run(g, query, "polars")[0] == "nie", "scalar UNWIND must be an honest NIE on polars"
-
-
-def test_conformance_unwind_nested_list_is_honest_nie():
-    """UNWIND [[1,2],[3]] AS x (list-of-lists) is not an all-Literal ListLiteral -> honest NIE
-    on polars; pandas one-level explodes to list cells. Direct pandas-ok + polars-nie (list-cell
-    repr is fragile across engines, so NOT routed through _assert_invariant)."""
-    g = _graph(14)
-    query = [n(), rows(), call("unwind", {"expr": "[[1, 2], [3]]", "as_": "x"})]
-    assert _run(g, query, "pandas")[0] == "ok", "pandas oracle should one-level explode a nested list"
-    if "polars" in _NONPANDAS_ENGINES:
-        assert _run(g, query, "polars")[0] == "nie", "nested-list UNWIND must be an honest NIE on polars"
 
 
 def test_conformance_unwind_chain_vs_cypher_consistent():
