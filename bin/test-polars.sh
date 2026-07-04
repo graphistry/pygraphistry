@@ -20,6 +20,9 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_engine_polars_cypher_conformance.py
     graphistry/tests/compute/gfql/test_engine_polars_conformance_matrix.py
     graphistry/tests/compute/gfql/test_conformance_ledger.py
+    # index tests exercise the seeded-index hook in the polars hop entry (hop.py) — without
+    # them the hook dominates the now-thin file and trips its per-file coverage floor
+    graphistry/tests/compute/gfql/index/test_index.py
 )
 
 COV_ARGS=()
