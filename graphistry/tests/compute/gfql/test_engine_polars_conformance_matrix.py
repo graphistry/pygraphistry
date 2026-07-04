@@ -208,6 +208,15 @@ def _cypher_expression_queries():
         ("tostring_bool", "MATCH (n) RETURN n.id AS id, toString(n.flag) AS s"),
         ("tostring_int", "MATCH (n) RETURN n.id AS id, toString(n.num) AS s"),
         ("tostring_str", "MATCH (n) RETURN n.id AS id, toString(n.name) AS s"),
+        # #1673 numeric/string scalar fns (native on polars per the #1675 lowering; the
+        # coverage ledger requires every GFQL_SCALAR_FUNCTIONS entry exercised-or-waived)
+        ("floor", "MATCH (n) RETURN n.id AS id, floor(n.f) AS x"),
+        ("ceil", "MATCH (n) RETURN n.id AS id, ceil(n.f) AS x"),
+        ("ceiling", "MATCH (n) RETURN n.id AS id, ceiling(n.f) AS x"),
+        ("round", "MATCH (n) RETURN n.id AS id, round(n.f) AS x"),
+        ("round_p2", "MATCH (n) RETURN n.id AS id, round(n.f, 2) AS x"),
+        ("tolower", "MATCH (n) RETURN n.id AS id, toLower(n.name) AS s"),
+        ("toupper", "MATCH (n) RETURN n.id AS id, toUpper(n.name) AS s"),
         # NOTE: toString(float) intentionally absent — polars NIEs (test_tostring_float_honest_nie
         # _polars covers that), and cudf's orthogonal float-repr divergence from pandas would trip
         # _assert_invariant; the dedicated pandas-vs-polars test carries the real intent.
