@@ -11,52 +11,11 @@ import graphistry
 
 pl = pytest.importorskip("polars")
 
-
-def _node_set(g):
-    n = g._nodes
-    if n is None:
-        return set()
-    if "polars" in type(n).__module__:
-        n = n.to_pandas()
-    return set(n[g._node].tolist())
-
-
-def _node_attrs_hop(g):
-    """Null-aware per-node attribute map (excludes internal `__gfql_*` columns; int/float
-    normalized). Catches a node present in both outputs but with a divergent/NULL attribute
-    cell — the seed-48 min_hops class — which `_node_set` cannot see."""
-    df = g._nodes
-    if df is None:
-        return {}
-    if "polars" in type(df).__module__:
-        df = df.to_pandas()
-    key = g._node
-    cols = sorted(c for c in df.columns if c != key and not c.startswith("__gfql_"))
-
-    def norm(v):
-        if v is None:
-            return None
-        if isinstance(v, bool):
-            return v
-        if isinstance(v, (int, float)):
-            return None if (isinstance(v, float) and pd.isna(v)) else float(v)
-        try:
-            if pd.isna(v):
-                return None
-        except (TypeError, ValueError):
-            pass
-        return v
-
-    return {row[key]: tuple(norm(row[c]) for c in cols) for _, row in df.iterrows()}
-
-
-def _edge_set(g):
-    e = g._edges
-    if e is None or len(e) == 0:
-        return set()
-    if "polars" in type(e).__module__:
-        e = e.to_pandas()
-    return set(zip(e[g._source].tolist(), e[g._destination].tolist()))
+from graphistry.tests.compute.gfql.polars_test_utils import (  # noqa: E402
+    node_id_set as _node_set,
+    edge_pair_set as _edge_set,
+    node_attr_map as _node_attrs_hop,
+)
 
 
 GRAPHS = {

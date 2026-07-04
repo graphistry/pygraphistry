@@ -14,83 +14,47 @@ from graphistry.compute.ast import n, e, e_forward, e_reverse, e_undirected
 
 pl = pytest.importorskip("polars")
 
-
-def _nset(g):
-    df = g._nodes
-    if df is None:
-        return set()
-    if "polars" in type(df).__module__:
-        df = df.to_pandas()
-    return set(df[g._node].tolist())
-
-
-def _eset(g):
-    df = g._edges
-    if df is None or len(df) == 0:
-        return set()
-    if "polars" in type(df).__module__:
-        df = df.to_pandas()
-    return set(zip(df[g._source].tolist(), df[g._destination].tolist()))
+from graphistry.tests.compute.gfql.polars_test_utils import (  # noqa: E402
+    node_id_set as _nset,
+    edge_pair_set as _eset,
+    edge_pair_multiset as _emult,
+    node_attr_map as _node_attrs,
+    named_flag_set as _named,
+)
 
 
-def _emult(g):
-    """Edge MULTISET (Counter) — catches a dropped parallel/self-loop copy or an edge SWAP
-    that preserves count, which `len()` and `_eset` (a set) both miss. The min_hops
-    recompute-all combine (fuzz seeds 24/48) diverged exactly here."""
-    from collections import Counter
-    df = g._edges
-    if df is None or len(df) == 0:
-        return Counter()
-    if "polars" in type(df).__module__:
-        df = df.to_pandas()
-    return Counter(zip(df[g._source].tolist(), df[g._destination].tolist()))
-
-
-def _node_attrs(g):
-    """Null-aware per-node ATTRIBUTE map — catches a node present in BOTH outputs but with a
-    different (or NULL) attribute cell, which `_nset` (id-set) cannot see. The min_hops
-    null-attr-on-source-side-endpoint rule (fuzz seed-48 n5/n7: kind=y but carried as NaN,
-    so a downstream `kind=y` filter rejects them) lives in exactly this dimension. Normalizes
-    NaN/None→None and int/float→float (pandas upcasts an int col to float once a NaN-stub row
-    is concatenated, while polars keeps Int64+null — without this you get spurious 5 != 5.0)."""
-    df = g._nodes
-    if df is None:
-        return {}
-    if "polars" in type(df).__module__:
-        df = df.to_pandas()
-    key = g._node
-    # Exclude internal engine columns (`__gfql_*`, e.g. the pandas auto hop-label
-    # `__gfql_output_node_hop__` that ASTEdge.execute leaks into the min_hops result but polars
-    # does not) — they are implementation detail, not user-facing data, so not a parity concern.
-    cols = sorted(c for c in df.columns if c != key and not c.startswith("__gfql_"))
-
-    def norm(v):
-        if v is None:
-            return None
-        if isinstance(v, float) and pd.isna(v):
-            return None
-        if isinstance(v, bool):
-            return v
-        if isinstance(v, (int, float)):
-            return float(v)
+def _assert_chain_parity(g, ch, label, nie_skip=None, native=False, edge_count=False,
+                         multiplicity=False, attrs=False, aliases=False):
+    """Differential chain parity vs the pandas oracle: node/edge id-sets always; flags OPT IN
+    the stricter dimensions each case table needs — ``multiplicity`` (Counter) and ``attrs``
+    (null-aware cells) are the two dimensions the min_hops bugs (fuzz seeds 24/404/48) lived
+    in and that set-equality missed; ``native`` probes the frame type (silent-bridge guard);
+    ``edge_count`` guards dropped parallel/self-loop copies; ``aliases`` compares every named
+    op's flag column. ``nie_skip`` = skip-reason for surfaces that may still honestly NIE."""
+    gp = g.chain(ch, engine="pandas")
+    if nie_skip is not None:
         try:
-            if pd.isna(v):
-                return None
-        except (TypeError, ValueError):
-            pass
-        return v
-
-    return {row[key]: tuple(norm(row[c]) for c in cols) for _, row in df.iterrows()}
-
-
-def _named(g, col):
-    df = g._nodes if col in (g._nodes.columns if g._nodes is not None else []) else g._edges
-    if df is None or col not in df.columns:
-        return None
-    if "polars" in type(df).__module__:
-        df = df.to_pandas()
-    key = g._node if g._node in df.columns else g._source
-    return set(df[df[col].fillna(False).astype(bool)][key].tolist())
+            gl = g.chain(ch, engine="polars")
+        except NotImplementedError:
+            pytest.skip(nie_skip)
+    else:
+        gl = g.chain(ch, engine="polars")
+    if native:
+        assert "polars" in type(gl._nodes).__module__, f"[{label}] not native polars (silent bridge!)"
+    assert _nset(gp) == _nset(gl), f"node mismatch [{label}]"
+    assert _eset(gp) == _eset(gl), f"edge mismatch [{label}]"
+    if edge_count:
+        gpe, gle = gp._edges, gl._edges
+        assert (0 if gpe is None else len(gpe)) == (0 if gle is None else len(gle)), f"edge-count [{label}]"
+    if multiplicity:
+        assert _emult(gp) == _emult(gl), f"edge-multiplicity mismatch [{label}]"
+    if attrs:
+        assert _node_attrs(gp) == _node_attrs(gl), f"node-attr mismatch [{label}]"
+    if aliases:
+        for op in ch:
+            nm = getattr(op, "_name", None)
+            if nm:
+                assert _named(gp, nm) == _named(gl, nm), f"alias[{nm}] mismatch [{label}]"
 
 
 NODES = pd.DataFrame({
@@ -142,16 +106,7 @@ CHAINS = {
 
 @pytest.mark.parametrize("cname", list(CHAINS))
 def test_polars_chain_parity(cname):
-    ch = CHAINS[cname]
-    gp = BASE.chain(ch, engine="pandas")
-    gl = BASE.chain(ch, engine="polars")
-    assert "polars" in type(gl._nodes).__module__
-    assert _nset(gp) == _nset(gl), f"node mismatch [{cname}]"
-    assert _eset(gp) == _eset(gl), f"edge mismatch [{cname}]"
-    for op in ch:
-        nm = getattr(op, "_name", None)
-        if nm:
-            assert _named(gp, nm) == _named(gl, nm), f"alias[{nm}] mismatch [{cname}]"
+    _assert_chain_parity(BASE, CHAINS[cname], cname, native=True, aliases=True)
 
 
 @pytest.mark.parametrize("label,pred", [
@@ -256,17 +211,8 @@ def test_polars_chain_fuzz_parity(seed):
     rng = random.Random(seed)
     g = _rand_graph(rng)
     ch = _rand_chain(rng)
-    gp = g.chain(ch, engine="pandas")
-    try:
-        gl = g.chain(ch, engine="polars")
-    except NotImplementedError:
-        pytest.skip("deferred surface")   # multi-hop fwd/rev NIEs at chain guard today
-    assert _nset(gp) == _nset(gl), f"node mismatch seed={seed} chain={ch}"
-    assert _eset(gp) == _eset(gl), f"edge mismatch seed={seed} chain={ch}"
-    # Stricter than id/endpoint sets: edge MULTIPLICITY (Counter) and null-aware node ATTRIBUTES
-    # are the two dimensions the min_hops bugs (24/404/48) lived in and that set-equality missed.
-    assert _emult(gp) == _emult(gl), f"edge-multiplicity mismatch seed={seed} chain={ch}"
-    assert _node_attrs(gp) == _node_attrs(gl), f"node-attr mismatch seed={seed} chain={ch}"
+    _assert_chain_parity(g, ch, f"seed={seed} chain={ch}", nie_skip="deferred surface",
+                         multiplicity=True, attrs=True)
 
 
 # ---- AMPLIFIED min_hops fuzz: every edge min_hops>1 ALWAYS followed by an attribute filter
@@ -320,15 +266,8 @@ def test_polars_chain_fuzz_minhops_attrfilter_parity(seed):
     for _ in range(rng.randint(1, 3)):
         ops.append(_rand_minhops_edge(rng))
         ops.append(_rand_node_attr(rng))
-    gp = g.chain(ops, engine="pandas")
-    try:
-        gl = g.chain(ops, engine="polars")
-    except NotImplementedError:
-        pytest.skip("deferred surface")
-    assert _nset(gp) == _nset(gl), f"node mismatch seed={seed} chain={ops}"
-    assert _eset(gp) == _eset(gl), f"edge mismatch seed={seed} chain={ops}"
-    assert _emult(gp) == _emult(gl), f"edge-multiplicity mismatch seed={seed} chain={ops}"
-    assert _node_attrs(gp) == _node_attrs(gl), f"node-attr mismatch seed={seed} chain={ops}"
+    _assert_chain_parity(g, ops, f"seed={seed} chain={ops}", nie_skip="deferred surface",
+                         multiplicity=True, attrs=True)
 
 
 @pytest.mark.parametrize("k", [1, 2, 3])
@@ -443,17 +382,9 @@ ADV_CHAINS = {
 
 @pytest.mark.parametrize("cname", list(ADV_CHAINS))
 def test_polars_chain_adversarial_multihop_parity(cname):
-    ch = ADV_CHAINS[cname]
-    gp = ADV.chain(ch, engine="pandas")
-    try:
-        gl = ADV.chain(ch, engine="polars")
-    except NotImplementedError:
-        pytest.skip("multi-hop deferred (chain guard) — activates after Stage 1")
-    assert _nset(gp) == _nset(gl), f"node mismatch [{cname}]"
-    assert _eset(gp) == _eset(gl), f"edge mismatch [{cname}]"
-    # multiplicity: the parallel-dup / self-loop cases must not silently drop a duplicate edge
-    gpe, gle = gp._edges, gl._edges
-    assert (0 if gpe is None else len(gpe)) == (0 if gle is None else len(gle)), f"edge-count [{cname}]"
+    # edge_count: the parallel-dup / self-loop cases must not silently drop a duplicate edge
+    _assert_chain_parity(ADV, ADV_CHAINS[cname], cname, edge_count=True,
+                         nie_skip="multi-hop deferred (chain guard) — activates after Stage 1")
 
 
 # ---- Adversarial UNDIRECTED-multi-edge parity (Stage 3: native single-hop undirected in
@@ -498,34 +429,14 @@ TOFP_CHAINS = {
 
 @pytest.mark.parametrize("cname", list(TOFP_CHAINS))
 def test_polars_chain_to_fixed_point_parity(cname):
-    ch = TOFP_CHAINS[cname]
-    gp = ADV.chain(ch, engine="pandas")
-    gl = ADV.chain(ch, engine="polars")  # Stage 4: native, must NOT raise nor hang
-    assert "polars" in type(gl._nodes).__module__, f"[{cname}] not native polars (silent bridge!)"
-    assert _nset(gp) == _nset(gl), f"node mismatch [{cname}]"
-    assert _eset(gp) == _eset(gl), f"edge mismatch [{cname}]"
-    gpe, gle = gp._edges, gl._edges
-    assert (0 if gpe is None else len(gpe)) == (0 if gle is None else len(gle)), f"edge-count [{cname}]"
-    for op in ch:
-        nm = getattr(op, "_name", None)
-        if nm:
-            assert _named(gp, nm) == _named(gl, nm), f"alias[{nm}] mismatch [{cname}]"
+    # Stage 4: native, must NOT raise nor hang (no nie_skip — a decline here is a regression)
+    _assert_chain_parity(ADV, TOFP_CHAINS[cname], cname, native=True, edge_count=True, aliases=True)
 
 
 @pytest.mark.parametrize("cname", list(UND_CHAINS))
 def test_polars_chain_undirected_multiedge_parity(cname):
-    ch = UND_CHAINS[cname]
-    gp = ADV.chain(ch, engine="pandas")
-    gl = ADV.chain(ch, engine="polars")  # Stage 3: native, must NOT raise
-    assert "polars" in type(gl._nodes).__module__, f"[{cname}] not native polars (silent bridge!)"
-    assert _nset(gp) == _nset(gl), f"node mismatch [{cname}]"
-    assert _eset(gp) == _eset(gl), f"edge mismatch [{cname}]"
-    gpe, gle = gp._edges, gl._edges
-    assert (0 if gpe is None else len(gpe)) == (0 if gle is None else len(gle)), f"edge-count [{cname}]"
-    for op in ch:
-        nm = getattr(op, "_name", None)
-        if nm:
-            assert _named(gp, nm) == _named(gl, nm), f"alias[{nm}] mismatch [{cname}]"
+    # Stage 3: native, must NOT raise (no nie_skip — a decline here is a regression)
+    _assert_chain_parity(ADV, UND_CHAINS[cname], cname, native=True, edge_count=True, aliases=True)
 
 
 # ---- Edge cases: empty graph, duplicate edges (multiplicity), edges-only ----
