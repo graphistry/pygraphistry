@@ -1406,15 +1406,7 @@ jobs:
       run: |
         source pygraphistry/bin/activate
         mkdir -p build/polars-coverage
-        COVERAGE_FILE=build/polars-coverage/coverage.polars-py3.12 python -B -m pytest -vv \
-          --cov=graphistry/compute --cov-report= \
-          graphistry/tests/compute/test_polars.py \
-          graphistry/tests/compute/gfql/test_engine_polars_hop.py \
-          graphistry/tests/compute/gfql/test_engine_polars_chain.py \
-          graphistry/tests/compute/gfql/test_engine_polars_row_pipeline.py \
-          graphistry/tests/compute/gfql/test_engine_polars_cypher_conformance.py \
-          graphistry/tests/compute/gfql/test_engine_polars_conformance_matrix.py \
-          graphistry/tests/compute/gfql/test_conformance_ledger.py
+        COVERAGE_FILE=build/polars-coverage/coverage.polars-py3.12 POLARS_COV=1 ./bin/test-polars.sh
 
     - name: Upload polars coverage
       if: ${{ matrix.python-version == '3.12' }}
