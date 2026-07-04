@@ -55,19 +55,66 @@ class target_mode:
 
 import os as _os
 
-# CPU collect engine. The polars STREAMING executor benchmarks faster + more stable
-# than the default collect on big traversal joins (isolated 80M-edge 2-hop semijoin
-# 1669→1040 ms, ~1.6×; end-to-end chain dilutes to ~1.04–1.11× as the forward/backward/
-# combine overhead is unaffected), parity-identical. Opt-in (default off) because
-# small/interactive sizes REGRESS (~0.86× at 100K) from streaming overhead.
-_CPU_STREAMING = _os.environ.get("GFQL_POLARS_CPU_STREAMING", "0") == "1"
+# --- polars execution config -----------------------------------------------------
+# Two knobs. Each resolves THREE ways, checked in order and LIVE (at call time, not
+# frozen at import): (1) a Python override (set_*), None = unset; (2) the env var;
+# (3) the default. So both env and Python settings take effect without a re-import.
+_cpu_streaming_override: Optional[bool] = None
+_gpu_executor_override: Optional[str] = None
 
-# GPU collect executor (cudf-polars). Default 'in-memory' (fast + stable for results that fit
-# device memory — see _engine_for). 'streaming' is the opt-in escape hatch for
-# larger-than-device-memory results (the in-memory executor would OOM); it can be slower/less
-# stable on small work. Mirrors GFQL_POLARS_CPU_STREAMING. ('auto' = size-aware switch is a
-# planned enhancement; until implemented it resolves to 'in-memory'.)
-_GPU_EXECUTOR = _os.environ.get("GFQL_POLARS_GPU_EXECUTOR", "in-memory").strip().lower()
+_GPU_EXECUTORS = ("in-memory", "streaming")
+
+
+def cpu_streaming() -> bool:
+    """Does the CPU polars collect use the STREAMING executor? (default off)
+
+    The streaming executor benchmarks faster + more stable than the default collect on
+    big traversal joins (isolated 80M-edge 2-hop semijoin 1669→1040 ms, ~1.6×; end-to-end
+    chain dilutes to ~1.04–1.11× as forward/backward/combine overhead is unaffected),
+    parity-identical. Opt-in (default off) because small/interactive sizes REGRESS
+    (~0.86× at 100K) from streaming overhead.
+    Resolution: :func:`set_cpu_streaming` override > ``$GFQL_POLARS_CPU_STREAMING`` (``"1"``) > ``False``.
+    """
+    if _cpu_streaming_override is not None:
+        return _cpu_streaming_override
+    return _os.environ.get("GFQL_POLARS_CPU_STREAMING", "0") == "1"
+
+
+def set_cpu_streaming(value: Optional[bool]) -> None:
+    """Enable/disable the CPU streaming-collect from Python. ``None`` resets to env/default."""
+    global _cpu_streaming_override
+    _cpu_streaming_override = None if value is None else bool(value)
+
+
+def gpu_executor() -> str:
+    """cudf-polars GPU collect executor: ``'in-memory'`` (default) or ``'streaming'``.
+
+    'in-memory' is fast + stable for results that fit device memory (the GFQL regime —
+    see :func:`_engine_for`). 'streaming' is the opt-in escape hatch for larger-than-device
+    results (in-memory would OOM); slower/less stable on small work. ('auto' size-aware
+    switch is planned; resolves to 'in-memory' until implemented.)
+    Resolution: :func:`set_gpu_executor` override > ``$GFQL_POLARS_GPU_EXECUTOR`` > ``'in-memory'``
+    (an invalid env value also resolves to 'in-memory').
+    """
+    if _gpu_executor_override is not None:
+        return _gpu_executor_override
+    raw = _os.environ.get("GFQL_POLARS_GPU_EXECUTOR", "in-memory").strip().lower()
+    return raw if raw in _GPU_EXECUTORS else "in-memory"
+
+
+def set_gpu_executor(value: Optional[str]) -> None:
+    """Select the GPU collect executor from Python (``'in-memory'`` | ``'streaming'``).
+
+    ``None`` resets to env/default; an invalid value raises ``ValueError`` (the Python
+    setter is strict, unlike the env path which falls back to 'in-memory')."""
+    global _gpu_executor_override
+    if value is None:
+        _gpu_executor_override = None
+        return
+    v = value.strip().lower()
+    if v not in _GPU_EXECUTORS:
+        raise ValueError(f"gpu_executor must be one of {_GPU_EXECUTORS}, got {value!r}")
+    _gpu_executor_override = v
 
 
 def _engine_for(target: ExecutionTarget) -> Any:
@@ -93,8 +140,8 @@ def _engine_for(target: ExecutionTarget) -> Any:
         # so the user-facing engine='polars-gpu' always gets a clean install error there. Here we
         # only build the engine; a genuine not-GPU-capable plan is reported via _gpu_raise.)
         # Executor is in-memory by default; GFQL_POLARS_GPU_EXECUTOR=streaming opts into the
-        # streaming executor for larger-than-device-memory results (see _GPU_EXECUTOR).
-        executor = "streaming" if _GPU_EXECUTOR == "streaming" else "in-memory"
+        # streaming executor for larger-than-device-memory results (see gpu_executor()).
+        executor = gpu_executor()
         return pl.GPUEngine(executor=executor, raise_on_fail=True)
     return None
 
@@ -123,7 +170,7 @@ def collect(lf: Any) -> Any:
             raise
         except Exception as ex:  # pragma: no cover  # GPU-target collect (no GPU in CI)
             raise _gpu_raise(ex) from ex
-    return lf.collect(engine="streaming") if _CPU_STREAMING else lf.collect()
+    return lf.collect(engine="streaming") if cpu_streaming() else lf.collect()
 
 
 def collect_all(lfs: List[Any]) -> List[Any]:
@@ -138,7 +185,7 @@ def collect_all(lfs: List[Any]) -> List[Any]:
         try:
             if eng is not None:
                 return pl.collect_all(lfs, engine=eng)  # pragma: no cover  # GPU-target collect (no GPU in CI)
-            return pl.collect_all(lfs, engine="streaming") if _CPU_STREAMING else pl.collect_all(lfs)
+            return pl.collect_all(lfs, engine="streaming") if cpu_streaming() else pl.collect_all(lfs)
         except TypeError:
             # older signature without engine= — collect individually on target
             pass

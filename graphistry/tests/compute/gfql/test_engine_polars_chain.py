@@ -675,20 +675,59 @@ def test_gpu_executor_mode_flag(monkeypatch):
 
     monkeypatch.setattr(pl, "GPUEngine", _FakeGPUEngine)
 
-    monkeypatch.setattr(lazy, "_GPU_EXECUTOR", "in-memory")
-    _engine_for(ExecutionTarget.GPU)
-    assert captured == {"executor": "in-memory", "raise_on_fail": True}
+    try:
+        lazy.set_gpu_executor("in-memory")
+        _engine_for(ExecutionTarget.GPU)
+        assert captured == {"executor": "in-memory", "raise_on_fail": True}
 
-    monkeypatch.setattr(lazy, "_GPU_EXECUTOR", "streaming")
-    _engine_for(ExecutionTarget.GPU)
-    assert captured["executor"] == "streaming" and captured["raise_on_fail"] is True
+        lazy.set_gpu_executor("streaming")
+        _engine_for(ExecutionTarget.GPU)
+        assert captured["executor"] == "streaming" and captured["raise_on_fail"] is True
 
-    monkeypatch.setattr(lazy, "_GPU_EXECUTOR", "bogus")
-    _engine_for(ExecutionTarget.GPU)
-    assert captured["executor"] == "in-memory"  # invalid value falls back
+        # the Python setter is strict; the env path falls back to in-memory on invalid
+        with pytest.raises(ValueError):
+            lazy.set_gpu_executor("bogus")
+        lazy.set_gpu_executor(None)
+        monkeypatch.setenv("GFQL_POLARS_GPU_EXECUTOR", "bogus")
+        _engine_for(ExecutionTarget.GPU)
+        assert captured["executor"] == "in-memory"  # invalid env value falls back
+    finally:
+        lazy.set_gpu_executor(None)
 
     # CPU target unaffected (returns None, no engine)
     assert _engine_for(ExecutionTarget.CPU) is None
+
+
+def test_polars_config_python_settable_and_live(monkeypatch):
+    """The polars execution knobs are settable from Python (not env-only) and read
+    LIVE (not frozen at import): Python override > env var > default."""
+    from graphistry.compute.gfql import lazy
+    try:
+        # defaults
+        monkeypatch.delenv("GFQL_POLARS_CPU_STREAMING", raising=False)
+        lazy.set_cpu_streaming(None)
+        assert lazy.cpu_streaming() is False
+        # Python override
+        lazy.set_cpu_streaming(True)
+        assert lazy.cpu_streaming() is True
+        # None resets to env; env is read LIVE (the bug: it used to be frozen at import)
+        lazy.set_cpu_streaming(None)
+        monkeypatch.setenv("GFQL_POLARS_CPU_STREAMING", "1")
+        assert lazy.cpu_streaming() is True
+        # Python override beats env
+        lazy.set_cpu_streaming(False)
+        assert lazy.cpu_streaming() is False
+        # gpu_executor default + override + strict setter
+        lazy.set_gpu_executor(None)
+        monkeypatch.delenv("GFQL_POLARS_GPU_EXECUTOR", raising=False)
+        assert lazy.gpu_executor() == "in-memory"
+        lazy.set_gpu_executor("streaming")
+        assert lazy.gpu_executor() == "streaming"
+        with pytest.raises(ValueError):
+            lazy.set_gpu_executor("nonsense")
+    finally:
+        lazy.set_cpu_streaming(None)
+        lazy.set_gpu_executor(None)
 
 
 def test_engine_polars_no_silent_call_bridge():
