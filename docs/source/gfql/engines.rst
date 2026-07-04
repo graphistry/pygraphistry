@@ -354,6 +354,42 @@ never selects Polars or Polars-GPU**, so those two are always an explicit opt-in
    ``g.gfql_index_all()`` (or ``index_policy=``) — it works on all four engines
    and turns the O(E) scan into an O(degree) gather. See :doc:`index_adjacency`.
 
+.. _gfql-offengine-calls:
+
+Analytics under Polars (``umap`` / ``hypergraph`` / ``compute_cugraph`` …)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A GFQL ``call()`` that runs a **whole-graph analytic** — ``umap``, ``hypergraph``,
+``compute_cugraph`` / ``compute_igraph``, the ``*_layout`` ops, ``collapse`` — has
+**no native Polars implementation** (these wrap pandas / cuDF / GPU libraries and
+always will). Under ``engine='polars'`` / ``'polars-gpu'`` GFQL runs them as a
+**mode-gated, off-engine modality switch** rather than declining outright:
+
+- **``call_mode='auto'`` (the default):** the analytic runs off-engine — on
+  **pandas** for ``polars``, on **cuDF (on device)** for ``polars-gpu`` — and its
+  result is coerced back to Polars **losslessly** (via Arrow). A one-time
+  ``RuntimeWarning`` per analytic notes the off-engine run. ``polars-gpu`` is
+  **GPU-or-error**: it bridges to cuDF and *declines* if the GPU/cuDF stack is
+  missing (it never silently drops a GPU analytic to host pandas).
+- **``call_mode='strict'``:** decline with ``NotImplementedError`` instead of
+  bridging — for benchmark integrity (no hidden modality switch attributed to the
+  Polars engine) or a hard memory ceiling.
+
+This is **deliberately narrower** than traversal / filter / row ops (``hop``,
+``WHERE``, ``RETURN`` …), which stay **parity-or-``NotImplementedError``** and are
+never bridged — a bridge there would hide a missing native impl and misreport
+pandas performance as Polars. Set the mode from Python or the environment (live,
+Python override > env > default):
+
+.. doc-test: skip
+
+.. code-block:: python
+
+   from graphistry.compute.gfql.lazy import set_call_mode, CALL_MODES  # ('auto', 'strict')
+
+   set_call_mode('strict')   # decline off-engine analytics (pass None to reset to env/default)
+   # or: export GFQL_POLARS_CALL_MODE=strict
+
 cuDF vs Polars-GPU
 ------------------
 
@@ -479,11 +515,18 @@ Parity and honesty
 - **Identical results across engines.** Differential parity — every engine's output must match
   the pandas oracle — is a release gate, exercised across forward/reverse/undirected, 1-3 hop,
   filters, and aggregations.
-- **No silent fallback — parity-verified.** The Polars engine runs natively or raises
-  ``NotImplementedError`` — it never quietly converts to pandas. ``polars-gpu`` is
-  **GPU-or-error**: if any step of the plan cannot run on the GPU it raises (pointing at
-  ``engine='polars'``) rather than silently running on CPU and labelling it a GPU result.
-  So any latency you measure is real work on the engine you asked for.
+- **No silent fallback for traversal / filter / row ops — parity-verified.** For ``hop`` /
+  ``WHERE`` / ``RETURN`` / aggregation, the Polars engine runs natively or raises
+  ``NotImplementedError`` — it never quietly converts to pandas, so a *traversal* latency you
+  measure is real work on the engine you asked for. ``polars-gpu`` is **GPU-or-error**: if any
+  step of the plan cannot run on the GPU it raises (pointing at ``engine='polars'``) rather than
+  silently running on CPU and labelling it a GPU result.
+- **Whole-graph analytics are the one mode-gated exception.** ``umap`` / ``hypergraph`` /
+  ``compute_cugraph`` and friends have no Polars kernel; under ``call_mode='auto'`` (default)
+  they run off-engine and warn once (see
+  :ref:`Analytics under Polars <gfql-offengine-calls>`). This is *not* silent — it warns — and
+  ``call_mode='strict'`` restores strict parity-or-decline for benchmark integrity, so a
+  benchmarked run can guarantee no hidden modality switch.
 
 Methodology
 -----------
