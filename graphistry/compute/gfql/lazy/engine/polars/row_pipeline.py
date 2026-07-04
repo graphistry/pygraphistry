@@ -10,11 +10,13 @@ Differential parity vs pandas is the correctness gate.
 
 Currently lowered: property access (``alias.prop`` → column), bare columns,
 literals, arithmetic/comparison/boolean ``BinaryOp``, ``UnaryOp``, ``IsNullOp``,
-``coalesce``/``abs``, homogeneous list literals ``[e0, e1, ...]`` and ``x IN
-[literals]`` membership. Ops wired to native: ``select``/``with_``/``return_``
-projection, ``order_by``, ``where_rows``, ``group_by``, ``unwind``. Everything
-else (CASE, mixed/nested/empty list, map, subscript, other functions, temporal
-arithmetic) → NIE.
+``CaseWhen`` (ternary form), the ``_lower_function`` whitelist (``coalesce``/
+``abs``/``sqrt``/``sign`` + dtype-gated ``size``/``substring``/``toInteger``/
+``toFloat``/``toBoolean``/``toString``), homogeneous list literals ``[e0, e1,
+...]`` and ``x IN [literals]`` membership. Ops wired to native: ``select``/
+``with_``/``return_`` projection, ``order_by``, ``where_rows``, ``group_by``,
+``unwind``. Everything else (mixed/nested/empty list, map, subscript, other
+functions, temporal arithmetic) → NIE.
 """
 from __future__ import annotations
 
@@ -108,6 +110,7 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
     (verified by differential parity) are admitted; everything else returns None
     so the caller raises NotImplementedError rather than guessing.
     """
+    import polars as pl  # function-local: polars is an optional dependency
     name = node.name.lower()
     args: List[pl.Expr] = []
     for arg in node.args:
@@ -116,7 +119,6 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
             return None
         args.append(lowered)
     if name == "coalesce" and args:
-        import polars as pl
         # cypher coalesce = first non-null; pl.coalesce has identical semantics.
         return pl.coalesce(args)
     if name == "abs" and len(args) == 1:
@@ -128,7 +130,6 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         # polars .sign() == np.sign for int/float (-1/0/1; null/NaN preserved); parity-verified.
         return args[0].sign()
     if name == "size" and len(args) == 1:
-        import polars as pl
         # cypher size(x) = #chars of a String OR #elements of a List. These map to
         # DIFFERENT polars ops by dtype, so resolve the operand's output dtype and
         # lower only the two provable shapes. polars str.len_chars == pandas str.len
@@ -143,7 +144,6 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
             return args[0].list.len()
         return None
     if name == "substring" and len(args) in (2, 3):
-        import polars as pl
         from graphistry.compute.gfql.expr_parser import Literal
         # cypher substring(s, start[, length]) is 0-based. The pandas engine computes
         # s.str.slice(start, start+length) (Python slice); polars str.slice(offset,
@@ -168,7 +168,6 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         # offset>=0, length>=0 (or None=to-end) → identical chars on pandas/polars.
         return args[0].str.slice(start_node.value, length_val)
     if name == "tointeger" and len(args) == 1:
-        import polars as pl
         # cypher toInteger: the pandas oracle is inner.astype(float).fillna(0).astype("int64")
         # with the original null_mask restored. _gfql_null_mask uses isna(), so NaN IS null on
         # pandas (NaN/null -> null); finite floats TRUNCATE toward zero (== polars float->int
@@ -189,7 +188,6 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         # which polars strict=False would silently turn into nulls — a divergence. DECLINE (NIE).
         return None
     if name == "tofloat" and len(args) == 1:
-        import polars as pl
         # cypher toFloat: pandas oracle = inner.astype(float) with the isna() null_mask restored
         # via .where(~mask, pd.NA). CRUCIALLY there is NO .fillna(0)/int step (contrast toInteger):
         # float64 has no separate null sentinel, so an isna()-masked NaN re-materializes as NaN —
@@ -204,7 +202,6 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         # null-on-failure); polars strict=False would silently null -> divergence. DECLINE (NIE).
         return None
     if name == "toboolean" and len(args) == 1:
-        import polars as pl
         # cypher toBoolean: the pandas oracle parses a fixed token set ("true"/"t"/"1"/"yes" vs
         # "false"/"f"/"0"/"no") over astype(str), ERRORING on any other token, and is data-
         # dependent for numerics (only exact 0/1 map; "2"/"1.0" error). The only statically-
@@ -214,7 +211,6 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
             return args[0].cast(pl.Boolean)
         return None
     if name == "tostring" and len(args) == 1:
-        import polars as pl
         # cypher toString: pandas does astype(str) then rewrites "True"/"False" -> "true"/"false".
         # Admit only dtypes whose textual form polars reproduces EXACTLY: Boolean (polars casts to
         # lowercase "true"/"false"), Int (decimal digits), String (identity). DECLINE Float (repr
@@ -615,13 +611,14 @@ def _lower_with_schema(table: Any, fn):
         _SCHEMA.reset(token)
 
 
-def select_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
-    """Native polars projection; None if any item isn't lowerable."""
+def _project_polars(g: Plottable, items: Sequence[Any], extend: bool) -> Optional[Plottable]:
+    """Shared body of ``select_polars`` / ``with_columns_polars``; None if any item
+    isn't lowerable — the honest NIE (NO pandas bridge, see NO-CHEATING)."""
     table = _active_table(g)
     exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)))
     if exprs is None:
         return None
-    out = table.select(exprs)
+    out = table.with_columns(exprs) if extend else table.select(exprs)
     if _select_emits_temporal_constructor_text(out):
         # A projected String column holds Cypher temporal-constructor text
         # (date({...}) etc.); the pandas projection normalizes it to ISO, not yet
@@ -640,27 +637,18 @@ def _select_emits_temporal_constructor_text(out: Any) -> bool:
     return False
 
 
+def select_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
+    """Native polars projection (replaces the row table)."""
+    return _project_polars(g, items, extend=False)
+
+
 def with_columns_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
     """Native polars WITH ... extend=True: add/overwrite columns, keep the rest.
-
     Mirrors the pandas ``with_(extend=True)`` path (``table_df.assign(**projected)``):
-    polars ``with_columns`` has identical column semantics — an item whose alias
-    matches an existing column REPLACES it in place (original position preserved),
-    a new alias is APPENDED at the end in item order. Reuses the shared
-    ``lower_select_items`` lowering (DRY with ``select_polars``); returns None if any
-    item isn't lowerable — the honest NIE (NO pandas bridge, see NO-CHEATING).
-    """
-    table = _active_table(g)
-    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)))
-    if exprs is None:
-        return None
-    out = table.with_columns(exprs)
-    if _select_emits_temporal_constructor_text(out):
-        # A projected String column holds Cypher temporal-constructor text (date({...})
-        # etc.); the pandas projection normalizes it to ISO, not yet native — decline
-        # honestly rather than leak the raw text (NO-CHEATING), matching select_polars.
-        return None
-    return _rewrap(g, out)
+    polars ``with_columns`` has identical column semantics — an alias matching an
+    existing column REPLACES it in place (position preserved), a new alias APPENDS
+    at the end in item order."""
+    return _project_polars(g, items, extend=True)
 
 
 def where_rows_polars(
@@ -819,11 +807,3 @@ def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plott
     values = [it.value for it in node.items if isinstance(it, Literal)]
     rhs = pl.DataFrame({as_: values})
     return _rewrap(g, table.join(rhs, how="cross"))
-
-
-def can_select_native(items: Sequence[Any], columns: Sequence[str]) -> bool:
-    return lower_select_items(items, columns) is not None
-
-
-def can_order_by_native(keys: Sequence[Any], columns: Sequence[str]) -> bool:
-    return lower_order_by_keys(keys, columns) is not None
