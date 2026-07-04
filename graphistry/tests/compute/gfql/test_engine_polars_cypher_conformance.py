@@ -460,3 +460,20 @@ def test_cypher_conformance_fuzz(seed):
         q = f"MATCH (n) RETURN {p} {op} {v} AS x, n.kind"
 
     _assert_parity(g, q)
+
+
+def test_native_polars_nan_input_treated_as_missing():
+    """Review C1 regression: a NATIVE polars input carrying a real NaN must be treated as
+    MISSING (the pandas oracle drops a NaN row under a gt/eq filter), not kept. The
+    pandas->polars ingestion nan_to_null's; the native-polars path (skipped by
+    _coerce_input_formats as 'already correct') did NOT, keeping the row = silent wrong answer."""
+    import pandas as pd
+    from graphistry.compute.ast import n
+    from graphistry.compute.predicates.numeric import gt
+    nodes_data = {"id": [0, 1, 2], "x": [10.0, float("nan"), 30.0]}
+    edges_data = {"s": [0], "d": [1]}
+    g_pd = graphistry.nodes(pd.DataFrame(nodes_data), "id").edges(pd.DataFrame(edges_data), "s", "d")
+    g_pl = graphistry.nodes(pl.DataFrame(nodes_data), "id").edges(pl.DataFrame(edges_data), "s", "d")
+    oracle = sorted(g_pd.gfql([n({"x": gt(5)})], engine="pandas")._nodes["id"].tolist())
+    got = sorted(g_pl.gfql([n({"x": gt(5)})], engine="polars")._nodes["id"].to_list())
+    assert got == oracle == [0, 2]

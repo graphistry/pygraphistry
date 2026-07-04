@@ -190,6 +190,21 @@ def _cudf_from_pandas_best_effort(df: pd.DataFrame, *, validate: Optional[Valida
         return out_gdf
 
 
+def _pl_nan_to_null(df):
+    """Convert NaN -> null in float columns of a polars frame.
+
+    Matches ``pl.from_pandas(nan_to_null=True)`` (the pandas-input path) so a *native*
+    polars / Arrow / cuDF input carrying genuine NaN is treated as MISSING like the pandas
+    oracle (which skipna/dropna's NaN). Without this, ``engine='polars'`` on a frame with a
+    real NaN keeps rows a filter/aggregation should drop (silent divergence from pandas).
+    No-op when there are no float columns."""
+    import polars as pl
+    float_cols = [c for c, dt in df.schema.items() if dt in (pl.Float32, pl.Float64)]
+    if not float_cols:
+        return df
+    return df.with_columns([pl.col(c).fill_nan(None) for c in float_cols])
+
+
 def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = None, warn: bool = True):
     """Convert ``df`` to ``engine``'s frame type.
 
@@ -248,11 +263,11 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
     elif engine in POLARS_ENGINES:
         import polars as pl
         if isinstance(df, pl.DataFrame):
-            return df
+            return _pl_nan_to_null(df)
         if isinstance(df, pl.LazyFrame):
-            return df.collect()
+            return _pl_nan_to_null(df.collect())
         if isinstance(df, pa.Table):
-            return pl.from_arrow(df)
+            return _pl_nan_to_null(pl.from_arrow(df))
         pl_validate: ValidationParam = 'strict' if validate is None else validate
         if isinstance(df, pd.DataFrame):
             return _pl_from_pandas(df, validate=pl_validate, warn=warn)
@@ -265,7 +280,7 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
         if 'cudf' in str(type(df).__module__):
             import cudf
             if isinstance(df, cudf.DataFrame):
-                return pl.from_arrow(df.to_arrow())
+                return _pl_nan_to_null(pl.from_arrow(df.to_arrow()))
         # dask/spark and anything else: route through pandas
         return _pl_from_pandas(df_to_engine(df, Engine.PANDAS), validate=pl_validate, warn=warn)
     raise ValueError(f'Only engines pandas/cudf/dask/polars supported, got: {engine}')

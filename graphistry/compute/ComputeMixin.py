@@ -94,6 +94,17 @@ def _coerce_input_formats(g: "Plottable", engine: Engine) -> "Plottable":
         g = g.edges(df_to_engine(g._edges, engine), g._source, g._destination)
     if g._nodes is not None and not _is_already_correct(g._nodes):
         g = g.nodes(df_to_engine(g._nodes, engine), g._node)
+    # A NATIVE-polars input is "already correct" and skips df_to_engine above, so it never
+    # gets the NaN->null normalization the pandas->polars path does (pl.from_pandas nan_to_null).
+    # Without it, engine='polars' on a frame carrying real NaN keeps rows a filter/aggregation
+    # should drop (silent divergence from the pandas oracle, which treats NaN as missing).
+    # _pl_nan_to_null is idempotent, so re-running it on a just-converted frame is a no-op.
+    if engine in POLARS_ENGINES:
+        from graphistry.Engine import _pl_nan_to_null
+        if g._edges is not None and 'polars' in str(type(g._edges).__module__):
+            g = g.edges(_pl_nan_to_null(g._edges), g._source, g._destination)
+        if g._nodes is not None and 'polars' in str(type(g._nodes).__module__):
+            g = g.nodes(_pl_nan_to_null(g._nodes), g._node)
     return g
 
 
