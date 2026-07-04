@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.util import generate_safe_column_name
+from graphistry.compute.gfql.lazy.engine.polars.dtypes import endpoint_ids
 from graphistry.compute.gfql.lazy.engine.polars.hop_eager import ensure_nodes_polars
 from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
 from graphistry.compute.gfql.lazy import collect_all
@@ -170,11 +171,7 @@ def hop_polars_lazy(
     # empty out_edges yields empty endpoints, a no-op concat; same result).
     needed = visited_nodes
     if not (return_as_wave_front and nodes is not None):
-        endpoints = pl.concat(
-            [out_edges_lf.select(pl.col(src).cast(node_dtype).alias(NID)),
-             out_edges_lf.select(pl.col(dst).cast(node_dtype).alias(NID))],
-            how="vertical_relaxed",
-        ).unique(subset=[NID])
+        endpoints = endpoint_ids(out_edges_lf, src, dst, NID, node_dtype).unique(subset=[NID])
         needed = pl.concat([needed, endpoints], how="vertical_relaxed").unique(subset=[NID])
 
     out_nodes_lf = all_nodes_lf.join(needed.rename({NID: node_col}), on=node_col, how="semi")

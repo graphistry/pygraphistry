@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.util import generate_safe_column_name
+from .dtypes import endpoint_ids
 from .predicates import filter_by_dict_polars
 
 
@@ -39,10 +40,7 @@ def ensure_nodes_polars(g: Plottable) -> Plottable:
     src, dst = g._source, g._destination
     assert src is not None and dst is not None and g._edges is not None
     node_id = g._node if g._node is not None else "id"
-    ids = pl.concat(
-        [g._edges.select(pl.col(src).alias(node_id)), g._edges.select(pl.col(dst).alias(node_id))],
-        how="vertical_relaxed",
-    ).unique()
+    ids = endpoint_ids(g._edges, src, dst, node_id).unique()
     return g.nodes(ids, node_id)
 
 
@@ -351,10 +349,7 @@ def hop_polars(
         # and a reached non-endpoint seed is dropped (seed-24 n0). The polars chain runs this hop WITHOUT
         # labels, so replicate the labeled+stripped result directly.
         ep = pairs.join(visited_edges, on=EID, how="semi")
-        visited_nodes = pl.concat(
-            [ep.select(pl.col(FROM).alias(NID)), ep.select(pl.col(TO).alias(NID))],
-            how="vertical_relaxed",
-        ).unique(subset=[NID])
+        visited_nodes = endpoint_ids(ep, FROM, TO, NID).unique(subset=[NID])
         if nodes is not None:  # seeds provided (chain wavefront) -> strip unreached seeds
             unreached_seeds = seed.join(reached, on=NID, how="anti")
             visited_nodes = visited_nodes.join(unreached_seeds, on=NID, how="anti")
@@ -368,11 +363,7 @@ def hop_polars(
     needed = visited_nodes
     materialize_endpoints = not (return_as_wave_front and nodes is not None)
     if out_edges.height > 0 and materialize_endpoints:
-        endpoints = pl.concat(
-            [out_edges.select(pl.col(src).cast(node_dtype).alias(NID)),
-             out_edges.select(pl.col(dst).cast(node_dtype).alias(NID))],
-            how="vertical_relaxed",
-        ).unique(subset=[NID])
+        endpoints = endpoint_ids(out_edges, src, dst, NID, node_dtype).unique(subset=[NID])
         needed = pl.concat([needed, endpoints], how="vertical_relaxed").unique(subset=[NID])
 
     if min_hops_active and reached_for_attrs is not None and nodes is not None and min_hops_label_policy:

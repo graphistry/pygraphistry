@@ -9,11 +9,13 @@ convention.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, TypeVar, Union
 
 if TYPE_CHECKING:
     import polars as pl
     PolarsFrame = Union["pl.DataFrame", "pl.LazyFrame"]
+    # eager-in→eager-out / lazy-in→lazy-out (a Union return would type-error at call sites)
+    PolarsT = TypeVar("PolarsT", "pl.DataFrame", "pl.LazyFrame")
 
 
 def is_int(dt: "Optional[pl.DataType]") -> bool:
@@ -59,3 +61,20 @@ def is_lazy(df: "PolarsFrame") -> bool:
 def colnames(df: "PolarsFrame") -> List[str]:
     """Column names for an eager or lazy polars frame (no collect for lazy)."""
     return df.collect_schema().names() if is_lazy(df) else df.columns
+
+
+def endpoint_ids(frame: "PolarsT", src: str, dst: str, out_col: str,
+                 dtype: "Optional[pl.DataType]" = None) -> "PolarsT":
+    """One-column frame of edge endpoints (src stacked on dst) as ``out_col`` — the
+    engine's node-id-universe builder, shared by hop/hop_eager/chain. ``dtype``
+    casts both sides to the node-id join dtype (polars won't coerce int/float join
+    keys like pandas does). NOT deduplicated: each caller applies its own
+    ``.unique(...)`` variant (plain vs ``subset=`` differs and is load-bearing for
+    lazy ``maintain_order`` behavior). Eager/lazy agnostic."""
+    import polars as pl
+
+    def _side(c: str) -> "pl.Expr":
+        e = pl.col(c)
+        return (e.cast(dtype) if dtype is not None else e).alias(out_col)
+    return pl.concat([frame.select(_side(src)), frame.select(_side(dst))],
+                     how="vertical_relaxed")

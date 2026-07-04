@@ -14,7 +14,7 @@ from typing import Any, List, Optional, Tuple
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
 from .hop_eager import ensure_nodes_polars
-from .dtypes import is_lazy, colnames
+from .dtypes import is_lazy, colnames, endpoint_ids
 from .degrees import get_degrees_polars, get_indegrees_polars, get_outdegrees_polars
 from .predicates import filter_by_dict_polars
 
@@ -277,10 +277,7 @@ def _apply_node_names(out, g, steps):
                 elif next_op.direction == "reverse":
                     part = e.select(pl.col(dst).alias(node_col))
                 else:
-                    part = pl.concat(
-                        [e.select(pl.col(src).alias(node_col)), e.select(pl.col(dst).alias(node_col))],
-                        how="vertical_relaxed",
-                    )
+                    part = endpoint_ids(e, src, dst, node_col)
                 named = named.join(part.unique(), on=node_col, how="semi")
         flag = named.with_columns(pl.lit(True).alias(op._name))
         out = out.join(flag, on=node_col, how="left").with_columns(pl.col(op._name).fill_null(False))
@@ -585,10 +582,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                 if n2.filter_dict:
                     to_ids = filter_by_dict_polars(gf._nodes, n2.filter_dict).select(pl.col(ncol))
                     edges = edges.join(to_ids, left_on=to_col, right_on=ncol, how="semi")
-            endpoints = pl.concat(
-                [edges.select(pl.col(scol).alias(ncol)), edges.select(pl.col(dcol).alias(ncol))],
-                how="vertical_relaxed",
-            )
+            endpoints = endpoint_ids(edges, scol, dcol, ncol)
             nodes = gf._nodes.join(endpoints.unique(), on=ncol, how="semi")
             return gf.nodes(nodes, ncol).edges(_restore_edge_dtypes(edges, scol, dcol, restore), scol, dcol)
 
@@ -649,11 +643,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         # backward node step can still filter on them.
         if (isinstance(op, ASTEdge) and op.direction == "undirected"
                 and op.is_simple_single_hop() and rev._edges is not None):
-            _both = pl.concat(
-                [rev._edges.select(pl.col(src).alias(node_col)),
-                 rev._edges.select(pl.col(dst).alias(node_col))],
-                how="vertical_relaxed",
-            ).unique(subset=[node_col])
+            _both = endpoint_ids(rev._edges, src, dst, node_col).unique(subset=[node_col])
             rev = rev.nodes(g._nodes.join(_both, on=node_col, how="semi"), node_col)
         g_rev.append(rev)
 
@@ -716,11 +706,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     final_nodes = _combine_nodes(g_lz, steps_lz)
     final_edges = _combine_edges(g_lz, edge_steps_lz, label_lz, has_multihop)
     # Endpoint (lazy: always compute; maintain_order keeps the semi-join order).
-    endpoints = pl.concat(
-        [final_edges.select(pl.col(src).alias(node_col)),
-         final_edges.select(pl.col(dst).alias(node_col))],
-        how="vertical_relaxed",
-    ).unique(subset=[node_col])
+    endpoints = endpoint_ids(final_edges, src, dst, node_col).unique(subset=[node_col])
     missing = endpoints.join(final_nodes.select(pl.col(node_col)), on=node_col, how="anti")
     extra = g_lz._nodes.join(missing, on=node_col, how="semi")
     final_nodes = pl.concat([final_nodes, extra], how="diagonal_relaxed").unique(
