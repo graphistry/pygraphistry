@@ -8,13 +8,24 @@ polars and break the columnar/GPU assumptions; use ``engine='pandas'``). All
 filtering is a single vectorized ``df.filter(expr)`` — no per-row work, no Python
 materialization.
 """
+from __future__ import annotations
+
 import operator
 import re
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.filter_by_dict import resolve_filter_column
 from .dtypes import is_numeric as _dtype_numeric, is_stringlike as _dtype_stringlike
+
+if TYPE_CHECKING:
+    import datetime
+    import polars as pl
+
+# The scalar-or-temporal RHS a comparison predicate carries. Genuinely dynamic (Cypher
+# properties are dynamically typed): a python scalar, or a GFQL/py temporal value matched
+# structurally by ``type(val).__name__`` (DateValue/TemporalValue/…, never imported here).
+CmpValue = Union[int, float, str, bool, "datetime.date", "datetime.time", Any]
 
 # Python-`re` features the Rust regex engine (polars) rejects or evaluates differently:
 # lookaround ((?=/(?!/(?<=/(?<!) and backreferences (\\1, (?P=name), \\k<name>). polars would
@@ -27,7 +38,7 @@ def _regex_rust_incompatible(pat: str) -> bool:
     return _REGEX_RUST_INCOMPAT.search(pat) is not None
 
 
-def _homogeneous_scalar_category(opts: list) -> Optional[str]:
+def _homogeneous_scalar_category(opts: List[Any]) -> Optional[str]:
     """The single value-category (num/str/bool) of a literal list, else None (mixed/empty).
     polars ``is_in`` raises on a cross-type list, so a non-homogeneous IN must decline (NIE)."""
     def _cat(o: Any) -> Optional[str]:
@@ -42,7 +53,12 @@ def _homogeneous_scalar_category(opts: list) -> Optional[str]:
     return next(iter(cats)) if (len(cats) == 1 and None not in cats) else None
 
 
-def _cmp_expr(col_expr, op, val, dtype=None):
+def _cmp_expr(
+    col_expr: "pl.Expr",
+    op: Callable[[Any, Any], Any],
+    val: CmpValue,
+    dtype: "Optional[pl.DataType]" = None,
+) -> "Optional[pl.Expr]":
     import datetime as _dt
 
     # NATIVE TEMPORAL (SAFE SUBSET — NO CHEATING): lower a GFQL ``DateValue`` (Cypher
@@ -128,7 +144,7 @@ def _inline_regex_flag_prefix(case: bool, flags: int) -> str:
     return f"(?{letters})" if letters else ""
 
 
-def predicate_to_expr(col: str, pred: ASTPredicate, dtype=None):
+def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType]" = None) -> "Optional[pl.Expr]":
     """Lower an ASTPredicate to a polars boolean expression, or None if unsupported.
 
     ``dtype`` is the polars dtype of ``col`` (from the frame schema), threaded so the
@@ -180,8 +196,9 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype=None):
         # whole predicate can't (caller raises NIE — no pandas bridge).
         child_exprs = [predicate_to_expr(col, p, dtype) for p in pred.predicates]
         if child_exprs and all(e is not None for e in child_exprs):
-            combined = child_exprs[0]
-            for e in child_exprs[1:]:
+            lowered: "List[pl.Expr]" = [e for e in child_exprs if e is not None]
+            combined = lowered[0]
+            for e in lowered[1:]:
                 combined = combined & e
             return combined
         return None
@@ -297,7 +314,7 @@ def _is_membership(value: Any) -> bool:
     return isinstance(value, (list, tuple, set, frozenset))
 
 
-def _is_cross_type_predicate(df, col: str, pred: ASTPredicate) -> bool:
+def _is_cross_type_predicate(df: "pl.DataFrame", col: str, pred: ASTPredicate) -> bool:
     """True if a comparison predicate compares a numeric column to a string value
     (or vice versa) — polars raises ``cannot compare string with numeric type`` (an
     uncatchable Rust panic when nested) ; pandas/cypher return a value/null. Recurses
@@ -323,14 +340,14 @@ def _is_cross_type_predicate(df, col: str, pred: ASTPredicate) -> bool:
     return _mismatch(val)
 
 
-def filter_by_dict_polars(df, filter_dict: Optional[dict]):
+def filter_by_dict_polars(df: "pl.DataFrame", filter_dict: "Optional[Dict[str, Any]]") -> "pl.DataFrame":
     """Return rows of polars ``df`` matching all entries in ``filter_dict`` via one filter."""
     import polars as pl
 
     if not filter_dict:
         return df
 
-    exprs: List[Any] = []
+    exprs: "List[pl.Expr]" = []
     for col, val in filter_dict.items():
         resolved_col, resolved_val = resolve_filter_column(df, col, val)
         if isinstance(resolved_val, ASTPredicate):

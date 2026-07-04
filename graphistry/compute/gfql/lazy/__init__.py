@@ -178,6 +178,18 @@ def set_call_mode(value: Optional[str]) -> None:
     _call_mode_override = "strict" if v == "strict" else "auto"
 
 
+# Public surface of the lazy framework. Explicit (vs a dedicated ``types.py``) because the
+# quasi-public types (ExecutionTarget/GpuExecutor/CallMode + their tuples) are few and live
+# co-located with their validators/accessors here; a per-engine types module is deferred until
+# a 2nd lazy backend (duckdb) needs to share ExecutionTarget (mirrors the lazy-restructure defer).
+__all__ = [
+    "ExecutionTarget", "active_target", "target_mode", "collect", "collect_all",
+    "GpuExecutor", "GPU_EXECUTORS", "gpu_executor", "set_gpu_executor",
+    "CallMode", "CALL_MODES", "call_mode", "set_call_mode",
+    "cpu_streaming", "set_cpu_streaming",
+]
+
+
 def _engine_for(target: ExecutionTarget) -> "Optional[pl.GPUEngine]":
     """Polars collect engine for a target. ``None`` = default (CPU streaming/in-mem).
 
