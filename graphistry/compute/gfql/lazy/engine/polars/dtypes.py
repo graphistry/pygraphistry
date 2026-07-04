@@ -38,3 +38,18 @@ def is_stringlike(dt: Any) -> bool:
         if t is not None and (dt == t or isinstance(dt, t)):
             return True
     return False
+
+
+# --- frame-shape helpers (lazy/eager agnostic) -----------------------------------
+# Shared so both the chain orchestration and the degree helpers introspect frames the
+# same way regardless of DataFrame-vs-LazyFrame.
+
+def is_lazy(df: Any) -> bool:
+    """True for a ``pl.LazyFrame`` (vs an eager ``pl.DataFrame``)."""
+    import polars as pl
+    return isinstance(df, pl.LazyFrame)
+
+
+def colnames(df: Any) -> list:
+    """Column names for an eager or lazy polars frame (no collect for lazy)."""
+    return df.collect_schema().names() if is_lazy(df) else df.columns
