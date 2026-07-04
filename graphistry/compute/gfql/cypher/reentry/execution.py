@@ -244,7 +244,7 @@ def compiled_query_reentry_state(
         has_non_null_ids = bool(non_null_mask.any()) if hasattr(non_null_mask, "any") else True
         if not has_non_null_ids:
             base_nodes = cast(Optional[DataFrameT], base_graph._nodes)
-            id_column = cast(Optional[str], base_graph._node)
+            id_column = base_graph._node
             if base_nodes is None or id_column is None or id_column not in base_nodes.columns:
                 raise reentry_validation_error(
                     "Cypher MATCH after WITH could not recover the base node table for re-entry",

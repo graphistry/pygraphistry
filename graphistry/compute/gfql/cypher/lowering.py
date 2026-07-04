@@ -1237,7 +1237,7 @@ def _connected_join_alias_identity_expr(
         if isinstance(node_in, PropertyAccessExpr) and isinstance(node_in.value, Identifier):
             if "." not in node_in.value.name and node_in.value.name in alias_targets:
                 return node_in
-            return PropertyAccessExpr(cast(ExprNode, _rewrite(node_in.value)), node_in.property)
+            return PropertyAccessExpr(_rewrite(node_in.value), node_in.property)
         if isinstance(node_in, Identifier) and "." not in node_in.name and node_in.name in alias_targets:
             target = alias_targets[node_in.name]
             prop = NODE_IDENTITY_COLUMN if isinstance(target, ASTNode) else "__gfql_edge_index_0__"
@@ -2985,7 +2985,7 @@ def _stitch_patterns(
         merged = _merge_node_patterns(left_end, cast(NodePattern, reversed_right[0]))
         return tuple(left[:-1]) + (merged,) + tuple(reversed_right[1:])
     if _node_can_join(left_start, right_end):
-        merged = _merge_node_patterns(cast(NodePattern, right_end), left_start)
+        merged = _merge_node_patterns(right_end, left_start)
         return tuple(right[:-1]) + (merged,) + tuple(left[1:])
     if _node_can_join(left_start, right_start):
         reversed_right = _reverse_pattern(right)
@@ -6005,8 +6005,8 @@ def lower_match_query(
             stack: List[BooleanExpr] = [query.where.expr_tree]
             while stack:
                 cur = stack.pop()
-                expr_left = cast(Optional[BooleanExpr], cur.left)
-                expr_right = cast(Optional[BooleanExpr], cur.right)
+                expr_left = cur.left
+                expr_right = cur.right
                 if cur.op in {"or", "xor"} and ((expr_left is not None and _where_expr_tree_pattern_predicates(expr_left)) or (expr_right is not None and _where_expr_tree_pattern_predicates(expr_right))):
                     raise _unsupported_at_span("Cypher WHERE pattern predicates mixed with OR/XOR are not yet supported for cartesian MATCH patterns", field="where", value=where_expr_upper, span=query.where.span)
                 if expr_left is not None:
