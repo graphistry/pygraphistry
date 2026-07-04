@@ -231,7 +231,17 @@ def df_to_engine(df, engine: Engine):
             return pl.from_arrow(df)
         if isinstance(df, pd.DataFrame):
             return _pl_from_pandas(df)
-        # cudf/dask/spark and anything else: route through pandas first
+        # cuDF (device) -> Arrow -> polars: a single host copy via cuDF's native
+        # interchange, not the cuDF -> pandas -> polars double-convert. Besides the
+        # extra hop, the pandas detour is lossy (cuDF nullable Int64/boolean ->
+        # pandas float+NaN/object), whereas Arrow preserves dtypes and nulls.
+        # (Skipping the host round trip entirely for polars-gpu is a deeper
+        # follow-up: cudf_polars still ingests a host polars frame today.)
+        if 'cudf' in str(type(df).__module__):
+            import cudf
+            if isinstance(df, cudf.DataFrame):
+                return pl.from_arrow(df.to_arrow())
+        # dask/spark and anything else: route through pandas
         return _pl_from_pandas(df_to_engine(df, Engine.PANDAS))
     raise ValueError(f'Only engines pandas/cudf/dask/polars supported, got: {engine}')
 

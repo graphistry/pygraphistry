@@ -71,3 +71,26 @@ def test_polars_gpu_engine_enum_is_explicit_only():
     assert Engine.POLARS_GPU.value == "polars-gpu"
     assert resolve_engine(EngineAbstract.AUTO) != Engine.POLARS_GPU
     assert resolve_engine("polars-gpu") == Engine.POLARS_GPU
+
+
+@pytest.mark.parametrize("target", ["polars", "polars-gpu"])
+def test_cudf_to_polars_via_arrow_preserves_dtypes_and_nulls(target):
+    # A cuDF frame converts to polars via Arrow (cuDF's native interchange), not a
+    # cuDF -> pandas -> polars double-convert. The pandas detour is lossy: a nullable
+    # Int64 degrades to Float64 (null -> NaN). Arrow preserves dtypes and nulls.
+    cudf = pytest.importorskip("cudf")
+    from graphistry.Engine import Engine, df_to_engine
+
+    gdf = cudf.from_pandas(pd.DataFrame({
+        "a": pd.array([1, 2, None], dtype="Int64"),
+        "flag": pd.array([True, None, False], dtype="boolean"),
+        "s": ["x", "y", None],
+    }))
+    out = df_to_engine(gdf, Engine(target))
+    assert isinstance(out, pl.DataFrame)
+    assert out.schema["a"] == pl.Int64  # NOT Float64 (the pandas-detour regression)
+    assert out.schema["flag"] == pl.Boolean
+    assert out.schema["s"] == pl.String
+    assert out["a"].to_list() == [1, 2, None]
+    assert out["flag"].to_list() == [True, None, False]
+    assert out["s"].to_list() == ["x", "y", None]
