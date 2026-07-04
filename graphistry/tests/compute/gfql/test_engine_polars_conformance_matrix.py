@@ -711,7 +711,11 @@ def _native_ok_query_cases():
 def _polars_nie_query_cases():
     """(id, graph_fn, query, pandas_expect, why-polars-declines). pandas_expect: 'ok' (the
     oracle computes — a decline is the ONLY honest polars answer), 'raises' (the oracle
-    itself errors), None (oracle behavior not load-bearing for this case)."""
+    itself errors), None (oracle behavior not load-bearing for this case).
+
+    NB the pandas-ok+polars-nie cases here are deliberately NOT routed through
+    _assert_invariant: their exprs also surface orthogonal cudf divergences (list-literal
+    element ordering; list-cell repr) filed separately — not the polars decline under test."""
     from graphistry.compute.predicates.comparison import GT, Between
     from graphistry.compute.predicates.is_in import IsIn
     import graphistry.compute.predicates.temporal as T
@@ -745,9 +749,6 @@ def _polars_nie_query_cases():
          [n(), rows(), call("unwind", {"expr": "[[1, 2], [3]]", "as_": "x"})], "ok",
          "list-of-lists is not an all-Literal ListLiteral; pandas one-level explodes to list cells"),
     ]
-    # NB the pandas-ok+polars-nie cases here are deliberately NOT routed through
-    # _assert_invariant: their exprs also surface orthogonal cudf divergences (list-literal
-    # element ordering; list-cell repr) filed separately — not the polars decline under test.
 
 
 @pytest.mark.parametrize("label,graph_fn,query,why", _native_ok_query_cases(),

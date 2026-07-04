@@ -74,8 +74,9 @@ def endpoint_ids(frame: "PolarsT", src: str, dst: str, out_col: str,
     engine's node-id-universe builder, shared by hop/hop_eager/chain. ``dtype``
     casts both sides to the node-id join dtype (polars won't coerce int/float join
     keys like pandas does). NOT deduplicated: each caller applies its own
-    ``.unique(...)`` variant (plain vs ``subset=`` differs and is load-bearing for
-    lazy ``maintain_order`` behavior). Eager/lazy agnostic."""
+    ``.unique(...)`` variant, preserved verbatim from the pre-refactor sites (on this
+    one-column output, plain vs ``subset=`` are equivalent — kept per-site for a
+    byte-identical diff, not semantics). Eager/lazy agnostic."""
     import polars as pl
 
     def _side(c: str) -> "pl.Expr":

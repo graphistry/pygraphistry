@@ -65,7 +65,7 @@ def _parser():
 # ``operator.*`` builds exactly the ``left <op> right`` expression per token.
 _BINOP_FNS: Dict[str, Callable[[Any, Any], Any]] = {
     "+": operator.add, "-": operator.sub, "*": operator.mul, "/": operator.truediv,
-    "%": operator.mod,  # polars mod is floored, matching pandas (verified by parity)
+    "%": operator.mod,  # polars mod is floored, like pandas (NOTE: no negative-operand % conformance case yet)
     "=": operator.eq, "==": operator.eq, "<>": operator.ne, "!=": operator.ne,
     "<": operator.lt, ">": operator.gt, "<=": operator.le, ">=": operator.ge,
 }
