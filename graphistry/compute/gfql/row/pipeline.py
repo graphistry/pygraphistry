@@ -4667,12 +4667,7 @@ _POLARS_NATIVE_ROW_PIPELINE_CALLS = frozenset(
 )
 
 
-def _row_pipeline_active_is_polars(g: "Plottable") -> bool:
-    nodes = g._nodes
-    if nodes is not None:
-        return "polars" in type(nodes).__module__
-    edges = g._edges
-    return edges is not None and "polars" in type(edges).__module__
+from graphistry.Engine import active_frames_are_polars as _row_pipeline_active_is_polars
 
 
 def execute_row_pipeline_call(

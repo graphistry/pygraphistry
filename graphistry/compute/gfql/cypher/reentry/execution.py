@@ -20,8 +20,7 @@ REENTRY_SCALAR_SUGGESTION = "Carry scalar columns through WITH before MATCH re-e
 REENTRY_DUPLICATE_CARRIED_ROWS_REASON = "duplicate_carried_node_rows"
 
 
-def _is_polars_df(df: Any) -> bool:
-    return df is not None and "polars" in type(df).__module__
+from graphistry.Engine import is_polars_df as _is_polars_df
 
 
 def _reentry_row(prefix_rows: Any, row_index: int) -> Any:

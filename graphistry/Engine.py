@@ -190,6 +190,23 @@ def _cudf_from_pandas_best_effort(df: pd.DataFrame, *, validate: Optional[Valida
         return out_gdf
 
 
+def is_polars_df(df: Any) -> bool:
+    """True if ``df`` is a polars DataFrame or LazyFrame.
+
+    Import-light module-name check (polars is an optional dependency, so we avoid importing
+    it just to ``isinstance``). ``type(df).__module__`` starts with ``polars.`` for both
+    ``pl.DataFrame`` and ``pl.LazyFrame``. Single source of truth — the gfql engine had this
+    reimplemented in 5 places."""
+    return df is not None and "polars" in type(df).__module__
+
+
+def active_frames_are_polars(g: Any) -> bool:
+    """True if ``g``'s active table (nodes, else edges) is a polars frame."""
+    if g._nodes is not None:
+        return is_polars_df(g._nodes)
+    return is_polars_df(g._edges)
+
+
 def _pl_nan_to_null(df):
     """Convert NaN -> null in float columns of a polars frame.
 

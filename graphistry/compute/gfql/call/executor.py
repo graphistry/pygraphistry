@@ -50,17 +50,7 @@ def _run_policy_hook(handler: Any, policy_context: 'PolicyContext', data_size: O
     return None
 
 
-def _active_frames_are_polars(g: Plottable) -> bool:
-    """True when the graph's active frames are polars (the polars-engine path).
-
-    Mirrors ``execute_row_pipeline_call``'s frame-type probe: under engine='polars'/
-    'polars-gpu' the frames are polars; pandas/cuDF inputs were coerced upstream.
-    """
-    nodes = getattr(g, "_nodes", None)
-    if nodes is not None:
-        return "polars" in type(nodes).__module__
-    edges = getattr(g, "_edges", None)
-    return edges is not None and "polars" in type(edges).__module__
+from graphistry.Engine import active_frames_are_polars as _active_frames_are_polars
 
 
 def _execute_validated_call(g: Plottable, function: str, validated_params: Dict[str, Any]) -> Any:

@@ -22,8 +22,7 @@ if TYPE_CHECKING:
     from graphistry.compute.gfql.cypher.lowering import ResultProjectionPlan
 
 
-def _is_polars_frame(df: Any) -> bool:
-    return df is not None and "polars" in type(df).__module__
+from graphistry.Engine import is_polars_df as _is_polars_frame
 
 
 def _has_temporal_constructor_text(rows_df: pl.DataFrame, col: str) -> bool:

@@ -5,6 +5,7 @@ from typing import Any, Literal, Sequence, cast
 import pandas as pd
 
 from graphistry.compute.dataframe_utils import df_cons as template_df_cons
+from graphistry.Engine import is_polars_df
 from graphistry.compute.gfql.series_str_compat import series_str_contains, series_str_extract, series_str_match
 from graphistry.compute.gfql.temporal.constructors import (
     DATETIME_CALL_TEXT_RE,
@@ -37,7 +38,7 @@ def _include_numeric_id_as_property(df: DataFrameT) -> bool:
         # polars frames: pd.api.types.is_numeric_dtype doesn't understand polars
         # dtypes; use the dtype's own numeric check so structured whole-entity
         # returns (#1650) flatten an integer ``id`` identically on both engines.
-        if "polars" in type(df).__module__:
+        if is_polars_df(df):
             return bool(df.schema["id"].is_numeric())
         return bool(pd.api.types.is_numeric_dtype(df["id"]))
     except Exception:

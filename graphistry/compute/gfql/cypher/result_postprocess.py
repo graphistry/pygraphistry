@@ -7,6 +7,7 @@ import pandas as pd
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
+from graphistry.Engine import is_polars_df
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
 
 from .lowering import ResultProjectionColumn, ResultProjectionPlan
@@ -298,7 +299,7 @@ def apply_result_projection(
     pandas bridge (no-silent-fallback policy).
     """
     rows_df = result._nodes
-    if rows_df is not None and "polars" in type(rows_df).__module__:
+    if is_polars_df(rows_df):
         from graphistry.compute.gfql.lazy.engine.polars.projection import apply_result_projection_polars
         return apply_result_projection_polars(result, projection, structured=structured)
     return _apply_result_projection_pandas(result, projection, structured=structured)

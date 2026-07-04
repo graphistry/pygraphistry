@@ -10,15 +10,7 @@ if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
 
 
-def _is_polars(df: Any) -> bool:
-    """Cheap, import-light check for a polars DataFrame.
-
-    Polars only participates here when a query is run with explicit
-    ``engine='polars'`` (``resolve_engine`` deliberately maps polars frames to
-    pandas under AUTO), so the active table is a real ``pl.DataFrame`` whenever
-    this returns True. Differential parity vs pandas is the release gate.
-    """
-    return df is not None and "polars" in type(df).__module__
+from graphistry.Engine import is_polars_df as _is_polars
 
 
 def _empty_like(df: Any) -> Any:
