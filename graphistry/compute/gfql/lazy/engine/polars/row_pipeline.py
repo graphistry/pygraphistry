@@ -109,7 +109,7 @@ def _resolve_property(alias: str, prop: str, columns: Sequence[str]) -> Optional
     return None
 
 
-def _lower_function(node: Any, columns: Sequence[str]) -> Optional[Any]:
+def _lower_function(node: Any, columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower a whitelisted scalar cypher function to polars, or None to defer.
 
     Only functions whose polars mapping matches the pandas engine's semantics
@@ -117,7 +117,7 @@ def _lower_function(node: Any, columns: Sequence[str]) -> Optional[Any]:
     so the caller raises NotImplementedError rather than guessing.
     """
     name = node.name.lower()
-    args: List[Any] = []
+    args: List[pl.Expr] = []
     for arg in node.args:
         lowered = lower_expr(arg, columns)
         if lowered is None:
@@ -376,7 +376,7 @@ def _value_category(v: Any) -> Optional[str]:
     return None
 
 
-def _lower_list_literal(items: Sequence[Any], columns: Sequence[str]) -> Optional[Any]:
+def _lower_list_literal(items: Sequence[Any], columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower ``[e0, e1, ...]`` to a per-row polars list via ``pl.concat_list``, or None to defer.
 
     ``concat_list`` preserves element ORDER exactly as written, matching the pandas oracle
@@ -391,7 +391,7 @@ def _lower_list_literal(items: Sequence[Any], columns: Sequence[str]) -> Optiona
     import polars as pl
     if not items:
         return None
-    lowered: List[Any] = []
+    lowered: List[pl.Expr] = []
     cats = set()
     for item in items:
         expr = lower_expr(item, columns)
@@ -407,7 +407,7 @@ def _lower_list_literal(items: Sequence[Any], columns: Sequence[str]) -> Optiona
     return pl.concat_list(lowered)
 
 
-def _lower_in(left: Any, items: Sequence[Any], columns: Sequence[str]) -> Optional[Any]:
+def _lower_in(left: pl.Expr, items: Sequence[Any], columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower ``x IN [literals]`` to a 3-valued polars membership test, or None to defer.
 
     SAFE subset: a NON-EMPTY list of NON-NULL literals whose single category matches the
@@ -429,7 +429,7 @@ def _lower_in(left: Any, items: Sequence[Any], columns: Sequence[str]) -> Option
     return pl.when(left.is_null()).then(pl.lit(None, dtype=pl.Boolean)).otherwise(left.is_in(values))
 
 
-def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
+def lower_expr(node: Any, columns: Sequence[str]) -> Optional[pl.Expr]:
     """Lower a parsed cypher ExprNode to a polars expression, or None to defer."""
     import polars as pl
     from graphistry.compute.gfql.expr_parser import (
@@ -538,7 +538,7 @@ def lower_expr(node: Any, columns: Sequence[str]) -> Optional[Any]:
     return None
 
 
-def lower_expr_str(expr: str, columns: Sequence[str]) -> Optional[Any]:
+def lower_expr_str(expr: str, columns: Sequence[str]) -> Optional[pl.Expr]:
     """Parse + lower an expression string; None if unparseable or not lowerable."""
     import polars as pl
     if expr in columns:
@@ -723,7 +723,7 @@ def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
 
 # Aggregation funcs lowered to native polars (count/sum/avg/min/max/count_distinct/collect/
 # collect_distinct); stdev/percentile etc. return None → caller declines (NIE, no pandas bridge).
-def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str) -> Optional[Any]:
+def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str) -> Optional[pl.Expr]:
     import polars as pl
     func = func.lower()
     if func == "count" and (expr is None or expr == "*"):
