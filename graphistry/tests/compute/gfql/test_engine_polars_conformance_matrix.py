@@ -218,6 +218,8 @@ def _cypher_expression_queries():
         ("round_p2", "MATCH (n) RETURN n.id AS id, round(n.f, 2) AS x"),
         ("tolower", "MATCH (n) RETURN n.id AS id, toLower(n.name) AS s"),
         ("toupper", "MATCH (n) RETURN n.id AS id, toUpper(n.name) AS s"),
+        ("lower_alias", "MATCH (n) RETURN n.id AS id, lower(n.name) AS s"),
+        ("upper_alias", "MATCH (n) RETURN n.id AS id, upper(n.name) AS s"),
         # NOTE: toString(float) intentionally absent — polars NIEs (test_tostring_float_honest_nie
         # _polars covers that), and cudf's orthogonal float-repr divergence from pandas would trip
         # _assert_invariant; the dedicated pandas-vs-polars test carries the real intent.
