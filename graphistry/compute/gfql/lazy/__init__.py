@@ -101,8 +101,9 @@ def gpu_executor() -> GpuExecutor:
 
     'in-memory' is fast + stable for results that fit device memory (the GFQL regime —
     see :func:`_engine_for`). 'streaming' is the opt-in escape hatch for larger-than-device
-    results (in-memory would OOM); slower/less stable on small work. ('auto' size-aware
-    switch is planned; resolves to 'in-memory' until implemented.)
+    results (in-memory would OOM); slower/less stable on small work. These are the ONLY two
+    accepted values (``GPU_EXECUTORS``); a size-aware per-query 'auto' is a possible future
+    addition but is NOT selectable today (``set_gpu_executor('auto')`` raises).
     Resolution: :func:`set_gpu_executor` override > ``$GFQL_POLARS_GPU_EXECUTOR`` > ``'in-memory'``
     (an invalid env value also resolves to 'in-memory').
     """

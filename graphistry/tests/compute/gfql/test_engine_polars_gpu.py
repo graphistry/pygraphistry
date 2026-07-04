@@ -65,6 +65,26 @@ def test_gpu_chain_parity(ops_name):
     pd.testing.assert_frame_equal(_norm(cpu._edges), _norm(gpu._edges), check_dtype=False)
 
 
+@pytest.mark.parametrize("executor", ["in-memory", "streaming"])
+def test_gpu_executor_modes_parity(executor):
+    """Both cudf-polars GPU executors (``in-memory`` default + ``streaming`` opt-in) must produce
+    results identical to CPU Polars (itself pandas-gated). Locks in the streaming executor on a
+    real GPU — otherwise only covered by a mock-wiring assertion (test_engine_polars_chain) plus
+    manual dgx runs. Skipped in CI (no GPU); runs on the dgx GPU lane."""
+    from graphistry.compute.gfql import lazy
+    g = _graph(seed=7, n=60)
+    ops = [n(), e_forward(), n()]
+    cpu = g.gfql(ops, engine="polars")
+    try:
+        lazy.set_gpu_executor(executor)
+        assert lazy.gpu_executor() == executor
+        gpu = g.gfql(ops, engine="polars-gpu")
+    finally:
+        lazy.set_gpu_executor(None)
+    _assert_nodes_parity(cpu, gpu)
+    pd.testing.assert_frame_equal(_norm(cpu._edges), _norm(gpu._edges), check_dtype=False)
+
+
 def test_polars_gpu_engine_enum_is_explicit_only():
     # AUTO must never resolve to the GPU engine — opt-in only.
     from graphistry.Engine import Engine, resolve_engine, EngineAbstract
