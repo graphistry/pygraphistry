@@ -724,7 +724,7 @@ def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
 
 # Aggregation funcs lowered to native polars (count/sum/avg/min/max/count_distinct/collect/
 # collect_distinct); stdev/percentile etc. return None → caller declines (NIE, no pandas bridge).
-def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str) -> Optional[pl.Expr]:
+def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str, schema: Optional[dict] = None) -> Optional[pl.Expr]:
     import polars as pl
     func = func.lower()
     if func == "count" and (expr is None or expr == "*"):
@@ -732,6 +732,13 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     if not isinstance(expr, str) or expr not in columns:
         return None
     col = pl.col(expr)
+    # pandas aggregations skip NaN (skipna / dropna); polars skips NULL but treats NaN as a real
+    # value (and polars NaN == NaN is True, so a self-inequality can't detect it). For a FLOAT
+    # column, convert in-query NaN -> null first so every agg below matches the oracle
+    # (pandas sum([nan, 1]) == 1 vs raw polars == nan). fill_nan is float-only, hence the dtype
+    # gate. (Stored NaN is nulled at ingestion; this covers NaN created mid-query, e.g. 0.0/0.0.)
+    if schema is not None and _dtype_is_float(schema.get(expr)):
+        col = col.fill_nan(None)
     if func == "count":
         return col.count().alias(alias)
     if func == "sum":
@@ -780,7 +787,7 @@ def group_by_polars(g: Plottable, keys: Sequence[Any], aggregations: Sequence[An
         alias = str(agg[0])
         func = str(agg[1])
         expr = agg[2] if len(agg) == 3 else None
-        lowered = _agg_expr(func, expr, cols, alias)
+        lowered = _agg_expr(func, expr, cols, alias, table.schema)
         if lowered is None:
             return None
         aggs.append(lowered)

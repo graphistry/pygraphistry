@@ -477,3 +477,18 @@ def test_native_polars_nan_input_treated_as_missing():
     oracle = sorted(g_pd.gfql([n({"x": gt(5)})], engine="pandas")._nodes["id"].tolist())
     got = sorted(g_pl.gfql([n({"x": gt(5)})], engine="polars")._nodes["id"].to_list())
     assert got == oracle == [0, 2]
+
+
+def test_in_query_nan_aggregation_matches_pandas_skipna():
+    """Review I1 regression: an IN-QUERY NaN (0.0/0.0 in a WITH) then aggregated must match the
+    pandas oracle's skipna/dropna. polars propagates NaN through sum/mean (and NaN==NaN is True,
+    so it can't be detected by self-inequality); the agg lowering now nulls NaN in float columns."""
+    import pandas as pd
+    for eng_frame in (pd, pl):
+        nodes = eng_frame.DataFrame({"id": [0, 1, 2], "a": [0.0, 2.0, 4.0]})
+        edges = eng_frame.DataFrame({"s": [0], "d": [1]})
+        g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+        for eng in (["pandas", "polars"] if eng_frame is pd else ["polars"]):
+            r = g.gfql("MATCH (n) WITH n.a / n.a AS r RETURN sum(r) AS s", engine=eng)._nodes["s"]
+            got = r.to_list()[0] if hasattr(r, "to_list") else r.tolist()[0]
+            assert got == 2.0, (eng, got)  # 0/0=NaN dropped; 2/2 + 4/4 = 2.0
