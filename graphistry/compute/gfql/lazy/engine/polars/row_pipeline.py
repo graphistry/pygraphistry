@@ -515,6 +515,11 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             ldt, rdt = _expr_output_dtype(left), _expr_output_dtype(right)
             if _is_cross_type(ldt, rdt):
                 return None
+            # pandas declines Boolean modulo (``n.flag % 2`` -> GFQLTypeError) while polars
+            # computes it (bool coerces to int). Decline (NIE) to match — verified that bool
+            # +,-,*,/ compute IDENTICALLY on both engines, so only ``%`` diverges.
+            if node.op == "%" and (ldt == pl.Boolean or rdt == pl.Boolean):
+                return None
         result = _apply_binop(node.op, left, right)
         if result is not None and node.op in _NAN_GUARD_OPS:
             result = _nan_guard(result, node.op, left, right, ldt, rdt)

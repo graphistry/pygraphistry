@@ -492,3 +492,17 @@ def test_in_query_nan_aggregation_matches_pandas_skipna():
             r = g.gfql("MATCH (n) WITH n.a / n.a AS r RETURN sum(r) AS s", engine=eng)._nodes["s"]
             got = r.to_list()[0] if hasattr(r, "to_list") else r.tolist()[0]
             assert got == 2.0, (eng, got)  # 0/0=NaN dropped; 2/2 + 4/4 = 2.0
+
+
+def test_bool_modulo_declines_like_pandas():
+    """Review S2: pandas declines Boolean modulo (n.flag % 2 -> GFQLTypeError) while polars
+    would compute it (bool->int). The polars engine now declines (NIE) to match — bool +,-,*,/
+    compute identically on both, so only % diverges."""
+    import pandas as pd
+    g = graphistry.nodes(pd.DataFrame({"id": [0, 1, 2], "flag": [True, False, True]}), "id").edges(
+        pd.DataFrame({"s": [0], "d": [1]}), "s", "d")
+    with pytest.raises(NotImplementedError):
+        g.gfql("MATCH (n) RETURN n.flag % 2 AS r", engine="polars")
+    # bool + int still computes in parity (not over-declined)
+    got = g.gfql("MATCH (n) RETURN n.flag + 2 AS r", engine="polars")._nodes["r"].to_list()
+    assert got == [3, 2, 3]
