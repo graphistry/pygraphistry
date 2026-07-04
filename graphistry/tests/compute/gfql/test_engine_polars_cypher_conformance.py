@@ -282,6 +282,33 @@ def test_mixed_type_column_declines_honestly():
         g.gfql("MATCH (n) WHERE n.var > 'x' RETURN n.var", engine="polars")
 
 
+def test_mixed_type_column_validate_autofix_coerces_to_string():
+    """The mixed-type object column honors the repo-wide validate/warn convention.
+    Default (strict) raises; validate='autofix' coerces the offending column to string
+    and warns (validate=False coerces without warning) — matching the plot()/upload()
+    and cuDF-conversion behavior instead of hardcoding one policy."""
+    import warnings as _warnings
+    from graphistry.Engine import Engine, df_to_engine
+    pl = pytest.importorskip("polars")
+    df = pd.DataFrame({"id": [0, 1, 2], "var": [0, "xx", None]})  # int + str + null
+
+    # strict (the compute-path default) still declines
+    with pytest.raises(NotImplementedError):
+        df_to_engine(df, Engine.POLARS)
+
+    # autofix coerces the mixed column to string and warns
+    with pytest.warns(RuntimeWarning):
+        out = df_to_engine(df, Engine.POLARS, validate="autofix")
+    assert isinstance(out, pl.DataFrame)
+    assert out.schema["var"] == pl.String
+
+    # validate=False == autofix but suppresses the warning
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("error")  # any warning becomes an error
+        out2 = df_to_engine(df, Engine.POLARS, validate=False)
+    assert out2.schema["var"] == pl.String
+
+
 def test_polars_duplicate_alias_declines_like_pandas():
     """A chain reusing an alias name (``[n('a'), e(), n('a')]``) must raise the same
     GFQLValidationError E201 as pandas — NOT return a malformed colliding-join schema

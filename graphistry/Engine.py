@@ -7,6 +7,8 @@ from typing import Any, List, Optional, Union
 from typing_extensions import Literal
 from enum import Enum
 
+from graphistry.models.types import ValidationParam
+
 
 class Engine(Enum):
     PANDAS = 'pandas'
@@ -175,7 +177,15 @@ def _cudf_from_pandas_best_effort(df: pd.DataFrame):
         return out_gdf
 
 
-def df_to_engine(df, engine: Engine):
+def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = None, warn: bool = True):
+    """Convert ``df`` to ``engine``'s frame type.
+
+    ``validate``/``warn`` (see ``graphistry.models.types.ValidationParam``) control how
+    mixed-type object columns that cannot go to Arrow are handled on the polars target.
+    ``validate=None`` (default) means "use the engine's own default" — ``strict`` for
+    polars (parity-or-raise), matching ``_cudf_from_pandas_best_effort``'s autofix default
+    for cuDF. Only the polars branch reads it today.
+    """
     if engine == Engine.PANDAS:
         if isinstance(df, pd.DataFrame):
             return df
@@ -229,8 +239,9 @@ def df_to_engine(df, engine: Engine):
             return df.collect()
         if isinstance(df, pa.Table):
             return pl.from_arrow(df)
+        pl_validate: ValidationParam = 'strict' if validate is None else validate
         if isinstance(df, pd.DataFrame):
-            return _pl_from_pandas(df)
+            return _pl_from_pandas(df, validate=pl_validate, warn=warn)
         # cuDF (device) -> Arrow -> polars: a single host copy via cuDF's native
         # interchange, not the cuDF -> pandas -> polars double-convert. Besides the
         # extra hop, the pandas detour is lossy (cuDF nullable Int64/boolean ->
@@ -242,7 +253,7 @@ def df_to_engine(df, engine: Engine):
             if isinstance(df, cudf.DataFrame):
                 return pl.from_arrow(df.to_arrow())
         # dask/spark and anything else: route through pandas
-        return _pl_from_pandas(df_to_engine(df, Engine.PANDAS))
+        return _pl_from_pandas(df_to_engine(df, Engine.PANDAS), validate=pl_validate, warn=warn)
     raise ValueError(f'Only engines pandas/cudf/dask/polars supported, got: {engine}')
 
 
@@ -267,23 +278,50 @@ def _mixed_type_object_columns(df) -> List[str]:
     return bad
 
 
-def _pl_from_pandas(df):
-    """``pl.from_pandas`` that declines honestly on heterogeneous columns.
+def _pl_from_pandas(df, *, validate: ValidationParam = 'strict', warn: bool = True):
+    """``pl.from_pandas`` participating in the repo-wide ``validate``/``warn`` convention.
 
     Polars/Arrow cannot represent a mixed-type (e.g. int+str) object column, which
-    pandas allows for dynamically-typed Cypher properties. Rather than surface a
-    cryptic ``pyarrow.lib.ArrowInvalid`` from deep inside construction, raise a
-    clear ``NotImplementedError`` pointing at ``engine='pandas'`` (NO-CHEATING: no
-    silent string-coercion, which would change comparison semantics)."""
+    pandas allows for dynamically-typed Cypher properties. This mirrors the plot()/
+    upload() ``validate`` knob (``graphistry.models.types.ValidationParam``), but —
+    unlike the display/upload boundary, which defaults ``autofix`` — the compute path
+    defaults ``strict``: silently string-coercing a mixed column diverges from the
+    pandas oracle (pandas keeps it ``object`` + Python-compares), a wrong-answer risk.
+    So parity-or-raise is the safe default; ``autofix`` is an explicit opt-in.
+
+    - ``strict``/``strict-fast`` (default): raise ``NotImplementedError`` (use
+      ``engine='pandas'``, or ``validate='autofix'`` to coerce), instead of surfacing a
+      cryptic ``pyarrow.lib.ArrowInvalid`` from deep inside construction.
+    - ``autofix`` (or ``validate=False``): coerce the offending mixed-type object
+      column(s) to string and, if ``warn``, emit a ``RuntimeWarning`` — matching
+      ``_cudf_from_pandas_best_effort``.
+    """
     import polars as pl
+    from graphistry.validate.common import normalize_validation_params
+    validate_mode, warn = normalize_validation_params(validate, warn)
     try:
         return pl.from_pandas(df)
     except Exception as e:
         bad = _mixed_type_object_columns(df)
+        if validate_mode == 'autofix' and bad:
+            fixed = df.astype({col: 'string' for col in bad})
+            try:
+                out = pl.from_pandas(fixed)
+            except Exception:
+                out = None
+            if out is not None:
+                if warn:
+                    warnings.warn(
+                        "engine='polars': coerced mixed-type column(s) to string for "
+                        f"Arrow conversion: {bad}. Convert explicitly or use "
+                        "engine='pandas' for control.",
+                        RuntimeWarning,
+                    )
+                return out
         hint = f" (mixed-type column(s): {bad})" if bad else ""
         raise NotImplementedError(
             "engine='polars' cannot represent a heterogeneous/mixed-type column"
-            f"{hint}; use engine='pandas' for this data"
+            f"{hint}; use engine='pandas', or validate='autofix' to coerce to string"
         ) from e
 
 def _pl_concat(frames, *, ignore_index: bool = True, sort: bool = False, **_kw):
