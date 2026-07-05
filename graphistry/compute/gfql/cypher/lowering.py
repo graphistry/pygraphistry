@@ -24,6 +24,7 @@ from graphistry.compute.ast import (
     order_by,
     return_,
     rows,
+    search_any,
     semi_apply_mark,
     serialize_binding_ops,
     select,
@@ -3843,6 +3844,103 @@ def _append_page_ops(
         params=params,
     )
 
+_SEARCH_ANY_CALL_RE = re.compile(
+    r"\bsearchAny\s*\(\s*([A-Za-z_]\w*)\s*,\s*"
+    r"('(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\")"
+    r"\s*(?:,\s*\{([^{}]*)\})?\s*\)",
+    re.IGNORECASE,
+)
+_SEARCH_ANY_OPT_KEYS = {"casesensitive": "case_sensitive", "regex": "regex", "columns": "columns"}
+_SEARCH_ANY_COLUMNS_RE = re.compile(
+    r"^\[\s*(?:'[^']*'|\"[^\"]*\")(?:\s*,\s*(?:'[^']*'|\"[^\"]*\"))*\s*\]$")
+_SEARCH_ANY_COL_ITEM_RE = re.compile(r"'([^']*)'|\"([^\"]*)\"")
+
+
+def _parse_search_any_opts(opts_text: str, *, line: int, column: int) -> Dict[str, Any]:
+    """Parse searchAny's option map literal — strict: unknown keys error listing the
+    valid ones (persona pass: predictable options beat silent typo-tolerance)."""
+    out: Dict[str, Any] = {}
+    if not opts_text.strip():
+        return out
+    depth = 0
+    parts: List[str] = []
+    cur = ""
+    for ch in opts_text:
+        if ch in "[(":
+            depth += 1
+        elif ch in "])":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    parts.append(cur)
+    for part in parts:
+        m = re.match(r"\s*([A-Za-z_]\w*)\s*:\s*(.+?)\s*$", part)
+        key = m.group(1) if m else part.strip()
+        canon = _SEARCH_ANY_OPT_KEYS.get(key.lower()) if m else None
+        if m is None or canon is None:
+            raise _unsupported(
+                f"searchAny got an unsupported option {key!r}",
+                field="where",
+                value=opts_text,
+                line=line,
+                column=column,
+            )
+        val_text = m.group(2)
+        if canon in ("case_sensitive", "regex"):
+            low = val_text.lower()
+            if low not in ("true", "false"):
+                raise _unsupported(
+                    f"searchAny option {key!r} must be true or false",
+                    field="where", value=val_text, line=line, column=column,
+                )
+            out[canon] = low == "true"
+        else:
+            if not _SEARCH_ANY_COLUMNS_RE.match(val_text):
+                raise _unsupported(
+                    "searchAny option 'columns' must be a list of string literals",
+                    field="where", value=val_text, line=line, column=column,
+                )
+            out[canon] = [a or b for a, b in _SEARCH_ANY_COL_ITEM_RE.findall(val_text)]
+    return out
+
+
+def _lift_search_any_from_row_where(
+    expr: ExpressionText,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    existing_cols: AbstractSet[str],
+) -> Tuple[str, List[ASTCall]]:
+    """viz-filter L2-b: rewrite each ``searchAny(alias, 'term'[, {opts}])`` in the
+    WHERE row-expression into a fresh boolean MARKER column + a ``search_any`` row
+    pre-filter (exactly the pattern-predicate marker mechanism), so the remaining
+    boolean expression composes through AND/OR/NOT unchanged."""
+    calls: List[ASTCall] = []
+    used: set = set(existing_cols)
+
+    def _sub(m: "re.Match[str]") -> str:
+        alias, term_lit, opts_text = m.group(1), m.group(2), m.group(3) or ""
+        if alias not in alias_targets:
+            raise _unsupported(
+                f"searchAny references alias {alias!r} not bound in the active MATCH scope",
+                field="where", value=alias,
+                line=expr.span.line, column=expr.span.column,
+            )
+        term = term_lit[1:-1].replace("\\'", "'").replace('\\"', '"')
+        opts = _parse_search_any_opts(
+            opts_text, line=expr.span.line, column=expr.span.column)
+        base = f"__gfql_search_any_{expr.span.line}_{expr.span.column}_{len(calls)}__"
+        out_col = _fresh_temp_name(used, base)
+        used.add(out_col)
+        calls.append(search_any(alias=alias, term=term, out_col=out_col, **opts))
+        return out_col
+
+    new_text = _SEARCH_ANY_CALL_RE.sub(_sub, expr.text)
+    return new_text, calls
+
+
 def _append_match_row_where(
     row_steps: List[ASTObject],
     *,
@@ -6112,6 +6210,16 @@ def lower_match_query(
             text=combined_expr if row_where is None else f"({row_where.text}) and ({combined_expr})",
             span=query.where.span if query.where is not None else merged_match.span,
         )
+
+    if row_where is not None:
+        # viz-filter L2-b: lift searchAny(...) calls into search_any pre-filters +
+        # marker columns HERE (assembly level, like the pattern-predicate markers),
+        # so every LoweredCypherMatch consumer sees the lifted form.
+        lifted_text, search_calls = _lift_search_any_from_row_where(
+            row_where, alias_targets=alias_targets, existing_cols=frozenset())
+        if search_calls:
+            row_pre_filters.extend(search_calls)
+            row_where = ExpressionText(text=lifted_text, span=row_where.span)
 
     return LoweredCypherMatch(
         query=ops,

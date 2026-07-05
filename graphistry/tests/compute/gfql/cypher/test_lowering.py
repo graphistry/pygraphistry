@@ -2022,6 +2022,39 @@ def test_lower_exists_drop_self_flavor_emits_neq_semi_apply() -> None:
     assert sorted(anti.params.get("neq") or []) == ["m", "n"]
 
 
+def test_lower_search_any_where_emits_marker_prefilter() -> None:
+    """viz-filter L2-b: WHERE searchAny(a, 'x'[, {opts}]) lifts to a search_any row
+    pre-filter + a fresh marker column in the residual boolean expression (the
+    pattern-predicate marker mechanism), composing through AND/OR/NOT."""
+    lowered = lower_match_query(_parse_query(
+        "MATCH (a) WHERE searchAny(a, 'foo') AND a.x > 1 RETURN a.id AS id"))
+    pre = [op for op in lowered.row_pre_filters
+           if isinstance(op, ASTCall) and op.function == "search_any"]
+    assert len(pre) == 1
+    assert pre[0].params["alias"] == "a"
+    assert pre[0].params["term"] == "foo"
+    marker = pre[0].params["out_col"]
+    assert marker.startswith("__gfql_search_any_")
+    assert lowered.row_where is not None and marker in lowered.row_where.text
+    assert "searchAny" not in lowered.row_where.text
+
+    lowered2 = lower_match_query(_parse_query(
+        "MATCH (a) WHERE searchAny(a, '7', {caseSensitive: true, regex: false, columns: ['name']}) RETURN a.id AS id"))
+    op2 = [op for op in lowered2.row_pre_filters
+           if isinstance(op, ASTCall) and op.function == "search_any"][0]
+    assert op2.params.get("case_sensitive") is True
+    assert op2.params.get("columns") == ["name"]
+
+    for q, phrase in [
+        ("MATCH (a) WHERE searchAny(a, 'x', {nope: true}) RETURN a", "unsupported option"),
+        ("MATCH (a) WHERE searchAny(zzz, 'x') RETURN a", "not bound"),
+        ("MATCH (a) WHERE searchAny(a, 'x', {caseSensitive: 'yes'}) RETURN a", "true or false"),
+    ]:
+        with pytest.raises(GFQLValidationError) as exc_info:
+            lower_match_query(_parse_query(q))
+        assert phrase in exc_info.value.message, (q, exc_info.value.message)
+
+
 def test_exists_subquery_unsupported_bodies_decline_clearly() -> None:
     """viz-filter L1 v1 boundaries: inner WHERE, multi-pattern bodies, and full
     MATCH..RETURN subquery bodies decline with a clear message (never a wrong answer)."""

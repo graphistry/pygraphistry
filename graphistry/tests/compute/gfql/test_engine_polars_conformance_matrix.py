@@ -426,6 +426,31 @@ def test_search_any_op_all_engines():
         g.gfql(q(term="x", columns=["nope"]), engine="pandas")
 
 
+def test_search_any_cypher_surface_all_engines():
+    """viz-filter L2-b: the cypher WHERE searchAny(...) surface — marker lift +
+    composition with other predicates; oracle-pinned + 4-engine parity-or-NIE."""
+    import pandas as pd
+    nd = pd.DataFrame({
+        "id": [0, 1, 2, 3],
+        "name": ["Alpha", "beta", None, "gamma7"],
+        "num": pd.Series([7, 77, 3, 4], dtype="int64"),
+    })
+    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [0, 1]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    oracle = {
+        "MATCH (a) WHERE searchAny(a, 'ALPHA') RETURN a.id AS id": [0],
+        "MATCH (a) WHERE searchAny(a, '7') RETURN a.id AS id": [0, 1, 3],
+        "MATCH (a) WHERE searchAny(a, '7', {columns: ['name']}) RETURN a.id AS id": [3],
+        "MATCH (a) WHERE searchAny(a, 'a.pha', {regex: true}) RETURN a.id AS id": [0],
+        "MATCH (a) WHERE searchAny(a, 'a') AND a.num > 10 RETURN a.id AS id": [1],
+        "MATCH (a) WHERE NOT searchAny(a, 'a') RETURN a.id AS id": [2],
+    }
+    for q, expected in oracle.items():
+        pdf = _to_pd(g.gfql(q, engine="pandas")._nodes)
+        assert sorted(pdf["id"].tolist()) == expected, f"oracle drift: {q}"
+        _assert_invariant(g, q, f"searchAny-cypher {q}")
+
+
 def test_search_nodes_edges_twins():
     """g.search_nodes/search_edges (persona-pass python twins): same kernel, own table
     only, Plottable out; polars frames decline honestly."""
