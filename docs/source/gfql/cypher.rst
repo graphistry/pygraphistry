@@ -281,7 +281,11 @@ WHERE Forms
   neighbor other than itself", i.e. the drop-self-loop prune-isolated flavor.
   Runs natively on all four engines. Not yet supported (clear errors):
   ``EXISTS`` in RETURN/WITH projections, general inner ``WHERE`` clauses,
-  multi-pattern bodies, and full ``MATCH .. RETURN`` subquery bodies.
+  multi-pattern bodies, full ``MATCH .. RETURN`` subquery bodies, and ``EXISTS``
+  inside ``GRAPH { }`` pipelines. For prune-isolated in GRAPH STATE (nodes AND
+  edges back), use edge patterns instead: ``GRAPH { MATCH (a)-[e]-(b) }`` keeps
+  every edge-touching node with ALL its edges (self-loops included); add
+  ``WHERE a.id <> b.id`` for the drop-self-loop variant.
 - Pattern predicates can be combined with row predicates in the current
   boolean subset, including ``AND`` / ``OR`` / ``XOR`` and ``NOT`` forms.
 

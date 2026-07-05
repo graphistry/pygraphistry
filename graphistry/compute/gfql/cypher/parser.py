@@ -1208,7 +1208,15 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("Invalid EXISTS subquery", line=meta.line, column=meta.column)
             span = _span_from_meta(meta)
             text = str(items[0])
-            inner = text[text.index("{") + 1:text.rindex("}")].strip()
+            raw_inner = text[text.index("{") + 1:text.rindex("}")]
+            inner = raw_inner.strip()
+            # keyword/comma scans run on MASKED text (quoted/backticked/commented
+            # segments blanked; length-preserving so indices align with the real
+            # text) — a property string like {name: 'WHERE it hurts'} must not
+            # falsely decline (wave-1 I4).
+            lstrip_off = len(raw_inner) - len(raw_inner.lstrip())
+            masked_inner = _mask_quoted_backticked_and_commented_for_scan(raw_inner)[
+                lstrip_off:lstrip_off + len(inner)]
 
             def _decline(what: str) -> NoReturn:
                 raise GFQLValidationError(
@@ -1222,21 +1230,22 @@ def _build_transformer(source: str) -> _TransformerLike:
                     language="cypher",
                 )
 
-            if re.search(r"\bMATCH\b|\bRETURN\b", inner, re.IGNORECASE):
+            if re.search(r"\bMATCH\b|\bRETURN\b", masked_inner, re.IGNORECASE):
                 _decline("with a full subquery body")
             # viz-filter L1 drop-self flavor: EXISTS { (n)--(m) WHERE m <> n } — the ONE
             # supported inner-WHERE form (endpoint inequality); anything else declines.
             neq: Optional[Tuple[str, str]] = None
-            where_split = re.split(r"\bWHERE\b", inner, maxsplit=1, flags=re.IGNORECASE)
-            if len(where_split) == 2:
-                cond = where_split[1].strip()
+            m_where = re.search(r"\bWHERE\b", masked_inner, flags=re.IGNORECASE)
+            if m_where is not None:
+                cond = inner[m_where.end():].strip()
                 m_neq = re.fullmatch(r"([A-Za-z_]\w*)\s*(?:<>|!=)\s*([A-Za-z_]\w*)", cond)
                 if m_neq is None:
                     _decline("with an inner WHERE clause (only `a <> b` endpoint inequality is supported)")
                 neq = (m_neq.group(1), m_neq.group(2))
-                inner = where_split[0].strip()
+                inner = inner[:m_where.start()].strip()
+                masked_inner = masked_inner[:m_where.start()].rstrip()
             depth = 0
-            for ch in inner:
+            for ch in masked_inner:
                 if ch in "([{":
                     depth += 1
                 elif ch in ")]}":
@@ -2053,6 +2062,15 @@ _PATTERN_EXISTENCE_RE = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
+# EXISTS { } inside a GRAPH { } pipeline: the graph-state compiler does not wire
+# row_pre_filters, so the EXISTS filter was SILENTLY DROPPED (dgx-repro'd: all
+# nodes returned) — fail fast instead. Conservative: any query mixing GRAPH {
+# and exists { declines, including post-USE row stages (honest over-reject).
+_EXISTS_IN_GRAPH_PIPELINE_RE = re.compile(
+    r"\bGRAPH\b[^{]*\{", re.IGNORECASE
+)
+_EXISTS_ANYWHERE_RE = re.compile(r"\bexists\s*(?:/\*[\s\S]*?\*/\s*)*\{", re.IGNORECASE)
+
 # EXISTS { } in a PROJECTION (RETURN/WITH segment, i.e. before the next clause
 # keyword): unsupported — marker columns are only wired into WHERE. WHERE-position
 # EXISTS parses via the EXISTS_SUBQUERY token instead (viz-filter L1).
@@ -2128,6 +2146,16 @@ def _check_unsupported_syntax_patterns(query: str) -> None:
         raise _to_unsupported(
             "Pattern existence expressions (exists { ... }) are not yet supported in "
             "RETURN/WITH projections in the local Cypher compiler (WHERE position is supported)",
+            field="expression",
+            value="pattern_existence",
+        )
+    if _EXISTS_IN_GRAPH_PIPELINE_RE.search(masked) and _EXISTS_ANYWHERE_RE.search(masked):
+        raise _to_unsupported(
+            "Pattern existence expressions (exists { ... }) are not yet supported inside "
+            "GRAPH { } pipelines (the filter would be silently dropped). For graph-state "
+            "prune-isolated use edge patterns: GRAPH { MATCH (a)-[e]-(b) } keeps every "
+            "edge-touching node with ALL its edges; add WHERE a.id <> b.id for the "
+            "drop-self-loop variant",
             field="expression",
             value="pattern_existence",
         )

@@ -840,12 +840,23 @@ def rows_binding_ops_polars(g: Plottable, binding_ops: Sequence[dict]) -> Option
         return None
     if matched is None:
         return None
-    lookup = matched.select(
-        [pl.col(node_id),
-         pl.col(node_id).alias(alias),
-         pl.col(node_id).alias(f"{alias}.{node_id}")]
-        + [pl.col(c).alias(f"{alias}.{c}") for c in matched.columns if c != node_id]
-    )
+    if alias == node_id:
+        # pandas' named-op flag column OVERWRITES the id column in this corner —
+        # neither engine has sane semantics; decline honestly (wave-1 I1).
+        return None
+    # Mirror the pandas twin's quirks (wave-1 I3): ASTNode.execute leaks the
+    # named-op FLAG column into its source frame, so pandas emits a fabricated
+    # `alias.alias = True` column (shadowing any real property of that name) —
+    # emit the same. (Column ORDER differs slightly; the parity sig sorts columns.)
+    prop_cols = [c for c in matched.columns if c != node_id and c != alias]
+    exprs = [
+        pl.col(node_id),
+        pl.col(node_id).alias(alias),
+        pl.col(node_id).alias(f"{alias}.{node_id}"),
+        pl.lit(True).alias(f"{alias}.{alias}"),
+    ]
+    exprs.extend(pl.col(c).alias(f"{alias}.{c}") for c in prop_cols)
+    lookup = matched.select(exprs)
     return _rewrap(g, lookup)
 
 
@@ -895,9 +906,14 @@ def _pattern_alias_keys_polars(
             return None
         base_graph = base_graph.edges(edges.filter(pl.col(src) != pl.col(dst)))
     from .chain import chain_polars  # local: chain imports this module at call time
+    from graphistry.compute.exceptions import GFQLValidationError
     try:
         out = chain_polars(base_graph, list(ops))
     except NotImplementedError:
+        return None
+    except GFQLValidationError:
+        # e.g. chain's duplicate-alias guard on EXISTS { (n)--(n) } — decline to
+        # honest NIE rather than a non-NIE crash (wave-1 T4); pandas may answer.
         return None
     out_nodes = out._nodes
     if out_nodes is None or alias not in out_nodes.columns or node_id not in out_nodes.columns:
@@ -943,8 +959,12 @@ def semi_apply_mark_polars(
     if keys is None:
         return None
     key_series = keys.get_column(keys.columns[0])
-    # is_in (not a join): row ORDER is preserved trivially, and a NULL key marks False
-    # like the pandas merge-no-match path (null -> fill_null(False)).
+    if key_series.null_count() > 0:
+        # pandas merge matches NaN==NaN join keys; is_in does not — decline the
+        # pathological null-id case rather than silently diverge (wave-1 E1).
+        return None
+    # is_in (not a join): row ORDER preserved trivially; a null LEFT key marks
+    # False, same as the pandas merge-no-match path (null -> fill_null(False)).
     marked = left.with_columns(
         pl.col(join_col).is_in(key_series).fill_null(False).alias(out_col)
     )
@@ -973,7 +993,9 @@ def anti_semi_apply_polars(
         return None
     key_series = keys.get_column(keys.columns[0])
     import polars as pl
-    # filter (not an anti-join): order preserved; a NULL key row SURVIVES like the
-    # pandas merge-no-match path (is_in null -> fill_null(False) -> not_ -> True).
+    if key_series.null_count() > 0:
+        return None  # see semi_apply_mark_polars: NaN==NaN merge semantics (wave-1 E1)
+    # filter (not an anti-join): order preserved; a null LEFT key row SURVIVES like
+    # the pandas merge-no-match path (is_in null -> fill_null(False) -> not_ -> True).
     kept = left.filter(pl.col(join_col).is_in(key_series).fill_null(False).not_())
     return _rewrap(g, kept)

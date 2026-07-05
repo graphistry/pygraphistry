@@ -83,6 +83,17 @@ def is_projection_items(v: object) -> bool:
     return True
 
 
+def is_string_pair(v: object) -> bool:
+    """Exactly two non-empty strings — the semi-apply family's ``neq`` endpoint pair
+    (wave-1: a 1-item list crashed late with IndexError; a 3-item list silently
+    filtered on the first pair)."""
+    return (
+        isinstance(v, list)
+        and len(v) == 2
+        and all(isinstance(item, str) and item != "" for item in v)
+    )
+
+
 def is_non_empty_list_of_strings(v: object) -> bool:
     return isinstance(v, list) and len(v) > 0 and all(isinstance(item, str) for item in v)
 

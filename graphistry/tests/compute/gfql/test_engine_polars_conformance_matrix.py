@@ -389,6 +389,68 @@ def test_scalar_fns_null_cells_parity():
         _assert_invariant(g, q, f"nullcells {q}")
 
 
+def test_prune_isolated_graph_shape_all_engines():
+    """LEO steer 2026-07-05: viz needs the FULL GRAPH back — nodes AND edges. THE
+    working patterns (dgx-probed): `GRAPH { MATCH (a)-[e]-(b) }` = keep-self
+    prune-isolated (self-edged + mutually-connected nodes with ALL their edges;
+    true edgeless nodes dropped); `+ WHERE a.id <> b.id` = drop-self variant (note:
+    also drops self-EDGES of kept nodes — panel-algebra §3's E₂ keeps them; the
+    exact algebra form needs a two-stage pipeline, L3). EXISTS inside GRAPH { } is
+    REJECTED fail-fast — it was SILENTLY DROPPED (dgx-repro'd all-nodes wrong
+    answer), and node-only GRAPH matches return zero edges."""
+    import pandas as pd
+    from graphistry.compute.exceptions import GFQLValidationError
+    nd = pd.DataFrame({"id": [0, 1, 2, 3, 4]})
+    # 0<->1 mutually connected (2 directed edges), 4 self-loop-only, 2+3 edgeless
+    ed = pd.DataFrame({"s": [0, 1, 4], "d": [1, 0, 4], "eid": [0, 1, 2]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    oracle = {
+        "GRAPH { MATCH (a)-[e]-(b) }": ([0, 1, 4], [0, 1, 2]),
+        "GRAPH { MATCH (a)-[e]-(b) WHERE a.id <> b.id }": ([0, 1], [0, 1]),
+    }
+    for q, (exp_nodes, exp_edges) in oracle.items():
+        out = g.gfql(q, engine="pandas")
+        assert sorted(_to_pd(out._nodes)["id"].tolist()) == exp_nodes, q
+        assert sorted(_to_pd(out._edges)["eid"].tolist()) == exp_edges, \
+            f"{q}: kept nodes must keep ALL their edges"
+    _assert_invariant(g, "GRAPH { MATCH (a)-[e]-(b) }", "prune-graph-shape keep-self")
+    # drop-self uses cross-entity same-path WHERE: polars/polars-gpu decline honestly;
+    # cuDF has a PRE-EXISTING TypeError in the same-path executor (verified
+    # byte-identical on the base tree — repo debt predating this PR, plan-tracked).
+    q2 = "GRAPH { MATCH (a)-[e]-(b) WHERE a.id <> b.id }"
+    base = _run(g, q2, "pandas")
+    for eng in _NONPANDAS_ENGINES:
+        res = _run(g, q2, eng)
+        if res[0] == "ok":
+            assert res == base, f"prune-graph-shape drop-self[{eng}]: silent divergence"
+        elif eng == "cudf":
+            assert res[0] == "nie" or res == ("err", "TypeError"), \
+                f"cudf drop-self: expected NIE or the pre-existing same-path TypeError, got {res}"
+        else:
+            assert res[0] == "nie", f"{eng} drop-self must decline honestly, got {res}"
+    with pytest.raises(GFQLValidationError, match="GRAPH"):
+        g.gfql("GRAPH { MATCH (n) WHERE EXISTS { (n)--() } }", engine="pandas")
+
+
+def test_exists_native_and_boundary_pins_polars():
+    """Wave-1 T1/T2/T4 pins: (a) EXISTS stays NATIVE on polars — parity-or-NIE alone
+    would let a silent NIE regression pass; (b) multi-alias correlation DECLINES on
+    polars (pair bindings inexpressible in the key-set route) while pandas answers;
+    (c) self-alias EXISTS { (n)--(n) } never non-NIE crashes (chain's duplicate-alias
+    guard is caught into a decline)."""
+    g = _graph(4)
+    for q in [
+        "MATCH (n) WHERE EXISTS { (n)-->() } RETURN n.id AS id",
+        "MATCH (n) WHERE NOT EXISTS { (n)--() } RETURN n.id AS id",
+    ]:
+        assert _run(g, q, "polars")[0] == "ok", f"EXISTS must stay NATIVE on polars: {q}"
+    q_multi = "MATCH (a)-->(b) WHERE EXISTS { (a)-->(b) } RETURN a.id AS id"
+    assert _run(g, q_multi, "pandas")[0] == "ok"
+    assert _run(g, q_multi, "polars")[0] == "nie",         "multi-alias correlation must decline on polars (not crash or diverge)"
+    _assert_invariant(g, q_multi, "exists-multi-alias")
+    _assert_invariant(g, "MATCH (n) WHERE EXISTS { (n)--(n) } RETURN n.id AS id", "exists-self-alias")
+
+
 def test_exists_prune_isolated_flavors_all_engines():
     """viz-filter L1 acceptance kernel: BOTH prune-isolated flavors of the panel algebra
     (research/panel-algebra.md §3) on a discriminating graph — node 3 is fully isolated,

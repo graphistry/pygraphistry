@@ -214,7 +214,6 @@ def test_issue_1219_policy_boundary_comment_lexemes_do_not_trip_unsupported_gate
         "MATCH (n) WHERE NOT((n)<-[:R]-()) RETURN n",
         "MATCH (n) WHERE NOT((n)--()) RETURN n",
         "MATCH (n) WHERE NOT((n)-[:R*]->()) RETURN n",
-        "MATCH (n) WHERE exists { (n)-[:R]->() } RETURN n",
     ],
 )
 def test_issue_1219_policy_boundary_pattern_existence_forms_still_rejected(query: str) -> None:
