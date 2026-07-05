@@ -70,12 +70,14 @@ def search_any_polars(
     if regex and _regex_rust_incompatible(term):
         return None
     # Explicit columns= reaches beyond the auto gate: only dtypes whose canonical
-    # toString provably matches the pandas kernel are searched natively — floats/ints
-    # render identically; Boolean is canonicalized below (polars 'true' vs pandas
-    # 'True' was a SILENT divergence under caseSensitive — wave-2 W2-3); everything
-    # else (temporal, categorical, nested) declines honestly.
+    # toString provably matches the pandas kernel are searched natively — ints render
+    # identically; Boolean is canonicalized below (polars 'true' vs pandas 'True' was
+    # a SILENT divergence under caseSensitive — wave-2 W2-3). Float DECLINES like the
+    # polars toString lowering (row_pipeline.py): repr diverges in the exponent
+    # regime (pandas str(1e16)='1e+16' vs Rust-formatter '1e16' — wave-3 W3-1).
+    # Temporal/categorical/nested likewise decline honestly.
     _stringify_ok = {
-        pl.String, pl.Boolean, pl.Float32, pl.Float64,
+        pl.String, pl.Boolean,
         pl.Int8, pl.Int16, pl.Int32, pl.Int64,
         pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64,
     }
