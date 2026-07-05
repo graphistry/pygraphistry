@@ -3945,12 +3945,21 @@ def _lift_search_any_from_row_where(
     masked = _mask_quoted_backticked_and_commented_for_scan(expr.text)
     parts: List[str] = []
     last = 0
-    for m in _SEARCH_ANY_CALL_RE.finditer(expr.text):
+    pos = 0
+    while True:
+        m = _SEARCH_ANY_CALL_RE.search(expr.text, pos)
+        if m is None:
+            break
         if masked[m.start()] != expr.text[m.start()]:
-            continue  # inside a string literal / comment: data, not a call
+            # starts inside a string literal / comment: data, not a call — resume
+            # just past the START (not the end: an in-literal pseudo-match can span
+            # across quotes and swallow a real call inside its span; wave-2 S1)
+            pos = m.start() + 1
+            continue
         parts.append(expr.text[last:m.start()])
         parts.append(_sub(m))
         last = m.end()
+        pos = m.end()
     parts.append(expr.text[last:])
     new_text = "".join(parts)
     # Anything still spelled searchAny( outside literals is a form the lift can't

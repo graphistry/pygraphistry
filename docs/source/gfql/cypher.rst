@@ -323,7 +323,11 @@ and ``RETURN`` expressions:
   map: ``{caseSensitive: true, regex: true, columns: ['name', ...]}`` (unknown
   keys error, listing the valid ones). Composes with other WHERE predicates
   through AND/OR/NOT; nodes and edges independently searchable with different
-  terms. Runs natively on all four engines; the regex path obeys the same
+  terms. Runs natively on all four engines for node aliases; an edge-alias
+  ``searchAny(r, ...)`` declines honestly on polars pending multi-entity
+  binding-row support (use ``engine='pandas'``), and explicit non-string
+  columns beyond ints/floats/bools likewise decline on polars rather than risk
+  divergent stringification. The regex path obeys the same
   per-engine decline rules as ``=~``. Python twins:
   :meth:`ComputeMixin.search_nodes` / :meth:`ComputeMixin.search_edges`.
 
