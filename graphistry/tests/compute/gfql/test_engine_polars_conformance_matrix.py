@@ -551,7 +551,9 @@ def test_search_any_null_and_float_stringify():
     got = _to_pd(g.gfql(q(term="7"), engine="pandas")._nodes).sort_values("id")["__hit__"].tolist()
     assert got == [True, False, False], f"auto gate drift: {got}"  # NOT [.., .., True]
     _assert_invariant(g, q(term="7"), "search_any float auto-gate")
-    # explicit float column: canonical toString, discriminating pin (I3)
+    # explicit float column: canonical toString on pandas, discriminating pin (I3);
+    # polars DECLINES floats — repr diverges in the exponent regime, same decision
+    # as the polars toString lowering (wave-3 W3-1); NIE tolerated by the invariant
     kw = dict(term="7", columns=["f"])
     got = _to_pd(g.gfql(q(**kw), engine="pandas")._nodes).sort_values("id")["__hit__"].tolist()
     assert got == [False, False, True], f"float stringify drift: {got}"
@@ -569,6 +571,10 @@ def test_search_any_null_and_float_stringify():
         pl.from_pandas(ed), "s", "d").bind(edge="eid")
     with pytest.raises(GFQLValidationError, match="absent"):
         gpl.gfql(q(term="x", columns=["nope"]), engine="polars")
+    # explicit FLOAT column on polars: pinned NIE (exponent-regime repr divergence,
+    # wave-3 W3-1 — same decision as the polars toString lowering)
+    with pytest.raises(NotImplementedError):
+        gpl.gfql(q(term="7", columns=["f"]), engine="polars")
     # explicit TEMPORAL column: stringification is engine-divergent — polars
     # declines honestly (NIE) instead of risking a silent mismatch (wave-2 W2-3)
     ndt = nd.assign(t=pd.to_datetime(["2020-01-02", "2021-03-04", "2022-05-06"]))
@@ -576,6 +582,10 @@ def test_search_any_null_and_float_stringify():
         pl.from_pandas(ed), "s", "d").bind(edge="eid")
     with pytest.raises(NotImplementedError):
         gplt.gfql(q(term="2020", columns=["t"]), engine="polars")
+    # precedence: a MISSING column is a user error (E108) even when another listed
+    # column would trip the dtype gate — a refactor must not flip it to NIE (wave-3)
+    with pytest.raises(GFQLValidationError, match="absent"):
+        gplt.gfql(q(term="x", columns=["nope", "t"]), engine="polars")
 
 
 def test_search_any_edge_alias():
