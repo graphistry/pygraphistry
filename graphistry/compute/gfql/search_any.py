@@ -53,7 +53,9 @@ def search_any_mask(
 ) -> Optional[Any]:
     """Boolean row mask over ``df`` (pandas or cuDF), or None to decline (an explicit
     column is missing). Null cells never match; no candidate columns -> all-False."""
-    from graphistry.compute.predicates.str import Contains
+    from graphistry.compute.predicates.str import (
+        Contains, _cudf_casefold_or_decline, _cudf_regex_prep,
+    )
     cols = search_candidate_columns(df, term, columns)
     if cols is None:
         return None
@@ -61,13 +63,27 @@ def search_any_mask(
         if len(df.columns) == 0:
             return None
         return df[df.columns[0]].isna() & False  # engine-safe all-False
-    pred = Contains(term, case=case_sensitive, regex=regex, na=False)
+    pat, case = term, case_sensitive
+    if regex and "cudf" in type(df).__module__:
+        # Same decline rules as =~ (Match/Fullmatch): NIE on lookaround/backrefs/
+        # inline flags instead of a libcudf crash, and refuse unsound casefolds
+        # instead of Contains' blind pat.lower() (\D -> \d INVERTS) — wave-1 B2.
+        pat, case = _cudf_regex_prep(pat, case)
+        if not case:
+            pat = _cudf_casefold_or_decline(pat)  # pre-folded; Contains' .lower() is a no-op
+    pred = Contains(pat, case=case, regex=regex, na=False)
     mask: Optional[Any] = None
     for c in cols:
         s = df[c]
+        m: Any
         if not _is_searchable_string_dtype(s.dtype):
-            s = s.astype(str)  # canonical toString for int / explicit columns
-        m = pred(s)
+            # canonical toString for int / explicit columns; pandas astype(str)
+            # stringifies nulls ("nan"/"<NA>") so mask them back out — null cells
+            # never match on any engine (wave-1 I1)
+            nulls = s.isna()
+            m = pred(s.astype(str)) & ~nulls
+        else:
+            m = pred(s)
         mask = m if mask is None else (mask | m)
     assert mask is not None  # cols is non-empty here
     return mask.fillna(False)

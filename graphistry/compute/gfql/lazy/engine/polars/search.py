@@ -40,7 +40,18 @@ def search_any_polars(
     schema = dict(left.schema)
     if columns is not None:
         if any(c not in pool for c in columns):
-            return None  # missing explicit column: decline -> pandas raises the clear error
+            # same validation error as the pandas row pipeline (there is no pandas
+            # fallback behind this dispatch — a generic NIE here would misreport a
+            # user input error as an engine gap; wave-1 I2)
+            from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "searchAny columns= includes a column absent from the searched table",
+                field="columns",
+                value=list(columns),
+                suggestion="List only columns present on the searched entity.",
+                language="cypher",
+            )
         chosen = [pool[c] for c in columns]
     else:
         numeric_ok = is_numeric_term(term)

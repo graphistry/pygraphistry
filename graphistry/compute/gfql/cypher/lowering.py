@@ -57,6 +57,7 @@ from graphistry.compute.predicates.comparison import eq, ge, gt, isna, le, lt, n
 from graphistry.compute.predicates.is_in import is_in
 from graphistry.compute.predicates.logical import all_of
 from graphistry.compute.predicates.str import contains as str_contains, endswith, fullmatch, never_match, startswith
+from graphistry.compute.gfql.cypher.parser import _mask_quoted_backticked_and_commented_for_scan
 from graphistry.compute.gfql.language_defs import GFQL_AGGREGATION_FUNCTIONS
 from graphistry.compute.gfql.expr_parser import (
     BinaryOp,
@@ -3916,7 +3917,11 @@ def _lift_search_any_from_row_where(
     """viz-filter L2-b: rewrite each ``searchAny(alias, 'term'[, {opts}])`` in the
     WHERE row-expression into a fresh boolean MARKER column + a ``search_any`` row
     pre-filter (exactly the pattern-predicate marker mechanism), so the remaining
-    boolean expression composes through AND/OR/NOT unchanged."""
+    boolean expression composes through AND/OR/NOT unchanged.
+
+    Matches are found against a literal/comment-masked copy of the text so a
+    ``searchAny(...)`` occurring INSIDE a string literal is data, not a call
+    (wave-1 B1: the bare ``.sub`` rewrote literal contents — silent wrong answer)."""
     calls: List[ASTCall] = []
     used: set = set(existing_cols)
 
@@ -3937,7 +3942,29 @@ def _lift_search_any_from_row_where(
         calls.append(search_any(alias=alias, term=term, out_col=out_col, **opts))
         return out_col
 
-    new_text = _SEARCH_ANY_CALL_RE.sub(_sub, expr.text)
+    masked = _mask_quoted_backticked_and_commented_for_scan(expr.text)
+    parts: List[str] = []
+    last = 0
+    for m in _SEARCH_ANY_CALL_RE.finditer(expr.text):
+        if masked[m.start()] != expr.text[m.start()]:
+            continue  # inside a string literal / comment: data, not a call
+        parts.append(expr.text[last:m.start()])
+        parts.append(_sub(m))
+        last = m.end()
+    parts.append(expr.text[last:])
+    new_text = "".join(parts)
+    # Anything still spelled searchAny( outside literals is a form the lift can't
+    # parse (e.g. a $param term — the persona-pass signature is literal-only): fail
+    # loudly here instead of leaking an unknown function downstream (wave-1 I5).
+    masked_new = _mask_quoted_backticked_and_commented_for_scan(new_text)
+    if re.search(r"\bsearchAny\s*\(", masked_new, re.IGNORECASE):
+        raise _unsupported(
+            "searchAny requires a string-literal term and literal options, e.g. "
+            "searchAny(n, 'term', {caseSensitive: false}) — parameters ($p) and "
+            "expressions are not supported",
+            field="where", value=expr.text,
+            line=expr.span.line, column=expr.span.column,
+        )
     return new_text, calls
 
 
