@@ -270,3 +270,17 @@ def test_lalr_and_earley_reject_the_same_inputs(
                 parse_cypher(query)
             monkeypatch.undo()
             parser_mod._parse_cypher_cached.cache_clear()
+
+
+def test_return_distinct_without_items_is_rejected() -> None:
+    """The ONE deliberate language difference from the old Earley parser,
+    found by a full repo-corpus differential (1839 queries; everything else
+    is accept/reject- and AST-identical).
+
+    ``DISTINCT`` is not in the NAME terminal's reserved-word lookahead, so
+    Earley's dynamic lexer re-lexed it as a NAME and accepted
+    ``MATCH (n) RETURN DISTINCT`` as returning a *variable named* DISTINCT
+    (with ``distinct=False``!) — a lexing accident, not Cypher. The LALR
+    contextual lexer keeps it a keyword, so the query is now a syntax error."""
+    with pytest.raises(GFQLSyntaxError):
+        parse_cypher("MATCH (n) RETURN DISTINCT")
