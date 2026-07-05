@@ -8,9 +8,14 @@ and the boundary lane raises an honest NotImplementedError — never a pandas br
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
+from graphistry.utils.json import JSONVal
 
 from graphistry.Plottable import Plottable
+
+if TYPE_CHECKING:
+    import polars as pl
+    from graphistry.compute.ast import ASTObject
 
 from .row_pipeline import _active_table, _rewrap
 
@@ -23,7 +28,7 @@ def _rows_base_graph(g: Plottable) -> Plottable:
     return base if base is not None else g
 
 
-def _binding_ast_ops(binding_ops: Sequence[Dict[str, Any]]) -> Optional[List[Any]]:
+def _binding_ast_ops(binding_ops: Sequence[Dict[str, JSONVal]]) -> Optional[List["ASTObject"]]:
     """Deserialize the semi-apply family's serialized binding ops; None on failure."""
     from graphistry.compute.ast import from_json as ast_from_json
     try:
@@ -32,7 +37,7 @@ def _binding_ast_ops(binding_ops: Sequence[Dict[str, Any]]) -> Optional[List[Any
         return None
 
 
-def rows_binding_ops_polars(g: Plottable, binding_ops: Sequence[Dict[str, Any]]) -> Optional[Plottable]:
+def rows_binding_ops_polars(g: Plottable, binding_ops: Sequence[Dict[str, JSONVal]]) -> Optional[Plottable]:
     """Native ``rows(binding_ops=[...])`` for the SINGLE named-Node case — the shape the
     boundary rewrite emits for a one-entity MATCH (the EXISTS pipeline's left table).
     Mirrors the pandas ``_gfql_node_alias_lookup_frame`` layout exactly:
@@ -92,8 +97,8 @@ def rows_binding_ops_polars(g: Plottable, binding_ops: Sequence[Dict[str, Any]])
 
 
 def _pattern_alias_keys_polars(
-    g: Plottable, binding_ops: Sequence[Dict[str, Any]], alias: str, neq: Optional[Sequence[str]] = None
-) -> Optional[Any]:
+    g: Plottable, binding_ops: Sequence[Dict[str, JSONVal]], alias: str, neq: Optional[Sequence[str]] = None
+) -> Optional["pl.DataFrame"]:
     """Ids of ``alias``'s nodes that participate in the (single) pattern — the semi-apply
     right side — computed by running the binding chain NATIVELY via ``chain_polars`` on the
     base graph and reading the named-op flag column (the chain's backward prune makes the
@@ -158,7 +163,7 @@ def _pattern_alias_keys_polars(
     )
 
 
-def _semi_apply_join_col(left: Any, alias: str, node_id: str) -> Optional[str]:
+def _semi_apply_join_col(left: "pl.DataFrame", alias: str, node_id: str) -> Optional[str]:
     """Mirror the pandas join-column choice: prefer ``alias.node_id``, else bare ``alias``."""
     for cand in (f"{alias}.{node_id}", alias):
         if cand in left.columns:
@@ -167,7 +172,7 @@ def _semi_apply_join_col(left: Any, alias: str, node_id: str) -> Optional[str]:
 
 
 def semi_apply_mark_polars(
-    g: Plottable, binding_ops: Sequence[Dict[str, Any]], join_aliases: Sequence[str], out_col: str,
+    g: Plottable, binding_ops: Sequence[Dict[str, JSONVal]], join_aliases: Sequence[str], out_col: str,
     neq: Optional[Sequence[str]] = None,
 ) -> Optional[Plottable]:
     """Native polars ``semi_apply_mark``: boolean existence marker per active row.
@@ -202,7 +207,7 @@ def semi_apply_mark_polars(
 
 
 def anti_semi_apply_polars(
-    g: Plottable, binding_ops: Sequence[Dict[str, Any]], join_aliases: Sequence[str],
+    g: Plottable, binding_ops: Sequence[Dict[str, JSONVal]], join_aliases: Sequence[str],
     neq: Optional[Sequence[str]] = None,
 ) -> Optional[Plottable]:
     """Native polars ``anti_semi_apply``: drop active rows whose alias node participates
