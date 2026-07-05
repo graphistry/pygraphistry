@@ -397,7 +397,7 @@ def test_exists_polars_internal_decline_branches():
     import polars as pl
     from graphistry.compute.ast import n as _n, e_forward as _ef
     from graphistry.compute.chain import serialize_binding_ops
-    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
+    from graphistry.compute.gfql.lazy.engine.polars.pattern_apply import (
         rows_binding_ops_polars,
         _pattern_alias_keys_polars,
     )

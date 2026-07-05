@@ -353,8 +353,10 @@ def _try_native_row_op(g_cur, op):
     from graphistry.Engine import Engine
     from .row_pipeline import (
         select_polars, with_columns_polars, order_by_polars, group_by_polars,
-        unwind_polars, where_rows_polars, rows_binding_ops_polars,
-        semi_apply_mark_polars, anti_semi_apply_polars,
+        unwind_polars, where_rows_polars,
+    )
+    from .pattern_apply import (
+        rows_binding_ops_polars, semi_apply_mark_polars, anti_semi_apply_polars,
     )
 
     fn = getattr(op, "function", None)
