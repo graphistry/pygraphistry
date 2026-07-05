@@ -118,12 +118,15 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         x = args[0].cast(pl.Float64)
         return x.ceil() if name in {"ceil", "ceiling"} else x.floor()
     if name == "round" and len(args) in {1, 2}:
+        from graphistry.compute.gfql.expr_parser import Literal
         ndigits = 0
         if len(args) == 2:
-            lit = getattr(node.args[1], "value", None)
-            if not isinstance(lit, int) or isinstance(lit, bool):
+            arg1 = node.args[1]
+            # isinstance narrowing (a bare .value probe also matched non-Literal nodes)
+            if not isinstance(arg1, Literal) or not isinstance(arg1.value, int) \
+                    or isinstance(arg1.value, bool):
                 return None  # non-literal precision -> defer (honest NIE)
-            ndigits = lit
+            ndigits = arg1.value
         return args[0].cast(pl.Float64).round(ndigits)
     if name in {"tolower", "toupper"} and len(args) == 1:
         # String-only like neo4j (type error there); a non-string column must decline —

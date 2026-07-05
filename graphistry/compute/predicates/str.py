@@ -427,7 +427,7 @@ class _RegexStringPredicate(ASTPredicate):
 _CUDF_REGEX_UNSUPPORTED = re.compile(r'\(\?=|\(\?!|\(\?<|\\[1-9]|\(\?P[=<]')
 
 
-def _cudf_regex_prep(pat: object, case: bool) -> Tuple[object, bool]:
+def _cudf_regex_prep(pat: str, case: bool) -> Tuple[str, bool]:
     """Adapt a regex for libcudf, which rejects inline flag groups (``(?i)``,
     ``(?m)``, ``(?s)`` …) at ANY position (raises "invalid regex pattern").
 
@@ -439,8 +439,6 @@ def _cudf_regex_prep(pat: object, case: bool) -> Tuple[object, bool]:
     openCypher ``=~`` operator, which lowers ``=~ '(?i)…'`` to Match/Fullmatch
     (viz-filter #1673).
     """
-    if not isinstance(pat, str):
-        return pat, case
     if _CUDF_REGEX_UNSUPPORTED.search(pat):
         raise NotImplementedError(
             "cuDF regex does not support lookaround or backreferences; use engine='pandas'"
@@ -497,9 +495,7 @@ class Match(_RegexStringPredicate):
         if is_cudf:
             pat, case = _cudf_regex_prep(self.pat, self.case)
             if not case:
-                s_modified = s.str.lower()
-                pat_modified = _cudf_casefold_or_decline(pat) if isinstance(pat, str) else pat
-                return s_modified.str.match(pat_modified, flags=self.flags)
+                return s.str.lower().str.match(_cudf_casefold_or_decline(pat), flags=self.flags)
             return s.str.match(pat, flags=self.flags)
 
         effective_flags = self.flags
@@ -533,15 +529,10 @@ class Fullmatch(_RegexStringPredicate):
             # (``(?i)`` …) entirely, so translate them first (``(?i)`` ->
             # lowercase-folding; others NIE). Surfaced by openCypher ``=~`` (#1673).
             pat, case = _cudf_regex_prep(self.pat, self.case)
-            anchored_pat = f'^({pat})$' if isinstance(pat, str) else pat
+            anchored_pat = f'^({pat})$'
             if not case:
-                s_modified = s.str.lower()
-                pat_modified = (
-                    _cudf_casefold_or_decline(anchored_pat)
-                    if isinstance(anchored_pat, str)
-                    else anchored_pat
-                )
-                return s_modified.str.match(pat_modified, flags=self.flags)
+                return s.str.lower().str.match(
+                    _cudf_casefold_or_decline(anchored_pat), flags=self.flags)
             return s.str.match(anchored_pat, flags=self.flags)
 
         # pandas has native fullmatch support

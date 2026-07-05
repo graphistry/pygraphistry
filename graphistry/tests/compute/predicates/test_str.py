@@ -863,11 +863,6 @@ class TestCudfRegexPrep:
     inline flag groups, so a leading (?i) folds to the case=False path and any other
     flag declines honestly. Direct CPU coverage of every branch (viz-filter #1673)."""
 
-    def test_non_string_passthrough(self):
-        from graphistry.compute.predicates.str import _cudf_regex_prep
-        assert _cudf_regex_prep(123, True) == (123, True)
-        assert _cudf_regex_prep(None, False) == (None, False)
-
     def test_no_inline_flags_passthrough(self):
         from graphistry.compute.predicates.str import _cudf_regex_prep
         assert _cudf_regex_prep("al.*", True) == ("al.*", True)

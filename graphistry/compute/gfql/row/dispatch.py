@@ -2,6 +2,7 @@ import re as _re
 from typing import Any, Callable, Dict
 
 from graphistry.compute.gfql.language_defs import GFQL_COMPARISON_BINARY_OPS, GFQL_GROUPBY_AGG_METHODS
+from graphistry.compute.typing import SeriesT
 
 _GFQL_STRING_PREDICATE_SCALAR_OPS: Dict[str, Callable[[str, str], bool]] = {
     "contains": lambda left_txt, right_txt: right_txt in left_txt,
@@ -11,7 +12,7 @@ _GFQL_STRING_PREDICATE_SCALAR_OPS: Dict[str, Callable[[str, str], bool]] = {
     "regex": lambda left_txt, right_txt: _re.fullmatch(right_txt, left_txt) is not None,
 }
 
-def _series_regex_fullmatch(left_txt: Any, needle: str) -> Any:
+def _series_regex_fullmatch(left_txt: SeriesT, needle: str) -> SeriesT:
     # `=~` on a Series: delegate to the Fullmatch predicate, which carries the engine
     # workarounds (cuDF has no ``.str.fullmatch`` — raw use raised on engine='cudf'
     # while pandas worked; anchored-match emulation + inline-flag translation live
