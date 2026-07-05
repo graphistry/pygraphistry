@@ -3016,7 +3016,7 @@ def test_round_neo4j_tie_breaking(engine: str) -> None:
     if engine == "polars":
         pytest.importorskip("polars")
 
-    def vals(nodes: pd.DataFrame, expr: str) -> list:
+    def vals(nodes: pd.DataFrame, expr: str) -> List[Any]:
         g = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []}))
         q = f"MATCH (n) RETURN {expr} AS v, n.id AS id ORDER BY id"
         col = g.gfql(q, engine=engine)._nodes["v"]
