@@ -4,7 +4,7 @@ import ast as pyast
 from dataclasses import dataclass, replace
 from functools import lru_cache
 import re
-from typing import Any, Callable, List, Literal, Optional, Protocol, Sequence, Tuple, Type, Union, cast
+from typing import Any, Callable, List, Literal, NoReturn, Optional, Protocol, Sequence, Tuple, Type, Union, cast
 
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLValidationError
 from graphistry.compute.gfql.cypher.ast import (
@@ -265,6 +265,7 @@ order_expr: expr
         | list_comprehension
         | list_literal
         | map_literal
+        | EXISTS_SUBQUERY                   -> exists_subquery_atom
         | WHERE_PATTERN                     -> pattern_atom
         | "(" expr ")"                      -> grouped_expr
 
@@ -358,6 +359,7 @@ MAP_KEY_NAME: /[A-Za-z_][A-Za-z0-9_]*/
 NUMBER: /[+-]?(?:0[xX][0-9A-Fa-f]+|0[oO][0-7]+|(?:\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?))/
 INT: /[0-9]+/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
+EXISTS_SUBQUERY.3: /(?i:EXISTS)(?:\s|\/\*(?:[^*]|\*(?!\/))*\*\/)*\{(?:[^{}]|\{[^{}]*\})*\}/
 WHERE_PATTERN: /\([^)\n]*\)\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\)(?:\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\))*?(?:\s+AND\s+\([^)\n]*\)\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\)(?:\s*(?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)\s*\([^)\n]*\))*)*/
 REL_FWD_SIMPLE: /-->/
 REL_REV_SIMPLE: /<--/
@@ -1188,6 +1190,56 @@ def _build_transformer(source: str) -> _TransformerLike:
             assert tree is not None  # gated above by `if not pattern_item_texts`
             return tree
 
+        def exists_subquery_atom(self, meta: Any, items: Sequence[Any]) -> BooleanExpr:
+            """``EXISTS { <pattern> }`` — openCypher pattern-existence subquery, WHERE
+            position. Produces the SAME ``BooleanExpr(op="pattern")`` leaf as a bare
+            pattern predicate, so the whole existing lift/marker/semi-apply lowering
+            applies unchanged (``NOT EXISTS`` composes via the NOT tier ->
+            anti_semi_apply). v1 subset: a single fixed-shape pattern body (inline
+            ``{prop: val}`` maps fine); inner WHERE clauses, multi-pattern bodies, and
+            full MATCH..RETURN subquery bodies decline with a clear error."""
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid EXISTS subquery", line=meta.line, column=meta.column)
+            span = _span_from_meta(meta)
+            text = str(items[0])
+            inner = text[text.index("{") + 1:text.rindex("}")].strip()
+
+            def _decline(what: str) -> NoReturn:
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    f"EXISTS {{ ... }} {what} is outside the currently supported GFQL Cypher subset",
+                    field="where",
+                    value=inner[:80],
+                    suggestion="Use a single fixed-length pattern inside EXISTS { }, e.g. EXISTS { (n)--() }.",
+                    line=span.line,
+                    column=span.column,
+                    language="cypher",
+                )
+
+            if re.search(r"\bMATCH\b|\bRETURN\b", inner, re.IGNORECASE):
+                _decline("with a full subquery body")
+            if re.search(r"\bWHERE\b", inner, re.IGNORECASE):
+                _decline("with an inner WHERE clause")
+            depth = 0
+            for ch in inner:
+                if ch in "([{":
+                    depth += 1
+                elif ch in ")]}":
+                    depth -= 1
+                elif ch == "," and depth == 0:
+                    _decline("with a multi-pattern body")
+            pattern_item_texts = [m.group(0).strip() for m in _WHERE_PATTERN_ITEM_RE.finditer(inner)]
+            if len(pattern_item_texts) != 1 or pattern_item_texts[0] != inner:
+                _decline("body (expected a single relationship pattern)")
+            pattern_pred = self._parse_single_where_pattern_predicate_text(inner, span)
+            return BooleanExpr(
+                op="pattern",
+                span=span,
+                atom_text=inner,
+                atom_span=span,
+                pattern=pattern_pred.pattern,
+            )
+
         def _wrap_as_boolean_atom(self, operand: Any, enclosing_meta: Any) -> BooleanExpr:
             """Coerce a parsed expression operand into a ``BooleanExpr`` atom.
 
@@ -1973,12 +2025,19 @@ _PATTERN_EXISTENCE_RE = re.compile(
     r"""
     not\s*\(\s*\(\s*[^)\n]*\)\s*          # not((<node>)
     (?:<--|-->|--|<-\[[^\]\n]*\]-|-\[[^\]\n]*\]->|-\[[^\]\n]*\]-)
-    |
-    not\s+exists\s*\{                        # not exists {
-    |
-    exists\s*\{                              # exists {
     """,
     re.IGNORECASE | re.VERBOSE,
+)
+
+# EXISTS { } in a PROJECTION (RETURN/WITH segment, i.e. before the next clause
+# keyword): unsupported — marker columns are only wired into WHERE. WHERE-position
+# EXISTS parses via the EXISTS_SUBQUERY token instead (viz-filter L1).
+_EXISTS_IN_PROJECTION_RE = re.compile(
+    r"\b(?:RETURN|WITH)\b(?:(?!\b(?:MATCH|WHERE|UNWIND|UNION|CALL)\b).)*?"
+    r"\bnot\s+exists\s*(?:/\*[\s\S]*?\*/\s*)*\{"
+    r"|\b(?:RETURN|WITH)\b(?:(?!\b(?:MATCH|WHERE|UNWIND|UNION|CALL)\b).)*?"
+    r"\bexists\s*(?:/\*[\s\S]*?\*/\s*)*\{",
+    re.IGNORECASE | re.DOTALL,
 )
 
 
@@ -2033,10 +2092,18 @@ def _mask_quoted_backticked_and_commented_for_scan(expr: str) -> str:
 
 def _check_unsupported_syntax_patterns(query: str) -> None:
     """Detect known-but-unsupported Cypher syntax and raise a clear error."""
-    if _PATTERN_EXISTENCE_RE.search(_mask_quoted_backticked_and_commented_for_scan(query)):
+    masked = _mask_quoted_backticked_and_commented_for_scan(query)
+    if _PATTERN_EXISTENCE_RE.search(masked):
         raise _to_unsupported(
-            "Pattern existence expressions (e.g., not((a)-[:R]-(b)) or exists { ... }) "
+            "Pattern existence expressions of the form not((a)-[:R]-(b)) "
             "are not yet supported in the local Cypher compiler",
+            field="expression",
+            value="pattern_existence",
+        )
+    if _EXISTS_IN_PROJECTION_RE.search(masked):
+        raise _to_unsupported(
+            "Pattern existence expressions (exists { ... }) are not yet supported in "
+            "RETURN/WITH projections in the local Cypher compiler (WHERE position is supported)",
             field="expression",
             value="pattern_existence",
         )
