@@ -8,7 +8,9 @@ delegates to the parity-hardened ``Contains`` predicate, so every pandas/cuDF
 quirk and honest decline gate carries over; cuDF regex obeys the same decline
 rules as ``=~``."""
 import re
-from typing import Any, List, Optional
+from typing import List, Optional
+
+from graphistry.compute.typing import DataFrameT, SeriesT
 
 # inspector's numeric-term gate (streamgl-viz sortAndFilterRowsByQuery.js)
 _NUMERIC_TERM_RE = re.compile(r"^[0-9.\-]+$")
@@ -18,18 +20,18 @@ def is_numeric_term(term: str) -> bool:
     return bool(_NUMERIC_TERM_RE.match(term))
 
 
-def _is_searchable_string_dtype(dtype: Any) -> bool:
+def _is_searchable_string_dtype(dtype: object) -> bool:
     import pandas.api.types as pat  # cuDF mirrors the pandas dtype API
     return bool(pat.is_string_dtype(dtype)) or bool(pat.is_object_dtype(dtype))
 
 
-def _is_int_dtype(dtype: Any) -> bool:
+def _is_int_dtype(dtype: object) -> bool:
     import pandas.api.types as pat
     return bool(pat.is_integer_dtype(dtype))
 
 
 def search_candidate_columns(
-    df: Any, term: str, columns: Optional[List[str]]
+    df: DataFrameT, term: str, columns: Optional[List[str]]
 ) -> Optional[List[str]]:
     """Columns to search: the explicit list (None if any is missing — caller declines
     loudly) or the auto dtype gate."""
@@ -47,13 +49,13 @@ def search_candidate_columns(
 
 
 def search_any_mask(
-    df: Any,
+    df: DataFrameT,
     term: str,
     *,
     case_sensitive: bool = False,
     regex: bool = False,
     columns: Optional[List[str]] = None,
-) -> Optional[Any]:
+) -> Optional[SeriesT]:
     """Boolean row mask over ``df`` (pandas or cuDF), or None to decline (an explicit
     column is missing). Null cells never match; no candidate columns -> all-False."""
     from graphistry.compute.predicates.str import (
@@ -92,10 +94,10 @@ def search_any_mask(
         if not case:
             pat = _cudf_casefold_or_decline(pat)  # pre-folded; Contains' .lower() is a no-op
     pred = Contains(pat, case=case, regex=regex, na=False)
-    mask: Optional[Any] = None
+    mask: Optional[SeriesT] = None
     for c in cols:
         s = df[c]
-        m: Any
+        m: SeriesT
         if not _is_searchable_string_dtype(s.dtype):
             # canonical toString for int / explicit columns; pandas astype(str)
             # stringifies nulls ("nan"/"<NA>") so mask them back out — null cells
