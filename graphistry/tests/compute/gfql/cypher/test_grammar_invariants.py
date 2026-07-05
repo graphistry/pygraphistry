@@ -9,15 +9,16 @@ The parser's correctness argument is grammar-level, not implementation-level:
    string (genuine ambiguity), which LALR resolves arbitrarily. A grammar edit
    that changes the profile fails this test and forces a review.
 
-2. **Semantic ambiguity is zero, up to one characterized case**
-   (``test_semantic_ambiguity_zero_up_to_known_cases``): expanding EVERY
-   Earley derivation of every corpus query (``ambiguity='explicit'`` +
-   ``CollapseAmbiguities``), all derivations transform to the SAME AST —
-   except the known WITH..WHERE attachment ambiguity, where the production
-   resolution (WHERE attaches to the WITH stage) is asserted explicitly.
-   Note plain ``_ambig`` node counting is NOT a usable invariant: Earley
-   reports harmless alternative derivations even for ``MATCH (a) RETURN a.val``;
-   what matters is that they collapse to one AST.
+2. **Semantic ambiguity is ZERO** (``test_semantic_ambiguity_zero``):
+   expanding EVERY Earley derivation of every corpus query
+   (``ambiguity='explicit'`` + ``CollapseAmbiguities``), all derivations
+   transform to the SAME AST, unconditionally. Two residual DERIVATION
+   ambiguities exist (each exactly binary, each AST-identical, matching the
+   two pinned shift/reduce conflicts) and are machine-surfaced as pinned
+   witnesses in ``test_residual_derivation_ambiguity_witnesses``. The former
+   WITH..WHERE attachment ambiguity was ELIMINATED at grammar level (WHERE is
+   bundled into its preceding clause), as was the dotted-name redundancy
+   (name-rooted dot chains derive only via ``qualified_name``).
 
 3. **Parser-choice neutrality** (``test_lalr_ast_equals_earley_ast_differential``):
    running the production pipeline with an Earley parser over the same grammar
@@ -101,6 +102,12 @@ DIFFERENTIAL_CORPUS = [
     "MATCH (a:X) RETURN a.id AS id UNION ALL MATCH (b:Y) RETURN b.id AS id",
     # graph constructor / USE
     "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'x' } USE g1 MATCH (n) RETURN n",
+    # comprehensions / quantifiers / subscripts / composite property access
+    "MATCH (n) RETURN [x IN n.tags WHERE x > 1 | x + 1] AS t",
+    "MATCH (n) WHERE any(x IN n.tags WHERE x = 'a') RETURN n",
+    "MATCH (n) RETURN n.tags[0] AS first, head(n.tags) AS h",
+    "MATCH (n) RETURN (n:Admin) AS is_admin",
+    "MATCH (n) RETURN [x IN n.tags] AS t",
 ]
 
 # Invalid inputs: both parsers must reject (rejection parity, not message parity).
@@ -113,13 +120,18 @@ REJECTED_CORPUS = [
     "MATCH (a)-[:R*..4]->(b) RETURN b",  # open LOWER hop bound is not in the grammar
 ]
 
-# The ONE known semantic ambiguity: WHERE after a WITH stage can attach to the
-# WITH stage or (in an alternative derivation) to the MATCH clause. Both Earley
-# (rule priority ``with_where_clause.2``) and LALR (shift preference) resolve it
-# to the WITH-stage attachment; the differential test proves they agree.
-KNOWN_AMBIGUOUS = {
-    q for q in DIFFERENTIAL_CORPUS if re.search(r"\bWITH\b.*\bWHERE\b", q)
-}
+# Residual DERIVATION ambiguities: strings with exactly TWO parse trees that
+# transform to ONE identical AST (harmless, but machine-surfaced so a grammar
+# edit can't silently grow them). Each corresponds 1:1 to a pinned
+# shift/reduce conflict:
+#   - `[x IN xs]`: list_comprehension (no body) vs list_literal of an in_op
+#     element — the IN conflict; both mean the identity comprehension text.
+#   - `(n:Admin)` in RETURN: grouped_label_predicate vs grouped_expr over a
+#     bare_label_predicate — the RPAR conflict; both yield the same item.
+RESIDUAL_DERIVATION_AMBIGUITY = [
+    "MATCH (n) RETURN [x IN n.tags] AS t",
+    "MATCH (n) RETURN (n:Admin) AS is_admin",
+]
 
 
 def _fresh_lalr_with_log() -> List[logging.LogRecord]:
@@ -170,12 +182,19 @@ def test_lalr_conflict_profile_pinned() -> None:
     all resolved as shift. A grammar edit that changes this set must update
     the pin AND justify each new conflict here:
 
-    - DOT x5, IN x1 after ``qualified_name : NAME``: greedy-extend of dotted
-      names / IN-expressions; shift = longest match, the intended parse.
-    - WHERE x1 at ``with_stage : with_clause``: attach WHERE to the WITH stage
-      (the documented resolution of the one known attachment ambiguity).
-    - RPAR x1 at ``bare_label_predicate_expr : NAME labels``: greedy label
-      list inside parens; shift = longest match.
+    - IN x1 at ``qualified_name : NAME``: inside ``[``, a NAME followed by IN
+      is a comprehension head (shift) rather than an expr atom (reduce). The
+      residual-witness test pins that both readings of the overlapping string
+      ``[x IN xs]`` produce the same AST.
+    - RPAR x1 at ``bare_label_predicate_expr : NAME labels``: ``(n:Admin)`` as
+      a return item is a grouped_label_predicate (shift) rather than a
+      grouped_expr over the bare label predicate (reduce); same AST either
+      way (residual-witness test).
+
+    Historical note: DOT x5 (dotted-name redundancy) and WHERE x1 (WITH..WHERE
+    attachment) were eliminated at grammar level — name-rooted dot chains
+    derive only via ``qualified_name``, and WHERE is bundled into its
+    preceding clause — so they must never reappear.
     """
     conflict_re = re.compile(
         r"(Shift/Reduce|Reduce/Reduce) conflict for terminal (\w+): \(resolving as (\w+)\)"
@@ -191,22 +210,18 @@ def test_lalr_conflict_profile_pinned() -> None:
         f"Reduce/reduce conflict introduced (genuine grammar ambiguity): {profile}"
     )
     assert profile == {
-        ("Shift/Reduce", "DOT", "shift"): 5,
         ("Shift/Reduce", "IN", "shift"): 1,
-        ("Shift/Reduce", "WHERE", "shift"): 1,
         ("Shift/Reduce", "RPAR", "shift"): 1,
     }, f"LALR conflict profile changed: {profile}"
 
 
 # --- 2. Semantic ambiguity -----------------------------------------------------
 
-def test_semantic_ambiguity_zero_up_to_known_cases() -> None:
-    """Every Earley derivation of every corpus query transforms to the same AST
-    (semantic ambiguity = 0), except the known WITH..WHERE attachment case,
-    which must stay exactly binary (2 distinct ASTs: WHERE on the WITH stage
-    vs WHERE on the MATCH clause). Which side production picks is pinned
-    elsewhere: the LALR==Earley differential below plus the WITH..WHERE
-    parser tests both fix it to the WITH-stage attachment.
+def test_semantic_ambiguity_zero() -> None:
+    """Every Earley derivation of every corpus query transforms to the SAME
+    AST — semantic ambiguity is zero, no exceptions. (The former WITH..WHERE
+    attachment ambiguity was eliminated by bundling WHERE into its preceding
+    clause in the grammar.)
 
     Note: ``CollapseAmbiguities`` rebuilds trees without ``meta`` positions, so
     derivation ASTs have degraded spans/text and CANNOT be compared against the
@@ -221,17 +236,38 @@ def test_semantic_ambiguity_zero_up_to_known_cases() -> None:
         asts = {
             repr(parser_mod._build_transformer(query).transform(t)) for t in trees
         }
-        if query in KNOWN_AMBIGUOUS:
-            assert len(asts) == 2, (
-                f"WITH..WHERE attachment ambiguity should be exactly binary, "
-                f"got {len(asts)} distinct ASTs for: {query!r}"
-            )
-        elif len(asts) != 1:
+        if len(asts) != 1:
             unexpected.append(f"{query!r}: {len(trees)} derivations, {len(asts)} ASTs")
     assert not unexpected, (
-        "New semantic ambiguity introduced (derivations disagree on AST):\n"
+        "Semantic ambiguity introduced (derivations disagree on AST):\n"
         + "\n".join(unexpected)
     )
+
+
+def test_residual_derivation_ambiguity_witnesses() -> None:
+    """Machine-surfaced witnesses for the ONLY residual derivation
+    ambiguities: each is exactly binary and AST-identical (see
+    RESIDUAL_DERIVATION_AMBIGUITY for the 1:1 mapping to the two pinned
+    shift/reduce conflicts). Every other corpus query has exactly ONE
+    derivation. A grammar edit that grows either count fails here and must
+    characterize the new ambiguity before landing."""
+    from lark.visitors import CollapseAmbiguities
+
+    explicit = _earley_parser(ambiguity="explicit")
+    for query in RESIDUAL_DERIVATION_AMBIGUITY:
+        trees = CollapseAmbiguities().transform(explicit.parse(query))
+        asts = {
+            repr(parser_mod._build_transformer(query).transform(t)) for t in trees
+        }
+        assert len(trees) == 2, f"expected binary derivation ambiguity: {query!r}"
+        assert len(asts) == 1, f"derivations must agree on the AST: {query!r}"
+    for query in DIFFERENTIAL_CORPUS:
+        if query in RESIDUAL_DERIVATION_AMBIGUITY:
+            continue
+        trees = CollapseAmbiguities().transform(explicit.parse(query))
+        assert len(trees) == 1, (
+            f"unexpected derivation ambiguity ({len(trees)} trees): {query!r}"
+        )
 
 
 # --- 3. LALR == Earley differential ---------------------------------------------
@@ -272,15 +308,27 @@ def test_lalr_and_earley_reject_the_same_inputs(
             parser_mod._parse_cypher_cached.cache_clear()
 
 
-def test_return_distinct_without_items_is_rejected() -> None:
-    """The ONE deliberate language difference from the old Earley parser,
-    found by a full repo-corpus differential (1839 queries; everything else
-    is accept/reject- and AST-identical).
+# The complete set of DELIBERATE language fixes vs the old Earley parser,
+# found by full repo-corpus differentials (1800+ queries; everything else is
+# accept/reject- and AST-identical). Each was an accept-by-accident with
+# ill-defined semantics; all are now honest syntax errors.
+DELIBERATE_LANGUAGE_FIXES = [
+    # Earley's dynamic lexer re-lexed DISTINCT (absent from the NAME reserved
+    # lookahead) as a NAME and accepted this as returning a *variable named*
+    # DISTINCT with distinct=False. The LALR contextual lexer keeps it a keyword.
+    "MATCH (n) RETURN DISTINCT",
+    # The old flat clause-item grammar accepted WHERE anywhere and attached it
+    # positionally in Python; these shapes had ill-defined attachment (a double
+    # WHERE kept BOTH predicates in different AST fields). WHERE now binds to
+    # its preceding clause in the grammar, so they are syntax errors:
+    "MATCH (a) WHERE a.x = 1 WHERE a.y = 2 RETURN a",                      # double WHERE
+    "MATCH (n) WITH n WHERE n.x = 1 WHERE n.y = 2 RETURN n",               # double post-WITH WHERE
+    "MATCH (n) UNWIND n.tags AS t WHERE t = 'a' RETURN t",                 # WHERE after UNWIND (not openCypher)
+    "GRAPH g1 = GRAPH { WHERE a.x = 1 MATCH (a) } USE g1 MATCH (n) RETURN n",  # WHERE before MATCH
+]
 
-    ``DISTINCT`` is not in the NAME terminal's reserved-word lookahead, so
-    Earley's dynamic lexer re-lexed it as a NAME and accepted
-    ``MATCH (n) RETURN DISTINCT`` as returning a *variable named* DISTINCT
-    (with ``distinct=False``!) — a lexing accident, not Cypher. The LALR
-    contextual lexer keeps it a keyword, so the query is now a syntax error."""
+
+@pytest.mark.parametrize("query", DELIBERATE_LANGUAGE_FIXES)
+def test_deliberate_language_fixes_are_rejected(query: str) -> None:
     with pytest.raises(GFQLSyntaxError):
-        parse_cypher("MATCH (n) RETURN DISTINCT")
+        parse_cypher(query)

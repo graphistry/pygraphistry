@@ -57,7 +57,6 @@ graph_constructor: "GRAPH"i "{" graph_constructor_body "}"
 graph_constructor_body: graph_constructor_item+
 
 graph_constructor_item: match_clause
-                      | where_clause
                       | call_clause
                       | use_clause
 
@@ -69,7 +68,6 @@ union_op: "UNION"i "ALL"i       -> union_all
         | "UNION"i              -> union_distinct
 
 query_item: match_clause
-          | where_clause
           | call_clause
           | unwind_clause
           | use_clause
@@ -81,8 +79,12 @@ stage: with_stage
 with_stage: with_clause with_where_clause? order_by_clause? skip_clause? limit_clause?
 return_stage: return_clause order_by_clause? skip_clause? limit_clause?
 
-match_clause: "MATCH"i match_item ("," match_item)*              -> match_clause
-            | "OPTIONAL"i "MATCH"i match_item ("," match_item)*  -> optional_match_clause
+// WHERE binds to its preceding clause IN THE GRAMMAR (openCypher scoping):
+// after MATCH it is part of match_clause; after WITH it is with_where_clause.
+// A standalone where_clause item would make `MATCH .. WHERE ..` derivable two
+// ways (bundled vs standalone) -- a genuine ambiguity -- so it does not exist.
+match_clause: "MATCH"i match_item ("," match_item)* where_clause?              -> match_clause
+            | "OPTIONAL"i "MATCH"i match_item ("," match_item)* where_clause?  -> optional_match_clause
 match_item: pattern
           | NAME "=" pattern               -> bound_pattern
           | NAME "=" "shortestPath"i "(" pattern ")"          -> shortest_path_pattern
@@ -148,7 +150,7 @@ yield_clause: "YIELD"i yield_item ("," yield_item)*
 yield_item: NAME alias?
 
 with_clause: "WITH"i distinct? return_item ("," return_item)*
-with_where_clause.2: "WHERE"i expr
+with_where_clause: "WHERE"i expr
 return_clause: "RETURN"i distinct? return_item ("," return_item)*
 distinct: "DISTINCT"i
 return_item: return_expr alias?
@@ -215,14 +217,20 @@ order_expr: expr
       | MINUS unary                         -> uminus
       | postfix
 
-?postfix: primary
+// Dotted chains rooted at a bare NAME derive ONLY via qualified_name (a.b.c);
+// property_access applies ONLY to composite roots (calls, groups, subscripts:
+// f(x).y, (e).y, xs[0].y). Splitting the two keeps the grammar unambiguous --
+// a single derivation for every dotted expression -- and LALR(1) conflict-free
+// at DOT (no reduce-qualified_name vs shift-extend race).
+?postfix: qualified_name
+        | postfix_composite
+?postfix_composite: primary_composite
         | postfix "[" subscript_key "]"     -> subscript
-        | postfix "." NAME                  -> property_access
+        | postfix_composite "." NAME        -> property_access
 
-?primary: parameter
+?primary_composite: parameter
         | literal
         | function_call
-        | qualified_name
         | case_expr
         | quantifier_expr
         | list_comprehension
@@ -916,6 +924,13 @@ def _build_transformer(source: str) -> _TransformerLike:
             return self._match_clause(meta, items, optional=True)
 
         def _match_clause(self, meta: Any, items: Sequence[Any], *, optional: bool) -> MatchClause:
+            # The grammar bundles a trailing WHERE into the match_clause (WHERE
+            # binds to its preceding clause declaratively). Split it back off;
+            # query_body's assembly consumes it as if it were a standalone item.
+            where: Optional[WhereClause] = None
+            if items and isinstance(items[-1], WhereClause):
+                where = items[-1]
+                items = items[:-1]
             if len(items) < 1:
                 clause_name = "OPTIONAL MATCH" if optional else "MATCH"
                 raise _to_syntax_error(f"Cypher {clause_name} clause cannot be empty", line=meta.line, column=meta.column)
@@ -931,12 +946,26 @@ def _build_transformer(source: str) -> _TransformerLike:
                     patterns.append(cast(Tuple[PatternElement, ...], item))
                     pattern_aliases.append(None)
                     pattern_alias_kinds.append("pattern")
+            # Span covers the MATCH..patterns text only (not the bundled WHERE),
+            # preserving the clause span the AST has always carried: end at the
+            # last non-whitespace character before the WHERE keyword.
+            span = _span_from_meta(meta)
+            if where is not None:
+                end_pos = span.start_pos + len(source[span.start_pos:where.span.start_pos].rstrip())
+                line_start = source.rfind("\n", 0, end_pos) + 1
+                span = replace(
+                    span,
+                    end_pos=end_pos,
+                    end_line=source.count("\n", 0, end_pos) + 1,
+                    end_column=end_pos - line_start + 1,
+                )
             return MatchClause(
                 patterns=tuple(patterns),
-                span=_span_from_meta(meta),
+                span=span,
                 optional=optional,
                 pattern_aliases=tuple(pattern_aliases),
                 pattern_alias_kinds=tuple(pattern_alias_kinds),
+                where=where,
             )
 
         def distinct(self, _meta: Any, _items: Sequence[Any]) -> bool:
@@ -1463,6 +1492,18 @@ def _build_transformer(source: str) -> _TransformerLike:
             return items[0]
 
         def query_body(self, meta: Any, items: Sequence[Any]) -> CypherQuery:
+            # The grammar bundles WHERE into its MATCH clause. Re-emit it as a
+            # follow-on item so the clause-sequence state machine below (which
+            # predates the bundling and encodes all ordering/support rules)
+            # processes the exact sequence the source text spells.
+            flat: List[Any] = []
+            for item in items:
+                if isinstance(item, MatchClause) and item.where is not None:
+                    flat.append(replace(item, where=None))
+                    flat.append(item.where)
+                else:
+                    flat.append(item)
+            items = flat
             trailing_semicolon = any(str(item) == ";" for item in items)
             match_clauses: List[MatchClause] = []
             reentry_match_clauses: List[MatchClause] = []
@@ -1742,6 +1783,16 @@ def _build_transformer(source: str) -> _TransformerLike:
         def graph_constructor(self, meta: Any, items: Sequence[Any]) -> GraphConstructor:
             span = _span_from_meta(meta)
             body_items = items[0] if items and isinstance(items[0], list) else list(items)
+            # Split grammar-bundled MATCH..WHERE back into the item sequence the
+            # constructor-body rules below were written against (see query_body).
+            flat: List[Any] = []
+            for item in body_items:
+                if isinstance(item, MatchClause) and item.where is not None:
+                    flat.append(replace(item, where=None))
+                    flat.append(item.where)
+                else:
+                    flat.append(item)
+            body_items = flat
             matches: List[MatchClause] = []
             where: Optional[WhereClause] = None
             use: Optional[UseClause] = None
