@@ -67,6 +67,7 @@ DIFFERENTIAL_CORPUS = [
     "MATCH (n) WHERE n.x = 50 RETURN n",
     "MATCH (n) WHERE n.x <> 1 AND n.y >= 2 AND n.z < 3 RETURN n",
     "MATCH (n) WHERE n.name CONTAINS 'ab' RETURN n",
+    "MATCH (n) WHERE n.name =~ '(?i)ab.*' RETURN n",
     "MATCH (n) WHERE n.name STARTS WITH 'a' AND n.name ENDS WITH 'z' RETURN n",
     "MATCH (n) WHERE n.x IS NULL AND n.y IS NOT NULL RETURN n",
     "MATCH (n) WHERE n:Admin AND n.active = true RETURN n",
@@ -74,6 +75,7 @@ DIFFERENTIAL_CORPUS = [
     "MATCH (n) WHERE n.x = $param RETURN n",
     # WHERE: generic expression forms (stay on expr_tree)
     "MATCH (n) WHERE n.a > 3 OR n.b = 1 RETURN n",
+    "MATCH (n) WHERE n.a =~ 'x' OR n.b =~ 'y' RETURN n",
     "MATCH (n) WHERE n.x = 1 XOR n.y = 2 RETURN n",
     "MATCH (n) WHERE NOT n.deleted = true RETURN n",
     "MATCH (n) WHERE (n.x = 1 AND n.y = 2) OR n.z = 3 RETURN n",

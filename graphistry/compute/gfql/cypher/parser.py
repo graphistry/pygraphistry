@@ -158,7 +158,7 @@ where_predicate: property_ref COMP_OP where_rhs -> cmp_where
                | property_ref "CONTAINS"i where_rhs -> contains_where
                | property_ref "STARTS"i "WITH"i where_rhs -> starts_with_where
                | property_ref "ENDS"i "WITH"i where_rhs -> ends_with_where
-               | property_ref "=~" where_rhs -> regex_where
+               | property_ref _REGEX_MATCH where_rhs -> regex_where
                | variable labels -> has_labels_where
 // Flat AND-chain of bare predicates; the start symbol for the lift parser. Parens
 // / OR / XOR / NOT are not ``where_predicate``s, so such clauses fail this parse and
@@ -231,7 +231,7 @@ order_expr: expr
            | additive "CONTAINS"i additive   -> contains_op
            | additive "STARTS"i "WITH"i additive -> starts_with_op
            | additive "ENDS"i "WITH"i additive -> ends_with_op
-           | additive "=~" additive          -> regex_op
+           | additive _REGEX_MATCH additive    -> regex_op
 
 ?additive: multiplicative
          | additive "+" multiplicative      -> add_op
@@ -347,6 +347,9 @@ literal: "NULL"i    -> null_lit
        | STRING     -> string_lit
 
 COMP_OP: "=" | "<>" | "!=" | "<=" | "<" | ">=" | ">"
+// =~ must out-prioritize COMP_OP's "=" under the LALR contextual lexer; leading
+// underscore keeps the op token out of the tree so regex_where/regex_op arity matches.
+_REGEX_MATCH.5: "=~"
 
 SEMI: ";"
 MINUS: /-(?!-)/
