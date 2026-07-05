@@ -277,6 +277,45 @@ _HONEST_NIE_CYPHER = [
 ]
 
 
+def test_round_tie_hazard_values_all_engines():
+    """#1677 wave-1: the shared fixture's floats are rng.normal — ties are measure-zero,
+    so the GPU engines never saw a tie/hazard value despite ties being the round() fix's
+    whole point. Deterministic hazard column, ALL engines via parity-or-NIE: exact ties
+    (p=0 ties -> +inf; p>0 ties away from zero), the 1-ulp-below-tie JDK case, -0.0
+    (zero-sign normalize), >2^52 (integral floats), 1e308 (scaled overflow -> identity),
+    NaN + null, and p=400 (identity — 10.0**p overflow guard, was uncaught/divergent)."""
+    import pandas as pd
+    nd = pd.DataFrame({
+        "id": list(range(12)),
+        "v": [0.5, -0.5, 2.5, -1.5, -2.55, 0.49999999999999994,
+              -0.04, -0.0, 1e308, 5e15 + 0.5, float("nan"), None],
+    })
+    ed = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    for q in [
+        "MATCH (n) RETURN n.id AS id, round(n.v) AS x",
+        "MATCH (n) RETURN n.id AS id, round(n.v, 1) AS x",
+        "MATCH (n) RETURN n.id AS id, round(n.v, 2) AS x",
+        "MATCH (n) RETURN n.id AS id, round(n.v, 400) AS x",
+    ]:
+        _assert_invariant(g, q, f"round-hazard {q}")
+
+
+def test_round_negative_zero_normalized_polars():
+    """round(-0.04, 1) must be +0.0 on BOTH engines: the pandas kernel's + 0.0
+    normalizes, polars' native mode= kept -0.0 (dgx-repro'd) — and value equality
+    cannot see it (-0.0 == 0.0), so pin the sign bit explicitly."""
+    import math as _math
+    import pandas as pd
+    nd = pd.DataFrame({"id": [0], "v": [-0.04]})
+    ed = pd.DataFrame({"s": [0], "d": [0], "eid": [0]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    q = "MATCH (n) RETURN round(n.v, 1) AS x"
+    for eng in ["pandas", "polars"]:
+        val = float(_to_pd(g.gfql(q, engine=eng)._nodes)["x"].iloc[0])
+        assert _math.copysign(1.0, val) == 1.0, f"{eng}: round(-0.04, 1) kept -0.0"
+
+
 @pytest.mark.parametrize("label,cypher,why", _NATIVE_OK_CYPHER, ids=[c[0] for c in _NATIVE_OK_CYPHER])
 def test_scalar_fn_runs_natively_on_polars(label, cypher, why):
     g = _graph(4)

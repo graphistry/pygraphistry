@@ -1391,6 +1391,18 @@ class RowPipelineMixin:
                 if ndigits < 0:
                     # neo4j raises on negative precision; decline (no silent wrong value).
                     return False, None
+                if ndigits > 308:
+                    # 10.0**p overflows at p>=309 (CPython pow raises); rounding a float64
+                    # beyond 308 decimals is the identity anyway — return the input as
+                    # float (+0.0 zero-sign normalize), matching polars' native behavior
+                    # at large precision (dgx-repro'd).
+                    inner_id = values[0]
+                    if hasattr(inner_id, "astype"):
+                        null_mask = self._gfql_null_mask(table_df, inner_id)
+                        return True, (inner_id.astype(float) + 0.0).where(~null_mask, pd.NA)
+                    if is_null_scalar(inner_id):
+                        return True, None
+                    return True, float(inner_id) + 0.0
                 if hasattr(inner, "astype"):
                     null_mask = self._gfql_null_mask(table_df, inner)
                     f = inner.astype(float)

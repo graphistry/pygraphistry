@@ -57,7 +57,7 @@ base_extras_light = {
     'jupyter': ['ipython'],
     'spanner': ['google-cloud-spanner'],
     'kusto': ['azure-kusto-data', 'azure-identity'],
-    'polars': ['polars>=1.5'],
+    'polars': ['polars>=1.29'],  # Expr.round(mode=) shipped in py-1.29.0 (pola-rs/polars#22248)
 }
 
 base_extras_heavy = {

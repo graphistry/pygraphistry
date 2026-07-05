@@ -288,7 +288,11 @@ and ``RETURN`` expressions:
   (returns a float). ``round`` follows neo4j's tie-breaking: precision 0 rounds
   ties toward positive infinity (``round(-1.5)`` → ``-1.0``, ``round(2.5)`` →
   ``3.0``); precision > 0 rounds ties away from zero (``round(-1.55, 1)`` →
-  ``-1.6``).
+  ``-1.6``). One documented deviation at precision > 0: neo4j rounds via the
+  number's decimal string (Java ``BigDecimal.valueOf``), so a value like
+  ``2.675`` — stored as the binary double ``2.67499…`` — gives ``2.68`` in
+  neo4j but ``2.67`` here (both engines, consistently binary-double).
+  Precision above 308 is the identity (a float64 has no digits there).
 - String helpers ``toLower`` / ``toUpper`` and their GQL-conformance aliases
   ``lower`` / ``upper`` (the idiomatic case-insensitive compare, e.g.
   ``WHERE toLower(n.name) = 'bob'``), plus ``substring`` and
