@@ -266,6 +266,7 @@ def test_graph_state_prune_pipeline():
     nonself_pairs = {pair(r) for r in ed[ed["s"] != ed["d"]].itertuples()}
     kept_pairs = {pair(r) for r in _to_pd(out2._edges).itertuples()}
     assert kept_pairs == nonself_pairs, "every non-self endpoint pair must be represented"
+    assert len(edges2) == len(set(edges2)), "no duplicated eid rows"
     # drop-self uses cross-entity same-path WHERE: polars/polars-gpu decline honestly;
     # cuDF has a PRE-EXISTING TypeError in the same-path executor (verified byte-identical
     # on the base tree — repo debt predating this suite, plan-tracked). Tolerated ONLY here.
@@ -376,7 +377,7 @@ def test_panel_state_fuzzer():
         except AssertionError as e:
             fails.append(str(e)[:200])
     assert not fails, "panel-state fuzz failures:\n" + "\n".join(fails)
-    assert declined < 40, "every fuzz seed declined — generator drifted out of the dialect"
+    assert declined == 0, f"generator drift: {declined}/40 seeds declined (all combos are in-dialect today)"
 
 
 # ---- Section 5: case/regex/unicode trick matrix (per-row pin + mirror + parity-or-NIE) ----

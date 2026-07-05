@@ -56,10 +56,10 @@ NULL_SCORE_FRAC = 0.05
 KNOWN_ENGINES = ("pandas", "cudf", "polars", "polars-gpu")
 
 # Zipf-weighted name vocabulary; 'ember' sits at a mid rank so the node search term
-# hits a realistic ~2-4% of names (two tokens per name). No other token contains it.
+# hits a realistic ~2-4% of names (two tokens per name). no other token contains it (november swapped out for granite — wave-1 F1).
 _TOKENS = [
     "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel",
-    "india", "juliet", "kilo", "ember", "lima", "mike", "november", "oscar",
+    "india", "juliet", "kilo", "ember", "lima", "mike", "granite", "oscar",
     "papa", "quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey",
     "xray", "yankee", "zulu", "onyx", "quartz", "topaz", "cobalt", "crimson",
     "indigo", "saffron", "umber", "viridian", "cerulean", "magenta", "ochre", "slate",
@@ -286,6 +286,9 @@ def main() -> None:
     parser.add_argument("--est", action="store_true",
                         help="Print estimated rows/memory for safe_run budgeting and exit.")
     args = parser.parse_args()
+    if args.runs < 1 or args.warmup < 0:
+        parser.error("--runs must be >= 1 and --warmup >= 0")
+
 
     if args.est:
         print_estimate(args.scale)
