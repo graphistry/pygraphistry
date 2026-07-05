@@ -389,6 +389,62 @@ def test_scalar_fns_null_cells_parity():
         _assert_invariant(g, q, f"nullcells {q}")
 
 
+def test_search_any_op_all_engines():
+    """viz-filter L2 `search_any` row op (panel-algebra D2 inspector semantics):
+    OR-across-columns; case-insensitive substring DEFAULT; regex opt-in; dtype gate =
+    string cols always + int cols iff numeric-literal term (floats gated OUT of auto);
+    explicit columns= override; nulls never match. Oracle-pinned + 4-engine
+    parity-or-NIE via the chain call surface."""
+    import pandas as pd
+    from graphistry.compute.ast import search_any as search_any_op
+    from graphistry.compute.exceptions import GFQLValidationError
+    nd = pd.DataFrame({
+        "id": [0, 1, 2, 3],
+        "name": ["Alpha", "beta", None, "gamma7"],
+        "num": pd.Series([7, 77, 3, 4], dtype="int64"),
+        "f": [0.5, 1.5, 2.5, 3.5],
+    })
+    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [0, 1]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+
+    def q(**kw):
+        return [n(name="a"), search_any_op(alias="a", out_col="__hit__", **kw)]
+
+    oracle = {
+        "default_ci": (dict(term="ALPHA"), [True, False, False, False]),
+        "case_sensitive": (dict(term="ALPHA", case_sensitive=True), [False, False, False, False]),
+        "numeric_int_gate": (dict(term="7"), [True, True, False, True]),  # num=7, num=77, name gamma7; f EXCLUDED
+        "explicit_cols": (dict(term="7", columns=["name"]), [False, False, False, True]),
+        "regex": (dict(term="a.pha", regex=True), [True, False, False, False]),  # (?i) default
+    }
+    for label, (kw, expected) in oracle.items():
+        out = g.gfql(q(**kw), engine="pandas")
+        got = _to_pd(out._nodes).sort_values("id")["__hit__"].tolist()
+        assert got == expected, f"search_any oracle {label}: {got} != {expected}"
+        _assert_invariant(g, q(**kw), f"search_any {label}")
+    with pytest.raises(GFQLValidationError):
+        g.gfql(q(term="x", columns=["nope"]), engine="pandas")
+
+
+def test_search_nodes_edges_twins():
+    """g.search_nodes/search_edges (persona-pass python twins): same kernel, own table
+    only, Plottable out; polars frames decline honestly."""
+    import pandas as pd
+    from graphistry.compute.exceptions import GFQLValidationError
+    nd = pd.DataFrame({"id": [0, 1, 2], "name": ["Alpha", "beta", None]})
+    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "etype": ["Knows", "likes"], "eid": [0, 1]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    assert sorted(g.search_nodes("ALPHA")._nodes["id"].tolist()) == [0]
+    assert sorted(g.search_nodes("alpha", case_sensitive=True)._nodes["id"].tolist()) == []
+    assert sorted(g.search_edges("knows")._edges["eid"].tolist()) == [0]
+    with pytest.raises(GFQLValidationError):
+        g.search_nodes("x", columns=["nope"])
+    import polars as pl
+    gpl = graphistry.nodes(pl.from_pandas(nd), "id").edges(pl.from_pandas(ed), "s", "d").bind(edge="eid")
+    with pytest.raises(NotImplementedError):
+        gpl.search_nodes("x")
+
+
 def test_exists_polars_internal_decline_branches():
     """Coverage pins for the honest-decline branches of the polars semi-apply family
     (each returns None -> the boundary lane raises NIE): non-single/unnamed/query=/
@@ -592,7 +648,7 @@ def _rowop_exercised():
         "with_", "unwind",
         "rows", "skip", "limit", "distinct", "drop_cols",
         "order_by", "select", "return_", "where_rows", "group_by",
-        "count_table",
+        "count_table", "search_any",
     }
 
 

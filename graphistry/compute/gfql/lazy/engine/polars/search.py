@@ -1,0 +1,72 @@
+"""Native polars lowering for the ``search_any`` cross-column search row op
+(viz-filter L2; semantics in gfql/search_any.py). Module-per-family, split from
+row_pipeline.py (the expression/projection lowering core) — degrees.py precedent."""
+from __future__ import annotations
+
+from typing import Optional, Sequence
+
+from graphistry.Plottable import Plottable
+
+from .row_pipeline import _active_table, _rewrap
+
+
+def search_any_polars(
+    g: Plottable,
+    alias: str,
+    term: str,
+    out_col: str,
+    case_sensitive: bool = False,
+    regex: bool = False,
+    columns: Optional[Sequence[str]] = None,
+) -> Optional[Plottable]:
+    """Native polars ``search_any`` (viz-filter L2): OR-across-columns marker, same
+    dtype gate as the pandas kernel (string cols always; int cols iff numeric-literal
+    term; float/date/bool auto-gated out). Regex path applies the same Rust-regex
+    decline gate as Contains; literal default folds via lowercase (never regex).
+    None declines (honest NIE)."""
+    import polars as pl
+    from graphistry.compute.gfql.search_any import is_numeric_term
+    from .predicates import _regex_rust_incompatible
+    left = _active_table(g)
+    if left is None:
+        return None
+    prefix = f"{alias}."
+    prefixed = [c for c in left.columns if c.startswith(prefix)]
+    if prefixed:
+        pool = {c[len(prefix):]: c for c in prefixed}
+    else:
+        pool = {c: c for c in left.columns
+                if not c.startswith("__gfql_") and c != alias}
+    schema = dict(left.schema)
+    if columns is not None:
+        if any(c not in pool for c in columns):
+            return None  # missing explicit column: decline -> pandas raises the clear error
+        chosen = [pool[c] for c in columns]
+    else:
+        numeric_ok = is_numeric_term(term)
+        chosen = []
+        for real in pool.values():
+            dt = schema[real]
+            if dt == pl.String:
+                chosen.append(real)
+            elif numeric_ok and dt in (pl.Int8, pl.Int16, pl.Int32, pl.Int64,
+                                       pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64):
+                chosen.append(real)
+    if len(left) == 0 or not chosen:
+        marked = left.with_columns(
+            pl.lit(False).alias(out_col) if len(left) else pl.lit(None).cast(pl.Boolean).alias(out_col))
+        return _rewrap(g, marked)
+    if regex and _regex_rust_incompatible(term):
+        return None
+    exprs = []
+    for real in chosen:
+        base = pl.col(real) if schema[real] == pl.String else pl.col(real).cast(pl.String)
+        if regex:
+            pat = term if case_sensitive else f"(?i){term}"
+            exprs.append(base.str.contains(pat, literal=False))
+        elif case_sensitive:
+            exprs.append(base.str.contains(term, literal=True))
+        else:
+            exprs.append(base.str.to_lowercase().str.contains(term.lower(), literal=True))
+    marked = left.with_columns(pl.any_horizontal(exprs).fill_null(False).alias(out_col))
+    return _rewrap(g, marked)

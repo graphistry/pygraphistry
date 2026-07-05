@@ -137,6 +137,7 @@ CALL_KNOWN_UNCOVERED: dict[str, str] = {
     "order_by": "row sort; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
     "unwind": "list explode; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
     "group_by": "grouped aggregation; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
+    "search_any": "cross-column search marker (viz-filter L2); exercised as a labeled subject via test_search_any_op_all_engines (chain call surface, oracle pins + 4-engine parity-or-NIE), not via a direct call() consistency label.",
     "count_table": "count(*) short-circuit fast path (table height / source-mask sum); native frame op emitted by the cypher lowering, exercised as a labeled subject via _ROW_OP_CASES + the count_all_nodes/edges cypher cases, not via a direct call() consistency label. TODO.",
     "semi_apply_mark": "correlated EXISTS-mark; NATIVE on polars (viz-filter L1), exercised implicitly by the matrix EXISTS cypher cases; no direct labeled subject.",
     "anti_semi_apply": "anti-semi correlated filter; NATIVE on polars (viz-filter L1), exercised implicitly by the matrix NOT-EXISTS cypher case; no direct labeled subject.",
