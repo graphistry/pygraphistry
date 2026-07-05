@@ -406,6 +406,21 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         description='Filter active rows by anti-semi joining against correlated binding rows',
     ),
 
+    'search_any': _safelist_entry(
+        {'alias', 'term', 'out_col', 'case_sensitive', 'regex', 'columns'},
+        required_params={'alias', 'term', 'out_col'},
+        param_validators={
+            'alias': is_non_empty_string,
+            'term': is_string,
+            'out_col': is_non_empty_string,
+            'case_sensitive': is_bool,
+            'regex': is_bool,
+            'columns': is_non_empty_list_of_strings,
+        },
+        description='Annotate active rows with a cross-column search marker (OR across columns)',
+        schema_effects=_schema_effects(adds_node_cols=_semi_apply_mark_added_node_cols),
+    ),
+
     'semi_apply_mark': _safelist_entry(
         {'binding_ops', 'join_aliases', 'out_col', 'neq'},
         required_params={'binding_ops', 'join_aliases', 'out_col'},

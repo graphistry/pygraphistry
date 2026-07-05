@@ -487,6 +487,53 @@ class ComputeMixin(Plottable):
             out_df = safe_merge(g2_base._nodes, levels_df, on=g2_base._node, how='left')
             return self.nodes(out_df)
 
+    def search_nodes(self, term, columns=None, case_sensitive=False, regex=False):
+        """Keep nodes where ANY column matches ``term`` (viz-filter L2 inspector
+        semantics: OR across columns; case-insensitive substring default; regex
+        opt-in; string columns always, integer columns iff the term is a numeric
+        literal — floats/dates via explicit ``columns=``). pandas/cuDF native;
+        polars frames raise NotImplementedError (use the cypher ``search_any`` op).
+        """
+        from graphistry.compute.gfql.search_any import search_any_mask
+        from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+        df = self._nodes
+        if df is None:
+            return self
+        if "polars" in type(df).__module__:
+            raise NotImplementedError(
+                "search_nodes is not yet native on polars frames; use the cypher "
+                "search_any op or engine='pandas'")
+        mask = search_any_mask(
+            df, term, case_sensitive=case_sensitive, regex=regex, columns=columns)
+        if mask is None:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "search_nodes columns= includes a column absent from the nodes table",
+                field="columns", value=columns,
+                suggestion="List only columns present on the nodes table.")
+        return self.nodes(df[mask])
+
+    def search_edges(self, term, columns=None, case_sensitive=False, regex=False):
+        """Keep edges where ANY column matches ``term`` — see :meth:`search_nodes`."""
+        from graphistry.compute.gfql.search_any import search_any_mask
+        from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+        df = self._edges
+        if df is None:
+            return self
+        if "polars" in type(df).__module__:
+            raise NotImplementedError(
+                "search_edges is not yet native on polars frames; use the cypher "
+                "search_any op or engine='pandas'")
+        mask = search_any_mask(
+            df, term, case_sensitive=case_sensitive, regex=regex, columns=columns)
+        if mask is None:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "search_edges columns= includes a column absent from the edges table",
+                field="columns", value=columns,
+                suggestion="List only columns present on the edges table.")
+        return self.edges(df[mask])
+
     def prune_self_edges(self):
         return self.edges(self._edges[ self._edges[self._source] != self._edges[self._destination] ])
 

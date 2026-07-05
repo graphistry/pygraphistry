@@ -353,10 +353,8 @@ def _try_native_row_op(g_cur, op):
     from graphistry.Engine import Engine
     from .row_pipeline import (
         select_polars, with_columns_polars, order_by_polars, group_by_polars,
-        unwind_polars, where_rows_polars,
-    )
-    from .pattern_apply import (
-        rows_binding_ops_polars, semi_apply_mark_polars, anti_semi_apply_polars,
+        unwind_polars, where_rows_polars, rows_binding_ops_polars, search_any_polars,
+        semi_apply_mark_polars, anti_semi_apply_polars,
     )
 
     fn = getattr(op, "function", None)
@@ -378,6 +376,13 @@ def _try_native_row_op(g_cur, op):
         return semi_apply_mark_polars(
             g_cur, op.params["binding_ops"], op.params["join_aliases"],
             op.params["out_col"], neq=op.params.get("neq"),
+        )
+    if fn == "search_any":
+        return search_any_polars(
+            g_cur, op.params["alias"], op.params["term"], op.params["out_col"],
+            case_sensitive=op.params.get("case_sensitive", False),
+            regex=op.params.get("regex", False),
+            columns=op.params.get("columns"),
         )
     if fn == "anti_semi_apply":
         return anti_semi_apply_polars(
