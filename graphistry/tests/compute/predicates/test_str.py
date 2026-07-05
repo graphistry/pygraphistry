@@ -928,7 +928,10 @@ class TestCudfCasefoldOrDecline:
         [x-b]; non-ASCII folds can diverge from libcudf's lowercasing (Istanbul-I)."""
         import pytest as _pytest
         from graphistry.compute.predicates.str import _cudf_casefold_or_decline
-        for pat in ["[A-z]+", "[X-b]", "\u0130stanbul"]:
+        for pat in ["[A-z]+", "[X-b]", "\u0130stanbul",
+                    "[?-Z]", "[Z-~]", "[X-^]", "[\\x41-Z]"]:  # wave-3: mixed letter/non-letter ranges
             with _pytest.raises(NotImplementedError):
                 _cudf_casefold_or_decline(pat)
         assert _cudf_casefold_or_decline("[a-c]") == "[a-c]"  # same-case range folds fine
+        assert _cudf_casefold_or_decline("[0-9]+") == "[0-9]+"  # non-letter range folds fine
+        assert _cudf_casefold_or_decline("e-MAIL") == "e-mail"  # class-free literal hyphen folds fine

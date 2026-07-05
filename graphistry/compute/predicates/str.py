@@ -470,8 +470,14 @@ def _cudf_casefold_or_decline(pat: str) -> str:
     unsafe = (
         re.search(r'\\[A-Z]', pat) is not None
         or not pat.isascii()
-        or any(a.isupper() != b.isupper()
-               for a, b in re.findall(r'([A-Za-z])-([A-Za-z])', pat))
+        # Any x-y range where exactly ONE endpoint is an uppercase letter shifts
+        # under fold: [A-z] narrows, [?-Z] widens, [X-^] goes invalid (wave-3:
+        # letter-letter-only scanning missed the mixed ones). Both-upper shifts
+        # consistently ([A-Z]->[a-z]); neither-upper is a fold no-op. Ranges only
+        # exist inside classes, so gate on '[' — a class-free literal hyphen
+        # ((?i)e-MAIL) keeps folding; in-class false positives DECLINE (safe).
+        or ('[' in pat and any(a.isupper() != b.isupper()
+                               for a, b in re.findall(r'([!-~])-([!-~])', pat)))
     )
     if unsafe:
         raise NotImplementedError(
