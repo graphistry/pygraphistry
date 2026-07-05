@@ -424,20 +424,33 @@ class _RegexStringPredicate(ASTPredicate):
             )
 
 
+# Lookaround ((?=), (?!), (?<…)) and pattern backreferences (\1-\9, (?P=…)).
+# NOT a cuDF version-lag — these need a BACKTRACKING engine, and libcudf's regex is
+# non-backtracking (finite-automata, GPU-parallel, linear-time), so they are excluded
+# by construction and NO RAPIDS version restores them (verified vs the cuDF 26.02 regex
+# feature doc: docs.rapids.ai/api/cudf/stable/libcudf_docs/md_regex/). Same limitation,
+# same reason, on polars + polars-gpu (Rust `regex` crate, also non-backtracking) — see
+# the twin guard `_regex_rust_incompatible` in lazy/engine/polars/predicates.py. Only
+# pandas (Python `re`, backtracking) supports them, so pandas is the honest fallback.
 _CUDF_REGEX_UNSUPPORTED = re.compile(r'\(\?=|\(\?!|\(\?<|\\[1-9]|\(\?P[=<]')
 
 
 def _cudf_regex_prep(pat: str, case: bool) -> Tuple[str, bool]:
-    """Adapt a regex for libcudf, which rejects inline flag groups (``(?i)``,
-    ``(?m)``, ``(?s)`` …) at ANY position (raises "invalid regex pattern").
+    """Adapt a regex for libcudf. Two distinct, both PERMANENT (not version-lag), limits:
 
-    A leading ``(?i)`` (case-insensitive) is translated to the caller's existing
-    lowercase-folding workaround (returns the flag-stripped pattern + ``case=False``);
-    any other inline flag has no cuDF equivalent, so decline honestly with
-    ``NotImplementedError`` rather than crash. Same decline for lookaround and
-    backreferences, which libcudf rejects at kernel-compile time. Surfaced by the
-    openCypher ``=~`` operator, which lowers ``=~ '(?i)…'`` to Match/Fullmatch
-    (viz-filter #1673).
+    1. Lookaround / backreferences (``_CUDF_REGEX_UNSUPPORTED`` above): architecturally
+       impossible on a non-backtracking engine — decline with ``NotImplementedError``.
+       polars/polars-gpu share this (Rust regex); pandas is the fallback.
+    2. Inline flag groups (``(?i)``, ``(?m)``, ``(?s)`` … at ANY position): unsupported
+       inline (26.02 doc verbatim: "The inline (?i...) ignore case format pattern is not
+       supported"); flags go via the out-of-band ``flags`` arg, which the Python
+       ``str.contains`` binding exposes for MULTILINE/DOTALL only — NOT IGNORECASE (dgx-
+       probed; see ``_cudf_casefold_or_decline``). So a leading ``(?i)`` is translated to
+       the caller's lowercase-folding workaround (returns the flag-stripped pattern +
+       ``case=False``); any other inline flag has no equivalent, so decline honestly.
+
+    Surfaced by the openCypher ``=~`` operator, which lowers ``=~ '(?i)…'`` to
+    Match/Fullmatch (viz-filter #1673).
     """
     if _CUDF_REGEX_UNSUPPORTED.search(pat):
         raise NotImplementedError(
@@ -456,9 +469,18 @@ def _cudf_regex_prep(pat: str, case: bool) -> Tuple[str, bool]:
 
 
 def _cudf_casefold_or_decline(pat: str) -> str:
-    """Lowercase-fold a pattern for the cuDF case-insensitive workaround (data is
-    lowercased, so the pattern must be too). Folding is UNSOUND for exactly three
-    shapes, declined honestly (each a silent wrong answer or crash otherwise):
+    """Lowercase-fold a pattern for the cuDF case-insensitive regex workaround (data is
+    lowercased, so the pattern must be too). This manual fold is the ONLY case-insensitive
+    REGEX mechanism cuDF's Python API offers, so the declines below are PERMANENT — not a
+    workaround pending a native flag, no RAPIDS version to wait for. Confirmed by dgx probe
+    on cudf 26.02.01: ``str.contains``/``match`` reject ``flags=re.IGNORECASE``
+    ("unsupported value for flags"; only MULTILINE/DOTALL are accepted) and ``case=False``
+    raises "only supported when regex=False". (libcudf's C++ ``regex_flags`` DOES have an
+    IGNORECASE bit, but the Python StringMethods binding does not expose it — so it is
+    unreachable from ``s.str.contains``.)
+
+    Folding is UNSOUND for exactly three shapes, declined honestly (each a silent wrong
+    answer or crash otherwise):
     uppercase escape classes (``.lower()`` turns ``\\D`` into ``\\d`` — INVERTS the
     predicate; dgx-repro'd, wave 1); case-crossing character ranges (``(?i)[A-z]``
     silently narrows, ``[X-b]`` folds to the invalid ``[x-b]``; wave 2); and
