@@ -444,6 +444,9 @@ def test_search_any_cypher_surface_all_engines():
         "MATCH (a) WHERE searchAny(a, 'a.pha', {regex: true}) RETURN a.id AS id": [0],
         "MATCH (a) WHERE searchAny(a, 'a') AND a.num > 10 RETURN a.id AS id": [1],
         "MATCH (a) WHERE NOT searchAny(a, 'a') RETURN a.id AS id": [2],
+        # two lifts in one WHERE compose independently (wave-2 S4):
+        # 'alpha'~{0}; '7'~{0 (num=7), 1 (77), 3 (gamma7)}; AND => [0]
+        "MATCH (a) WHERE searchAny(a, 'alpha') AND searchAny(a, '7') RETURN a.id AS id": [0],
     }
     for q, expected in oracle.items():
         pdf = _to_pd(g.gfql(q, engine="pandas")._nodes)
@@ -522,10 +525,15 @@ def test_search_any_null_and_float_stringify():
     where pandas astype(str) would stringify them ('nan'/'<NA>'); and explicit
     float-column stringification is parity-pinned (term '7' discriminates 7.5)."""
     from graphistry.compute.ast import search_any as search_any_op
+    from graphistry.compute.exceptions import GFQLValidationError
     nd = pd.DataFrame({
         "id": [0, 1, 2],
-        "f": [7.5, None, 1.25],
+        # 7.25 sits on a row with NO int-column '7' so a float wrongly entering the
+        # auto gate flips row 2 — the wave-1 fixture (7.5 on the ni=7 row) could not
+        # discriminate (wave-2 W2-1)
+        "f": [0.5, None, 7.25],
         "ni": pd.array([7, None, 3], dtype="Int64"),
+        "flag": pd.array([True, None, False], dtype="boolean"),
     })
     ed = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
     g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
@@ -538,16 +546,36 @@ def test_search_any_null_and_float_stringify():
         got = _to_pd(g.gfql(q(**kw), engine="pandas")._nodes).sort_values("id")["__hit__"].tolist()
         assert got == [False, False, False], f"null cells matched {term!r}: {got}"
         _assert_invariant(g, q(**kw), f"search_any nulls {term}")
-    # floats stay OUT of the auto gate even when they'd match stringified ('7' in '7.5');
-    # numeric term still probes int cols (id, ni) — none contain '7' except ni=7
+    # floats stay OUT of the auto gate even when they'd match stringified ('7' in
+    # '7.25'); numeric term still probes int cols — ni=7 hits row 0 ONLY
     got = _to_pd(g.gfql(q(term="7"), engine="pandas")._nodes).sort_values("id")["__hit__"].tolist()
-    assert got == [True, False, False], f"auto gate drift: {got}"  # ni=7 only, NOT f=7.5
+    assert got == [True, False, False], f"auto gate drift: {got}"  # NOT [.., .., True]
     _assert_invariant(g, q(term="7"), "search_any float auto-gate")
     # explicit float column: canonical toString, discriminating pin (I3)
     kw = dict(term="7", columns=["f"])
     got = _to_pd(g.gfql(q(**kw), engine="pandas")._nodes).sort_values("id")["__hit__"].tolist()
-    assert got == [True, False, False], f"float stringify drift: {got}"
+    assert got == [False, False, True], f"float stringify drift: {got}"
     _assert_invariant(g, q(**kw), "search_any float explicit")
+    # explicit BOOL column under caseSensitive: pandas renders 'True' — polars must
+    # match (canonicalized) or NIE, never silently miss (wave-2 W2-3)
+    kw = dict(term="True", columns=["flag"], case_sensitive=True)
+    got = _to_pd(g.gfql(q(**kw), engine="pandas")._nodes).sort_values("id")["__hit__"].tolist()
+    assert got == [True, False, False], f"bool stringify drift: {got}"
+    _assert_invariant(g, q(**kw), "search_any bool explicit cs")
+    # missing explicit column raises the SAME E108 natively on polars — a generic
+    # NIE here would misreport a user error as an engine gap (wave-2 W2-2)
+    import polars as pl
+    gpl = graphistry.nodes(pl.from_pandas(nd), "id").edges(
+        pl.from_pandas(ed), "s", "d").bind(edge="eid")
+    with pytest.raises(GFQLValidationError, match="absent"):
+        gpl.gfql(q(term="x", columns=["nope"]), engine="polars")
+    # explicit TEMPORAL column: stringification is engine-divergent — polars
+    # declines honestly (NIE) instead of risking a silent mismatch (wave-2 W2-3)
+    ndt = nd.assign(t=pd.to_datetime(["2020-01-02", "2021-03-04", "2022-05-06"]))
+    gplt = graphistry.nodes(pl.from_pandas(ndt), "id").edges(
+        pl.from_pandas(ed), "s", "d").bind(edge="eid")
+    with pytest.raises(NotImplementedError):
+        gplt.gfql(q(term="2020", columns=["t"]), engine="polars")
 
 
 def test_search_any_edge_alias():

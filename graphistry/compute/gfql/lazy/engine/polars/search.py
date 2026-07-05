@@ -69,9 +69,33 @@ def search_any_polars(
         return _rewrap(g, marked)
     if regex and _regex_rust_incompatible(term):
         return None
+    # Explicit columns= reaches beyond the auto gate: only dtypes whose canonical
+    # toString provably matches the pandas kernel are searched natively — floats/ints
+    # render identically; Boolean is canonicalized below (polars 'true' vs pandas
+    # 'True' was a SILENT divergence under caseSensitive — wave-2 W2-3); everything
+    # else (temporal, categorical, nested) declines honestly.
+    _stringify_ok = {
+        pl.String, pl.Boolean, pl.Float32, pl.Float64,
+        pl.Int8, pl.Int16, pl.Int32, pl.Int64,
+        pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64,
+    }
+    if any(schema[real] not in _stringify_ok for real in chosen):
+        return None
     exprs = []
     for real in chosen:
-        base = pl.col(real) if schema[real] == pl.String else pl.col(real).cast(pl.String)
+        dt = schema[real]
+        if dt == pl.String:
+            base = pl.col(real)
+        elif dt == pl.Boolean:
+            # null cells must STAY null (never match) — bare when/otherwise would
+            # send null conditions to the 'False' branch
+            base = (
+                pl.when(pl.col(real).is_null()).then(pl.lit(None, dtype=pl.String))
+                .when(pl.col(real)).then(pl.lit("True"))
+                .otherwise(pl.lit("False"))
+            )
+        else:
+            base = pl.col(real).cast(pl.String)
         if regex:
             pat = term if case_sensitive else f"(?i){term}"
             exprs.append(base.str.contains(pat, literal=False))
