@@ -5765,8 +5765,7 @@ def _where_expr_tree_pattern_predicates(expr: BooleanExpr) -> List[WherePatternP
                 )
             out.append(WherePatternPredicate(
                 pattern=cur.pattern, span=cur.span, negated=False,
-                pattern_origin=getattr(cur, "pattern_origin", "bare"),
-                pattern_neq=getattr(cur, "pattern_neq", None)))
+                pattern_origin=cur.pattern_origin, pattern_neq=cur.pattern_neq))
             continue
         if cur.left is not None:
             stack.append(cur.left)
@@ -5802,7 +5801,7 @@ def _lower_pattern_predicate_to_row_marker(
         )
 
     introduced_aliases = sorted(alias for alias in predicate_aliases if alias not in alias_targets)
-    if introduced_aliases and getattr(predicate, "pattern_origin", "bare") != "exists":
+    if introduced_aliases and predicate.pattern_origin != "exists":
         # EXISTS { } subquery aliases are EXISTENTIALLY quantified (locals) — the
         # bindings table projects them away; bare pattern predicates keep the
         # conservative guard (viz-filter L1).
@@ -5836,7 +5835,7 @@ def _lower_pattern_predicate_to_row_marker(
         binding_ops=serialize_binding_ops(pattern_ops),
         join_aliases=shared_aliases,
         out_col=out_col,
-        neq=getattr(predicate, "pattern_neq", None),
+        neq=predicate.pattern_neq,
     )
 
 
@@ -5879,8 +5878,7 @@ def _rewrite_where_expr_patterns_to_markers(
                 _lower_pattern_predicate_to_row_marker(
                     WherePatternPredicate(
                         pattern=expr.pattern, span=expr.span, negated=False,
-                        pattern_origin=getattr(expr, "pattern_origin", "bare"),
-                        pattern_neq=getattr(expr, "pattern_neq", None)),
+                        pattern_origin=expr.pattern_origin, pattern_neq=expr.pattern_neq),
                     alias_targets=alias_targets,
                     params=params,
                     out_col=marker_col,
@@ -5946,7 +5944,7 @@ def _lower_negated_pattern_predicate_to_row_filter(
         )
 
     introduced_aliases = sorted(alias for alias in predicate_aliases if alias not in alias_targets)
-    if introduced_aliases and getattr(predicate, "pattern_origin", "bare") != "exists":
+    if introduced_aliases and predicate.pattern_origin != "exists":
         # EXISTS { } subquery aliases are EXISTENTIALLY quantified (locals) — the
         # bindings table projects them away; bare pattern predicates keep the
         # conservative guard (viz-filter L1).
@@ -5979,7 +5977,7 @@ def _lower_negated_pattern_predicate_to_row_filter(
     return anti_semi_apply(
         binding_ops=serialize_binding_ops(pattern_ops),
         join_aliases=shared_aliases,
-        neq=getattr(predicate, "pattern_neq", None),
+        neq=predicate.pattern_neq,
     )
 
 

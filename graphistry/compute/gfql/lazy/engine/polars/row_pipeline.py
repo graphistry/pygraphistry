@@ -794,6 +794,14 @@ def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plott
 
 # ---- correlated pattern-existence family (EXISTS { } / bare pattern predicates) ----
 
+def _rows_base_graph(g: Plottable) -> Plottable:
+    """The ORIGINAL graph threaded by the boundary lane (`_gfql_rows_base_graph`
+    setattr convention, mirrored from the pandas lane at compute/chain.py) — the one
+    sanctioned dynamic read, contained here; falls back to the current graph."""
+    base = getattr(g, "_gfql_rows_base_graph", None)
+    return base if base is not None else g
+
+
 def _binding_ast_ops(binding_ops: Sequence[dict]) -> Optional[List[Any]]:
     """Deserialize the semi-apply family's serialized binding ops; None on failure."""
     from graphistry.compute.ast import from_json as ast_from_json
@@ -816,11 +824,11 @@ def rows_binding_ops_polars(g: Plottable, binding_ops: Sequence[dict]) -> Option
     if ops is None or len(ops) != 1 or not isinstance(ops[0], _ASTNode):
         return None
     op = ops[0]
-    alias = getattr(op, "_name", None)
-    if not isinstance(alias, str) or getattr(op, "query", None):
+    alias = op._name
+    if not isinstance(alias, str) or op.query:
         return None
-    base_graph = getattr(g, "_gfql_rows_base_graph", None) or g
-    node_id = base_graph._node if isinstance(base_graph._node, str) and base_graph._node else "id"
+    base_graph = _rows_base_graph(g)
+    node_id = base_graph._node or "id"  # Plottable._node: Optional[str]
     nodes = base_graph._nodes
     if nodes is None or node_id not in nodes.columns:
         return None
@@ -829,7 +837,7 @@ def rows_binding_ops_polars(g: Plottable, binding_ops: Sequence[dict]) -> Option
         # start-nodes constrain the scan like the pandas prev_node_wavefront does.
         # Normalize to EAGER: an eager.join(LazyFrame) raises and would silently
         # decline the whole wavefront-constrained case (wave-2 W2-3).
-        sn = start_nodes.collect() if hasattr(start_nodes, "collect") else start_nodes
+        sn = start_nodes.collect() if isinstance(start_nodes, pl.LazyFrame) else start_nodes
         try:
             nodes = nodes.join(sn.select(node_id).unique(), on=node_id, how="semi")
         except Exception:
@@ -879,23 +887,22 @@ def _pattern_alias_keys_polars(
         or not isinstance(ops[2], _ASTNode)
     ):
         return None
-    edge_op = ops[1]
-    hops = getattr(edge_op, "hops", None)
-    if hops not in (None, 1) or getattr(edge_op, "to_fixed_point", False):
+    n0, edge_op, n2 = ops[0], ops[1], ops[2]  # locals: mypy narrows these, not ops[i]
+    if edge_op.hops not in (None, 1) or edge_op.to_fixed_point:
         return None
-    if getattr(edge_op, "min_hops", None) not in (None, 1) or getattr(edge_op, "max_hops", None) not in (None, 1):
+    if edge_op.min_hops not in (None, 1) or edge_op.max_hops not in (None, 1):
         return None
-    if alias not in (getattr(ops[0], "_name", None), getattr(ops[2], "_name", None)):
+    if alias not in (n0._name, n2._name):
         return None
-    if any(getattr(op, "query", None) for op in (ops[0], ops[2])):
+    if n0.query or n2.query:
         return None
-    base_graph = getattr(g, "_gfql_rows_base_graph", None) or g
-    node_id = base_graph._node if isinstance(base_graph._node, str) and base_graph._node else "id"
+    base_graph = _rows_base_graph(g)
+    node_id = base_graph._node or "id"  # Plottable._node: Optional[str]
     if neq:
         # EXISTS { (n)--(m) WHERE m <> n } — for the single-edge shape, endpoint
         # inequality == "witnessed by a NON-self-loop edge": pre-drop self loops and
         # reuse the same key computation. Any other neq spelling declines.
-        endpoint_names = {getattr(ops[0], "_name", None), getattr(ops[2], "_name", None)}
+        endpoint_names = {n0._name, n2._name}
         if set(neq) != endpoint_names or len(set(neq)) != 2:
             return None
         edges = base_graph._edges
@@ -952,8 +959,8 @@ def semi_apply_mark_polars(
     left = _active_table(g)
     if left is None:
         return None
-    base_graph = getattr(g, "_gfql_rows_base_graph", None) or g
-    node_id = base_graph._node if isinstance(base_graph._node, str) and base_graph._node else "id"
+    base_graph = _rows_base_graph(g)
+    node_id = base_graph._node or "id"  # Plottable._node: Optional[str]
     join_col = _semi_apply_join_col(left, alias, node_id)
     if join_col is None:
         return None
@@ -985,8 +992,8 @@ def anti_semi_apply_polars(
     left = _active_table(g)
     if left is None:
         return None
-    base_graph = getattr(g, "_gfql_rows_base_graph", None) or g
-    node_id = base_graph._node if isinstance(base_graph._node, str) and base_graph._node else "id"
+    base_graph = _rows_base_graph(g)
+    node_id = base_graph._node or "id"  # Plottable._node: Optional[str]
     join_col = _semi_apply_join_col(left, alias, node_id)
     if join_col is None:
         return None

@@ -371,14 +371,15 @@ def _try_native_row_op(g_cur, op):
     ):
         return rows_binding_ops_polars(g_cur, op.params["binding_ops"])
     if fn == "semi_apply_mark":
+        # required params are safelist-validated — direct indexing (an or-default
+        # here could only mask an unvalidated call); neq is the optional one.
         return semi_apply_mark_polars(
-            g_cur, op.params.get("binding_ops") or [],
-            op.params.get("join_aliases") or [], op.params.get("out_col") or "",
-            neq=op.params.get("neq"),
+            g_cur, op.params["binding_ops"], op.params["join_aliases"],
+            op.params["out_col"], neq=op.params.get("neq"),
         )
     if fn == "anti_semi_apply":
         return anti_semi_apply_polars(
-            g_cur, op.params.get("binding_ops") or [], op.params.get("join_aliases") or [],
+            g_cur, op.params["binding_ops"], op.params["join_aliases"],
             neq=op.params.get("neq"),
         )
     if fn in ("select", "return_"):

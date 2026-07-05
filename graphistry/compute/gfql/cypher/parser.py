@@ -505,14 +505,12 @@ def _build_where_with_pattern_lift(
         assert leaf.pattern is not None, "pattern_atom invariant: pattern payload always set"
         pattern_preds.append(WherePatternPredicate(
             pattern=leaf.pattern, span=leaf.span, negated=False,
-            pattern_origin=getattr(leaf, "pattern_origin", "bare"),
-            pattern_neq=getattr(leaf, "pattern_neq", None)))
+            pattern_origin=leaf.pattern_origin, pattern_neq=leaf.pattern_neq))
     for leaf in negated_pattern_leaves:
         assert leaf.pattern is not None, "pattern_atom invariant: pattern payload always set"
         pattern_preds.append(WherePatternPredicate(
             pattern=leaf.pattern, span=leaf.span, negated=True,
-            pattern_origin=getattr(leaf, "pattern_origin", "bare"),
-            pattern_neq=getattr(leaf, "pattern_neq", None)))
+            pattern_origin=leaf.pattern_origin, pattern_neq=leaf.pattern_neq))
     new_expr_tree = _rebuild_and_tree(other_conjuncts)
     if new_expr_tree is None:
         return WhereClause(predicates=tuple(pattern_preds), expr_tree=None, span=span)
@@ -1258,7 +1256,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             pattern_pred = self._parse_single_where_pattern_predicate_text(inner, span)
             if neq is not None:
                 endpoint_names = {
-                    getattr(el, "variable", None)
+                    el.variable  # both PatternElement members declare variable
                     for el in (pattern_pred.pattern[0], pattern_pred.pattern[-1])
                 }
                 if set(neq) != endpoint_names or neq[0] == neq[1]:
