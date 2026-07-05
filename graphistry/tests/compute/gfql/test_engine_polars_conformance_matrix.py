@@ -609,6 +609,33 @@ def test_search_any_edge_alias():
     _assert_invariant(g, q, "searchAny-edge-alias")
 
 
+def test_search_any_nested_object_column_skipped():
+    """viz-filter searchAny 2a (inspector parity): a list/object-non-string column is
+    SKIPPED by the auto gate (the streamgl-viz inspector's shouldSearch only fires on string
+    dtype), not included-then-silently-never-matched. This is fundamentally a PANDAS-path fix
+    (object-dtype is ambiguous — it can hold lists); polars/cudf use typed List columns and
+    never had the bug. Verify the pandas skip + polars parity directly (a pandas list column
+    does not round-trip to cudf — an orthogonal representation limit, not searchAny's)."""
+    nd = pd.DataFrame({
+        "id": [0, 1, 2],
+        "name": ["xx", "yy", "zz"],                 # real string col; carries NO tag token
+        "tags": [["a", "acme"], ["b"], ["acme"]],   # object/list col — must be SKIPPED
+    })
+    ed = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    # 'acme' exists ONLY inside the list column: correct = zero matches (tags skipped); a
+    # regression that searched tags would return ids 0,2.
+    q = "MATCH (a) WHERE searchAny(a, 'acme') RETURN a.id AS id"
+    assert _to_pd(g.gfql(q, engine="pandas")._nodes)["id"].tolist() == [], "list col must be skipped"
+    if "polars" in _NONPANDAS_ENGINES:  # polars typed-List column: also skips → same empty result
+        assert _run(g, q, "polars") == _run(g, q, "pandas"), "polars nested-skip divergence"
+    # sanity: the real string column is still searched (list column present, unaffected)
+    q2 = "MATCH (a) WHERE searchAny(a, 'yy') RETURN a.id AS id"
+    assert _to_pd(g.gfql(q2, engine="pandas")._nodes)["id"].tolist() == [1]
+    if "polars" in _NONPANDAS_ENGINES:
+        assert _run(g, q2, "polars") == _run(g, q2, "pandas"), "polars string-search divergence"
+
+
 def test_exists_polars_internal_decline_branches():
     """Coverage pins for the honest-decline branches of the polars semi-apply family
     (each returns None -> the boundary lane raises NIE): non-single/unnamed/query=/

@@ -30,18 +30,40 @@ def _is_int_dtype(dtype: object) -> bool:
     return bool(pat.is_integer_dtype(dtype))
 
 
+def _has_string_content(df: DataFrameT, c: object) -> bool:
+    """True iff column ``c`` holds STRINGS (a real string dtype, or an object column whose
+    values are actually strings). An object column of lists/dicts/mixed is NOT string
+    content — the streamgl-viz inspector skips such columns (``shouldSearch`` only fires on
+    ``dataType === 'string'``), so the auto gate skips them too rather than include-then-
+    silently-never-match on a ``Contains``-over-lists path (viz-filter searchAny 2a)."""
+    import pandas.api.types as pat
+    s = df[c]
+    is_cudf = "cudf" in type(s).__module__
+    # The list/dict ambiguity is PANDAS-only (numpy `object` can hold arbitrary python
+    # objects); cuDF/polars use typed columns (a list is a typed List, not object), and
+    # infer_dtype does NOT accept a cuDF Series — so only inspect contents for numpy-object.
+    if not is_cudf and s.dtype == object:
+        try:
+            return pat.infer_dtype(s, skipna=True) in ("string", "empty")
+        except Exception:
+            return False
+    return bool(pat.is_string_dtype(s.dtype))  # StringDtype / cuDF str; cuDF List -> False
+
+
 def search_candidate_columns(
     df: DataFrameT, term: str, columns: Optional[List[str]]
 ) -> Optional[List[str]]:
     """Columns to search: the explicit list (None if any is missing — caller declines
-    loudly) or the auto dtype gate."""
+    loudly) or the auto dtype gate (mirrors the streamgl-viz inspector's ``shouldSearch``:
+    string cols always; integer cols iff the term is a numeric literal; nested/bool/other
+    skipped — see research/searchany-inspector-parity.md)."""
     if columns is not None:
         return list(columns) if all(c in df.columns for c in columns) else None
     numeric_ok = is_numeric_term(term)
     out: List[str] = []
     for c in df.columns:
         dt = df[c].dtype
-        if _is_searchable_string_dtype(dt):
+        if _has_string_content(df, c):
             out.append(c)
         elif numeric_ok and _is_int_dtype(dt):
             out.append(c)
