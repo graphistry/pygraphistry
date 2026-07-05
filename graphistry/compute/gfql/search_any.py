@@ -59,6 +59,23 @@ def search_any_mask(
     cols = search_candidate_columns(df, term, columns)
     if cols is None:
         return None
+    if columns is not None and "cudf" in type(df).__module__:
+        # Explicit columns= reaches beyond the auto gate; cuDF's astype(str) float
+        # rendering DIVERGES from pandas (dgx-probed: 0.1+0.2 -> '0.3' vs
+        # '0.30000000000000004'; 1e16 -> '1.0e+16' vs '1e+16'; long mantissas
+        # truncate) and temporal is unverified — decline honestly rather than
+        # silently mismatch the pandas oracle (wave-3 W3-1). string/int/bool render
+        # identically (bool parity is pinned) and stay native.
+        import pandas.api.types as pat
+        for c in cols:
+            dt = df[c].dtype
+            if not (_is_searchable_string_dtype(dt) or _is_int_dtype(dt)
+                    or bool(pat.is_bool_dtype(dt))):
+                raise NotImplementedError(
+                    "cuDF searchAny explicit columns support string/int/bool dtypes "
+                    "only (float/temporal stringification diverges from pandas); "
+                    "use engine='pandas'"
+                )
     if not cols or len(df) == 0:
         if len(df.columns) == 0:
             return None

@@ -326,8 +326,8 @@ and ``RETURN`` expressions:
   terms. Runs natively on all four engines for node aliases; an edge-alias
   ``searchAny(r, ...)`` declines honestly on polars pending multi-entity
   binding-row support (use ``engine='pandas'``), and explicit non-string
-  columns beyond ints/bools likewise decline on polars rather than risk
-  divergent stringification (float repr differs in the exponent regime). The regex path obeys the same
+  columns beyond ints/bools likewise decline on polars and cuDF rather than
+  risk divergent stringification (float repr differs across engines). The regex path obeys the same
   per-engine decline rules as ``=~``. Python twins:
   :meth:`ComputeMixin.search_nodes` / :meth:`ComputeMixin.search_edges`.
 

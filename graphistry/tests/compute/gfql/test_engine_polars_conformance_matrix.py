@@ -518,6 +518,13 @@ def test_search_any_cudf_regex_guards():
     assert got.to_pandas().tolist() == [True, False]
     got_cs = search_any_mask(df, r"\d{4}", regex=True, case_sensitive=True)
     assert got_cs.to_pandas().tolist() == [False, True]
+    # explicit FLOAT column on cuDF: astype(str) rendering diverges from pandas
+    # (dgx-probed: 0.1+0.2 -> '0.3', 1e16 -> '1.0e+16', mantissa truncation) —
+    # honest NIE, never a silent oracle mismatch (wave-3 W3-1); string stays native
+    dff = cudf.DataFrame({"f": [0.1 + 0.2, 7.25], "s": ["x", "y"]})
+    with pytest.raises(NotImplementedError):
+        search_any_mask(dff, "0.3", columns=["f"])
+    assert search_any_mask(dff, "x", columns=["s"]).to_pandas().tolist() == [True, False]
 
 
 def test_search_any_null_and_float_stringify():

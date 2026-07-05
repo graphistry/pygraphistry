@@ -303,12 +303,16 @@ def execute_call(g: Plottable, function: str, params: Dict[str, Any], engine: En
         ) from error
     if isinstance(error, GFQLTypeError):
         raise error
-    if isinstance(error, NotImplementedError) and engine in (Engine.POLARS, Engine.POLARS_GPU):
+    if isinstance(error, NotImplementedError) and (
+        engine in (Engine.POLARS, Engine.POLARS_GPU) or is_row_pipeline_call(function)
+    ):
         # Honest engine-capability decline — propagate as-is so the DAG surface matches the chain
-        # surface's NotImplementedError. Sources: call_mode='strict' off-engine decline, and the
-        # polars-gpu GPU-or-error when cuDF is unavailable (_bridge_graph_for_offengine_call).
-        # Gated to the polars engines: a pandas/cudf NIE (e.g. fa2_layout requiring a GPU) must
-        # still fall through to the GFQLTypeError(E303) wrapper below, not leak as a bare NIE.
+        # surface's NotImplementedError. Sources: call_mode='strict' off-engine decline, the
+        # polars-gpu GPU-or-error when cuDF is unavailable (_bridge_graph_for_offengine_call),
+        # and row-pipeline kernels' per-engine declines on ANY engine (searchAny's cuDF
+        # regex/dtype gates — the parity-or-NIE contract needs them to SURFACE as NIE).
+        # Non-row-pipeline pandas/cudf NIEs (e.g. fa2_layout requiring a GPU) still fall
+        # through to the GFQLTypeError(E303) wrapper below, not leak as a bare NIE.
         raise error
     if error is not None:
         raise GFQLTypeError(
