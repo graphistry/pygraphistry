@@ -233,6 +233,13 @@ def _cypher_expression_queries():
         ("regex_ci_fold_unsafe_declines", "MATCH (n) WHERE n.name =~ '(?i)\\\\D+' RETURN n.id AS id"),
         ("regex_lookbehind_declines", "MATCH (n) WHERE n.name =~ 'node(?<=e).*' RETURN n.id AS id"),
         ("regex_composed_or", "MATCH (n) WHERE n.name =~ 'node.1' OR n.num > 1000 RETURN n.id AS id"),
+        # viz-filter L1: EXISTS { } pattern subqueries — semi_apply_mark/anti_semi_apply
+        # run NATIVELY on polars (chain-flag key sets); parity-or-NIE 4-engine.
+        ("exists_neighbor", "MATCH (n) WHERE EXISTS { (n)-->() } RETURN n.id AS id"),
+        ("exists_neighbor_undirected", "MATCH (n) WHERE EXISTS { (n)--() } RETURN n.id AS id"),
+        ("not_exists_neighbor", "MATCH (n) WHERE NOT EXISTS { (n)--() } RETURN n.id AS id"),
+        ("exists_far_node_prop", "MATCH (n) WHERE EXISTS { (n)-->({num: 50}) } RETURN n.id AS id"),
+        ("exists_composed_and", "MATCH (n) WHERE EXISTS { (n)-->() } AND n.num < 50 RETURN n.id AS id"),
     ]
 
 
@@ -463,7 +470,8 @@ def _rowop_exercised():
     """ROW_PIPELINE_CALLS ops with a labeled SUBJECT here (importable for the ledger): `with_`
     (with_extend*/in-membership), `unwind` (unwind_* native+NIE), and the _ROW_OP_CASES ops
     (chain+dag). Ops exercised only implicitly via cypher text (RETURN->select etc.) stay ledger
-    waivers; only semi_apply_mark/anti_semi_apply/join_apply remain honest-NIE waivers now."""
+    waivers; semi_apply_mark/anti_semi_apply are now NATIVE on polars and exercised implicitly by
+    the EXISTS { } cypher cases (exists_neighbor etc.); join_apply remains the honest-NIE waiver."""
     return {
         "with_", "unwind",
         "rows", "skip", "limit", "distinct", "drop_cols",

@@ -790,3 +790,170 @@ def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plott
     values = [it.value for it in node.items if isinstance(it, Literal)]
     rhs = pl.DataFrame({as_: values})
     return _rewrap(g, table.join(rhs, how="cross"))
+
+
+# ---- correlated pattern-existence family (EXISTS { } / bare pattern predicates) ----
+
+def _binding_ast_ops(binding_ops: Sequence[dict]) -> Optional[List[Any]]:
+    """Deserialize the semi-apply family's serialized binding ops; None on failure."""
+    from graphistry.compute.ast import from_json as ast_from_json
+    try:
+        return [ast_from_json(op_json, validate=False) for op_json in binding_ops]
+    except Exception:
+        return None
+
+
+def rows_binding_ops_polars(g: Plottable, binding_ops: Sequence[dict]) -> Optional[Plottable]:
+    """Native ``rows(binding_ops=[...])`` for the SINGLE named-Node case — the shape the
+    boundary rewrite emits for a one-entity MATCH (the EXISTS pipeline's left table).
+    Mirrors the pandas ``_gfql_node_alias_lookup_frame`` layout exactly:
+    ``[node_id, alias, alias.node_id, alias.<col>...]`` in source column order.
+    Anything else (multi-op, edge ops, unnamed, node query=) declines (None -> NIE)."""
+    import polars as pl
+    from graphistry.compute.ast import ASTNode as _ASTNode
+    from .predicates import filter_by_dict_polars
+    ops = _binding_ast_ops(binding_ops)
+    if ops is None or len(ops) != 1 or not isinstance(ops[0], _ASTNode):
+        return None
+    op = ops[0]
+    alias = getattr(op, "_name", None)
+    if not isinstance(alias, str) or getattr(op, "query", None):
+        return None
+    base_graph = getattr(g, "_gfql_rows_base_graph", None) or g
+    node_id = base_graph._node if isinstance(base_graph._node, str) and base_graph._node else "id"
+    nodes = base_graph._nodes
+    if nodes is None or node_id not in nodes.columns:
+        return None
+    start_nodes = getattr(g, "_gfql_start_nodes", None)
+    if start_nodes is not None:
+        # start-nodes constrain the scan like the pandas prev_node_wavefront does
+        sn = start_nodes.lazy() if hasattr(start_nodes, "lazy") else start_nodes
+        try:
+            nodes = nodes.join(sn.select(node_id).unique(), on=node_id, how="semi")
+        except Exception:
+            return None
+    try:
+        matched = filter_by_dict_polars(nodes, getattr(op, "filter_dict", None))
+    except NotImplementedError:
+        raise
+    except Exception:
+        return None
+    if matched is None:
+        return None
+    lookup = matched.select(
+        [pl.col(node_id),
+         pl.col(node_id).alias(alias),
+         pl.col(node_id).alias(f"{alias}.{node_id}")]
+        + [pl.col(c).alias(f"{alias}.{c}") for c in matched.columns if c != node_id]
+    )
+    return _rewrap(g, lookup)
+
+
+def _pattern_alias_keys_polars(g: Plottable, binding_ops: Sequence[dict], alias: str) -> Optional[Any]:
+    """Ids of ``alias``'s nodes that participate in the (single) pattern — the semi-apply
+    right side — computed by running the binding chain NATIVELY via ``chain_polars`` on the
+    base graph and reading the named-op flag column (the chain's backward prune makes the
+    flag exactly 'a full pattern match exists through this node'). v1: [Node, Edge, Node]
+    single-hop shapes only; the join alias must be a NAMED endpoint. None declines (NIE)."""
+    import polars as pl
+    from graphistry.compute.ast import ASTNode as _ASTNode, ASTEdge as _ASTEdge
+    ops = _binding_ast_ops(binding_ops)
+    if (
+        ops is None or len(ops) != 3
+        or not isinstance(ops[0], _ASTNode) or not isinstance(ops[1], _ASTEdge)
+        or not isinstance(ops[2], _ASTNode)
+    ):
+        return None
+    edge_op = ops[1]
+    hops = getattr(edge_op, "hops", None)
+    if hops not in (None, 1) or getattr(edge_op, "to_fixed_point", False):
+        return None
+    if getattr(edge_op, "min_hops", None) not in (None, 1) or getattr(edge_op, "max_hops", None) not in (None, 1):
+        return None
+    if alias not in (getattr(ops[0], "_name", None), getattr(ops[2], "_name", None)):
+        return None
+    if any(getattr(op, "query", None) for op in (ops[0], ops[2])):
+        return None
+    base_graph = getattr(g, "_gfql_rows_base_graph", None) or g
+    node_id = base_graph._node if isinstance(base_graph._node, str) and base_graph._node else "id"
+    from .chain import chain_polars  # local: chain imports this module at call time
+    try:
+        out = chain_polars(base_graph, list(ops))
+    except NotImplementedError:
+        return None
+    out_nodes = out._nodes
+    if out_nodes is None or alias not in out_nodes.columns or node_id not in out_nodes.columns:
+        # empty match -> no keys (an empty id frame, NOT a decline)
+        if out_nodes is not None and node_id in out_nodes.columns:
+            return out_nodes.select(node_id).head(0)
+        return None
+    return (
+        out_nodes.filter(pl.col(alias).fill_null(False))
+        .select(node_id)
+        .unique()
+    )
+
+
+def _semi_apply_join_col(left: Any, alias: str, node_id: str) -> Optional[str]:
+    """Mirror the pandas join-column choice: prefer ``alias.node_id``, else bare ``alias``."""
+    for cand in (f"{alias}.{node_id}", alias):
+        if cand in left.columns:
+            return cand
+    return None
+
+
+def semi_apply_mark_polars(
+    g: Plottable, binding_ops: Sequence[dict], join_aliases: Sequence[str], out_col: str
+) -> Optional[Plottable]:
+    """Native polars ``semi_apply_mark``: boolean existence marker per active row.
+    v1: exactly ONE join alias (two-alias correlation needs PAIR bindings, which the
+    flag-column route cannot express — declines to honest NIE)."""
+    import polars as pl
+    if len(join_aliases) != 1 or not isinstance(out_col, str) or not out_col:
+        return None
+    alias = join_aliases[0]
+    left = _active_table(g)
+    if left is None:
+        return None
+    base_graph = getattr(g, "_gfql_rows_base_graph", None) or g
+    node_id = base_graph._node if isinstance(base_graph._node, str) and base_graph._node else "id"
+    join_col = _semi_apply_join_col(left, alias, node_id)
+    if join_col is None:
+        return None
+    keys = _pattern_alias_keys_polars(g, binding_ops, alias)
+    if keys is None:
+        return None
+    key_series = keys.get_column(keys.columns[0])
+    # is_in (not a join): row ORDER is preserved trivially, and a NULL key marks False
+    # like the pandas merge-no-match path (null -> fill_null(False)).
+    marked = left.with_columns(
+        pl.col(join_col).is_in(key_series).fill_null(False).alias(out_col)
+    )
+    return _rewrap(g, marked)
+
+
+def anti_semi_apply_polars(
+    g: Plottable, binding_ops: Sequence[dict], join_aliases: Sequence[str]
+) -> Optional[Plottable]:
+    """Native polars ``anti_semi_apply``: drop active rows whose alias node participates
+    in the pattern (NOT EXISTS / negated pattern predicate). Same v1 bounds as the mark."""
+    if len(join_aliases) != 1:
+        return None
+    alias = join_aliases[0]
+    left = _active_table(g)
+    if left is None:
+        return None
+    base_graph = getattr(g, "_gfql_rows_base_graph", None) or g
+    node_id = base_graph._node if isinstance(base_graph._node, str) and base_graph._node else "id"
+    join_col = _semi_apply_join_col(left, alias, node_id)
+    if join_col is None:
+        return None
+    keys = _pattern_alias_keys_polars(g, binding_ops, alias)
+    if keys is None:
+        return None
+    key_series = keys.get_column(keys.columns[0])
+    import polars as pl
+    # filter (not an anti-join): order preserved; a NULL key row SURVIVES like the
+    # pandas merge-no-match path (is_in null -> fill_null(False) -> not_ -> True).
+    kept = left.filter(pl.col(join_col).is_in(key_series).fill_null(False).not_())
+    return _rewrap(g, kept)

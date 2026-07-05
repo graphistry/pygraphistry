@@ -138,8 +138,8 @@ CALL_KNOWN_UNCOVERED: dict[str, str] = {
     "unwind": "list explode; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
     "group_by": "grouped aggregation; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
     "count_table": "count(*) short-circuit fast path (table height / source-mask sum); native frame op emitted by the cypher lowering, exercised as a labeled subject via _ROW_OP_CASES + the count_all_nodes/edges cypher cases, not via a direct call() consistency label. TODO.",
-    "semi_apply_mark": "correlated EXISTS-mark; row-pipeline op honest-NIE under polars; not asserted. TODO.",
-    "anti_semi_apply": "anti-semi correlated filter; row-pipeline op honest-NIE under polars; not asserted. TODO.",
+    "semi_apply_mark": "correlated EXISTS-mark; NATIVE on polars (viz-filter L1), exercised implicitly by the matrix EXISTS cypher cases; no direct labeled subject.",
+    "anti_semi_apply": "anti-semi correlated filter; NATIVE on polars (viz-filter L1), exercised implicitly by the matrix NOT-EXISTS cypher case; no direct labeled subject.",
     "join_apply": "correlated row join; row-pipeline op honest-NIE under polars; not asserted. TODO.",
     # Plottable-method calls: no native polars impl; pandas/cuDF only -> no-silent-bridge NIE under polars.
     # Class covered by test_engine_polars_no_silent_call_bridge (hypergraph representative); each TODO individually.
@@ -194,8 +194,8 @@ CALL_KNOWN_UNCOVERED: dict[str, str] = {
 
 ROW_OP_KNOWN_UNCOVERED: dict[str, str] = {
     # honest NIE — correlated-subquery ops with no native polars lowering (_try_native_row_op returns None)
-    "semi_apply_mark": "honest NIE — correlated EXISTS-mark op has no native polars lowering. TODO: add an explicit NIE-assertion case.",
-    "anti_semi_apply": "honest NIE — correlated anti-semi op has no native polars lowering. TODO: add an explicit NIE-assertion case.",
+    "semi_apply_mark": "native single-join-alias polars lowering (viz-filter L1); multi-alias correlation still declines NIE; exercised via cypher EXISTS cases, no labeled rowop subject.",
+    "anti_semi_apply": "native single-join-alias polars lowering (viz-filter L1); multi-alias correlation still declines NIE; exercised via cypher NOT-EXISTS case, no labeled rowop subject.",
     "join_apply": "honest NIE — correlated join op has no native polars lowering. TODO: add an explicit NIE-assertion case.",
 }
 
