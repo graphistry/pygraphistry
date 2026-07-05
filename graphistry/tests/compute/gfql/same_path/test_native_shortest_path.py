@@ -127,6 +127,21 @@ class TestTryNativeShortestPath:
         assert result is not None
         assert _hops(result, 1, 3) == 2
 
+    def test_reuses_igraph_graph_state_for_same_cache_key(self):
+        sp = _step_pairs([1, 2], [2, 3])
+        cache = {}
+        result1 = try_native_shortest_path(
+            sp, [1], [3], max_hops=None, directed=False, engine=Engine.PANDAS, cache=cache, cache_key=("graph", 1)
+        )
+        result2 = try_native_shortest_path(
+            sp, [2], [3], max_hops=None, directed=False, engine=Engine.PANDAS, cache=cache, cache_key=("graph", 1)
+        )
+        assert result1 is not None
+        assert result2 is not None
+        assert _hops(result1, 1, 3) == 2
+        assert _hops(result2, 2, 3) == 1
+        assert len(cache) == 1
+
     def test_returns_none_on_cudf_without_cugraph(self):
         # cugraph is not installed in test env; must return None gracefully
         sp = _step_pairs([1], [2])

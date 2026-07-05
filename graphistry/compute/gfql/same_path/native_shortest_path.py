@@ -24,13 +24,42 @@ Backend selection (try_native_shortest_path):
 """
 
 import logging
-from typing import Any, Literal, Optional
+from typing import Any, Dict, Hashable, Literal, Optional, Tuple
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 ShortestPathBackend = Literal["auto", "igraph", "cugraph", "bfs"]
+
+
+IgraphShortestPathState = Tuple[Any, Dict[Any, int], set]
+NativeShortestPathCache = Dict[Hashable, Any]
+
+
+def _build_igraph_shortest_path_state(step_pairs: Any, *, directed: bool) -> IgraphShortestPathState:
+    import igraph as ig  # type: ignore[import]
+
+    sp_frm = list(step_pairs["__from__"])
+    sp_to = list(step_pairs["__to__"])
+    all_nodes = list(dict.fromkeys(sp_frm + sp_to))
+    node_index = {n: i for i, n in enumerate(all_nodes)}
+    edges = [(node_index[f], node_index[t]) for f, t in zip(sp_frm, sp_to)]
+    graph = ig.Graph(n=len(all_nodes), edges=edges, directed=directed)
+    self_loop_nodes = {f for f, t in zip(sp_frm, sp_to) if f == t}
+    return graph, node_index, self_loop_nodes
+
+
+def _get_or_build_cached_state(
+    cache: Optional[NativeShortestPathCache],
+    key: Optional[Hashable],
+    build_fn: Any,
+) -> Any:
+    if cache is None or key is None:
+        return build_fn()
+    if key not in cache:
+        cache[key] = build_fn()
+    return cache[key]
 
 
 def igraph_shortest_path_distances(
@@ -41,6 +70,8 @@ def igraph_shortest_path_distances(
     min_hops: int = 1,
     max_hops: Optional[int],
     directed: bool,
+    cache: Optional[NativeShortestPathCache] = None,
+    cache_key: Optional[Hashable] = None,
 ) -> pd.DataFrame:
     """
     Compute pairwise shortest-path distances using igraph.distances().
@@ -49,22 +80,16 @@ def igraph_shortest_path_distances(
     Returns a pandas DataFrame with __sp_source__, __sp_target__, __sp_hops__.
     Unreachable, under-min-hops, or over-max-hops pairs get __sp_hops__ = None.
     """
-    import igraph as ig  # type: ignore[import]
-
     sources_list = list(sources)
     targets_list = list(targets)
 
-    sp_frm = list(step_pairs["__from__"])
-    sp_to = list(step_pairs["__to__"])
-    all_nodes = list(dict.fromkeys(sp_frm + sp_to + sources_list + targets_list))
-    node_index = {n: i for i, n in enumerate(all_nodes)}
-
-    edges = [(node_index[f], node_index[t]) for f, t in zip(sp_frm, sp_to)]
-    g = ig.Graph(n=len(all_nodes), edges=edges, directed=directed)
+    graph_key = ("igraph", cache_key, directed) if cache_key is not None else None
+    g, node_index, self_loop_nodes = _get_or_build_cached_state(
+        cache,
+        graph_key,
+        lambda: _build_igraph_shortest_path_state(step_pairs, directed=directed),
+    )
     mode = "out" if directed else "all"
-
-    # Self-loop nodes: nodes with at least one self-referencing edge
-    self_loop_nodes = {f for f, t in zip(sp_frm, sp_to) if f == t}
 
     # Group targets per source to batch igraph.distances() calls
     source_to_targets: dict = {}
@@ -75,7 +100,8 @@ def igraph_shortest_path_distances(
     for src, tgts in source_to_targets.items():
         if src not in node_index:
             for tgt in tgts:
-                rows.append((src, tgt, None))
+                hops = 0 if src == tgt and min_hops == 0 and (max_hops is None or max_hops >= 0) else None
+                rows.append((src, tgt, hops))
             continue
 
         src_idx = node_index[src]
@@ -91,12 +117,13 @@ def igraph_shortest_path_distances(
         valid_iter = iter(dist_row)
         for tgt, tgt_idx in zip(tgts, tgt_idxs):
             if tgt_idx < 0:
-                rows.append((src, tgt, None))
+                hops = 0 if src == tgt and min_hops == 0 and (max_hops is None or max_hops >= 0) else None
+                rows.append((src, tgt, hops))
             else:
                 d = next(valid_iter)
                 # igraph returns float('inf') for unreachable
                 if d == float("inf") or d >= 2**31:
-                    hops: Optional[int] = None
+                    hops = None
                 elif d == 0 and min_hops >= 1 and src == tgt:
                     # igraph trivially returns 0 for src==target; when min_hops>=1
                     # the caller requires at least one edge traversal, so use the
@@ -124,6 +151,8 @@ def cugraph_shortest_path_distances(
     min_hops: int = 1,
     max_hops: Optional[int],
     directed: bool,
+    cache: Optional[NativeShortestPathCache] = None,
+    cache_key: Optional[Hashable] = None,
 ) -> Any:
     """
     Compute pairwise shortest-path distances using cugraph.bfs().
@@ -135,15 +164,19 @@ def cugraph_shortest_path_distances(
     import cudf  # type: ignore[import]
     import cugraph  # type: ignore[import]
 
-    # Build the graph from the filtered edge set
-    edges_gdf = cudf.DataFrame({
-        "src": step_pairs["__from__"],
-        "dst": step_pairs["__to__"],
-    })
-    G = cugraph.Graph(directed=directed)
-    G.from_cudf_edgelist(edges_gdf, source="src", destination="dst")
+    def _build_graph() -> Any:
+        edges_gdf = cudf.DataFrame({
+            "src": step_pairs["__from__"],
+            "dst": step_pairs["__to__"],
+        })
+        graph = cugraph.Graph(directed=directed)
+        graph.from_cudf_edgelist(edges_gdf, source="src", destination="dst")
+        return graph
 
-    # Pair table: one row per (source, target) request — stays on GPU
+    graph_key = ("cugraph", cache_key, directed) if cache_key is not None else None
+    G = _get_or_build_cached_state(cache, graph_key, _build_graph)
+
+    # Pair table: one row per (source, target) request - stays on GPU
     pair_df = cudf.DataFrame({"__sp_source__": sources, "__sp_target__": targets})
 
     # BFS once per unique source; collect distance slabs via cuDF joins
@@ -203,6 +236,8 @@ def try_native_shortest_path(
     directed: bool,
     engine: Any,
     backend: ShortestPathBackend = "auto",
+    cache: Optional[NativeShortestPathCache] = None,
+    cache_key: Optional[Hashable] = None,
 ) -> Optional[Any]:
     """
     Compute shortest-path distances using a native graph library.
@@ -227,6 +262,7 @@ def try_native_shortest_path(
             result = cugraph_shortest_path_distances(
                 step_pairs, sources, targets,
                 min_hops=min_hops, max_hops=max_hops, directed=directed,
+                cache=cache, cache_key=cache_key,
             )
             logger.debug("shortestPath: backend=cugraph")
             return result
@@ -246,6 +282,7 @@ def try_native_shortest_path(
             result = igraph_shortest_path_distances(
                 step_pairs, sources, targets,
                 min_hops=min_hops, max_hops=max_hops, directed=directed,
+                cache=cache, cache_key=cache_key,
             )
             logger.debug("shortestPath: backend=igraph")
             return result
