@@ -56,12 +56,12 @@ from graphistry.compute.gfql.cypher.ast import (
 #      FAILS with the new rule's name until you do — you cannot land a rule
 #      with no coverage.
 #   3. Run test_grammar_invariants.py. The machine checks that guard you:
-#        - conflict profile is PINNED (0 reduce/reduce always; the exact
-#          shift/reduce set is asserted) — a new ambiguity fails the build;
+#        - the grammar has ZERO LALR conflicts and builds under strict=True —
+#          provably unambiguous; a new ambiguity introduces a conflict and
+#          fails the build. Fix it IN THE GRAMMAR (as WITH..WHERE bundling,
+#          the dotted-name split, and no-top-level-IN list elements did) —
+#          never by resolving a conflict in Python;
 #        - semantic ambiguity is ZERO (every Earley derivation -> same AST);
-#          a new binary-but-AST-neutral ambiguity must be added to
-#          RESIDUAL_DERIVATION_AMBIGUITY with a justification, anything worse
-#          fails hard;
 #        - LALR == Earley over the corpus + full-repo scrape (AST-identical).
 #   4. If the edit deliberately changes accept/reject, pin it in
 #      DELIBERATE_LANGUAGE_FIXES. Otherwise a language change fails the
@@ -287,8 +287,35 @@ simple_case_expr: "CASE"i expr case_when+ case_else? "END"i
 case_when: "WHEN"i expr "THEN"i expr
 case_else: "ELSE"i expr
 
-list_literal: "[" [expr_list] "]"
-expr_list: expr ("," expr)*
+// A list literal's elements are expressions with NO top-level ``IN`` operator.
+// Rationale: ``[x IN xs ...`` is list-comprehension syntax; if a list element
+// could also be a bare ``in_op`` (``[x IN xs, y]``), the two overlap and the
+// grammar is ambiguous at ``[ NAME . IN`` (this was the last shift/reduce
+// conflict). Excluding top-level ``IN`` from list elements makes the grammar
+// provably unambiguous (builds under ``strict=True``) AND rejects the invalid
+// "list of IN-booleans" uniformly (``[1 IN a, 2]``, ``[n.x IN a, y]`` too, not
+// just the bare-name case) — a construct GFQL cannot execute anyway. A genuine
+// list of membership booleans is still expressible with parens: ``[(x IN xs)]``.
+// ``list_element`` mirrors the ``expr`` hierarchy exactly, minus the ``in_op``
+// alternative at the comparable level; ``additive`` and below are shared.
+list_literal: "[" [list_element_list] "]"
+list_element_list: list_element ("," list_element)*
+?list_element: or_expr_no_in
+?or_expr_no_in: xor_expr_no_in | or_expr_no_in "OR"i xor_expr_no_in     -> or_op
+?xor_expr_no_in: and_expr_no_in | xor_expr_no_in "XOR"i and_expr_no_in  -> xor_op
+?and_expr_no_in: not_expr_no_in | and_expr_no_in "AND"i not_expr_no_in  -> and_op
+?not_expr_no_in: "NOT"i not_expr_no_in                                  -> not_op
+              | predicate_no_in
+?predicate_no_in: comparable_no_in
+               | comparable_no_in COMP_OP comparable_no_in COMP_OP comparable_no_in -> chained_cmp
+               | comparable_no_in COMP_OP comparable_no_in              -> cmp_op
+               | bare_label_predicate_expr
+?comparable_no_in: additive
+                | additive "IS"i "NULL"i                                -> expr_is_null
+                | additive "IS"i "NOT"i "NULL"i                         -> expr_is_not_null
+                | additive "CONTAINS"i additive                         -> contains_op
+                | additive "STARTS"i "WITH"i additive                   -> starts_with_op
+                | additive "ENDS"i "WITH"i additive                     -> ends_with_op
 
 map_literal: "{" [map_entries] "}"
 map_entries: map_entry ("," map_entry)*

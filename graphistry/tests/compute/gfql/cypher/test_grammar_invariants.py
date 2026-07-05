@@ -2,23 +2,24 @@
 
 The parser's correctness argument is grammar-level, not implementation-level:
 
-1. **Conflict profile is pinned** (``test_lalr_conflict_profile_pinned``): the
-   unified grammar builds under LALR(1) with a fixed, reviewed set of
-   shift/reduce conflicts and ZERO reduce/reduce conflicts. Reduce/reduce is
-   the line that must never be crossed: it means two rules derive the same
-   string (genuine ambiguity), which LALR resolves arbitrarily. A grammar edit
-   that changes the profile fails this test and forces a review.
+1. **The grammar is PROVABLY UNAMBIGUOUS LALR(1)** — zero conflicts.
+   ``test_grammar_has_zero_lalr_conflicts`` asserts the LALR build emits no
+   shift/reduce and no reduce/reduce conflicts (dependency-free), and
+   ``test_grammar_builds_under_strict_mode`` confirms it builds under Lark's
+   ``strict=True`` (also checks lexer-terminal collisions; needs the optional
+   ``interegular`` dep, skipped if absent). This is the strongest form of the
+   "ambiguity is machine-checkable" invariant: a single derivation for every
+   input, verified at build time. A grammar edit that introduces ANY conflict
+   fails here.
 
 2. **Semantic ambiguity is ZERO** (``test_semantic_ambiguity_zero``):
    expanding EVERY Earley derivation of every corpus query
-   (``ambiguity='explicit'`` + ``CollapseAmbiguities``), all derivations
-   transform to the SAME AST, unconditionally. Two residual DERIVATION
-   ambiguities exist (each exactly binary, each AST-identical, matching the
-   two pinned shift/reduce conflicts) and are machine-surfaced as pinned
-   witnesses in ``test_residual_derivation_ambiguity_witnesses``. The former
-   WITH..WHERE attachment ambiguity was ELIMINATED at grammar level (WHERE is
-   bundled into its preceding clause), as was the dotted-name redundancy
-   (name-rooted dot chains derive only via ``qualified_name``).
+   (``ambiguity='explicit'`` + ``CollapseAmbiguities``), each query has
+   exactly one derivation and they all transform to the SAME AST — a
+   redundant but independent confirmation of (1) at the AST level. The
+   WITH..WHERE attachment ambiguity, the dotted-name redundancy, the
+   ``(n:Admin)`` label predicate, and the ``[x IN xs]`` comprehension overlap
+   were all eliminated at grammar level (see the grammar's inline comments).
 
 3. **Parser-choice neutrality** (``test_lalr_ast_equals_earley_ast_differential``):
    running the production pipeline with an Earley parser over the same grammar
@@ -33,7 +34,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, List
 
 import pytest
 
@@ -156,18 +157,6 @@ REJECTED_CORPUS = [
     "MATCH (a)-[:R*..4]->(b) RETURN b",  # open LOWER hop bound is not in the grammar
 ]
 
-# Residual DERIVATION ambiguity: strings with exactly TWO parse trees that
-# transform to ONE identical AST (harmless, but machine-surfaced so a grammar
-# edit can't silently grow it). Maps 1:1 to the single pinned shift/reduce
-# conflict:
-#   - `[x IN xs]`: list_comprehension (no body) vs list_literal of an in_op
-#     element — the IN conflict. Both mean the identity comprehension text.
-#     Inherent to Cypher's `[NAME IN ...` overlap; unremovable under LALR(1)
-#     without duplicating the whole expr hierarchy (zero semantic gain).
-RESIDUAL_DERIVATION_AMBIGUITY = [
-    "MATCH (n) RETURN [x IN n.tags] AS t",
-]
-
 
 def _fresh_lalr_with_log() -> List[logging.LogRecord]:
     """Build a fresh (uncached) LALR parser with debug on, capturing lark's
@@ -209,54 +198,57 @@ def _earley_parser(ambiguity: str = "resolve") -> Any:
     )
 
 
-# --- 1. Conflict profile -------------------------------------------------------
+# --- 1. Provable unambiguity: zero conflicts -----------------------------------
 
-def test_lalr_conflict_profile_pinned() -> None:
-    """The grammar's LALR conflict profile is pinned: 0 reduce/reduce (genuine
-    ambiguity — never acceptable), and exactly these shift/reduce conflicts,
-    all resolved as shift. A grammar edit that changes this set must update
-    the pin AND justify each new conflict here:
+def test_grammar_has_zero_lalr_conflicts() -> None:
+    """The grammar is unambiguous LALR(1): the build emits ZERO conflicts —
+    no shift/reduce, no reduce/reduce. Every input has a single derivation.
 
-    - IN x1 at ``qualified_name : NAME``: inside ``[``, a NAME followed by IN
-      is a comprehension head (shift) rather than an expr atom (reduce). The
-      residual-witness test pins that both readings of the overlapping string
-      ``[x IN xs]`` produce the same AST. This is the ONE conflict inherent to
-      Cypher's grammar (``[NAME IN ...`` is a comprehension or a list whose
-      first element is an ``in_op``); removing it needs a duplicated expr
-      hierarchy for zero semantic gain, so it stays — pinned and characterized.
-
-    Historical note: DOT x5 (dotted-name redundancy) and WHERE x1 (WITH..WHERE
-    attachment) were eliminated at grammar level — name-rooted dot chains
-    derive only via ``qualified_name``, and WHERE is bundled into its
-    preceding clause. RPAR x1 (``(n:Admin)`` label predicate) was eliminated
-    by dropping the redundant ``label_predicate_expr`` rule (it parses via
-    ``grouped_expr`` over ``bare_label_predicate_expr``). None must reappear.
-    """
+    Dependency-free (parses lark's debug log). This is the machine-checkable
+    "ambiguity is decidable" invariant the whole design is built around: any
+    grammar edit that introduces an ambiguity produces a conflict and fails
+    here, naming the terminal. Historically the grammar had 8 shift/reduce
+    conflicts; each was eliminated at grammar level (WITH..WHERE bundling,
+    dotted-name split via ``qualified_name``, dropping the redundant
+    ``label_predicate_expr``, and excluding top-level ``IN`` from list
+    elements) — see the grammar's inline comments."""
     conflict_re = re.compile(
-        r"(Shift/Reduce|Reduce/Reduce) conflict for terminal (\w+): \(resolving as (\w+)\)"
+        r"(Shift/Reduce|Reduce/Reduce) conflict for terminal (\w+)"
     )
-    profile: Dict[Tuple[str, str, str], int] = {}
-    for record in _fresh_lalr_with_log():
-        m = conflict_re.match(record.getMessage())
-        if m:
-            key = (m.group(1), m.group(2), m.group(3))
-            profile[key] = profile.get(key, 0) + 1
+    conflicts = [
+        m.group(0)
+        for record in _fresh_lalr_with_log()
+        if (m := conflict_re.match(record.getMessage()))
+    ]
+    assert conflicts == [], f"grammar is no longer conflict-free: {conflicts}"
 
-    assert not any(kind == "Reduce/Reduce" for kind, _, _ in profile), (
-        f"Reduce/reduce conflict introduced (genuine grammar ambiguity): {profile}"
+
+def test_grammar_builds_under_strict_mode() -> None:
+    """The grammar builds under Lark ``strict=True`` — a build-time PROOF of
+    unambiguity that also checks lexer-terminal collisions. Stronger than the
+    conflict-log check, but needs the optional ``interegular`` dependency, so
+    it skips where that isn't installed (the log check above is the always-on
+    guard)."""
+    pytest.importorskip("interegular")
+    lark.Lark(
+        parser_mod._GRAMMAR,
+        start="start",
+        parser="lalr",
+        strict=True,
+        maybe_placeholders=False,
+        propagate_positions=True,
     )
-    assert profile == {
-        ("Shift/Reduce", "IN", "shift"): 1,
-    }, f"LALR conflict profile changed: {profile}"
 
 
 # --- 2. Semantic ambiguity -----------------------------------------------------
 
 def test_semantic_ambiguity_zero() -> None:
-    """Every Earley derivation of every corpus query transforms to the SAME
-    AST — semantic ambiguity is zero, no exceptions. (The former WITH..WHERE
-    attachment ambiguity was eliminated by bundling WHERE into its preceding
-    clause in the grammar.)
+    """Every corpus query has EXACTLY ONE Earley derivation, and it transforms
+    to a single AST — semantic ambiguity is zero, no exceptions and no residual
+    witnesses (an independent AST-level confirmation of the zero-conflict
+    invariant). Every ambiguity the grammar once had — WITH..WHERE attachment,
+    dotted-name redundancy, the ``(n:Admin)`` label predicate, and the
+    ``[x IN xs]`` comprehension overlap — was eliminated at grammar level.
 
     Note: ``CollapseAmbiguities`` rebuilds trees without ``meta`` positions, so
     derivation ASTs have degraded spans/text and CANNOT be compared against the
@@ -271,38 +263,12 @@ def test_semantic_ambiguity_zero() -> None:
         asts = {
             repr(parser_mod._build_transformer(query).transform(t)) for t in trees
         }
-        if len(asts) != 1:
+        if len(trees) != 1 or len(asts) != 1:
             unexpected.append(f"{query!r}: {len(trees)} derivations, {len(asts)} ASTs")
     assert not unexpected, (
-        "Semantic ambiguity introduced (derivations disagree on AST):\n"
+        "Derivation ambiguity introduced (expected exactly 1 derivation each):\n"
         + "\n".join(unexpected)
     )
-
-
-def test_residual_derivation_ambiguity_witnesses() -> None:
-    """Machine-surfaced witnesses for the ONLY residual derivation
-    ambiguities: each is exactly binary and AST-identical (see
-    RESIDUAL_DERIVATION_AMBIGUITY for the 1:1 mapping to the two pinned
-    shift/reduce conflicts). Every other corpus query has exactly ONE
-    derivation. A grammar edit that grows either count fails here and must
-    characterize the new ambiguity before landing."""
-    from lark.visitors import CollapseAmbiguities
-
-    explicit = _earley_parser(ambiguity="explicit")
-    for query in RESIDUAL_DERIVATION_AMBIGUITY:
-        trees = CollapseAmbiguities().transform(explicit.parse(query))
-        asts = {
-            repr(parser_mod._build_transformer(query).transform(t)) for t in trees
-        }
-        assert len(trees) == 2, f"expected binary derivation ambiguity: {query!r}"
-        assert len(asts) == 1, f"derivations must agree on the AST: {query!r}"
-    for query in DIFFERENTIAL_CORPUS:
-        if query in RESIDUAL_DERIVATION_AMBIGUITY:
-            continue
-        trees = CollapseAmbiguities().transform(explicit.parse(query))
-        assert len(trees) == 1, (
-            f"unexpected derivation ambiguity ({len(trees)} trees): {query!r}"
-        )
 
 
 # --- Rule coverage: the corpus must exercise EVERY grammar rule ------------------
@@ -413,17 +379,15 @@ DELIBERATE_LANGUAGE_FIXES = [
     "MATCH (n) WITH n WHERE n.x = 1 WHERE n.y = 2 RETURN n",               # double post-WITH WHERE
     "MATCH (n) UNWIND n.tags AS t WHERE t = 'a' RETURN t",                 # WHERE after UNWIND (not openCypher)
     "GRAPH g1 = GRAPH { WHERE a.x = 1 MATCH (a) } USE g1 MATCH (n) RETURN n",  # WHERE before MATCH
-    # Sibling of the single residual IN conflict (see RESIDUAL_DERIVATION_AMBIGUITY):
-    # a list literal whose FIRST element is a bare-name membership test with 2+
-    # elements -- `[x IN xs, y IN ys]`. The IN conflict resolves as shift (toward
-    # a comprehension), so LALR commits at `[ x IN` and rejects the comma;
-    # same-grammar Earley accepts it. Deliberately NOT worth closing: resolving
-    # it needs an out-of-grammar bracket scan or a duplicated expr hierarchy, and
-    # the construct (a list of IN booleans) is non-executable in GFQL anyway
-    # (`[1 IN a, 2 IN b]` already raises downstream). Use parens if you mean a
-    # list of booleans: `[(x IN xs), y IN ys]` parses. int-/dotted-first lists
-    # (`[1 IN a, ...]`, `[n.x IN a, ...]`) are unaffected.
-    "RETURN [x IN xs, y IN ys] AS t",
+    # A list literal element cannot be a top-level `IN` expression -- that
+    # syntax is reserved for list comprehensions (`[x IN xs | ...]`), and
+    # allowing both made the grammar ambiguous. So a "list of IN-booleans" is
+    # rejected UNIFORMLY at grammar level -- the old parser accepted some of
+    # these (then failed downstream: `[1 IN a, 2 IN b]` raises a GFQLTypeError).
+    # Parenthesize for a genuine list of membership booleans: `[(x IN xs), y]`.
+    "RETURN [x IN xs, y IN ys] AS t",   # bare-name first
+    "RETURN [1 IN a, 2 IN b] AS t",     # int first (old parser accepted this)
+    "RETURN [n.x IN a, y] AS t",        # dotted first (old parser accepted this)
 ]
 
 
