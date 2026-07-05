@@ -1413,17 +1413,17 @@ class RowPipelineMixin:
                         import numpy as np
                         return np.floor(s)
 
-                    if ndigits == 0:
-                        fl = _floor_series(f)
-                        out = fl + ((f - fl) >= 0.5).astype(float)  # ties toward +inf
-                    else:
-                        import numpy as np
-                        scale = 10.0 ** ndigits
-                        with np.errstate(over="ignore", invalid="ignore"):
-                            # |x·10^p| may legitimately overflow to inf, and the
-                            # follow-on a-fl is then inf-inf=NaN — both guarded to
-                            # identity below; suppress the RuntimeWarning noise
-                            # (wave-3: over= alone still warned on the subtract).
+                    import numpy as np
+                    with np.errstate(over="ignore", invalid="ignore"):
+                        # ±inf input makes the tie subtract inf-inf=NaN on EITHER
+                        # branch, and p>0's scale multiply may overflow to inf —
+                        # every such row is guarded to the correct identity below;
+                        # suppress the benign RuntimeWarning noise (waves 3-4).
+                        if ndigits == 0:
+                            fl = _floor_series(f)
+                            out = fl + ((f - fl) >= 0.5).astype(float)  # ties toward +inf
+                        else:
+                            scale = 10.0 ** ndigits
                             shifted = f * scale
                             a = shifted.abs()
                             fl = _floor_series(a)
