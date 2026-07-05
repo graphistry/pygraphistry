@@ -116,6 +116,32 @@ jobs:
           exit 0
         fi
 
+        echo "::group::Changed files for path filters"
+        if [[ -n "$changed" ]]; then
+          printf '%s\n' "$changed"
+        else
+          echo "(none)"
+        fi
+        echo "::endgroup::"
+
+        filter_summary="${RUNNER_TEMP}/path-filter-summary.md"
+        {
+          echo "### Path filter summary"
+          echo ""
+          echo "**Changed files:**"
+          echo ""
+          if [[ -n "$changed" ]]; then
+            while IFS= read -r f; do
+              printf -- '- `%s`\n' "$f"
+            done <<< "$changed"
+          else
+            echo "- (none)"
+          fi
+          echo ""
+          echo "| Filter | Value |"
+          echo "|---|---|"
+        } > "$filter_summary"
+
         # emit <key> <regex>...  — joins regex args with `|` and emits true/false.
         # Each pattern goes on its own line at the call site for readability;
         # this is the reason emit takes variadic args instead of a pre-joined string.
@@ -124,6 +150,7 @@ jobs:
           shift
           local IFS='|'
           local pat="$*"
+          local value="false"
           # Use a here-string instead of `printf "%s\n" "$changed" | grep -qE`.
           # Why: with `set -o pipefail`, if `grep -q` matches early on a $changed
           # larger than the pipe buffer (~64 KB; thousands of files), `grep` exits
@@ -133,10 +160,11 @@ jobs:
           # be `true`. A here-string is a pure redirection (not a pipeline), so
           # the data is fully buffered before grep reads, eliminating the race.
           if [[ -n "$changed" ]] && grep -qE "$pat" <<< "$changed"; then
-            echo "${key}=true"  >> "$GITHUB_OUTPUT"
-          else
-            echo "${key}=false" >> "$GITHUB_OUTPUT"
+            value="true"
           fi
+          echo "${key}=${value}" >> "$GITHUB_OUTPUT"
+          echo "path-filter: ${key}=${value}"
+          echo "| \`${key}\` | \`${value}\` |" >> "$filter_summary"
         }
 
         # Filter dimensions — patterns mirror the prior dorny/paths-filter YAML
@@ -237,6 +265,8 @@ jobs:
           '\.rst$' \
           '^demos/' \
           '^notebooks/'
+
+        cat "$filter_summary" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Detect docs-only change on tip
       id: docs_only_latest
