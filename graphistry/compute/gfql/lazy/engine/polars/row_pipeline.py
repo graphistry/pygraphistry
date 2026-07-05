@@ -127,14 +127,38 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
                     or isinstance(arg1.value, bool):
                 return None  # non-literal precision -> defer (honest NIE)
             ndigits = arg1.value
-        return args[0].cast(pl.Float64).round(ndigits)
-    if name in {"tolower", "toupper"} and len(args) == 1:
+        if ndigits < 0:
+            return None  # neo4j raises on negative precision; decline (honest NIE)
+        # neo4j tie-breaking (matches the pandas engine): precision 0 -> ties toward
+        # +inf; precision > 0 -> ties away from zero (HALF_UP). polars' .round default
+        # (half-to-even) would be a wrong answer vs the spec. p=0 uses a floor+frac
+        # kernel (NOT floor(x+0.5): the +0.5 rounds when x is 1 ulp below a tie —
+        # round(0.49999999999999994) must be 0.0). p>0 uses the native mode= (bit-exact;
+        # a manual scale/divide formula picks up 1-ulp noise from polars' reassociating
+        # optimizer). Requires polars >= 1.29 for the mode kwarg (see setup.py extra;
+        # the kwarg shipped in py-1.29.0, pola-rs/polars#22248 — NOT 1.5). The trailing
+        # + 0.0 normalizes -0.0 like the pandas kernel's scale/divide does (polars'
+        # native mode keeps -0.0: round(-0.04, 1) was 0.0 vs -0.0, dgx-repro'd).
+        x = args[0].cast(pl.Float64)
+        if ndigits > 308:
+            # Identity, mirroring the pandas kernel's p>308 guard: polars' own
+            # identity only starts at p>=326 (its [300,325] split-multiplier window
+            # quantizes tiny values where pandas returns identity), and p >= 2**32
+            # is a raw PyO3 OverflowError (decimals is u32) — #1677 wave-2.
+            return x + 0.0
+        if ndigits == 0:
+            fl = x.floor()
+            return fl + ((x - fl) >= 0.5).cast(pl.Float64)  # ties toward +inf
+        return x.round(ndigits, mode="half_away_from_zero") + 0.0
+    if name in {"tolower", "toupper", "lower", "upper"} and len(args) == 1:
+        # toLower/toUpper + GQL-conformance aliases lower/upper (as neo4j accepts both).
         # String-only like neo4j (type error there); a non-string column must decline —
         # pandas declines too, and bare .str here raised a non-NIE SchemaError on
         # polars-gpu (dgx-repro'd).
         if _expr_output_dtype(args[0]) != pl.String:
             return None
-        return args[0].str.to_lowercase() if name == "tolower" else args[0].str.to_uppercase()
+        to_lower = name in {"tolower", "lower"}
+        return args[0].str.to_lowercase() if to_lower else args[0].str.to_uppercase()
     if name == "size" and len(args) == 1:
         # size(x): #chars (String) or #elements (List) — different polars ops, so gate by output
         # dtype. str.len_chars == pandas str.len (code points); list.len parity; null/empty

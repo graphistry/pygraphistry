@@ -2989,18 +2989,83 @@ def test_numeric_functions(engine: str, expr: str, expected: list[object]) -> No
         ("floor(2.7)", 2.0),
         ("ceil(2.1)", 3.0),
         ("ceiling(-2.1)", -2.0),
-        ("round(2.5)", 2.0),        # numpy default (round-half-to-even)
+        ("round(2.5)", 3.0),        # neo4j: precision-0 ties round toward +inf
+        ("round(-1.5)", -1.0),      # neo4j manual Example 8
         ("round(2.567, 2)", 2.57),
+        ("round(-1.55, 1)", -1.6),  # neo4j manual Example 11: p>0 ties away from zero
         ("sign(-9)", -1),
         ("sqrt(9.0)", 3.0),
         ("toLower('ABC')", "abc"),
         ("toUpper('abc')", "ABC"),
+        ("lower('ABC')", "abc"),    # GQL-conformance aliases (ISO GQL §20.24; neo4j accepts both)
+        ("upper('abc')", "ABC"),
     ],
 )
 def test_numeric_functions_scalar(expr: str, expected: object) -> None:
     nodes = pd.DataFrame({"id": [0], "x": [1.0]})
     g = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []}))
     assert g.gfql(f"MATCH (n) RETURN {expr} AS v, n.id AS id")._nodes["v"].tolist() == [expected]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_round_neo4j_tie_breaking(engine: str) -> None:
+    """Standards-vetted (#1673): neo4j round() ties — precision 0 rounds ties toward
+    +inf (round(-1.5) = -1.0, neo4j manual Ex. 8/10), precision > 0 rounds ties away
+    from zero (HALF_UP: round(-1.55, 1) = -1.6, Ex. 11). The numpy/polars
+    half-to-even defaults (round(2.5) -> 2.0) are wrong answers vs this spec."""
+    if engine == "polars":
+        pytest.importorskip("polars")
+
+    def vals(nodes: pd.DataFrame, expr: str) -> List[Any]:
+        g = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []}))
+        q = f"MATCH (n) RETURN {expr} AS v, n.id AS id ORDER BY id"
+        col = g.gfql(q, engine=engine)._nodes["v"]
+        return col.to_list() if hasattr(col, "to_list") else col.tolist()
+
+    ties = pd.DataFrame({"id": [0, 1, 2, 3], "x": [2.5, -1.5, 0.5, -2.5]})
+    assert vals(ties, "round(n.x)") == [3.0, -1.0, 1.0, -2.0]      # ties toward +inf
+    assert vals(ties, "round(n.x, 0)") == [3.0, -1.0, 1.0, -2.0]   # p=0 aligns with 1-arg
+    prec = pd.DataFrame({"id": [0, 1], "x": [1.25, -1.55]})
+    assert vals(prec, "round(n.x, 1)") == [pytest.approx(1.3), pytest.approx(-1.6)]  # away from zero
+
+    # 1-ulp-below-a-tie (JDK-6430675 class): a floor(x+0.5) kernel wrongly rounds UP;
+    # the correct answer (Java Math.round post-fix, BigDecimal, polars native) is down.
+    ulp = pd.DataFrame({"id": [0, 1], "x": [0.49999999999999994, 0.049999999999999996]})
+    assert vals(ulp, "round(n.x)") == [0.0, 0.0]
+    assert vals(ulp, "round(n.x, 1)") == [pytest.approx(0.5), pytest.approx(0.0)]
+    # infinity passes through (rounding is the identity; no overflow to inf/crash)
+    inf = pd.DataFrame({"id": [0, 1], "x": [float("inf"), 1e300]})
+    assert vals(inf, "round(n.x)") == [float("inf"), 1e300]
+    assert vals(inf, "round(n.x, 2)") == [float("inf"), 1e300]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_round_negative_precision_declines(engine: str) -> None:
+    """neo4j raises on negative round() precision; we decline honestly (error, never a
+    silent value — and never a raw polars OverflowError crash)."""
+    if engine == "polars":
+        pytest.importorskip("polars")
+    g = _mk_graph(pd.DataFrame({"id": [0], "x": [25.0]}), pd.DataFrame({"s": [], "d": []}))
+    with pytest.raises(Exception) as exc_info:
+        g.gfql("MATCH (n) RETURN round(n.x, -1) AS v, n.id AS id", engine=engine)
+    assert "OverflowError" not in type(exc_info.value).__name__
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("MATCH (n) WHERE lower(n.name) = 'bob' RETURN n.id AS id ORDER BY id", [0]),
+        ("MATCH (n) WHERE upper(n.name) = 'BOB' RETURN n.id AS id ORDER BY id", [0]),
+    ],
+)
+def test_lower_upper_gql_aliases(engine: str, query: str, expected: list[int]) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({"id": [0, 1, 2], "name": ["BOB", "Alice", "carol"]})
+    col = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query, engine=engine)._nodes["id"]
+    got = col.to_list() if hasattr(col, "to_list") else col.tolist()
+    assert got == expected
 
 
 @pytest.mark.parametrize("expr", ["floor(null)", "ceil(null)", "round(null)", "toLower(null)", "toUpper(null)"])

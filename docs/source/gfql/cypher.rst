@@ -284,9 +284,18 @@ and ``RETURN`` expressions:
   ``WHERE 1 < n.age < 65`` are supported. (The ``^`` exponentiation operator is
   not yet available.)
 - Numeric functions ``abs``, ``sqrt``, ``sign``, ``floor``, ``ceil`` (alias
-  ``ceiling``), and ``round(x)`` / ``round(x, precision)`` (returns a float).
-- String helpers ``toLower`` / ``toUpper`` (the idiomatic case-insensitive
-  compare, e.g. ``WHERE toLower(n.name) = 'bob'``), plus ``substring`` and
+  ``ceiling``, per Cypher 25 / GQL), and ``round(x)`` / ``round(x, precision)``
+  (returns a float). ``round`` follows neo4j's tie-breaking: precision 0 rounds
+  ties toward positive infinity (``round(-1.5)`` → ``-1.0``, ``round(2.5)`` →
+  ``3.0``); precision > 0 rounds ties away from zero (``round(-1.55, 1)`` →
+  ``-1.6``). One documented deviation at precision > 0: neo4j rounds via the
+  number's decimal string (Java ``BigDecimal.valueOf``), so a value like
+  ``2.675`` — stored as the binary double ``2.67499…`` — gives ``2.68`` in
+  neo4j but ``2.67`` here (both engines, consistently binary-double).
+  Precision above 308 is the identity (a float64 has no digits there).
+- String helpers ``toLower`` / ``toUpper`` and their GQL-conformance aliases
+  ``lower`` / ``upper`` (the idiomatic case-insensitive compare, e.g.
+  ``WHERE toLower(n.name) = 'bob'``), plus ``substring`` and
   ``size``, and conversions ``toInteger`` / ``toFloat`` / ``toString`` /
   ``toBoolean`` and ``coalesce``.
 - Regex ``=~`` (see WHERE Forms above).

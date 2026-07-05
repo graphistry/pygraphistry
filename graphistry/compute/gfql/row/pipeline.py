@@ -1379,22 +1379,85 @@ class RowPipelineMixin:
                 return True, float(math.ceil(inner) if use_ceil else math.floor(inner))
 
             if fn == "round" and len(values) in {1, 2}:
+                # neo4j tie-breaking (standards-vetted, #1673): precision 0 (or 1-arg)
+                # rounds ties toward +inf (round(-1.5) = -1.0); precision > 0 rounds ties
+                # away from zero (HALF_UP: round(-1.55, 1) = -1.6). numpy/pandas .round is
+                # half-to-even (round(2.5) -> 2.0) — a wrong answer vs the neo4j spec.
+                # Uses a floor+frac kernel, NOT floor(x+0.5): the +0.5 addition itself
+                # rounds up when x sits 1 ulp below a tie (JDK-6430675 class), e.g.
+                # round(0.49999999999999994) must be 0.0, round(0.0499…96, 1) → 0.0.
                 inner = values[0]
                 ndigits = int(values[1]) if len(values) == 2 else 0
+                if ndigits < 0:
+                    # neo4j raises on negative precision; decline (no silent wrong value).
+                    return False, None
+                if ndigits > 308:
+                    # 10.0**p overflows at p>=309 (CPython pow raises); rounding a float64
+                    # beyond 308 decimals is the identity anyway — return the input as
+                    # float (+0.0 zero-sign normalize), matching polars' native behavior
+                    # at large precision (dgx-repro'd).
+                    inner_id = values[0]
+                    if hasattr(inner_id, "astype"):
+                        null_mask = self._gfql_null_mask(table_df, inner_id)
+                        return True, (inner_id.astype(float) + 0.0).where(~null_mask, pd.NA)
+                    if is_null_scalar(inner_id):
+                        return True, None
+                    return True, float(inner_id) + 0.0
                 if hasattr(inner, "astype"):
                     null_mask = self._gfql_null_mask(table_df, inner)
-                    out = inner.astype(float).round(ndigits)
+                    f = inner.astype(float)
+
+                    def _floor_series(s: Any) -> Any:
+                        if hasattr(s, "floor"):  # cuDF native
+                            return s.floor()
+                        import numpy as np
+                        return np.floor(s)
+
+                    import numpy as np
+                    with np.errstate(over="ignore", invalid="ignore"):
+                        # ±inf input makes the tie subtract inf-inf=NaN on EITHER
+                        # branch, and p>0's scale multiply may overflow to inf —
+                        # every such row is guarded to the correct identity below;
+                        # suppress the benign RuntimeWarning noise (waves 3-4).
+                        if ndigits == 0:
+                            fl = _floor_series(f)
+                            out = fl + ((f - fl) >= 0.5).astype(float)  # ties toward +inf
+                        else:
+                            scale = 10.0 ** ndigits
+                            shifted = f * scale
+                            a = shifted.abs()
+                            fl = _floor_series(a)
+                            mag = fl + ((a - fl) >= 0.5).astype(float)  # ties away
+                            sig = (shifted > 0).astype(float) - (shifted < 0).astype(float)
+                            out = mag * sig / scale + 0.0  # +0.0 normalizes -0.0
+                            # scaled overflow (|x·10^p| = inf): rounding is the identity
+                            out = out.where(a != float("inf"), f)
                     return True, out.where(~null_mask, pd.NA)
                 if is_null_scalar(inner):
                     return True, None
-                return True, round(float(inner), ndigits)
+                x = float(inner)
+                if not math.isfinite(x):
+                    return True, x
+                if ndigits == 0:
+                    fl0 = math.floor(x)
+                    return True, float(fl0 + (1 if (x - fl0) >= 0.5 else 0))
+                scale = 10.0 ** ndigits
+                shifted_x = x * scale
+                if not math.isfinite(shifted_x):
+                    return True, x  # scaled overflow -> identity
+                a2 = abs(shifted_x)
+                fl2 = math.floor(a2)
+                mag2 = fl2 + (1 if (a2 - fl2) >= 0.5 else 0)
+                return True, math.copysign(mag2, shifted_x) / scale + 0.0
 
-            # neo4j/openCypher toLower/toUpper (the idiomatic case-insensitive-match helper).
-            if fn in {"tolower", "toupper"} and len(values) == 1:
+            # neo4j/openCypher toLower/toUpper (the idiomatic case-insensitive-match helper),
+            # plus the GQL-conformance aliases lower/upper (ISO GQL §20.24; neo4j accepts both).
+            if fn in {"tolower", "toupper", "lower", "upper"} and len(values) == 1:
                 inner = values[0]
+                to_lower = fn in {"tolower", "lower"}
                 if hasattr(inner, "str"):
                     null_mask = self._gfql_null_mask(table_df, inner)
-                    out = inner.str.lower() if fn == "tolower" else inner.str.upper()
+                    out = inner.str.lower() if to_lower else inner.str.upper()
                     return True, out.where(~null_mask, pd.NA)
                 if is_null_scalar(inner):
                     return True, None
@@ -1403,7 +1466,7 @@ class RowPipelineMixin:
                     # too (no .str accessor): str(inner) would broadcast the lowercased
                     # Series REPR to every row — decline instead (dgx-repro'd).
                     return False, None
-                return True, inner.lower() if fn == "tolower" else inner.upper()
+                return True, inner.lower() if to_lower else inner.upper()
 
             if fn == "tofloat" and len(values) == 1:
                 inner = values[0]

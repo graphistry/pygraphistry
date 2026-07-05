@@ -218,6 +218,8 @@ def _cypher_expression_queries():
         ("round_p2", "MATCH (n) RETURN n.id AS id, round(n.f, 2) AS x"),
         ("tolower", "MATCH (n) RETURN n.id AS id, toLower(n.name) AS s"),
         ("toupper", "MATCH (n) RETURN n.id AS id, toUpper(n.name) AS s"),
+        ("lower_alias", "MATCH (n) RETURN n.id AS id, lower(n.name) AS s"),
+        ("upper_alias", "MATCH (n) RETURN n.id AS id, upper(n.name) AS s"),
         # NOTE: toString(float) intentionally absent — polars NIEs (test_tostring_float_honest_nie
         # _polars covers that), and cudf's orthogonal float-repr divergence from pandas would trip
         # _assert_invariant; the dedicated pandas-vs-polars test carries the real intent.
@@ -273,6 +275,49 @@ _HONEST_NIE_CYPHER = [
     ("tostring_float", "MATCH (n) RETURN n.id AS id, toString(n.f) AS s", "ok",
      "float repr diverges across engines"),
 ]
+
+
+def test_round_tie_hazard_values_all_engines():
+    """#1677 wave-1: the shared fixture's floats are rng.normal — ties are measure-zero,
+    so the GPU engines never saw a tie/hazard value despite ties being the round() fix's
+    whole point. Deterministic hazard column, ALL engines via parity-or-NIE: exact ties
+    (p=0 ties -> +inf; ±1.25 = EXACT p=1 ties, ×10 = ±12.5 → away-from-zero ±1.3 vs
+    half-even ±1.2 — wave-2 caught that no other value ties at p>0; 2^51+0.5 = a
+    representable HUGE tie), the 1-ulp-below-tie JDK case, -0.0 (zero-sign normalize),
+    1e308 (scaled overflow -> identity), NaN + null, and p=400 (identity on BOTH
+    engines — 10.0**p / u32 overflow guards, was uncaught/divergent)."""
+    import pandas as pd
+    nd = pd.DataFrame({
+        "id": list(range(14)),
+        "v": [0.5, -0.5, 2.5, -1.5, -2.55, 1.25, -1.25, 0.49999999999999994,
+              -0.04, -0.0, 1e308, 2251799813685248.5, float("nan"), None],
+    })
+    ed = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    for q in [
+        "MATCH (n) RETURN n.id AS id, round(n.v) AS x",
+        "MATCH (n) RETURN n.id AS id, round(n.v, 1) AS x",
+        "MATCH (n) RETURN n.id AS id, round(n.v, 2) AS x",
+        "MATCH (n) RETURN n.id AS id, round(n.v, 400) AS x",
+    ]:
+        _assert_invariant(g, q, f"round-hazard {q}")
+
+
+def test_round_negative_zero_normalized_all_engines():
+    """round(-0.04, 1) must be +0.0 on EVERY engine: the pandas/cuDF kernel's + 0.0
+    normalizes, polars' native mode= kept -0.0 (dgx-repro'd) — and value equality
+    cannot see it (-0.0 == 0.0), so pin the sign bit explicitly (NIE acceptable)."""
+    import math as _math
+    import pandas as pd
+    nd = pd.DataFrame({"id": [0], "v": [-0.04]})
+    ed = pd.DataFrame({"s": [0], "d": [0], "eid": [0]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    q = "MATCH (n) RETURN round(n.v, 1) AS x"
+    for eng in ["pandas"] + _NONPANDAS_ENGINES:
+        if _run(g, q, eng)[0] == "nie":
+            continue
+        val = float(_to_pd(g.gfql(q, engine=eng)._nodes)["x"].iloc[0])
+        assert _math.copysign(1.0, val) == 1.0, f"{eng}: round(-0.04, 1) kept -0.0"
 
 
 @pytest.mark.parametrize("label,cypher,why", _NATIVE_OK_CYPHER, ids=[c[0] for c in _NATIVE_OK_CYPHER])
