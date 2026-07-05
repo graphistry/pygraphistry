@@ -1419,17 +1419,19 @@ class RowPipelineMixin:
                     else:
                         import numpy as np
                         scale = 10.0 ** ndigits
-                        with np.errstate(over="ignore"):
-                            # |x·10^p| may legitimately overflow to inf (guarded to
-                            # identity below) — suppress the RuntimeWarning noise.
+                        with np.errstate(over="ignore", invalid="ignore"):
+                            # |x·10^p| may legitimately overflow to inf, and the
+                            # follow-on a-fl is then inf-inf=NaN — both guarded to
+                            # identity below; suppress the RuntimeWarning noise
+                            # (wave-3: over= alone still warned on the subtract).
                             shifted = f * scale
-                        a = shifted.abs()
-                        fl = _floor_series(a)
-                        mag = fl + ((a - fl) >= 0.5).astype(float)  # ties away from zero
-                        sig = (shifted > 0).astype(float) - (shifted < 0).astype(float)
-                        out = mag * sig / scale + 0.0  # +0.0 normalizes -0.0
-                        # scaled overflow (|x·10^p| = inf): rounding is the identity
-                        out = out.where(a != float("inf"), f)
+                            a = shifted.abs()
+                            fl = _floor_series(a)
+                            mag = fl + ((a - fl) >= 0.5).astype(float)  # ties away
+                            sig = (shifted > 0).astype(float) - (shifted < 0).astype(float)
+                            out = mag * sig / scale + 0.0  # +0.0 normalizes -0.0
+                            # scaled overflow (|x·10^p| = inf): rounding is the identity
+                            out = out.where(a != float("inf"), f)
                     return True, out.where(~null_mask, pd.NA)
                 if is_null_scalar(inner):
                     return True, None
