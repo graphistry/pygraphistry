@@ -826,8 +826,10 @@ def rows_binding_ops_polars(g: Plottable, binding_ops: Sequence[dict]) -> Option
         return None
     start_nodes = getattr(g, "_gfql_start_nodes", None)
     if start_nodes is not None:
-        # start-nodes constrain the scan like the pandas prev_node_wavefront does
-        sn = start_nodes.lazy() if hasattr(start_nodes, "lazy") else start_nodes
+        # start-nodes constrain the scan like the pandas prev_node_wavefront does.
+        # Normalize to EAGER: an eager.join(LazyFrame) raises and would silently
+        # decline the whole wavefront-constrained case (wave-2 W2-3).
+        sn = start_nodes.collect() if hasattr(start_nodes, "collect") else start_nodes
         try:
             nodes = nodes.join(sn.select(node_id).unique(), on=node_id, how="semi")
         except Exception:

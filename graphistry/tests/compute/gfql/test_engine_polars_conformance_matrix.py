@@ -389,6 +389,39 @@ def test_scalar_fns_null_cells_parity():
         _assert_invariant(g, q, f"nullcells {q}")
 
 
+def test_exists_polars_internal_decline_branches():
+    """Coverage pins for the honest-decline branches of the polars semi-apply family
+    (each returns None -> the boundary lane raises NIE): non-single/unnamed/query=/
+    alias==node_id rows shapes; non-endpoint join alias; multi-hop edges; neq aliases
+    that aren't the endpoints (wave-2 / changed-line gate)."""
+    import polars as pl
+    from graphistry.compute.ast import n as _n, e_forward as _ef
+    from graphistry.compute.chain import serialize_binding_ops
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
+        rows_binding_ops_polars,
+        _pattern_alias_keys_polars,
+    )
+    import pandas as pd
+    nd = pd.DataFrame({"id": [0, 1], "x": [1, 2]})
+    ed = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
+    gpl = graphistry.nodes(pl.from_pandas(nd), "id").edges(
+        pl.from_pandas(ed), "s", "d").bind(edge="eid")
+    assert rows_binding_ops_polars(gpl, []) is None
+    assert rows_binding_ops_polars(
+        gpl, serialize_binding_ops([_n(name="n"), _n(name="m")])) is None
+    assert rows_binding_ops_polars(gpl, serialize_binding_ops([_n()])) is None
+    assert rows_binding_ops_polars(
+        gpl, serialize_binding_ops([_n(name="n", query="x > 1")])) is None
+    assert rows_binding_ops_polars(
+        gpl, serialize_binding_ops([_n(name="id")])) is None  # alias == node-id col
+    bos = serialize_binding_ops([_n(name="n"), _ef(), _n(name="m")])
+    assert _pattern_alias_keys_polars(gpl, bos, "zzz") is None  # not an endpoint
+    assert _pattern_alias_keys_polars(
+        gpl, serialize_binding_ops([_n(name="n"), _ef(hops=2), _n()]), "n") is None
+    assert _pattern_alias_keys_polars(gpl, bos, "n", neq=["n", "zzz"]) is None
+    assert _pattern_alias_keys_polars(gpl, bos[:2], "n") is None  # not Node/Edge/Node
+
+
 def test_prune_isolated_graph_shape_all_engines():
     """LEO steer 2026-07-05: viz needs the FULL GRAPH back — nodes AND edges. THE
     working patterns (dgx-probed): `GRAPH { MATCH (a)-[e]-(b) }` = keep-self

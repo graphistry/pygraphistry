@@ -2496,6 +2496,20 @@ class TestRowPipelineSafelist:
         assert adds_node_cols({"out_col": ""}) == set()
 
         self._assert_valid("semi_apply_mark", {"binding_ops": [], "join_aliases": ["n"], "out_col": "__hit__"})
+        # wave-2 pin: neq must be EXACTLY a string pair (a 1-item list crashed late
+        # with IndexError; a 3-item list silently filtered on the first pair)
+        self._assert_valid(
+            "semi_apply_mark",
+            {"binding_ops": [], "join_aliases": ["n"], "out_col": "__hit__", "neq": ["m", "n"]},
+        )
+        self._assert_e201(
+            "semi_apply_mark",
+            {"binding_ops": [], "join_aliases": ["n"], "out_col": "__hit__", "neq": ["n"]},
+        )
+        self._assert_e201(
+            "semi_apply_mark",
+            {"binding_ops": [], "join_aliases": ["n"], "out_col": "__hit__", "neq": ["a", "b", "c"]},
+        )
         self._assert_e201(
             "semi_apply_mark",
             {"binding_ops": [{"type": "Node"}], "join_aliases": [], "out_col": "__hit__"},

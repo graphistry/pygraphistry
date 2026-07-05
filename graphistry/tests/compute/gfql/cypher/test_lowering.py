@@ -2029,6 +2029,7 @@ def test_exists_subquery_unsupported_bodies_decline_clearly() -> None:
         ("MATCH (a) WHERE EXISTS { (a)--(m) WHERE m.x > 1 } RETURN a", "inner WHERE"),
         ("MATCH (a) WHERE EXISTS { (a)--(), (a)-->() } RETURN a", "multi-pattern"),
         ("MATCH (a) WHERE EXISTS { MATCH (a)--(b) RETURN b } RETURN a", "subquery body"),
+        ("MATCH (a) WHERE EXISTS { (a)--(b) WHERE a <> c } RETURN a", "endpoint aliases"),
     ]:
         with pytest.raises(GFQLValidationError) as exc_info:
             _parse_query(q)

@@ -1077,6 +1077,11 @@ def test_parse_still_rejects_true_pattern_existence_expressions(query: str) -> N
         "MATCH (n) WHERE exists/*inline*/{ (n)-[:R]->() } RETURN n",
         "MATCH (n) WHERE not/*inline*/exists/*inline*/{ (n)-[:R]->() } RETURN n",
         "MATCH (n) WHERE exists { (n)-[:R]->() } /* trailing comment */ RETURN n",
+        # wave-2 pins: a property STRING containing a clause keyword must not decline
+        # (keyword scans run on masked text); `graph` as a property name must not trip
+        # the anchored GRAPH-pipeline gate.
+        "MATCH (n) WHERE exists { (n)-[:R {name: 'WHERE it hurts'}]->() } RETURN n",
+        "MATCH (n) WHERE n.graph = 1 AND exists { (n)-[:R]->() } RETURN n",
     ],
 )
 def test_parse_accepts_where_position_exists_subqueries(query: str) -> None:

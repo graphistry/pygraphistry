@@ -2064,10 +2064,12 @@ _PATTERN_EXISTENCE_RE = re.compile(
 
 # EXISTS { } inside a GRAPH { } pipeline: the graph-state compiler does not wire
 # row_pre_filters, so the EXISTS filter was SILENTLY DROPPED (dgx-repro'd: all
-# nodes returned) — fail fast instead. Conservative: any query mixing GRAPH {
-# and exists { declines, including post-USE row stages (honest over-reject).
+# nodes returned) — fail fast instead. ANCHORED: the grammar only admits GRAPH
+# constructors at the very start of the query, so `n.graph`/:Graph labels in a
+# plain MATCH cannot false-positive (wave-2 W2-1). Post-USE row stages still
+# decline (honest over-reject).
 _EXISTS_IN_GRAPH_PIPELINE_RE = re.compile(
-    r"\bGRAPH\b[^{]*\{", re.IGNORECASE
+    r"\A\s*GRAPH\b", re.IGNORECASE
 )
 _EXISTS_ANYWHERE_RE = re.compile(r"\bexists\s*(?:/\*[\s\S]*?\*/\s*)*\{", re.IGNORECASE)
 
