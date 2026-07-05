@@ -1,9 +1,12 @@
 """Cross-column search kernel (viz-filter L2, panel-algebra D2): OR-across-columns
 substring/regex match, dtype-gated AS SEMANTICS — string columns always; integer
 columns iff the term is a numeric literal (inspector gate); float/date/bool are
-auto-gated OUT (float stringification is engine-divergent — reach them via explicit
-``columns=``). Per-column matching delegates to the parity-hardened ``Contains``
-predicate, so every pandas/cuDF quirk and honest decline gate carries over."""
+auto-gated OUT (float stringification is engine-divergent — explicit ``columns=``
+reaches bool on both engines, float/date on pandas only: cuDF declines them, its
+astype(str) rendering diverges from pandas — dgx-probed). Per-column matching
+delegates to the parity-hardened ``Contains`` predicate, so every pandas/cuDF
+quirk and honest decline gate carries over; cuDF regex obeys the same decline
+rules as ``=~``."""
 import re
 from typing import Any, List, Optional
 
