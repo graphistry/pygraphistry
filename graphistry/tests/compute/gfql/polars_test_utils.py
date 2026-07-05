@@ -34,9 +34,11 @@ def typed_frame_sig(df):
     if df is None:
         return None
     df = df.reindex(sorted(df.columns), axis=1).copy()
+    import numpy as np
     for c in df.columns:
         if df[c].dtype.kind == "f":
-            df[c] = df[c].round(6)
+            with np.errstate(over="ignore"):  # .round(6) on 1e308-scale cells warns benignly
+                df[c] = df[c].round(6)
     cols = tuple(df.columns)
     # rows as tuples (NaN/NA -> None), sorted with a None-safe type-safe key (per-row agg(join)
     # is fragile on empty/mixed frames). astype(object) FIRST so nullable-extension dtypes

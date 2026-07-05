@@ -1417,8 +1417,12 @@ class RowPipelineMixin:
                         fl = _floor_series(f)
                         out = fl + ((f - fl) >= 0.5).astype(float)  # ties toward +inf
                     else:
+                        import numpy as np
                         scale = 10.0 ** ndigits
-                        shifted = f * scale
+                        with np.errstate(over="ignore"):
+                            # |x·10^p| may legitimately overflow to inf (guarded to
+                            # identity below) — suppress the RuntimeWarning noise.
+                            shifted = f * scale
                         a = shifted.abs()
                         fl = _floor_series(a)
                         mag = fl + ((a - fl) >= 0.5).astype(float)  # ties away from zero

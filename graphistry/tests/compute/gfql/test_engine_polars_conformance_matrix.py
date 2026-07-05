@@ -281,14 +281,16 @@ def test_round_tie_hazard_values_all_engines():
     """#1677 wave-1: the shared fixture's floats are rng.normal — ties are measure-zero,
     so the GPU engines never saw a tie/hazard value despite ties being the round() fix's
     whole point. Deterministic hazard column, ALL engines via parity-or-NIE: exact ties
-    (p=0 ties -> +inf; p>0 ties away from zero), the 1-ulp-below-tie JDK case, -0.0
-    (zero-sign normalize), >2^52 (integral floats), 1e308 (scaled overflow -> identity),
-    NaN + null, and p=400 (identity — 10.0**p overflow guard, was uncaught/divergent)."""
+    (p=0 ties -> +inf; ±1.25 = EXACT p=1 ties, ×10 = ±12.5 → away-from-zero ±1.3 vs
+    half-even ±1.2 — wave-2 caught that no other value ties at p>0; 2^51+0.5 = a
+    representable HUGE tie), the 1-ulp-below-tie JDK case, -0.0 (zero-sign normalize),
+    1e308 (scaled overflow -> identity), NaN + null, and p=400 (identity on BOTH
+    engines — 10.0**p / u32 overflow guards, was uncaught/divergent)."""
     import pandas as pd
     nd = pd.DataFrame({
-        "id": list(range(12)),
-        "v": [0.5, -0.5, 2.5, -1.5, -2.55, 0.49999999999999994,
-              -0.04, -0.0, 1e308, 5e15 + 0.5, float("nan"), None],
+        "id": list(range(14)),
+        "v": [0.5, -0.5, 2.5, -1.5, -2.55, 1.25, -1.25, 0.49999999999999994,
+              -0.04, -0.0, 1e308, 2251799813685248.5, float("nan"), None],
     })
     ed = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
     g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
@@ -301,17 +303,19 @@ def test_round_tie_hazard_values_all_engines():
         _assert_invariant(g, q, f"round-hazard {q}")
 
 
-def test_round_negative_zero_normalized_polars():
-    """round(-0.04, 1) must be +0.0 on BOTH engines: the pandas kernel's + 0.0
+def test_round_negative_zero_normalized_all_engines():
+    """round(-0.04, 1) must be +0.0 on EVERY engine: the pandas/cuDF kernel's + 0.0
     normalizes, polars' native mode= kept -0.0 (dgx-repro'd) — and value equality
-    cannot see it (-0.0 == 0.0), so pin the sign bit explicitly."""
+    cannot see it (-0.0 == 0.0), so pin the sign bit explicitly (NIE acceptable)."""
     import math as _math
     import pandas as pd
     nd = pd.DataFrame({"id": [0], "v": [-0.04]})
     ed = pd.DataFrame({"s": [0], "d": [0], "eid": [0]})
     g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
     q = "MATCH (n) RETURN round(n.v, 1) AS x"
-    for eng in ["pandas", "polars"]:
+    for eng in ["pandas"] + _NONPANDAS_ENGINES:
+        if _run(g, q, eng)[0] == "nie":
+            continue
         val = float(_to_pd(g.gfql(q, engine=eng)._nodes)["x"].iloc[0])
         assert _math.copysign(1.0, val) == 1.0, f"{eng}: round(-0.04, 1) kept -0.0"
 

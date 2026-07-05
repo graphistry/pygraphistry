@@ -140,6 +140,12 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         # + 0.0 normalizes -0.0 like the pandas kernel's scale/divide does (polars'
         # native mode keeps -0.0: round(-0.04, 1) was 0.0 vs -0.0, dgx-repro'd).
         x = args[0].cast(pl.Float64)
+        if ndigits > 308:
+            # Identity, mirroring the pandas kernel's p>308 guard: polars' own
+            # identity only starts at p>=326 (its [300,325] split-multiplier window
+            # quantizes tiny values where pandas returns identity), and p >= 2**32
+            # is a raw PyO3 OverflowError (decimals is u32) — #1677 wave-2.
+            return x + 0.0
         if ndigits == 0:
             fl = x.floor()
             return fl + ((x - fl) >= 0.5).cast(pl.Float64)  # ties toward +inf
