@@ -2298,6 +2298,8 @@ class RowPipelineMixin:
         right_txt = str(right)
         try:
             return apply_string_predicate_scalar(left_txt, right_txt, op_name)
+        except re.error as exc:
+            raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
         except ValueError as exc:
             raise ValueError(f"unsupported row expression predicate op: {op_name} in {expr!r}") from exc
 
@@ -3138,7 +3140,10 @@ class RowPipelineMixin:
         try:
             ast_ok, ast_value = self._gfql_eval_expr_ast(table_df, ast_node)
         except Exception as exc:
-            if isinstance(exc, ValueError):
+            if isinstance(exc, (ValueError, NotImplementedError)):
+                # NotImplementedError = an honest engine decline from a predicate
+                # (e.g. cuDF regex limits) — re-labeling it here destroyed the NIE
+                # class one frame above the predicate-level pass-through (#1675 wave-2).
                 raise
             raise ValueError(f"unsupported row expression: AST evaluator unsupported in {expr!r}") from exc
 

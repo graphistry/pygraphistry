@@ -424,7 +424,7 @@ class _RegexStringPredicate(ASTPredicate):
             )
 
 
-_CUDF_REGEX_UNSUPPORTED = re.compile(r'\(\?=|\(\?!|\(\?<|\\[1-9]')
+_CUDF_REGEX_UNSUPPORTED = re.compile(r'\(\?=|\(\?!|\(\?<|\\[1-9]|\(\?P[=<]')
 
 
 def _cudf_regex_prep(pat: object, case: bool) -> Tuple[object, bool]:
@@ -459,14 +459,24 @@ def _cudf_regex_prep(pat: object, case: bool) -> Tuple[object, bool]:
 
 def _cudf_casefold_or_decline(pat: str) -> str:
     """Lowercase-fold a pattern for the cuDF case-insensitive workaround (data is
-    lowercased, so the pattern must be too). Folding is only sound for patterns
-    without escape sequences: ``.lower()`` turns ``\\D`` into ``\\d`` (and ``\\W``/
-    ``\\S``/``\\B`` likewise), silently INVERTING the predicate — decline those
-    honestly instead (dgx-repro'd wrong answer, #1675 review wave 1)."""
-    if '\\' in pat:
+    lowercased, so the pattern must be too). Folding is UNSOUND for exactly three
+    shapes, declined honestly (each a silent wrong answer or crash otherwise):
+    uppercase escape classes (``.lower()`` turns ``\\D`` into ``\\d`` — INVERTS the
+    predicate; dgx-repro'd, wave 1); case-crossing character ranges (``(?i)[A-z]``
+    silently narrows, ``[X-b]`` folds to the invalid ``[x-b]``; wave 2); and
+    non-ASCII (Python ``str.lower`` vs libcudf lowercasing diverge, e.g. ``İ``).
+    Lowercase escapes (``\\d``, ``\\.``, ``\\w``) are ``.lower()`` no-ops and stay
+    allowed — they worked before this guard and must not regress to NIE (wave 2)."""
+    unsafe = (
+        re.search(r'\\[A-Z]', pat) is not None
+        or not pat.isascii()
+        or any(a.isupper() != b.isupper()
+               for a, b in re.findall(r'([A-Za-z])-([A-Za-z])', pat))
+    )
+    if unsafe:
         raise NotImplementedError(
-            "cuDF case-insensitive regex cannot safely fold patterns containing "
-            "escape sequences; use engine='pandas'"
+            "cuDF case-insensitive regex cannot safely fold this pattern (uppercase "
+            "escape class, case-crossing range, or non-ASCII); use engine='pandas'"
         )
     return pat.lower()
 

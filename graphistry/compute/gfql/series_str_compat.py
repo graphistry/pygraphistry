@@ -36,7 +36,12 @@ def _anchored_fullmatch_pattern(pattern: str) -> str:
     # Group-wrap so a top-level alternation anchors as a whole: bare `^ab|cd$`
     # would match 'abXXX'. Callers pass this through _sanitize_regex_pattern,
     # which downgrades `(?:` to `(` for engines without non-capture groups
-    # (boolean match — numbering is irrelevant).
+    # (boolean match — numbering is irrelevant). Already-anchored patterns pass
+    # through untouched: pre-existing callers (ordering.py type probes) send
+    # `^...$` forms, and nesting anchors inside a group is undefined on some
+    # engines (#1675 wave-2 blast-radius note).
+    if pattern.startswith("^") and pattern.endswith("$"):
+        return pattern
     return "^(?:" + pattern + ")$"
 
 

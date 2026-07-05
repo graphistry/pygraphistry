@@ -898,8 +898,9 @@ class TestCudfRegexPrep:
 
 class TestCudfCasefoldOrDecline:
     """The cuDF case-insensitive workaround lowercases DATA + PATTERN; .lower() turns
-    \\D into \\d (and \\W/\\S/\\B alike), silently INVERTING the predicate — patterns
-    with escapes must decline (dgx-repro'd wrong answer, #1675 wave-1)."""
+    \\D into \\d (and \\W/\\S/\\B alike), silently INVERTING the predicate (wave-1,
+    dgx-repro'd); case-crossing ranges + non-ASCII are also unsound (wave-2). Lowercase
+    escapes are no-ops and must keep folding."""
 
     def test_plain_patterns_fold(self):
         from graphistry.compute.predicates.str import _cudf_casefold_or_decline
@@ -907,9 +908,27 @@ class TestCudfCasefoldOrDecline:
         assert _cudf_casefold_or_decline("Ab|Cd") == "ab|cd"
         assert _cudf_casefold_or_decline("[A-Z]+") == "[a-z]+"
 
-    def test_escape_sequences_decline(self):
+    def test_lowercase_escapes_still_fold(self):
+        """Wave-2: .lower() no-ops on \\d/\\./\\w — these worked at base and must not
+        regress to NIE (a blanket backslash decline did exactly that)."""
+        from graphistry.compute.predicates.str import _cudf_casefold_or_decline
+        assert _cudf_casefold_or_decline(r"\d+") == r"\d+"
+        assert _cudf_casefold_or_decline(r"NODE\.1") == r"node\.1"
+        assert _cudf_casefold_or_decline(r"A\w+") == r"a\w+"
+
+    def test_uppercase_escapes_decline(self):
         import pytest as _pytest
         from graphistry.compute.predicates.str import _cudf_casefold_or_decline
-        for pat in [r"\D+", r"a\Wb", r"\S*", r"node\.1"]:
+        for pat in [r"\D+", r"a\Wb", r"\S*", r"x\By"]:
             with _pytest.raises(NotImplementedError):
                 _cudf_casefold_or_decline(pat)
+
+    def test_case_crossing_ranges_and_nonascii_decline(self):
+        """Wave-2: (?i)[A-z] silently narrows on fold; [X-b] folds to the INVALID
+        [x-b]; non-ASCII folds can diverge from libcudf's lowercasing (Istanbul-I)."""
+        import pytest as _pytest
+        from graphistry.compute.predicates.str import _cudf_casefold_or_decline
+        for pat in ["[A-z]+", "[X-b]", "\u0130stanbul"]:
+            with _pytest.raises(NotImplementedError):
+                _cudf_casefold_or_decline(pat)
+        assert _cudf_casefold_or_decline("[a-c]") == "[a-c]"  # same-case range folds fine

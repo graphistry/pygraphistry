@@ -294,6 +294,26 @@ def test_scalar_fn_honest_nie_on_polars(label, cypher, pandas_expect, why):
     assert _run(g, cypher, "polars")[0] == "nie", f"{label} must be an honest NIE on polars: {why}"
 
 
+def test_regex_cudf_emulation_pinned_repros():
+    """Pins the two dgx-repro'd cudf silent-wrongs with DISCRIMINATING fixtures — the
+    generic matrix cases pass on pre-fix code (the shared fixture has no
+    anchoring-breaking names and no digit-only names; #1675 wave-2). Pre-fix: the
+    alternation matched 'abXXX' (bare ^ab|cd$ anchoring); (?i)\\D+ INVERTED the
+    result set (pattern .lower() turned it into \\d+). Also pins that lowercase
+    escapes ((?i)\\d+) KEEP working on cudf — the guard must not over-decline."""
+    import pandas as pd
+    ed = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
+    g1 = graphistry.nodes(
+        pd.DataFrame({"id": [0, 1, 2, 3], "name": ["ab", "cd", "abXXX", "xcd"]}), "id"
+    ).edges(ed, "s", "d").bind(edge="eid")
+    _assert_invariant(g1, "MATCH (n) WHERE n.name =~ 'ab|cd' RETURN n.id AS id", "regex-alt-pin")
+    g2 = graphistry.nodes(
+        pd.DataFrame({"id": [0, 1, 2, 3], "name": ["abc", "123", "XYZ", "7"]}), "id"
+    ).edges(ed, "s", "d").bind(edge="eid")
+    _assert_invariant(g2, "MATCH (n) WHERE n.name =~ '(?i)\\\\D+' RETURN n.id AS id", "regex-ci-unsafe-pin")
+    _assert_invariant(g2, "MATCH (n) WHERE n.name =~ '(?i)\\\\d+' RETURN n.id AS id", "regex-ci-lower-escape-pin")
+
+
 def test_scalar_fns_null_cells_parity():
     """#1675 wave-1: the shared fixture has NO null cells, so the scalar fns'
     where(~null_mask, pd.NA) paths were never exercised cross-engine — dedicated
