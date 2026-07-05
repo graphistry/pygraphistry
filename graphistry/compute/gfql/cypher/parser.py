@@ -179,10 +179,12 @@ with_where_clause: "WHERE"i expr
 return_clause: "RETURN"i distinct? return_item ("," return_item)*
 distinct: "DISTINCT"i
 return_item: return_expr alias?
+// A parenthesized label predicate ``(n:Admin)`` parses via ``expr`` ->
+// ``grouped_expr`` over ``bare_label_predicate_expr`` (identical AST), so a
+// dedicated ``label_predicate_expr`` rule here would be a pure derivation
+// redundancy -- exactly the RPAR shift/reduce conflict. Omitted on purpose.
 return_expr: "*"                              -> projection_star
-           | label_predicate_expr
            | expr
-label_predicate_expr: "(" NAME labels ")"    -> grouped_label_predicate
 bare_label_predicate_expr: NAME labels       -> bare_label_predicate
 alias: "AS"i NAME
 
@@ -1385,7 +1387,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             span = _span_from_meta(meta)
             return _ExpressionSlice(text="*", span=span)
 
-        def grouped_label_predicate(self, meta: Any, items: Sequence[Any]) -> _ExpressionSlice:
+        def bare_label_predicate(self, meta: Any, items: Sequence[Any]) -> _ExpressionSlice:
             if len(items) != 2:
                 raise _to_syntax_error("Invalid label predicate expression", line=meta.line, column=meta.column)
             labels = cast(Sequence[str], items[1])
@@ -1393,8 +1395,6 @@ def _build_transformer(source: str) -> _TransformerLike:
                 raise _to_syntax_error("Label predicate must reference at least one label", line=meta.line, column=meta.column)
             span = _span_from_meta(meta)
             return _ExpressionSlice(text=self._slice(span), span=span)
-
-        bare_label_predicate = grouped_label_predicate
 
         def _projection_clause(
             self,

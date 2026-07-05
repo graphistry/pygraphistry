@@ -156,17 +156,16 @@ REJECTED_CORPUS = [
     "MATCH (a)-[:R*..4]->(b) RETURN b",  # open LOWER hop bound is not in the grammar
 ]
 
-# Residual DERIVATION ambiguities: strings with exactly TWO parse trees that
+# Residual DERIVATION ambiguity: strings with exactly TWO parse trees that
 # transform to ONE identical AST (harmless, but machine-surfaced so a grammar
-# edit can't silently grow them). Each corresponds 1:1 to a pinned
-# shift/reduce conflict:
+# edit can't silently grow it). Maps 1:1 to the single pinned shift/reduce
+# conflict:
 #   - `[x IN xs]`: list_comprehension (no body) vs list_literal of an in_op
-#     element — the IN conflict; both mean the identity comprehension text.
-#   - `(n:Admin)` in RETURN: grouped_label_predicate vs grouped_expr over a
-#     bare_label_predicate — the RPAR conflict; both yield the same item.
+#     element — the IN conflict. Both mean the identity comprehension text.
+#     Inherent to Cypher's `[NAME IN ...` overlap; unremovable under LALR(1)
+#     without duplicating the whole expr hierarchy (zero semantic gain).
 RESIDUAL_DERIVATION_AMBIGUITY = [
     "MATCH (n) RETURN [x IN n.tags] AS t",
-    "MATCH (n) RETURN (n:Admin) AS is_admin",
 ]
 
 
@@ -221,16 +220,17 @@ def test_lalr_conflict_profile_pinned() -> None:
     - IN x1 at ``qualified_name : NAME``: inside ``[``, a NAME followed by IN
       is a comprehension head (shift) rather than an expr atom (reduce). The
       residual-witness test pins that both readings of the overlapping string
-      ``[x IN xs]`` produce the same AST.
-    - RPAR x1 at ``bare_label_predicate_expr : NAME labels``: ``(n:Admin)`` as
-      a return item is a grouped_label_predicate (shift) rather than a
-      grouped_expr over the bare label predicate (reduce); same AST either
-      way (residual-witness test).
+      ``[x IN xs]`` produce the same AST. This is the ONE conflict inherent to
+      Cypher's grammar (``[NAME IN ...`` is a comprehension or a list whose
+      first element is an ``in_op``); removing it needs a duplicated expr
+      hierarchy for zero semantic gain, so it stays — pinned and characterized.
 
     Historical note: DOT x5 (dotted-name redundancy) and WHERE x1 (WITH..WHERE
     attachment) were eliminated at grammar level — name-rooted dot chains
     derive only via ``qualified_name``, and WHERE is bundled into its
-    preceding clause — so they must never reappear.
+    preceding clause. RPAR x1 (``(n:Admin)`` label predicate) was eliminated
+    by dropping the redundant ``label_predicate_expr`` rule (it parses via
+    ``grouped_expr`` over ``bare_label_predicate_expr``). None must reappear.
     """
     conflict_re = re.compile(
         r"(Shift/Reduce|Reduce/Reduce) conflict for terminal (\w+): \(resolving as (\w+)\)"
@@ -247,7 +247,6 @@ def test_lalr_conflict_profile_pinned() -> None:
     )
     assert profile == {
         ("Shift/Reduce", "IN", "shift"): 1,
-        ("Shift/Reduce", "RPAR", "shift"): 1,
     }, f"LALR conflict profile changed: {profile}"
 
 
