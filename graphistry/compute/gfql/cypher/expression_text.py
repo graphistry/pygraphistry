@@ -81,6 +81,8 @@ def render_expr_node(node: ExprNode) -> str:
             op_txt = "ENDS WITH"
         elif node.op == "contains":
             op_txt = "CONTAINS"
+        elif node.op == "regex":
+            op_txt = "=~"
         else:
             op_txt = node.op
         return f"({left} {op_txt} {right})"

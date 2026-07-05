@@ -1010,6 +1010,8 @@ class RowPipelineMixin:
                 return True, self._gfql_eval_string_predicate_expr(table_df, left, right, "starts_with", "ast STARTS WITH")
             if op == "ends_with":
                 return True, self._gfql_eval_string_predicate_expr(table_df, left, right, "ends_with", "ast ENDS WITH")
+            if op == "regex":
+                return True, self._gfql_eval_string_predicate_expr(table_df, left, right, "regex", "ast =~")
 
             if op == "+":
                 if isinstance(left, (list, tuple)) and not isinstance(right, (list, tuple)):
@@ -1357,6 +1359,51 @@ class RowPipelineMixin:
                 if is_null_scalar(inner):
                     return True, None
                 return True, float(inner) ** 0.5
+
+            # neo4j/openCypher numeric fns: floor/ceil (alias ceiling), round(x[, precision]).
+            # Return FLOAT like neo4j; null in -> null out.
+            if fn in {"floor", "ceil", "ceiling"} and len(values) == 1:
+                inner = values[0]
+                use_ceil = fn in {"ceil", "ceiling"}
+                if hasattr(inner, "astype"):
+                    null_mask = self._gfql_null_mask(table_df, inner)
+                    f = inner.astype(float)
+                    if hasattr(f, "ceil" if use_ceil else "floor"):  # cuDF native
+                        out = f.ceil() if use_ceil else f.floor()
+                    else:  # pandas: no Series.floor/ceil method
+                        import numpy as np
+                        out = np.ceil(f) if use_ceil else np.floor(f)
+                    return True, out.where(~null_mask, pd.NA)
+                if is_null_scalar(inner):
+                    return True, None
+                return True, float(math.ceil(inner) if use_ceil else math.floor(inner))
+
+            if fn == "round" and len(values) in {1, 2}:
+                inner = values[0]
+                ndigits = int(values[1]) if len(values) == 2 else 0
+                if hasattr(inner, "astype"):
+                    null_mask = self._gfql_null_mask(table_df, inner)
+                    out = inner.astype(float).round(ndigits)
+                    return True, out.where(~null_mask, pd.NA)
+                if is_null_scalar(inner):
+                    return True, None
+                return True, round(float(inner), ndigits)
+
+            # neo4j/openCypher toLower/toUpper (the idiomatic case-insensitive-match helper).
+            if fn in {"tolower", "toupper"} and len(values) == 1:
+                inner = values[0]
+                if hasattr(inner, "str"):
+                    null_mask = self._gfql_null_mask(table_df, inner)
+                    out = inner.str.lower() if fn == "tolower" else inner.str.upper()
+                    return True, out.where(~null_mask, pd.NA)
+                if is_null_scalar(inner):
+                    return True, None
+                if not isinstance(inner, str):
+                    # neo4j requires a String (type error). A numeric SERIES lands here
+                    # too (no .str accessor): str(inner) would broadcast the lowercased
+                    # Series REPR to every row — decline instead (dgx-repro'd).
+                    return False, None
+                return True, inner.lower() if fn == "tolower" else inner.upper()
 
             if fn == "tofloat" and len(values) == 1:
                 inner = values[0]
@@ -2227,6 +2274,13 @@ class RowPipelineMixin:
 
             try:
                 out = apply_string_predicate_series(left_txt, needle, op_name)
+            except NotImplementedError:
+                # Honest engine decline (e.g. cuDF inline-flag/lookaround limits) —
+                # the blanket remap below destroyed the NIE class AND blamed the op
+                # name for what is a pattern/engine limit (#1675 wave-1).
+                raise
+            except re.error as exc:
+                raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
             except ValueError:
                 raise ValueError(f"unsupported row expression predicate op: {op_name} in {expr!r}")
             except Exception as exc:
@@ -2244,6 +2298,8 @@ class RowPipelineMixin:
         right_txt = str(right)
         try:
             return apply_string_predicate_scalar(left_txt, right_txt, op_name)
+        except re.error as exc:
+            raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
         except ValueError as exc:
             raise ValueError(f"unsupported row expression predicate op: {op_name} in {expr!r}") from exc
 
@@ -3084,7 +3140,10 @@ class RowPipelineMixin:
         try:
             ast_ok, ast_value = self._gfql_eval_expr_ast(table_df, ast_node)
         except Exception as exc:
-            if isinstance(exc, ValueError):
+            if isinstance(exc, (ValueError, NotImplementedError)):
+                # NotImplementedError = an honest engine decline from a predicate
+                # (e.g. cuDF regex limits) — re-labeling it here destroyed the NIE
+                # class one frame above the predicate-level pass-through (#1675 wave-2).
                 raise
             raise ValueError(f"unsupported row expression: AST evaluator unsupported in {expr!r}") from exc
 

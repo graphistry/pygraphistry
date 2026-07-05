@@ -13,6 +13,7 @@ import re
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
+from graphistry.compute.predicates.str import Fullmatch, Match
 from graphistry.compute.filter_by_dict import resolve_filter_column
 from .dtypes import is_numeric as _dtype_numeric, is_stringlike as _dtype_stringlike
 
@@ -233,6 +234,20 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
         prefix = _inline_regex_flag_prefix(case, flags)
         return c.str.contains(f"{prefix}{pred.pat}", literal=False)
 
+    if isinstance(pred, (Match, Fullmatch)):
+        # Regex predicates: Match = start-anchored (``re.match`` semantics), Fullmatch =
+        # fully anchored (``^..$``) — the target for Cypher's ``=~`` (full/anchored, Java
+        # ``Matcher.matches()``). Wrap the user pattern in a non-capturing group so a
+        # top-level alternation (``a|b``) anchors as a whole. ``case``/``flags`` → inline prefix.
+        # Same Rust-regex gate as Contains: lookaround/backrefs raised a non-NIE
+        # ComputeError at collect (dgx-repro'd) — decline honestly instead.
+        # isinstance narrowing (not name-string dispatch): pat/case/flags statically typed.
+        if _regex_rust_incompatible(pred.pat):
+            return None
+        prefix = _inline_regex_flag_prefix(pred.case, pred.flags)
+        body = f"^(?:{pred.pat})$" if isinstance(pred, Fullmatch) else f"^(?:{pred.pat})"
+        return c.str.contains(f"{prefix}{body}", literal=False)
+
     if name in ("Startswith", "Endswith") and hasattr(pred, "pat") and isinstance(pred.pat, str):
         if getattr(pred, "case", True):
             return c.str.starts_with(pred.pat) if name == "Startswith" else c.str.ends_with(pred.pat)
@@ -259,16 +274,6 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
         for p in parts[1:]:
             expr = expr | p
         return expr
-
-    if name in ("Match", "Fullmatch") and hasattr(pred, "pat") and isinstance(pred.pat, str):
-        # pandas str.match = anchored at START; str.fullmatch = anchored BOTH ends. decline (NIE):
-        # custom regex flags beyond case — avoids a flag-semantics gap.
-        if getattr(pred, "flags", 0):
-            return None
-        prefix = "" if getattr(pred, "case", True) else "(?i)"
-        body = f"(?:{pred.pat})"
-        anchored = f"{prefix}^{body}" if name == "Match" else f"{prefix}^{body}$"
-        return c.str.contains(anchored, literal=False)
 
     return None
 

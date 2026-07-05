@@ -103,12 +103,38 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
         return pl.coalesce(args)
     if name == "abs" and len(args) == 1:
         return args[0].abs()
+    # neo4j/openCypher numeric fns (parity-verified vs the pandas engine).
     if name == "sqrt" and len(args) == 1:
-        # sqrt of a negative -> NaN on both pandas and polars; parity-verified.
-        return args[0].sqrt()
+        # sqrt of a negative -> NaN on both pandas and polars; Float64 cast so sqrt(int)
+        # returns float like neo4j/pandas; parity-verified.
+        return args[0].cast(pl.Float64).sqrt()
     if name == "sign" and len(args) == 1:
-        # polars .sign() == np.sign for int/float (-1/0/1; null/NaN preserved); parity-verified.
-        return args[0].sign()
+        # polars .sign() == np.sign (-1/0/1; null/NaN preserved); neo4j sign() returns an
+        # Integer, so cast to match the pandas engine (which yields int). Parity-verified.
+        return args[0].sign().cast(pl.Int64)
+    if name in {"floor", "ceil", "ceiling"} and len(args) == 1:
+        # Float64 cast like sqrt: neo4j floor/ceil return Float, and the pandas engine
+        # astype(float)s — bare polars .floor() on an Int64 column stays Int64.
+        x = args[0].cast(pl.Float64)
+        return x.ceil() if name in {"ceil", "ceiling"} else x.floor()
+    if name == "round" and len(args) in {1, 2}:
+        from graphistry.compute.gfql.expr_parser import Literal
+        ndigits = 0
+        if len(args) == 2:
+            arg1 = node.args[1]
+            # isinstance narrowing (a bare .value probe also matched non-Literal nodes)
+            if not isinstance(arg1, Literal) or not isinstance(arg1.value, int) \
+                    or isinstance(arg1.value, bool):
+                return None  # non-literal precision -> defer (honest NIE)
+            ndigits = arg1.value
+        return args[0].cast(pl.Float64).round(ndigits)
+    if name in {"tolower", "toupper"} and len(args) == 1:
+        # String-only like neo4j (type error there); a non-string column must decline —
+        # pandas declines too, and bare .str here raised a non-NIE SchemaError on
+        # polars-gpu (dgx-repro'd).
+        if _expr_output_dtype(args[0]) != pl.String:
+            return None
+        return args[0].str.to_lowercase() if name == "tolower" else args[0].str.to_uppercase()
     if name == "size" and len(args) == 1:
         # size(x): #chars (String) or #elements (List) — different polars ops, so gate by output
         # dtype. str.len_chars == pandas str.len (code points); list.len parity; null/empty

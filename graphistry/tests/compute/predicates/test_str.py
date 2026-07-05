@@ -856,3 +856,78 @@ def test_boundary_string_tuple_pandas_cudf_parity(
             pd.testing.assert_series_equal(result_pandas, result_cudf)
         except AssertionError as e:
             pytest.fail(f"Parity check failed for {name} {predicate}: {e}")
+
+
+class TestCudfRegexPrep:
+    """_cudf_regex_prep is a pure pattern transform (no cuDF needed): libcudf rejects
+    inline flag groups, so a leading (?i) folds to the case=False path and any other
+    flag declines honestly. Direct CPU coverage of every branch (viz-filter #1673)."""
+
+    def test_no_inline_flags_passthrough(self):
+        from graphistry.compute.predicates.str import _cudf_regex_prep
+        assert _cudf_regex_prep("al.*", True) == ("al.*", True)
+        assert _cudf_regex_prep("a(?:b|c)d", True) == ("a(?:b|c)d", True)  # (?: not a flag group
+
+    def test_leading_case_flag_folds(self):
+        from graphistry.compute.predicates.str import _cudf_regex_prep
+        assert _cudf_regex_prep("(?i)Al.*", True) == ("Al.*", False)
+        assert _cudf_regex_prep("(?i)x", False) == ("x", False)
+        assert _cudf_regex_prep("(?ii)x", True) == ("x", False)  # repeated i still i-only
+
+    def test_other_inline_flags_decline(self):
+        import pytest as _pytest
+        from graphistry.compute.predicates.str import _cudf_regex_prep
+        for pat in ["(?m)^a", "(?s).*", "(?im)a", "(?x) a b"]:
+            with _pytest.raises(NotImplementedError):
+                _cudf_regex_prep(pat, True)
+
+    def test_lookaround_and_backrefs_decline(self):
+        """#1675 wave-1: libcudf rejects lookaround/backrefs at kernel-compile time —
+        decline honestly instead of a raw non-NIE RuntimeError (dgx-repro'd)."""
+        import pytest as _pytest
+        from graphistry.compute.predicates.str import _cudf_regex_prep
+        for pat in ["(?=a)b", "(?!a)b", "(?<=a)b", "(?<!a)b", r"(a)\1"]:
+            with _pytest.raises(NotImplementedError):
+                _cudf_regex_prep(pat, True)
+
+
+class TestCudfCasefoldOrDecline:
+    """The cuDF case-insensitive workaround lowercases DATA + PATTERN; .lower() turns
+    \\D into \\d (and \\W/\\S/\\B alike), silently INVERTING the predicate (wave-1,
+    dgx-repro'd); case-crossing ranges + non-ASCII are also unsound (wave-2). Lowercase
+    escapes are no-ops and must keep folding."""
+
+    def test_plain_patterns_fold(self):
+        from graphistry.compute.predicates.str import _cudf_casefold_or_decline
+        assert _cudf_casefold_or_decline("NODE.1") == "node.1"
+        assert _cudf_casefold_or_decline("Ab|Cd") == "ab|cd"
+        assert _cudf_casefold_or_decline("[A-Z]+") == "[a-z]+"
+
+    def test_lowercase_escapes_still_fold(self):
+        """Wave-2: .lower() no-ops on \\d/\\./\\w — these worked at base and must not
+        regress to NIE (a blanket backslash decline did exactly that)."""
+        from graphistry.compute.predicates.str import _cudf_casefold_or_decline
+        assert _cudf_casefold_or_decline(r"\d+") == r"\d+"
+        assert _cudf_casefold_or_decline(r"NODE\.1") == r"node\.1"
+        assert _cudf_casefold_or_decline(r"A\w+") == r"a\w+"
+
+    def test_uppercase_escapes_decline(self):
+        import pytest as _pytest
+        from graphistry.compute.predicates.str import _cudf_casefold_or_decline
+        for pat in [r"\D+", r"a\Wb", r"\S*", r"x\By",
+                    r"\x41", r"[\x41-\x5a]"]:  # wave-4: hex escapes spell letters invisibly
+            with _pytest.raises(NotImplementedError):
+                _cudf_casefold_or_decline(pat)
+
+    def test_case_crossing_ranges_and_nonascii_decline(self):
+        """Wave-2: (?i)[A-z] silently narrows on fold; [X-b] folds to the INVALID
+        [x-b]; non-ASCII folds can diverge from libcudf's lowercasing (Istanbul-I)."""
+        import pytest as _pytest
+        from graphistry.compute.predicates.str import _cudf_casefold_or_decline
+        for pat in ["[A-z]+", "[X-b]", "\u0130stanbul",
+                    "[?-Z]", "[Z-~]", "[X-^]", "[\\x41-Z]"]:  # wave-3: mixed letter/non-letter ranges
+            with _pytest.raises(NotImplementedError):
+                _cudf_casefold_or_decline(pat)
+        assert _cudf_casefold_or_decline("[a-c]") == "[a-c]"  # same-case range folds fine
+        assert _cudf_casefold_or_decline("[0-9]+") == "[0-9]+"  # non-letter range folds fine
+        assert _cudf_casefold_or_decline("e-MAIL") == "e-mail"  # class-free literal hyphen folds fine
