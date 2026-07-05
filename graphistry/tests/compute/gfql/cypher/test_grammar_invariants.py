@@ -395,10 +395,11 @@ def test_lalr_and_earley_reject_the_same_inputs(
             parser_mod._parse_cypher_cached.cache_clear()
 
 
-# The complete set of DELIBERATE language fixes vs the old Earley parser,
-# found by full repo-corpus differentials (1800+ queries; everything else is
-# accept/reject- and AST-identical). Each was an accept-by-accident with
-# ill-defined semantics; all are now honest syntax errors.
+# The complete set of DELIBERATE accept/reject differences the LALR parser
+# introduces, found by full repo-corpus differentials (1800+ queries;
+# everything else is accept/reject- and AST-identical). Two kinds: shapes the
+# OLD Earley parser accepted by accident, and one shape same-grammar Earley
+# accepts but LALR(1) cannot. All are now honest syntax errors.
 DELIBERATE_LANGUAGE_FIXES = [
     # Earley's dynamic lexer re-lexed DISTINCT (absent from the NAME reserved
     # lookahead) as a NAME and accepted this as returning a *variable named*
@@ -412,6 +413,17 @@ DELIBERATE_LANGUAGE_FIXES = [
     "MATCH (n) WITH n WHERE n.x = 1 WHERE n.y = 2 RETURN n",               # double post-WITH WHERE
     "MATCH (n) UNWIND n.tags AS t WHERE t = 'a' RETURN t",                 # WHERE after UNWIND (not openCypher)
     "GRAPH g1 = GRAPH { WHERE a.x = 1 MATCH (a) } USE g1 MATCH (n) RETURN n",  # WHERE before MATCH
+    # Sibling of the single residual IN conflict (see RESIDUAL_DERIVATION_AMBIGUITY):
+    # a list literal whose FIRST element is a bare-name membership test with 2+
+    # elements -- `[x IN xs, y IN ys]`. The IN conflict resolves as shift (toward
+    # a comprehension), so LALR commits at `[ x IN` and rejects the comma;
+    # same-grammar Earley accepts it. Deliberately NOT worth closing: resolving
+    # it needs an out-of-grammar bracket scan or a duplicated expr hierarchy, and
+    # the construct (a list of IN booleans) is non-executable in GFQL anyway
+    # (`[1 IN a, 2 IN b]` already raises downstream). Use parens if you mean a
+    # list of booleans: `[(x IN xs), y IN ys]` parses. int-/dotted-first lists
+    # (`[1 IN a, ...]`, `[n.x IN a, ...]`) are unaffected.
+    "RETURN [x IN xs, y IN ys] AS t",
 ]
 
 
