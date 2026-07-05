@@ -60,7 +60,7 @@ _SPECIAL_NAMES = {
 
 def _panel_nodes():
     nn = 30
-    return pd.DataFrame({
+    df = pd.DataFrame({
         "id": list(range(nn)),
         "name": [_SPECIAL_NAMES.get(i, f"item{i}") for i in range(nn)],
         "kind": ["abc"[i % 3] for i in range(nn)],
@@ -68,6 +68,10 @@ def _panel_nodes():
         "flag": [i % 2 == 0 for i in range(nn)],
         "cat": pd.Categorical(["x" if i % 2 == 0 else "y" for i in range(nn)]),
     })
+    # Deterministic row SHUFFLE so natural frame order != ascending id: without it every
+    # ORDER BY id in the suite is non-discriminating — an engine that silently DROPS the
+    # sort still pages [7,10,13] off the pre-sorted frame (wave-2 I1).
+    return df.sample(frac=1, random_state=7).reset_index(drop=True)
 
 
 def _panel_edges():
@@ -195,6 +199,12 @@ def _panel_scenarios():
          "MATCH (n) WHERE n.kind = 'b' RETURN n.id AS id ORDER BY id SKIP 2 LIMIT 3", "id",
          [7, 10, 13],
          lambda nd, ed: sorted(nd[nd["kind"] == "b"]["id"])[2:5]),
+        # Descending page (wave-2 I1: sort direction must carry test power of its own):
+        # kind 'b' ids desc = [28, 25, 22, 19, ...]; SKIP 1 LIMIT 3 => [25, 22, 19].
+        ("orderby-desc-paging",
+         "MATCH (n) WHERE n.kind = 'b' RETURN n.id AS id ORDER BY id DESC SKIP 1 LIMIT 3", "id",
+         [25, 22, 19],
+         lambda nd, ed: sorted(nd[nd["kind"] == "b"]["id"], reverse=True)[1:4]),
     ]
 
 
@@ -257,9 +267,11 @@ def test_graph_state_prune_pipeline():
     edges2 = sorted(int(v) for v in _to_pd(out2._edges)["eid"].tolist())
     assert nodes2 == list(range(26)), f"drop-self nodes: {nodes2}"
     # L3 FINDING (dgx, 2026-07-05): the same-path WHERE route DEDUPES PARALLEL
-    # edges — one edge survives per (src,dst) pair — diverging from panel-algebra
-    # E2 multiplicity (E1 semijoin N2 keeps all copies). Pinned as-is + tracked as
-    # repo debt (same_path executor); the prune CORRECTNESS facts still hold:
+    # edges — one edge survives per UNORDERED {s,d} endpoint pair (the pattern is
+    # undirected, so a mutual pair like 0<->1 may also collapse to one direction) —
+    # diverging from panel-algebra E2 multiplicity (E1 semijoin N2 keeps all
+    # copies). Pinned at exactly that tolerance + tracked as repo debt (same_path
+    # executor); the prune CORRECTNESS facts still hold:
     assert set(edges2) <= set(nonself_eids), "drop-self must never keep a self-loop"
     assert not ({4, 5} & set(edges2)), "self-loop eids excluded"
     pair = lambda r: (min(r.s, r.d), max(r.s, r.d))  # noqa: E731
@@ -467,9 +479,10 @@ def test_case_regex_unicode_trick_matrix(label, query, pinned, mirror):
 
 
 def test_categorical_searchany_decline_or_correct():
-    """Categorical column through searchAny via explicit columns=: a DECLINE (honest NIE or
-    a clear GFQLValidationError) is acceptable on any engine, a SILENT WRONG answer is not,
-    and a non-NIE crash class is not."""
+    """Categorical column through searchAny via explicit columns=: pandas may decline
+    clearly (honest NIE or GFQLValidationError); a non-pandas engine may only NIE or
+    match the pandas oracle exactly — a SILENT WRONG answer is not acceptable, and a
+    non-NIE crash class is not."""
     g = _panel_graph()
     nd = _panel_nodes()
     q = "MATCH (n) WHERE searchAny(n, 'x', {columns: ['cat']}) RETURN n.id AS id"

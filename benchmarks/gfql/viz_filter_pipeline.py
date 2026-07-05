@@ -192,7 +192,10 @@ def run_cell(g, scenario: str, query: str, engine: str, runs: int, warmup: int) 
     never raised — the matrix always completes."""
     def once():
         res = g.gfql(query, engine=engine)
-        _frame_len(res._nodes)  # touch the result so lazy/async engines materialize inside the clock
+        # touch BOTH result frames so lazy/async engines materialize inside the clock
+        # (graph-shaped scenarios return edges too — wave-2 S1)
+        _frame_len(res._nodes)
+        _frame_len(res._edges)
         return res
 
     try:
@@ -288,7 +291,10 @@ def main() -> None:
     args = parser.parse_args()
     if args.runs < 1 or args.warmup < 0:
         parser.error("--runs must be >= 1 and --warmup >= 0")
-
+    if args.output_json:
+        # fail BEFORE a multi-minute sweep, not at the final write (wave-2 S4)
+        with open(args.output_json, "a"):
+            pass
 
     if args.est:
         print_estimate(args.scale)
