@@ -5763,7 +5763,9 @@ def _where_expr_tree_pattern_predicates(expr: BooleanExpr) -> List[WherePatternP
                     line=cur.span.line,
                     column=cur.span.column,
                 )
-            out.append(WherePatternPredicate(pattern=cur.pattern, span=cur.span, negated=False))
+            out.append(WherePatternPredicate(
+                pattern=cur.pattern, span=cur.span, negated=False,
+                pattern_origin=cur.pattern_origin, pattern_neq=cur.pattern_neq))
             continue
         if cur.left is not None:
             stack.append(cur.left)
@@ -5799,7 +5801,10 @@ def _lower_pattern_predicate_to_row_marker(
         )
 
     introduced_aliases = sorted(alias for alias in predicate_aliases if alias not in alias_targets)
-    if introduced_aliases:
+    if introduced_aliases and predicate.pattern_origin != "exists":
+        # EXISTS { } subquery aliases are EXISTENTIALLY quantified (locals) — the
+        # bindings table projects them away; bare pattern predicates keep the
+        # conservative guard (viz-filter L1).
         raise _unsupported(
             "Cypher WHERE pattern predicates cannot introduce new aliases in this phase",
             field="where",
@@ -5830,6 +5835,7 @@ def _lower_pattern_predicate_to_row_marker(
         binding_ops=serialize_binding_ops(pattern_ops),
         join_aliases=shared_aliases,
         out_col=out_col,
+        neq=predicate.pattern_neq,
     )
 
 
@@ -5870,7 +5876,9 @@ def _rewrite_where_expr_patterns_to_markers(
             marker_col = _fresh_marker_col(expr.span)
             marker_ops.append(
                 _lower_pattern_predicate_to_row_marker(
-                    WherePatternPredicate(pattern=expr.pattern, span=expr.span, negated=False),
+                    WherePatternPredicate(
+                        pattern=expr.pattern, span=expr.span, negated=False,
+                        pattern_origin=expr.pattern_origin, pattern_neq=expr.pattern_neq),
                     alias_targets=alias_targets,
                     params=params,
                     out_col=marker_col,
@@ -5936,7 +5944,10 @@ def _lower_negated_pattern_predicate_to_row_filter(
         )
 
     introduced_aliases = sorted(alias for alias in predicate_aliases if alias not in alias_targets)
-    if introduced_aliases:
+    if introduced_aliases and predicate.pattern_origin != "exists":
+        # EXISTS { } subquery aliases are EXISTENTIALLY quantified (locals) — the
+        # bindings table projects them away; bare pattern predicates keep the
+        # conservative guard (viz-filter L1).
         raise _unsupported(
             "Cypher WHERE pattern predicates cannot introduce new aliases in this phase",
             field="where",
@@ -5966,6 +5977,7 @@ def _lower_negated_pattern_predicate_to_row_filter(
     return anti_semi_apply(
         binding_ops=serialize_binding_ops(pattern_ops),
         join_aliases=shared_aliases,
+        neq=predicate.pattern_neq,
     )
 
 

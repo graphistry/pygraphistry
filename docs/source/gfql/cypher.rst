@@ -271,6 +271,21 @@ WHERE Forms
 - Positive relationship-existence pattern predicates such as
   ``WHERE (n)-[:R]->()`` and variable-length existence checks such as
   ``WHERE (n)-[*]-()`` and ``WHERE (n)-[:R*2]->()``.
+- ``EXISTS { <pattern> }`` pattern-existence subqueries (openCypher-standard) in
+  WHERE position, e.g. ``WHERE EXISTS { (n)-[:R]->() }`` and ``WHERE NOT EXISTS
+  { (n)--() }`` — the declarative prune-isolated building blocks. Aliases
+  introduced inside the braces are existentially scoped (``EXISTS { (n)--(m) }``
+  is fine even when ``m`` is unbound outside), inline property maps work
+  (``EXISTS { (n)-[:R {w: 1}]->() }``), and the one supported inner ``WHERE``
+  form is endpoint inequality: ``EXISTS { (n)--(m) WHERE m <> n }`` — "has a
+  neighbor other than itself", i.e. the drop-self-loop prune-isolated flavor.
+  Runs natively on all four engines. Not yet supported (clear errors):
+  ``EXISTS`` in RETURN/WITH projections, general inner ``WHERE`` clauses,
+  multi-pattern bodies, full ``MATCH .. RETURN`` subquery bodies, and ``EXISTS``
+  inside ``GRAPH { }`` pipelines. For prune-isolated in GRAPH STATE (nodes AND
+  edges back), use edge patterns instead: ``GRAPH { MATCH (a)-[e]-(b) }`` keeps
+  every edge-touching node with ALL its edges (self-loops included); add
+  ``WHERE a.id <> b.id`` for the drop-self-loop variant.
 - Pattern predicates can be combined with row predicates in the current
   boolean subset, including ``AND`` / ``OR`` / ``XOR`` and ``NOT`` forms.
 

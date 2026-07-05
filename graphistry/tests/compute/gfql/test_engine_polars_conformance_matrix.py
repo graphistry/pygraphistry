@@ -233,6 +233,13 @@ def _cypher_expression_queries():
         ("regex_ci_fold_unsafe_declines", "MATCH (n) WHERE n.name =~ '(?i)\\\\D+' RETURN n.id AS id"),
         ("regex_lookbehind_declines", "MATCH (n) WHERE n.name =~ 'node(?<=e).*' RETURN n.id AS id"),
         ("regex_composed_or", "MATCH (n) WHERE n.name =~ 'node.1' OR n.num > 1000 RETURN n.id AS id"),
+        # viz-filter L1: EXISTS { } pattern subqueries — semi_apply_mark/anti_semi_apply
+        # run NATIVELY on polars (chain-flag key sets); parity-or-NIE 4-engine.
+        ("exists_neighbor", "MATCH (n) WHERE EXISTS { (n)-->() } RETURN n.id AS id"),
+        ("exists_neighbor_undirected", "MATCH (n) WHERE EXISTS { (n)--() } RETURN n.id AS id"),
+        ("not_exists_neighbor", "MATCH (n) WHERE NOT EXISTS { (n)--() } RETURN n.id AS id"),
+        ("exists_far_node_prop", "MATCH (n) WHERE EXISTS { (n)-->({num: 50}) } RETURN n.id AS id"),
+        ("exists_composed_and", "MATCH (n) WHERE EXISTS { (n)-->() } AND n.num < 50 RETURN n.id AS id"),
     ]
 
 
@@ -382,6 +389,122 @@ def test_scalar_fns_null_cells_parity():
         _assert_invariant(g, q, f"nullcells {q}")
 
 
+def test_exists_polars_internal_decline_branches():
+    """Coverage pins for the honest-decline branches of the polars semi-apply family
+    (each returns None -> the boundary lane raises NIE): non-single/unnamed/query=/
+    alias==node_id rows shapes; non-endpoint join alias; multi-hop edges; neq aliases
+    that aren't the endpoints (wave-2 / changed-line gate)."""
+    import polars as pl
+    from graphistry.compute.ast import n as _n, e_forward as _ef
+    from graphistry.compute.chain import serialize_binding_ops
+    from graphistry.compute.gfql.lazy.engine.polars.pattern_apply import (
+        rows_binding_ops_polars,
+        _pattern_alias_keys_polars,
+    )
+    import pandas as pd
+    nd = pd.DataFrame({"id": [0, 1], "x": [1, 2]})
+    ed = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
+    gpl = graphistry.nodes(pl.from_pandas(nd), "id").edges(
+        pl.from_pandas(ed), "s", "d").bind(edge="eid")
+    assert rows_binding_ops_polars(gpl, []) is None
+    assert rows_binding_ops_polars(
+        gpl, serialize_binding_ops([_n(name="n"), _n(name="m")])) is None
+    assert rows_binding_ops_polars(gpl, serialize_binding_ops([_n()])) is None
+    assert rows_binding_ops_polars(
+        gpl, serialize_binding_ops([_n(name="n", query="x > 1")])) is None
+    assert rows_binding_ops_polars(
+        gpl, serialize_binding_ops([_n(name="id")])) is None  # alias == node-id col
+    bos = serialize_binding_ops([_n(name="n"), _ef(), _n(name="m")])
+    assert _pattern_alias_keys_polars(gpl, bos, "zzz") is None  # not an endpoint
+    assert _pattern_alias_keys_polars(
+        gpl, serialize_binding_ops([_n(name="n"), _ef(hops=2), _n()]), "n") is None
+    assert _pattern_alias_keys_polars(gpl, bos, "n", neq=["n", "zzz"]) is None
+    assert _pattern_alias_keys_polars(gpl, bos[:2], "n") is None  # not Node/Edge/Node
+
+
+def test_prune_isolated_graph_shape_all_engines():
+    """LEO steer 2026-07-05: viz needs the FULL GRAPH back — nodes AND edges. THE
+    working patterns (dgx-probed): `GRAPH { MATCH (a)-[e]-(b) }` = keep-self
+    prune-isolated (self-edged + mutually-connected nodes with ALL their edges;
+    true edgeless nodes dropped); `+ WHERE a.id <> b.id` = drop-self variant (note:
+    also drops self-EDGES of kept nodes — panel-algebra §3's E₂ keeps them; the
+    exact algebra form needs a two-stage pipeline, L3). EXISTS inside GRAPH { } is
+    REJECTED fail-fast — it was SILENTLY DROPPED (dgx-repro'd all-nodes wrong
+    answer), and node-only GRAPH matches return zero edges."""
+    import pandas as pd
+    from graphistry.compute.exceptions import GFQLValidationError
+    nd = pd.DataFrame({"id": [0, 1, 2, 3, 4]})
+    # 0<->1 mutually connected (2 directed edges), 4 self-loop-only, 2+3 edgeless
+    ed = pd.DataFrame({"s": [0, 1, 4], "d": [1, 0, 4], "eid": [0, 1, 2]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    oracle = {
+        "GRAPH { MATCH (a)-[e]-(b) }": ([0, 1, 4], [0, 1, 2]),
+        "GRAPH { MATCH (a)-[e]-(b) WHERE a.id <> b.id }": ([0, 1], [0, 1]),
+    }
+    for q, (exp_nodes, exp_edges) in oracle.items():
+        out = g.gfql(q, engine="pandas")
+        assert sorted(_to_pd(out._nodes)["id"].tolist()) == exp_nodes, q
+        assert sorted(_to_pd(out._edges)["eid"].tolist()) == exp_edges, \
+            f"{q}: kept nodes must keep ALL their edges"
+    _assert_invariant(g, "GRAPH { MATCH (a)-[e]-(b) }", "prune-graph-shape keep-self")
+    # drop-self uses cross-entity same-path WHERE: polars/polars-gpu decline honestly;
+    # cuDF has a PRE-EXISTING TypeError in the same-path executor (verified
+    # byte-identical on the base tree — repo debt predating this PR, plan-tracked).
+    q2 = "GRAPH { MATCH (a)-[e]-(b) WHERE a.id <> b.id }"
+    base = _run(g, q2, "pandas")
+    for eng in _NONPANDAS_ENGINES:
+        res = _run(g, q2, eng)
+        if res[0] == "ok":
+            assert res == base, f"prune-graph-shape drop-self[{eng}]: silent divergence"
+        elif eng == "cudf":
+            assert res[0] == "nie" or res == ("err", "TypeError"), \
+                f"cudf drop-self: expected NIE or the pre-existing same-path TypeError, got {res}"
+        else:
+            assert res[0] == "nie", f"{eng} drop-self must decline honestly, got {res}"
+    with pytest.raises(GFQLValidationError, match="GRAPH"):
+        g.gfql("GRAPH { MATCH (n) WHERE EXISTS { (n)--() } }", engine="pandas")
+
+
+def test_exists_native_and_boundary_pins_polars():
+    """Wave-1 T1/T2/T4 pins: (a) EXISTS stays NATIVE on polars — parity-or-NIE alone
+    would let a silent NIE regression pass; (b) multi-alias correlation DECLINES on
+    polars (pair bindings inexpressible in the key-set route) while pandas answers;
+    (c) self-alias EXISTS { (n)--(n) } never non-NIE crashes (chain's duplicate-alias
+    guard is caught into a decline)."""
+    g = _graph(4)
+    for q in [
+        "MATCH (n) WHERE EXISTS { (n)-->() } RETURN n.id AS id",
+        "MATCH (n) WHERE NOT EXISTS { (n)--() } RETURN n.id AS id",
+    ]:
+        assert _run(g, q, "polars")[0] == "ok", f"EXISTS must stay NATIVE on polars: {q}"
+    q_multi = "MATCH (a)-->(b) WHERE EXISTS { (a)-->(b) } RETURN a.id AS id"
+    assert _run(g, q_multi, "pandas")[0] == "ok"
+    assert _run(g, q_multi, "polars")[0] == "nie",         "multi-alias correlation must decline on polars (not crash or diverge)"
+    _assert_invariant(g, q_multi, "exists-multi-alias")
+    _assert_invariant(g, "MATCH (n) WHERE EXISTS { (n)--(n) } RETURN n.id AS id", "exists-self-alias")
+
+
+def test_exists_prune_isolated_flavors_all_engines():
+    """viz-filter L1 acceptance kernel: BOTH prune-isolated flavors of the panel algebra
+    (research/panel-algebra.md §3) on a discriminating graph — node 3 is fully isolated,
+    node 4 has ONLY a self-loop. keep-self (EXISTS {(n)--()}) keeps 4; drop-self
+    (EXISTS {(n)--(m) WHERE m<>n}) drops 4; 4-engine parity-or-NIE."""
+    import pandas as pd
+    nd = pd.DataFrame({"id": [0, 1, 2, 3, 4]})
+    ed = pd.DataFrame({"s": [0, 1, 4], "d": [1, 2, 4], "eid": [0, 1, 2]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    oracle = {
+        "MATCH (n) WHERE EXISTS { (n)--() } RETURN n.id AS id": [0, 1, 2, 4],
+        "MATCH (n) WHERE NOT EXISTS { (n)--() } RETURN n.id AS id": [3],
+        "MATCH (n) WHERE EXISTS { (n)--(m) WHERE m <> n } RETURN n.id AS id": [0, 1, 2],
+        "MATCH (n) WHERE NOT EXISTS { (n)--(m) WHERE m <> n } RETURN n.id AS id": [3, 4],
+    }
+    for q, expected in oracle.items():
+        pdf = _to_pd(g.gfql(q, engine="pandas")._nodes)
+        assert sorted(pdf["id"].tolist()) == expected, f"oracle drift: {q}"
+        _assert_invariant(g, q, f"prune-isolated {q}")
+
+
 def test_tolower_non_string_declines_never_fabricates():
     """toLower/toUpper on a non-string column must never return values (neo4j: type error).
     Regression (#1675 wave-1, dgx-repro'd): the scalar fallback broadcast the lowercased
@@ -463,7 +586,8 @@ def _rowop_exercised():
     """ROW_PIPELINE_CALLS ops with a labeled SUBJECT here (importable for the ledger): `with_`
     (with_extend*/in-membership), `unwind` (unwind_* native+NIE), and the _ROW_OP_CASES ops
     (chain+dag). Ops exercised only implicitly via cypher text (RETURN->select etc.) stay ledger
-    waivers; only semi_apply_mark/anti_semi_apply/join_apply remain honest-NIE waivers now."""
+    waivers; semi_apply_mark/anti_semi_apply are now NATIVE on polars and exercised implicitly by
+    the EXISTS { } cypher cases (exists_neighbor etc.); join_apply remains the honest-NIE waiver."""
     return {
         "with_", "unwind",
         "rows", "skip", "limit", "distinct", "drop_cols",

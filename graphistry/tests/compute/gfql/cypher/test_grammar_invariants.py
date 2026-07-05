@@ -76,6 +76,8 @@ DIFFERENTIAL_CORPUS = [
     # WHERE: generic expression forms (stay on expr_tree)
     "MATCH (n) WHERE n.a > 3 OR n.b = 1 RETURN n",
     "MATCH (n) WHERE n.a =~ 'x' OR n.b =~ 'y' RETURN n",
+    "MATCH (n) WHERE EXISTS { (n)-[:R]->() } RETURN n",
+    "MATCH (n) WHERE NOT EXISTS { (n)--(m) } RETURN n",
     "MATCH (n) WHERE n.x = 1 XOR n.y = 2 RETURN n",
     "MATCH (n) WHERE NOT n.deleted = true RETURN n",
     "MATCH (n) WHERE (n.x = 1 AND n.y = 2) OR n.z = 3 RETURN n",

@@ -790,3 +790,4 @@ def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plott
     values = [it.value for it in node.items if isinstance(it, Literal)]
     rhs = pl.DataFrame({as_: values})
     return _rewrap(g, table.join(rhs, how="cross"))
+

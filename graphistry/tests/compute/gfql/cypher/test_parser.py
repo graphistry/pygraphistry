@@ -1050,8 +1050,6 @@ def test_parse_does_not_treat_pattern_existence_lexemes_inside_comments_or_liter
 @pytest.mark.parametrize(
     "query",
     [
-        "MATCH (n) WHERE exists { (n)-[:R]->() } RETURN n",
-        "MATCH (n) WHERE not exists { (n)-[:R]->() } RETURN n",
         "MATCH (n) WHERE not((n)-[:R]->()) RETURN n",
         "MATCH (n) WHERE not((n:Admin)-[:R]->()) RETURN n",
         "MATCH (n) WHERE not((n)-[:R {w: 1}]->()) RETURN n",
@@ -1060,16 +1058,37 @@ def test_parse_does_not_treat_pattern_existence_lexemes_inside_comments_or_liter
         "MATCH (n) WHERE not((n)--()) RETURN n",
         "MATCH (n) WHERE not((n)-[:R*]->()) RETURN n",
         "MATCH (n) WHERE not((n)-[r:R]->()) RETURN n",
-        "MATCH (n) WHERE exists/*inline*/{ (n)-[:R]->() } RETURN n",
-        "MATCH (n) WHERE not/*inline*/exists/*inline*/{ (n)-[:R]->() } RETURN n",
         "MATCH (n) WHERE not/*inline*/((n)-[:R]->()) RETURN n",
-        "MATCH (n) WHERE exists { (n)-[:R]->() } /* keep rejecting */ RETURN n",
         "// leading comment\nMATCH (n) WHERE not((n)-[:R]->()) RETURN n",
     ],
 )
 def test_parse_still_rejects_true_pattern_existence_expressions(query: str) -> None:
+    """not((..)) spellings keep the fail-fast; WHERE-position EXISTS {{ }} is
+    SUPPORTED since viz-filter L1 (positive cases below)."""
     with pytest.raises(GFQLValidationError, match="Pattern existence expressions"):
         _parse_query(query)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n) WHERE exists { (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE not exists { (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE exists/*inline*/{ (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE not/*inline*/exists/*inline*/{ (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE exists { (n)-[:R]->() } /* trailing comment */ RETURN n",
+        # wave-2 pins: a property STRING containing a clause keyword must not decline
+        # (keyword scans run on masked text); `graph` as a property name must not trip
+        # the anchored GRAPH-pipeline gate.
+        "MATCH (n) WHERE exists { (n)-[:R {name: 'WHERE it hurts'}]->() } RETURN n",
+        "MATCH (n) WHERE n.graph = 1 AND exists { (n)-[:R]->() } RETURN n",
+    ],
+)
+def test_parse_accepts_where_position_exists_subqueries(query: str) -> None:
+    """viz-filter L1: WHERE-position EXISTS {{ }} parses (RETURN/WITH position and
+    not((..)) spellings keep their fail-fast)."""
+    parsed = parse_cypher(query)
+    assert isinstance(parsed, CypherQuery)
 
 
 @pytest.mark.parametrize(

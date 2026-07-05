@@ -351,12 +351,39 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
 def _try_native_row_op(g_cur, op):
     """Run a row-pipeline call natively on polars, or return None to defer (NIE)."""
     from graphistry.Engine import Engine
-    from .row_pipeline import select_polars, with_columns_polars, order_by_polars, group_by_polars, unwind_polars, where_rows_polars
+    from .row_pipeline import (
+        select_polars, with_columns_polars, order_by_polars, group_by_polars,
+        unwind_polars, where_rows_polars,
+    )
+    from .pattern_apply import (
+        rows_binding_ops_polars, semi_apply_mark_polars, anti_semi_apply_polars,
+    )
 
     fn = getattr(op, "function", None)
     if _call_native_on_polars(op):
         # frame ops (rows/limit/skip/distinct/drop_cols) — engine-polymorphic
         return op.execute(g=g_cur, prev_node_wavefront=None, target_wave_front=None, engine=Engine.POLARS)
+    # correlated pattern-existence family (EXISTS { } / pattern predicates): native
+    # via chain_polars-computed key sets; unsupported shapes return None -> honest NIE.
+    if (
+        fn == "rows"
+        and op.params.get("binding_ops") is not None
+        and op.params.get("alias_endpoints") is None
+        and op.params.get("source") is None
+    ):
+        return rows_binding_ops_polars(g_cur, op.params["binding_ops"])
+    if fn == "semi_apply_mark":
+        # required params are safelist-validated — direct indexing (an or-default
+        # here could only mask an unvalidated call); neq is the optional one.
+        return semi_apply_mark_polars(
+            g_cur, op.params["binding_ops"], op.params["join_aliases"],
+            op.params["out_col"], neq=op.params.get("neq"),
+        )
+    if fn == "anti_semi_apply":
+        return anti_semi_apply_polars(
+            g_cur, op.params["binding_ops"], op.params["join_aliases"],
+            neq=op.params.get("neq"),
+        )
     if fn in ("select", "return_"):
         return select_polars(g_cur, op.params.get("items", []))
     if fn == "with_":

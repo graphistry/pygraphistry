@@ -39,6 +39,7 @@ from graphistry.compute.gfql.call.support import (
     is_list_of_strings,
     is_list_or_dict,
     is_non_empty_list_of_strings,
+    is_string_pair,
     is_non_empty_string,
     is_non_negative_int_like,
     is_string,
@@ -395,22 +396,24 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     ),
 
     'anti_semi_apply': _safelist_entry(
-        {'binding_ops', 'join_aliases'},
+        {'binding_ops', 'join_aliases', 'neq'},
         required_params={'binding_ops', 'join_aliases'},
         param_validators={
             'binding_ops': is_list_of_dicts,
             'join_aliases': is_non_empty_list_of_strings,
+            'neq': is_string_pair,
         },
         description='Filter active rows by anti-semi joining against correlated binding rows',
     ),
 
     'semi_apply_mark': _safelist_entry(
-        {'binding_ops', 'join_aliases', 'out_col'},
+        {'binding_ops', 'join_aliases', 'out_col', 'neq'},
         required_params={'binding_ops', 'join_aliases', 'out_col'},
         param_validators={
             'binding_ops': is_list_of_dicts,
             'join_aliases': is_non_empty_list_of_strings,
             'out_col': is_non_empty_string,
+            'neq': is_string_pair,
         },
         description='Annotate active rows with correlated pattern-existence booleans',
         schema_effects=_schema_effects(adds_node_cols=_semi_apply_mark_added_node_cols),

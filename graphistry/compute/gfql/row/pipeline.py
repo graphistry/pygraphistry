@@ -4149,10 +4149,33 @@ class RowPipelineMixin:
         right_rows = _RowPipelineAdapter(cast("Plottable", base_graph))._gfql_binding_ops_row_table(binding_ops)
         return base_graph, right_rows._nodes
 
+    @staticmethod
+    def _gfql_apply_neq_filter(right_df: Any, neq: Optional[List[str]], node_id_col: str) -> Any:
+        """``EXISTS { ... WHERE a <> b }``: keep binding rows whose two alias node ids
+        DIFFER (the viz drop-self prune-isolated flavor). Column resolution mirrors the
+        join-column candidates (``alias.node_id`` then bare ``alias``)."""
+        if not neq or right_df is None or len(right_df) == 0:
+            return right_df
+        cols: List[str] = []
+        for alias in neq:
+            cand = next((c for c in (f"{alias}.{node_id_col}", alias) if c in right_df.columns), None)
+            if cand is None:
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "EXISTS inner WHERE inequality references an alias missing from the pattern bindings",
+                    field="where",
+                    value=list(neq),
+                    suggestion="Compare the pattern's endpoint aliases, e.g. EXISTS { (n)--(m) WHERE m <> n }.",
+                    language="cypher",
+                )
+            cols.append(cand)
+        return right_df.loc[right_df[cols[0]] != right_df[cols[1]]]
+
     def anti_semi_apply(
         self,
         binding_ops: List[Dict[str, Any]],
         join_aliases: List[str],
+        neq: Optional[List[str]] = None,
     ) -> "Plottable":
         """Row anti-semi-join against rows produced by ``binding_ops``."""
         self._gfql_validate_apply_args("anti_semi_apply", binding_ops, join_aliases)
@@ -4168,6 +4191,10 @@ class RowPipelineMixin:
         node_id_col = base_graph._node
         if not isinstance(node_id_col, str) or node_id_col == "":
             node_id_col = "id"
+
+        right_df = self._gfql_apply_neq_filter(right_df, neq, node_id_col)
+        if right_df is None or len(right_df) == 0:
+            return self._gfql_row_table(left_df.copy())
 
         join_cols, missing_aliases = self._gfql_shared_join_cols(left_df, right_df, join_aliases, node_id_col)
         if not join_cols:
@@ -4192,6 +4219,7 @@ class RowPipelineMixin:
         binding_ops: List[Dict[str, Any]],
         join_aliases: List[str],
         out_col: str,
+        neq: Optional[List[str]] = None,
     ) -> "Plottable":
         """Annotate each active row with correlated pattern-match existence."""
         self._gfql_validate_apply_args("semi_apply_mark", binding_ops, join_aliases, out_col=out_col)
@@ -4215,6 +4243,12 @@ class RowPipelineMixin:
         node_id_col = base_graph._node
         if not isinstance(node_id_col, str) or node_id_col == "":
             node_id_col = "id"
+
+        right_df = self._gfql_apply_neq_filter(right_df, neq, node_id_col)
+        if right_df is None or len(right_df) == 0:
+            out_df = left_df.copy()
+            out_df[out_col] = False
+            return self._gfql_row_table(out_df)
 
         join_cols, missing_aliases = self._gfql_shared_join_cols(left_df, right_df, join_aliases, node_id_col)
         if not join_cols:

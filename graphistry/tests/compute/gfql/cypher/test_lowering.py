@@ -1967,6 +1967,75 @@ def test_lower_match_query_emits_row_marker_for_single_positive_where_pattern() 
     assert [op.get("type") for op in binding_ops] == ["Node", "Edge", "Node"]
 
 
+def test_lower_match_query_exists_subquery_emits_same_marker_as_bare_pattern() -> None:
+    """viz-filter L1: WHERE EXISTS { <pattern> } lowers to the IDENTICAL
+    semi_apply_mark shape as the bare pattern predicate (same leaf, zero new ops);
+    inline block comments and property maps inside the pattern are fine."""
+    for q in [
+        "MATCH (n) WHERE EXISTS { (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE exists/*inline*/{ (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE EXISTS { (n)-[:R {w: 1}]->() } RETURN n",
+    ]:
+        lowered = lower_match_query(_parse_query(q))
+        assert len(lowered.row_pre_filters) == 1, q
+        marker = lowered.row_pre_filters[0]
+        assert isinstance(marker, ASTCall), q
+        assert marker.function == "semi_apply_mark", q
+        assert marker.params.get("join_aliases") == ["n"], q
+        binding_ops = marker.params.get("binding_ops")
+        assert [op.get("type") for op in binding_ops] == ["Node", "Edge", "Node"], q
+
+
+def test_lower_match_query_not_exists_subquery_emits_anti_semi_apply() -> None:
+    """viz-filter L1: NOT EXISTS { <pattern> } composes through the NOT tier into
+    anti_semi_apply — the declarative prune-isolated building block."""
+    lowered = lower_match_query(
+        _parse_query("MATCH (n) WHERE NOT EXISTS { (n)-[:R]->() } RETURN n.id AS id")
+    )
+    assert len(lowered.row_pre_filters) == 1
+    anti = lowered.row_pre_filters[0]
+    assert isinstance(anti, ASTCall)
+    assert anti.function == "anti_semi_apply"
+    assert anti.params.get("join_aliases") == ["n"]
+
+
+def test_lower_exists_drop_self_flavor_emits_neq_semi_apply() -> None:
+    """viz-filter L1 drop-self prune-isolated: EXISTS { (n)--(m) WHERE m <> n } — the
+    existential local alias m is ALLOWED (bindings project it away) and the endpoint
+    inequality rides the op as neq=[m, n] (bindings-table filter / self-loop-edge
+    exclusion on polars)."""
+    lowered = lower_match_query(
+        _parse_query("MATCH (n) WHERE EXISTS { (n)--(m) WHERE m <> n } RETURN n.id AS id")
+    )
+    assert len(lowered.row_pre_filters) == 1
+    marker = lowered.row_pre_filters[0]
+    assert isinstance(marker, ASTCall)
+    assert marker.function == "semi_apply_mark"
+    assert marker.params.get("join_aliases") == ["n"]
+    assert sorted(marker.params.get("neq") or []) == ["m", "n"]
+
+    anti = lower_match_query(
+        _parse_query("MATCH (n) WHERE NOT EXISTS { (n)--(m) WHERE m <> n } RETURN n.id AS id")
+    ).row_pre_filters[0]
+    assert isinstance(anti, ASTCall)
+    assert anti.function == "anti_semi_apply"
+    assert sorted(anti.params.get("neq") or []) == ["m", "n"]
+
+
+def test_exists_subquery_unsupported_bodies_decline_clearly() -> None:
+    """viz-filter L1 v1 boundaries: inner WHERE, multi-pattern bodies, and full
+    MATCH..RETURN subquery bodies decline with a clear message (never a wrong answer)."""
+    for q, phrase in [
+        ("MATCH (a) WHERE EXISTS { (a)--(m) WHERE m.x > 1 } RETURN a", "inner WHERE"),
+        ("MATCH (a) WHERE EXISTS { (a)--(), (a)-->() } RETURN a", "multi-pattern"),
+        ("MATCH (a) WHERE EXISTS { MATCH (a)--(b) RETURN b } RETURN a", "subquery body"),
+        ("MATCH (a) WHERE EXISTS { (a)--(b) WHERE a <> c } RETURN a", "endpoint aliases"),
+    ]:
+        with pytest.raises(GFQLValidationError) as exc_info:
+            _parse_query(q)
+        assert phrase in exc_info.value.message, (q, exc_info.value.message)
+
+
 def test_lower_match_query_emits_row_anti_semi_filter_for_negated_where_pattern() -> None:
     lowered = lower_match_query(_parse_query("MATCH (n) WHERE NOT (n)-[:R]->() RETURN n.id AS id"))
 
@@ -6573,12 +6642,12 @@ def test_string_cypher_executes_xor_between_bounded_reverse_and_forward_where_pa
         "MATCH (a) RETURN exists/*inline*/{ (a)-[:KNOWS]-() } AS has",
         "MATCH (a) RETURN not exists { (a)-[:KNOWS]-() } AS no",
         "MATCH (a) RETURN not/*inline*/exists/*inline*/{ (a)-[:KNOWS]-() } AS no",
-        "MATCH (a) WHERE exists { (a)-[:KNOWS]-() } RETURN a.id",
-        "MATCH (a) WHERE exists/*inline*/{ (a)-[:KNOWS]-() } RETURN a.id",
     ],
 )
 def test_string_cypher_failfast_rejects_pattern_existence(query: str) -> None:
-    """#998: pattern existence expressions fail-fast with clear message."""
+    """#998: not((..)) pattern-expression spellings and RETURN/WITH-position
+    EXISTS {{ }} fail-fast with a clear message. WHERE-position EXISTS {{ }} is
+    SUPPORTED since viz-filter L1 (see the exists_subquery lowering tests)."""
     graph = _mk_empty_graph()
     with pytest.raises(GFQLValidationError) as exc_info:
         graph.gfql(query)
