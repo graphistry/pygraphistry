@@ -885,3 +885,31 @@ class TestCudfRegexPrep:
         for pat in ["(?m)^a", "(?s).*", "(?im)a", "(?x) a b"]:
             with _pytest.raises(NotImplementedError):
                 _cudf_regex_prep(pat, True)
+
+    def test_lookaround_and_backrefs_decline(self):
+        """#1675 wave-1: libcudf rejects lookaround/backrefs at kernel-compile time —
+        decline honestly instead of a raw non-NIE RuntimeError (dgx-repro'd)."""
+        import pytest as _pytest
+        from graphistry.compute.predicates.str import _cudf_regex_prep
+        for pat in ["(?=a)b", "(?!a)b", "(?<=a)b", "(?<!a)b", r"(a)\1"]:
+            with _pytest.raises(NotImplementedError):
+                _cudf_regex_prep(pat, True)
+
+
+class TestCudfCasefoldOrDecline:
+    """The cuDF case-insensitive workaround lowercases DATA + PATTERN; .lower() turns
+    \\D into \\d (and \\W/\\S/\\B alike), silently INVERTING the predicate — patterns
+    with escapes must decline (dgx-repro'd wrong answer, #1675 wave-1)."""
+
+    def test_plain_patterns_fold(self):
+        from graphistry.compute.predicates.str import _cudf_casefold_or_decline
+        assert _cudf_casefold_or_decline("NODE.1") == "node.1"
+        assert _cudf_casefold_or_decline("Ab|Cd") == "ab|cd"
+        assert _cudf_casefold_or_decline("[A-Z]+") == "[a-z]+"
+
+    def test_escape_sequences_decline(self):
+        import pytest as _pytest
+        from graphistry.compute.predicates.str import _cudf_casefold_or_decline
+        for pat in [r"\D+", r"a\Wb", r"\S*", r"node\.1"]:
+            with _pytest.raises(NotImplementedError):
+                _cudf_casefold_or_decline(pat)

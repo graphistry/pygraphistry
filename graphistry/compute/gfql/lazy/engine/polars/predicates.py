@@ -238,6 +238,10 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
         # fully anchored (``^..$``) — the target for Cypher's ``=~`` (full/anchored, Java
         # ``Matcher.matches()``). Wrap the user pattern in a non-capturing group so a
         # top-level alternation (``a|b``) anchors as a whole. ``case``/``flags`` → inline prefix.
+        # Same Rust-regex gate as Contains: lookaround/backrefs raised a non-NIE
+        # ComputeError at collect (dgx-repro'd) — decline honestly instead.
+        if _regex_rust_incompatible(pred.pat):
+            return None
         case = getattr(pred, "case", True)
         flags = getattr(pred, "flags", 0)
         prefix = _inline_regex_flag_prefix(case, flags)

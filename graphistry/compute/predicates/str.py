@@ -424,6 +424,9 @@ class _RegexStringPredicate(ASTPredicate):
             )
 
 
+_CUDF_REGEX_UNSUPPORTED = re.compile(r'\(\?=|\(\?!|\(\?<|\\[1-9]')
+
+
 def _cudf_regex_prep(pat: object, case: bool) -> Tuple[object, bool]:
     """Adapt a regex for libcudf, which rejects inline flag groups (``(?i)``,
     ``(?m)``, ``(?s)`` …) at ANY position (raises "invalid regex pattern").
@@ -431,11 +434,17 @@ def _cudf_regex_prep(pat: object, case: bool) -> Tuple[object, bool]:
     A leading ``(?i)`` (case-insensitive) is translated to the caller's existing
     lowercase-folding workaround (returns the flag-stripped pattern + ``case=False``);
     any other inline flag has no cuDF equivalent, so decline honestly with
-    ``NotImplementedError`` rather than crash. Surfaced by the openCypher ``=~``
-    operator, which lowers ``=~ '(?i)…'`` to Match/Fullmatch (viz-filter #1673).
+    ``NotImplementedError`` rather than crash. Same decline for lookaround and
+    backreferences, which libcudf rejects at kernel-compile time. Surfaced by the
+    openCypher ``=~`` operator, which lowers ``=~ '(?i)…'`` to Match/Fullmatch
+    (viz-filter #1673).
     """
     if not isinstance(pat, str):
         return pat, case
+    if _CUDF_REGEX_UNSUPPORTED.search(pat):
+        raise NotImplementedError(
+            "cuDF regex does not support lookaround or backreferences; use engine='pandas'"
+        )
     m = re.match(r'\(\?([aiLmsux]+)\)', pat)
     if not m:
         return pat, case
@@ -448,6 +457,20 @@ def _cudf_regex_prep(pat: object, case: bool) -> Tuple[object, bool]:
     )
 
 
+def _cudf_casefold_or_decline(pat: str) -> str:
+    """Lowercase-fold a pattern for the cuDF case-insensitive workaround (data is
+    lowercased, so the pattern must be too). Folding is only sound for patterns
+    without escape sequences: ``.lower()`` turns ``\\D`` into ``\\d`` (and ``\\W``/
+    ``\\S``/``\\B`` likewise), silently INVERTING the predicate — decline those
+    honestly instead (dgx-repro'd wrong answer, #1675 review wave 1)."""
+    if '\\' in pat:
+        raise NotImplementedError(
+            "cuDF case-insensitive regex cannot safely fold patterns containing "
+            "escape sequences; use engine='pandas'"
+        )
+    return pat.lower()
+
+
 class Match(_RegexStringPredicate):
     def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         # workaround cuDF not supporting 'case' and 'na' parameters
@@ -457,7 +480,7 @@ class Match(_RegexStringPredicate):
             pat, case = _cudf_regex_prep(self.pat, self.case)
             if not case:
                 s_modified = s.str.lower()
-                pat_modified = pat.lower() if isinstance(pat, str) else pat
+                pat_modified = _cudf_casefold_or_decline(pat) if isinstance(pat, str) else pat
                 return s_modified.str.match(pat_modified, flags=self.flags)
             return s.str.match(pat, flags=self.flags)
 
@@ -484,16 +507,19 @@ def match(
 class Fullmatch(_RegexStringPredicate):
     def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         if is_cudf:
-            # cuDF has no fullmatch; emulate with match() + ``^…$`` anchors.
-            # libcudf rejects inline flag groups (``(?i)`` …) entirely, so
-            # translate them first (``(?i)`` -> lowercase-folding; others NIE).
-            # Surfaced by the openCypher ``=~`` operator (viz-filter #1673).
+            # cuDF has no fullmatch; emulate with match() + ``^(…)$`` anchors. The
+            # group wrap makes a top-level alternation anchor as a WHOLE (``ab|cd``
+            # must not become ``^ab|cd$``, which matched 'abXXX' — dgx-repro'd);
+            # libcudf lacks ``(?:``, so a plain capture group (match is boolean —
+            # numbering is irrelevant). libcudf also rejects inline flag groups
+            # (``(?i)`` …) entirely, so translate them first (``(?i)`` ->
+            # lowercase-folding; others NIE). Surfaced by openCypher ``=~`` (#1673).
             pat, case = _cudf_regex_prep(self.pat, self.case)
-            anchored_pat = f'^{pat}$' if isinstance(pat, str) else pat
+            anchored_pat = f'^({pat})$' if isinstance(pat, str) else pat
             if not case:
                 s_modified = s.str.lower()
                 pat_modified = (
-                    anchored_pat.lower()
+                    _cudf_casefold_or_decline(anchored_pat)
                     if isinstance(anchored_pat, str)
                     else anchored_pat
                 )

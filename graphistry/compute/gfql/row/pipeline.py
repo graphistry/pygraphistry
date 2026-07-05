@@ -1398,8 +1398,12 @@ class RowPipelineMixin:
                     return True, out.where(~null_mask, pd.NA)
                 if is_null_scalar(inner):
                     return True, None
-                s = str(inner)
-                return True, s.lower() if fn == "tolower" else s.upper()
+                if not isinstance(inner, str):
+                    # neo4j requires a String (type error). A numeric SERIES lands here
+                    # too (no .str accessor): str(inner) would broadcast the lowercased
+                    # Series REPR to every row — decline instead (dgx-repro'd).
+                    return False, None
+                return True, inner.lower() if fn == "tolower" else inner.upper()
 
             if fn == "tofloat" and len(values) == 1:
                 inner = values[0]
@@ -2270,6 +2274,13 @@ class RowPipelineMixin:
 
             try:
                 out = apply_string_predicate_series(left_txt, needle, op_name)
+            except NotImplementedError:
+                # Honest engine decline (e.g. cuDF inline-flag/lookaround limits) —
+                # the blanket remap below destroyed the NIE class AND blamed the op
+                # name for what is a pattern/engine limit (#1675 wave-1).
+                raise
+            except re.error as exc:
+                raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
             except ValueError:
                 raise ValueError(f"unsupported row expression predicate op: {op_name} in {expr!r}")
             except Exception as exc:

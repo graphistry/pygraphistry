@@ -11,11 +11,20 @@ _GFQL_STRING_PREDICATE_SCALAR_OPS: Dict[str, Callable[[str, str], bool]] = {
     "regex": lambda left_txt, right_txt: _re.fullmatch(right_txt, left_txt) is not None,
 }
 
+def _series_regex_fullmatch(left_txt: Any, needle: str) -> Any:
+    # `=~` on a Series: delegate to the Fullmatch predicate, which carries the engine
+    # workarounds (cuDF has no ``.str.fullmatch`` — raw use raised on engine='cudf'
+    # while pandas worked; anchored-match emulation + inline-flag translation live
+    # there). Local import: predicates.str imports compute modules at module scope.
+    from graphistry.compute.predicates.str import Fullmatch
+    return Fullmatch(needle)(left_txt)
+
+
 _GFQL_STRING_PREDICATE_SERIES_OPS: Dict[str, Callable[[Any, str], Any]] = {
     "contains": lambda left_txt, needle: left_txt.str.contains(needle, regex=False),
     "starts_with": lambda left_txt, needle: left_txt.str.startswith(needle),
     "ends_with": lambda left_txt, needle: left_txt.str.endswith(needle),
-    "regex": lambda left_txt, needle: left_txt.str.fullmatch(needle),
+    "regex": _series_regex_fullmatch,
 }
 
 _GFQL_SEQUENCE_FN_SERIES_OPS: Dict[str, Callable[[Any], Any]] = {

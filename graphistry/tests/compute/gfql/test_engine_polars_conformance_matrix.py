@@ -15,7 +15,8 @@ from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected, call, 
 pytest.importorskip("polars")
 
 
-# ---- graph with diverse dtypes (int, float w/ null, str, bool) ----
+# ---- graph with diverse dtypes (int, float, str, bool); NO null cells — null-path
+# parity is exercised by test_scalar_fns_null_cells_parity's dedicated fixture ----
 def _graph(seed=0):
     rng = np.random.default_rng(seed)
     nn = 30
@@ -220,6 +221,16 @@ def _cypher_expression_queries():
         # NOTE: toString(float) intentionally absent — polars NIEs (test_tostring_float_honest_nie
         # _polars covers that), and cudf's orthogonal float-repr divergence from pandas would trip
         # _assert_invariant; the dedicated pandas-vs-polars test carries the real intent.
+        # #1675 review wave-1: the `=~` family cross-engine. The cudf fullmatch emulation
+        # mis-anchored top-level alternation and the (?i) lowercase-fold inverted escape
+        # classes (both dgx-repro'd silent wrongs); unsafe folds + lookaround now DECLINE
+        # (parity-or-NIE allows the NIE, forbids the wrong answer).
+        ("regex_fullmatch_literal", "MATCH (n) WHERE n.name =~ 'node.1' RETURN n.id AS id"),
+        ("regex_fullmatch_alternation", "MATCH (n) WHERE n.name =~ 'node.1|node.2' RETURN n.id AS id"),
+        ("regex_ci_fold_safe", "MATCH (n) WHERE n.name =~ '(?i)NODE.1' RETURN n.id AS id"),
+        ("regex_ci_fold_unsafe_declines", "MATCH (n) WHERE n.name =~ '(?i)\\\\D+' RETURN n.id AS id"),
+        ("regex_lookbehind_declines", "MATCH (n) WHERE n.name =~ 'node(?<=e).*' RETURN n.id AS id"),
+        ("regex_composed_or", "MATCH (n) WHERE n.name =~ 'node.1' OR n.num > 1000 RETURN n.id AS id"),
     ]
 
 
@@ -281,6 +292,55 @@ def test_scalar_fn_honest_nie_on_polars(label, cypher, pandas_expect, why):
     assert (base == "ok") == (pandas_expect == "ok"), \
         f"{label}: pandas-oracle expectation drifted (expected {pandas_expect}, got {base})"
     assert _run(g, cypher, "polars")[0] == "nie", f"{label} must be an honest NIE on polars: {why}"
+
+
+def test_scalar_fns_null_cells_parity():
+    """#1675 wave-1: the shared fixture has NO null cells, so the scalar fns'
+    where(~null_mask, pd.NA) paths were never exercised cross-engine — dedicated
+    null-bearing columns here (float + string), 4-engine parity-or-NIE."""
+    import pandas as pd
+    nd = pd.DataFrame({
+        "id": [0, 1, 2, 3],
+        "fx": [1.5, None, -2.25, None],
+        "sx": ["Ab", None, "cD", None],
+    })
+    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [0, 1]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    for q in [
+        "MATCH (n) RETURN n.id AS id, floor(n.fx) AS x",
+        "MATCH (n) RETURN n.id AS id, ceil(n.fx) AS x",
+        "MATCH (n) RETURN n.id AS id, round(n.fx) AS x",
+        "MATCH (n) RETURN n.id AS id, toLower(n.sx) AS s",
+        "MATCH (n) RETURN n.id AS id, toUpper(n.sx) AS s",
+        "MATCH (n) WHERE n.sx =~ '(?i)ab' RETURN n.id AS id",
+    ]:
+        _assert_invariant(g, q, f"nullcells {q}")
+
+
+def test_tolower_non_string_declines_never_fabricates():
+    """toLower/toUpper on a non-string column must never return values (neo4j: type error).
+    Regression (#1675 wave-1, dgx-repro'd): the scalar fallback broadcast the lowercased
+    Series REPR to every row on pandas AND cudf; polars-gpu raised a non-NIE SchemaError."""
+    g = _graph(4)
+    for fn in ["toLower", "toUpper"]:
+        q = f"MATCH (n) RETURN n.id AS id, {fn}(n.num) AS s"
+        for eng in ["pandas"] + _NONPANDAS_ENGINES:
+            res = _run(g, q, eng)
+            assert res[0] in ("err", "nie"), \
+                f"{fn}(numeric) must decline on {eng}, got {res[0]} (silent fabrication)"
+
+
+def test_numeric_fn_float_dtype_parity_polars():
+    """neo4j floor/ceil/round return Float and the pandas engine astype(float)s; polars must
+    too (#1675 wave-1: bare .floor() on Int64 stayed Int64 — the value-level sig is
+    dtype-blind (5 == 5.0), so pin dtypes explicitly)."""
+    g = _graph(4)
+    for fn in ["floor", "ceil", "round"]:
+        q = f"MATCH (n) RETURN {fn}(n.num) AS x"
+        pdf = _to_pd(g.gfql(q, engine="pandas")._nodes)
+        pol = _to_pd(g.gfql(q, engine="polars")._nodes)
+        assert pdf["x"].dtype.kind == "f", f"{fn}(int) oracle must be float"
+        assert pol["x"].dtype.kind == "f", f"{fn}(int) must be Float64 on polars, got {pol['x'].dtype}"
 
 
 def test_collect_aggregations_native_parity_polars():

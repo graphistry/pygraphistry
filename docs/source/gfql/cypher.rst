@@ -258,7 +258,11 @@ WHERE Forms
   (like neo4j's Java-regex ``=~``), so ``n.name =~ 'AB'`` matches only
   ``'AB'`` — use ``.*`` / ``^..$`` for partial matches. Inline flags such as
   ``(?i)`` (case-insensitive), ``(?m)``, and ``(?s)`` are honored. Composes
-  through ``AND`` / ``OR`` / ``NOT``. (``LIKE`` / ``ILIKE`` are not part of
+  through ``AND`` / ``OR`` / ``NOT``. Engine caveat: on ``engine='cudf'``,
+  ``(?m)`` / ``(?s)``, lookaround, backreferences, and ``(?i)`` combined with
+  escape classes (e.g. ``(?i)\\D+``) raise ``NotImplementedError`` (libcudf
+  regex limits — declined honestly rather than approximated); use
+  ``engine='pandas'`` for those patterns. (``LIKE`` / ``ILIKE`` are not part of
   Cypher or GQL — use ``=~``, ``CONTAINS``, or ``STARTS WITH`` instead.)
 - Label predicates such as ``WHERE b:Foo:Bar``.
 - Relationship-type predicates such as ``WHERE type(r) = 'KNOWS'``.
