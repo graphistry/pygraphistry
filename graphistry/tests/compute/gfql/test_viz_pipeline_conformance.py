@@ -480,9 +480,10 @@ def test_case_regex_unicode_trick_matrix(label, query, pinned, mirror):
 
 def test_categorical_searchany_decline_or_correct():
     """Categorical column through searchAny via explicit columns=: pandas may decline
-    clearly (honest NIE or GFQLValidationError); a non-pandas engine may only NIE or
-    match the pandas oracle exactly — a SILENT WRONG answer is not acceptable, and a
-    non-NIE crash class is not."""
+    clearly (honest NIE or GFQLValidationError). When pandas answers, a non-pandas
+    engine may only NIE or match the pandas oracle exactly — a SILENT WRONG answer is
+    not acceptable, and a non-NIE crash class is not. (When pandas itself declines
+    there is no oracle, so non-pandas engines are not checked.)"""
     g = _panel_graph()
     nd = _panel_nodes()
     q = "MATCH (n) WHERE searchAny(n, 'x', {columns: ['cat']}) RETURN n.id AS id"

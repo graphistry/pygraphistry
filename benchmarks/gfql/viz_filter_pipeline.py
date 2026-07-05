@@ -291,14 +291,15 @@ def main() -> None:
     args = parser.parse_args()
     if args.runs < 1 or args.warmup < 0:
         parser.error("--runs must be >= 1 and --warmup >= 0")
-    if args.output_json:
-        # fail BEFORE a multi-minute sweep, not at the final write (wave-2 S4)
-        with open(args.output_json, "a"):
-            pass
-
     if args.est:
         print_estimate(args.scale)
         return
+
+    if args.output_json:
+        # fail BEFORE a multi-minute sweep, not at the final write (wave-2 S4;
+        # after the --est early-return so estimate-only runs touch nothing)
+        with open(args.output_json, "a"):
+            pass
 
     engines = [e.strip() for e in args.engines.split(",") if e.strip()]
     unknown = [e for e in engines if e not in KNOWN_ENGINES]
