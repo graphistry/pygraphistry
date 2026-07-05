@@ -44,6 +44,31 @@ from graphistry.compute.gfql.cypher.ast import (
 )
 
 
+# ---------------------------------------------------------------------------
+# GRAMMAR — the declarative source of truth for Cypher syntax.
+#
+# EDITING THIS GRAMMAR (the safe-by-construction extension flow):
+#   1. Add / change a rule here.
+#   2. Add at least one query exercising the new syntax to
+#      DIFFERENTIAL_CORPUS in tests/.../test_grammar_invariants.py (or, if the
+#      construct is grammatical-but-intentionally-unsupported, to
+#      GRAMMAR_ONLY_COVERAGE). test_every_grammar_rule_is_exercised_by_the_corpus
+#      FAILS with the new rule's name until you do — you cannot land a rule
+#      with no coverage.
+#   3. Run test_grammar_invariants.py. The machine checks that guard you:
+#        - conflict profile is PINNED (0 reduce/reduce always; the exact
+#          shift/reduce set is asserted) — a new ambiguity fails the build;
+#        - semantic ambiguity is ZERO (every Earley derivation -> same AST);
+#          a new binary-but-AST-neutral ambiguity must be added to
+#          RESIDUAL_DERIVATION_AMBIGUITY with a justification, anything worse
+#          fails hard;
+#        - LALR == Earley over the corpus + full-repo scrape (AST-identical).
+#   4. If the edit deliberately changes accept/reject, pin it in
+#      DELIBERATE_LANGUAGE_FIXES. Otherwise a language change fails the
+#      differential.
+# The grammar carries the correctness argument; the tests make its properties
+# machine-checked. Do not resolve ambiguity in Python — fix it in the grammar.
+# ---------------------------------------------------------------------------
 _GRAMMAR = r"""
 ?start: graph_query
 

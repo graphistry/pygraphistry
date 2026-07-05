@@ -104,10 +104,46 @@ DIFFERENTIAL_CORPUS = [
     "GRAPH g1 = GRAPH { MATCH (a)-[r]->(b) WHERE a.id = 'x' } USE g1 MATCH (n) RETURN n",
     # comprehensions / quantifiers / subscripts / composite property access
     "MATCH (n) RETURN [x IN n.tags WHERE x > 1 | x + 1] AS t",
+    "MATCH (n) RETURN [x IN n.tags WHERE x > 1] AS t",
+    "MATCH (n) RETURN [x IN n.tags | x + 1] AS t",
     "MATCH (n) WHERE any(x IN n.tags WHERE x = 'a') RETURN n",
+    "MATCH (n) WHERE all(x IN n.tags WHERE x > 0) RETURN n",
+    "MATCH (n) WHERE none(x IN n.tags WHERE x < 0) RETURN n",
+    "MATCH (n) WHERE single(x IN n.tags WHERE x = 1) RETURN n",
     "MATCH (n) RETURN n.tags[0] AS first, head(n.tags) AS h",
     "MATCH (n) RETURN (n:Admin) AS is_admin",
     "MATCH (n) RETURN [x IN n.tags] AS t",
+    # remaining construct families (rule-coverage: every grammar rule must be
+    # exercised -- see test_every_grammar_rule_is_exercised_by_the_corpus)
+    "MATCH p = (a)-[:R]->(b) RETURN p",
+    "MATCH (n) RETURN count(DISTINCT n.city) AS c",
+    "MATCH (n) WHERE n.flag = false AND n.gone = null RETURN n",
+    "GRAPH { MATCH (a)-[r]->(b) }",
+    "MATCH (n) RETURN {name: n.x, 'k': 1} AS m",
+    "MATCH (n) RETURN *",
+    "MATCH ()-[r]->() RETURN count(*)",
+    "MATCH (a)-->(b) RETURN a, b",
+    "MATCH (a)<--(b) RETURN a, b",
+    "MATCH (a)--(b) RETURN a, b",
+    "MATCH (a)<-->(b) RETURN a, b",
+    "MATCH (a)-[:R*2]->(b) RETURN b",
+    # arithmetic / comparison operators + unary
+    "MATCH (n) WHERE 1 < n.x < 10 RETURN n",
+    "MATCH (n) WHERE n.x / 2 > n.y % 3 RETURN n",
+    "MATCH (n) WHERE n.x - 1 > 0 RETURN n",
+    # unary +/- on a NON-literal operand: a signed literal (-1) is an
+    # ambiguous literal-vs-uminus form, but -n.x is an unambiguous unary node
+    "MATCH (n) RETURN -n.x AS v, +n.y AS w",
+    # composite-root property access + list subscript slices
+    "MATCH (n) RETURN head(n.tags).name AS v",
+    "MATCH (n) RETURN n.tags[1..3] AS a, n.tags[1..] AS b, n.tags[..3] AS c, n.tags[..] AS d",
+]
+
+# Queries that are GRAMMATICAL but rejected by the transformer by design
+# (known-unsupported features that must still parse to give a good error).
+# They contribute to grammar-rule coverage via raw parse only.
+GRAMMAR_ONLY_COVERAGE = [
+    "MATCH p = allShortestPaths((a)-[:R]->(b)) RETURN p",  # raises unsupported at transform
 ]
 
 # Invalid inputs: both parsers must reject (rejection parity, not message parity).
@@ -268,6 +304,58 @@ def test_residual_derivation_ambiguity_witnesses() -> None:
         assert len(trees) == 1, (
             f"unexpected derivation ambiguity ({len(trees)} trees): {query!r}"
         )
+
+
+# --- Rule coverage: the corpus must exercise EVERY grammar rule ------------------
+
+def test_every_grammar_rule_is_exercised_by_the_corpus() -> None:
+    """Every tree-producing grammar rule must appear in some corpus parse.
+
+    This is what makes syntactic EXTENSIONS safe-by-construction: adding a
+    grammar rule without a corpus query fails HERE with the rule's name, and
+    adding the query automatically subjects the new construct to every other
+    invariant in this file (ambiguity probe, LALR==Earley differential) plus
+    the full-repo differential. There is no way to extend the grammar and
+    silently skip the safety net.
+
+    Mechanics: 'tree-producing' = rule aliases plus non-inlined rule names
+    (lark's ``?rule:`` single-child inlining and ``_``-prefixed helpers never
+    appear as tree nodes, so they are not coverable and not counted).
+    Coverage counts raw parses of DIFFERENTIAL_CORPUS + GRAMMAR_ONLY_COVERAGE
+    (grammatical-but-unsupported constructs) on all three grammar entry
+    points (whole query, WHERE-lift chain, pattern fragment)."""
+    lalr = parser_mod._parser_lalr()
+
+    expected = set()
+    for rule in lalr.rules:  # type: ignore[attr-defined]  # concrete lark.Lark
+        if rule.alias:
+            expected.add(rule.alias)
+        elif not rule.options.expand1 and not rule.origin.name.startswith("_"):
+            expected.add(rule.origin.name)
+
+    observed = set()
+
+    def walk(tree: Any) -> None:
+        if isinstance(tree, lark.Tree):
+            observed.add(tree.data)
+            for child in tree.children:
+                walk(child)
+
+    for query in DIFFERENTIAL_CORPUS + GRAMMAR_ONLY_COVERAGE:
+        walk(lalr.parse(query))
+    # the two sub-grammar entry points (their rules are unused from start=)
+    walk(parser_mod._where_predicate_chain_parser().parse(
+        "n.x = 1 AND n.y IS NULL AND n.z IS NOT NULL AND n.s CONTAINS 'a' "
+        "AND n.t STARTS WITH 'b' AND n.u ENDS WITH 'c' AND n:Admin"
+    ))
+    walk(parser_mod._pattern_parser().parse("(a:X {k: 1})-[r:R*1..2]->(b)"))
+
+    uncovered = sorted(expected - observed)
+    assert not uncovered, (
+        "Grammar rules with NO corpus coverage (add a DIFFERENTIAL_CORPUS "
+        "query exercising each, or GRAMMAR_ONLY_COVERAGE if the construct is "
+        f"grammatical-but-unsupported): {uncovered}"
+    )
 
 
 # --- 3. LALR == Earley differential ---------------------------------------------
