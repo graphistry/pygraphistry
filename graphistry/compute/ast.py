@@ -1680,6 +1680,29 @@ def anti_semi_apply(
     return ASTCall("anti_semi_apply", params)
 
 
+def search_any(
+    *,
+    alias: str,
+    term: str,
+    out_col: str,
+    case_sensitive: bool = False,
+    regex: bool = False,
+    columns: Optional[Sequence[str]] = None,
+) -> ASTCall:
+    """Annotate active rows with a cross-column search marker (viz-filter L2):
+    ``out_col`` True where ANY of ``alias``'s columns matches ``term`` — OR across
+    columns, case-insensitive substring default, regex opt-in, dtype-gated (string
+    columns always; integer columns iff numeric-literal term)."""
+    params: Dict[str, Any] = {"alias": alias, "term": term, "out_col": out_col}
+    if case_sensitive:
+        params["case_sensitive"] = True
+    if regex:
+        params["regex"] = True
+    if columns is not None:
+        params["columns"] = list(columns)
+    return ASTCall("search_any", params)
+
+
 def semi_apply_mark(
     *,
     binding_ops: List[Dict[str, Any]],

@@ -168,6 +168,7 @@ ROW_PIPELINE_CALLS = frozenset(
         "rows",
         "semi_apply_mark",
         "anti_semi_apply",
+        "search_any",
         "join_apply",
         "where_rows",
         "select",
@@ -4171,6 +4172,52 @@ class RowPipelineMixin:
             cols.append(cand)
         return right_df.loc[right_df[cols[0]] != right_df[cols[1]]]
 
+    def search_any(
+        self,
+        alias: str,
+        term: str,
+        out_col: str,
+        case_sensitive: bool = False,
+        regex: bool = False,
+        columns: Optional[List[str]] = None,
+    ) -> "Plottable":
+        """Cross-column search marker (viz-filter L2, panel-algebra D2): ``out_col`` is
+        True where ANY of the alias's columns matches ``term`` — OR across columns,
+        case-insensitive substring by default, regex opt-in, dtype-gated (string cols
+        always; int cols iff numeric-literal term; kernel in gfql/search_any.py)."""
+        from graphistry.compute.gfql.search_any import search_any_mask
+        left_df = self._gfql_get_active_table()
+        if left_df is None:
+            empty = self._gfql_empty_frame()
+            empty[out_col] = pd.Series(dtype="bool")
+            return self._gfql_row_table(empty)
+        if len(left_df) == 0:
+            out_df = left_df.copy()
+            out_df[out_col] = pd.Series(dtype="bool")
+            return self._gfql_row_table(out_df)
+        prefix = f"{alias}."
+        prefixed = [c for c in left_df.columns if c.startswith(prefix)]
+        if prefixed:
+            sub = left_df[prefixed].rename(columns={c: c[len(prefix):] for c in prefixed})
+        else:
+            # single-entity row table: bare columns (internals + the alias marker excluded)
+            sub = left_df[[c for c in left_df.columns
+                           if not c.startswith("__gfql_") and c != alias]]
+        mask = search_any_mask(
+            sub, term, case_sensitive=case_sensitive, regex=regex, columns=columns)
+        if mask is None:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "searchAny columns= includes a column absent from the searched table",
+                field="columns",
+                value=columns,
+                suggestion="List only columns present on the searched entity.",
+                language="cypher",
+            )
+        out_df = left_df.copy()
+        out_df[out_col] = mask
+        return self._gfql_row_table(out_df)
+
     def anti_semi_apply(
         self,
         binding_ops: List[Dict[str, Any]],
@@ -4814,6 +4861,7 @@ class _RowPipelineAdapter(RowPipelineMixin):
 
 _ROW_PIPELINE_DISPATCH: Dict[str, Callable[..., "Plottable"]] = {
     "rows": RowPipelineMixin.rows,
+    "search_any": RowPipelineMixin.search_any,
     "semi_apply_mark": RowPipelineMixin.semi_apply_mark,
     "anti_semi_apply": RowPipelineMixin.anti_semi_apply,
     "join_apply": RowPipelineMixin.join_apply,

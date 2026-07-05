@@ -389,6 +389,253 @@ def test_scalar_fns_null_cells_parity():
         _assert_invariant(g, q, f"nullcells {q}")
 
 
+def test_search_any_op_all_engines():
+    """viz-filter L2 `search_any` row op (panel-algebra D2 inspector semantics):
+    OR-across-columns; case-insensitive substring DEFAULT; regex opt-in; dtype gate =
+    string cols always + int cols iff numeric-literal term (floats gated OUT of auto);
+    explicit columns= override; nulls never match. Oracle-pinned + 4-engine
+    parity-or-NIE via the chain call surface."""
+    import pandas as pd
+    from graphistry.compute.ast import search_any as search_any_op
+    from graphistry.compute.exceptions import GFQLValidationError
+    nd = pd.DataFrame({
+        "id": [0, 1, 2, 3],
+        "name": ["Alpha", "beta", None, "gamma7"],
+        "num": pd.Series([7, 77, 3, 4], dtype="int64"),
+        "f": [0.5, 1.5, 2.5, 3.5],
+    })
+    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [0, 1]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+
+    def q(**kw):
+        return [n(name="a"), search_any_op(alias="a", out_col="__hit__", **kw)]
+
+    oracle = {
+        "default_ci": (dict(term="ALPHA"), [True, False, False, False]),
+        "case_sensitive": (dict(term="ALPHA", case_sensitive=True), [False, False, False, False]),
+        "numeric_int_gate": (dict(term="7"), [True, True, False, True]),  # num=7, num=77, name gamma7; f EXCLUDED
+        "explicit_cols": (dict(term="7", columns=["name"]), [False, False, False, True]),
+        "regex": (dict(term="a.pha", regex=True), [True, False, False, False]),  # (?i) default
+    }
+    for label, (kw, expected) in oracle.items():
+        out = g.gfql(q(**kw), engine="pandas")
+        got = _to_pd(out._nodes).sort_values("id")["__hit__"].tolist()
+        assert got == expected, f"search_any oracle {label}: {got} != {expected}"
+        _assert_invariant(g, q(**kw), f"search_any {label}")
+    with pytest.raises(GFQLValidationError):
+        g.gfql(q(term="x", columns=["nope"]), engine="pandas")
+
+
+def test_search_any_cypher_surface_all_engines():
+    """viz-filter L2-b: the cypher WHERE searchAny(...) surface — marker lift +
+    composition with other predicates; oracle-pinned + 4-engine parity-or-NIE."""
+    import pandas as pd
+    nd = pd.DataFrame({
+        "id": [0, 1, 2, 3],
+        "name": ["Alpha", "beta", None, "gamma7"],
+        "num": pd.Series([7, 77, 3, 4], dtype="int64"),
+    })
+    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [0, 1]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    oracle = {
+        "MATCH (a) WHERE searchAny(a, 'ALPHA') RETURN a.id AS id": [0],
+        "MATCH (a) WHERE searchAny(a, '7') RETURN a.id AS id": [0, 1, 3],
+        "MATCH (a) WHERE searchAny(a, '7', {columns: ['name']}) RETURN a.id AS id": [3],
+        "MATCH (a) WHERE searchAny(a, 'a.pha', {regex: true}) RETURN a.id AS id": [0],
+        "MATCH (a) WHERE searchAny(a, 'a') AND a.num > 10 RETURN a.id AS id": [1],
+        "MATCH (a) WHERE NOT searchAny(a, 'a') RETURN a.id AS id": [2],
+        # two lifts in one WHERE compose independently (wave-2 S4):
+        # 'alpha'~{0}; '7'~{0 (num=7), 1 (77), 3 (gamma7)}; AND => [0]
+        "MATCH (a) WHERE searchAny(a, 'alpha') AND searchAny(a, '7') RETURN a.id AS id": [0],
+    }
+    for q, expected in oracle.items():
+        pdf = _to_pd(g.gfql(q, engine="pandas")._nodes)
+        assert sorted(pdf["id"].tolist()) == expected, f"oracle drift: {q}"
+        _assert_invariant(g, q, f"searchAny-cypher {q}")
+
+
+def test_search_nodes_edges_twins():
+    """g.search_nodes/search_edges (persona-pass python twins): same kernel, own table
+    only, Plottable out; polars frames decline honestly."""
+    import pandas as pd
+    from graphistry.compute.exceptions import GFQLValidationError
+    nd = pd.DataFrame({"id": [0, 1, 2], "name": ["Alpha", "beta", None]})
+    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "etype": ["Knows", "likes"], "eid": [0, 1]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    assert sorted(g.search_nodes("ALPHA")._nodes["id"].tolist()) == [0]
+    assert sorted(g.search_nodes("alpha", case_sensitive=True)._nodes["id"].tolist()) == []
+    assert sorted(g.search_edges("knows")._edges["eid"].tolist()) == [0]
+    with pytest.raises(GFQLValidationError):
+        g.search_nodes("x", columns=["nope"])
+    import polars as pl
+    gpl = graphistry.nodes(pl.from_pandas(nd), "id").edges(pl.from_pandas(ed), "s", "d").bind(edge="eid")
+    with pytest.raises(NotImplementedError):
+        gpl.search_nodes("x")
+
+
+def test_search_any_literal_and_param_guards():
+    """wave-1 B1/I5: `searchAny(...)` spelled INSIDE a string literal is data — no
+    lift, no spurious unbound-alias error, literal compares byte-identically; a
+    non-literal term ($param) fails loudly at lowering with a usable message
+    instead of leaking an unknown function downstream."""
+    from graphistry.compute.exceptions import GFQLValidationError
+    lit = 'see searchAny(zzz, "x") docs'
+    nd = pd.DataFrame({"id": [0, 1], "note": [lit, "plain"]})
+    ed = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    # zzz is unbound: if the lift saw inside the literal this would error/rewrite
+    q1 = "MATCH (n) WHERE n.note = 'see searchAny(zzz, \"x\") docs' RETURN n.id AS id"
+    assert _to_pd(g.gfql(q1, engine="pandas")._nodes)["id"].tolist() == [0]
+    _assert_invariant(g, q1, "searchAny-in-literal")
+    # real call AND a literal mention in the same WHERE: only the real call lifts
+    q2 = ("MATCH (n) WHERE searchAny(n, 'plain') AND n.note <> 'searchAny(zzz, \"y\")' "
+          "RETURN n.id AS id")
+    assert _to_pd(g.gfql(q2, engine="pandas")._nodes)["id"].tolist() == [1]
+    _assert_invariant(g, q2, "searchAny-real-plus-literal")
+    # $param term: the lift can't parse it — clear E108, not an obscure failure.
+    # Without params the generic missing-param validation fires first (also clear);
+    # WITH params supplied, the residual-searchAny guard is the one that speaks.
+    qp = "MATCH (n) WHERE searchAny(n, $q) RETURN n.id AS id"
+    with pytest.raises(GFQLValidationError, match="Missing Cypher parameter"):
+        g.gfql(qp, engine="pandas")
+    with pytest.raises(GFQLValidationError, match="string-literal term"):
+        g.gfql(qp, engine="pandas", params={"q": "plain"})
+
+
+def test_search_any_cudf_regex_guards():
+    """wave-1 B2: the cuDF search path honors the same decline rules as =~ —
+    NIE on lookaround (libcudf kernel-compile crash otherwise) and on unsound
+    case-insensitive folds (blind pat.lower() turns \\D into \\d — INVERTS);
+    sound patterns still run natively."""
+    cudf = pytest.importorskip("cudf")
+    from graphistry.compute.gfql.search_any import search_any_mask
+    df = cudf.DataFrame({"name": ["Deed", "1234"]})
+    with pytest.raises(NotImplementedError):
+        search_any_mask(df, r"\D+", regex=True)  # case-insensitive default: unsound fold
+    with pytest.raises(NotImplementedError):
+        search_any_mask(df, r"x(?=y)", regex=True, case_sensitive=True)  # lookaround
+    got = search_any_mask(df, r"de{2}d", regex=True)  # sound fold: native
+    assert got.to_pandas().tolist() == [True, False]
+    got_cs = search_any_mask(df, r"\d{4}", regex=True, case_sensitive=True)
+    assert got_cs.to_pandas().tolist() == [False, True]
+    # explicit FLOAT column on cuDF: astype(str) rendering diverges from pandas
+    # (dgx-probed: 0.1+0.2 -> '0.3', 1e16 -> '1.0e+16', mantissa truncation) —
+    # honest NIE, never a silent oracle mismatch (wave-3 W3-1); string stays native
+    dff = cudf.DataFrame({"f": [0.1 + 0.2, 7.25], "s": ["x", "y"]})
+    with pytest.raises(NotImplementedError):
+        search_any_mask(dff, "0.3", columns=["f"])
+    assert search_any_mask(dff, "x", columns=["s"]).to_pandas().tolist() == [True, False]
+
+
+def test_search_any_null_and_float_stringify():
+    """wave-1 I1/I3: null cells NEVER match — including explicit non-string columns
+    where pandas astype(str) would stringify them ('nan'/'<NA>'); and explicit
+    float-column stringification is parity-pinned (term '7' discriminates 7.5)."""
+    from graphistry.compute.ast import search_any as search_any_op
+    from graphistry.compute.exceptions import GFQLValidationError
+    nd = pd.DataFrame({
+        "id": [0, 1, 2],
+        # 7.25 sits on a row with NO int-column '7' so a float wrongly entering the
+        # auto gate flips row 2 — the wave-1 fixture (7.5 on the ni=7 row) could not
+        # discriminate (wave-2 W2-1)
+        "f": [0.5, None, 7.25],
+        "ni": pd.array([7, None, 3], dtype="Int64"),
+        "flag": pd.array([True, None, False], dtype="boolean"),
+    })
+    ed = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+
+    def q(**kw):
+        return [n(name="a"), search_any_op(alias="a", out_col="__hit__", **kw)]
+
+    for term in ["nan", "NA", "None"]:  # the null-stringification spellings
+        kw = dict(term=term, columns=["f", "ni"])
+        got = _to_pd(g.gfql(q(**kw), engine="pandas")._nodes).sort_values("id")["__hit__"].tolist()
+        assert got == [False, False, False], f"null cells matched {term!r}: {got}"
+        _assert_invariant(g, q(**kw), f"search_any nulls {term}")
+    # floats stay OUT of the auto gate even when they'd match stringified ('7' in
+    # '7.25'); numeric term still probes int cols — ni=7 hits row 0 ONLY
+    got = _to_pd(g.gfql(q(term="7"), engine="pandas")._nodes).sort_values("id")["__hit__"].tolist()
+    assert got == [True, False, False], f"auto gate drift: {got}"  # NOT [.., .., True]
+    _assert_invariant(g, q(term="7"), "search_any float auto-gate")
+    # explicit float column: canonical toString on pandas, discriminating pin (I3);
+    # polars DECLINES floats — repr diverges in the exponent regime, same decision
+    # as the polars toString lowering (wave-3 W3-1); NIE tolerated by the invariant
+    kw = dict(term="7", columns=["f"])
+    got = _to_pd(g.gfql(q(**kw), engine="pandas")._nodes).sort_values("id")["__hit__"].tolist()
+    assert got == [False, False, True], f"float stringify drift: {got}"
+    _assert_invariant(g, q(**kw), "search_any float explicit")
+    # explicit BOOL column under caseSensitive: pandas renders 'True' — polars must
+    # match (canonicalized) or NIE, never silently miss (wave-2 W2-3)
+    kw = dict(term="True", columns=["flag"], case_sensitive=True)
+    got = _to_pd(g.gfql(q(**kw), engine="pandas")._nodes).sort_values("id")["__hit__"].tolist()
+    assert got == [True, False, False], f"bool stringify drift: {got}"
+    _assert_invariant(g, q(**kw), "search_any bool explicit cs")
+    # missing explicit column raises the SAME E108 natively on polars — a generic
+    # NIE here would misreport a user error as an engine gap (wave-2 W2-2)
+    import polars as pl
+    gpl = graphistry.nodes(pl.from_pandas(nd), "id").edges(
+        pl.from_pandas(ed), "s", "d").bind(edge="eid")
+    with pytest.raises(GFQLValidationError, match="absent"):
+        gpl.gfql(q(term="x", columns=["nope"]), engine="polars")
+    # explicit FLOAT column on polars: pinned NIE (exponent-regime repr divergence,
+    # wave-3 W3-1 — same decision as the polars toString lowering)
+    with pytest.raises(NotImplementedError):
+        gpl.gfql(q(term="7", columns=["f"]), engine="polars")
+    # explicit TEMPORAL column: stringification is engine-divergent — polars
+    # declines honestly (NIE) instead of risking a silent mismatch (wave-2 W2-3)
+    ndt = nd.assign(t=pd.to_datetime(["2020-01-02", "2021-03-04", "2022-05-06"]))
+    gplt = graphistry.nodes(pl.from_pandas(ndt), "id").edges(
+        pl.from_pandas(ed), "s", "d").bind(edge="eid")
+    with pytest.raises(NotImplementedError):
+        gplt.gfql(q(term="2020", columns=["t"]), engine="polars")
+    # precedence: a MISSING column is a user error (E108) even when another listed
+    # column would trip the dtype gate — a refactor must not flip it to NIE (wave-3)
+    with pytest.raises(GFQLValidationError, match="absent"):
+        gplt.gfql(q(term="x", columns=["nope", "t"]), engine="polars")
+
+
+def test_search_any_edge_alias():
+    """wave-1 I4: edge-alias searchAny — correct on pandas; polars declines with an
+    honest NIE (documented v1 gap), never a silent wrong answer."""
+    nd = pd.DataFrame({"id": [0, 1, 2]})
+    ed = pd.DataFrame({
+        "s": [0, 1], "d": [1, 2], "eid": [0, 1],
+        "etype": ["Knows", "likes"],
+    })
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    q = "MATCH (a)-[r]->(b) WHERE searchAny(r, 'knows') RETURN r.eid AS eid"
+    assert _to_pd(g.gfql(q, engine="pandas")._nodes)["eid"].tolist() == [0]
+    _assert_invariant(g, q, "searchAny-edge-alias")
+
+
+def test_search_any_nested_object_column_skipped():
+    """viz-filter searchAny 2a (inspector parity): a list/object-non-string column is
+    SKIPPED by the auto gate (the streamgl-viz inspector's shouldSearch only fires on string
+    dtype), not included-then-silently-never-matched. This is fundamentally a PANDAS-path fix
+    (object-dtype is ambiguous — it can hold lists); polars/cudf use typed List columns and
+    never had the bug. Verify the pandas skip + polars parity directly (a pandas list column
+    does not round-trip to cudf — an orthogonal representation limit, not searchAny's)."""
+    nd = pd.DataFrame({
+        "id": [0, 1, 2],
+        "name": ["xx", "yy", "zz"],                 # real string col; carries NO tag token
+        "tags": [["a", "acme"], ["b"], ["acme"]],   # object/list col — must be SKIPPED
+    })
+    ed = pd.DataFrame({"s": [0], "d": [1], "eid": [0]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    # 'acme' exists ONLY inside the list column: correct = zero matches (tags skipped); a
+    # regression that searched tags would return ids 0,2.
+    q = "MATCH (a) WHERE searchAny(a, 'acme') RETURN a.id AS id"
+    assert _to_pd(g.gfql(q, engine="pandas")._nodes)["id"].tolist() == [], "list col must be skipped"
+    if "polars" in _NONPANDAS_ENGINES:  # polars typed-List column: also skips → same empty result
+        assert _run(g, q, "polars") == _run(g, q, "pandas"), "polars nested-skip divergence"
+    # sanity: the real string column is still searched (list column present, unaffected)
+    q2 = "MATCH (a) WHERE searchAny(a, 'yy') RETURN a.id AS id"
+    assert _to_pd(g.gfql(q2, engine="pandas")._nodes)["id"].tolist() == [1]
+    if "polars" in _NONPANDAS_ENGINES:
+        assert _run(g, q2, "polars") == _run(g, q2, "pandas"), "polars string-search divergence"
+
+
 def test_exists_polars_internal_decline_branches():
     """Coverage pins for the honest-decline branches of the polars semi-apply family
     (each returns None -> the boundary lane raises NIE): non-single/unnamed/query=/
@@ -592,7 +839,7 @@ def _rowop_exercised():
         "with_", "unwind",
         "rows", "skip", "limit", "distinct", "drop_cols",
         "order_by", "select", "return_", "where_rows", "group_by",
-        "count_table",
+        "count_table", "search_any",
     }
 
 

@@ -358,6 +358,7 @@ def _try_native_row_op(g_cur, op):
     from .pattern_apply import (
         rows_binding_ops_polars, semi_apply_mark_polars, anti_semi_apply_polars,
     )
+    from .search import search_any_polars
 
     fn = getattr(op, "function", None)
     if _call_native_on_polars(op):
@@ -378,6 +379,13 @@ def _try_native_row_op(g_cur, op):
         return semi_apply_mark_polars(
             g_cur, op.params["binding_ops"], op.params["join_aliases"],
             op.params["out_col"], neq=op.params.get("neq"),
+        )
+    if fn == "search_any":
+        return search_any_polars(
+            g_cur, op.params["alias"], op.params["term"], op.params["out_col"],
+            case_sensitive=op.params.get("case_sensitive", False),
+            regex=op.params.get("regex", False),
+            columns=op.params.get("columns"),
         )
     if fn == "anti_semi_apply":
         return anti_semi_apply_polars(

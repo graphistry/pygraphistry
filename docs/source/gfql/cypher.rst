@@ -314,6 +314,22 @@ and ``RETURN`` expressions:
   ``size``, and conversions ``toInteger`` / ``toFloat`` / ``toString`` /
   ``toBoolean`` and ``coalesce``.
 - Regex ``=~`` (see WHERE Forms above).
+- ``searchAny(entity, term[, opts])`` — cross-column search predicate (WHERE
+  position; GFQL extension for the viz filter pipeline): True where ANY of the
+  entity's columns matches ``term``. Inspector semantics: OR across columns,
+  case-insensitive substring by default, regex opt-in; dtype-gated — string
+  columns always, integer columns iff the term is a numeric literal
+  (``/^[0-9.-]+$/``); floats/dates/booleans only via the explicit list. Options
+  map: ``{caseSensitive: true, regex: true, columns: ['name', ...]}`` (unknown
+  keys error, listing the valid ones). Composes with other WHERE predicates
+  through AND/OR/NOT; nodes and edges independently searchable with different
+  terms. Runs natively on all four engines for node aliases; an edge-alias
+  ``searchAny(r, ...)`` declines honestly on polars pending multi-entity
+  binding-row support (use ``engine='pandas'``), and explicit non-string
+  columns beyond ints/bools likewise decline on polars and cuDF rather than
+  risk divergent stringification (float repr differs across engines). The regex path obeys the same
+  per-engine decline rules as ``=~``. Python twins:
+  :meth:`ComputeMixin.search_nodes` / :meth:`ComputeMixin.search_edges`.
 
 ``LIKE`` / ``ILIKE`` and ``BETWEEN`` are intentionally not provided — they are
 not part of Cypher or GQL; use ``=~`` / ``CONTAINS`` / ``STARTS WITH`` and
