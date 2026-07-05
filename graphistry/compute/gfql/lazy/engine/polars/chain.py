@@ -374,10 +374,12 @@ def _try_native_row_op(g_cur, op):
         return semi_apply_mark_polars(
             g_cur, op.params.get("binding_ops") or [],
             op.params.get("join_aliases") or [], op.params.get("out_col") or "",
+            neq=op.params.get("neq"),
         )
     if fn == "anti_semi_apply":
         return anti_semi_apply_polars(
             g_cur, op.params.get("binding_ops") or [], op.params.get("join_aliases") or [],
+            neq=op.params.get("neq"),
         )
     if fn in ("select", "return_"):
         return select_polars(g_cur, op.params.get("items", []))

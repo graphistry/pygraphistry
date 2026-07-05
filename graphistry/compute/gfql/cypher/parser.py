@@ -503,10 +503,16 @@ def _build_where_with_pattern_lift(
     pattern_preds: List[WherePatternPredicate] = []
     for leaf in pattern_leaves:
         assert leaf.pattern is not None, "pattern_atom invariant: pattern payload always set"
-        pattern_preds.append(WherePatternPredicate(pattern=leaf.pattern, span=leaf.span, negated=False))
+        pattern_preds.append(WherePatternPredicate(
+            pattern=leaf.pattern, span=leaf.span, negated=False,
+            pattern_origin=getattr(leaf, "pattern_origin", "bare"),
+            pattern_neq=getattr(leaf, "pattern_neq", None)))
     for leaf in negated_pattern_leaves:
         assert leaf.pattern is not None, "pattern_atom invariant: pattern payload always set"
-        pattern_preds.append(WherePatternPredicate(pattern=leaf.pattern, span=leaf.span, negated=True))
+        pattern_preds.append(WherePatternPredicate(
+            pattern=leaf.pattern, span=leaf.span, negated=True,
+            pattern_origin=getattr(leaf, "pattern_origin", "bare"),
+            pattern_neq=getattr(leaf, "pattern_neq", None)))
     new_expr_tree = _rebuild_and_tree(other_conjuncts)
     if new_expr_tree is None:
         return WhereClause(predicates=tuple(pattern_preds), expr_tree=None, span=span)
@@ -1218,8 +1224,17 @@ def _build_transformer(source: str) -> _TransformerLike:
 
             if re.search(r"\bMATCH\b|\bRETURN\b", inner, re.IGNORECASE):
                 _decline("with a full subquery body")
-            if re.search(r"\bWHERE\b", inner, re.IGNORECASE):
-                _decline("with an inner WHERE clause")
+            # viz-filter L1 drop-self flavor: EXISTS { (n)--(m) WHERE m <> n } — the ONE
+            # supported inner-WHERE form (endpoint inequality); anything else declines.
+            neq: Optional[Tuple[str, str]] = None
+            where_split = re.split(r"\bWHERE\b", inner, maxsplit=1, flags=re.IGNORECASE)
+            if len(where_split) == 2:
+                cond = where_split[1].strip()
+                m_neq = re.fullmatch(r"([A-Za-z_]\w*)\s*(?:<>|!=)\s*([A-Za-z_]\w*)", cond)
+                if m_neq is None:
+                    _decline("with an inner WHERE clause (only `a <> b` endpoint inequality is supported)")
+                neq = (m_neq.group(1), m_neq.group(2))
+                inner = where_split[0].strip()
             depth = 0
             for ch in inner:
                 if ch in "([{":
@@ -1232,12 +1247,21 @@ def _build_transformer(source: str) -> _TransformerLike:
             if len(pattern_item_texts) != 1 or pattern_item_texts[0] != inner:
                 _decline("body (expected a single relationship pattern)")
             pattern_pred = self._parse_single_where_pattern_predicate_text(inner, span)
+            if neq is not None:
+                endpoint_names = {
+                    getattr(el, "variable", None)
+                    for el in (pattern_pred.pattern[0], pattern_pred.pattern[-1])
+                }
+                if set(neq) != endpoint_names or neq[0] == neq[1]:
+                    _decline("inner WHERE must compare the pattern's two endpoint aliases")
             return BooleanExpr(
                 op="pattern",
                 span=span,
                 atom_text=inner,
                 atom_span=span,
                 pattern=pattern_pred.pattern,
+                pattern_origin="exists",
+                pattern_neq=neq,
             )
 
         def _wrap_as_boolean_atom(self, operand: Any, enclosing_meta: Any) -> BooleanExpr:

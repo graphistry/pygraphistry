@@ -389,6 +389,27 @@ def test_scalar_fns_null_cells_parity():
         _assert_invariant(g, q, f"nullcells {q}")
 
 
+def test_exists_prune_isolated_flavors_all_engines():
+    """viz-filter L1 acceptance kernel: BOTH prune-isolated flavors of the panel algebra
+    (research/panel-algebra.md §3) on a discriminating graph — node 3 is fully isolated,
+    node 4 has ONLY a self-loop. keep-self (EXISTS {(n)--()}) keeps 4; drop-self
+    (EXISTS {(n)--(m) WHERE m<>n}) drops 4; 4-engine parity-or-NIE."""
+    import pandas as pd
+    nd = pd.DataFrame({"id": [0, 1, 2, 3, 4]})
+    ed = pd.DataFrame({"s": [0, 1, 4], "d": [1, 2, 4], "eid": [0, 1, 2]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+    oracle = {
+        "MATCH (n) WHERE EXISTS { (n)--() } RETURN n.id AS id": [0, 1, 2, 4],
+        "MATCH (n) WHERE NOT EXISTS { (n)--() } RETURN n.id AS id": [3],
+        "MATCH (n) WHERE EXISTS { (n)--(m) WHERE m <> n } RETURN n.id AS id": [0, 1, 2],
+        "MATCH (n) WHERE NOT EXISTS { (n)--(m) WHERE m <> n } RETURN n.id AS id": [3, 4],
+    }
+    for q, expected in oracle.items():
+        pdf = _to_pd(g.gfql(q, engine="pandas")._nodes)
+        assert sorted(pdf["id"].tolist()) == expected, f"oracle drift: {q}"
+        _assert_invariant(g, q, f"prune-isolated {q}")
+
+
 def test_tolower_non_string_declines_never_fabricates():
     """toLower/toUpper on a non-string column must never return values (neo4j: type error).
     Regression (#1675 wave-1, dgx-repro'd): the scalar fallback broadcast the lowercased

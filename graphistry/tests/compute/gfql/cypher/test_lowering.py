@@ -1999,6 +1999,29 @@ def test_lower_match_query_not_exists_subquery_emits_anti_semi_apply() -> None:
     assert anti.params.get("join_aliases") == ["n"]
 
 
+def test_lower_exists_drop_self_flavor_emits_neq_semi_apply() -> None:
+    """viz-filter L1 drop-self prune-isolated: EXISTS { (n)--(m) WHERE m <> n } — the
+    existential local alias m is ALLOWED (bindings project it away) and the endpoint
+    inequality rides the op as neq=[m, n] (bindings-table filter / self-loop-edge
+    exclusion on polars)."""
+    lowered = lower_match_query(
+        _parse_query("MATCH (n) WHERE EXISTS { (n)--(m) WHERE m <> n } RETURN n.id AS id")
+    )
+    assert len(lowered.row_pre_filters) == 1
+    marker = lowered.row_pre_filters[0]
+    assert isinstance(marker, ASTCall)
+    assert marker.function == "semi_apply_mark"
+    assert marker.params.get("join_aliases") == ["n"]
+    assert sorted(marker.params.get("neq") or []) == ["m", "n"]
+
+    anti = lower_match_query(
+        _parse_query("MATCH (n) WHERE NOT EXISTS { (n)--(m) WHERE m <> n } RETURN n.id AS id")
+    ).row_pre_filters[0]
+    assert isinstance(anti, ASTCall)
+    assert anti.function == "anti_semi_apply"
+    assert sorted(anti.params.get("neq") or []) == ["m", "n"]
+
+
 def test_exists_subquery_unsupported_bodies_decline_clearly() -> None:
     """viz-filter L1 v1 boundaries: inner WHERE, multi-pattern bodies, and full
     MATCH..RETURN subquery bodies decline with a clear message (never a wrong answer)."""

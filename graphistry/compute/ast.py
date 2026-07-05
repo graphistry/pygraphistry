@@ -1662,19 +1662,22 @@ def anti_semi_apply(
     *,
     binding_ops: List[Dict[str, Any]],
     join_aliases: Sequence[str],
+    neq: Optional[Sequence[str]] = None,
 ) -> ASTCall:
     """Filter active rows by removing rows matching a correlated pattern.
 
     ``binding_ops`` encodes the pattern to evaluate as bindings rows.
     ``join_aliases`` names shared aliases used as anti-join keys.
+    ``neq`` optionally names two pattern aliases whose bindings must DIFFER
+    (``EXISTS { (n)--(m) WHERE m <> n }`` — the viz drop-self prune flavor).
     """
-    return ASTCall(
-        "anti_semi_apply",
-        {
-            "binding_ops": binding_ops,
-            "join_aliases": list(join_aliases),
-        },
-    )
+    params: Dict[str, Any] = {
+        "binding_ops": binding_ops,
+        "join_aliases": list(join_aliases),
+    }
+    if neq is not None:
+        params["neq"] = list(neq)
+    return ASTCall("anti_semi_apply", params)
 
 
 def semi_apply_mark(
@@ -1682,6 +1685,7 @@ def semi_apply_mark(
     binding_ops: List[Dict[str, Any]],
     join_aliases: Sequence[str],
     out_col: str,
+    neq: Optional[Sequence[str]] = None,
 ) -> ASTCall:
     """Annotate active rows with a correlated pattern-existence boolean.
 
@@ -1689,14 +1693,14 @@ def semi_apply_mark(
     ``join_aliases`` names shared aliases used as join keys.
     ``out_col`` receives a bool marker where True means the pattern matched.
     """
-    return ASTCall(
-        "semi_apply_mark",
-        {
-            "binding_ops": binding_ops,
-            "join_aliases": list(join_aliases),
-            "out_col": out_col,
-        },
-    )
+    params: Dict[str, Any] = {
+        "binding_ops": binding_ops,
+        "join_aliases": list(join_aliases),
+        "out_col": out_col,
+    }
+    if neq is not None:
+        params["neq"] = list(neq)
+    return ASTCall("semi_apply_mark", params)
 
 
 def join_apply(

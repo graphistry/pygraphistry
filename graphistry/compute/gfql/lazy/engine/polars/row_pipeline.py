@@ -849,7 +849,9 @@ def rows_binding_ops_polars(g: Plottable, binding_ops: Sequence[dict]) -> Option
     return _rewrap(g, lookup)
 
 
-def _pattern_alias_keys_polars(g: Plottable, binding_ops: Sequence[dict], alias: str) -> Optional[Any]:
+def _pattern_alias_keys_polars(
+    g: Plottable, binding_ops: Sequence[dict], alias: str, neq: Optional[Sequence[str]] = None
+) -> Optional[Any]:
     """Ids of ``alias``'s nodes that participate in the (single) pattern — the semi-apply
     right side — computed by running the binding chain NATIVELY via ``chain_polars`` on the
     base graph and reading the named-op flag column (the chain's backward prune makes the
@@ -876,6 +878,22 @@ def _pattern_alias_keys_polars(g: Plottable, binding_ops: Sequence[dict], alias:
         return None
     base_graph = getattr(g, "_gfql_rows_base_graph", None) or g
     node_id = base_graph._node if isinstance(base_graph._node, str) and base_graph._node else "id"
+    if neq:
+        # EXISTS { (n)--(m) WHERE m <> n } — for the single-edge shape, endpoint
+        # inequality == "witnessed by a NON-self-loop edge": pre-drop self loops and
+        # reuse the same key computation. Any other neq spelling declines.
+        endpoint_names = {getattr(ops[0], "_name", None), getattr(ops[2], "_name", None)}
+        if set(neq) != endpoint_names or len(set(neq)) != 2:
+            return None
+        edges = base_graph._edges
+        src, dst = base_graph._source, base_graph._destination
+        if (
+            edges is None
+            or not isinstance(src, str) or src not in edges.columns
+            or not isinstance(dst, str) or dst not in edges.columns
+        ):
+            return None
+        base_graph = base_graph.edges(edges.filter(pl.col(src) != pl.col(dst)))
     from .chain import chain_polars  # local: chain imports this module at call time
     try:
         out = chain_polars(base_graph, list(ops))
@@ -903,7 +921,8 @@ def _semi_apply_join_col(left: Any, alias: str, node_id: str) -> Optional[str]:
 
 
 def semi_apply_mark_polars(
-    g: Plottable, binding_ops: Sequence[dict], join_aliases: Sequence[str], out_col: str
+    g: Plottable, binding_ops: Sequence[dict], join_aliases: Sequence[str], out_col: str,
+    neq: Optional[Sequence[str]] = None,
 ) -> Optional[Plottable]:
     """Native polars ``semi_apply_mark``: boolean existence marker per active row.
     v1: exactly ONE join alias (two-alias correlation needs PAIR bindings, which the
@@ -920,7 +939,7 @@ def semi_apply_mark_polars(
     join_col = _semi_apply_join_col(left, alias, node_id)
     if join_col is None:
         return None
-    keys = _pattern_alias_keys_polars(g, binding_ops, alias)
+    keys = _pattern_alias_keys_polars(g, binding_ops, alias, neq)
     if keys is None:
         return None
     key_series = keys.get_column(keys.columns[0])
@@ -933,7 +952,8 @@ def semi_apply_mark_polars(
 
 
 def anti_semi_apply_polars(
-    g: Plottable, binding_ops: Sequence[dict], join_aliases: Sequence[str]
+    g: Plottable, binding_ops: Sequence[dict], join_aliases: Sequence[str],
+    neq: Optional[Sequence[str]] = None,
 ) -> Optional[Plottable]:
     """Native polars ``anti_semi_apply``: drop active rows whose alias node participates
     in the pattern (NOT EXISTS / negated pattern predicate). Same v1 bounds as the mark."""
@@ -948,7 +968,7 @@ def anti_semi_apply_polars(
     join_col = _semi_apply_join_col(left, alias, node_id)
     if join_col is None:
         return None
-    keys = _pattern_alias_keys_polars(g, binding_ops, alias)
+    keys = _pattern_alias_keys_polars(g, binding_ops, alias, neq)
     if keys is None:
         return None
     key_series = keys.get_column(keys.columns[0])
