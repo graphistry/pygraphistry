@@ -16952,3 +16952,17 @@ def test_count_table_frame_op_error_and_empty_paths() -> None:
     assert ctx3._nodes is None and ctx3._edges is None
     out3 = frame_ops.count_table(ctx3, table="nodes", alias="c")
     assert out3._nodes.to_dict(orient="records") == [{"c": 0}]
+
+def test_string_cypher_parenthesized_and_preserves_missing_property_as_null() -> None:
+    # A parenthesized AND must stay on the row-filter path, not the filter_dict path:
+    # the row engine treats an absent property as null (Cypher semantics), whereas
+    # filter_dict requires the column to exist and would raise.
+    g = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"], "x": [1, 2, 1, 1]}),  # no 'missing' col
+        pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "d"]}),
+    )
+    got = g.gfql("MATCH (n) WHERE n.missing IS NULL AND (n.x = 1) RETURN n.id AS id")
+    assert sorted(got._nodes["id"].tolist()) == ["a", "c", "d"]
+    # IS NOT NULL on the same absent property yields no rows (absent -> null)
+    none = g.gfql("MATCH (n) WHERE n.missing IS NOT NULL AND (n.x = 1) RETURN n.id AS id")
+    assert none._nodes["id"].tolist() == [] if "id" in none._nodes.columns else len(none._nodes) == 0
