@@ -491,8 +491,10 @@ class ComputeMixin(Plottable):
         """Keep nodes where ANY column matches ``term`` (viz-filter L2 inspector
         semantics: OR across columns; case-insensitive substring default; regex
         opt-in; string columns always, integer columns iff the term is a numeric
-        literal — floats/dates via explicit ``columns=``). pandas/cuDF native;
-        polars frames raise NotImplementedError (use the cypher ``search_any`` op).
+        literal — floats/dates via explicit ``columns=`` on pandas ONLY: cuDF
+        declines them, its float/temporal stringification diverges from pandas).
+        pandas/cuDF native; polars frames raise NotImplementedError (use the
+        cypher ``search_any`` op).
         """
         from graphistry.compute.gfql.search_any import search_any_mask
         from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
