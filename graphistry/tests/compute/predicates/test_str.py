@@ -919,7 +919,8 @@ class TestCudfCasefoldOrDecline:
     def test_uppercase_escapes_decline(self):
         import pytest as _pytest
         from graphistry.compute.predicates.str import _cudf_casefold_or_decline
-        for pat in [r"\D+", r"a\Wb", r"\S*", r"x\By"]:
+        for pat in [r"\D+", r"a\Wb", r"\S*", r"x\By",
+                    r"\x41", r"[\x41-\x5a]"]:  # wave-4: hex escapes spell letters invisibly
             with _pytest.raises(NotImplementedError):
                 _cudf_casefold_or_decline(pat)
 

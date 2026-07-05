@@ -260,7 +260,9 @@ WHERE Forms
   ``(?i)`` (case-insensitive), ``(?m)``, and ``(?s)`` are honored. Composes
   through ``AND`` / ``OR`` / ``NOT``. Engine caveat: on ``engine='cudf'``,
   ``(?m)`` / ``(?s)``, lookaround, backreferences, and ``(?i)`` combined with
-  uppercase escape classes (e.g. ``(?i)\\D+``; lowercase ``\\d``/``\\.`` work) raise ``NotImplementedError`` (libcudf
+  uppercase escape classes (e.g. ``(?i)\\D+``; lowercase ``\\d``/``\\.``
+  work), case-crossing character ranges (``(?i)[A-z]``), hex escapes, and
+  non-ASCII patterns raise ``NotImplementedError`` (libcudf
   regex limits — declined honestly rather than approximated); use
   ``engine='pandas'`` for those patterns. (``LIKE`` / ``ILIKE`` are not part of
   Cypher or GQL — use ``=~``, ``CONTAINS``, or ``STARTS WITH`` instead.)

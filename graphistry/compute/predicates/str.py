@@ -468,7 +468,9 @@ def _cudf_casefold_or_decline(pat: str) -> str:
     Lowercase escapes (``\\d``, ``\\.``, ``\\w``) are ``.lower()`` no-ops and stay
     allowed — they worked before this guard and must not regress to NIE (wave 2)."""
     unsafe = (
-        re.search(r'\\[A-Z]', pat) is not None
+        # [A-Z]: uppercase escape classes invert under fold; x: hex escapes can
+        # spell uppercase letters invisibly to .lower() ((?i)\\x41 — wave-4).
+        re.search(r'\\[A-Zx]', pat) is not None
         or not pat.isascii()
         # Any x-y range where exactly ONE endpoint is an uppercase letter shifts
         # under fold: [A-z] narrows, [?-Z] widens, [X-^] goes invalid (wave-3:
