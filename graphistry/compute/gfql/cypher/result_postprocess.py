@@ -186,6 +186,12 @@ def render_entity_text(
     the Cypher display string (``(:Label {..})`` / ``[:TYPE {..}]``). Used by the
     conformance/TCK driver and by callers who want the human-readable form. The
     structured data path itself never pays this cost.
+
+    Property maps render with a space after the key colon (``(:A {prop: 1})``) —
+    our long-standing display convention. The openCypher TCK oracle omits it
+    (``(:A {prop:1})``); the whitespace is insignificant Cypher, so the TCK
+    harness normalizes it rather than us changing this convention across ~350
+    tests (see tck-gfql#193 / CHANGELOG).
     """
     rows_df = cast(DataFrameT, result._nodes)
     if rows_df is None:
