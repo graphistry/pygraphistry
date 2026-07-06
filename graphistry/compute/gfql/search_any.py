@@ -30,6 +30,62 @@ def _is_int_dtype(dtype: object) -> bool:
     return bool(pat.is_integer_dtype(dtype))
 
 
+def _is_float_dtype(dtype: object) -> bool:
+    import pandas.api.types as pat
+    return bool(pat.is_float_dtype(dtype))
+
+
+def _canonical_float_str(s: SeriesT, precision: int = 4) -> SeriesT:
+    """WYSIWYG float render matching the streamgl-viz inspector's search text
+    (``defaultFormat`` number/integer branch): a WHOLE value (``v % 1 == 0``,
+    incl. whole floats like ``5.0``) renders as a bare integer string
+    (``"5"``/``"-3"`` — no decimals, no exponent, matching JS ``String()``); a
+    FRACTIONAL value renders fixed to ``precision`` decimals (``0.12345`` ->
+    ``"0.1235"``, matching ``sprintf('%.4f')``).
+
+    The naive ``astype(str)`` was excluded because it diverges cross-engine in
+    the exponent regime (``1e16`` -> ``'1e16'`` vs ``'1e+16'``) and at
+    half-boundaries (true-float-bit ``f"{v:.4f}"`` vs a decimal render). We route
+    BOTH branches through an exponent-free, decimal-based render so pandas /
+    cuDF / polars agree byte-for-byte; pandas is the oracle. Null cells render as
+    the empty string here and are masked out by the caller (null never matches).
+    """
+    is_cudf = "cudf" in type(s).__module__
+    notna = s.notna()
+    # whole vs fractional split (nulls treated as non-whole; masked out anyway)
+    whole = (s == s.round(0)) & notna  # type: ignore[operator]
+    if is_cudf:
+        # fractional: fixed-`precision` decimal via Decimal128 (exponent-free,
+        # GPU-native, half-even like pandas' decimal round); whole: int string.
+        frac_txt = s.round(precision).astype(  # type: ignore[union-attr]
+            f"decimal128[38,{precision}]"
+        ).astype("str")
+        whole_txt = s.round(0).astype("int64").astype("str")  # type: ignore[union-attr]
+        out = whole_txt.where(whole, frac_txt)
+        return out.where(notna, "")  # type: ignore[union-attr]
+    # pandas
+    import numpy as np
+    vals = s.to_numpy()
+    frac = np.round(vals.astype("float64"), precision)
+    # fixed-`precision` decimal render (no exponent) for fractional values
+    frac_txt = np.array([("%.*f" % (precision, v)) for v in frac], dtype=object)
+    # whole values -> integer string (round to kill float noise, then int)
+    whole_arr = np.asarray(whole)
+    whole_txt = np.where(
+        whole_arr,
+        np.array([str(int(round(v))) if not (v != v) else "" for v in vals], dtype=object),
+        "",
+    )
+    result = np.where(whole_arr, whole_txt, frac_txt)
+    result = np.where(np.asarray(notna), result, "")
+    return cast_series_like(s, [str(x) for x in result])
+
+
+def cast_series_like(template: SeriesT, data: list) -> SeriesT:
+    import pandas as pd
+    return pd.Series(data, index=template.index, dtype="object")
+
+
 def _has_string_content(df: DataFrameT, c: object) -> bool:
     """True iff column ``c`` holds STRINGS (a real string dtype, or an object column whose
     values are actually strings). An object column of lists/dicts/mixed is NOT string
