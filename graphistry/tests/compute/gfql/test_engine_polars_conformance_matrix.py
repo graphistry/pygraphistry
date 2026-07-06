@@ -466,6 +466,15 @@ def test_search_any_float_wysiwyg():
         # cuDF/polars must honestly NIE on explicit float columns (never silently diverge)
         _assert_invariant(g, q(**kw), f"float wysiwyg {label}")
 
+    # inf/-inf render "Infinity"/"-Infinity" (JS String(Infinity)), no RuntimeWarning
+    import numpy as np
+    import warnings
+    ginf = graphistry.nodes(pd.DataFrame({"id": [0, 1, 2], "f": [np.inf, -np.inf, 1.5]}), "id")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        assert ginf.search_nodes("Infinity", columns=["f"])._nodes["id"].tolist() == [0, 1]
+        assert ginf.search_nodes("-Infinity", columns=["f"])._nodes["id"].tolist() == [1]
+
     # pandas python-twin also renders float WYSIWYG (row 3 = the half-tie -3.7483);
     # polars-backed twin declines honestly (never a silent wrong answer)
     assert sorted(g.search_nodes("-3.7483", columns=["f"])._nodes["id"].tolist()) == [3]
@@ -553,6 +562,12 @@ def test_search_any_format_options():
     with pytest.raises(GFQLValidationError):
         g.gfql("MATCH (a) WHERE searchAny(a, 'x', {floatPrecision: 'no'}) RETURN a.id AS id",
                engine="pandas")
+    # kernel-level validation ALSO covers the python twins (which bypass the call
+    # safelist): negative/empty options raise GFQLValidationError, not a silent
+    # "%.*f" % -1 misrender or an opaque tz_convert('') IndexError.
+    for bad in (dict(float_precision=-1), dict(float_precision=True), dict(tz="")):
+        with pytest.raises(GFQLValidationError):
+            g.search_nodes("x", columns=["f"], **bad)
 
 
 def test_search_any_cypher_surface_all_engines():

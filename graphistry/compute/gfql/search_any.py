@@ -82,8 +82,12 @@ def _canonical_datetime_str(
         localized = ser.dt.tz_localize("UTC").dt.tz_convert(tz)
     notna = ser.notna()
     txt = localized.dt.strftime(fmt)
-    if "%p" in fmt:  # moment `a` is lowercase am/pm; strftime %p is upper
-        txt = txt.str.replace("AM", "am", regex=False).str.replace("PM", "pm", regex=False)
+    if "%p" in fmt:
+        # moment `a` is lowercase am/pm; strftime %p is upper. Lowercase ONLY the
+        # standalone AM/PM token (word-bounded) so we don't corrupt an alpha tz
+        # abbreviation (e.g. America/Manaus -> "AMT") or literal text in a custom
+        # temporal_format — a blind global replace turned "AMT" into "amT".
+        txt = txt.str.replace(r"\bAM\b", "am", regex=True).str.replace(r"\bPM\b", "pm", regex=True)
     return txt.where(notna, "")
 
 
@@ -120,9 +124,16 @@ def _canonical_float_str(s: SeriesT, precision: int = 4) -> SeriesT:
         v = vals[i]
         if not notna[i] or v != v:  # null / NaN -> "" (masked out by caller)
             out[i] = ""
+        elif v == np.inf:  # JS String(Infinity)/sprintf('%.4f',Inf) == "Infinity"
+            out[i] = "Infinity"
+        elif v == -np.inf:
+            out[i] = "-Infinity"
         elif v % 1 == 0:
             # whole -> plain integer digits (JS String); the >= 1e21 JS-exponent
-            # regime is unsupported (astronomically rare for a search term) -> ""
+            # regime is unsupported (astronomically rare for a search term) -> "".
+            # (Whole floats >= 2**53 also fall here: str(int(v)) is the exact-integer
+            # decimal, which can differ from JS String()'s shortest round-trip for a
+            # few magnitudes — a documented, astronomically-rare search limitation.)
             out[i] = str(int(v)) if abs(v) < 1e21 else ""
         else:
             out[i] = "%.*f" % (precision, v)  # printf on the raw double == sprintf-js
@@ -174,6 +185,31 @@ def search_candidate_columns(
     return out
 
 
+def validate_format_opts(
+    float_precision: int, temporal_format: Optional[str], tz: str
+) -> None:
+    """Validate the #1695 WYSIWYG format options at the kernel — the SINGLE choke
+    point every surface passes through (cypher op, ast op, and the python twins,
+    which bypass the call safelist). Consistent ``GFQLValidationError`` regardless
+    of entry point, instead of a downstream ``"%.*f" % -1`` silent clamp or an
+    opaque ``tz_convert('')`` IndexError."""
+    from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+    if not isinstance(float_precision, int) or isinstance(float_precision, bool) or float_precision < 0:
+        raise GFQLValidationError(
+            ErrorCode.E108, "searchAny floatPrecision must be a non-negative integer",
+            field="float_precision", value=float_precision,
+            suggestion="Use an integer >= 0 (default 4).")
+    if temporal_format is not None and (not isinstance(temporal_format, str) or temporal_format == ""):
+        raise GFQLValidationError(
+            ErrorCode.E108, "searchAny temporalFormat must be a non-empty strftime string",
+            field="temporal_format", value=temporal_format,
+            suggestion="Omit for the inspector default, or pass a non-empty strftime pattern.")
+    if not isinstance(tz, str) or tz == "":
+        raise GFQLValidationError(
+            ErrorCode.E108, "searchAny tz must be a non-empty timezone string",
+            field="tz", value=tz, suggestion="Use an IANA zone like 'UTC' or 'America/Los_Angeles'.")
+
+
 def search_any_mask(
     df: DataFrameT,
     term: str,
@@ -187,6 +223,7 @@ def search_any_mask(
 ) -> Optional[SeriesT]:
     """Boolean row mask over ``df`` (pandas or cuDF), or None to decline (an explicit
     column is missing). Null cells never match; no candidate columns -> all-False."""
+    validate_format_opts(float_precision, temporal_format, tz)
     from graphistry.compute.predicates.str import (
         Contains, _cudf_casefold_or_decline, _cudf_regex_prep,
     )
