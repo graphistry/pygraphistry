@@ -50,6 +50,16 @@ jobs:
       cypher_frontend_ci: ${{ steps.filter.outputs.cypher_frontend_ci }}
       benchmarks: ${{ steps.filter.outputs.benchmarks }}
       ai: ${{ steps.filter.outputs.ai }}
+      core: ${{ steps.filter.outputs.core }}
+      plugins: ${{ steps.filter.outputs.plugins }}
+      networkx: ${{ steps.filter.outputs.networkx }}
+      docs_test: ${{ steps.filter.outputs.docs_test }}
+      schema_lane: ${{ steps.filter.outputs.schema_lane }}
+      pandas_compat: ${{ steps.filter.outputs.pandas_compat }}
+      graphviz_lane: ${{ steps.filter.outputs.graphviz_lane }}
+      neo4j_lane: ${{ steps.filter.outputs.neo4j_lane }}
+      build_package: ${{ steps.filter.outputs.build_package }}
+      dgl_lane: ${{ steps.filter.outputs.dgl_lane }}
       docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
     - uses: actions/checkout@v4
@@ -67,7 +77,7 @@ jobs:
         HEAD_SHA: ${{ github.sha }}
       run: |
         set -euo pipefail
-        keys=(infra python spark gfql cypher_frontend_ci benchmarks ai docs)
+        keys=(infra python spark gfql cypher_frontend_ci benchmarks ai docs core plugins networkx docs_test schema_lane pandas_compat graphviz_lane neo4j_lane build_package dgl_lane)
 
         emit_all() {
           # $1 = "true" or "false" — emit the same value for every key
@@ -257,6 +267,86 @@ jobs:
           '^graphistry/tests/compute/test_call_engine_coercion\.py$' \
           '^graphistry/tests/data/reddit\.csv$' \
           '^requirements/(test-ai|test-umap)-py.*\.lock$'
+
+        # Classifier-only dimensions for CI-silo audit. These outputs are
+        # intentionally not used by job gates yet; later stacked PRs can consume
+        # them after scenario validation and review.
+        emit core \
+          '^\.github/workflows/ci\.yml$' \
+          '^setup\.py$' \
+          '^setup\.cfg$' \
+          '^pyproject\.toml$' \
+          '^pytest\.ini$' \
+          '^mypy\.ini$' \
+          '^MANIFEST\.in$' \
+          '^graphistry/Engine\.py$' \
+          '^graphistry/PlotterBase\.py$' \
+          '^graphistry/Plottable\.py$' \
+          '^graphistry/compute/ComputeMixin\.py$' \
+          '^graphistry/compute/dataframe_utils\.py$' \
+          '^graphistry/compute/typing\.py$' \
+          '^graphistry/utils/'
+
+        emit plugins \
+          '^graphistry/plugins/' \
+          '^graphistry/plugins_types/' \
+          '^graphistry/tests/plugins/'
+
+        emit networkx \
+          '^graphistry/plugins/networkx/' \
+          '^graphistry/tests/plugins/test_networkx\.py$' \
+          '^graphistry/tests/compute/gfql/cypher/test_lowering\.py$' \
+          '^docs/source/api/plugins/compute/networkx\.rst$' \
+          '^demos/demos_databases_apis/networkx/'
+
+        emit docs_test \
+          '^docs/ci\.sh$' \
+          '^docs/docker/' \
+          '^docs/test_doc_examples\.py$' \
+          '^requirements/rtd-py3\.12\.lock$' \
+          '^\.readthedocs\.yml$'
+
+        emit schema_lane \
+          '^graphistry/schema\.py$' \
+          '^graphistry/devschemas/' \
+          '^schemas/' \
+          '^graphistry/tests/compute/gfql/test_public_schema\.py$' \
+          '^docs/source/gfql/schema\.rst$'
+
+        emit pandas_compat \
+          '^graphistry/compute/' \
+          '^graphistry/hyper\.py$' \
+          '^graphistry/PlotterBase\.py$' \
+          '^graphistry/Plottable\.py$' \
+          '^graphistry/tests/test_(plotter|compute_chain|hypergraph|compute_hops|compute_collapse|compute_filter_by_dict|bolt_util|nodexl)\.py$' \
+          '^graphistry/tests/compute/test_(chain|chain_let|chain_concat|dataframe_primitives|hop)\.py$' \
+          '^graphistry/tests/compute/gfql/' \
+          '^tests/gfql/ref/'
+
+        emit graphviz_lane \
+          '^graphistry/plotter\.py$' \
+          '^graphistry/PlotterBase\.py$' \
+          '^graphistry/tests/.*graphviz.*\.py$' \
+          '^bin/test-graphviz\.sh$' \
+          '^requirements/test-graphviz-py.*\.lock$'
+
+        emit neo4j_lane \
+          '^docker/.*neo4j' \
+          '^graphistry/bolt_util\.py$' \
+          '^graphistry/tests/test_bolt_util\.py$'
+
+        emit build_package \
+          '^setup\.py$' \
+          '^setup\.cfg$' \
+          '^pyproject\.toml$' \
+          '^MANIFEST\.in$' \
+          '^graphistry/py\.typed$' \
+          '^bin/build\.sh$'
+
+        emit dgl_lane \
+          '^graphistry/dgl_utils\.py$' \
+          '^graphistry/tests/.*dgl.*\.py$' \
+          '^bin/test-(dgl|embed)\.sh$'
 
         # Documentation: docs tree + any md/rst at any depth + demos + notebooks.
         emit docs \
