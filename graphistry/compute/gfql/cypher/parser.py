@@ -1636,18 +1636,9 @@ def _build_transformer(source: str) -> _TransformerLike:
             return items[0]
 
         def query_body(self, meta: Any, items: Sequence[Any]) -> CypherQuery:
-            # The grammar bundles WHERE into its MATCH clause. Re-emit it as a
-            # follow-on item so the clause-sequence state machine below (which
-            # predates the bundling and encodes all ordering/support rules)
-            # processes the exact sequence the source text spells.
-            flat: List[Any] = []
-            for item in items:
-                if isinstance(item, MatchClause) and item.where is not None:
-                    flat.append(replace(item, where=None))
-                    flat.append(item.where)
-                else:
-                    flat.append(item)
-            items = flat
+            # The grammar bundles WHERE onto its MATCH clause (there is no
+            # standalone WHERE item), so this state machine consumes
+            # ``MatchClause.where`` directly -- see the MATCH branch below.
             trailing_semicolon = any(str(item) == ";" for item in items)
             match_clauses: List[MatchClause] = []
             reentry_match_clauses: List[MatchClause] = []
@@ -1690,40 +1681,30 @@ def _build_transformer(source: str) -> _TransformerLike:
                             line=item.span.line,
                             column=item.span.column,
                         )
-                    if seen_stage:
-                        reentry_match_clauses.append(item)
-                        reentry_where_clauses.append(None)
-                    else:
-                        match_clauses.append(item)
-                elif isinstance(item, WhereClause):
-                    if call_clause is not None:
+                    # WHERE is bundled onto its MATCH by the grammar. Route it as
+                    # the source spells it: a primary MATCH keeps its WHERE on the
+                    # clause (and it also becomes the query's top-level WHERE,
+                    # last-clause-wins, so each MATCH scopes its own predicate); a
+                    # post-WITH re-entry MATCH's WHERE lives in reentry_wheres with
+                    # the clause itself carrying none.
+                    match_where = item.where
+                    if match_where is not None and call_clause is not None:
                         raise _to_syntax_error(
                             "Cypher WHERE is not supported with CALL in the current GFQL Cypher compiler; use YIELD/RETURN row expressions instead",
-                            line=item.span.line,
-                            column=item.span.column,
+                            line=match_where.span.line,
+                            column=match_where.span.column,
                         )
-                    if reentry_match_clauses:
-                        if not reentry_where_clauses:
-                            raise _to_syntax_error(
-                                "Cypher WHERE after post-WITH MATCH is not yet supported in the current GFQL Cypher compiler",
-                                line=item.span.line,
-                                column=item.span.column,
-                            )
-                        if reentry_where_clauses[-1] is not None:
-                            raise _to_syntax_error(
-                                "Cypher only supports one WHERE clause per post-WITH MATCH stage in the current GFQL Cypher compiler",
-                                line=item.span.line,
-                                column=item.span.column,
-                            )
-                        reentry_where_clauses[-1] = item
-                        reentry_where_pending_with_idx = len(reentry_where_clauses) - 1
+                    if seen_stage:
+                        reentry_match_clauses.append(
+                            replace(item, where=None) if match_where is not None else item
+                        )
+                        reentry_where_clauses.append(match_where)
+                        if match_where is not None:
+                            reentry_where_pending_with_idx = len(reentry_where_clauses) - 1
                     else:
-                        # Associate the WHERE with its preceding MATCH clause
-                        # so that MATCH ... WHERE ... OPTIONAL MATCH ... WHERE ...
-                        # correctly scopes each predicate to its own clause.
-                        if match_clauses and match_clauses[-1].where is None:
-                            match_clauses[-1] = replace(match_clauses[-1], where=item)
-                        where_clause = item
+                        match_clauses.append(item)
+                        if match_where is not None:
+                            where_clause = match_where
                 elif isinstance(item, CallClause):
                     if call_clause is not None:
                         raise _to_syntax_error(
@@ -1927,16 +1908,9 @@ def _build_transformer(source: str) -> _TransformerLike:
         def graph_constructor(self, meta: Any, items: Sequence[Any]) -> GraphConstructor:
             span = _span_from_meta(meta)
             body_items = items[0] if items and isinstance(items[0], list) else list(items)
-            # Split grammar-bundled MATCH..WHERE back into the item sequence the
-            # constructor-body rules below were written against (see query_body).
-            flat: List[Any] = []
-            for item in body_items:
-                if isinstance(item, MatchClause) and item.where is not None:
-                    flat.append(replace(item, where=None))
-                    flat.append(item.where)
-                else:
-                    flat.append(item)
-            body_items = flat
+            # WHERE is bundled onto its MATCH by the grammar; a constructor allows
+            # at most one, held here as the constructor's single top-level WHERE
+            # (matches themselves carry none).
             matches: List[MatchClause] = []
             where: Optional[WhereClause] = None
             use: Optional[UseClause] = None
@@ -1948,14 +1922,17 @@ def _build_transformer(source: str) -> _TransformerLike:
                             "MATCH and CALL cannot be combined inside a graph constructor",
                             line=item.span.line, column=item.span.column,
                         )
-                    matches.append(item)
-                elif isinstance(item, WhereClause):
-                    if where is not None:
-                        raise _to_syntax_error(
-                            "Only one WHERE clause is allowed inside a graph constructor",
-                            line=item.span.line, column=item.span.column,
-                        )
-                    where = item
+                    match_where = item.where
+                    if match_where is not None:
+                        if where is not None:
+                            raise _to_syntax_error(
+                                "Only one WHERE clause is allowed inside a graph constructor",
+                                line=match_where.span.line, column=match_where.span.column,
+                            )
+                        where = match_where
+                        matches.append(replace(item, where=None))
+                    else:
+                        matches.append(item)
                 elif isinstance(item, CallClause):
                     if call is not None:
                         raise _to_syntax_error(
