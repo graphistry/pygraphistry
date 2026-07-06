@@ -407,7 +407,8 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     ),
 
     'search_any': _safelist_entry(
-        {'alias', 'term', 'out_col', 'case_sensitive', 'regex', 'columns'},
+        {'alias', 'term', 'out_col', 'case_sensitive', 'regex', 'columns',
+         'float_precision', 'temporal_format', 'tz'},
         required_params={'alias', 'term', 'out_col'},
         param_validators={
             'alias': is_non_empty_string,
@@ -416,6 +417,11 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'case_sensitive': is_bool,
             'regex': is_bool,
             'columns': is_non_empty_list_of_strings,
+            # #1695 WYSIWYG format options (default = inspector): float decimals,
+            # datetime strftime pattern, and localization tz.
+            'float_precision': is_int,
+            'temporal_format': is_non_empty_string,
+            'tz': is_non_empty_string,
         },
         description='Annotate active rows with a cross-column search marker (OR across columns)',
         schema_effects=_schema_effects(adds_node_cols=_semi_apply_mark_added_node_cols),

@@ -4180,6 +4180,9 @@ class RowPipelineMixin:
         case_sensitive: bool = False,
         regex: bool = False,
         columns: Optional[List[str]] = None,
+        float_precision: int = 4,
+        temporal_format: Optional[str] = None,
+        tz: str = "UTC",
     ) -> "Plottable":
         """Cross-column search marker (viz-filter L2, panel-algebra D2): ``out_col`` is
         True where ANY of the alias's columns matches ``term`` — OR across columns,
@@ -4204,7 +4207,8 @@ class RowPipelineMixin:
             sub = left_df[[c for c in left_df.columns
                            if not c.startswith("__gfql_") and c != alias]]
         mask = search_any_mask(
-            sub, term, case_sensitive=case_sensitive, regex=regex, columns=columns)
+            sub, term, case_sensitive=case_sensitive, regex=regex, columns=columns,
+            float_precision=float_precision, temporal_format=temporal_format, tz=tz)
         if mask is None:
             raise GFQLValidationError(
                 ErrorCode.E108,

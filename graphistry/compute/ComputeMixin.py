@@ -487,12 +487,15 @@ class ComputeMixin(Plottable):
             out_df = safe_merge(g2_base._nodes, levels_df, on=g2_base._node, how='left')
             return self.nodes(out_df)
 
-    def search_nodes(self, term, columns=None, case_sensitive=False, regex=False):
+    def search_nodes(self, term, columns=None, case_sensitive=False, regex=False,
+                     float_precision=4, temporal_format=None, tz="UTC"):
         """Keep nodes where ANY column matches ``term`` (viz-filter L2 inspector
         semantics: OR across columns; case-insensitive substring default; regex
         opt-in; string columns always, integer columns iff the term is a numeric
         literal — floats/dates via explicit ``columns=`` on pandas ONLY: cuDF
         declines them, its float/temporal stringification diverges from pandas).
+        ``float_precision``/``temporal_format``/``tz`` are the #1695 WYSIWYG format
+        options for explicit float/datetime columns (default = the inspector).
         pandas/cuDF native; polars frames raise NotImplementedError (use the
         cypher ``search_any`` op).
         """
@@ -506,7 +509,8 @@ class ComputeMixin(Plottable):
                 "search_nodes is not yet native on polars frames; use the cypher "
                 "search_any op or engine='pandas'")
         mask = search_any_mask(
-            df, term, case_sensitive=case_sensitive, regex=regex, columns=columns)
+            df, term, case_sensitive=case_sensitive, regex=regex, columns=columns,
+            float_precision=float_precision, temporal_format=temporal_format, tz=tz)
         if mask is None:
             raise GFQLValidationError(
                 ErrorCode.E108,
@@ -515,7 +519,8 @@ class ComputeMixin(Plottable):
                 suggestion="List only columns present on the nodes table.")
         return self.nodes(df[mask])
 
-    def search_edges(self, term, columns=None, case_sensitive=False, regex=False):
+    def search_edges(self, term, columns=None, case_sensitive=False, regex=False,
+                     float_precision=4, temporal_format=None, tz="UTC"):
         """Keep edges where ANY column matches ``term`` — see :meth:`search_nodes`."""
         from graphistry.compute.gfql.search_any import search_any_mask
         from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
@@ -527,7 +532,8 @@ class ComputeMixin(Plottable):
                 "search_edges is not yet native on polars frames; use the cypher "
                 "search_any op or engine='pandas'")
         mask = search_any_mask(
-            df, term, case_sensitive=case_sensitive, regex=regex, columns=columns)
+            df, term, case_sensitive=case_sensitive, regex=regex, columns=columns,
+            float_precision=float_precision, temporal_format=temporal_format, tz=tz)
         if mask is None:
             raise GFQLValidationError(
                 ErrorCode.E108,

@@ -517,6 +517,44 @@ def test_search_any_datetime_wysiwyg():
         gpl.search_nodes("mar 14 2021", columns=["t"])
 
 
+def test_search_any_format_options():
+    """#1695 P4: the WYSIWYG format call-params (floatPrecision / temporalFormat / tz)
+    thread through the cypher option map AND the python twins; strict-validated."""
+    import pandas as pd
+    from graphistry.compute.exceptions import GFQLValidationError
+    nd = pd.DataFrame({
+        "id": [0, 1, 2],
+        "f": [0.5, 1.5, -3.74825],
+        "t": pd.to_datetime(["2021-03-14 15:09:26", "2021-06-01 00:00:00", None]),
+    })
+    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [0, 1]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+
+    # floatPrecision=2 via cypher: -3.74825 -> "-3.75" (2 decimals, not the default "-3.7483")
+    q_fp = "MATCH (a) WHERE searchAny(a, '-3.75', {columns: ['f'], floatPrecision: 2}) RETURN a.id AS id"
+    assert sorted(_to_pd(g.gfql(q_fp, engine="pandas")._nodes)["id"].tolist()) == [2]
+    _assert_invariant(g, q_fp, "searchAny floatPrecision")
+
+    # tz via cypher: 15:09:26 UTC -> America/Los_Angeles "8:09:26 am" (PDT)
+    q_tz = ("MATCH (a) WHERE searchAny(a, '8:09:26 am', "
+            "{columns: ['t'], tz: 'America/Los_Angeles'}) RETURN a.id AS id")
+    assert sorted(_to_pd(g.gfql(q_tz, engine="pandas")._nodes)["id"].tolist()) == [0]
+    _assert_invariant(g, q_tz, "searchAny tz")
+
+    # python twin threads float_precision too
+    assert sorted(g.search_nodes("-3.75", columns=["f"], float_precision=2)
+                  ._nodes["id"].tolist()) == [2]
+    # default precision (4) does NOT match the 2-decimal string -> disjoint from fp=2
+    assert g.search_nodes("-3.75", columns=["f"])._nodes["id"].tolist() == []
+
+    # strict validation: unknown option key + wrong floatPrecision type both raise
+    with pytest.raises(GFQLValidationError):
+        g.gfql("MATCH (a) WHERE searchAny(a, 'x', {bogus: 1}) RETURN a.id AS id", engine="pandas")
+    with pytest.raises(GFQLValidationError):
+        g.gfql("MATCH (a) WHERE searchAny(a, 'x', {floatPrecision: 'no'}) RETURN a.id AS id",
+               engine="pandas")
+
+
 def test_search_any_cypher_surface_all_engines():
     """viz-filter L2-b: the cypher WHERE searchAny(...) surface — marker lift +
     composition with other predicates; oracle-pinned + 4-engine parity-or-NIE."""
