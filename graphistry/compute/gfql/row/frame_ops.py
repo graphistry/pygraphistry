@@ -147,9 +147,13 @@ def rows(
     source: Optional[str] = None,
     alias_endpoints: Optional[Dict[str, str]] = None,
     binding_ops: Optional[List[Dict[str, Any]]] = None,
+    alias_prefilters: Optional[Dict[str, Any]] = None,
 ) -> "Plottable":
     if binding_ops is not None:
-        return cast("Plottable", ctx._gfql_binding_ops_row_table(binding_ops))
+        return cast(
+            "Plottable",
+            ctx._gfql_binding_ops_row_table(binding_ops, alias_prefilters=alias_prefilters),
+        )
     if alias_endpoints is not None:
         return cast("Plottable", ctx._gfql_bindings_row_table(alias_endpoints))
 

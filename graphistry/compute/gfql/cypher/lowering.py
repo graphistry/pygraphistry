@@ -8054,6 +8054,38 @@ def _attach_logical_plan_route(
     )
 
 
+def _maybe_pushdown_row_prefilters(
+    result: CompiledCypherQuery, *, has_graph_context: bool
+) -> CompiledCypherQuery:
+    """L4: peel single-alias WHERE predicates into ``rows(alias_prefilters=...)``.
+
+    Guarded to the simple single-chain shape.  Skipped when an alias could be
+    NULL-filled (OPTIONAL MATCH / reentry / row guards) — pushing a predicate onto
+    a nullable alias would drop rows the post-join filter keeps — or for
+    procedure / seed-row / multi-graph programs whose chain semantics this narrow
+    rewrite has not been vetted against.
+    """
+    if (
+        result.procedure_call is not None
+        or result.seed_rows
+        or result.optional_null_fill is not None
+        or result.optional_projection_row_guard is not None
+        or result.optional_reentry
+        or result.reentry_plan is not None
+        or has_graph_context
+    ):
+        return result
+    try:
+        from .row_pushdown import apply_row_prefilter_pushdown
+
+        new_chain = apply_row_prefilter_pushdown(result.chain)
+    except Exception:
+        return result
+    if new_chain is result.chain:
+        return result
+    return replace(result, chain=new_chain)
+
+
 def compile_cypher_query(
     query: Union[CypherQuery, CypherUnionQuery, CypherGraphQuery],
     *,
@@ -8121,6 +8153,7 @@ def compile_cypher_query(
     _bound_scope_stack: Tuple[ScopeFrame, ...] = ()
 
     def _attach_graph_context(result: CompiledCypherQuery) -> CompiledCypherQuery:
+        result = _maybe_pushdown_row_prefilters(result, has_graph_context=bool(compiled_bindings) or _use_ref is not None)
         result_extras = result.execution_extras or CompiledCypherExecutionExtras()
         out = result
         if not compiled_bindings and _use_ref is None:

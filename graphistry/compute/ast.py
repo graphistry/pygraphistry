@@ -1574,6 +1574,7 @@ def rows(
     source: Optional[str] = None,
     alias_endpoints: Optional[Dict[str, str]] = None,
     binding_ops: Optional[List[Dict[str, Any]]] = None,
+    alias_prefilters: Optional[Dict[str, Any]] = None,
 ) -> ASTCall:
     """Create a row-source operation for GFQL row pipelines.
 
@@ -1597,6 +1598,8 @@ def rows(
         params["alias_endpoints"] = alias_endpoints
     if binding_ops is not None:
         params["binding_ops"] = binding_ops
+    if alias_prefilters:
+        params["alias_prefilters"] = alias_prefilters
     return ASTCall("rows", params)
 
 
