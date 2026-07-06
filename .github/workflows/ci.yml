@@ -548,7 +548,7 @@ jobs:
 
   check-rtd-lockfile:
     needs: changes
-    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.networkx_test_only != 'true' && needs.changes.outputs.benchmarks_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.networkx_test_only != 'true' && needs.changes.outputs.benchmarks_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1986,7 +1986,7 @@ jobs:
   docs-latex-unicode-guard:
     needs: [changes]
     # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.networkx_test_only != 'true' && needs.changes.outputs.benchmarks_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.networkx_test_only != 'true' && needs.changes.outputs.benchmarks_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
 
@@ -2002,7 +2002,7 @@ jobs:
   test-docs:
     needs: [changes, python-lint-types, docs-latex-unicode-guard]
     # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.networkx_test_only != 'true' && needs.changes.outputs.benchmarks_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.networkx_test_only != 'true' && needs.changes.outputs.benchmarks_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
