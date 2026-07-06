@@ -1,12 +1,16 @@
 """Cross-column search kernel (viz-filter L2, panel-algebra D2): OR-across-columns
 substring/regex match, dtype-gated AS SEMANTICS — string columns always; integer
 columns iff the term is a numeric literal (inspector gate); float/date/bool are
-auto-gated OUT (float stringification is engine-divergent — explicit ``columns=``
-reaches bool on both engines, float/date on pandas only: cuDF declines them, its
-astype(str) rendering diverges from pandas — dgx-probed). Per-column matching
-delegates to the parity-hardened ``Contains`` predicate, so every pandas/cuDF
-quirk and honest decline gate carries over; cuDF regex obeys the same decline
-rules as ``=~``."""
+auto-gated OUT (kept symmetric across engines for cross-engine parity — #1695
+decision A). Explicit ``columns=`` reaches bool on both engines and float on
+**pandas only**: pandas renders floats to the inspector's WYSIWYG search text via
+``_canonical_float_str`` (``%.4f``-direct, dgx-verified byte-identical to the
+viz ``sprintf-js``); cuDF/polars honestly decline float (their native decimal
+render can't reproduce ``printf`` — cuDF truncates, polars diverges at ties —
+and a per-element UDF would be a host-bridge; dgx-probed 2026-07-05). Per-column
+matching delegates to the parity-hardened ``Contains`` predicate, so every
+pandas/cuDF quirk and honest decline gate carries over; cuDF regex obeys the
+same decline rules as ``=~``."""
 import re
 from typing import List, Optional
 
@@ -36,49 +40,45 @@ def _is_float_dtype(dtype: object) -> bool:
 
 
 def _canonical_float_str(s: SeriesT, precision: int = 4) -> SeriesT:
-    """WYSIWYG float render matching the streamgl-viz inspector's search text
-    (``defaultFormat`` number/integer branch): a WHOLE value (``v % 1 == 0``,
-    incl. whole floats like ``5.0``) renders as a bare integer string
-    (``"5"``/``"-3"`` — no decimals, no exponent, matching JS ``String()``); a
-    FRACTIONAL value renders fixed to ``precision`` decimals (``0.12345`` ->
-    ``"0.1235"``, matching ``sprintf('%.4f')``).
+    """WYSIWYG float render matching the streamgl-viz inspector's search text —
+    verified byte-identical to the inspector's real ``sprintf-js`` ``%.4f`` on
+    dgx-spark (float parity fuzzer, 2026-07-05).
 
-    The naive ``astype(str)`` was excluded because it diverges cross-engine in
-    the exponent regime (``1e16`` -> ``'1e16'`` vs ``'1e+16'``) and at
-    half-boundaries (true-float-bit ``f"{v:.4f}"`` vs a decimal render). We route
-    BOTH branches through an exponent-free, decimal-based render so pandas /
-    cuDF / polars agree byte-for-byte; pandas is the oracle. Null cells render as
-    the empty string here and are masked out by the caller (null never matches).
+    - WHOLE value (``v % 1 == 0``, incl. whole floats like ``5.0``, ``|v| < 1e21``)
+      -> bare integer string (``"5"``/``"-3"`` — no decimals, no exponent;
+      matches JS ``String(v)`` / ``formatToString``).
+    - FRACTIONAL value -> ``"%.<precision>f" % v`` applied DIRECTLY to the raw
+      double (single correctly-rounded conversion; matches ``sprintf('%.4f', v)``,
+      e.g. ``0.12345`` -> ``"0.1235"``, ``-3.74825`` -> ``"-3.7483"``).
+
+    PANDAS-ONLY. The GPU engines cannot reproduce this natively and honestly
+    decline float search upstream (dgx-proven: cuDF ``float64 -> decimal128``
+    TRUNCATES — wrong on generic values, not just ties; polars' decimal cast
+    rounds differently at 5th-decimal ties and drops the sign on ``-0.0000``;
+    there is no native GPU ``printf`` and a per-element UDF would be a forbidden
+    host-bridge). So this is only ever called on a pandas float column.
+
+    NOTE: an earlier draft pre-rounded with ``np.round(v, precision)`` before
+    ``%.*f`` — that DOUBLE-ROUNDS and mis-renders half-ties (``-3.74825`` ->
+    ``-3.7482`` instead of the browser's ``-3.7483``). We round exactly once, in
+    ``%.*f``, on the raw double. Null cells render as ``""`` and never match
+    (the caller masks them out).
     """
-    is_cudf = "cudf" in type(s).__module__
-    notna = s.notna()
-    # whole vs fractional split (nulls treated as non-whole; masked out anyway)
-    whole = (s == s.round(0)) & notna  # type: ignore[operator]
-    if is_cudf:
-        # fractional: fixed-`precision` decimal via Decimal128 (exponent-free,
-        # GPU-native, half-even like pandas' decimal round); whole: int string.
-        frac_txt = s.round(precision).astype(  # type: ignore[union-attr]
-            f"decimal128[38,{precision}]"
-        ).astype("str")
-        whole_txt = s.round(0).astype("int64").astype("str")  # type: ignore[union-attr]
-        out = whole_txt.where(whole, frac_txt)
-        return out.where(notna, "")  # type: ignore[union-attr]
-    # pandas
     import numpy as np
-    vals = s.to_numpy()
-    frac = np.round(vals.astype("float64"), precision)
-    # fixed-`precision` decimal render (no exponent) for fractional values
-    frac_txt = np.array([("%.*f" % (precision, v)) for v in frac], dtype=object)
-    # whole values -> integer string (round to kill float noise, then int)
-    whole_arr = np.asarray(whole)
-    whole_txt = np.where(
-        whole_arr,
-        np.array([str(int(round(v))) if not (v != v) else "" for v in vals], dtype=object),
-        "",
-    )
-    result = np.where(whole_arr, whole_txt, frac_txt)
-    result = np.where(np.asarray(notna), result, "")
-    return cast_series_like(s, [str(x) for x in result])
+    notna = np.asarray(s.notna())
+    vals = np.asarray(s.to_numpy(dtype="float64", na_value=np.nan))
+    out = np.empty(len(vals), dtype=object)
+    for i in range(len(vals)):
+        v = vals[i]
+        if not notna[i] or v != v:  # null / NaN -> "" (masked out by caller)
+            out[i] = ""
+        elif v % 1 == 0:
+            # whole -> plain integer digits (JS String); the >= 1e21 JS-exponent
+            # regime is unsupported (astronomically rare for a search term) -> ""
+            out[i] = str(int(v)) if abs(v) < 1e21 else ""
+        else:
+            out[i] = "%.*f" % (precision, v)  # printf on the raw double == sprintf-js
+    return cast_series_like(s, out.tolist())
 
 
 def cast_series_like(template: SeriesT, data: list) -> SeriesT:
@@ -133,6 +133,7 @@ def search_any_mask(
     case_sensitive: bool = False,
     regex: bool = False,
     columns: Optional[List[str]] = None,
+    float_precision: int = 4,
 ) -> Optional[SeriesT]:
     """Boolean row mask over ``df`` (pandas or cuDF), or None to decline (an explicit
     column is missing). Null cells never match; no candidate columns -> all-False."""
@@ -176,7 +177,14 @@ def search_any_mask(
     for c in cols:
         s = df[c]
         m: SeriesT
-        if not _is_searchable_string_dtype(s.dtype):
+        if _is_float_dtype(s.dtype):
+            # FLOAT (pandas-only; cuDF float declined above, polars uses its own
+            # lowering): render to the inspector's WYSIWYG search text (%.4f-direct
+            # / whole->int-string, dgx-verified byte-identical to sprintf-js) rather
+            # than astype(str), whose exponent/half-tie rendering diverges (#1695).
+            nulls = s.isna()
+            m = pred(_canonical_float_str(s, float_precision)) & ~nulls
+        elif not _is_searchable_string_dtype(s.dtype):
             # canonical toString for int / explicit columns; pandas astype(str)
             # stringifies nulls ("nan"/"<NA>") so mask them back out — null cells
             # never match on any engine (wave-1 I1)

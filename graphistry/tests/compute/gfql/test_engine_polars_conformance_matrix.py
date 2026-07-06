@@ -426,6 +426,55 @@ def test_search_any_op_all_engines():
         g.gfql(q(term="x", columns=["nope"]), engine="pandas")
 
 
+def test_search_any_float_wysiwyg():
+    """#1695: explicit ``columns=[<float>]`` searches the inspector's WYSIWYG render
+    (``%.4f``-direct / whole->int-string, dgx-verified == viz sprintf-js) on PANDAS;
+    cuDF/polars honestly decline (their native float render can't reproduce printf).
+    Float stays OUT of the auto gate on every engine (decision A) so auto behavior is
+    cross-engine-symmetric."""
+    import numpy as np
+    import pandas as pd
+    from graphistry.compute.ast import search_any as search_any_op
+    nd = pd.DataFrame({
+        "id": [0, 1, 2, 3, 4, 5],
+        # fractional, whole-float, a 5th-decimal HALF-TIE (guards the np.round
+        # double-rounding regression: correct render is -3.7483, NOT -3.7482), null
+        "f": [0.5, 1.5, 2.5, -3.74825, 5.0, np.nan],
+    })
+    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [0, 1]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+
+    def q(**kw):
+        return [n(name="a"), search_any_op(alias="a", out_col="__hit__", **kw)]
+
+    # (term, columns) -> matching ids, pandas oracle. renders:
+    # 0.5->"0.5000" 1.5->"1.5000" 2.5->"2.5000" -3.74825->"-3.7483" 5.0->"5" nan->""
+    oracle = {
+        "frac_exact":   (dict(term="1.5000", columns=["f"]), [1]),
+        "half_tie":     (dict(term="-3.7483", columns=["f"]), [3]),   # correct single-round
+        "half_tie_bad": (dict(term="-3.7482", columns=["f"]), []),    # the WRONG (double-round) render must NOT match
+        "whole_no_dec": (dict(term="5.0000", columns=["f"]), []),     # 5.0 renders "5", not "5.0000"
+        "whole_int":    (dict(term="5", columns=["f"]),
+                         [0, 1, 2, 4]),                                # substring '5' hits 0.5000/1.5000/2.5000/"5"
+        "null_no_nan":  (dict(term="nan", columns=["f"]), []),        # null cell renders "" not "nan" -> never matches
+    }
+    for label, (kw, expected) in oracle.items():
+        out = g.gfql(q(**kw), engine="pandas")
+        got = _to_pd(out._nodes).sort_values("id")
+        got = got[got["__hit__"]]["id"].tolist()
+        assert got == expected, f"float wysiwyg {label}: {got} != {expected}"
+        # cuDF/polars must honestly NIE on explicit float columns (never silently diverge)
+        _assert_invariant(g, q(**kw), f"float wysiwyg {label}")
+
+    # pandas python-twin also renders float WYSIWYG (row 3 = the half-tie -3.7483);
+    # polars-backed twin declines honestly (never a silent wrong answer)
+    assert sorted(g.search_nodes("-3.7483", columns=["f"])._nodes["id"].tolist()) == [3]
+    import polars as pl
+    gpl = graphistry.nodes(pl.from_pandas(nd), "id").edges(pl.from_pandas(ed), "s", "d").bind(edge="eid")
+    with pytest.raises(NotImplementedError):
+        gpl.search_nodes("1.5000", columns=["f"])
+
+
 def test_search_any_cypher_surface_all_engines():
     """viz-filter L2-b: the cypher WHERE searchAny(...) surface — marker lift +
     composition with other predicates; oracle-pinned + 4-engine parity-or-NIE."""
