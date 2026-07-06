@@ -64,6 +64,7 @@ jobs:
       docs_test_only: ${{ steps.filter.outputs.docs_test_only }}
       benchmarks_only: ${{ steps.filter.outputs.benchmarks_only }}
       gfql_only: ${{ steps.filter.outputs.gfql_only }}
+      schema_only: ${{ steps.filter.outputs.schema_only }}
       narrow_python_only: ${{ steps.filter.outputs.narrow_python_only }}
       docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
@@ -82,7 +83,7 @@ jobs:
         HEAD_SHA: ${{ github.sha }}
       run: |
         set -euo pipefail
-        keys=(infra python spark gfql cypher_frontend_ci benchmarks ai docs core plugins networkx docs_test schema_lane pandas_compat graphviz_lane neo4j_lane build_package dgl_lane networkx_test_only docs_test_only benchmarks_only gfql_only graphviz_only neo4j_only build_package_only narrow_python_only)
+        keys=(infra python spark gfql cypher_frontend_ci benchmarks ai docs core plugins networkx docs_test schema_lane pandas_compat graphviz_lane neo4j_lane build_package dgl_lane networkx_test_only docs_test_only benchmarks_only gfql_only schema_only graphviz_only neo4j_only build_package_only narrow_python_only)
 
         emit_all() {
           # $1 = "true" or "false" — emit the same value for every key
@@ -350,8 +351,8 @@ jobs:
           '^graphistry/schema\.py$' \
           '^graphistry/devschemas/' \
           '^schemas/' \
-          '^graphistry/tests/compute/gfql/test_public_schema\.py$' \
-          '^docs/source/gfql/schema\.rst$'
+          '^graphistry/tests/test_schema_artifacts\.py$' \
+          '^graphistry/tests/compute/gfql/test_public_schema\.py$'
 
         emit pandas_compat \
           '^graphistry/compute/' \
@@ -419,6 +420,16 @@ jobs:
           '^graphistry/tests/test_gfql_.*\.py$' \
           '^tests/gfql/'
 
+        # Conservative public-schema/artifact slice. Keep docs/source schema edits
+        # out of this carve-out so documentation changes still run docs gates.
+        emit_only schema_only \
+          '^CHANGELOG\.md$' \
+          '^graphistry/schema\.py$' \
+          '^graphistry/devschemas/' \
+          '^schemas/' \
+          '^graphistry/tests/test_schema_artifacts\.py$' \
+          '^graphistry/tests/compute/gfql/test_public_schema\.py$'
+
         emit_only graphviz_only \
           '^CHANGELOG\.md$' \
           '^graphistry/plotter\.py$' \
@@ -437,7 +448,7 @@ jobs:
           '^graphistry/py\.typed$'
 
         narrow_python_only="false"
-        if [[ "${networkx_test_only}" == "true" || "${docs_test_only}" == "true" || "${benchmarks_only}" == "true" || "${gfql_only}" == "true" || "${graphviz_only}" == "true" || "${neo4j_only}" == "true" || "${build_package_only}" == "true" ]]; then
+        if [[ "${networkx_test_only}" == "true" || "${docs_test_only}" == "true" || "${benchmarks_only}" == "true" || "${gfql_only}" == "true" || "${schema_only}" == "true" || "${graphviz_only}" == "true" || "${neo4j_only}" == "true" || "${build_package_only}" == "true" ]]; then
           narrow_python_only="true"
         fi
         echo "narrow_python_only=${narrow_python_only}" >> "$GITHUB_OUTPUT"
@@ -1378,7 +1389,7 @@ jobs:
     name: test-pandas-compat-gfql (${{ matrix.label }}, py${{ matrix.python-version }})
     needs: [changes, test-minimal-python, generate-lockfiles]
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.schema_lane == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -1425,6 +1436,7 @@ jobs:
           graphistry/tests/compute/gfql/cypher/test_lowering.py \
           graphistry/tests/compute/gfql/cypher/test_parser.py \
           graphistry/tests/compute/gfql/test_row_pipeline_ops.py \
+          graphistry/tests/compute/gfql/test_public_schema.py \
           graphistry/tests/compute/gfql/test_schema_changers.py \
           graphistry/tests/compute/gfql/test_let_schema_changers.py \
           graphistry/tests/compute/gfql/test_rollout.py \
@@ -1448,7 +1460,7 @@ jobs:
 
   test-core-python:
     needs: [changes, test-minimal-python, generate-lockfiles]
-    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.schema_lane == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
 
@@ -1574,7 +1586,7 @@ jobs:
 
   test-polars:
     needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
-    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.schema_lane == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
