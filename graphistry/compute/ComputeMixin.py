@@ -321,6 +321,34 @@ class ComputeMixin(Plottable):
             nodes_df = g_nodes._nodes.assign(**{c: 0 for c in cols}).astype({c: "int32" for c in cols})
             return g.nodes(nodes_df, node_id)
 
+        # GFQL #1658 index fast path (#5 degree-cache / #3 membership): read degrees
+        # straight from a resident CSR adjacency index (O(N) searchsorted gather)
+        # instead of the O(E) group_by below. Bulk over all nodes, so always
+        # profitable when a valid index is resident; `index_policy='off'` skips.
+        # try/except -> any index issue falls through to the scan path (never wrong).
+        if getattr(g, "_gfql_index_policy", "use") != "off":
+            try:
+                from graphistry.compute.gfql.index import get_registry
+                from graphistry.compute.gfql.index.degrees import degrees_from_index
+                _reg = get_registry(g)
+                if not _reg.is_empty():
+                    _d = degrees_from_index(
+                        _reg, g_nodes._nodes, node_id, g._edges,
+                        (g._source, g._destination), engine_concrete,
+                    )
+                    if _d is not None:
+                        _in, _out = _d
+                        _keep = [c for c in g_nodes._nodes.columns if c not in (degree_in, degree_out, col)]
+                        _nf = g_nodes._nodes[_keep].assign(**{degree_in: _in, degree_out: _out})
+                        _nf = _nf.assign(**{
+                            degree_in: _nf[degree_in].astype("int32"),
+                            degree_out: _nf[degree_out].astype("int32"),
+                            col: (_nf[degree_in] + _nf[degree_out]).astype("int32"),
+                        })
+                        return g.nodes(_nf, node_id)
+            except Exception:
+                pass
+
         in_df = _degree_agg(g._edges, g._destination, degree_in, node_id)
         out_df = _degree_agg(g._edges, g._source, degree_out, node_id)
         deg = safe_merge(in_df, out_df, on=node_id, how="outer")
