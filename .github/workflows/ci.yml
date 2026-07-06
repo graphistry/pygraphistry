@@ -63,6 +63,7 @@ jobs:
       networkx_test_only: ${{ steps.filter.outputs.networkx_test_only }}
       docs_test_only: ${{ steps.filter.outputs.docs_test_only }}
       benchmarks_only: ${{ steps.filter.outputs.benchmarks_only }}
+      gfql_only: ${{ steps.filter.outputs.gfql_only }}
       narrow_python_only: ${{ steps.filter.outputs.narrow_python_only }}
       docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
@@ -81,7 +82,7 @@ jobs:
         HEAD_SHA: ${{ github.sha }}
       run: |
         set -euo pipefail
-        keys=(infra python spark gfql cypher_frontend_ci benchmarks ai docs core plugins networkx docs_test schema_lane pandas_compat graphviz_lane neo4j_lane build_package dgl_lane networkx_test_only docs_test_only benchmarks_only graphviz_only neo4j_only build_package_only narrow_python_only)
+        keys=(infra python spark gfql cypher_frontend_ci benchmarks ai docs core plugins networkx docs_test schema_lane pandas_compat graphviz_lane neo4j_lane build_package dgl_lane networkx_test_only docs_test_only benchmarks_only gfql_only graphviz_only neo4j_only build_package_only narrow_python_only)
 
         emit_all() {
           # $1 = "true" or "false" — emit the same value for every key
@@ -238,9 +239,14 @@ jobs:
         emit gfql \
           '^graphistry/gfql/' \
           '^graphistry/compute/gfql/' \
+          '^graphistry/compute/gfql_validate\.py$' \
           '^graphistry/compute/gfql_unified\.py$' \
           '^graphistry/models/gfql/' \
           '^graphistry/Plottable\.py$' \
+          '^graphistry/tests/benchmarks/gfql/' \
+          '^graphistry/tests/compute/gfql/' \
+          '^graphistry/tests/compute/test_gfql.*\.py$' \
+          '^graphistry/tests/test_gfql_.*\.py$' \
           '^tests/gfql/'
 
         # Spark lane: spark coercion/runtime + spark-focused tests + workflow changes.
@@ -323,6 +329,11 @@ jobs:
 
         emit networkx \
           '^graphistry/plugins/networkx/' \
+          '^graphistry/compute/gfql/cypher/lowering\.py$' \
+          '^graphistry/compute/gfql/cypher/call_procedures\.py$' \
+          '^graphistry/compute/gfql/cypher/procedures/(common|networkx)\.py$' \
+          '^graphistry/compute/gfql/ir/logical_plan\.py$' \
+          '^graphistry/compute/gfql/physical_planner\.py$' \
           '^graphistry/tests/plugins/test_networkx\.py$' \
           '^graphistry/tests/compute/gfql/cypher/test_lowering\.py$' \
           '^docs/source/api/plugins/compute/networkx\.rst$' \
@@ -393,6 +404,21 @@ jobs:
           '^CHANGELOG\.md$' \
           '^benchmarks/'
 
+        # Conservative GFQL-owned code/test slice. Do not include docs/source,
+        # broad compute entrypoints, gfql_unified.py, Plottable.py, or shared
+        # compute files; those continue to fail closed through broad Python gates.
+        emit_only gfql_only \
+          '^CHANGELOG\.md$' \
+          '^graphistry/gfql/' \
+          '^graphistry/compute/gfql/' \
+          '^graphistry/compute/gfql_validate\.py$' \
+          '^graphistry/models/gfql/' \
+          '^graphistry/tests/benchmarks/gfql/' \
+          '^graphistry/tests/compute/gfql/' \
+          '^graphistry/tests/compute/test_gfql.*\.py$' \
+          '^graphistry/tests/test_gfql_.*\.py$' \
+          '^tests/gfql/'
+
         emit_only graphviz_only \
           '^CHANGELOG\.md$' \
           '^graphistry/plotter\.py$' \
@@ -411,7 +437,7 @@ jobs:
           '^graphistry/py\.typed$'
 
         narrow_python_only="false"
-        if [[ "${networkx_test_only}" == "true" || "${docs_test_only}" == "true" || "${benchmarks_only}" == "true" || "${graphviz_only}" == "true" || "${neo4j_only}" == "true" || "${build_package_only}" == "true" ]]; then
+        if [[ "${networkx_test_only}" == "true" || "${docs_test_only}" == "true" || "${benchmarks_only}" == "true" || "${gfql_only}" == "true" || "${graphviz_only}" == "true" || "${neo4j_only}" == "true" || "${build_package_only}" == "true" ]]; then
           narrow_python_only="true"
         fi
         echo "narrow_python_only=${narrow_python_only}" >> "$GITHUB_OUTPUT"
@@ -548,7 +574,7 @@ jobs:
 
   check-rtd-lockfile:
     needs: changes
-    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.networkx_test_only != 'true' && needs.changes.outputs.benchmarks_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.narrow_python_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -914,7 +940,7 @@ jobs:
   test-networkx-scipy-policy:
     name: test-networkx-scipy-policy (${{ matrix.label }}, py${{ matrix.python-version }})
     needs: [changes, generate-lockfiles]
-    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.networkx == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.networkx == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     strategy:
@@ -1422,7 +1448,7 @@ jobs:
 
   test-core-python:
     needs: [changes, test-minimal-python, generate-lockfiles]
-    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
 
@@ -1986,7 +2012,7 @@ jobs:
   docs-latex-unicode-guard:
     needs: [changes]
     # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.networkx_test_only != 'true' && needs.changes.outputs.benchmarks_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.narrow_python_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
 
@@ -2002,7 +2028,7 @@ jobs:
   test-docs:
     needs: [changes, python-lint-types, docs-latex-unicode-guard]
     # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.networkx_test_only != 'true' && needs.changes.outputs.benchmarks_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.narrow_python_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
