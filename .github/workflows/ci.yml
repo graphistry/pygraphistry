@@ -81,7 +81,7 @@ jobs:
         HEAD_SHA: ${{ github.sha }}
       run: |
         set -euo pipefail
-        keys=(infra python spark gfql cypher_frontend_ci benchmarks ai docs core plugins networkx docs_test schema_lane pandas_compat graphviz_lane neo4j_lane build_package dgl_lane networkx_test_only docs_test_only benchmarks_only narrow_python_only)
+        keys=(infra python spark gfql cypher_frontend_ci benchmarks ai docs core plugins networkx docs_test schema_lane pandas_compat graphviz_lane neo4j_lane build_package dgl_lane networkx_test_only docs_test_only benchmarks_only graphviz_only neo4j_only build_package_only narrow_python_only)
 
         emit_all() {
           # $1 = "true" or "false" — emit the same value for every key
@@ -393,8 +393,25 @@ jobs:
           '^CHANGELOG\.md$' \
           '^benchmarks/'
 
+        emit_only graphviz_only \
+          '^CHANGELOG\.md$' \
+          '^graphistry/plotter\.py$' \
+          '^graphistry/tests/.*graphviz.*\.py$' \
+          '^bin/test-graphviz\.sh$' \
+          '^requirements/test-graphviz-py.*\.lock$'
+
+        emit_only neo4j_only \
+          '^CHANGELOG\.md$' \
+          '^docker/.*neo4j' \
+          '^graphistry/bolt_util\.py$' \
+          '^graphistry/tests/test_bolt_util\.py$'
+
+        emit_only build_package_only \
+          '^CHANGELOG\.md$' \
+          '^graphistry/py\.typed$'
+
         narrow_python_only="false"
-        if [[ "${networkx_test_only}" == "true" || "${docs_test_only}" == "true" || "${benchmarks_only}" == "true" ]]; then
+        if [[ "${networkx_test_only}" == "true" || "${docs_test_only}" == "true" || "${benchmarks_only}" == "true" || "${graphviz_only}" == "true" || "${neo4j_only}" == "true" || "${build_package_only}" == "true" ]]; then
           narrow_python_only="true"
         fi
         echo "narrow_python_only=${narrow_python_only}" >> "$GITHUB_OUTPUT"
@@ -1026,9 +1043,9 @@ jobs:
 
 
   test-minimal-python-rest:
-    # Middle versions (3.9-3.13) + non-GFQL deferred files, run after sentinel + GFQL core pass.
-    needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
-    if: ${{ success() }}
+    # Middle versions (3.9-3.13) + non-GFQL deferred files.
+    needs: [changes, test-minimal-python, generate-lockfiles]
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -1404,9 +1421,8 @@ jobs:
 
 
   test-core-python:
-    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
-    # Inherit condition from test-minimal-python
-    if: ${{ success() }}
+    needs: [changes, test-minimal-python, generate-lockfiles]
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
 
@@ -1465,9 +1481,8 @@ jobs:
         retention-days: 14
 
   test-graphviz:
-    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
-    # Inherit condition from test-minimal-python
-    if: ${{ success() }}
+    needs: [changes, test-minimal-python, generate-lockfiles]
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.graphviz_lane == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10  # Accommodate retry logic: 3 attempts × 2min + 1.5min backoff/cleanup
 
@@ -1532,8 +1547,8 @@ jobs:
         ./bin/test-graphviz.sh
 
   test-polars:
-    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
-    if: ${{ success() }}
+    needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -1908,9 +1923,8 @@ jobs:
 
 
   test-neo4j:
-    needs: [ test-minimal-python, test-gfql-core ]
-    # Inherit condition from test-minimal-python
-    if: ${{ success() }}
+    needs: [changes, test-minimal-python]
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.neo4j_lane == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     env:
@@ -1930,9 +1944,8 @@ jobs:
 
 
   test-build:
-    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
-    # Inherit condition from test-minimal-python
-    if: ${{ success() }}
+    needs: [changes, test-minimal-python, generate-lockfiles]
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.build_package == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
 
