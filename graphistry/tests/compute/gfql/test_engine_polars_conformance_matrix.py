@@ -475,6 +475,48 @@ def test_search_any_float_wysiwyg():
         gpl.search_nodes("1.5000", columns=["f"])
 
 
+def test_search_any_datetime_wysiwyg():
+    """#1695: explicit ``columns=[<datetime>]`` searches the inspector's moment date
+    render (``'MMM D YYYY, h:mm:ss a z'``, default tz=UTC — byte-verified vs real
+    moment.utc) on PANDAS; cuDF/polars honestly decline. Datetime stays OUT of the
+    auto gate on every engine (decision A)."""
+    import pandas as pd
+    from graphistry.compute.ast import search_any as search_any_op
+    nd = pd.DataFrame({
+        "id": [0, 1, 2],
+        "t": pd.to_datetime(["2021-03-14 15:09:26", "2021-12-25 00:00:00", None]),
+    })
+    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [0, 1]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+
+    def q(**kw):
+        return [n(name="a"), search_any_op(alias="a", out_col="__hit__", **kw)]
+
+    # renders (tz=UTC default): 0->"Mar 14 2021, 3:09:26 pm UTC"
+    #                           1->"Dec 25 2021, 12:00:00 am UTC"  2(null)->""
+    oracle = {
+        "month_day":  (dict(term="mar 14 2021", columns=["t"]), [0]),   # ci substring
+        "time_ampm":  (dict(term="3:09:26 pm", columns=["t"]), [0]),    # 12h + lowercase pm
+        "midnight":   (dict(term="12:00:00 am", columns=["t"]), [1]),   # moment 'h' -> 12 am
+        "tz_abbrev":  (dict(term="utc", columns=["t"]), [0, 1]),        # z token = UTC
+        "null_empty": (dict(term="nat", columns=["t"]), []),           # null renders "" not "nat"/"nan"
+    }
+    for label, (kw, expected) in oracle.items():
+        out = g.gfql(q(**kw), engine="pandas")
+        got = _to_pd(out._nodes).sort_values("id")
+        got = got[got["__hit__"]]["id"].tolist()
+        assert got == expected, f"datetime wysiwyg {label}: {got} != {expected}"
+        # cuDF/polars must honestly NIE on explicit datetime columns (never silent divergence)
+        _assert_invariant(g, q(**kw), f"datetime wysiwyg {label}")
+
+    # pandas python-twin also renders datetime WYSIWYG; polars-backed twin declines
+    assert sorted(g.search_nodes("dec 25 2021", columns=["t"])._nodes["id"].tolist()) == [1]
+    import polars as pl
+    gpl = graphistry.nodes(pl.from_pandas(nd), "id").edges(pl.from_pandas(ed), "s", "d").bind(edge="eid")
+    with pytest.raises(NotImplementedError):
+        gpl.search_nodes("mar 14 2021", columns=["t"])
+
+
 def test_search_any_cypher_surface_all_engines():
     """viz-filter L2-b: the cypher WHERE searchAny(...) surface — marker lift +
     composition with other predicates; oracle-pinned + 4-engine parity-or-NIE."""

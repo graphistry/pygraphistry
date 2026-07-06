@@ -2,15 +2,16 @@
 substring/regex match, dtype-gated AS SEMANTICS — string columns always; integer
 columns iff the term is a numeric literal (inspector gate); float/date/bool are
 auto-gated OUT (kept symmetric across engines for cross-engine parity — #1695
-decision A). Explicit ``columns=`` reaches bool on both engines and float on
-**pandas only**: pandas renders floats to the inspector's WYSIWYG search text via
-``_canonical_float_str`` (``%.4f``-direct, dgx-verified byte-identical to the
-viz ``sprintf-js``); cuDF/polars honestly decline float (their native decimal
-render can't reproduce ``printf`` — cuDF truncates, polars diverges at ties —
-and a per-element UDF would be a host-bridge; dgx-probed 2026-07-05). Per-column
-matching delegates to the parity-hardened ``Contains`` predicate, so every
-pandas/cuDF quirk and honest decline gate carries over; cuDF regex obeys the
-same decline rules as ``=~``."""
+decision A). Explicit ``columns=`` reaches bool on both engines and float/datetime
+on **pandas only**: pandas renders floats to the inspector's WYSIWYG search text
+via ``_canonical_float_str`` (``%.4f``-direct, dgx-verified byte-identical to the
+viz ``sprintf-js``) and datetimes via ``_canonical_datetime_str`` (the inspector's
+moment date format, localized to a caller ``tz``); cuDF/polars honestly decline
+both (their native decimal / datetime render can't reproduce pandas — cuDF float
+truncates, polars diverges at ties — and a per-element UDF would be a host-bridge;
+dgx-probed 2026-07-05). Per-column matching delegates to the parity-hardened
+``Contains`` predicate, so every pandas/cuDF quirk and honest decline gate carries
+over; cuDF regex obeys the same decline rules as ``=~``."""
 import re
 from typing import List, Optional
 
@@ -37,6 +38,53 @@ def _is_int_dtype(dtype: object) -> bool:
 def _is_float_dtype(dtype: object) -> bool:
     import pandas.api.types as pat
     return bool(pat.is_float_dtype(dtype))
+
+
+def _is_datetime_dtype(dtype: object) -> bool:
+    import pandas.api.types as pat
+    return bool(pat.is_datetime64_any_dtype(dtype))
+
+
+# The inspector's default date render (moment `'MMM D YYYY, h:mm:ss a z'`) expressed
+# as its strftime equivalent — moment MMM=%b, D=%-d (no leading zero), YYYY=%Y,
+# h=%-I (12h no leading zero), mm=%M, ss=%S, a=am/pm (lowercase), z=%Z (tz abbrev).
+_INSPECTOR_TEMPORAL_STRFTIME = "%b %-d %Y, %-I:%M:%S %p %Z"
+
+
+def _canonical_datetime_str(
+    s: SeriesT, temporal_format: Optional[str] = None, tz: str = "UTC"
+) -> SeriesT:
+    """WYSIWYG datetime render matching the streamgl-viz inspector's date search text
+    (``formatDate`` -> moment ``'MMM D YYYY, h:mm:ss a z'``), LOCALIZED to ``tz``.
+
+    The inspector formats a date in the VIEWER's timezone (``moment.unix`` local),
+    which is not knowable server-side — so ``tz`` is a caller knob (Leo's
+    localization call-param): pass the viewer's zone (e.g. ``'America/Los_Angeles'``)
+    for byte parity with what that viewer sees. Default ``'UTC'`` is chosen for
+    DETERMINISM (a server-local default would vary by deployment and break the
+    parity oracle); flip via ``tz=``.
+
+    PANDAS-ONLY (like the float render): cuDF/polars decline datetime search — their
+    native datetime->string rendering and tz handling diverge from pandas strftime,
+    and a per-cell UDF would be a host-bridge. Null cells render ``""`` (masked out).
+
+    ``temporal_format`` is a **strftime** pattern; its default reproduces the
+    inspector's moment default. moment's lowercase am/pm (``a``) is reproduced by
+    lowercasing the ``%p`` output (tz abbrevs / month names never contain AM/PM).
+    """
+    import pandas as pd
+    fmt = temporal_format or _INSPECTOR_TEMPORAL_STRFTIME
+    ser = s if isinstance(s, pd.Series) else pd.Series(s)
+    # localize: naive columns are assumed UTC then converted; tz-aware are converted.
+    if getattr(ser.dtype, "tz", None) is not None:
+        localized = ser.dt.tz_convert(tz)
+    else:
+        localized = ser.dt.tz_localize("UTC").dt.tz_convert(tz)
+    notna = ser.notna()
+    txt = localized.dt.strftime(fmt)
+    if "%p" in fmt:  # moment `a` is lowercase am/pm; strftime %p is upper
+        txt = txt.str.replace("AM", "am", regex=False).str.replace("PM", "pm", regex=False)
+    return txt.where(notna, "")
 
 
 def _canonical_float_str(s: SeriesT, precision: int = 4) -> SeriesT:
@@ -134,6 +182,8 @@ def search_any_mask(
     regex: bool = False,
     columns: Optional[List[str]] = None,
     float_precision: int = 4,
+    temporal_format: Optional[str] = None,
+    tz: str = "UTC",
 ) -> Optional[SeriesT]:
     """Boolean row mask over ``df`` (pandas or cuDF), or None to decline (an explicit
     column is missing). Null cells never match; no candidate columns -> all-False."""
@@ -184,6 +234,11 @@ def search_any_mask(
             # than astype(str), whose exponent/half-tie rendering diverges (#1695).
             nulls = s.isna()
             m = pred(_canonical_float_str(s, float_precision)) & ~nulls
+        elif _is_datetime_dtype(s.dtype):
+            # DATETIME (pandas-only; cuDF/polars declined above/in their lowering):
+            # render the inspector's moment date format localized to `tz` (#1695).
+            nulls = s.isna()
+            m = pred(_canonical_datetime_str(s, temporal_format, tz)) & ~nulls
         elif not _is_searchable_string_dtype(s.dtype):
             # canonical toString for int / explicit columns; pandas astype(str)
             # stringifies nulls ("nan"/"<NA>") so mask them back out — null cells
