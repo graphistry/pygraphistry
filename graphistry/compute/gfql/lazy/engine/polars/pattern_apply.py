@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.ast import ASTObject
 
+from .dtypes import is_lazy
 from .row_pipeline import _active_table, _rewrap
 
 
@@ -124,6 +125,39 @@ def _pattern_alias_keys_polars(
         return None
     base_graph = _rows_base_graph(g)
     node_id = base_graph._node or "id"  # Plottable._node: Optional[str]
+    # GFQL #1658 index fast path (#3 membership): bare EXISTS pattern (no endpoint/
+    # edge filters, no drop-self neq) -> participating nodes == "has an edge in this
+    # direction" = CSR adjacency membership. Skips the O(E) chain_polars below.
+    # Strict guard; anything richer (filters/neq/multi-hop) falls through unchanged.
+    if (
+        neq is None
+        and getattr(g, "_gfql_index_policy", "use") != "off"
+        and not getattr(n0, "filter_dict", None) and not getattr(n2, "filter_dict", None)
+        and not getattr(edge_op, "edge_match", None)
+        and getattr(edge_op, "edge_query", None) is None
+        and not is_lazy(base_graph._edges)
+    ):
+        try:
+            import numpy as _np
+            from graphistry.compute.gfql.index import get_registry
+            from graphistry.compute.gfql.index.degrees import adjacency_membership_keys
+            from graphistry.Engine import Engine as _Engine
+            _reg = get_registry(g)
+            if not _reg.is_empty():
+                _edir = getattr(edge_op, "direction", "forward")
+                if _edir == "undirected":
+                    _mdir = "undirected"
+                elif (alias == n0._name) == (_edir == "forward"):
+                    _mdir = "forward"
+                else:
+                    _mdir = "reverse"
+                _src, _dst = base_graph._source, base_graph._destination
+                if isinstance(_src, str) and isinstance(_dst, str):
+                    _mk = adjacency_membership_keys(_reg, _mdir, base_graph._edges, (_src, _dst), _Engine.POLARS)
+                    if _mk is not None:
+                        return pl.DataFrame({node_id: pl.Series(node_id, _np.asarray(_mk))})
+        except Exception:
+            pass
     if neq:
         # EXISTS { (n)--(m) WHERE m <> n } — for the single-edge shape, endpoint
         # inequality == "witnessed by a NON-self-loop edge": pre-drop self loops and

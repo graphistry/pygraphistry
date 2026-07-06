@@ -562,3 +562,29 @@ def test_get_degrees_index_policy_off(graph, engine):
     gi = g.gfql_index_all(engine=engine)
     setattr(gi, "_gfql_index_policy", "off")
     assert _degcols(_degrees(gi, engine)) == _degcols(_degrees(g, engine))
+
+
+# --- EXISTS { (n)--() } prune-isolated via #3 membership (polars fast path) ---
+
+@pytest.mark.parametrize("engine", [e for e in ENGINES if e in ("polars", "polars-gpu")])
+def test_exists_prune_membership_parity(engine):
+    import polars as pl
+    rng = np.random.default_rng(4)
+    N, E = 5000, 20000
+    src = rng.integers(0, N, E)
+    dst = rng.integers(0, N, E)
+    dst[:50] = src[:50]  # self-loops (membership must still include them)
+    g = graphistry.nodes(pl.DataFrame({"id": np.arange(N)}), "id").edges(
+        pl.DataFrame({"src": src, "dst": dst}), "src", "dst")
+    q = "MATCH (n) WHERE EXISTS { (n)--() } RETURN n.id AS id"
+    def ids(gg):
+        nn = gg.gfql(q, engine=engine)._nodes
+        nn = nn.to_pandas() if hasattr(nn, "to_pandas") else nn
+        return sorted(nn["id"].tolist())
+    base = ids(g)
+    gi = g.gfql_index_all(engine=engine)
+    assert ids(gi) == base
+    # policy='off' still correct
+    gi2 = g.gfql_index_all(engine=engine)
+    setattr(gi2, "_gfql_index_policy", "off")
+    assert ids(gi2) == base

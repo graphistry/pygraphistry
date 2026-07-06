@@ -52,3 +52,31 @@ def degrees_from_index(
     out_deg = _degree_for_nodes(oi, node_ids, xp)   # out = src-keyed adjacency
     in_deg = _degree_for_nodes(ii, node_ids, xp)    # in  = dst-keyed adjacency
     return in_deg, out_deg
+
+
+def adjacency_membership_keys(
+    registry: GfqlIndexRegistry, direction: str, edges_df: Any, cols: Tuple[str, ...], engine: Engine,
+) -> Optional[Any]:
+    """Backend array of node-ids with >=1 edge in ``direction``
+    ('forward' = has out-edge, 'reverse' = has in-edge, 'undirected' = either).
+    None if the needed valid index isn't resident. #3 membership (= degree>=1);
+    powers EXISTS {(n)--()} prune-isolated without an O(E) traversal.
+
+    NOTE: keys include nodes whose ONLY edge is a self-loop — correct for the bare
+    pattern; the drop-self (neq) flavor must NOT use this path.
+    """
+    from .engine_arrays import union1d
+    if direction in ("forward", "undirected"):
+        oi = registry.get_valid(EDGE_OUT_ADJ, edges_df, cols, engine)
+        if oi is None:
+            return None
+    if direction in ("reverse", "undirected"):
+        ii = registry.get_valid(EDGE_IN_ADJ, edges_df, cols, engine)
+        if ii is None:
+            return None
+    if direction == "forward":
+        return oi.keys_sorted
+    if direction == "reverse":
+        return ii.keys_sorted
+    xp, _ = array_namespace(engine)
+    return union1d(oi.keys_sorted, ii.keys_sorted, xp)
