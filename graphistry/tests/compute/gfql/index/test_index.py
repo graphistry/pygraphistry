@@ -503,3 +503,62 @@ def test_drop_index_if_exists_semantics():
     # and a resident index still drops through the plain form
     gi = g.create_index("edge_out_adj")
     assert gi.gfql("DROP GFQL INDEX FOR edge_out_adj").show_indexes().shape[0] == 0
+
+
+# --- get_degrees index fast path (#5 degree-cache / #3 membership) ---
+
+def _to_engine_frames(g, engine):
+    if engine == "cudf":
+        import cudf
+        return g.nodes(cudf.from_pandas(g._nodes), g._node).edges(cudf.from_pandas(g._edges), g._source, g._destination)
+    if engine in ("polars", "polars-gpu"):
+        import polars as pl
+        return g.nodes(pl.from_pandas(g._nodes), g._node).edges(pl.from_pandas(g._edges), g._source, g._destination)
+    return g
+
+
+def _degrees(g, engine):
+    if engine in ("polars", "polars-gpu"):
+        from graphistry.compute.gfql.lazy.engine.polars.degrees import get_degrees_polars
+        return get_degrees_polars(g)
+    return g.get_degrees()
+
+
+def _degcols(g_res):
+    nn = g_res._nodes
+    nn = nn.to_pandas() if hasattr(nn, "to_pandas") else nn
+    nn = nn.sort_values("id").reset_index(drop=True)
+    return {c: nn[c].tolist() for c in ("degree", "degree_in", "degree_out")}
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_get_degrees_index_parity(graph, engine):
+    g = _to_engine_frames(graph, engine)
+    base = _degcols(_degrees(g, engine))                       # group_by scan path
+    gi = g.gfql_index_all(engine=engine)
+    idx = _degcols(_degrees(gi, engine))                       # index fast path
+    assert base == idx
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_get_degrees_self_loops_and_isolated(graph, engine):
+    # graph with self-loops + isolated nodes (0..N-1; some have no edge)
+    import numpy as _np
+    ndf = pd.DataFrame({"id": _np.arange(300)})
+    edf = pd.DataFrame({"src": [0, 1, 2, 5, 5], "dst": [0, 2, 1, 5, 6]})  # self-loops at 0,5
+    g0 = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+    g = _to_engine_frames(g0, engine)
+    base = _degcols(_degrees(g, engine))
+    gi = g.gfql_index_all(engine=engine)
+    idx = _degcols(_degrees(gi, engine))
+    assert base == idx
+    # self-loop double-count contract: node 0 (self-loop only) degree==2
+    assert idx["degree"][0] == 2
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_get_degrees_index_policy_off(graph, engine):
+    g = _to_engine_frames(graph, engine)
+    gi = g.gfql_index_all(engine=engine)
+    setattr(gi, "_gfql_index_policy", "off")
+    assert _degcols(_degrees(gi, engine)) == _degcols(_degrees(g, engine))
