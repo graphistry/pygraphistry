@@ -43,6 +43,30 @@ def get_degrees_polars(
     assert g._nodes is not None and g._edges is not None
     nodes, edges = g._nodes, g._edges
 
+    # GFQL #1658 index fast path (#5 degree-cache / #3 membership): degrees from a
+    # resident CSR index (O(N) gather) instead of the group_by below. Eager-only
+    # (LazyFrame get_column would force a collect); policy 'off' skips; try/except
+    # falls through to the scan path (never wrong).
+    if not is_lazy(nodes) and not is_lazy(edges) and getattr(g, "_gfql_index_policy", "use") != "off":
+        try:
+            from graphistry.compute.gfql.index import get_registry
+            from graphistry.compute.gfql.index.degrees import degrees_from_index
+            from graphistry.Engine import Engine
+            _reg = get_registry(g)
+            if not _reg.is_empty():
+                _d = degrees_from_index(_reg, nodes, node_col, edges, (src, dst), Engine.POLARS)
+                if _d is not None:
+                    _in, _out = _d
+                    drop0 = [c for c in colnames(nodes) if c in (degree_in, degree_out, col)]
+                    base0 = nodes.drop(drop0) if drop0 else nodes
+                    out0 = base0.with_columns(
+                        pl.Series(degree_in, _in).cast(pl.Int32),
+                        pl.Series(degree_out, _out).cast(pl.Int32),
+                    ).with_columns((pl.col(degree_in) + pl.col(degree_out)).cast(pl.Int32).alias(col))
+                    return g.nodes(out0, node_col)
+        except Exception:
+            pass
+
     node_dt = col_dtype(nodes, node_col)
     in_counts = _endpoint_counts(edges, dst, node_dt, node_col, degree_in)
     out_counts = _endpoint_counts(edges, src, node_dt, node_col, degree_out)
