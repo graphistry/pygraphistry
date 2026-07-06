@@ -757,7 +757,11 @@ def test_exists_whole_entity_return_renders_entity_text():
     a WHOLE-ENTITY ``RETURN n`` over a simple-pattern ``EXISTS { }`` renders the
     correct entity text (label + property), not leaked internal marker columns.
     Graph mirrors the TCK fixture — node ``a`` is the only one with an out-edge —
-    so the EXISTS filter keeps exactly ``a`` and it renders ``(:A {prop: 1})``."""
+    so the EXISTS filter keeps exactly ``a`` and it renders ``(:A {prop: 1})``.
+
+    ``id`` is a STRING on purpose: a numeric id would render as an extra
+    property (``{id: 0, prop: 1}``). ``n.id`` is the #1650 flattened
+    whole-entity projection column, not user-aliased output."""
     import pandas as pd
     from graphistry.compute.gfql.cypher.result_postprocess import render_entity_text
     nodes = pd.DataFrame({
@@ -770,10 +774,15 @@ def test_exists_whole_entity_return_renders_entity_text():
     })
     edges = pd.DataFrame({"s": ["a", "a", "a"], "d": ["b", "c", "d"], "eid": [0, 1, 2]})
     g = graphistry.nodes(nodes, "id").edges(edges, "s", "d").bind(edge="eid")
-    res = g.gfql("MATCH (n) WHERE EXISTS { (n)-->() } RETURN n", engine="pandas")
+    q = "MATCH (n) WHERE EXISTS { (n)-->() } RETURN n"
+    res = g.gfql(q, engine="pandas")
     pdf = _to_pd(res._nodes)
-    assert pdf["n.id"].tolist() == ["a"], "EXISTS keeps only the node with an out-edge"
+    assert len(pdf) == 1, "EXISTS keeps exactly the one node with an out-edge"
+    assert pdf["n.id"].tolist() == ["a"]
     assert render_entity_text(res, "n", table="nodes").tolist() == ["(:A {prop: 1})"]
+    # Cross-engine (this file's invariant): non-pandas engines match pandas
+    # parity or decline honestly (NIE) — whole-entity RETURN declines on polars.
+    _assert_invariant(g, q, "exists-whole-entity-return")
 
 
 def test_tolower_non_string_declines_never_fabricates():
