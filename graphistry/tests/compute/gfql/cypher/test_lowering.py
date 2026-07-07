@@ -2542,6 +2542,29 @@ def test_graph_constructor_applies_node_residual_row_predicate_as_graph_mask() -
     ]
 
 
+def test_graph_constructor_residual_alias_marker_overrides_property_column_collision() -> None:
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "a": ["shadow-a", "shadow-b", "shadow-c", "shadow-d"],
+        "score": [0.3, 0.1, None, 0.5],
+    })
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+        "weight": [7, 9, 11, 13],
+    })
+
+    result = _mk_graph(nodes, edges).gfql(
+        "GRAPH { MATCH (a)-[r]->(b) WHERE (a.score > 0.25 OR a.score IS NULL) }"
+    )
+
+    assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"a", "c", "d"}
+    assert _to_pandas_df(result._edges)[["s", "d", "weight"]].to_dict(orient="records") == [
+        {"s": "c", "d": "d", "weight": 11},
+        {"s": "d", "d": "a", "weight": 13},
+    ]
+
+
 def test_graph_constructor_applies_node_residual_row_predicate_as_graph_mask_cudf() -> None:
     _require_cudf_runtime()
     nodes = pd.DataFrame({
@@ -2619,6 +2642,26 @@ def test_graph_constructor_applies_edge_residual_row_predicate_as_graph_mask() -
     )
 
     assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"a", "b", "c", "d"}
+    assert _to_pandas_df(result._edges)[["s", "d", "weight"]].to_dict(orient="records") == [
+        {"s": "b", "d": "c", "weight": 9},
+        {"s": "c", "d": "d", "weight": 11},
+        {"s": "d", "d": "a", "weight": 13},
+    ]
+
+
+def test_graph_constructor_edge_residual_alias_marker_overrides_property_column_collision() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+        "r": ["shadow-r0", "shadow-r1", "shadow-r2", "shadow-r3"],
+        "weight": [7, 9, 11, 13],
+    })
+
+    result = _mk_graph(nodes, edges).gfql(
+        "GRAPH { MATCH (a)-[r]->(b) WHERE (r.weight > 8 OR r.weight IS NULL) }"
+    )
+
     assert _to_pandas_df(result._edges)[["s", "d", "weight"]].to_dict(orient="records") == [
         {"s": "b", "d": "c", "weight": 9},
         {"s": "c", "d": "d", "weight": 11},

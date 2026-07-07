@@ -540,8 +540,6 @@ def _apply_connected_match_join(
 
 
 def _graph_residual_eval_frame(df: DataFrameT, alias: str) -> DataFrameT:
-    if alias in df.columns:
-        return df.copy()
     return cast(DataFrameT, df.assign(**{alias: True}))
 
 
