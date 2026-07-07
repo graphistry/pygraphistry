@@ -844,9 +844,14 @@ def binding_rows_polars(
     """
     import polars as pl
     from graphistry.compute.ast import ASTEdge, ASTNode, from_json as ast_from_json
+    from graphistry.compute.gfql.lazy import collect as _lazy_collect
     from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
     from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
     from .predicates import filter_by_dict_polars
+
+    def _names(lf: Any) -> List[str]:
+        # LazyFrame column names WITHOUT collecting data (schema-only resolve).
+        return lf.collect_schema().names()
 
     nodes = g._nodes
     edges = g._edges
@@ -913,7 +918,16 @@ def binding_rows_polars(
     dst = str(dst)
 
     try:
-        seed_nodes = filter_by_dict_polars(nodes, getattr(ops[0], "filter_dict", None))
+        # Build the WHOLE binding table as ONE deferred pl.LazyFrame and collect
+        # ONCE on the active target (#1709 laziness): under engine='polars-gpu' the
+        # entire join chain + property attach runs on cudf_polars in a single GPU
+        # collect (~4-5× vs CPU on the join phase — de-risk probe 2026-07-06);
+        # under 'polars' it collects on CPU (parity-identical). NO-CHEATING: a
+        # GPU-incapable plan node makes `collect` raise NotImplementedError (honest
+        # NIE → use engine='pandas'/'polars'), never a silent CPU fallback.
+        nodes_lf = nodes.lazy()
+        edges_lf = edges.lazy()
+        seed_nodes = filter_by_dict_polars(nodes_lf, getattr(ops[0], "filter_dict", None))
         state = seed_nodes.select(pl.col(node_id).alias("__current__"))
         alias_frames: dict = {}
         node_aliases: List[str] = []
@@ -926,12 +940,12 @@ def binding_rows_polars(
         for edge_idx in range(1, len(ops), 2):
             edge_op = ops[edge_idx]
             sem = EdgeSemantics.from_edge(edge_op)
-            edges_f = filter_by_dict_polars(edges, getattr(edge_op, "edge_match", None))
+            edges_f = filter_by_dict_polars(edges_lf, getattr(edge_op, "edge_match", None))
             edge_alias = getattr(edge_op, "_name", None)
             if isinstance(edge_alias, str):
                 payload_renames = {
                     col: f"{edge_alias}.{col}"
-                    for col in edges_f.columns
+                    for col in _names(edges_f)
                     if col not in (src, dst)
                 }
             else:
@@ -942,7 +956,7 @@ def binding_rows_polars(
             if sem.is_undirected:
                 fwd = edges_f.rename({src: "__from__", dst: "__to__"})
                 rev = edges_f.rename({dst: "__from__", src: "__to__"})
-                oriented = pl.concat([fwd, rev.select(fwd.columns)], how="vertical")
+                oriented = pl.concat([fwd, rev.select(_names(fwd))], how="vertical")
             else:
                 join_col, result_col = (dst, src) if edge_op.direction == "reverse" else (src, dst)
                 oriented = edges_f.rename({join_col: "__from__", result_col: "__to__"})
@@ -950,7 +964,7 @@ def binding_rows_polars(
                 oriented = oriented.rename(payload_renames)
             # Column collision between edge payload and accumulated state → decline
             # (pandas resolves via merge suffixes; unreferenced-by-queries either way).
-            overlap = (set(oriented.columns) - {"__from__"}) & set(state.columns)
+            overlap = (set(_names(oriented)) - {"__from__"}) & set(_names(state))
             if overlap:
                 return None
             if sem.is_multihop:
@@ -965,9 +979,12 @@ def binding_rows_polars(
                 )
                 max_hops = edge_op.max_hops if edge_op.max_hops is not None else edge_op.hops
                 pairs = oriented.select(["__from__", "__to__"])
-                state_cols = state.columns
+                state_cols = _names(state)
                 reachable = [state] if min_hops == 0 else []
                 current = state
+                # Lazy: build all max_hops iterations (no eager .height early-break —
+                # empty intermediates lazily join to empty, so the result is
+                # identical; the pandas break is an optimization, not semantics).
                 for _hop in range(1, int(max_hops) + 1):
                     current = (
                         current.join(pairs, left_on="__current__", right_on="__from__", how="inner")
@@ -975,11 +992,9 @@ def binding_rows_polars(
                         .rename({"__to__": "__current__"})
                         .select(state_cols)
                     )
-                    if current.height == 0:
-                        break
                     if _hop >= min_hops:
                         reachable.append(current)
-                state = pl.concat(reachable, how="vertical") if reachable else state.clear()
+                state = pl.concat(reachable, how="vertical") if reachable else state.limit(0)
             else:
                 state = (
                     state.join(oriented, left_on="__current__", right_on="__from__", how="inner")
@@ -988,7 +1003,7 @@ def binding_rows_polars(
                 )
 
             next_op = ops[edge_idx + 1]
-            next_nodes = filter_by_dict_polars(nodes, getattr(next_op, "filter_dict", None))
+            next_nodes = filter_by_dict_polars(nodes_lf, getattr(next_op, "filter_dict", None))
             state = state.join(
                 next_nodes.select(node_id).unique(),
                 left_on="__current__",
@@ -1013,20 +1028,23 @@ def binding_rows_polars(
                 [pl.col(node_id), pl.col(node_id).alias(f"{alias}.{node_id}")]
                 + [
                     pl.col(col).alias(f"{alias}.{col}")
-                    for col in lookup_src.columns
+                    for col in _names(lookup_src)
                     if col != node_id
                 ]
             )
-            if (set(lookup.columns) - {node_id}) & set(state.columns):
+            if (set(_names(lookup)) - {node_id}) & set(_names(state)):
                 return None
             state = state.join(lookup, left_on=alias, right_on=node_id, how="left")
         state = state.drop("__current__")
+        # Single collect on the active target (CPU / GPU). Deferred SchemaError
+        # (int/float join-key dtype divergence pandas unifies implicitly) surfaces
+        # here → decline honestly; a GPU-incapable node raises NotImplementedError
+        # (from the lazy `collect` NO-CHEATING contract), which we let propagate.
+        out_df = _lazy_collect(state)
     except pl.exceptions.SchemaError:
-        # e.g. int-vs-float join-key dtype divergence pandas unifies implicitly;
-        # decline honestly rather than crash or coerce.
         return None
 
-    out = _rewrap(g, state)
+    out = _rewrap(g, out_df)
     edge_aliases = {
         alias
         for op in ops[1::2]
