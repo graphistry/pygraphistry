@@ -92,6 +92,13 @@ state instead of a row table:
     subgraph._nodes
     subgraph._edges
 
+``GRAPH { MATCH ... WHERE ... }`` currently accepts native graph-state
+predicates that lower to chain node/edge filters. Row-only residual predicates
+such as disjunctions, ``searchAny(...)``, and pattern predicates are rejected
+inside ``GRAPH { }`` until the first-class independent node/edge subgraph
+projection form is implemented. Use row-returning ``MATCH ... RETURN`` queries
+for those predicates when you need row results.
+
 Use ``GRAPH g = GRAPH { ... }`` to bind a named graph, then ``USE g`` to
 query it:
 

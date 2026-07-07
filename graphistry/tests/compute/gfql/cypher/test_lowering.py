@@ -2519,6 +2519,23 @@ def test_graph_constructor_empty_match_returns_empty_graph() -> None:
     assert len(result._edges) == 0
 
 
+def test_graph_constructor_rejects_residual_row_predicates() -> None:
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c"],
+        "score": [0.3, 0.1, None],
+        "name": ["alpha", "beta", "gamma"],
+    })
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "weight": [7, 9]})
+    g = _mk_graph(nodes, edges)
+    queries = [
+        "GRAPH { MATCH (a)-[r]->(b) WHERE (a.score > 0.25 OR a.score IS NULL) }",
+        "GRAPH { MATCH (a)-[r]->(b) WHERE searchAny(a, 'alpha') }",
+    ]
+    for query in queries:
+        with pytest.raises(GFQLValidationError, match="GRAPH constructors currently support only native graph-state predicates"):
+            g.gfql(query)
+
+
 def test_standalone_graph_constructor_preserves_columns() -> None:
     nodes = pd.DataFrame({"id": ["a", "b", "c"], "score": [10, 5, 1]})
     edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "weight": [7, 9]})

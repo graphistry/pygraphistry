@@ -7182,6 +7182,18 @@ def _compile_graph_constructor(
         reentry_unwinds=(),
     )
     lowered = lower_match_query(synthetic, params=params)
+    if lowered.row_pre_filters or lowered.row_where is not None:
+        residual = lowered.row_where.text if lowered.row_where is not None else "row_pre_filters"
+        raise _unsupported(
+            "Cypher GRAPH constructors currently support only native graph-state predicates; "
+            "residual row predicates such as OR, searchAny, or pattern predicates are not "
+            "yet supported inside GRAPH { } because they cannot be applied to graph-state "
+            "Chain output without first-class subgraph projection semantics",
+            field="graph_constructor",
+            value=residual,
+            line=constructor.span.line,
+            column=constructor.span.column,
+        )
     constructor_bound_ir = FrontendBinder().bind(synthetic, PlanContext(), strict_name_resolution=True)
     (
         constructor_logical_plan,
