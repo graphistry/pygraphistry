@@ -75,15 +75,37 @@ def load(root: Path):
     off["Country"] = off["State"] + int(states["id"].max()) + 1
     off["Interest"] = off["Country"] + int(countries["id"].max()) + 1
 
+    # Drop the free-text/date columns no query touches (persons.birthday is an
+    # object-typed date cudf can't ingest); keeps the graph engine-portable.
+    for _df in (persons,):
+        for _c in ("birthday",):
+            if _c in _df.columns:
+                _df.drop(columns=[_c], inplace=True)
+
     def ap(df, t):
-        out = df.copy(); out["node_type"] = t; out["node_id"] = out["id"].astype("int64") + off[t]; return out
-    nodes = pd.concat([ap(persons, "Person"), ap(interests, "Interest"), ap(cities, "City"),
-                       ap(states, "State"), ap(countries, "Country")], ignore_index=True, sort=False)
+        out = df.copy()
+        out["node_type"] = t
+        out["node_id"] = out["id"].astype("int64") + off[t]
+        return out
+
+    nodes = pd.concat(
+        [
+            ap(persons, "Person"),
+            ap(interests, "Interest"),
+            ap(cities, "City"),
+            ap(states, "State"),
+            ap(countries, "Country"),
+        ],
+        ignore_index=True,
+        sort=False,
+    )
     edges = []
     for fn, rel, st, dt in EDGE_FILES:
         e = pd.read_parquet(epath / fn).rename(columns={"from": "src", "to": "dst"})
-        e["src"] = e["src"].astype("int64") + off[st]; e["dst"] = e["dst"].astype("int64") + off[dt]
-        e["rel"] = rel; edges.append(e[["src", "dst", "rel"]])
+        e["src"] = e["src"].astype("int64") + off[st]
+        e["dst"] = e["dst"].astype("int64") + off[dt]
+        e["rel"] = rel
+        edges.append(e[["src", "dst", "rel"]])
     return nodes, pd.concat(edges, ignore_index=True, sort=False)
 
 
@@ -91,8 +113,13 @@ def to_engine(df, engine):
     if engine in ("pandas",):
         return df
     if engine in ("cudf",):
-        import cudf; return cudf.from_pandas(df)
-    return df  # polars engines take the pandas-backed graph; gfql coerces
+        import cudf
+
+        return cudf.from_pandas(df)
+    if engine in ("polars", "polars-gpu"):
+        import polars as pl
+        return pl.from_pandas(df)
+    return df
 
 
 def q2(g, engine):
@@ -105,11 +132,13 @@ def q2(g, engine):
 
 
 def norm(df):
-    if df is None: return None
+    if df is None:
+        return None
     if "polars" in type(df).__module__ or "cudf" in type(df).__module__:
         df = df.to_pandas()
     for c in df.columns:
-        if pd.api.types.is_float_dtype(df[c]): df[c] = df[c].round(4)
+        if pd.api.types.is_float_dtype(df[c]):
+            df[c] = df[c].round(4)
     return sorted(str(tuple(r)) for r in df.itertuples(index=False, name=None))
 
 
@@ -130,18 +159,24 @@ def main():
         try:
             g = graphistry.nodes(to_engine(nodes_pd, eng), "node_id").edges(to_engine(edges_pd, eng), "src", "dst")
         except Exception as e:
-            print(f"[{eng}] graph build failed: {e}", flush=True); continue
-        oracle = {}
+            print(f"[{eng}] graph build failed: {e}", flush=True)
+            continue
         for name in list(queries.keys()) + ["q2"]:
             def run_once():
-                if name == "q2": return q2(g, eng)
+                if name == "q2":
+                    return q2(g, eng)
                 return g.gfql(queries[name], engine=eng)._nodes
+
             try:
-                for _ in range(args.warmup): run_once()
+                for _ in range(args.warmup):
+                    run_once()
                 ts = []
                 for _ in range(args.runs):
-                    t0 = time.perf_counter(); r = run_once(); ts.append((time.perf_counter() - t0) * 1000)
-                med = float(np.median(ts)); val = norm(r)
+                    t0 = time.perf_counter()
+                    r = run_once()
+                    ts.append((time.perf_counter() - t0) * 1000)
+                med = float(np.median(ts))
+                val = norm(r)
                 err = None
             except Exception as e:
                 med, val, err = None, None, f"{type(e).__name__}: {str(e)[:150]}"

@@ -939,6 +939,8 @@ def binding_rows_polars(
 
         for edge_idx in range(1, len(ops), 2):
             edge_op = ops[edge_idx]
+            if not isinstance(edge_op, ASTEdge):
+                return None
             sem = EdgeSemantics.from_edge(edge_op)
             edges_f = filter_by_dict_polars(edges_lf, getattr(edge_op, "edge_match", None))
             edge_alias = getattr(edge_op, "_name", None)
@@ -962,6 +964,21 @@ def binding_rows_polars(
                 oriented = edges_f.rename({join_col: "__from__", result_col: "__to__"})
             if payload_renames:
                 oriented = oriented.rename(payload_renames)
+
+            next_op = ops[edge_idx + 1]
+            next_nodes = filter_by_dict_polars(nodes_lf, getattr(next_op, "filter_dict", None))
+            next_node_ids = next_nodes.select(node_id).unique()
+            if not sem.is_multihop:
+                # Filter endpoint candidates before joining from the current state.
+                # For graph-bench q5/q6/q7, pushed Interest/City predicates make
+                # this turn an all-edges scan into a small-domain edge semi-join.
+                oriented = oriented.join(
+                    next_node_ids,
+                    left_on="__to__",
+                    right_on=node_id,
+                    how="semi",
+                )
+
             # Column collision between edge payload and accumulated state → decline
             # (pandas resolves via merge suffixes; unreferenced-by-queries either way).
             overlap = (set(_names(oriented)) - {"__from__"}) & set(_names(state))
@@ -974,10 +991,14 @@ def binding_rows_polars(
                 # `_gfql_multihop_binding_rows`). Zero-hop rows (min 0) keep the
                 # seed row (endpoint == start), also matching pandas.
                 # Same defaults as the pandas builder: bare hops=k means exactly-k.
-                min_hops = edge_op.min_hops if edge_op.min_hops is not None else (
+                min_hops_value = edge_op.min_hops if edge_op.min_hops is not None else (
                     edge_op.hops if edge_op.hops is not None else 1
                 )
-                max_hops = edge_op.max_hops if edge_op.max_hops is not None else edge_op.hops
+                max_hops_value = edge_op.max_hops if edge_op.max_hops is not None else edge_op.hops
+                if max_hops_value is None:
+                    return None
+                min_hops = int(min_hops_value)
+                max_hops = int(max_hops_value)
                 pairs = oriented.select(["__from__", "__to__"])
                 state_cols = _names(state)
                 reachable = [state] if min_hops == 0 else []
@@ -985,7 +1006,7 @@ def binding_rows_polars(
                 # Lazy: build all max_hops iterations (no eager .height early-break —
                 # empty intermediates lazily join to empty, so the result is
                 # identical; the pandas break is an optimization, not semantics).
-                for _hop in range(1, int(max_hops) + 1):
+                for _hop in range(1, max_hops + 1):
                     current = (
                         current.join(pairs, left_on="__current__", right_on="__from__", how="inner")
                         .drop("__current__")
@@ -1002,10 +1023,8 @@ def binding_rows_polars(
                     .rename({"__to__": "__current__"})
                 )
 
-            next_op = ops[edge_idx + 1]
-            next_nodes = filter_by_dict_polars(nodes_lf, getattr(next_op, "filter_dict", None))
             state = state.join(
-                next_nodes.select(node_id).unique(),
+                next_node_ids,
                 left_on="__current__",
                 right_on=node_id,
                 how="semi",
@@ -1025,7 +1044,10 @@ def binding_rows_polars(
                 continue  # properties unreferenced — keep only the bare id column
             lookup_src = alias_frames[alias]
             lookup = lookup_src.select(
-                [pl.col(node_id), pl.col(node_id).alias(f"{alias}.{node_id}")]
+                [
+                    pl.col(node_id),
+                    pl.col(node_id).alias(f"{alias}.{node_id}"),
+                ]
                 + [
                     pl.col(col).alias(f"{alias}.{col}")
                     for col in _names(lookup_src)
