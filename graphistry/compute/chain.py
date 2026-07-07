@@ -953,10 +953,16 @@ def _chain_impl(
             GFQL_EDGE_INDEX = generate_safe_column_name('edge_index', g._edges, prefix='__gfql_', suffix='__')
 
             added_edge_index = True
-            indexed_edges_df = g._edges.reset_index(drop=False)
-            original_cols = set(g._edges.columns)
-            index_col_name = next(col for col in indexed_edges_df.columns if col not in original_cols)
-            indexed_edges_df = indexed_edges_df.rename(columns={index_col_name: GFQL_EDGE_INDEX})
+            # Attach the synthetic per-edge id WITHOUT copying edge data (#1670):
+            # the previous reset_index(drop=False) + rename deep-copied AND
+            # block-consolidated the whole edge frame (~70ms @2M edges) on every
+            # chain call — even node-only queries. A shallow copy + assigning the
+            # index as a column yields the identical id values (the frame's index)
+            # with no O(E) data copy. The column is internal-only — dropped on
+            # every exit path (see added_edge_index consumers below) — so only
+            # uniqueness matters.
+            indexed_edges_df = g._edges.copy(deep=False)
+            indexed_edges_df[GFQL_EDGE_INDEX] = indexed_edges_df.index
             g = g.edges(indexed_edges_df, edge=GFQL_EDGE_INDEX)
         else:
             added_edge_index = False
