@@ -2566,6 +2566,25 @@ def test_graph_constructor_applies_node_residual_row_predicate_as_graph_mask_cud
     ]
 
 
+def test_graph_constructor_residual_row_predicate_declines_on_polars() -> None:
+    pl = pytest.importorskip("polars")
+    nodes = pl.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "score": [0.3, 0.1, None, 0.5],
+    })
+    edges = pl.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+        "weight": [7, 9, 11, 13],
+    })
+
+    with pytest.raises(GFQLValidationError, match="not yet supported on polars"):
+        _CypherTestGraph().nodes(nodes, "id").edges(edges, "s", "d").gfql(
+            "GRAPH { MATCH (a)-[r]->(b) WHERE (a.score > 0.25 OR a.score IS NULL) }",
+            engine="polars",
+        )
+
+
 def test_graph_constructor_applies_search_any_residual_as_graph_mask() -> None:
     nodes = pd.DataFrame({
         "id": ["a", "b", "c", "d"],
