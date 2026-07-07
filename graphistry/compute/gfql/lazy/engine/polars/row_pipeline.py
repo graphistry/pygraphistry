@@ -607,6 +607,19 @@ def _lower_with_schema(table: Any, fn):
         _SCHEMA.reset(token)
 
 
+def _project_preserving_height(table: Any, exprs: List[Any]) -> Any:
+    """Project ``exprs`` while preserving the frame's row cardinality.
+
+    Cypher ``WITH``/``RETURN`` projection is a map, not a reduce. Polars
+    ``DataFrame.select`` collapses to one row when every projected expression is
+    scalar, so broadcast all-scalar projections through ``with_columns`` first.
+    """
+    if exprs and all(len(e.meta.root_names()) == 0 for e in exprs):
+        names = [e.meta.output_name() for e in exprs]
+        return table.with_columns(exprs).select(names)
+    return table.select(exprs)
+
+
 def _project_polars(g: Plottable, items: Sequence[Any], extend: bool) -> Optional[Plottable]:
     """Shared body of ``select_polars`` / ``with_columns_polars``; None if any item isn't
     lowerable (honest NIE, no pandas bridge)."""
@@ -614,7 +627,7 @@ def _project_polars(g: Plottable, items: Sequence[Any], extend: bool) -> Optiona
     exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)))
     if exprs is None:
         return None
-    out = table.with_columns(exprs) if extend else table.select(exprs)
+    out = table.with_columns(exprs) if extend else _project_preserving_height(table, exprs)
     if _select_emits_temporal_constructor_text(out):
         # decline (NIE): projected String column holds temporal-constructor text (date({...})
         # etc.) that pandas normalizes to ISO, not yet native — don't leak the raw text.

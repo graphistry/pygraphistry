@@ -1775,6 +1775,53 @@ def test_string_cypher_supports_cartesian_node_only_grouped_count() -> None:
     ]
 
 
+def test_string_cypher_count_non_active_node_alias_in_degree() -> None:
+    """#1708: `MATCH (a)-[e]->(b) RETURN b.id, count(a)` (graph-benchmark q1
+    "top-k by in-degree") counts a bare NODE alias other than the projection's
+    active alias. It must route to the bindings-row source and return the true
+    in-degree per `b`, not fail with the misleading "one MATCH" error."""
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3, 4, 7, 8, 9]})
+    # in-degree: node 9 <- {0,1,2,4}=4 ; node 8 <- {3,0}=2 ; node 7 <- {1}=1
+    edges = pd.DataFrame({"s": [0, 1, 2, 3, 0, 1, 4], "d": [9, 9, 9, 8, 8, 7, 9]})
+    graph = _mk_graph(nodes, edges)
+    result = graph.gfql(
+        "MATCH (a)-[e]->(b) RETURN b.id AS id, count(a) AS c ORDER BY c DESC LIMIT 3"
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": 9, "c": 4},
+        {"id": 8, "c": 2},
+        {"id": 7, "c": 1},
+    ]
+
+
+def test_string_cypher_count_non_active_node_alias_matches_count_star() -> None:
+    """#1708 corollary: `count(<bare node alias>)` equals `count(*)` and
+    `count(<active alias>)` for the same q1 shape (each row binds exactly one of
+    each endpoint), so all three routes agree."""
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3, 8, 9]})
+    edges = pd.DataFrame({"s": [0, 1, 2, 3], "d": [9, 9, 9, 8]})
+    graph = _mk_graph(nodes, edges)
+    tmpl = "MATCH (a)-[e]->(b) RETURN b.id AS id, count({arg}) AS c ORDER BY c DESC LIMIT 3"
+    expected = [{"id": 9, "c": 3}, {"id": 8, "c": 1}]
+    for arg in ("a", "b", "*"):
+        got = graph.gfql(tmpl.format(arg=arg))._nodes.to_dict(orient="records")
+        assert got == expected, f"count({arg}) disagreed: {got}"
+
+
+def test_string_cypher_count_non_active_node_alias_cudf() -> None:
+    """#1708: bindings-route count of a non-active node alias also runs on cudf."""
+    _require_cudf_runtime()
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3, 8, 9]})
+    edges = pd.DataFrame({"s": [0, 1, 2, 3], "d": [9, 9, 9, 8]})
+    result = _mk_cudf_graph(nodes, edges).gfql(
+        "MATCH (a)-[e]->(b) RETURN b.id AS id, count(a) AS c ORDER BY c DESC LIMIT 3"
+    )
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"id": 9, "c": 3},
+        {"id": 8, "c": 1},
+    ]
+
+
 def test_string_cypher_supports_cartesian_node_only_non_simple_scalar_expression() -> None:
     result = _mk_cartesian_node_graph().gfql(
         "MATCH (n), (m) "

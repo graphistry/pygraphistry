@@ -6551,6 +6551,25 @@ def _lower_general_row_projection(
                         break
                     continue
                 if len(refs) > 1 or (len(refs) == 1 and base_active_alias not in refs):
+                    # `count(<bare node alias>)` over a pattern node alias other than
+                    # the projection's active alias (e.g. `RETURN b.id, count(a)` —
+                    # graph-benchmark q1 "top-k by in-degree"). Counting a bare node
+                    # alias is exactly "how many matched paths bind this node per
+                    # group" — sound on the bindings-row table regardless of
+                    # directedness. Force the bindings path rather than fail fast with
+                    # the misleading "one MATCH" error. Kept narrow: only a bare-alias
+                    # `count(...)`; property/compound aggregates (`count(x.p)`,
+                    # `x.p + count(...)`) whose cross-source soundness isn't
+                    # established keep the conservative fail-fast (#1708).
+                    agg_arg = (agg_spec.expr_text or "").strip()
+                    if (
+                        agg_spec.func == "count"
+                        and not agg_spec.distinct
+                        and agg_arg in alias_targets
+                        and isinstance(alias_targets.get(agg_arg), ASTNode)
+                        and refs <= set(alias_targets.keys())
+                    ):
+                        continue
                     can_force_bindings = False
                     break
         if can_force_bindings:
