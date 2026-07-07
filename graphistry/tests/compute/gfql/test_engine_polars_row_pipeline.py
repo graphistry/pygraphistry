@@ -329,13 +329,14 @@ def test_run_calls_polars_binding_ops_native():
     assert {"a", "b"} <= set(out._nodes.columns)
 
 
-def test_run_calls_polars_binding_ops_multihop_defers():
-    """Variable-length binding patterns stay outside the native subset ->
-    NotImplementedError (NO pandas bridge, see plan.md NO-CHEATING)."""
+def test_run_calls_polars_binding_ops_unbounded_multihop_defers():
+    """UNBOUNDED variable-length binding patterns stay outside the native subset
+    (bounded `-[*1..k]->` is native, #1709) -> NotImplementedError (NO pandas
+    bridge, see plan.md NO-CHEATING)."""
     from graphistry.compute.gfql.lazy.engine.polars.chain import _run_calls_polars
     from graphistry.compute.ast import call, n, e_forward
     g = _polars_graph()
-    middle = [n(name="a"), e_forward(min_hops=1, max_hops=2), n(name="b")]
+    middle = [n(name="a"), e_forward(to_fixed_point=True), n(name="b")]
     with pytest.raises(NotImplementedError):
         _run_calls_polars(g, [call("rows", {})], None, g, middle)
 

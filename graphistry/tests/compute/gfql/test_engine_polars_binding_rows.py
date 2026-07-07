@@ -74,12 +74,20 @@ SUPPORTED = [
     "MATCH (a)-[e]->(b) WHERE b.age >= 30 RETURN a.id, b.id",
     # empty result keeps schema
     "MATCH (a)-[e]->(b) WHERE a.age > 999 RETURN a.id, b.id",
+    # bounded directed var-length (graph-bench q3 shape) — aggregate forms route
+    # through rows(binding_ops) and expand via iterative pair joins
+    "MATCH (a)-[*1..2]->(b) RETURN count(*) AS c",
+    "MATCH (a)-[*1..2]->(b) WHERE a.id = 0 RETURN avg(b.age) AS m",
+    "MATCH (a)-[*2..2]->(b) RETURN count(*) AS c",           # exactly-k
+    "MATCH (a)-[:F*1..2]->(b) RETURN count(*) AS c",         # typed var-length
+    "MATCH (a)-[*1..2]->(b)-[]->(c) RETURN count(*) AS c",   # var-length + fixed hop
 ]
 
 # Outside the MVP subset: must raise NotImplementedError (honest NIE, no bridge,
 # no silent wrong answer).
 DEFERRED = [
-    "MATCH (a)-[*1..2]->(b) RETURN count(*) AS c",           # var-length multihop
+    "MATCH (a)-[*]->(b) RETURN count(*) AS c",               # unbounded var-length
+    "MATCH (a)-[*1..2]-(b) RETURN count(*) AS c",            # undirected var-length
     "MATCH (a)-[e]->(b) WHERE a.age < b.age RETURN a.id",    # cross-alias same-path WHERE
 ]
 
