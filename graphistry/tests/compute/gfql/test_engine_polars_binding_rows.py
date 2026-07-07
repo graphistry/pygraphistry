@@ -121,6 +121,38 @@ def test_polars_binding_rows_raw_table_meaningful_cols():
     pd.testing.assert_frame_equal(a, b, check_dtype=False)
 
 
+def test_binding_rows_projection_pushdown_skips_unused_props():
+    """#1711: a query referencing no node properties (count(*)) attaches ZERO
+    property columns to the binding table; one referencing only b's property
+    attaches only b's — on both pandas and polars. Values stay correct."""
+    import graphistry as _g
+    from graphistry.compute.ast import n, e_forward, serialize_binding_ops, rows
+    bo = serialize_binding_ops([n(name="a"), e_forward(), n(name="b"), e_forward(), n(name="c")])
+    for engine in ("pandas", "polars"):
+        # attach nothing -> no alias.<prop> columns, only bare a/b/c id columns
+        raw = _g.nodes(NODES, "id").edges(EDGES, "s", "d").gfql(
+            [rows(binding_ops=bo, attach_prop_aliases=[])], engine=engine
+        )._nodes
+        cols = list(raw.columns)
+        assert not [c for c in cols if str(c).startswith(("a.", "b.", "c."))], f"{engine}: {cols}"
+        assert {"a", "b", "c"} <= set(cols)
+        # attach only b -> only b.* property columns
+        raw_b = _g.nodes(NODES, "id").edges(EDGES, "s", "d").gfql(
+            [rows(binding_ops=bo, attach_prop_aliases=["b"])], engine=engine
+        )._nodes
+        prop_cols = {str(c).split(".", 1)[0] for c in raw_b.columns if "." in str(c)}
+        assert prop_cols == {"b"}, f"{engine}: {prop_cols}"
+
+
+def test_binding_rows_pushdown_end_to_end_parity():
+    """#1711: count(*)/top-k queries (pushdown active) stay pandas==polars correct."""
+    for q in [
+        "MATCH (a)-[]->(b)-[]->(c) RETURN count(*) AS c",
+        "MATCH (a)-[e]->(b) RETURN b.id AS id, count(a) AS c ORDER BY c DESC, id LIMIT 3",
+    ]:
+        _assert_parity(q, order_sensitive="ORDER BY" in q)
+
+
 def test_polars_binding_rows_multiplicity():
     """One row per matched path: parallel edges yield distinct binding rows."""
     nodes = pd.DataFrame({"id": [0, 1]})

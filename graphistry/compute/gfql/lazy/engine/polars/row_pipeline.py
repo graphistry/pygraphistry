@@ -820,7 +820,11 @@ def select_extend_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottab
     return _rewrap(g, out)
 
 
-def binding_rows_polars(g: Plottable, binding_ops: Sequence[Any]) -> Optional[Plottable]:
+def binding_rows_polars(
+    g: Plottable,
+    binding_ops: Sequence[Any],
+    attach_prop_aliases: Optional[List[str]] = None,
+) -> Optional[Plottable]:
     """Native polars bindings-row table for FIXED-LENGTH connected patterns (#1709).
 
     Materializes one row per matched path for an alternating ``n/e/n/...`` pattern
@@ -997,7 +1001,13 @@ def binding_rows_polars(g: Plottable, binding_ops: Sequence[Any]) -> Optional[Pl
                 alias_frames[next_alias] = next_nodes
                 node_aliases.append(next_alias)
 
+        # #1711 projection-pushdown: attach_prop_aliases (from the cypher lowering)
+        # names node aliases whose PROPERTIES are referenced downstream; others skip
+        # the property join (their bare id column suffices). None = attach all.
+        attach_set = None if attach_prop_aliases is None else set(attach_prop_aliases)
         for alias in node_aliases:
+            if attach_set is not None and alias not in attach_set:
+                continue  # properties unreferenced — keep only the bare id column
             lookup_src = alias_frames[alias]
             lookup = lookup_src.select(
                 [pl.col(node_id), pl.col(node_id).alias(f"{alias}.{node_id}")]
