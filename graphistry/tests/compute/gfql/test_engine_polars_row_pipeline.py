@@ -95,6 +95,12 @@ NATIVE_LOWERED = [
     "MATCH (n) WHERE NOT n.kind = 'beta' RETURN n.kind",
     "MATCH (n) RETURN n.kind, count(n) AS c",
     "MATCH (n) RETURN count(n) AS c",
+    # count(*) / keyless + literal projection (#1707: must NOT collapse to 1)
+    "MATCH (n) RETURN count(*) AS c",
+    "MATCH (n) WHERE n.val > 25 RETURN count(*) AS c",
+    "MATCH (n) RETURN n.kind, count(*) AS c",
+    "MATCH (n) RETURN n.kind, count(*) AS c ORDER BY c DESC",
+    "MATCH (n) RETURN 1 AS one",
     "MATCH (n) RETURN n.kind, sum(n.val) AS s, avg(n.val) AS a",
     "MATCH (n) RETURN n.kind, min(n.val) AS mn, max(n.val) AS mx",
     "MATCH (n) RETURN n.kind, count(n) AS c ORDER BY c DESC",
@@ -174,6 +180,30 @@ def test_polars_distinct_preserves_first_order():
     pd.testing.assert_frame_equal(
         rpd.reset_index(drop=True), rpl.reset_index(drop=True), check_dtype=False
     )
+
+
+@pytest.mark.parametrize("query,expected", [
+    ("MATCH (n) RETURN count(*) AS c", 6),                    # keyless count over all rows
+    ("MATCH (n) WHERE n.val > 25 RETURN count(*) AS c", 4),   # filtered count
+])
+def test_polars_count_star_broadcasts_not_collapses(query, expected):
+    """#1707 regression: keyless ``count(*)`` lowers to a synthetic constant group
+    column that must broadcast to the full row count. A collapse to 1 row made the
+    downstream count return a constant ``1`` (silent wrong answer). Assert the
+    absolute value (pandas oracle can't mask it) on the native polars engine."""
+    rpl = BASE.gfql(query, engine="polars")._nodes
+    assert "polars" in type(rpl).__module__
+    assert rpl.height == 1                      # a keyless aggregate is a single row
+    assert rpl["c"].to_list() == [expected]     # ...holding the TRUE count, not 1
+
+
+def test_polars_literal_projection_preserves_cardinality():
+    """#1707 corollary: a bare-literal projection (``RETURN 1``) is a map, not a
+    reduce — it must keep every row, not collapse to one."""
+    rpl = BASE.gfql("MATCH (n) RETURN 1 AS one", engine="polars")._nodes
+    assert "polars" in type(rpl).__module__
+    assert rpl.height == 6                       # one row per matched node
+    assert rpl["one"].to_list() == [1] * 6
 
 
 def test_polars_empty_result_shape():
