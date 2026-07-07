@@ -873,7 +873,18 @@ def binding_rows_polars(g: Plottable, binding_ops: Sequence[Any]) -> Optional[Pl
                 return None
             sem = EdgeSemantics.from_edge(op)
             if sem.is_multihop:
-                return None
+                # Bounded directed var-length (`-[*1..k]->`, graph-bench q3) is
+                # supported via iterative pair joins; everything else declines:
+                # unbounded (`[*]`, needs fixed-point + termination error),
+                # undirected multihop (immediate-backtrack avoidance not ported),
+                # and aliased var-length edges (pandas rejects those outright).
+                if (
+                    op.direction == "undirected"
+                    or bool(op.to_fixed_point)
+                    or (op.max_hops is None and op.hops is None)
+                    or isinstance(getattr(op, "_name", None), str)
+                ):
+                    return None
             if op.direction not in ("forward", "reverse", "undirected"):
                 return None
             if any(
@@ -938,11 +949,39 @@ def binding_rows_polars(g: Plottable, binding_ops: Sequence[Any]) -> Optional[Pl
             overlap = (set(oriented.columns) - {"__from__"}) & set(state.columns)
             if overlap:
                 return None
-            state = (
-                state.join(oriented, left_on="__current__", right_on="__from__", how="inner")
-                .drop("__current__")
-                .rename({"__to__": "__current__"})
-            )
+            if sem.is_multihop:
+                # Bounded directed var-length: iterative pair joins, one row per
+                # distinct edge sequence (Cypher path multiplicity — pairs NOT
+                # deduped, so parallel edges multiply per hop, matching pandas
+                # `_gfql_multihop_binding_rows`). Zero-hop rows (min 0) keep the
+                # seed row (endpoint == start), also matching pandas.
+                # Same defaults as the pandas builder: bare hops=k means exactly-k.
+                min_hops = edge_op.min_hops if edge_op.min_hops is not None else (
+                    edge_op.hops if edge_op.hops is not None else 1
+                )
+                max_hops = edge_op.max_hops if edge_op.max_hops is not None else edge_op.hops
+                pairs = oriented.select(["__from__", "__to__"])
+                state_cols = state.columns
+                reachable = [state] if min_hops == 0 else []
+                current = state
+                for _hop in range(1, int(max_hops) + 1):
+                    current = (
+                        current.join(pairs, left_on="__current__", right_on="__from__", how="inner")
+                        .drop("__current__")
+                        .rename({"__to__": "__current__"})
+                        .select(state_cols)
+                    )
+                    if current.height == 0:
+                        break
+                    if _hop >= min_hops:
+                        reachable.append(current)
+                state = pl.concat(reachable, how="vertical") if reachable else state.clear()
+            else:
+                state = (
+                    state.join(oriented, left_on="__current__", right_on="__from__", how="inner")
+                    .drop("__current__")
+                    .rename({"__to__": "__current__"})
+                )
 
             next_op = ops[edge_idx + 1]
             next_nodes = filter_by_dict_polars(nodes, getattr(next_op, "filter_dict", None))
