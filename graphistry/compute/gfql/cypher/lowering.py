@@ -2235,6 +2235,93 @@ def _active_match_alias_for_stage(
     return next(iter(alias_targets))
 
 
+def _binding_prop_alias_set(
+    query: Any,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> Optional[List[str]]:
+    """#1711 projection-pushdown: node aliases whose PROPERTIES are referenced by
+    the RETURN/ORDER BY, so the binding builders can skip property joins for the
+    rest (e.g. ``count(*)`` needs none; ``count(a)`` needs only a's bare id column).
+
+    Returns a list of node-alias names to attach, or ``None`` = attach all (the
+    conservative default). Deliberately CONSERVATIVE — only computed for the simple
+    single-clause shape (no WITH stages, no WHERE anywhere): a WHERE predicate may
+    run on the binding table and need a property column, and multi-stage pipelines
+    carry hidden reentry/carry columns; both are hard to bound safely, so we decline
+    to optimize them (they keep the current attach-all behavior). The referenced set
+    itself is EXACT: ``_expr_match_alias_usage`` non-aggregate refs are precisely the
+    property / whole-entity uses; aggregate-only refs (``count(a)``) are excluded.
+    """
+    if getattr(query, "with_stages", None):
+        return None
+    if getattr(query, "where", None) is not None:
+        return None
+    matches = getattr(query, "matches", ()) or ()
+    if len(matches) != 1:
+        return None  # multi-MATCH / cartesian — conservative
+    match_clause = matches[0]
+    if getattr(match_clause, "where", None) is not None or getattr(match_clause, "optional", False):
+        return None
+    return_clause = getattr(query, "return_", None)
+    if return_clause is None or getattr(return_clause, "where", None) is not None:
+        return None
+
+    # A repeated node alias (e.g. `MATCH (n)-[:LOOP]->(n)`) enforces n==n via hidden
+    # bound-identity columns (`n.__gfql_node_id__`) that a RETURN-text walk can't see —
+    # skipping n's property join would drop them. Bail on any repeat (#1490).
+    try:
+        node_vars = [
+            el.variable
+            for el in _match_pattern_elements(match_clause)
+            if isinstance(el, NodePattern) and el.variable is not None
+        ]
+    except Exception:
+        return None
+    if len(node_vars) != len(set(node_vars)):
+        return None
+    # `collect(...)` triggers the carry/reentry machinery (hidden columns) — bail (#1413).
+    try:
+        agg_specs = _collect_aggregate_specs_for_clause(
+            return_clause, params=params, alias_targets=alias_targets
+        )
+    except Exception:
+        return None
+    if any(getattr(spec, "func", None) == "collect" for spec in agg_specs):
+        return None
+
+    node_aliases = {a for a, t in alias_targets.items() if isinstance(t, ASTNode)}
+    if not node_aliases:
+        return None
+
+    exprs: List[Tuple[str, int, int]] = []
+    for item in return_clause.items:
+        exprs.append((item.expression.text, item.span.line, item.span.column))
+    order_by = getattr(return_clause, "order_by", None)
+    if order_by is not None:
+        for order_item in order_by.items:
+            exprs.append((order_item.expression.text, order_item.span.line, order_item.span.column))
+
+    referenced: Set[str] = set()
+    for text, line, column in exprs:
+        if text == "*":
+            continue
+        try:
+            non_aggregate_aliases, _agg = _expr_match_alias_usage(
+                text,
+                alias_targets=alias_targets,
+                params=params,
+                field="return",
+                line=line,
+                column=column,
+            )
+        except GFQLValidationError:
+            return None  # can't analyze cleanly → conservative attach-all
+        referenced.update(a for a in non_aggregate_aliases if a in node_aliases)
+    return sorted(referenced)
+
+
 def _is_multi_source_match_alias_boundary_error(
     exc: GFQLValidationError,
     *,
@@ -6592,7 +6679,14 @@ def _lower_general_row_projection(
     if active_match_alias is None:
         row_steps: List[ASTObject] = [rows(table="nodes")]
     elif binding_row_aliases:
-        row_steps = [rows(binding_ops=serialize_binding_ops(lowered.query))]
+        row_steps = [
+            rows(
+                binding_ops=serialize_binding_ops(lowered.query),
+                attach_prop_aliases=_binding_prop_alias_set(
+                    query, alias_targets=alias_targets, params=params
+                ),
+            )
+        ]
     else:
         row_steps = [
             rows(
