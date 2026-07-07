@@ -2235,6 +2235,84 @@ def _active_match_alias_for_stage(
     return next(iter(alias_targets))
 
 
+def _projection_ref_from_expr_safe(
+    expr_text: str, alias_targets: Mapping[str, ASTObject]
+) -> Optional[Tuple[str, str]]:
+    """(alias, prop) if ``expr_text`` is a bare ``alias.prop`` of a known alias, else None."""
+    text = (expr_text or "").strip()
+    if "." not in text:
+        return None
+    alias, _, prop = text.partition(".")
+    alias = alias.strip()
+    prop = prop.strip()
+    if not alias or not prop or "." in prop:
+        return None
+    if alias not in alias_targets:
+        return None
+    if not prop.replace("_", "").isalnum():
+        return None
+    return alias, prop
+
+
+def _clause_has_mixed_aggregate_item(
+    query: Any,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> bool:
+    """True if any RETURN / ORDER BY item mixes a non-aggregate alias reference with
+    an aggregate in ONE expression (e.g. ``me.age + count(you.age)``). Such compound
+    cross-source items have ambiguous multiplicity and must keep the conservative
+    fail-fast; a clean split (``c.city`` and ``avg(p.age)`` as separate items) does
+    not trip this (#1273 / rejects-unsound-multi-source-overlap contract)."""
+    return_clause = getattr(query, "return_", None)
+    exprs: List[Tuple[str, int, int]] = []
+    if return_clause is not None:
+        for item in return_clause.items:
+            exprs.append((item.expression.text, item.span.line, item.span.column))
+    order_by = getattr(query, "order_by", None)  # top-level ORDER BY (not on ReturnClause)
+    if order_by is not None:
+        for order_item in order_by.items:
+            exprs.append((order_item.expression.text, order_item.span.line, order_item.span.column))
+    for text, line, column in exprs:
+        if text == "*":
+            continue
+        try:
+            node = _parse_row_expr(
+                text, params=params, alias_targets=alias_targets,
+                allow_missing_params=True, field="return", line=line, column=column,
+            )
+        except GFQLValidationError:
+            return True  # can't analyze -> conservative (treat as mixed / fail-fast)
+        # An aggregate nested inside a larger expression (arithmetic / function /
+        # comparison) — e.g. ``me.age + count(you.age)`` or ``age + count(...)`` in
+        # ORDER BY — is a compound cross-source item with ambiguous multiplicity.
+        # A bare top-level aggregate call (``avg(p.age)``) or a pure group scalar
+        # (``c.city``) is clean and does NOT trip this.
+        if _expr_has_aggregate(node) and not _is_pure_aggregate_call(node):
+            return True
+    return False
+
+
+def _is_pure_aggregate_call(node: ExprNode) -> bool:
+    return isinstance(node, FunctionCall) and node.name.lower() in _CYPHER_AGGREGATES
+
+
+def _expr_has_aggregate(node: ExprNode) -> bool:
+    """True if the expression contains an aggregate function call anywhere."""
+    if isinstance(node, FunctionCall) and node.name.lower() in _CYPHER_AGGREGATES:
+        return True
+    for child in getattr(node, "__dict__", {}).values():
+        if isinstance(child, ExprNode):
+            if _expr_has_aggregate(child):
+                return True
+        elif isinstance(child, (list, tuple)):
+            for c in child:
+                if isinstance(c, ExprNode) and _expr_has_aggregate(c):
+                    return True
+    return False
+
+
 def _binding_prop_alias_set(
     query: Any,
     *,
@@ -2298,7 +2376,7 @@ def _binding_prop_alias_set(
     exprs: List[Tuple[str, int, int]] = []
     for item in return_clause.items:
         exprs.append((item.expression.text, item.span.line, item.span.column))
-    order_by = getattr(return_clause, "order_by", None)
+    order_by = getattr(query, "order_by", None)  # top-level ORDER BY (not on ReturnClause)
     if order_by is not None:
         for order_item in order_by.items:
             exprs.append((order_item.expression.text, order_item.span.line, order_item.span.column))
@@ -2316,10 +2394,54 @@ def _binding_prop_alias_set(
                 line=line,
                 column=column,
             )
+            # Property accesses INSIDE aggregates need their columns too — e.g.
+            # ``avg(p.age)`` requires ``p``'s property join even though ``p`` is only
+            # referenced within the aggregate (#1273). ``non_aggregate_aliases`` alone
+            # (which excludes aggregate context) would drop it -> a missing column.
+            prop_aliases = _expr_property_access_node_aliases(
+                text, alias_targets=alias_targets, params=params,
+                field="return", line=line, column=column,
+            )
         except GFQLValidationError:
             return None  # can't analyze cleanly → conservative attach-all
         referenced.update(a for a in non_aggregate_aliases if a in node_aliases)
+        referenced.update(a for a in prop_aliases if a in node_aliases)
     return sorted(referenced)
+
+
+def _expr_property_access_node_aliases(
+    expr_text: str,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+    field: str,
+    line: int,
+    column: int,
+) -> Set[str]:
+    """Node aliases that appear in a ``alias.prop`` property access anywhere in the
+    expression (INCLUDING inside aggregates). Used by #1711 projection-pushdown so a
+    property referenced only via ``avg(alias.prop)`` still keeps that alias's join."""
+    node = _parse_row_expr(
+        expr_text, params=params, alias_targets=alias_targets,
+        allow_missing_params=True, field=field, line=line, column=column,
+    )
+    out: Set[str] = set()
+
+    def _visit(n: ExprNode) -> None:
+        if isinstance(n, PropertyAccessExpr) and isinstance(n.value, Identifier):
+            root = n.value.name.split(".", 1)[0]
+            if root in alias_targets:
+                out.add(root)
+        for child in getattr(n, "__dict__", {}).values():
+            if isinstance(child, ExprNode):
+                _visit(child)
+            elif isinstance(child, (list, tuple)):
+                for c in child:
+                    if isinstance(c, ExprNode):
+                        _visit(c)
+
+    _visit(node)
+    return out
 
 
 def _is_multi_source_match_alias_boundary_error(
@@ -6638,23 +6760,43 @@ def _lower_general_row_projection(
                         break
                     continue
                 if len(refs) > 1 or (len(refs) == 1 and base_active_alias not in refs):
-                    # `count(<bare node alias>)` over a pattern node alias other than
-                    # the projection's active alias (e.g. `RETURN b.id, count(a)` —
-                    # graph-benchmark q1 "top-k by in-degree"). Counting a bare node
-                    # alias is exactly "how many matched paths bind this node per
-                    # group" — sound on the bindings-row table regardless of
-                    # directedness. Force the bindings path rather than fail fast with
-                    # the misleading "one MATCH" error. Kept narrow: only a bare-alias
-                    # `count(...)`; property/compound aggregates (`count(x.p)`,
-                    # `x.p + count(...)`) whose cross-source soundness isn't
-                    # established keep the conservative fail-fast (#1708).
+                    # An aggregate over a pattern alias other than the projection's
+                    # active alias. Two sound, benchmark-relevant shapes are routed to
+                    # the bindings-row table (which materializes every alias, one row
+                    # per matched path); everything else keeps the conservative
+                    # fail-fast (the misleading "one MATCH" error is the residual).
+                    #   (a) #1708: `count(<bare node alias>)` — "matched paths binding
+                    #       this node per group" (graph-bench q1 top-k in-degree).
+                    #   (b) #1273: a CLEAN grouped aggregate `func(<alias>.<prop>)`
+                    #       (avg/sum/min/max/count) grouped by another alias's property
+                    #       (graph-bench q3/q4: `RETURN c.city, avg(p.age)`) — a
+                    #       standard GROUP BY, sound on the per-path bindings rows.
+                    # BOTH require CLEAN agg/non-agg separation: if any RETURN/ORDER BY
+                    # item MIXES a non-aggregate ref with an aggregate in one
+                    # expression (`me.age + count(you.age)`), the cross-source
+                    # multiplicity is ambiguous — keep the fail-fast (the
+                    # rejects-unsound-multi-source-overlap contract, #1273 tests).
                     agg_arg = (agg_spec.expr_text or "").strip()
+                    prop_ref = _projection_ref_from_expr_safe(agg_arg, alias_targets)
+                    prop_alias = prop_ref[0] if prop_ref is not None else None
                     if (
-                        agg_spec.func == "count"
-                        and not agg_spec.distinct
-                        and agg_arg in alias_targets
-                        and isinstance(alias_targets.get(agg_arg), ASTNode)
-                        and refs <= set(alias_targets.keys())
+                        refs <= set(alias_targets.keys())
+                        and not _clause_has_mixed_aggregate_item(
+                            query, alias_targets=alias_targets, params=params
+                        )
+                        and (
+                            (  # (a) bare-alias non-distinct count
+                                agg_spec.func == "count"
+                                and not agg_spec.distinct
+                                and agg_arg in alias_targets
+                                and isinstance(alias_targets.get(agg_arg), ASTNode)
+                            )
+                            or (  # (b) clean property aggregate over a node alias
+                                agg_spec.func in ("avg", "sum", "min", "max", "count")
+                                and prop_alias is not None
+                                and isinstance(alias_targets.get(prop_alias), ASTNode)
+                            )
+                        )
                     ):
                         continue
                     can_force_bindings = False

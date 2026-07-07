@@ -14907,6 +14907,32 @@ def test_issue_1712_subset_with_carry_restricts_second_match(carry: str) -> None
     assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
 
 
+@pytest.mark.parametrize("agg,expected", [
+    ("avg(p.age)", [{"city": "LA", "v": 40.0}, {"city": "NYC", "v": 25.0}]),
+    ("sum(p.age)", [{"city": "LA", "v": 40}, {"city": "NYC", "v": 50}]),
+    ("count(p.age)", [{"city": "LA", "v": 1}, {"city": "NYC", "v": 2}]),
+])
+def test_issue_1273_multi_source_grouped_aggregate(agg: str, expected: list) -> None:
+    """#1273: a CLEAN grouped aggregate `func(<alias>.<prop>)` grouped by another
+    alias's property (graph-benchmark q3 `RETURN c.city, avg(p.age)`) routes to the
+    bindings-row table instead of NIE-ing with 'one MATCH source alias'. p0(20),p1(30)
+    live in NYC; p2(40) lives in LA."""
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 10, 11],
+        "node_type": ["Person", "Person", "Person", "City", "City"],
+        "age": [20, 30, 40, 0, 0],
+        "city": [None, None, None, "NYC", "LA"],
+    })
+    edges = pd.DataFrame({"s": [0, 1, 2], "d": [10, 10, 11],
+                          "rel": ["LIVES_IN", "LIVES_IN", "LIVES_IN"]})
+    graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "id").edges(edges, "s", "d"))
+    result = graph.gfql(
+        "MATCH (p {node_type:'Person'})-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        f"RETURN c.city AS city, {agg} AS v ORDER BY city"
+    )
+    assert result._nodes.to_dict(orient="records") == expected
+
+
 def test_issue_1712_connected_comma_pattern_where_intersects() -> None:
     """#1712: a connected comma-pattern sharing a node alias with a WHERE on a leaf
     alias must intersect both patterns (the WHERE was silently dropped on the
