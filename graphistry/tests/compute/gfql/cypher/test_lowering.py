@@ -14875,17 +14875,8 @@ def test_issue_1413_ic3_collect_distinct_entity_membership_with_post_aggregate_w
     ]
 
 
-@pytest.mark.xfail(reason="#1712: subset WITH-carry into a second MATCH does not restrict "
-                          "the re-matched alias to the carried subset (silent wrong count). "
-                          "The graph-benchmark q5/q6/q7 shape. Flips to pass when #1712 lands.",
-                   strict=True)
-@pytest.mark.parametrize("carry", ["WITH p", "WITH p, collect(i.interest) AS ii"])
-def test_issue_1712_subset_with_carry_restricts_second_match(carry: str) -> None:
-    """#1712 correctness lock (the coverage gap that let the benchmark shortcuts hide it):
-    the graph-benchmark q5/q6/q7 shape — filter a SUBSET of Person in the first MATCH,
-    carry via WITH, re-MATCH from the carried nodes — must count only the carried subset.
-    p0,p1 have interest Books; p2 has Music; all three LIVES_IN NYC → numPersons must be 2,
-    not 3. (Single-`$id` carry already works; only multi-node subset carry is broken.)"""
+def _mk_1712_graph() -> "_CypherTestGraph":
+    # p0,p1 have interest Books; p2 has Music; all three LIVES_IN NYC.
     nodes = pd.DataFrame({
         "id": [0, 1, 2, 10, 20, 21],
         "node_type": ["Person", "Person", "Person", "City", "Interest", "Interest"],
@@ -14896,12 +14887,34 @@ def test_issue_1712_subset_with_carry_restricts_second_match(carry: str) -> None
         "d": [10, 10, 10, 20, 20, 21],
         "rel": ["LIVES_IN", "LIVES_IN", "LIVES_IN", "HAS_INTEREST", "HAS_INTEREST", "HAS_INTEREST"],
     })
-    graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "id").edges(edges, "s", "d"))
-    result = graph.gfql(
+    return cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "id").edges(edges, "s", "d"))
+
+
+@pytest.mark.parametrize("carry", ["WITH p", "WITH p, collect(i.interest) AS ii"])
+def test_issue_1712_subset_with_carry_restricts_second_match(carry: str) -> None:
+    """#1712: the graph-benchmark q5/q6/q7 shape — filter a SUBSET of Person in the
+    first MATCH, carry via WITH, re-MATCH from the carried nodes — must count only the
+    carried subset (p0,p1 have Books → numPersons=2, not 3). The bug: the reentry
+    seed was never wired to the binding-ops build, so `p` re-matched the whole graph.
+    (The coverage gap that let the benchmark shortcuts hide it.)"""
+    result = _mk_1712_graph().gfql(
         "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}) "
         "WHERE i.interest = 'Books' "
         f"{carry} "
         "MATCH (p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS numPersons"
+    )
+    assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
+
+
+def test_issue_1712_connected_comma_pattern_where_intersects() -> None:
+    """#1712: a connected comma-pattern sharing a node alias with a WHERE on a leaf
+    alias must intersect both patterns (the WHERE was silently dropped on the
+    structured-predicate path). Same expected count as the WITH form."""
+    result = _mk_1712_graph().gfql(
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE i.interest = 'Books' "
         "RETURN count(p) AS numPersons"
     )
     assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
