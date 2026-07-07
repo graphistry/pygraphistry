@@ -2519,21 +2519,121 @@ def test_graph_constructor_empty_match_returns_empty_graph() -> None:
     assert len(result._edges) == 0
 
 
-def test_graph_constructor_rejects_residual_row_predicates() -> None:
+def test_graph_constructor_applies_node_residual_row_predicate_as_graph_mask() -> None:
     nodes = pd.DataFrame({
-        "id": ["a", "b", "c"],
-        "score": [0.3, 0.1, None],
-        "name": ["alpha", "beta", "gamma"],
+        "id": ["a", "b", "c", "d"],
+        "score": [0.3, 0.1, None, 0.5],
+        "name": ["alpha", "beta", "gamma", "delta"],
     })
-    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "weight": [7, 9]})
-    g = _mk_graph(nodes, edges)
-    queries = [
-        "GRAPH { MATCH (a)-[r]->(b) WHERE (a.score > 0.25 OR a.score IS NULL) }",
-        "GRAPH { MATCH (a)-[r]->(b) WHERE searchAny(a, 'alpha') }",
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+        "weight": [7, 9, 11, 13],
+    })
+
+    result = _mk_graph(nodes, edges).gfql(
+        "GRAPH { MATCH (a)-[r]->(b) WHERE (a.score > 0.25 OR a.score IS NULL) }"
+    )
+
+    assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"a", "c", "d"}
+    assert _to_pandas_df(result._edges)[["s", "d", "weight"]].to_dict(orient="records") == [
+        {"s": "c", "d": "d", "weight": 11},
+        {"s": "d", "d": "a", "weight": 13},
     ]
-    for query in queries:
-        with pytest.raises(GFQLValidationError, match="GRAPH constructors currently support only native graph-state predicates"):
-            g.gfql(query)
+
+
+def test_graph_constructor_applies_node_residual_row_predicate_as_graph_mask_cudf() -> None:
+    _require_cudf_runtime()
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "score": [0.3, 0.1, None, 0.5],
+    })
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+        "weight": [7, 9, 11, 13],
+    })
+
+    result = _mk_cudf_graph(nodes, edges).gfql(
+        "GRAPH { MATCH (a)-[r]->(b) WHERE (a.score > 0.25 OR a.score IS NULL) }",
+        engine="cudf",
+    )
+
+    assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"a", "c", "d"}
+    assert _to_pandas_df(result._edges)[["s", "d", "weight"]].to_dict(orient="records") == [
+        {"s": "c", "d": "d", "weight": 11},
+        {"s": "d", "d": "a", "weight": 13},
+    ]
+
+
+def test_graph_constructor_applies_search_any_residual_as_graph_mask() -> None:
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "name": ["alpha", "beta", "gamma", "delta"],
+    })
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+        "weight": [7, 9, 11, 13],
+    })
+
+    result = _mk_graph(nodes, edges).gfql(
+        "GRAPH { MATCH (a)-[r]->(b) WHERE searchAny(a, 'l') }"
+    )
+
+    assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"a", "d"}
+    assert _to_pandas_df(result._edges)[["s", "d", "weight"]].to_dict(orient="records") == [
+        {"s": "d", "d": "a", "weight": 13},
+    ]
+
+
+def test_graph_constructor_applies_edge_residual_row_predicate_as_graph_mask() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+        "weight": [7, 9, 11, 13],
+    })
+
+    result = _mk_graph(nodes, edges).gfql(
+        "GRAPH { MATCH (a)-[r]->(b) WHERE (r.weight > 8 OR r.weight IS NULL) }"
+    )
+
+    assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"a", "b", "c", "d"}
+    assert _to_pandas_df(result._edges)[["s", "d", "weight"]].to_dict(orient="records") == [
+        {"s": "b", "d": "c", "weight": 9},
+        {"s": "c", "d": "d", "weight": 11},
+        {"s": "d", "d": "a", "weight": 13},
+    ]
+
+
+def test_graph_binding_applies_residual_mask_before_use() -> None:
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "score": [0.3, 0.1, None, 0.5],
+    })
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+    })
+
+    result = _mk_graph(nodes, edges).gfql(
+        "GRAPH g = GRAPH { "
+        "MATCH (a)-[r]->(b) WHERE (a.score > 0.25 OR a.score IS NULL) "
+        "} USE g MATCH (n) RETURN n.id AS id ORDER BY id"
+    )
+
+    assert _to_pandas_df(result._nodes)["id"].tolist() == ["a", "c", "d"]
+
+
+def test_graph_constructor_rejects_pattern_residual_predicates() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["R", "S"]})
+
+    with pytest.raises(GFQLValidationError, match="pattern-predicate residuals"):
+        _mk_graph(nodes, edges).gfql(
+            "GRAPH { MATCH (a)-[r]->(b) WHERE (a)-[:R]->() }"
+        )
 
 
 def test_standalone_graph_constructor_preserves_columns() -> None:

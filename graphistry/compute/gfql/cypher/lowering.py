@@ -177,6 +177,14 @@ class CompiledCypherExecutionExtras:
 
 
 @dataclass(frozen=True)
+class CompiledGraphResidualFilter:
+    alias: str
+    kind: Literal["node", "edge"]
+    expr: str
+    pre_filters: Tuple[ASTCall, ...] = ()
+
+
+@dataclass(frozen=True)
 class CompiledCypherQuery:
     chain: Chain
     seed_rows: bool = False
@@ -185,6 +193,7 @@ class CompiledCypherQuery:
     execution_extras: Optional[CompiledCypherExecutionExtras] = None
     graph_bindings: Tuple["CompiledGraphBinding", ...] = ()
     use_ref: Optional[str] = None
+    graph_residual_filters: Tuple[CompiledGraphResidualFilter, ...] = ()
 
     @property
     def result_projection(self) -> Optional["ResultProjectionPlan"]:
@@ -242,6 +251,7 @@ class CompiledGraphBinding:
     use_ref: Optional[str] = None
     logical_plan: Optional[LogicalPlan] = None
     logical_plan_defer_reason: Optional[str] = None
+    graph_residual_filters: Tuple[CompiledGraphResidualFilter, ...] = ()
 
 @dataclass(frozen=True)
 class CompiledCypherGraphQuery:
@@ -252,6 +262,7 @@ class CompiledCypherGraphQuery:
     use_ref: Optional[str] = None
     logical_plan: Optional[LogicalPlan] = None
     logical_plan_defer_reason: Optional[str] = None
+    graph_residual_filters: Tuple[CompiledGraphResidualFilter, ...] = ()
 
 @dataclass(frozen=True)
 class OptionalNullFillPlan:
@@ -7119,6 +7130,87 @@ def _compile_call_query(
     )
 
 
+def _compile_graph_residual_filters(
+    lowered: LoweredCypherMatch,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+    line: int,
+    column: int,
+) -> Tuple[CompiledGraphResidualFilter, ...]:
+    if lowered.row_where is None and not lowered.row_pre_filters:
+        return ()
+
+    unsupported_pre_filters = [op.function for op in lowered.row_pre_filters if op.function != "search_any"]
+    if unsupported_pre_filters or lowered.row_where is None:
+        raise _unsupported(
+            "Cypher GRAPH constructors do not yet support pattern-predicate residuals inside GRAPH { }",
+            field="graph_constructor",
+            value=unsupported_pre_filters or "row_pre_filters",
+            line=line,
+            column=column,
+        )
+
+    expr = lowered.row_where
+    expr_aliases = _expr_non_aggregate_match_aliases(
+        expr.text,
+        alias_targets=alias_targets,
+        params=params,
+        field="graph_constructor",
+        line=expr.span.line,
+        column=expr.span.column,
+    )
+    pre_filter_aliases = {
+        cast(str, op.params.get("alias"))
+        for op in lowered.row_pre_filters
+        if isinstance(op.params.get("alias"), str)
+    }
+    aliases = expr_aliases | pre_filter_aliases
+    if len(aliases) != 1:
+        raise _unsupported(
+            "Cypher GRAPH residual predicates must reference exactly one node or edge alias to be applied as graph masks",
+            field="graph_constructor",
+            value=expr.text,
+            line=expr.span.line,
+            column=expr.span.column,
+        )
+
+    alias = next(iter(aliases))
+    target = alias_targets.get(alias)
+    if isinstance(target, ASTNode):
+        kind: Literal["node", "edge"] = "node"
+    elif isinstance(target, ASTEdge):
+        kind = "edge"
+    else:
+        raise _unsupported(
+            "Cypher GRAPH residual predicates must target a node or edge alias",
+            field="graph_constructor",
+            value=alias,
+            line=expr.span.line,
+            column=expr.span.column,
+        )
+
+    _validate_row_expr_scope(
+        expr.text,
+        alias_targets=alias_targets,
+        active_match_alias=alias,
+        allowed_match_aliases={alias},
+        unwind_aliases=(),
+        params=params,
+        field="graph_constructor",
+        line=expr.span.line,
+        column=expr.span.column,
+    )
+    return (
+        CompiledGraphResidualFilter(
+            alias=alias,
+            kind=kind,
+            expr=_row_expr_arg(expr, params=params, alias_targets=alias_targets, field="graph_constructor"),
+            pre_filters=tuple(lowered.row_pre_filters),
+        ),
+    )
+
+
 def _compile_graph_constructor(
     constructor: GraphConstructor,
     *,
@@ -7182,18 +7274,14 @@ def _compile_graph_constructor(
         reentry_unwinds=(),
     )
     lowered = lower_match_query(synthetic, params=params)
-    if lowered.row_pre_filters or lowered.row_where is not None:
-        residual = lowered.row_where.text if lowered.row_where is not None else "row_pre_filters"
-        raise _unsupported(
-            "Cypher GRAPH constructors currently support only native graph-state predicates; "
-            "residual row predicates such as OR, searchAny, or pattern predicates are not "
-            "yet supported inside GRAPH { } because they cannot be applied to graph-state "
-            "Chain output without first-class subgraph projection semantics",
-            field="graph_constructor",
-            value=residual,
-            line=constructor.span.line,
-            column=constructor.span.column,
-        )
+    alias_targets = _alias_target(lowered.query)
+    graph_residual_filters = _compile_graph_residual_filters(
+        lowered,
+        alias_targets=alias_targets,
+        params=params,
+        line=constructor.span.line,
+        column=constructor.span.column,
+    )
     constructor_bound_ir = FrontendBinder().bind(synthetic, PlanContext(), strict_name_resolution=True)
     (
         constructor_logical_plan,
@@ -7215,6 +7303,7 @@ def _compile_graph_constructor(
                 logical_plan_defer_code=constructor_logical_plan_defer_code,
             )
         ),
+        graph_residual_filters=graph_residual_filters,
     )
 
 
@@ -7235,6 +7324,7 @@ def _compile_graph_bindings(
             use_ref=use_ref,
             logical_plan=compiled_query.logical_plan,
             logical_plan_defer_reason=compiled_query.logical_plan_defer_reason,
+            graph_residual_filters=compiled_query.graph_residual_filters,
         ))
     return tuple(compiled)
 
@@ -7965,6 +8055,7 @@ def compile_cypher_query(
             use_ref=use_ref,
             logical_plan=compiled_constructor.logical_plan,
             logical_plan_defer_reason=compiled_constructor.logical_plan_defer_reason,
+            graph_residual_filters=compiled_constructor.graph_residual_filters,
         )
     if isinstance(query, CypherUnionQuery):
         branch_output_names: Optional[Tuple[str, ...]] = None

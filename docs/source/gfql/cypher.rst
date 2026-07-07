@@ -92,12 +92,12 @@ state instead of a row table:
     subgraph._nodes
     subgraph._edges
 
-``GRAPH { MATCH ... WHERE ... }`` currently accepts native graph-state
-predicates that lower to chain node/edge filters. Row-only residual predicates
-such as disjunctions, ``searchAny(...)``, and pattern predicates are rejected
-inside ``GRAPH { }`` until the first-class independent node/edge subgraph
-projection form is implemented. Use row-returning ``MATCH ... RETURN`` queries
-for those predicates when you need row results.
+``GRAPH { MATCH ... WHERE ... }`` accepts native graph-state predicates
+that lower to chain node/edge filters. Single node- or edge-alias residual
+predicates such as disjunctions and ``searchAny(...)`` are applied as GRAPH
+subgraph masks before the match chain runs. Pattern-predicate and multi-alias
+residuals remain unsupported inside ``GRAPH { }`` until first-class independent
+node/edge subgraph projection covers their semantics.
 
 Use ``GRAPH g = GRAPH { ... }`` to bind a named graph, then ``USE g`` to
 query it:
