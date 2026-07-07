@@ -804,3 +804,193 @@ def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plott
     rhs = pl.DataFrame({as_: values})
     return _rewrap(g, table.join(rhs, how="cross"))
 
+
+def select_extend_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
+    """Native polars ``with_(items, extend=True)``: add/overwrite projected columns
+    while keeping the existing row table (pandas ``assign`` semantics). Emitted by
+    the bindings-path aggregate lowering (pre-aggregation group keys / agg args),
+    so it is required for binding-row queries (#1709). None → NIE."""
+    table = _active_table(g)
+    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)))
+    if exprs is None:
+        return None
+    out = table.with_columns(exprs)
+    if _select_emits_temporal_constructor_text(out):
+        return None
+    return _rewrap(g, out)
+
+
+def binding_rows_polars(g: Plottable, binding_ops: Sequence[Any]) -> Optional[Plottable]:
+    """Native polars bindings-row table for FIXED-LENGTH connected patterns (#1709).
+
+    Materializes one row per matched path for an alternating ``n/e/n/...`` pattern
+    (the ``rows(binding_ops=...)`` op emitted by Cypher multi-alias lowering), with
+    the same meaningful schema as the pandas engine: bare ``alias`` id columns,
+    ``edge_alias.col`` edge-payload columns, and ``alias.{col}`` node-property
+    columns per node alias. (The pandas frame additionally carries join-residue
+    columns — raw ``node_id``, ``a__a_join__``, leaked ``__gfql_edge_index__`` —
+    that no lowered query references; those are intentionally not replicated.)
+
+    Returns None to DECLINE (caller raises the honest NIE) for anything outside
+    the supported subset: variable-length/multi-hop edges, shortestPath scalar
+    bindings, node ``query=`` / edge query or endpoint-match params, hop labels,
+    HAS_-label destination disambiguation, seeded re-entry contexts, cartesian
+    (node-only) mode, and the legacy ``alias_endpoints`` variant. NO-CHEATING:
+    never bridges to pandas. Parity gate: differential tests vs the pandas oracle.
+    """
+    import polars as pl
+    from graphistry.compute.ast import ASTEdge, ASTNode, from_json as ast_from_json
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+    from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
+    from .predicates import filter_by_dict_polars
+
+    nodes = g._nodes
+    edges = g._edges
+    node_id = g._node
+    src = g._source
+    dst = g._destination
+    if nodes is None or edges is None or node_id is None or src is None or dst is None:
+        return None
+    if getattr(g, "_gfql_start_nodes", None) is not None:
+        # Bounded re-entry seeds the first alias from carried rows — pandas-only.
+        return None
+
+    ops = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
+    # Shared validation (engine-agnostic): raises the canonical GFQLValidationError
+    # for malformed op sequences / duplicate aliases — same error as pandas.
+    RowPipelineMixin._gfql_validate_binding_ops(ops)
+    if RowPipelineMixin._gfql_binding_ops_mode(ops) == "node_cartesian":
+        return None  # MATCH (a), (b) cross joins: deferred (rare; own schema study)
+    if RowPipelineMixin._gfql_is_shortest_path_scalar_binding_ops(ops):
+        return None  # shortestPath scalar contract: BFS/native backends, pandas-only
+
+    for idx, op in enumerate(ops):
+        if idx % 2 == 0:
+            if not isinstance(op, ASTNode) or getattr(op, "query", None) is not None:
+                return None
+        else:
+            if not isinstance(op, ASTEdge):
+                return None
+            sem = EdgeSemantics.from_edge(op)
+            if sem.is_multihop:
+                return None
+            if op.direction not in ("forward", "reverse", "undirected"):
+                return None
+            if any(
+                getattr(op, attr, None) is not None
+                for attr in (
+                    "edge_query", "source_node_match", "destination_node_match",
+                    "source_node_query", "destination_node_query",
+                    "label_node_hops", "label_edge_hops",
+                    "output_min_hops", "output_max_hops",
+                )
+            ):
+                return None
+            if bool(getattr(op, "label_seeds", False)) or bool(getattr(op, "include_zero_hop_seed", False)):
+                return None
+            # Duplicate-id + HAS_<Label> endpoint disambiguation: pandas has a
+            # bespoke candidate-domain rule here; decline rather than diverge.
+            if RowPipelineMixin._gfql_has_edge_destination_label_col(op, nodes.columns) is not None:
+                return None
+
+    node_id = str(node_id)
+    src = str(src)
+    dst = str(dst)
+
+    try:
+        seed_nodes = filter_by_dict_polars(nodes, getattr(ops[0], "filter_dict", None))
+        state = seed_nodes.select(pl.col(node_id).alias("__current__"))
+        alias_frames: dict = {}
+        node_aliases: List[str] = []
+        first_alias = getattr(ops[0], "_name", None)
+        if isinstance(first_alias, str):
+            state = state.with_columns(pl.col("__current__").alias(first_alias))
+            alias_frames[first_alias] = seed_nodes
+            node_aliases.append(first_alias)
+
+        for edge_idx in range(1, len(ops), 2):
+            edge_op = ops[edge_idx]
+            sem = EdgeSemantics.from_edge(edge_op)
+            edges_f = filter_by_dict_polars(edges, getattr(edge_op, "edge_match", None))
+            edge_alias = getattr(edge_op, "_name", None)
+            if isinstance(edge_alias, str):
+                payload_renames = {
+                    col: f"{edge_alias}.{col}"
+                    for col in edges_f.columns
+                    if col not in (src, dst)
+                }
+            else:
+                # Unaliased edge payload is unaddressable downstream; carrying it
+                # unprefixed (as pandas does) only risks column collisions.
+                edges_f = edges_f.select([src, dst])
+                payload_renames = {}
+            if sem.is_undirected:
+                fwd = edges_f.rename({src: "__from__", dst: "__to__"})
+                rev = edges_f.rename({dst: "__from__", src: "__to__"})
+                oriented = pl.concat([fwd, rev.select(fwd.columns)], how="vertical")
+            else:
+                join_col, result_col = (dst, src) if edge_op.direction == "reverse" else (src, dst)
+                oriented = edges_f.rename({join_col: "__from__", result_col: "__to__"})
+            if payload_renames:
+                oriented = oriented.rename(payload_renames)
+            # Column collision between edge payload and accumulated state → decline
+            # (pandas resolves via merge suffixes; unreferenced-by-queries either way).
+            overlap = (set(oriented.columns) - {"__from__"}) & set(state.columns)
+            if overlap:
+                return None
+            state = (
+                state.join(oriented, left_on="__current__", right_on="__from__", how="inner")
+                .drop("__current__")
+                .rename({"__to__": "__current__"})
+            )
+
+            next_op = ops[edge_idx + 1]
+            next_nodes = filter_by_dict_polars(nodes, getattr(next_op, "filter_dict", None))
+            state = state.join(
+                next_nodes.select(node_id).unique(),
+                left_on="__current__",
+                right_on=node_id,
+                how="semi",
+            )
+            next_alias = getattr(next_op, "_name", None)
+            if isinstance(next_alias, str):
+                state = state.with_columns(pl.col("__current__").alias(next_alias))
+                alias_frames[next_alias] = next_nodes
+                node_aliases.append(next_alias)
+
+        for alias in node_aliases:
+            lookup_src = alias_frames[alias]
+            lookup = lookup_src.select(
+                [pl.col(node_id), pl.col(node_id).alias(f"{alias}.{node_id}")]
+                + [
+                    pl.col(col).alias(f"{alias}.{col}")
+                    for col in lookup_src.columns
+                    if col != node_id
+                ]
+            )
+            if (set(lookup.columns) - {node_id}) & set(state.columns):
+                return None
+            state = state.join(lookup, left_on=alias, right_on=node_id, how="left")
+        state = state.drop("__current__")
+    except pl.exceptions.SchemaError:
+        # e.g. int-vs-float join-key dtype divergence pandas unifies implicitly;
+        # decline honestly rather than crash or coerce.
+        return None
+
+    out = _rewrap(g, state)
+    edge_aliases = {
+        alias
+        for op in ops[1::2]
+        for alias in [getattr(op, "_name", None)]
+        if isinstance(alias, str)
+    }
+    setattr(out, "_gfql_rows_edge_aliases", edge_aliases)
+    return out
+
+
+def can_select_native(items: Sequence[Any], columns: Sequence[str]) -> bool:
+    return lower_select_items(items, columns) is not None
+
+
+def can_order_by_native(keys: Sequence[Any], columns: Sequence[str]) -> bool:
+    return lower_order_by_keys(keys, columns) is not None
