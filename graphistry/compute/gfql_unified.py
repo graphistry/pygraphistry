@@ -959,6 +959,23 @@ def _execute_compiled_query_chain_non_union(
             engine=engine,
         )
 
+    # #1712: a bounded-reentry main chain that is a binding-ops row pipeline
+    # (rows(binding_ops) -> group_by -> ...) must seed its first alias from the
+    # prefix WITH result. The chain ``start_nodes`` carry that seed, but the binding
+    # builder reads it from ``_gfql_start_nodes`` (propagated through row ops by
+    # row_table). The boundary-call handler only set that for the traversal->suffix-
+    # call shape; an all-call reentry chain otherwise re-matched the carried alias
+    # from the WHOLE graph, dropping the prefix filter (silent wrong count).
+    if start_nodes is not None:
+        _chain_ops = getattr(compiled_query.chain, "chain", None) or []
+        _first_op = _chain_ops[0] if _chain_ops else None
+        if (
+            _first_op is not None
+            and getattr(_first_op, "function", None) == "rows"
+            and getattr(_first_op, "params", {}).get("binding_ops") is not None
+        ):
+            setattr(dispatch_graph, "_gfql_start_nodes", start_nodes)
+
     result = _chain_dispatch(dispatch_graph, compiled_query.chain, engine, policy, context, start_nodes=start_nodes)
     if compiled_query.empty_result_row is not None:
         result = _apply_empty_result_row(

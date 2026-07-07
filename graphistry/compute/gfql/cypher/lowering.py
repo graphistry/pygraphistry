@@ -7681,9 +7681,24 @@ def _compile_connected_match_join(
         shared_aliases_per_pattern.append(shared)
         accumulated_aliases.update(node_aliases)
 
-    if query.where is not None and query.where.expr_tree is not None:
+    if query.where is not None:
+        # #1712: a WHERE on a connected comma-pattern join must be applied as a
+        # post-join row filter. Previously this only handled the ``expr_tree`` form
+        # and SILENTLY DROPPED the structured ``predicates`` form (e.g. a plain
+        # ``WHERE i.k = 'x'``), returning an unfiltered — wrong — result.
+        # ``_where_clause_expr_text`` renders BOTH forms; a WHERE it can't render
+        # (has-labels / outside the row-renderable subset) must NIE honestly, never
+        # be dropped.
         synthesized = _where_clause_expr_text(query.where)
-        assert synthesized is not None  # gated by expr_tree is not None
+        if synthesized is None:
+            raise _unsupported(
+                "Cypher connected comma-pattern join lowering cannot render this WHERE clause "
+                "to a row filter; use engine='pandas' with a supported WHERE shape",
+                field="where",
+                value=None,
+                line=clause.span.line,
+                column=clause.span.column,
+            )
         pre_join_filters.append(synthesized)
 
     for projection_clause in [stage.clause for stage in query.with_stages] + [query.return_]:
