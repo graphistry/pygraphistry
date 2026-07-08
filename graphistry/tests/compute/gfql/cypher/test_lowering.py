@@ -2519,7 +2519,7 @@ def test_graph_constructor_empty_match_returns_empty_graph() -> None:
     assert len(result._edges) == 0
 
 
-def test_graph_constructor_applies_node_residual_row_predicate_as_graph_mask() -> None:
+def test_graph_constructor_rejects_node_residual_on_multi_alias_pattern() -> None:
     nodes = pd.DataFrame({
         "id": ["a", "b", "c", "d"],
         "score": [0.3, 0.1, None, 0.5],
@@ -2531,18 +2531,13 @@ def test_graph_constructor_applies_node_residual_row_predicate_as_graph_mask() -
         "weight": [7, 9, 11, 13],
     })
 
-    result = _mk_graph(nodes, edges).gfql(
-        "GRAPH { MATCH (a)-[r]->(b) WHERE (a.score > 0.25 OR a.score IS NULL) }"
-    )
-
-    assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"a", "c", "d"}
-    assert _to_pandas_df(result._edges)[["s", "d", "weight"]].to_dict(orient="records") == [
-        {"s": "c", "d": "d", "weight": 11},
-        {"s": "d", "d": "a", "weight": 13},
-    ]
+    with pytest.raises(GFQLValidationError, match="single-node GRAPH MATCH masks"):
+        _mk_graph(nodes, edges).gfql(
+            "GRAPH { MATCH (a)-[r]->(b) WHERE (a.score > 0.25 OR a.score IS NULL) }"
+        )
 
 
-def test_graph_constructor_residual_alias_marker_overrides_property_column_collision() -> None:
+def test_graph_constructor_single_node_residual_alias_marker_overrides_property_column_collision() -> None:
     nodes = pd.DataFrame({
         "id": ["a", "b", "c", "d"],
         "a": ["shadow-a", "shadow-b", "shadow-c", "shadow-d"],
@@ -2555,17 +2550,13 @@ def test_graph_constructor_residual_alias_marker_overrides_property_column_colli
     })
 
     result = _mk_graph(nodes, edges).gfql(
-        "GRAPH { MATCH (a)-[r]->(b) WHERE (a.score > 0.25 OR a.score IS NULL) }"
+        "GRAPH { MATCH (a) WHERE (a.score > 0.25 OR a.score IS NULL) }"
     )
 
     assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"a", "c", "d"}
-    assert _to_pandas_df(result._edges)[["s", "d", "weight"]].to_dict(orient="records") == [
-        {"s": "c", "d": "d", "weight": 11},
-        {"s": "d", "d": "a", "weight": 13},
-    ]
 
 
-def test_graph_constructor_applies_node_residual_row_predicate_as_graph_mask_cudf() -> None:
+def test_graph_constructor_applies_single_node_residual_row_predicate_as_graph_mask_cudf() -> None:
     _require_cudf_runtime()
     nodes = pd.DataFrame({
         "id": ["a", "b", "c", "d"],
@@ -2578,15 +2569,11 @@ def test_graph_constructor_applies_node_residual_row_predicate_as_graph_mask_cud
     })
 
     result = _mk_cudf_graph(nodes, edges).gfql(
-        "GRAPH { MATCH (a)-[r]->(b) WHERE (a.score > 0.25 OR a.score IS NULL) }",
+        "GRAPH { MATCH (a) WHERE (a.score > 0.25 OR a.score IS NULL) }",
         engine="cudf",
     )
 
     assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"a", "c", "d"}
-    assert _to_pandas_df(result._edges)[["s", "d", "weight"]].to_dict(orient="records") == [
-        {"s": "c", "d": "d", "weight": 11},
-        {"s": "d", "d": "a", "weight": 13},
-    ]
 
 
 def test_graph_constructor_residual_row_predicate_declines_on_polars() -> None:
@@ -2603,7 +2590,7 @@ def test_graph_constructor_residual_row_predicate_declines_on_polars() -> None:
 
     with pytest.raises(GFQLValidationError, match="not yet supported on polars"):
         _CypherTestGraph().nodes(nodes, "id").edges(edges, "s", "d").gfql(
-            "GRAPH { MATCH (a)-[r]->(b) WHERE (a.score > 0.25 OR a.score IS NULL) }",
+            "GRAPH { MATCH (a) WHERE (a.score > 0.25 OR a.score IS NULL) }",
             engine="polars",
         )
 
@@ -2620,13 +2607,10 @@ def test_graph_constructor_applies_search_any_residual_as_graph_mask() -> None:
     })
 
     result = _mk_graph(nodes, edges).gfql(
-        "GRAPH { MATCH (a)-[r]->(b) WHERE searchAny(a, 'l') }"
+        "GRAPH { MATCH (a) WHERE searchAny(a, 'l') }"
     )
 
     assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"a", "d"}
-    assert _to_pandas_df(result._edges)[["s", "d", "weight"]].to_dict(orient="records") == [
-        {"s": "d", "d": "a", "weight": 13},
-    ]
 
 
 def test_graph_constructor_applies_edge_residual_row_predicate_as_graph_mask() -> None:
@@ -2681,7 +2665,7 @@ def test_graph_binding_applies_residual_mask_before_use() -> None:
 
     result = _mk_graph(nodes, edges).gfql(
         "GRAPH g = GRAPH { "
-        "MATCH (a)-[r]->(b) WHERE (a.score > 0.25 OR a.score IS NULL) "
+        "MATCH (a) WHERE (a.score > 0.25 OR a.score IS NULL) "
         "} USE g MATCH (n) RETURN n.id AS id ORDER BY id"
     )
 

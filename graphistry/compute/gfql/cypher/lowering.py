@@ -7179,6 +7179,18 @@ def _compile_graph_residual_filters(
     target = alias_targets.get(alias)
     if isinstance(target, ASTNode):
         kind: Literal["node", "edge"] = "node"
+        if not (
+            len(lowered.query) == 1
+            and isinstance(lowered.query[0], ASTNode)
+            and lowered.query[0]._name == alias
+        ):
+            raise _unsupported(
+                "Cypher GRAPH node residual predicates are only supported for single-node GRAPH MATCH masks",
+                field="graph_constructor",
+                value=expr.text,
+                line=expr.span.line,
+                column=expr.span.column,
+            )
     elif isinstance(target, ASTEdge):
         kind = "edge"
     else:
