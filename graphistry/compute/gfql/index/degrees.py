@@ -75,8 +75,12 @@ def adjacency_membership_keys(
         if ii is None:
             return None
     if direction == "forward":
+        assert oi is not None
         return oi.keys_sorted
     if direction == "reverse":
+        assert ii is not None
         return ii.keys_sorted
     xp, _ = array_namespace(engine)
+    assert oi is not None
+    assert ii is not None
     return union1d(oi.keys_sorted, ii.keys_sorted, xp)
