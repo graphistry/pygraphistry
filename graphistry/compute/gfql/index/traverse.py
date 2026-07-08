@@ -12,9 +12,10 @@ min_hops>1, output_min/max_hops, labeling, missing node table.
 """
 from __future__ import annotations
 
-from typing import Any, List, Optional, cast
+from typing import List, Optional, Tuple, cast
 
 from graphistry.Engine import Engine
+from graphistry.compute.typing import DataFrameT
 from graphistry.Plottable import Plottable
 from .engine_arrays import (
     array_namespace, col_to_array, ids_to_array, take_rows, select_by_ids,
@@ -22,36 +23,39 @@ from .engine_arrays import (
 )
 from .lookup import lookup_edge_rows, lookup_node_rows
 from .registry import EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, AdjacencyIndex, GfqlIndexRegistry, NodeIdIndex
+from .types import ArrayLike, HopDirection
 
 
 def _indices_for_direction(
-    registry: GfqlIndexRegistry, direction: str, edges: Any, cols, engine: Engine
-) -> Optional[List[Any]]:
+    registry: GfqlIndexRegistry,
+    direction: HopDirection,
+    edges: DataFrameT,
+    cols: Tuple[str, str],
+    engine: Engine,
+) -> Optional[List[AdjacencyIndex]]:
     out_idx = cast(Optional[AdjacencyIndex], registry.get_valid(EDGE_OUT_ADJ, edges, cols, engine))
     in_idx = cast(Optional[AdjacencyIndex], registry.get_valid(EDGE_IN_ADJ, edges, cols, engine))
     if direction == "forward":
-        chosen = [out_idx]
-    elif direction == "reverse":
-        chosen = [in_idx]
-    else:  # undirected
-        chosen = [out_idx, in_idx]
-    if any(ix is None for ix in chosen):
+        return None if out_idx is None else [out_idx]
+    if direction == "reverse":
+        return None if in_idx is None else [in_idx]
+    if out_idx is None or in_idx is None:
         return None
-    return chosen
+    return [out_idx, in_idx]
 
 
 def index_seeded_hop(
     g: Plottable,
     registry: GfqlIndexRegistry,
     *,
-    nodes: Any,
+    nodes: DataFrameT,
     node_col: str,
     src: str,
     dst: str,
     engine: Engine,
     hops: Optional[int],
     to_fixed_point: bool,
-    direction: str,
+    direction: HopDirection,
     return_as_wave_front: bool,
 ) -> Optional[Plottable]:
     if nodes is None or g._edges is None or g._nodes is None:
@@ -81,7 +85,7 @@ def index_seeded_hop(
 
     frontier = seed
     visited = seed[:0]
-    edge_rows_parts: List[Any] = []
+    edge_rows_parts: List[ArrayLike] = []
     first = True
     hop_count = 0
 
@@ -92,8 +96,8 @@ def index_seeded_hop(
             break
         hop_count += 1
 
-        matched_parts: List[Any] = []
-        neigh_parts: List[Any] = []
+        matched_parts: List[ArrayLike] = []
+        neigh_parts: List[ArrayLike] = []
         for ix in indices:
             rows, matched = lookup_edge_rows(ix, frontier, xp)
             edge_rows_parts.append(rows)
