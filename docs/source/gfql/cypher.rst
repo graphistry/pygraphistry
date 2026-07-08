@@ -92,12 +92,26 @@ state instead of a row table:
     subgraph._nodes
     subgraph._edges
 
-``GRAPH { MATCH ... WHERE ... }`` accepts native graph-state predicates
-that lower to chain node/edge filters. Single node- or edge-alias residual
-predicates such as disjunctions and ``searchAny(...)`` are applied as GRAPH
-subgraph masks before the match chain runs. Pattern-predicate and multi-alias
-residuals remain unsupported inside ``GRAPH { }`` until first-class independent
-node/edge subgraph projection covers their semantics.
+Use ``WHERE`` inside ``GRAPH { }`` to reduce the graph that flows into the
+next stage. The result still stays graph-shaped: matching nodes and edges remain
+in ``_nodes`` and ``_edges``, so a later ``USE``, ``GRAPH { ... }``, or
+``CALL graphistry.*.write()`` can continue without first turning the result into
+a row table.
+
+The current implementation supports filters that can be decided from one node
+alias or one edge alias at a time, for example ``seed.degree >= 10``,
+``reach.weight > 5``, ``seed.score > 0.25 OR seed.score IS NULL``, and
+``searchAny(seed, 'alice')``. GFQL applies those filters while building the
+subgraph, so fewer nodes and edges move forward. When a node filter removes a
+node, edges attached to removed nodes are removed too.
+
+Filters that need the joined match rows are intentionally rejected inside
+``GRAPH { }`` for now, because GFQL cannot yet turn every such row condition
+back into one unambiguous node-and-edge graph to pass to the next stage. That
+includes pattern-existence checks such as ``WHERE (a)-[:R]->()`` or
+``EXISTS { ... }``, and expressions that combine multiple aliases in one
+condition. Use a row query such as ``MATCH ... RETURN ...`` for those cases, or
+split the work into smaller graph stages.
 
 Use ``GRAPH g = GRAPH { ... }`` to bind a named graph, then ``USE g`` to
 query it:
