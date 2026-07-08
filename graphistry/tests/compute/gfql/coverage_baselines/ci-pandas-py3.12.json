@@ -43,6 +43,7 @@
     "graphistry/compute/gfql/cypher/reentry/scope.py": 78.72,
     "graphistry/compute/gfql/cypher/reentry_plan.py": 100.0,
     "graphistry/compute/gfql/cypher/result_postprocess.py": 58.0,
+    "graphistry/compute/gfql/cypher/row_pushdown.py": 88.97,
     "graphistry/compute/gfql/cypher/shortest_path_aliases.py": 97.37,
     "graphistry/compute/gfql/cypher/shortest_path_guards.py": 77.08,
     "graphistry/compute/gfql/row/__init__.py": 100.0,
