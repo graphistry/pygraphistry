@@ -178,12 +178,12 @@ class CompiledCypherExecutionExtras:
 
 @dataclass(frozen=True)
 class CompiledGraphResidualFilter:
-    """One remaining GRAPH WHERE filter applied to a node or edge table.
+    """GRAPH WHERE expression left after normal chain-filter lowering.
 
-    Most GRAPH WHERE predicates lower directly into chain filters. This carrier is
-    for the leftover single-alias cases, such as OR/searchAny, that still have a
-    clear graph result: filter one node table or one edge table before returning
-    graph state.
+    Example: ``GRAPH { MATCH (n) WHERE n.score > 1 OR n.score IS NULL }``.
+    The OR cannot fit the Chain's simple node-filter map, but it still reads
+    only node alias ``n``, so execution can mask the node table and stay in
+    graph state without materializing joined match rows.
     """
     alias: str
     kind: Literal["node", "edge"]
@@ -7137,9 +7137,8 @@ def _compile_call_query(
     )
 
 
-# Convert GRAPH WHERE leftovers from row lowering into graph-state filters.
-# Multi-alias and pattern predicates stay rejected here because they do not yet
-# have an unambiguous node/edge subgraph result.
+# Current strict path: accept only residuals that filter one node/edge table.
+# Row-shaped cases need an explicit eager boundary, not hidden materialization.
 def _compile_graph_residual_filters(
     lowered: LoweredCypherMatch,
     *,

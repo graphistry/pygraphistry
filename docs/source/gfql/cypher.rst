@@ -92,26 +92,17 @@ state instead of a row table:
     subgraph._nodes
     subgraph._edges
 
-Use ``WHERE`` inside ``GRAPH { }`` to reduce the graph that flows into the
-next stage. The result still stays graph-shaped: matching nodes and edges remain
-in ``_nodes`` and ``_edges``, so a later ``USE``, ``GRAPH { ... }``, or
-``CALL graphistry.*.write()`` can continue without first turning the result into
-a row table.
+Use ``WHERE`` inside ``GRAPH { }`` to reduce the graph passed to the next
+stage while staying graph-shaped in ``_nodes`` and ``_edges``. Today this path is
+strict: GFQL supports filters it can apply to one node or one edge table without
+building joined rows, such as ``seed.degree >= 10``, ``reach.weight > 5``,
+``seed.score > 0.25 OR seed.score IS NULL``, and ``searchAny(seed, 'alice')``.
 
-The current implementation supports filters that can be decided from one node
-alias or one edge alias at a time, for example ``seed.degree >= 10``,
-``reach.weight > 5``, ``seed.score > 0.25 OR seed.score IS NULL``, and
-``searchAny(seed, 'alice')``. GFQL applies those filters while building the
-subgraph, so fewer nodes and edges move forward. When a node filter removes a
-node, edges attached to removed nodes are removed too.
-
-Filters that need the joined match rows are intentionally rejected inside
-``GRAPH { }`` for now, because GFQL cannot yet turn every such row condition
-back into one unambiguous node-and-edge graph to pass to the next stage. That
-includes pattern-existence checks such as ``WHERE (a)-[:R]->()`` or
-``EXISTS { ... }``, and expressions that combine multiple aliases in one
-condition. Use a row query such as ``MATCH ... RETURN ...`` for those cases, or
-split the work into smaller graph stages.
+Predicates that require joined match rows, such as ``WHERE (a)-[:R]->()``,
+``EXISTS { ... }``, or conditions spanning multiple aliases, are rejected for
+now instead of triggering hidden materialization. Future support should make
+that eager boundary explicit, for example through an inspectable plan or warning
+mode, and then project the rows back to graph state.
 
 Use ``GRAPH g = GRAPH { ... }`` to bind a named graph, then ``USE g`` to
 query it:
