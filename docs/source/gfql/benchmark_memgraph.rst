@@ -131,10 +131,11 @@ Raw JSON and markdown outputs are recorded under
 Neo4j and Kuzu comparators
 --------------------------
 
-The same q1-q9 queries were run against Neo4j 5.26 (Bolt) and Kuzu (embedded)
-on the identical 100k-person / 2.78M-edge graph, with result parity confirmed
-across engines (e.g. q8 ``numPaths`` 58,431,994 and q9 45,514,124 match on
-Neo4j, Memgraph, and Kuzu). Query-only medians (ms unless noted):
+The in-repo q1-q9 runner was also run against Neo4j 5.26 (Bolt) and
+Kuzu (embedded) on the identical 100k-person / 2.78M-edge graph, with result
+parity confirmed across engines (e.g. q8 ``numPaths`` 58,431,994 and q9
+45,514,124 match on Neo4j, Memgraph, and Kuzu). Query-only medians (ms
+unless noted):
 
 ======  =========  =========  =======  ========  =======
 Query   GFQL CPU   GFQL GPU   Neo4j    Memgraph  Kuzu
@@ -150,15 +151,18 @@ q8      87.14      27.72      1.20s    737.00    1.03s
 q9      203.08     51.89      1.78s    742.62    876.65
 ======  =========  =========  =======  ========  =======
 
-GFQL wins q1/q2/q3/q4/q7/q8/q9 against all three comparators and is a near-tie
-on q5/q6 (both sub-5ms). The GPU q8/q9 degree-product queries win by 13-27x
-versus the fastest comparator. **q1** (top-3 followers over a full ``FOLLOWS``
-scan) was previously the one loss to Kuzu's columnar scan-and-aggregate; a
-direct columnar in-degree ``count``/top-3 shortcut now puts GFQL at 19.74ms
-GPU / 80.51ms CPU, ahead of Kuzu's 253.19ms. The only remaining sub-1x cell is
-q5 CPU, a 3.84ms-vs-2.48ms sub-millisecond near-tie. Load times differ widely
-(Kuzu ~2s, Memgraph ~13s CSV, Neo4j ~48s Bolt) but are excluded from query
-medians.
+In this in-repo runner view, GFQL wins q1/q2/q3/q4/q7/q8/q9 against
+Neo4j, Memgraph, and Kuzu, and is a near-tie on q5/q6 (both sub-5ms). **q1**
+(top-3 followers over a full ``FOLLOWS`` scan) was previously the one loss to
+Kuzu's columnar scan-and-aggregate; a direct columnar in-degree ``count``/top-3
+shortcut now puts GFQL at 19.74ms GPU / 80.51ms CPU, ahead of Kuzu's 253.19ms.
+
+The fair-matrix run using each competitor's own marketed repo queries corrects
+the q8 story: Kuzu q8 is 10.4ms and LadybugDB q8 is 19.5ms, both faster than
+GFQL GPU at 27.72ms. Treat q8 as a genuine comparator win in fair repo-query
+accounting; GFQL still wins q1/q2/q4/q5/q6/q7/q9(GPU). Load times differ
+widely (Kuzu ~2s, Memgraph ~13s CSV, Neo4j ~48s Bolt) but are excluded from
+query medians.
 
 The combined table is rendered with all three comparators:
 
