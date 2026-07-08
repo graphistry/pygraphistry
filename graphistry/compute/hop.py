@@ -115,11 +115,12 @@ def hop(self: Plottable,
     # returns None to fall back. Coercion above is a no-op when already in-engine,
     # so the index fingerprint (keyed on the live edge frame) still matches.
     from graphistry.compute.gfql.index import get_registry, maybe_index_hop
+    from graphistry.compute.gfql.index.types import HopDirection
     _idx_policy = getattr(self, "_gfql_index_policy", "use")
     if (not get_registry(self).is_empty()) or _idx_policy in ("auto", "force"):
         _idx_nodes = df_to_engine(nodes, engine_concrete) if nodes is not None else None
         _indexed = maybe_index_hop(
-            self, engine_concrete, nodes=_idx_nodes, hops=hops, direction=direction,
+            self, engine_concrete, nodes=_idx_nodes, hops=hops, direction=cast(HopDirection, direction),
             return_as_wave_front=return_as_wave_front, to_fixed_point=to_fixed_point,
             policy=_idx_policy,
             min_hops=min_hops, max_hops=max_hops,

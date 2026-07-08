@@ -15,14 +15,15 @@ JSON convention ``{"type": ClassName, ...fields}``. They round-trip via
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union, cast
 
 from .registry import ALL_KINDS
+from .types import IndexKind
 
 
 @dataclass(frozen=True)
 class CreateIndex:
-    kind: str
+    kind: IndexKind
     column: Optional[str] = None
     name: Optional[str] = None
     replace: bool = False
@@ -36,14 +37,14 @@ class CreateIndex:
         kind = d.get("kind")
         if kind not in ALL_KINDS:
             raise ValueError(f"CreateIndex.kind must be one of {ALL_KINDS}, got {kind!r}")
-        return CreateIndex(kind=kind, column=d.get("column"), name=d.get("name"),
+        return CreateIndex(kind=cast(IndexKind, kind), column=d.get("column"), name=d.get("name"),
                            replace=bool(d.get("replace", False)))
 
 
 @dataclass(frozen=True)
 class DropIndex:
     name: Optional[str] = None
-    kind: Optional[str] = None
+    kind: Optional[IndexKind] = None
     column: Optional[str] = None
     missing_ok: bool = False  # IF EXISTS semantics: True = dropping a missing index is a no-op
 
@@ -68,6 +69,7 @@ class ShowIndexes:
 
 
 INDEX_OP_TYPES = ("CreateIndex", "DropIndex", "ShowIndexes")
+IndexOp = Union[CreateIndex, DropIndex, ShowIndexes]
 
 
 def is_index_op(obj: Any) -> bool:
@@ -78,7 +80,7 @@ def is_index_op_json(d: Any) -> bool:
     return isinstance(d, dict) and d.get("type") in INDEX_OP_TYPES
 
 
-def index_op_from_json(d: Dict[str, Any]) -> Any:
+def index_op_from_json(d: Dict[str, Any]) -> IndexOp:
     t = d.get("type")
     if t == "CreateIndex":
         return CreateIndex.from_json(d)
@@ -89,7 +91,7 @@ def index_op_from_json(d: Dict[str, Any]) -> Any:
     raise ValueError(f"Not a GFQL index op: type={t!r}")
 
 
-def apply_index_op(g: Any, op: Any, *, engine: Any = "auto") -> Any:
+def apply_index_op(g: Any, op: IndexOp, *, engine: Any = "auto") -> Any:
     """Execute a DDL op against a Plottable's index registry.
 
     CreateIndex/DropIndex -> new Plottable; ShowIndexes -> pandas DataFrame.

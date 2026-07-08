@@ -12,7 +12,7 @@ min_hops>1, output_min/max_hops, labeling, missing node table.
 """
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, List, Optional, cast
 
 from graphistry.Engine import Engine
 from graphistry.Plottable import Plottable
@@ -21,14 +21,14 @@ from .engine_arrays import (
     set_difference, union1d,
 )
 from .lookup import lookup_edge_rows, lookup_node_rows
-from .registry import EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, GfqlIndexRegistry
+from .registry import EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, AdjacencyIndex, GfqlIndexRegistry, NodeIdIndex
 
 
 def _indices_for_direction(
     registry: GfqlIndexRegistry, direction: str, edges: Any, cols, engine: Engine
 ) -> Optional[List[Any]]:
-    out_idx = registry.get_valid(EDGE_OUT_ADJ, edges, cols, engine)
-    in_idx = registry.get_valid(EDGE_IN_ADJ, edges, cols, engine)
+    out_idx = cast(Optional[AdjacencyIndex], registry.get_valid(EDGE_OUT_ADJ, edges, cols, engine))
+    in_idx = cast(Optional[AdjacencyIndex], registry.get_valid(EDGE_IN_ADJ, edges, cols, engine))
     if direction == "forward":
         chosen = [out_idx]
     elif direction == "reverse":
@@ -135,7 +135,7 @@ def index_seeded_hop(
 
     # Materialize node rows. Prefer the node_id index (O(result·log N) searchsorted
     # gather) over an O(N) isin scan — this keeps warm seeded latency flat in N.
-    node_idx = registry.get_valid(NODE_ID, g._nodes, (node_col,), engine)
+    node_idx = cast(Optional[NodeIdIndex], registry.get_valid(NODE_ID, g._nodes, (node_col,), engine))
     if node_idx is not None:
         node_rows = lookup_node_rows(node_idx, needed, xp)
         # lookup returns rows in id-hit order; sort ascending so out_nodes keep

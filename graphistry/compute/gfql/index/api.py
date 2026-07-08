@@ -13,13 +13,14 @@ from typing import Any, Dict, List, Literal, Optional, Union, cast
 from graphistry.Engine import EngineAbstract, Engine, resolve_engine
 from graphistry.Plottable import Plottable
 from .registry import (
-    GfqlIndexRegistry, EMPTY_REGISTRY,
+    AdjacencyIndex, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
     EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, ADJ_KINDS, ALL_KINDS,
 )
 from .build import build_adjacency_index, build_node_id_index
 from .traverse import index_seeded_hop
 from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
 from .policy import IndexPolicy, validate_index_policy
+from .types import EdgeIndexDirection, HopDirection, IndexKind
 
 # Private Plottable attachment key. Keep access behind get_registry()/show_indexes().
 REGISTRY_ATTR = "_gfql_index_registry"
@@ -69,11 +70,11 @@ def _attach(g: Plottable, registry: GfqlIndexRegistry) -> Plottable:
     return res
 
 
-def index_name(kind: str, column: Optional[str]) -> str:
+def index_name(kind: IndexKind, column: Optional[str]) -> str:
     return f"{kind}:{column}" if column else kind
 
 
-def _check_column(column: Optional[str], expected: str, kind: str) -> None:
+def _check_column(column: Optional[str], expected: str, kind: IndexKind) -> None:
     """A user-supplied ``column`` must match the binding the index keys on; a
     different column would be a silent no-op (registry is one-index-per-kind in
     v1), so reject it honestly rather than ignore it."""
@@ -86,7 +87,7 @@ def _check_column(column: Optional[str], expected: str, kind: str) -> None:
 
 def _is_resident_index_valid(
     g: Plottable,
-    kind: str,
+    kind: IndexKind,
     engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
 ) -> bool:
     """True when a resident index still matches the current graph frames."""
@@ -107,7 +108,7 @@ def _is_resident_index_valid(
 
 def create_index(
     g: Plottable,
-    kind: str,
+    kind: IndexKind,
     *,
     column: Optional[str] = None,
     name: Optional[str] = None,
@@ -161,7 +162,7 @@ def create_index(
     raise ValueError(f"Unknown GFQL index kind: {kind!r}. Expected one of {ALL_KINDS}.")
 
 
-def drop_index(g: Plottable, kind: Optional[str] = None) -> Plottable:
+def drop_index(g: Plottable, kind: Optional[IndexKind] = None) -> Plottable:
     """Drop one index (by kind) or all indexes (kind=None). Idempotent."""
     registry = get_registry(g)
     if kind is None:
@@ -187,12 +188,14 @@ def show_indexes(g: Plottable) -> Any:
         assert idx is not None  # iterating registry.kinds() -> present
         if kind in ADJ_KINDS:
             assert g._source is not None and g._destination is not None
-            valid = registry.get_valid(kind, g._edges, (g._source, g._destination), idx.engine) is not None
-            n_keys, n_rows = idx.n_keys, idx.n_edges
+            adj = cast(AdjacencyIndex, idx)
+            valid = registry.get_valid(kind, g._edges, (g._source, g._destination), adj.engine) is not None
+            n_keys, n_rows = adj.n_keys, adj.n_edges
         else:  # NODE_ID
+            node_idx = cast(NodeIdIndex, idx)
             valid = g._nodes is not None and registry.get_valid(
-                NODE_ID, g._nodes, (idx.key_col,), idx.engine) is not None
-            n_keys, n_rows = idx.n_nodes, 0
+                NODE_ID, g._nodes, (node_idx.key_col,), node_idx.engine) is not None
+            n_keys, n_rows = node_idx.n_nodes, 0
         rows.append({
             "name": idx.name or index_name(kind, idx.key_col),
             "kind": kind,
@@ -208,7 +211,7 @@ def show_indexes(g: Plottable) -> Any:
     return pd.DataFrame(rows, columns=cols)
 
 
-def gfql_index_edges(g: Plottable, direction: str = "both",
+def gfql_index_edges(g: Plottable, direction: EdgeIndexDirection = "both",
                      engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:
     """Convenience: build edge adjacency index(es). direction: 'forward'|'reverse'|'both'."""
     if direction in ("forward", "both"):
@@ -264,7 +267,7 @@ def _hop_is_index_coverable(
 def _ensure_indexes(
     g: Plottable,
     registry: GfqlIndexRegistry,
-    direction: str,
+    direction: HopDirection,
     engine: Engine,
     policy: IndexPolicy,
     nodes: Any,
@@ -305,7 +308,7 @@ def _ensure_indexes(
 
 
 def maybe_index_hop(
-    g: Plottable, engine: Engine, *, nodes, hops, direction, return_as_wave_front,
+    g: Plottable, engine: Engine, *, nodes: Any, hops: Optional[int], direction: HopDirection, return_as_wave_front: bool,
     to_fixed_point: bool = False, policy: str = "use", **rest: Any,
 ) -> Optional[Plottable]:
     """Planner entry called from hop(). Returns an index-built subgraph, or None to
@@ -373,9 +376,9 @@ def maybe_index_hop(
 
     # Cost gate: if the frontier covers a large fraction of distinct sources, the
     # scan path is competitive — fall back (avoids index overhead on bulk-ish hops).
-    idx0 = registry.get_valid(
+    idx0 = cast(Optional[AdjacencyIndex], registry.get_valid(
         EDGE_OUT_ADJ if direction != "reverse" else EDGE_IN_ADJ, g._edges, (src, dst), engine
-    )
+    ))
     frac = cost_gate_frac(engine)
     if trace and idx0 is not None:
         # Free fanout estimate (Σ seed degree) from the CSR offsets — the planner

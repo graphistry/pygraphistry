@@ -1,7 +1,8 @@
 """Planner cost helpers for GFQL physical indexes."""
 from __future__ import annotations
 
-from typing import Any, Optional
+import os
+from typing import Any, Dict, Optional
 
 from graphistry.Engine import Engine
 
@@ -14,10 +15,63 @@ from graphistry.Engine import Engine
 # polars.
 _COST_GATE_FRAC = {Engine.PANDAS: 0.5}
 _COST_GATE_FRAC_DEFAULT = 0.02
+_COST_GATE_FRAC_OVERRIDES: Dict[Engine, float] = {}
+
+
+def _validate_cost_gate_frac(frac: float) -> float:
+    if not 0.0 < frac <= 1.0:
+        raise ValueError(f"GFQL index cost gate fraction must be in (0, 1], got {frac!r}")
+    return frac
+
+
+def set_cost_gate_frac(engine: Engine, frac: Optional[float]) -> None:
+    """Override the index-vs-scan crossover for one process.
+
+    Passing ``None`` clears the code-level override for ``engine``. This is meant
+    for benchmark/diagnostic tuning; defaults remain stable and documented.
+    """
+    if frac is None:
+        _COST_GATE_FRAC_OVERRIDES.pop(engine, None)
+        return
+    _COST_GATE_FRAC_OVERRIDES[engine] = _validate_cost_gate_frac(float(frac))
+
+
+def reset_cost_gate_frac(engine: Optional[Engine] = None) -> None:
+    """Clear code-level cost-gate overrides."""
+    if engine is None:
+        _COST_GATE_FRAC_OVERRIDES.clear()
+    else:
+        _COST_GATE_FRAC_OVERRIDES.pop(engine, None)
+
+
+def _env_cost_gate_frac(engine: Engine) -> Optional[float]:
+    names = (
+        f"GFQL_INDEX_COST_GATE_FRAC_{engine.value.upper().replace('-', '_')}",
+        "GFQL_INDEX_COST_GATE_FRAC",
+    )
+    for name in names:
+        raw = os.environ.get(name)
+        if raw is None or raw == "":
+            continue
+        try:
+            return _validate_cost_gate_frac(float(raw))
+        except ValueError as ex:
+            raise ValueError(f"Invalid {name}={raw!r}: {ex}") from ex
+    return None
 
 
 def cost_gate_frac(engine: Engine) -> float:
-    """Return the index-vs-scan crossover fraction for an engine."""
+    """Return the index-vs-scan crossover fraction for an engine.
+
+    Precedence: code override via ``set_cost_gate_frac`` > engine/global env var
+    > baked default. Env vars are ``GFQL_INDEX_COST_GATE_FRAC`` and per-engine
+    ``GFQL_INDEX_COST_GATE_FRAC_PANDAS`` / ``..._POLARS_GPU`` style names.
+    """
+    if engine in _COST_GATE_FRAC_OVERRIDES:
+        return _COST_GATE_FRAC_OVERRIDES[engine]
+    env = _env_cost_gate_frac(engine)
+    if env is not None:
+        return env
     return _COST_GATE_FRAC.get(engine, _COST_GATE_FRAC_DEFAULT)
 
 

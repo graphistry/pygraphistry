@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from typing_extensions import Literal
 from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, POLARS_ENGINES, resolve_engine, df_to_engine, df_concat, safe_merge
 from graphistry.Plottable import Plottable
@@ -27,6 +27,10 @@ from .filter_by_dict import (
     filter_edges_by_dict as filter_edges_by_dict_base,
     filter_nodes_by_dict as filter_nodes_by_dict_base
 )
+
+if TYPE_CHECKING:
+    from graphistry.compute.gfql.index.explain import GfqlExplainReport
+
 
 logger = setup_logger(__name__)
 
@@ -681,7 +685,13 @@ class ComputeMixin(Plottable):
             index registry. See :meth:`create_index` and :doc:`gfql/index_adjacency`.
     """
 
-    def gfql_explain(self, query, *, index_policy='use', engine='auto'):
+    def gfql_explain(
+        self,
+        query: object,
+        *,
+        index_policy: str = 'use',
+        engine: EngineAbstractType = 'auto',
+    ) -> 'GfqlExplainReport':
         """Explain how the GFQL planner would run ``query``: per-hop index-vs-scan choice, cost-gate numbers, and resident-index validity. Read-only (no execution). Returns a report object; print it for a human-readable plan."""
         from graphistry.compute.gfql.index.explain import gfql_explain as _ge
         return _ge(self, query, index_policy=index_policy, engine=engine)

@@ -6,12 +6,13 @@ numpy (pandas/polars) and cupy (cudf) arrays.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Tuple
 
 from .registry import AdjacencyIndex, NodeIdIndex
+from .types import ArrayLike, ArrayNamespace
 
 
-def lookup_edge_rows(index: AdjacencyIndex, frontier: Any, xp: Any):
+def lookup_edge_rows(index: AdjacencyIndex, frontier: ArrayLike, xp: ArrayNamespace) -> Tuple[ArrayLike, ArrayLike]:
     """frontier (backend array of seed ids, deduped) -> (edge_rows, matched_ids).
 
     ``edge_rows``  = row positions of all edges incident to the frontier.
@@ -59,7 +60,7 @@ def lookup_edge_rows(index: AdjacencyIndex, frontier: Any, xp: Any):
     return index.row_positions[flat], matched_ids
 
 
-def _expand_ranges(start: Any, counts: Any, total: int, xp: Any) -> Any:
+def _expand_ranges(start: ArrayLike, counts: ArrayLike, total: int, xp: ArrayNamespace) -> ArrayLike:
     """Vectorized [start, start+count) range concat WITHOUT np.repeat (cupy's
     ``repeat`` rejects array ``repeats``). Builds a per-output segment id via a
     boundary-marker cumsum, then gathers start/offset by segment.
@@ -76,7 +77,7 @@ def _expand_ranges(start: Any, counts: Any, total: int, xp: Any) -> Any:
     return start[seg] + pos_in
 
 
-def lookup_node_rows(index: NodeIdIndex, ids: Any, xp: Any) -> Any:
+def lookup_node_rows(index: NodeIdIndex, ids: ArrayLike, xp: ArrayNamespace) -> ArrayLike:
     """ids (backend array) -> node row positions for those that exist (in id order
     of the index hits). Used to materialize node rows for a result id set."""
     keys = index.keys_sorted

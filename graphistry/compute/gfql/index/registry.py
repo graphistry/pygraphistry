@@ -11,20 +11,24 @@ answer).
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union, cast
 
 from graphistry.Engine import Engine
+from graphistry.compute.typing import DataFrameT
+from .types import AdjacencyIndexKind, ArrayLike, IndexBackend, IndexKind
 
 # Index kinds (v1). Property/label/type indexes share this registry shape later.
-EDGE_OUT_ADJ = "edge_out_adj"
-EDGE_IN_ADJ = "edge_in_adj"
-NODE_ID = "node_id"
+EDGE_OUT_ADJ: AdjacencyIndexKind = "edge_out_adj"
+EDGE_IN_ADJ: AdjacencyIndexKind = "edge_in_adj"
+NODE_ID: IndexKind = "node_id"
 
-ADJ_KINDS = (EDGE_OUT_ADJ, EDGE_IN_ADJ)
-ALL_KINDS = (EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID)
+ADJ_KINDS: Tuple[AdjacencyIndexKind, ...] = (EDGE_OUT_ADJ, EDGE_IN_ADJ)
+ALL_KINDS: Tuple[IndexKind, ...] = (EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID)
+
+FrameFingerprint = Tuple[int, Tuple[str, ...], str]
 
 
-def frame_fingerprint(df: Any, cols: Tuple[str, ...], engine: Engine) -> Tuple:
+def frame_fingerprint(df: DataFrameT, cols: Tuple[str, ...], engine: Engine) -> FrameFingerprint:
     """Cheap O(1) structural fingerprint of the frame an index is built over: length
     + bound columns + engine. This is a SECONDARY guard; the primary validity check
     is object IDENTITY (``source_ref is df``, see ``get_valid``). We deliberately do
@@ -46,18 +50,18 @@ class AdjacencyIndex:
     Lookup of a frontier of ids is O(F log U + result) via searchsorted +
     vectorized range expansion — sublinear in E, never a full edge scan.
     """
-    kind: str                 # EDGE_OUT_ADJ | EDGE_IN_ADJ
+    kind: AdjacencyIndexKind  # EDGE_OUT_ADJ | EDGE_IN_ADJ
     key_col: str              # endpoint we key on (src for out, dst for in)
     other_col: str            # opposite endpoint (the neighbor we emit)
     edge_id_col: Optional[str]  # edge-id binding if present (else row pos == id)
-    keys_sorted: Any          # distinct key ids, ascending (len U)  [array]
-    group_offsets: Any        # CSR offsets into row_positions (len U+1) [array]
-    row_positions: Any        # edge row indices grouped by key (len E) [array]
-    other_values: Any         # neighbor id per edge row, ORIGINAL order (len E) [array]
-    backend: str              # 'numpy' | 'cupy'
+    keys_sorted: ArrayLike    # distinct key ids, ascending (len U)  [array]
+    group_offsets: ArrayLike  # CSR offsets into row_positions (len U+1) [array]
+    row_positions: ArrayLike  # edge row indices grouped by key (len E) [array]
+    other_values: ArrayLike   # neighbor id per edge row, ORIGINAL order (len E) [array]
+    backend: IndexBackend     # 'numpy' | 'cupy'
     engine: Engine
-    fingerprint: Tuple = field(compare=False, default=())
-    source_ref: Any = field(compare=False, default=None)  # the indexed frame (identity guard)
+    fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
+    source_ref: Optional[DataFrameT] = field(compare=False, default=None)  # the indexed frame (identity guard)
     n_edges: int = 0
     n_keys: int = 0
     name: Optional[str] = None
@@ -67,12 +71,12 @@ class AdjacencyIndex:
 class NodeIdIndex:
     """Sorted node-id -> node row position (find seed/endpoint rows fast)."""
     key_col: str
-    keys_sorted: Any
-    row_positions: Any
-    backend: str
+    keys_sorted: ArrayLike
+    row_positions: ArrayLike
+    backend: IndexBackend
     engine: Engine
-    fingerprint: Tuple = field(compare=False, default=())
-    source_ref: Any = field(compare=False, default=None)  # the indexed frame (identity guard, I5)
+    fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
+    source_ref: Optional[DataFrameT] = field(compare=False, default=None)  # the indexed frame (identity guard, I5)
     n_nodes: int = 0
     name: Optional[str] = None
 
@@ -80,31 +84,31 @@ class NodeIdIndex:
 @dataclass(frozen=True)
 class GfqlIndexRegistry:
     """Immutable kind -> index map. ``with_index`` / ``without`` return copies."""
-    indexes: Dict[str, Any] = field(default_factory=dict)
+    indexes: Dict[IndexKind, Union[AdjacencyIndex, NodeIdIndex]] = field(default_factory=dict)
 
-    def with_index(self, kind: str, index: Any) -> "GfqlIndexRegistry":
+    def with_index(self, kind: IndexKind, index: Union[AdjacencyIndex, NodeIdIndex]) -> "GfqlIndexRegistry":
         new = dict(self.indexes)
         new[kind] = index
         return GfqlIndexRegistry(new)
 
-    def without(self, kind: str) -> "GfqlIndexRegistry":
+    def without(self, kind: IndexKind) -> "GfqlIndexRegistry":
         new = dict(self.indexes)
         new.pop(kind, None)
         return GfqlIndexRegistry(new)
 
-    def get(self, kind: str) -> Optional[Any]:
+    def get(self, kind: IndexKind) -> Optional[Union[AdjacencyIndex, NodeIdIndex]]:
         return self.indexes.get(kind)
 
-    def has(self, kind: str) -> bool:
+    def has(self, kind: IndexKind) -> bool:
         return kind in self.indexes
 
-    def kinds(self) -> Tuple[str, ...]:
-        return tuple(sorted(self.indexes.keys()))
+    def kinds(self) -> Tuple[IndexKind, ...]:
+        return cast(Tuple[IndexKind, ...], tuple(sorted(self.indexes.keys())))
 
     def is_empty(self) -> bool:
         return not self.indexes
 
-    def get_valid(self, kind: str, df: Any, cols: Tuple[str, ...], engine: Engine) -> Optional[Any]:
+    def get_valid(self, kind: IndexKind, df: DataFrameT, cols: Tuple[str, ...], engine: Engine) -> Optional[Union[AdjacencyIndex, NodeIdIndex]]:
         """Return the index for ``kind`` only if its fingerprint still matches the
         live frame + engine; else None (treat as absent)."""
         idx = self.indexes.get(kind)
@@ -122,7 +126,7 @@ class GfqlIndexRegistry:
         return idx
 
 
-def index_nbytes(idx: Any) -> int:
+def index_nbytes(idx: Union[AdjacencyIndex, NodeIdIndex]) -> int:
     """Approximate resident memory of an index's sidecar arrays (bytes)."""
     total = 0
     for attr in ("keys_sorted", "group_offsets", "row_positions", "other_values"):

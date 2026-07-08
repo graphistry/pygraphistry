@@ -6,22 +6,13 @@ is never reordered.
 """
 from __future__ import annotations
 
-from typing import Any, Optional, Protocol, Tuple
+from typing import Optional, Tuple, cast
 
 from graphistry.Engine import Engine
+from graphistry.compute.typing import DataFrameT
 from .engine_arrays import array_namespace, col_to_array
 from .registry import AdjacencyIndex, NodeIdIndex, frame_fingerprint
-
-
-class FrameLike(Protocol):
-    shape: Any
-
-    def __getitem__(self, key: str) -> Any:
-        ...
-
-
-ArrayLike = Any
-ArrayNamespace = Any
+from .types import AdjacencyIndexKind, ArrayLike, ArrayNamespace
 
 
 def _csr_from_keys(keys: ArrayLike, xp: ArrayNamespace) -> Tuple[ArrayLike, ArrayLike, ArrayLike]:
@@ -46,8 +37,8 @@ def _csr_from_keys(keys: ArrayLike, xp: ArrayNamespace) -> Tuple[ArrayLike, Arra
 
 
 def build_adjacency_index(
-    edges: FrameLike,
-    kind: str,
+    edges: DataFrameT,
+    kind: AdjacencyIndexKind,
     key_col: str,
     other_col: str,
     edge_id_col: Optional[str],
@@ -70,14 +61,14 @@ def build_adjacency_index(
         backend=backend,
         engine=engine,
         fingerprint=frame_fingerprint(edges, fingerprint_cols, engine),
-        source_ref=edges,
+        source_ref=cast(DataFrameT, edges),
         n_edges=int(keys.shape[0]),
         n_keys=int(unique_keys.shape[0]),
     )
 
 
 def build_node_id_index(
-    nodes: FrameLike,
+    nodes: DataFrameT,
     node_col: str,
     engine: Engine,
 ) -> Optional[NodeIdIndex]:
@@ -105,6 +96,6 @@ def build_node_id_index(
         backend=backend,
         engine=engine,
         fingerprint=frame_fingerprint(nodes, (node_col,), engine),
-        source_ref=nodes,
+        source_ref=cast(DataFrameT, nodes),
         n_nodes=n_keys,
     )

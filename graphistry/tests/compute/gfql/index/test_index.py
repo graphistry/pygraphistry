@@ -269,6 +269,37 @@ def test_cost_gate_engine_aware_never_loses_to_scan(engine):
     assert _sig(out) == _sig(scan_out), engine  # correctness path-independent
 
 
+def test_cost_gate_frac_tuning(monkeypatch):
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index import (
+        cost_gate_frac, reset_cost_gate_frac, set_cost_gate_frac,
+    )
+
+    reset_cost_gate_frac()
+    monkeypatch.delenv("GFQL_INDEX_COST_GATE_FRAC", raising=False)
+    monkeypatch.delenv("GFQL_INDEX_COST_GATE_FRAC_PANDAS", raising=False)
+    assert cost_gate_frac(Engine.PANDAS) == 0.5
+
+    monkeypatch.setenv("GFQL_INDEX_COST_GATE_FRAC", "0.11")
+    assert cost_gate_frac(Engine.PANDAS) == 0.11
+
+    monkeypatch.setenv("GFQL_INDEX_COST_GATE_FRAC_PANDAS", "0.22")
+    assert cost_gate_frac(Engine.PANDAS) == 0.22
+
+    set_cost_gate_frac(Engine.PANDAS, 0.33)
+    assert cost_gate_frac(Engine.PANDAS) == 0.33
+
+    set_cost_gate_frac(Engine.PANDAS, None)
+    assert cost_gate_frac(Engine.PANDAS) == 0.22
+
+    with pytest.raises(ValueError, match="cost gate fraction"):
+        set_cost_gate_frac(Engine.PANDAS, 0)
+    monkeypatch.setenv("GFQL_INDEX_COST_GATE_FRAC_PANDAS", "2")
+    with pytest.raises(ValueError, match="GFQL_INDEX_COST_GATE_FRAC_PANDAS"):
+        cost_gate_frac(Engine.PANDAS)
+    reset_cost_gate_frac()
+
+
 def test_column_mismatch_raises_not_silent(graph):
     # A custom column that doesn't match the binding must raise, not silently no-op.
     with pytest.raises(NotImplementedError):

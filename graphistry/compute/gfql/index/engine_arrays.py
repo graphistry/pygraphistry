@@ -12,12 +12,14 @@ Vectorization-first: no per-element Python work, no ``.to_list()`` ping-pong.
 """
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any, Tuple, cast
 
 from graphistry.Engine import Engine
+from graphistry.compute.typing import DataFrameT
+from .types import ArrayLike, ArrayNamespace, IndexBackend
 
 
-def array_namespace(engine: Engine) -> Tuple[Any, str]:
+def array_namespace(engine: Engine) -> Tuple[ArrayNamespace, IndexBackend]:
     """Return (array module, backend tag) for an engine.
 
     cudf indexes keep their arrays on-device (cupy); everything else uses numpy
@@ -30,29 +32,29 @@ def array_namespace(engine: Engine) -> Tuple[Any, str]:
         try:
             import cupy as cp  # type: ignore
 
-            return cp, "cupy"
+            return cast(ArrayNamespace, cp), "cupy"
         except Exception:  # pragma: no cover - cupy always present with cudf
-            return np, "numpy"
-    return np, "numpy"
+            return cast(ArrayNamespace, np), "numpy"
+    return cast(ArrayNamespace, np), "numpy"
 
 
-def col_to_array(df: Any, col: str, engine: Engine) -> Any:
+def col_to_array(df: DataFrameT, col: str, engine: Engine) -> ArrayLike:
     """Extract a column as a backend-native 1-D array (numpy or cupy)."""
     if engine in (Engine.POLARS, Engine.POLARS_GPU):
-        return df.get_column(col).to_numpy()
+        return cast(ArrayLike, df.get_column(col).to_numpy())
     if engine == Engine.CUDF:
         # cudf Series -> cupy array (stays on device)
-        return df[col].values
-    return df[col].to_numpy()
+        return cast(ArrayLike, df[col].values)
+    return cast(ArrayLike, df[col].to_numpy())
 
 
-def ids_to_array(ids: Any, col: str, engine: Engine) -> Any:
+def ids_to_array(ids: DataFrameT, col: str, engine: Engine) -> ArrayLike:
     """Frontier ids (a frame/Series) -> backend array, matching index backend."""
     return col_to_array(ids, col, engine)
 
 
 
-def take_rows(df: Any, positions: Any, engine: Engine) -> Any:
+def take_rows(df: DataFrameT, positions: ArrayLike, engine: Engine) -> DataFrameT:
     """Positionally gather rows of ``df`` by an integer array ``positions``.
 
     ``positions`` is a backend array (numpy for pandas/polars, cupy for cudf).
@@ -62,12 +64,12 @@ def take_rows(df: Any, positions: Any, engine: Engine) -> Any:
         import numpy as np
 
         idx = np.asarray(positions)
-        return df[idx]
+        return cast(DataFrameT, df[idx])
     # pandas / cudf: iloc accepts numpy (pandas) or cupy (cudf) int arrays
-    return df.iloc[positions]
+    return cast(DataFrameT, df.iloc[positions])
 
 
-def select_by_ids(df: Any, col: str, ids: Any, engine: Engine) -> Any:
+def select_by_ids(df: DataFrameT, col: str, ids: ArrayLike, engine: Engine) -> DataFrameT:
     """Return rows of ``df`` whose ``col`` is in the id array ``ids`` (set semantics,
     preserves df row order). Engine-polymorphic, vectorized."""
     if engine in (Engine.POLARS, Engine.POLARS_GPU):
@@ -78,17 +80,17 @@ def select_by_ids(df: Any, col: str, ids: Any, engine: Engine) -> Any:
         # pola-rs/polars#22149) — vectorized AND preserves the left (df) row order, which
         # the node materialization relies on (table-order parity with the scan).
         ids_df = pl.DataFrame({col: np.asarray(ids)}).cast({col: df.schema[col]})
-        return df.join(ids_df.unique(), on=col, how="semi")
+        return cast(DataFrameT, df.join(ids_df.unique(), on=col, how="semi"))
     if engine == Engine.CUDF:
         import cudf  # type: ignore
 
-        return df[df[col].isin(cudf.Series(ids))]
+        return cast(DataFrameT, df[df[col].isin(cudf.Series(ids))])
     import numpy as np
 
-    return df[df[col].isin(np.asarray(ids))]
+    return cast(DataFrameT, df[df[col].isin(np.asarray(ids))])
 
 
-def set_difference(cand: Any, visited: Any, xp: Any) -> Any:
+def set_difference(cand: ArrayLike, visited: ArrayLike, xp: ArrayNamespace) -> ArrayLike:
     """cand minus visited (both backend arrays), vectorized via sorted membership."""
     if int(visited.shape[0]) == 0:
         return cand
@@ -101,7 +103,7 @@ def set_difference(cand: Any, visited: Any, xp: Any) -> Any:
     return cand[~ismember]
 
 
-def union1d(a: Any, b: Any, xp: Any) -> Any:
+def union1d(a: ArrayLike, b: ArrayLike, xp: ArrayNamespace) -> ArrayLike:
     if int(a.shape[0]) == 0:
         return xp.unique(b)
     if int(b.shape[0]) == 0:
