@@ -30,6 +30,7 @@ from .filter_by_dict import (
 
 if TYPE_CHECKING:
     from graphistry.compute.gfql.index.explain import GfqlExplainReport
+    from graphistry.compute.gfql.index.policy import IndexPolicy
 
 
 logger = setup_logger(__name__)
@@ -689,7 +690,7 @@ class ComputeMixin(Plottable):
         self,
         query: object,
         *,
-        index_policy: str = 'use',
+        index_policy: 'IndexPolicy' = 'use',
         engine: EngineAbstractType = 'auto',
     ) -> 'GfqlExplainReport':
         """Explain how the GFQL planner would run ``query``: per-hop index-vs-scan choice, cost-gate numbers, and resident-index validity. Read-only (no execution). Returns a report object; print it for a human-readable plan."""

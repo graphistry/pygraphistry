@@ -32,7 +32,7 @@ def gfql_explain(
     g: Any,
     query: object,
     *,
-    index_policy: str = "use",
+    index_policy: IndexPolicy = "use",
     engine: EngineAbstractType = "auto",
 ) -> GfqlExplainReport:
     resolved_policy: IndexPolicy = validate_index_policy(index_policy) or "use"
