@@ -713,7 +713,7 @@ def _connected_join_cached_singleton_dst_source_counts(
     if cache is not None and full_key in cache:
         return cast(DataFrameT, cache[full_key])
 
-    if engine in POLARS_ENGINES:
+    if engine in POLARS_ENGINES:  # pragma: no cover - polars-only, covered by polars lane
         import polars as pl
         counts = cast(
             DataFrameT,
