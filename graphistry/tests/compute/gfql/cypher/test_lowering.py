@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 from graphistry.Engine import Engine
 
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdge, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
+from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
 from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, col, compare
@@ -41,8 +42,23 @@ from graphistry.compute.gfql.cypher.procedures.networkx import (
 from graphistry.plugins.networkx.policy import NETWORKX_SCIPY_EXTRA_REQUIREMENTS, NETWORKX_VERSION_SPEC, SCIPY_VERSION_SPEC
 from graphistry.compute.gfql.cypher.ast import ExpressionText, OrderByClause, OrderItem, ReturnClause, ReturnItem, SourceSpan
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery
-from graphistry.compute.gfql.cypher.lowering import _logical_plan_route_for_query
-from graphistry.compute.gfql_unified import _connected_join_cached_edge_filter, _connected_join_two_star_fast_grouped_count, _connected_join_two_star_fast_rows, _execute_single_hop_grouped_aggregate_fast_path, _execute_two_hop_count_fast_path
+from graphistry.compute.gfql.cypher.lowering import (
+    ConnectedMatchJoinPlan,
+    _binding_prop_alias_set,
+    _clause_has_mixed_aggregate_item,
+    _logical_plan_route_for_query,
+    _projection_ref_from_expr_safe,
+)
+from graphistry.compute.gfql_unified import (
+    _connected_join_cached_edge_filter,
+    _connected_join_cached_singleton_dst_source_counts,
+    _connected_join_post_property_columns,
+    _connected_join_two_star_fast_grouped_count,
+    _connected_join_two_star_fast_rows,
+    _execute_single_hop_grouped_aggregate_fast_path,
+    _execute_two_hop_count_fast_path,
+    _filter_nodes_for_fast_count,
+)
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, SemanticTable
 from graphistry.compute.gfql.ir.compilation import PlanContext
@@ -18111,6 +18127,105 @@ def test_count_table_frame_op_error_and_empty_paths() -> None:
     assert ctx3._nodes is None and ctx3._edges is None
     out3 = frame_ops.count_table(ctx3, table="nodes", alias="c")
     assert out3._nodes.to_dict(orient="records") == [{"c": 0}]
+
+
+def test_connected_join_private_coverage_helpers_pandas() -> None:
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "a", "b", "c"],
+            "d": ["z", "z", "z", "z"],
+            "kind": ["x", "x", "x", "y"],
+        }
+    )
+    graph = _mk_graph(pd.DataFrame({"id": ["a", "b", "c", "z"]}), edges)
+    x_edges = edges[edges["kind"] == "x"]
+
+    counts = _connected_join_cached_singleton_dst_source_counts(
+        graph,
+        graph._edges,
+        x_edges,
+        {"kind": "x"},
+        "z",
+        src_col="s",
+        dst_col="d",
+        engine=Engine.PANDAS,
+    )
+    assert counts is not None
+    assert counts.sort_values("s").to_dict(orient="records") == [
+        {"s": "a", "__left_count__": 2},
+        {"s": "b", "__left_count__": 1},
+    ]
+    cached = _connected_join_cached_singleton_dst_source_counts(
+        graph,
+        graph._edges,
+        x_edges,
+        {"kind": "x"},
+        "z",
+        src_col="s",
+        dst_col="d",
+        engine=Engine.PANDAS,
+    )
+    assert cached is counts
+    assert _connected_join_cached_singleton_dst_source_counts(
+        graph,
+        graph._edges,
+        x_edges,
+        {"kind": {"nested": "not-cacheable"}},
+        "z",
+        src_col="s",
+        dst_col="d",
+        engine=Engine.PANDAS,
+    ) is None
+
+    filtered_nodes = _filter_nodes_for_fast_count(
+        pd.DataFrame({"id": ["a", "b"], "kind": ["keep", "drop"]}),
+        {"kind": "keep"},
+        engine=Engine.PANDAS,
+    )
+    assert filtered_nodes.to_dict(orient="records") == [{"id": "a", "kind": "keep"}]
+
+
+def test_connected_join_post_property_columns_walks_nested_params() -> None:
+    plan = ConnectedMatchJoinPlan(
+        pattern_chains=(),
+        pattern_shared_node_aliases=(),
+        post_join_chain=Chain(
+            [
+                ASTCall(
+                    "select",
+                    {
+                        "items": [
+                            ("city", "a.city"),
+                            ("nested", {"left": ["a.country", "b.age", "a.city"]}),
+                        ]
+                    },
+                ),
+            ],
+            validate=False,
+        ),
+    )
+
+    assert _connected_join_post_property_columns(plan, "a") == ["city", "country"]
+    assert _connected_join_post_property_columns(plan, "b") == ["age"]
+
+
+def test_lowering_coverage_helper_projection_and_aggregate_decisions() -> None:
+    alias_targets = {"a": ASTNode(name="a"), "b": ASTNode(name="b")}
+
+    assert _projection_ref_from_expr_safe(" a.city ", alias_targets) == ("a", "city")
+    assert _projection_ref_from_expr_safe("a.city.name", alias_targets) is None
+    assert _projection_ref_from_expr_safe("missing.city", alias_targets) is None
+    assert _projection_ref_from_expr_safe("a.bad-name", alias_targets) is None
+
+    mixed_query = parse_cypher("MATCH (a)-->(b) RETURN a.city + count(b) AS score")
+    assert _clause_has_mixed_aggregate_item(mixed_query, alias_targets=alias_targets, params=None)
+
+    split_query = parse_cypher("MATCH (a)-->(b) RETURN a.city AS city, count(b) AS n")
+    assert not _clause_has_mixed_aggregate_item(split_query, alias_targets=alias_targets, params=None)
+    assert _binding_prop_alias_set(split_query, alias_targets=alias_targets, params=None) == ["a"]
+
+    count_only_query = parse_cypher("MATCH (a)-->(b) RETURN count(*) AS n")
+    assert _binding_prop_alias_set(count_only_query, alias_targets=alias_targets, params=None) == []
 
 def test_string_cypher_parenthesized_and_preserves_missing_property_as_null() -> None:
     # A parenthesized AND must stay on the row-filter path, not the filter_dict path:
