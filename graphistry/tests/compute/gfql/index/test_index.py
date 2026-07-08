@@ -4,6 +4,8 @@ Behavioral / differential: the index fast path must return the SAME subgraph as
 the scan/join path. Engine-parametrized (pandas/cudf/polars/polars-gpu) with
 importorskip so GPU lanes run only where available.
 """
+import importlib
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -102,6 +104,28 @@ def test_cypher_ddl_recognizer():
     assert parse_index_ddl("MATCH (a) RETURN a") is None
     with pytest.raises(ValueError):
         parse_index_ddl("CREATE GFQL INDEX FOR bogus_kind")
+
+
+def test_cypher_ddl_regexes_are_lazy(monkeypatch):
+    import graphistry.compute.gfql.index.cypher_ddl as ddl
+
+    real_compile = ddl.re.compile
+    calls = []
+
+    def tracking_compile(*args, **kwargs):
+        calls.append(args[0])
+        return real_compile(*args, **kwargs)
+
+    monkeypatch.setattr(ddl.re, "compile", tracking_compile)
+    ddl = importlib.reload(ddl)
+
+    assert calls == []
+    assert ddl.looks_like_index_ddl("CREATE GFQL INDEX FOR edge_out_adj")
+    assert len(calls) == 1
+    assert ddl.parse_index_ddl("SHOW GFQL INDEXES") == ShowIndexes()
+    assert len(calls) == 5
+    assert isinstance(ddl.parse_index_ddl("DROP GFQL INDEX FOR edge_in_adj"), DropIndex)
+    assert len(calls) == 5
 
 
 def test_cypher_ddl_via_gfql(graph):
