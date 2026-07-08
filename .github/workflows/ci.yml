@@ -50,6 +50,21 @@ jobs:
       cypher_frontend_ci: ${{ steps.filter.outputs.cypher_frontend_ci }}
       benchmarks: ${{ steps.filter.outputs.benchmarks }}
       ai: ${{ steps.filter.outputs.ai }}
+      core: ${{ steps.filter.outputs.core }}
+      plugins: ${{ steps.filter.outputs.plugins }}
+      networkx: ${{ steps.filter.outputs.networkx }}
+      docs_test: ${{ steps.filter.outputs.docs_test }}
+      schema_lane: ${{ steps.filter.outputs.schema_lane }}
+      pandas_compat: ${{ steps.filter.outputs.pandas_compat }}
+      graphviz_lane: ${{ steps.filter.outputs.graphviz_lane }}
+      neo4j_lane: ${{ steps.filter.outputs.neo4j_lane }}
+      build_package: ${{ steps.filter.outputs.build_package }}
+      dgl_lane: ${{ steps.filter.outputs.dgl_lane }}
+      networkx_test_only: ${{ steps.filter.outputs.networkx_test_only }}
+      docs_test_only: ${{ steps.filter.outputs.docs_test_only }}
+      benchmarks_only: ${{ steps.filter.outputs.benchmarks_only }}
+      gfql_only: ${{ steps.filter.outputs.gfql_only }}
+      narrow_python_only: ${{ steps.filter.outputs.narrow_python_only }}
       docs_only_latest: ${{ steps.docs_only_latest.outputs.docs_only_latest }}
     steps:
     - uses: actions/checkout@v4
@@ -67,7 +82,7 @@ jobs:
         HEAD_SHA: ${{ github.sha }}
       run: |
         set -euo pipefail
-        keys=(infra python spark gfql cypher_frontend_ci benchmarks ai docs)
+        keys=(infra python spark gfql cypher_frontend_ci benchmarks ai docs core plugins networkx docs_test schema_lane pandas_compat graphviz_lane neo4j_lane build_package dgl_lane networkx_test_only docs_test_only benchmarks_only gfql_only graphviz_only neo4j_only build_package_only narrow_python_only)
 
         emit_all() {
           # $1 = "true" or "false" — emit the same value for every key
@@ -116,6 +131,32 @@ jobs:
           exit 0
         fi
 
+        echo "::group::Changed files for path filters"
+        if [[ -n "$changed" ]]; then
+          printf '%s\n' "$changed"
+        else
+          echo "(none)"
+        fi
+        echo "::endgroup::"
+
+        filter_summary="${RUNNER_TEMP}/path-filter-summary.md"
+        {
+          echo "### Path filter summary"
+          echo ""
+          echo "**Changed files:**"
+          echo ""
+          if [[ -n "$changed" ]]; then
+            while IFS= read -r f; do
+              printf -- '- `%s`\n' "$f"
+            done <<< "$changed"
+          else
+            echo "- (none)"
+          fi
+          echo ""
+          echo "| Filter | Value |"
+          echo "|---|---|"
+        } > "$filter_summary"
+
         # emit <key> <regex>...  — joins regex args with `|` and emits true/false.
         # Each pattern goes on its own line at the call site for readability;
         # this is the reason emit takes variadic args instead of a pre-joined string.
@@ -124,6 +165,7 @@ jobs:
           shift
           local IFS='|'
           local pat="$*"
+          local value="false"
           # Use a here-string instead of `printf "%s\n" "$changed" | grep -qE`.
           # Why: with `set -o pipefail`, if `grep -q` matches early on a $changed
           # larger than the pipe buffer (~64 KB; thousands of files), `grep` exits
@@ -133,10 +175,36 @@ jobs:
           # be `true`. A here-string is a pure redirection (not a pipeline), so
           # the data is fully buffered before grep reads, eliminating the race.
           if [[ -n "$changed" ]] && grep -qE "$pat" <<< "$changed"; then
-            echo "${key}=true"  >> "$GITHUB_OUTPUT"
-          else
-            echo "${key}=false" >> "$GITHUB_OUTPUT"
+            value="true"
           fi
+          echo "${key}=${value}" >> "$GITHUB_OUTPUT"
+          echo "path-filter: ${key}=${value}"
+          echo "| \`${key}\` | \`${value}\` |" >> "$filter_summary"
+        }
+
+        # emit_only <key> <allowed-regex>... emits true only when every
+        # changed file matches the allowed set. These are safe carve-outs for
+        # known narrow PR shapes; unknown Python edits still fall through to the
+        # broad `python && narrow_python_only != true` gates below.
+        emit_only() {
+          local key="$1"
+          shift
+          local IFS='|'
+          local pat="$*"
+          local value="false"
+          if [[ -n "$changed" ]]; then
+            value="true"
+            while IFS= read -r f; do
+              if ! [[ "$f" =~ $pat ]]; then
+                value="false"
+                break
+              fi
+            done <<< "$changed"
+          fi
+          printf -v "$key" '%s' "$value"
+          echo "${key}=${value}" >> "$GITHUB_OUTPUT"
+          echo "path-filter: ${key}=${value}"
+          echo "| \`${key}\` | \`${value}\` |" >> "$filter_summary"
         }
 
         # Filter dimensions — patterns mirror the prior dorny/paths-filter YAML
@@ -171,9 +239,14 @@ jobs:
         emit gfql \
           '^graphistry/gfql/' \
           '^graphistry/compute/gfql/' \
+          '^graphistry/compute/gfql_validate\.py$' \
           '^graphistry/compute/gfql_unified\.py$' \
           '^graphistry/models/gfql/' \
           '^graphistry/Plottable\.py$' \
+          '^graphistry/tests/benchmarks/gfql/' \
+          '^graphistry/tests/compute/gfql/' \
+          '^graphistry/tests/compute/test_gfql.*\.py$' \
+          '^graphistry/tests/test_gfql_.*\.py$' \
           '^tests/gfql/'
 
         # Spark lane: spark coercion/runtime + spark-focused tests + workflow changes.
@@ -230,6 +303,147 @@ jobs:
           '^graphistry/tests/data/reddit\.csv$' \
           '^requirements/(test-ai|test-umap)-py.*\.lock$'
 
+        # Classifier-only dimensions for CI-silo audit. These outputs are
+        # intentionally not used by job gates yet; later stacked PRs can consume
+        # them after scenario validation and review.
+        emit core \
+          '^\.github/workflows/ci\.yml$' \
+          '^setup\.py$' \
+          '^setup\.cfg$' \
+          '^pyproject\.toml$' \
+          '^pytest\.ini$' \
+          '^mypy\.ini$' \
+          '^MANIFEST\.in$' \
+          '^graphistry/Engine\.py$' \
+          '^graphistry/PlotterBase\.py$' \
+          '^graphistry/Plottable\.py$' \
+          '^graphistry/compute/ComputeMixin\.py$' \
+          '^graphistry/compute/dataframe_utils\.py$' \
+          '^graphistry/compute/typing\.py$' \
+          '^graphistry/utils/'
+
+        emit plugins \
+          '^graphistry/plugins/' \
+          '^graphistry/plugins_types/' \
+          '^graphistry/tests/plugins/'
+
+        emit networkx \
+          '^graphistry/plugins/networkx/' \
+          '^graphistry/compute/gfql/cypher/lowering\.py$' \
+          '^graphistry/compute/gfql/cypher/call_procedures\.py$' \
+          '^graphistry/compute/gfql/cypher/procedures/(common|networkx)\.py$' \
+          '^graphistry/compute/gfql/ir/logical_plan\.py$' \
+          '^graphistry/compute/gfql/physical_planner\.py$' \
+          '^graphistry/tests/plugins/test_networkx\.py$' \
+          '^graphistry/tests/compute/gfql/cypher/test_lowering\.py$' \
+          '^docs/source/api/plugins/compute/networkx\.rst$' \
+          '^demos/demos_databases_apis/networkx/'
+
+        emit docs_test \
+          '^docs/ci\.sh$' \
+          '^docs/docker/' \
+          '^docs/test_doc_examples\.py$' \
+          '^requirements/rtd-py3\.12\.lock$' \
+          '^\.readthedocs\.yml$'
+
+        emit schema_lane \
+          '^graphistry/schema\.py$' \
+          '^graphistry/devschemas/' \
+          '^schemas/' \
+          '^graphistry/tests/compute/gfql/test_public_schema\.py$' \
+          '^docs/source/gfql/schema\.rst$'
+
+        emit pandas_compat \
+          '^graphistry/compute/' \
+          '^graphistry/hyper\.py$' \
+          '^graphistry/PlotterBase\.py$' \
+          '^graphistry/Plottable\.py$' \
+          '^graphistry/tests/test_(plotter|compute_chain|hypergraph|compute_hops|compute_collapse|compute_filter_by_dict|bolt_util|nodexl)\.py$' \
+          '^graphistry/tests/compute/test_(chain|chain_let|chain_concat|dataframe_primitives|hop)\.py$' \
+          '^graphistry/tests/compute/gfql/' \
+          '^tests/gfql/ref/'
+
+        emit graphviz_lane \
+          '^graphistry/plotter\.py$' \
+          '^graphistry/PlotterBase\.py$' \
+          '^graphistry/tests/.*graphviz.*\.py$' \
+          '^bin/test-graphviz\.sh$' \
+          '^requirements/test-graphviz-py.*\.lock$'
+
+        emit neo4j_lane \
+          '^docker/.*neo4j' \
+          '^graphistry/bolt_util\.py$' \
+          '^graphistry/tests/test_bolt_util\.py$'
+
+        emit build_package \
+          '^setup\.py$' \
+          '^setup\.cfg$' \
+          '^pyproject\.toml$' \
+          '^MANIFEST\.in$' \
+          '^graphistry/py\.typed$' \
+          '^bin/build\.sh$'
+
+        emit dgl_lane \
+          '^graphistry/dgl_utils\.py$' \
+          '^graphistry/tests/.*dgl.*\.py$' \
+          '^bin/test-(dgl|embed)\.sh$'
+
+        emit_only networkx_test_only \
+          '^CHANGELOG\.md$' \
+          '^graphistry/tests/plugins/test_networkx\.py$'
+
+        emit_only docs_test_only \
+          '^CHANGELOG\.md$' \
+          '^docs/ci\.sh$' \
+          '^docs/docker/' \
+          '^docs/test_doc_examples\.py$' \
+          '^requirements/rtd-py3\.12\.lock$' \
+          '^\.readthedocs\.yml$'
+
+        emit_only benchmarks_only \
+          '^CHANGELOG\.md$' \
+          '^benchmarks/'
+
+        # Conservative GFQL-owned code/test slice. Do not include docs/source,
+        # broad compute entrypoints, gfql_unified.py, Plottable.py, or shared
+        # compute files; those continue to fail closed through broad Python gates.
+        emit_only gfql_only \
+          '^CHANGELOG\.md$' \
+          '^graphistry/gfql/' \
+          '^graphistry/compute/gfql/' \
+          '^graphistry/compute/gfql_validate\.py$' \
+          '^graphistry/models/gfql/' \
+          '^graphistry/tests/benchmarks/gfql/' \
+          '^graphistry/tests/compute/gfql/' \
+          '^graphistry/tests/compute/test_gfql.*\.py$' \
+          '^graphistry/tests/test_gfql_.*\.py$' \
+          '^tests/gfql/'
+
+        emit_only graphviz_only \
+          '^CHANGELOG\.md$' \
+          '^graphistry/plotter\.py$' \
+          '^graphistry/tests/.*graphviz.*\.py$' \
+          '^bin/test-graphviz\.sh$' \
+          '^requirements/test-graphviz-py.*\.lock$'
+
+        emit_only neo4j_only \
+          '^CHANGELOG\.md$' \
+          '^docker/.*neo4j' \
+          '^graphistry/bolt_util\.py$' \
+          '^graphistry/tests/test_bolt_util\.py$'
+
+        emit_only build_package_only \
+          '^CHANGELOG\.md$' \
+          '^graphistry/py\.typed$'
+
+        narrow_python_only="false"
+        if [[ "${networkx_test_only}" == "true" || "${docs_test_only}" == "true" || "${benchmarks_only}" == "true" || "${gfql_only}" == "true" || "${graphviz_only}" == "true" || "${neo4j_only}" == "true" || "${build_package_only}" == "true" ]]; then
+          narrow_python_only="true"
+        fi
+        echo "narrow_python_only=${narrow_python_only}" >> "$GITHUB_OUTPUT"
+        echo "path-filter: narrow_python_only=${narrow_python_only}"
+        echo "| \`narrow_python_only\` | \`${narrow_python_only}\` |" >> "$filter_summary"
+
         # Documentation: docs tree + any md/rst at any depth + demos + notebooks.
         emit docs \
           '^docs/' \
@@ -237,6 +451,8 @@ jobs:
           '\.rst$' \
           '^demos/' \
           '^notebooks/'
+
+        cat "$filter_summary" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Detect docs-only change on tip
       id: docs_only_latest
@@ -300,7 +516,7 @@ jobs:
 
   schema-artifacts:
     needs: changes
-    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.schema_lane == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -358,7 +574,7 @@ jobs:
 
   check-rtd-lockfile:
     needs: changes
-    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.docs == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.narrow_python_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -724,7 +940,7 @@ jobs:
   test-networkx-scipy-policy:
     name: test-networkx-scipy-policy (${{ matrix.label }}, py${{ matrix.python-version }})
     needs: [changes, generate-lockfiles]
-    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.networkx == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     strategy:
@@ -853,9 +1069,9 @@ jobs:
 
 
   test-minimal-python-rest:
-    # Middle versions (3.9-3.13) + non-GFQL deferred files, run after sentinel + GFQL core pass.
-    needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
-    if: ${{ success() }}
+    # Middle versions (3.9-3.13) + non-GFQL deferred files.
+    needs: [changes, test-minimal-python, generate-lockfiles]
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -907,7 +1123,7 @@ jobs:
   # Runs in parallel with downstream jobs instead of blocking them.
   test-gfql-core:
     needs: [changes, python-lint-types, generate-lockfiles]
-    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.schema_lane == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.ai == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -1020,8 +1236,8 @@ jobs:
     # PR hygiene only: combine coverage collected by existing CPU test jobs and
     # gate executable package lines touched by this PR. Historical uncovered
     # lines outside the diff are intentionally ignored.
-    needs: [changes, test-core-python, test-gfql-core, generate-lockfiles]
-    if: ${{ github.event_name == 'pull_request' && (needs.changes.outputs.python == 'true' || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.infra == 'true') && !(needs.changes.outputs.docs_only_latest == 'true') }}
+    needs: [changes, test-core-python, test-gfql-core, test-polars, generate-lockfiles]
+    if: ${{ github.event_name == 'pull_request' && ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.schema_lane == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true') && !(needs.changes.outputs.docs_only_latest == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -1063,6 +1279,12 @@ jobs:
         name: gfql-coverage-audit-py3.12
         path: build/changed-line-coverage/artifacts/gfql
 
+    - name: Download Polars coverage data
+      uses: actions/download-artifact@v4
+      with:
+        name: polars-coverage-py3.12
+        path: build/changed-line-coverage/artifacts/polars
+
     - name: Changed-line coverage gate
       env:
         BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -1073,7 +1295,8 @@ jobs:
         python -m coverage combine \
           --data-file=build/changed-line-coverage/combined.coverage \
           build/changed-line-coverage/artifacts/core/coverage.core-py3.14 \
-          build/changed-line-coverage/artifacts/gfql/coverage.gfql-py3.12
+          build/changed-line-coverage/artifacts/gfql/coverage.gfql-py3.12 \
+          build/changed-line-coverage/artifacts/polars/coverage.polars-py3.12
         python bin/changed_line_coverage.py \
           --data-file build/changed-line-coverage/combined.coverage \
           --base-ref "$BASE_SHA" \
@@ -1095,7 +1318,7 @@ jobs:
     name: test-pandas-compat (${{ matrix.label }}, py${{ matrix.python-version }})
     needs: [changes, test-minimal-python, generate-lockfiles]
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -1155,7 +1378,7 @@ jobs:
     name: test-pandas-compat-gfql (${{ matrix.label }}, py${{ matrix.python-version }})
     needs: [changes, test-minimal-python, generate-lockfiles]
     # Run if Python files changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ (needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -1224,9 +1447,8 @@ jobs:
 
 
   test-core-python:
-    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
-    # Inherit condition from test-minimal-python
-    if: ${{ success() }}
+    needs: [changes, test-minimal-python, generate-lockfiles]
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
 
@@ -1285,9 +1507,8 @@ jobs:
         retention-days: 14
 
   test-graphviz:
-    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
-    # Inherit condition from test-minimal-python
-    if: ${{ success() }}
+    needs: [changes, test-minimal-python, generate-lockfiles]
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.graphviz_lane == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10  # Accommodate retry logic: 3 attempts × 2min + 1.5min backoff/cleanup
 
@@ -1352,8 +1573,8 @@ jobs:
         ./bin/test-graphviz.sh
 
   test-polars:
-    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
-    if: ${{ success() }}
+    needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -1389,9 +1610,38 @@ jobs:
         uv pip install -e . --no-deps
 
     - name: Polars tests
+      if: ${{ matrix.python-version != '3.12' }}
       run: |
         source pygraphistry/bin/activate
         ./bin/test-polars.sh
+
+    - name: Polars tests with coverage
+      if: ${{ matrix.python-version == '3.12' }}
+      run: |
+        source pygraphistry/bin/activate
+        mkdir -p build/polars-coverage
+        COVERAGE_FILE=build/polars-coverage/coverage.polars-py3.12 POLARS_COV=1 ./bin/test-polars.sh
+
+    - name: Polars GFQL coverage audit (per-file floors)
+      if: ${{ matrix.python-version == '3.12' }}
+      run: |
+        source pygraphistry/bin/activate
+        python bin/coverage_audit.py \
+          --profile gfql-polars \
+          --skip-tests \
+          --engine-label ci-polars-py3.12 \
+          --output-dir build/polars-coverage-audit \
+          --data-file build/polars-coverage/coverage.polars-py3.12 \
+          --baseline-file graphistry/tests/compute/gfql/coverage_baselines/ci-polars-py3.12.json
+        cat build/polars-coverage-audit/gfql-polars-coverage-audit.md | tee -a "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload polars coverage
+      if: ${{ matrix.python-version == '3.12' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: polars-coverage-py3.12
+        path: build/polars-coverage/
+        retention-days: 14
 
   test-core-umap:
     needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
@@ -1609,7 +1859,8 @@ jobs:
           graphistry/tests/test_umap_utils.py
 
   test-dgl-cpu:
-    needs: [changes, test-minimal-python, test-gfql-core]
+    needs: [changes, test-minimal-python]
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.ai == 'true' || needs.changes.outputs.dgl_lane == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -1698,9 +1949,8 @@ jobs:
 
 
   test-neo4j:
-    needs: [ test-minimal-python, test-gfql-core ]
-    # Inherit condition from test-minimal-python
-    if: ${{ success() }}
+    needs: [changes, test-minimal-python]
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.neo4j_lane == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     env:
@@ -1720,9 +1970,8 @@ jobs:
 
 
   test-build:
-    needs: [ test-minimal-python, test-gfql-core, generate-lockfiles ]
-    # Inherit condition from test-minimal-python
-    if: ${{ success() }}
+    needs: [changes, test-minimal-python, generate-lockfiles]
+    if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.build_package == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
 
@@ -1763,7 +2012,7 @@ jobs:
   docs-latex-unicode-guard:
     needs: [changes]
     # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ needs.changes.outputs.docs == 'true' || needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.narrow_python_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
 
@@ -1779,7 +2028,7 @@ jobs:
   test-docs:
     needs: [changes, python-lint-types, docs-latex-unicode-guard]
     # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ needs.changes.outputs.docs == 'true' || needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.narrow_python_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 

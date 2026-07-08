@@ -127,6 +127,7 @@ WhereOp = Literal[
     "contains",
     "starts_with",
     "ends_with",
+    "regex",
 ]
 
 
@@ -146,6 +147,13 @@ class WherePatternPredicate:
     # anti-semi-join lowering instead of intersect-MATCH.  Default False keeps
     # all existing single-positive / multi-positive callers unchanged.
     negated: bool = False
+    # viz-filter L1: "exists" when built from an EXISTS { } subquery — its pattern
+    # aliases are EXISTENTIALLY quantified (locals allowed); "bare" keeps the
+    # conservative no-new-aliases guard for bare pattern predicates.
+    pattern_origin: str = "bare"
+    # viz-filter L1: endpoint-inequality constraint from `EXISTS { (n)--(m) WHERE
+    # m <> n }` — the viz drop-self prune-isolated flavor. (alias_a, alias_b).
+    pattern_neq: Optional[Tuple[str, str]] = None
 
 
 WhereTerm = Union[WherePredicate, WherePatternPredicate]
@@ -182,6 +190,10 @@ class BooleanExpr:
     atom_text: Optional[str] = None
     atom_span: Optional[SourceSpan] = None
     pattern: Optional[Tuple[PatternElement, ...]] = None
+    # viz-filter L1 (EXISTS { } leaves): existential-origin marker + optional
+    # endpoint-inequality; both flow into WherePatternPredicate at lift time.
+    pattern_origin: str = "bare"
+    pattern_neq: Optional[Tuple[str, str]] = None
 
 
 @dataclass(frozen=True)
@@ -192,11 +204,12 @@ class WhereClause:
     populated by the parser; consumers MUST handle all three:
 
     - **Structured path**: ``predicates`` populated, ``expr_tree is None``.
-      ``predicates`` carries either ``WherePredicate`` entries (pure AND of
-      comparable / has-labels predicates routed via the ``where_predicates``
-      grammar rule, or AND-joined bare label predicates lifted by
-      ``generic_where_clause`` via label narrowing) or a single
-      ``WherePatternPredicate`` (pattern-only WHERE: ``WHERE (n)-[]->(m)``).
+      ``predicates`` carries either ``WherePredicate`` entries (a flat top-level
+      AND of simple predicates -- cmp / IS NULL / CONTAINS / STARTS/ENDS WITH /
+      has-labels -- lifted post-parse from the generic ``expr_tree`` by
+      ``generic_where_clause`` via ``_lift_label_only_and_spine`` /
+      ``_lift_and_spine_predicates``) or a single ``WherePatternPredicate``
+      (pattern-only WHERE: ``WHERE (n)-[]->(m)``).
     - **Tree path**: ``predicates == ()``, ``expr_tree`` populated.  Fires
       when ``generic_where_clause`` cannot lift to structured predicates
       (OR / XOR / NOT / parenthesized boolean / non-label atoms); consumers

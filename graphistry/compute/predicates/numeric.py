@@ -77,9 +77,19 @@ def eq(val: float) -> EQ:
 class NE(NumericASTPredicate):
     op = staticmethod(operator.ne)
 
+    def __call__(self, s: SeriesT) -> SeriesT:
+        # openCypher/SQL three-valued logic: `null <> x` is NULL, so a NULL/NaN cell is NOT a match
+        # (an unknown value cannot be proven unequal to x). pandas `NaN != x` returns True, which
+        # would wrongly KEEP the null; AND with notna() so it is excluded — matching cuDF + the
+        # polars engine. eq/gt/lt/ge/le already drop nulls (their operator returns False on a null).
+        return cast(SeriesT, super().__call__(s) & s.notna())
+
 def ne(val: float) -> NE:
     """
-    Return whether a given value is not equal to a threshold
+    Return whether a given value is not equal to a threshold.
+
+    Follows openCypher/SQL three-valued logic: a NULL/NA cell is NOT a match (``null <> x`` is
+    unknown), so null rows are excluded — the same as ``eq`` and the other comparisons.
     """
     return NE(val)
 

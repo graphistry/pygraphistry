@@ -7,24 +7,38 @@ from typing import Any, List, Optional, Union
 from typing_extensions import Literal
 from enum import Enum
 
+from graphistry.models.types import ValidationParam
+
 
 class Engine(Enum):
     PANDAS = 'pandas'
     CUDF = 'cudf'
     DASK = 'dask'
     DASK_CUDF = 'dask_cudf'
+    POLARS = 'polars'
+    # GPU execution TARGET of the lazy Polars engine (cudf_polars): frames stay
+    # ``pl.DataFrame`` (handled exactly like POLARS in all frame ops); only the
+    # lazy ``.collect()`` runs on GPU. Explicit opt-in only — AUTO never selects it.
+    POLARS_GPU = 'polars-gpu'
+
+# Engines whose frames use the polars API (unique/with_columns/...) rather than the
+# pandas API (drop_duplicates/assign/...). POLARS_GPU is the GPU execution target of
+# the same lazy Polars engine — frames stay ``pl.DataFrame``, so it shares the path.
+POLARS_ENGINES = (Engine.POLARS, Engine.POLARS_GPU)
 
 class EngineAbstract(Enum):
     PANDAS = Engine.PANDAS.value
     CUDF = Engine.CUDF.value
     DASK = Engine.DASK.value
     DASK_CUDF = Engine.DASK_CUDF.value
+    POLARS = Engine.POLARS.value
+    POLARS_GPU = Engine.POLARS_GPU.value
     AUTO = 'auto'
 
 
 # Type alias for engine parameter - accepts both enum values and string literals
 # Includes 'auto' for automatic detection
-EngineAbstractType = Union[EngineAbstract, Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'auto']]
+EngineAbstractType = Union[EngineAbstract, Literal['pandas', 'cudf', 'dask', 'dask_cudf', 'polars', 'polars-gpu', 'auto']]
 
 DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
@@ -123,12 +137,25 @@ def df_to_pdf(df, engine: Engine):
         return df.compute()
     raise ValueError('Only engines pandas/cudf supported')
 
-def _cudf_from_pandas_best_effort(df: pd.DataFrame):
+def _cudf_from_pandas_best_effort(df: pd.DataFrame, *, validate: Optional[ValidationParam] = None, warn: bool = True):
+    """pandas -> cuDF honoring the repo-wide ``validate``/``warn`` convention.
+
+    Default (``validate=None`` -> ``autofix``): best-effort per-column coercion of
+    mixed-type object columns to string (numeric-looking columns kept numeric), warning
+    once. ``strict``/``strict-fast``: raise ``ArrowConversionError`` instead of coercing
+    (matching the plot()/upload() boundary and the polars converter's strict mode).
+    ``validate=False`` == autofix but suppresses the warning.
+    """
     import cudf
+    from graphistry.validate.common import normalize_validation_params
+    validate_mode, warn = normalize_validation_params('autofix' if validate is None else validate, warn)
 
     try:
         return cudf.from_pandas(df)
-    except Exception:
+    except Exception as e:
+        if validate_mode in ('strict', 'strict-fast'):
+            from graphistry.exceptions import ArrowConversionError
+            raise ArrowConversionError(columns=_mixed_type_object_columns(df), original_error=e) from e
         failed_cols: List[str] = []
         out_gdf = cudf.from_pandas(df[[]])
         for col in df.columns:
@@ -154,7 +181,7 @@ def _cudf_from_pandas_best_effort(df: pd.DataFrame):
                 failed_cols.append(str(col))
                 string_df = pd.DataFrame({col: series.astype("string")})
                 out_gdf[col] = cudf.from_pandas(string_df)[col]
-        if failed_cols:
+        if failed_cols and warn:
             warnings.warn(
                 "Best-effort pandas->cuDF coercion converted mixed-type columns to string dtype: "
                 + ", ".join(f"{col}[{df[col].dtype}]" for col in failed_cols),
@@ -163,7 +190,48 @@ def _cudf_from_pandas_best_effort(df: pd.DataFrame):
         return out_gdf
 
 
-def df_to_engine(df, engine: Engine):
+def is_polars_df(df: Any) -> bool:
+    """True if ``df`` is a polars DataFrame or LazyFrame.
+
+    Import-light module-name check (polars is an optional dependency, so we avoid importing
+    it just to ``isinstance``). ``type(df).__module__`` starts with ``polars.`` for both
+    ``pl.DataFrame`` and ``pl.LazyFrame``. Single source of truth — the gfql engine had this
+    reimplemented in 5 places."""
+    return df is not None and "polars" in type(df).__module__
+
+
+def active_frames_are_polars(g: Any) -> bool:
+    """True if ``g``'s active table (nodes, else edges) is a polars frame."""
+    if g._nodes is not None:
+        return is_polars_df(g._nodes)
+    return is_polars_df(g._edges)
+
+
+def _pl_nan_to_null(df):
+    """Convert NaN -> null in float columns of a polars frame.
+
+    Matches ``pl.from_pandas(nan_to_null=True)`` (the pandas-input path) so a *native*
+    polars / Arrow / cuDF input carrying genuine NaN is treated as MISSING like the pandas
+    oracle (which skipna/dropna's NaN). Without this, ``engine='polars'`` on a frame with a
+    real NaN keeps rows a filter/aggregation should drop (silent divergence from pandas).
+    No-op when there are no float columns."""
+    import polars as pl
+    float_cols = [c for c, dt in df.schema.items() if dt in (pl.Float32, pl.Float64)]
+    if not float_cols:
+        return df
+    return df.with_columns([pl.col(c).fill_nan(None) for c in float_cols])
+
+
+def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = None, warn: bool = True):
+    """Convert ``df`` to ``engine``'s frame type.
+
+    ``validate``/``warn`` (see ``graphistry.models.types.ValidationParam``) control how
+    mixed-type object columns that cannot go to Arrow are handled. ``validate=None``
+    (default) means "use the engine's own default": cuDF defaults ``autofix`` (best-effort
+    coerce mixed cols to string + warn, its shipped behavior), polars defaults ``strict``
+    (parity-or-raise). ``strict``/``strict-fast`` raise ``ArrowConversionError`` (cuDF) or
+    ``NotImplementedError`` (polars); ``autofix`` coerces + warns on both.
+    """
     if engine == Engine.PANDAS:
         if isinstance(df, pd.DataFrame):
             return df
@@ -201,7 +269,7 @@ def df_to_engine(df, engine: Engine):
             return df
         if not isinstance(df, pd.DataFrame):
             df = df_to_engine(df, Engine.PANDAS)
-        return _cudf_from_pandas_best_effort(df)
+        return _cudf_from_pandas_best_effort(df, validate=validate, warn=warn)
     elif engine == Engine.DASK:
         import dask.dataframe as dd
         if isinstance(df, dd.DataFrame):
@@ -209,7 +277,127 @@ def df_to_engine(df, engine: Engine):
         if not isinstance(df, pd.DataFrame):
             df = df_to_engine(df, Engine.PANDAS)
         return dd.from_pandas(df, npartitions=1)
-    raise ValueError(f'Only engines pandas/cudf/dask supported, got: {engine}')
+    elif engine in POLARS_ENGINES:
+        import polars as pl
+        if isinstance(df, pl.DataFrame):
+            return _pl_nan_to_null(df)
+        if isinstance(df, pl.LazyFrame):
+            # Collect via the target-aware lazy collect so the executor knobs apply:
+            # engine=POLARS_GPU collects on the cudf-polars GPU executor (gpu_executor()),
+            # engine=POLARS honors cpu_streaming(). A bare df.collect() would materialize on
+            # the CPU default executor and ignore both — the POLARS_ENGINES branch does not
+            # otherwise distinguish POLARS from POLARS_GPU for a LazyFrame input. Function-local
+            # import: lazy/__init__ imports no heavy deps and never imports Engine (no cycle).
+            from graphistry.compute.gfql.lazy import collect as _lazy_collect, target_mode, ExecutionTarget
+            _tgt = ExecutionTarget.GPU if engine == Engine.POLARS_GPU else ExecutionTarget.CPU
+            with target_mode(_tgt):
+                return _pl_nan_to_null(_lazy_collect(df))
+        if isinstance(df, pa.Table):
+            return _pl_nan_to_null(pl.from_arrow(df))
+        pl_validate: ValidationParam = 'strict' if validate is None else validate
+        if isinstance(df, pd.DataFrame):
+            return _pl_from_pandas(df, validate=pl_validate, warn=warn)
+        # cuDF (device) -> Arrow -> polars: a single host copy via cuDF's native
+        # interchange, not the cuDF -> pandas -> polars double-convert. Besides the
+        # extra hop, the pandas detour is lossy (cuDF nullable Int64/boolean ->
+        # pandas float+NaN/object), whereas Arrow preserves dtypes and nulls.
+        # (Skipping the host round trip entirely for polars-gpu is a deeper
+        # follow-up: cudf_polars still ingests a host polars frame today.)
+        if 'cudf' in str(type(df).__module__):
+            import cudf
+            if isinstance(df, cudf.DataFrame):
+                return _pl_nan_to_null(pl.from_arrow(df.to_arrow()))
+        # dask/spark and anything else: route through pandas
+        return _pl_from_pandas(df_to_engine(df, Engine.PANDAS), validate=pl_validate, warn=warn)
+    raise ValueError(f'Only engines pandas/cudf/dask/polars supported, got: {engine}')
+
+
+def _mixed_type_object_columns(df) -> List[str]:
+    """Object columns holding >1 Python scalar type among non-null values.
+
+    Cypher properties are dynamically typed, so a pandas object column can hold
+    e.g. ``int`` and ``str`` together; polars/Arrow cannot represent that in one
+    column. Used to name the offender in the honest ``NotImplementedError``."""
+    bad: List[str] = []
+    for col in df.columns:
+        if str(getattr(df[col], "dtype", "")) != "object":
+            continue
+        types = set()
+        for value in df[col].to_numpy():
+            if value is None or (isinstance(value, float) and value != value):  # None / NaN
+                continue
+            types.add(type(value))
+            if len(types) > 1:
+                bad.append(str(col))
+                break
+    return bad
+
+
+def _pl_from_pandas(df, *, validate: ValidationParam = 'strict', warn: bool = True):
+    """``pl.from_pandas`` participating in the repo-wide ``validate``/``warn`` convention.
+
+    Polars/Arrow cannot represent a mixed-type (e.g. int+str) object column, which
+    pandas allows for dynamically-typed Cypher properties. This mirrors the plot()/
+    upload() ``validate`` knob (``graphistry.models.types.ValidationParam``), but —
+    unlike the display/upload boundary, which defaults ``autofix`` — the compute path
+    defaults ``strict``: silently string-coercing a mixed column diverges from the
+    pandas oracle (pandas keeps it ``object`` + Python-compares), a wrong-answer risk.
+    So parity-or-raise is the safe default; ``autofix`` is an explicit opt-in.
+
+    - ``strict``/``strict-fast`` (default): raise ``NotImplementedError`` (use
+      ``engine='pandas'``, or ``validate='autofix'`` to coerce), instead of surfacing a
+      cryptic ``pyarrow.lib.ArrowInvalid`` from deep inside construction.
+    - ``autofix`` (or ``validate=False``): coerce the offending mixed-type object
+      column(s) to string and, if ``warn``, emit a ``RuntimeWarning`` — matching
+      ``_cudf_from_pandas_best_effort``.
+    """
+    import polars as pl
+    from graphistry.validate.common import normalize_validation_params
+    validate_mode, warn = normalize_validation_params(validate, warn)
+    try:
+        return pl.from_pandas(df)
+    except Exception as e:
+        bad = _mixed_type_object_columns(df)
+        if validate_mode == 'autofix' and bad:
+            fixed = df.astype({col: 'string' for col in bad})
+            try:
+                out = pl.from_pandas(fixed)
+            except Exception:
+                out = None
+            if out is not None:
+                if warn:
+                    warnings.warn(
+                        "engine='polars': coerced mixed-type column(s) to string for "
+                        f"Arrow conversion: {bad}. Convert explicitly or use "
+                        "engine='pandas' for control.",
+                        RuntimeWarning,
+                    )
+                return out
+        hint = f" (mixed-type column(s): {bad})" if bad else ""
+        raise NotImplementedError(
+            "engine='polars' cannot represent a heterogeneous/mixed-type column"
+            f"{hint}; use engine='pandas', or validate='autofix' to coerce to string"
+        ) from e
+
+def _pl_concat(frames, *, ignore_index: bool = True, sort: bool = False, **_kw):
+    """pandas/cudf-signature-compatible row concat for polars.
+
+    polars has no row index and no ``sort`` kwarg; ``ignore_index``/``sort`` are
+    accepted-and-ignored so generic call sites (hop/chain) work unchanged.
+    ``vertical_relaxed`` aligns to a common supertype like pandas does for
+    mixed-but-compatible column dtypes.
+    """
+    import polars as pl
+    frames = list(frames)
+    if len(frames) == 0:
+        return pl.DataFrame()
+    if len(frames) == 1:
+        return frames[0]
+    if isinstance(frames[0], pl.Series):
+        # Series concat only supports the default vertical strategy.
+        return pl.concat(frames)
+    return pl.concat(frames, how="vertical_relaxed")
+
 
 def df_concat(engine: Engine):
     if engine == Engine.PANDAS:
@@ -217,9 +405,11 @@ def df_concat(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.concat
+    elif engine in POLARS_ENGINES:
+        return _pl_concat
     elif engine == Engine.DASK:
         raise NotImplementedError("DASK is an input format, not a compute engine — use engine='auto' or engine='pandas'")
-    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+    raise ValueError(f'Only engines pandas/cudf/polars supported, got: {engine}')
 
 
 def align_shared_column_dtypes(
@@ -290,7 +480,22 @@ def df_cons(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.DataFrame
-    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+    elif engine in POLARS_ENGINES:
+        import polars as pl
+        return pl.DataFrame
+    raise ValueError(f'Only engines pandas/cudf/polars supported, got: {engine}')
+
+
+def df_unique(df, engine: Engine):
+    """Row-dedupe keeping first occurrence, engine-aware.
+
+    pandas/cuDF use ``drop_duplicates``; polars uses ``unique(maintain_order=True)``
+    (``maintain_order`` matches ``drop_duplicates(keep='first')`` — same convention as
+    ``compute/gfql/row/frame_ops.distinct``). Avoids calling the pandas-only
+    ``drop_duplicates`` on a polars frame (the UNION DISTINCT crash)."""
+    if engine in POLARS_ENGINES:
+        return df.unique(maintain_order=True)
+    return df.drop_duplicates(ignore_index=True)
 
 def s_cons(engine: Engine):
     if engine == Engine.PANDAS:
@@ -298,7 +503,10 @@ def s_cons(engine: Engine):
     elif engine == Engine.CUDF:
         import cudf
         return cudf.Series
-    raise ValueError(f'Only engines pandas/cudf supported, got: {engine}')
+    elif engine in POLARS_ENGINES:
+        import polars as pl
+        return pl.Series
+    raise ValueError(f'Only engines pandas/cudf/polars supported, got: {engine}')
 
 def s_sqrt(engine: Engine):
     if engine == Engine.PANDAS:

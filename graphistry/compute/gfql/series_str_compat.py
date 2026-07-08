@@ -33,11 +33,16 @@ def _fill_string_mask_na(mask: Any, series: Any, na: Optional[bool]) -> Any:
 
 
 def _anchored_fullmatch_pattern(pattern: str) -> str:
-    if not pattern.startswith("^"):
-        pattern = "^" + pattern
-    if not pattern.endswith("$"):
-        pattern = pattern + "$"
-    return pattern
+    # Group-wrap so a top-level alternation anchors as a whole: bare `^ab|cd$`
+    # would match 'abXXX'. Callers pass this through _sanitize_regex_pattern,
+    # which downgrades `(?:` to `(` for engines without non-capture groups
+    # (boolean match — numbering is irrelevant). Already-anchored patterns pass
+    # through untouched: pre-existing callers (ordering.py type probes) send
+    # `^...$` forms, and nesting anchors inside a group is undefined on some
+    # engines (#1675 wave-2 blast-radius note).
+    if pattern.startswith("^") and pattern.endswith("$"):
+        return pattern
+    return "^(?:" + pattern + ")$"
 
 
 def _sanitize_regex_pattern(pattern: str) -> str:

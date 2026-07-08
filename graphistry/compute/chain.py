@@ -1,6 +1,6 @@
 import logging
 from typing import Any, Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
-from graphistry.Engine import Engine, EngineAbstract, align_shared_column_dtypes, df_concat, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_na
+from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, align_shared_column_dtypes, df_concat, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_na
 from graphistry.compute.dataframe_utils import dbg_df
 
 from graphistry.Plottable import Plottable
@@ -796,7 +796,46 @@ def chain(
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
     from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
-    self = _coerce_input_formats(self, resolve_engine(engine, self))
+    engine_concrete_early = resolve_engine(engine, self)
+    if engine_concrete_early in (Engine.POLARS, Engine.POLARS_GPU):
+        # Clean dependency errors BEFORE _coerce_input_formats (which imports polars to
+        # coerce frames) so the user sees actionable install guidance, not a raw ImportError
+        # deep in coercion / the lazy engine. Both engines need polars; polars-gpu also needs
+        # the RAPIDS cudf_polars stack (checked here so it's consistent regardless of whether a
+        # given query reaches a GPU collect, and reads as an install issue rather than the
+        # genuine not-GPU-capable signal from lazy._engine_for).
+        try:
+            import polars  # noqa: F401
+        except ImportError as e:
+            raise ImportError(
+                f"GFQL engine={engine_concrete_early.value!r} requires the 'polars' package; "
+                "install it with `pip install polars` (or use engine='pandas')."
+            ) from e
+        if engine_concrete_early == Engine.POLARS_GPU:
+            import importlib.util
+            if importlib.util.find_spec("cudf_polars") is None:
+                raise ImportError(
+                    "GFQL engine='polars-gpu' requires the RAPIDS cudf_polars stack (NVIDIA GPU). "
+                    "Install RAPIDS/cudf_polars, or use engine='polars' for native CPU execution."
+                )
+    self = _coerce_input_formats(self, engine_concrete_early)
+
+    if engine_concrete_early in POLARS_ENGINES:
+        # Native polars chain lives in a dedicated dispatched module so the
+        # production pandas/cuDF orchestration below stays untouched (see
+        # no-silent-fallback policy). Correctness gated by differential parity.
+        # POLARS_GPU = the same lazy engine with the GPU execution target.
+        # (Dependency guards for polars / cudf_polars are above, pre-coercion.)
+        if validate_schema:
+            Chain(ops if not isinstance(ops, Chain) else ops.chain).validate(collect_all=False)
+        from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
+        from graphistry.compute.gfql.lazy import target_mode, ExecutionTarget
+        # NO pandas fallback here (no-silent-fallback policy): chain_polars raises
+        # NotImplementedError for deferred features (var-length/multi-hop edges,
+        # undirected multi-edge); that honest signal propagates to the caller.
+        _tgt = ExecutionTarget.GPU if engine_concrete_early == Engine.POLARS_GPU else ExecutionTarget.CPU
+        with target_mode(_tgt):
+            return chain_polars(self, ops, start_nodes=start_nodes)
 
     if policy:
         from graphistry.compute.gfql.call.executor import _thread_local as call_thread_local

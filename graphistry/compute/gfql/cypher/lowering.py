@@ -13,6 +13,7 @@ from graphistry.compute.ast import (
     ASTObject,
     ASTNode,
     anti_semi_apply,
+    count_table,
     distinct,
     drop_cols,
     e_forward,
@@ -23,6 +24,7 @@ from graphistry.compute.ast import (
     order_by,
     return_,
     rows,
+    search_any,
     semi_apply_mark,
     serialize_binding_ops,
     select,
@@ -54,7 +56,8 @@ from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.comparison import eq, ge, gt, isna, le, lt, ne, notna
 from graphistry.compute.predicates.is_in import is_in
 from graphistry.compute.predicates.logical import all_of
-from graphistry.compute.predicates.str import contains as str_contains, endswith, never_match, startswith
+from graphistry.compute.predicates.str import contains as str_contains, endswith, fullmatch, never_match, startswith
+from graphistry.compute.gfql.cypher.parser import _mask_quoted_backticked_and_commented_for_scan
 from graphistry.compute.gfql.language_defs import GFQL_AGGREGATION_FUNCTIONS
 from graphistry.compute.gfql.expr_parser import (
     BinaryOp,
@@ -1236,7 +1239,7 @@ def _connected_join_alias_identity_expr(
         if isinstance(node_in, PropertyAccessExpr) and isinstance(node_in.value, Identifier):
             if "." not in node_in.value.name and node_in.value.name in alias_targets:
                 return node_in
-            return PropertyAccessExpr(cast(ExprNode, _rewrite(node_in.value)), node_in.property)
+            return PropertyAccessExpr(_rewrite(node_in.value), node_in.property)
         if isinstance(node_in, Identifier) and "." not in node_in.name and node_in.name in alias_targets:
             target = alias_targets[node_in.name]
             prop = NODE_IDENTITY_COLUMN if isinstance(target, ASTNode) else "__gfql_edge_index_0__"
@@ -2308,6 +2311,62 @@ def _match_relationship_count(clause: MatchClause) -> int:
     return sum(1 for element in _match_pattern_elements(clause) if isinstance(element, RelationshipPattern))
 
 
+def _is_pure_count_star_shortcircuit(
+    *,
+    aggregate_specs: Sequence[_AggregateSpec],
+    pre_items: Sequence[Tuple[str, Any]],
+    row_steps: Sequence[ASTObject],
+    query: CypherQuery,
+    binding_row_aliases: AbstractSet[str],
+    relationship_count: int,
+    active_match_alias: Optional[str],
+    alias_targets: Mapping[str, ASTObject],
+) -> bool:
+    """True when a RETURN is exactly ``count(*)`` over a single node/edge scan.
+
+    Guards the count_table fast path (skip the full-frame materialize + constant-
+    key group_by): the count then equals the height (or source-mask sum) of the
+    active table. Requires a lone non-DISTINCT ``count(*)`` with no group keys,
+    row-level WHERE, UNWIND, or multi-relationship binding, and a plain
+    ``rows(table=nodes|edges[, source])`` as the only prior step. Post-aggregate
+    exprs (``count(*) + 1``) compose fine: the count lands in a temp column and
+    the trailing ``select`` applies the expr, same as the group_by path.
+    Sound only for a pure node scan (``relationship_count == 0``) or a single
+    relationship counted on its edge alias (``relationship_count == 1`` with an
+    ``ASTEdge`` active alias) — exactly the cases
+    ``_reject_unsound_relationship_multiplicity_aggregates`` permits; any other
+    shape (node-alias-over-relationship, multi-hop paths) falls through to the
+    general aggregate path (which counts bindings or rejects as unsound).
+    """
+    if len(aggregate_specs) != 1:
+        return False
+    agg = aggregate_specs[0]
+    if agg.func != "count" or agg.expr_text is not None or agg.distinct:
+        return False
+    if pre_items or binding_row_aliases or query.unwinds:
+        return False
+    # Exactly the initial rows() step: any row-level WHERE or UNWIND would have
+    # appended further steps, so len == 1 proves the count is over the raw scan.
+    if len(row_steps) != 1:
+        return False
+    base = row_steps[0]
+    if not (isinstance(base, ASTCall) and base.function == "rows"):
+        return False
+    if base.params.get("table") not in ("nodes", "edges"):
+        return False
+    if base.params.get("binding_ops") is not None or base.params.get("alias_endpoints") is not None:
+        return False
+    if relationship_count == 0:
+        return True
+    if (
+        relationship_count == 1
+        and active_match_alias is not None
+        and isinstance(alias_targets.get(active_match_alias), ASTEdge)
+    ):
+        return True
+    return False
+
+
 def _reject_unsound_relationship_multiplicity_aggregates_common(
     *,
     aggregate_specs: Sequence[_AggregateSpec],
@@ -2928,7 +2987,7 @@ def _stitch_patterns(
         merged = _merge_node_patterns(left_end, cast(NodePattern, reversed_right[0]))
         return tuple(left[:-1]) + (merged,) + tuple(reversed_right[1:])
     if _node_can_join(left_start, right_end):
-        merged = _merge_node_patterns(cast(NodePattern, right_end), left_start)
+        merged = _merge_node_patterns(right_end, left_start)
         return tuple(right[:-1]) + (merged,) + tuple(left[1:])
     if _node_can_join(left_start, right_start):
         reversed_right = _reverse_pattern(right)
@@ -3509,6 +3568,10 @@ def _predicate_value(op: str, value: Any) -> Any:
         return never_match() if value is None else startswith(str(value), na=False)
     if op == "ends_with":
         return never_match() if value is None else endswith(str(value), na=False)
+    if op == "regex":
+        # openCypher/neo4j `=~`: Java-regex, full-string/anchored match → fullmatch.
+        # Inline flags in the pattern (e.g. `(?i)`) are honored by the regex engine.
+        return never_match() if value is None else fullmatch(str(value), na=False)
     raise ValueError(f"Unsupported predicate op: {op}")
 
 
@@ -3781,6 +3844,138 @@ def _append_page_ops(
         limit_clause=query.limit,
         params=params,
     )
+
+_SEARCH_ANY_CALL_RE = re.compile(
+    r"\bsearchAny\s*\(\s*([A-Za-z_]\w*)\s*,\s*"
+    r"('(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\")"
+    r"\s*(?:,\s*\{([^{}]*)\})?\s*\)",
+    re.IGNORECASE,
+)
+_SEARCH_ANY_OPT_KEYS = {"casesensitive": "case_sensitive", "regex": "regex", "columns": "columns"}
+_SEARCH_ANY_COLUMNS_RE = re.compile(
+    r"^\[\s*(?:'[^']*'|\"[^\"]*\")(?:\s*,\s*(?:'[^']*'|\"[^\"]*\"))*\s*\]$")
+_SEARCH_ANY_COL_ITEM_RE = re.compile(r"'([^']*)'|\"([^\"]*)\"")
+
+
+def _parse_search_any_opts(opts_text: str, *, line: int, column: int) -> Dict[str, Any]:
+    """Parse searchAny's option map literal — strict: unknown keys error listing the
+    valid ones (persona pass: predictable options beat silent typo-tolerance)."""
+    out: Dict[str, Any] = {}
+    if not opts_text.strip():
+        return out
+    depth = 0
+    parts: List[str] = []
+    cur = ""
+    for ch in opts_text:
+        if ch in "[(":
+            depth += 1
+        elif ch in "])":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    parts.append(cur)
+    for part in parts:
+        m = re.match(r"\s*([A-Za-z_]\w*)\s*:\s*(.+?)\s*$", part)
+        key = m.group(1) if m else part.strip()
+        canon = _SEARCH_ANY_OPT_KEYS.get(key.lower()) if m else None
+        if m is None or canon is None:
+            raise _unsupported(
+                f"searchAny got an unsupported option {key!r}",
+                field="where",
+                value=opts_text,
+                line=line,
+                column=column,
+            )
+        val_text = m.group(2)
+        if canon in ("case_sensitive", "regex"):
+            low = val_text.lower()
+            if low not in ("true", "false"):
+                raise _unsupported(
+                    f"searchAny option {key!r} must be true or false",
+                    field="where", value=val_text, line=line, column=column,
+                )
+            out[canon] = low == "true"
+        else:
+            if not _SEARCH_ANY_COLUMNS_RE.match(val_text):
+                raise _unsupported(
+                    "searchAny option 'columns' must be a list of string literals",
+                    field="where", value=val_text, line=line, column=column,
+                )
+            out[canon] = [a or b for a, b in _SEARCH_ANY_COL_ITEM_RE.findall(val_text)]
+    return out
+
+
+def _lift_search_any_from_row_where(
+    expr: ExpressionText,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    existing_cols: AbstractSet[str],
+) -> Tuple[str, List[ASTCall]]:
+    """viz-filter L2-b: rewrite each ``searchAny(alias, 'term'[, {opts}])`` in the
+    WHERE row-expression into a fresh boolean MARKER column + a ``search_any`` row
+    pre-filter (exactly the pattern-predicate marker mechanism), so the remaining
+    boolean expression composes through AND/OR/NOT unchanged.
+
+    Matches are found against a literal/comment-masked copy of the text so a
+    ``searchAny(...)`` occurring INSIDE a string literal is data, not a call
+    (wave-1 B1: the bare ``.sub`` rewrote literal contents — silent wrong answer)."""
+    calls: List[ASTCall] = []
+    used: set = set(existing_cols)
+
+    def _sub(m: "re.Match[str]") -> str:
+        alias, term_lit, opts_text = m.group(1), m.group(2), m.group(3) or ""
+        if alias not in alias_targets:
+            raise _unsupported(
+                f"searchAny references alias {alias!r} not bound in the active MATCH scope",
+                field="where", value=alias,
+                line=expr.span.line, column=expr.span.column,
+            )
+        term = term_lit[1:-1].replace("\\'", "'").replace('\\"', '"')
+        opts = _parse_search_any_opts(
+            opts_text, line=expr.span.line, column=expr.span.column)
+        base = f"__gfql_search_any_{expr.span.line}_{expr.span.column}_{len(calls)}__"
+        out_col = _fresh_temp_name(used, base)
+        used.add(out_col)
+        calls.append(search_any(alias=alias, term=term, out_col=out_col, **opts))
+        return out_col
+
+    masked = _mask_quoted_backticked_and_commented_for_scan(expr.text)
+    parts: List[str] = []
+    last = 0
+    pos = 0
+    while True:
+        m = _SEARCH_ANY_CALL_RE.search(expr.text, pos)
+        if m is None:
+            break
+        if masked[m.start()] != expr.text[m.start()]:
+            # starts inside a string literal / comment: data, not a call — resume
+            # just past the START (not the end: an in-literal pseudo-match can span
+            # across quotes and swallow a real call inside its span; wave-2 S1)
+            pos = m.start() + 1
+            continue
+        parts.append(expr.text[last:m.start()])
+        parts.append(_sub(m))
+        last = m.end()
+        pos = m.end()
+    parts.append(expr.text[last:])
+    new_text = "".join(parts)
+    # Anything still spelled searchAny( outside literals is a form the lift can't
+    # parse (e.g. a $param term — the persona-pass signature is literal-only): fail
+    # loudly here instead of leaking an unknown function downstream (wave-1 I5).
+    masked_new = _mask_quoted_backticked_and_commented_for_scan(new_text)
+    if re.search(r"\bsearchAny\s*\(", masked_new, re.IGNORECASE):
+        raise _unsupported(
+            "searchAny requires a string-literal term and literal options, e.g. "
+            "searchAny(n, 'term', {caseSensitive: false}) — parameters ($p) and "
+            "expressions are not supported",
+            field="where", value=expr.text,
+            line=expr.span.line, column=expr.span.column,
+        )
+    return new_text, calls
+
 
 def _append_match_row_where(
     row_steps: List[ASTObject],
@@ -5702,7 +5897,9 @@ def _where_expr_tree_pattern_predicates(expr: BooleanExpr) -> List[WherePatternP
                     line=cur.span.line,
                     column=cur.span.column,
                 )
-            out.append(WherePatternPredicate(pattern=cur.pattern, span=cur.span, negated=False))
+            out.append(WherePatternPredicate(
+                pattern=cur.pattern, span=cur.span, negated=False,
+                pattern_origin=cur.pattern_origin, pattern_neq=cur.pattern_neq))
             continue
         if cur.left is not None:
             stack.append(cur.left)
@@ -5738,7 +5935,10 @@ def _lower_pattern_predicate_to_row_marker(
         )
 
     introduced_aliases = sorted(alias for alias in predicate_aliases if alias not in alias_targets)
-    if introduced_aliases:
+    if introduced_aliases and predicate.pattern_origin != "exists":
+        # EXISTS { } subquery aliases are EXISTENTIALLY quantified (locals) — the
+        # bindings table projects them away; bare pattern predicates keep the
+        # conservative guard (viz-filter L1).
         raise _unsupported(
             "Cypher WHERE pattern predicates cannot introduce new aliases in this phase",
             field="where",
@@ -5769,6 +5969,7 @@ def _lower_pattern_predicate_to_row_marker(
         binding_ops=serialize_binding_ops(pattern_ops),
         join_aliases=shared_aliases,
         out_col=out_col,
+        neq=predicate.pattern_neq,
     )
 
 
@@ -5809,7 +6010,9 @@ def _rewrite_where_expr_patterns_to_markers(
             marker_col = _fresh_marker_col(expr.span)
             marker_ops.append(
                 _lower_pattern_predicate_to_row_marker(
-                    WherePatternPredicate(pattern=expr.pattern, span=expr.span, negated=False),
+                    WherePatternPredicate(
+                        pattern=expr.pattern, span=expr.span, negated=False,
+                        pattern_origin=expr.pattern_origin, pattern_neq=expr.pattern_neq),
                     alias_targets=alias_targets,
                     params=params,
                     out_col=marker_col,
@@ -5875,7 +6078,10 @@ def _lower_negated_pattern_predicate_to_row_filter(
         )
 
     introduced_aliases = sorted(alias for alias in predicate_aliases if alias not in alias_targets)
-    if introduced_aliases:
+    if introduced_aliases and predicate.pattern_origin != "exists":
+        # EXISTS { } subquery aliases are EXISTENTIALLY quantified (locals) — the
+        # bindings table projects them away; bare pattern predicates keep the
+        # conservative guard (viz-filter L1).
         raise _unsupported(
             "Cypher WHERE pattern predicates cannot introduce new aliases in this phase",
             field="where",
@@ -5905,6 +6111,7 @@ def _lower_negated_pattern_predicate_to_row_filter(
     return anti_semi_apply(
         binding_ops=serialize_binding_ops(pattern_ops),
         join_aliases=shared_aliases,
+        neq=predicate.pattern_neq,
     )
 
 
@@ -5948,8 +6155,8 @@ def lower_match_query(
             stack: List[BooleanExpr] = [query.where.expr_tree]
             while stack:
                 cur = stack.pop()
-                expr_left = cast(Optional[BooleanExpr], cur.left)
-                expr_right = cast(Optional[BooleanExpr], cur.right)
+                expr_left = cur.left
+                expr_right = cur.right
                 if cur.op in {"or", "xor"} and ((expr_left is not None and _where_expr_tree_pattern_predicates(expr_left)) or (expr_right is not None and _where_expr_tree_pattern_predicates(expr_right))):
                     raise _unsupported_at_span("Cypher WHERE pattern predicates mixed with OR/XOR are not yet supported for cartesian MATCH patterns", field="where", value=where_expr_upper, span=query.where.span)
                 if expr_left is not None:
@@ -6039,6 +6246,16 @@ def lower_match_query(
             text=combined_expr if row_where is None else f"({row_where.text}) and ({combined_expr})",
             span=query.where.span if query.where is not None else merged_match.span,
         )
+
+    if row_where is not None:
+        # viz-filter L2-b: lift searchAny(...) calls into search_any pre-filters +
+        # marker columns HERE (assembly level, like the pattern-predicate markers),
+        # so every LoweredCypherMatch consumer sees the lifted form.
+        lifted_text, search_calls = _lift_search_any_from_row_where(
+            row_where, alias_targets=alias_targets, existing_cols=frozenset())
+        if search_calls:
+            row_pre_filters.extend(search_calls)
+            row_where = ExpressionText(text=lifted_text, span=row_where.span)
 
     return LoweredCypherMatch(
         query=ops,
@@ -6573,6 +6790,35 @@ def _lower_general_row_projection(
             if len(pre_items) > 0:
                 row_steps.append(with_(pre_items, extend=bindings_row_path))
             row_steps.append(group_by(key_names, aggregations, key_prefixes=alias_key_prefixes))
+        elif _is_pure_count_star_shortcircuit(
+            aggregate_specs=aggregate_specs,
+            pre_items=pre_items,
+            row_steps=row_steps,
+            query=query,
+            binding_row_aliases=binding_row_aliases,
+            relationship_count=relationship_count,
+            active_match_alias=active_match_alias,
+            alias_targets=alias_targets,
+        ):
+            # Fast path: count_table reads the scanned table's height (or the
+            # source-alias mask sum) with one reduction — no full-frame
+            # materialize + constant-key group_by. It replaces the sole rows()
+            # step and produces the same ``count(*)`` column the group_by would,
+            # so the trailing identity projection (elif not key_names, below) is
+            # unchanged. empty_result_row is belt-and-suspenders here (count_table
+            # always emits a 1-row result), kept for parity with the group_by path.
+            base_rows = cast(ASTCall, row_steps[0])
+            count_alias = aggregate_specs[0].output_name
+            row_steps = [
+                count_table(
+                    table=cast(str, base_rows.params.get("table", "nodes")),
+                    source=cast(Optional[str], base_rows.params.get("source")),
+                    alias=count_alias,
+                )
+            ]
+            available_columns = {count_alias}
+            empty_aggregate_row = _empty_aggregate_row(aggregate_specs)
+            empty_result_row = empty_aggregate_row
         else:
             global_key = _fresh_temp_name(temp_names, "__cypher_group__")
             row_steps.append(with_([(global_key, 1)] + pre_items))

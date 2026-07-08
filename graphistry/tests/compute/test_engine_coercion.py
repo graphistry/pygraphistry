@@ -123,6 +123,29 @@ class TestDfToEngineCudf(NoAuthTestCase):
         self.assertIsInstance(result, cudf.DataFrame)
         self.assertEqual(result["src"].to_pandas().tolist(), ["a", "b"])
 
+    @unittest.skipUnless(HAS_CUDF, "cuDF not installed")
+    def test_pandas_to_cudf_mixed_type_validate(self):
+        # A mixed-type object column honors the repo-wide validate/warn convention:
+        # cuDF defaults autofix (best-effort coerce+warn, its shipped behavior);
+        # validate='strict' raises ArrowConversionError instead of silently coercing.
+        import warnings
+        from graphistry.exceptions import ArrowConversionError
+        mixed = pd.DataFrame({"id": [0, 1, 2], "var": [0, "xx", None]})  # int + str + null
+
+        # default (autofix) coerces + warns -> the shipped best-effort behavior
+        with self.assertWarns(RuntimeWarning):
+            out = df_to_engine(mixed, Engine.CUDF)
+        self.assertIsInstance(out, cudf.DataFrame)
+
+        # strict raises rather than coercing
+        with self.assertRaises(ArrowConversionError):
+            df_to_engine(mixed, Engine.CUDF, validate="strict")
+
+        # validate=False == autofix but suppresses the warning
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            df_to_engine(mixed, Engine.CUDF, validate=False)
+
 
 class TestCoerceToPandas(NoAuthTestCase):
 

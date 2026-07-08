@@ -1967,6 +1967,108 @@ def test_lower_match_query_emits_row_marker_for_single_positive_where_pattern() 
     assert [op.get("type") for op in binding_ops] == ["Node", "Edge", "Node"]
 
 
+def test_lower_match_query_exists_subquery_emits_same_marker_as_bare_pattern() -> None:
+    """viz-filter L1: WHERE EXISTS { <pattern> } lowers to the IDENTICAL
+    semi_apply_mark shape as the bare pattern predicate (same leaf, zero new ops);
+    inline block comments and property maps inside the pattern are fine."""
+    for q in [
+        "MATCH (n) WHERE EXISTS { (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE exists/*inline*/{ (n)-[:R]->() } RETURN n",
+        "MATCH (n) WHERE EXISTS { (n)-[:R {w: 1}]->() } RETURN n",
+    ]:
+        lowered = lower_match_query(_parse_query(q))
+        assert len(lowered.row_pre_filters) == 1, q
+        marker = lowered.row_pre_filters[0]
+        assert isinstance(marker, ASTCall), q
+        assert marker.function == "semi_apply_mark", q
+        assert marker.params.get("join_aliases") == ["n"], q
+        binding_ops = marker.params.get("binding_ops")
+        assert [op.get("type") for op in binding_ops] == ["Node", "Edge", "Node"], q
+
+
+def test_lower_match_query_not_exists_subquery_emits_anti_semi_apply() -> None:
+    """viz-filter L1: NOT EXISTS { <pattern> } composes through the NOT tier into
+    anti_semi_apply — the declarative prune-isolated building block."""
+    lowered = lower_match_query(
+        _parse_query("MATCH (n) WHERE NOT EXISTS { (n)-[:R]->() } RETURN n.id AS id")
+    )
+    assert len(lowered.row_pre_filters) == 1
+    anti = lowered.row_pre_filters[0]
+    assert isinstance(anti, ASTCall)
+    assert anti.function == "anti_semi_apply"
+    assert anti.params.get("join_aliases") == ["n"]
+
+
+def test_lower_exists_drop_self_flavor_emits_neq_semi_apply() -> None:
+    """viz-filter L1 drop-self prune-isolated: EXISTS { (n)--(m) WHERE m <> n } — the
+    existential local alias m is ALLOWED (bindings project it away) and the endpoint
+    inequality rides the op as neq=[m, n] (bindings-table filter / self-loop-edge
+    exclusion on polars)."""
+    lowered = lower_match_query(
+        _parse_query("MATCH (n) WHERE EXISTS { (n)--(m) WHERE m <> n } RETURN n.id AS id")
+    )
+    assert len(lowered.row_pre_filters) == 1
+    marker = lowered.row_pre_filters[0]
+    assert isinstance(marker, ASTCall)
+    assert marker.function == "semi_apply_mark"
+    assert marker.params.get("join_aliases") == ["n"]
+    assert sorted(marker.params.get("neq") or []) == ["m", "n"]
+
+    anti = lower_match_query(
+        _parse_query("MATCH (n) WHERE NOT EXISTS { (n)--(m) WHERE m <> n } RETURN n.id AS id")
+    ).row_pre_filters[0]
+    assert isinstance(anti, ASTCall)
+    assert anti.function == "anti_semi_apply"
+    assert sorted(anti.params.get("neq") or []) == ["m", "n"]
+
+
+def test_lower_search_any_where_emits_marker_prefilter() -> None:
+    """viz-filter L2-b: WHERE searchAny(a, 'x'[, {opts}]) lifts to a search_any row
+    pre-filter + a fresh marker column in the residual boolean expression (the
+    pattern-predicate marker mechanism), composing through AND/OR/NOT."""
+    lowered = lower_match_query(_parse_query(
+        "MATCH (a) WHERE searchAny(a, 'foo') AND a.x > 1 RETURN a.id AS id"))
+    pre = [op for op in lowered.row_pre_filters
+           if isinstance(op, ASTCall) and op.function == "search_any"]
+    assert len(pre) == 1
+    assert pre[0].params["alias"] == "a"
+    assert pre[0].params["term"] == "foo"
+    marker = pre[0].params["out_col"]
+    assert marker.startswith("__gfql_search_any_")
+    assert lowered.row_where is not None and marker in lowered.row_where.text
+    assert "searchAny" not in lowered.row_where.text
+
+    lowered2 = lower_match_query(_parse_query(
+        "MATCH (a) WHERE searchAny(a, '7', {caseSensitive: true, regex: false, columns: ['name']}) RETURN a.id AS id"))
+    op2 = [op for op in lowered2.row_pre_filters
+           if isinstance(op, ASTCall) and op.function == "search_any"][0]
+    assert op2.params.get("case_sensitive") is True
+    assert op2.params.get("columns") == ["name"]
+
+    for q, phrase in [
+        ("MATCH (a) WHERE searchAny(a, 'x', {nope: true}) RETURN a", "unsupported option"),
+        ("MATCH (a) WHERE searchAny(zzz, 'x') RETURN a", "not bound"),
+        ("MATCH (a) WHERE searchAny(a, 'x', {caseSensitive: 'yes'}) RETURN a", "true or false"),
+    ]:
+        with pytest.raises(GFQLValidationError) as exc_info:
+            lower_match_query(_parse_query(q))
+        assert phrase in exc_info.value.message, (q, exc_info.value.message)
+
+
+def test_exists_subquery_unsupported_bodies_decline_clearly() -> None:
+    """viz-filter L1 v1 boundaries: inner WHERE, multi-pattern bodies, and full
+    MATCH..RETURN subquery bodies decline with a clear message (never a wrong answer)."""
+    for q, phrase in [
+        ("MATCH (a) WHERE EXISTS { (a)--(m) WHERE m.x > 1 } RETURN a", "inner WHERE"),
+        ("MATCH (a) WHERE EXISTS { (a)--(), (a)-->() } RETURN a", "multi-pattern"),
+        ("MATCH (a) WHERE EXISTS { MATCH (a)--(b) RETURN b } RETURN a", "subquery body"),
+        ("MATCH (a) WHERE EXISTS { (a)--(b) WHERE a <> c } RETURN a", "endpoint aliases"),
+    ]:
+        with pytest.raises(GFQLValidationError) as exc_info:
+            _parse_query(q)
+        assert phrase in exc_info.value.message, (q, exc_info.value.message)
+
+
 def test_lower_match_query_emits_row_anti_semi_filter_for_negated_where_pattern() -> None:
     lowered = lower_match_query(_parse_query("MATCH (n) WHERE NOT (n)-[:R]->() RETURN n.id AS id"))
 
@@ -2885,6 +2987,23 @@ def test_string_cypher_formats_mixed_edge_entity_projection() -> None:
             "RETURN a.name AS name ORDER BY name",
             [{"name": "ABCDEF"}],
         ),
+        # openCypher/neo4j `=~` — Java-regex, FULL/anchored match (not partial), inline flags.
+        (
+            "MATCH (a) WHERE a.name =~ 'AB.*' RETURN a.name AS name ORDER BY name",
+            [{"name": "AB"}, {"name": "ABCDEF"}],
+        ),
+        (  # full-match, not partial: 'AB' matches only 'AB', NOT 'ABCDEF'
+            "MATCH (a) WHERE a.name =~ 'AB' RETURN a.name AS name ORDER BY name",
+            [{"name": "AB"}],
+        ),
+        (  # inline case-insensitive flag
+            "MATCH (a) WHERE a.name =~ '(?i)abcdef' RETURN a.name AS name ORDER BY name",
+            [{"name": "ABCDEF"}, {"name": "abcdef"}],
+        ),
+        (  # null rhs → never matches (mirrors CONTAINS/STARTS WITH null)
+            "MATCH (a) WHERE a.name =~ null RETURN a.name AS name ORDER BY name",
+            [],
+        ),
     ],
 )
 def test_string_cypher_executes_match_where_string_predicates(
@@ -2899,6 +3018,182 @@ def test_string_cypher_executes_match_where_string_predicates(
     result = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query)
 
     assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        # `=~` composes through OR / NOT / RETURN-expression (shared expr engine path),
+        # not just the simple WHERE-predicate path.
+        (
+            "MATCH (a) WHERE a.name =~ 'al.*' OR a.name = 'bob' RETURN a.name AS name ORDER BY name",
+            [{"name": "alba"}, {"name": "alice"}, {"name": "bob"}],
+        ),
+        (
+            "MATCH (a) WHERE NOT (a.name =~ 'al.*') RETURN a.name AS name ORDER BY name",
+            [{"name": "Alice"}, {"name": "bob"}],
+        ),
+        (  # regex leaf under both AND and NOT, with inline (?i)
+            "MATCH (a) WHERE a.name =~ 'a.*' AND NOT a.name =~ '(?i)alice' RETURN a.name AS name ORDER BY name",
+            [{"name": "alba"}],
+        ),
+    ],
+)
+def test_regex_operator_composes_or_not(query: str, expected: list[dict[str, object]]) -> None:
+    nodes = pd.DataFrame({"id": ["p", "q", "r", "s"], "name": ["alice", "Alice", "bob", "alba"]})
+    result = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query)
+    assert result._nodes.where(~result._nodes.isna(), None).to_dict(orient="records") == expected
+
+
+def test_regex_cudf_inline_flag_parity() -> None:
+    """cuDF/libcudf rejects inline regex flags (``(?i)``/``(?m)``/``(?s)``) at ANY position
+    ("invalid regex pattern"), so a bare ``=~ '(?i)…'`` used to CRASH on ``engine='cudf'``.
+    The Match/Fullmatch cuDF path now translates a leading ``(?i)`` to the lowercase
+    case-folding workaround (parity with pandas). Regression for viz-filter #1673."""
+    pytest.importorskip("cudf")
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3], "name": ["bob", "ALICE", "abc", "a.c"]})
+    g = _mk_graph(nodes, pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3]}))
+    q = "MATCH (n) WHERE n.name =~ '(?i)a.c' RETURN n.id AS id ORDER BY id"
+    oracle = g.gfql(q)._nodes["id"].tolist()  # pandas
+    got = g.gfql(q, engine="cudf")._nodes.to_pandas()["id"].tolist()
+    assert got == oracle == [2, 3]
+
+
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        # openCypher/neo4j numeric functions (standard). Column form -> floats.
+        ("floor(n.x)", [2.0, -3.0, 4.0]),
+        ("ceil(n.x)", [3.0, -2.0, 4.0]),
+        ("ceiling(n.x)", [3.0, -2.0, 4.0]),
+        ("round(n.x)", [2.0, -3.0, 4.0]),
+        ("round(n.x, 1)", [2.3, -2.7, 4.0]),
+        ("sqrt(abs(n.x))", [pytest.approx(1.5165750888), pytest.approx(1.6431676725), 2.0]),
+        ("sign(n.x)", [1, -1, 1]),              # neo4j sign() -> Integer (both engines)
+    ],
+)
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_numeric_functions(engine: str, expr: str, expected: list[object]) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({"id": [0, 1, 2], "x": [2.3, -2.7, 4.0]})
+    g = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []}))
+    q = f"MATCH (n) RETURN {expr} AS v, n.id AS id ORDER BY id"
+    col = g.gfql(q, engine=engine)._nodes["v"]
+    got = col.to_list() if hasattr(col, "to_list") else col.tolist()
+    assert got == expected
+
+
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        # scalar (constant-folded) forms exercise the scalar code paths
+        ("floor(2.7)", 2.0),
+        ("ceil(2.1)", 3.0),
+        ("ceiling(-2.1)", -2.0),
+        ("round(2.5)", 3.0),        # neo4j: precision-0 ties round toward +inf
+        ("round(-1.5)", -1.0),      # neo4j manual Example 8
+        ("round(2.567, 2)", 2.57),
+        ("round(-1.55, 1)", -1.6),  # neo4j manual Example 11: p>0 ties away from zero
+        ("sign(-9)", -1),
+        ("sqrt(9.0)", 3.0),
+        ("toLower('ABC')", "abc"),
+        ("toUpper('abc')", "ABC"),
+        ("lower('ABC')", "abc"),    # GQL-conformance aliases (ISO GQL §20.24; neo4j accepts both)
+        ("upper('abc')", "ABC"),
+    ],
+)
+def test_numeric_functions_scalar(expr: str, expected: object) -> None:
+    nodes = pd.DataFrame({"id": [0], "x": [1.0]})
+    g = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []}))
+    assert g.gfql(f"MATCH (n) RETURN {expr} AS v, n.id AS id")._nodes["v"].tolist() == [expected]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_round_neo4j_tie_breaking(engine: str) -> None:
+    """Standards-vetted (#1673): neo4j round() ties — precision 0 rounds ties toward
+    +inf (round(-1.5) = -1.0, neo4j manual Ex. 8/10), precision > 0 rounds ties away
+    from zero (HALF_UP: round(-1.55, 1) = -1.6, Ex. 11). The numpy/polars
+    half-to-even defaults (round(2.5) -> 2.0) are wrong answers vs this spec."""
+    if engine == "polars":
+        pytest.importorskip("polars")
+
+    def vals(nodes: pd.DataFrame, expr: str) -> List[Any]:
+        g = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []}))
+        q = f"MATCH (n) RETURN {expr} AS v, n.id AS id ORDER BY id"
+        col = g.gfql(q, engine=engine)._nodes["v"]
+        return col.to_list() if hasattr(col, "to_list") else col.tolist()
+
+    ties = pd.DataFrame({"id": [0, 1, 2, 3], "x": [2.5, -1.5, 0.5, -2.5]})
+    assert vals(ties, "round(n.x)") == [3.0, -1.0, 1.0, -2.0]      # ties toward +inf
+    assert vals(ties, "round(n.x, 0)") == [3.0, -1.0, 1.0, -2.0]   # p=0 aligns with 1-arg
+    prec = pd.DataFrame({"id": [0, 1], "x": [1.25, -1.55]})
+    assert vals(prec, "round(n.x, 1)") == [pytest.approx(1.3), pytest.approx(-1.6)]  # away from zero
+
+    # 1-ulp-below-a-tie (JDK-6430675 class): a floor(x+0.5) kernel wrongly rounds UP;
+    # the correct answer (Java Math.round post-fix, BigDecimal, polars native) is down.
+    ulp = pd.DataFrame({"id": [0, 1], "x": [0.49999999999999994, 0.049999999999999996]})
+    assert vals(ulp, "round(n.x)") == [0.0, 0.0]
+    assert vals(ulp, "round(n.x, 1)") == [pytest.approx(0.5), pytest.approx(0.0)]
+    # infinity passes through (rounding is the identity; no overflow to inf/crash)
+    inf = pd.DataFrame({"id": [0, 1], "x": [float("inf"), 1e300]})
+    assert vals(inf, "round(n.x)") == [float("inf"), 1e300]
+    assert vals(inf, "round(n.x, 2)") == [float("inf"), 1e300]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_round_negative_precision_declines(engine: str) -> None:
+    """neo4j raises on negative round() precision; we decline honestly (error, never a
+    silent value — and never a raw polars OverflowError crash)."""
+    if engine == "polars":
+        pytest.importorskip("polars")
+    g = _mk_graph(pd.DataFrame({"id": [0], "x": [25.0]}), pd.DataFrame({"s": [], "d": []}))
+    with pytest.raises(Exception) as exc_info:
+        g.gfql("MATCH (n) RETURN round(n.x, -1) AS v, n.id AS id", engine=engine)
+    assert "OverflowError" not in type(exc_info.value).__name__
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("MATCH (n) WHERE lower(n.name) = 'bob' RETURN n.id AS id ORDER BY id", [0]),
+        ("MATCH (n) WHERE upper(n.name) = 'BOB' RETURN n.id AS id ORDER BY id", [0]),
+    ],
+)
+def test_lower_upper_gql_aliases(engine: str, query: str, expected: list[int]) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({"id": [0, 1, 2], "name": ["BOB", "Alice", "carol"]})
+    col = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query, engine=engine)._nodes["id"]
+    got = col.to_list() if hasattr(col, "to_list") else col.tolist()
+    assert got == expected
+
+
+@pytest.mark.parametrize("expr", ["floor(null)", "ceil(null)", "round(null)", "toLower(null)", "toUpper(null)"])
+def test_numeric_string_fns_null_scalar(expr: str) -> None:
+    """null literal -> null (exercises the scalar null-guard branches)."""
+    g = _mk_graph(pd.DataFrame({"id": [0]}), pd.DataFrame({"s": [], "d": []}))
+    v = g.gfql(f"MATCH (n) RETURN {expr} AS v, n.id AS id")._nodes["v"].tolist()[0]
+    assert v is None or pd.isna(v)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("MATCH (n) WHERE toLower(n.name) = 'bob' RETURN n.id AS id ORDER BY id", [0]),
+        ("MATCH (n) WHERE toUpper(n.name) = 'BOB' RETURN n.id AS id ORDER BY id", [0]),
+    ],
+)
+def test_tolower_toupper(engine: str, query: str, expected: list[int]) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    # node with matching name is id 0 after we make BOB id 0; keep ids stable for both engines
+    nodes = pd.DataFrame({"id": [0, 1, 2], "name": ["BOB", "Alice", "carol"]})
+    col = _mk_graph(nodes, pd.DataFrame({"s": [], "d": []})).gfql(query, engine=engine)._nodes["id"]
+    got = col.to_list() if hasattr(col, "to_list") else col.tolist()
+    assert got == expected
 
 
 @pytest.mark.parametrize(
@@ -6380,12 +6675,12 @@ def test_string_cypher_executes_xor_between_bounded_reverse_and_forward_where_pa
         "MATCH (a) RETURN exists/*inline*/{ (a)-[:KNOWS]-() } AS has",
         "MATCH (a) RETURN not exists { (a)-[:KNOWS]-() } AS no",
         "MATCH (a) RETURN not/*inline*/exists/*inline*/{ (a)-[:KNOWS]-() } AS no",
-        "MATCH (a) WHERE exists { (a)-[:KNOWS]-() } RETURN a.id",
-        "MATCH (a) WHERE exists/*inline*/{ (a)-[:KNOWS]-() } RETURN a.id",
     ],
 )
 def test_string_cypher_failfast_rejects_pattern_existence(query: str) -> None:
-    """#998: pattern existence expressions fail-fast with clear message."""
+    """#998: not((..)) pattern-expression spellings and RETURN/WITH-position
+    EXISTS {{ }} fail-fast with a clear message. WHERE-position EXISTS {{ }} is
+    SUPPORTED since viz-filter L1 (see the exists_subquery lowering tests)."""
     graph = _mk_empty_graph()
     with pytest.raises(GFQLValidationError) as exc_info:
         graph.gfql(query)
@@ -16849,3 +17144,120 @@ def test_order_by_multi_column_no_crash() -> None:
             assert rows[i]["name"] <= rows[i + 1]["name"], (
                 f"Rows with equal score not sorted by name: {rows}"
             )
+
+
+# ---------------------------------------------------------------------------
+# count(*) short-circuit (count_table row op) — pandas-lane coverage
+# ---------------------------------------------------------------------------
+
+
+def test_count_star_node_shortcircuit_lowers_to_count_table() -> None:
+    chain = cypher_to_gfql("MATCH (n) RETURN count(*) AS c")
+    ops = chain.chain if hasattr(chain, "chain") else chain
+    calls = [op for op in ops if isinstance(op, ASTCall) and op.function == "count_table"]
+    assert len(calls) == 1
+    assert calls[0].params["alias"] == "c"
+    assert calls[0].params.get("table", "nodes") == "nodes"
+
+
+def test_count_star_node_shortcircuit_executes_pandas() -> None:
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c"]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+    )
+
+    result = graph.gfql("MATCH (n) RETURN count(*) AS c")
+
+    assert result._nodes.to_dict(orient="records") == [{"c": 3}]
+
+
+def test_count_star_edge_shortcircuit_counts_only_valid_endpoint_edges() -> None:
+    # 3 edges but 'zz' is not a node: MATCH ()-[r]->() requires both endpoints
+    # to exist, so the dangling edge is excluded (count is 2, not 3).
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"]}),
+        pd.DataFrame({"s": ["a", "b", "a"], "d": ["b", "a", "zz"], "type": ["R", "R", "R"]}),
+    )
+
+    result = graph.gfql("MATCH ()-[r]->() RETURN count(*) AS c")
+
+    assert result._nodes.to_dict(orient="records") == [{"c": 2}]
+
+
+def test_count_star_with_group_key_does_not_shortcircuit() -> None:
+    # A grouped count is NOT the pure-count shape: it must keep the
+    # rows + group_by pipeline, not lower to count_table.
+    chain = cypher_to_gfql("MATCH (n) RETURN n.id AS i, count(*) AS c")
+    ops = chain.chain if hasattr(chain, "chain") else chain
+    assert not any(isinstance(op, ASTCall) and op.function == "count_table" for op in ops)
+
+
+def test_count_table_row_op_direct_pandas() -> None:
+    from graphistry.compute.ast import ASTNode, count_table, rows
+
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a", "b"]}),
+        pd.DataFrame({"s": ["a"], "d": ["b"], "type": ["R"]}),
+    )
+
+    result = graph.gfql([ASTNode(), rows(), count_table(table="nodes", alias="cnt")])
+
+    assert result._nodes.to_dict(orient="records") == [{"cnt": 2}]
+
+
+def test_count_table_row_op_rejects_unknown_table() -> None:
+    from graphistry.compute.ast import ASTNode, count_table, rows
+
+    graph = _mk_graph(
+        pd.DataFrame({"id": ["a"]}),
+        pd.DataFrame({"s": [], "d": [], "type": []}),
+    )
+
+    with pytest.raises(GFQLValidationError):
+        graph.gfql([ASTNode(), rows(), count_table(table="everything", alias="cnt")])
+
+
+def test_count_table_frame_op_error_and_empty_paths() -> None:
+    # Direct frame-op coverage (the GFQL call path validates params BEFORE the
+    # frame op, so these branches need direct exercise): bad table name, missing
+    # source column, and the no-table 0-count fallback.
+    from graphistry.compute.gfql.row import frame_ops
+
+    nodes = pd.DataFrame({"id": ["a", "b"], "__mask__": [True, None]})
+    edges = pd.DataFrame({"s": ["a"], "d": ["b"]})
+    ctx = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+    with pytest.raises(ValueError, match="must be one of"):
+        frame_ops.count_table(ctx, table="everything", alias="c")
+    with pytest.raises(ValueError, match="not found"):
+        frame_ops.count_table(ctx, table="nodes", source="nope", alias="c")
+
+    # source mask: null counts as False
+    out = frame_ops.count_table(ctx, table="nodes", source="__mask__", alias="c")
+    assert out._nodes.to_dict(orient="records") == [{"c": 1}]
+
+    # no node table -> 0-count row templated from the sibling edges frame
+    ctx2 = graphistry.edges(edges, "s", "d")
+    assert ctx2._nodes is None
+    out2 = frame_ops.count_table(ctx2, table="nodes", alias="c")
+    assert out2._nodes.to_dict(orient="records") == [{"c": 0}]
+
+    # no tables at all -> plain pandas 0-count row
+    ctx3 = graphistry.bind()
+    assert ctx3._nodes is None and ctx3._edges is None
+    out3 = frame_ops.count_table(ctx3, table="nodes", alias="c")
+    assert out3._nodes.to_dict(orient="records") == [{"c": 0}]
+
+def test_string_cypher_parenthesized_and_preserves_missing_property_as_null() -> None:
+    # A parenthesized AND must stay on the row-filter path, not the filter_dict path:
+    # the row engine treats an absent property as null (Cypher semantics), whereas
+    # filter_dict requires the column to exist and would raise.
+    g = _mk_graph(
+        pd.DataFrame({"id": ["a", "b", "c", "d"], "x": [1, 2, 1, 1]}),  # no 'missing' col
+        pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "d"]}),
+    )
+    got = g.gfql("MATCH (n) WHERE n.missing IS NULL AND (n.x = 1) RETURN n.id AS id")
+    assert sorted(got._nodes["id"].tolist()) == ["a", "c", "d"]
+    # IS NOT NULL on the same absent property yields no rows (absent -> null)
+    none = g.gfql("MATCH (n) WHERE n.missing IS NOT NULL AND (n.x = 1) RETURN n.id AS id")
+    assert none._nodes["id"].tolist() == [] if "id" in none._nodes.columns else len(none._nodes) == 0

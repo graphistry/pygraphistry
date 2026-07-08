@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from typing import Any, Dict, List, Optional, Union
 from typing_extensions import Literal
-from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, resolve_engine, df_to_engine, df_concat, safe_merge
+from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, POLARS_ENGINES, resolve_engine, df_to_engine, df_concat, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
@@ -86,12 +86,25 @@ def _coerce_input_formats(g: "Plottable", engine: Engine) -> "Plottable":
             if not has_cudf:
                 return True  # cudf unavailable — skip coercion; downstream handles gracefully
             return 'cudf' in type_mod
+        elif engine in POLARS_ENGINES:
+            return 'polars' in type_mod
         return True
 
     if g._edges is not None and not _is_already_correct(g._edges):
         g = g.edges(df_to_engine(g._edges, engine), g._source, g._destination)
     if g._nodes is not None and not _is_already_correct(g._nodes):
         g = g.nodes(df_to_engine(g._nodes, engine), g._node)
+    # A NATIVE-polars input is "already correct" and skips df_to_engine above, so it never
+    # gets the NaN->null normalization the pandas->polars path does (pl.from_pandas nan_to_null).
+    # Without it, engine='polars' on a frame carrying real NaN keeps rows a filter/aggregation
+    # should drop (silent divergence from the pandas oracle, which treats NaN as missing).
+    # _pl_nan_to_null is idempotent, so re-running it on a just-converted frame is a no-op.
+    if engine in POLARS_ENGINES:
+        from graphistry.Engine import _pl_nan_to_null, is_polars_df
+        if g._edges is not None and is_polars_df(g._edges):
+            g = g.edges(_pl_nan_to_null(g._edges), g._source, g._destination)
+        if g._nodes is not None and is_polars_df(g._nodes):
+            g = g.nodes(_pl_nan_to_null(g._nodes), g._node)
     return g
 
 
@@ -215,16 +228,25 @@ class ComputeMixin(Plottable):
             )
         node_id = g._node if g._node is not None else "id"
         if _safe_len(g._edges) == 0:
-            empty_nodes_df = (
-                g._edges[[g._source]]
-                .rename(columns={g._source: node_id})
-                .reset_index(drop=True)
-            )
+            if engine_concrete in POLARS_ENGINES:
+                empty_nodes_df = g._edges.select(g._source).rename({g._source: node_id})
+            else:
+                empty_nodes_df = (
+                    g._edges[[g._source]]
+                    .rename(columns={g._source: node_id})
+                    .reset_index(drop=True)
+                )
             return g.nodes(empty_nodes_df, node_id)
 
         concat_fn = df_concat(engine_concrete)
         concat_df = concat_fn([g._edges[g._source], g._edges[g._destination]])
-        nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
+        if engine_concrete in POLARS_ENGINES:
+            # polars Series has no row index and uses .unique() (== pandas drop_duplicates
+            # keep-first with maintain_order) + .to_frame(); .drop_duplicates()/.reset_index
+            # are pandas-only and raise on a polars Series (edges-only graph under engine='polars').
+            nodes_df = concat_df.rename(node_id).unique(maintain_order=True).to_frame()
+        else:
+            nodes_df = concat_df.rename(node_id).drop_duplicates().to_frame().reset_index(drop=True)
         return g.nodes(nodes_df, node_id)
 
     def _single_direction_degree(self, key_col: str, col: str) -> "Plottable":
@@ -464,6 +486,55 @@ class ComputeMixin(Plottable):
             levels_df = nodes_df[[g2_base._node, level_col]]
             out_df = safe_merge(g2_base._nodes, levels_df, on=g2_base._node, how='left')
             return self.nodes(out_df)
+
+    def search_nodes(self, term, columns=None, case_sensitive=False, regex=False):
+        """Keep nodes where ANY column matches ``term`` (viz-filter L2 inspector
+        semantics: OR across columns; case-insensitive substring default; regex
+        opt-in; string columns always, integer columns iff the term is a numeric
+        literal — floats/dates via explicit ``columns=`` on pandas ONLY: cuDF
+        declines them, its float/temporal stringification diverges from pandas).
+        pandas/cuDF native; polars frames raise NotImplementedError (use the
+        cypher ``search_any`` op).
+        """
+        from graphistry.compute.gfql.search_any import search_any_mask
+        from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+        df = self._nodes
+        if df is None:
+            return self
+        if "polars" in type(df).__module__:
+            raise NotImplementedError(
+                "search_nodes is not yet native on polars frames; use the cypher "
+                "search_any op or engine='pandas'")
+        mask = search_any_mask(
+            df, term, case_sensitive=case_sensitive, regex=regex, columns=columns)
+        if mask is None:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "search_nodes columns= includes a column absent from the nodes table",
+                field="columns", value=columns,
+                suggestion="List only columns present on the nodes table.")
+        return self.nodes(df[mask])
+
+    def search_edges(self, term, columns=None, case_sensitive=False, regex=False):
+        """Keep edges where ANY column matches ``term`` — see :meth:`search_nodes`."""
+        from graphistry.compute.gfql.search_any import search_any_mask
+        from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+        df = self._edges
+        if df is None:
+            return self
+        if "polars" in type(df).__module__:
+            raise NotImplementedError(
+                "search_edges is not yet native on polars frames; use the cypher "
+                "search_any op or engine='pandas'")
+        mask = search_any_mask(
+            df, term, case_sensitive=case_sensitive, regex=regex, columns=columns)
+        if mask is None:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "search_edges columns= includes a column absent from the edges table",
+                field="columns", value=columns,
+                suggestion="List only columns present on the edges table.")
+        return self.edges(df[mask])
 
     def prune_self_edges(self):
         return self.edges(self._edges[ self._edges[self._source] != self._edges[self._destination] ])

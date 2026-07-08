@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union, cast
+from typing import Any, Optional, Tuple, Union, cast
 import re
 
 import pandas as pd
@@ -424,21 +424,101 @@ class _RegexStringPredicate(ASTPredicate):
             )
 
 
+# Lookaround ((?=), (?!), (?<…)) and pattern backreferences (\1-\9, (?P=…)).
+# NOT a cuDF version-lag — these need a BACKTRACKING engine, and libcudf's regex is
+# non-backtracking (finite-automata, GPU-parallel, linear-time), so they are excluded
+# by construction and NO RAPIDS version restores them (verified vs the cuDF 26.02 regex
+# feature doc: docs.rapids.ai/api/cudf/stable/libcudf_docs/md_regex/). Same limitation,
+# same reason, on polars + polars-gpu (Rust `regex` crate, also non-backtracking) — see
+# the twin guard `_regex_rust_incompatible` in lazy/engine/polars/predicates.py. Only
+# pandas (Python `re`, backtracking) supports them, so pandas is the honest fallback.
+_CUDF_REGEX_UNSUPPORTED = re.compile(r'\(\?=|\(\?!|\(\?<|\\[1-9]|\(\?P[=<]')
+
+
+def _cudf_regex_prep(pat: str, case: bool) -> Tuple[str, bool]:
+    """Adapt a regex for libcudf. Two distinct, both PERMANENT (not version-lag), limits:
+
+    1. Lookaround / backreferences (``_CUDF_REGEX_UNSUPPORTED`` above): architecturally
+       impossible on a non-backtracking engine — decline with ``NotImplementedError``.
+       polars/polars-gpu share this (Rust regex); pandas is the fallback.
+    2. Inline flag groups (``(?i)``, ``(?m)``, ``(?s)`` … at ANY position): unsupported
+       inline (26.02 doc verbatim: "The inline (?i...) ignore case format pattern is not
+       supported"); flags go via the out-of-band ``flags`` arg, which the Python
+       ``str.contains`` binding exposes for MULTILINE/DOTALL only — NOT IGNORECASE (dgx-
+       probed; see ``_cudf_casefold_or_decline``). So a leading ``(?i)`` is translated to
+       the caller's lowercase-folding workaround (returns the flag-stripped pattern +
+       ``case=False``); any other inline flag has no equivalent, so decline honestly.
+
+    Surfaced by the openCypher ``=~`` operator, which lowers ``=~ '(?i)…'`` to
+    Match/Fullmatch (viz-filter #1673).
+    """
+    if _CUDF_REGEX_UNSUPPORTED.search(pat):
+        raise NotImplementedError(
+            "cuDF regex does not support lookaround or backreferences; use engine='pandas'"
+        )
+    m = re.match(r'\(\?([aiLmsux]+)\)', pat)
+    if not m:
+        return pat, case
+    flag_chars = m.group(1)
+    rest = pat[m.end():]
+    if set(flag_chars) <= {'i'}:
+        return rest, False  # case-insensitive -> lowercase-folding path
+    raise NotImplementedError(
+        f"cuDF regex does not support inline flags '(?{flag_chars})'; use engine='pandas'"
+    )
+
+
+def _cudf_casefold_or_decline(pat: str) -> str:
+    """Lowercase-fold a pattern for the cuDF case-insensitive regex workaround (data is
+    lowercased, so the pattern must be too). This manual fold is the ONLY case-insensitive
+    REGEX mechanism cuDF's Python API offers, so the declines below are PERMANENT — not a
+    workaround pending a native flag, no RAPIDS version to wait for. Confirmed by dgx probe
+    on cudf 26.02.01: ``str.contains``/``match`` reject ``flags=re.IGNORECASE``
+    ("unsupported value for flags"; only MULTILINE/DOTALL are accepted) and ``case=False``
+    raises "only supported when regex=False". (libcudf's C++ ``regex_flags`` DOES have an
+    IGNORECASE bit, but the Python StringMethods binding does not expose it — so it is
+    unreachable from ``s.str.contains``.)
+
+    Folding is UNSOUND for exactly three shapes, declined honestly (each a silent wrong
+    answer or crash otherwise):
+    uppercase escape classes (``.lower()`` turns ``\\D`` into ``\\d`` — INVERTS the
+    predicate; dgx-repro'd, wave 1); case-crossing character ranges (``(?i)[A-z]``
+    silently narrows, ``[X-b]`` folds to the invalid ``[x-b]``; wave 2); and
+    non-ASCII (Python ``str.lower`` vs libcudf lowercasing diverge, e.g. ``İ``).
+    Lowercase escapes (``\\d``, ``\\.``, ``\\w``) are ``.lower()`` no-ops and stay
+    allowed — they worked before this guard and must not regress to NIE (wave 2)."""
+    unsafe = (
+        # [A-Z]: uppercase escape classes invert under fold; x: hex escapes can
+        # spell uppercase letters invisibly to .lower() ((?i)\\x41 — wave-4).
+        re.search(r'\\[A-Zx]', pat) is not None
+        or not pat.isascii()
+        # Any x-y range where exactly ONE endpoint is an uppercase letter shifts
+        # under fold: [A-z] narrows, [?-Z] widens, [X-^] goes invalid (wave-3:
+        # letter-letter-only scanning missed the mixed ones). Both-upper shifts
+        # consistently ([A-Z]->[a-z]); neither-upper is a fold no-op. Ranges only
+        # exist inside classes, so gate on '[' — a class-free literal hyphen
+        # ((?i)e-MAIL) keeps folding; in-class false positives DECLINE (safe).
+        or ('[' in pat and any(a.isupper() != b.isupper()
+                               for a, b in re.findall(r'([!-~])-([!-~])', pat)))
+    )
+    if unsafe:
+        raise NotImplementedError(
+            "cuDF case-insensitive regex cannot safely fold this pattern (uppercase "
+            "escape class, case-crossing range, or non-ASCII); use engine='pandas'"
+        )
+    return pat.lower()
+
+
 class Match(_RegexStringPredicate):
     def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         # workaround cuDF not supporting 'case' and 'na' parameters
         # https://docs.rapids.ai/api/cudf/stable/user_guide/api_docs/api/
         # cudf.core.accessors.string.stringmethods.match/
         if is_cudf:
-            if not self.case:
-                s_modified = s.str.lower()
-                pat_modified = (
-                    self.pat.lower()
-                    if isinstance(self.pat, str)
-                    else self.pat
-                )
-                return s_modified.str.match(pat_modified, flags=self.flags)
-            return s.str.match(self.pat, flags=self.flags)
+            pat, case = _cudf_regex_prep(self.pat, self.case)
+            if not case:
+                return s.str.lower().str.match(_cudf_casefold_or_decline(pat), flags=self.flags)
+            return s.str.match(pat, flags=self.flags)
 
         effective_flags = self.flags
         if not self.case:
@@ -463,18 +543,18 @@ def match(
 class Fullmatch(_RegexStringPredicate):
     def _compute_result(self, s: SeriesT, is_cudf: bool) -> SeriesT:
         if is_cudf:
-            # cuDF doesn't have fullmatch, use match() with anchors as
-            # workaround. fullmatch('abc') is equivalent to match('^abc$')
-            anchored_pat = f'^{self.pat}$'
-
-            if not self.case:
-                s_modified = s.str.lower()
-                pat_modified = (
-                    anchored_pat.lower()
-                    if isinstance(anchored_pat, str)
-                    else anchored_pat
-                )
-                return s_modified.str.match(pat_modified, flags=self.flags)
+            # cuDF has no fullmatch; emulate with match() + ``^(…)$`` anchors. The
+            # group wrap makes a top-level alternation anchor as a WHOLE (``ab|cd``
+            # must not become ``^ab|cd$``, which matched 'abXXX' — dgx-repro'd);
+            # libcudf lacks ``(?:``, so a plain capture group (match is boolean —
+            # numbering is irrelevant). libcudf also rejects inline flag groups
+            # (``(?i)`` …) entirely, so translate them first (``(?i)`` ->
+            # lowercase-folding; others NIE). Surfaced by openCypher ``=~`` (#1673).
+            pat, case = _cudf_regex_prep(self.pat, self.case)
+            anchored_pat = f'^({pat})$'
+            if not case:
+                return s.str.lower().str.match(
+                    _cudf_casefold_or_decline(anchored_pat), flags=self.flags)
             return s.str.match(anchored_pat, flags=self.flags)
 
         # pandas has native fullmatch support

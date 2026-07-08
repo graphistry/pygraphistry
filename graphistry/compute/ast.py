@@ -1662,19 +1662,45 @@ def anti_semi_apply(
     *,
     binding_ops: List[Dict[str, Any]],
     join_aliases: Sequence[str],
+    neq: Optional[Sequence[str]] = None,
 ) -> ASTCall:
     """Filter active rows by removing rows matching a correlated pattern.
 
     ``binding_ops`` encodes the pattern to evaluate as bindings rows.
     ``join_aliases`` names shared aliases used as anti-join keys.
+    ``neq`` optionally names two pattern aliases whose bindings must DIFFER
+    (``EXISTS { (n)--(m) WHERE m <> n }`` — the viz drop-self prune flavor).
     """
-    return ASTCall(
-        "anti_semi_apply",
-        {
-            "binding_ops": binding_ops,
-            "join_aliases": list(join_aliases),
-        },
-    )
+    params: Dict[str, Any] = {
+        "binding_ops": binding_ops,
+        "join_aliases": list(join_aliases),
+    }
+    if neq is not None:
+        params["neq"] = list(neq)
+    return ASTCall("anti_semi_apply", params)
+
+
+def search_any(
+    *,
+    alias: str,
+    term: str,
+    out_col: str,
+    case_sensitive: bool = False,
+    regex: bool = False,
+    columns: Optional[Sequence[str]] = None,
+) -> ASTCall:
+    """Annotate active rows with a cross-column search marker (viz-filter L2):
+    ``out_col`` True where ANY of ``alias``'s columns matches ``term`` — OR across
+    columns, case-insensitive substring default, regex opt-in, dtype-gated (string
+    columns always; integer columns iff numeric-literal term)."""
+    params: Dict[str, Any] = {"alias": alias, "term": term, "out_col": out_col}
+    if case_sensitive:
+        params["case_sensitive"] = True
+    if regex:
+        params["regex"] = True
+    if columns is not None:
+        params["columns"] = list(columns)
+    return ASTCall("search_any", params)
 
 
 def semi_apply_mark(
@@ -1682,6 +1708,7 @@ def semi_apply_mark(
     binding_ops: List[Dict[str, Any]],
     join_aliases: Sequence[str],
     out_col: str,
+    neq: Optional[Sequence[str]] = None,
 ) -> ASTCall:
     """Annotate active rows with a correlated pattern-existence boolean.
 
@@ -1689,14 +1716,14 @@ def semi_apply_mark(
     ``join_aliases`` names shared aliases used as join keys.
     ``out_col`` receives a bool marker where True means the pattern matched.
     """
-    return ASTCall(
-        "semi_apply_mark",
-        {
-            "binding_ops": binding_ops,
-            "join_aliases": list(join_aliases),
-            "out_col": out_col,
-        },
-    )
+    params: Dict[str, Any] = {
+        "binding_ops": binding_ops,
+        "join_aliases": list(join_aliases),
+        "out_col": out_col,
+    }
+    if neq is not None:
+        params["neq"] = list(neq)
+    return ASTCall("semi_apply_mark", params)
 
 
 def join_apply(
@@ -1749,6 +1776,28 @@ def unwind(expr: Any, as_: str = "value") -> ASTCall:
 def drop_cols(cols: Iterable[str]) -> ASTCall:
     """Drop named columns from the active row table (ignores missing columns at runtime)."""
     return ASTCall("drop_cols", {"cols": list(cols)})
+
+
+def count_table(
+    table: str = "nodes",
+    source: Optional[str] = None,
+    alias: str = "count(*)",
+) -> ASTCall:
+    """Count matched rows without materializing them (fast path for a lone ``count(*)``).
+
+    Emitted by the Cypher lowering when a RETURN is exactly ``count(*)`` over a
+    single node/edge pattern (no DISTINCT, GROUP BY, row-level WHERE, UNWIND,
+    paging, or multi-relationship binding). Produces a one-row table
+    ``{alias: n}`` where ``n`` is the height of the active ``table`` (or, when a
+    ``source`` alias-mask column is present, the count of its truthy rows). This
+    avoids the full-frame materialize + constant-key ``group_by`` the general
+    aggregate path performs — the win that turns count(*) from O(N) into a single
+    reduction. See plans/gfql-engine-followups (BEAT LADYBUG).
+    """
+    params: Dict[str, Any] = {"table": table, "alias": alias}
+    if source is not None:
+        params["source"] = source
+    return ASTCall("count_table", params)
 
 
 def group_by(

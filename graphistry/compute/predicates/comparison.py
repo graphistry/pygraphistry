@@ -283,9 +283,21 @@ class NE(_ScalarTemporalComparison):
     op = staticmethod(operator.ne)
     safe_scalar_compare = False
 
+    def __call__(self, s: SeriesT) -> SeriesT:
+        # openCypher/SQL three-valued logic: `null <> x` is NULL, so a NULL cell is NOT a match
+        # (an unknown value cannot be proven unequal to x). pandas `NaN != x` returns True, which
+        # would wrongly KEEP the null; AND with notna() so a null is excluded — matching cuDF and
+        # the polars engine. The other comparisons (eq/gt/lt/ge/le) already drop nulls (their
+        # operator returns False on a null cell).
+        mask = super().__call__(s)
+        return mask & s.notna()
+
 def ne(val: ComparisonInput) -> NE:
     """
-    Return whether a given value is not equal to a threshold
+    Return whether a given value is not equal to a threshold.
+
+    Follows openCypher/SQL three-valued logic: a NULL/NA cell is NOT a match (``null <> x`` is
+    unknown), so null rows are excluded — the same as ``eq`` and the other comparisons.
     """
     return NE(val)
 
@@ -301,7 +313,12 @@ class Between(ASTPredicate):
         self.upper = self._normalize_value(upper)
         self.inclusive = inclusive
 
-    def _normalize_value(self, val: BetweenBoundInput) -> Union[int, float, np.number, TemporalValue]:
+    def _normalize_value(self, val: BetweenBoundInput) -> Union[int, float, np.number, TemporalValue, str]:
+        # Delegates to ComparisonPredicate's normalizer (Between is not a subclass, hence the
+        # arg-type ignore for the borrowed self). That method raises on str, so a str is never
+        # actually returned for Between's numeric/temporal bounds — but the return type must
+        # match the delegated method's declared union (incl. str) to type-check; __call__'s
+        # isinstance(int/float/TemporalValue) guards route any non-numeric/temporal to a raise.
         return ComparisonPredicate._normalize_value(self, val)  # type: ignore[arg-type]
 
     def __call__(self, s: SeriesT) -> SeriesT:

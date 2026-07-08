@@ -253,13 +253,87 @@ WHERE Forms
 - Same-path alias comparisons such as ``WHERE p.team = q.team``.
 - ``IS NULL`` and ``IS NOT NULL`` predicates.
 - String predicates ``STARTS WITH``, ``ENDS WITH``, and ``CONTAINS``.
+- Regex match ``=~`` (openCypher/neo4j-standard), e.g.
+  ``WHERE n.name =~ '(?i)al.*'``. Uses a **full-string / anchored** match
+  (like neo4j's Java-regex ``=~``), so ``n.name =~ 'AB'`` matches only
+  ``'AB'`` — use ``.*`` / ``^..$`` for partial matches. Inline flags such as
+  ``(?i)`` (case-insensitive), ``(?m)``, and ``(?s)`` are honored. Composes
+  through ``AND`` / ``OR`` / ``NOT``. Engine caveat: on ``engine='cudf'``,
+  ``(?m)`` / ``(?s)``, lookaround, backreferences, and ``(?i)`` combined with
+  uppercase escape classes (e.g. ``(?i)\\D+``; lowercase ``\\d``/``\\.``
+  work), case-crossing character ranges (``(?i)[A-z]``), hex escapes, and
+  non-ASCII patterns raise ``NotImplementedError`` (libcudf
+  regex limits — declined honestly rather than approximated); use
+  ``engine='pandas'`` for those patterns. (``LIKE`` / ``ILIKE`` are not part of
+  Cypher or GQL — use ``=~``, ``CONTAINS``, or ``STARTS WITH`` instead.)
 - Label predicates such as ``WHERE b:Foo:Bar``.
 - Relationship-type predicates such as ``WHERE type(r) = 'KNOWS'``.
 - Positive relationship-existence pattern predicates such as
   ``WHERE (n)-[:R]->()`` and variable-length existence checks such as
   ``WHERE (n)-[*]-()`` and ``WHERE (n)-[:R*2]->()``.
+- ``EXISTS { <pattern> }`` pattern-existence subqueries (openCypher-standard) in
+  WHERE position, e.g. ``WHERE EXISTS { (n)-[:R]->() }`` and ``WHERE NOT EXISTS
+  { (n)--() }`` — the declarative prune-isolated building blocks. Aliases
+  introduced inside the braces are existentially scoped (``EXISTS { (n)--(m) }``
+  is fine even when ``m`` is unbound outside), inline property maps work
+  (``EXISTS { (n)-[:R {w: 1}]->() }``), and the one supported inner ``WHERE``
+  form is endpoint inequality: ``EXISTS { (n)--(m) WHERE m <> n }`` — "has a
+  neighbor other than itself", i.e. the drop-self-loop prune-isolated flavor.
+  Runs natively on all four engines. Not yet supported (clear errors):
+  ``EXISTS`` in RETURN/WITH projections, general inner ``WHERE`` clauses,
+  multi-pattern bodies, full ``MATCH .. RETURN`` subquery bodies, and ``EXISTS``
+  inside ``GRAPH { }`` pipelines. For prune-isolated in GRAPH STATE (nodes AND
+  edges back), use edge patterns instead: ``GRAPH { MATCH (a)-[e]-(b) }`` keeps
+  every edge-touching node with ALL its edges (self-loops included); add
+  ``WHERE a.id <> b.id`` for the drop-self-loop variant.
 - Pattern predicates can be combined with row predicates in the current
   boolean subset, including ``AND`` / ``OR`` / ``XOR`` and ``NOT`` forms.
+
+Scalar Functions and Operators
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Standard openCypher/neo4j scalar functions and operators usable in ``WHERE``
+and ``RETURN`` expressions:
+
+- Arithmetic ``+ - * / %``. Chained comparisons such as
+  ``WHERE 1 < n.age < 65`` are supported. (The ``^`` exponentiation operator is
+  not yet available.)
+- Numeric functions ``abs``, ``sqrt``, ``sign``, ``floor``, ``ceil`` (alias
+  ``ceiling``, per Cypher 25 / GQL), and ``round(x)`` / ``round(x, precision)``
+  (returns a float). ``round`` follows neo4j's tie-breaking: precision 0 rounds
+  ties toward positive infinity (``round(-1.5)`` → ``-1.0``, ``round(2.5)`` →
+  ``3.0``); precision > 0 rounds ties away from zero (``round(-1.55, 1)`` →
+  ``-1.6``). One documented deviation at precision > 0: neo4j rounds via the
+  number's decimal string (Java ``BigDecimal.valueOf``), so a value like
+  ``2.675`` — stored as the binary double ``2.67499…`` — gives ``2.68`` in
+  neo4j but ``2.67`` here (both engines, consistently binary-double).
+  Precision above 308 is the identity (a float64 has no digits there).
+- String helpers ``toLower`` / ``toUpper`` and their GQL-conformance aliases
+  ``lower`` / ``upper`` (the idiomatic case-insensitive compare, e.g.
+  ``WHERE toLower(n.name) = 'bob'``), plus ``substring`` and
+  ``size``, and conversions ``toInteger`` / ``toFloat`` / ``toString`` /
+  ``toBoolean`` and ``coalesce``.
+- Regex ``=~`` (see WHERE Forms above).
+- ``searchAny(entity, term[, opts])`` — cross-column search predicate (WHERE
+  position; GFQL extension for the viz filter pipeline): True where ANY of the
+  entity's columns matches ``term``. Inspector semantics: OR across columns,
+  case-insensitive substring by default, regex opt-in; dtype-gated — string
+  columns always, integer columns iff the term is a numeric literal
+  (``/^[0-9.-]+$/``); floats/dates/booleans only via the explicit list. Options
+  map: ``{caseSensitive: true, regex: true, columns: ['name', ...]}`` (unknown
+  keys error, listing the valid ones). Composes with other WHERE predicates
+  through AND/OR/NOT; nodes and edges independently searchable with different
+  terms. Runs natively on all four engines for node aliases; an edge-alias
+  ``searchAny(r, ...)`` declines honestly on polars pending multi-entity
+  binding-row support (use ``engine='pandas'``), and explicit non-string
+  columns beyond ints/bools likewise decline on polars and cuDF rather than
+  risk divergent stringification (float repr differs across engines). The regex path obeys the same
+  per-engine decline rules as ``=~``. Python twins:
+  :meth:`ComputeMixin.search_nodes` / :meth:`ComputeMixin.search_edges`.
+
+``LIKE`` / ``ILIKE`` and ``BETWEEN`` are intentionally not provided — they are
+not part of Cypher or GQL; use ``=~`` / ``CONTAINS`` / ``STARTS WITH`` and
+``a <= x AND x <= b`` (or chained ``a <= x <= b``) respectively.
 
 Variable-Length Relationship Boundary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

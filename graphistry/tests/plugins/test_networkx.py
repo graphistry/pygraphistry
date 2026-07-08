@@ -60,7 +60,15 @@ def test_compute_networkx_node_algorithm_surface():
 
 
 def test_compute_networkx_hits_outputs_hubs_and_authorities():
-    g = _graph(pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "a"]}))
+    # NOT a pure cycle: a directed cycle's adjacency is a permutation matrix
+    # (all singular values equal), so networkx HITS (via scipy ``svds(k=1)``)
+    # returns an ARBITRARY vector from the degenerate singular space -- whose
+    # components can sum to ~0, making its ``h /= h.sum()`` normalization blow
+    # up to inf/nan. Which vector svds returns is backend/version dependent, so
+    # a cycle graph makes this test flaky across scipy versions. A graph with a
+    # well-defined hub/authority structure has a unique (Perron-Frobenius)
+    # dominant singular vector -> stable, version-independent scores.
+    g = _graph(pd.DataFrame({"s": ["a", "a", "b"], "d": ["b", "c", "c"]}))
 
     g2 = g.compute_networkx("hits", params={"max_iter": 200})
 

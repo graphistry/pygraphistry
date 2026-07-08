@@ -580,7 +580,12 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                 else:
                     raise policy_error
             elif binding_error is not None:
-                # Wrap in RuntimeError with context
+                # Honest engine-capability declines propagate as-is so a DAG caller can catch
+                # NotImplementedError and retry on engine='pandas' (matching the chain surface);
+                # don't bury them in a RuntimeError.
+                if isinstance(binding_error, NotImplementedError):
+                    raise binding_error
+                # Wrap other failures in RuntimeError with context
                 raise RuntimeError(
                     f"Failed to execute node '{node_name}' in DAG. "
                     f"Error: {type(binding_error).__name__}: {str(binding_error)}"

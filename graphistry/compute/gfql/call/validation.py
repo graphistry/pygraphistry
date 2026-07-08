@@ -39,6 +39,7 @@ from graphistry.compute.gfql.call.support import (
     is_list_of_strings,
     is_list_or_dict,
     is_non_empty_list_of_strings,
+    is_string_pair,
     is_non_empty_string,
     is_non_negative_int_like,
     is_string,
@@ -395,22 +396,39 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     ),
 
     'anti_semi_apply': _safelist_entry(
-        {'binding_ops', 'join_aliases'},
+        {'binding_ops', 'join_aliases', 'neq'},
         required_params={'binding_ops', 'join_aliases'},
         param_validators={
             'binding_ops': is_list_of_dicts,
             'join_aliases': is_non_empty_list_of_strings,
+            'neq': is_string_pair,
         },
         description='Filter active rows by anti-semi joining against correlated binding rows',
     ),
 
+    'search_any': _safelist_entry(
+        {'alias', 'term', 'out_col', 'case_sensitive', 'regex', 'columns'},
+        required_params={'alias', 'term', 'out_col'},
+        param_validators={
+            'alias': is_non_empty_string,
+            'term': is_string,
+            'out_col': is_non_empty_string,
+            'case_sensitive': is_bool,
+            'regex': is_bool,
+            'columns': is_non_empty_list_of_strings,
+        },
+        description='Annotate active rows with a cross-column search marker (OR across columns)',
+        schema_effects=_schema_effects(adds_node_cols=_semi_apply_mark_added_node_cols),
+    ),
+
     'semi_apply_mark': _safelist_entry(
-        {'binding_ops', 'join_aliases', 'out_col'},
+        {'binding_ops', 'join_aliases', 'out_col', 'neq'},
         required_params={'binding_ops', 'join_aliases', 'out_col'},
         param_validators={
             'binding_ops': is_list_of_dicts,
             'join_aliases': is_non_empty_list_of_strings,
             'out_col': is_non_empty_string,
+            'neq': is_string_pair,
         },
         description='Annotate active rows with correlated pattern-existence booleans',
         schema_effects=_schema_effects(adds_node_cols=_semi_apply_mark_added_node_cols),
@@ -489,6 +507,19 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     'distinct': _safelist_entry(
         set(),
         description='Drop duplicate rows from active row table',
+    ),
+
+    'count_table': _safelist_entry(
+        {'table', 'source', 'alias'},
+        param_validators={
+            'table': lambda v: v in ['nodes', 'edges'],
+            'source': is_string_or_none,
+            'alias': is_non_empty_string,
+        },
+        description='Count matched rows (node/edge table height or source-alias mask) into a one-row table, without materializing the frame — fast path for a lone count(*)',
+        schema_effects=_schema_effects(
+            adds_node_cols=lambda p: [p.get('alias', 'count(*)')],
+        ),
     ),
 
     'get_degrees': _safelist_entry(
