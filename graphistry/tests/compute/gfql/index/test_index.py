@@ -591,7 +591,7 @@ def test_exists_prune_membership_parity(engine):
 
 
 def test_get_degrees_polars_gpu_uses_matching_index_engine(monkeypatch):
-    import polars as pl
+    pl = pytest.importorskip("polars")
     from graphistry.Engine import Engine
     import graphistry.compute.gfql.index.degrees as index_degrees
     from graphistry.compute.gfql.lazy.engine.polars.degrees import get_degrees_polars
@@ -615,7 +615,7 @@ def test_get_degrees_polars_gpu_uses_matching_index_engine(monkeypatch):
 
 
 def test_exists_prune_membership_polars_gpu_uses_matching_index_engine(monkeypatch):
-    import polars as pl
+    pl = pytest.importorskip("polars")
     from graphistry.Engine import Engine
     from graphistry.compute.ast import n, e_undirected, serialize_binding_ops
     import graphistry.compute.gfql.index.degrees as index_degrees
