@@ -20,7 +20,7 @@ from .build import build_adjacency_index, build_node_id_index
 from .traverse import index_seeded_hop
 from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
 from .policy import IndexPolicy, validate_index_policy
-from .types import EdgeIndexDirection, HopDirection, IndexKind
+from .types import AdjacencyIndexKind, EdgeIndexDirection, HopDirection, IndexKind
 
 # Private Plottable attachment key. Keep access behind get_registry()/show_indexes().
 REGISTRY_ATTR = "_gfql_index_registry"
@@ -135,12 +135,13 @@ def create_index(
             raise ValueError(
                 "edge adjacency index requires bound edges with source/destination columns"
             )
-        key_col = src if kind == EDGE_OUT_ADJ else dst
-        _check_column(column, key_col, kind)
-        other = dst if kind == EDGE_OUT_ADJ else src
-        idx = build_adjacency_index(g._edges, kind, key_col, other, g._edge, eng, (src, dst))
-        idx = replace(idx, name=name or index_name(kind, key_col))
-        registry = registry.with_index(kind, idx)
+        adj_kind = cast(AdjacencyIndexKind, kind)
+        key_col = src if adj_kind == EDGE_OUT_ADJ else dst
+        _check_column(column, key_col, adj_kind)
+        other = dst if adj_kind == EDGE_OUT_ADJ else src
+        idx = build_adjacency_index(g._edges, adj_kind, key_col, other, g._edge, eng, (src, dst))
+        idx = replace(idx, name=name or index_name(adj_kind, key_col))
+        registry = registry.with_index(adj_kind, idx)
         return _attach(g, registry)
 
     if kind == NODE_ID:
