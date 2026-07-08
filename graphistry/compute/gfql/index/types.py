@@ -1,7 +1,7 @@
 """Shared internal types for GFQL physical indexes."""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional, Protocol, Tuple, Union
+from typing import Any, List, Literal, Optional, Protocol, Tuple, TypedDict, Union
 
 from graphistry.compute.typing import DataFrameT
 
@@ -106,8 +106,22 @@ class ArrayNamespace(Protocol):
         ...
 
 
-IndexTraceStep = Dict[str, Any]
-IndexTrace = List[IndexTraceStep]
+IndexPath = Literal["scan", "index"]
 
-GfqlIndexNameList = List[str]
-OptionalInt = Optional[int]
+
+class IndexTraceStep(TypedDict, total=False):
+    op: str
+    direction: HopDirection
+    hops: Optional[int]
+    policy: str
+    engine: str
+    frontier_n: int
+    path: IndexPath
+    decision_reason: str
+    n_keys: int
+    seed_deg_sum: Optional[int]
+    est_result_rows: Optional[int]
+    threshold_frac: float
+
+
+IndexTrace = List[IndexTraceStep]

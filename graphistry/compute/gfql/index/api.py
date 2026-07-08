@@ -10,7 +10,10 @@ from __future__ import annotations
 import copy
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
+import pandas as pd
+
 from graphistry.Engine import EngineAbstract, Engine, resolve_engine
+from graphistry.compute.typing import DataFrameT
 from graphistry.Plottable import Plottable
 from .registry import (
     AdjacencyIndex, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
@@ -20,7 +23,10 @@ from .build import build_adjacency_index, build_node_id_index
 from .traverse import index_seeded_hop
 from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
 from .policy import IndexPolicy, validate_index_policy
-from .types import AdjacencyIndexKind, EdgeIndexDirection, HopDirection, IndexKind
+from .types import (
+    AdjacencyIndexKind, EdgeIndexDirection, HopDirection, IndexKind,
+    IndexTrace, IndexTraceStep,
+)
 
 # Private Plottable attachment key. Keep access behind get_registry()/show_indexes().
 REGISTRY_ATTR = "_gfql_index_registry"
@@ -32,28 +38,35 @@ _TRACE = _threading.local()
 
 class index_trace:
     """Context manager: capture the per-hop index-vs-scan decisions made inside."""
-    def __enter__(self) -> List[Dict[str, Any]]:
-        self.steps: List[Dict[str, Any]] = []
-        self.prev = getattr(_TRACE, "steps", None)
-        _TRACE.steps = self.steps
+    def __enter__(self) -> IndexTrace:
+        self.steps: IndexTrace = []
+        self.prev = _get_trace_steps()
+        _set_trace_steps(self.steps)
         return self.steps
 
     def __exit__(self, *exc: Any) -> Literal[False]:
-        _TRACE.steps = self.prev
+        _set_trace_steps(self.prev)
         return False
 
 
-def _record(decision: Dict[str, Any]) -> None:
-    steps = getattr(_TRACE, "steps", None)
+def _get_trace_steps() -> Optional[IndexTrace]:
+    return cast(Optional[IndexTrace], getattr(_TRACE, "steps", None))
+
+
+def _set_trace_steps(steps: Optional[IndexTrace]) -> None:
+    _TRACE.steps = steps
+
+
+def _record(decision: IndexTraceStep) -> None:
+    steps = _get_trace_steps()
     if steps is not None:
         steps.append(decision)
 
 
 def _trace_active() -> bool:
     """True only inside an ``index_trace()`` / ``gfql_explain`` context. Diagnostic
-    enrichment (LP1) is computed only when this is True → zero hot-path cost."""
-    return getattr(_TRACE, "steps", None) is not None
-
+    enrichment (LP1) is computed only when this is True -> zero hot-path cost."""
+    return _get_trace_steps() is not None
 
 
 # Back-compat for existing private tests while helpers live in cost.py.
@@ -61,7 +74,7 @@ _seed_id_array = seed_id_array
 _seed_deg_sum = seed_deg_sum
 
 def get_registry(g: Plottable) -> GfqlIndexRegistry:
-    return getattr(g, REGISTRY_ATTR, EMPTY_REGISTRY)
+    return cast(GfqlIndexRegistry, getattr(g, REGISTRY_ATTR, EMPTY_REGISTRY))
 
 
 def _attach(g: Plottable, registry: GfqlIndexRegistry) -> Plottable:
@@ -171,7 +184,7 @@ def drop_index(g: Plottable, kind: Optional[IndexKind] = None) -> Plottable:
     return _attach(g, registry.without(kind))
 
 
-def show_indexes(g: Plottable) -> Any:
+def show_indexes(g: Plottable) -> pd.DataFrame:
     """Return a pandas DataFrame describing resident indexes (empty if none).
 
     ``valid`` reflects live fingerprint validity against the current frames — a
@@ -179,11 +192,10 @@ def show_indexes(g: Plottable) -> Any:
     is auto-skipped (scan fallback) until rebuilt. ``nbytes`` is the resident
     sidecar-array footprint (the pay-as-you-go memory signal).
     """
-    import pandas as pd
     from .registry import index_nbytes
 
     registry = get_registry(g)
-    rows = []
+    rows: List[Dict[str, object]] = []
     for kind in registry.kinds():
         idx = registry.get(kind)
         assert idx is not None  # iterating registry.kinds() -> present
@@ -243,11 +255,25 @@ def gfql_index_all(g: Plottable,
 
 # Coverage: features the index fast path does NOT yet handle -> caller scans.
 def _hop_is_index_coverable(
-    *, nodes, to_fixed_point, hops, min_hops, max_hops,
-    output_min_hops, output_max_hops, label_node_hops, label_edge_hops,
-    label_seeds, edge_match, source_node_match, destination_node_match,
-    source_node_query, destination_node_query, edge_query,
-    include_zero_hop_seed, target_wave_front,
+    *,
+    nodes: Optional[DataFrameT],
+    to_fixed_point: bool,
+    hops: Optional[int],
+    min_hops: Optional[int],
+    max_hops: Optional[int],
+    output_min_hops: Optional[int],
+    output_max_hops: Optional[int],
+    label_node_hops: Optional[str],
+    label_edge_hops: Optional[str],
+    label_seeds: bool,
+    edge_match: Optional[object],
+    source_node_match: Optional[object],
+    destination_node_match: Optional[object],
+    source_node_query: Optional[str],
+    destination_node_query: Optional[str],
+    edge_query: Optional[str],
+    include_zero_hop_seed: bool,
+    target_wave_front: Optional[DataFrameT],
 ) -> bool:
     if nodes is None:
         return False
@@ -271,7 +297,7 @@ def _ensure_indexes(
     direction: HopDirection,
     engine: Engine,
     policy: IndexPolicy,
-    nodes: Any,
+    nodes: DataFrameT,
     src: str,
     dst: str,
     node_col: str,
@@ -281,7 +307,7 @@ def _ensure_indexes(
     force => always build missing; auto => build only when the query looks
     selective (frontier small vs E), else leave registry as-is (scan).
     """
-    needed = []
+    needed: List[AdjacencyIndexKind] = []
     if direction in ("forward", "undirected"):
         needed.append(EDGE_OUT_ADJ)
     if direction in ("reverse", "undirected"):
@@ -325,7 +351,7 @@ def maybe_index_hop(
     # base record + a `_bail` helper that logs *why* we fell back to scan. All of this
     # is skipped entirely when not tracing, so the hot path pays nothing.
     trace = _trace_active()
-    diag: Dict[str, Any] = {}
+    diag: IndexTraceStep = {}
     if trace:
         diag = {
             "op": "hop", "direction": direction, "hops": hops,
@@ -338,7 +364,7 @@ def maybe_index_hop(
 
     def _bail(reason: str) -> Optional[Plottable]:
         if trace:
-            _record({**diag, "path": "scan", "decision_reason": reason})
+            _record(cast(IndexTraceStep, {**diag, "path": "scan", "decision_reason": reason}))
         return None
 
     if policy == "off":
@@ -416,12 +442,12 @@ def maybe_index_hop(
         return_as_wave_front=return_as_wave_front,
     )
     if trace:
-        _record({
+        _record(cast(IndexTraceStep, {
             **diag, "hops": eff_hops,
             "path": "index" if result is not None else "scan",
             "decision_reason": (
                 "frontier below cost gate -> index" if result is not None
                 else "index path not applicable -> scan"
             ),
-        })
+        }))
     return result
