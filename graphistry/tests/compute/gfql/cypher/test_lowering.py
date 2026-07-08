@@ -15063,6 +15063,52 @@ def test_t3_single_hop_grouped_fast_path_q4_count_preserves_edge_multiplicity(en
     ]
 
 
+def test_t3_single_hop_grouped_fast_path_pandas_numeric_aggregates() -> None:
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 10, 11],
+        "node_type": ["Person", "Person", "Person", "City", "City"],
+        "age": [20, 30, 40, None, None],
+        "city": [None, None, None, "NYC", "LA"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 2],
+        "d": [10, 10, 11],
+        "rel": ["LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN c.city AS city, count(p.age) AS ageCount, sum(p.age) AS ageSum, "
+        "min(p.age) AS minAge, max(p.age) AS maxAge ORDER BY city"
+    )
+
+    graph = _mk_graph(nodes, edges)
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    fast = _execute_single_hop_grouped_aggregate_fast_path(graph, compiled.chain, engine="pandas")
+    assert fast is not None
+    assert _to_pandas_df(fast._nodes).to_dict(orient="records") == [
+        {"city": "LA", "ageCount": 1, "ageSum": 40, "minAge": 40, "maxAge": 40},
+        {"city": "NYC", "ageCount": 2, "ageSum": 50, "minAge": 20, "maxAge": 30},
+    ]
+
+
+def test_t3_single_hop_grouped_fast_path_pandas_missing_property_declines() -> None:
+    nodes = pd.DataFrame({
+        "id": [0, 10],
+        "node_type": ["Person", "City"],
+        "age": [20, None],
+        "city": [None, "NYC"],
+    })
+    edges = pd.DataFrame({"s": [0], "d": [10], "rel": ["LIVES_IN"]})
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN c.missing AS missing, count(*) AS n"
+    )
+
+    graph = _mk_graph(nodes, edges)
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    assert _execute_single_hop_grouped_aggregate_fast_path(graph, compiled.chain, engine="pandas") is None
+
+
 def test_issue_1712_connected_comma_pattern_where_intersects() -> None:
     """#1712: a connected comma-pattern sharing a node alias with a WHERE on a leaf
     alias must intersect both patterns (the WHERE was silently dropped on the
