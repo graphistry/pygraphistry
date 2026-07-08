@@ -135,6 +135,30 @@ def _binding_alias_targets(
     return alias_targets, eligible
 
 
+def _positive_search_any_markers(steps: Sequence[ASTObject], start_idx: int) -> Set[str]:
+    """Return searchAny marker columns used as positive top-level AND conjuncts.
+
+    ``search_any`` row ops are positive kernels. They are safe as alias prefilters
+    only when the retained ``where_rows`` filter also requires that marker to be
+    true. ``NOT marker`` and ``marker OR ...`` must stay post-join only.
+    """
+    markers: Set[str] = set()
+    idx = start_idx
+    while idx < len(steps):
+        op = steps[idx]
+        if not isinstance(op, ASTCall) or op.function not in _FILTER_REGION_OPS:
+            break
+        if op.function == "where_rows":
+            expr = op.params.get("expr")
+            if isinstance(expr, str):
+                for conjunct in _flatten_and_conjuncts(expr):
+                    leaf = _strip_redundant_parens(conjunct)
+                    if leaf.startswith("__gfql_search_any_") and leaf.endswith("__"):
+                        markers.add(leaf)
+        idx += 1
+    return markers
+
+
 def _conjunct_single_alias(
     conjunct: str,
     alias_targets: Dict[str, ASTObject],
@@ -215,6 +239,7 @@ def apply_row_prefilter_pushdown(chain: Chain) -> Chain:
         return chain
 
     prefilters: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    positive_search_markers = _positive_search_any_markers(steps, rows_idx + 1)
 
     # Scan the contiguous filter region immediately following the rows op and
     # COLLECT (never remove) pushable single-alias predicates.
@@ -225,7 +250,8 @@ def apply_row_prefilter_pushdown(chain: Chain) -> Chain:
             break
         if op.function == "search_any":
             alias = op.params.get("alias")
-            if alias in eligible:
+            out_col = op.params.get("out_col")
+            if alias in eligible and out_col in positive_search_markers:
                 spec: Dict[str, Any] = {"kind": "search_any", "term": op.params.get("term")}
                 if op.params.get("case_sensitive"):
                     spec["case_sensitive"] = True

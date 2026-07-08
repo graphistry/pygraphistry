@@ -150,6 +150,17 @@ def test_guard_no_unsafe_pushdown(query):
     assert not _has_prefilter(cypher_to_gfql(query))
 
 
+def test_guard_negated_search_any_not_pushed(g):
+    q = "MATCH (n) WHERE NOT searchAny(n, 'Ember') RETURN n.id AS id ORDER BY id LIMIT 5000"
+    pushed = cypher_to_gfql(q)
+    base = _base_chain(q)
+    assert not _has_prefilter(pushed)
+    for engine in ENGINES:
+        r_push = g.gfql(pushed, engine=engine)
+        r_base = g.gfql(base, engine=engine)
+        assert _norm(r_push._nodes) == _norm(r_base._nodes), f"NOT searchAny pushdown changed results on {engine}"
+
+
 def test_guard_shortest_path_not_pushed(g):
     # shortestPath scalar bindings route to a builder that ignores alias_prefilters
     q = (
