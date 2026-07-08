@@ -6,14 +6,25 @@ is never reordered.
 """
 from __future__ import annotations
 
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Protocol, Tuple
 
 from graphistry.Engine import Engine
 from .engine_arrays import array_namespace, col_to_array
 from .registry import AdjacencyIndex, NodeIdIndex, frame_fingerprint
 
 
-def _csr_from_keys(keys: Any, xp: Any) -> Tuple[Any, Any, Any]:
+class FrameLike(Protocol):
+    shape: Any
+
+    def __getitem__(self, key: str) -> Any:
+        ...
+
+
+ArrayLike = Any
+ArrayNamespace = Any
+
+
+def _csr_from_keys(keys: ArrayLike, xp: ArrayNamespace) -> Tuple[ArrayLike, ArrayLike, ArrayLike]:
     """(keys array over E rows) -> (unique_keys, group_offsets[U+1], row_positions[E]).
 
     row_positions = the original row indices grouped (contiguously) by key value.
@@ -35,7 +46,7 @@ def _csr_from_keys(keys: Any, xp: Any) -> Tuple[Any, Any, Any]:
 
 
 def build_adjacency_index(
-    edges: Any,
+    edges: FrameLike,
     kind: str,
     key_col: str,
     other_col: str,
@@ -66,7 +77,7 @@ def build_adjacency_index(
 
 
 def build_node_id_index(
-    nodes: Any,
+    nodes: FrameLike,
     node_col: str,
     engine: Engine,
 ) -> Optional[NodeIdIndex]:

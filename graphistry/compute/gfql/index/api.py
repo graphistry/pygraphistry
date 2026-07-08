@@ -8,7 +8,7 @@ stale indexes (treated as absent, never a wrong answer).
 from __future__ import annotations
 
 import copy
-from typing import Any, Optional, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 from graphistry.Engine import EngineAbstract, Engine, resolve_engine
 from graphistry.Plottable import Plottable
@@ -18,17 +18,11 @@ from .registry import (
 )
 from .build import build_adjacency_index, build_node_id_index
 from .traverse import index_seeded_hop
+from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
+from .policy import IndexPolicy, validate_index_policy
 
+# Private Plottable attachment key. Keep access behind get_registry()/show_indexes().
 REGISTRY_ATTR = "_gfql_index_registry"
-
-# Index-vs-scan crossover fraction (of distinct source keys): past this frontier a
-# full scan is cheaper than per-seed index probes, so `use` falls back to scan and
-# never loses to the un-indexed path. Engine-aware because vectorized-scan engines
-# (polars/cudf/GPU) scan far faster than pandas, so their crossover is much smaller
-# (see test_index_cost_gate_engine_aware). Measured N=1e5 deg8: pandas ~0.5, polars ~0.02. GPU values provisional
-# (dgx-gated) — conservatively grouped with polars.
-_COST_GATE_FRAC = {Engine.PANDAS: 0.5}
-_COST_GATE_FRAC_DEFAULT = 0.02
 
 # --- lightweight, thread-local index decision trace (for gfql_explain) -------
 import threading as _threading
@@ -37,18 +31,18 @@ _TRACE = _threading.local()
 
 class index_trace:
     """Context manager: capture the per-hop index-vs-scan decisions made inside."""
-    def __enter__(self):
-        self.steps = []
+    def __enter__(self) -> List[Dict[str, Any]]:
+        self.steps: List[Dict[str, Any]] = []
         self.prev = getattr(_TRACE, "steps", None)
         _TRACE.steps = self.steps
         return self.steps
 
-    def __exit__(self, *exc):
+    def __exit__(self, *exc: Any) -> Literal[False]:
         _TRACE.steps = self.prev
         return False
 
 
-def _record(decision: dict) -> None:
+def _record(decision: Dict[str, Any]) -> None:
     steps = getattr(_TRACE, "steps", None)
     if steps is not None:
         steps.append(decision)
@@ -60,39 +54,10 @@ def _trace_active() -> bool:
     return getattr(_TRACE, "steps", None) is not None
 
 
-def _seed_id_array(nodes, node_col):
-    """Seed ids of the frontier as a host numpy array (device→host copy is fine —
-    only called under an explain trace). None on any failure."""
-    try:
-        col = nodes[node_col]
-        if hasattr(col, "to_numpy"):
-            return col.to_numpy()
-        arr = getattr(col, "values", col)
-        return arr.get() if hasattr(arr, "get") else arr
-    except Exception:
-        return None
 
-
-def _seed_deg_sum(idx, seed_ids) -> Optional[int]:
-    """Σ degree of the resident seeds — the true index expansion cost, FREE from the
-    CSR ``group_offsets`` already on the AdjacencyIndex. Diagnostic only (LP1); the
-    report's planner needs this fanout estimate exposed via EXPLAIN."""
-    try:
-        import numpy as np
-        ks = idx.keys_sorted
-        ks = ks.get() if hasattr(ks, "get") else np.asarray(ks)
-        off = idx.group_offsets
-        off = off.get() if hasattr(off, "get") else np.asarray(off)
-        seed_ids = np.asarray(seed_ids)
-        pos = np.searchsorted(ks, seed_ids)
-        valid = pos < ks.size
-        pos_v = pos[valid]
-        seed_v = seed_ids[valid]
-        hit = pos_v[ks[pos_v] == seed_v]  # keep only real key hits (robust to seed order)
-        return int((off[hit + 1] - off[hit]).sum())
-    except Exception:
-        return None
-
+# Back-compat for existing private tests while helpers live in cost.py.
+_seed_id_array = seed_id_array
+_seed_deg_sum = seed_deg_sum
 
 def get_registry(g: Plottable) -> GfqlIndexRegistry:
     return getattr(g, REGISTRY_ATTR, EMPTY_REGISTRY)
@@ -117,6 +82,27 @@ def _check_column(column: Optional[str], expected: str, kind: str) -> None:
             f"GFQL index {kind!r} keys on the {expected!r} binding; a custom column "
             f"({column!r}) is not supported yet. Re-bind the graph or omit `column`."
         )
+
+
+def _is_resident_index_valid(
+    g: Plottable,
+    kind: str,
+    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
+) -> bool:
+    """True when a resident index still matches the current graph frames."""
+    eng = resolve_engine(cast(Any, engine), g)
+    registry = get_registry(g)
+    if kind in ADJ_KINDS:
+        src, dst = g._source, g._destination
+        if src is None or dst is None or g._edges is None:
+            return False
+        return registry.get_valid(kind, g._edges, (src, dst), eng) is not None
+    if kind == NODE_ID:
+        node_col = g._node
+        if node_col is None or g._nodes is None:
+            return False
+        return registry.get_valid(NODE_ID, g._nodes, (node_col,), eng) is not None
+    return False
 
 
 def create_index(
@@ -275,7 +261,17 @@ def _hop_is_index_coverable(
     return True
 
 
-def _ensure_indexes(g, registry, direction, engine, policy, nodes, src, dst, node_col):
+def _ensure_indexes(
+    g: Plottable,
+    registry: GfqlIndexRegistry,
+    direction: str,
+    engine: Engine,
+    policy: IndexPolicy,
+    nodes: Any,
+    src: str,
+    dst: str,
+    node_col: str,
+) -> GfqlIndexRegistry:
     """auto/force: build the indexes this seeded hop needs (opt-in pay-as-you-go).
 
     force => always build missing; auto => build only when the query looks
@@ -310,7 +306,7 @@ def _ensure_indexes(g, registry, direction, engine, policy, nodes, src, dst, nod
 
 def maybe_index_hop(
     g: Plottable, engine: Engine, *, nodes, hops, direction, return_as_wave_front,
-    to_fixed_point=False, policy: str = "use", **rest,
+    to_fixed_point: bool = False, policy: str = "use", **rest: Any,
 ) -> Optional[Plottable]:
     """Planner entry called from hop(). Returns an index-built subgraph, or None to
     fall back to the scan/join path.
@@ -319,11 +315,13 @@ def maybe_index_hop(
     (or buildable under auto/force), (b) the query is covered, (c) the frontier is
     not so large that a full scan is cheaper. Correctness is identical either way.
     """
+    policy = validate_index_policy(policy) or "use"
+
     # Diagnostic trace (LP1) is populated only inside an explain context — build the
     # base record + a `_bail` helper that logs *why* we fell back to scan. All of this
     # is skipped entirely when not tracing, so the hot path pays nothing.
     trace = _trace_active()
-    diag: dict = {}
+    diag: Dict[str, Any] = {}
     if trace:
         diag = {
             "op": "hop", "direction": direction, "hops": hops,
@@ -378,12 +376,12 @@ def maybe_index_hop(
     idx0 = registry.get_valid(
         EDGE_OUT_ADJ if direction != "reverse" else EDGE_IN_ADJ, g._edges, (src, dst), engine
     )
-    frac = _COST_GATE_FRAC.get(engine, _COST_GATE_FRAC_DEFAULT)
+    frac = cost_gate_frac(engine)
     if trace and idx0 is not None:
         # Free fanout estimate (Σ seed degree) from the CSR offsets — the planner
         # signal the report wants EXPLAIN to surface (not just used-index yes/no).
-        seed_ids = _seed_id_array(nodes, node_col)
-        deg_sum = _seed_deg_sum(idx0, seed_ids) if seed_ids is not None else None
+        seed_ids = seed_id_array(nodes, node_col)
+        deg_sum = seed_deg_sum(idx0, seed_ids) if seed_ids is not None else None
         diag["n_keys"] = int(idx0.n_keys)
         diag["seed_deg_sum"] = deg_sum
         diag["est_result_rows"] = deg_sum

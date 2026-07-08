@@ -11,9 +11,11 @@ from typing import Any, Dict, cast
 
 from graphistry.Engine import resolve_engine
 from .api import index_trace, show_indexes
+from .policy import validate_index_policy
 
 
 def gfql_explain(g: Any, query: Any, *, index_policy: str = "use", engine: str = "auto") -> Dict[str, Any]:
+    index_policy = validate_index_policy(index_policy) or "use"
     eng = resolve_engine(cast(Any, engine), g)
     resident = show_indexes(g)
     with index_trace() as steps:

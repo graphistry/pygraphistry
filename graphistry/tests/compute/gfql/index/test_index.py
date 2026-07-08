@@ -121,6 +121,38 @@ def test_wire_roundtrip(graph):
     show = g.gfql({"type": "ShowIndexes"})
     assert show.shape[0] == 1
 
+def test_create_rebuilds_stale_resident_index():
+    g = graphistry.edges(pd.DataFrame({"src": [0, 1], "dst": [1, 2]}), "src", "dst").materialize_nodes()
+    gi = g.gfql("CREATE GFQL INDEX FOR edge_out_adj")
+    assert bool(gi.show_indexes().iloc[0]["valid"]) is True
+
+    g2 = gi.edges(pd.DataFrame({"src": [2, 3, 4], "dst": [3, 4, 5]}), "src", "dst")
+    assert bool(g2.show_indexes().iloc[0]["valid"]) is False
+
+    g3 = g2.gfql("CREATE GFQL INDEX FOR edge_out_adj")
+    row = g3.show_indexes().iloc[0]
+    assert bool(row["valid"]) is True
+    assert int(row["n_rows"]) == 3
+
+    g4 = g2.gfql({"type": "CreateIndex", "kind": "edge_out_adj"})
+    row = g4.show_indexes().iloc[0]
+    assert bool(row["valid"]) is True
+    assert int(row["n_rows"]) == 3
+
+
+def test_invalid_index_policy_raises(graph):
+    chain = [n({"id": 0}), e_forward(hops=1)]
+    with pytest.raises(ValueError, match="index_policy"):
+        graph.gfql(chain, index_policy="bogus")
+    with pytest.raises(ValueError, match="index_policy"):
+        graph.gfql(chain, index_policy="")
+    with pytest.raises(ValueError, match="index_policy"):
+        graph.gfql_explain(chain, index_policy="bogus")
+
+    # Documented values remain accepted.
+    graph.gfql(chain, index_policy="off")
+    graph.gfql_explain(chain, index_policy="use")
+
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_index_policy_force_and_explain(graph, engine):

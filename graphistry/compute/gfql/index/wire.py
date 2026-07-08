@@ -94,13 +94,13 @@ def apply_index_op(g: Any, op: Any, *, engine: Any = "auto") -> Any:
 
     CreateIndex/DropIndex -> new Plottable; ShowIndexes -> pandas DataFrame.
     """
-    from .api import create_index, drop_index, show_indexes, index_name, get_registry
+    from .api import create_index, drop_index, show_indexes, get_registry, _is_resident_index_valid
 
     if isinstance(op, CreateIndex):
         if not op.replace:
             reg = get_registry(g)
-            if reg.has(op.kind):
-                return g  # resident reuse (fingerprint validity checked at use time)
+            if reg.has(op.kind) and _is_resident_index_valid(g, op.kind, engine):
+                return g  # valid resident index reuse
         return create_index(g, op.kind, column=op.column, name=op.name, engine=engine)
     if isinstance(op, DropIndex):
         kind = op.kind

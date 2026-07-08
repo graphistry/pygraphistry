@@ -665,9 +665,10 @@ class ComputeMixin(Plottable):
 
         g = self
         if policy is not None:
+            from graphistry.compute.gfql.index.policy import validate_index_policy
             import copy as _copy
             g = _copy.copy(self)
-            g._gfql_index_policy = policy
+            g._gfql_index_policy = validate_index_policy(policy)
         return gfql_base(g, *args, **kwargs)
     gfql.__doc__ = (gfql_base.__doc__ or "") + """
 

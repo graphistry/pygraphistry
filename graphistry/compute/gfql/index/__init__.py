@@ -12,7 +12,7 @@ from .registry import (
 )
 from .api import (
     create_index, drop_index, show_indexes, gfql_index_edges, gfql_index_all,
-    get_registry, maybe_index_hop, index_name, REGISTRY_ATTR, index_trace,
+    get_registry, maybe_index_hop, index_name, index_trace,
 )
 from .wire import (
     CreateIndex, DropIndex, ShowIndexes, apply_index_op, index_op_from_json,
@@ -26,7 +26,7 @@ __all__ = [
     "AdjacencyIndex", "NodeIdIndex",
     "create_index", "drop_index", "show_indexes", "gfql_index_edges",
     "gfql_index_all", "get_registry", "maybe_index_hop", "index_name",
-    "REGISTRY_ATTR", "index_trace",
+    "index_trace",
     "CreateIndex", "DropIndex", "ShowIndexes", "apply_index_op",
     "index_op_from_json", "is_index_op", "is_index_op_json",
     "parse_index_ddl", "looks_like_index_ddl",
