@@ -17,6 +17,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_engine_polars_hop.py
     graphistry/tests/compute/gfql/test_engine_polars_chain.py
     graphistry/tests/compute/gfql/test_engine_polars_row_pipeline.py
+    graphistry/tests/compute/gfql/test_engine_polars_binding_rows.py
     graphistry/tests/compute/gfql/test_engine_polars_cypher_conformance.py
     graphistry/tests/compute/gfql/test_engine_polars_conformance_matrix.py
     graphistry/tests/compute/gfql/test_conformance_ledger.py
