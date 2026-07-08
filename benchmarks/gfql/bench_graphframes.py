@@ -466,13 +466,14 @@ def run_system(
     is_parquet: bool,
     args: argparse.Namespace,
     out_fh,
-) -> None:
+) -> List[Result]:
     """Load one system, run each task guarded, stream JSONL results."""
     # --- construct + guarded import/availability ---------------------------
     adapter = None
     cold_ms: Optional[float] = None
     n_edges = n_nodes = None
     load_error: Optional[str] = None
+    rows: List[Result] = []
 
     try:
         if system in ("gfql-polars", "gfql-polars-gpu"):
@@ -511,7 +512,8 @@ def run_system(
             )
             out_fh.write(r.to_jsonl() + "\n")
             out_fh.flush()
-        return
+            rows.append(r)
+        return rows
 
     # --- run each task, guarded -------------------------------------------
     for task in tasks:
@@ -537,10 +539,12 @@ def run_system(
             print(f"[ERROR] {system}/{task}: {e}", file=sys.stderr)
         out_fh.write(r.to_jsonl() + "\n")
         out_fh.flush()
+        rows.append(r)
 
     # --- teardown ----------------------------------------------------------
     if isinstance(adapter, GraphFramesSystem):
         adapter.close()
+    return rows
 
 
 def build_task_fn(adapter, task: str) -> Callable[[], int]:
@@ -553,6 +557,31 @@ def build_task_fn(adapter, task: str) -> Callable[[], int]:
     if task == "pagerank":
         return adapter.pagerank_fn()
     raise ValueError(f"unknown task {task}")
+
+
+def validate_result_size_parity(rows: List[Result]) -> List[str]:
+    """Return parity errors for successful rows grouped by dataset/task.
+
+    Missing systems and error rows are allowed so exploratory sweeps still finish,
+    but any successful systems for the same task must report identical sizes.
+    """
+    grouped: Dict[Tuple[str, str], Dict[str, Optional[int]]] = {}
+    for row in rows:
+        if row.status != "ok":
+            continue
+        grouped.setdefault((row.dataset, row.task), {})[row.system] = row.result_size
+
+    errors: List[str] = []
+    for (dataset, task), sizes_by_system in sorted(grouped.items()):
+        if len(sizes_by_system) < 2:
+            continue
+        sizes = set(sizes_by_system.values())
+        if len(sizes) > 1:
+            detail = ", ".join(
+                f"{system}={size}" for system, size in sorted(sizes_by_system.items())
+            )
+            errors.append(f"{dataset}/{task} result_size mismatch: {detail}")
+    return errors
 
 
 # ---------------------------------------------------------------------------
@@ -639,12 +668,22 @@ def main(argv: Optional[List[str]] = None) -> int:
             file=sys.stderr,
         )
 
+    all_rows: List[Result] = []
     with open(args.out, "w") as out_fh:
         for system in systems:
             print(f"\n### SYSTEM: {system} ###", file=sys.stderr)
-            run_system(system, tasks, args.dataset, edges_path, is_parquet, args, out_fh)
+            all_rows.extend(
+                run_system(system, tasks, args.dataset, edges_path, is_parquet, args, out_fh)
+            )
 
     print(f"\nDone. Results -> {args.out}", file=sys.stderr)
+    parity_errors = validate_result_size_parity(all_rows)
+    if parity_errors:
+        print("[PARITY ERROR] result-size mismatch across successful systems:", file=sys.stderr)
+        for err in parity_errors:
+            print(f"  - {err}", file=sys.stderr)
+        return 4
+    print("[PARITY OK] result sizes match across successful systems.", file=sys.stderr)
     return 0
 
 

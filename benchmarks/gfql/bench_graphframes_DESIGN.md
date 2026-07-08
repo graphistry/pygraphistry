@@ -52,8 +52,10 @@ warm query latency.
 Each task returns a `result_size` written to JSONL: filter → node count above
 threshold, hop → neighborhood size, pagerank → vertex count. Filter and hop
 sizes should match exactly across systems (identical set semantics); a mismatch
-flags a bug (e.g. directedness or seed-set drift). PageRank scores are compared
-by rank correlation (Spearman) of the top-K vertices offline, not exact values,
+flags a bug (e.g. directedness or seed-set drift). The harness validates
+successful rows after the sweep and exits nonzero if any dataset/task has a
+`result_size` mismatch across successful systems. PageRank scores are compared by
+rank correlation (Spearman) of the top-K vertices offline, not exact values,
 since the algorithms differ in convergence criteria.
 
 ## Guardrails
