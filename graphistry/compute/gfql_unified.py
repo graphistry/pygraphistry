@@ -605,7 +605,7 @@ def _connected_join_cached_node_filter(
     return cast(DataFrameT, filtered)
 
 
-def _connected_join_cached_node_ids(
+def _connected_join_cached_node_ids(  # pragma: no cover - polars-only, covered by polars lane
     base_graph: Plottable,
     nodes_obj: DataFrameT,
     node_matches: Sequence[Optional[dict]],
@@ -731,7 +731,7 @@ def _connected_join_cached_singleton_dst_source_counts(
     return counts
 
 
-def _connected_join_cached_first_arm_shared_counts(
+def _connected_join_cached_first_arm_shared_counts(  # pragma: no cover - polars-only, covered by polars lane
     base_graph: Plottable,
     nodes_obj: DataFrameT,
     edges_obj: DataFrameT,
@@ -795,7 +795,7 @@ def _connected_join_cached_first_arm_shared_counts(
     return cast(DataFrameT, counts)
 
 
-def _connected_join_cached_second_arm_group_rows(
+def _connected_join_cached_second_arm_group_rows(  # pragma: no cover - polars-only, covered by polars lane
     base_graph: Plottable,
     nodes_obj: DataFrameT,
     edges_obj: DataFrameT,
@@ -1103,7 +1103,7 @@ def _connected_join_two_star_fast_grouped_count(
     nodes = df_to_engine(nodes_source, engine)
     edges = cast(DataFrameT, edges_obj)
 
-    if engine in POLARS_ENGINES:
+    if engine in POLARS_ENGINES:  # pragma: no cover - polars-only, covered by polars lane
         import polars as pl
         from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
 
@@ -1856,7 +1856,7 @@ def _execute_single_hop_grouped_aggregate_fast_path(
         if prop is not None:
             needed_by_alias[alias].append((out_col, prop))
 
-    if requested_engine in POLARS_ENGINES:
+    if requested_engine in POLARS_ENGINES:  # pragma: no cover - polars-only, covered by polars lane
         import polars as pl
         start_ids = start_nodes.select(node_col).unique()
         end_ids = end_nodes.select(node_col).unique()
