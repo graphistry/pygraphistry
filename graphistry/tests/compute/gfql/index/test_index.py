@@ -520,7 +520,7 @@ def _to_engine_frames(g, engine):
 def _degrees(g, engine):
     if engine in ("polars", "polars-gpu"):
         from graphistry.compute.gfql.lazy.engine.polars.degrees import get_degrees_polars
-        return get_degrees_polars(g)
+        return get_degrees_polars(g, engine=engine)
     return g.get_degrees()
 
 
@@ -588,3 +588,56 @@ def test_exists_prune_membership_parity(engine):
     gi2 = g.gfql_index_all(engine=engine)
     setattr(gi2, "_gfql_index_policy", "off")
     assert ids(gi2) == base
+
+
+def test_get_degrees_polars_gpu_uses_matching_index_engine(monkeypatch):
+    import polars as pl
+    from graphistry.Engine import Engine
+    import graphistry.compute.gfql.index.degrees as index_degrees
+    from graphistry.compute.gfql.lazy.engine.polars.degrees import get_degrees_polars
+
+    g = graphistry.nodes(pl.DataFrame({"id": [0, 1, 2]}), "id").edges(
+        pl.DataFrame({"src": [0, 1], "dst": [1, 2]}), "src", "dst")
+    gi = g.gfql_index_all(engine="polars-gpu")
+
+    seen = []
+    orig = index_degrees.degrees_from_index
+
+    def wrapped(registry, nodes_df, node_col, edges_df, cols, engine):
+        seen.append(engine)
+        return orig(registry, nodes_df, node_col, edges_df, cols, engine)
+
+    monkeypatch.setattr(index_degrees, "degrees_from_index", wrapped)
+    out = get_degrees_polars(gi, engine="polars-gpu")
+
+    assert Engine.POLARS_GPU in seen
+    assert "degree" in out._nodes.columns
+
+
+def test_exists_prune_membership_polars_gpu_uses_matching_index_engine(monkeypatch):
+    import polars as pl
+    from graphistry.Engine import Engine
+    from graphistry.compute.ast import n, e_undirected, serialize_binding_ops
+    import graphistry.compute.gfql.index.degrees as index_degrees
+    from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
+    from graphistry.compute.gfql.lazy.engine.polars.pattern_apply import _pattern_alias_keys_polars
+
+    g = graphistry.nodes(pl.DataFrame({"id": [0, 1, 2]}), "id").edges(
+        pl.DataFrame({"src": [0, 1], "dst": [1, 2]}), "src", "dst")
+    gi = g.gfql_index_all(engine="polars-gpu")
+    binding_ops = serialize_binding_ops([n(name="n"), e_undirected(), n(name="m")])
+
+    seen = []
+    orig = index_degrees.adjacency_membership_keys
+
+    def wrapped(registry, direction, edges_df, cols, engine):
+        seen.append(engine)
+        return orig(registry, direction, edges_df, cols, engine)
+
+    monkeypatch.setattr(index_degrees, "adjacency_membership_keys", wrapped)
+    with target_mode(ExecutionTarget.GPU):
+        keys = _pattern_alias_keys_polars(gi, binding_ops, "n")
+
+    assert Engine.POLARS_GPU in seen
+    assert keys is not None
+    assert sorted(keys.get_column("id").to_list()) == [0, 1, 2]

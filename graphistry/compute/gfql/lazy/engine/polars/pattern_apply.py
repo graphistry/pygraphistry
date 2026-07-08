@@ -142,6 +142,7 @@ def _pattern_alias_keys_polars(
             from graphistry.compute.gfql.index import get_registry
             from graphistry.compute.gfql.index.degrees import adjacency_membership_keys
             from graphistry.Engine import Engine as _Engine
+            from graphistry.compute.gfql.lazy import active_target as _active_target, ExecutionTarget as _ExecutionTarget
             _reg = get_registry(g)
             if not _reg.is_empty():
                 _edir = getattr(edge_op, "direction", "forward")
@@ -153,7 +154,8 @@ def _pattern_alias_keys_polars(
                     _mdir = "reverse"
                 _src, _dst = base_graph._source, base_graph._destination
                 if isinstance(_src, str) and isinstance(_dst, str):
-                    _mk = adjacency_membership_keys(_reg, _mdir, base_graph._edges, (_src, _dst), _Engine.POLARS)
+                    _eng = _Engine.POLARS_GPU if _active_target() == _ExecutionTarget.GPU else _Engine.POLARS
+                    _mk = adjacency_membership_keys(_reg, _mdir, base_graph._edges, (_src, _dst), _eng)
                     if _mk is not None:
                         return pl.DataFrame({node_id: pl.Series(node_id, _np.asarray(_mk))})
         except Exception:

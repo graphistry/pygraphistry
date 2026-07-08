@@ -6,9 +6,17 @@ Reached via .get_degrees() etc. dispatch and the GFQL CALL executor.
 """
 from typing import Optional
 
+from graphistry.Engine import Engine
 from graphistry.Plottable import Plottable
 from .dtypes import is_lazy, colnames, col_dtype
 from .hop_eager import ensure_nodes_polars
+
+
+def _index_engine(engine: Optional[str] = None) -> Engine:
+    if engine is not None:
+        return Engine(engine)
+    from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
+    return Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else Engine.POLARS
 
 
 def _endpoint_counts(edges, key_col: str, node_dt, node_col: str, alias: str):
@@ -51,10 +59,9 @@ def get_degrees_polars(
         try:
             from graphistry.compute.gfql.index import get_registry
             from graphistry.compute.gfql.index.degrees import degrees_from_index
-            from graphistry.Engine import Engine
             _reg = get_registry(g)
             if not _reg.is_empty():
-                _d = degrees_from_index(_reg, nodes, node_col, edges, (src, dst), Engine.POLARS)
+                _d = degrees_from_index(_reg, nodes, node_col, edges, (src, dst), _index_engine(engine))
                 if _d is not None:
                     _in, _out = _d
                     drop0 = [c for c in colnames(nodes) if c in (degree_in, degree_out, col)]
@@ -127,14 +134,14 @@ def _single_direction_degree_polars(g: Plottable, key_col: str, col: str) -> Plo
     return g.nodes(out, node_col)
 
 
-def get_indegrees_polars(g: Plottable, col: str = "degree_in") -> Plottable:
+def get_indegrees_polars(g: Plottable, col: str = "degree_in", engine: Optional[str] = None) -> Plottable:
     """Native ``get_indegrees`` (parity with ComputeMixin.get_indegrees): in-degree = count of
     edges whose DESTINATION endpoint is the node."""
     assert g._destination is not None, "Missing destination binding; set via .bind() or .edges()"
     return _single_direction_degree_polars(g, g._destination, col)
 
 
-def get_outdegrees_polars(g: Plottable, col: str = "degree_out") -> Plottable:
+def get_outdegrees_polars(g: Plottable, col: str = "degree_out", engine: Optional[str] = None) -> Plottable:
     """Native ``get_outdegrees`` (parity with ComputeMixin.get_outdegrees): out-degree = count of
     edges whose SOURCE endpoint is the node."""
     assert g._source is not None, "Missing source binding; set via .bind() or .edges()"
