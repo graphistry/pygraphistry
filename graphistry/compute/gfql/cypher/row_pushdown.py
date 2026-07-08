@@ -17,7 +17,7 @@ the rewrite can only ever move work earlier, never change results.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple  # noqa: F401
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, cast  # noqa: F401
 
 from graphistry.compute.ast import ASTCall, ASTObject
 from graphistry.compute.chain import Chain
@@ -205,7 +205,7 @@ def apply_row_prefilter_pushdown(chain: Chain) -> Chain:
     )
     if rows_idx is None:
         return chain
-    rows_op = steps[rows_idx]
+    rows_op = cast(ASTCall, steps[rows_idx])
     binding_ops = rows_op.params["binding_ops"]
     targets = _binding_alias_targets(binding_ops)
     if targets is None:
