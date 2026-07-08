@@ -40,14 +40,25 @@ from graphistry.compute.gfql.cypher.procedures.networkx import (
     networkx_normalized_value_columns,
 )
 from graphistry.plugins.networkx.policy import NETWORKX_SCIPY_EXTRA_REQUIREMENTS, NETWORKX_VERSION_SPEC, SCIPY_VERSION_SPEC
-from graphistry.compute.gfql.cypher.ast import ExpressionText, OrderByClause, OrderItem, ReturnClause, ReturnItem, SourceSpan
+from graphistry.compute.gfql.cypher.ast import ExpressionText, LabelRef, OrderByClause, OrderItem, ParameterRef, PropertyRef, ReturnClause, ReturnItem, SourceSpan, WherePredicate
+import graphistry.compute.gfql.cypher.lowering as lowering_module
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery
 from graphistry.compute.gfql.cypher.lowering import (
     ConnectedMatchJoinPlan,
+    _AggregateSpec,
+    _active_match_alias_for_stage,
+    _aggregate_runtime_spec,
     _binding_prop_alias_set,
+    _distinct_aggregate_expr_text,
     _clause_has_mixed_aggregate_item,
+    _expr_property_access_node_aliases,
+    _is_multi_source_match_alias_boundary_error,
     _logical_plan_route_for_query,
     _projection_ref_from_expr_safe,
+    _render_row_where_operand_text,
+    _row_where_predicate_text,
+    _whole_row_group_entity_expr,
+    _whole_row_group_key_expr,
 )
 from graphistry.compute.gfql_unified import (
     _connected_join_cached_edge_filter,
@@ -18226,6 +18237,117 @@ def test_lowering_coverage_helper_projection_and_aggregate_decisions() -> None:
 
     count_only_query = parse_cypher("MATCH (a)-->(b) RETURN count(*) AS n")
     assert _binding_prop_alias_set(count_only_query, alias_targets=alias_targets, params=None) == []
+
+
+def test_lowering_coverage_helper_conservative_binding_branches() -> None:
+    alias_targets = {"a": ASTNode(name="a"), "b": ASTNode(name="b")}
+
+    star_query = parse_cypher("MATCH (a) RETURN *")
+    assert not _clause_has_mixed_aggregate_item(star_query, alias_targets=alias_targets, params=None)
+    assert _binding_prop_alias_set(star_query, alias_targets={"a": ASTNode(name="a")}, params=None) == []
+
+    bad_mixed_query = parse_cypher("MATCH (a) RETURN ghost.city + count(a) AS score")
+    assert _clause_has_mixed_aggregate_item(bad_mixed_query, alias_targets={"a": ASTNode(name="a")}, params=None)
+
+    list_aggregate_query = parse_cypher("MATCH (a) RETURN [count(a)] AS xs")
+    assert _clause_has_mixed_aggregate_item(list_aggregate_query, alias_targets={"a": ASTNode(name="a")}, params=None)
+
+    with_query = parse_cypher("MATCH (a) WITH a RETURN a.city AS city")
+    assert _binding_prop_alias_set(with_query, alias_targets={"a": ASTNode(name="a")}, params=None) is None
+
+    optional_query = parse_cypher("OPTIONAL MATCH (a)-->(b) RETURN a.city AS city")
+    assert _binding_prop_alias_set(optional_query, alias_targets=alias_targets, params=None) is None
+
+    missing_alias_query = parse_cypher("MATCH (a) RETURN ghost.city AS g")
+    assert _binding_prop_alias_set(missing_alias_query, alias_targets={"a": ASTNode(name="a")}, params=None) == []
+    assert _binding_prop_alias_set(missing_alias_query, alias_targets={}, params=None) is None
+
+    collect_query = parse_cypher("MATCH (a) RETURN collect(a.city) AS cities")
+    assert _binding_prop_alias_set(collect_query, alias_targets={"a": ASTNode(name="a")}, params=None) is None
+
+    aggregate_prop_query = parse_cypher("MATCH (a)-->(b) RETURN avg(b.age) AS avg_age")
+    assert _binding_prop_alias_set(aggregate_prop_query, alias_targets=alias_targets, params=None) == ["b"]
+
+    order_by_query = parse_cypher("MATCH (a)-->(b) RETURN count(*) AS n ORDER BY b.age")
+    assert _binding_prop_alias_set(order_by_query, alias_targets=alias_targets, params=None) == ["b"]
+
+
+def test_lowering_coverage_helper_exception_fallbacks(monkeypatch: Any) -> None:
+    alias_targets = {"a": ASTNode(name="a")}
+    query = parse_cypher("MATCH (a) RETURN a.city AS city")
+
+    def raise_validation(*args: Any, **kwargs: Any) -> None:
+        raise GFQLValidationError(ErrorCode.E201, "forced validation failure")
+
+    with monkeypatch.context() as m:
+        m.setattr(lowering_module, "_parse_row_expr", raise_validation)
+        assert _clause_has_mixed_aggregate_item(query, alias_targets=alias_targets, params=None)
+
+    with monkeypatch.context() as m:
+        m.setattr(lowering_module, "_match_pattern_elements", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("forced")))
+        assert _binding_prop_alias_set(query, alias_targets=alias_targets, params=None) is None
+
+    with monkeypatch.context() as m:
+        m.setattr(lowering_module, "_collect_aggregate_specs_for_clause", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("forced")))
+        assert _binding_prop_alias_set(query, alias_targets=alias_targets, params=None) is None
+
+    with monkeypatch.context() as m:
+        m.setattr(lowering_module, "_expr_match_alias_usage", raise_validation)
+        assert _binding_prop_alias_set(query, alias_targets=alias_targets, params=None) is None
+
+
+def test_lowering_coverage_helper_direct_margin_paths() -> None:
+    span = SourceSpan(1, 1, 1, 1, 0, 0)
+    alias_targets = {"a": ASTNode(name="a"), "r": ASTEdgeForward(name="r")}
+
+    assert _render_row_where_operand_text(ParameterRef("p", span)) == "$p"
+    assert _render_row_where_operand_text(None) == "null"
+    assert _render_row_where_operand_text(True) == "true"
+    assert _render_row_where_operand_text(7) == "7"
+    assert _row_where_predicate_text(WherePredicate(PropertyRef("a", "age", span), "contains", "x", span)) is None
+    assert _row_where_predicate_text(WherePredicate(LabelRef("a", ("Person",), span), "has_labels", None, span)) is None
+
+    node_spec = _AggregateSpec("count(DISTINCT a)", "n", "count", "a", True, 1, 1)
+    edge_spec = _AggregateSpec("count(DISTINCT r)", "n", "count", "r", True, 1, 1)
+    collect_edge_spec = _AggregateSpec("collect(DISTINCT r)", "rs", "collect", "r", True, 1, 1)
+    avg_distinct_spec = _AggregateSpec("avg(DISTINCT a.age)", "avg_age", "avg", "a.age", True, 1, 1)
+
+    assert _distinct_aggregate_expr_text(_AggregateSpec("count(*)", "n", "count", None, True, 1, 1), alias_targets=alias_targets) is None
+    assert _aggregate_runtime_spec(node_spec, alias_targets=alias_targets) == ("count_distinct", NODE_IDENTITY_COLUMN)
+    assert _aggregate_runtime_spec(edge_spec, alias_targets=alias_targets) == ("count_distinct", "__gfql_edge_index_0__")
+    with pytest.raises(GFQLValidationError):
+        _aggregate_runtime_spec(collect_edge_spec, alias_targets=alias_targets)
+    with pytest.raises(GFQLValidationError):
+        _aggregate_runtime_spec(avg_distinct_spec, alias_targets=alias_targets)
+
+    assert _whole_row_group_entity_expr("a", alias_targets=alias_targets, field="return", line=1, column=1) == "__node_entity__(a)"
+    assert _whole_row_group_entity_expr("r", alias_targets=alias_targets, field="return", line=1, column=1) == "__edge_entity__(r)"
+    assert _whole_row_group_key_expr("r", alias_targets=alias_targets, field="return", line=1, column=1) == "__gfql_edge_index_0__"
+    with pytest.raises(GFQLValidationError):
+        _whole_row_group_key_expr("missing", alias_targets=alias_targets, field="return", line=1, column=1)
+
+    multi_agg_query = parse_cypher("MATCH (a)-[r]->(b) RETURN count(a) AS ca, count(b) AS cb")
+    with pytest.raises(GFQLValidationError):
+        _active_match_alias_for_stage(
+            unwinds=(),
+            clause=multi_agg_query.return_,
+            order_by_clause=multi_agg_query.order_by,
+            alias_targets={"a": ASTNode(name="a"), "b": ASTNode(name="b"), "r": ASTEdgeForward(name="r")},
+            params=None,
+        )
+
+    boundary_exc = GFQLValidationError(ErrorCode.E108, "forced", field="return", value=["a", "b"])
+    assert _is_multi_source_match_alias_boundary_error(boundary_exc, alias_targets={"a": ASTNode(name="a"), "b": ASTNode(name="b")})
+    assert not _is_multi_source_match_alias_boundary_error(GFQLValidationError(ErrorCode.E201, "forced", field="return", value=["a", "b"]), alias_targets={"a": ASTNode(name="a"), "b": ASTNode(name="b")})
+
+    assert _expr_property_access_node_aliases(
+        "[a.city, r.weight]",
+        alias_targets=alias_targets,
+        params=None,
+        field="return",
+        line=1,
+        column=1,
+    ) == {"a", "r"}
 
 def test_string_cypher_parenthesized_and_preserves_missing_property_as_null() -> None:
     # A parenthesized AND must stay on the row-filter path, not the filter_dict path:
