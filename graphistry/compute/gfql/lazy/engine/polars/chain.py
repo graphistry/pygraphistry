@@ -578,7 +578,8 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     # `MATCH (a {id-filter})-[e]->(b)` (forward/reverse, no destination filter) —
     # the canonical seeded query. This native chain fast path does its own O(E)
     # semi-join, so it must consult the index here too (not just compute/hop.py).
-    _idx_pol = getattr(self, "_gfql_index_policy", "use")
+    from graphistry.compute.gfql.index import get_index_policy
+    _idx_pol = get_index_policy(self)
     if (start_nodes is None and len(ops) == 3 and _fp_node(ops[0]) and _plain_edge(ops[1])
             and _fp_node(ops[2]) and ops[0].filter_dict and not ops[2].filter_dict
             and ops[1].direction in ("forward", "reverse")):

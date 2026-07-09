@@ -17,8 +17,8 @@ def hop_lazy_or_eager(self: Plottable, nodes: Optional[Any] = None, hops: Option
     # GFQL physical index fast path (pay-as-you-go). chain_polars reaches the
     # polars hop here without passing through compute/hop.py, so the index hook
     # lives here too to cover polars gfql() chains (not just direct .hop()).
-    from graphistry.compute.gfql.index import get_registry, maybe_index_hop
-    _pol = getattr(self, "_gfql_index_policy", "use")
+    from graphistry.compute.gfql.index import get_index_policy, get_registry, maybe_index_hop
+    _pol = get_index_policy(self)
     if (not get_registry(self).is_empty()) or _pol in ("auto", "force"):
         from graphistry.Engine import Engine
         from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
