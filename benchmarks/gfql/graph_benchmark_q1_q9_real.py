@@ -125,7 +125,7 @@ def to_engine(df, engine):
 def q2(g, engine):
     top = g.gfql("MATCH (f {node_type:'Person'})-[{rel:'FOLLOWS'}]->(p {node_type:'Person'}) "
                  "RETURN p.node_id AS nid, count(f) AS c ORDER BY c DESC, nid LIMIT 1", engine=engine)._nodes
-    tp = top.to_pandas() if hasattr(top, "to_pandas") else top
+    tp = top if isinstance(top, pd.DataFrame) else top.to_pandas()
     nid = int(tp["nid"].iloc[0])
     return g.gfql(f"MATCH (p {{node_id:{nid}}})-[{{rel:'LIVES_IN'}}]->(c {{node_type:'City'}}) "
                   "RETURN c.city AS city, c.state AS state, c.country AS country", engine=engine)._nodes

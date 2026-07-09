@@ -27,6 +27,7 @@ if TYPE_CHECKING:
             self,
             binding_ops: List[Dict[str, JSONVal]],
             alias_prefilters: Optional[AliasPrefilters] = None,
+            attach_prop_aliases: Optional[List[str]] = None,
         ) -> "Plottable": ...
         def _gfql_bindings_row_table(self, alias_endpoints: Any) -> "Plottable": ...
 
@@ -148,7 +149,7 @@ def coerce_non_negative_int(value: Any, op_name: str) -> int:
 
 
 def rows(
-    ctx: Any,
+    ctx: RowPipelineCtx,
     table: Optional[str] = None,
     source: Optional[str] = None,
     alias_endpoints: Optional[Dict[str, str]] = None,

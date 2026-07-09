@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from graphistry.compute.gfql.expr_parser import ExprNode, FunctionCall
 
 from graphistry.Plottable import Plottable
+from graphistry.utils.json import JSONVal
 from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
 
 
@@ -822,8 +823,8 @@ def select_extend_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottab
 
 def binding_rows_polars(
     g: Plottable,
-    binding_ops: Sequence[Any],
-    attach_prop_aliases: Optional[List[str]] = None,
+    binding_ops: Sequence[Dict[str, JSONVal]],
+    attach_prop_aliases: Optional[Sequence[str]] = None,
 ) -> Optional[Plottable]:
     """Native polars bindings-row table for FIXED-LENGTH connected patterns (#1709).
 
@@ -843,13 +844,13 @@ def binding_rows_polars(
     never bridges to pandas. Parity gate: differential tests vs the pandas oracle.
     """
     import polars as pl
-    from graphistry.compute.ast import ASTEdge, ASTNode, from_json as ast_from_json
+    from graphistry.compute.ast import ASTEdge, ASTNode, ASTObject, from_json as ast_from_json
     from graphistry.compute.gfql.lazy import collect as _lazy_collect
     from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
     from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
     from .predicates import filter_by_dict_polars
 
-    def _names(lf: Any) -> List[str]:
+    def _names(lf: pl.LazyFrame) -> List[str]:
         # LazyFrame column names WITHOUT collecting data (schema-only resolve).
         return lf.collect_schema().names()
 
@@ -864,7 +865,7 @@ def binding_rows_polars(
         # Bounded re-entry seeds the first alias from carried rows — pandas-only.
         return None
 
-    ops = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
+    ops: List[ASTObject] = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
     # Shared validation (engine-agnostic): raises the canonical GFQLValidationError
     # for malformed op sequences / duplicate aliases — same error as pandas.
     RowPipelineMixin._gfql_validate_binding_ops(ops)
@@ -875,7 +876,7 @@ def binding_rows_polars(
 
     for idx, op in enumerate(ops):
         if idx % 2 == 0:
-            if not isinstance(op, ASTNode) or getattr(op, "query", None) is not None:
+            if not isinstance(op, ASTNode) or op.query is not None:
                 return None
         else:
             if not isinstance(op, ASTEdge):
@@ -891,22 +892,22 @@ def binding_rows_polars(
                     op.direction == "undirected"
                     or bool(op.to_fixed_point)
                     or (op.max_hops is None and op.hops is None)
-                    or isinstance(getattr(op, "_name", None), str)
+                    or isinstance(op._name, str)
                 ):
                     return None
             if op.direction not in ("forward", "reverse", "undirected"):
                 return None
             if any(
-                getattr(op, attr, None) is not None
-                for attr in (
-                    "edge_query", "source_node_match", "destination_node_match",
-                    "source_node_query", "destination_node_query",
-                    "label_node_hops", "label_edge_hops",
-                    "output_min_hops", "output_max_hops",
+                value is not None
+                for value in (
+                    op.edge_query, op.source_node_match, op.destination_node_match,
+                    op.source_node_query, op.destination_node_query,
+                    op.label_node_hops, op.label_edge_hops,
+                    op.output_min_hops, op.output_max_hops,
                 )
             ):
                 return None
-            if bool(getattr(op, "label_seeds", False)) or bool(getattr(op, "include_zero_hop_seed", False)):
+            if bool(op.label_seeds) or bool(op.include_zero_hop_seed):
                 return None
             # Duplicate-id + HAS_<Label> endpoint disambiguation: pandas has a
             # bespoke candidate-domain rule here; decline rather than diverge.
@@ -927,11 +928,14 @@ def binding_rows_polars(
         # NIE → use engine='pandas'/'polars'), never a silent CPU fallback.
         nodes_lf = nodes.lazy()
         edges_lf = edges.lazy()
-        seed_nodes = filter_by_dict_polars(nodes_lf, getattr(ops[0], "filter_dict", None))
+        first_op = ops[0]
+        if not isinstance(first_op, ASTNode):
+            return None
+        seed_nodes = filter_by_dict_polars(nodes_lf, first_op.filter_dict)
         state = seed_nodes.select(pl.col(node_id).alias("__current__"))
-        alias_frames: dict = {}
+        alias_frames: Dict[str, pl.LazyFrame] = {}
         node_aliases: List[str] = []
-        first_alias = getattr(ops[0], "_name", None)
+        first_alias = first_op._name
         if isinstance(first_alias, str):
             state = state.with_columns(pl.col("__current__").alias(first_alias))
             alias_frames[first_alias] = seed_nodes
@@ -942,8 +946,8 @@ def binding_rows_polars(
             if not isinstance(edge_op, ASTEdge):
                 return None
             sem = EdgeSemantics.from_edge(edge_op)
-            edges_f = filter_by_dict_polars(edges_lf, getattr(edge_op, "edge_match", None))
-            edge_alias = getattr(edge_op, "_name", None)
+            edges_f = filter_by_dict_polars(edges_lf, edge_op.edge_match)
+            edge_alias = edge_op._name
             if isinstance(edge_alias, str):
                 payload_renames = {
                     col: f"{edge_alias}.{col}"
@@ -966,7 +970,9 @@ def binding_rows_polars(
                 oriented = oriented.rename(payload_renames)
 
             next_op = ops[edge_idx + 1]
-            next_nodes = filter_by_dict_polars(nodes_lf, getattr(next_op, "filter_dict", None))
+            if not isinstance(next_op, ASTNode):
+                return None
+            next_nodes = filter_by_dict_polars(nodes_lf, next_op.filter_dict)
             next_node_ids = next_nodes.select(node_id).unique()
             if not sem.is_multihop:
                 # Filter endpoint candidates before joining from the current state.
@@ -1029,7 +1035,7 @@ def binding_rows_polars(
                 right_on=node_id,
                 how="semi",
             )
-            next_alias = getattr(next_op, "_name", None)
+            next_alias = next_op._name
             if isinstance(next_alias, str):
                 state = state.with_columns(pl.col("__current__").alias(next_alias))
                 alias_frames[next_alias] = next_nodes
@@ -1070,7 +1076,7 @@ def binding_rows_polars(
     edge_aliases = {
         alias
         for op in ops[1::2]
-        for alias in [getattr(op, "_name", None)]
+        for alias in [op._name]
         if isinstance(alias, str)
     }
     setattr(out, "_gfql_rows_edge_aliases", edge_aliases)
