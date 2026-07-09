@@ -238,7 +238,7 @@ benchmarked** rather than guess.
      - *Distributed* graph engine on a Spark cluster; provision + tune the cluster.
      - GFQL is *single-node* (CPU or one GPU): 100M+ edges in-process on **one machine**,
        no cluster to stand up, interactive latency — and a single node often matches or beats
-       Spark on read-heavy traversal + PageRank at a fraction of the cost.
+       Spark on read-heavy traversal and, with the GPU engine, PageRank at a fraction of the cost.
        Head-to-head on LiveJournal (35M) and Orkut (117M): GFQL wins filter/traversal 1.3–43×
        even on CPU, and the GPU engine wins PageRank ~10–15×; on CPU, PageRank via igraph is
        *slower* than GraphFrames — see :doc:`benchmark_graphframes`.

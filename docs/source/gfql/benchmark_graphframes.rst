@@ -70,7 +70,7 @@ note above). DGX* ``dgx-spark``, *GB10 GPU, single node; Spark* ``local[*]``
 *over all cores. Cold load (ETL) of the SNAP file is 2.4s for GFQL vs 10.3s for
 GraphFrames — GFQL also loads ~4x faster.*
 
-Result-size parity (same answer on both systems) is enforced per task: filter
+Result-size parity is enforced per task: filter
 returns the identical node count above threshold, 1-hop the identical
 neighborhood size (**119,877**), 2-hop the identical size (**1,378,430**), and
 PageRank the identical vertex count (**3,997,962**). A size mismatch flags a bug
@@ -200,8 +200,7 @@ bit-identical, so we compare **wall-clock-to-usable-scores**: the three engines
 return the identical vertex set (**3,997,962**), and their PageRank rankings
 agree **exactly** — pairwise Spearman rho = **1.00** and top-100 overlap
 **100/100** across igraph, cugraph, and GraphFrames (parity check saved to
-``bench_graphframes_pagerank_parity.json``). This is a "same answer, different
-cost" comparison, not a raced approximation.
+``bench_graphframes_pagerank_parity.json``). This is a "same ranked result, different cost" comparison, not a raced approximation.
 
 Orkut (~117M edges)
 -------------------
@@ -327,7 +326,7 @@ Fairness and caveats (documented, not hidden)
 We benchmark the single-node regime where GFQL lives, and we flag every place
 that favors or disfavors either side:
 
-- **local[*] is Spark's weakest configuration.** This measures single-box
+- **local[*] is Spark's single-node configuration.** This measures single-box
   multicore, not a distributed cluster. A real cluster amortizes scheduling and
   shuffle overhead across many machines and would change the trade-off,
   especially at larger scales. We are explicitly benchmarking single-node

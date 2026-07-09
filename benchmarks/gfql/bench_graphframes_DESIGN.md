@@ -38,7 +38,7 @@ warm query latency.
   `.vertices.count()`) to force honest end-to-end timing. GFQL likewise
   materializes via `len(_nodes)/len(_edges)`.
 - **`local[*]` vs distributed**: this measures single-box multicore, GraphFrames'
-  weakest configuration. A real cluster would amortize overhead differently;
+  single-node configuration, not a distributed cluster. A real cluster would amortize overhead differently;
   we are explicitly benchmarking the single-node regime where GFQL lives.
 - **GFQL PageRank routing**: polars has no native PageRank; the polars engine
   converts to pandas and calls igraph. That conversion is inside the timed
