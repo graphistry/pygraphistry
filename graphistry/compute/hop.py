@@ -114,9 +114,9 @@ def hop(self: Plottable,
     # the O(degree) CSR gather instead of the O(E) scan below. Engine-uniform;
     # returns None to fall back. Coercion above is a no-op when already in-engine,
     # so the index fingerprint (keyed on the live edge frame) still matches.
-    from graphistry.compute.gfql.index import get_registry, maybe_index_hop
+    from graphistry.compute.gfql.index import get_index_policy, get_registry, maybe_index_hop
     from graphistry.compute.gfql.index.types import HopDirection
-    _idx_policy = getattr(self, "_gfql_index_policy", "use")
+    _idx_policy = get_index_policy(self)
     if (not get_registry(self).is_empty()) or _idx_policy in ("auto", "force"):
         _idx_nodes = df_to_engine(nodes, engine_concrete) if nodes is not None else None
         _indexed = maybe_index_hop(

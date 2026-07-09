@@ -340,8 +340,8 @@ def _ensure_indexes(
 
 
 def maybe_index_hop(
-    g: Plottable, engine: Engine, *, nodes: DataFrameT, hops: Optional[int], direction: HopDirection, return_as_wave_front: bool,
-    to_fixed_point: bool = False, policy: Optional[str] = "use", **rest: object,
+    g: Plottable, engine: Engine, *, nodes: Optional[DataFrameT], hops: Optional[int], direction: HopDirection, return_as_wave_front: bool,
+    to_fixed_point: bool = False, policy: Optional[IndexPolicy] = "use", **rest: object,
 ) -> Optional[Plottable]:
     """Planner entry called from hop(). Returns an index-built subgraph, or None to
     fall back to the scan/join path.
@@ -363,7 +363,8 @@ def maybe_index_hop(
             "policy": resolved_policy, "engine": engine.value,
         }
         try:
-            diag["frontier_n"] = int(nodes.shape[0])
+            if nodes is not None:
+                diag["frontier_n"] = int(nodes.shape[0])
         except (AttributeError, TypeError, ValueError):
             pass
 
@@ -409,6 +410,7 @@ def maybe_index_hop(
         target_wave_front=target_wave_front,
     ):
         return _bail("query not index-coverable")
+    assert nodes is not None
 
     node_col = g._node
     src, dst = g._source, g._destination
