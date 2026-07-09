@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 from graphistry.utils.json import JSONVal
+from graphistry.compute.gfql.index.types import HopDirection
 
 from graphistry.Plottable import Plottable
 
@@ -129,12 +130,14 @@ def _pattern_alias_keys_polars(
     # edge filters, no drop-self neq) -> participating nodes == "has an edge in this
     # direction" = CSR adjacency membership. Skips the O(E) chain_polars below.
     # Strict guard; anything richer (filters/neq/multi-hop) falls through unchanged.
+    from graphistry.compute.gfql.index import get_index_policy
     if (
         neq is None
-        and getattr(g, "_gfql_index_policy", "use") != "off"
-        and not getattr(n0, "filter_dict", None) and not getattr(n2, "filter_dict", None)
-        and not getattr(edge_op, "edge_match", None)
-        and getattr(edge_op, "edge_query", None) is None
+        and get_index_policy(g) != "off"
+        and not n0.filter_dict and not n2.filter_dict
+        and not edge_op.edge_match
+        and edge_op.edge_query is None
+        and base_graph._edges is not None
         and not is_lazy(base_graph._edges)
     ):
         try:
@@ -145,7 +148,8 @@ def _pattern_alias_keys_polars(
             from graphistry.compute.gfql.lazy import active_target as _active_target, ExecutionTarget as _ExecutionTarget
             _reg = get_registry(g)
             if not _reg.is_empty():
-                _edir = getattr(edge_op, "direction", "forward")
+                _edir = edge_op.direction
+                _mdir: HopDirection
                 if _edir == "undirected":
                     _mdir = "undirected"
                 elif (alias == n0._name) == (_edir == "forward"):
@@ -158,7 +162,7 @@ def _pattern_alias_keys_polars(
                     _mk = adjacency_membership_keys(_reg, _mdir, base_graph._edges, (_src, _dst), _eng)
                     if _mk is not None:
                         return pl.DataFrame({node_id: pl.Series(node_id, _np.asarray(_mk))})
-        except Exception:
+        except (AttributeError, ImportError, NotImplementedError, TypeError, ValueError):
             pass
     if neq:
         # EXISTS { (n)--(m) WHERE m <> n } — for the single-edge shape, endpoint

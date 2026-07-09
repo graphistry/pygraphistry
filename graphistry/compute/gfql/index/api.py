@@ -8,11 +8,11 @@ stale indexes (treated as absent, never a wrong answer).
 from __future__ import annotations
 
 import copy
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Dict, List, Literal, Optional, cast
 
 import pandas as pd
 
-from graphistry.Engine import EngineAbstract, Engine, resolve_engine
+from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, resolve_engine
 from graphistry.compute.typing import DataFrameT
 from graphistry.Plottable import Plottable
 from .registry import (
@@ -28,7 +28,8 @@ from .types import (
     IndexTrace, IndexTraceStep,
 )
 
-# Private Plottable attachment key. Keep access behind get_registry()/show_indexes().
+# Private Plottable attachment keys. Keep access behind helpers.
+POLICY_ATTR = "_gfql_index_policy"
 REGISTRY_ATTR = "_gfql_index_registry"
 
 # --- lightweight, thread-local index decision trace (for gfql_explain) -------
@@ -44,7 +45,7 @@ class index_trace:
         _set_trace_steps(self.steps)
         return self.steps
 
-    def __exit__(self, *exc: Any) -> Literal[False]:
+    def __exit__(self, *exc: object) -> Literal[False]:
         _set_trace_steps(self.prev)
         return False
 
@@ -77,6 +78,10 @@ def get_registry(g: Plottable) -> GfqlIndexRegistry:
     return cast(GfqlIndexRegistry, getattr(g, REGISTRY_ATTR, EMPTY_REGISTRY))
 
 
+def get_index_policy(g: Plottable) -> IndexPolicy:
+    return cast(IndexPolicy, getattr(g, POLICY_ATTR, "use"))
+
+
 def _attach(g: Plottable, registry: GfqlIndexRegistry) -> Plottable:
     res = copy.copy(g)
     setattr(res, REGISTRY_ATTR, registry)
@@ -101,10 +106,10 @@ def _check_column(column: Optional[str], expected: str, kind: IndexKind) -> None
 def _is_resident_index_valid(
     g: Plottable,
     kind: IndexKind,
-    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
+    engine: EngineAbstractType = EngineAbstract.AUTO,
 ) -> bool:
     """True when a resident index still matches the current graph frames."""
-    eng = resolve_engine(cast(Any, engine), g)
+    eng = resolve_engine(engine, g)
     registry = get_registry(g)
     if kind in ADJ_KINDS:
         src, dst = g._source, g._destination
@@ -125,7 +130,7 @@ def create_index(
     *,
     column: Optional[str] = None,
     name: Optional[str] = None,
-    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
+    engine: EngineAbstractType = EngineAbstract.AUTO,
 ) -> Plottable:
     """Eagerly build a GFQL physical index and return a new Plottable carrying it.
 
@@ -135,7 +140,7 @@ def create_index(
     O(E log E) once, amortized over later seeded queries.
     """
     from dataclasses import replace
-    eng = resolve_engine(cast(Any, engine), g)
+    eng = resolve_engine(engine, g)
     # Build over frames already in the target engine so the index arrays land on
     # the right backend (cupy for cudf, numpy otherwise). No-op when already in-engine.
     from graphistry.compute.ComputeMixin import _coerce_input_formats
@@ -225,7 +230,7 @@ def show_indexes(g: Plottable) -> pd.DataFrame:
 
 
 def gfql_index_edges(g: Plottable, direction: EdgeIndexDirection = "both",
-                     engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:
+                     engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
     """Convenience: build edge adjacency index(es). direction: 'forward'|'reverse'|'both'."""
     if direction in ("forward", "both"):
         g = create_index(g, EDGE_OUT_ADJ, engine=engine)
@@ -235,7 +240,7 @@ def gfql_index_edges(g: Plottable, direction: EdgeIndexDirection = "both",
 
 
 def gfql_index_all(g: Plottable,
-                   engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:
+                   engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
     """Convenience: build out+in adjacency + (when ids are unique) node_id indexes.
 
     The node_id index is an optional materialization accelerator; if node ids aren't
@@ -318,7 +323,7 @@ def _ensure_indexes(
             F = int(nodes.shape[0])
             if not (F <= max(1024, 0.001 * E)):
                 return registry  # not selective enough to amortize a build
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             return registry
     for kind in needed:
         if registry.get_valid(kind, g._edges, (src, dst), engine) is None:
@@ -335,8 +340,8 @@ def _ensure_indexes(
 
 
 def maybe_index_hop(
-    g: Plottable, engine: Engine, *, nodes: Any, hops: Optional[int], direction: HopDirection, return_as_wave_front: bool,
-    to_fixed_point: bool = False, policy: str = "use", **rest: Any,
+    g: Plottable, engine: Engine, *, nodes: DataFrameT, hops: Optional[int], direction: HopDirection, return_as_wave_front: bool,
+    to_fixed_point: bool = False, policy: Optional[str] = "use", **rest: object,
 ) -> Optional[Plottable]:
     """Planner entry called from hop(). Returns an index-built subgraph, or None to
     fall back to the scan/join path.
@@ -345,7 +350,7 @@ def maybe_index_hop(
     (or buildable under auto/force), (b) the query is covered, (c) the frontier is
     not so large that a full scan is cheaper. Correctness is identical either way.
     """
-    policy = validate_index_policy(policy) or "use"
+    resolved_policy: IndexPolicy = validate_index_policy(policy) or "use"
 
     # Diagnostic trace (LP1) is populated only inside an explain context — build the
     # base record + a `_bail` helper that logs *why* we fell back to scan. All of this
@@ -355,11 +360,11 @@ def maybe_index_hop(
     if trace:
         diag = {
             "op": "hop", "direction": direction, "hops": hops,
-            "policy": policy, "engine": engine.value,
+            "policy": resolved_policy, "engine": engine.value,
         }
         try:
             diag["frontier_n"] = int(nodes.shape[0])
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
 
     def _bail(reason: str) -> Optional[Plottable]:
@@ -367,27 +372,41 @@ def maybe_index_hop(
             _record(cast(IndexTraceStep, {**diag, "path": "scan", "decision_reason": reason}))
         return None
 
-    if policy == "off":
+    if resolved_policy == "off":
         return _bail("policy=off")
     registry = get_registry(g)
-    if registry.is_empty() and policy not in ("auto", "force"):
+    if registry.is_empty() and resolved_policy not in ("auto", "force"):
         return _bail("no resident index (policy=use)")
+
+    min_hops = cast(Optional[int], rest.get("min_hops"))
+    max_hops = cast(Optional[int], rest.get("max_hops"))
+    output_min_hops = cast(Optional[int], rest.get("output_min_hops"))
+    output_max_hops = cast(Optional[int], rest.get("output_max_hops"))
+    label_node_hops = cast(Optional[str], rest.get("label_node_hops"))
+    label_edge_hops = cast(Optional[str], rest.get("label_edge_hops"))
+    label_seeds = cast(bool, rest.get("label_seeds", False))
+    source_node_query = cast(Optional[str], rest.get("source_node_query"))
+    destination_node_query = cast(Optional[str], rest.get("destination_node_query"))
+    edge_query = cast(Optional[str], rest.get("edge_query"))
+    include_zero_hop_seed = cast(bool, rest.get("include_zero_hop_seed", False))
+    target_wave_front = cast(Optional[DataFrameT], rest.get("target_wave_front"))
+
     if not _hop_is_index_coverable(
         nodes=nodes, to_fixed_point=to_fixed_point, hops=hops,
-        min_hops=rest.get("min_hops"), max_hops=rest.get("max_hops"),
-        output_min_hops=rest.get("output_min_hops"),
-        output_max_hops=rest.get("output_max_hops"),
-        label_node_hops=rest.get("label_node_hops"),
-        label_edge_hops=rest.get("label_edge_hops"),
-        label_seeds=rest.get("label_seeds", False),
+        min_hops=min_hops, max_hops=max_hops,
+        output_min_hops=output_min_hops,
+        output_max_hops=output_max_hops,
+        label_node_hops=label_node_hops,
+        label_edge_hops=label_edge_hops,
+        label_seeds=label_seeds,
         edge_match=rest.get("edge_match"),
         source_node_match=rest.get("source_node_match"),
         destination_node_match=rest.get("destination_node_match"),
-        source_node_query=rest.get("source_node_query"),
-        destination_node_query=rest.get("destination_node_query"),
-        edge_query=rest.get("edge_query"),
-        include_zero_hop_seed=rest.get("include_zero_hop_seed", False),
-        target_wave_front=rest.get("target_wave_front"),
+        source_node_query=source_node_query,
+        destination_node_query=destination_node_query,
+        edge_query=edge_query,
+        include_zero_hop_seed=include_zero_hop_seed,
+        target_wave_front=target_wave_front,
     ):
         return _bail("query not index-coverable")
 
@@ -396,8 +415,8 @@ def maybe_index_hop(
     if node_col is None or src is None or dst is None or g._edges is None or g._nodes is None:
         return _bail("graph missing node/edge columns")
 
-    if policy in ("auto", "force"):
-        registry = _ensure_indexes(g, registry, direction, engine, policy, nodes, src, dst, node_col)
+    if resolved_policy in ("auto", "force"):
+        registry = _ensure_indexes(g, registry, direction, engine, resolved_policy, nodes, src, dst, node_col)
     if registry.is_empty():
         return _bail("no index available (build declined)")
 
@@ -419,7 +438,7 @@ def maybe_index_hop(
     if idx0 is None:
         # required direction not resident (undirected needs both); let driver decide
         pass
-    elif policy != "force":
+    elif resolved_policy != "force":
         try:
             frontier_n = int(nodes.shape[0])
             if idx0.n_keys > 0 and frontier_n >= frac * idx0.n_keys:
@@ -427,15 +446,14 @@ def maybe_index_hop(
                     f"frontier {frontier_n} >= {frac}*n_keys "
                     f"({frac * idx0.n_keys:.0f}) -> scan cheaper"
                 )
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             pass
 
     # Honor max_hops: the scan resolves the hop count as ``max_hops or hops``
     # (compute/hop.py); the index must run the SAME number of accumulating hops.
     # (regression: max_hops was passed through *rest and silently ignored — the index ran
     # `hops` (default 1) while the scan ran max_hops → wrong answer.)
-    _max_hops = rest.get("max_hops")
-    eff_hops = _max_hops if _max_hops is not None else hops
+    eff_hops = max_hops if max_hops is not None else hops
     result = index_seeded_hop(
         g, registry, nodes=nodes, node_col=node_col, src=src, dst=dst, engine=engine,
         hops=eff_hops, to_fixed_point=to_fixed_point, direction=direction,

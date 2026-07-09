@@ -326,7 +326,8 @@ class ComputeMixin(Plottable):
         # instead of the O(E) group_by below. Bulk over all nodes, so always
         # profitable when a valid index is resident; `index_policy='off'` skips.
         # try/except -> any index issue falls through to the scan path (never wrong).
-        if getattr(g, "_gfql_index_policy", "use") != "off":
+        from graphistry.compute.gfql.index import get_index_policy
+        if get_index_policy(g) != "off":
             try:
                 from graphistry.compute.gfql.index import get_registry
                 from graphistry.compute.gfql.index.degrees import degrees_from_index
@@ -346,7 +347,7 @@ class ComputeMixin(Plottable):
                             col: (_nf[degree_in] + _nf[degree_out]).astype("int32"),
                         })
                         return g.nodes(_nf, node_id)
-            except Exception:
+            except (AttributeError, ImportError, NotImplementedError, TypeError, ValueError):
                 pass
 
         in_df = _degree_agg(g._edges, g._destination, degree_in, node_id)

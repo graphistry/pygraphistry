@@ -55,7 +55,8 @@ def get_degrees_polars(
     # resident CSR index (O(N) gather) instead of the group_by below. Eager-only
     # (LazyFrame get_column would force a collect); policy 'off' skips; try/except
     # falls through to the scan path (never wrong).
-    if not is_lazy(nodes) and not is_lazy(edges) and getattr(g, "_gfql_index_policy", "use") != "off":
+    from graphistry.compute.gfql.index import get_index_policy
+    if not is_lazy(nodes) and not is_lazy(edges) and get_index_policy(g) != "off":
         try:
             from graphistry.compute.gfql.index import get_registry
             from graphistry.compute.gfql.index.degrees import degrees_from_index
@@ -71,7 +72,7 @@ def get_degrees_polars(
                         pl.Series(degree_out, _out).cast(pl.Int32),
                     ).with_columns((pl.col(degree_in) + pl.col(degree_out)).cast(pl.Int32).alias(col))
                     return g.nodes(out0, node_col)
-        except Exception:
+        except (AttributeError, ImportError, NotImplementedError, TypeError, ValueError):
             pass
 
     node_dt = col_dtype(nodes, node_col)
