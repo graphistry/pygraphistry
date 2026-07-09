@@ -17,14 +17,24 @@ the rewrite can only ever move work earlier, never change results.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, cast  # noqa: F401
+from typing import DefaultDict, Dict, List, Optional, Sequence, Set, Tuple
 
 from graphistry.compute.ast import ASTCall, ASTObject
 from graphistry.compute.chain import Chain
+from graphistry.compute.exceptions import GFQLValidationError
+from graphistry.compute.gfql.row.prefilter import (
+    AliasPrefilterSpec, MutableAliasPrefilters, is_alias_prefilters,
+)
+from graphistry.utils.json import JSONVal
+from typing_extensions import TypeGuard
 
 # Ops that consume/close the post-``rows`` filter region.  Reaching any of these
 # ends the contiguous filter block we are allowed to peel from.
 _FILTER_REGION_OPS = frozenset({"where_rows", "search_any", "semi_apply_mark", "anti_semi_apply"})
+
+
+def _is_binding_ops(value: object) -> TypeGuard[List[Dict[str, JSONVal]]]:
+    return isinstance(value, list) and all(isinstance(item, dict) for item in value)
 
 
 def _strip_redundant_parens(expr: str) -> str:
@@ -91,7 +101,7 @@ def _flatten_and_conjuncts(expr: str) -> List[str]:
 
 
 def _binding_alias_targets(
-    binding_ops: Sequence[Dict[str, Any]],
+    binding_ops: Sequence[Dict[str, JSONVal]],
 ) -> Optional[Tuple[Dict[str, ASTObject], Set[str]]]:
     """Deserialize ``binding_ops`` into ``{alias: ASTObject}`` plus the set of
     aliases eligible for pushdown.
@@ -116,7 +126,7 @@ def _binding_alias_targets(
             return None
         try:
             obj = ast_from_json(op_json, validate=False)
-        except Exception:
+        except (AssertionError, KeyError, TypeError, ValueError, GFQLValidationError):
             return None
         if not isinstance(name, str):
             continue
@@ -189,7 +199,7 @@ def _conjunct_single_alias(
             line=0,
             column=0,
         )
-    except Exception:
+    except GFQLValidationError:
         return None
     if aggregate:
         return None
@@ -219,18 +229,18 @@ def apply_row_prefilter_pushdown(chain: Chain) -> Chain:
     if not steps:
         return chain
 
-    rows_idx = next(
-        (
-            i
-            for i, op in enumerate(steps)
-            if isinstance(op, ASTCall) and op.function == "rows" and op.params.get("binding_ops")
-        ),
-        None,
-    )
-    if rows_idx is None:
+    rows_match: Optional[Tuple[int, ASTCall]] = None
+    for idx, op in enumerate(steps):
+        if isinstance(op, ASTCall) and op.function == "rows" and op.params.get("binding_ops"):
+            rows_match = (idx, op)
+            break
+    if rows_match is None:
         return chain
-    rows_op = cast(ASTCall, steps[rows_idx])
-    binding_ops = rows_op.params["binding_ops"]
+    rows_idx, rows_op = rows_match
+    raw_binding_ops = rows_op.params.get("binding_ops")
+    if not _is_binding_ops(raw_binding_ops):
+        return chain
+    binding_ops = raw_binding_ops
     targets = _binding_alias_targets(binding_ops)
     if targets is None:
         return chain
@@ -238,7 +248,7 @@ def apply_row_prefilter_pushdown(chain: Chain) -> Chain:
     if not eligible:
         return chain
 
-    prefilters: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    prefilters: DefaultDict[str, List[AliasPrefilterSpec]] = defaultdict(list)
     positive_search_markers = _positive_search_any_markers(steps, rows_idx + 1)
 
     # Scan the contiguous filter region immediately following the rows op and
@@ -251,14 +261,16 @@ def apply_row_prefilter_pushdown(chain: Chain) -> Chain:
         if op.function == "search_any":
             alias = op.params.get("alias")
             out_col = op.params.get("out_col")
-            if alias in eligible and out_col in positive_search_markers:
-                spec: Dict[str, Any] = {"kind": "search_any", "term": op.params.get("term")}
+            term = op.params.get("term")
+            if isinstance(alias, str) and isinstance(term, str) and out_col in positive_search_markers and alias in eligible:
+                spec: AliasPrefilterSpec = {"kind": "search_any", "term": term}
                 if op.params.get("case_sensitive"):
                     spec["case_sensitive"] = True
                 if op.params.get("regex"):
                     spec["regex"] = True
-                if op.params.get("columns") is not None:
-                    spec["columns"] = op.params.get("columns")
+                columns = op.params.get("columns")
+                if isinstance(columns, list) and all(isinstance(col, str) for col in columns):
+                    spec["columns"] = columns
                 prefilters[alias].append(spec)
         elif op.function == "where_rows":
             expr = op.params.get("expr")
@@ -274,9 +286,11 @@ def apply_row_prefilter_pushdown(chain: Chain) -> Chain:
 
     # Attach the hint to the rows op; every other op is left byte-for-byte intact.
     new_params = dict(rows_op.params)
-    merged: Dict[str, List[Dict[str, Any]]] = {}
-    for alias, specs in (new_params.get("alias_prefilters") or {}).items():
-        merged[alias] = list(specs)
+    merged: MutableAliasPrefilters = {}
+    existing_prefilters = new_params.get("alias_prefilters")
+    if is_alias_prefilters(existing_prefilters):
+        for alias, specs in existing_prefilters.items():
+            merged[alias] = list(specs)
     for alias, specs in prefilters.items():
         merged.setdefault(alias, []).extend(specs)
     new_params["alias_prefilters"] = merged

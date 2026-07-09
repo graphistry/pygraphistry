@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, cast
 import pandas as pd
 
 from graphistry.compute.dataframe_utils import df_cons as template_df_cons
+from graphistry.compute.gfql.row.prefilter import AliasPrefilters
+from graphistry.utils.json import JSONVal
 
 if TYPE_CHECKING:
     from typing import Protocol
@@ -23,8 +25,8 @@ if TYPE_CHECKING:
         def bind(self) -> "Plottable": ...
         def _gfql_binding_ops_row_table(
             self,
-            binding_ops: Any,
-            alias_prefilters: Optional[Dict[str, Any]] = None,
+            binding_ops: List[Dict[str, JSONVal]],
+            alias_prefilters: Optional[AliasPrefilters] = None,
         ) -> "Plottable": ...
         def _gfql_bindings_row_table(self, alias_endpoints: Any) -> "Plottable": ...
 
@@ -150,14 +152,11 @@ def rows(
     table: str = "nodes",
     source: Optional[str] = None,
     alias_endpoints: Optional[Dict[str, str]] = None,
-    binding_ops: Optional[List[Dict[str, Any]]] = None,
-    alias_prefilters: Optional[Dict[str, Any]] = None,
+    binding_ops: Optional[List[Dict[str, JSONVal]]] = None,
+    alias_prefilters: Optional[AliasPrefilters] = None,
 ) -> "Plottable":
     if binding_ops is not None:
-        return cast(
-            "Plottable",
-            ctx._gfql_binding_ops_row_table(binding_ops, alias_prefilters=alias_prefilters),
-        )
+        return ctx._gfql_binding_ops_row_table(binding_ops, alias_prefilters=alias_prefilters)
     if alias_endpoints is not None:
         return cast("Plottable", ctx._gfql_bindings_row_table(alias_endpoints))
 

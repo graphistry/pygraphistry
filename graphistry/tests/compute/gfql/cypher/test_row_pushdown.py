@@ -19,6 +19,7 @@ import pytest
 import graphistry
 import graphistry.compute.gfql.cypher.lowering as _lowering
 from graphistry.compute.ast import ASTCall
+from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.gfql.cypher.api import cypher_to_gfql
 from graphistry.compute.gfql.cypher.row_pushdown import (
     _flatten_and_conjuncts,
@@ -32,7 +33,7 @@ def _engines() -> List[str]:
     try:
         import cudf  # noqa: F401
         out.append("cudf")
-    except Exception:
+    except ImportError:
         pass
     return out
 
@@ -91,14 +92,10 @@ PUSHDOWN_QUERIES: List[Tuple[str, str]] = [
 ]
 
 
-def _base_chain(query: str):
+def _base_chain(query: str, monkeypatch: pytest.MonkeyPatch):
     """Compile WITHOUT the pushdown pass (identity-patched), to get the baseline chain."""
-    real = _lowering._maybe_pushdown_row_prefilters
-    _lowering._maybe_pushdown_row_prefilters = lambda r, **k: r  # type: ignore[assignment]
-    try:
-        return cypher_to_gfql(query)
-    finally:
-        _lowering._maybe_pushdown_row_prefilters = real  # type: ignore[assignment]
+    monkeypatch.setattr(_lowering, "_maybe_pushdown_row_prefilters", lambda rows, **kwargs: rows)
+    return cypher_to_gfql(query)
 
 
 def _norm(df) -> List[tuple]:
@@ -117,9 +114,9 @@ def _norm(df) -> List[tuple]:
 
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("name,query", PUSHDOWN_QUERIES, ids=[q[0] for q in PUSHDOWN_QUERIES])
-def test_pushdown_parity(g, engine, name, query):
+def test_pushdown_parity(g, engine, name, query, monkeypatch):
     pushed = cypher_to_gfql(query)
-    base = _base_chain(query)
+    base = _base_chain(query, monkeypatch)
     # sanity: the pass actually changed the plan for these queries
     assert any(
         isinstance(op, ASTCall) and op.function == "rows" and (op.params.get("alias_prefilters"))
@@ -150,10 +147,10 @@ def test_guard_no_unsafe_pushdown(query):
     assert not _has_prefilter(cypher_to_gfql(query))
 
 
-def test_guard_negated_search_any_not_pushed(g):
+def test_guard_negated_search_any_not_pushed(g, monkeypatch):
     q = "MATCH (n) WHERE NOT searchAny(n, 'Ember') RETURN n.id AS id ORDER BY id LIMIT 5000"
     pushed = cypher_to_gfql(q)
-    base = _base_chain(q)
+    base = _base_chain(q, monkeypatch)
     assert not _has_prefilter(pushed)
     for engine in ENGINES:
         r_push = g.gfql(pushed, engine=engine)
@@ -169,7 +166,7 @@ def test_guard_shortest_path_not_pushed(g):
     )
     try:
         chain = cypher_to_gfql(q)
-    except Exception:
+    except (GFQLValidationError, NotImplementedError):
         pytest.skip("shortestPath shape not single-chain in this build")
     assert not _has_prefilter(chain)
 
