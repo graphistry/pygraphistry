@@ -6,15 +6,15 @@ Reached via .get_degrees() etc. dispatch and the GFQL CALL executor.
 """
 from typing import Optional
 
-from graphistry.Engine import Engine
+from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, resolve_engine
 from graphistry.Plottable import Plottable
 from .dtypes import is_lazy, colnames, col_dtype
 from .hop_eager import ensure_nodes_polars
 
 
-def _index_engine(engine: Optional[str] = None) -> Engine:
-    if engine is not None:
-        return Engine(engine)
+def _index_engine(engine: Optional[EngineAbstractType] = None) -> Engine:
+    if engine is not None and engine not in (EngineAbstract.AUTO, "auto"):
+        return resolve_engine(engine)
     from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
     return Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else Engine.POLARS
 
@@ -33,15 +33,16 @@ def get_degrees_polars(
     col: str = "degree",
     degree_in: str = "degree_in",
     degree_out: str = "degree_out",
-    engine: Optional[str] = None,
+    engine: Optional[EngineAbstractType] = None,
 ) -> Plottable:
     """Native ``get_degrees`` — parity with ComputeMixin.get_degrees.
 
     group_by-count per endpoint, left-joined onto the node table (materialized from edges when
     absent). Oracle contract: isolated and src-only/dst-only nodes get 0; self-loops double-count
     (one in + one out); all three columns Int32. Empty edges need no special case — left-join +
-    fill_null(0) yields all-zero, matching the pandas empty-edges branch. The ``engine`` safelist
-    sub-param is accepted and ignored (execution already committed to polars, parity-equal).
+    fill_null(0) yields all-zero, matching the pandas empty-edges branch. The ``engine``
+    sub-param selects the resident index engine when an index fast path is available;
+    the scan path is already committed to polars execution.
     """
     import polars as pl
 
@@ -53,27 +54,24 @@ def get_degrees_polars(
 
     # GFQL #1658 index fast path (#5 degree-cache / #3 membership): degrees from a
     # resident CSR index (O(N) gather) instead of the group_by below. Eager-only
-    # (LazyFrame get_column would force a collect); policy 'off' skips; try/except
-    # falls through to the scan path (never wrong).
+    # (LazyFrame get_column would force a collect); policy 'off' skips. Missing
+    # or stale indexes return None and fall through; real errors should surface.
     from graphistry.compute.gfql.index import get_index_policy
     if not is_lazy(nodes) and not is_lazy(edges) and get_index_policy(g) != "off":
-        try:
-            from graphistry.compute.gfql.index import get_registry
-            from graphistry.compute.gfql.index.degrees import degrees_from_index
-            _reg = get_registry(g)
-            if not _reg.is_empty():
-                _d = degrees_from_index(_reg, nodes, node_col, edges, (src, dst), _index_engine(engine))
-                if _d is not None:
-                    _in, _out = _d
-                    drop0 = [c for c in colnames(nodes) if c in (degree_in, degree_out, col)]
-                    base0 = nodes.drop(drop0) if drop0 else nodes
-                    out0 = base0.with_columns(
-                        pl.Series(degree_in, _in).cast(pl.Int32),
-                        pl.Series(degree_out, _out).cast(pl.Int32),
-                    ).with_columns((pl.col(degree_in) + pl.col(degree_out)).cast(pl.Int32).alias(col))
-                    return g.nodes(out0, node_col)
-        except (AttributeError, ImportError, NotImplementedError, TypeError, ValueError):
-            pass
+        from graphistry.compute.gfql.index import get_registry
+        from graphistry.compute.gfql.index.degrees import degrees_from_index
+        _reg = get_registry(g)
+        if not _reg.is_empty():
+            _d = degrees_from_index(_reg, nodes, node_col, edges, (src, dst), _index_engine(engine))
+            if _d is not None:
+                _in, _out = _d
+                drop0 = [c for c in colnames(nodes) if c in (degree_in, degree_out, col)]
+                base0 = nodes.drop(drop0) if drop0 else nodes
+                out0 = base0.with_columns(
+                    pl.Series(degree_in, _in).cast(pl.Int32),
+                    pl.Series(degree_out, _out).cast(pl.Int32),
+                ).with_columns((pl.col(degree_in) + pl.col(degree_out)).cast(pl.Int32).alias(col))
+                return g.nodes(out0, node_col)
 
     node_dt = col_dtype(nodes, node_col)
     in_counts = _endpoint_counts(edges, dst, node_dt, node_col, degree_in)
@@ -135,14 +133,14 @@ def _single_direction_degree_polars(g: Plottable, key_col: str, col: str) -> Plo
     return g.nodes(out, node_col)
 
 
-def get_indegrees_polars(g: Plottable, col: str = "degree_in", engine: Optional[str] = None) -> Plottable:
+def get_indegrees_polars(g: Plottable, col: str = "degree_in", engine: Optional[EngineAbstractType] = None) -> Plottable:
     """Native ``get_indegrees`` (parity with ComputeMixin.get_indegrees): in-degree = count of
     edges whose DESTINATION endpoint is the node."""
     assert g._destination is not None, "Missing destination binding; set via .bind() or .edges()"
     return _single_direction_degree_polars(g, g._destination, col)
 
 
-def get_outdegrees_polars(g: Plottable, col: str = "degree_out", engine: Optional[str] = None) -> Plottable:
+def get_outdegrees_polars(g: Plottable, col: str = "degree_out", engine: Optional[EngineAbstractType] = None) -> Plottable:
     """Native ``get_outdegrees`` (parity with ComputeMixin.get_outdegrees): out-degree = count of
     edges whose SOURCE endpoint is the node."""
     assert g._source is not None, "Missing source binding; set via .bind() or .edges()"
