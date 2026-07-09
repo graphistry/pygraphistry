@@ -1,0 +1,505 @@
+"""Tests for GFQL physical indexes (pay-as-you-go seeded-traversal acceleration).
+
+Behavioral / differential: the index fast path must return the SAME subgraph as
+the scan/join path. Engine-parametrized (pandas/cudf/polars/polars-gpu) with
+importorskip so GPU lanes run only where available.
+"""
+import importlib
+
+import numpy as np
+import pandas as pd
+import pytest
+
+import graphistry
+from graphistry.compute.ast import n, e_forward
+from graphistry.compute.gfql.index import (
+    CreateIndex, DropIndex, ShowIndexes, index_op_from_json, parse_index_ddl,
+    get_registry,
+)
+
+
+def _engines():
+    out = ["pandas"]
+    try:
+        import cudf  # noqa
+        out.append("cudf")
+    except Exception:
+        pass
+    try:
+        import polars  # noqa
+        out.append("polars")
+        try:
+            import cudf  # noqa
+            out.append("polars-gpu")
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return out
+
+
+ENGINES = _engines()
+
+
+@pytest.fixture(scope="module")
+def graph():
+    rng = np.random.default_rng(0)
+    n_nodes, deg = 2000, 6
+    m = n_nodes * deg
+    edf = pd.DataFrame({"src": rng.integers(0, n_nodes, m), "dst": rng.integers(0, n_nodes, m)})
+    ndf = pd.DataFrame({"id": np.arange(n_nodes), "lab": rng.integers(0, 4, n_nodes)})
+    return graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+
+
+def _sig(g):
+    def topd(df):
+        mod = type(df).__module__
+        return df.to_pandas() if ("cudf" in mod or "polars" in mod) else df
+    nn = topd(g._nodes)
+    ee = topd(g._edges)
+    nodes = sorted(nn["id"].tolist())
+    edges = sorted(map(tuple, ee[["src", "dst"]].itertuples(index=False, name=None)))
+    return nodes, edges
+
+
+SCENARIOS = [
+    dict(hops=1, direction="forward"),
+    dict(hops=1, direction="reverse"),
+    dict(hops=1, direction="undirected"),
+    dict(hops=2, direction="forward"),
+    dict(hops=2, direction="undirected"),
+    dict(hops=1, direction="forward", return_as_wave_front=True),
+    dict(hops=2, direction="forward", return_as_wave_front=True),
+    dict(hops=3, direction="forward"),
+]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("sc", SCENARIOS)
+def test_index_parity_vs_scan(graph, engine, sc):
+    seeds = pd.DataFrame({"id": [0, 1, 2, 7, 42, 100]})
+    gi = graph.gfql_index_all(engine=engine)
+    base = graph.hop(nodes=seeds, engine=engine, **sc)
+    idx = gi.hop(nodes=seeds, engine=engine, **sc)
+    assert _sig(base) == _sig(idx)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_create_show_drop(graph, engine):
+    g = graph.create_index("edge_out_adj", engine=engine)
+    g = g.create_index("edge_in_adj", engine=engine)
+    si = g.show_indexes()
+    assert set(si["kind"]) == {"edge_out_adj", "edge_in_adj"}
+    g2 = g.drop_index("edge_in_adj")
+    assert set(g2.show_indexes()["kind"]) == {"edge_out_adj"}
+    g3 = g2.drop_index()  # drop all
+    assert g3.show_indexes().shape[0] == 0
+
+
+def test_cypher_ddl_recognizer():
+    assert isinstance(parse_index_ddl("CREATE GFQL INDEX FOR edge_out_adj"), CreateIndex)
+    assert parse_index_ddl("CREATE GFQL INDEX pk FOR node_id ON id").column == "id"
+    assert isinstance(parse_index_ddl("DROP GFQL INDEX FOR edge_in_adj"), DropIndex)
+    assert isinstance(parse_index_ddl("SHOW GFQL INDEXES"), ShowIndexes)
+    assert parse_index_ddl("MATCH (a) RETURN a") is None
+    with pytest.raises(ValueError):
+        parse_index_ddl("CREATE GFQL INDEX FOR bogus_kind")
+
+
+def test_cypher_ddl_regexes_are_lazy(monkeypatch):
+    import graphistry.compute.gfql.index.cypher_ddl as ddl
+
+    real_compile = ddl.re.compile
+    calls = []
+
+    def tracking_compile(*args, **kwargs):
+        calls.append(args[0])
+        return real_compile(*args, **kwargs)
+
+    monkeypatch.setattr(ddl.re, "compile", tracking_compile)
+    ddl = importlib.reload(ddl)
+
+    assert calls == []
+    assert ddl.looks_like_index_ddl("CREATE GFQL INDEX FOR edge_out_adj")
+    assert len(calls) == 1
+    assert ddl.parse_index_ddl("SHOW GFQL INDEXES") == ShowIndexes()
+    assert len(calls) == 5
+    assert isinstance(ddl.parse_index_ddl("DROP GFQL INDEX FOR edge_in_adj"), DropIndex)
+    assert len(calls) == 5
+
+
+def test_cypher_ddl_via_gfql(graph):
+    g = graph.gfql("CREATE GFQL INDEX FOR edge_out_adj")
+    assert get_registry(g).has("edge_out_adj")
+    si = g.gfql("SHOW GFQL INDEXES")
+    assert si.shape[0] == 1
+    g2 = g.gfql("DROP GFQL INDEX FOR edge_out_adj")
+    assert g2.show_indexes().shape[0] == 0
+
+
+def test_wire_roundtrip(graph):
+    op = CreateIndex(kind="edge_out_adj")
+    assert index_op_from_json(op.to_json()) == op
+    g = graph.gfql({"type": "CreateIndex", "kind": "edge_out_adj"})
+    assert get_registry(g).has("edge_out_adj")
+    show = g.gfql({"type": "ShowIndexes"})
+    assert show.shape[0] == 1
+
+def test_create_rebuilds_stale_resident_index():
+    g = graphistry.edges(pd.DataFrame({"src": [0, 1], "dst": [1, 2]}), "src", "dst").materialize_nodes()
+    gi = g.gfql("CREATE GFQL INDEX FOR edge_out_adj")
+    assert bool(gi.show_indexes().iloc[0]["valid"]) is True
+
+    g2 = gi.edges(pd.DataFrame({"src": [2, 3, 4], "dst": [3, 4, 5]}), "src", "dst")
+    assert bool(g2.show_indexes().iloc[0]["valid"]) is False
+
+    g3 = g2.gfql("CREATE GFQL INDEX FOR edge_out_adj")
+    row = g3.show_indexes().iloc[0]
+    assert bool(row["valid"]) is True
+    assert int(row["n_rows"]) == 3
+
+    g4 = g2.gfql({"type": "CreateIndex", "kind": "edge_out_adj"})
+    row = g4.show_indexes().iloc[0]
+    assert bool(row["valid"]) is True
+    assert int(row["n_rows"]) == 3
+
+
+def test_invalid_index_policy_raises(graph):
+    chain = [n({"id": 0}), e_forward(hops=1)]
+    with pytest.raises(ValueError, match="index_policy"):
+        graph.gfql(chain, index_policy="bogus")
+    with pytest.raises(ValueError, match="index_policy"):
+        graph.gfql(chain, index_policy="")
+    with pytest.raises(ValueError, match="index_policy"):
+        graph.gfql_explain(chain, index_policy="bogus")
+
+    # Documented values remain accepted.
+    graph.gfql(chain, index_policy="off")
+    graph.gfql_explain(chain, index_policy="use")
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_index_policy_force_and_explain(graph, engine):
+    chain = [n({"id": 0}), e_forward(hops=1)]
+    rep_off = graph.gfql_explain(chain, index_policy="off", engine=engine)
+    assert rep_off["used_index"] is False
+    rep_force = graph.gfql_explain(chain, index_policy="force", engine=engine)
+    assert rep_force["used_index"] is True
+    # results identical regardless of policy
+    r_scan = graph.gfql(chain, engine=engine)
+    r_force = graph.gfql(chain, index_policy="force", engine=engine)
+    assert _sig(r_scan) == _sig(r_force)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_explain_exposes_planner_diagnostics(graph, engine):
+    """LP1: gfql_explain surfaces the planner's cost signal — seed cardinality, the
+    free Σ-degree fanout estimate (from CSR group_offsets), chosen direction, the
+    cost-gate threshold, and a human-readable decision_reason — not just a used-index
+    yes/no. This is the EXPLAIN enrichment the indexing roadmap calls for."""
+    chain = [n({"id": 0}), e_forward(hops=1)]
+    # force → index path taken → per-step + top-level diagnostics populated
+    rep = graph.gfql_explain(chain, index_policy="force", engine=engine)
+    assert rep["used_index"] is True, (engine, rep)
+    assert rep["chosen_direction"] == "forward"
+    assert isinstance(rep["est_result_rows"], int) and rep["est_result_rows"] >= 0
+    assert "index" in (rep["decision_reason"] or ""), rep["decision_reason"]
+    step = next(s for s in rep["steps"] if s.get("path") == "index")
+    for k in ("frontier_n", "n_keys", "seed_deg_sum", "est_result_rows", "threshold_frac"):
+        assert k in step, (k, step)
+    assert step["est_result_rows"] == step["seed_deg_sum"]  # est == free Σ-degree
+    assert step["seed_deg_sum"] >= 0
+
+    # off (index resident) → the planner records *why* it scanned, not just that it did
+    gi = graph.gfql_index_all(engine=engine)
+    rep_off = gi.gfql_explain(chain, index_policy="off", engine=engine)
+    assert rep_off["used_index"] is False
+    assert rep_off["decision_reason"] == "policy=off", rep_off
+
+
+def test_seed_diagnostic_helpers_are_robust():
+    """LP1 helpers degrade to None instead of crashing on odd inputs (they run under
+    the explain trace and must never take down a real query)."""
+    from graphistry.compute.gfql.index.api import _seed_id_array, _seed_deg_sum
+
+    class _Col:  # a seed column with .values but no .to_numpy() (fallback branch)
+        values = np.array([1, 2, 3])
+
+    class _Frame:
+        def __getitem__(self, k):
+            return _Col()
+
+    assert list(_seed_id_array(_Frame(), "id")) == [1, 2, 3]
+    assert _seed_id_array(None, "id") is None  # nodes[None] raises → None, not a crash
+
+    class _BadIdx:  # missing keys_sorted/group_offsets → None, not AttributeError
+        pass
+
+    assert _seed_deg_sum(_BadIdx(), np.array([0, 1])) is None
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_explain_decision_reasons_for_scan_fallbacks(engine):
+    """LP1: when the planner declines the index it records *why*, so a silent scan is
+    diagnosable. Covers the two fall-back branches: (a) a frontier past the cost gate,
+    (b) a query the index doesn't cover (min_hops>1)."""
+    from graphistry.compute.gfql.index import index_trace
+    rng = np.random.default_rng(2)
+    N, deg = 1000, 6
+    edf = pd.DataFrame({"src": rng.integers(0, N, N * deg), "dst": rng.integers(0, N, N * deg)})
+    ndf = pd.DataFrame({"id": np.arange(N)})
+    g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+    gi = g.gfql_index_all(engine=engine)
+
+    # (a) cost-gate fallback: frontier = all keys >> frac*n_keys → scan, with a reason
+    allseeds = pd.DataFrame({"id": np.arange(N, dtype=np.int64)})
+    with index_trace() as steps:
+        gi.hop(nodes=allseeds, engine=engine, hops=1, direction="forward")
+    assert any("scan cheaper" in (s.get("decision_reason") or "") for s in steps), (engine, steps)
+    assert not any(s.get("path") == "index" for s in steps), (engine, steps)
+
+    # (b) not-coverable fallback: a feature outside the index fast path (zero-hop seed).
+    # pandas-only: the Phase-1 polars hop rejects these features at its own engine layer
+    # before the index planner is consulted, so the index "not-coverable" bail is
+    # reachable via the pandas hop path here.
+    if engine == "pandas":
+        few = pd.DataFrame({"id": np.arange(4, dtype=np.int64)})
+        with index_trace() as steps2:
+            gi.hop(nodes=few, engine=engine, hops=1, direction="forward", include_zero_hop_seed=True)
+        assert any(s.get("decision_reason") == "query not index-coverable" for s in steps2), (engine, steps2)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_cost_gate_engine_aware_never_loses_to_scan(engine):
+    """F1: the index-vs-scan crossover depends on scan speed, so the cost gate
+    (maybe_index_hop) is engine-aware. A mid-frontier seeded hop (~frac 0.25 of source
+    keys) still beats the slow pandas scan (→ index path) but would lose to the fast
+    vectorized scan on polars/cudf/GPU (→ scan fallback), so a resident index never
+    runs slower than the un-indexed path. Result is identical on either path."""
+    from graphistry.compute.gfql.index import index_trace
+    rng = np.random.default_rng(1)
+    N, deg = 4000, 8
+    m = N * deg
+    edf = pd.DataFrame({"src": rng.integers(0, N, m), "dst": rng.integers(0, N, m)})
+    ndf = pd.DataFrame({"id": np.arange(N)})
+    g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+    seeds = pd.DataFrame({"id": np.arange(N // 4, dtype=np.int64)})  # frac ~0.25 of n_keys (~N)
+    gi = g.gfql_index_all(engine=engine)
+    with index_trace() as steps:
+        out = gi.hop(nodes=seeds, engine=engine, hops=1, direction="forward")
+    took_index = any(s.get("path") == "index" for s in steps)
+    assert took_index is (engine == "pandas"), (engine, steps)  # vectorized engines → scan
+    scan_out = g.hop(nodes=seeds, engine=engine, hops=1, direction="forward")  # no resident index
+    assert _sig(out) == _sig(scan_out), engine  # correctness path-independent
+
+
+def test_cost_gate_frac_tuning(monkeypatch):
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index import (
+        cost_gate_frac, reset_cost_gate_frac, set_cost_gate_frac,
+    )
+
+    reset_cost_gate_frac()
+    monkeypatch.delenv("GFQL_INDEX_COST_GATE_FRAC", raising=False)
+    monkeypatch.delenv("GFQL_INDEX_COST_GATE_FRAC_PANDAS", raising=False)
+    assert cost_gate_frac(Engine.PANDAS) == 0.5
+
+    monkeypatch.setenv("GFQL_INDEX_COST_GATE_FRAC", "0.11")
+    assert cost_gate_frac(Engine.PANDAS) == 0.11
+
+    monkeypatch.setenv("GFQL_INDEX_COST_GATE_FRAC_PANDAS", "0.22")
+    assert cost_gate_frac(Engine.PANDAS) == 0.22
+
+    set_cost_gate_frac(Engine.PANDAS, 0.33)
+    assert cost_gate_frac(Engine.PANDAS) == 0.33
+
+    set_cost_gate_frac(Engine.PANDAS, None)
+    assert cost_gate_frac(Engine.PANDAS) == 0.22
+
+    with pytest.raises(ValueError, match="cost gate fraction"):
+        set_cost_gate_frac(Engine.PANDAS, 0)
+    monkeypatch.setenv("GFQL_INDEX_COST_GATE_FRAC_PANDAS", "2")
+    with pytest.raises(ValueError, match="GFQL_INDEX_COST_GATE_FRAC_PANDAS"):
+        cost_gate_frac(Engine.PANDAS)
+    reset_cost_gate_frac()
+
+
+def test_column_mismatch_raises_not_silent(graph):
+    # A custom column that doesn't match the binding must raise, not silently no-op.
+    with pytest.raises(NotImplementedError):
+        graph.create_index("edge_out_adj", column="not_src")
+    # Matching column (the actual binding) is accepted.
+    g = graph.create_index("edge_out_adj", column="src")
+    assert get_registry(g).has("edge_out_adj")
+    # Custom display name is honored.
+    g2 = graph.create_index("node_id", name="pk")
+    assert "pk" in g2.show_indexes()["name"].tolist()
+
+
+def test_show_indexes_valid_and_nbytes(graph):
+    g = graph.create_index("edge_out_adj")
+    si = g.show_indexes()
+    assert {"valid", "nbytes"}.issubset(si.columns)
+    assert bool(si.iloc[0]["valid"]) is True
+    assert int(si.iloc[0]["nbytes"]) > 0
+    # After an edges rebind, the index is stale -> valid=False (and auto-skipped).
+    rng = np.random.default_rng(2)
+    new_edf = pd.DataFrame({"src": rng.integers(0, 2000, 50), "dst": rng.integers(0, 2000, 50)})
+    g2 = g.edges(new_edf, "src", "dst")
+    assert bool(g2.show_indexes().iloc[0]["valid"]) is False
+
+
+def test_fingerprint_invalidation_is_safe(graph):
+    # An index built over one edge frame must not be used after .edges() rebind.
+    gi = graph.create_index("edge_out_adj")
+    rng = np.random.default_rng(1)
+    new_edf = pd.DataFrame({"src": rng.integers(0, 2000, 100), "dst": rng.integers(0, 2000, 100)})
+    g2 = gi.edges(new_edf, "src", "dst")
+    seeds = pd.DataFrame({"id": [0, 1, 2]})
+    # registry attr carries over but fingerprint (frame id) no longer matches ->
+    # treated as absent -> correct result computed by scan path.
+    base = graph.edges(new_edf, "src", "dst").hop(nodes=seeds, hops=1)
+    got = g2.hop(nodes=seeds, hops=1)
+    assert _sig(base) == _sig(got)
+
+
+# ---------------------------------------------------------------------------
+# Adversarial-review regression tests (takeover 2026-06-28): each reproduces a
+# CONFIRMED wrong-answer the original parity scenarios missed. The index MUST
+# equal the scan oracle, or fall back to scan — never a wrong answer.
+# ---------------------------------------------------------------------------
+
+def _force(g, engine):
+    """Index-all + force the index path past the cost gate (so we actually test it)."""
+    gi = g.gfql_index_all(engine=engine)
+    gi._gfql_index_policy = "force"
+    return gi
+
+
+def _nodeset(g):
+    df = g._nodes
+    mod = type(df).__module__
+    df = df.to_pandas() if ("cudf" in mod or "polars" in mod) else df
+    return df
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("hop_kw", [
+    dict(hops=1, max_hops=3),   # B1: max_hops must win over hops (was silently ignored)
+    dict(hops=5, max_hops=2),   # B1: hops ignored when max_hops set
+])
+def test_index_max_hops_honored(engine, hop_kw):
+    edf = pd.DataFrame({"src": [0, 1, 2, 3, 4], "dst": [1, 2, 3, 4, 5]})
+    g = graphistry.edges(edf, "src", "dst").materialize_nodes()
+    seeds = pd.DataFrame({"id": [0]})
+    base = g.hop(nodes=seeds, engine=engine, **hop_kw)
+    idx = _force(g, engine).hop(nodes=seeds, engine=engine, **hop_kw)
+    assert _sig(base) == _sig(idx), f"max_hops divergence {hop_kw}"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_index_duplicate_node_ids(engine):
+    # B2: duplicate node ids corrupted the unique-key node_id index. gfql_index_all
+    # must skip node_id (build adjacency only) and stay scan-equal.
+    ndf = pd.DataFrame({"id": [0, 1, 2, 3, 5, 5]})  # id 5 duplicated
+    edf = pd.DataFrame({"src": [0, 1, 3], "dst": [1, 2, 5]})
+    g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+    seeds = pd.DataFrame({"id": [0, 1, 3]})
+    base = g.hop(nodes=seeds, engine=engine, hops=1)
+    idx = _force(g, engine).hop(nodes=seeds, engine=engine, hops=1)
+    assert _sig(base) == _sig(idx)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_index_missing_endpoint(engine):
+    # B3: an edge endpoint absent from the node table — the scan synthesizes it as a
+    # node row; the index dropped it. Must match (index falls back if it can't).
+    ndf = pd.DataFrame({"id": [0, 1, 2, 3]})  # 99 absent
+    edf = pd.DataFrame({"src": [0, 1, 2], "dst": [1, 2, 99]})
+    g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+    seeds = pd.DataFrame({"id": [0, 1, 2]})
+    base = g.hop(nodes=seeds, engine=engine, hops=1)
+    idx = _force(g, engine).hop(nodes=seeds, engine=engine, hops=1)
+    assert _sig(base) == _sig(idx)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_index_preserves_node_table_order(engine):
+    # I4: a node_id-index materialization must keep the original .nodes row order
+    # (not searchsorted/sorted-by-id order).
+    ndf = pd.DataFrame({"id": [5, 3, 1, 0, 2, 4]})  # NOT sorted
+    edf = pd.DataFrame({"src": [5, 3, 1], "dst": [3, 1, 0]})
+    g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+    seeds = pd.DataFrame({"id": [5, 3, 1]})
+    base = g.hop(nodes=seeds, engine=engine, hops=1)
+    idx = _force(g, engine).hop(nodes=seeds, engine=engine, hops=1)
+    assert _nodeset(base)["id"].tolist() == _nodeset(idx)["id"].tolist(), "node order diverged"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_index_mixed_id_dtypes(engine):
+    # I6: int64 node-id seed vs int32 edge endpoints — narrowing the seed to the key
+    # dtype could wrap/false-match; promotion keeps it correct.
+    ndf = pd.DataFrame({"id": np.array([0, 1, 2, 3], dtype=np.int64)})
+    edf = pd.DataFrame({"src": np.array([0, 1, 2], dtype=np.int32),
+                        "dst": np.array([1, 2, 3], dtype=np.int32)})
+    g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+    seeds = pd.DataFrame({"id": [0, 1, 2]})
+    base = g.hop(nodes=seeds, engine=engine, hops=1)
+    idx = _force(g, engine).hop(nodes=seeds, engine=engine, hops=1)
+    assert _sig(base) == _sig(idx)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_index_stale_rebind_same_shape(engine):
+    # I5: rebinding .edges() to a NEW same-shape frame must invalidate the index by
+    # object identity (not id(), which can be recycled) -> scan fallback, never stale.
+    g = graphistry.edges(pd.DataFrame({"src": [0, 1, 2], "dst": [1, 2, 3]}), "src", "dst").materialize_nodes()
+    gi = g.gfql_index_all(engine=engine)
+    new_edf = pd.DataFrame({"src": [0, 1, 2], "dst": [1, 2, 0]})  # same shape, different values
+    g2 = gi.edges(new_edf, "src", "dst")
+    seeds = pd.DataFrame({"id": [0]})
+    base = g.edges(new_edf, "src", "dst").hop(nodes=seeds, engine=engine, hops=1)
+    got = g2.hop(nodes=seeds, engine=engine, hops=1)
+    assert _sig(base) == _sig(got)
+
+
+def test_drop_index_by_custom_name():
+    # B2 (review): DROP GFQL INDEX <custom-name> must resolve via the index name, not
+    # silently no-op (the old code split the name on ':' and only matched default names).
+    g = graphistry.edges(pd.DataFrame({"src": [0, 1, 2], "dst": [1, 2, 3]}), "src", "dst").materialize_nodes()
+    g = g.create_index("edge_out_adj", name="myidx")
+    assert "edge_out_adj" in g.show_indexes()["kind"].tolist()
+    g2 = g.gfql("DROP GFQL INDEX myidx")
+    assert g2.show_indexes().shape[0] == 0, "custom-named index was not dropped"
+    # unresolvable name raises (not silent)
+    with pytest.raises(ValueError):
+        g.gfql("DROP GFQL INDEX nonexistent_name")
+
+
+def test_drop_index_if_exists_semantics():
+    # missing_ok / IF EXISTS: plain DROP of a missing index raises (SQL-style);
+    # IF EXISTS makes it a no-op. Applies to both name- and kind-form.
+    g = graphistry.edges(pd.DataFrame({"src": [0, 1], "dst": [1, 2]}), "src", "dst").materialize_nodes()
+
+    # no-op forms succeed unchanged
+    g2 = g.gfql("DROP GFQL INDEX IF EXISTS nonexistent_name")
+    assert g2.show_indexes().shape[0] == 0
+    g3 = g.gfql("DROP GFQL INDEX IF EXISTS FOR edge_out_adj")
+    assert g3.show_indexes().shape[0] == 0
+
+    # plain forms raise when missing
+    with pytest.raises(ValueError):
+        g.gfql("DROP GFQL INDEX nonexistent_name")
+    with pytest.raises(ValueError):
+        g.gfql("DROP GFQL INDEX FOR edge_out_adj")
+
+    # wire JSON honors missing_ok both ways
+    g4 = g.gfql({"type": "DropIndex", "name": "nope", "missing_ok": True})
+    assert g4.show_indexes().shape[0] == 0
+    with pytest.raises(ValueError):
+        g.gfql({"type": "DropIndex", "name": "nope", "missing_ok": False})
+
+    # and a resident index still drops through the plain form
+    gi = g.create_index("edge_out_adj")
+    assert gi.gfql("DROP GFQL INDEX FOR edge_out_adj").show_indexes().shape[0] == 0
