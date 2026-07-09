@@ -30,7 +30,10 @@ no database required. This benchmark compares **Graphistry's local Cypher**
      - **3.33s**
      - **>56x**
 
-*Warm median of 5 runs, 2 warmup iterations. DGX dgx-spark, GB10 GPU.*
+*Pipeline time (search + PageRank + search), warm median of 5 runs, 2 warmup iterations. DGX
+dgx-spark, GB10 GPU. The per-graph sections below report full-lifecycle totals that also include
+one-time ETL/load — hence the slightly larger numbers there (e.g. GPlus GPU 3.33s pipeline vs
+~7.1s lifecycle).*
 
 The pipeline
 ------------
@@ -173,8 +176,23 @@ pandas / cuDF). That is what makes the CPU-to-GPU switch a configuration
 flag (``engine="cudf"``) rather than a rewrite, and what keeps ETL, search,
 and analytics in the same in-process pipeline.
 
+**Same answer on every engine.** The CPU and GPU timings above are comparable
+because the query meaning is fixed: GFQL's engine contract is same result or
+pre-execution decline. Unsupported engine/query combinations are rejected during
+validation, compilation, or planning before query execution, rather than silently
+falling back or returning a different answer. See :doc:`engines` for the full
+parity and static-safety contract.
+
+This page is one workload (a filter → PageRank → filter pipeline) against one
+external baseline (Neo4j+GDS). For the full four-engine picture — when Polars
+beats pandas on CPU, when the GPU pulls ahead, and how to choose — see
+:doc:`engines`. For sub-millisecond *seeded* lookups that beat Kuzu and Neo4j
+by 9–28×, see :doc:`index_adjacency`.
+
 For more on the GFQL design and supported surface:
 
+- :doc:`engines` — choosing pandas / Polars / cuDF / Polars-GPU
+- :doc:`index_adjacency` — seeded-traversal CSR adjacency index
 - :doc:`cypher` — Cypher syntax through ``g.gfql("MATCH ...")``
 - :doc:`overview` — GFQL design, features, and GPU acceleration
 - :doc:`about` — 10-minute introduction to GFQL
