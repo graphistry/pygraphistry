@@ -54,6 +54,7 @@
     "graphistry/compute/gfql/row/order_expr.py": 81.08,
     "graphistry/compute/gfql/row/ordering.py": 83.92,
     "graphistry/compute/gfql/row/pipeline.py": 70.3,
+    "graphistry/compute/gfql/row/prefilter.py": 45.0,
     "graphistry/compute/gfql/temporal/__init__.py": 100.0,
     "graphistry/compute/gfql/temporal/constructors.py": 86.06,
     "graphistry/compute/gfql/temporal/durations.py": 75.47,

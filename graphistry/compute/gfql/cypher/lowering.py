@@ -8075,12 +8075,9 @@ def _maybe_pushdown_row_prefilters(
         or has_graph_context
     ):
         return result
-    try:
-        from .row_pushdown import apply_row_prefilter_pushdown
+    from .row_pushdown import apply_row_prefilter_pushdown
 
-        new_chain = apply_row_prefilter_pushdown(result.chain)
-    except Exception:
-        return result
+    new_chain = apply_row_prefilter_pushdown(result.chain)
     if new_chain is result.chain:
         return result
     return replace(result, chain=new_chain)
