@@ -8,8 +8,10 @@ Engine speedups at a glance
 
 GFQL runs the **same query** on four interchangeable engines — ``pandas`` (default),
 ``polars`` (CPU, columnar), ``cudf`` (NVIDIA GPU), and ``polars-gpu`` (GPU) — and returns
-**identical results** on each (differential parity is a release gate). The biggest, easiest
-win is one keyword, **no GPU required**:
+**identical results** on each (differential parity is a release gate). Unsupported
+engine/query combinations are declined before execution during validation, compilation,
+or planning rather than silently falling back. The biggest, easiest win is one keyword,
+**no GPU required**:
 
 .. doc-test: skip
 

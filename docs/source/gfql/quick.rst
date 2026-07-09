@@ -403,8 +403,10 @@ Combined Examples
 Engine Selection (CPU and GPU)
 ------------------------------
 
-The same query runs on four interchangeable engines with identical results. Pick one
-with ``engine=``. See :doc:`Choosing an Engine <engines>` for the full decision matrix.
+The same query runs on four interchangeable engines with identical results. Unsupported
+engine/query combinations are rejected before execution during validation, compilation, or
+planning rather than silently falling back. Pick one with ``engine=``. See
+:doc:`Choosing an Engine <engines>` for the full decision matrix.
 
 - **CPU columnar speedup (no GPU):** ``'polars'`` — up to ~38x over pandas on real graphs.
 

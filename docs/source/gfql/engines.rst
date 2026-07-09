@@ -6,7 +6,11 @@ Choosing a GFQL Engine: pandas, Polars, cuDF, Polars-GPU
 GFQL runs the **same query** on four interchangeable execution engines. You pick
 the engine with one keyword — ``engine=``, accepted uniformly by ``g.gfql()`` and
 ``g.hop()`` — and GFQL returns **identical results** on every one (differential parity
-is a release gate). Pick the engine that fits your hardware and workload; nothing else changes.
+is a release gate). Unsupported engine/query combinations are declined during
+validation, compilation, or planning before query execution whenever they can be
+known statically, so the safety contract is same answer or pre-execution error,
+not silent fallback. Pick the engine that fits your hardware and workload; nothing
+else changes.
 
 .. note::
    **New to GFQL?** This page assumes you already have a graph ``g`` and a ``query``. If not,
@@ -31,8 +35,9 @@ engine is a one-keyword change — no GPU, same results:
 
 Your existing pandas, Polars, or cuDF graph works as-is: the input frames are accepted and
 coerced once; the only change is the keyword. The catch: a few exotic Cypher features still
-require ``engine='pandas'`` (they raise rather than silently bridge), and the GPU engines only
-pay off on larger work. On CPU, Polars wins the common graph-query shapes (traversal,
+require ``engine='pandas'`` (they decline during validation, compilation, or planning rather
+than silently bridge), and the GPU engines only pay off on larger work. On CPU,
+Polars wins the common graph-query shapes (traversal,
 ``WHERE``/``ORDER``, aggregation) from ~10K edges up — see *When not to use Polars* below.
 
 .. warning::
@@ -311,7 +316,8 @@ Switching engines
 
 The engine is a single keyword on ``g.gfql()`` (and ``g.hop()``). The graph and
 the query never change — only ``engine=`` does, and the answer stays identical
-(or raises ``NotImplementedError`` rather than silently changing it).
+(or the compiler/planner declines the unsupported engine before execution rather
+than silently changing it).
 
 .. code-block:: python
 
@@ -371,7 +377,7 @@ always will). Under ``engine='polars'`` / ``'polars-gpu'`` GFQL runs them as a
   ``RuntimeWarning`` per analytic notes the off-engine run. ``polars-gpu`` is
   **GPU-or-error**: it bridges to cuDF and *declines* if the GPU/cuDF stack is
   missing (it never silently drops a GPU analytic to host pandas).
-- **``call_mode='strict'``:** decline with ``NotImplementedError`` instead of
+- **``call_mode='strict'``:** decline before running the analytic instead of
   bridging — for benchmark integrity (no hidden modality switch attributed to the
   Polars engine) or a hard memory ceiling.
 
@@ -387,10 +393,10 @@ always will). Under ``engine='polars'`` / ``'polars-gpu'`` GFQL runs them as a
    would for any cuDF workload.
 
 This is **deliberately narrower** than traversal / filter / row ops (``hop``,
-``WHERE``, ``RETURN`` …), which stay **parity-or-``NotImplementedError``** and are
-never bridged — a bridge there would hide a missing native impl and misreport
-pandas performance as Polars. Set the mode from Python or the environment (live,
-Python override > env > default):
+``WHERE``, ``RETURN`` …), which stay **parity-or-static-decline** and are never
+bridged — a bridge there would hide a missing native impl and misreport pandas
+performance as Polars. Set the mode from Python or the environment (live, Python
+override > env > default):
 
 .. doc-test: skip
 
@@ -509,9 +515,10 @@ Honesty matters more than a bigger number:
   ``ORDER`` / aggregation, CPU Polars wins from ~10K edges up (footnote F1). The real small-size
   caveat is **GPU-only** (cuDF / Polars-GPU need larger work — footnote F2).
 - **A few exotic Cypher features** are not yet native on Polars (e.g. cross-entity same-path
-  ``WHERE``, some temporal/entity-text forms). They raise an honest ``NotImplementedError``
-  pointing at ``engine='pandas'`` — GFQL **never** silently bridges Polars to pandas, because
-  that would misreport pandas performance as Polars (see *Honesty*).
+  ``WHERE``, some temporal/entity-text forms). GFQL rejects those shapes during
+  validation, compilation, or planning before query execution and points at
+  ``engine='pandas'`` — it **never** silently bridges Polars to pandas, because that would
+  misreport pandas performance as Polars (see *Honesty*).
 - **One extreme materialization (80M+ output rows):** prefer ``cudf`` over ``polars-gpu``
   (footnote F3).
 - **vs graph databases:** GFQL-Polars beats embedded kuzu on frontier expansion (up to ~87x
@@ -527,17 +534,20 @@ Parity and honesty
   the pandas oracle — is a release gate, exercised across forward/reverse/undirected, 1-3 hop,
   filters, and aggregations.
 - **No silent fallback for traversal / filter / row ops — parity-verified.** For ``hop`` /
-  ``WHERE`` / ``RETURN`` / aggregation, the Polars engine runs natively or raises
-  ``NotImplementedError`` — it never quietly converts to pandas, so a *traversal* latency you
-  measure is real work on the engine you asked for. ``polars-gpu`` is **GPU-or-error**: if any
-  step of the plan cannot run on the GPU it raises (pointing at ``engine='polars'``) rather than
-  silently running on CPU and labelling it a GPU result.
+  ``WHERE`` / ``RETURN`` / aggregation, the Polars engine runs natively or the query is
+  declined before execution during validation, compilation, or planning. For string GFQL /
+  Cypher queries, known unsupported syntax and unsupported lowering shapes are rejected by
+  the compiler/validator before execution starts; Python-built ASTs hit the same safety
+  boundary in the local planner before the unsupported engine path runs. GFQL never quietly
+  converts to pandas, so a *traversal* latency you measure is real work on the engine you
+  asked for. ``polars-gpu`` is **GPU-or-error**: if any step of the plan cannot run on the
+  GPU, the plan is rejected rather than silently running on CPU and labelling it a GPU result.
 - **Whole-graph analytics are the one mode-gated exception.** ``umap`` / ``hypergraph`` /
   ``compute_cugraph`` and friends have no Polars kernel; under ``call_mode='auto'`` (default)
   they run off-engine and warn once (see
   :ref:`Analytics under Polars <gfql-offengine-calls>`). This is *not* silent — it warns — and
-  ``call_mode='strict'`` restores strict parity-or-decline for benchmark integrity, so a
-  benchmarked run can guarantee no hidden modality switch.
+  ``call_mode='strict'`` restores strict parity-or-pre-execution-decline for benchmark
+  integrity, so a benchmarked run can guarantee no hidden modality switch.
 
 Methodology
 -----------
@@ -581,8 +591,9 @@ Why opt-in?
 
 Polars and Polars-GPU are explicit (``engine='polars'`` / ``'polars-gpu'``; ``auto`` never
 picks them). The main reason is robustness, not speed: a few exotic Cypher features still
-require ``engine='pandas'`` and **raise** rather than silently bridge, so auto-selecting Polars
-would turn queries that work today on pandas into hard errors. (Performance is rarely the
+require ``engine='pandas'`` and are **rejected before execution** rather than silently
+bridge, so auto-selecting Polars would turn queries that work today on pandas into hard
+errors. (Performance is rarely the
 downside — CPU Polars wins common graph queries from ~10K edges; only trivial sub-millisecond
 operations favor pandas, immaterially.) Opting in keeps the default behavior unchanged and
 guarantees a working result.

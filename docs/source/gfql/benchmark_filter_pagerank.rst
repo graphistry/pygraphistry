@@ -176,12 +176,12 @@ pandas / cuDF). That is what makes the CPU-to-GPU switch a configuration
 flag (``engine="cudf"``) rather than a rewrite, and what keeps ETL, search,
 and analytics in the same in-process pipeline.
 
-**Same answer on every engine.** The CPU and GPU results above are not just
-comparable — they are *identical*. Differential parity across ``pandas`` /
-``polars`` / ``cudf`` / ``polars-gpu`` is a GFQL release gate: an engine either
-returns the same result or raises ``NotImplementedError`` — never a silently
-different answer. So the speedups here are a pure hardware/engine choice, not a
-change in what the query means.
+**Same answer on every engine.** The CPU and GPU timings above are comparable
+because the query meaning is fixed: GFQL's engine contract is same result or
+pre-execution decline. Unsupported engine/query combinations are rejected during
+validation, compilation, or planning before query execution, rather than silently
+falling back or returning a different answer. See :doc:`engines` for the full
+parity and static-safety contract.
 
 This page is one workload (a filter → PageRank → filter pipeline) against one
 external baseline (Neo4j+GDS). For the full four-engine picture — when Polars
