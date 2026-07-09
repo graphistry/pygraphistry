@@ -9,6 +9,7 @@ from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat,
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
+from .gfql.query_types import GFQLQuery
 from .chain_let import chain_let as chain_let_impl
 from .execution_context import ExecutionContext
 from .gfql.policy import (
@@ -1276,7 +1277,7 @@ def _materialize_split_alias_columns(
 
 def _gfql_otel_attrs(
     self: Plottable,
-    query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict, str],
+    query: GFQLQuery,
     engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
     output: Optional[str] = None,
     policy: Optional[Dict[str, PolicyFunction]] = None,
@@ -1507,7 +1508,7 @@ def _fire_postcompile_policy(
 
 @otel_traced("gfql.run", attrs_fn=_gfql_otel_attrs)
 def gfql(self: Plottable,
-         query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict, str],
+         query: GFQLQuery,
          engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
          output: Optional[str] = None,
          policy: Optional[Dict[str, PolicyFunction]] = None,

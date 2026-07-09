@@ -18,6 +18,7 @@ from graphistry.compute.gfql.cypher.lowering import (
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.compilation import GraphSchemaCatalog, PlanContext
+from graphistry.compute.gfql.query_types import GFQLQuery
 from graphistry.compute.gfql.same_path_types import (
     WhereComparison,
     normalize_where_entries,
@@ -26,7 +27,7 @@ from graphistry.compute.gfql.same_path_types import (
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 
 
-GFQLValidationQuery = Union[ASTObject, List[ASTObject], ASTLet, Chain, dict, str]
+GFQLValidationQuery = GFQLQuery
 
 def _serialize_error(exc: Exception, *, stage: str) -> Dict[str, Any]:
     if hasattr(exc, "to_dict") and callable(getattr(exc, "to_dict")):

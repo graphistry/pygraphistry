@@ -31,6 +31,7 @@ from .filter_by_dict import (
 if TYPE_CHECKING:
     from graphistry.compute.gfql.index.explain import GfqlExplainReport
     from graphistry.compute.gfql.index.policy import IndexPolicy
+    from graphistry.compute.gfql.query_types import GFQLQuery
 
 
 logger = setup_logger(__name__)
@@ -688,7 +689,7 @@ class ComputeMixin(Plottable):
 
     def gfql_explain(
         self,
-        query: object,
+        query: 'GFQLQuery',
         *,
         index_policy: 'IndexPolicy' = 'use',
         engine: EngineAbstractType = 'auto',

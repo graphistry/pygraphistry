@@ -7,12 +7,16 @@ a mystery — the top human-factors need from the design review.
 """
 from __future__ import annotations
 
-from typing import Any, List, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, List, Optional, TypedDict, cast
 
 from graphistry.Engine import EngineAbstractType, resolve_engine
+from graphistry.compute.gfql.query_types import GFQLQuery
 from .api import index_trace, show_indexes
 from .policy import IndexPolicy, validate_index_policy
 from .types import IndexTraceStep
+
+if TYPE_CHECKING:
+    from graphistry.compute.ComputeMixin import ComputeMixin
 
 
 class GfqlExplainReport(TypedDict):
@@ -29,8 +33,8 @@ class GfqlExplainReport(TypedDict):
 
 
 def gfql_explain(
-    g: Any,
-    query: object,
+    g: ComputeMixin,
+    query: GFQLQuery,
     *,
     index_policy: IndexPolicy = "use",
     engine: EngineAbstractType = "auto",
