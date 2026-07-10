@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any
 
-import base64, io, json, pyarrow as pa, re, requests, sys, unicodedata
+import io, json, pyarrow as pa, requests, sys
 
 from graphistry.privacy import Mode, Privacy, ModeAction
 from graphistry.otel import inject_trace_headers
@@ -20,59 +20,6 @@ from .utils.requests import log_requests_error
 from .util import setup_logger
 from graphistry.models.types import ValidationParam
 logger = setup_logger(__name__)
-
-
-def _django_slugify(value: str) -> str:
-    """Reimplementation of django.utils.text.slugify(value, allow_unicode=False).
-
-    Server contract: ``Organization.save()`` (common/models.py) sets a personal
-    org's slug via this exact transform on the owner's username — not the raw
-    username. Must stay byte-for-byte consistent with Django's algorithm or
-    slug lookups derived from it will 404.
-    """
-    value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')
-    value = re.sub(r'[^\w\s-]', '', value.lower())
-    return re.sub(r'[-\s]+', '-', value).strip('-_')
-
-
-def _personal_org_from_jwt(token: str) -> Optional[str]:
-    """Derive the personal-org slug from the username claim in a JWT payload.
-
-    Trust chain: callers pass a JWT just received from the authenticated
-    /api/v2/o/sso/oidc/jwt/{state}/ endpoint in the same exchange, so we decode
-    the payload without local signature verification. The server re-validates
-    the token signature on every subsequent request — an incorrect username
-    can at worst route the session to an org the user isn't a member of (server
-    rejects), not grant unauthorized access. Do NOT reuse this helper for
-    tokens received from outside that trust chain.
-
-    Server contract: ``personal_org.slug == django_slugify(jwt_payload.username)``
-    for users auto-provisioned via SSO (see _django_slugify). Note the server
-    also appends a numeric suffix on slug collision (common/models.py:315-317),
-    which this best-effort reconstruction cannot replicate — collision cases
-    still fall through to the server's 404, same as before this derivation existed.
-
-    Returns None on any decode/parse failure or missing/non-string username.
-    """
-    try:
-        parts = token.split('.')
-        if len(parts) < 2:
-            return None
-        # base64 padding: only the missing chars (0, 2, or 3); never extra.
-        # Inputs whose stripped length is 1 mod 4 are invalid b64; the decode
-        # call below will raise and the caller-level except returns None.
-        segment = parts[1] + '=' * (-len(parts[1]) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(segment))
-        if not isinstance(payload, dict):
-            return None
-        username = payload.get('username')
-        if not isinstance(username, str) or not username:
-            return None
-        slug = _django_slugify(username)
-        return slug or None
-    except Exception as exc:
-        logger.debug("@_personal_org_from_jwt: failed to extract username: %s", exc)
-        return None
 
 
 class ArrowUploader:
@@ -450,6 +397,40 @@ class ArrowUploader:
             
         return self
 
+    def _personal_org_from_api(self, token: str) -> Optional[str]:
+        """Look up the caller's personal org via GET /api/v2/my/organizations/.
+
+        Trust chain: token is the one just returned by the SSO exchange in
+        this same flow. Replaces the old JWT-username-slugify reconstruction
+        (unreliable: couldn't replicate server-side slug-collision suffixing
+        and depended on byte-for-byte parity with Django's slugify), with a
+        real server-confirmed lookup, filtered on the ``is_personal`` flag.
+
+        Returns None on any request/parse failure or if no personal org is found.
+        """
+        try:
+            out = requests.get(
+                f'{self.server_base_path}/api/v2/my/organizations/',
+                params={'limit': 1000},
+                verify=self.certificate_validation,
+                headers=inject_trace_headers({'Authorization': f'Bearer {token}'})
+            )
+            if not (200 <= out.status_code < 300):
+                return None
+            payload = out.json()
+            orgs = payload.get('results', payload) if isinstance(payload, dict) else payload
+            if not isinstance(orgs, list):
+                return None
+            for org in orgs:
+                if isinstance(org, dict) and org.get('is_personal'):
+                    slug = org.get('slug')
+                    if isinstance(slug, str) and slug:
+                        return slug
+            return None
+        except Exception as exc:
+            logger.debug("@_personal_org_from_api: failed to fetch personal org: %s", exc)
+            return None
+
     def sso_get_token(self, state):
         """
         Koa, 04 May 2022    Use state to get token
@@ -530,22 +511,22 @@ class ArrowUploader:
                 )
             else:
                 # Layer 3: caller didn't ask, server didn't bind. Try
-                # JWT-derived personal-org fallback for first-login UX. See
-                # _personal_org_from_jwt for the trust-chain rationale.
-                fallback = _personal_org_from_jwt(token_value)
+                # server-confirmed personal-org fallback for first-login UX.
+                # See _personal_org_from_api for the trust-chain rationale.
+                fallback = self._personal_org_from_api(token_value)
                 if fallback:
                     logger.info(
                         "SSO did not bind active_organization; falling back to "
-                        "JWT-derived personal org=%s", fallback
+                        "personal org=%s", fallback
                     )
                     self.org_name = fallback
                     self._switch_org(fallback, token_value)
                 else:
                     # Layer 4: nothing claimed, nothing bound, nothing inferable.
                     logger.info(
-                        "SSO did not bind active_organization and no JWT "
-                        "username present; site-wide SSO login completes with "
-                        "no org binding."
+                        "SSO did not bind active_organization and no personal "
+                        "org found; site-wide SSO login completes with no org "
+                        "binding."
                     )
 
         except Exception as e:
