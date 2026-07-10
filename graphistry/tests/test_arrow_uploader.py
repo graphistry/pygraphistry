@@ -672,6 +672,79 @@ class TestArrowUploader_Comms(unittest.TestCase):
         mock_switch.assert_called_once_with('mock-org', '123')
 
     @mock.patch('requests.get')
+    def test_sso_get_token_site_wide_slug_falls_back_to_personal_org(self, mock_get):
+        # Defense-in-depth for the nexus SSO claim-to-org resolver bug: server
+        # binds active_organization to the reserved site-wide sentinel org
+        # (slug 'SITE') instead of a real org or nothing. No dataset can ever
+        # be created under that org (server-side 403), so the client must NOT
+        # accept it — treat as unbound and fall back to the JWT-derived
+        # personal org, same as the Layer-3 no-org-at-all path.
+
+        payload_dict = {'username': 'site-user', 'exp': 9999999999}
+        payload_b64 = base64.urlsafe_b64encode(
+            json.dumps(payload_dict).encode()
+        ).rstrip(b'=').decode()
+        fake_jwt = f"eyJhbGciOiJIUzI1NiJ9.{payload_b64}.placeholder-signature"
+
+        mock_resp = self._mock_response(
+            json_data={
+                'status': 'OK',
+                'message': 'State is valid',
+                'data': {
+                    'token': fake_jwt,
+                    'active_organization': {'slug': 'SITE', 'is_found': True, 'is_member': True},
+                }
+        })
+        mock_get.return_value = mock_resp
+
+        client = PyGraphistry.client()
+        client.session.org_name = None
+        PyGraphistry.session.org_name = None
+
+        au = ArrowUploader(client_session=client.session)
+
+        with mock.patch.object(ArrowUploader, "_switch_org") as mock_switch:
+            with self.assertLogs('graphistry.arrow_uploader', level='WARNING') as log_ctx:
+                au.sso_get_token(state='ignored-valid')
+
+        assert au.token == fake_jwt
+        assert au.org_name == 'site-user'
+        mock_switch.assert_called_once_with('site-user', fake_jwt)
+        assert any(
+            record.levelname == 'WARNING' and 'SITE' in record.getMessage()
+            for record in log_ctx.records
+        ), "Expected a WARNING log surfacing the rejected site-wide org slug"
+
+    @mock.patch('requests.get')
+    def test_sso_get_token_site_wide_slug_case_insensitive(self, mock_get):
+        # Server-side matching is case-insensitive (slug__iexact), so the
+        # client-side guard must be too.
+
+        mock_resp = self._mock_response(
+            json_data={
+                'status': 'OK',
+                'message': 'State is valid',
+                'data': {
+                    'token': '123',
+                    'active_organization': {'slug': 'site', 'is_found': True, 'is_member': True},
+                }
+        })
+        mock_get.return_value = mock_resp
+
+        client = PyGraphistry.client()
+        client.session.org_name = None
+        PyGraphistry.session.org_name = None
+
+        au = ArrowUploader(client_session=client.session)
+
+        with mock.patch.object(ArrowUploader, "_switch_org") as mock_switch:
+            au.sso_get_token(state='ignored-valid')
+
+        assert au.token == '123'
+        assert au.org_name is None
+        mock_switch.assert_not_called()
+
+    @mock.patch('requests.get')
     def test_sso_get_token_layer3_jwt_username_fallback(self, mock_get):
         # Layer 3: caller passed nothing, server didn't bind — JWT-derived
         # personal-org slug is used. Pins the first-login-UX path that #1230

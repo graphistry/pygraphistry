@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any
 
-import base64, io, json, pyarrow as pa, requests, sys
+import base64, io, json, pyarrow as pa, re, requests, sys, unicodedata
 
 from graphistry.privacy import Mode, Privacy, ModeAction
 from graphistry.otel import inject_trace_headers
@@ -22,8 +22,21 @@ from graphistry.models.types import ValidationParam
 logger = setup_logger(__name__)
 
 
+def _django_slugify(value: str) -> str:
+    """Reimplementation of django.utils.text.slugify(value, allow_unicode=False).
+
+    Server contract: ``Organization.save()`` (common/models.py) sets a personal
+    org's slug via this exact transform on the owner's username — not the raw
+    username. Must stay byte-for-byte consistent with Django's algorithm or
+    slug lookups derived from it will 404.
+    """
+    value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')
+    value = re.sub(r'[^\w\s-]', '', value.lower())
+    return re.sub(r'[-\s]+', '-', value).strip('-_')
+
+
 def _personal_org_from_jwt(token: str) -> Optional[str]:
-    """Extract the username claim from a JWT payload, used as a personal-org slug.
+    """Derive the personal-org slug from the username claim in a JWT payload.
 
     Trust chain: callers pass a JWT just received from the authenticated
     /api/v2/o/sso/oidc/jwt/{state}/ endpoint in the same exchange, so we decode
@@ -33,8 +46,11 @@ def _personal_org_from_jwt(token: str) -> Optional[str]:
     rejects), not grant unauthorized access. Do NOT reuse this helper for
     tokens received from outside that trust chain.
 
-    Server contract: ``personal_org.slug == jwt_payload.username`` for users
-    auto-provisioned via SSO.
+    Server contract: ``personal_org.slug == django_slugify(jwt_payload.username)``
+    for users auto-provisioned via SSO (see _django_slugify). Note the server
+    also appends a numeric suffix on slug collision (common/models.py:315-317),
+    which this best-effort reconstruction cannot replicate — collision cases
+    still fall through to the server's 404, same as before this derivation existed.
 
     Returns None on any decode/parse failure or missing/non-string username.
     """
@@ -50,7 +66,10 @@ def _personal_org_from_jwt(token: str) -> Optional[str]:
         if not isinstance(payload, dict):
             return None
         username = payload.get('username')
-        return username if isinstance(username, str) and username else None
+        if not isinstance(username, str) or not username:
+            return None
+        slug = _django_slugify(username)
+        return slug or None
     except Exception as exc:
         logger.debug("@_personal_org_from_jwt: failed to extract username: %s", exc)
         return None
@@ -463,6 +482,22 @@ class ArrowUploader:
 
             active_org = data.get('active_organization')
             slug = active_org.get('slug') if isinstance(active_org, dict) else None
+
+            # Defense-in-depth: nexus's SSO claim-to-org resolver can (bug)
+            # bind a user to the reserved site-wide sentinel org (slug
+            # 'SITE') when an IdP org claim happens to case-insensitively
+            # match it. No dataset can ever be created under that org (server
+            # rejects with 403), so treat it the same as "no org bound" and
+            # fall through to the JWT-derived personal-org fallback below.
+            if isinstance(slug, str) and slug.upper() == 'SITE':
+                logger.warning(
+                    "SSO returned active_organization=%r, the reserved "
+                    "site-wide org; treating as unbound and falling back to "
+                    "personal org. This usually means an IdP org claim was "
+                    "mis-mapped server-side — verify per-org SSO config.",
+                    slug
+                )
+                slug = None
 
             if slug:
                 # Layer 1: server-bound active_organization. Caller's intent
