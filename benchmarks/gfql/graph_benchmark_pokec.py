@@ -387,7 +387,11 @@ def _execution_metadata(
 
 
 def _failure_result(exc: Exception, kind: QueryKind) -> FailureResult:
-    unsupported = isinstance(exc, NotImplementedError)
+    from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+
+    unsupported = isinstance(exc, NotImplementedError) or (
+        isinstance(exc, GFQLValidationError) and exc.code == ErrorCode.E108
+    )
     type_name = type(exc).__name__
     normalized_type = type_name.lower().replace("_", "")
     oom = isinstance(exc, MemoryError) or "outofmemory" in normalized_type

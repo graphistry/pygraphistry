@@ -218,10 +218,18 @@ class TestPokecBenchmarkHelpers(unittest.TestCase):
         self.assertEqual(sync_calls, 5)
 
     def test_failure_statuses_are_distinct(self) -> None:
+        from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+
         unsupported = _POKEC._failure_result(NotImplementedError("no"), "seed")
+        structured_unsupported = _POKEC._failure_result(
+            GFQLValidationError(ErrorCode.E108, "not implemented"),
+            "seed",
+        )
         error = _POKEC._failure_result(ValueError("bad"), "seed")
         oom = _POKEC._failure_result(MemoryError("full"), "seed")
 
         self.assertEqual(unsupported["status"], "unsupported")
+        self.assertEqual(structured_unsupported["status"], "unsupported")
+        self.assertTrue(structured_unsupported["unsupported"])
         self.assertEqual(error["status"], "error")
         self.assertEqual(oom["status"], "oom")
