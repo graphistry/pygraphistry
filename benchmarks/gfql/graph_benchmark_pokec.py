@@ -6,7 +6,7 @@ This targets the *actual* dataset and queries Memgraph markets itself on
 parses the public mgBench Pokec import (``CREATE (:User {...})`` nodes and
 ``MATCH ... CREATE (n)-[:Friend]->(m)`` edges) into node/edge dataframes, then
 runs the exact mgBench read/aggregate/expansion/neighbours/pattern queries as
-the *same Cypher* on GFQL (pandas/cuDF) and, optionally, Memgraph over Bolt,
+the *same Cypher* on GFQL (pandas/cuDF/Polars/Polars-GPU) and, optionally, Memgraph over Bolt,
 using a shared fixed seed set for the seeded (``$id``) queries.
 
 Dataset: https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/
@@ -21,7 +21,20 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    TypedDict,
+    TypeVar,
+)
 
 _HERE = Path(__file__).resolve()
 sys.path.insert(0, str(_HERE.parent))       # benchmarks/gfql for sibling imports
@@ -29,12 +42,71 @@ sys.path.insert(0, str(_HERE.parents[2]))   # repo root so `import graphistry` f
 
 import pandas as pd
 
-from graph_benchmark_q1_q9 import _maybe_to_cudf, _median
+from graph_benchmark_q1_q9 import _median
+
+if TYPE_CHECKING:
+    from graphistry.Engine import Engine
+    from graphistry.compute.ComputeMixin import ComputeMixin
+    from graphistry.compute.gfql.index.types import IndexPath
+    from graphistry.compute.typing import DataFrameT
+    from graphistry.Plottable import Plottable
 
 _NODE_RE = re.compile(
     r'CREATE \(:User \{id: (\d+), completion_percentage: (\d+), gender: "([^"]*)", age: (\d+)\}\)'
 )
 _EDGE_RE = re.compile(r'MATCH \(n:User \{id: (\d+)\}\), \(m:User \{id: (\d+)\}\)')
+
+GFQLEngine = Literal["pandas", "cudf", "polars", "polars-gpu"]
+QueryKind = Literal["global", "seed"]
+ExecutionTarget = Literal["cpu", "gpu", "mixed"]
+FailureStatus = Literal["unsupported", "error", "oom"]
+ResultT = TypeVar("ResultT")
+
+
+class QuerySpec(TypedDict):
+    name: str
+    kind: QueryKind
+    gfql: str
+    memgraph: str
+
+
+class TimingResult(TypedDict):
+    median_ms: float
+    samples_ms: List[float]
+
+
+class SeedTiming(TypedDict):
+    seed: int
+    median_ms: float
+    samples_ms: List[float]
+    rowcount: int
+    execution_paths: List["IndexPath"]
+
+
+class ExecutionMetadata(TypedDict, total=False):
+    status: Literal["ok", "fallback"]
+    execution_target: ExecutionTarget
+    synchronization: Literal["none", "cuda-device"]
+    fallback_reason: str
+
+
+class FailureResult(TypedDict):
+    status: FailureStatus
+    unsupported: bool
+    error_type: str
+    error: str
+    kind: QueryKind
+
+
+GFQL_ENGINES: Tuple[GFQLEngine, ...] = ("pandas", "cudf", "polars", "polars-gpu")
+ENGINE_SELECTIONS: Dict[str, Tuple[GFQLEngine, ...]] = {
+    "pandas": ("pandas",),
+    "cudf": ("cudf",),
+    "polars": ("polars",),
+    "polars-gpu": ("polars-gpu",),
+    "both": ("pandas", "cudf"),
+    "all": GFQL_ENGINES,
+}
 
 
 def parse_pokec_import(path: Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -69,7 +141,7 @@ def parse_pokec_import(path: Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
 #         "pair" runs over shared (from,to) pairs.
 # GFQL Cypher uses the label__User convention and untyped edges; Memgraph uses
 # the exact mgBench query text.
-QUERIES: Tuple[Dict[str, Any], ...] = (
+QUERIES: Tuple[QuerySpec, ...] = (
     {"name": "aggregate", "kind": "global",
      "gfql": "MATCH (n:User) RETURN n.age, COUNT(*)",
      "memgraph": "MATCH (n:User) RETURN n.age, COUNT(*)"},
@@ -124,19 +196,44 @@ def _rowcount(result: Any) -> int:
         return -1
 
 
-def _time(fn: Callable[[], Any], runs: int, warmup: int) -> Tuple[Any, float]:
+def _time(
+    fn: Callable[[], ResultT],
+    runs: int,
+    warmup: int,
+    synchronize: Optional[Callable[[], None]] = None,
+) -> Tuple[ResultT, TimingResult]:
+    if runs < 1:
+        raise ValueError(f"runs must be >= 1, got {runs}")
+    if warmup < 0:
+        raise ValueError(f"warmup must be >= 0, got {warmup}")
     for _ in range(warmup):
         fn()
-    times: List[float] = []
-    result: Any = None
-    for _ in range(runs):
+        if synchronize is not None:
+            synchronize()
+
+    if synchronize is not None:
+        synchronize()
+    start = time.perf_counter()
+    result = fn()
+    if synchronize is not None:
+        synchronize()
+    times = [(time.perf_counter() - start) * 1000.0]
+    for _ in range(1, runs):
+        if synchronize is not None:
+            synchronize()
         start = time.perf_counter()
         result = fn()
+        if synchronize is not None:
+            synchronize()
         times.append((time.perf_counter() - start) * 1000.0)
-    return result, _median(times)
+    return result, {"median_ms": _median(times), "samples_ms": times}
 
 
-def _hop_dsts(g: Any, frontier_ids: Sequence[int], engine: str) -> List[int]:
+def _hop_dsts(
+    g: "ComputeMixin",
+    frontier_ids: Sequence[int],
+    engine: GFQLEngine,
+) -> List[int]:
     """One indexed forward 1-hop from a frontier; return distinct destination ids.
 
     hop(nodes=, hops=1) is routed through the #1658 CSR index on every engine
@@ -154,8 +251,13 @@ def _hop_dsts(g: Any, frontier_ids: Sequence[int], engine: str) -> List[int]:
 NATIVE_SEEDED_NAMES = ("expansion_", "neighbours_", "pattern_short")
 
 
-def _native_seeded(g: Any, spec: Dict[str, Any], seed: int, engine: str,
-                   gfql_kwargs: Dict[str, Any], adult_ids: Optional[set] = None) -> Any:
+def _native_seeded(
+    g: "ComputeMixin",
+    spec: QuerySpec,
+    seed: int,
+    engine: GFQLEngine,
+    adult_ids: Optional[Set[int]] = None,
+) -> List[int]:
     """Express the seeded Pokec traversals as a loop of indexed 1-hops.
 
     expansion_k = final frontier of exactly k hops (distinct); neighbours_k =
@@ -187,12 +289,141 @@ def _native_seeded(g: Any, spec: Dict[str, Any], seed: int, engine: str,
     return list(endpoints)
 
 
-def run_gfql(nodes: pd.DataFrame, edges: pd.DataFrame, engine: str, seeds: Sequence[int],
+def _frame_engine(engine: GFQLEngine) -> "Engine":
+    from graphistry.Engine import Engine
+
+    if engine == "pandas":
+        return Engine.PANDAS
+    if engine == "cudf":
+        return Engine.CUDF
+    if engine in ("polars", "polars-gpu"):
+        # Polars-GPU is an execution target; its resident frames are ordinary Polars.
+        return Engine.POLARS
+    raise ValueError(f"unsupported GFQL benchmark engine: {engine!r}")
+
+
+def _to_native_frames(
+    nodes: pd.DataFrame, edges: pd.DataFrame, engine: GFQLEngine
+) -> Tuple["DataFrameT", "DataFrameT"]:
+    from graphistry.Engine import Engine, df_to_engine
+
+    frame_engine = _frame_engine(engine)
+    if frame_engine == Engine.PANDAS:
+        return nodes, edges
+    return df_to_engine(nodes, frame_engine), df_to_engine(edges, frame_engine)
+
+
+def _selected_engines(selection: str) -> Tuple[GFQLEngine, ...]:
+    try:
+        return ENGINE_SELECTIONS[selection]
+    except KeyError as exc:
+        raise ValueError(f"unsupported GFQL benchmark engine selection: {selection!r}") from exc
+
+
+def _require_compute_graph(g: "Plottable") -> "ComputeMixin":
+    from graphistry.compute.ComputeMixin import ComputeMixin
+
+    if not isinstance(g, ComputeMixin):
+        raise TypeError(f"GFQL benchmark requires ComputeMixin, got {type(g)!r}")
+    return g
+
+
+def _trace_native_seeded(
+    g: "ComputeMixin",
+    spec: QuerySpec,
+    seed: int,
+    engine: GFQLEngine,
+    adult_ids: Optional[Set[int]],
+) -> Tuple[List[int], List["IndexPath"]]:
+    from graphistry.compute.gfql.index import index_trace
+
+    with index_trace() as steps:
+        result = _native_seeded(g, spec, seed, engine, adult_ids)
+    paths = [step["path"] for step in steps if "path" in step]
+    if not paths:
+        raise RuntimeError(
+            f"Native indexed traversal produced no planner trace for {spec['name']}"
+        )
+    return result, paths
+
+
+def _execution_metadata(
+    engine: GFQLEngine,
+    *,
+    uses_native_index: bool,
+    execution_paths: Sequence["IndexPath"] = (),
+) -> ExecutionMetadata:
+    if engine == "polars-gpu" and uses_native_index:
+        paths = set(execution_paths)
+        if not paths:
+            raise ValueError("Polars-GPU native traversal requires execution paths")
+        if paths == {"scan"}:
+            return {
+                "status": "ok",
+                "execution_target": "gpu",
+                "synchronization": "cuda-device",
+            }
+        if paths == {"index"}:
+            target: ExecutionTarget = "cpu"
+            detail = "all measured seeds used the NumPy host adjacency index"
+        else:
+            target = "mixed"
+            detail = "planner decisions mixed NumPy host indexes with GPU scans"
+        return {
+            "status": "fallback",
+            "execution_target": target,
+            "synchronization": "cuda-device",
+            "fallback_reason": (
+                f"{detail}; this row is not a GPU-only result"
+            ),
+        }
+    return {
+        "status": "ok",
+        "execution_target": "gpu" if engine in ("cudf", "polars-gpu") else "cpu",
+        "synchronization": (
+            "cuda-device" if engine in ("cudf", "polars-gpu") else "none"
+        ),
+    }
+
+
+def _failure_result(exc: Exception, kind: QueryKind) -> FailureResult:
+    from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+
+    unsupported = isinstance(exc, NotImplementedError) or (
+        isinstance(exc, GFQLValidationError) and exc.code == ErrorCode.E108
+    )
+    type_name = type(exc).__name__
+    normalized_type = type_name.lower().replace("_", "")
+    oom = isinstance(exc, MemoryError) or "outofmemory" in normalized_type
+    status: FailureStatus = (
+        "unsupported" if unsupported else "oom" if oom else "error"
+    )
+    return {
+        "status": status,
+        "unsupported": unsupported,
+        "error_type": type_name,
+        "error": str(exc)[:500],
+        "kind": kind,
+    }
+
+
+def _synchronizer(engine: GFQLEngine) -> Optional[Callable[[], None]]:
+    if engine not in ("cudf", "polars-gpu"):
+        return None
+    import cupy as cp
+
+    def synchronize() -> None:
+        cp.cuda.runtime.deviceSynchronize()
+
+    return synchronize
+
+
+def run_gfql(nodes: pd.DataFrame, edges: pd.DataFrame, engine: GFQLEngine, seeds: Sequence[int],
              runs: int, warmup: int, index_policy: str = "off", traversal: str = "cypher") -> Dict[str, Any]:
     import graphistry
-    n = _maybe_to_cudf(engine, nodes) if engine == "cudf" else nodes
-    e = _maybe_to_cudf(engine, edges) if engine == "cudf" else edges
-    g = graphistry.nodes(n, "id").edges(e, "src", "dst")
+    synchronize = _synchronizer(engine)
+    n, e = _to_native_frames(nodes, edges, engine)
+    g = _require_compute_graph(graphistry.nodes(n, "id").edges(e, "src", "dst"))
     # #1658 seeded adjacency index (opt-in). Build once as untimed setup (like a
     # DB's load-time index), then seeded gfql() runs with index_policy set.
     index_build_ms: Optional[float] = None
@@ -207,7 +438,7 @@ def run_gfql(nodes: pd.DataFrame, edges: pd.DataFrame, engine: str, seeds: Seque
         except Exception:
             pass
     # Precompute the age>=18 endpoint set once (untimed setup) for *_with_filter.
-    adult_ids: Optional[set] = None
+    adult_ids: Optional[Set[int]] = None
     if traversal == "native":
         _nn = nodes  # host pandas frame (before engine coercion) — fine for a setup lookup
         adult_ids = set(_nn[_nn["age"] >= 18]["id"])
@@ -217,31 +448,85 @@ def run_gfql(nodes: pd.DataFrame, edges: pd.DataFrame, engine: str, seeds: Seque
         try:
             if spec["kind"] == "global":
                 q = spec["gfql"]
-                _, med = _time(lambda: g.gfql(q, **gfql_kwargs), runs, warmup)
-                results[name] = {"median_ms": med, "kind": "global"}
+                result, timing = _time(
+                    lambda: g.gfql(q, **gfql_kwargs),
+                    runs,
+                    warmup,
+                    synchronize,
+                )
+                results[name] = {
+                    **timing,
+                    **_execution_metadata(engine, uses_native_index=False),
+                    "kind": "global",
+                    "rowcount": _rowcount(result),
+                    "unit": "ms",
+                }
             else:
                 use_native = traversal == "native" and name.startswith(NATIVE_SEEDED_NAMES)
                 per_seed: List[float] = []
                 rowcounts: List[int] = []
+                seed_timings: List[SeedTiming] = []
+                execution_paths: List["IndexPath"] = []
                 for sid in seeds:
                     if use_native:
-                        res, med = _time(lambda: _native_seeded(g, spec, sid, engine, gfql_kwargs, adult_ids), runs, warmup)
+                        res, timing = _time(
+                            lambda: _native_seeded(g, spec, sid, engine, adult_ids),
+                            runs,
+                            warmup,
+                            synchronize,
+                        )
                         rc = int(len(res))
+                        traced_res, seed_paths = _trace_native_seeded(
+                            g,
+                            spec,
+                            sid,
+                            engine,
+                            adult_ids,
+                        )
+                        if set(traced_res) != set(res):
+                            raise RuntimeError(
+                                f"Trace probe changed result for {name} seed {sid}"
+                            )
+                        execution_paths.extend(seed_paths)
                     else:
                         q = spec["gfql"].format(id=sid)
-                        res, med = _time(lambda: g.gfql(q, **gfql_kwargs), runs, warmup)
+                        res, timing = _time(
+                            lambda: g.gfql(q, **gfql_kwargs),
+                            runs,
+                            warmup,
+                            synchronize,
+                        )
                         rc = _rowcount(res)
-                    per_seed.append(med)
+                    per_seed.append(timing["median_ms"])
                     rowcounts.append(rc)
+                    seed_timings.append(
+                        {
+                            "seed": int(sid),
+                            "median_ms": timing["median_ms"],
+                            "samples_ms": timing["samples_ms"],
+                            "rowcount": rc,
+                            "execution_paths": seed_paths if use_native else [],
+                        }
+                    )
                 results[name] = {
                     "median_ms": _median(per_seed),
+                    "min_seed_median_ms": min(per_seed),
+                    "max_seed_median_ms": max(per_seed),
+                    "seed_timings": seed_timings,
+                    "execution_paths": execution_paths,
+                    **_execution_metadata(
+                        engine,
+                        uses_native_index=use_native,
+                        execution_paths=execution_paths,
+                    ),
                     "kind": "seed",
+                    "unit": "ms",
                     "seeds": len(seeds),
                     "traversal": "native" if use_native else "cypher",
                     "median_rowcount": int(_median([float(r) for r in rowcounts])),
                 }
         except Exception as exc:
-            results[name] = {"unsupported": True, "error": f"{type(exc).__name__}: {str(exc)[:160]}", "kind": spec["kind"]}
+            results[name] = _failure_result(exc, spec["kind"])
     return results
 
 
@@ -253,23 +538,47 @@ def run_memgraph(driver: Any, seeds: Sequence[int], runs: int, warmup: int) -> D
         q = spec["memgraph"]
         try:
             if spec["kind"] == "global":
-                _, med = _time(lambda: execute(driver, q), runs, warmup)
-                results[name] = {"median_ms": med, "kind": "global"}
+                result, timing = _time(lambda: execute(driver, q), runs, warmup)
+                results[name] = {
+                    **timing,
+                    "kind": "global",
+                    "rowcount": len(result),
+                    "unit": "ms",
+                }
             else:
                 per_seed: List[float] = []
                 rowcounts: List[int] = []
+                seed_timings: List[SeedTiming] = []
                 for sid in seeds:
-                    res, med = _time(lambda: execute(driver, q, id=int(sid)), runs, warmup)
-                    per_seed.append(med)
-                    rowcounts.append(len(res))
+                    res, timing = _time(
+                        lambda: execute(driver, q, id=int(sid)),
+                        runs,
+                        warmup,
+                    )
+                    rowcount = len(res)
+                    per_seed.append(timing["median_ms"])
+                    rowcounts.append(rowcount)
+                    seed_timings.append(
+                        {
+                            "seed": int(sid),
+                            "median_ms": timing["median_ms"],
+                            "samples_ms": timing["samples_ms"],
+                            "rowcount": rowcount,
+                            "execution_paths": [],
+                        }
+                    )
                 results[name] = {
                     "median_ms": _median(per_seed),
+                    "min_seed_median_ms": min(per_seed),
+                    "max_seed_median_ms": max(per_seed),
+                    "seed_timings": seed_timings,
                     "kind": "seed",
+                    "unit": "ms",
                     "seeds": len(seeds),
                     "median_rowcount": int(_median([float(r) for r in rowcounts])),
                 }
         except Exception as exc:
-            results[name] = {"unsupported": True, "error": f"{type(exc).__name__}: {str(exc)[:160]}", "kind": spec["kind"]}
+            results[name] = _failure_result(exc, spec["kind"])
     return results
 
 
@@ -299,7 +608,7 @@ def load_memgraph(driver: Any, nodes: pd.DataFrame, edges: pd.DataFrame, batch_s
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--import-cypher", type=Path, required=True, help="mgBench Pokec *_import.cypher file")
-    parser.add_argument("--engine", choices=["pandas", "cudf", "both"], default="both")
+    parser.add_argument("--engine", choices=[*GFQL_ENGINES, "both", "all"], default="both")
     parser.add_argument("--seeds", type=int, default=30, help="Number of shared seed vertices for seeded queries")
     parser.add_argument("--seed-rng", type=int, default=42)
     parser.add_argument("--runs", type=int, default=5)
@@ -333,7 +642,7 @@ def main() -> None:
         "gfql": {},
     }
 
-    engines = ["pandas", "cudf"] if args.engine == "both" else [args.engine]
+    engines = _selected_engines(args.engine)
     for engine in engines:
         output["gfql"][engine] = run_gfql(nodes, edges, engine, seeds, args.runs, args.warmup, args.gfql_index, args.gfql_traversal)
 
