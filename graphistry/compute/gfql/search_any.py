@@ -1,12 +1,17 @@
 """Cross-column search kernel (viz-filter L2, panel-algebra D2): OR-across-columns
 substring/regex match, dtype-gated AS SEMANTICS — string columns always; integer
 columns iff the term is a numeric literal (inspector gate); float/date/bool are
-auto-gated OUT (float stringification is engine-divergent — explicit ``columns=``
-reaches bool on both engines, float/date on pandas only: cuDF declines them, its
-astype(str) rendering diverges from pandas — dgx-probed). Per-column matching
-delegates to the parity-hardened ``Contains`` predicate, so every pandas/cuDF
-quirk and honest decline gate carries over; cuDF regex obeys the same decline
-rules as ``=~``."""
+auto-gated OUT (kept symmetric across engines for cross-engine parity — #1695
+decision A). Explicit ``columns=`` reaches bool on both engines and float/datetime
+on **pandas only**: pandas renders floats to the inspector's WYSIWYG search text
+via ``_canonical_float_str`` (``%.4f``-direct, dgx-verified byte-identical to the
+viz ``sprintf-js``) and datetimes via ``_canonical_datetime_str`` (the inspector's
+moment date format, localized to a caller ``tz``); cuDF/polars honestly decline
+both (their native decimal / datetime render can't reproduce pandas — cuDF float
+truncates, polars diverges at ties — and a per-element UDF would be a host-bridge;
+dgx-probed 2026-07-05). Per-column matching delegates to the parity-hardened
+``Contains`` predicate, so every pandas/cuDF quirk and honest decline gate carries
+over; cuDF regex obeys the same decline rules as ``=~``."""
 import re
 from typing import List, Optional
 
@@ -28,6 +33,160 @@ def _is_searchable_string_dtype(dtype: object) -> bool:
 def _is_int_dtype(dtype: object) -> bool:
     import pandas.api.types as pat
     return bool(pat.is_integer_dtype(dtype))
+
+
+def _is_float_dtype(dtype: object) -> bool:
+    import pandas.api.types as pat
+    return bool(pat.is_float_dtype(dtype))
+
+
+def _is_datetime_dtype(dtype: object) -> bool:
+    import pandas.api.types as pat
+    return bool(pat.is_datetime64_any_dtype(dtype))
+
+
+# The inspector's default date render (moment `'MMM D YYYY, h:mm:ss a z'`) expressed
+# as its strftime equivalent — moment MMM=%b, D=%-d (no leading zero), YYYY=%Y,
+# h=%-I (12h no leading zero), mm=%M, ss=%S, a=am/pm (lowercase), z=%Z (tz abbrev).
+_INSPECTOR_TEMPORAL_STRFTIME = "%b %-d %Y, %-I:%M:%S %p %Z"
+_MONTH_ABBR = [
+    "", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+]
+
+
+def _assemble_default_datetime_utc(loc: SeriesT) -> SeriesT:
+    """Vectorized build of the inspector's default date render in UTC — byte-identical
+    to ``loc.dt.strftime('%b %-d %Y, %-I:%M:%S %p %Z')`` (am/pm lowercased, z='UTC'),
+    but ~3x faster: pandas ``dt.strftime`` is a per-element slow path (~2s/1M rows),
+    while ``.dt`` component extraction + string concat is vectorized. The tz abbrev
+    is the constant ``'UTC'`` here, which is what makes the fast path sound (a DST
+    zone's abbrev varies per timestamp -> those fall back to strftime)."""
+    import numpy as np
+    import pandas as pd
+    d = loc.dt
+    idx = loc.index
+    # NaT lanes are filled with dummy components (never surface — the caller masks
+    # them to "" via `.where(notna, "")`); this keeps every op vectorized (no NA
+    # propagation through the concat).
+    mo = pd.Series(np.array(_MONTH_ABBR)[d.month.fillna(0).astype(int).to_numpy()], index=idx)
+    h24 = d.hour.fillna(0).astype(int)
+    h12 = ((h24 - 1) % 12 + 1).astype(str)                      # 0->12, 13->1, 12->12
+    ap = pd.Series(np.where(h24.to_numpy() < 12, "am", "pm"), index=idx)
+    day = d.day.fillna(1).astype(int).astype(str)
+    yr = d.year.fillna(0).astype(int).astype(str)
+    mm = d.minute.fillna(0).astype(int).astype(str).str.zfill(2)
+    ss = d.second.fillna(0).astype(int).astype(str).str.zfill(2)
+    return mo + " " + day + " " + yr + ", " + h12 + ":" + mm + ":" + ss + " " + ap + " UTC"
+
+
+def _canonical_datetime_str(
+    s: SeriesT, temporal_format: Optional[str] = None, tz: str = "UTC"
+) -> SeriesT:
+    """WYSIWYG datetime render matching the streamgl-viz inspector's date search text
+    (``formatDate`` -> moment ``'MMM D YYYY, h:mm:ss a z'``), LOCALIZED to ``tz``.
+
+    The inspector formats a date in the VIEWER's timezone (``moment.unix`` local),
+    which is not knowable server-side — so ``tz`` is a caller knob (Leo's
+    localization call-param): pass the viewer's zone (e.g. ``'America/Los_Angeles'``)
+    for byte parity with what that viewer sees. Default ``'UTC'`` is chosen for
+    DETERMINISM (a server-local default would vary by deployment and break the
+    parity oracle); flip via ``tz=``.
+
+    PANDAS-ONLY (like the float render): cuDF/polars decline datetime search — their
+    native datetime->string rendering and tz handling diverge from pandas strftime,
+    and a per-cell UDF would be a host-bridge. Null cells render ``""`` (masked out).
+
+    ``temporal_format`` is a **strftime** pattern; its default reproduces the
+    inspector's moment default. moment's lowercase am/pm (``a``) is reproduced by
+    lowercasing the ``%p`` output (tz abbrevs / month names never contain AM/PM).
+    """
+    import pandas as pd
+    fmt = temporal_format or _INSPECTOR_TEMPORAL_STRFTIME
+    ser = s if isinstance(s, pd.Series) else pd.Series(s)
+    # localize: naive columns are assumed UTC then converted; tz-aware are converted.
+    if getattr(ser.dtype, "tz", None) is not None:
+        localized = ser.dt.tz_convert(tz)
+    else:
+        localized = ser.dt.tz_localize("UTC").dt.tz_convert(tz)
+    notna = ser.notna()
+    if temporal_format is None and tz == "UTC":
+        # FAST PATH (interactive hot path): the default format in UTC, assembled
+        # vectorized instead of via the ~20x-slower dt.strftime. The render is
+        # term-independent, so a repeated (typing) search should also cache it.
+        txt = _assemble_default_datetime_utc(localized)
+    else:
+        txt = localized.dt.strftime(fmt)
+        if "%p" in fmt:
+            # moment `a` is lowercase am/pm; strftime %p is upper. Lowercase ONLY the
+            # standalone AM/PM token (word-bounded) so we don't corrupt an alpha tz
+            # abbreviation (e.g. America/Manaus -> "AMT") or literal text in a custom
+            # temporal_format — a blind global replace turned "AMT" into "amT".
+            txt = txt.str.replace(r"\bAM\b", "am", regex=True).str.replace(r"\bPM\b", "pm", regex=True)
+    return txt.where(notna, "")
+
+
+def _canonical_float_str(s: SeriesT, precision: int = 4) -> SeriesT:
+    """WYSIWYG float render matching the streamgl-viz inspector's search text —
+    verified byte-identical to the inspector's real ``sprintf-js`` ``%.4f`` on
+    dgx-spark (float parity fuzzer, 2026-07-05).
+
+    - WHOLE value (``v % 1 == 0``, incl. whole floats like ``5.0``, ``|v| < 1e21``)
+      -> bare integer string (``"5"``/``"-3"`` — no decimals, no exponent;
+      matches JS ``String(v)`` / ``formatToString``).
+    - FRACTIONAL value -> ``"%.<precision>f" % v`` applied DIRECTLY to the raw
+      double (single correctly-rounded conversion; matches ``sprintf('%.4f', v)``,
+      e.g. ``0.12345`` -> ``"0.1235"``, ``-3.74825`` -> ``"-3.7483"``).
+
+    PANDAS-ONLY. The GPU engines cannot reproduce this natively and honestly
+    decline float search upstream (dgx-proven: cuDF ``float64 -> decimal128``
+    TRUNCATES — wrong on generic values, not just ties; polars' decimal cast
+    rounds differently at 5th-decimal ties and drops the sign on ``-0.0000``;
+    there is no native GPU ``printf`` and a per-element UDF would be a forbidden
+    host-bridge). So this is only ever called on a pandas float column.
+
+    NOTE: an earlier draft pre-rounded with ``np.round(v, precision)`` before
+    ``%.*f`` — that DOUBLE-ROUNDS and mis-renders half-ties (``-3.74825`` ->
+    ``-3.7482`` instead of the browser's ``-3.7483``). We round exactly once, in
+    ``%.*f``, on the raw double. Null cells render as ``""`` and never match
+    (the caller masks them out).
+    """
+    import numpy as np
+    n = len(s)
+    if n == 0:
+        return cast_series_like(s, [])
+    notna = np.asarray(s.notna())
+    vals = s.to_numpy(dtype="float64", na_value=np.nan)
+    inf = np.inf
+    fmt = "%." + str(precision) + "f"
+
+    def render(v: float) -> str:
+        # order matters: NaN/inf checked BEFORE `v % 1` (which would warn on them)
+        if v != v:                       # NaN -> "" (masked out by caller)
+            return ""
+        if v == inf:                     # JS String(Infinity)/sprintf('%.4f',Inf)
+            return "Infinity"
+        if v == -inf:
+            return "-Infinity"
+        if v % 1 == 0:                   # WHOLE (finite): plain integer digits (JS String);
+            return str(int(v)) if abs(v) < 1e21 else ""   # >=1e21 JS-exponent regime -> ""
+        return fmt % v                   # FRACTIONAL: printf on raw double == sprintf-js
+
+    # A python list-comp is the interactive hot path here and — measured on dgx at
+    # 1M rows — is faster than np.char.mod / a numpy-masked scatter (which pay for
+    # several full-array passes + object boxing). The render is term-independent, so
+    # a caller that searches repeatedly (typing) should cache this per column.
+    # (NOTE: whole floats >= 2**53 render str(int(v)) = the exact-integer decimal,
+    # which can differ from JS String()'s shortest round-trip for a few magnitudes —
+    # a documented, astronomically-rare search limitation.)
+    out = [render(v) for v in vals]
+    if not notna.all():                  # nullable NA that to_numpy filled -> never match
+        out = [o if ok else "" for o, ok in zip(out, notna)]
+    return cast_series_like(s, out)
+
+
+def cast_series_like(template: SeriesT, data: list) -> SeriesT:
+    import pandas as pd
+    return pd.Series(data, index=template.index, dtype="object")
 
 
 def _has_string_content(df: DataFrameT, c: object) -> bool:
@@ -70,6 +229,31 @@ def search_candidate_columns(
     return out
 
 
+def validate_format_opts(
+    float_precision: int, temporal_format: Optional[str], tz: str
+) -> None:
+    """Validate the #1695 WYSIWYG format options at the kernel — the SINGLE choke
+    point every surface passes through (cypher op, ast op, and the python twins,
+    which bypass the call safelist). Consistent ``GFQLValidationError`` regardless
+    of entry point, instead of a downstream ``"%.*f" % -1`` silent clamp or an
+    opaque ``tz_convert('')`` IndexError."""
+    from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+    if not isinstance(float_precision, int) or isinstance(float_precision, bool) or float_precision < 0:
+        raise GFQLValidationError(
+            ErrorCode.E108, "searchAny floatPrecision must be a non-negative integer",
+            field="float_precision", value=float_precision,
+            suggestion="Use an integer >= 0 (default 4).")
+    if temporal_format is not None and (not isinstance(temporal_format, str) or temporal_format == ""):
+        raise GFQLValidationError(
+            ErrorCode.E108, "searchAny temporalFormat must be a non-empty strftime string",
+            field="temporal_format", value=temporal_format,
+            suggestion="Omit for the inspector default, or pass a non-empty strftime pattern.")
+    if not isinstance(tz, str) or tz == "":
+        raise GFQLValidationError(
+            ErrorCode.E108, "searchAny tz must be a non-empty timezone string",
+            field="tz", value=tz, suggestion="Use an IANA zone like 'UTC' or 'America/Los_Angeles'.")
+
+
 def search_any_mask(
     df: DataFrameT,
     term: str,
@@ -77,9 +261,13 @@ def search_any_mask(
     case_sensitive: bool = False,
     regex: bool = False,
     columns: Optional[List[str]] = None,
+    float_precision: int = 4,
+    temporal_format: Optional[str] = None,
+    tz: str = "UTC",
 ) -> Optional[SeriesT]:
     """Boolean row mask over ``df`` (pandas or cuDF), or None to decline (an explicit
     column is missing). Null cells never match; no candidate columns -> all-False."""
+    validate_format_opts(float_precision, temporal_format, tz)
     from graphistry.compute.predicates.str import (
         Contains, _cudf_casefold_or_decline, _cudf_regex_prep,
     )
@@ -120,7 +308,19 @@ def search_any_mask(
     for c in cols:
         s = df[c]
         m: SeriesT
-        if not _is_searchable_string_dtype(s.dtype):
+        if _is_float_dtype(s.dtype):
+            # FLOAT (pandas-only; cuDF float declined above, polars uses its own
+            # lowering): render to the inspector's WYSIWYG search text (%.4f-direct
+            # / whole->int-string, dgx-verified byte-identical to sprintf-js) rather
+            # than astype(str), whose exponent/half-tie rendering diverges (#1695).
+            nulls = s.isna()
+            m = pred(_canonical_float_str(s, float_precision)) & ~nulls
+        elif _is_datetime_dtype(s.dtype):
+            # DATETIME (pandas-only; cuDF/polars declined above/in their lowering):
+            # render the inspector's moment date format localized to `tz` (#1695).
+            nulls = s.isna()
+            m = pred(_canonical_datetime_str(s, temporal_format, tz)) & ~nulls
+        elif not _is_searchable_string_dtype(s.dtype):
             # canonical toString for int / explicit columns; pandas astype(str)
             # stringifies nulls ("nan"/"<NA>") so mask them back out — null cells
             # never match on any engine (wave-1 I1)

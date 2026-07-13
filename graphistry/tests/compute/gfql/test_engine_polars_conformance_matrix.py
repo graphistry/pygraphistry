@@ -426,6 +426,150 @@ def test_search_any_op_all_engines():
         g.gfql(q(term="x", columns=["nope"]), engine="pandas")
 
 
+def test_search_any_float_wysiwyg():
+    """#1695: explicit ``columns=[<float>]`` searches the inspector's WYSIWYG render
+    (``%.4f``-direct / whole->int-string, dgx-verified == viz sprintf-js) on PANDAS;
+    cuDF/polars honestly decline (their native float render can't reproduce printf).
+    Float stays OUT of the auto gate on every engine (decision A) so auto behavior is
+    cross-engine-symmetric."""
+    import numpy as np
+    import pandas as pd
+    from graphistry.compute.ast import search_any as search_any_op
+    nd = pd.DataFrame({
+        "id": [0, 1, 2, 3, 4, 5],
+        # fractional, whole-float, a 5th-decimal HALF-TIE (guards the np.round
+        # double-rounding regression: correct render is -3.7483, NOT -3.7482), null
+        "f": [0.5, 1.5, 2.5, -3.74825, 5.0, np.nan],
+    })
+    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [0, 1]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+
+    def q(**kw):
+        return [n(name="a"), search_any_op(alias="a", out_col="__hit__", **kw)]
+
+    # (term, columns) -> matching ids, pandas oracle. renders:
+    # 0.5->"0.5000" 1.5->"1.5000" 2.5->"2.5000" -3.74825->"-3.7483" 5.0->"5" nan->""
+    oracle = {
+        "frac_exact":   (dict(term="1.5000", columns=["f"]), [1]),
+        "half_tie":     (dict(term="-3.7483", columns=["f"]), [3]),   # correct single-round
+        "half_tie_bad": (dict(term="-3.7482", columns=["f"]), []),    # the WRONG (double-round) render must NOT match
+        "whole_no_dec": (dict(term="5.0000", columns=["f"]), []),     # 5.0 renders "5", not "5.0000"
+        "whole_int":    (dict(term="5", columns=["f"]),
+                         [0, 1, 2, 4]),                                # substring '5' hits 0.5000/1.5000/2.5000/"5"
+        "null_no_nan":  (dict(term="nan", columns=["f"]), []),        # null cell renders "" not "nan" -> never matches
+    }
+    for label, (kw, expected) in oracle.items():
+        out = g.gfql(q(**kw), engine="pandas")
+        got = _to_pd(out._nodes).sort_values("id")
+        got = got[got["__hit__"]]["id"].tolist()
+        assert got == expected, f"float wysiwyg {label}: {got} != {expected}"
+        # cuDF/polars must honestly NIE on explicit float columns (never silently diverge)
+        _assert_invariant(g, q(**kw), f"float wysiwyg {label}")
+
+    # inf/-inf render "Infinity"/"-Infinity" (JS String(Infinity)), no RuntimeWarning
+    import numpy as np
+    import warnings
+    ginf = graphistry.nodes(pd.DataFrame({"id": [0, 1, 2], "f": [np.inf, -np.inf, 1.5]}), "id")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        assert ginf.search_nodes("Infinity", columns=["f"])._nodes["id"].tolist() == [0, 1]
+        assert ginf.search_nodes("-Infinity", columns=["f"])._nodes["id"].tolist() == [1]
+
+    # pandas python-twin also renders float WYSIWYG (row 3 = the half-tie -3.7483);
+    # polars-backed twin declines honestly (never a silent wrong answer)
+    assert sorted(g.search_nodes("-3.7483", columns=["f"])._nodes["id"].tolist()) == [3]
+    import polars as pl
+    gpl = graphistry.nodes(pl.from_pandas(nd), "id").edges(pl.from_pandas(ed), "s", "d").bind(edge="eid")
+    with pytest.raises(NotImplementedError):
+        gpl.search_nodes("1.5000", columns=["f"])
+
+
+def test_search_any_datetime_wysiwyg():
+    """#1695: explicit ``columns=[<datetime>]`` searches the inspector's moment date
+    render (``'MMM D YYYY, h:mm:ss a z'``, default tz=UTC — byte-verified vs real
+    moment.utc) on PANDAS; cuDF/polars honestly decline. Datetime stays OUT of the
+    auto gate on every engine (decision A)."""
+    import pandas as pd
+    from graphistry.compute.ast import search_any as search_any_op
+    nd = pd.DataFrame({
+        "id": [0, 1, 2],
+        "t": pd.to_datetime(["2021-03-14 15:09:26", "2021-12-25 00:00:00", None]),
+    })
+    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [0, 1]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+
+    def q(**kw):
+        return [n(name="a"), search_any_op(alias="a", out_col="__hit__", **kw)]
+
+    # renders (tz=UTC default): 0->"Mar 14 2021, 3:09:26 pm UTC"
+    #                           1->"Dec 25 2021, 12:00:00 am UTC"  2(null)->""
+    oracle = {
+        "month_day":  (dict(term="mar 14 2021", columns=["t"]), [0]),   # ci substring
+        "time_ampm":  (dict(term="3:09:26 pm", columns=["t"]), [0]),    # 12h + lowercase pm
+        "midnight":   (dict(term="12:00:00 am", columns=["t"]), [1]),   # moment 'h' -> 12 am
+        "tz_abbrev":  (dict(term="utc", columns=["t"]), [0, 1]),        # z token = UTC
+        "null_empty": (dict(term="nat", columns=["t"]), []),           # null renders "" not "nat"/"nan"
+    }
+    for label, (kw, expected) in oracle.items():
+        out = g.gfql(q(**kw), engine="pandas")
+        got = _to_pd(out._nodes).sort_values("id")
+        got = got[got["__hit__"]]["id"].tolist()
+        assert got == expected, f"datetime wysiwyg {label}: {got} != {expected}"
+        # cuDF/polars must honestly NIE on explicit datetime columns (never silent divergence)
+        _assert_invariant(g, q(**kw), f"datetime wysiwyg {label}")
+
+    # pandas python-twin also renders datetime WYSIWYG; polars-backed twin declines
+    assert sorted(g.search_nodes("dec 25 2021", columns=["t"])._nodes["id"].tolist()) == [1]
+    import polars as pl
+    gpl = graphistry.nodes(pl.from_pandas(nd), "id").edges(pl.from_pandas(ed), "s", "d").bind(edge="eid")
+    with pytest.raises(NotImplementedError):
+        gpl.search_nodes("mar 14 2021", columns=["t"])
+
+
+def test_search_any_format_options():
+    """#1695 P4: the WYSIWYG format call-params (floatPrecision / temporalFormat / tz)
+    thread through the cypher option map AND the python twins; strict-validated."""
+    import pandas as pd
+    from graphistry.compute.exceptions import GFQLValidationError
+    nd = pd.DataFrame({
+        "id": [0, 1, 2],
+        "f": [0.5, 1.5, -3.74825],
+        "t": pd.to_datetime(["2021-03-14 15:09:26", "2021-06-01 00:00:00", None]),
+    })
+    ed = pd.DataFrame({"s": [0, 1], "d": [1, 2], "eid": [0, 1]})
+    g = graphistry.nodes(nd, "id").edges(ed, "s", "d").bind(edge="eid")
+
+    # floatPrecision=2 via cypher: -3.74825 -> "-3.75" (2 decimals, not the default "-3.7483")
+    q_fp = "MATCH (a) WHERE searchAny(a, '-3.75', {columns: ['f'], floatPrecision: 2}) RETURN a.id AS id"
+    assert sorted(_to_pd(g.gfql(q_fp, engine="pandas")._nodes)["id"].tolist()) == [2]
+    _assert_invariant(g, q_fp, "searchAny floatPrecision")
+
+    # tz via cypher: 15:09:26 UTC -> America/Los_Angeles "8:09:26 am" (PDT)
+    q_tz = ("MATCH (a) WHERE searchAny(a, '8:09:26 am', "
+            "{columns: ['t'], tz: 'America/Los_Angeles'}) RETURN a.id AS id")
+    assert sorted(_to_pd(g.gfql(q_tz, engine="pandas")._nodes)["id"].tolist()) == [0]
+    _assert_invariant(g, q_tz, "searchAny tz")
+
+    # python twin threads float_precision too
+    assert sorted(g.search_nodes("-3.75", columns=["f"], float_precision=2)
+                  ._nodes["id"].tolist()) == [2]
+    # default precision (4) does NOT match the 2-decimal string -> disjoint from fp=2
+    assert g.search_nodes("-3.75", columns=["f"])._nodes["id"].tolist() == []
+
+    # strict validation: unknown option key + wrong floatPrecision type both raise
+    with pytest.raises(GFQLValidationError):
+        g.gfql("MATCH (a) WHERE searchAny(a, 'x', {bogus: 1}) RETURN a.id AS id", engine="pandas")
+    with pytest.raises(GFQLValidationError):
+        g.gfql("MATCH (a) WHERE searchAny(a, 'x', {floatPrecision: 'no'}) RETURN a.id AS id",
+               engine="pandas")
+    # kernel-level validation ALSO covers the python twins (which bypass the call
+    # safelist): negative/empty options raise GFQLValidationError, not a silent
+    # "%.*f" % -1 misrender or an opaque tz_convert('') IndexError.
+    for bad in (dict(float_precision=-1), dict(float_precision=True), dict(tz="")):
+        with pytest.raises(GFQLValidationError):
+            g.search_nodes("x", columns=["f"], **bad)
+
+
 def test_search_any_cypher_surface_all_engines():
     """viz-filter L2-b: the cypher WHERE searchAny(...) surface — marker lift +
     composition with other predicates; oracle-pinned + 4-engine parity-or-NIE."""

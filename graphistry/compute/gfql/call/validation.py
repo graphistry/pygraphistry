@@ -317,6 +317,12 @@ def is_list_of_dicts(v: object) -> bool:
     return isinstance(v, list) and all(isinstance(item, dict) for item in v)
 
 
+def is_nonneg_int(v: object) -> bool:
+    # bool is an int subclass in Python — exclude it, and negatives (#1695
+    # floatPrecision: a `"%.*f" % -1` clamp would silently misrender).
+    return is_int(v) and not isinstance(v, bool) and v >= 0  # type: ignore[operator]
+
+
 def is_where_rows_expr(v: object) -> bool:
     return is_non_empty_string(v) and _where_rows_expr_parser_parse_ok(str(v).strip())
 
@@ -407,7 +413,8 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     ),
 
     'search_any': _safelist_entry(
-        {'alias', 'term', 'out_col', 'case_sensitive', 'regex', 'columns'},
+        {'alias', 'term', 'out_col', 'case_sensitive', 'regex', 'columns',
+         'float_precision', 'temporal_format', 'tz'},
         required_params={'alias', 'term', 'out_col'},
         param_validators={
             'alias': is_non_empty_string,
@@ -416,6 +423,11 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
             'case_sensitive': is_bool,
             'regex': is_bool,
             'columns': is_non_empty_list_of_strings,
+            # #1695 WYSIWYG format options (default = inspector): float decimals,
+            # datetime strftime pattern, and localization tz.
+            'float_precision': is_nonneg_int,
+            'temporal_format': is_non_empty_string,
+            'tz': is_non_empty_string,
         },
         description='Annotate active rows with a cross-column search marker (OR across columns)',
         schema_effects=_schema_effects(adds_node_cols=_semi_apply_mark_added_node_cols),

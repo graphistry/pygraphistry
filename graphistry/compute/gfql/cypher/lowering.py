@@ -3869,7 +3869,12 @@ _SEARCH_ANY_CALL_RE = re.compile(
     r"\s*(?:,\s*\{([^{}]*)\})?\s*\)",
     re.IGNORECASE,
 )
-_SEARCH_ANY_OPT_KEYS = {"casesensitive": "case_sensitive", "regex": "regex", "columns": "columns"}
+_SEARCH_ANY_OPT_KEYS = {
+    "casesensitive": "case_sensitive", "regex": "regex", "columns": "columns",
+    # #1695 WYSIWYG format options (default = the streamgl-viz inspector)
+    "floatprecision": "float_precision", "temporalformat": "temporal_format", "tz": "tz",
+}
+_SEARCH_ANY_STR_OPT_RE = re.compile(r"^'([^']*)'$|^\"([^\"]*)\"$")
 _SEARCH_ANY_COLUMNS_RE = re.compile(
     r"^\[\s*(?:'[^']*'|\"[^\"]*\")(?:\s*,\s*(?:'[^']*'|\"[^\"]*\"))*\s*\]$")
 _SEARCH_ANY_COL_ITEM_RE = re.compile(r"'([^']*)'|\"([^\"]*)\"")
@@ -3916,7 +3921,22 @@ def _parse_search_any_opts(opts_text: str, *, line: int, column: int) -> Dict[st
                     field="where", value=val_text, line=line, column=column,
                 )
             out[canon] = low == "true"
-        else:
+        elif canon == "float_precision":
+            if not re.fullmatch(r"\d+", val_text):
+                raise _unsupported(
+                    "searchAny option 'floatPrecision' must be a non-negative integer",
+                    field="where", value=val_text, line=line, column=column,
+                )
+            out[canon] = int(val_text)
+        elif canon in ("temporal_format", "tz"):
+            sm = _SEARCH_ANY_STR_OPT_RE.match(val_text)
+            if not sm:
+                raise _unsupported(
+                    f"searchAny option {key!r} must be a string literal",
+                    field="where", value=val_text, line=line, column=column,
+                )
+            out[canon] = sm.group(1) if sm.group(1) is not None else sm.group(2)
+        else:  # columns
             if not _SEARCH_ANY_COLUMNS_RE.match(val_text):
                 raise _unsupported(
                     "searchAny option 'columns' must be a list of string literals",

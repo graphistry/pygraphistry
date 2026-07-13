@@ -1688,11 +1688,17 @@ def search_any(
     case_sensitive: bool = False,
     regex: bool = False,
     columns: Optional[Sequence[str]] = None,
+    float_precision: Optional[int] = None,
+    temporal_format: Optional[str] = None,
+    tz: Optional[str] = None,
 ) -> ASTCall:
     """Annotate active rows with a cross-column search marker (viz-filter L2):
     ``out_col`` True where ANY of ``alias``'s columns matches ``term`` — OR across
     columns, case-insensitive substring default, regex opt-in, dtype-gated (string
-    columns always; integer columns iff numeric-literal term)."""
+    columns always; integer columns iff numeric-literal term). ``float_precision``
+    / ``temporal_format`` / ``tz`` are the #1695 WYSIWYG format options for explicit
+    float / datetime columns (default = the streamgl-viz inspector: 4 decimals; the
+    moment date format; UTC)."""
     params: Dict[str, Any] = {"alias": alias, "term": term, "out_col": out_col}
     if case_sensitive:
         params["case_sensitive"] = True
@@ -1700,6 +1706,12 @@ def search_any(
         params["regex"] = True
     if columns is not None:
         params["columns"] = list(columns)
+    if float_precision is not None:
+        params["float_precision"] = float_precision
+    if temporal_format is not None:
+        params["temporal_format"] = temporal_format
+    if tz is not None:
+        params["tz"] = tz
     return ASTCall("search_any", params)
 
 
