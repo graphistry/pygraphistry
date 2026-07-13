@@ -215,6 +215,101 @@ uv run python benchmarks/gfql/graph_benchmark_q1_q9.py \
   --output-json /tmp/graph-benchmark-q1-q9-presorted.json
 ```
 
+## Memgraph q1-q9 comparison
+
+Run GFQL CPU, GFQL GPU, and Memgraph q1-q9 on `dgx-spark` with the RAPIDS Docker workflow:
+
+```bash
+ssh -o BatchMode=yes dgx-spark
+cd /home/lmeyerov/Work/pygraphistry2
+GRAPH_BENCHMARK_ROOT=$HOME/graph-benchmark \
+RESULTS_DIR=plans/gfql-memgraph-benchmarks/results \
+RUNS=5 WARMUP=1 RAPIDS_VERSION=26.02 \
+benchmarks/gfql/run_graph_benchmark_memgraph_dgx.sh
+```
+
+If `$HOME/graph-benchmark` is missing, clone `https://github.com/prrao87/graph-benchmark` on `dgx-spark` and run `bash generate_data.sh 100000` first. The wrapper starts Memgraph, runs GFQL CPU/GPU inside a RAPIDS container, loads Memgraph via server-side CSV by default, runs the Bolt query benchmark, and writes a comparison markdown table under `RESULTS_DIR`. The table shows GFQL query-only and query-plus-preindex accounting separately, while each GFQL JSON includes `query_policies` for the effective per-query policy names. `GFQL_QUERY_VARIANT=standard` is the default and applies the simple benchmark policy: direct dataframe shortcuts for q3/q4/q5/q6/q7, plus scoped setup-time uniqueness-gated lazy Polars CPU, q6 interest-id/gender indexes, and typed cuDF GPU paths for large HAS_INTEREST edge sets when available. The CPU policy includes q5 location-first final semi-join, q6 setup-time interest-id and gender-indexed location join, and q7 target-country-first path pruning. Tiny runs stay on the base dataframe paths. `GFQL_QUERY_VARIANT=dataframe-shortcut` forces dataframe shortcuts and is retained for exploratory sweeps. See `docs/source/gfql/benchmark_memgraph.rst` and `benchmarks/gfql/graph_benchmark.md`.
+
+
+Benchgraph-like neighbors-with-data/filter probe:
+
+```bash
+python benchmarks/gfql/graph_benchmark_neighbors_probe.py \
+  --graph-benchmark-root /home/lmeyerov/Work/graph-benchmark \
+  --engine cpu-policy \
+  --depth 2 \
+  --strategy strategy-policy \
+  --runs 5 --warmup 1 \
+  --output-json /tmp/graph-benchmark-neighbors-probe.json
+```
+
+The neighbors probe accepts `--engine pandas|cudf|polars|cpu-policy|both|all`, `--depth 2|3|4`, and `--strategy both|path-join|preaggregated|factorized-preaggregated|strategy-policy`. Default `both` keeps Polars optional and parity-checks path join vs preaggregation. `cpu-policy` is scoped to this Benchgraph-like workload: pandas below 1,000,000 FOLLOWS rows, Polars at or above that threshold. `strategy-policy` keeps path join for small/shallow workloads and uses count-carrying factorized preaggregation for large depth >= 3 runs across engines. DGX evidence: depth-2 full CPU policy selected Polars at about 42 ms; refreshed depth-3 full factorized preaggregation ran about 92 ms on Polars CPU-policy and 67 ms on cuDF; refreshed depth-4 ran about 104 ms on Polars CPU-policy and 90 ms on cuDF.
+
+
+Pokec-style expansion/filter probe:
+
+```sh
+python benchmarks/gfql/graph_benchmark_expansion_probe.py \
+  --graph-benchmark-root /home/lmeyerov/Work/graph-benchmark \
+  --engine all \
+  --depths 1,2,3,4 \
+  --workload all \
+  --strategy strategy-policy \
+  --runs 5 --warmup 1 \
+  --output-json /tmp/graph-benchmark-expansion-probe.json
+```
+
+The expansion probe mirrors advertised Pokec `expansion_1..4` and `expansion_*_with_filter` shapes over graph-benchmark FOLLOWS. It reports exact-hop distinct endpoint counts from a deterministic top-outdegree seed. `strategy-policy` uses frontier deduplication, which tiny runs parity-check against path joins. DGX evidence on full data: Polars is best for expansion_1/2/3/4 at about 5 ms / 9 ms / 9 ms / 18 ms, and filtered variants at about 6 ms / 11 ms / 12 ms / 18 ms; cuDF stays below about 24 ms but does not beat Polars on this coverage slice.
+
+
+Current benchmark evidence ledger: `plans/gfql-memgraph-benchmarks/results/current-benchmark-evidence.md` separates repeated medians, one-run triage, GFQL-internal probes, comparator rows, and pending/blocker rows. Update it with `RESULTS.md` after any new benchmark run.
+
+Advertised workload coverage notes:
+
+- Covered with DGX evidence: q1-q9, Benchgraph-like neighbors depth 2-4, Kuzu q1-q9/neighbors, Pokec-style expansion/filter depth 1-4, anchored repeated-alias 2-cycles, and bounded seeded directed triangles.
+- Partial: `pattern_long`/`LIMIT 1` now has tiny exact-row coverage; full unbounded dataframe reference is guarded by `--pattern-long-max-reference-edges` and is not a claim-level full result.
+- Gaps: shortest/all-shortest path rows still need the most engine work; global/high-intersection cyclic stress remains optional coverage before deeper CSR/WCOJ work.
+- Planner microbenchmarks (`starts_with`, `or_filter`, BFS-expand-from-source, indexed order/count variants) now have dataframe-equivalent tiny/full coverage; exact Cypher/comparator planner rows and LDBC-style analytical rows remain follow-up coverage after path batching and any needed exact pattern rows.
+
+
+
+Repeated-alias cycle probe:
+
+```sh
+python benchmarks/gfql/graph_benchmark_pattern_probe.py \
+  --graph-benchmark-root /home/lmeyerov/Work/graph-benchmark \
+  --engine all \
+  --runs 5 --warmup 1 \
+  --output-json /tmp/graph-benchmark-pattern-probe.json
+```
+
+The pattern probe covers anchored repeated-alias 2-cycles like `MATCH (n)-[e1]->(m)-[e2]->(n) RETURN m`, bounded seeded directed triangles (`seed -> a -> b -> seed`), and tiny exact-row `pattern_long` coverage (`n1 -> n2 -> n3 -> n4 <- n5`, deterministic `ORDER BY n5 LIMIT 1`). DGX full 2-cycle medians show direct binary joins are already fast: Polars about 1.66 ms, pandas about 2.52 ms, cuDF about 3.07 ms. Full directed-triangle seed-count 30 selected 28 triangle-bearing seeds and still favored binary joins: cuDF about 6.34 ms, Polars about 40.52 ms, pandas about 41.57 ms. Cypher supports the repeated-alias 2-cycle for pandas/cuDF, but directed-triangle repeated-alias row projection is not yet supported. Tiny pattern_long medians were pandas Cypher 30.66 ms, cuDF Cypher 57.09 ms, and Polars binary join 52.47 ms; full unbounded pattern_long reference is guarded because the dataframe reference is already expensive on tiny data. This demotes CSR/WCOJ for the tested bounded cyclic shapes; reserve it for global/high-intersection triangle or clique-like stress if needed.
+
+Shortest-path/BFS probe:
+
+```sh
+python benchmarks/gfql/graph_benchmark_path_probe.py \
+  --graph-benchmark-root /home/lmeyerov/Work/graph-benchmark \
+  --engine pandas \
+  --shortest-path-backend bfs \
+  --max-hops 4 \
+  --source-count 1 --target-count 3 \
+  --runs 5 --warmup 1 \
+  --output-json /tmp/graph-benchmark-path-probe.json
+```
+
+The path probe benchmarks current supported Cypher `shortestPath` length rows over FOLLOWS and parity-checks against dataframe BFS distance oracles. It intentionally keeps supported single-pair shortestPath loop coverage, and also records rejected Cypher-level batched strategies; path-list projection and all-shortest rows remain unsupported/coverage gaps. DGX triage: original tiny 1x3 pairs ran about 100 ms pandas/BFS and 129 ms cuDF/cugraph versus about 3 ms for a dataframe BFS oracle. The reuse-adjacency refresh on full data (`runs=3,warmup=1`, max_hops=3) shows pandas/Cypher about 2.11s and cuDF/Cypher about 1.42s, adjacency rebuild about 1.0s, but reusable-adjacency BFS about 2 ms. Surface Cypher batching is rejected for now because tiny batched strategies were seconds-scale. Treat this as prioritization evidence for lower-level seed-pushed batched multi-pair lowering plus graph-state/CSR reuse or MS-BFS, not a claim-level engine result.
+
+Polars q5-q7 CPU probe:
+
+```bash
+python benchmarks/gfql/graph_benchmark_polars_q5_q7.py \
+  --graph-benchmark-root /home/lmeyerov/Work/graph-benchmark \
+  --runs 7 --warmup 2 \
+  --output-json /tmp/graph-benchmark-polars-q5-q7.json
+```
+
+
 ## WHERE opt matrix (comparative)
 
 Run a focused matrix of WHERE scenarios across opt profiles (value mode, domain semijoin, auto, edge semijoin, etc).
@@ -409,3 +504,33 @@ Methodology for all: warm medians, one engine per process for large runs,
 NO-CHEATING guards (a timing is void unless the intended path was taken AND
 the result matches the scan oracle). Run on an idle box; GPU rows need
 `--gpus all` and RAPIDS.
+
+### Planner microbench probe
+
+`graph_benchmark_planner_probe.py` covers dataframe-equivalent planner-style rows: `starts_with`, `or_filter`, `indexed_order_by`, `parallel_counting`, and `bfs_expand_from_source`. Run tiny first, then full under `dgx-guard/safe_run.sh`:
+
+```bash
+python benchmarks/gfql/graph_benchmark_planner_probe.py \
+  --graph-benchmark-root /tmp/graph-benchmark-gfql-memgraph \
+  --engine all \
+  --runs 3 \
+  --warmup 1
+```
+
+Full DGX medians on 100k persons / 2.42M FOLLOWS were: starts_with pandas/cuDF/Polars 5.97/0.59/1.04 ms; or_filter 1.94/0.45/0.88 ms; indexed_order_by 29.33/11.95/8.34 ms; parallel_counting 0.02/0.02/0.01 ms; bfs_expand_from_source 30.15/2.54/3.75 ms. These are internal policy rows, not comparator claims: cuDF wins larger scan/filter and two-hop expansion, while Polars wins order/count.
+
+
+### LDBC-style analytical probe
+
+`graph_benchmark_ldbc_probe.py` covers q5/q6/q7-adjacent analytical rows over graph-benchmark data: branch semijoin count, interest-to-city top-k, age+interest-to-state top-1, and country+interest+FOLLOWS top-k. It is dataframe-equivalent internal policy evidence, not an external comparator claim.
+
+```bash
+python benchmarks/gfql/graph_benchmark_ldbc_probe.py \
+  --graph-benchmark-root /tmp/graph-benchmark-gfql-memgraph \
+  --engine all \
+  --runs 3 \
+  --warmup 1 \
+  --output-json /tmp/gfql-ldbc-probe.json
+```
+
+Tiny DGX medians were branch pandas/cuDF/Polars 1.05/2.28/1.13 ms; city top-k 1.28/3.06/1.20 ms; state top-1 1.70/3.76/2.92 ms; country-interest-follow top-k 1.57/3.32/5.46 ms. Full DGX medians were branch 5.21/2.97/4.68 ms; city top-k 6.39/3.70/6.32 ms; state top-1 4.02/3.86/5.46 ms; country-interest-follow top-k 35.56/8.50/13.62 ms. Current interpretation: cuDF wins these full analytical semijoin/groupby rows, but they remain below/near the rough 50 ms sizable threshold, so use this as scoped policy evidence for selective analytical workloads rather than a broad GPU-always rule.
