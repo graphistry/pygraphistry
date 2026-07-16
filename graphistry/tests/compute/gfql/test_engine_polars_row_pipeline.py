@@ -317,6 +317,43 @@ def test_run_calls_polars_empty_and_native():
     assert "polars" in type(out._nodes).__module__
 
 
+def test_select_extend_polars_preserves_and_updates_columns():
+    """Bindings-path pre-aggregation projection keeps the row table while
+    overwriting existing aliases and appending derived columns."""
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import select_extend_polars
+
+    g = _polars_graph()
+    out = select_extend_polars(g, [("k", "v + 10"), ("double_v", "v * 2")])
+
+    assert out is not None
+    assert list(out._nodes.columns) == ["id", "k", "v", "double_v"]
+    assert out._nodes["k"].to_list() == [11, 12, 13, 14]
+    assert out._nodes["double_v"].to_list() == [2, 4, 6, 8]
+    assert select_extend_polars(g, [("bad", "missing.property")]) is None
+
+
+def test_try_native_row_op_declines_whole_row_group_prefixes():
+    """Whole-row grouping must defer instead of silently ignoring prefixed keys."""
+    from graphistry.compute.ast import group_by
+    from graphistry.compute.gfql.lazy.engine.polars.chain import _try_native_row_op
+
+    op = group_by(["k"], [("count", "count", "v")], key_prefixes=["node."])
+    assert _try_native_row_op(_polars_graph(), op) is None
+
+
+def test_polars_rows_binding_ops_undirected_self_loop_multiplicity():
+    """Raw undirected bindings preserve both orientations, including two self-loop paths."""
+    from graphistry.compute.ast import e_undirected, n, rows, serialize_binding_ops
+
+    g = graphistry.nodes(pd.DataFrame({"id": [0, 1]}), "id").edges(
+        pd.DataFrame({"s": [0, 1], "d": [1, 1]}), "s", "d"
+    )
+    binding_ops = serialize_binding_ops([n(name="a"), e_undirected(), n(name="b")])
+    out = g.gfql([rows(binding_ops=binding_ops)], engine="polars")._nodes
+
+    assert sorted(out.select(["a", "b"]).rows()) == [(0, 1), (1, 0), (1, 1), (1, 1)]
+
+
 def test_run_calls_polars_binding_ops_native():
     """Named middle + bare rows() rewrites to rows(binding_ops) natively for
     fixed-length connected patterns: returns a polars bindings table."""
