@@ -21,6 +21,9 @@ from graphistry.Engine import (
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.dataframe_utils import concat_frames
 from graphistry.compute.gfql.row import frame_ops as row_frame_ops
+from graphistry.compute.gfql.row.prefilter import AliasPrefilters
+from graphistry.compute.typing import DataFrameT
+from graphistry.utils.json import JSONVal
 from graphistry.compute.gfql.row.order_expr import (
     extract_temporal_duration_sort_ast,
     is_order_aggregate_alias_ast,
@@ -77,6 +80,7 @@ from graphistry.compute.gfql.temporal.durations import (
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
+    from graphistry.compute.ast import ASTObject
     from graphistry.compute.gfql.expr_parser import ExprNode
 
 
@@ -3426,7 +3430,101 @@ class RowPipelineMixin:
             merged = merged.drop_duplicates(keep="first")
         return merged
 
-    def _gfql_connected_bindings_state(self, ops: Sequence[Any]) -> Tuple[Any, Dict[str, Any]]:
+    def _gfql_apply_alias_prefilter(
+        self,
+        frame: DataFrameT,
+        alias: Optional[str],
+        alias_prefilters: Optional[AliasPrefilters],
+        *,
+        is_edge: bool = False,
+        src_col: Optional[str] = None,
+        dst_col: Optional[str] = None,
+    ) -> DataFrameT:
+        """L4 single-alias predicate pushdown: pre-filter one alias's frame BEFORE the
+        binding join, using residual predicates the Cypher lowering pass peeled off the
+        post-join ``where_rows`` / ``search_any``.
+
+        Parity contract: a single-alias predicate's truth on a binding row depends only
+        on that alias's columns, which the (inner) binding join copies verbatim into the
+        row table. Filtering the alias frame first therefore removes exactly the rows the
+        post-join filter would. We reuse the SAME evaluator (``_gfql_eval_string_expr`` +
+        ``_gfql_bool_mask``) and the SAME ``search_any_mask`` kernel to guarantee
+        byte-identical semantics; only inner-joined (non-optional) aliases are ever
+        pushed (guaranteed by the pass). NULL is dropped (Cypher WHERE keeps only TRUE),
+        matching ``where_rows``.
+        """
+        if not alias or not alias_prefilters or frame is None:
+            return frame
+        specs = alias_prefilters.get(alias)
+        if not specs or len(frame) == 0:
+            return frame
+        reserved = set()
+        if is_edge:
+            if src_col is not None:
+                reserved.add(src_col)
+            if dst_col is not None:
+                reserved.add(dst_col)
+        for spec in specs:
+            kind = spec.get("kind")
+            if kind == "expr":
+                # Rename to alias-qualified columns so the shared evaluator resolves
+                # ``alias.prop`` exactly as it would against the full binding table.
+                view = frame.rename(columns={c: f"{alias}.{c}" for c in frame.columns})
+                value = self._gfql_eval_string_expr(view, spec["text"])
+                mask = self._gfql_bool_mask(view, value)
+                frame = frame.loc[mask]
+            elif kind == "search_any":
+                from graphistry.compute.gfql.search_any import search_any_mask
+                term = spec.get("term")
+                if not isinstance(term, str):
+                    raise GFQLValidationError(
+                        ErrorCode.E108,
+                        "searchAny pushdown requires a string term",
+                        field="term",
+                        value=term,
+                        language="cypher",
+                    )
+                columns = spec.get("columns")
+                if columns is not None and not all(isinstance(col, str) for col in columns):
+                    raise GFQLValidationError(
+                        ErrorCode.E108,
+                        "searchAny pushdown columns= must be a list of strings",
+                        field="columns",
+                        value=columns,
+                        language="cypher",
+                    )
+                # Match the post-join op's searched column set: alias property columns
+                # only (src/dst are join keys, never ``alias.``-prefixed in bindings).
+                search_cols = [
+                    c for c in frame.columns
+                    if isinstance(c, str) and c not in reserved and not c.startswith("__gfql_")
+                ]
+                sub = frame[search_cols]
+                mask = search_any_mask(
+                    sub,
+                    term,
+                    case_sensitive=bool(spec.get("case_sensitive", False)),
+                    regex=bool(spec.get("regex", False)),
+                    columns=columns,
+                )
+                if mask is None:
+                    # columns= referenced an absent column; the pass validates this can't
+                    # happen, but never silently drop rows — bail out of the pushdown.
+                    raise GFQLValidationError(
+                        ErrorCode.E108,
+                        "searchAny pushdown columns= includes a column absent from the alias frame",
+                        field="columns",
+                        value=spec.get("columns"),
+                        language="cypher",
+                    )
+                frame = frame.loc[mask]
+        return frame
+
+    def _gfql_connected_bindings_state(
+        self,
+        ops: Sequence["ASTObject"],
+        alias_prefilters: Optional[AliasPrefilters] = None,
+    ) -> Tuple[DataFrameT, Dict[str, DataFrameT]]:
         from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
         from graphistry.compute.ast import ASTEdge, ASTNode
 
@@ -3455,7 +3553,12 @@ class RowPipelineMixin:
         base_df = self._nodes if self._nodes is not None else self._edges
         engine = resolve_engine(EngineAbstract.AUTO, base_df)
         start_nodes = getattr(self, "_gfql_start_nodes", None)
-        first_nodes = ops[0].execute(
+        first_op = ops[0]
+        if not isinstance(first_op, ASTNode):
+            self._gfql_bindings_error(
+                "Cypher multi-alias row bindings currently require node steps in even positions"
+            )
+        first_nodes = first_op.execute(
             g=base_graph,
             prev_node_wavefront=start_nodes,
             target_wave_front=None,
@@ -3463,9 +3566,14 @@ class RowPipelineMixin:
         )._nodes
         if first_nodes is None or node_id_col not in first_nodes.columns:
             return self._nodes.iloc[0:0].copy(), {}
+        # L4 single-alias predicate pushdown: pre-filter the seed alias frame
+        # BEFORE it becomes the traversal wavefront (shrinks every downstream hop).
+        first_alias = first_op._name
+        first_nodes = self._gfql_apply_alias_prefilter(
+            first_nodes, first_alias, alias_prefilters
+        )
         state_df = first_nodes[[node_id_col]].copy().rename(columns={node_id_col: "__current__"})
-        alias_frames: Dict[str, Any] = {}
-        first_alias = getattr(ops[0], "_name", None)
+        alias_frames: Dict[str, DataFrameT] = {}
         if isinstance(first_alias, str):
             state_df[first_alias] = state_df["__current__"]
             alias_frames[first_alias] = first_nodes
@@ -3492,6 +3600,15 @@ class RowPipelineMixin:
             if sem.is_multihop and edge_alias is not None:
                 self._gfql_bindings_error(
                     "Cypher multi-alias row bindings do not yet support variable-length relationship aliases"
+                )
+            # L4 pushdown: pre-filter this hop's edge frame by the edge alias's
+            # single-alias residual (single-hop only; searchAny/e.prop predicates)
+            # before orientation + join. src/dst are excluded from searchAny to match
+            # the post-join binding table (where they are consumed as join keys).
+            if not sem.is_multihop and isinstance(edge_alias, str) and edges_df_step is not None:
+                edges_df_step = self._gfql_apply_alias_prefilter(
+                    edges_df_step, edge_alias, alias_prefilters,
+                    is_edge=True, src_col=src_col, dst_col=dst_col,
                 )
             if not sem.is_multihop and (edges_df_step is None or len(edges_df_step) == 0):
                 return state_df.iloc[0:0], alias_frames
@@ -3581,8 +3698,13 @@ class RowPipelineMixin:
             )._nodes
             if next_nodes is None or node_id_col not in next_nodes.columns:
                 return state_df.iloc[0:0], alias_frames
+            # L4 pushdown: pre-filter the endpoint alias frame by its single-alias
+            # residual before the isin-restrict, so only satisfying endpoints survive.
+            node_alias = next_node_op._name
+            next_nodes = self._gfql_apply_alias_prefilter(
+                next_nodes, node_alias, alias_prefilters
+            )
             state_df = state_df[state_df["__current__"].isin(next_nodes[node_id_col])].copy()
-            node_alias = getattr(next_node_op, "_name", None)
             if isinstance(node_alias, str):
                 state_df[node_alias] = state_df["__current__"]
                 hop_column = edge_op.label_node_hops
@@ -3606,7 +3728,8 @@ class RowPipelineMixin:
 
     def _gfql_connected_bindings_row_table(
         self,
-        binding_ops: List[Dict[str, Any]],
+        binding_ops: List[Dict[str, JSONVal]],
+        alias_prefilters: Optional[AliasPrefilters] = None,
     ) -> "Plottable":
         from graphistry.compute.ast import ASTEdge, ASTNode, from_json as ast_from_json
 
@@ -3616,7 +3739,7 @@ class RowPipelineMixin:
         ops = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
         if self._gfql_is_shortest_path_scalar_binding_ops(ops):
             return self._gfql_shortest_path_scalar_bindings_row_table(ops)
-        return self._gfql_connected_bindings_row_table_from_ops(ops)
+        return self._gfql_connected_bindings_row_table_from_ops(ops, alias_prefilters=alias_prefilters)
 
     @staticmethod
     def _gfql_is_shortest_path_scalar_binding_ops(ops: Sequence[Any]) -> bool:
@@ -3639,11 +3762,12 @@ class RowPipelineMixin:
 
     def _gfql_connected_bindings_row_table_from_ops(
         self,
-        ops: Sequence[Any],
+        ops: Sequence["ASTObject"],
+        alias_prefilters: Optional[AliasPrefilters] = None,
     ) -> "Plottable":
         from graphistry.compute.ast import ASTEdge
 
-        state_df, alias_frames = self._gfql_connected_bindings_state(ops)
+        state_df, alias_frames = self._gfql_connected_bindings_state(ops, alias_prefilters=alias_prefilters)
         bindings = self._gfql_connected_bindings_row_frame_from_state(ops, state_df, alias_frames)
         out = self._gfql_row_table(bindings)
         edge_aliases = {
@@ -3657,10 +3781,10 @@ class RowPipelineMixin:
 
     def _gfql_connected_bindings_row_frame_from_state(
         self,
-        ops: Sequence[Any],
-        state_df: Any,
-        alias_frames: Dict[str, Any],
-    ) -> Any:
+        ops: Sequence["ASTObject"],
+        state_df: DataFrameT,
+        alias_frames: Dict[str, DataFrameT],
+    ) -> DataFrameT:
         from graphistry.compute.ast import ASTNode
 
         node_id = self._node
@@ -3678,9 +3802,9 @@ class RowPipelineMixin:
 
         bindings = state_df.copy()
         node_aliases = [
-            getattr(op, "_name", None)
+            op._name
             for op in ops
-            if isinstance(op, ASTNode) and isinstance(getattr(op, "_name", None), str)
+            if isinstance(op, ASTNode) and isinstance(op._name, str)
         ]
         for alias in node_aliases:
             alias = str(alias)
@@ -3869,8 +3993,11 @@ class RowPipelineMixin:
 
     def _gfql_cartesian_node_bindings_row_table(
         self,
-        ops: Sequence[Any],
+        ops: Sequence["ASTObject"],
+        alias_prefilters: Optional[AliasPrefilters] = None,
     ) -> "Plottable":
+        from graphistry.compute.ast import ASTNode
+
         if self._nodes is None:
             return self._gfql_row_table(self._gfql_empty_frame())
 
@@ -3892,6 +4019,10 @@ class RowPipelineMixin:
         anonymous_cols: List[str] = []
 
         for idx, node_op in enumerate(ops):
+            if not isinstance(node_op, ASTNode):
+                self._gfql_bindings_error(
+                    "Cypher disconnected row bindings currently require node steps"
+                )
             matched_nodes = node_op.execute(
                 g=base_graph,
                 prev_node_wavefront=start_nodes,
@@ -3901,7 +4032,12 @@ class RowPipelineMixin:
             if matched_nodes is None or node_id not in matched_nodes.columns:
                 return self._gfql_row_table(base_nodes.iloc[0:0].copy())
 
-            alias = getattr(node_op, "_name", None)
+            # L4 pushdown: pre-filter each disconnected-pattern node alias frame.
+            alias = node_op._name
+            matched_nodes = self._gfql_apply_alias_prefilter(
+                matched_nodes, alias, alias_prefilters
+            )
+
             if isinstance(alias, str):
                 frame = self._gfql_node_alias_lookup_frame(matched_nodes, str(node_id), alias)
             else:
@@ -3918,15 +4054,16 @@ class RowPipelineMixin:
 
     def _gfql_binding_ops_row_table(
         self,
-        binding_ops: List[Dict[str, Any]],
+        binding_ops: List[Dict[str, JSONVal]],
+        alias_prefilters: Optional[AliasPrefilters] = None,
     ) -> "Plottable":
         from graphistry.compute.ast import from_json as ast_from_json
 
         ops = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
         mode = self._gfql_binding_ops_mode(ops)
         if mode == "node_cartesian":
-            return self._gfql_cartesian_node_bindings_row_table(ops)
-        return self._gfql_connected_bindings_row_table(binding_ops)
+            return self._gfql_cartesian_node_bindings_row_table(ops, alias_prefilters=alias_prefilters)
+        return self._gfql_connected_bindings_row_table(binding_ops, alias_prefilters=alias_prefilters)
 
     def _gfql_bindings_row_table(
         self, alias_endpoints: Dict[str, str]
