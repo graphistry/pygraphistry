@@ -3730,6 +3730,7 @@ class RowPipelineMixin:
         self,
         binding_ops: List[Dict[str, JSONVal]],
         alias_prefilters: Optional[AliasPrefilters] = None,
+        attach_prop_aliases: Optional[List[str]] = None,
     ) -> "Plottable":
         from graphistry.compute.ast import ASTEdge, ASTNode, from_json as ast_from_json
 
@@ -3739,7 +3740,11 @@ class RowPipelineMixin:
         ops = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
         if self._gfql_is_shortest_path_scalar_binding_ops(ops):
             return self._gfql_shortest_path_scalar_bindings_row_table(ops)
-        return self._gfql_connected_bindings_row_table_from_ops(ops, alias_prefilters=alias_prefilters)
+        return self._gfql_connected_bindings_row_table_from_ops(
+            ops,
+            alias_prefilters=alias_prefilters,
+            attach_prop_aliases=attach_prop_aliases,
+        )
 
     @staticmethod
     def _gfql_is_shortest_path_scalar_binding_ops(ops: Sequence[Any]) -> bool:
@@ -3764,11 +3769,14 @@ class RowPipelineMixin:
         self,
         ops: Sequence["ASTObject"],
         alias_prefilters: Optional[AliasPrefilters] = None,
+        attach_prop_aliases: Optional[List[str]] = None,
     ) -> "Plottable":
         from graphistry.compute.ast import ASTEdge
 
         state_df, alias_frames = self._gfql_connected_bindings_state(ops, alias_prefilters=alias_prefilters)
-        bindings = self._gfql_connected_bindings_row_frame_from_state(ops, state_df, alias_frames)
+        bindings = self._gfql_connected_bindings_row_frame_from_state(
+            ops, state_df, alias_frames, attach_prop_aliases
+        )
         out = self._gfql_row_table(bindings)
         edge_aliases = {
             alias
@@ -3784,6 +3792,7 @@ class RowPipelineMixin:
         ops: Sequence["ASTObject"],
         state_df: DataFrameT,
         alias_frames: Dict[str, DataFrameT],
+        attach_prop_aliases: Optional[List[str]] = None,
     ) -> DataFrameT:
         from graphistry.compute.ast import ASTNode
 
@@ -3799,6 +3808,12 @@ class RowPipelineMixin:
             if base_nodes is not None and node_id in base_nodes.columns
             else self._gfql_empty_frame(base_nodes, columns=[node_id])
         )
+        # #1711 projection-pushdown: attach_prop_aliases (from the cypher lowering)
+        # names the node aliases whose PROPERTIES are referenced downstream. Aliases
+        # not listed skip the O(N) property left-join — their bare id column (already
+        # in state) is all the query needs (e.g. count(*) references nothing,
+        # count(a) references only the bare column). None = attach all (default).
+        attach_set = None if attach_prop_aliases is None else set(attach_prop_aliases)
 
         bindings = state_df.copy()
         node_aliases = [
@@ -3808,11 +3823,13 @@ class RowPipelineMixin:
         ]
         for alias in node_aliases:
             alias = str(alias)
+            if alias not in bindings.columns:
+                bindings[alias] = self._gfql_broadcast_scalar(bindings, None)
+            if attach_set is not None and alias not in attach_set:
+                continue  # properties unreferenced — keep only the bare id column
             lookup_source = alias_frames.get(alias)
             if lookup_source is None or node_id not in lookup_source.columns:
                 lookup_source = empty_lookup_source
-            if alias not in bindings.columns:
-                bindings[alias] = self._gfql_broadcast_scalar(bindings, None)
             lookup = self._gfql_node_alias_lookup_frame(lookup_source, node_id, alias)
             bindings = bindings.merge(
                 lookup,
@@ -4056,6 +4073,7 @@ class RowPipelineMixin:
         self,
         binding_ops: List[Dict[str, JSONVal]],
         alias_prefilters: Optional[AliasPrefilters] = None,
+        attach_prop_aliases: Optional[List[str]] = None,
     ) -> "Plottable":
         from graphistry.compute.ast import from_json as ast_from_json
 
@@ -4063,7 +4081,11 @@ class RowPipelineMixin:
         mode = self._gfql_binding_ops_mode(ops)
         if mode == "node_cartesian":
             return self._gfql_cartesian_node_bindings_row_table(ops, alias_prefilters=alias_prefilters)
-        return self._gfql_connected_bindings_row_table(binding_ops, alias_prefilters=alias_prefilters)
+        return self._gfql_connected_bindings_row_table(
+            binding_ops,
+            alias_prefilters=alias_prefilters,
+            attach_prop_aliases=attach_prop_aliases,
+        )
 
     def _gfql_bindings_row_table(
         self, alias_endpoints: Dict[str, str]

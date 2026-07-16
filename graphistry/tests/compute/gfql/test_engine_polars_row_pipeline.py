@@ -95,18 +95,28 @@ NATIVE_LOWERED = [
     "MATCH (n) WHERE NOT n.kind = 'beta' RETURN n.kind",
     "MATCH (n) RETURN n.kind, count(n) AS c",
     "MATCH (n) RETURN count(n) AS c",
+    # count(*) / keyless + literal projection (#1707: must NOT collapse to 1)
+    "MATCH (n) RETURN count(*) AS c",
+    "MATCH (n) WHERE n.val > 25 RETURN count(*) AS c",
+    "MATCH (n) RETURN n.kind, count(*) AS c",
+    "MATCH (n) RETURN n.kind, count(*) AS c ORDER BY c DESC",
+    "MATCH (n) RETURN 1 AS one",
     "MATCH (n) RETURN n.kind, sum(n.val) AS s, avg(n.val) AS a",
     "MATCH (n) RETURN n.kind, min(n.val) AS mn, max(n.val) AS mx",
     "MATCH (n) RETURN n.kind, count(n) AS c ORDER BY c DESC",
     "MATCH (n) UNWIND [1, 2] AS x RETURN n.val, x",
     "MATCH (n) UNWIND [1, 2, 3] AS x RETURN x",
+    # multi-entity property projection via native rows(binding_ops) (#1709)
+    "MATCH (n)-[e]->(m) RETURN n.val, m.val",
 ]
 
-# NO-CHEATING (plan.md): no native impl yet -> NotImplementedError, never a silent pandas bridge
+# NO-CHEATING (see plan.md): no native impl yet -> NotImplementedError, never a
+# silent pandas bridge. Cross-entity same-path WHERE (DFSamePathExecutor) +
+# multi-entity whole-row result rendering. Multi-entity property projections
+# lowered via rows(binding_ops) are native.
 DEFERRED = [
     "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",   # cross-entity WHERE
-    "MATCH (n)-[e]->(m) RETURN n, m",                       # multi-entity bindings
-    "MATCH (n)-[e]->(m) RETURN n.val, m.val",               # multi-entity bindings
+    "MATCH (n)-[e]->(m) RETURN n, m",                       # whole-row multi-entity render
 ]
 
 
@@ -174,6 +184,30 @@ def test_polars_distinct_preserves_first_order():
     pd.testing.assert_frame_equal(
         rpd.reset_index(drop=True), rpl.reset_index(drop=True), check_dtype=False
     )
+
+
+@pytest.mark.parametrize("query,expected", [
+    ("MATCH (n) RETURN count(*) AS c", 6),                    # keyless count over all rows
+    ("MATCH (n) WHERE n.val > 25 RETURN count(*) AS c", 4),   # filtered count
+])
+def test_polars_count_star_broadcasts_not_collapses(query, expected):
+    """#1707 regression: keyless ``count(*)`` lowers to a synthetic constant group
+    column that must broadcast to the full row count. A collapse to 1 row made the
+    downstream count return a constant ``1`` (silent wrong answer). Assert the
+    absolute value (pandas oracle can't mask it) on the native polars engine."""
+    rpl = BASE.gfql(query, engine="polars")._nodes
+    assert "polars" in type(rpl).__module__
+    assert rpl.height == 1                      # a keyless aggregate is a single row
+    assert rpl["c"].to_list() == [expected]     # ...holding the TRUE count, not 1
+
+
+def test_polars_literal_projection_preserves_cardinality():
+    """#1707 corollary: a bare-literal projection (``RETURN 1``) is a map, not a
+    reduce — it must keep every row, not collapse to one."""
+    rpl = BASE.gfql("MATCH (n) RETURN 1 AS one", engine="polars")._nodes
+    assert "polars" in type(rpl).__module__
+    assert rpl.height == 6                       # one row per matched node
+    assert rpl["one"].to_list() == [1] * 6
 
 
 def test_polars_empty_result_shape():
@@ -283,13 +317,26 @@ def test_run_calls_polars_empty_and_native():
     assert "polars" in type(out._nodes).__module__
 
 
-def test_run_calls_polars_binding_ops_defers():
-    """Named middle + bare rows() rewrites to rows(binding_ops) — not native, so
-    NotImplementedError (NO pandas bridge; plan.md NO-CHEATING)."""
+def test_run_calls_polars_binding_ops_native():
+    """Named middle + bare rows() rewrites to rows(binding_ops) natively for
+    fixed-length connected patterns: returns a polars bindings table."""
     from graphistry.compute.gfql.lazy.engine.polars.chain import _run_calls_polars
     from graphistry.compute.ast import call, n, e_forward
     g = _polars_graph()
     middle = [n(name="a"), e_forward(), n(name="b")]
+    out = _run_calls_polars(g, [call("rows", {})], None, g, middle)
+    assert "polars" in type(out._nodes).__module__
+    assert {"a", "b"} <= set(out._nodes.columns)
+
+
+def test_run_calls_polars_binding_ops_unbounded_multihop_defers():
+    """UNBOUNDED variable-length binding patterns stay outside the native subset
+    (bounded `-[*1..k]->` is native, #1709) -> NotImplementedError (NO pandas
+    bridge, see plan.md NO-CHEATING)."""
+    from graphistry.compute.gfql.lazy.engine.polars.chain import _run_calls_polars
+    from graphistry.compute.ast import call, n, e_forward
+    g = _polars_graph()
+    middle = [n(name="a"), e_forward(to_fixed_point=True), n(name="b")]
     with pytest.raises(NotImplementedError):
         _run_calls_polars(g, [call("rows", {})], None, g, middle)
 

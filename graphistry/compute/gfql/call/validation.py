@@ -360,13 +360,14 @@ def _semi_apply_mark_added_node_cols(params: Dict[str, object]) -> Set[str]:
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     'rows': _safelist_entry(
-        {'table', 'source', 'alias_endpoints', 'binding_ops', 'alias_prefilters'},
+        {'table', 'source', 'alias_endpoints', 'binding_ops', 'alias_prefilters', 'attach_prop_aliases'},
         param_validators={
             'table': lambda v: v in ['nodes', 'edges'],
             'source': is_string_or_none,
             'alias_endpoints': lambda v: isinstance(v, dict),
             'binding_ops': is_list_of_dicts,
             'alias_prefilters': is_alias_prefilters,
+            'attach_prop_aliases': lambda v: isinstance(v, list) and all(isinstance(x, str) for x in v),
         },
         description='Set active row table from nodes/edges, optionally filtered by source alias',
         schema_effects=_schema_effects(

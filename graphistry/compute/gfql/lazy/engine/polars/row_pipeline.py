@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from graphistry.compute.gfql.expr_parser import ExprNode, FunctionCall
 
 from graphistry.Plottable import Plottable
+from graphistry.utils.json import JSONVal
 from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
 
 
@@ -607,6 +608,19 @@ def _lower_with_schema(table: Any, fn):
         _SCHEMA.reset(token)
 
 
+def _project_preserving_height(table: Any, exprs: List[Any]) -> Any:
+    """Project ``exprs`` while preserving the frame's row cardinality.
+
+    Cypher ``WITH``/``RETURN`` projection is a map, not a reduce. Polars
+    ``DataFrame.select`` collapses to one row when every projected expression is
+    scalar, so broadcast all-scalar projections through ``with_columns`` first.
+    """
+    if exprs and all(len(e.meta.root_names()) == 0 for e in exprs):
+        names = [e.meta.output_name() for e in exprs]
+        return table.with_columns(exprs).select(names)
+    return table.select(exprs)
+
+
 def _project_polars(g: Plottable, items: Sequence[Any], extend: bool) -> Optional[Plottable]:
     """Shared body of ``select_polars`` / ``with_columns_polars``; None if any item isn't
     lowerable (honest NIE, no pandas bridge)."""
@@ -614,7 +628,7 @@ def _project_polars(g: Plottable, items: Sequence[Any], extend: bool) -> Optiona
     exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)))
     if exprs is None:
         return None
-    out = table.with_columns(exprs) if extend else table.select(exprs)
+    out = table.with_columns(exprs) if extend else _project_preserving_height(table, exprs)
     if _select_emits_temporal_constructor_text(out):
         # decline (NIE): projected String column holds temporal-constructor text (date({...})
         # etc.) that pandas normalizes to ISO, not yet native — don't leak the raw text.
@@ -791,3 +805,287 @@ def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plott
     rhs = pl.DataFrame({as_: values})
     return _rewrap(g, table.join(rhs, how="cross"))
 
+
+def select_extend_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
+    """Native polars ``with_(items, extend=True)``: add/overwrite projected columns
+    while keeping the existing row table (pandas ``assign`` semantics). Emitted by
+    the bindings-path aggregate lowering (pre-aggregation group keys / agg args),
+    so it is required for binding-row queries (#1709). None → NIE."""
+    table = _active_table(g)
+    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)))
+    if exprs is None:
+        return None
+    out = table.with_columns(exprs)
+    if _select_emits_temporal_constructor_text(out):
+        return None
+    return _rewrap(g, out)
+
+
+def binding_rows_polars(
+    g: Plottable,
+    binding_ops: Sequence[Dict[str, JSONVal]],
+    attach_prop_aliases: Optional[Sequence[str]] = None,
+) -> Optional[Plottable]:
+    """Native polars bindings-row table for FIXED-LENGTH connected patterns (#1709).
+
+    Materializes one row per matched path for an alternating ``n/e/n/...`` pattern
+    (the ``rows(binding_ops=...)`` op emitted by Cypher multi-alias lowering), with
+    the same meaningful schema as the pandas engine: bare ``alias`` id columns,
+    ``edge_alias.col`` edge-payload columns, and ``alias.{col}`` node-property
+    columns per node alias. (The pandas frame additionally carries join-residue
+    columns — raw ``node_id``, ``a__a_join__``, leaked ``__gfql_edge_index__`` —
+    that no lowered query references; those are intentionally not replicated.)
+
+    Returns None to DECLINE (caller raises the honest NIE) for anything outside
+    the supported subset: variable-length/multi-hop edges, shortestPath scalar
+    bindings, node ``query=`` / edge query or endpoint-match params, hop labels,
+    HAS_-label destination disambiguation, seeded re-entry contexts, cartesian
+    (node-only) mode, and the legacy ``alias_endpoints`` variant. NO-CHEATING:
+    never bridges to pandas. Parity gate: differential tests vs the pandas oracle.
+    """
+    import polars as pl
+    from graphistry.compute.ast import ASTEdge, ASTNode, ASTObject, from_json as ast_from_json
+    from graphistry.compute.gfql.lazy import collect as _lazy_collect
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+    from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
+    from .predicates import filter_by_dict_polars
+
+    def _names(lf: pl.LazyFrame) -> List[str]:
+        # LazyFrame column names WITHOUT collecting data (schema-only resolve).
+        return lf.collect_schema().names()
+
+    nodes = g._nodes
+    edges = g._edges
+    node_id = g._node
+    src = g._source
+    dst = g._destination
+    if nodes is None or edges is None or node_id is None or src is None or dst is None:
+        return None
+    if getattr(g, "_gfql_start_nodes", None) is not None:
+        # Bounded re-entry seeds the first alias from carried rows — pandas-only.
+        return None
+
+    ops: List[ASTObject] = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
+    # Shared validation (engine-agnostic): raises the canonical GFQLValidationError
+    # for malformed op sequences / duplicate aliases — same error as pandas.
+    RowPipelineMixin._gfql_validate_binding_ops(ops)
+    if RowPipelineMixin._gfql_binding_ops_mode(ops) == "node_cartesian":
+        return None  # MATCH (a), (b) cross joins: deferred (rare; own schema study)
+    if RowPipelineMixin._gfql_is_shortest_path_scalar_binding_ops(ops):
+        return None  # shortestPath scalar contract: BFS/native backends, pandas-only
+
+    for idx, op in enumerate(ops):
+        if idx % 2 == 0:
+            if not isinstance(op, ASTNode) or op.query is not None:
+                return None
+        else:
+            if not isinstance(op, ASTEdge):
+                return None
+            sem = EdgeSemantics.from_edge(op)
+            if sem.is_multihop:
+                # Bounded directed var-length (`-[*1..k]->`, graph-bench q3) is
+                # supported via iterative pair joins; everything else declines:
+                # unbounded (`[*]`, needs fixed-point + termination error),
+                # undirected multihop (immediate-backtrack avoidance not ported),
+                # and aliased var-length edges (pandas rejects those outright).
+                if (
+                    op.direction == "undirected"
+                    or bool(op.to_fixed_point)
+                    or (op.max_hops is None and op.hops is None)
+                    or isinstance(op._name, str)
+                ):
+                    return None
+            if op.direction not in ("forward", "reverse", "undirected"):
+                return None
+            if any(
+                value is not None
+                for value in (
+                    op.edge_query, op.source_node_match, op.destination_node_match,
+                    op.source_node_query, op.destination_node_query,
+                    op.label_node_hops, op.label_edge_hops,
+                    op.output_min_hops, op.output_max_hops,
+                )
+            ):
+                return None
+            if bool(op.label_seeds) or bool(op.include_zero_hop_seed):
+                return None
+            # Duplicate-id + HAS_<Label> endpoint disambiguation: pandas has a
+            # bespoke candidate-domain rule here; decline rather than diverge.
+            if RowPipelineMixin._gfql_has_edge_destination_label_col(op, nodes.columns) is not None:
+                return None
+
+    node_id = str(node_id)
+    src = str(src)
+    dst = str(dst)
+
+    try:
+        # Build the WHOLE binding table as ONE deferred pl.LazyFrame and collect
+        # ONCE on the active target (#1709 laziness): under engine='polars-gpu' the
+        # entire join chain + property attach runs on cudf_polars in a single GPU
+        # collect (~4-5× vs CPU on the join phase — de-risk probe 2026-07-06);
+        # under 'polars' it collects on CPU (parity-identical). NO-CHEATING: a
+        # GPU-incapable plan node makes `collect` raise NotImplementedError (honest
+        # NIE → use engine='pandas'/'polars'), never a silent CPU fallback.
+        nodes_lf = nodes.lazy()
+        edges_lf = edges.lazy()
+        first_op = ops[0]
+        if not isinstance(first_op, ASTNode):
+            return None
+        seed_nodes = filter_by_dict_polars(nodes_lf, first_op.filter_dict)
+        state = seed_nodes.select(pl.col(node_id).alias("__current__"))
+        alias_frames: Dict[str, pl.LazyFrame] = {}
+        node_aliases: List[str] = []
+        first_alias = first_op._name
+        if isinstance(first_alias, str):
+            state = state.with_columns(pl.col("__current__").alias(first_alias))
+            alias_frames[first_alias] = seed_nodes
+            node_aliases.append(first_alias)
+
+        for edge_idx in range(1, len(ops), 2):
+            edge_op = ops[edge_idx]
+            if not isinstance(edge_op, ASTEdge):
+                return None
+            sem = EdgeSemantics.from_edge(edge_op)
+            edges_f = filter_by_dict_polars(edges_lf, edge_op.edge_match)
+            edge_alias = edge_op._name
+            if isinstance(edge_alias, str):
+                payload_renames = {
+                    col: f"{edge_alias}.{col}"
+                    for col in _names(edges_f)
+                    if col not in (src, dst)
+                }
+            else:
+                # Unaliased edge payload is unaddressable downstream; carrying it
+                # unprefixed (as pandas does) only risks column collisions.
+                edges_f = edges_f.select([src, dst])
+                payload_renames = {}
+            if sem.is_undirected:
+                fwd = edges_f.rename({src: "__from__", dst: "__to__"})
+                rev = edges_f.rename({dst: "__from__", src: "__to__"})
+                oriented = pl.concat([fwd, rev.select(_names(fwd))], how="vertical")
+            else:
+                join_col, result_col = (dst, src) if edge_op.direction == "reverse" else (src, dst)
+                oriented = edges_f.rename({join_col: "__from__", result_col: "__to__"})
+            if payload_renames:
+                oriented = oriented.rename(payload_renames)
+
+            next_op = ops[edge_idx + 1]
+            if not isinstance(next_op, ASTNode):
+                return None
+            next_nodes = filter_by_dict_polars(nodes_lf, next_op.filter_dict)
+            next_node_ids = next_nodes.select(node_id).unique()
+            if not sem.is_multihop:
+                # Filter endpoint candidates before joining from the current state.
+                # For graph-bench q5/q6/q7, pushed Interest/City predicates make
+                # this turn an all-edges scan into a small-domain edge semi-join.
+                oriented = oriented.join(
+                    next_node_ids,
+                    left_on="__to__",
+                    right_on=node_id,
+                    how="semi",
+                )
+
+            # Column collision between edge payload and accumulated state → decline
+            # (pandas resolves via merge suffixes; unreferenced-by-queries either way).
+            overlap = (set(_names(oriented)) - {"__from__"}) & set(_names(state))
+            if overlap:
+                return None
+            if sem.is_multihop:
+                # Bounded directed var-length: iterative pair joins, one row per
+                # distinct edge sequence (Cypher path multiplicity — pairs NOT
+                # deduped, so parallel edges multiply per hop, matching pandas
+                # `_gfql_multihop_binding_rows`). Zero-hop rows (min 0) keep the
+                # seed row (endpoint == start), also matching pandas.
+                # Same defaults as the pandas builder: bare hops=k means exactly-k.
+                min_hops_value = edge_op.min_hops if edge_op.min_hops is not None else (
+                    edge_op.hops if edge_op.hops is not None else 1
+                )
+                max_hops_value = edge_op.max_hops if edge_op.max_hops is not None else edge_op.hops
+                if max_hops_value is None:
+                    return None
+                min_hops = int(min_hops_value)
+                max_hops = int(max_hops_value)
+                pairs = oriented.select(["__from__", "__to__"])
+                state_cols = _names(state)
+                reachable = [state] if min_hops == 0 else []
+                current = state
+                # Lazy: build all max_hops iterations (no eager .height early-break —
+                # empty intermediates lazily join to empty, so the result is
+                # identical; the pandas break is an optimization, not semantics).
+                for _hop in range(1, max_hops + 1):
+                    current = (
+                        current.join(pairs, left_on="__current__", right_on="__from__", how="inner")
+                        .drop("__current__")
+                        .rename({"__to__": "__current__"})
+                        .select(state_cols)
+                    )
+                    if _hop >= min_hops:
+                        reachable.append(current)
+                state = pl.concat(reachable, how="vertical") if reachable else state.limit(0)
+            else:
+                state = (
+                    state.join(oriented, left_on="__current__", right_on="__from__", how="inner")
+                    .drop("__current__")
+                    .rename({"__to__": "__current__"})
+                )
+
+            state = state.join(
+                next_node_ids,
+                left_on="__current__",
+                right_on=node_id,
+                how="semi",
+            )
+            next_alias = next_op._name
+            if isinstance(next_alias, str):
+                state = state.with_columns(pl.col("__current__").alias(next_alias))
+                alias_frames[next_alias] = next_nodes
+                node_aliases.append(next_alias)
+
+        # #1711 projection-pushdown: attach_prop_aliases (from the cypher lowering)
+        # names node aliases whose PROPERTIES are referenced downstream; others skip
+        # the property join (their bare id column suffices). None = attach all.
+        attach_set = None if attach_prop_aliases is None else set(attach_prop_aliases)
+        for alias in node_aliases:
+            if attach_set is not None and alias not in attach_set:
+                continue  # properties unreferenced — keep only the bare id column
+            lookup_src = alias_frames[alias]
+            lookup = lookup_src.select(
+                [
+                    pl.col(node_id),
+                    pl.col(node_id).alias(f"{alias}.{node_id}"),
+                ]
+                + [
+                    pl.col(col).alias(f"{alias}.{col}")
+                    for col in _names(lookup_src)
+                    if col != node_id
+                ]
+            )
+            if (set(_names(lookup)) - {node_id}) & set(_names(state)):
+                return None
+            state = state.join(lookup, left_on=alias, right_on=node_id, how="left")
+        state = state.drop("__current__")
+        # Single collect on the active target (CPU / GPU). Deferred SchemaError
+        # (int/float join-key dtype divergence pandas unifies implicitly) surfaces
+        # here → decline honestly; a GPU-incapable node raises NotImplementedError
+        # (from the lazy `collect` NO-CHEATING contract), which we let propagate.
+        out_df = _lazy_collect(state)
+    except pl.exceptions.SchemaError:
+        return None
+
+    out = _rewrap(g, out_df)
+    edge_aliases = {
+        alias
+        for op in ops[1::2]
+        for alias in [op._name]
+        if isinstance(alias, str)
+    }
+    setattr(out, "_gfql_rows_edge_aliases", edge_aliases)
+    return out
+
+
+def can_select_native(items: Sequence[Any], columns: Sequence[str]) -> bool:
+    return lower_select_items(items, columns) is not None
+
+
+def can_order_by_native(keys: Sequence[Any], columns: Sequence[str]) -> bool:
+    return lower_order_by_keys(keys, columns) is not None
