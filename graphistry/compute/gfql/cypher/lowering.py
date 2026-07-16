@@ -7843,7 +7843,7 @@ def _connected_join_lower_literal_value(node: ExprNode) -> Tuple[bool, Optional[
             return True, arg.value
         return False, None
     if isinstance(node, ExprLiteral) and isinstance(node.value, str):
-        return True, node.value
+        return node.value == node.value.lower(), node.value
     return False, None
 
 

@@ -15040,6 +15040,63 @@ def test_t1_connected_comma_pushes_q5_single_alias_filters_before_join() -> None
     assert any(entry.get("c", {}).get("country") == "United Kingdom" for entry in filters_by_alias)
 
 
+def test_t1_connected_comma_pushes_reversed_single_alias_filters_before_join() -> None:
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower('fine dining') = toLower(i.interest) "
+        "AND 23 <= p.age AND 30 >= p.age "
+        "AND 'London' = c.city "
+        "RETURN count(p) AS numPersons"
+    )
+
+    result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
+
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" not in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == ((), ())
+
+    filters_by_alias = _compiled_connected_join_filters(query)
+    assert any(entry.get("i", {}).get("interest").__class__.__name__ == "Fullmatch" for entry in filters_by_alias)
+    assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
+    assert any(entry.get("c", {}).get("city") == "London" for entry in filters_by_alias)
+
+
+def test_t1_connected_comma_pushes_lower_property_plain_lowercase_literal() -> None:
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = 'fine dining' "
+        "AND p.age >= 23 AND p.age <= 30 AND c.city = 'London' "
+        "RETURN count(p) AS numPersons"
+    )
+
+    result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
+
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" not in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == ((), ())
+
+
+def test_t1_connected_comma_retains_reversed_uppercase_plain_literal_residual() -> None:
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE 'FINE DINING' = toLower(i.interest) "
+        "AND p.age >= 23 AND p.age <= 30 AND c.city = 'London' "
+        "RETURN count(p) AS numPersons"
+    )
+
+    result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == []
+
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == (("i",), ())
+
+
 def test_t1_connected_comma_pushes_q7_range_filters_before_join() -> None:
     query = (
         "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
