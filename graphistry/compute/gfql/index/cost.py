@@ -22,13 +22,13 @@ _COST_GATE_FRAC_OVERRIDES: Dict[Engine, float] = {}
 # so on small / low-cardinality edge slices (e.g. per-edge-type homogeneous frames:
 # n_keys <= 1/0.02 = 50 at the polars/cudf frac) even a single-node seed trips it and
 # the hop scans O(E) despite a resident O(degree) index. A frontier of <= K seeds
-# costs at most K searchsorted probes plus a gather of exactly the rows the scan
-# would emit, so the index cannot meaningfully lose there — the gate's bulk-hop
-# protection only matters once the frontier is genuinely large. Constant (not a
-# function of n_keys) on purpose: scaling with n_keys is the frac gate's job; the
-# floor bounds absolute per-hop probe work in the regime where frac*n_keys collapses
-# below a handful of seeds. Uniform across engines (pandas's 0.5 frac only overlaps
-# the floor when n_keys <= 2*K — micro slices where either path is trivially fast).
+# bounds CSR lookup work to K searchsorted probes plus the matching-row gather,
+# avoiding that fractional-gate artifact. The actual index/scan crossover remains
+# engine- and data-dependent: K is a conservative, environment-tunable default,
+# not a measured universal threshold. Constant (not a function of n_keys) on
+# purpose: scaling with n_keys is the frac gate's job; the floor bounds absolute
+# per-hop probe work where frac*n_keys collapses below a handful of seeds. Uniform
+# across engines (pandas's 0.5 frac only overlaps the floor when n_keys <= 2*K).
 # Purely a routing heuristic: index and scan return identical results.
 _COST_GATE_MIN_FRONTIER_DEFAULT = 16
 
