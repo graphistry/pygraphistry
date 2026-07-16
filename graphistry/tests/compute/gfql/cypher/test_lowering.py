@@ -14989,6 +14989,41 @@ def _post_join_functions(query: str) -> list[str]:
     return [op.function for op in _compiled_connected_join_plan(query).post_join_chain.chain if isinstance(op, ASTCall)]
 
 
+def _mk_graph_benchmark_t1_labelled_shape_graph() -> "_CypherTestGraph":
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 10, 11, 20, 21],
+        "node_type": ["Person", "Person", "Person", "City", "City", "Interest", "Interest"],
+        "age": [25, 27, 35, None, None, None, None],
+        "city": [None, None, None, "London", "Paris", None, None],
+        "interest": [None, None, None, None, None, "Fine Dining", "photography"],
+        "label__Person": [True, True, True, False, False, False, False],
+        "label__City": [False, False, False, True, True, False, False],
+        "label__Interest": [False, False, False, False, False, True, True],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 2, 0, 1, 2],
+        "d": [20, 20, 21, 10, 10, 11],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    return _mk_graph(nodes, edges)
+
+
+def test_t1_connected_comma_pushes_label_predicate_with_property_filter() -> None:
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE p:Person AND p.age >= 26 "
+        "RETURN count(p) AS numPersons"
+    )
+
+    result = _mk_graph_benchmark_t1_labelled_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
+
+    filters_by_alias = _compiled_connected_join_filters(query)
+    assert any("label__Person" in entry.get("p", {}) for entry in filters_by_alias)
+    assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
+
+
 def test_t1_connected_comma_mixes_unary_pushdown_and_in_residual() -> None:
     query = (
         "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
