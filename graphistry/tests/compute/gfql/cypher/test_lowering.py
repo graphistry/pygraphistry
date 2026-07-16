@@ -14989,6 +14989,25 @@ def _post_join_functions(query: str) -> list[str]:
     return [op.function for op in _compiled_connected_join_plan(query).post_join_chain.chain if isinstance(op, ASTCall)]
 
 
+def test_t1_connected_comma_mixes_unary_pushdown_and_in_residual() -> None:
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = toLower('fine dining') "
+        "AND p.age >= -1 AND p.age IN [25, 27] "
+        "RETURN count(p) AS numPersons"
+    )
+
+    result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
+
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("p",))
+    filters_by_alias = _compiled_connected_join_filters(query)
+    assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
+
+
 def test_t1_connected_comma_q5_retains_lower_residual_and_props() -> None:
     query = (
         "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "

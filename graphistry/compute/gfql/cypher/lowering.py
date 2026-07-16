@@ -7815,12 +7815,10 @@ def _connected_join_expr_property_ref(
 
 
 def _connected_join_expr_literal_value(node: ExprNode) -> Tuple[bool, Optional[CypherLiteral]]:
+    # Signed numeric literals arrive folded (`-1` parses to `Literal(-1)`), so a
+    # `UnaryOp` here always wraps a non-literal operand and is not a literal value.
     if isinstance(node, ExprLiteral):
         return True, cast(Optional[CypherLiteral], node.value)
-    if isinstance(node, UnaryOp) and node.op in {"+", "-"} and isinstance(node.operand, ExprLiteral):
-        value = node.operand.value
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            return True, cast(CypherLiteral, value if node.op == "+" else -value)
     return False, None
 
 
