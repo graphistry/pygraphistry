@@ -37,11 +37,26 @@ def _to_pd(df):
 
 
 def _round_floats(df):
-    """Dampen last-ULP float diffs (sum/avg order) — test semantics, not IEEE-754 reduction."""
+    """Dampen non-semantic numeric repr differences so the differential check
+    tests semantics: round floats and render non-bool numeric columns as float64.
+    """
     out = df.copy()
     for col in out.columns:
-        if pd.api.types.is_float_dtype(out[col]):
-            out[col] = out[col].round(6)
+        s = out[col]
+        if pd.api.types.is_bool_dtype(s):
+            continue
+        if pd.api.types.is_numeric_dtype(s):
+            out[col] = s.astype("float64").round(6)
+            continue
+        if s.dtype == object:
+            # pandas emits object columns of Python ints in some paths (e.g.
+            # UNWIND literals); normalize those too — but only when every
+            # non-null value coerces cleanly and none are bools.
+            non_null = s.dropna()
+            if len(non_null) and not non_null.map(lambda v: isinstance(v, bool)).any():
+                coerced = pd.to_numeric(s, errors="coerce")
+                if coerced.isna().sum() == s.isna().sum():
+                    out[col] = coerced.astype("float64").round(6)
     return out
 
 
@@ -141,6 +156,8 @@ CORPUS = [
     "RETURN 1 AS x UNION RETURN 1 AS x",
     "RETURN 1 AS x UNION ALL RETURN 1 AS x",
     "MATCH (n) WHERE n.kind = 'alpha' RETURN n.val UNION MATCH (n) WHERE n.kind = 'beta' RETURN n.val",
+    # multi-entity property projection via native rows(binding_ops) (#1709)
+    "MATCH (n)-[e]->(m) RETURN n.val, m.val",
 ]
 
 
@@ -154,7 +171,8 @@ DEFERRED = [
     # Whole-entity RETURN now FLATTENS (#1650) so float/whole-entity cases moved to CORPUS;
     # these remain deferred (honest NIE, no pandas bridge):
     "MATCH (n) RETURN n, n.val",                            # duplicate output col (polars .select rejects)
-    "MATCH (n)-[e]->(m) RETURN n.val, m.val",               # multi-entity bindings
+    # (multi-entity property bindings now native via rows(binding_ops) — #1709,
+    #  moved to CORPUS below; cross-entity same-path WHERE remains deferred:)
     "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",   # cross-entity WHERE
     "MATCH (a)-[e]->(b) WHERE a.val < b.val RETURN a.kind, b.kind",
     "MATCH (a)-[e]->(b) WHERE a.kind = b.kind RETURN a.id, b.id",
