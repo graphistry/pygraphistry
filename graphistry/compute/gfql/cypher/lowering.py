@@ -81,6 +81,7 @@ from graphistry.compute.gfql.expr_parser import (
     collect_identifiers,
     parse_expr,
     walk_expr_nodes,
+    is_expr_node,
 )
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.ast import (
@@ -1254,6 +1255,15 @@ def _connected_join_alias_identity_expr(
     )
 
     def _rewrite(node_in: ExprNode) -> ExprNode:
+        if (
+            isinstance(node_in, FunctionCall)
+            and node_in.name.lower() == "count"
+            and len(node_in.args) == 1
+            and isinstance(node_in.args[0], Identifier)
+            and "." not in node_in.args[0].name
+            and node_in.args[0].name in alias_targets
+        ):
+            return node_in
         if isinstance(node_in, PropertyAccessExpr) and isinstance(node_in.value, Identifier):
             if "." not in node_in.value.name and node_in.value.name in alias_targets:
                 return node_in
@@ -2303,12 +2313,12 @@ def _expr_has_aggregate(node: ExprNode) -> bool:
     if isinstance(node, FunctionCall) and node.name.lower() in _CYPHER_AGGREGATES:
         return True
     for child in getattr(node, "__dict__", {}).values():
-        if isinstance(child, ExprNode):
-            if _expr_has_aggregate(child):
+        if is_expr_node(child):
+            if _expr_has_aggregate(cast(ExprNode, child)):
                 return True
         elif isinstance(child, (list, tuple)):
             for c in child:
-                if isinstance(c, ExprNode) and _expr_has_aggregate(c):
+                if is_expr_node(c) and _expr_has_aggregate(cast(ExprNode, c)):
                     return True
     return False
 
@@ -2336,7 +2346,7 @@ def _binding_prop_alias_set(
         return None
     if getattr(query, "where", None) is not None:
         return None
-    matches = getattr(query, "matches", ()) or ()
+    matches = cast(Sequence[MatchClause], getattr(query, "matches", ()) or ())
     if len(matches) != 1:
         return None  # multi-MATCH / cartesian — conservative
     match_clause = matches[0]
@@ -2433,12 +2443,12 @@ def _expr_property_access_node_aliases(
             if root in alias_targets:
                 out.add(root)
         for child in getattr(n, "__dict__", {}).values():
-            if isinstance(child, ExprNode):
-                _visit(child)
+            if is_expr_node(child):
+                _visit(cast(ExprNode, child))
             elif isinstance(child, (list, tuple)):
                 for c in child:
-                    if isinstance(c, ExprNode):
-                        _visit(c)
+                    if is_expr_node(c):
+                        _visit(cast(ExprNode, c))
 
     _visit(node)
     return out
@@ -7676,6 +7686,7 @@ class ConnectedMatchJoinPlan:
     pattern_chains: Tuple[Chain, ...]
     pattern_shared_node_aliases: Tuple[Tuple[str, ...], ...]
     post_join_chain: Chain
+    pattern_attach_prop_aliases: Tuple[Optional[Tuple[str, ...]], ...] = ()
 
 
 def _pattern_alias_lists(pattern: Sequence[PatternElement]) -> Tuple[List[str], List[str]]:
@@ -7771,6 +7782,325 @@ def _logical_plan_from_query_graph(
     )
 
 
+def _connected_join_literal_op(op: str, *, reverse: bool = False) -> Optional[str]:
+    normalized = "==" if op == "=" else op
+    if normalized not in {"==", "!=", "<", "<=", ">", ">="}:
+        return None
+    if not reverse:
+        return normalized
+    return {
+        "==": "==",
+        "!=": "!=",
+        "<": ">",
+        "<=": ">=",
+        ">": "<",
+        ">=": "<=",
+    }[normalized]
+
+
+def _connected_join_expr_property_ref(
+    node: ExprNode,
+    *,
+    span: SourceSpan,
+) -> Optional[PropertyRef]:
+    if isinstance(node, PropertyAccessExpr) and isinstance(node.value, Identifier):
+        if "." in node.value.name:
+            return None
+        return PropertyRef(alias=node.value.name, property=node.property, span=span)
+    if isinstance(node, Identifier):
+        parts = node.name.split(".")
+        if len(parts) == 2 and all(parts):
+            return PropertyRef(alias=parts[0], property=parts[1], span=span)
+    return None
+
+
+def _connected_join_expr_literal_value(node: ExprNode) -> Tuple[bool, Optional[CypherLiteral]]:
+    if isinstance(node, ExprLiteral):
+        return True, cast(Optional[CypherLiteral], node.value)
+    if isinstance(node, UnaryOp) and node.op in {"+", "-"} and isinstance(node.operand, ExprLiteral):
+        value = node.operand.value
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return True, cast(CypherLiteral, value if node.op == "+" else -value)
+    return False, None
+
+
+def _connected_join_lower_property_ref(
+    node: ExprNode,
+    *,
+    span: SourceSpan,
+) -> Optional[PropertyRef]:
+    if not isinstance(node, FunctionCall) or len(node.args) != 1:
+        return None
+    if node.name.lower() not in {"tolower", "lower"}:
+        return None
+    return _connected_join_expr_property_ref(node.args[0], span=span)
+
+
+def _connected_join_lower_literal_value(node: ExprNode) -> Tuple[bool, Optional[str]]:
+    if isinstance(node, FunctionCall) and len(node.args) == 1 and node.name.lower() in {"tolower", "lower"}:
+        arg = node.args[0]
+        if isinstance(arg, ExprLiteral) and isinstance(arg.value, str):
+            return True, arg.value
+        return False, None
+    if isinstance(node, ExprLiteral) and isinstance(node.value, str):
+        return True, node.value
+    return False, None
+
+
+def _apply_connected_join_node_filter(
+    alias_targets_by_pattern: Sequence[Mapping[str, ASTObject]],
+    *,
+    prop_ref: PropertyRef,
+    op: str,
+    value: Optional[CypherLiteral],
+    params: Optional[Mapping[str, Any]],
+) -> bool:
+    pushed = False
+    for alias_targets in alias_targets_by_pattern:
+        target = alias_targets.get(prop_ref.alias)
+        if not isinstance(target, ASTNode):
+            continue
+        _apply_literal_where(
+            cast(Dict[str, ASTObject], alias_targets),
+            left=prop_ref,
+            op=op,
+            right=value,
+            params=params,
+        )
+        pushed = True
+    return pushed
+
+
+def _apply_connected_join_node_predicate(
+    alias_targets_by_pattern: Sequence[Mapping[str, ASTObject]],
+    *,
+    prop_ref: PropertyRef,
+    predicate: ASTPredicate,
+) -> bool:
+    pushed = False
+    for alias_targets in alias_targets_by_pattern:
+        target = alias_targets.get(prop_ref.alias)
+        if not isinstance(target, ASTNode):
+            continue
+        filter_dict = dict(target.filter_dict or {})
+        existing_filter = filter_dict.get(prop_ref.property)
+        if existing_filter is None or prop_ref.property not in filter_dict:
+            filter_dict[prop_ref.property] = predicate
+        else:
+            filter_dict[prop_ref.property] = _merge_filter_predicates(
+                existing_filter,
+                predicate,
+                field=f"where.{prop_ref.alias}.{prop_ref.property}",
+                line=prop_ref.span.line,
+                column=prop_ref.span.column,
+            )
+        target.filter_dict = filter_dict
+        pushed = True
+    return pushed
+
+
+def _pushdown_connected_join_atom_filter(
+    expr: ExpressionText,
+    alias_targets_by_pattern: Sequence[Mapping[str, ASTObject]],
+    alias_targets: Mapping[str, ASTObject],
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> bool:
+    try:
+        node = _parse_row_expr(
+            expr.text,
+            params=params,
+            alias_targets=alias_targets,
+            field="where",
+            line=expr.span.line,
+            column=expr.span.column,
+        )
+    except GFQLValidationError:
+        return False
+    if not isinstance(node, BinaryOp):
+        return False
+
+    op = _connected_join_literal_op(node.op)
+    if op is not None:
+        left_ref = _connected_join_expr_property_ref(node.left, span=expr.span)
+        right_is_literal, right_value = _connected_join_expr_literal_value(node.right)
+        if left_ref is not None and right_is_literal:
+            return _apply_connected_join_node_filter(
+                alias_targets_by_pattern,
+                prop_ref=left_ref,
+                op=op,
+                value=right_value,
+                params=params,
+            )
+        reverse_op = _connected_join_literal_op(node.op, reverse=True)
+        right_ref = _connected_join_expr_property_ref(node.right, span=expr.span)
+        left_is_literal, left_value = _connected_join_expr_literal_value(node.left)
+        if right_ref is not None and left_is_literal and reverse_op is not None:
+            return _apply_connected_join_node_filter(
+                alias_targets_by_pattern,
+                prop_ref=right_ref,
+                op=reverse_op,
+                value=left_value,
+                params=params,
+            )
+
+    if node.op in {"=", "=="}:
+        left_ref = _connected_join_lower_property_ref(node.left, span=expr.span)
+        right_is_literal, right_value = _connected_join_lower_literal_value(node.right)
+        if left_ref is not None and right_is_literal and right_value is not None:
+            return _apply_connected_join_node_predicate(
+                alias_targets_by_pattern,
+                prop_ref=left_ref,
+                predicate=fullmatch(re.escape(right_value), case=False, na=False),
+            )
+        right_ref = _connected_join_lower_property_ref(node.right, span=expr.span)
+        left_is_literal, left_value = _connected_join_lower_literal_value(node.left)
+        if right_ref is not None and left_is_literal and left_value is not None:
+            return _apply_connected_join_node_predicate(
+                alias_targets_by_pattern,
+                prop_ref=right_ref,
+                predicate=fullmatch(re.escape(left_value), case=False, na=False),
+            )
+
+    return False
+
+
+def _pushdown_connected_join_where_filters(
+    where: Optional[WhereClause],
+    alias_targets_by_pattern: Sequence[Mapping[str, ASTObject]],
+    alias_targets: Mapping[str, ASTObject],
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> Optional[List[ExpressionText]]:
+    if where is None:
+        return []
+
+    # Push structured predicates on the expr_tree parser path. When no expr_tree is
+    # present, the residual loop below treats predicates as an implicit AND list and
+    # applies pushdown exactly once.
+    if where.expr_tree is not None:
+        for predicate in where.predicates:
+            if not isinstance(predicate, WherePredicate):
+                continue
+            if isinstance(predicate.left, LabelRef):
+                for pattern_targets in alias_targets_by_pattern:
+                    target = pattern_targets.get(predicate.left.alias)
+                    if isinstance(target, ASTNode):
+                        _apply_label_where(cast(Dict[str, ASTObject], pattern_targets), left=predicate.left)
+                continue
+            if isinstance(predicate.right, PropertyRef):
+                continue
+            if not isinstance(predicate.left, PropertyRef):
+                continue
+            _apply_connected_join_node_filter(
+                alias_targets_by_pattern,
+                prop_ref=predicate.left,
+                op=cast(str, predicate.op),
+                value=cast(Optional[CypherLiteral], predicate.right),
+                params=params,
+            )
+
+    residuals: List[ExpressionText] = []
+
+    def _walk(expr_node: BooleanExpr) -> None:
+        if expr_node.op == "and" and expr_node.left is not None and expr_node.right is not None:
+            _walk(expr_node.left)
+            _walk(expr_node.right)
+            return
+        if expr_node.op == "atom" and expr_node.atom_text is not None:
+            atom = ExpressionText(text=expr_node.atom_text, span=expr_node.atom_span or expr_node.span)
+            pushed = _pushdown_connected_join_atom_filter(
+                atom,
+                alias_targets_by_pattern,
+                alias_targets,
+                params=params,
+            )
+            if not pushed:
+                residuals.append(atom)
+            return
+        synthesized = _where_clause_expr_text(where)
+        if synthesized is not None:
+            residuals.append(synthesized)
+
+    if where.expr_tree is not None:
+        _walk(where.expr_tree)
+        return residuals
+
+    for predicate in where.predicates:
+        if not isinstance(predicate, WherePredicate):
+            return None
+        pushed = False
+        if isinstance(predicate.left, LabelRef):
+            for pattern_targets in alias_targets_by_pattern:
+                target = pattern_targets.get(predicate.left.alias)
+                if isinstance(target, ASTNode):
+                    _apply_label_where(cast(Dict[str, ASTObject], pattern_targets), left=predicate.left)
+                    pushed = True
+        elif isinstance(predicate.left, PropertyRef) and not isinstance(predicate.right, PropertyRef):
+            pushed = _apply_connected_join_node_filter(
+                alias_targets_by_pattern,
+                prop_ref=predicate.left,
+                op=cast(str, predicate.op),
+                value=cast(Optional[CypherLiteral], predicate.right),
+                params=params,
+            )
+        if pushed:
+            continue
+        row_text = _row_where_predicate_text(predicate)
+        if row_text is None:
+            return None
+        residuals.append(ExpressionText(text=row_text, span=where.span))
+    return residuals
+
+
+def _connected_join_required_property_aliases(
+    query: CypherQuery,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    residual_filters: Sequence[ExpressionText],
+    params: Optional[Mapping[str, Any]],
+) -> Optional[Set[str]]:
+    if query.with_stages:
+        return None
+    node_aliases = {alias for alias, target in alias_targets.items() if isinstance(target, ASTNode)}
+    required: Set[str] = set()
+
+    exprs: List[Tuple[str, int, int, str]] = []
+    for expr in residual_filters:
+        exprs.append((expr.text, expr.span.line, expr.span.column, "where"))
+    for item in query.return_.items:
+        exprs.append((item.expression.text, item.span.line, item.span.column, query.return_.kind))
+    if query.order_by is not None:
+        for order_item in query.order_by.items:
+            exprs.append((order_item.expression.text, order_item.span.line, order_item.span.column, "order_by"))
+
+    for text, line, column, field_name in exprs:
+        if text == "*":
+            continue
+        try:
+            non_aggregate_aliases, _aggregate_aliases = _expr_match_alias_usage(
+                text,
+                alias_targets=alias_targets,
+                params=params,
+                field=field_name,
+                line=line,
+                column=column,
+            )
+            prop_aliases = _expr_property_access_node_aliases(
+                text,
+                alias_targets=alias_targets,
+                params=params,
+                field=field_name,
+                line=line,
+                column=column,
+            )
+        except GFQLValidationError:
+            return None
+        required.update(alias for alias in non_aggregate_aliases if alias in node_aliases)
+        required.update(alias for alias in prop_aliases if alias in node_aliases)
+    return required
+
+
 def _compile_connected_match_join(
     query: CypherQuery,
     *,
@@ -7780,6 +8110,7 @@ def _compile_connected_match_join(
     clause = query.matches[0]
     pattern_chains: List[Chain] = []
     pattern_node_aliases: List[Set[str]] = []
+    alias_targets_by_pattern: List[Mapping[str, ASTObject]] = []
     combined_alias_targets: Dict[str, ASTObject] = {}
     pre_join_filters: List[ExpressionText] = []
 
@@ -7793,6 +8124,7 @@ def _compile_connected_match_join(
         )
         ops, duplicate_alias_where = _lower_match_clause_with_alias_equalities(single_clause, params=params)
         alias_targets = _alias_target(ops)
+        alias_targets_by_pattern.append(alias_targets)
         dynamic_where_out, dynamic_row_preds = _dynamic_property_entry_constraints(
             single_clause,
             alias_targets=alias_targets,
@@ -7824,15 +8156,13 @@ def _compile_connected_match_join(
         accumulated_aliases.update(node_aliases)
 
     if query.where is not None:
-        # #1712: a WHERE on a connected comma-pattern join must be applied as a
-        # post-join row filter. Previously this only handled the ``expr_tree`` form
-        # and SILENTLY DROPPED the structured ``predicates`` form (e.g. a plain
-        # ``WHERE i.k = 'x'``), returning an unfiltered — wrong — result.
-        # ``_where_clause_expr_text`` renders BOTH forms; a WHERE it can't render
-        # (has-labels / outside the row-renderable subset) must NIE honestly, never
-        # be dropped.
-        synthesized = _where_clause_expr_text(query.where)
-        if synthesized is None:
+        residual_filters = _pushdown_connected_join_where_filters(
+            query.where,
+            alias_targets_by_pattern,
+            combined_alias_targets,
+            params=params,
+        )
+        if residual_filters is None:
             raise _unsupported(
                 "Cypher connected comma-pattern join lowering cannot render this WHERE clause "
                 "to a row filter; use engine='pandas' with a supported WHERE shape",
@@ -7841,7 +8171,20 @@ def _compile_connected_match_join(
                 line=clause.span.line,
                 column=clause.span.column,
             )
-        pre_join_filters.append(synthesized)
+        pre_join_filters.extend(residual_filters)
+
+    required_prop_aliases = _connected_join_required_property_aliases(
+        query,
+        alias_targets=combined_alias_targets,
+        residual_filters=pre_join_filters,
+        params=params,
+    )
+    pattern_attach_prop_aliases: List[Optional[Tuple[str, ...]]] = []
+    for pattern_alias_targets in alias_targets_by_pattern:
+        if required_prop_aliases is None:
+            pattern_attach_prop_aliases.append(None)
+        else:
+            pattern_attach_prop_aliases.append(tuple(sorted(required_prop_aliases & set(pattern_alias_targets.keys()))))
 
     for projection_clause in [stage.clause for stage in query.with_stages] + [query.return_]:
         _reject_unsupported_connected_join_clause_shapes(
@@ -7949,6 +8292,7 @@ def _compile_connected_match_join(
                     pattern_chains=tuple(pattern_chains),
                     pattern_shared_node_aliases=tuple(shared_aliases_per_pattern),
                     post_join_chain=Chain(row_steps),
+                    pattern_attach_prop_aliases=tuple(pattern_attach_prop_aliases),
                 ),
                 query_graph=query_graph,
                 logical_plan=logical_plan,

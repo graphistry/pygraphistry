@@ -14933,6 +14933,7 @@ def test_issue_1273_multi_source_grouped_aggregate(agg: str, expected: list) -> 
     assert result._nodes.to_dict(orient="records") == expected
 
 
+
 def test_issue_1712_connected_comma_pattern_where_intersects() -> None:
     """#1712: a connected comma-pattern sharing a node alias with a WHERE on a leaf
     alias must intersect both patterns (the WHERE was silently dropped on the
@@ -14944,6 +14945,119 @@ def test_issue_1712_connected_comma_pattern_where_intersects() -> None:
         "RETURN count(p) AS numPersons"
     )
     assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
+
+
+def _mk_graph_benchmark_t1_shape_graph() -> "_CypherTestGraph":
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 10, 11, 20, 21],
+        "node_type": ["Person", "Person", "Person", "City", "City", "Interest", "Interest"],
+        "gender": ["MALE", "female", "male", None, None, None, None],
+        "age": [25, 27, 35, None, None, None, None],
+        "city": [None, None, None, "London", "Paris", None, None],
+        "country": [None, None, None, "United Kingdom", "France", None, None],
+        "state": [None, None, None, "England", "Ile-de-France", None, None],
+        "interest": [None, None, None, None, None, "Fine Dining", "photography"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 2, 0, 1, 2],
+        "d": [20, 20, 21, 10, 10, 11],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    return _mk_graph(nodes, edges)
+
+
+def _compiled_connected_join_filters(query: str) -> list[dict[str, Any]]:
+    compiled = _compile_query(query)
+    plan = _compiled_execution_extras(compiled).connected_match_join
+    assert plan is not None
+    out: list[dict[str, Any]] = []
+    for chain in plan.pattern_chains:
+        for op in chain.chain:
+            if isinstance(op, ASTNode) and isinstance(op._name, str):
+                out.append({op._name: dict(op.filter_dict or {})})
+    return out
+
+
+def _compiled_connected_join_plan(query: str) -> Any:
+    compiled = _compile_query(query)
+    plan = _compiled_execution_extras(compiled).connected_match_join
+    assert plan is not None
+    return plan
+
+
+def _post_join_functions(query: str) -> list[str]:
+    return [op.function for op in _compiled_connected_join_plan(query).post_join_chain.chain if isinstance(op, ASTCall)]
+
+
+def test_t1_connected_comma_q5_fully_pushed_prunes_residual_and_props() -> None:
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = toLower('fine dining') "
+        "AND toLower(p.gender) = toLower('male') "
+        "AND c.city = 'London' AND c.country = 'United Kingdom' "
+        "RETURN count(p) AS numPersons"
+    )
+
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" not in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == ((), ())
+
+
+def test_t1_connected_comma_grouped_projection_attaches_only_city_props() -> None:
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = toLower('fine dining') "
+        "AND p.age >= 23 AND p.age <= 30 "
+        "AND c.country = 'United Kingdom' "
+        "RETURN count(p) AS numPersons, c.state AS state, c.country AS country "
+        "ORDER BY state"
+    )
+
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" not in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == ((), ("c",))
+
+
+def test_t1_connected_comma_pushes_q5_single_alias_filters_before_join() -> None:
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = toLower('fine dining') "
+        "AND toLower(p.gender) = toLower('male') "
+        "AND c.city = 'London' AND c.country = 'United Kingdom' "
+        "RETURN count(p) AS numPersons"
+    )
+
+    result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"numPersons": 1}]
+
+    filters_by_alias = _compiled_connected_join_filters(query)
+    assert any(entry.get("i", {}).get("interest").__class__.__name__ == "Fullmatch" for entry in filters_by_alias)
+    assert any(entry.get("p", {}).get("gender").__class__.__name__ == "Fullmatch" for entry in filters_by_alias)
+    assert any(entry.get("c", {}).get("city") == "London" for entry in filters_by_alias)
+    assert any(entry.get("c", {}).get("country") == "United Kingdom" for entry in filters_by_alias)
+
+
+def test_t1_connected_comma_pushes_q7_range_filters_before_join() -> None:
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = toLower('photography') "
+        "AND p.age >= 23 AND p.age <= 30 "
+        "AND c.country = 'France' "
+        "RETURN count(p) AS numPersons, c.state AS state, c.country AS country"
+    )
+
+    result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == []
+
+    filters_by_alias = _compiled_connected_join_filters(query)
+    assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
+    assert any(entry.get("i", {}).get("interest").__class__.__name__ == "Fullmatch" for entry in filters_by_alias)
+    assert any(entry.get("c", {}).get("country") == "France" for entry in filters_by_alias)
+
 
 
 def test_issue_1413_ic3_entity_membership_positive_same_city_friend_only() -> None:
