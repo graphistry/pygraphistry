@@ -15131,10 +15131,19 @@ def test_t1_connected_comma_retains_unicode_lower_equality_residual(where_expr: 
         "RETURN count(p) AS n"
     )
 
-    oracle_count = sum(value.lower() == "i".lower() for value in values)
-    assert oracle_count == 2
-    result = _mk_graph(nodes, edges).gfql(query)
-    assert result._nodes.to_dict(orient="records") == [{"n": oracle_count}]
+    graph = _mk_graph(nodes, edges)
+    oracle_query = (
+        "MATCH (i {node_type:'Interest'}) "
+        f"WHERE {where_expr} "
+        "RETURN count(i) AS n"
+    )
+    oracle_compiled = cast(CompiledCypherQuery, compile_cypher(oracle_query))
+    assert oracle_compiled.execution_extras.connected_match_join is None
+    oracle_rows = graph.gfql(oracle_query)._nodes.to_dict(orient="records")
+    assert oracle_rows[0]["n"] != len(values)
+
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == oracle_rows
 
     plan = _compiled_connected_join_plan(query)
     assert "where_rows" in _post_join_functions(query)
