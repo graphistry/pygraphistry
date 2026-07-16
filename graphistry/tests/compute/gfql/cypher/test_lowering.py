@@ -14989,7 +14989,7 @@ def _post_join_functions(query: str) -> list[str]:
     return [op.function for op in _compiled_connected_join_plan(query).post_join_chain.chain if isinstance(op, ASTCall)]
 
 
-def test_t1_connected_comma_q5_fully_pushed_prunes_residual_and_props() -> None:
+def test_t1_connected_comma_q5_retains_lower_residual_and_props() -> None:
     query = (
         "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
         "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
@@ -15000,8 +15000,8 @@ def test_t1_connected_comma_q5_fully_pushed_prunes_residual_and_props() -> None:
     )
 
     plan = _compiled_connected_join_plan(query)
-    assert "where_rows" not in _post_join_functions(query)
-    assert plan.pattern_attach_prop_aliases == ((), ())
+    assert "where_rows" in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("p",))
 
 
 def test_t1_connected_comma_grouped_projection_attaches_only_city_props() -> None:
@@ -15016,11 +15016,11 @@ def test_t1_connected_comma_grouped_projection_attaches_only_city_props() -> Non
     )
 
     plan = _compiled_connected_join_plan(query)
-    assert "where_rows" not in _post_join_functions(query)
-    assert plan.pattern_attach_prop_aliases == ((), ("c",))
+    assert "where_rows" in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == (("i",), ("c",))
 
 
-def test_t1_connected_comma_pushes_q5_single_alias_filters_before_join() -> None:
+def test_t1_connected_comma_pushes_q5_literal_filters_and_retains_lower_residual() -> None:
     query = (
         "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
         "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
@@ -15033,9 +15033,13 @@ def test_t1_connected_comma_pushes_q5_single_alias_filters_before_join() -> None
     result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
     assert result._nodes.to_dict(orient="records") == [{"numPersons": 1}]
 
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("p",))
+
     filters_by_alias = _compiled_connected_join_filters(query)
-    assert any(entry.get("i", {}).get("interest").__class__.__name__ == "Fullmatch" for entry in filters_by_alias)
-    assert any(entry.get("p", {}).get("gender").__class__.__name__ == "Fullmatch" for entry in filters_by_alias)
+    assert not any("interest" in entry.get("i", {}) for entry in filters_by_alias)
+    assert not any("gender" in entry.get("p", {}) for entry in filters_by_alias)
     assert any(entry.get("c", {}).get("city") == "London" for entry in filters_by_alias)
     assert any(entry.get("c", {}).get("country") == "United Kingdom" for entry in filters_by_alias)
 
@@ -15054,16 +15058,16 @@ def test_t1_connected_comma_pushes_reversed_single_alias_filters_before_join() -
     assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
 
     plan = _compiled_connected_join_plan(query)
-    assert "where_rows" not in _post_join_functions(query)
-    assert plan.pattern_attach_prop_aliases == ((), ())
+    assert "where_rows" in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == (("i",), ())
 
     filters_by_alias = _compiled_connected_join_filters(query)
-    assert any(entry.get("i", {}).get("interest").__class__.__name__ == "Fullmatch" for entry in filters_by_alias)
+    assert not any("interest" in entry.get("i", {}) for entry in filters_by_alias)
     assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
     assert any(entry.get("c", {}).get("city") == "London" for entry in filters_by_alias)
 
 
-def test_t1_connected_comma_pushes_lower_property_plain_lowercase_literal() -> None:
+def test_t1_connected_comma_retains_lower_property_plain_lowercase_literal() -> None:
     query = (
         "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
         "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
@@ -15076,8 +15080,8 @@ def test_t1_connected_comma_pushes_lower_property_plain_lowercase_literal() -> N
     assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
 
     plan = _compiled_connected_join_plan(query)
-    assert "where_rows" not in _post_join_functions(query)
-    assert plan.pattern_attach_prop_aliases == ((), ())
+    assert "where_rows" in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == (("i",), ())
 
 
 def test_t1_connected_comma_retains_reversed_uppercase_plain_literal_residual() -> None:
@@ -15097,6 +15101,46 @@ def test_t1_connected_comma_retains_reversed_uppercase_plain_literal_residual() 
     assert plan.pattern_attach_prop_aliases == (("i",), ())
 
 
+@pytest.mark.parametrize(
+    "where_expr",
+    [
+        "toLower(i.interest) = toLower('i')",
+        "toLower('i') = toLower(i.interest)",
+    ],
+)
+def test_t1_connected_comma_retains_unicode_lower_equality_residual(where_expr: str) -> None:
+    values = ["İ", "i", "I", "ı"]
+    person_ids = list(range(4))
+    interest_ids = list(range(10, 14))
+    city_id = 20
+    nodes = pd.DataFrame({
+        "id": person_ids + interest_ids + [city_id],
+        "node_type": ["Person"] * 4 + ["Interest"] * 4 + ["City"],
+        "interest": [None] * 4 + values + [None],
+        "city": [None] * 8 + ["London"],
+    })
+    edges = pd.DataFrame({
+        "s": person_ids + person_ids,
+        "d": interest_ids + [city_id] * 4,
+        "rel": ["HAS_INTEREST"] * 4 + ["LIVES_IN"] * 4,
+    })
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        f"WHERE {where_expr} AND c.city = 'London' "
+        "RETURN count(p) AS n"
+    )
+
+    oracle_count = sum(value.lower() == "i".lower() for value in values)
+    assert oracle_count == 2
+    result = _mk_graph(nodes, edges).gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"n": oracle_count}]
+
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == (("i",), ())
+
+
 def test_t1_connected_comma_pushes_q7_range_filters_before_join() -> None:
     query = (
         "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
@@ -15110,9 +15154,13 @@ def test_t1_connected_comma_pushes_q7_range_filters_before_join() -> None:
     result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
     assert result._nodes.to_dict(orient="records") == []
 
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == (("i",), ("c",))
+
     filters_by_alias = _compiled_connected_join_filters(query)
     assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
-    assert any(entry.get("i", {}).get("interest").__class__.__name__ == "Fullmatch" for entry in filters_by_alias)
+    assert not any("interest" in entry.get("i", {}) for entry in filters_by_alias)
     assert any(entry.get("c", {}).get("country") == "France" for entry in filters_by_alias)
 
 

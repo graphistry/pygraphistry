@@ -7824,29 +7824,6 @@ def _connected_join_expr_literal_value(node: ExprNode) -> Tuple[bool, Optional[C
     return False, None
 
 
-def _connected_join_lower_property_ref(
-    node: ExprNode,
-    *,
-    span: SourceSpan,
-) -> Optional[PropertyRef]:
-    if not isinstance(node, FunctionCall) or len(node.args) != 1:
-        return None
-    if node.name.lower() not in {"tolower", "lower"}:
-        return None
-    return _connected_join_expr_property_ref(node.args[0], span=span)
-
-
-def _connected_join_lower_literal_value(node: ExprNode) -> Tuple[bool, Optional[str]]:
-    if isinstance(node, FunctionCall) and len(node.args) == 1 and node.name.lower() in {"tolower", "lower"}:
-        arg = node.args[0]
-        if isinstance(arg, ExprLiteral) and isinstance(arg.value, str):
-            return True, arg.value
-        return False, None
-    if isinstance(node, ExprLiteral) and isinstance(node.value, str):
-        return node.value == node.value.lower(), node.value
-    return False, None
-
-
 def _apply_connected_join_node_filter(
     alias_targets_by_pattern: Sequence[Mapping[str, ASTObject]],
     *,
@@ -7867,34 +7844,6 @@ def _apply_connected_join_node_filter(
             right=value,
             params=params,
         )
-        pushed = True
-    return pushed
-
-
-def _apply_connected_join_node_predicate(
-    alias_targets_by_pattern: Sequence[Mapping[str, ASTObject]],
-    *,
-    prop_ref: PropertyRef,
-    predicate: ASTPredicate,
-) -> bool:
-    pushed = False
-    for alias_targets in alias_targets_by_pattern:
-        target = alias_targets.get(prop_ref.alias)
-        if not isinstance(target, ASTNode):
-            continue
-        filter_dict = dict(target.filter_dict or {})
-        existing_filter = filter_dict.get(prop_ref.property)
-        if existing_filter is None or prop_ref.property not in filter_dict:
-            filter_dict[prop_ref.property] = predicate
-        else:
-            filter_dict[prop_ref.property] = _merge_filter_predicates(
-                existing_filter,
-                predicate,
-                field=f"where.{prop_ref.alias}.{prop_ref.property}",
-                line=prop_ref.span.line,
-                column=prop_ref.span.column,
-            )
-        target.filter_dict = filter_dict
         pushed = True
     return pushed
 
@@ -7942,24 +7891,6 @@ def _pushdown_connected_join_atom_filter(
                 op=reverse_op,
                 value=left_value,
                 params=params,
-            )
-
-    if node.op in {"=", "=="}:
-        left_ref = _connected_join_lower_property_ref(node.left, span=expr.span)
-        right_is_literal, right_value = _connected_join_lower_literal_value(node.right)
-        if left_ref is not None and right_is_literal and right_value is not None:
-            return _apply_connected_join_node_predicate(
-                alias_targets_by_pattern,
-                prop_ref=left_ref,
-                predicate=fullmatch(re.escape(right_value), case=False, na=False),
-            )
-        right_ref = _connected_join_lower_property_ref(node.right, span=expr.span)
-        left_is_literal, left_value = _connected_join_lower_literal_value(node.left)
-        if right_ref is not None and left_is_literal and left_value is not None:
-            return _apply_connected_join_node_predicate(
-                alias_targets_by_pattern,
-                prop_ref=right_ref,
-                predicate=fullmatch(re.escape(left_value), case=False, na=False),
             )
 
     return False
