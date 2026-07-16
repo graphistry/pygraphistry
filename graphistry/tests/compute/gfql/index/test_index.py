@@ -197,6 +197,8 @@ def test_explain_exposes_planner_diagnostics(graph, engine):
     free Σ-degree fanout estimate (from CSR group_offsets), chosen direction, the
     cost-gate threshold, and a human-readable decision_reason — not just a used-index
     yes/no. This is the EXPLAIN enrichment the indexing roadmap calls for."""
+    from graphistry.compute.gfql.index import cost_gate_min_frontier
+
     chain = [n({"id": 0}), e_forward(hops=1)]
     # force → index path taken → per-step + top-level diagnostics populated
     rep = graph.gfql_explain(chain, index_policy="force", engine=engine)
@@ -205,10 +207,14 @@ def test_explain_exposes_planner_diagnostics(graph, engine):
     assert isinstance(rep["est_result_rows"], int) and rep["est_result_rows"] >= 0
     assert "index" in (rep["decision_reason"] or ""), rep["decision_reason"]
     step = next(s for s in rep["steps"] if s.get("path") == "index")
-    for k in ("frontier_n", "n_keys", "seed_deg_sum", "est_result_rows", "threshold_frac"):
+    for k in (
+        "frontier_n", "n_keys", "seed_deg_sum", "est_result_rows",
+        "threshold_frac", "min_frontier_floor",
+    ):
         assert k in step, (k, step)
     assert step["est_result_rows"] == step["seed_deg_sum"]  # est == free Σ-degree
     assert step["seed_deg_sum"] >= 0
+    assert step["min_frontier_floor"] == cost_gate_min_frontier()
 
     # off (index resident) → the planner records *why* it scanned, not just that it did
     gi = graph.gfql_index_all(engine=engine)
