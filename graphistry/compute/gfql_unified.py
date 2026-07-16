@@ -605,7 +605,7 @@ def _connected_join_cached_node_filter(
     return cast(DataFrameT, filtered)
 
 
-def _connected_join_cached_node_ids(
+def _connected_join_cached_node_ids(  # pragma: no cover - polars-only, covered by polars lane
     base_graph: Plottable,
     nodes_obj: DataFrameT,
     node_matches: Sequence[Optional[dict]],
@@ -713,7 +713,7 @@ def _connected_join_cached_singleton_dst_source_counts(
     if cache is not None and full_key in cache:
         return cast(DataFrameT, cache[full_key])
 
-    if engine in POLARS_ENGINES:
+    if engine in POLARS_ENGINES:  # pragma: no cover - polars-only, covered by polars lane
         import polars as pl
         counts = cast(
             DataFrameT,
@@ -731,7 +731,7 @@ def _connected_join_cached_singleton_dst_source_counts(
     return counts
 
 
-def _connected_join_cached_first_arm_shared_counts(
+def _connected_join_cached_first_arm_shared_counts(  # pragma: no cover - polars-only, covered by polars lane
     base_graph: Plottable,
     nodes_obj: DataFrameT,
     edges_obj: DataFrameT,
@@ -795,7 +795,7 @@ def _connected_join_cached_first_arm_shared_counts(
     return cast(DataFrameT, counts)
 
 
-def _connected_join_cached_second_arm_group_rows(
+def _connected_join_cached_second_arm_group_rows(  # pragma: no cover - polars-only, covered by polars lane
     base_graph: Plottable,
     nodes_obj: DataFrameT,
     edges_obj: DataFrameT,
@@ -878,13 +878,59 @@ def _connected_join_cached_second_arm_group_rows(
     return cast(DataFrameT, right_rows)
 
 
-def _property_ref(expr: Any, valid_aliases: Sequence[str]) -> Optional[Tuple[str, str]]:
-    if not isinstance(expr, str) or "." not in expr:
+def _two_hop_cached_equal_domain_degree_counts(
+    base_graph: Plottable,
+    nodes_obj: DataFrameT,
+    edges_obj: DataFrameT,
+    domain_nodes: DataFrameT,
+    edge_domain: DataFrameT,
+    *,
+    node_match: Optional[dict],
+    edge_match: Optional[dict],
+    node_col: str,
+    src_col: str,
+    dst_col: str,
+    engine: Engine,
+) -> Optional[Tuple[DataFrameT, DataFrameT]]:
+    node_key = _connected_join_simple_filter_cache_key(node_match)
+    edge_key = _connected_join_simple_filter_cache_key(edge_match)
+    if node_key is None or edge_key is None:
         return None
-    alias, prop = expr.split(".", 1)
-    if alias not in valid_aliases or not prop:
-        return None
-    return alias, prop
+
+    cache_attr = "_gfql_two_hop_equal_domain_degree_counts_cache"
+    cache = getattr(base_graph, cache_attr, None)
+    if not isinstance(cache, dict):
+        cache = {}
+        try:
+            setattr(base_graph, cache_attr, cache)
+        except Exception:
+            cache = None
+    full_key = (id(nodes_obj), id(edges_obj), engine.value, node_col, src_col, dst_col, node_key, edge_key)
+    if cache is not None and full_key in cache:
+        return cast(Tuple[DataFrameT, DataFrameT], cache[full_key])
+
+    if engine in POLARS_ENGINES:
+        domain_ids = domain_nodes.select(node_col).unique()
+        filtered_edges = (
+            edge_domain
+            .join(domain_ids, left_on=src_col, right_on=node_col, how="semi")
+            .join(domain_ids, left_on=dst_col, right_on=node_col, how="semi")
+        )
+        counts = (
+            cast(DataFrameT, filtered_edges.group_by(dst_col).len("__in_count__")),
+            cast(DataFrameT, filtered_edges.group_by(src_col).len("__out_count__")),
+        )
+    else:
+        domain_ids = domain_nodes[node_col].drop_duplicates()
+        filtered_edges = edge_domain[edge_domain[src_col].isin(domain_ids) & edge_domain[dst_col].isin(domain_ids)]
+        counts = (
+            cast(DataFrameT, filtered_edges.groupby(dst_col, sort=False).size().reset_index(name="__in_count__")),
+            cast(DataFrameT, filtered_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__")),
+        )
+
+    if cache is not None:
+        cache[full_key] = counts
+    return counts
 
 
 def _connected_join_post_property_columns(plan: ConnectedMatchJoinPlan, alias: str) -> List[str]:
@@ -1057,7 +1103,7 @@ def _connected_join_two_star_fast_grouped_count(
     nodes = df_to_engine(nodes_source, engine)
     edges = cast(DataFrameT, edges_obj)
 
-    if engine in POLARS_ENGINES:
+    if engine in POLARS_ENGINES:  # pragma: no cover - polars-only, covered by polars lane
         import polars as pl
         from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
 
@@ -1616,6 +1662,458 @@ def _apply_graph_residual_filters(
             graph = graph.edges(cast(DataFrameT, edges_df.loc[edge_mask]))
     return graph
 
+def _filter_nodes_for_fast_count(nodes: DataFrameT, filter_dict: Optional[dict], *, engine: Engine) -> DataFrameT:
+    if engine in POLARS_ENGINES:
+        from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
+        return cast(DataFrameT, filter_by_dict_polars(nodes, filter_dict))
+    return filter_by_dict(nodes, filter_dict, engine=EngineAbstract(engine.value))
+
+
+def _two_hop_count_alias(chain: Chain) -> Optional[str]:
+    ops = list(chain.chain)
+    if len(ops) != 4 or not all(isinstance(op, ASTCall) for op in ops):
+        return None
+    rows_call, with_call, group_call, select_call = cast(Tuple[ASTCall, ASTCall, ASTCall, ASTCall], tuple(ops))
+    if rows_call.function != "rows" or with_call.function != "with_" or group_call.function != "group_by" or select_call.function != "select":
+        return None
+    if rows_call.params.get("table") != "nodes":
+        return None
+    if with_call.params.get("items") != [("__cypher_group__", 1)]:
+        return None
+    aggs = group_call.params.get("aggregations")
+    if group_call.params.get("keys") != ["__cypher_group__"] or not isinstance(aggs, list) or len(aggs) != 1:
+        return None
+    agg = aggs[0]
+    if not isinstance(agg, (tuple, list)) or len(agg) != 2 or str(agg[1]).lower() != "count":
+        return None
+    alias = str(agg[0])
+    if select_call.params.get("items") != [(alias, alias)]:
+        return None
+    return alias
+
+
+def _two_hop_count_binding_ops(chain: Chain) -> Optional[Tuple[ASTNode, ASTEdge, ASTNode, ASTEdge, ASTNode]]:
+    if not chain.chain or not isinstance(chain.chain[0], ASTCall):
+        return None
+    rows_call = cast(ASTCall, chain.chain[0])
+    binding_ops = rows_call.params.get("binding_ops")
+    if not isinstance(binding_ops, list) or len(binding_ops) != 5:
+        return None
+    from graphistry.compute.ast import from_json as ast_from_json
+    ops = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
+    n0, e0, n1, e1, n2 = ops
+    if not isinstance(n0, ASTNode) or not isinstance(e0, ASTEdge) or not isinstance(n1, ASTNode) or not isinstance(e1, ASTEdge) or not isinstance(n2, ASTNode):
+        return None
+    if not _is_connected_fast_single_hop(e0) or not _is_connected_fast_single_hop(e1):
+        return None
+    return n0, e0, n1, e1, n2
+
+
+def _property_ref(expr: Any, valid_aliases: Sequence[str]) -> Optional[Tuple[str, str]]:
+    if not isinstance(expr, str) or "." not in expr:
+        return None
+    alias, prop = expr.split(".", 1)
+    if alias not in valid_aliases or not prop:
+        return None
+    return alias, prop
+
+
+def _execute_single_hop_grouped_aggregate_fast_path(
+    base_graph: Plottable,
+    chain: Chain,
+    *,
+    engine: Union[EngineAbstract, str],
+) -> Optional[Plottable]:
+    ops = list(chain.chain)
+    if len(ops) not in (3, 4, 5) or not all(isinstance(op, ASTCall) for op in ops):
+        return None
+    rows_call = cast(ASTCall, ops[0])
+    with_call = cast(ASTCall, ops[1])
+    group_call = cast(ASTCall, ops[2])
+    suffix = [cast(ASTCall, op) for op in ops[3:]]
+    if rows_call.function != "rows" or with_call.function != "with_" or group_call.function != "group_by":
+        return None
+    if rows_call.params.get("table") != "nodes" or with_call.params.get("extend") is not True:
+        return None
+
+    order_call: Optional[ASTCall] = None
+    limit_call: Optional[ASTCall] = None
+    for op in suffix:
+        if op.function == "order_by" and order_call is None and limit_call is None:
+            order_call = op
+        elif op.function == "limit" and limit_call is None:
+            limit_call = op
+        else:
+            return None
+
+    binding_ops = rows_call.params.get("binding_ops")
+    if not isinstance(binding_ops, list) or len(binding_ops) != 3:
+        return None
+    from graphistry.compute.ast import from_json as ast_from_json
+    parsed_ops = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
+    start_op, edge_op, end_op = parsed_ops
+    if not isinstance(start_op, ASTNode) or not isinstance(edge_op, ASTEdge) or not isinstance(end_op, ASTNode):
+        return None
+    if not _is_connected_fast_single_hop(edge_op):
+        return None
+    start_alias = getattr(start_op, "_name", None)
+    end_alias = getattr(end_op, "_name", None)
+    if not isinstance(start_alias, str) or not isinstance(end_alias, str) or start_alias == end_alias:
+        return None
+    aliases = (start_alias, end_alias)
+
+    with_items_raw = with_call.params.get("items")
+    if not isinstance(with_items_raw, list):
+        return None
+    with_items: Dict[str, Tuple[str, Optional[str]]] = {}
+    for item in with_items_raw:
+        if not isinstance(item, (tuple, list)) or len(item) != 2 or not isinstance(item[0], str):
+            return None
+        prop_ref = _property_ref(item[1], aliases)
+        ref: Tuple[str, Optional[str]]
+        if prop_ref is None:
+            if item[1] not in aliases:
+                return None
+            ref = (cast(str, item[1]), None)
+        else:
+            ref = prop_ref
+        with_items[item[0]] = ref
+
+    group_keys_raw = group_call.params.get("keys")
+    if not isinstance(group_keys_raw, list) or not group_keys_raw or not all(isinstance(key, str) for key in group_keys_raw):
+        return None
+    group_keys = cast(List[str], group_keys_raw)
+    if not all(key in with_items and with_items[key][1] is not None for key in group_keys):
+        return None
+
+    aggs_raw = group_call.params.get("aggregations")
+    if not isinstance(aggs_raw, list) or not aggs_raw:
+        return None
+    aggregations: List[Tuple[str, str, Optional[str]]] = []
+    for agg in aggs_raw:
+        if not isinstance(agg, (tuple, list)) or len(agg) not in (2, 3):
+            return None
+        alias = str(agg[0])
+        func = str(agg[1]).lower()
+        expr_alias = agg[2] if len(agg) == 3 else None
+        if func not in {"count", "avg", "sum", "min", "max"}:
+            return None
+        if expr_alias is not None and not isinstance(expr_alias, str):
+            return None
+        if expr_alias is not None and expr_alias not in with_items:
+            return None
+        if func != "count" and expr_alias is None:
+            return None
+        if expr_alias is not None and with_items[expr_alias][1] is None and func != "count":
+            return None
+        aggregations.append((alias, func, cast(Optional[str], expr_alias)))
+
+    order_keys: List[Tuple[str, bool]] = []
+    if order_call is not None:
+        raw_order = order_call.params.get("keys")
+        if not isinstance(raw_order, list):
+            return None
+        available = set(group_keys) | {alias for alias, _, _ in aggregations}
+        for item in raw_order:
+            if not isinstance(item, (tuple, list)) or len(item) != 2 or not isinstance(item[0], str):
+                return None
+            if item[0] not in available:
+                return None
+            direction = str(item[1]).lower()
+            if direction not in {"asc", "ascending", "desc", "descending"}:
+                return None
+            order_keys.append((item[0], direction in {"desc", "descending"}))
+
+    limit_value: Optional[int] = None
+    if limit_call is not None:
+        raw_limit = limit_call.params.get("value")
+        if not isinstance(raw_limit, int) or raw_limit < 0:
+            return None
+        limit_value = raw_limit
+
+    requested_engine = resolve_engine(cast(Any, engine), base_graph)
+    nodes_obj = getattr(base_graph, "_nodes", None)
+    edges_obj = getattr(base_graph, "_edges", None)
+    node_col = getattr(base_graph, "_node", None)
+    src_col = getattr(base_graph, "_source", None)
+    dst_col = getattr(base_graph, "_destination", None)
+    if nodes_obj is None or edges_obj is None or node_col is None or src_col is None or dst_col is None:
+        return None
+    node_col = str(node_col)
+    src_col = str(src_col)
+    dst_col = str(dst_col)
+    if node_col not in nodes_obj.columns or src_col not in edges_obj.columns or dst_col not in edges_obj.columns:
+        return None
+
+    nodes = cast(DataFrameT, nodes_obj)
+    start_nodes = _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], start_op.filter_dict), engine=requested_engine)
+    end_nodes = _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], end_op.filter_dict), engine=requested_engine)
+    edges = _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], edge_op.edge_match), engine=requested_engine)
+
+    needed_by_alias: Dict[str, List[Tuple[str, str]]] = {start_alias: [], end_alias: []}
+    for out_col, ref in with_items.items():
+        alias, prop = ref
+        if prop is not None:
+            needed_by_alias[alias].append((out_col, prop))
+
+    if requested_engine in POLARS_ENGINES:  # pragma: no cover - polars-only, covered by polars lane
+        import polars as pl
+        start_ids = start_nodes.select(node_col).unique()
+        end_ids = end_nodes.select(node_col).unique()
+        work = (
+            edges
+            .join(start_ids, left_on=src_col, right_on=node_col, how="semi")
+            .join(end_ids, left_on=dst_col, right_on=node_col, how="semi")
+            .select([src_col, dst_col])
+        )
+
+        def join_props_polars(work_df: Any, alias: str, node_df: Any, edge_col: str) -> Any:
+            props = needed_by_alias.get(alias, [])
+            if not props:
+                return work_df
+            lookup_key = f"__gfql_t3_{alias}_id__"
+            exprs = [pl.col(node_col).alias(lookup_key)]
+            for out_col, prop in props:
+                if prop not in node_df.columns:
+                    return None
+                exprs.append(pl.col(prop).alias(out_col))
+            lookup = node_df.select(exprs)
+            return work_df.join(lookup, left_on=edge_col, right_on=lookup_key, how="inner")
+
+        work = join_props_polars(work, start_alias, start_nodes, src_col)
+        if work is None:
+            return None
+        work = join_props_polars(work, end_alias, end_nodes, dst_col)
+        if work is None:
+            return None
+        agg_exprs = []
+        for alias, func, expr_alias in aggregations:
+            if func == "count" and (expr_alias is None or with_items[expr_alias][1] is None):
+                agg_exprs.append(pl.len().alias(alias))
+            elif func == "count" and expr_alias is not None:
+                agg_exprs.append(pl.col(expr_alias).count().alias(alias))
+            elif func == "avg" and expr_alias is not None:
+                agg_exprs.append(pl.col(expr_alias).mean().alias(alias))
+            elif func == "sum" and expr_alias is not None:
+                agg_exprs.append(pl.col(expr_alias).sum().alias(alias))
+            elif func == "min" and expr_alias is not None:
+                agg_exprs.append(pl.col(expr_alias).min().alias(alias))
+            elif func == "max" and expr_alias is not None:
+                agg_exprs.append(pl.col(expr_alias).max().alias(alias))
+            else:
+                return None
+        out_nodes = work.group_by(group_keys, maintain_order=True).agg(agg_exprs)
+        if order_keys:
+            out_nodes = out_nodes.sort([key for key, _ in order_keys], descending=[desc for _, desc in order_keys])
+        if limit_value is not None:
+            out_nodes = out_nodes.head(limit_value)
+        out_df = cast(DataFrameT, out_nodes)
+    else:
+        start_ids = start_nodes[node_col].drop_duplicates()
+        end_ids = end_nodes[node_col].drop_duplicates()
+        work = edges[edges[src_col].isin(start_ids) & edges[dst_col].isin(end_ids)][[src_col, dst_col]]
+
+        def join_props_df(work_df: DataFrameT, alias: str, node_df: DataFrameT, edge_col: str) -> Optional[DataFrameT]:
+            props = needed_by_alias.get(alias, [])
+            if not props:
+                return work_df
+            prop_cols = []
+            for _, prop in props:
+                if prop not in node_df.columns:
+                    return None
+                if prop != node_col and prop not in prop_cols:
+                    prop_cols.append(prop)
+            lookup_key = f"__gfql_t3_{alias}_id__"
+            lookup = node_df[[node_col] + prop_cols].drop_duplicates(subset=[node_col]).copy()
+            for out_col, prop in props:
+                lookup[out_col] = lookup[prop]
+            lookup = lookup.rename(columns={node_col: lookup_key})
+            return cast(DataFrameT, work_df.merge(lookup, left_on=edge_col, right_on=lookup_key, how="inner"))
+
+        work = cast(DataFrameT, work)
+        joined_start = join_props_df(work, start_alias, start_nodes, src_col)
+        if joined_start is None:
+            return None
+        joined_end = join_props_df(joined_start, end_alias, end_nodes, dst_col)
+        if joined_end is None:
+            return None
+        work = joined_end
+        try:
+            grouped = work.groupby(group_keys, sort=False, dropna=False)
+        except TypeError:
+            grouped = work.groupby(group_keys, sort=False)
+        out_df = grouped.size().reset_index(name="__gfql_group_size__")[group_keys]
+        for alias, func, expr_alias in aggregations:
+            if func == "count" and (expr_alias is None or with_items[expr_alias][1] is None):
+                agg_df = grouped.size().reset_index(name=alias)
+            elif func == "count" and expr_alias is not None:
+                agg_df = grouped[expr_alias].count().reset_index(name=alias)
+            elif func == "avg" and expr_alias is not None:
+                agg_df = grouped[expr_alias].mean().reset_index(name=alias)
+            elif func == "sum" and expr_alias is not None:
+                agg_df = grouped[expr_alias].sum().reset_index(name=alias)
+            elif func == "min" and expr_alias is not None:
+                agg_df = grouped[expr_alias].min().reset_index(name=alias)
+            elif func == "max" and expr_alias is not None:
+                agg_df = grouped[expr_alias].max().reset_index(name=alias)
+            else:
+                return None
+            out_df = cast(DataFrameT, out_df.merge(agg_df, on=group_keys, how="left", sort=False))
+        if order_keys:
+            out_df = cast(DataFrameT, out_df.sort_values(by=[key for key, _ in order_keys], ascending=[not desc for _, desc in order_keys]))
+        if limit_value is not None:
+            out_df = cast(DataFrameT, out_df.head(limit_value))
+        out_df = df_to_engine(out_df.reset_index(drop=True), requested_engine)
+
+    out = base_graph.bind()
+    out._nodes = out_df
+    out._edges = df_cons(requested_engine)()
+    return out
+
+
+def _execute_two_hop_count_fast_path(
+    base_graph: Plottable,
+    chain: Chain,
+    *,
+    engine: Union[EngineAbstract, str],
+) -> Optional[Plottable]:
+    alias = _two_hop_count_alias(chain)
+    if alias is None:
+        return None
+    ops = _two_hop_count_binding_ops(chain)
+    if ops is None:
+        return None
+    start_op, first_edge, middle_op, second_edge, end_op = ops
+
+    requested_engine = resolve_engine(cast(Any, engine), base_graph)
+    nodes_obj = getattr(base_graph, "_nodes", None)
+    edges_obj = getattr(base_graph, "_edges", None)
+    node_col = getattr(base_graph, "_node", None)
+    src_col = getattr(base_graph, "_source", None)
+    dst_col = getattr(base_graph, "_destination", None)
+    if nodes_obj is None or edges_obj is None or node_col is None or src_col is None or dst_col is None:
+        return None
+    node_col = str(node_col)
+    src_col = str(src_col)
+    dst_col = str(dst_col)
+    if node_col not in nodes_obj.columns or src_col not in edges_obj.columns or dst_col not in edges_obj.columns:
+        return None
+
+    nodes = cast(DataFrameT, nodes_obj)
+    start_nodes = _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], start_op.filter_dict), engine=requested_engine)
+    middle_nodes = (
+        start_nodes
+        if middle_op.filter_dict == start_op.filter_dict
+        else _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], middle_op.filter_dict), engine=requested_engine)
+    )
+    end_nodes = (
+        middle_nodes
+        if end_op.filter_dict == middle_op.filter_dict
+        else start_nodes
+        if end_op.filter_dict == start_op.filter_dict
+        else _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], end_op.filter_dict), engine=requested_engine)
+    )
+    first_edges = _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], first_edge.edge_match), engine=requested_engine)
+    reuse_single_edge_domain = (
+        start_op.filter_dict == middle_op.filter_dict == end_op.filter_dict
+        and first_edge.edge_match == second_edge.edge_match
+    )
+    second_edges = (
+        first_edges
+        if first_edge.edge_match == second_edge.edge_match
+        else _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], second_edge.edge_match), engine=requested_engine)
+    )
+
+    if requested_engine in POLARS_ENGINES:
+        import polars as pl
+        if reuse_single_edge_domain:
+            cached_counts = _two_hop_cached_equal_domain_degree_counts(
+                base_graph,
+                nodes,
+                cast(DataFrameT, edges_obj),
+                start_nodes,
+                first_edges,
+                node_match=cast(Optional[dict], start_op.filter_dict),
+                edge_match=cast(Optional[dict], first_edge.edge_match),
+                node_col=node_col,
+                src_col=src_col,
+                dst_col=dst_col,
+                engine=requested_engine,
+            )
+            if cached_counts is None:
+                domain_ids = start_nodes.select(node_col).unique()
+                domain_edges = (
+                    first_edges
+                    .join(domain_ids, left_on=src_col, right_on=node_col, how="semi")
+                    .join(domain_ids, left_on=dst_col, right_on=node_col, how="semi")
+                )
+                in_counts = domain_edges.group_by(dst_col).len("__in_count__")
+                out_counts = domain_edges.group_by(src_col).len("__out_count__")
+            else:
+                in_counts, out_counts = cached_counts
+        else:
+            start_ids = start_nodes.select(node_col).unique()
+            middle_ids = middle_nodes.select(node_col).unique()
+            end_ids = end_nodes.select(node_col).unique()
+            in_counts = (
+                first_edges
+                .join(start_ids, left_on=src_col, right_on=node_col, how="semi")
+                .join(middle_ids, left_on=dst_col, right_on=node_col, how="semi")
+                .group_by(dst_col)
+                .len("__in_count__")
+            )
+            out_counts = (
+                second_edges
+                .join(middle_ids, left_on=src_col, right_on=node_col, how="semi")
+                .join(end_ids, left_on=dst_col, right_on=node_col, how="semi")
+                .group_by(src_col)
+                .len("__out_count__")
+            )
+        total_df = (
+            in_counts
+            .join(out_counts, left_on=dst_col, right_on=src_col, how="inner")
+            .select((pl.col("__in_count__") * pl.col("__out_count__")).sum().fill_null(0).cast(pl.Int64).alias(alias))
+        )
+        out_nodes = cast(DataFrameT, total_df)
+    else:
+        if reuse_single_edge_domain:
+            cached_counts = _two_hop_cached_equal_domain_degree_counts(
+                base_graph,
+                nodes,
+                cast(DataFrameT, edges_obj),
+                start_nodes,
+                first_edges,
+                node_match=cast(Optional[dict], start_op.filter_dict),
+                edge_match=cast(Optional[dict], first_edge.edge_match),
+                node_col=node_col,
+                src_col=src_col,
+                dst_col=dst_col,
+                engine=requested_engine,
+            )
+            if cached_counts is None:
+                domain_ids = start_nodes[node_col].drop_duplicates()
+                domain_edges = first_edges[first_edges[src_col].isin(domain_ids) & first_edges[dst_col].isin(domain_ids)]
+                in_counts = domain_edges.groupby(dst_col, sort=False).size().reset_index(name="__in_count__")
+                out_counts = domain_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__")
+            else:
+                in_counts, out_counts = cached_counts
+        else:
+            start_ids = start_nodes[node_col].drop_duplicates()
+            middle_ids = middle_nodes[node_col].drop_duplicates()
+            end_ids = end_nodes[node_col].drop_duplicates()
+            in_edges = first_edges[first_edges[src_col].isin(start_ids) & first_edges[dst_col].isin(middle_ids)]
+            out_edges = second_edges[second_edges[src_col].isin(middle_ids) & second_edges[dst_col].isin(end_ids)]
+            in_counts = in_edges.groupby(dst_col, sort=False).size().reset_index(name="__in_count__")
+            out_counts = out_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__")
+        joined = in_counts.merge(out_counts, left_on=dst_col, right_on=src_col, how="inner")
+        total = int((joined["__in_count__"] * joined["__out_count__"]).sum()) if len(joined) else 0
+        out_nodes = df_to_engine(pd.DataFrame({alias: [total]}), requested_engine)
+
+    out = base_graph.bind()
+    out._nodes = out_nodes
+    out._edges = df_cons(requested_engine)()
+    return out
+
 
 def _execute_graph_constructor_compiled(
     base_graph: Plottable,
@@ -1863,6 +2361,12 @@ def _execute_compiled_query_via_physical_plan(
         )
 
     if physical_plan.route in ("same_path", "row_pipeline"):
+        fast_grouped = _execute_single_hop_grouped_aggregate_fast_path(base_graph, compiled_query.chain, engine=engine)
+        if fast_grouped is not None:
+            return fast_grouped
+        fast_count = _execute_two_hop_count_fast_path(base_graph, compiled_query.chain, engine=engine)
+        if fast_count is not None:
+            return fast_count
         return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,
@@ -2329,23 +2833,108 @@ def detect_query_type(query: Any) -> QueryType:
         return "single"
 
 
+_COMPILED_STRING_QUERY_CACHE_ATTR = "_gfql_compiled_string_query_cache"
+_COMPILED_STRING_QUERY_CACHE_MAX = 128
+
+
+def _compile_cache_value_key(value: Any) -> Optional[Any]:
+    if value is None:
+        return ("none",)
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, int):
+        return ("int", value)
+    if isinstance(value, float):
+        return ("float", value)
+    if isinstance(value, str):
+        return ("str", value)
+    if isinstance(value, (list, tuple)):
+        items = []
+        for item in value:
+            item_key = _compile_cache_value_key(item)
+            if item_key is None:
+                return None
+            items.append(item_key)
+        return ("list", tuple(items))
+    if isinstance(value, Mapping):
+        items = []
+        seen_keys = set()
+        for key, item in value.items():
+            key_str = str(key)
+            if key_str in seen_keys:
+                return None
+            seen_keys.add(key_str)
+            item_key = _compile_cache_value_key(item)
+            if item_key is None:
+                return None
+            items.append((key_str, item_key))
+        return ("mapping", tuple(sorted(items)))
+    return None
+
+
+def _compile_cache_params_key(params: Optional[Mapping[str, Any]]) -> Optional[Tuple[Tuple[str, Any], ...]]:
+    if not params:
+        return ()
+    items = []
+    seen_keys = set()
+    for key, value in params.items():
+        key_str = str(key)
+        if key_str in seen_keys:
+            return None
+        seen_keys.add(key_str)
+        value_key = _compile_cache_value_key(value)
+        if value_key is None:
+            return None
+        items.append((key_str, value_key))
+    return tuple(sorted(items))
+
+
+def _compile_string_query_cache(
+    cache_owner: Optional[Plottable],
+) -> Optional[Dict[Tuple[str, str, Tuple[Tuple[str, Any], ...]], Any]]:
+    if cache_owner is None:
+        return None
+    try:
+        cache = getattr(cache_owner, _COMPILED_STRING_QUERY_CACHE_ATTR, None)
+        if cache is None:
+            cache = {}
+            setattr(cache_owner, _COMPILED_STRING_QUERY_CACHE_ATTR, cache)
+        if isinstance(cache, dict):
+            return cache
+    except Exception:
+        return None
+    return None
+
+
 def _compile_string_query(
     query: str,
     *,
     language: Optional[Literal["cypher", "gremlin"]],
     params: Optional[Mapping[str, Any]],
+    cache_owner: Optional[Plottable] = None,
 ) -> Any:
     query_language = language or "cypher"
     if query_language != "cypher":
         raise GFQLValidationError(
             ErrorCode.E108,
-            f"Unsupported GFQL string language '{query_language}'",
+            f"Unsupported GFQL string language {query_language!r}",
             field="language",
             value=query_language,
-            suggestion="Use language='cypher' for now; Gremlin string compilation is not implemented yet.",
+            suggestion="Use language=\"cypher\" for now; Gremlin string compilation is not implemented yet.",
             language="gfql",
         )
-    return compile_cypher(query, params=params, _warn_deprecated=False)
+    params_key = _compile_cache_params_key(params)
+    cache = _compile_string_query_cache(cache_owner) if params_key is not None else None
+    cache_key = (query_language, query, params_key) if params_key is not None else None
+    if cache is not None and cache_key is not None and cache_key in cache:
+        return cache[cache_key]
+
+    compiled = compile_cypher(query, params=params, _warn_deprecated=False)
+    if cache is not None and cache_key is not None:
+        if cache_key not in cache and len(cache) >= _COMPILED_STRING_QUERY_CACHE_MAX:
+            cache.clear()
+        cache[cache_key] = compiled
+    return compiled
 
 
 def _compile_value_repr(value: Any) -> str:
@@ -2641,7 +3230,7 @@ def gfql(self: Plottable,
         if isinstance(query, str):
             query_language = language or "cypher"
             try:
-                compiled_query = _compile_string_query(query, language=language, params=params)
+                compiled_query = _compile_string_query(query, language=language, params=params, cache_owner=dispatch_self)
             except GFQLValidationError as exc:
                 _fire_postcompile_policy(
                     expanded_policy,

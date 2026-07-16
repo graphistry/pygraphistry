@@ -362,6 +362,14 @@ def _try_native_row_op(g_cur, op):
 
     fn = getattr(op, "function", None)
     if fn == "rows" and op.params.get("binding_ops") is not None:
+        # Single-entity boundary rows emitted by MATCH (n) / EXISTS seeds are
+        # handled by the pattern-apply helper. Try that narrow shape before the
+        # connected multi-alias bindings table path, which intentionally declines
+        # node-only binding_ops.
+        if op.params.get("source") is None:
+            out = rows_binding_ops_polars(g_cur, op.params["binding_ops"])
+            if out is not None:
+                return out
         # Multi-alias bindings table (#1709): native for fixed-length connected
         # patterns; binding_rows_polars declines (None → NIE) outside that subset.
         if op.params.get("alias_endpoints") is not None:
@@ -372,15 +380,6 @@ def _try_native_row_op(g_cur, op):
     if _call_native_on_polars(op):
         # frame ops (rows/limit/skip/distinct/drop_cols) — engine-polymorphic
         return op.execute(g=g_cur, prev_node_wavefront=None, target_wave_front=None, engine=Engine.POLARS)
-    # correlated pattern-existence family (EXISTS { } / pattern predicates): native
-    # via chain_polars-computed key sets; unsupported shapes return None -> honest NIE.
-    if (
-        fn == "rows"
-        and op.params.get("binding_ops") is not None
-        and op.params.get("alias_endpoints") is None
-        and op.params.get("source") is None
-    ):
-        return rows_binding_ops_polars(g_cur, op.params["binding_ops"])
     if fn == "semi_apply_mark":
         # required params are safelist-validated — direct indexing (an or-default
         # here could only mask an unvalidated call); neq is the optional one.

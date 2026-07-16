@@ -21,7 +21,7 @@ from .registry import (
 )
 from .build import build_adjacency_index, build_node_id_index
 from .traverse import index_seeded_hop
-from .cost import cost_gate_frac, cost_gate_min_frontier, seed_deg_sum, seed_id_array
+from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
 from .policy import IndexPolicy, validate_index_policy
 from .types import (
     AdjacencyIndexKind, EdgeIndexDirection, HopDirection, IndexKind,
@@ -424,15 +424,10 @@ def maybe_index_hop(
 
     # Cost gate: if the frontier covers a large fraction of distinct sources, the
     # scan path is competitive — fall back (avoids index overhead on bulk-ish hops).
-    # Small-frontier floor: a frontier of <= cost_gate_min_frontier() seeds always
-    # indexes — the frac gate scales with n_keys, so on small/low-cardinality slices
-    # it would otherwise send even a single-seed hop to the O(E) scan. Pure routing
-    # heuristic either way: index and scan return identical results.
     idx0 = cast(Optional[AdjacencyIndex], registry.get_valid(
         EDGE_OUT_ADJ if direction != "reverse" else EDGE_IN_ADJ, g._edges, (src, dst), engine
     ))
     frac = cost_gate_frac(engine)
-    min_frontier = cost_gate_min_frontier()
     if trace and idx0 is not None:
         # Free fanout estimate (Σ seed degree) from the CSR offsets — the planner
         # signal the report wants EXPLAIN to surface (not just used-index yes/no).
@@ -442,19 +437,16 @@ def maybe_index_hop(
         diag["seed_deg_sum"] = deg_sum
         diag["est_result_rows"] = deg_sum
         diag["threshold_frac"] = frac
-        diag["min_frontier_floor"] = min_frontier
     if idx0 is None:
         # required direction not resident (undirected needs both); let driver decide
         pass
     elif resolved_policy != "force":
         try:
             frontier_n = int(nodes.shape[0])
-            if (frontier_n > min_frontier
-                    and idx0.n_keys > 0 and frontier_n >= frac * idx0.n_keys):
+            if idx0.n_keys > 0 and frontier_n >= frac * idx0.n_keys:
                 return _bail(
                     f"frontier {frontier_n} >= {frac}*n_keys "
-                    f"({frac * idx0.n_keys:.0f}) and > floor ({min_frontier}) "
-                    f"-> scan cheaper"
+                    f"({frac * idx0.n_keys:.0f}) -> scan cheaper"
                 )
         except (AttributeError, TypeError, ValueError):
             pass

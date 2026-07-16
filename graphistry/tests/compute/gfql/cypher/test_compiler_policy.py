@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from typing import List, cast
+from typing import Any, List, cast
 
 import pandas as pd
 import pytest
 
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.policy import CompileSummary, PolicyContext, PolicyException
+from graphistry.compute import gfql_unified as gfql_unified_module
 from graphistry.tests.test_compute import CGFull
 
 
@@ -194,3 +195,72 @@ def test_precompile_policy_can_deny_before_invalid_query_compiles() -> None:
     assert calls == ["precompile"]
     assert exc_info.value.phase == "precompile"
     assert exc_info.value.query_type == "chain"
+
+
+def test_compiled_string_query_cache_reuses_identical_query_per_graph(monkeypatch: pytest.MonkeyPatch) -> None:
+    compile_calls: List[str] = []
+    original_compile = gfql_unified_module.compile_cypher
+
+    def spy_compile(query: str, *args: Any, **kwargs: Any) -> Any:
+        compile_calls.append(query)
+        return original_compile(query, *args, **kwargs)
+
+    monkeypatch.setattr(gfql_unified_module, "compile_cypher", spy_compile)
+    graph = _mk_graph()
+    query = "UNWIND [1, 2, 3] AS x RETURN x ORDER BY x"
+
+    first = graph.gfql(query)
+    second = graph.gfql(query)
+    _mk_graph().gfql(query)
+
+    assert first._nodes[["x"]].to_dict(orient="records") == [{"x": 1}, {"x": 2}, {"x": 3}]
+    assert second._nodes[["x"]].to_dict(orient="records") == [{"x": 1}, {"x": 2}, {"x": 3}]
+    assert compile_calls == [query, query]
+
+
+def test_compiled_string_query_cache_keys_include_params(monkeypatch: pytest.MonkeyPatch) -> None:
+    compile_params: List[Any] = []
+    original_compile = gfql_unified_module.compile_cypher
+
+    def spy_compile(query: str, *args: Any, **kwargs: Any) -> Any:
+        compile_params.append(kwargs.get("params"))
+        return original_compile(query, *args, **kwargs)
+
+    monkeypatch.setattr(gfql_unified_module, "compile_cypher", spy_compile)
+    graph = _mk_graph()
+    query = "RETURN $value AS value"
+
+    one = graph.gfql(query, params={"value": 1})
+    two = graph.gfql(query, params={"value": 2})
+    one_again = graph.gfql(query, params={"value": 1})
+
+    assert one._nodes.to_dict(orient="records") == [{"value": 1}]
+    assert two._nodes.to_dict(orient="records") == [{"value": 2}]
+    assert one_again._nodes.to_dict(orient="records") == [{"value": 1}]
+    assert compile_params == [{"value": 1}, {"value": 2}]
+
+
+def test_compiled_string_query_cache_hit_still_fires_compile_policies(monkeypatch: pytest.MonkeyPatch) -> None:
+    compile_calls: List[str] = []
+    policy_calls: List[str] = []
+    original_compile = gfql_unified_module.compile_cypher
+
+    def spy_compile(query: str, *args: Any, **kwargs: Any) -> Any:
+        compile_calls.append(query)
+        return original_compile(query, *args, **kwargs)
+
+    def observe(ctx: PolicyContext) -> None:
+        policy_calls.append(cast(str, ctx["phase"]))
+        if ctx["phase"] == "postcompile":
+            assert ctx["success"] is True
+            assert isinstance(ctx["compile"], CompileSummary)
+
+    monkeypatch.setattr(gfql_unified_module, "compile_cypher", spy_compile)
+    graph = _mk_graph()
+    query = "RETURN 1 AS value"
+
+    graph.gfql(query, policy={"precompile": observe, "postcompile": observe})
+    graph.gfql(query, policy={"precompile": observe, "postcompile": observe})
+
+    assert compile_calls == [query]
+    assert policy_calls == ["precompile", "postcompile", "precompile", "postcompile"]
