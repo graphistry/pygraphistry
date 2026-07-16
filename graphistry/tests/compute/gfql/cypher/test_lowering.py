@@ -15024,7 +15024,7 @@ def test_t1_connected_comma_pushes_label_predicate_with_property_filter() -> Non
     assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
 
 
-def test_t1_connected_comma_mixes_unary_pushdown_and_in_residual() -> None:
+def test_t1_connected_comma_mixes_signed_literal_pushdown_and_in_residual() -> None:
     query = (
         "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
         "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
@@ -15039,6 +15039,26 @@ def test_t1_connected_comma_mixes_unary_pushdown_and_in_residual() -> None:
     plan = _compiled_connected_join_plan(query)
     assert "where_rows" in _post_join_functions(query)
     assert plan.pattern_attach_prop_aliases == (("i", "p"), ("p",))
+    filters_by_alias = _compiled_connected_join_filters(query)
+    assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
+
+
+@pytest.mark.parametrize("predicate", ["p.age >= - 26", "p.age >= -(26)", "p.age >= +(26)"])
+def test_t1_connected_comma_pushes_unfolded_unary_literal(predicate: str) -> None:
+    # `NUMBER` carries its sign as a lexer terminal, so only a lexically adjacent sign
+    # folds into the literal. A spaced or parenthesised sign stays a UnaryOp node and
+    # must still push down rather than degrade to a row residual.
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        f"WHERE {predicate} "
+        "RETURN count(p) AS numPersons"
+    )
+
+    expected = 3 if predicate != "p.age >= +(26)" else 2
+    result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"numPersons": expected}]
+
     filters_by_alias = _compiled_connected_join_filters(query)
     assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
 
