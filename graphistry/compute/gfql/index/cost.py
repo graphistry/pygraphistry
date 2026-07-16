@@ -17,6 +17,46 @@ _COST_GATE_FRAC = {Engine.PANDAS: 0.5}
 _COST_GATE_FRAC_DEFAULT = 0.02
 _COST_GATE_FRAC_OVERRIDES: Dict[Engine, float] = {}
 
+# Absolute small-frontier floor: at or below this many seed rows the planner NEVER
+# bails to scan on the frac gate. The frac gate scales with distinct-key cardinality,
+# so on small / low-cardinality edge slices (e.g. per-edge-type homogeneous frames:
+# n_keys <= 1/0.02 = 50 at the polars/cudf frac) even a single-node seed trips it and
+# the hop scans O(E) despite a resident O(degree) index. A frontier of <= K seeds
+# bounds CSR lookup work to K searchsorted probes plus the matching-row gather,
+# avoiding that fractional-gate artifact. The actual index/scan crossover remains
+# engine- and data-dependent: K is a conservative, environment-tunable default,
+# not a measured universal threshold. Constant (not a function of n_keys) on
+# purpose: scaling with n_keys is the frac gate's job; the floor bounds absolute
+# per-hop probe work where frac*n_keys collapses below a handful of seeds. Uniform
+# across engines (pandas's 0.5 frac only overlaps the floor when n_keys <= 2*K).
+# Purely a routing heuristic: index and scan return identical results.
+_COST_GATE_MIN_FRONTIER_DEFAULT = 16
+
+
+def cost_gate_min_frontier() -> int:
+    """Return the absolute small-frontier floor for the index-vs-scan cost gate.
+
+    Frontiers of at most this many seeds always take a resident index, regardless
+    of the frac gate. ``0`` disables the floor (pure frac gating). Env-overridable
+    via ``GFQL_INDEX_COST_GATE_MIN_FRONTIER`` for benchmark/diagnostic tuning.
+    """
+    raw = os.environ.get("GFQL_INDEX_COST_GATE_MIN_FRONTIER")
+    if raw is None or raw == "":
+        return _COST_GATE_MIN_FRONTIER_DEFAULT
+    try:
+        val = int(raw)
+    except ValueError as ex:
+        raise ValueError(
+            f"Invalid GFQL_INDEX_COST_GATE_MIN_FRONTIER={raw!r}: "
+            f"expected a non-negative integer"
+        ) from ex
+    if val < 0:
+        raise ValueError(
+            f"Invalid GFQL_INDEX_COST_GATE_MIN_FRONTIER={raw!r}: "
+            f"expected a non-negative integer"
+        )
+    return val
+
 
 def _validate_cost_gate_frac(frac: float) -> float:
     if not 0.0 < frac <= 1.0:

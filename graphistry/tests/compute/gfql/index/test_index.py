@@ -197,6 +197,8 @@ def test_explain_exposes_planner_diagnostics(graph, engine):
     free Σ-degree fanout estimate (from CSR group_offsets), chosen direction, the
     cost-gate threshold, and a human-readable decision_reason — not just a used-index
     yes/no. This is the EXPLAIN enrichment the indexing roadmap calls for."""
+    from graphistry.compute.gfql.index import cost_gate_min_frontier
+
     chain = [n({"id": 0}), e_forward(hops=1)]
     # force → index path taken → per-step + top-level diagnostics populated
     rep = graph.gfql_explain(chain, index_policy="force", engine=engine)
@@ -205,10 +207,14 @@ def test_explain_exposes_planner_diagnostics(graph, engine):
     assert isinstance(rep["est_result_rows"], int) and rep["est_result_rows"] >= 0
     assert "index" in (rep["decision_reason"] or ""), rep["decision_reason"]
     step = next(s for s in rep["steps"] if s.get("path") == "index")
-    for k in ("frontier_n", "n_keys", "seed_deg_sum", "est_result_rows", "threshold_frac"):
+    for k in (
+        "frontier_n", "n_keys", "seed_deg_sum", "est_result_rows",
+        "threshold_frac", "min_frontier_floor",
+    ):
         assert k in step, (k, step)
     assert step["est_result_rows"] == step["seed_deg_sum"]  # est == free Σ-degree
     assert step["seed_deg_sum"] >= 0
+    assert step["min_frontier_floor"] == cost_gate_min_frontier()
 
     # off (index resident) → the planner records *why* it scanned, not just that it did
     gi = graph.gfql_index_all(engine=engine)
@@ -322,6 +328,89 @@ def test_cost_gate_frac_tuning(monkeypatch):
     with pytest.raises(ValueError, match="GFQL_INDEX_COST_GATE_FRAC_PANDAS"):
         cost_gate_frac(Engine.PANDAS)
     reset_cost_gate_frac()
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_cost_gate_small_frontier_floor_indexes_tiny_slices(engine):
+    """#1726 follow-up: a small seeded frontier on a small-n_keys slice (e.g. an SNB
+    per-edge-type homogeneous frame) must take the resident index on every engine.
+    Before the floor, the frac gate (0.02 on polars/cudf) tripped on any slice with
+    n_keys <= 50 even for a single seed -> O(E) scan with an O(degree) index resident.
+    Result is identical either way (the gate is a pure routing heuristic)."""
+    from graphistry.compute.gfql.index import index_trace
+    rng = np.random.default_rng(3)
+    n_src = 30  # n_keys ~30: frac gate alone would demand frontier < 0.6 on polars/cudf
+    edf = pd.DataFrame({
+        "src": rng.integers(0, n_src, 600),
+        "dst": rng.integers(0, 2000, 600),
+    })
+    g = graphistry.edges(edf, "src", "dst").materialize_nodes()
+    gi = g.gfql_index_all(engine=engine)
+    seeds = pd.DataFrame({"id": edf["src"].iloc[:1].astype("int64")})  # frontier_n=1
+    with index_trace() as steps:
+        out = gi.hop(nodes=seeds, engine=engine, hops=1, direction="forward")
+    assert any(s.get("path") == "index" for s in steps), (engine, steps)
+    scan_out = g.hop(nodes=seeds, engine=engine, hops=1, direction="forward")
+    assert _sig(out) == _sig(scan_out), engine  # correctness path-independent
+
+    # A frontier just past the floor on the same tiny slice still bails to scan
+    # (frac gate: 17 >= 0.02*30 and 17 >= 0.5*30) -> the bulk-hop protection stands.
+    many = pd.DataFrame({"id": np.arange(17, dtype="int64")})
+    with index_trace() as steps2:
+        out2 = gi.hop(nodes=many, engine=engine, hops=1, direction="forward")
+    assert not any(s.get("path") == "index" for s in steps2), (engine, steps2)
+    assert any("scan cheaper" in (s.get("decision_reason") or "") for s in steps2), (engine, steps2)
+    scan_out2 = g.hop(nodes=many, engine=engine, hops=1, direction="forward")
+    assert _sig(out2) == _sig(scan_out2), engine
+
+
+def test_cost_gate_min_frontier_tuning(monkeypatch):
+    from graphistry.compute.gfql.index import cost_gate_min_frontier
+    from graphistry.compute.gfql.index.cost import _COST_GATE_MIN_FRONTIER_DEFAULT
+
+    monkeypatch.delenv("GFQL_INDEX_COST_GATE_MIN_FRONTIER", raising=False)
+    assert cost_gate_min_frontier() == _COST_GATE_MIN_FRONTIER_DEFAULT == 16
+
+    monkeypatch.setenv("GFQL_INDEX_COST_GATE_MIN_FRONTIER", "32")
+    assert cost_gate_min_frontier() == 32
+
+    monkeypatch.setenv("GFQL_INDEX_COST_GATE_MIN_FRONTIER", "0")  # 0 disables the floor
+    assert cost_gate_min_frontier() == 0
+
+    monkeypatch.setenv("GFQL_INDEX_COST_GATE_MIN_FRONTIER", "-1")
+    with pytest.raises(ValueError, match="GFQL_INDEX_COST_GATE_MIN_FRONTIER"):
+        cost_gate_min_frontier()
+    monkeypatch.setenv("GFQL_INDEX_COST_GATE_MIN_FRONTIER", "abc")
+    with pytest.raises(ValueError, match="GFQL_INDEX_COST_GATE_MIN_FRONTIER"):
+        cost_gate_min_frontier()
+
+
+def test_cost_gate_min_frontier_floor_disabled_restores_frac_gate(monkeypatch):
+    """Floor=0 restores pure frac gating: a 1-seed hop on a tiny-n_keys slice bails
+    again under a sub-frac (proves the floor is what routes it to the index)."""
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index import (
+        index_trace, reset_cost_gate_frac, set_cost_gate_frac,
+    )
+    monkeypatch.delenv("GFQL_INDEX_COST_GATE_MIN_FRONTIER", raising=False)
+    edf = pd.DataFrame({"src": [0, 1, 2, 0, 1], "dst": [10, 11, 12, 13, 14]})
+    g = graphistry.edges(edf, "src", "dst").materialize_nodes()
+    gi = g.gfql_index_all(engine="pandas")
+    seeds = pd.DataFrame({"id": [0]})
+    set_cost_gate_frac(Engine.PANDAS, 0.02)  # emulate the vectorized-engine frac on CPU
+    try:
+        # frac alone would bail (1 >= 0.02*3): the floor keeps the index engaged
+        with index_trace() as steps:
+            gi.hop(nodes=seeds, engine="pandas", hops=1, direction="forward")
+        assert any(s.get("path") == "index" for s in steps), steps
+        # disable the floor -> the frac gate governs again -> scan
+        monkeypatch.setenv("GFQL_INDEX_COST_GATE_MIN_FRONTIER", "0")
+        with index_trace() as steps2:
+            gi.hop(nodes=seeds, engine="pandas", hops=1, direction="forward")
+        assert not any(s.get("path") == "index" for s in steps2), steps2
+        assert any("scan cheaper" in (s.get("decision_reason") or "") for s in steps2), steps2
+    finally:
+        reset_cost_gate_frac()
 
 
 def test_column_mismatch_raises_not_silent(graph):
