@@ -15396,6 +15396,26 @@ def test_connected_join_string_op_on_non_str_kinds_stays_typed(column: str) -> N
         _real_infer_kind_graph().gfql(query)
 
 
+def _real_all_null_object_graph() -> Plottable:
+    nodes = pd.DataFrame({"id": ["n1", "n2", "n3", "n4"]})
+    nodes["note"] = pd.Series([None] * 4, dtype=object)  # infers `empty`
+    edges = pd.DataFrame({"s": ["n1", "n2", "n3", "n1"], "d": ["n2", "n3", "n4", "n3"]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    ["p.note CONTAINS 'a'", "p.note STARTS WITH 'a'", "p.note ENDS WITH 'a'", "p.note =~ 'a.*'"],
+)
+def test_connected_join_empty_object_column_still_answers(predicate: str) -> None:
+    # `empty` (an all-null object column) is subset-closed and `.str` handles it, so it must keep
+    # pushing: 3VL says NULL CONTAINS 'a' is NULL, hence no rows. Dropping `empty` from the
+    # keep-set silently reverts these to master's unsupported error, and nothing else catches it.
+    query = f"MATCH (i)-->(p), (p)-->(c) WHERE {predicate} RETURN count(p) AS n"
+
+    assert _real_all_null_object_graph().gfql(query)._nodes.to_dict(orient="records") == []
+
+
 def test_connected_join_mixed_column_stays_typed() -> None:
     # `mixed`/`mixed-integer` pass pandas' accessor rule on the SOURCE frame but are not closed
     # under subsetting: the executor filters the join's candidates, and dropping the strings
