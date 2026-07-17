@@ -7962,6 +7962,25 @@ def _connected_join_pushable_value(
     return _connected_join_dtype_admits(op, resolved, node_dtypes[column])
 
 
+def _connected_join_mergeable_existing_filter(target: ASTNode, prop: str) -> bool:
+    """Whether pushing onto `prop` can merge with what an inline property map already set.
+
+    `_merge_filter_predicates` wraps raw scalars with `comparison.eq`, which serializes to
+    `{'type': 'EQ'}` -- but `predicates/from_json.py` binds that tag to `predicates.numeric.EQ`,
+    which admits only int/float. So merging onto an existing STRING value produces a filter
+    that raises when the executor rehydrates it. That write/read split is not ours to fix
+    here; just don't create it. Nothing merges when the property is absent, and an existing
+    numeric or already-built predicate rehydrates fine.
+    """
+    existing_filter = _target_filter_dict(target) or {}
+    if prop not in existing_filter:
+        return True
+    existing = existing_filter[prop]
+    if isinstance(existing, ASTPredicate):
+        return True
+    return isinstance(existing, (int, float)) and not isinstance(existing, bool)
+
+
 def _apply_connected_join_node_filter(
     alias_targets_by_pattern: Sequence[Mapping[str, ASTObject]],
     *,
@@ -7975,6 +7994,12 @@ def _apply_connected_join_node_filter(
         op, value, params=params, column=prop_ref.property, node_dtypes=node_dtypes
     ):
         return False
+    for alias_targets in alias_targets_by_pattern:
+        target = alias_targets.get(prop_ref.alias)
+        if not isinstance(target, ASTNode):
+            continue
+        if not _connected_join_mergeable_existing_filter(target, prop_ref.property):
+            return False
     pushed = False
     for alias_targets in alias_targets_by_pattern:
         target = alias_targets.get(prop_ref.alias)

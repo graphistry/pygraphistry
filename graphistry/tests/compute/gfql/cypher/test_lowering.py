@@ -15326,6 +15326,43 @@ def test_connected_join_interval_column_matches_master(predicate: str, expected:
     assert g.gfql(query)._nodes.to_dict(orient="records") == expected
 
 
+def _real_labelled_inline_graph() -> Plottable:
+    nodes = pd.DataFrame([
+        {"id": "p1", "label__Person": True, "label__Place": False, "nick": "aa", "age": 30},
+        {"id": "p2", "label__Person": True, "label__Place": False, "nick": "bb", "age": 40},
+        {"id": "c1", "label__Person": False, "label__Place": True, "nick": None, "age": None},
+    ])
+    edges = pd.DataFrame([{"s": "p1", "d": "c1", "type": "L"}, {"s": "p2", "d": "c1", "type": "L"}])
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize(
+    "inline,predicate,expected",
+    [
+        # Merging onto an existing STRING inline value wraps it with comparison.eq, which
+        # serializes to {'type':'EQ'} -- a tag from_json binds to the numeric-only EQ, so the
+        # executor raises when it rehydrates. Don't create that shape; stay residual.
+        ("{nick:'aa'}", "friend.nick = 'aa'", [{"n": 1}]),
+        ("{nick:'aa'}", "friend.nick = 'bb'", []),
+        # A different property never merges, and a numeric inline value rehydrates fine.
+        ("{nick:'aa'}", "friend.age > 20", [{"n": 1}]),
+        ("{age:30}", "friend.age > 20", [{"n": 1}]),
+        ("{}", "friend.nick = 'aa'", [{"n": 1}]),
+    ],
+)
+def test_connected_join_inline_string_property_merge_matches_master(
+    inline: str, predicate: str, expected: Any
+) -> None:
+    query = (
+        "MATCH (person:Person {id:'p1'})-[:L]->(city:Place), "
+        f"(friend:Person {inline})-[:L]->(city) "
+        f"WHERE {predicate} RETURN count(friend) AS n"
+    )
+
+    result = _real_labelled_inline_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected
+
+
 def test_connected_join_dtype_classes_handles_non_pandas_dtypes() -> None:
     # `pd.api.types.is_numeric_dtype(pl.Int64())` returns False rather than raising, so
     # filter_by_dict's helpers never reach their fallback and a polars column would look
