@@ -1341,7 +1341,10 @@ def detect_query_type(query: Any) -> QueryType:
         return "single"
 
 
-def _node_dtypes_for_pushdown(g: Plottable) -> Optional[Mapping[str, Any]]:
+def _node_dtypes_for_pushdown(
+    g: Plottable,
+    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
+) -> Optional[Mapping[str, Any]]:
     """Column dtypes used to decide whether a WHERE atom may be pushed into a filter_dict.
 
     A pushed filter is schema-validated against the real column while the row residual
@@ -1350,14 +1353,16 @@ def _node_dtypes_for_pushdown(g: Plottable) -> Optional[Mapping[str, Any]]:
     value-type-only decision.
     """
     nodes = getattr(g, "_nodes", None)
-    dtypes = getattr(nodes, "dtypes", None)
-    columns = getattr(nodes, "columns", None)
-    if dtypes is None or columns is None:
+    if nodes is None:
         return None
     try:
-        # zip rather than `dtypes.items()`: pandas/cuDF expose a column-indexed Series but
-        # polars exposes a plain list, and `.items()` there would silently yield no schema.
-        mapping = {str(col): dtype for col, dtype in zip(list(columns), list(dtypes))}
+        # Classify the frame the EXECUTOR will filter, not the one the caller handed in.
+        # `filter_by_dict` validates post-materialization dtypes, so judging the pre-conversion
+        # frame lets the two disagree (polars Decimal reads numeric here, object there).
+        # `head(0)` preserves dtype classes, so an empty probe is enough.
+        probe = df_to_engine(nodes.head(0), resolve_engine(cast(Any, engine), nodes), warn=False)
+        # zip rather than `.items()`: pandas/cuDF expose a column-indexed Series, polars a list.
+        mapping = {str(col): dtype for col, dtype in zip(list(probe.columns), list(probe.dtypes))}
     except Exception:
         return None
     return mapping or None
@@ -1680,7 +1685,7 @@ def gfql(self: Plottable,
                     query,
                     language=language,
                     params=params,
-                    node_dtypes=_node_dtypes_for_pushdown(self),
+                    node_dtypes=_node_dtypes_for_pushdown(self, engine),
                 )
             except GFQLValidationError as exc:
                 _fire_postcompile_policy(

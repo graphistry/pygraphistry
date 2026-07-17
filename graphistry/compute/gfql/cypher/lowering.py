@@ -7821,59 +7821,22 @@ def _connected_join_expr_literal_value(node: ExprNode) -> Tuple[bool, Optional[C
 
 _CONNECTED_JOIN_STRING_OPS = frozenset({"contains", "starts_with", "ends_with", "regex"})
 _CONNECTED_JOIN_ORDERING_OPS = frozenset({"!=", "<", "<=", ">", ">="})
-# Container dtypes whose text embeds an element type, e.g. `interval[int64, right]`,
-# `List(Int64)`, `struct`. Never scalar-comparable, so they must never push.
-_CONNECTED_JOIN_CONTAINER_DTYPE_TOKENS = (
-    "interval",
-    "struct",
-    "list",
-    "array",
-    "map",
-    "binary",
-    "void",
-    "record",
-)
-
-
 def _connected_join_dtype_classes(dtype: Any) -> Tuple[bool, bool]:
-    """Classify `dtype` as (numeric, string), across pandas / cuDF / polars.
+    """Classify `dtype` as (numeric, string) using the validator's own helpers, verbatim.
 
-    `filter_by_dict`'s helpers only reach their kind/text fallback when `pd.api.types`
-    RAISES. For a polars dtype it returns False instead, so a polars column would come back
-    neither-numeric-nor-string and the caller would read that as "safe to push". Re-derive
-    from `kind`/text when both say False, and let the caller fail closed if it stays unknown.
+    `_node_dtypes_for_pushdown` hands us the dtype the executor will actually filter on, so
+    asking `filter_by_dict`'s helpers is asking the executor itself -- planner and validator
+    agree by construction, and anything they both decline fails closed at the caller.
+
+    Deliberately no kind/text fallback. `pd.api.types.is_numeric_dtype` returns False without
+    raising both for a dtype pandas cannot parse and for one it authoritatively knows is not
+    numeric, so a "both False" fallback cannot tell those apart -- and overriding the
+    authoritative answer is what made Arrow bool/dictionary columns raise where the residual
+    answers.
     """
     from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe
 
-    is_numeric_col = bool(_is_numeric_dtype_safe(dtype))
-    is_string_col = bool(_is_string_dtype_safe(dtype))
-    if is_numeric_col or is_string_col:
-        return is_numeric_col, is_string_col
-    kind = getattr(dtype, "kind", None)
-    if isinstance(kind, str) and kind in {"b", "i", "u", "f", "c"}:
-        return True, False
-    text = ""
-    try:
-        text = str(dtype).lower()
-    except Exception:
-        return False, False
-    if any(token in text for token in _CONNECTED_JOIN_CONTAINER_DTYPE_TOKENS):
-        # Container dtypes must be tested first: their text embeds their element type, so
-        # `interval[int64, right]` and `List(Int64)` contain "int" and `struct` contains
-        # "str". Matching those as scalars pushes a numeric predicate onto a container
-        # column, which raises where the residual answers.
-        return False, False
-    if any(token in text for token in ("bool", "int", "float", "double")):
-        return True, False
-    if any(token in text for token in ("string", "utf8", "object", "str")):
-        return False, True
-    # Deliberately absent: decimal, categorical, enum. We classify the dtype the PLANNER
-    # sees, but `filter_by_dict` validates the frame the executor materializes, and those
-    # disagree for these: polars Decimal -> pandas object (numeric here, string there) and
-    # polars Categorical -> pandas category (string here, neither there). Failing closed
-    # costs pushdown and keeps the answer, which is the same trade pandas `category`
-    # already makes.
-    return False, False
+    return bool(_is_numeric_dtype_safe(dtype)), bool(_is_string_dtype_safe(dtype))
 
 
 def _connected_join_dtype_admits(op: str, value: Any, dtype: Any) -> bool:
