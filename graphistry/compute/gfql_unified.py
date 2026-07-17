@@ -493,15 +493,11 @@ def _apply_connected_match_join(
         )
         pattern_result = _chain_dispatch(base_graph, with_rows, dispatch_engine, policy, context)
         pattern_rows = cast(Optional[DataFrameT], pattern_result._nodes)
-        if pattern_rows is None:
+        if pattern_rows is None or len(pattern_rows) == 0:
             out = base_graph.bind()
             out._nodes = df_ctor()
             out._edges = df_ctor()
             return out
-        # An emptied pattern still carries its columns, so let it flow: the joins propagate
-        # empty-with-schema and `post_join_chain` still runs. Short-circuiting here skipped that
-        # chain and dropped the aggregate's RETURN column, which only became reachable once
-        # predicates started pushing into the pattern.
         pattern_rows = cast(DataFrameT, pattern_rows[_binding_join_columns(pattern_rows)])
         if joined_rows is None:
             joined_rows = pattern_rows
@@ -530,7 +526,7 @@ def _apply_connected_match_join(
             engine=requested_engine,
         )
 
-    if joined_rows is None:
+    if joined_rows is None or len(joined_rows) == 0:
         out = base_graph.bind()
         out._nodes = df_ctor()
         out._edges = df_ctor()

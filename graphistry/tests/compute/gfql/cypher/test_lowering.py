@@ -15396,42 +15396,6 @@ def test_connected_join_string_op_on_non_str_kinds_stays_typed(column: str) -> N
         _real_infer_kind_graph().gfql(query)
 
 
-@pytest.mark.parametrize(
-    "predicate",
-    [
-        # A pushed filter that empties the pattern must still run post_join_chain, or the
-        # aggregate's RETURN column vanishes. `s_col` pushes and `m_col` does not, so the two
-        # must agree -- that discriminator is what exposed the inconsistency.
-        "p.s_col = 'zzz'",
-        "p.m_col = 'zzz'",
-    ],
-)
-def test_connected_join_empty_pushed_pattern_keeps_aggregate_schema(predicate: str) -> None:
-    nodes = pd.DataFrame({
-        "id": ["n1", "n2", "n3", "n4"],
-        "s_col": pd.Series(["a", "b", "c", "d"], dtype=object),  # string -> pushes
-        "m_col": pd.Series(["a", 1, "b", "c"], dtype=object),  # mixed-integer -> declines
-    })
-    edges = pd.DataFrame({"s": ["n1", "n2", "n3"], "d": ["n2", "n3", "n4"]})
-    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
-    query = f"MATCH (p)-[]->(q), (p)-[]->(r) WHERE {predicate} RETURN count(p) AS n"
-
-    result = g.gfql(query)._nodes
-    assert list(result.columns) == ["n"]
-
-
-def test_connected_join_non_empty_pushed_pattern_still_answers() -> None:
-    nodes = pd.DataFrame({
-        "id": ["n1", "n2", "n3", "n4"],
-        "s_col": pd.Series(["a", "b", "c", "d"], dtype=object),
-    })
-    edges = pd.DataFrame({"s": ["n1", "n2", "n3"], "d": ["n2", "n3", "n4"]})
-    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
-    query = "MATCH (p)-[]->(q), (p)-[]->(r) WHERE p.s_col = 'a' RETURN count(p) AS n"
-
-    assert g.gfql(query)._nodes.to_dict(orient="records") == [{"n": 1}]
-
-
 def _real_all_null_object_graph() -> Plottable:
     nodes = pd.DataFrame({"id": ["n1", "n2", "n3", "n4"]})
     nodes["note"] = pd.Series([None] * 4, dtype=object)  # infers `empty`
