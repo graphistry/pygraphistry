@@ -1382,13 +1382,20 @@ def _node_dtypes_for_pushdown(
 
 
 def _object_column_holds_non_strings(frame: Any, column: str, dtype: Any) -> bool:
-    """Whether `column` is an object column whose values are not strings.
+    """Whether `column` is an object column whose values `.str` would reject.
 
     `object` says nothing about contents: pandas stores ordinary strings that way, and also a
-    bool column that acquired a null. String predicates are admitted on dtype alone -- by this
-    gate and by `filter_by_dict` alike -- but `.str` fails on the values, leaking a raw
+    numeric column that acquired a `None`. String predicates are admitted on dtype alone -- by
+    this gate and by `filter_by_dict` alike -- but `.str` fails on the values, leaking a raw
     AttributeError. Dropping the column leaves the gate with nothing to look up, so it fails
-    closed and the residual answers. Mixed and empty contents are left alone: they work today.
+    closed and the residual answers.
+
+    Mirror pandas' own rule rather than enumerate what to reject: `StringMethods._validate`
+    admits exactly {string, empty, bytes, mixed, mixed-integer}. Enumerating the complement
+    misses cases (`mixed-integer-float` -- which is what a float column with a `None` infers as,
+    unlike `np.nan`, which infers as `floating`) and cannot fail closed on kinds pandas adds
+    later. `bytes` is excluded here because `str.contains` forbids it even though the accessor
+    admits it.
     """
     import pandas as _pd
 
@@ -1398,20 +1405,7 @@ def _object_column_holds_non_strings(frame: Any, column: str, dtype: Any) -> boo
         inferred = _pd.api.types.infer_dtype(frame[column], skipna=True)
     except Exception:
         return False
-    return inferred in {
-        "boolean",
-        "integer",
-        "floating",
-        "decimal",
-        "complex",
-        "date",
-        "datetime",
-        "datetime64",
-        "timedelta",
-        "timedelta64",
-        "period",
-        "bytes",
-    }
+    return inferred not in {"string", "empty", "mixed", "mixed-integer"}
 
 
 def _read_node_dtypes(

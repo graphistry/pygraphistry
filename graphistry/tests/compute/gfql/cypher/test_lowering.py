@@ -15376,6 +15376,38 @@ def _real_object_content_graph() -> Plottable:
     return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
 
 
+@pytest.mark.parametrize(
+    "column",
+    [
+        # `.str` admits only {string, empty, bytes, mixed, mixed-integer}; everything else must
+        # be omitted. A float column with a None infers as mixed-integer-float -- unlike np.nan,
+        # which infers as floating -- so enumerating what to reject misses it.
+        "score",
+        "clock",
+        "flag",
+    ],
+)
+def test_connected_join_string_op_on_non_str_kinds_stays_typed(column: str) -> None:
+    query = f"MATCH (i)-->(p), (p)-->(c) WHERE p.{column} CONTAINS 'a' RETURN count(p) AS n"
+
+    with pytest.raises(GFQLValidationError):
+        _real_infer_kind_graph().gfql(query)
+
+
+def _real_infer_kind_graph() -> Plottable:
+    import datetime
+
+    nodes = pd.DataFrame({"id": ["n1", "n2", "n3", "n4"]})
+    nodes["score"] = pd.Series([1.5, 2.5, None, 4.5], dtype=object)  # mixed-integer-float
+    nodes["clock"] = pd.Series(
+        [datetime.time(1, 0), datetime.time(2, 0), None, datetime.time(3, 0)], dtype=object
+    )  # time
+    nodes["flag"] = pd.Series([True, False, None, True], dtype=object)  # boolean
+    nodes["name"] = ["ann", "bob", "cid", "dee"]  # string -- must still push
+    edges = pd.DataFrame({"s": ["n1", "n2", "n3", "n1"], "d": ["n2", "n3", "n4", "n1"]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
 def test_connected_join_string_op_on_non_string_object_column_stays_typed() -> None:
     # `object` says nothing about contents: strings live there, and so does a bool column that
     # acquired a null. Pushing a string op on dtype alone let `.str` fail on the values and leak
@@ -15474,12 +15506,21 @@ def test_node_dtypes_for_pushdown_matches_the_full_conversion() -> None:
     reported = _node_dtypes_for_pushdown(g)
     assert reported is not None
     executed = df_to_engine(nodes, resolve_engine("auto", nodes), warn=False)
+    # The map is deliberately partial: object columns whose values `.str` would reject are
+    # omitted so the gate fails closed on them. Every column it DOES report must agree with
+    # the executed frame.
     for column, dtype in zip(list(executed.columns), list(executed.dtypes)):
+        if str(column) not in reported:
+            continue
         assert _connected_join_dtype_classes(reported[str(column)]) == _connected_join_dtype_classes(dtype)
-    # The empty probe disagrees on the nullable bool, which is why it cannot be used.
+    # `flag` is polars Boolean with a null -> pandas object holding bools -> omitted.
+    assert "flag" not in reported
+    assert {"id", "age", "name"} <= set(reported)
+    # The empty probe would have called the nullable bool numeric, which is why it cannot be
+    # used: the real conversion yields object-holding-bools, which is omitted instead.
     empty = df_to_engine(nodes.head(0), resolve_engine("auto", nodes), warn=False)
     empty_dtypes = dict(zip([str(name) for name in empty.columns], list(empty.dtypes)))
-    assert _connected_join_dtype_classes(empty_dtypes["flag"]) != _connected_join_dtype_classes(reported["flag"])
+    assert _connected_join_dtype_classes(empty_dtypes["flag"]) == (True, False)
 
 
 @pytest.mark.parametrize(
