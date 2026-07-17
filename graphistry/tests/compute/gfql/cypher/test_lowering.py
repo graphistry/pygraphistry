@@ -45,6 +45,7 @@ from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, Semanti
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import CHILD_SLOTS, Filter, PatternMatch, ProcedureCall as LogicalProcedureCall
 from graphistry.compute.gfql_unified import _node_dtypes_for_pushdown
+from graphistry.compute.gfql.cypher.lowering import _connected_join_dtype_admits
 from graphistry.Plottable import Plottable
 from graphistry.tests.test_compute import CGFull
 from graphistry.tests.compute.gfql.cypher._whole_entity_compat import entity_text_records
@@ -15194,6 +15195,61 @@ def test_connected_join_does_not_push_dtype_incompatible_atoms(predicate: str, e
 
     result = _real_t1_nullable_graph().gfql(query)
     assert result._nodes.to_dict(orient="records") == expected
+
+
+def _real_bool_shape_graph() -> Plottable:
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "flag": pd.Series([True, False, True, False], dtype="bool"),
+        "age": pd.Series([25, 27, 35, 40], dtype="int64"),
+    })
+    edges = pd.DataFrame({"s": ["a", "b", "c", "d"], "d": ["b", "c", "d", "a"]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        # `bool` counts as numeric to the live validator, so a string value against a bool
+        # column must stay residual rather than push into a type error.
+        ("p.flag = 'yes'", []),
+        ("p.flag = true", [{"n": 2}]),
+        ("p.age >= 26", [{"n": 3}]),
+    ],
+)
+def test_connected_join_bool_column_matches_validator(predicate: str, expected: Any) -> None:
+    query = f"MATCH (p)-[]->(x), (p)-[]->(y) WHERE {predicate} RETURN count(p) AS n"
+
+    result = _real_bool_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "p.age = 99999999999999999999",
+        "p.age <> 99999999999999999999",
+        "p.flag = 99999999999999999999",
+    ],
+)
+def test_connected_join_out_of_range_int_still_reports_range_error(predicate: str) -> None:
+    # The 64-bit literal guard lives on the row-expr path; pushing an out-of-range int
+    # would evade it and surface a raw OverflowError from pandas instead.
+    query = f"MATCH (p)-[]->(x), (p)-[]->(y) WHERE {predicate} RETURN count(p) AS n"
+
+    with pytest.raises(GFQLValidationError):
+        _real_bool_shape_graph().gfql(query)
+
+
+def test_node_dtypes_for_pushdown_reads_columns_not_items() -> None:
+    # pandas/cuDF expose a column-indexed Series but polars exposes a plain list, so the
+    # mapping must be built by zipping columns with dtypes rather than calling `.items()`.
+    g = _real_bool_shape_graph()
+    dtypes = _node_dtypes_for_pushdown(g)
+    assert dtypes is not None
+    assert set(dtypes) == {"id", "flag", "age"}
+    assert _connected_join_dtype_admits("==", "yes", dtypes["flag"]) is False
+    assert _connected_join_dtype_admits("==", "yes", dtypes["id"]) is True
 
 
 def test_connected_join_dtype_schema_selects_pushdown() -> None:

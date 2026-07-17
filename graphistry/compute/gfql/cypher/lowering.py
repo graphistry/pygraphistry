@@ -7829,21 +7829,26 @@ def _connected_join_dtype_admits(op: str, value: Any, dtype: Any) -> bool:
     A pushed `filter_dict` is schema-validated against the real column, while the row
     residual evaluates leniently (Cypher 3-valued logic yields no rows). Pushing a
     type-incompatible atom therefore turns a correct empty result into a hard error, so
-    those atoms have to stay residual. Mirrors `compute/validate_schema.py`.
-    """
-    import pandas as _pd
+    those atoms have to stay residual.
 
-    is_numeric_col = bool(_pd.api.types.is_numeric_dtype(dtype)) and not bool(_pd.api.types.is_bool_dtype(dtype))
-    is_string_col = bool(_pd.api.types.is_string_dtype(dtype)) or bool(_pd.api.types.is_object_dtype(dtype))
+    Mirrors the validator that actually runs, `compute/filter_by_dict.py`, and reuses its
+    dtype helpers: they agree by construction (`bool` counts as numeric there) and stay
+    correct on non-pandas dtypes. `compute/validate_schema.py` looks similar but is dead
+    code -- only a docs test imports it -- and it disagrees on `bool`.
+    """
+    from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe
+
+    is_numeric_col = bool(_is_numeric_dtype_safe(dtype))
+    is_string_col = bool(_is_string_dtype_safe(dtype))
     if op in _CONNECTED_JOIN_STRING_OPS:
         return is_string_col
     if op in _CONNECTED_JOIN_ORDERING_OPS:
-        # These lower to NumericASTPredicate, which requires a numeric column.
+        # These lower to NumericASTPredicate, rejected on a non-numeric column.
         return is_numeric_col
     if isinstance(value, str):
         return not is_numeric_col
     if isinstance(value, bool):
-        return not is_numeric_col or bool(_pd.api.types.is_bool_dtype(dtype))
+        return True
     if isinstance(value, (int, float)):
         return not is_string_col
     return True
@@ -7883,6 +7888,14 @@ def _connected_join_pushable_value(
         # A dict survives `_filter_dict_to_json` verbatim and `maybe_filter_dict_from_json`
         # revives it via `predicates_from_json`, so a param like {'type': 'GT', 'val': 26}
         # would execute as `> 26` instead of an equality against a map.
+        return False
+    if (
+        isinstance(resolved, int)
+        and not isinstance(resolved, bool)
+        and not (_CYPHER_INT64_MIN <= resolved <= _CYPHER_INT64_MAX)
+    ):
+        # The 64-bit literal guard lives on the row-expr path, so pushing an out-of-range
+        # int would evade it and reach pandas, which overflows with a raw OverflowError.
         return False
     if op in _CONNECTED_JOIN_STRING_OPS:
         if not isinstance(resolved, str):

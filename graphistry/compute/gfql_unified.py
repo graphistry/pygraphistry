@@ -1351,12 +1351,16 @@ def _node_dtypes_for_pushdown(g: Plottable) -> Optional[Mapping[str, Any]]:
     """
     nodes = getattr(g, "_nodes", None)
     dtypes = getattr(nodes, "dtypes", None)
-    if dtypes is None:
+    columns = getattr(nodes, "columns", None)
+    if dtypes is None or columns is None:
         return None
     try:
-        return {str(col): dtype for col, dtype in dtypes.items()}
+        # zip rather than `dtypes.items()`: pandas/cuDF expose a column-indexed Series but
+        # polars exposes a plain list, and `.items()` there would silently yield no schema.
+        mapping = {str(col): dtype for col, dtype in zip(list(columns), list(dtypes))}
     except Exception:
         return None
+    return mapping or None
 
 
 def _compile_string_query(
