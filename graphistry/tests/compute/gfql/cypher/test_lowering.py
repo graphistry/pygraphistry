@@ -15396,6 +15396,42 @@ def test_connected_join_string_op_on_non_str_kinds_stays_typed(column: str) -> N
         _real_infer_kind_graph().gfql(query)
 
 
+def _real_edge_alias_graph() -> Plottable:
+    nodes = pd.DataFrame({
+        "id": ["n1", "n2", "n3", "n4"],
+        "s_col": pd.Series(["a", "b", "c", "d"], dtype=object),
+        "i_col": pd.Series([1, 2, 3, 4], dtype="int64"),
+    })
+    edges = pd.DataFrame({
+        "s": ["n1", "n2", "n3"], "d": ["n2", "n3", "n4"], "w": pd.Series([1, 2, 3], dtype="int64"),
+    })
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize(
+    "predicate,ret",
+    [
+        # A pushed filter that empties the pattern must still run post_join_chain, so the
+        # aggregate RETURN column survives -- including for edge aliases (#27), which have no
+        # `.id` fallback and raised until the rows op emitted the full binding schema at 0 rows.
+        ("p.i_col = 999", "count(e1) AS n"),
+        ("p.s_col = 'zzz'", "count(e1) AS n"),
+        ("p.s_col = 'zzz' AND e1.w > 0", "count(p) AS n"),
+        ("p.s_col = 'zzz'", "count(p) AS n"),
+    ],
+)
+def test_connected_join_empty_pattern_keeps_edge_alias_aggregate(predicate: str, ret: str) -> None:
+    query = f"MATCH (p)-[e1]->(q), (p)-[e2]->(r) WHERE {predicate} RETURN {ret}"
+    result = _real_edge_alias_graph().gfql(query)._nodes
+    assert list(result.columns) == ["n"]
+    assert len(result) == 0
+
+
+def test_connected_join_non_empty_edge_alias_aggregate_answers() -> None:
+    query = "MATCH (p)-[e1]->(q), (p)-[e2]->(r) WHERE e1.w > 0 RETURN count(p) AS n"
+    assert _real_edge_alias_graph().gfql(query)._nodes.to_dict(orient="records") == [{"n": 3}]
+
+
 def test_object_column_holds_non_strings_fails_closed_when_unreadable() -> None:
     # An object column whose values cannot be read tells us nothing about whether `.str` would
     # reject them, so omit it and let the residual answer -- matching `_read_node_dtypes`, which

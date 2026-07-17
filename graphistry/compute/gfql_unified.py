@@ -493,11 +493,14 @@ def _apply_connected_match_join(
         )
         pattern_result = _chain_dispatch(base_graph, with_rows, dispatch_engine, policy, context)
         pattern_rows = cast(Optional[DataFrameT], pattern_result._nodes)
-        if pattern_rows is None or len(pattern_rows) == 0:
+        if pattern_rows is None:
             out = base_graph.bind()
             out._nodes = df_ctor()
             out._edges = df_ctor()
             return out
+        # The rows op now emits the full binding schema even at 0 rows (#25), so an emptied
+        # pattern carries its columns and flows through post_join_chain -- which is where the
+        # aggregate RETURN lives. Short-circuiting here dropped that column.
         pattern_rows = cast(DataFrameT, pattern_rows[_binding_join_columns(pattern_rows)])
         if joined_rows is None:
             joined_rows = pattern_rows
@@ -526,7 +529,7 @@ def _apply_connected_match_join(
             engine=requested_engine,
         )
 
-    if joined_rows is None or len(joined_rows) == 0:
+    if joined_rows is None:
         out = base_graph.bind()
         out._nodes = df_ctor()
         out._edges = df_ctor()
