@@ -3827,6 +3827,24 @@ class RowPipelineMixin:
                     bindings[col] = source.iloc[0:0].reindex(bindings.index)
                 else:
                     bindings[col] = self._gfql_broadcast_scalar(bindings, None)
+        # Downstream node aliases (every node op after the first) reach the row via a hop
+        # whose unmatched rows introduce NaN, so the non-empty path widens their integer
+        # columns to float. The 0-row path sourced them from the base node frame (int), so
+        # match that widening or an emptied `sum(b.i)` returns int64 where the non-empty run
+        # and master give float64 -- observable through UNION ALL (#31).
+        import pandas as _pd
+
+        node_ops = [op for op in ops if isinstance(op, ASTNode)]
+        for op in node_ops[1:]:
+            alias = getattr(op, "_name", None)
+            if not isinstance(alias, str):
+                continue
+            for col in [c for c in bindings.columns if c == alias or str(c).startswith(f"{alias}.")]:
+                try:
+                    if _pd.api.types.is_integer_dtype(bindings[col].dtype):
+                        bindings[col] = bindings[col].astype("float64")
+                except Exception:
+                    continue
         return bindings
 
     def _gfql_connected_bindings_row_frame_from_state(

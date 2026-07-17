@@ -15444,6 +15444,33 @@ def test_connected_join_empty_edge_aggregate_keeps_numeric_dtype(ret: str, dtype
     assert str(result["c"].dtype) == dtype
 
 
+@pytest.mark.parametrize(
+    "ret,dtype",
+    [
+        # A downstream (non-anchor) node reaches the row via a hop whose NaN widens its
+        # integer columns to float in the non-empty run; the 0-row path must match, or an
+        # emptied sum(b.iv) returns int64 and escapes via UNION ALL (#31). The anchor never
+        # NaN-widens, so it stays int; float columns are unchanged.
+        ("sum(b.iv) AS c", "float64"),
+        ("max(b.iv) AS c", "float64"),
+        ("sum(a.iv) AS c", "int64"),
+        ("sum(b.fv) AS c", "float64"),
+    ],
+)
+def test_connected_join_empty_node_aggregate_matches_nonempty_dtype(ret: str, dtype: str) -> None:
+    nodes = pd.DataFrame({
+        "id": ["n1", "n2", "n3", "n4"],
+        "iv": pd.Series([1, 2, 3, 4], dtype="int64"),
+        "fv": pd.Series([1.0, 2.0, 3.0, 4.0], dtype="float64"),
+    })
+    edges = pd.DataFrame({"s": ["n1", "n2", "n3"], "d": ["n2", "n3", "n4"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = f"MATCH (a)-[e1]->(b), (b)-[e2]->(c) WHERE a.iv = 999 RETURN {ret}"
+    result = g.gfql(query)._nodes
+    assert len(result) == 0
+    assert str(result["c"].dtype) == dtype
+
+
 def test_connected_join_non_empty_edge_alias_aggregate_answers() -> None:
     query = "MATCH (p)-[e1]->(q), (p)-[e2]->(r) WHERE e1.w > 0 RETURN count(p) AS n"
     assert _real_edge_alias_graph().gfql(query)._nodes.to_dict(orient="records") == [{"n": 3}]
