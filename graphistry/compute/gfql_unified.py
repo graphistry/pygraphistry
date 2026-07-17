@@ -1341,23 +1341,60 @@ def detect_query_type(query: Any) -> QueryType:
         return "single"
 
 
+class _LazyNodeDtypes(Mapping[str, Any]):
+    """Node dtypes, materialized on first lookup.
+
+    Reading them costs a full engine conversion, and only connected-join pushdown ever asks --
+    a path most queries never reach. Computing eagerly charged every string query for a frame
+    it then discarded (~65ms per million polars rows). Stay a Mapping so callers are unchanged.
+    """
+
+    def __init__(self, g: Plottable, engine: Union[EngineAbstract, str]) -> None:
+        self._g = g
+        self._engine = engine
+        self._resolved: Optional[Mapping[str, Any]] = None
+
+    def _materialize(self) -> Mapping[str, Any]:
+        if self._resolved is None:
+            self._resolved = _read_node_dtypes(self._g, self._engine)
+        return self._resolved
+
+    def __getitem__(self, key: str) -> Any:
+        return self._materialize()[key]
+
+    def __iter__(self) -> Any:
+        return iter(self._materialize())
+
+    def __len__(self) -> int:
+        return len(self._materialize())
+
+
 def _node_dtypes_for_pushdown(
     g: Plottable,
     engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
 ) -> Optional[Mapping[str, Any]]:
-    """Column dtypes used to decide whether a WHERE atom may be pushed into a filter_dict.
+    """Node dtypes for the pushdown gate, or None when there is no graph to read."""
+    if getattr(g, "_nodes", None) is None:
+        # No graph: the caller falls back to value-type rules, as a bare compile_cypher() does.
+        # Distinct from failing to read a graph we have, which must fail closed.
+        return None
+    return _LazyNodeDtypes(g, engine)
+
+
+def _read_node_dtypes(
+    g: Plottable,
+    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
+) -> Mapping[str, Any]:
+    """Column dtypes the executor will filter on, for the pushdown gate.
 
     A pushed filter is schema-validated against the real column while the row residual
-    evaluates leniently, so the planner needs dtypes to avoid turning a correct empty
-    result into a type error. Returns None when unavailable, which keeps the
-    value-type-only decision.
+    evaluates leniently, so the planner needs dtypes to avoid turning a correct empty result
+    into a type error. An unreadable schema yields an empty mapping, which fails every column
+    lookup and so falls back to the residual.
     """
     nodes = getattr(g, "_nodes", None)
     if nodes is None:
-        # No graph at all: the caller falls back to value-type rules, which is what a bare
-        # `compile_cypher()` gets. Distinct from failing to read a graph we do have --
-        # returning None for that would push dtype-blind, the very bug this gate exists for.
-        return None
+        return {}
     try:
         # Classify the frame the EXECUTOR will filter, not the one the caller handed in.
         # `filter_by_dict` validates post-materialization dtypes, so judging the pre-conversion
@@ -1365,8 +1402,9 @@ def _node_dtypes_for_pushdown(
         #
         # Convert the whole frame, not an empty probe: polars -> pandas is DATA-dependent, so
         # `head(0)` reports a different class than the real conversion for a nullable Boolean
-        # (`bool` empty, `object` with a null in it). For pandas nodes this is identity and
-        # costs nothing; for others it is one conversion the executor performs anyway.
+        # (`bool` empty, `object` with a null in it). Identity for pandas; for other engines
+        # this costs a real conversion, which is why the caller defers it until a pushdown
+        # decision actually needs it.
         probe = df_to_engine(nodes, resolve_engine(cast(Any, engine), nodes), warn=False)
         # zip rather than `.items()`: pandas/cuDF expose a column-indexed Series, polars a list.
         return {str(col): dtype for col, dtype in zip(list(probe.columns), list(probe.dtypes))}

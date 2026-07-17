@@ -15328,6 +15328,37 @@ def test_connected_join_string_predicate_merge_matches_cypher(predicate: str, ex
     assert result._nodes.to_dict(orient="records") == expected
 
 
+def test_node_dtypes_for_pushdown_defers_the_conversion() -> None:
+    # Reading dtypes costs a full engine conversion, and only connected-join pushdown asks --
+    # a path most queries never reach. Computing eagerly charged every string query for a
+    # frame it discarded. Nothing may convert until a lookup actually happens.
+    pl = pytest.importorskip("polars")
+
+    converted = []
+    nodes = pl.DataFrame({"id": ["a", "b"], "age": pl.Series([1, 2], dtype=pl.Int64)})
+    g = graphistry.nodes(nodes, "id").edges(pl.DataFrame({"s": ["a"], "d": ["b"]}), "s", "d")
+
+    import graphistry.compute.gfql_unified as unified
+
+    original = unified._read_node_dtypes
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        converted.append(1)
+        return original(*args, **kwargs)
+
+    unified._read_node_dtypes = spy
+    try:
+        dtypes = unified._node_dtypes_for_pushdown(g)
+        assert dtypes is not None
+        assert converted == []  # built, but nothing read yet
+        assert _connected_join_dtype_classes(dtypes["age"]) == (True, False)
+        assert converted == [1]  # first lookup materialized
+        _ = dtypes["id"]
+        assert converted == [1]  # and it is cached
+    finally:
+        unified._read_node_dtypes = original
+
+
 def test_node_dtypes_for_pushdown_matches_the_full_conversion() -> None:
     # polars -> pandas is DATA-dependent: an empty probe reports `bool` for a nullable Boolean
     # while the real conversion yields `object`. The gate must report what the executor sees,
