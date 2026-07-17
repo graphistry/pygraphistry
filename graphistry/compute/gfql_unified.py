@@ -1341,11 +1341,30 @@ def detect_query_type(query: Any) -> QueryType:
         return "single"
 
 
+def _node_dtypes_for_pushdown(g: Plottable) -> Optional[Mapping[str, Any]]:
+    """Column dtypes used to decide whether a WHERE atom may be pushed into a filter_dict.
+
+    A pushed filter is schema-validated against the real column while the row residual
+    evaluates leniently, so the planner needs dtypes to avoid turning a correct empty
+    result into a type error. Returns None when unavailable, which keeps the
+    value-type-only decision.
+    """
+    nodes = getattr(g, "_nodes", None)
+    dtypes = getattr(nodes, "dtypes", None)
+    if dtypes is None:
+        return None
+    try:
+        return {str(col): dtype for col, dtype in dtypes.items()}
+    except Exception:
+        return None
+
+
 def _compile_string_query(
     query: str,
     *,
     language: Optional[Literal["cypher", "gremlin"]],
     params: Optional[Mapping[str, Any]],
+    node_dtypes: Optional[Mapping[str, Any]] = None,
 ) -> Any:
     query_language = language or "cypher"
     if query_language != "cypher":
@@ -1357,7 +1376,7 @@ def _compile_string_query(
             suggestion="Use language='cypher' for now; Gremlin string compilation is not implemented yet.",
             language="gfql",
         )
-    return compile_cypher(query, params=params, _warn_deprecated=False)
+    return compile_cypher(query, params=params, _node_dtypes=node_dtypes, _warn_deprecated=False)
 
 
 def _compile_value_repr(value: Any) -> str:
@@ -1653,7 +1672,12 @@ def gfql(self: Plottable,
         if isinstance(query, str):
             query_language = language or "cypher"
             try:
-                compiled_query = _compile_string_query(query, language=language, params=params)
+                compiled_query = _compile_string_query(
+                    query,
+                    language=language,
+                    params=params,
+                    node_dtypes=_node_dtypes_for_pushdown(self),
+                )
             except GFQLValidationError as exc:
                 _fire_postcompile_policy(
                     expanded_policy,

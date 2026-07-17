@@ -44,6 +44,7 @@ from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, SemanticTable
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import CHILD_SLOTS, Filter, PatternMatch, ProcedureCall as LogicalProcedureCall
+from graphistry.compute.gfql_unified import _node_dtypes_for_pushdown
 from graphistry.Plottable import Plottable
 from graphistry.tests.test_compute import CGFull
 from graphistry.tests.compute.gfql.cypher._whole_entity_compat import entity_text_records
@@ -15174,6 +15175,50 @@ def test_connected_join_pushes_string_predicates(predicate: str, expected: int) 
 
     filters_by_alias = _compiled_connected_join_filters(query)
     assert any("nick" in entry.get("p", {}) for entry in filters_by_alias)
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        # string literal vs numeric column, and numeric literal vs string column: the
+        # residual answers these leniently, so pushing them must not turn them into errors
+        ("p.age = 'foo'", []),
+        ("p.age = date('2020-01-01')", []),
+        ("p.nick >= 26", []),
+        ("p.nick < 26", []),
+        ("p.nick <> 26", [{"n": 3}]),
+    ],
+)
+def test_connected_join_does_not_push_dtype_incompatible_atoms(predicate: str, expected: Any) -> None:
+    query = _t1_nullable_query(predicate)
+
+    result = _real_t1_nullable_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+def test_connected_join_dtype_schema_selects_pushdown() -> None:
+    # With dtypes the planner pushes what the column admits and leaves the rest residual.
+    g = _real_t1_nullable_graph()
+    dtypes = _node_dtypes_for_pushdown(g)
+    assert dtypes is not None
+
+    def pushed_props(predicate: str) -> set:
+        compiled = cast(CompiledCypherQuery, compile_cypher(_t1_nullable_query(predicate), _node_dtypes=dtypes))
+        plan = _compiled_execution_extras(compiled).connected_match_join
+        assert plan is not None
+        return {
+            prop
+            for chain in plan.pattern_chains
+            for op in chain.chain
+            if isinstance(op, ASTNode)
+            for prop in (op.filter_dict or {})
+        } - {"node_type"}
+
+    assert pushed_props("p.age >= 26") == {"age"}
+    assert pushed_props("p.nick = 'a'") == {"nick"}
+    assert pushed_props("p.nick STARTS WITH 'a'") == {"nick"}
+    assert pushed_props("p.nick >= 26") == set()
+    assert pushed_props("p.age = 'foo'") == set()
 
 
 @pytest.mark.parametrize("node_id_column", ["id", "nid"])

@@ -7820,6 +7820,33 @@ def _connected_join_expr_literal_value(node: ExprNode) -> Tuple[bool, Optional[C
 
 
 _CONNECTED_JOIN_STRING_OPS = frozenset({"contains", "starts_with", "ends_with", "regex"})
+_CONNECTED_JOIN_ORDERING_OPS = frozenset({"!=", "<", "<=", ">", ">="})
+
+
+def _connected_join_dtype_admits(op: str, value: Any, dtype: Any) -> bool:
+    """Whether pushing `op`/`value` onto a column of `dtype` matches residual semantics.
+
+    A pushed `filter_dict` is schema-validated against the real column, while the row
+    residual evaluates leniently (Cypher 3-valued logic yields no rows). Pushing a
+    type-incompatible atom therefore turns a correct empty result into a hard error, so
+    those atoms have to stay residual. Mirrors `compute/validate_schema.py`.
+    """
+    import pandas as _pd
+
+    is_numeric_col = bool(_pd.api.types.is_numeric_dtype(dtype)) and not bool(_pd.api.types.is_bool_dtype(dtype))
+    is_string_col = bool(_pd.api.types.is_string_dtype(dtype)) or bool(_pd.api.types.is_object_dtype(dtype))
+    if op in _CONNECTED_JOIN_STRING_OPS:
+        return is_string_col
+    if op in _CONNECTED_JOIN_ORDERING_OPS:
+        # These lower to NumericASTPredicate, which requires a numeric column.
+        return is_numeric_col
+    if isinstance(value, str):
+        return not is_numeric_col
+    if isinstance(value, bool):
+        return not is_numeric_col or bool(_pd.api.types.is_bool_dtype(dtype))
+    if isinstance(value, (int, float)):
+        return not is_string_col
+    return True
 
 
 def _connected_join_pushable_value(
@@ -7827,6 +7854,8 @@ def _connected_join_pushable_value(
     value: Optional[CypherLiteral],
     *,
     params: Optional[Mapping[str, Any]],
+    column: Optional[str] = None,
+    node_dtypes: Optional[Mapping[str, Any]] = None,
 ) -> bool:
     """Whether `op`/`value` survives the trip into a node `filter_dict`.
 
@@ -7856,10 +7885,20 @@ def _connected_join_pushable_value(
         # would execute as `> 26` instead of an equality against a map.
         return False
     if op in _CONNECTED_JOIN_STRING_OPS:
-        return isinstance(resolved, str)
-    if op == "==":
-        return isinstance(resolved, (str, int, float, bool))
-    return isinstance(resolved, (int, float)) and not isinstance(resolved, bool)
+        if not isinstance(resolved, str):
+            return False
+    elif op == "==":
+        if not isinstance(resolved, (str, int, float, bool)):
+            return False
+    elif not (isinstance(resolved, (int, float)) and not isinstance(resolved, bool)):
+        return False
+    if node_dtypes is None:
+        # No schema (e.g. bare `compile_cypher()` with no graph). Keep the value-type
+        # decision; execution always goes through `gfql()`, which supplies dtypes.
+        return True
+    if column is None or column not in node_dtypes:
+        return False
+    return _connected_join_dtype_admits(op, resolved, node_dtypes[column])
 
 
 def _apply_connected_join_node_filter(
@@ -7869,8 +7908,11 @@ def _apply_connected_join_node_filter(
     op: str,
     value: Optional[CypherLiteral],
     params: Optional[Mapping[str, Any]],
+    node_dtypes: Optional[Mapping[str, Any]] = None,
 ) -> bool:
-    if not _connected_join_pushable_value(op, value, params=params):
+    if not _connected_join_pushable_value(
+        op, value, params=params, column=prop_ref.property, node_dtypes=node_dtypes
+    ):
         return False
     pushed = False
     for alias_targets in alias_targets_by_pattern:
@@ -7894,6 +7936,7 @@ def _pushdown_connected_join_atom_filter(
     alias_targets: Mapping[str, ASTObject],
     *,
     params: Optional[Mapping[str, Any]],
+    node_dtypes: Optional[Mapping[str, Any]] = None,
 ) -> bool:
     try:
         node = _parse_row_expr(
@@ -7920,6 +7963,7 @@ def _pushdown_connected_join_atom_filter(
                 op=op,
                 value=right_value,
                 params=params,
+                node_dtypes=node_dtypes,
             )
         reverse_op = _connected_join_literal_op(node.op, reverse=True)
         right_ref = _connected_join_expr_property_ref(node.right, span=expr.span)
@@ -7931,6 +7975,7 @@ def _pushdown_connected_join_atom_filter(
                 op=reverse_op,
                 value=left_value,
                 params=params,
+                node_dtypes=node_dtypes,
             )
 
     return False
@@ -7942,6 +7987,7 @@ def _pushdown_connected_join_where_filters(
     alias_targets: Mapping[str, ASTObject],
     *,
     params: Optional[Mapping[str, Any]],
+    node_dtypes: Optional[Mapping[str, Any]] = None,
 ) -> Optional[List[ExpressionText]]:
     if where is None:
         return []
@@ -7969,6 +8015,7 @@ def _pushdown_connected_join_where_filters(
                 op=cast(str, predicate.op),
                 value=cast(Optional[CypherLiteral], predicate.right),
                 params=params,
+                node_dtypes=node_dtypes,
             )
 
     residuals: List[ExpressionText] = []
@@ -7985,6 +8032,7 @@ def _pushdown_connected_join_where_filters(
                 alias_targets_by_pattern,
                 alias_targets,
                 params=params,
+                node_dtypes=node_dtypes,
             )
             if not pushed:
                 residuals.append(atom)
@@ -8014,6 +8062,7 @@ def _pushdown_connected_join_where_filters(
                 op=cast(str, predicate.op),
                 value=cast(Optional[CypherLiteral], predicate.right),
                 params=params,
+                node_dtypes=node_dtypes,
             )
         if pushed:
             continue
@@ -8077,6 +8126,7 @@ def _compile_connected_match_join(
     *,
     params: Optional[Mapping[str, Any]] = None,
     semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
+    node_dtypes: Optional[Mapping[str, Any]] = None,
 ) -> CompiledCypherQuery:
     clause = query.matches[0]
     pattern_chains: List[Chain] = []
@@ -8132,6 +8182,7 @@ def _compile_connected_match_join(
             alias_targets_by_pattern,
             combined_alias_targets,
             params=params,
+            node_dtypes=node_dtypes,
         )
         if residual_filters is None:
             raise _unsupported(
@@ -8672,6 +8723,7 @@ def compile_cypher_query(
     query: Union[CypherQuery, CypherUnionQuery, CypherGraphQuery],
     *,
     params: Optional[Mapping[str, Any]] = None,
+    node_dtypes: Optional[Mapping[str, Any]] = None,
 ) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
     from graphistry.compute.gfql.cypher import projection_planning as _projection
 
@@ -8824,6 +8876,7 @@ def compile_cypher_query(
                 query,
                 params=params,
                 semantic_entity_kinds=bound_context.entity_kinds,
+                node_dtypes=node_dtypes,
             )
         )
     if _is_connected_optional_match_query(query):
