@@ -7863,10 +7863,16 @@ def _connected_join_dtype_classes(dtype: Any) -> Tuple[bool, bool]:
         # "str". Matching those as scalars pushes a numeric predicate onto a container
         # column, which raises where the residual answers.
         return False, False
-    if any(token in text for token in ("bool", "int", "float", "double", "decimal")):
+    if any(token in text for token in ("bool", "int", "float", "double")):
         return True, False
-    if any(token in text for token in ("string", "utf8", "object", "categorical", "enum", "str")):
+    if any(token in text for token in ("string", "utf8", "object", "str")):
         return False, True
+    # Deliberately absent: decimal, categorical, enum. We classify the dtype the PLANNER
+    # sees, but `filter_by_dict` validates the frame the executor materializes, and those
+    # disagree for these: polars Decimal -> pandas object (numeric here, string there) and
+    # polars Categorical -> pandas category (string here, neither there). Failing closed
+    # costs pushdown and keeps the answer, which is the same trade pandas `category`
+    # already makes.
     return False, False
 
 

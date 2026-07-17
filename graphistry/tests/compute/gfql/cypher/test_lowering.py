@@ -15266,10 +15266,14 @@ class _UnprintableDtype:
         (_FakeDtype("Int64"), (True, False)),
         (_FakeDtype("Float64"), (True, False)),
         (_FakeDtype("Boolean"), (True, False)),
-        (_FakeDtype("Decimal(38,10)"), (True, False)),
+        # Decimal / Categorical / Enum classify differently before and after the engine
+        # materializes the frame (polars Decimal -> pandas object, Categorical -> category),
+        # and the validator judges the materialized one. Fail closed rather than guess.
+        (_FakeDtype("Decimal(38,10)"), (False, False)),
+        (_FakeDtype("Categorical(ordering='physical')"), (False, False)),
+        (_FakeDtype("Enum(categories=['a'])"), (False, False)),
         (_FakeDtype("String"), (False, True)),
         (_FakeDtype("Utf8"), (False, True)),
-        (_FakeDtype("Categorical(ordering='physical')"), (False, True)),
         (_FakeDtype("i-am-not-a-dtype", kind="i"), (True, False)),
         # Container dtypes embed their element type, so a substring match reads
         # `interval[int64, right]` / `List(Int64)` as numeric and `struct` as string.
@@ -15406,6 +15410,9 @@ def test_connected_join_dtype_classes_handles_non_pandas_dtypes() -> None:
     assert _connected_join_dtype_classes(pl.Int64()) == (True, False)
     assert _connected_join_dtype_classes(pl.Float64()) == (True, False)
     assert _connected_join_dtype_classes(pl.String()) == (False, True)
+    # polars Decimal -> pandas object at execution, so the planner must not call it numeric
+    assert _connected_join_dtype_classes(pl.Decimal(10, 2)) == (False, False)
+    assert _connected_join_dtype_classes(pl.Categorical()) == (False, False)
     assert _connected_join_dtype_classes(pd.Series([1]).dtype) == (True, False)
     assert _connected_join_dtype_classes(pd.Series(["a"]).dtype) == (False, True)
     # Unrecognized dtype must fail closed rather than be treated as pushable.
@@ -15424,6 +15431,39 @@ def test_connected_join_polars_nodes_match_pandas_gate_verdicts() -> None:
         assert _connected_join_dtype_admits(">=", 26, numeric_dtype) is True
         assert _connected_join_dtype_admits("contains", "o", string_dtype) is True
         assert _connected_join_dtype_admits("==", 26, string_dtype) is False
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        # Decimal: planner sees polars Decimal, executor materializes pandas object. Pushing
+        # on the planner's view raised where the residual answers.
+        ("p.age > 25", [{"n": 8}]),
+        ("p.age >= 26", [{"n": 8}]),
+        ("p.age != 26", [{"n": 8}]),
+        ("p.age = 26", [{"n": 4}]),
+        # A plain polars numeric column must still push and answer.
+        ("p.n2 >= 26", [{"n": 8}]),
+    ],
+)
+def test_connected_join_polars_decimal_matches_master(predicate: str, expected: Any) -> None:
+    pl = pytest.importorskip("polars")
+
+    nodes = pl.DataFrame({
+        "id": ["p1", "p2", "p3", "x1", "y1"],
+        "age": pl.Series([25, 26, 30, 1, 2], dtype=pl.Int64()).cast(pl.Decimal(10, 2)),
+        "n2": pl.Series([25, 26, 30, 1, 2], dtype=pl.Int64()),
+    })
+    edges = pl.DataFrame({
+        "s": ["p1", "p1", "p2", "p2", "p3", "p3"],
+        "d": ["x1", "y1", "x1", "y1", "x1", "y1"],
+    })
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = f"MATCH (p)-->(a), (p)-->(b) WHERE {predicate} RETURN count(p) AS n"
+
+    result = g.gfql(query)._nodes
+    records = result.to_dict(orient="records") if hasattr(result, "to_dict") else result.to_dicts()
+    assert records == expected
 
 
 def test_connected_join_polars_backed_graph_matches_pandas_results() -> None:
