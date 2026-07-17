@@ -15328,6 +15328,27 @@ def test_connected_join_string_predicate_merge_matches_cypher(predicate: str, ex
     assert result._nodes.to_dict(orient="records") == expected
 
 
+def test_node_dtypes_for_pushdown_fails_closed_on_unreadable_nodes() -> None:
+    # An unreadable schema must yield an empty mapping, not None: None means "no graph, use
+    # value-type rules" and would push dtype-blind. Pinned directly because the two are
+    # observationally equivalent end-to-end (such frames fail execution either way).
+    class _Unreadable:
+        columns = ["id"]
+
+        @property
+        def dtypes(self) -> Any:
+            raise RuntimeError("schema unavailable")
+
+    g = graphistry.nodes(pd.DataFrame({"id": ["a"]}), "id").edges(
+        pd.DataFrame({"s": ["a"], "d": ["a"]}), "s", "d"
+    )
+    object.__setattr__(g, "_nodes", _Unreadable())
+
+    dtypes = _node_dtypes_for_pushdown(g)
+    assert dtypes is not None, "unreadable schema must not fall back to dtype-blind pushing"
+    assert dict(dtypes) == {}
+
+
 def test_node_dtypes_for_pushdown_defers_the_conversion() -> None:
     # Reading dtypes costs a full engine conversion, and only connected-join pushdown asks --
     # a path most queries never reach. Computing eagerly charged every string query for a
