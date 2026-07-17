@@ -1404,11 +1404,18 @@ def _object_column_holds_non_strings(frame: Any, column: str, dtype: Any) -> boo
     import pandas as _pd
 
     try:
-        if not _pd.api.types.is_object_dtype(dtype):
-            return False
-        inferred = _pd.api.types.infer_dtype(frame[column], skipna=True)
+        is_object = bool(_pd.api.types.is_object_dtype(dtype))
     except Exception:
         return False
+    if not is_object:
+        return False
+    try:
+        inferred = _pd.api.types.infer_dtype(frame[column], skipna=True)
+    except Exception:
+        # It IS an object column and we cannot read its values, so we cannot tell whether
+        # `.str` would reject them. Omit it and let the residual answer, matching
+        # `_read_node_dtypes`, which returns {} for a schema it cannot read.
+        return True
     return inferred not in {"string", "empty"}
 
 

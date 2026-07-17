@@ -15396,6 +15396,24 @@ def test_connected_join_string_op_on_non_str_kinds_stays_typed(column: str) -> N
         _real_infer_kind_graph().gfql(query)
 
 
+def test_object_column_holds_non_strings_fails_closed_when_unreadable() -> None:
+    # An object column whose values cannot be read tells us nothing about whether `.str` would
+    # reject them, so omit it and let the residual answer -- matching `_read_node_dtypes`, which
+    # returns {} for a schema it cannot read. Keeping it would push blind.
+    from graphistry.compute.gfql_unified import _object_column_holds_non_strings
+
+    class _UnreadableFrame:
+        def __getitem__(self, key: str) -> Any:
+            raise RuntimeError("cannot read column")
+
+    object_dtype = pd.Series(["a"], dtype=object).dtype
+    assert _object_column_holds_non_strings(_UnreadableFrame(), "x", object_dtype) is True
+    # Non-object dtypes are not this helper's concern, and real strings still push.
+    assert _object_column_holds_non_strings(pd.DataFrame({"x": [1]}), "x", pd.Series([1]).dtype) is False
+    strings = pd.DataFrame({"x": pd.Series(["a", "b"], dtype=object)})
+    assert _object_column_holds_non_strings(strings, "x", strings["x"].dtype) is False
+
+
 def _real_all_null_object_graph() -> Plottable:
     nodes = pd.DataFrame({"id": ["n1", "n2", "n3", "n4"]})
     nodes["note"] = pd.Series([None] * 4, dtype=object)  # infers `empty`
