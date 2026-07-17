@@ -7962,23 +7962,31 @@ def _connected_join_pushable_value(
     return _connected_join_dtype_admits(op, resolved, node_dtypes[column])
 
 
-def _connected_join_mergeable_existing_filter(target: ASTNode, prop: str) -> bool:
-    """Whether pushing onto `prop` can merge with what an inline property map already set.
+def _connected_join_mergeable_filter(target: ASTNode, prop: str, *, op: str, resolved: Any) -> bool:
+    """Whether pushing `op`/`resolved` onto `prop` can merge with what is already there.
 
     `_merge_filter_predicates` wraps raw scalars with `comparison.eq`, which serializes to
     `{'type': 'EQ'}` -- but `predicates/from_json.py` binds that tag to `predicates.numeric.EQ`,
-    which admits only int/float. So merging onto an existing STRING value produces a filter
-    that raises when the executor rehydrates it. That write/read split is not ours to fix
-    here; just don't create it. Nothing merges when the property is absent, and an existing
-    numeric or already-built predicate rehydrates fine.
+    which admits only int/float. Merging a non-numeric scalar on EITHER side therefore builds
+    a filter that raises when the executor rehydrates it. That write/read split is not ours to
+    fix here; just don't create it.
+
+    Both sides must be checked. `filter_dict` is mutated as earlier atoms in the same WHERE
+    push, so the existing value may be an inline scalar OR a predicate a previous push left
+    behind -- checking only the existing side made this order-dependent
+    (`= 'a' AND CONTAINS 'x'` blocked, `CONTAINS 'x' AND = 'a'` not).
     """
     existing_filter = _target_filter_dict(target) or {}
     if prop not in existing_filter:
         return True
     existing = existing_filter[prop]
-    if isinstance(existing, ASTPredicate):
-        return True
-    return isinstance(existing, (int, float)) and not isinstance(existing, bool)
+    if not (isinstance(existing, ASTPredicate) or (isinstance(existing, (int, float)) and not isinstance(existing, bool))):
+        return False
+    # `_predicate_value` keeps `==` as a raw value; every other supported op builds a real
+    # predicate, which round-trips on its own tag.
+    if op == "==" and not isinstance(resolved, (int, float)):
+        return False
+    return True
 
 
 def _apply_connected_join_node_filter(
@@ -7994,11 +8002,19 @@ def _apply_connected_join_node_filter(
         op, value, params=params, column=prop_ref.property, node_dtypes=node_dtypes
     ):
         return False
+    try:
+        resolved_value = (
+            _resolve_literal(cast(CypherLiteral, value), params=params, field="where")
+            if value is not None
+            else None
+        )
+    except GFQLValidationError:
+        return False
     for alias_targets in alias_targets_by_pattern:
         target = alias_targets.get(prop_ref.alias)
         if not isinstance(target, ASTNode):
             continue
-        if not _connected_join_mergeable_existing_filter(target, prop_ref.property):
+        if not _connected_join_mergeable_filter(target, prop_ref.property, op=op, resolved=resolved_value):
             return False
     pushed = False
     for alias_targets in alias_targets_by_pattern:

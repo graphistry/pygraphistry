@@ -15363,6 +15363,40 @@ def test_connected_join_inline_string_property_merge_matches_master(
     assert result._nodes.to_dict(orient="records") == expected
 
 
+def _real_string_merge_graph() -> Plottable:
+    nodes = pd.DataFrame({
+        "id": ["p1", "p2", "p3", "aa", "bb"],
+        "name": ["alice", "bob", "carol", "aa", "bb"],
+        "age": [30, 40, 50, 1, 2],
+    })
+    edges = pd.DataFrame({
+        "s": ["p1", "p1", "p2", "p2", "p3", "p3"],
+        "d": ["aa", "bb", "aa", "bb", "aa", "bb"],
+    })
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        # filter_dict is mutated as earlier atoms push, so a previously-pushed string
+        # predicate must not green-light merging a raw string behind it. Checking only the
+        # existing side made this order-dependent.
+        ("p.name CONTAINS 'al' AND p.name = 'alice'", [{"n": 4}]),
+        ("p.name STARTS WITH 'al' AND p.name = 'alice'", [{"n": 4}]),
+        ("p.name CONTAINS 'a' AND p.name CONTAINS 'l'", [{"n": 8}]),
+        ("p.name CONTAINS 'al'", [{"n": 4}]),
+        # Numeric merges are representable and must still push.
+        ("p.age > 20 AND p.age = 30", [{"n": 4}]),
+    ],
+)
+def test_connected_join_string_predicate_merge_matches_cypher(predicate: str, expected: Any) -> None:
+    query = f"MATCH (p)-[]->(a), (p)-[]->(b) WHERE {predicate} RETURN count(p) AS n"
+
+    result = _real_string_merge_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected
+
+
 def test_connected_join_dtype_classes_handles_non_pandas_dtypes() -> None:
     # `pd.api.types.is_numeric_dtype(pl.Int64())` returns False rather than raising, so
     # filter_by_dict's helpers never reach their fallback and a polars column would look
