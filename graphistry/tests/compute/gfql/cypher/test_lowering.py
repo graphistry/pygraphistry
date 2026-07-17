@@ -15271,6 +15271,15 @@ class _UnprintableDtype:
         (_FakeDtype("Utf8"), (False, True)),
         (_FakeDtype("Categorical(ordering='physical')"), (False, True)),
         (_FakeDtype("i-am-not-a-dtype", kind="i"), (True, False)),
+        # Container dtypes embed their element type, so a substring match reads
+        # `interval[int64, right]` / `List(Int64)` as numeric and `struct` as string.
+        # They are never scalar-comparable and must fail closed.
+        (_FakeDtype("interval[int64, right]"), (False, False)),
+        (_FakeDtype("List(Int64)"), (False, False)),
+        (_FakeDtype("Array(Float64, 2)"), (False, False)),
+        (_FakeDtype("struct"), (False, False)),
+        (_FakeDtype("Struct({'a': Int64})"), (False, False)),
+        (_FakeDtype("Binary"), (False, False)),
         # Unrecognized must fail closed, not be guessed at.
         (_FakeDtype("Date"), (False, False)),
         (_FakeDtype("Duration(time_unit='us')"), (False, False)),
@@ -15302,6 +15311,19 @@ def test_connected_join_fake_dtype_verdicts_match_pandas() -> None:
         assert _connected_join_dtype_admits(">=", 26, numeric) is True
         assert _connected_join_dtype_admits("contains", "o", string) is True
         assert _connected_join_dtype_admits("==", 26, string) is False
+
+
+@pytest.mark.parametrize("predicate,expected", [("p.iv > 1", []), ("p.iv >= 1", []), ("p.iv <> 1", [{"n": 8}]), ("p.iv = 1", [])])
+def test_connected_join_interval_column_matches_master(predicate: str, expected: Any) -> None:
+    # `interval[int64, right]` contains "int": classified numeric, a comparison pushed onto
+    # it raised a raw ValueError out of pandas where the residual answers correctly.
+    nodes = pd.DataFrame({"id": ["p1", "p2", "a1", "b1", "a2", "b2"]})
+    nodes["iv"] = pd.arrays.IntervalArray.from_breaks([0, 1, 2, 3, 4, 5, 6])
+    edges = pd.DataFrame({"s": ["p1", "p1", "p2", "p2"], "d": ["a1", "b1", "a2", "b2"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = f"MATCH (p)-[]->(x), (p)-[]->(y) WHERE {predicate} RETURN count(p) AS n"
+
+    assert g.gfql(query)._nodes.to_dict(orient="records") == expected
 
 
 def test_connected_join_dtype_classes_handles_non_pandas_dtypes() -> None:

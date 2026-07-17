@@ -7821,6 +7821,18 @@ def _connected_join_expr_literal_value(node: ExprNode) -> Tuple[bool, Optional[C
 
 _CONNECTED_JOIN_STRING_OPS = frozenset({"contains", "starts_with", "ends_with", "regex"})
 _CONNECTED_JOIN_ORDERING_OPS = frozenset({"!=", "<", "<=", ">", ">="})
+# Container dtypes whose text embeds an element type, e.g. `interval[int64, right]`,
+# `List(Int64)`, `struct`. Never scalar-comparable, so they must never push.
+_CONNECTED_JOIN_CONTAINER_DTYPE_TOKENS = (
+    "interval",
+    "struct",
+    "list",
+    "array",
+    "map",
+    "binary",
+    "void",
+    "record",
+)
 
 
 def _connected_join_dtype_classes(dtype: Any) -> Tuple[bool, bool]:
@@ -7844,6 +7856,12 @@ def _connected_join_dtype_classes(dtype: Any) -> Tuple[bool, bool]:
     try:
         text = str(dtype).lower()
     except Exception:
+        return False, False
+    if any(token in text for token in _CONNECTED_JOIN_CONTAINER_DTYPE_TOKENS):
+        # Container dtypes must be tested first: their text embeds their element type, so
+        # `interval[int64, right]` and `List(Int64)` contain "int" and `struct` contains
+        # "str". Matching those as scalars pushes a numeric predicate onto a container
+        # column, which raises where the residual answers.
         return False, False
     if any(token in text for token in ("bool", "int", "float", "double", "decimal")):
         return True, False
