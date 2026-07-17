@@ -38,13 +38,13 @@ from graphistry.compute.gfql.cypher.procedures.networkx import (
 )
 from graphistry.plugins.networkx.policy import NETWORKX_SCIPY_EXTRA_REQUIREMENTS, NETWORKX_VERSION_SPEC, SCIPY_VERSION_SPEC
 from graphistry.compute.gfql.cypher.ast import ExpressionText, OrderByClause, OrderItem, ReturnClause, ReturnItem, SourceSpan
-from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery
+from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery, compile_cypher_query
 from graphistry.compute.gfql.cypher.lowering import _logical_plan_route_for_query
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, SemanticTable
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import CHILD_SLOTS, Filter, PatternMatch, ProcedureCall as LogicalProcedureCall
-from graphistry.compute.gfql_unified import _node_dtypes_for_pushdown
+from graphistry.compute.filter_by_dict import _node_dtypes_for_pushdown
 from graphistry.compute.gfql.cypher.lowering import _connected_join_dtype_admits, _connected_join_dtype_classes
 from graphistry.Plottable import Plottable
 from graphistry.tests.test_compute import CGFull
@@ -15537,7 +15537,7 @@ def test_object_column_holds_non_strings_fails_closed_when_unreadable() -> None:
     # An object column whose values cannot be read tells us nothing about whether `.str` would
     # reject them, so omit it and let the residual answer -- matching `_read_node_dtypes`, which
     # returns {} for a schema it cannot read. Keeping it would push blind.
-    from graphistry.compute.gfql_unified import _object_column_holds_non_strings
+    from graphistry.compute.filter_by_dict import _object_column_holds_non_strings
 
     class _UnreadableFrame:
         def __getitem__(self, key: str) -> Any:
@@ -15674,17 +15674,17 @@ def test_node_dtypes_for_pushdown_defers_the_conversion() -> None:
     nodes = pl.DataFrame({"id": ["a", "b"], "age": pl.Series([1, 2], dtype=pl.Int64)})
     g = graphistry.nodes(nodes, "id").edges(pl.DataFrame({"s": ["a"], "d": ["b"]}), "s", "d")
 
-    import graphistry.compute.gfql_unified as unified
+    import graphistry.compute.filter_by_dict as filter_by_dict
 
-    original = unified._read_node_dtypes
+    original = filter_by_dict._read_node_dtypes
 
     def spy(*args: Any, **kwargs: Any) -> Any:
         converted.append(1)
         return original(*args, **kwargs)
 
-    unified._read_node_dtypes = spy
+    filter_by_dict._read_node_dtypes = spy
     try:
-        dtypes = unified._node_dtypes_for_pushdown(g)
+        dtypes = filter_by_dict._node_dtypes_for_pushdown(g)
         assert dtypes is not None
         assert converted == []  # built, but nothing read yet
         assert _connected_join_dtype_classes(dtypes["age"]) == (True, False)
@@ -15692,7 +15692,7 @@ def test_node_dtypes_for_pushdown_defers_the_conversion() -> None:
         _ = dtypes["id"]
         assert converted == [1]  # and it is cached
     finally:
-        unified._read_node_dtypes = original
+        filter_by_dict._read_node_dtypes = original
 
 
 def test_node_dtypes_for_pushdown_matches_the_full_conversion() -> None:
@@ -15872,7 +15872,7 @@ def test_connected_join_dtype_schema_selects_pushdown() -> None:
     assert dtypes is not None
 
     def pushed_props(predicate: str) -> set:
-        compiled = cast(CompiledCypherQuery, compile_cypher(_t1_nullable_query(predicate), _node_dtypes=dtypes))
+        compiled = cast(CompiledCypherQuery, compile_cypher_query(parse_cypher(_t1_nullable_query(predicate)), node_dtypes=dtypes))
         plan = _compiled_execution_extras(compiled).connected_match_join
         assert plan is not None
         return {

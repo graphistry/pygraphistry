@@ -27,7 +27,7 @@ from graphistry.compute.gfql.same_path_types import (
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
-from graphistry.compute.gfql.cypher.api import compile_cypher
+from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.cypher.lowering import (
     ConnectedMatchJoinPlan,
     CompiledCypherGraphQuery,
@@ -35,7 +35,9 @@ from graphistry.compute.gfql.cypher.lowering import (
     CompiledCypherUnionQuery,
     CompiledGraphResidualFilter,
     ConnectedOptionalMatchPlan,
+    compile_cypher_query,
 )
+from graphistry.compute.filter_by_dict import _node_dtypes_for_pushdown
 from graphistry.compute.gfql.cypher.reentry.execution import (
     REENTRY_DUPLICATE_CARRIED_ROWS_REASON as _REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
     REENTRY_WHOLE_ROW_SUGGESTION as _REENTRY_WHOLE_ROW_SUGGESTION,
@@ -69,7 +71,7 @@ from graphistry.compute.gfql.physical_planner import PhysicalPlanner
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
 from graphistry.compute.gfql.search_any import search_any_mask
-from graphistry.compute.typing import DataFrameT, SeriesT
+from graphistry.compute.typing import DataFrameT, SeriesT, NodeDtypes
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
@@ -1344,128 +1346,12 @@ def detect_query_type(query: Any) -> QueryType:
         return "single"
 
 
-class _LazyNodeDtypes(Mapping[str, Any]):
-    """Node dtypes, materialized on first lookup.
-
-    Reading them costs a full engine conversion, and only connected-join pushdown ever asks --
-    a path most queries never reach. Computing eagerly charged every string query for a frame
-    it then discarded (~65ms per million polars rows). Stay a Mapping so callers are unchanged.
-    """
-
-    def __init__(self, g: Plottable, engine: Union[EngineAbstract, str]) -> None:
-        self._g = g
-        self._engine = engine
-        self._resolved: Optional[Mapping[str, Any]] = None
-
-    def _materialize(self) -> Mapping[str, Any]:
-        if self._resolved is None:
-            self._resolved = _read_node_dtypes(self._g, self._engine)
-        return self._resolved
-
-    def __getitem__(self, key: str) -> Any:
-        return self._materialize()[key]
-
-    def __iter__(self) -> Any:
-        return iter(self._materialize())
-
-    def __len__(self) -> int:
-        return len(self._materialize())
-
-
-def _node_dtypes_for_pushdown(
-    g: Plottable,
-    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
-) -> Optional[Mapping[str, Any]]:
-    """Node dtypes for the pushdown gate, or None when there is no graph to read."""
-    if getattr(g, "_nodes", None) is None:
-        # No graph: the caller falls back to value-type rules, as a bare compile_cypher() does.
-        # Distinct from failing to read a graph we have, which must fail closed.
-        return None
-    return _LazyNodeDtypes(g, engine)
-
-
-def _object_column_holds_non_strings(frame: Any, column: str, dtype: Any) -> bool:
-    """Whether `column` is an object column whose values `.str` would reject.
-
-    `object` says nothing about contents: pandas stores ordinary strings that way, and also a
-    numeric column that acquired a `None`. String predicates are admitted on dtype alone -- by
-    this gate and by `filter_by_dict` alike -- but `.str` fails on the values, leaking a raw
-    AttributeError. Dropping the column leaves the gate with nothing to look up, so it fails
-    closed and the residual answers.
-
-    Keep only the kinds that stay valid under SUBSETTING. `StringMethods._validate` admits
-    {string, empty, bytes, mixed, mixed-integer}, but it runs on the frame it is handed -- and
-    the frame we inspect is the source, while the pushed filter runs on the join's candidate
-    subset. `string` and `empty` survive that (a subset of strings is string or empty), but
-    `mixed`/`mixed-integer` do not: drop the strings and they collapse to integer/floating/
-    boolean, which `.str` rejects. `bytes` is excluded separately -- it passes `_validate` yet
-    `str.contains` forbids it.
-
-    Mirroring a rule is not enough when we evaluate it against a different frame than the
-    executor does, so admit only what no subset can invalidate.
-    """
-    import pandas as _pd
-
-    try:
-        is_object = bool(_pd.api.types.is_object_dtype(dtype))
-    except Exception:
-        return False
-    if not is_object:
-        return False
-    try:
-        inferred = _pd.api.types.infer_dtype(frame[column], skipna=True)
-    except Exception:
-        # It IS an object column and we cannot read its values, so we cannot tell whether
-        # `.str` would reject them. Omit it and let the residual answer, matching
-        # `_read_node_dtypes`, which returns {} for a schema it cannot read.
-        return True
-    return inferred not in {"string", "empty"}
-
-
-def _read_node_dtypes(
-    g: Plottable,
-    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
-) -> Mapping[str, Any]:
-    """Column dtypes the executor will filter on, for the pushdown gate.
-
-    A pushed filter is schema-validated against the real column while the row residual
-    evaluates leniently, so the planner needs dtypes to avoid turning a correct empty result
-    into a type error. An unreadable schema yields an empty mapping, which fails every column
-    lookup and so falls back to the residual.
-    """
-    nodes = getattr(g, "_nodes", None)
-    if nodes is None:
-        return {}
-    try:
-        # Classify the frame the EXECUTOR will filter, not the one the caller handed in.
-        # `filter_by_dict` validates post-materialization dtypes, so judging the pre-conversion
-        # frame lets the two disagree (polars Decimal reads numeric here, object there).
-        #
-        # Convert the whole frame, not an empty probe: polars -> pandas is DATA-dependent, so
-        # `head(0)` reports a different class than the real conversion for a nullable Boolean
-        # (`bool` empty, `object` with a null in it). Identity for pandas; for other engines
-        # this costs a real conversion, which is why the caller defers it until a pushdown
-        # decision actually needs it.
-        probe = df_to_engine(nodes, resolve_engine(cast(Any, engine), nodes), warn=False)
-        # zip rather than `.items()`: pandas/cuDF expose a column-indexed Series, polars a list.
-        dtypes = {str(col): dtype for col, dtype in zip(list(probe.columns), list(probe.dtypes))}
-        return {
-            col: dtype
-            for col, dtype in dtypes.items()
-            if not _object_column_holds_non_strings(probe, col, dtype)
-        }
-    except Exception:
-        # We have a graph but could not read its schema, so we know nothing about any column.
-        # An empty mapping fails every column lookup, which fails closed to the residual.
-        return {}
-
-
 def _compile_string_query(
     query: str,
     *,
     language: Optional[Literal["cypher", "gremlin"]],
     params: Optional[Mapping[str, Any]],
-    node_dtypes: Optional[Mapping[str, Any]] = None,
+    node_dtypes: Optional[NodeDtypes] = None,
 ) -> Any:
     query_language = language or "cypher"
     if query_language != "cypher":
@@ -1477,7 +1363,7 @@ def _compile_string_query(
             suggestion="Use language='cypher' for now; Gremlin string compilation is not implemented yet.",
             language="gfql",
         )
-    return compile_cypher(query, params=params, _node_dtypes=node_dtypes, _warn_deprecated=False)
+    return compile_cypher_query(parse_cypher(query), params=params, node_dtypes=node_dtypes)
 
 
 def _compile_value_repr(value: Any) -> str:

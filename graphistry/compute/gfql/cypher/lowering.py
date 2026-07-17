@@ -109,9 +109,11 @@ from graphistry.compute.gfql.cypher.ast import (
     SourceSpan,
     UnwindClause,
     WhereClause,
+    WhereOp,
     WherePredicate,
     WherePatternPredicate,
 )
+from graphistry.compute.typing import DType, NodeDtypes
 from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
 from graphistry.compute.gfql.cypher.expression_text import (
     cypher_literal_expr_text as _cypher_literal_expr_text,
@@ -7773,20 +7775,20 @@ def _logical_plan_from_query_graph(
     )
 
 
-def _connected_join_literal_op(op: str, *, reverse: bool = False) -> Optional[str]:
+def _connected_join_literal_op(op: str, *, reverse: bool = False) -> Optional[WhereOp]:
     normalized = "==" if op == "=" else op
     if normalized not in {"==", "!=", "<", "<=", ">", ">="}:
         return None
     if not reverse:
-        return normalized
-    return {
+        return cast(WhereOp, normalized)
+    return cast(WhereOp, {
         "==": "==",
         "!=": "!=",
         "<": ">",
         "<=": ">=",
         ">": "<",
         ">=": "<=",
-    }[normalized]
+    }[normalized])
 
 
 def _connected_join_expr_property_ref(
@@ -7855,7 +7857,7 @@ def _connected_join_dtype_widens(dtype: Any) -> bool:
         return False
 
 
-def _connected_join_dtype_admits(op: str, value: Any, dtype: Any) -> bool:
+def _connected_join_dtype_admits(op: WhereOp, value: Optional[Union[str, int, float, bool]], dtype: DType) -> bool:
     """Whether pushing `op`/`value` onto a column of `dtype` matches residual semantics.
 
     A pushed `filter_dict` is schema-validated against the real column, while the row
@@ -7890,12 +7892,12 @@ def _connected_join_dtype_admits(op: str, value: Any, dtype: Any) -> bool:
 
 
 def _connected_join_pushable_value(
-    op: str,
+    op: WhereOp,
     value: Optional[CypherLiteral],
     *,
     params: Optional[Mapping[str, Any]],
     column: Optional[str] = None,
-    node_dtypes: Optional[Mapping[str, Any]] = None,
+    node_dtypes: Optional[NodeDtypes] = None,
 ) -> bool:
     """Whether `op`/`value` survives the trip into a node `filter_dict`.
 
@@ -7949,7 +7951,7 @@ def _connected_join_pushable_value(
     return _connected_join_dtype_admits(op, resolved, node_dtypes[column])
 
 
-def _connected_join_mergeable_filter(target: ASTNode, prop: str, *, op: str, resolved: Any) -> bool:
+def _connected_join_mergeable_filter(target: ASTNode, prop: str, *, op: WhereOp, resolved: Optional[Union[str, int, float, bool]]) -> bool:
     """Whether pushing `op`/`resolved` onto `prop` can merge with what is already there.
 
     `_merge_filter_predicates` wraps raw scalars with `comparison.eq`, which serializes to
@@ -7980,10 +7982,10 @@ def _apply_connected_join_node_filter(
     alias_targets_by_pattern: Sequence[Mapping[str, ASTObject]],
     *,
     prop_ref: PropertyRef,
-    op: str,
+    op: WhereOp,
     value: Optional[CypherLiteral],
     params: Optional[Mapping[str, Any]],
-    node_dtypes: Optional[Mapping[str, Any]] = None,
+    node_dtypes: Optional[NodeDtypes] = None,
 ) -> bool:
     if not _connected_join_pushable_value(
         op, value, params=params, column=prop_ref.property, node_dtypes=node_dtypes
@@ -8025,7 +8027,7 @@ def _pushdown_connected_join_atom_filter(
     alias_targets: Mapping[str, ASTObject],
     *,
     params: Optional[Mapping[str, Any]],
-    node_dtypes: Optional[Mapping[str, Any]] = None,
+    node_dtypes: Optional[NodeDtypes] = None,
 ) -> bool:
     try:
         node = _parse_row_expr(
@@ -8076,7 +8078,7 @@ def _pushdown_connected_join_where_filters(
     alias_targets: Mapping[str, ASTObject],
     *,
     params: Optional[Mapping[str, Any]],
-    node_dtypes: Optional[Mapping[str, Any]] = None,
+    node_dtypes: Optional[NodeDtypes] = None,
 ) -> Optional[List[ExpressionText]]:
     if where is None:
         return []
@@ -8101,7 +8103,7 @@ def _pushdown_connected_join_where_filters(
             _apply_connected_join_node_filter(
                 alias_targets_by_pattern,
                 prop_ref=predicate.left,
-                op=cast(str, predicate.op),
+                op=predicate.op,
                 value=cast(Optional[CypherLiteral], predicate.right),
                 params=params,
                 node_dtypes=node_dtypes,
@@ -8148,7 +8150,7 @@ def _pushdown_connected_join_where_filters(
             pushed = _apply_connected_join_node_filter(
                 alias_targets_by_pattern,
                 prop_ref=predicate.left,
-                op=cast(str, predicate.op),
+                op=predicate.op,
                 value=cast(Optional[CypherLiteral], predicate.right),
                 params=params,
                 node_dtypes=node_dtypes,
@@ -8215,7 +8217,7 @@ def _compile_connected_match_join(
     *,
     params: Optional[Mapping[str, Any]] = None,
     semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
-    node_dtypes: Optional[Mapping[str, Any]] = None,
+    node_dtypes: Optional[NodeDtypes] = None,
 ) -> CompiledCypherQuery:
     clause = query.matches[0]
     pattern_chains: List[Chain] = []
@@ -8812,7 +8814,7 @@ def compile_cypher_query(
     query: Union[CypherQuery, CypherUnionQuery, CypherGraphQuery],
     *,
     params: Optional[Mapping[str, Any]] = None,
-    node_dtypes: Optional[Mapping[str, Any]] = None,
+    node_dtypes: Optional[NodeDtypes] = None,
 ) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
     from graphistry.compute.gfql.cypher import projection_planning as _projection
 

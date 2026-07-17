@@ -81,7 +81,6 @@ def compile_cypher(
     query: str,
     *,
     params: Optional[Mapping[str, Any]] = None,
-    _node_dtypes: Optional[Mapping[str, Any]] = None,
     _warn_deprecated: bool = True,
 ) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
     """Deprecated compatibility helper for inspecting compiled Cypher internals.
@@ -111,4 +110,4 @@ def compile_cypher(
             stacklevel=2,
         )
     parsed = parse_cypher(query)
-    return compile_cypher_query(parsed, params=params, node_dtypes=_node_dtypes)
+    return compile_cypher_query(parsed, params=params)
