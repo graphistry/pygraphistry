@@ -1381,6 +1381,39 @@ def _node_dtypes_for_pushdown(
     return _LazyNodeDtypes(g, engine)
 
 
+def _object_column_holds_non_strings(frame: Any, column: str, dtype: Any) -> bool:
+    """Whether `column` is an object column whose values are not strings.
+
+    `object` says nothing about contents: pandas stores ordinary strings that way, and also a
+    bool column that acquired a null. String predicates are admitted on dtype alone -- by this
+    gate and by `filter_by_dict` alike -- but `.str` fails on the values, leaking a raw
+    AttributeError. Dropping the column leaves the gate with nothing to look up, so it fails
+    closed and the residual answers. Mixed and empty contents are left alone: they work today.
+    """
+    import pandas as _pd
+
+    try:
+        if not _pd.api.types.is_object_dtype(dtype):
+            return False
+        inferred = _pd.api.types.infer_dtype(frame[column], skipna=True)
+    except Exception:
+        return False
+    return inferred in {
+        "boolean",
+        "integer",
+        "floating",
+        "decimal",
+        "complex",
+        "date",
+        "datetime",
+        "datetime64",
+        "timedelta",
+        "timedelta64",
+        "period",
+        "bytes",
+    }
+
+
 def _read_node_dtypes(
     g: Plottable,
     engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
@@ -1407,7 +1440,12 @@ def _read_node_dtypes(
         # decision actually needs it.
         probe = df_to_engine(nodes, resolve_engine(cast(Any, engine), nodes), warn=False)
         # zip rather than `.items()`: pandas/cuDF expose a column-indexed Series, polars a list.
-        return {str(col): dtype for col, dtype in zip(list(probe.columns), list(probe.dtypes))}
+        dtypes = {str(col): dtype for col, dtype in zip(list(probe.columns), list(probe.dtypes))}
+        return {
+            col: dtype
+            for col, dtype in dtypes.items()
+            if not _object_column_holds_non_strings(probe, col, dtype)
+        }
     except Exception:
         # We have a graph but could not read its schema, so we know nothing about any column.
         # An empty mapping fails every column lookup, which fails closed to the residual.

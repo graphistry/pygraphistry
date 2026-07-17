@@ -15364,6 +15364,45 @@ def test_connected_join_bool_dtype_never_pushes() -> None:
     assert _connected_join_dtype_admits(">", 0, pd.Series([1]).dtype) is True
 
 
+def _real_object_content_graph() -> Plottable:
+    nodes = pd.DataFrame({
+        "id": ["n1", "n2", "n3", "n4"],
+        "flag": [True, False, None, True],   # bool + null -> object, values are not strings
+        "name": ["ann", "bob", "cid", "dee"],
+        "mix": ["a", 1, None, "c"],
+        "num": [1, 2, 3, 4],
+    })
+    edges = pd.DataFrame({"s": ["n1", "n2", "n3", "n1"], "d": ["n2", "n3", "n4", "n3"]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+def test_connected_join_string_op_on_non_string_object_column_stays_typed() -> None:
+    # `object` says nothing about contents: strings live there, and so does a bool column that
+    # acquired a null. Pushing a string op on dtype alone let `.str` fail on the values and leak
+    # a raw AttributeError where master raised a GFQL error.
+    query = "MATCH (i)-->(p), (p)-->(c) WHERE p.flag CONTAINS 'a' RETURN count(p) AS n"
+
+    with pytest.raises(GFQLValidationError):
+        _real_object_content_graph().gfql(query)
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        # Real string columns are object too, and must keep pushing -- master cannot render these.
+        ("p.name CONTAINS 'o'", [{"n": 1}]),
+        ("p.name STARTS WITH 'a'", []),
+        ("p.mix CONTAINS 'a'", []),
+        ("p.num >= 2", [{"n": 3}]),
+    ],
+)
+def test_connected_join_object_columns_still_answer(predicate: str, expected: Any) -> None:
+    query = f"MATCH (i)-->(p), (p)-->(c) WHERE {predicate} RETURN count(p) AS n"
+
+    result = _real_object_content_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected
+
+
 def test_node_dtypes_for_pushdown_fails_closed_on_unreadable_nodes() -> None:
     # An unreadable schema must yield an empty mapping, not None: None means "no graph, use
     # value-type rules" and would push dtype-blind. Pinned directly because the two are
