@@ -15328,6 +15328,42 @@ def test_connected_join_string_predicate_merge_matches_cypher(predicate: str, ex
     assert result._nodes.to_dict(orient="records") == expected
 
 
+def _real_pandas_bool_graph() -> Plottable:
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d", "e"], "flag": [True, False, True, False, True], "age": [1, 2, 3, 4, 5]})
+    edges = pd.DataFrame({"s": ["a", "b", "c", "a", "b"], "d": ["b", "c", "d", "c", "e"]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        # The gate reads the source frame but the executor filters a joined one, where an
+        # unmatched row introduces NaN and pandas widens bool -> object: numeric to the gate,
+        # string to the validator. Declining keeps the residual's answer.
+        ("p.flag > 0", [{"n": 2}]),
+        ("p.flag >= 1", [{"n": 2}]),
+        ("p.flag <> 0", [{"n": 2}]),
+        ("p.flag = 1", [{"n": 2}]),
+        ("p.flag = true", [{"n": 2}]),
+        # int64 widens to float64, which stays numeric, so this must still push and answer.
+        ("p.age >= 2", [{"n": 4}]),
+    ],
+)
+def test_connected_join_bool_column_survives_join_widening(predicate: str, expected: Any) -> None:
+    query = f"MATCH (i)-->(p), (p)-->(c) WHERE {predicate} RETURN count(p) AS n"
+
+    result = _real_pandas_bool_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+def test_connected_join_bool_dtype_never_pushes() -> None:
+    # bool cannot hold NaN, so the join widens it out of its class. int64 -> float64 stays
+    # numeric and must keep pushing.
+    assert _connected_join_dtype_admits(">", 0, pd.Series([True]).dtype) is False
+    assert _connected_join_dtype_admits("==", True, pd.Series([True]).dtype) is False
+    assert _connected_join_dtype_admits(">", 0, pd.Series([1]).dtype) is True
+
+
 def test_node_dtypes_for_pushdown_fails_closed_on_unreadable_nodes() -> None:
     # An unreadable schema must yield an empty mapping, not None: None means "no graph, use
     # value-type rules" and would push dtype-blind. Pinned directly because the two are

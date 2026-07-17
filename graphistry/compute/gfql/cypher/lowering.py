@@ -7839,6 +7839,22 @@ def _connected_join_dtype_classes(dtype: Any) -> Tuple[bool, bool]:
     return bool(_is_numeric_dtype_safe(dtype)), bool(_is_string_dtype_safe(dtype))
 
 
+def _connected_join_dtype_widens(dtype: Any) -> bool:
+    """Whether the join can change `dtype`'s class before the filter runs.
+
+    The gate reads the source nodes frame, but the executor filters a joined one, and an
+    unmatched row introduces NaN. `bool` cannot hold NaN so pandas widens it to `object` --
+    numeric to the gate, string to the validator. `int64` widens to `float64`, which stays
+    numeric and is harmless; `bool` is the only common dtype that crosses the boundary.
+    """
+    import pandas as _pd
+
+    try:
+        return bool(_pd.api.types.is_bool_dtype(dtype)) and not bool(_pd.api.types.is_extension_array_dtype(dtype))
+    except Exception:
+        return False
+
+
 def _connected_join_dtype_admits(op: str, value: Any, dtype: Any) -> bool:
     """Whether pushing `op`/`value` onto a column of `dtype` matches residual semantics.
 
@@ -7852,6 +7868,8 @@ def _connected_join_dtype_admits(op: str, value: Any, dtype: Any) -> bool:
     correct on non-pandas dtypes. `compute/validate_schema.py` looks similar but is dead
     code -- only a docs test imports it -- and it disagrees on `bool`.
     """
+    if _connected_join_dtype_widens(dtype):
+        return False
     is_numeric_col, is_string_col = _connected_join_dtype_classes(dtype)
     if not is_numeric_col and not is_string_col:
         # Unrecognized dtype: fail closed. Pushing on a guess is how a correct empty
