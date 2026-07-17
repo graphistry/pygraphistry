@@ -15328,26 +15328,52 @@ def test_connected_join_string_predicate_merge_matches_cypher(predicate: str, ex
     assert result._nodes.to_dict(orient="records") == expected
 
 
-def test_node_dtypes_for_pushdown_reports_materialized_dtypes() -> None:
-    # The executor filters the materialized frame, so classifying the caller's polars dtypes
-    # would both miss pushdown (polars Int64 satisfies neither helper) and risk disagreeing
-    # with the validator. Report what the executor will actually see.
+def test_node_dtypes_for_pushdown_matches_the_full_conversion() -> None:
+    # polars -> pandas is DATA-dependent: an empty probe reports `bool` for a nullable Boolean
+    # while the real conversion yields `object`. The gate must report what the executor sees,
+    # so compare against the full conversion rather than asserting probe dtypes in isolation.
+    pl = pytest.importorskip("polars")
+    from graphistry.Engine import df_to_engine, resolve_engine
+
+    nodes = pl.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "flag": pl.Series([True, False, None, True], dtype=pl.Boolean),
+        "age": pl.Series([1, 2, None, 4], dtype=pl.Int64),
+        "name": pl.Series(["w", "x", "y", "z"]),
+    })
+    edges = pl.DataFrame({"s": ["a", "a"], "d": ["b", "c"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+    reported = _node_dtypes_for_pushdown(g)
+    assert reported is not None
+    executed = df_to_engine(nodes, resolve_engine("auto", nodes), warn=False)
+    for column, dtype in zip(list(executed.columns), list(executed.dtypes)):
+        assert _connected_join_dtype_classes(reported[str(column)]) == _connected_join_dtype_classes(dtype)
+    # The empty probe disagrees on the nullable bool, which is why it cannot be used.
+    empty = df_to_engine(nodes.head(0), resolve_engine("auto", nodes), warn=False)
+    empty_dtypes = dict(zip([str(name) for name in empty.columns], list(empty.dtypes)))
+    assert _connected_join_dtype_classes(empty_dtypes["flag"]) != _connected_join_dtype_classes(reported["flag"])
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [("p.flag > 0", [{"n": 4}]), ("p.flag = true", [{"n": 4}]), ("p.age >= 2", [{"n": 4}])],
+)
+def test_connected_join_polars_nullable_columns_match_master(predicate: str, expected: Any) -> None:
     pl = pytest.importorskip("polars")
 
     nodes = pl.DataFrame({
-        "id": ["a", "b"],
-        "age": pl.Series([1, 2], dtype=pl.Int64()),
-        "s": pl.Series(["x", "y"]),
+        "id": ["a", "b", "c", "d"],
+        "flag": pl.Series([True, False, None, True], dtype=pl.Boolean),
+        "age": pl.Series([1, 2, None, 4], dtype=pl.Int64),
     })
-    g = graphistry.nodes(nodes, "id").edges(pl.DataFrame({"s": ["a"], "d": ["b"]}), "s", "d")
+    edges = pl.DataFrame({"s": ["a", "a", "b", "b"], "d": ["b", "c", "a", "c"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = f"MATCH (p)-[]->(x), (p)-[]->(y) WHERE {predicate} RETURN count(p) AS n"
 
-    dtypes = _node_dtypes_for_pushdown(g)
-    assert dtypes is not None
-    # Materialized to pandas, so the numeric column classifies as numeric and still pushes.
-    assert _connected_join_dtype_classes(dtypes["age"]) == (True, False)
-    assert _connected_join_dtype_classes(dtypes["s"]) == (False, True)
-    # The raw polars dtype satisfies neither helper, which is why it must not be used.
-    assert _connected_join_dtype_classes(pl.Int64()) == (False, False)
+    out = g.gfql(query)._nodes
+    records = out.to_dict(orient="records") if hasattr(out, "to_dict") else out.to_dicts()
+    assert records == expected
 
 
 def test_node_dtypes_for_pushdown_reads_frames_without_head() -> None:

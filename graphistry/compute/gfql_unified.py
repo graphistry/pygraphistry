@@ -1362,8 +1362,12 @@ def _node_dtypes_for_pushdown(
         # Classify the frame the EXECUTOR will filter, not the one the caller handed in.
         # `filter_by_dict` validates post-materialization dtypes, so judging the pre-conversion
         # frame lets the two disagree (polars Decimal reads numeric here, object there).
-        probe = nodes.head(0) if hasattr(nodes, "head") else nodes
-        probe = df_to_engine(probe, resolve_engine(cast(Any, engine), nodes), warn=False)
+        #
+        # Convert the whole frame, not an empty probe: polars -> pandas is DATA-dependent, so
+        # `head(0)` reports a different class than the real conversion for a nullable Boolean
+        # (`bool` empty, `object` with a null in it). For pandas nodes this is identity and
+        # costs nothing; for others it is one conversion the executor performs anyway.
+        probe = df_to_engine(nodes, resolve_engine(cast(Any, engine), nodes), warn=False)
         # zip rather than `.items()`: pandas/cuDF expose a column-indexed Series, polars a list.
         return {str(col): dtype for col, dtype in zip(list(probe.columns), list(probe.dtypes))}
     except Exception:
