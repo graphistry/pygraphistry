@@ -15427,6 +15427,23 @@ def test_connected_join_empty_pattern_keeps_edge_alias_aggregate(predicate: str,
     assert len(result) == 0
 
 
+@pytest.mark.parametrize(
+    "ret,dtype",
+    [
+        # The 0-row schema fill must carry the source dtype: an untyped None gives object,
+        # which upcasts sum/avg and escapes via UNION ALL. Edge property must stay int64/float.
+        ("sum(e1.w) AS c", "int64"),
+        ("avg(e1.w) AS c", "float64"),
+        ("max(e1.w) AS c", "int64"),
+    ],
+)
+def test_connected_join_empty_edge_aggregate_keeps_numeric_dtype(ret: str, dtype: str) -> None:
+    query = f"MATCH (a)-[e1]->(b), (b)-[e2]->(c) WHERE a.i_col > 99999 RETURN {ret}"
+    result = _real_edge_alias_graph().gfql(query)._nodes
+    assert len(result) == 0
+    assert str(result["c"].dtype) == dtype
+
+
 def test_connected_join_non_empty_edge_alias_aggregate_answers() -> None:
     query = "MATCH (p)-[e1]->(q), (p)-[e2]->(r) WHERE e1.w > 0 RETURN count(p) AS n"
     assert _real_edge_alias_graph().gfql(query)._nodes.to_dict(orient="records") == [{"n": 3}]

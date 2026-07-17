@@ -3806,20 +3806,27 @@ class RowPipelineMixin:
         edges = base_graph._edges if base_graph is not None else None
         src_col = base_graph._source if base_graph is not None else None
         dst_col = base_graph._destination if base_graph is not None else None
-        missing: List[str] = []
+        # (column_name, source_series) — carry the source dtype so an edge property like
+        # `e1.w` stays int64 at 0 rows instead of an untyped object column (which would upcast
+        # a sum/avg and escape via UNION ALL). Mirrors the node path's typed empty slice. The
+        # `alias.alias` marker has no source dtype, so None-broadcast is fine for it.
+        missing: List[Tuple[str, Optional[Any]]] = []
         for op in ops:
             alias = getattr(op, "_name", None)
             if not isinstance(alias, str):
                 continue
-            missing.append(f"{alias}.{alias}")  # the alias.alias marker
+            missing.append((f"{alias}.{alias}", None))  # the alias.alias marker
             if isinstance(op, ASTEdge) and edges is not None:
                 for col in edges.columns:
                     if col in (src_col, dst_col):
                         continue
-                    missing.append(f"{alias}.{col}")
-        for col in missing:
+                    missing.append((f"{alias}.{col}", edges[col]))
+        for col, source in missing:
             if col not in bindings.columns:
-                bindings[col] = self._gfql_broadcast_scalar(bindings, None)
+                if source is not None:
+                    bindings[col] = source.iloc[0:0].reindex(bindings.index)
+                else:
+                    bindings[col] = self._gfql_broadcast_scalar(bindings, None)
         return bindings
 
     def _gfql_connected_bindings_row_frame_from_state(
