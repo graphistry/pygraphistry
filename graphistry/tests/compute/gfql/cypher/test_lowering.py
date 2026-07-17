@@ -15471,6 +15471,63 @@ def test_connected_join_empty_node_aggregate_matches_nonempty_dtype(ret: str, dt
     assert str(result["c"].dtype) == dtype
 
 
+@pytest.mark.parametrize(
+    "ret,dtype",
+    [
+        # A nullable *extension* Int64 on a downstream node stays Int64 through the non-empty
+        # hop's left-join (avg -> Float64); the 0-row widening must NOT collapse it to numpy
+        # float64. `pd.api.types.is_integer_dtype(Int64)` is True, so a naive int check
+        # over-reaches and diverges from both the non-empty run and master -- observable via
+        # UNION ALL, the same escape as #31. This is the regression Wave 37 caught.
+        ("sum(b.iv) AS c", "Int64"),
+        ("max(b.iv) AS c", "Int64"),
+        ("min(b.iv) AS c", "Int64"),
+        ("avg(b.iv) AS c", "Float64"),
+    ],
+)
+def test_connected_join_empty_node_aggregate_keeps_nullable_int(ret: str, dtype: str) -> None:
+    nodes = pd.DataFrame({
+        "id": ["n1", "n2", "n3", "n4"],
+        "iv": pd.Series([1, 2, None, 4], dtype="Int64"),
+    })
+    edges = pd.DataFrame({"s": ["n1", "n2", "n3"], "d": ["n2", "n3", "n4"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = f"MATCH (a)-[e1]->(b), (b)-[e2]->(c) WHERE a.iv = 999 RETURN {ret}"
+    empty = g.gfql(query)._nodes
+    assert len(empty) == 0
+    assert str(empty["c"].dtype) == dtype
+    # The empty schema must match the non-empty run of the identical query.
+    full_query = f"MATCH (a)-[e1]->(b), (b)-[e2]->(c) RETURN {ret}"
+    full = g.gfql(full_query)._nodes
+    assert str(full["c"].dtype) == dtype
+
+
+@pytest.mark.parametrize(
+    "bv_dtype,expected",
+    [
+        # numpy bool cannot hold the hop's left-join NaN, so the non-empty path widens a
+        # downstream node's bool column to object; the 0-row path must match, or an emptied
+        # max(b.bv) returns raw bool where non-empty and master give object (Wave 37 Finding 2).
+        ("bool", "object"),
+        # Nullable `boolean` holds NA natively and stays `boolean` in the non-empty path, so it
+        # must be left untouched -- widening it would be the Finding-1 over-reach in bool form.
+        ("boolean", "boolean"),
+    ],
+)
+def test_connected_join_empty_node_bool_aggregate_matches_nonempty(bv_dtype: str, expected: str) -> None:
+    nodes = pd.DataFrame({
+        "id": ["n1", "n2", "n3", "n4"],
+        "bv": pd.Series([True, False, True, False], dtype=bv_dtype),
+    })
+    edges = pd.DataFrame({"s": ["n1", "n2", "n3"], "d": ["n2", "n3", "n4"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    empty = g.gfql("MATCH (a)-[e1]->(b), (b)-[e2]->(c) WHERE a.id = 'zzz' RETURN max(b.bv) AS c")._nodes
+    assert len(empty) == 0
+    assert str(empty["c"].dtype) == expected
+    full = g.gfql("MATCH (a)-[e1]->(b), (b)-[e2]->(c) RETURN max(b.bv) AS c")._nodes
+    assert str(full["c"].dtype) == expected
+
+
 def test_connected_join_non_empty_edge_alias_aggregate_answers() -> None:
     query = "MATCH (p)-[e1]->(q), (p)-[e2]->(r) WHERE e1.w > 0 RETURN count(p) AS n"
     assert _real_edge_alias_graph().gfql(query)._nodes.to_dict(orient="records") == [{"n": 3}]

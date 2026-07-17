@@ -3828,10 +3828,14 @@ class RowPipelineMixin:
                 else:
                     bindings[col] = self._gfql_broadcast_scalar(bindings, None)
         # Downstream node aliases (every node op after the first) reach the row via a hop
-        # whose unmatched rows introduce NaN, so the non-empty path widens their integer
-        # columns to float. The 0-row path sourced them from the base node frame (int), so
-        # match that widening or an emptied `sum(b.i)` returns int64 where the non-empty run
-        # and master give float64 -- observable through UNION ALL (#31).
+        # whose unmatched rows introduce NaN, so the non-empty path widens the columns that
+        # cannot hold NaN: numpy int -> float64, numpy bool -> object. The 0-row path sourced
+        # them from the base node frame (int/bool), so match that widening or an emptied
+        # `sum(b.i)`/`max(b.bv)` returns int64/bool where the non-empty run and master give
+        # float64/object -- observable through UNION ALL (#31, Wave 37 Finding 2). Extension
+        # dtypes (`Int64`, `boolean`) hold NA natively and stay put in the non-empty path, so
+        # they must NOT be touched here (widening them re-introduced the divergence -- Wave 37
+        # Finding 1).
         import pandas as _pd
 
         node_ops = [op for op in ops if isinstance(op, ASTNode)]
@@ -3841,8 +3845,13 @@ class RowPipelineMixin:
                 continue
             for col in [c for c in bindings.columns if c == alias or str(c).startswith(f"{alias}.")]:
                 try:
-                    if _pd.api.types.is_integer_dtype(bindings[col].dtype):
+                    dtype = bindings[col].dtype
+                    if _pd.api.types.is_extension_array_dtype(dtype):
+                        continue
+                    if dtype.kind in ("i", "u"):
                         bindings[col] = bindings[col].astype("float64")
+                    elif dtype.kind == "b":
+                        bindings[col] = bindings[col].astype("object")
                 except Exception:
                     continue
         return bindings
