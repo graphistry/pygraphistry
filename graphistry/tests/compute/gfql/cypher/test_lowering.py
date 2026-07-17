@@ -15394,6 +15394,20 @@ def test_connected_join_string_op_on_non_str_kinds_stays_typed(column: str) -> N
         _real_infer_kind_graph().gfql(query)
 
 
+def test_connected_join_bytes_column_stays_typed() -> None:
+    # bytes passes StringMethods._validate but the methods themselves forbid it via
+    # @forbid_nonstring_types, so it must be omitted despite being in pandas' accessor
+    # allowlist. Without the carve-out this leaks a raw TypeError.
+    nodes = pd.DataFrame({"id": ["n1", "n2", "n3", "n4"]})
+    nodes["raw"] = pd.Series([b"abc", b"def", None, b"ghi"], dtype=object)
+    edges = pd.DataFrame({"s": ["n1", "n2", "n3", "n1"], "d": ["n2", "n3", "n4", "n1"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = "MATCH (i)-->(p), (p)-->(c) WHERE p.raw CONTAINS 'a' RETURN count(p) AS n"
+
+    with pytest.raises(GFQLValidationError):
+        g.gfql(query)
+
+
 def _real_infer_kind_graph() -> Plottable:
     import datetime
 
