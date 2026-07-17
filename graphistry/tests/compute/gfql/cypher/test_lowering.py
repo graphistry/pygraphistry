@@ -15385,6 +15385,8 @@ def _real_object_content_graph() -> Plottable:
         "score",
         "clock",
         "flag",
+        "plain_float",
+        "plain_int",
     ],
 )
 def test_connected_join_string_op_on_non_str_kinds_stays_typed(column: str) -> None:
@@ -15417,6 +15419,8 @@ def _real_infer_kind_graph() -> Plottable:
         [datetime.time(1, 0), datetime.time(2, 0), None, datetime.time(3, 0)], dtype=object
     )  # time
     nodes["flag"] = pd.Series([True, False, None, True], dtype=object)  # boolean
+    nodes["plain_float"] = pd.Series([1.5, 2.5, 3.5, 4.5], dtype=object)  # floating
+    nodes["plain_int"] = pd.Series([1, 2, 3, 4], dtype=object)  # integer
     nodes["name"] = ["ann", "bob", "cid", "dee"]  # string -- must still push
     edges = pd.DataFrame({"s": ["n1", "n2", "n3", "n1"], "d": ["n2", "n3", "n4", "n1"]})
     return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
