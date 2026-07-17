@@ -1255,15 +1255,6 @@ def _connected_join_alias_identity_expr(
     )
 
     def _rewrite(node_in: ExprNode) -> ExprNode:
-        if (
-            isinstance(node_in, FunctionCall)
-            and node_in.name.lower() == "count"
-            and len(node_in.args) == 1
-            and isinstance(node_in.args[0], Identifier)
-            and "." not in node_in.args[0].name
-            and node_in.args[0].name in alias_targets
-        ):
-            return node_in
         if isinstance(node_in, PropertyAccessExpr) and isinstance(node_in.value, Identifier):
             if "." not in node_in.value.name and node_in.value.name in alias_targets:
                 return node_in
@@ -7828,6 +7819,9 @@ def _connected_join_expr_literal_value(node: ExprNode) -> Tuple[bool, Optional[C
     return False, None
 
 
+_CONNECTED_JOIN_STRING_OPS = frozenset({"contains", "starts_with", "ends_with", "regex"})
+
+
 def _connected_join_pushable_value(
     op: str,
     value: Optional[CypherLiteral],
@@ -7856,8 +7850,15 @@ def _connected_join_pushable_value(
         return False
     if resolved is None:
         return False
+    if isinstance(resolved, (dict, list, tuple, set)):
+        # A dict survives `_filter_dict_to_json` verbatim and `maybe_filter_dict_from_json`
+        # revives it via `predicates_from_json`, so a param like {'type': 'GT', 'val': 26}
+        # would execute as `> 26` instead of an equality against a map.
+        return False
+    if op in _CONNECTED_JOIN_STRING_OPS:
+        return isinstance(resolved, str)
     if op == "==":
-        return True
+        return isinstance(resolved, (str, int, float, bool))
     return isinstance(resolved, (int, float)) and not isinstance(resolved, bool)
 
 

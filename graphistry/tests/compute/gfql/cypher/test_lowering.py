@@ -44,6 +44,7 @@ from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, SemanticTable
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import CHILD_SLOTS, Filter, PatternMatch, ProcedureCall as LogicalProcedureCall
+from graphistry.Plottable import Plottable
 from graphistry.tests.test_compute import CGFull
 from graphistry.tests.compute.gfql.cypher._whole_entity_compat import entity_text_records
 
@@ -15061,6 +15062,27 @@ def _mk_graph_benchmark_t1_nullable_shape_graph() -> "_CypherTestGraph":
     return _mk_graph(nodes, edges)
 
 
+def _real_t1_nullable_graph() -> Plottable:
+    # A real Plottable, not `_CypherTestGraph`: the executor's serialize/deserialize
+    # round-trip is where dropped-null and revived-predicate filters actually bite, and
+    # the test double does not reproduce it.
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 3, 10, 11, 20, 21],
+        "node_type": ["Person"] * 4 + ["City"] * 2 + ["Interest"] * 2,
+        "age": [25, 27, 35, None, None, None, None, None],
+        "nick": ["a", "b", "c", None, None, None, None, None],
+        "flag": [True, False, True, None, None, None, None, None],
+        "city": [None] * 4 + ["London", "Paris", None, None],
+        "interest": [None] * 6 + ["Fine Dining", "photography"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 2, 3, 0, 1, 2, 3],
+        "d": [20, 20, 21, 20, 10, 10, 11, 11],
+        "rel": ["HAS_INTEREST"] * 4 + ["LIVES_IN"] * 4,
+    })
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
 def _t1_nullable_query(predicate: str) -> str:
     return (
         "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
@@ -15111,6 +15133,73 @@ def test_connected_join_does_not_push_non_numeric_ordering(predicate: str, expec
     assert result._nodes.to_dict(orient="records") == [{"n": expected}]
 
     assert "where_rows" in _post_join_functions(query)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"type": "GT", "val": 26},
+        {"type": "Between", "lower": 0, "upper": 100, "inclusive": True},
+        [25, 27],
+    ],
+)
+def test_connected_join_does_not_push_non_scalar_param(value: Any) -> None:
+    # `_filter_dict_to_json` passes a dict through verbatim and `maybe_filter_dict_from_json`
+    # revives it through `predicates_from_json`, so pushing a caller-supplied map would run
+    # an arbitrary predicate (`age > 26`) instead of an equality against a map.
+    # Must use a real Plottable: the serialization round-trip that resurrects the predicate
+    # only happens on the real executor, so `_CypherTestGraph` cannot observe this.
+    query = _t1_nullable_query("p.age = $v")
+
+    result = _real_t1_nullable_graph().gfql(query, params={"v": value})
+    assert result._nodes.to_dict(orient="records") == []
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        ("p.nick STARTS WITH 'a'", 1),
+        ("p.nick CONTAINS 'a'", 1),
+        ("p.nick ENDS WITH 'a'", 1),
+        ("p.nick =~ 'a'", 1),
+    ],
+)
+def test_connected_join_pushes_string_predicates(predicate: str, expected: int) -> None:
+    # These lower to real round-trippable ASTPredicates, and the residual cannot render
+    # them at all, so they must push rather than fall back.
+    query = _t1_nullable_query(predicate)
+
+    result = _mk_graph_benchmark_t1_nullable_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"n": expected}]
+
+    filters_by_alias = _compiled_connected_join_filters(query)
+    assert any("nick" in entry.get("p", {}) for entry in filters_by_alias)
+
+
+@pytest.mark.parametrize("node_id_column", ["id", "nid"])
+def test_connected_join_count_distinct_alias_is_node_identity(node_id_column: str) -> None:
+    # A bare alias must lower to its identity column. Left unrewritten it only resolves when
+    # the node id column happens to be named `id`/`p`, and otherwise degrades to a constant,
+    # collapsing count(DISTINCT p) to 1.
+    nodes = pd.DataFrame({
+        node_id_column: [0, 1, 2, 10, 11, 20, 21],
+        "node_type": ["Person"] * 3 + ["City"] * 2 + ["Interest"] * 2,
+        "age": [25, 27, 35, None, None, None, None],
+        "interest": [None] * 5 + ["Fine Dining", "photography"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 2, 0, 1, 2],
+        "d": [20, 20, 21, 10, 10, 11],
+        "rel": ["HAS_INTEREST"] * 3 + ["LIVES_IN"] * 3,
+    })
+    g = graphistry.nodes(nodes, node_id_column).edges(edges, "s", "d")
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(DISTINCT p) AS n"
+    )
+
+    assert g.gfql(query)._nodes.to_dict(orient="records") == [{"n": 3}]
 
 
 @pytest.mark.parametrize("predicate", ["p.age >= - 26", "p.age >= -(26)", "p.age >= +(26)"])
