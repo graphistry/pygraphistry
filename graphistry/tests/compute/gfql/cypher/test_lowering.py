@@ -15350,6 +15350,39 @@ def test_node_dtypes_for_pushdown_reports_materialized_dtypes() -> None:
     assert _connected_join_dtype_classes(pl.Int64()) == (False, False)
 
 
+def test_node_dtypes_for_pushdown_reads_frames_without_head() -> None:
+    # pyarrow.Table has no .head(); the probe raised, was swallowed, and returned None --
+    # which means "no graph, use value-type rules" and pushes dtype-blind, the exact bug the
+    # gate exists to stop. Absent graph and unreadable schema must not be conflated.
+    pa = pytest.importorskip("pyarrow")
+
+    nodes = pa.table({"id": ["a", "b", "c"], "name": ["ann", "bob", "cid"], "age": [30, 40, 50]})
+    edges = pa.table({"s": ["a", "a", "b", "b"], "d": ["b", "c", "a", "c"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+    dtypes = _node_dtypes_for_pushdown(g)
+    assert dtypes is not None
+    assert _connected_join_dtype_classes(dtypes["name"]) == (False, True)
+    assert _connected_join_dtype_classes(dtypes["age"]) == (True, False)
+
+
+def test_arrow_table_nodes_match_master_results() -> None:
+    pa = pytest.importorskip("pyarrow")
+
+    nodes = pa.table({"id": ["a", "b", "c"], "name": ["ann", "bob", "cid"], "age": [30, 40, 50]})
+    edges = pa.table({"s": ["a", "a", "b", "b"], "d": ["b", "c", "a", "c"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+    def run(predicate: str) -> Any:
+        query = f"MATCH (p)-[]->(x), (p)-[]->(y) WHERE {predicate} RETURN count(p) AS n"
+        out = g.gfql(query)._nodes
+        return out.to_dict(orient="records") if hasattr(out, "to_dict") else out.to_dicts()
+
+    assert run("p.name = 5") == []
+    assert run("p.name = 'ann'") == [{"n": 4}]
+    assert run("p.age >= 40") == [{"n": 4}]
+
+
 def test_connected_join_dtype_classes_defers_to_the_live_validator() -> None:
     # The gate must not second-guess filter_by_dict: it validates whatever
     # `_node_dtypes_for_pushdown` classified, so any disagreement turns a correct answer into

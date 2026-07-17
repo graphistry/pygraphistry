@@ -1354,18 +1354,22 @@ def _node_dtypes_for_pushdown(
     """
     nodes = getattr(g, "_nodes", None)
     if nodes is None:
+        # No graph at all: the caller falls back to value-type rules, which is what a bare
+        # `compile_cypher()` gets. Distinct from failing to read a graph we do have --
+        # returning None for that would push dtype-blind, the very bug this gate exists for.
         return None
     try:
         # Classify the frame the EXECUTOR will filter, not the one the caller handed in.
         # `filter_by_dict` validates post-materialization dtypes, so judging the pre-conversion
         # frame lets the two disagree (polars Decimal reads numeric here, object there).
-        # `head(0)` preserves dtype classes, so an empty probe is enough.
-        probe = df_to_engine(nodes.head(0), resolve_engine(cast(Any, engine), nodes), warn=False)
+        probe = nodes.head(0) if hasattr(nodes, "head") else nodes
+        probe = df_to_engine(probe, resolve_engine(cast(Any, engine), nodes), warn=False)
         # zip rather than `.items()`: pandas/cuDF expose a column-indexed Series, polars a list.
-        mapping = {str(col): dtype for col, dtype in zip(list(probe.columns), list(probe.dtypes))}
+        return {str(col): dtype for col, dtype in zip(list(probe.columns), list(probe.dtypes))}
     except Exception:
-        return None
-    return mapping or None
+        # We have a graph but could not read its schema, so we know nothing about any column.
+        # An empty mapping fails every column lookup, which fails closed to the residual.
+        return {}
 
 
 def _compile_string_query(
