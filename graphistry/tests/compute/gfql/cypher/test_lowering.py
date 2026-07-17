@@ -15396,6 +15396,21 @@ def test_connected_join_string_op_on_non_str_kinds_stays_typed(column: str) -> N
         _real_infer_kind_graph().gfql(query)
 
 
+def test_connected_join_mixed_column_stays_typed() -> None:
+    # `mixed`/`mixed-integer` pass pandas' accessor rule on the SOURCE frame but are not closed
+    # under subsetting: the executor filters the join's candidates, and dropping the strings
+    # leaves integers that `.str` rejects. Declining matches master, which cannot render
+    # CONTAINS at all.
+    nodes = pd.DataFrame({"id": ["u1", "u2", "u3", "u4", "u5"]})
+    nodes["value"] = pd.Series(["alpha", 10, 20, 30, "beta"], dtype=object)  # mixed-integer
+    edges = pd.DataFrame({"s": ["u1", "u2", "u5"], "d": ["u2", "u3", "u2"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = "MATCH (i)-->(p), (p)-->(c) WHERE p.value CONTAINS 'a' RETURN count(p) AS n"
+
+    with pytest.raises(GFQLValidationError):
+        g.gfql(query)
+
+
 def test_connected_join_bytes_column_stays_typed() -> None:
     # bytes passes StringMethods._validate but the methods themselves forbid it via
     # @forbid_nonstring_types, so it must be omitted despite being in pandas' accessor
@@ -15442,7 +15457,7 @@ def test_connected_join_string_op_on_non_string_object_column_stays_typed() -> N
         # Real string columns are object too, and must keep pushing -- master cannot render these.
         ("p.name CONTAINS 'o'", [{"n": 1}]),
         ("p.name STARTS WITH 'a'", []),
-        ("p.mix CONTAINS 'a'", []),
+
         ("p.num >= 2", [{"n": 3}]),
     ],
 )

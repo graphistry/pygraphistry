@@ -1390,12 +1390,16 @@ def _object_column_holds_non_strings(frame: Any, column: str, dtype: Any) -> boo
     AttributeError. Dropping the column leaves the gate with nothing to look up, so it fails
     closed and the residual answers.
 
-    Mirror pandas' own rule rather than enumerate what to reject: `StringMethods._validate`
-    admits exactly {string, empty, bytes, mixed, mixed-integer}. Enumerating the complement
-    misses cases (`mixed-integer-float` -- which is what a float column with a `None` infers as,
-    unlike `np.nan`, which infers as `floating`) and cannot fail closed on kinds pandas adds
-    later. `bytes` is excluded here because `str.contains` forbids it even though the accessor
-    admits it.
+    Keep only the kinds that stay valid under SUBSETTING. `StringMethods._validate` admits
+    {string, empty, bytes, mixed, mixed-integer}, but it runs on the frame it is handed -- and
+    the frame we inspect is the source, while the pushed filter runs on the join's candidate
+    subset. `string` and `empty` survive that (a subset of strings is string or empty), but
+    `mixed`/`mixed-integer` do not: drop the strings and they collapse to integer/floating/
+    boolean, which `.str` rejects. `bytes` is excluded separately -- it passes `_validate` yet
+    `str.contains` forbids it.
+
+    Mirroring a rule is not enough when we evaluate it against a different frame than the
+    executor does, so admit only what no subset can invalidate.
     """
     import pandas as _pd
 
@@ -1405,7 +1409,7 @@ def _object_column_holds_non_strings(frame: Any, column: str, dtype: Any) -> boo
         inferred = _pd.api.types.infer_dtype(frame[column], skipna=True)
     except Exception:
         return False
-    return inferred not in {"string", "empty", "mixed", "mixed-integer"}
+    return inferred not in {"string", "empty"}
 
 
 def _read_node_dtypes(
