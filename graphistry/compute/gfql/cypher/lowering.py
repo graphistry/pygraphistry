@@ -7828,6 +7828,39 @@ def _connected_join_expr_literal_value(node: ExprNode) -> Tuple[bool, Optional[C
     return False, None
 
 
+def _connected_join_pushable_value(
+    op: str,
+    value: Optional[CypherLiteral],
+    *,
+    params: Optional[Mapping[str, Any]],
+) -> bool:
+    """Whether `op`/`value` survives the trip into a node `filter_dict`.
+
+    Pushdown is an optimization: anything not exactly representable must stay a
+    `where_rows` residual rather than push a filter that means something else.
+
+    - `None` is unrepresentable: `_filter_dict_to_json` drops null-valued entries, so a
+      pushed `nick = null` would vanish on the executor's serialization round-trip and
+      silently return unfiltered rows.
+    - Ordering/inequality ops lower to `NumericASTPredicate`, which admits only int/float
+      (`bool` is an `int` subclass but is not a numeric column predicate), so pushing a
+      string or bool would raise where the residual answers correctly.
+
+    Parameters must be resolved first: `$v` arrives as an unresolved `ParameterRef`, and
+    judging that ref instead of its value is how `nick = $v`/`{'v': None}` slipped through.
+    An unresolvable ref stays a residual, which reports the missing parameter itself.
+    """
+    try:
+        resolved = _resolve_literal(cast(CypherLiteral, value), params=params, field="where") if value is not None else None
+    except GFQLValidationError:
+        return False
+    if resolved is None:
+        return False
+    if op == "==":
+        return True
+    return isinstance(resolved, (int, float)) and not isinstance(resolved, bool)
+
+
 def _apply_connected_join_node_filter(
     alias_targets_by_pattern: Sequence[Mapping[str, ASTObject]],
     *,
@@ -7836,6 +7869,8 @@ def _apply_connected_join_node_filter(
     value: Optional[CypherLiteral],
     params: Optional[Mapping[str, Any]],
 ) -> bool:
+    if not _connected_join_pushable_value(op, value, params=params):
+        return False
     pushed = False
     for alias_targets in alias_targets_by_pattern:
         target = alias_targets.get(prop_ref.alias)

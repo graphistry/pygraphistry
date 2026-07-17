@@ -15043,6 +15043,76 @@ def test_t1_connected_comma_mixes_signed_literal_pushdown_and_in_residual() -> N
     assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
 
 
+def _mk_graph_benchmark_t1_nullable_shape_graph() -> "_CypherTestGraph":
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 3, 10, 11, 20, 21],
+        "node_type": ["Person"] * 4 + ["City"] * 2 + ["Interest"] * 2,
+        "age": [25, 27, 35, None, None, None, None, None],
+        "nick": ["a", "b", "c", None, None, None, None, None],
+        "flag": [True, False, True, None, None, None, None, None],
+        "city": [None] * 4 + ["London", "Paris", None, None],
+        "interest": [None] * 6 + ["Fine Dining", "photography"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 2, 3, 0, 1, 2, 3],
+        "d": [20, 20, 21, 20, 10, 10, 11, 11],
+        "rel": ["HAS_INTEREST"] * 4 + ["LIVES_IN"] * 4,
+    })
+    return _mk_graph(nodes, edges)
+
+
+def _t1_nullable_query(predicate: str) -> str:
+    return (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        f"WHERE {predicate} "
+        "RETURN count(p) AS n"
+    )
+
+
+def test_connected_join_does_not_push_null_equality() -> None:
+    # `filter_dict` serialization drops null values, so a pushed `nick = null` would
+    # vanish and return every row unfiltered. It must stay a residual instead.
+    query = _t1_nullable_query("p.nick = $v")
+
+    result = _mk_graph_benchmark_t1_nullable_shape_graph().gfql(query, params={"v": None})
+    assert result._nodes.to_dict(orient="records") == []
+
+    compiled = cast(CompiledCypherQuery, compile_cypher(query, params={"v": None}))
+    plan = _compiled_execution_extras(compiled).connected_match_join
+    assert plan is not None
+    pushed_props = {
+        prop
+        for chain in plan.pattern_chains
+        for op in chain.chain
+        if isinstance(op, ASTNode)
+        for prop in (op.filter_dict or {})
+    }
+    assert "nick" not in pushed_props
+    residuals = [op.function for op in plan.post_join_chain.chain if isinstance(op, ASTCall)]
+    assert "where_rows" in residuals
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        ("p.nick <> 'a'", 2),
+        ("i.interest <> 'photography'", 3),
+        ("p.nick < 'c'", 2),
+        ("p.flag >= true", 2),
+    ],
+)
+def test_connected_join_does_not_push_non_numeric_ordering(predicate: str, expected: int) -> None:
+    # Ordering/inequality ops lower to numeric-only predicates; pushing a string or bool
+    # raises, so these must fall back to a residual and still answer correctly.
+    query = _t1_nullable_query(predicate)
+
+    result = _mk_graph_benchmark_t1_nullable_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"n": expected}]
+
+    assert "where_rows" in _post_join_functions(query)
+
+
 @pytest.mark.parametrize("predicate", ["p.age >= - 26", "p.age >= -(26)", "p.age >= +(26)"])
 def test_t1_connected_comma_pushes_unfolded_unary_literal(predicate: str) -> None:
     # `NUMBER` carries its sign as a lexer terminal, so only a lexically adjacent sign
