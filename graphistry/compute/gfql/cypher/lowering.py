@@ -7823,6 +7823,35 @@ _CONNECTED_JOIN_STRING_OPS = frozenset({"contains", "starts_with", "ends_with", 
 _CONNECTED_JOIN_ORDERING_OPS = frozenset({"!=", "<", "<=", ">", ">="})
 
 
+def _connected_join_dtype_classes(dtype: Any) -> Tuple[bool, bool]:
+    """Classify `dtype` as (numeric, string), across pandas / cuDF / polars.
+
+    `filter_by_dict`'s helpers only reach their kind/text fallback when `pd.api.types`
+    RAISES. For a polars dtype it returns False instead, so a polars column would come back
+    neither-numeric-nor-string and the caller would read that as "safe to push". Re-derive
+    from `kind`/text when both say False, and let the caller fail closed if it stays unknown.
+    """
+    from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe
+
+    is_numeric_col = bool(_is_numeric_dtype_safe(dtype))
+    is_string_col = bool(_is_string_dtype_safe(dtype))
+    if is_numeric_col or is_string_col:
+        return is_numeric_col, is_string_col
+    kind = getattr(dtype, "kind", None)
+    if isinstance(kind, str) and kind in {"b", "i", "u", "f", "c"}:
+        return True, False
+    text = ""
+    try:
+        text = str(dtype).lower()
+    except Exception:
+        return False, False
+    if any(token in text for token in ("bool", "int", "float", "double", "decimal")):
+        return True, False
+    if any(token in text for token in ("string", "utf8", "object", "categorical", "enum", "str")):
+        return False, True
+    return False, False
+
+
 def _connected_join_dtype_admits(op: str, value: Any, dtype: Any) -> bool:
     """Whether pushing `op`/`value` onto a column of `dtype` matches residual semantics.
 
@@ -7836,10 +7865,11 @@ def _connected_join_dtype_admits(op: str, value: Any, dtype: Any) -> bool:
     correct on non-pandas dtypes. `compute/validate_schema.py` looks similar but is dead
     code -- only a docs test imports it -- and it disagrees on `bool`.
     """
-    from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe
-
-    is_numeric_col = bool(_is_numeric_dtype_safe(dtype))
-    is_string_col = bool(_is_string_dtype_safe(dtype))
+    is_numeric_col, is_string_col = _connected_join_dtype_classes(dtype)
+    if not is_numeric_col and not is_string_col:
+        # Unrecognized dtype: fail closed. Pushing on a guess is how a correct empty
+        # result becomes a type error.
+        return False
     if op in _CONNECTED_JOIN_STRING_OPS:
         return is_string_col
     if op in _CONNECTED_JOIN_ORDERING_OPS:

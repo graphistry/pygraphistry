@@ -45,7 +45,7 @@ from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, Semanti
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import CHILD_SLOTS, Filter, PatternMatch, ProcedureCall as LogicalProcedureCall
 from graphistry.compute.gfql_unified import _node_dtypes_for_pushdown
-from graphistry.compute.gfql.cypher.lowering import _connected_join_dtype_admits
+from graphistry.compute.gfql.cypher.lowering import _connected_join_dtype_admits, _connected_join_dtype_classes
 from graphistry.Plottable import Plottable
 from graphistry.tests.test_compute import CGFull
 from graphistry.tests.compute.gfql.cypher._whole_entity_compat import entity_text_records
@@ -15239,6 +15239,113 @@ def test_connected_join_out_of_range_int_still_reports_range_error(predicate: st
 
     with pytest.raises(GFQLValidationError):
         _real_bool_shape_graph().gfql(query)
+
+
+class _FakeDtype:
+    """Stands in for a non-pandas dtype (polars/cuDF) without importing that engine."""
+
+    def __init__(self, text: str, kind: Optional[str] = None) -> None:
+        self._text = text
+        if kind is not None:
+            self.kind = kind
+
+    def __str__(self) -> str:
+        return self._text
+
+
+class _UnprintableDtype:
+    def __str__(self) -> str:
+        raise RuntimeError("dtype has no text form")
+
+
+@pytest.mark.parametrize(
+    "dtype,expected",
+    [
+        # `pd.api.types` returns False (not raises) for these, so classification has to
+        # fall back to kind/text or the gate would read them as "safe to push".
+        (_FakeDtype("Int64"), (True, False)),
+        (_FakeDtype("Float64"), (True, False)),
+        (_FakeDtype("Boolean"), (True, False)),
+        (_FakeDtype("Decimal(38,10)"), (True, False)),
+        (_FakeDtype("String"), (False, True)),
+        (_FakeDtype("Utf8"), (False, True)),
+        (_FakeDtype("Categorical(ordering='physical')"), (False, True)),
+        (_FakeDtype("i-am-not-a-dtype", kind="i"), (True, False)),
+        # Unrecognized must fail closed, not be guessed at.
+        (_FakeDtype("Date"), (False, False)),
+        (_FakeDtype("Duration(time_unit='us')"), (False, False)),
+        (_UnprintableDtype(), (False, False)),
+    ],
+)
+def test_connected_join_dtype_classes_falls_back_for_non_pandas_dtypes(dtype: Any, expected: Any) -> None:
+    assert _connected_join_dtype_classes(dtype) == expected
+
+
+@pytest.mark.parametrize(
+    "op,value,dtype",
+    [
+        ("==", "foo", _FakeDtype("Date")),
+        (">=", 26, _FakeDtype("Date")),
+        ("contains", "o", _FakeDtype("Date")),
+    ],
+)
+def test_connected_join_unknown_dtype_never_pushes(op: str, value: Any, dtype: Any) -> None:
+    assert _connected_join_dtype_admits(op, value, dtype) is False
+
+
+def test_connected_join_fake_dtype_verdicts_match_pandas() -> None:
+    numeric_fake, string_fake = _FakeDtype("Int64"), _FakeDtype("String")
+    numeric_pd, string_pd = pd.Series([1]).dtype, pd.Series(["a"]).dtype
+
+    for numeric, string in [(numeric_pd, string_pd), (numeric_fake, string_fake)]:
+        assert _connected_join_dtype_admits("==", "foo", numeric) is False
+        assert _connected_join_dtype_admits(">=", 26, numeric) is True
+        assert _connected_join_dtype_admits("contains", "o", string) is True
+        assert _connected_join_dtype_admits("==", 26, string) is False
+
+
+def test_connected_join_dtype_classes_handles_non_pandas_dtypes() -> None:
+    # `pd.api.types.is_numeric_dtype(pl.Int64())` returns False rather than raising, so
+    # filter_by_dict's helpers never reach their fallback and a polars column would look
+    # neither-numeric-nor-string -- which the gate would read as "safe to push".
+    pl = pytest.importorskip("polars")
+
+    assert _connected_join_dtype_classes(pl.Int64()) == (True, False)
+    assert _connected_join_dtype_classes(pl.Float64()) == (True, False)
+    assert _connected_join_dtype_classes(pl.String()) == (False, True)
+    assert _connected_join_dtype_classes(pd.Series([1]).dtype) == (True, False)
+    assert _connected_join_dtype_classes(pd.Series(["a"]).dtype) == (False, True)
+    # Unrecognized dtype must fail closed rather than be treated as pushable.
+    assert _connected_join_dtype_classes(pl.Date()) == (False, False)
+    assert _connected_join_dtype_admits("==", "foo", pl.Date()) is False
+
+
+def test_connected_join_polars_nodes_match_pandas_gate_verdicts() -> None:
+    pl = pytest.importorskip("polars")
+
+    for numeric_dtype, string_dtype in [
+        (pd.Series([1]).dtype, pd.Series(["a"]).dtype),
+        (pl.Int64(), pl.String()),
+    ]:
+        assert _connected_join_dtype_admits("==", "foo", numeric_dtype) is False
+        assert _connected_join_dtype_admits(">=", 26, numeric_dtype) is True
+        assert _connected_join_dtype_admits("contains", "o", string_dtype) is True
+        assert _connected_join_dtype_admits("==", 26, string_dtype) is False
+
+
+def test_connected_join_polars_backed_graph_matches_pandas_results() -> None:
+    # The whole dtype gate was inert on polars-typed nodes: `p.age = 'foo'` pushed and
+    # raised where a pandas-backed graph correctly answers [].
+    pl = pytest.importorskip("polars")
+
+    nodes = pd.DataFrame({"id": ["p1", "p2", "p3", "x1", "y1"], "age": [25, 26, 30, 1, 2]})
+    edges = pd.DataFrame({"s": ["p1", "p1", "p2", "p2", "p3", "p3"], "d": ["x1", "y1", "x1", "y1", "x1", "y1"]})
+    query = "MATCH (p)-->(a), (p)-->(b) WHERE p.age = 'foo' RETURN count(p) AS n"
+
+    g_polars = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
+    result = g_polars.gfql(query)._nodes
+    records = result.to_dict(orient="records") if hasattr(result, "to_dict") else result.to_dicts()
+    assert records == []
 
 
 def test_node_dtypes_for_pushdown_reads_columns_not_items() -> None:
