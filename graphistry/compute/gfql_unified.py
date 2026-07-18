@@ -576,6 +576,7 @@ def _connected_join_cached_node_filter(
     node_match: Optional[dict],
     *,
     engine: Engine,
+    cache_store: Optional[Dict[str, Any]] = None,
 ) -> DataFrameT:
     cache_key = _connected_join_simple_filter_cache_key(node_match)
     if cache_key is None:
@@ -586,13 +587,10 @@ def _connected_join_cached_node_filter(
         return filter_by_dict(nodes, node_match, engine=EngineAbstract(engine.value))
 
     cache_attr = "_gfql_connected_join_node_filter_cache"
-    cache = getattr(base_graph, cache_attr, None)
-    if not isinstance(cache, dict):
-        cache = {}
-        try:
-            setattr(base_graph, cache_attr, cache)
-        except Exception:
-            cache = None
+    # Per-execution cache only (threaded via cache_store); NEVER setattr onto the caller's
+    # Plottable -- that leaked results across gfql() calls keyed by id(), returning stale
+    # answers after an in-place edge/node mutation (BLOCKER 1). None => no caching.
+    cache = cache_store.setdefault(cache_attr, {}) if cache_store is not None else None
     full_key = (id(nodes_obj), engine.value, cache_key)
     if cache is not None and full_key in cache:
         return cast(DataFrameT, cache[full_key])
@@ -615,6 +613,7 @@ def _connected_join_cached_node_ids(
     *,
     node_col: str,
     engine: Engine,
+    cache_store: Optional[Dict[str, Any]] = None,
 ) -> Optional[DataFrameT]:
     if engine not in POLARS_ENGINES:
         return None
@@ -627,13 +626,10 @@ def _connected_join_cached_node_ids(
         match_keys.append(match_key)
 
     cache_attr = "_gfql_connected_join_node_ids_cache"
-    cache = getattr(base_graph, cache_attr, None)
-    if not isinstance(cache, dict):
-        cache = {}
-        try:
-            setattr(base_graph, cache_attr, cache)
-        except Exception:
-            cache = None
+    # Per-execution cache only (threaded via cache_store); NEVER setattr onto the caller's
+    # Plottable -- that leaked results across gfql() calls keyed by id(), returning stale
+    # answers after an in-place edge/node mutation (BLOCKER 1). None => no caching.
+    cache = cache_store.setdefault(cache_attr, {}) if cache_store is not None else None
     full_key = (id(nodes_obj), engine.value, node_col, tuple(match_keys))
     if cache is not None and full_key in cache:
         return cast(DataFrameT, cache[full_key])
@@ -656,6 +652,7 @@ def _connected_join_cached_edge_filter(
     edge_match: Optional[dict],
     *,
     engine: Engine,
+    cache_store: Optional[Dict[str, Any]] = None,
 ) -> DataFrameT:
     cache_key = _connected_join_simple_filter_cache_key(edge_match)
     if cache_key is None:
@@ -666,13 +663,10 @@ def _connected_join_cached_edge_filter(
         return filter_by_dict(edges, edge_match, engine=EngineAbstract(engine.value))
 
     cache_attr = "_gfql_connected_join_edge_filter_cache"
-    cache = getattr(base_graph, cache_attr, None)
-    if not isinstance(cache, dict):
-        cache = {}
-        try:
-            setattr(base_graph, cache_attr, cache)
-        except Exception:
-            cache = None
+    # Per-execution cache only (threaded via cache_store); NEVER setattr onto the caller's
+    # Plottable -- that leaked results across gfql() calls keyed by id(), returning stale
+    # answers after an in-place edge/node mutation (BLOCKER 1). None => no caching.
+    cache = cache_store.setdefault(cache_attr, {}) if cache_store is not None else None
     full_key = (id(edges_obj), engine.value, cache_key)
     if cache is not None and full_key in cache:
         return cast(DataFrameT, cache[full_key])
@@ -698,6 +692,7 @@ def _connected_join_cached_singleton_dst_source_counts(
     src_col: str,
     dst_col: str,
     engine: Engine,
+    cache_store: Optional[Dict[str, Any]] = None,
 ) -> Optional[DataFrameT]:
     edge_key = _connected_join_simple_filter_cache_key(edge_match)
     dst_key = _connected_join_filter_value_cache_key(singleton_dst)
@@ -705,13 +700,10 @@ def _connected_join_cached_singleton_dst_source_counts(
         return None
 
     cache_attr = "_gfql_connected_join_singleton_dst_source_counts_cache"
-    cache = getattr(base_graph, cache_attr, None)
-    if not isinstance(cache, dict):
-        cache = {}
-        try:
-            setattr(base_graph, cache_attr, cache)
-        except Exception:
-            cache = None
+    # Per-execution cache only (threaded via cache_store); NEVER setattr onto the caller's
+    # Plottable -- that leaked results across gfql() calls keyed by id(), returning stale
+    # answers after an in-place edge/node mutation (BLOCKER 1). None => no caching.
+    cache = cache_store.setdefault(cache_attr, {}) if cache_store is not None else None
     full_key = (id(edges_obj), engine.value, src_col, dst_col, edge_key, dst_key)
     if cache is not None and full_key in cache:
         return cast(DataFrameT, cache[full_key])
@@ -749,6 +741,7 @@ def _connected_join_cached_first_arm_shared_counts(
     src_col: str,
     dst_col: str,
     engine: Engine,
+    cache_store: Optional[Dict[str, Any]] = None,
 ) -> Optional[DataFrameT]:
     if engine not in POLARS_ENGINES:
         return None
@@ -761,13 +754,10 @@ def _connected_join_cached_first_arm_shared_counts(
         return None
 
     cache_attr = "_gfql_connected_join_first_arm_shared_counts_cache"
-    cache = getattr(base_graph, cache_attr, None)
-    if not isinstance(cache, dict):
-        cache = {}
-        try:
-            setattr(base_graph, cache_attr, cache)
-        except Exception:
-            cache = None
+    # Per-execution cache only (threaded via cache_store); NEVER setattr onto the caller's
+    # Plottable -- that leaked results across gfql() calls keyed by id(), returning stale
+    # answers after an in-place edge/node mutation (BLOCKER 1). None => no caching.
+    cache = cache_store.setdefault(cache_attr, {}) if cache_store is not None else None
     full_key = (
         id(nodes_obj),
         id(edges_obj),
@@ -818,6 +808,7 @@ def _connected_join_cached_second_arm_group_rows(
     src_col: str,
     dst_col: str,
     engine: Engine,
+    cache_store: Optional[Dict[str, Any]] = None,
 ) -> Optional[DataFrameT]:
     if engine not in POLARS_ENGINES:
         return None
@@ -832,13 +823,10 @@ def _connected_join_cached_second_arm_group_rows(
     prop_key = tuple((str(out_col), str(prop)) for out_col, prop in group_prop_refs)
     output_key = tuple(str(key) for key in output_group_keys)
     cache_attr = "_gfql_connected_join_second_arm_group_rows_cache"
-    cache = getattr(base_graph, cache_attr, None)
-    if not isinstance(cache, dict):
-        cache = {}
-        try:
-            setattr(base_graph, cache_attr, cache)
-        except Exception:
-            cache = None
+    # Per-execution cache only (threaded via cache_store); NEVER setattr onto the caller's
+    # Plottable -- that leaked results across gfql() calls keyed by id(), returning stale
+    # answers after an in-place edge/node mutation (BLOCKER 1). None => no caching.
+    cache = cache_store.setdefault(cache_attr, {}) if cache_store is not None else None
     full_key = (
         id(nodes_obj),
         id(edges_obj),
@@ -873,7 +861,9 @@ def _connected_join_cached_second_arm_group_rows(
     if group_prop_refs:
         lookup_key = "__gfql_fast_second_leaf_id__"
         lookup_exprs = [pl.col(node_col).alias(lookup_key)] + [pl.col(prop).alias(out_col) for out_col, prop in group_prop_refs]
-        second_lookup = second_leaf_nodes.select(lookup_exprs)
+        # Dedup by node identity (matches pandas drop_duplicates(subset=[node_col])); a
+        # duplicate node row would otherwise multiply the join and over-count.
+        second_lookup = second_leaf_nodes.select(lookup_exprs).unique(subset=[lookup_key])
         right_base = right_base.join(second_lookup, left_on=dst_col, right_on=lookup_key, how="inner")
     right_rows = right_base.select([pl.col(src_col)] + [pl.col(key) for key in output_group_keys])
     if cache is not None:
@@ -1018,7 +1008,12 @@ def _connected_join_two_star_fast_grouped_count(
     plan: ConnectedMatchJoinPlan,
     *,
     engine: Engine,
+    cache_store: Optional[Dict[str, Any]] = None,
 ) -> Optional[DataFrameT]:
+    # Per-execution cache scope: a fresh store when none is threaded in, so intra-query reuse
+    # is preserved without ever persisting caches on the caller's Plottable (BLOCKER 1).
+    if cache_store is None:
+        cache_store = {}
     if len(plan.pattern_chains) != 2 or len(plan.pattern_shared_node_aliases) != 1:
         return None
     if len(plan.pattern_shared_node_aliases[0]) != 1:
@@ -1187,6 +1182,7 @@ def _connected_join_two_star_fast_grouped_count(
                 [cast(Optional[dict], first_start.filter_dict), cast(Optional[dict], second_start.filter_dict)],
                 node_col=node_col,
                 engine=engine,
+                cache_store=cache_store,
             )
             first_leaf_ids = _connected_join_cached_node_ids(
                 base_graph,
@@ -1194,6 +1190,7 @@ def _connected_join_two_star_fast_grouped_count(
                 [cast(Optional[dict], first_end.filter_dict)],
                 node_col=node_col,
                 engine=engine,
+                cache_store=cache_store,
             )
             second_leaf_ids = _connected_join_cached_node_ids(
                 base_graph,
@@ -1201,9 +1198,10 @@ def _connected_join_two_star_fast_grouped_count(
                 [cast(Optional[dict], second_end.filter_dict)],
                 node_col=node_col,
                 engine=engine,
+                cache_store=cache_store,
             )
-            first_leaf_nodes = _connected_join_cached_node_filter(base_graph, nodes_source, cast(Optional[dict], first_end.filter_dict), engine=engine)
-            second_leaf_nodes = _connected_join_cached_node_filter(base_graph, nodes_source, cast(Optional[dict], second_end.filter_dict), engine=engine)
+            first_leaf_nodes = _connected_join_cached_node_filter(base_graph, nodes_source, cast(Optional[dict], first_end.filter_dict), engine=engine, cache_store=cache_store)
+            second_leaf_nodes = _connected_join_cached_node_filter(base_graph, nodes_source, cast(Optional[dict], second_end.filter_dict), engine=engine, cache_store=cache_store)
             if shared_ids is None or first_leaf_ids is None or second_leaf_ids is None:
                 return None
         else:
@@ -1223,8 +1221,8 @@ def _connected_join_two_star_fast_grouped_count(
             shared_ids = shared_nodes.select(node_col).unique()
             first_leaf_ids = first_leaf_nodes.select(node_col).unique()
             second_leaf_ids = second_leaf_nodes.select(node_col).unique()
-        first_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], first_edge.edge_match), engine=engine)
-        second_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], second_edge.edge_match), engine=engine)
+        first_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], first_edge.edge_match), engine=engine, cache_store=cache_store)
+        second_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], second_edge.edge_match), engine=engine, cache_store=cache_store)
 
         for _, prop in group_prop_refs:
             if prop not in second_leaf_nodes.columns:
@@ -1255,6 +1253,7 @@ def _connected_join_two_star_fast_grouped_count(
                 src_col=src_col,
                 dst_col=dst_col,
                 engine=engine,
+                cache_store=cache_store,
             )
             if cached_left_counts is None:
                 cached_left_counts = _connected_join_cached_singleton_dst_source_counts(
@@ -1266,6 +1265,7 @@ def _connected_join_two_star_fast_grouped_count(
                     src_col=src_col,
                     dst_col=dst_col,
                     engine=engine,
+                    cache_store=cache_store,
                 )
         if cached_left_counts is not None:
             if shared_alias in cached_left_counts.columns:
@@ -1319,6 +1319,7 @@ def _connected_join_two_star_fast_grouped_count(
             src_col=src_col,
             dst_col=dst_col,
             engine=engine,
+            cache_store=cache_store,
         )
         if cached_right_rows is not None:
             right_rows = cached_right_rows if src_col == shared_alias else cached_right_rows.rename({src_col: shared_alias})
@@ -1338,7 +1339,9 @@ def _connected_join_two_star_fast_grouped_count(
             if group_prop_refs:
                 lookup_key = "__gfql_fast_second_leaf_id__"
                 lookup_exprs = [pl.col(node_col).alias(lookup_key)] + [pl.col(prop).alias(out_col) for out_col, prop in group_prop_refs]
-                second_lookup = second_leaf_nodes.select(lookup_exprs)
+                # Dedup by node identity to match the pandas drop_duplicates(subset=[node_col]);
+                # a duplicate node row would otherwise multiply the join and over-count.
+                second_lookup = second_leaf_nodes.select(lookup_exprs).unique(subset=[lookup_key])
                 right_base = right_base.join(second_lookup, left_on=dst_col, right_on=lookup_key, how="inner")
             right_rows = right_base.select([pl.col(src_col).alias(shared_alias)] + [pl.col(key) for key in output_group_keys])
         if not output_group_keys and len(left_counts) > 0 and bool(left_counts.select((pl.col("__left_count__") == 1).all()).item()):
@@ -1353,7 +1356,14 @@ def _connected_join_two_star_fast_grouped_count(
             else:
                 out_df = joined.select(pl.col("__left_count__").sum().cast(pl.Int64).alias(agg_alias))
         if order_keys:
-            out_df = out_df.sort([key for key, _ in order_keys], descending=[desc for _, desc in order_keys])
+            # openCypher orders NULL as the largest value: ASC -> nulls last, DESC -> nulls
+            # first. Polars defaults to nulls-first, which flips WHICH ROW an ORDER BY ... LIMIT
+            # returns, so pin nulls_last per key.
+            out_df = out_df.sort(
+                [key for key, _ in order_keys],
+                descending=[desc for _, desc in order_keys],
+                nulls_last=[not desc for _, desc in order_keys],
+            )
         if limit_value is not None:
             out_df = out_df.head(limit_value)
         if select_items is not None:
@@ -1374,8 +1384,8 @@ def _connected_join_two_star_fast_grouped_count(
             engine=engine,
         )
         shared_nodes, first_leaf_nodes, second_leaf_nodes = _frames[shared_alias], _frames[first_end_alias], _frames[second_end_alias]
-    first_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], first_edge.edge_match), engine=engine)
-    second_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], second_edge.edge_match), engine=engine)
+    first_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], first_edge.edge_match), engine=engine, cache_store=cache_store)
+    second_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], second_edge.edge_match), engine=engine, cache_store=cache_store)
 
     shared_ids = shared_nodes[node_col].drop_duplicates()
     first_leaf_ids = first_leaf_nodes[node_col].drop_duplicates()
@@ -1419,6 +1429,7 @@ def _connected_join_two_star_fast_rows(
     plan: ConnectedMatchJoinPlan,
     *,
     engine: Engine,
+    cache_store: Optional[Dict[str, Any]] = None,
 ) -> Optional[DataFrameT]:
     """Fast rows for T1 two-star connected joins.
 
@@ -1428,6 +1439,10 @@ def _connected_join_two_star_fast_rows(
     the second leaf alias. The returned frame preserves row multiplicity, then
     the normal row pipeline handles RETURN/GROUP/ORDER/LIMIT.
     """
+    # Per-execution cache scope (see _connected_join_two_star_fast_grouped_count); never
+    # persisted on the caller's Plottable.
+    if cache_store is None:
+        cache_store = {}
     if len(plan.pattern_chains) != 2 or len(plan.pattern_shared_node_aliases) != 1:
         return None
     if len(plan.pattern_shared_node_aliases[0]) != 1:
@@ -1498,8 +1513,8 @@ def _connected_join_two_star_fast_rows(
         shared_nodes = filter_by_dict_polars(shared_nodes, cast(Optional[dict], second_start.filter_dict))
         first_leaf_nodes = filter_by_dict_polars(nodes, cast(Optional[dict], first_end.filter_dict))
         second_leaf_nodes = filter_by_dict_polars(nodes, cast(Optional[dict], second_end.filter_dict))
-        first_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], first_edge.edge_match), engine=engine)
-        second_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], second_edge.edge_match), engine=engine)
+        first_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], first_edge.edge_match), engine=engine, cache_store=cache_store)
+        second_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], second_edge.edge_match), engine=engine, cache_store=cache_store)
 
         shared_ids = shared_nodes.select(node_col).unique()
         first_leaf_ids = first_leaf_nodes.select(node_col).unique()
@@ -1519,7 +1534,9 @@ def _connected_join_two_star_fast_rows(
         )
         if second_props:
             second_lookup_key = "__gfql_fast_second_leaf_id__"
-            second_lookup = second_leaf_nodes.select([node_col] + second_props).rename({node_col: second_lookup_key})
+            # Dedup by node identity (matches pandas drop_duplicates(subset=[node_col])); a
+            # duplicate node row would otherwise multiply the join and inflate row multiplicity.
+            second_lookup = second_leaf_nodes.select([node_col] + second_props).unique(subset=[node_col]).rename({node_col: second_lookup_key})
             second_lookup = second_lookup.rename({col: f"{second_end_alias}.{col}" for col in second_props})
             right_base = right_base.join(second_lookup, left_on=dst_col, right_on=second_lookup_key, how="inner")
         right_select = [pl.col(src_col).alias(shared_alias)] + [pl.col(f"{second_end_alias}.{col}") for col in second_props]
@@ -1531,8 +1548,8 @@ def _connected_join_two_star_fast_rows(
     shared_nodes = filter_by_dict(shared_nodes, cast(Optional[dict], second_start.filter_dict), engine=filter_engine)
     first_leaf_nodes = filter_by_dict(nodes, cast(Optional[dict], first_end.filter_dict), engine=filter_engine)
     second_leaf_nodes = filter_by_dict(nodes, cast(Optional[dict], second_end.filter_dict), engine=filter_engine)
-    first_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], first_edge.edge_match), engine=engine)
-    second_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], second_edge.edge_match), engine=engine)
+    first_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], first_edge.edge_match), engine=engine, cache_store=cache_store)
+    second_edges = _connected_join_cached_edge_filter(base_graph, edges, cast(Optional[dict], second_edge.edge_match), engine=engine, cache_store=cache_store)
 
     shared_ids = shared_nodes[node_col].drop_duplicates()
     first_leaf_ids = first_leaf_nodes[node_col].drop_duplicates()
@@ -1571,14 +1588,19 @@ def _apply_connected_match_join(
     df_ctor = df_cons(requested_engine)
     node_col = getattr(base_graph, "_node", "id")
 
-    fast_grouped_count = _connected_join_two_star_fast_grouped_count(base_graph, plan, engine=requested_engine)
+    # One cache scope per connected-join execution: shared across the fast paths but never
+    # persisted on the caller's Plottable, so a second gfql() after an in-place mutation
+    # recomputes instead of returning a stale cached answer (BLOCKER 1).
+    cache_store: Dict[str, Any] = {}
+
+    fast_grouped_count = _connected_join_two_star_fast_grouped_count(base_graph, plan, engine=requested_engine, cache_store=cache_store)
     if fast_grouped_count is not None:
         out = base_graph.bind()
         out._nodes = fast_grouped_count
         out._edges = df_ctor()
         return out
 
-    fast_rows = _connected_join_two_star_fast_rows(base_graph, plan, engine=requested_engine)
+    fast_rows = _connected_join_two_star_fast_rows(base_graph, plan, engine=requested_engine, cache_store=cache_store)
     if fast_rows is not None:
         if len(fast_rows) == 0:
             out = base_graph.bind()

@@ -16345,42 +16345,46 @@ def test_t9_connected_comma_two_star_direct_polars_native_reuses_node_filter_cac
     )
     plan = _compiled_connected_join_plan(query)
 
-    direct = _connected_join_two_star_fast_grouped_count(graph, plan, engine=Engine.POLARS)
+    # The polars-native cached path populates a PER-EXECUTION cache_store (never the Plottable,
+    # see BLOCKER 1). Threading one store across two calls exercises intra-store reuse: the
+    # cached frames are returned by identity, not recomputed.
+    cache_store: dict = {}
+    expected = [{"city": "London", "country": "United Kingdom", "numPersons": 2}]
+
+    direct = _connected_join_two_star_fast_grouped_count(graph, plan, engine=Engine.POLARS, cache_store=cache_store)
     assert direct is not None
-    assert _to_pandas_df(direct).to_dict(orient="records") == [
-        {"city": "London", "country": "United Kingdom", "numPersons": 2}
-    ]
+    assert _to_pandas_df(direct).to_dict(orient="records") == expected
 
-    cache = getattr(graph, "_gfql_connected_join_node_filter_cache")
-    assert isinstance(cache, dict)
-    assert len(cache) == 2
-    cache_ids = {key: id(value) for key, value in cache.items()}
-    node_ids_cache = getattr(graph, "_gfql_connected_join_node_ids_cache")
-    assert isinstance(node_ids_cache, dict)
+    node_filter_cache = cache_store["_gfql_connected_join_node_filter_cache"]
+    node_ids_cache = cache_store["_gfql_connected_join_node_ids_cache"]
+    first_arm_cache = cache_store["_gfql_connected_join_first_arm_shared_counts_cache"]
+    second_arm_cache = cache_store["_gfql_connected_join_second_arm_group_rows_cache"]
+    assert len(node_filter_cache) == 2
     assert len(node_ids_cache) == 3
-    node_ids_cache_ids = {key: id(value) for key, value in node_ids_cache.items()}
-    first_arm_cache = getattr(graph, "_gfql_connected_join_first_arm_shared_counts_cache")
-    assert isinstance(first_arm_cache, dict)
     assert len(first_arm_cache) == 1
-    first_arm_cache_ids = {key: id(value) for key, value in first_arm_cache.items()}
-    second_arm_cache = getattr(graph, "_gfql_connected_join_second_arm_group_rows_cache")
-    assert isinstance(second_arm_cache, dict)
     assert len(second_arm_cache) == 1
-    second_arm_cache_ids = {key: id(value) for key, value in second_arm_cache.items()}
+    snapshot = {
+        name: {key: id(value) for key, value in sub.items()}
+        for name, sub in cache_store.items()
+    }
 
-    direct_again = _connected_join_two_star_fast_grouped_count(graph, plan, engine=Engine.POLARS)
+    direct_again = _connected_join_two_star_fast_grouped_count(graph, plan, engine=Engine.POLARS, cache_store=cache_store)
     assert direct_again is not None
-    assert _to_pandas_df(direct_again).to_dict(orient="records") == [
-        {"city": "London", "country": "United Kingdom", "numPersons": 2}
-    ]
-    assert len(cache) == 2
-    assert {key: id(value) for key, value in cache.items()} == cache_ids
-    assert len(node_ids_cache) == 3
-    assert {key: id(value) for key, value in node_ids_cache.items()} == node_ids_cache_ids
-    assert len(first_arm_cache) == 1
-    assert {key: id(value) for key, value in first_arm_cache.items()} == first_arm_cache_ids
-    assert len(second_arm_cache) == 1
-    assert {key: id(value) for key, value in second_arm_cache.items()} == second_arm_cache_ids
+    assert _to_pandas_df(direct_again).to_dict(orient="records") == expected
+    # Same store -> cached frames reused by identity, sizes unchanged.
+    assert {
+        name: {key: id(value) for key, value in sub.items()}
+        for name, sub in cache_store.items()
+    } == snapshot
+
+    # BLOCKER 1: caches must NEVER be persisted on the caller's Plottable (that leaked stale
+    # results across gfql() calls after in-place mutation).
+    assert not [attr for attr in vars(graph) if attr.startswith("_gfql_connected_join")]
+
+    # A fresh execution (no shared store) recomputes from scratch: correct + still no leak.
+    fresh = graph.gfql(query, engine="polars")
+    assert _to_pandas_df(fresh._nodes).to_dict(orient="records") == expected
+    assert not [attr for attr in vars(graph) if attr.startswith("_gfql_connected_join")]
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
@@ -16423,6 +16427,92 @@ def test_t1_connected_comma_two_star_direct_grouped_count_applies_single_alias_r
     assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"n": 2, "city": "London"}]
 
 
+def test_t1_connected_comma_two_star_no_stale_cache_after_inplace_edge_mutation() -> None:
+    # BLOCKER 1: the fast-path caches were setattr'd onto the caller's Plottable and keyed by
+    # id(), so a second gfql() after an in-place edge mutation returned a STALE wrong answer.
+    # The per-execution cache_store fix must recompute on the second call (and never leak a
+    # cache attribute onto the Plottable).
+    nodes = pd.DataFrame({
+        "id": ["p0", "p1", "i0", "c0", "c1"],
+        "node_type": ["Person", "Person", "Interest", "City", "City"],
+        "city": [None, None, None, "SF", "NY"],
+    })
+    edges = pd.DataFrame({
+        "s": ["p0", "p1", "p0", "p1"],
+        "d": ["i0", "i0", "c0", "c1"],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN"],
+    })
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city"
+    )
+
+    def rows(res: Any) -> Any:
+        return sorted(_to_pandas_df(res._nodes).to_dict(orient="records"), key=lambda r: str(r["city"]))
+
+    assert rows(g.gfql(query, engine="pandas")) == [{"n": 1, "city": "NY"}, {"n": 1, "city": "SF"}]
+    assert not [attr for attr in vars(g) if attr.startswith("_gfql_connected_join")]
+
+    # Drop the p1->c1 (NY) LIVES_IN edge in place on the SAME edge object g holds by reference.
+    ny_idx = edges.index[(edges["s"] == "p1") & (edges["d"] == "c1")]
+    edges.drop(index=ny_idx, inplace=True)
+    assert g._edges is edges  # the fix must not depend on this being false
+
+    # Truth after the mutation: only SF remains.
+    assert rows(g.gfql(query, engine="pandas")) == [{"n": 1, "city": "SF"}]
+    assert not [attr for attr in vars(g) if attr.startswith("_gfql_connected_join")]
+
+
+def test_t1_connected_comma_two_star_polars_grouped_count_orders_nulls_as_largest() -> None:
+    pl = pytest.importorskip("polars")
+    # BLOCKER 3: the polars fast grouped-count sort omitted nulls_last, and polars defaults to
+    # nulls-first. openCypher orders NULL as the largest value, so ASC ... LIMIT 1 must return
+    # the smallest NON-null group key (NY), not the NULL-city group.
+    nodes = pl.DataFrame({
+        "id": ["p0", "p1", "p2", "i0", "c0", "c1", "c2"],
+        "node_type": ["Person", "Person", "Person", "Interest", "City", "City", "City"],
+        "city": [None, None, None, None, "NY", "SF", None],
+    })
+    edges = pl.DataFrame({
+        "s": ["p0", "p1", "p2", "p0", "p1", "p2"],
+        "d": ["i0", "i0", "i0", "c0", "c1", "c2"],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city ORDER BY city ASC LIMIT 1"
+    )
+    assert _to_pandas_df(g.gfql(query, engine="polars")._nodes).to_dict(orient="records") == [{"n": 1, "city": "NY"}]
+
+
+def test_t1_connected_comma_two_star_polars_grouped_count_dedups_duplicate_node_rows() -> None:
+    pl = pytest.importorskip("polars")
+    # IMPORTANT: the polars second-leaf lookup lacked .unique(subset=[node_col]) (the pandas
+    # branch drop_duplicates it), so a duplicate node row multiplied the join and over-counted.
+    nodes = pl.DataFrame({
+        "id": ["p0", "i0", "c0", "c0"],  # c0 duplicated
+        "node_type": ["Person", "Interest", "City", "City"],
+        "city": [None, None, "SF", "SF"],
+    })
+    edges = pl.DataFrame({
+        "s": ["p0", "p0"],
+        "d": ["i0", "c0"],
+        "rel": ["HAS_INTEREST", "LIVES_IN"],
+    })
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city"
+    )
+    # Truth: one (p0,i0,c0) match -> SF n=1 (the duplicate c0 node row must not inflate it).
+    assert _to_pandas_df(g.gfql(query, engine="polars")._nodes).to_dict(orient="records") == [{"n": 1, "city": "SF"}]
+
+
 def test_t1_connected_comma_two_star_fast_path_rejects_first_leaf_props() -> None:
     query = (
         "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
@@ -16440,11 +16530,21 @@ def test_t1_connected_comma_edge_filter_cache_reuses_simple_edge_match() -> None
     edges = graph._edges
     assert edges is not None
 
-    first = _connected_join_cached_edge_filter(graph, edges, {"rel": "HAS_INTEREST"}, engine=Engine.PANDAS)
-    second = _connected_join_cached_edge_filter(graph, edges, {"rel": "HAS_INTEREST"}, engine=Engine.PANDAS)
+    # Reuse is scoped to a per-execution cache_store (never the Plottable, see BLOCKER 1):
+    # two calls sharing the store return the identical cached frame.
+    cache_store: dict = {}
+    first = _connected_join_cached_edge_filter(graph, edges, {"rel": "HAS_INTEREST"}, engine=Engine.PANDAS, cache_store=cache_store)
+    second = _connected_join_cached_edge_filter(graph, edges, {"rel": "HAS_INTEREST"}, engine=Engine.PANDAS, cache_store=cache_store)
 
     assert first is second
     assert set(first["rel"].unique()) == {"HAS_INTEREST"}
+    # No cache attribute is persisted on the Plottable.
+    assert not [attr for attr in vars(graph) if attr.startswith("_gfql_connected_join")]
+
+    # Without a shared store, calls do not leak or cross-contaminate (fresh compute each time).
+    isolated = _connected_join_cached_edge_filter(graph, edges, {"rel": "HAS_INTEREST"}, engine=Engine.PANDAS)
+    assert set(isolated["rel"].unique()) == {"HAS_INTEREST"}
+    assert not [attr for attr in vars(graph) if attr.startswith("_gfql_connected_join")]
 
 
 def test_issue_1413_ic3_entity_membership_positive_same_city_friend_only() -> None:
