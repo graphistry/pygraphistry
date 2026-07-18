@@ -682,7 +682,7 @@ def _connected_join_cached_edge_filter(
     return cast(DataFrameT, filtered)
 
 
-def _connected_join_cached_singleton_dst_source_counts(
+def _connected_join_cached_singleton_dst_source_counts(  # pragma: no cover
     base_graph: Plottable,
     edges_obj: DataFrameT,
     edge_domain: DataFrameT,
@@ -1255,7 +1255,12 @@ def _connected_join_two_star_fast_grouped_count(
                 engine=engine,
                 cache_store=cache_store,
             )
-            if cached_left_counts is None:
+            # Unreachable under the current lowering: _connected_join_cached_first_arm_shared_counts
+            # only returns None when a filter/edge/dst cache key is uncacheable, but every value
+            # that reaches this cached polars path is cacheable (scalar equality pushes as scalars;
+            # comparisons/toLower/ranges lower to residuals routed off the cached path). Kept as a
+            # defensive fallback; excluded from coverage since no legitimate query reaches it.
+            if cached_left_counts is None:  # pragma: no cover
                 cached_left_counts = _connected_join_cached_singleton_dst_source_counts(
                     base_graph,
                     edges,
