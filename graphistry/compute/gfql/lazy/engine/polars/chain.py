@@ -361,14 +361,20 @@ def _try_native_row_op(g_cur, op):
     from .search import search_any_polars
 
     fn = getattr(op, "function", None)
-    if fn == "rows" and op.params.get("binding_ops") is not None:
+    if (
+        fn == "rows"
+        and op.params.get("binding_ops") is not None
+        and op.params.get("alias_endpoints") is None
+    ):
         # Multi-alias bindings table (#1709): native for fixed-length connected
-        # patterns; binding_rows_polars declines (None → NIE) outside that subset.
-        if op.params.get("alias_endpoints") is not None:
-            return None
-        return binding_rows_polars(
+        # patterns. A decline must fall through to the pre-existing correlated
+        # pattern handler below (EXISTS/searchAny); returning None here would turn
+        # those already-native shapes into an NIE.
+        bindings_result = binding_rows_polars(
             g_cur, op.params["binding_ops"], op.params.get("attach_prop_aliases")
         )
+        if bindings_result is not None:
+            return bindings_result
     if _call_native_on_polars(op):
         # frame ops (rows/limit/skip/distinct/drop_cols) — engine-polymorphic
         return op.execute(g=g_cur, prev_node_wavefront=None, target_wave_front=None, engine=Engine.POLARS)

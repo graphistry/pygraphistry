@@ -41,7 +41,7 @@ from graphistry.compute.gfql.cypher.procedures.networkx import (
 )
 from graphistry.plugins.networkx.policy import NETWORKX_SCIPY_EXTRA_REQUIREMENTS, NETWORKX_VERSION_SPEC, SCIPY_VERSION_SPEC
 from graphistry.compute.gfql.cypher.ast import ExpressionText, OrderByClause, OrderItem, ReturnClause, ReturnItem, SourceSpan
-from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery
+from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery, compile_cypher_query
 from graphistry.compute.gfql.cypher.lowering import ConnectedMatchJoinPlan, _logical_plan_route_for_query
 from graphistry.compute.gfql_unified import (
     _connected_join_cached_edge_filter,
@@ -54,6 +54,9 @@ from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, SemanticTable
 from graphistry.compute.gfql.ir.compilation import PlanContext
 from graphistry.compute.gfql.ir.logical_plan import CHILD_SLOTS, Filter, PatternMatch, ProcedureCall as LogicalProcedureCall
+from graphistry.compute.filter_by_dict import _node_dtypes_for_pushdown
+from graphistry.compute.gfql.cypher.lowering import _connected_join_dtype_admits, _connected_join_dtype_classes
+from graphistry.Plottable import Plottable
 from graphistry.tests.test_compute import CGFull
 from graphistry.tests.compute.gfql.cypher._whole_entity_compat import entity_text_records
 
@@ -14998,7 +15001,951 @@ def _post_join_functions(query: str) -> list[str]:
     return [op.function for op in _compiled_connected_join_plan(query).post_join_chain.chain if isinstance(op, ASTCall)]
 
 
-def test_t1_connected_comma_q5_fully_pushed_prunes_residual_and_props() -> None:
+def _mk_graph_benchmark_t1_labelled_shape_graph() -> "_CypherTestGraph":
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 10, 11, 20, 21],
+        "node_type": ["Person", "Person", "Person", "City", "City", "Interest", "Interest"],
+        "age": [25, 27, 35, None, None, None, None],
+        "city": [None, None, None, "London", "Paris", None, None],
+        "interest": [None, None, None, None, None, "Fine Dining", "photography"],
+        "label__Person": [True, True, True, False, False, False, False],
+        "label__City": [False, False, False, True, True, False, False],
+        "label__Interest": [False, False, False, False, False, True, True],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 2, 0, 1, 2],
+        "d": [20, 20, 21, 10, 10, 11],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    return _mk_graph(nodes, edges)
+
+
+def test_t1_connected_comma_pushes_label_predicate_with_property_filter() -> None:
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE p:Person AND p.age >= 26 "
+        "RETURN count(p) AS numPersons"
+    )
+
+    result = _mk_graph_benchmark_t1_labelled_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
+
+    filters_by_alias = _compiled_connected_join_filters(query)
+    assert any("label__Person" in entry.get("p", {}) for entry in filters_by_alias)
+    assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
+
+
+def test_t1_connected_comma_mixes_signed_literal_pushdown_and_in_residual() -> None:
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = toLower('fine dining') "
+        "AND p.age >= -1 AND p.age IN [25, 27] "
+        "RETURN count(p) AS numPersons"
+    )
+
+    result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
+
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("p",))
+    filters_by_alias = _compiled_connected_join_filters(query)
+    assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
+
+
+def _mk_graph_benchmark_t1_nullable_shape_graph() -> "_CypherTestGraph":
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 3, 10, 11, 20, 21],
+        "node_type": ["Person"] * 4 + ["City"] * 2 + ["Interest"] * 2,
+        "age": [25, 27, 35, None, None, None, None, None],
+        "nick": ["a", "b", "c", None, None, None, None, None],
+        "flag": [True, False, True, None, None, None, None, None],
+        "city": [None] * 4 + ["London", "Paris", None, None],
+        "interest": [None] * 6 + ["Fine Dining", "photography"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 2, 3, 0, 1, 2, 3],
+        "d": [20, 20, 21, 20, 10, 10, 11, 11],
+        "rel": ["HAS_INTEREST"] * 4 + ["LIVES_IN"] * 4,
+    })
+    return _mk_graph(nodes, edges)
+
+
+def _real_t1_nullable_graph() -> Plottable:
+    # A real Plottable, not `_CypherTestGraph`: the executor's serialize/deserialize
+    # round-trip is where dropped-null and revived-predicate filters actually bite, and
+    # the test double does not reproduce it.
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 3, 10, 11, 20, 21],
+        "node_type": ["Person"] * 4 + ["City"] * 2 + ["Interest"] * 2,
+        "age": [25, 27, 35, None, None, None, None, None],
+        "nick": ["a", "b", "c", None, None, None, None, None],
+        "flag": [True, False, True, None, None, None, None, None],
+        "city": [None] * 4 + ["London", "Paris", None, None],
+        "interest": [None] * 6 + ["Fine Dining", "photography"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 2, 3, 0, 1, 2, 3],
+        "d": [20, 20, 21, 20, 10, 10, 11, 11],
+        "rel": ["HAS_INTEREST"] * 4 + ["LIVES_IN"] * 4,
+    })
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+def _t1_nullable_query(predicate: str) -> str:
+    return (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        f"WHERE {predicate} "
+        "RETURN count(p) AS n"
+    )
+
+
+def test_connected_join_does_not_push_null_equality() -> None:
+    # `filter_dict` serialization drops null values, so a pushed `nick = null` would
+    # vanish and return every row unfiltered. It must stay a residual instead.
+    query = _t1_nullable_query("p.nick = $v")
+
+    result = _mk_graph_benchmark_t1_nullable_shape_graph().gfql(query, params={"v": None})
+    assert result._nodes.to_dict(orient="records") == []
+
+    compiled = cast(CompiledCypherQuery, compile_cypher(query, params={"v": None}))
+    plan = _compiled_execution_extras(compiled).connected_match_join
+    assert plan is not None
+    pushed_props = {
+        prop
+        for chain in plan.pattern_chains
+        for op in chain.chain
+        if isinstance(op, ASTNode)
+        for prop in (op.filter_dict or {})
+    }
+    assert "nick" not in pushed_props
+    residuals = [op.function for op in plan.post_join_chain.chain if isinstance(op, ASTCall)]
+    assert "where_rows" in residuals
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        ("p.nick <> 'a'", 2),
+        ("i.interest <> 'photography'", 3),
+        ("p.nick < 'c'", 2),
+        ("p.flag >= true", 2),
+    ],
+)
+def test_connected_join_does_not_push_non_numeric_ordering(predicate: str, expected: int) -> None:
+    # Ordering/inequality ops lower to numeric-only predicates; pushing a string or bool
+    # raises, so these must fall back to a residual and still answer correctly.
+    query = _t1_nullable_query(predicate)
+
+    result = _mk_graph_benchmark_t1_nullable_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"n": expected}]
+
+    assert "where_rows" in _post_join_functions(query)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"type": "GT", "val": 26},
+        {"type": "Between", "lower": 0, "upper": 100, "inclusive": True},
+        [25, 27],
+    ],
+)
+def test_connected_join_does_not_push_non_scalar_param(value: Any) -> None:
+    # `_filter_dict_to_json` passes a dict through verbatim and `maybe_filter_dict_from_json`
+    # revives it through `predicates_from_json`, so pushing a caller-supplied map would run
+    # an arbitrary predicate (`age > 26`) instead of an equality against a map.
+    # Must use a real Plottable: the serialization round-trip that resurrects the predicate
+    # only happens on the real executor, so `_CypherTestGraph` cannot observe this.
+    query = _t1_nullable_query("p.age = $v")
+
+    result = _real_t1_nullable_graph().gfql(query, params={"v": value})
+    assert result._nodes.to_dict(orient="records") == []
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        ("p.nick STARTS WITH 'a'", 1),
+        ("p.nick CONTAINS 'a'", 1),
+        ("p.nick ENDS WITH 'a'", 1),
+        ("p.nick =~ 'a'", 1),
+    ],
+)
+def test_connected_join_pushes_string_predicates(predicate: str, expected: int) -> None:
+    # These lower to real round-trippable ASTPredicates, and the residual cannot render
+    # them at all, so they must push rather than fall back.
+    query = _t1_nullable_query(predicate)
+
+    result = _mk_graph_benchmark_t1_nullable_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"n": expected}]
+
+    filters_by_alias = _compiled_connected_join_filters(query)
+    assert any("nick" in entry.get("p", {}) for entry in filters_by_alias)
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        # string literal vs numeric column, and numeric literal vs string column: the
+        # residual answers these leniently, so pushing them must not turn them into errors
+        ("p.age = 'foo'", []),
+        ("p.age = date('2020-01-01')", []),
+        ("p.nick >= 26", []),
+        ("p.nick < 26", []),
+        ("p.nick <> 26", [{"n": 3}]),
+    ],
+)
+def test_connected_join_does_not_push_dtype_incompatible_atoms(predicate: str, expected: Any) -> None:
+    query = _t1_nullable_query(predicate)
+
+    result = _real_t1_nullable_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+def _real_bool_shape_graph() -> Plottable:
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "flag": pd.Series([True, False, True, False], dtype="bool"),
+        "age": pd.Series([25, 27, 35, 40], dtype="int64"),
+    })
+    edges = pd.DataFrame({"s": ["a", "b", "c", "d"], "d": ["b", "c", "d", "a"]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        # `bool` counts as numeric to the live validator, so a string value against a bool
+        # column must stay residual rather than push into a type error.
+        ("p.flag = 'yes'", []),
+        ("p.flag = true", [{"n": 2}]),
+        ("p.age >= 26", [{"n": 3}]),
+    ],
+)
+def test_connected_join_bool_column_matches_validator(predicate: str, expected: Any) -> None:
+    query = f"MATCH (p)-[]->(x), (p)-[]->(y) WHERE {predicate} RETURN count(p) AS n"
+
+    result = _real_bool_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "p.age = 99999999999999999999",
+        "p.age <> 99999999999999999999",
+        "p.flag = 99999999999999999999",
+    ],
+)
+def test_connected_join_out_of_range_int_still_reports_range_error(predicate: str) -> None:
+    # The 64-bit literal guard lives on the row-expr path; pushing an out-of-range int
+    # would evade it and surface a raw OverflowError from pandas instead.
+    query = f"MATCH (p)-[]->(x), (p)-[]->(y) WHERE {predicate} RETURN count(p) AS n"
+
+    with pytest.raises(GFQLValidationError):
+        _real_bool_shape_graph().gfql(query)
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [("p.iv > 1", []), ("p.iv >= 1", []), ("p.iv <> 1", [{"n": 8}]), ("p.iv = 1", [])],
+)
+def test_connected_join_interval_column_matches_master(predicate: str, expected: Any) -> None:
+    # `interval[int64, right]` contains "int": classified numeric, a comparison pushed onto
+    # it raised a raw ValueError out of pandas where the residual answers correctly.
+    nodes = pd.DataFrame({"id": ["p1", "p2", "a1", "b1", "a2", "b2"]})
+    nodes["iv"] = pd.arrays.IntervalArray.from_breaks([0, 1, 2, 3, 4, 5, 6])
+    edges = pd.DataFrame({"s": ["p1", "p1", "p2", "p2"], "d": ["a1", "b1", "a2", "b2"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = f"MATCH (p)-[]->(x), (p)-[]->(y) WHERE {predicate} RETURN count(p) AS n"
+
+    assert g.gfql(query)._nodes.to_dict(orient="records") == expected
+
+
+def _real_labelled_inline_graph() -> Plottable:
+    nodes = pd.DataFrame([
+        {"id": "p1", "label__Person": True, "label__Place": False, "nick": "aa", "age": 30},
+        {"id": "p2", "label__Person": True, "label__Place": False, "nick": "bb", "age": 40},
+        {"id": "c1", "label__Person": False, "label__Place": True, "nick": None, "age": None},
+    ])
+    edges = pd.DataFrame([{"s": "p1", "d": "c1", "type": "L"}, {"s": "p2", "d": "c1", "type": "L"}])
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize(
+    "inline,predicate,expected",
+    [
+        # Merging onto an existing STRING inline value wraps it with comparison.eq, which
+        # serializes to {'type':'EQ'} -- a tag from_json binds to the numeric-only EQ, so the
+        # executor raises when it rehydrates. Don't create that shape; stay residual.
+        ("{nick:'aa'}", "friend.nick = 'aa'", [{"n": 1}]),
+        ("{nick:'aa'}", "friend.nick = 'bb'", []),
+        # A different property never merges, and a numeric inline value rehydrates fine.
+        ("{nick:'aa'}", "friend.age > 20", [{"n": 1}]),
+        ("{age:30}", "friend.age > 20", [{"n": 1}]),
+        ("{}", "friend.nick = 'aa'", [{"n": 1}]),
+    ],
+)
+def test_connected_join_inline_string_property_merge_matches_master(
+    inline: str, predicate: str, expected: Any
+) -> None:
+    query = (
+        "MATCH (person:Person {id:'p1'})-[:L]->(city:Place), "
+        f"(friend:Person {inline})-[:L]->(city) "
+        f"WHERE {predicate} RETURN count(friend) AS n"
+    )
+
+    result = _real_labelled_inline_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+def _real_string_merge_graph() -> Plottable:
+    nodes = pd.DataFrame({
+        "id": ["p1", "p2", "p3", "aa", "bb"],
+        "name": ["alice", "bob", "carol", "aa", "bb"],
+        "age": [30, 40, 50, 1, 2],
+    })
+    edges = pd.DataFrame({
+        "s": ["p1", "p1", "p2", "p2", "p3", "p3"],
+        "d": ["aa", "bb", "aa", "bb", "aa", "bb"],
+    })
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        # filter_dict is mutated as earlier atoms push, so a previously-pushed string
+        # predicate must not green-light merging a raw string behind it. Checking only the
+        # existing side made this order-dependent.
+        ("p.name CONTAINS 'al' AND p.name = 'alice'", [{"n": 4}]),
+        ("p.name STARTS WITH 'al' AND p.name = 'alice'", [{"n": 4}]),
+        ("p.name CONTAINS 'a' AND p.name CONTAINS 'l'", [{"n": 8}]),
+        ("p.name CONTAINS 'al'", [{"n": 4}]),
+        # Numeric merges are representable and must still push.
+        ("p.age > 20 AND p.age = 30", [{"n": 4}]),
+    ],
+)
+def test_connected_join_string_predicate_merge_matches_cypher(predicate: str, expected: Any) -> None:
+    query = f"MATCH (p)-[]->(a), (p)-[]->(b) WHERE {predicate} RETURN count(p) AS n"
+
+    result = _real_string_merge_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+def _real_pandas_bool_graph() -> Plottable:
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d", "e"], "flag": [True, False, True, False, True], "age": [1, 2, 3, 4, 5]})
+    edges = pd.DataFrame({"s": ["a", "b", "c", "a", "b"], "d": ["b", "c", "d", "c", "e"]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        # The gate reads the source frame but the executor filters a joined one, where an
+        # unmatched row introduces NaN and pandas widens bool -> object: numeric to the gate,
+        # string to the validator. Declining keeps the residual's answer.
+        ("p.flag > 0", [{"n": 2}]),
+        ("p.flag >= 1", [{"n": 2}]),
+        ("p.flag <> 0", [{"n": 2}]),
+        ("p.flag = 1", [{"n": 2}]),
+        ("p.flag = true", [{"n": 2}]),
+        # int64 widens to float64, which stays numeric, so this must still push and answer.
+        ("p.age >= 2", [{"n": 4}]),
+    ],
+)
+def test_connected_join_bool_column_survives_join_widening(predicate: str, expected: Any) -> None:
+    query = f"MATCH (i)-->(p), (p)-->(c) WHERE {predicate} RETURN count(p) AS n"
+
+    result = _real_pandas_bool_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+def test_connected_join_bool_dtype_never_pushes() -> None:
+    # bool cannot hold NaN, so the join widens it out of its class. int64 -> float64 stays
+    # numeric and must keep pushing.
+    assert _connected_join_dtype_admits(">", 0, pd.Series([True]).dtype) is False
+    assert _connected_join_dtype_admits("==", True, pd.Series([True]).dtype) is False
+    assert _connected_join_dtype_admits(">", 0, pd.Series([1]).dtype) is True
+
+
+def _real_object_content_graph() -> Plottable:
+    nodes = pd.DataFrame({
+        "id": ["n1", "n2", "n3", "n4"],
+        "flag": [True, False, None, True],   # bool + null -> object, values are not strings
+        "name": ["ann", "bob", "cid", "dee"],
+        "mix": ["a", 1, None, "c"],
+        "num": [1, 2, 3, 4],
+    })
+    edges = pd.DataFrame({"s": ["n1", "n2", "n3", "n1"], "d": ["n2", "n3", "n4", "n3"]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        # `.str` admits only {string, empty, bytes, mixed, mixed-integer}; everything else must
+        # be omitted. A float column with a None infers as mixed-integer-float -- unlike np.nan,
+        # which infers as floating -- so enumerating what to reject misses it.
+        "score",
+        "clock",
+        "flag",
+        "plain_float",
+        "plain_int",
+    ],
+)
+def test_connected_join_string_op_on_non_str_kinds_stays_typed(column: str) -> None:
+    query = f"MATCH (i)-->(p), (p)-->(c) WHERE p.{column} CONTAINS 'a' RETURN count(p) AS n"
+
+    with pytest.raises(GFQLValidationError):
+        _real_infer_kind_graph().gfql(query)
+
+
+def _real_edge_alias_graph() -> Plottable:
+    nodes = pd.DataFrame({
+        "id": ["n1", "n2", "n3", "n4"],
+        "s_col": pd.Series(["a", "b", "c", "d"], dtype=object),
+        "i_col": pd.Series([1, 2, 3, 4], dtype="int64"),
+    })
+    edges = pd.DataFrame({
+        "s": ["n1", "n2", "n3"], "d": ["n2", "n3", "n4"], "w": pd.Series([1, 2, 3], dtype="int64"),
+    })
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize(
+    "predicate,ret",
+    [
+        # A pushed filter that empties the pattern must still run post_join_chain, so the
+        # aggregate RETURN column survives -- including for edge aliases (#27), which have no
+        # `.id` fallback and raised until the rows op emitted the full binding schema at 0 rows.
+        ("p.i_col = 999", "count(e1) AS n"),
+        ("p.s_col = 'zzz'", "count(e1) AS n"),
+        ("p.s_col = 'zzz' AND e1.w > 0", "count(p) AS n"),
+        ("p.s_col = 'zzz'", "count(p) AS n"),
+    ],
+)
+def test_connected_join_empty_pattern_keeps_edge_alias_aggregate(predicate: str, ret: str) -> None:
+    query = f"MATCH (p)-[e1]->(q), (p)-[e2]->(r) WHERE {predicate} RETURN {ret}"
+    result = _real_edge_alias_graph().gfql(query)._nodes
+    assert list(result.columns) == ["n"]
+    assert len(result) == 0
+
+
+@pytest.mark.parametrize(
+    "ret,dtype",
+    [
+        # The 0-row schema fill must carry the source dtype: an untyped None gives object,
+        # which upcasts sum/avg and escapes via UNION ALL. Edge property must stay int64/float.
+        ("sum(e1.w) AS c", "int64"),
+        ("avg(e1.w) AS c", "float64"),
+        ("max(e1.w) AS c", "int64"),
+    ],
+)
+def test_connected_join_empty_edge_aggregate_keeps_numeric_dtype(ret: str, dtype: str) -> None:
+    query = f"MATCH (a)-[e1]->(b), (b)-[e2]->(c) WHERE a.i_col > 99999 RETURN {ret}"
+    result = _real_edge_alias_graph().gfql(query)._nodes
+    assert len(result) == 0
+    assert str(result["c"].dtype) == dtype
+
+
+@pytest.mark.parametrize(
+    "ret,dtype",
+    [
+        # A downstream (non-anchor) node reaches the row via a hop whose NaN widens its
+        # integer columns to float in the non-empty run; the 0-row path must match, or an
+        # emptied sum(b.iv) returns int64 and escapes via UNION ALL (#31). The anchor never
+        # NaN-widens, so it stays int; float columns are unchanged.
+        ("sum(b.iv) AS c", "float64"),
+        ("max(b.iv) AS c", "float64"),
+        ("sum(a.iv) AS c", "int64"),
+        ("sum(b.fv) AS c", "float64"),
+    ],
+)
+def test_connected_join_empty_node_aggregate_matches_nonempty_dtype(ret: str, dtype: str) -> None:
+    nodes = pd.DataFrame({
+        "id": ["n1", "n2", "n3", "n4"],
+        "iv": pd.Series([1, 2, 3, 4], dtype="int64"),
+        "fv": pd.Series([1.0, 2.0, 3.0, 4.0], dtype="float64"),
+    })
+    edges = pd.DataFrame({"s": ["n1", "n2", "n3"], "d": ["n2", "n3", "n4"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = f"MATCH (a)-[e1]->(b), (b)-[e2]->(c) WHERE a.iv = 999 RETURN {ret}"
+    result = g.gfql(query)._nodes
+    assert len(result) == 0
+    assert str(result["c"].dtype) == dtype
+
+
+@pytest.mark.parametrize(
+    "ret,dtype",
+    [
+        # A nullable *extension* Int64 on a downstream node stays Int64 through the non-empty
+        # hop's left-join (avg -> Float64); the 0-row widening must NOT collapse it to numpy
+        # float64. `pd.api.types.is_integer_dtype(Int64)` is True, so a naive int check
+        # over-reaches and diverges from both the non-empty run and master -- observable via
+        # UNION ALL, the same escape as #31. This is the regression Wave 37 caught.
+        ("sum(b.iv) AS c", "Int64"),
+        ("max(b.iv) AS c", "Int64"),
+        ("min(b.iv) AS c", "Int64"),
+        ("avg(b.iv) AS c", "Float64"),
+    ],
+)
+def test_connected_join_empty_node_aggregate_keeps_nullable_int(ret: str, dtype: str) -> None:
+    nodes = pd.DataFrame({
+        "id": ["n1", "n2", "n3", "n4"],
+        "iv": pd.Series([1, 2, None, 4], dtype="Int64"),
+    })
+    edges = pd.DataFrame({"s": ["n1", "n2", "n3"], "d": ["n2", "n3", "n4"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = f"MATCH (a)-[e1]->(b), (b)-[e2]->(c) WHERE a.iv = 999 RETURN {ret}"
+    empty = g.gfql(query)._nodes
+    assert len(empty) == 0
+    assert str(empty["c"].dtype) == dtype
+    # The empty schema must match the non-empty run of the identical query.
+    full_query = f"MATCH (a)-[e1]->(b), (b)-[e2]->(c) RETURN {ret}"
+    full = g.gfql(full_query)._nodes
+    assert str(full["c"].dtype) == dtype
+
+
+@pytest.mark.parametrize(
+    "bv_dtype,expected",
+    [
+        # numpy bool cannot hold the hop's left-join NaN, so the non-empty path widens a
+        # downstream node's bool column to object; the 0-row path must match, or an emptied
+        # max(b.bv) returns raw bool where non-empty and master give object (Wave 37 Finding 2).
+        ("bool", "object"),
+        # Nullable `boolean` holds NA natively and stays `boolean` in the non-empty path, so it
+        # must be left untouched -- widening it would be the Finding-1 over-reach in bool form.
+        ("boolean", "boolean"),
+    ],
+)
+def test_connected_join_empty_node_bool_aggregate_matches_nonempty(bv_dtype: str, expected: str) -> None:
+    nodes = pd.DataFrame({
+        "id": ["n1", "n2", "n3", "n4"],
+        "bv": pd.Series([True, False, True, False], dtype=bv_dtype),
+    })
+    edges = pd.DataFrame({"s": ["n1", "n2", "n3"], "d": ["n2", "n3", "n4"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    empty = g.gfql("MATCH (a)-[e1]->(b), (b)-[e2]->(c) WHERE a.id = 'zzz' RETURN max(b.bv) AS c")._nodes
+    assert len(empty) == 0
+    assert str(empty["c"].dtype) == expected
+    full = g.gfql("MATCH (a)-[e1]->(b), (b)-[e2]->(c) RETURN max(b.bv) AS c")._nodes
+    assert str(full["c"].dtype) == expected
+
+
+def test_connected_join_non_empty_edge_alias_aggregate_answers() -> None:
+    query = "MATCH (p)-[e1]->(q), (p)-[e2]->(r) WHERE e1.w > 0 RETURN count(p) AS n"
+    assert _real_edge_alias_graph().gfql(query)._nodes.to_dict(orient="records") == [{"n": 3}]
+
+
+def test_object_column_holds_non_strings_fails_closed_when_unreadable() -> None:
+    # An object column whose values cannot be read tells us nothing about whether `.str` would
+    # reject them, so omit it and let the residual answer -- matching `_read_node_dtypes`, which
+    # returns {} for a schema it cannot read. Keeping it would push blind.
+    from graphistry.compute.filter_by_dict import _object_column_holds_non_strings
+
+    class _UnreadableFrame:
+        def __getitem__(self, key: str) -> Any:
+            raise RuntimeError("cannot read column")
+
+    object_dtype = pd.Series(["a"], dtype=object).dtype
+    assert _object_column_holds_non_strings(_UnreadableFrame(), "x", object_dtype) is True
+    # Non-object dtypes are not this helper's concern, and real strings still push.
+    assert _object_column_holds_non_strings(pd.DataFrame({"x": [1]}), "x", pd.Series([1]).dtype) is False
+    strings = pd.DataFrame({"x": pd.Series(["a", "b"], dtype=object)})
+    assert _object_column_holds_non_strings(strings, "x", strings["x"].dtype) is False
+
+
+def _real_all_null_object_graph() -> Plottable:
+    nodes = pd.DataFrame({"id": ["n1", "n2", "n3", "n4"]})
+    nodes["note"] = pd.Series([None] * 4, dtype=object)  # infers `empty`
+    edges = pd.DataFrame({"s": ["n1", "n2", "n3", "n1"], "d": ["n2", "n3", "n4", "n3"]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    ["p.note CONTAINS 'a'", "p.note STARTS WITH 'a'", "p.note ENDS WITH 'a'", "p.note =~ 'a.*'"],
+)
+def test_connected_join_empty_object_column_still_answers(predicate: str) -> None:
+    # `empty` (an all-null object column) is subset-closed and `.str` handles it, so it must keep
+    # pushing: 3VL says NULL CONTAINS 'a' is NULL, hence no rows. Dropping `empty` from the
+    # keep-set silently reverts these to master's unsupported error, and nothing else catches it.
+    query = f"MATCH (i)-->(p), (p)-->(c) WHERE {predicate} RETURN count(p) AS n"
+
+    assert _real_all_null_object_graph().gfql(query)._nodes.to_dict(orient="records") == []
+
+
+def test_connected_join_mixed_column_stays_typed() -> None:
+    # `mixed`/`mixed-integer` pass pandas' accessor rule on the SOURCE frame but are not closed
+    # under subsetting: the executor filters the join's candidates, and dropping the strings
+    # leaves integers that `.str` rejects. Declining matches master, which cannot render
+    # CONTAINS at all.
+    nodes = pd.DataFrame({"id": ["u1", "u2", "u3", "u4", "u5"]})
+    nodes["value"] = pd.Series(["alpha", 10, 20, 30, "beta"], dtype=object)  # mixed-integer
+    edges = pd.DataFrame({"s": ["u1", "u2", "u5"], "d": ["u2", "u3", "u2"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = "MATCH (i)-->(p), (p)-->(c) WHERE p.value CONTAINS 'a' RETURN count(p) AS n"
+
+    with pytest.raises(GFQLValidationError):
+        g.gfql(query)
+
+
+def test_connected_join_bytes_column_stays_typed() -> None:
+    # bytes passes StringMethods._validate but the methods themselves forbid it via
+    # @forbid_nonstring_types, so it must be omitted despite being in pandas' accessor
+    # allowlist. Without the carve-out this leaks a raw TypeError.
+    nodes = pd.DataFrame({"id": ["n1", "n2", "n3", "n4"]})
+    nodes["raw"] = pd.Series([b"abc", b"def", None, b"ghi"], dtype=object)
+    edges = pd.DataFrame({"s": ["n1", "n2", "n3", "n1"], "d": ["n2", "n3", "n4", "n1"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = "MATCH (i)-->(p), (p)-->(c) WHERE p.raw CONTAINS 'a' RETURN count(p) AS n"
+
+    with pytest.raises(GFQLValidationError):
+        g.gfql(query)
+
+
+def _real_infer_kind_graph() -> Plottable:
+    import datetime
+
+    nodes = pd.DataFrame({"id": ["n1", "n2", "n3", "n4"]})
+    nodes["score"] = pd.Series([1.5, 2.5, None, 4.5], dtype=object)  # mixed-integer-float
+    nodes["clock"] = pd.Series(
+        [datetime.time(1, 0), datetime.time(2, 0), None, datetime.time(3, 0)], dtype=object
+    )  # time
+    nodes["flag"] = pd.Series([True, False, None, True], dtype=object)  # boolean
+    nodes["plain_float"] = pd.Series([1.5, 2.5, 3.5, 4.5], dtype=object)  # floating
+    nodes["plain_int"] = pd.Series([1, 2, 3, 4], dtype=object)  # integer
+    nodes["name"] = ["ann", "bob", "cid", "dee"]  # string -- must still push
+    edges = pd.DataFrame({"s": ["n1", "n2", "n3", "n1"], "d": ["n2", "n3", "n4", "n1"]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+def test_connected_join_string_op_on_non_string_object_column_stays_typed() -> None:
+    # `object` says nothing about contents: strings live there, and so does a bool column that
+    # acquired a null. Pushing a string op on dtype alone let `.str` fail on the values and leak
+    # a raw AttributeError where master raised a GFQL error.
+    query = "MATCH (i)-->(p), (p)-->(c) WHERE p.flag CONTAINS 'a' RETURN count(p) AS n"
+
+    with pytest.raises(GFQLValidationError):
+        _real_object_content_graph().gfql(query)
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        # Real string columns are object too, and must keep pushing -- master cannot render these.
+        ("p.name CONTAINS 'o'", [{"n": 1}]),
+        ("p.name STARTS WITH 'a'", []),
+
+        ("p.num >= 2", [{"n": 3}]),
+    ],
+)
+def test_connected_join_object_columns_still_answer(predicate: str, expected: Any) -> None:
+    query = f"MATCH (i)-->(p), (p)-->(c) WHERE {predicate} RETURN count(p) AS n"
+
+    result = _real_object_content_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+def test_node_dtypes_for_pushdown_fails_closed_on_unreadable_nodes() -> None:
+    # An unreadable schema must yield an empty mapping, not None: None means "no graph, use
+    # value-type rules" and would push dtype-blind. Pinned directly because the two are
+    # observationally equivalent end-to-end (such frames fail execution either way).
+    class _Unreadable:
+        columns = ["id"]
+
+        @property
+        def dtypes(self) -> Any:
+            raise RuntimeError("schema unavailable")
+
+    g = graphistry.nodes(pd.DataFrame({"id": ["a"]}), "id").edges(
+        pd.DataFrame({"s": ["a"], "d": ["a"]}), "s", "d"
+    )
+    object.__setattr__(g, "_nodes", _Unreadable())
+
+    dtypes = _node_dtypes_for_pushdown(g)
+    assert dtypes is not None, "unreadable schema must not fall back to dtype-blind pushing"
+    assert dict(dtypes) == {}
+
+
+def test_node_dtypes_for_pushdown_defers_the_conversion() -> None:
+    # Reading dtypes costs a full engine conversion, and only connected-join pushdown asks --
+    # a path most queries never reach. Computing eagerly charged every string query for a
+    # frame it discarded. Nothing may convert until a lookup actually happens.
+    pl = pytest.importorskip("polars")
+
+    converted = []
+    nodes = pl.DataFrame({"id": ["a", "b"], "age": pl.Series([1, 2], dtype=pl.Int64)})
+    g = graphistry.nodes(nodes, "id").edges(pl.DataFrame({"s": ["a"], "d": ["b"]}), "s", "d")
+
+    import graphistry.compute.filter_by_dict as filter_by_dict
+
+    original = filter_by_dict._read_node_dtypes
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        converted.append(1)
+        return original(*args, **kwargs)
+
+    filter_by_dict._read_node_dtypes = spy
+    try:
+        dtypes = filter_by_dict._node_dtypes_for_pushdown(g)
+        assert dtypes is not None
+        assert converted == []  # built, but nothing read yet
+        assert _connected_join_dtype_classes(dtypes["age"]) == (True, False)
+        assert converted == [1]  # first lookup materialized
+        _ = dtypes["id"]
+        assert converted == [1]  # and it is cached
+    finally:
+        filter_by_dict._read_node_dtypes = original
+
+
+def test_node_dtypes_for_pushdown_matches_the_full_conversion() -> None:
+    # polars -> pandas is DATA-dependent: an empty probe reports `bool` for a nullable Boolean
+    # while the real conversion yields `object`. The gate must report what the executor sees,
+    # so compare against the full conversion rather than asserting probe dtypes in isolation.
+    pl = pytest.importorskip("polars")
+    from graphistry.Engine import df_to_engine, resolve_engine
+
+    nodes = pl.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "flag": pl.Series([True, False, None, True], dtype=pl.Boolean),
+        "age": pl.Series([1, 2, None, 4], dtype=pl.Int64),
+        "name": pl.Series(["w", "x", "y", "z"]),
+    })
+    edges = pl.DataFrame({"s": ["a", "a"], "d": ["b", "c"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+    reported = _node_dtypes_for_pushdown(g)
+    assert reported is not None
+    executed = df_to_engine(nodes, resolve_engine("auto", nodes), warn=False)
+    # The map is deliberately partial: object columns whose values `.str` would reject are
+    # omitted so the gate fails closed on them. Every column it DOES report must agree with
+    # the executed frame.
+    for column, dtype in zip(list(executed.columns), list(executed.dtypes)):
+        if str(column) not in reported:
+            continue
+        assert _connected_join_dtype_classes(reported[str(column)]) == _connected_join_dtype_classes(dtype)
+    # `flag` is polars Boolean with a null -> pandas object holding bools -> omitted.
+    assert "flag" not in reported
+    assert {"id", "age", "name"} <= set(reported)
+    # The empty probe would have called the nullable bool numeric, which is why it cannot be
+    # used: the real conversion yields object-holding-bools, which is omitted instead.
+    empty = df_to_engine(nodes.head(0), resolve_engine("auto", nodes), warn=False)
+    empty_dtypes = dict(zip([str(name) for name in empty.columns], list(empty.dtypes)))
+    assert _connected_join_dtype_classes(empty_dtypes["flag"]) == (True, False)
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [("p.flag > 0", [{"n": 4}]), ("p.flag = true", [{"n": 4}]), ("p.age >= 2", [{"n": 4}])],
+)
+def test_connected_join_polars_nullable_columns_match_master(predicate: str, expected: Any) -> None:
+    pl = pytest.importorskip("polars")
+
+    nodes = pl.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "flag": pl.Series([True, False, None, True], dtype=pl.Boolean),
+        "age": pl.Series([1, 2, None, 4], dtype=pl.Int64),
+    })
+    edges = pl.DataFrame({"s": ["a", "a", "b", "b"], "d": ["b", "c", "a", "c"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = f"MATCH (p)-[]->(x), (p)-[]->(y) WHERE {predicate} RETURN count(p) AS n"
+
+    out = g.gfql(query)._nodes
+    records = out.to_dict(orient="records") if hasattr(out, "to_dict") else out.to_dicts()
+    assert records == expected
+
+
+def test_node_dtypes_for_pushdown_reads_frames_without_head() -> None:
+    # pyarrow.Table has no .head(); the probe raised, was swallowed, and returned None --
+    # which means "no graph, use value-type rules" and pushes dtype-blind, the exact bug the
+    # gate exists to stop. Absent graph and unreadable schema must not be conflated.
+    pa = pytest.importorskip("pyarrow")
+
+    nodes = pa.table({"id": ["a", "b", "c"], "name": ["ann", "bob", "cid"], "age": [30, 40, 50]})
+    edges = pa.table({"s": ["a", "a", "b", "b"], "d": ["b", "c", "a", "c"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+    dtypes = _node_dtypes_for_pushdown(g)
+    assert dtypes is not None
+    assert _connected_join_dtype_classes(dtypes["name"]) == (False, True)
+    assert _connected_join_dtype_classes(dtypes["age"]) == (True, False)
+
+
+def test_arrow_table_nodes_match_master_results() -> None:
+    pa = pytest.importorskip("pyarrow")
+
+    nodes = pa.table({"id": ["a", "b", "c"], "name": ["ann", "bob", "cid"], "age": [30, 40, 50]})
+    edges = pa.table({"s": ["a", "a", "b", "b"], "d": ["b", "c", "a", "c"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+    def run(predicate: str) -> Any:
+        query = f"MATCH (p)-[]->(x), (p)-[]->(y) WHERE {predicate} RETURN count(p) AS n"
+        out = g.gfql(query)._nodes
+        return out.to_dict(orient="records") if hasattr(out, "to_dict") else out.to_dicts()
+
+    assert run("p.name = 5") == []
+    assert run("p.name = 'ann'") == [{"n": 4}]
+    assert run("p.age >= 40") == [{"n": 4}]
+
+
+def test_connected_join_dtype_classes_defers_to_the_live_validator() -> None:
+    # The gate must not second-guess filter_by_dict: it validates whatever
+    # `_node_dtypes_for_pushdown` classified, so any disagreement turns a correct answer into
+    # a type error. Asking its own helpers makes them agree by construction.
+    from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe
+    import pyarrow as pa
+
+    for dtype in [
+        pd.Series([1]).dtype,
+        pd.Series(["a"]).dtype,
+        pd.Series([True]).dtype,
+        pd.ArrowDtype(pa.bool_()),
+        pd.ArrowDtype(pa.dictionary(pa.int32(), pa.int64())),
+        pd.CategoricalDtype(["a"]),
+        pd.IntervalDtype("int64"),
+    ]:
+        assert _connected_join_dtype_classes(dtype) == (
+            bool(_is_numeric_dtype_safe(dtype)),
+            bool(_is_string_dtype_safe(dtype)),
+        )
+
+
+@pytest.mark.parametrize(
+    "predicate,expected",
+    [
+        # Decimal materializes to pandas object, so ordering must not push; the residual answers.
+        ("p.age > 25", [{"n": 8}]),
+        ("p.age >= 26", [{"n": 8}]),
+        ("p.age != 26", [{"n": 8}]),
+        ("p.age = 26", [{"n": 4}]),
+        # A plain polars numeric column materializes to int64 and must still push and answer.
+        ("p.n2 >= 26", [{"n": 8}]),
+    ],
+)
+def test_connected_join_polars_decimal_matches_master(predicate: str, expected: Any) -> None:
+    pl = pytest.importorskip("polars")
+
+    nodes = pl.DataFrame({
+        "id": ["p1", "p2", "p3", "x1", "y1"],
+        "age": pl.Series([25, 26, 30, 1, 2], dtype=pl.Int64()).cast(pl.Decimal(10, 2)),
+        "n2": pl.Series([25, 26, 30, 1, 2], dtype=pl.Int64()),
+    })
+    edges = pl.DataFrame({
+        "s": ["p1", "p1", "p2", "p2", "p3", "p3"],
+        "d": ["x1", "y1", "x1", "y1", "x1", "y1"],
+    })
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = f"MATCH (p)-->(a), (p)-->(b) WHERE {predicate} RETURN count(p) AS n"
+
+    result = g.gfql(query)._nodes
+    records = result.to_dict(orient="records") if hasattr(result, "to_dict") else result.to_dicts()
+    assert records == expected
+
+
+def test_connected_join_polars_backed_graph_matches_pandas_results() -> None:
+    # The whole dtype gate was inert on polars-typed nodes: `p.age = 'foo'` pushed and
+    # raised where a pandas-backed graph correctly answers [].
+    pl = pytest.importorskip("polars")
+
+    nodes = pd.DataFrame({"id": ["p1", "p2", "p3", "x1", "y1"], "age": [25, 26, 30, 1, 2]})
+    edges = pd.DataFrame({"s": ["p1", "p1", "p2", "p2", "p3", "p3"], "d": ["x1", "y1", "x1", "y1", "x1", "y1"]})
+    query = "MATCH (p)-->(a), (p)-->(b) WHERE p.age = 'foo' RETURN count(p) AS n"
+
+    g_polars = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
+    result = g_polars.gfql(query)._nodes
+    records = result.to_dict(orient="records") if hasattr(result, "to_dict") else result.to_dicts()
+    assert records == []
+
+
+def test_node_dtypes_for_pushdown_reads_columns_not_items() -> None:
+    # pandas/cuDF expose a column-indexed Series but polars exposes a plain list, so the
+    # mapping must be built by zipping columns with dtypes rather than calling `.items()`.
+    g = _real_bool_shape_graph()
+    dtypes = _node_dtypes_for_pushdown(g)
+    assert dtypes is not None
+    assert set(dtypes) == {"id", "flag", "age"}
+    assert _connected_join_dtype_admits("==", "yes", dtypes["flag"]) is False
+    assert _connected_join_dtype_admits("==", "yes", dtypes["id"]) is True
+
+
+def test_connected_join_dtype_schema_selects_pushdown() -> None:
+    # With dtypes the planner pushes what the column admits and leaves the rest residual.
+    g = _real_t1_nullable_graph()
+    dtypes = _node_dtypes_for_pushdown(g)
+    assert dtypes is not None
+
+    def pushed_props(predicate: str) -> set:
+        compiled = cast(CompiledCypherQuery, compile_cypher_query(parse_cypher(_t1_nullable_query(predicate)), node_dtypes=dtypes))
+        plan = _compiled_execution_extras(compiled).connected_match_join
+        assert plan is not None
+        return {
+            prop
+            for chain in plan.pattern_chains
+            for op in chain.chain
+            if isinstance(op, ASTNode)
+            for prop in (op.filter_dict or {})
+        } - {"node_type"}
+
+    assert pushed_props("p.age >= 26") == {"age"}
+    assert pushed_props("p.nick = 'a'") == {"nick"}
+    assert pushed_props("p.nick STARTS WITH 'a'") == {"nick"}
+    assert pushed_props("p.nick >= 26") == set()
+    assert pushed_props("p.age = 'foo'") == set()
+
+
+@pytest.mark.parametrize("node_id_column", ["id", "nid"])
+def test_connected_join_count_distinct_alias_is_node_identity(node_id_column: str) -> None:
+    # A bare alias must lower to its identity column. Left unrewritten it only resolves when
+    # the node id column happens to be named `id`/`p`, and otherwise degrades to a constant,
+    # collapsing count(DISTINCT p) to 1.
+    nodes = pd.DataFrame({
+        node_id_column: [0, 1, 2, 10, 11, 20, 21],
+        "node_type": ["Person"] * 3 + ["City"] * 2 + ["Interest"] * 2,
+        "age": [25, 27, 35, None, None, None, None],
+        "interest": [None] * 5 + ["Fine Dining", "photography"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 2, 0, 1, 2],
+        "d": [20, 20, 21, 10, 10, 11],
+        "rel": ["HAS_INTEREST"] * 3 + ["LIVES_IN"] * 3,
+    })
+    g = graphistry.nodes(nodes, node_id_column).edges(edges, "s", "d")
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(DISTINCT p) AS n"
+    )
+
+    assert g.gfql(query)._nodes.to_dict(orient="records") == [{"n": 3}]
+
+
+@pytest.mark.parametrize("predicate", ["p.age >= - 26", "p.age >= -(26)", "p.age >= +(26)"])
+def test_t1_connected_comma_pushes_unfolded_unary_literal(predicate: str) -> None:
+    # `NUMBER` carries its sign as a lexer terminal, so only a lexically adjacent sign
+    # folds into the literal. A spaced or parenthesised sign stays a UnaryOp node and
+    # must still push down rather than degrade to a row residual.
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        f"WHERE {predicate} "
+        "RETURN count(p) AS numPersons"
+    )
+
+    expected = 3 if predicate != "p.age >= +(26)" else 2
+    result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"numPersons": expected}]
+
+    filters_by_alias = _compiled_connected_join_filters(query)
+    assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
+
+
+def test_t1_connected_comma_q5_retains_lower_residual_and_props() -> None:
     query = (
         "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
         "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
@@ -15009,8 +15956,8 @@ def test_t1_connected_comma_q5_fully_pushed_prunes_residual_and_props() -> None:
     )
 
     plan = _compiled_connected_join_plan(query)
-    assert "where_rows" not in _post_join_functions(query)
-    assert plan.pattern_attach_prop_aliases == ((), ())
+    assert "where_rows" in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("p",))
 
 
 def test_t1_connected_comma_grouped_projection_attaches_only_city_props() -> None:
@@ -15025,11 +15972,13 @@ def test_t1_connected_comma_grouped_projection_attaches_only_city_props() -> Non
     )
 
     plan = _compiled_connected_join_plan(query)
-    assert "where_rows" not in _post_join_functions(query)
-    assert plan.pattern_attach_prop_aliases == ((), ("c",))
+    assert "where_rows" in _post_join_functions(query)
+    # `p` is attached because count(p) lowers `p` to its `p.__gfql_node_id__` identity
+    # (connected-plan #1729); the toLower(i.interest) residual attaches `i`.
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("c", "p"))
 
 
-def test_t1_connected_comma_pushes_q5_single_alias_filters_before_join() -> None:
+def test_t1_connected_comma_pushes_q5_literal_filters_and_retains_lower_residual() -> None:
     query = (
         "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
         "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
@@ -15042,11 +15991,125 @@ def test_t1_connected_comma_pushes_q5_single_alias_filters_before_join() -> None
     result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
     assert result._nodes.to_dict(orient="records") == [{"numPersons": 1}]
 
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" in _post_join_functions(query)
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("p",))
+
     filters_by_alias = _compiled_connected_join_filters(query)
-    assert any(entry.get("i", {}).get("interest").__class__.__name__ == "Fullmatch" for entry in filters_by_alias)
-    assert any(entry.get("p", {}).get("gender").__class__.__name__ == "Fullmatch" for entry in filters_by_alias)
+    assert not any("interest" in entry.get("i", {}) for entry in filters_by_alias)
+    assert not any("gender" in entry.get("p", {}) for entry in filters_by_alias)
     assert any(entry.get("c", {}).get("city") == "London" for entry in filters_by_alias)
     assert any(entry.get("c", {}).get("country") == "United Kingdom" for entry in filters_by_alias)
+
+
+def test_t1_connected_comma_pushes_reversed_single_alias_filters_before_join() -> None:
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower('fine dining') = toLower(i.interest) "
+        "AND 23 <= p.age AND 30 >= p.age "
+        "AND 'London' = c.city "
+        "RETURN count(p) AS numPersons"
+    )
+
+    result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
+
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" in _post_join_functions(query)
+    # count(p) attaches `p` (identity rewrite, #1729); toLower(i.interest) attaches `i`.
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("p",))
+
+    filters_by_alias = _compiled_connected_join_filters(query)
+    assert not any("interest" in entry.get("i", {}) for entry in filters_by_alias)
+    assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
+    assert any(entry.get("c", {}).get("city") == "London" for entry in filters_by_alias)
+
+
+def test_t1_connected_comma_retains_lower_property_plain_lowercase_literal() -> None:
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = 'fine dining' "
+        "AND p.age >= 23 AND p.age <= 30 AND c.city = 'London' "
+        "RETURN count(p) AS numPersons"
+    )
+
+    result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
+
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" in _post_join_functions(query)
+    # count(p) attaches `p` (identity rewrite, #1729); toLower(i.interest) attaches `i`.
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("p",))
+
+
+def test_t1_connected_comma_retains_reversed_uppercase_plain_literal_residual() -> None:
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE 'FINE DINING' = toLower(i.interest) "
+        "AND p.age >= 23 AND p.age <= 30 AND c.city = 'London' "
+        "RETURN count(p) AS numPersons"
+    )
+
+    result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
+    assert result._nodes.to_dict(orient="records") == []
+
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" in _post_join_functions(query)
+    # count(p) attaches `p` (identity rewrite, #1729); toLower(i.interest) attaches `i`.
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("p",))
+
+
+@pytest.mark.parametrize(
+    "where_expr",
+    [
+        "toLower(i.interest) = toLower('i')",
+        "toLower('i') = toLower(i.interest)",
+    ],
+)
+def test_t1_connected_comma_retains_unicode_lower_equality_residual(where_expr: str) -> None:
+    values = ["İ", "i", "I", "ı"]
+    person_ids = list(range(4))
+    interest_ids = list(range(10, 14))
+    city_id = 20
+    nodes = pd.DataFrame({
+        "id": person_ids + interest_ids + [city_id],
+        "node_type": ["Person"] * 4 + ["Interest"] * 4 + ["City"],
+        "interest": [None] * 4 + values + [None],
+        "city": [None] * 8 + ["London"],
+    })
+    edges = pd.DataFrame({
+        "s": person_ids + person_ids,
+        "d": interest_ids + [city_id] * 4,
+        "rel": ["HAS_INTEREST"] * 4 + ["LIVES_IN"] * 4,
+    })
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        f"WHERE {where_expr} AND c.city = 'London' "
+        "RETURN count(p) AS n"
+    )
+
+    graph = _mk_graph(nodes, edges)
+    oracle_query = (
+        "MATCH (i {node_type:'Interest'}) "
+        f"WHERE {where_expr} "
+        "RETURN count(i) AS n"
+    )
+    oracle_compiled = cast(CompiledCypherQuery, compile_cypher(oracle_query))
+    assert oracle_compiled.execution_extras.connected_match_join is None
+    oracle_rows = graph.gfql(oracle_query)._nodes.to_dict(orient="records")
+    assert oracle_rows[0]["n"] != len(values)
+
+    result = graph.gfql(query)
+    assert result._nodes.to_dict(orient="records") == oracle_rows
+
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" in _post_join_functions(query)
+    # count(p) attaches `p` (identity rewrite, #1729); toLower(i.interest) attaches `i`.
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("p",))
 
 
 def test_t1_connected_comma_pushes_q7_range_filters_before_join() -> None:
@@ -15062,9 +16125,14 @@ def test_t1_connected_comma_pushes_q7_range_filters_before_join() -> None:
     result = _mk_graph_benchmark_t1_shape_graph().gfql(query)
     assert result._nodes.to_dict(orient="records") == []
 
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" in _post_join_functions(query)
+    # count(p) attaches `p` (identity rewrite, #1729); toLower(i.interest) attaches `i`.
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("c", "p"))
+
     filters_by_alias = _compiled_connected_join_filters(query)
     assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
-    assert any(entry.get("i", {}).get("interest").__class__.__name__ == "Fullmatch" for entry in filters_by_alias)
+    assert not any("interest" in entry.get("i", {}) for entry in filters_by_alias)
     assert any(entry.get("c", {}).get("country") == "France" for entry in filters_by_alias)
 
 
@@ -15263,7 +16331,11 @@ def test_t9_connected_comma_two_star_direct_polars_native_reuses_node_filter_cac
     query = (
         "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
         "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
-        "WHERE toLower(i.interest) = toLower('tennis') AND toLower(p.gender) = toLower('female') "
+        # Plain-equality filters push into filter_dict so this exercises the polars-native
+        # CACHED path (the point of this test). Under connected-plan #1729, toLower(...) lowers
+        # to a post-join where_rows residual that deliberately bypasses the id/count caches
+        # (they key on filter_dict alone), so a residual query would not populate them.
+        "WHERE i.interest = 'tennis' AND p.gender = 'female' "
         "RETURN count(p) AS numPersons, c.city AS city, c.country AS country "
         "ORDER BY numPersons DESC, city LIMIT 1"
     )
@@ -15309,6 +16381,46 @@ def test_t9_connected_comma_two_star_direct_polars_native_reuses_node_filter_cac
     assert {key: id(value) for key, value in first_arm_cache.items()} == first_arm_cache_ids
     assert len(second_arm_cache) == 1
     assert {key: id(value) for key, value in second_arm_cache.items()} == second_arm_cache_ids
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_direct_grouped_count_applies_single_alias_residual(engine: str) -> None:
+    # Connected-plan #1729 lowers toLower(...) equality to a post-join where_rows RESIDUAL
+    # (not a Fullmatch filter_dict push). The structural fast grouped-count must still ENGAGE
+    # and apply that single-alias residual to the first-leaf node set before counting, else it
+    # would over-count. Hand-derived Cypher truth: only i0 ("Fine Dining") matches
+    # toLower(...)='fine dining'; p0 and p1 each reach i0 and live in c0 -> count(p)=2. Without
+    # the residual, p0's second interest (i1) would inflate the London group to 3.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": ["p0", "p1", "i0", "i1", "c0"],
+        "node_type": ["Person", "Person", "Interest", "Interest", "City"],
+        "interest": [None, None, "Fine Dining", "photography", None],
+        "city": [None, None, None, None, "London"],
+    })
+    edges = pd.DataFrame({
+        "s": ["p0", "p0", "p1", "p0", "p1"],
+        "d": ["i0", "i1", "i0", "c0", "c0"],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN"],
+    })
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = toLower('fine dining') "
+        "RETURN count(p) AS n, c.city AS city"
+    )
+    graph = _mk_graph(nodes, edges)
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" in _post_join_functions(query)
+
+    # The fast grouped-count engages despite the residual (does not silently decline).
+    direct = _connected_join_two_star_fast_grouped_count(graph, plan, engine=Engine(engine))
+    assert direct is not None
+    assert _to_pandas_df(direct).to_dict(orient="records") == [{"n": 2, "city": "London"}]
+
+    result = graph.gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"n": 2, "city": "London"}]
 
 
 def test_t1_connected_comma_two_star_fast_path_rejects_first_leaf_props() -> None:
