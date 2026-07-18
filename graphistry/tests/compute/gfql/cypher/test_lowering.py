@@ -14999,6 +14999,33 @@ def test_t4_single_hop_grouped_fast_path_q1_count_bound_alias(engine: str) -> No
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_single_hop_grouped_fast_path_orders_nulls_as_largest(engine: str) -> None:
+    # The single-hop grouped-aggregate fast path's polars sort omitted nulls_last; polars
+    # defaults nulls-first while openCypher orders NULL as the largest value. So ORDER BY the
+    # group key ASC ... LIMIT 1 must return the smallest NON-null group (SF), not the NULL group.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": ["p0", "p1", "p2", "c0", "c1", "c2"],
+        "node_type": ["Person", "Person", "Person", "City", "City", "City"],
+        "city": [None, None, None, "SF", "NY", None],  # c2 has a NULL city
+    })
+    edges = pd.DataFrame({
+        "s": ["p0", "p1", "p2"],
+        "d": ["c0", "c1", "c2"],
+        "rel": ["LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    graph = _mk_graph(nodes, edges)
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city ORDER BY city ASC LIMIT 1"
+    )
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    assert _execute_single_hop_grouped_aggregate_fast_path(graph, compiled.chain, engine=Engine(engine)) is not None
+    assert _to_pandas_df(graph.gfql(query, engine=engine)._nodes).to_dict(orient="records") == [{"n": 1, "city": "NY"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
 def test_t3_single_hop_grouped_fast_path_q3_avg_source_prop_by_dest_prop(engine: str) -> None:
     if engine == "polars":
         pytest.importorskip("polars")

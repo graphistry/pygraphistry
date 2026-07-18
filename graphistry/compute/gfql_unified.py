@@ -2079,7 +2079,14 @@ def _execute_single_hop_grouped_aggregate_fast_path(
                 return None
         out_nodes = work.group_by(group_keys, maintain_order=True).agg(agg_exprs)
         if order_keys:
-            out_nodes = out_nodes.sort([key for key, _ in order_keys], descending=[desc for _, desc in order_keys])
+            # openCypher orders NULL as the largest value (ASC -> nulls last, DESC -> nulls
+            # first). Polars defaults nulls-first, which flips WHICH ROW ORDER BY ... LIMIT
+            # returns, so pin nulls_last per key.
+            out_nodes = out_nodes.sort(
+                [key for key, _ in order_keys],
+                descending=[desc for _, desc in order_keys],
+                nulls_last=[not desc for _, desc in order_keys],
+            )
         if limit_value is not None:
             out_nodes = out_nodes.head(limit_value)
         out_df = cast(DataFrameT, out_nodes)
