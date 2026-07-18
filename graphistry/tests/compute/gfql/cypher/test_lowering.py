@@ -16564,6 +16564,43 @@ def test_t1_connected_comma_two_star_count_star_uses_fast_rows(engine: str) -> N
     assert _to_pandas_df(graph.gfql(query, engine=engine)._nodes).to_dict(orient="records") == [{"n": 3}]
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_unsupported_aggregate_shapes_fall_back(engine: str) -> None:
+    # Shapes the fast grouped-count does not serve (two aggregates; a non-count aggregate) must
+    # DECLINE to the slow path and still answer correctly. Verifies the decline guards + fallback.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_two_star_coverage_graph(engine)
+    base = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+    )
+    two_agg = base + "RETURN count(p) AS n, count(DISTINCT c) AS m"
+    plan = _compiled_connected_join_plan(two_agg)
+    assert _connected_join_two_star_fast_grouped_count(graph, plan, engine=Engine(engine)) is None
+    if engine == "pandas":
+        # count(p)=3 persons; count(DISTINCT c)=2 (SF, NY).
+        assert _to_pandas_df(graph.gfql(two_agg, engine=engine)._nodes).to_dict(orient="records") == [{"n": 3, "m": 2}]
+        # Non-count aggregate (sum) grouped by city -> SF 30+45=75, NY 28.
+        got = _to_pandas_df(graph.gfql(base + "RETURN sum(p.age) AS s, c.city AS city ORDER BY city", engine=engine)._nodes).to_dict(orient="records")
+        assert got == [{"s": 28.0, "city": "NY"}, {"s": 75.0, "city": "SF"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_grouped_count_order_asc_limit(engine: str) -> None:
+    # Exercises the fast grouped-count ORDER BY (asc) + LIMIT branch. SF:2, NY:1; ORDER BY city
+    # ASC LIMIT 1 -> NY.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_two_star_coverage_graph(engine)
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city ORDER BY city ASC LIMIT 1"
+    )
+    assert _to_pandas_df(graph.gfql(query, engine=engine)._nodes).to_dict(orient="records") == [{"n": 1, "city": "NY"}]
+
+
 def test_t1_connected_comma_two_star_count_second_leaf_alias_no_crash() -> None:
     # Regression: count(c)/count(DISTINCT c) lower `c` to c.__gfql_node_id__ (identity), which
     # fast_rows cannot materialize as a node property -- it must DECLINE to the slow path rather
