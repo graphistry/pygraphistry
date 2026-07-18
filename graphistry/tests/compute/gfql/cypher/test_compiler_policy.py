@@ -198,14 +198,16 @@ def test_precompile_policy_can_deny_before_invalid_query_compiles() -> None:
 
 
 def test_compiled_string_query_cache_reuses_identical_query_per_graph(monkeypatch: pytest.MonkeyPatch) -> None:
+    # _compile_string_query now parses+compiles via parse_cypher/compile_cypher_query (a compile
+    # runs parse_cypher exactly once per cache MISS), so count compiles by spying parse_cypher.
     compile_calls: List[str] = []
-    original_compile = gfql_unified_module.compile_cypher
+    original_parse = gfql_unified_module.parse_cypher
 
-    def spy_compile(query: str, *args: Any, **kwargs: Any) -> Any:
+    def spy_parse(query: str, *args: Any, **kwargs: Any) -> Any:
         compile_calls.append(query)
-        return original_compile(query, *args, **kwargs)
+        return original_parse(query, *args, **kwargs)
 
-    monkeypatch.setattr(gfql_unified_module, "compile_cypher", spy_compile)
+    monkeypatch.setattr(gfql_unified_module, "parse_cypher", spy_parse)
     graph = _mk_graph()
     query = "UNWIND [1, 2, 3] AS x RETURN x ORDER BY x"
 
@@ -215,18 +217,19 @@ def test_compiled_string_query_cache_reuses_identical_query_per_graph(monkeypatc
 
     assert first._nodes[["x"]].to_dict(orient="records") == [{"x": 1}, {"x": 2}, {"x": 3}]
     assert second._nodes[["x"]].to_dict(orient="records") == [{"x": 1}, {"x": 2}, {"x": 3}]
+    # graph1 first call compiles; graph1 second call is a cache hit; the fresh graph compiles again.
     assert compile_calls == [query, query]
 
 
 def test_compiled_string_query_cache_keys_include_params(monkeypatch: pytest.MonkeyPatch) -> None:
     compile_params: List[Any] = []
-    original_compile = gfql_unified_module.compile_cypher
+    original_compile = gfql_unified_module.compile_cypher_query
 
-    def spy_compile(query: str, *args: Any, **kwargs: Any) -> Any:
+    def spy_compile(parsed: Any, *args: Any, **kwargs: Any) -> Any:
         compile_params.append(kwargs.get("params"))
-        return original_compile(query, *args, **kwargs)
+        return original_compile(parsed, *args, **kwargs)
 
-    monkeypatch.setattr(gfql_unified_module, "compile_cypher", spy_compile)
+    monkeypatch.setattr(gfql_unified_module, "compile_cypher_query", spy_compile)
     graph = _mk_graph()
     query = "RETURN $value AS value"
 
@@ -243,11 +246,11 @@ def test_compiled_string_query_cache_keys_include_params(monkeypatch: pytest.Mon
 def test_compiled_string_query_cache_hit_still_fires_compile_policies(monkeypatch: pytest.MonkeyPatch) -> None:
     compile_calls: List[str] = []
     policy_calls: List[str] = []
-    original_compile = gfql_unified_module.compile_cypher
+    original_parse = gfql_unified_module.parse_cypher
 
     def spy_compile(query: str, *args: Any, **kwargs: Any) -> Any:
         compile_calls.append(query)
-        return original_compile(query, *args, **kwargs)
+        return original_parse(query, *args, **kwargs)
 
     def observe(ctx: PolicyContext) -> None:
         policy_calls.append(cast(str, ctx["phase"]))
@@ -255,7 +258,7 @@ def test_compiled_string_query_cache_hit_still_fires_compile_policies(monkeypatc
             assert ctx["success"] is True
             assert isinstance(ctx["compile"], CompileSummary)
 
-    monkeypatch.setattr(gfql_unified_module, "compile_cypher", spy_compile)
+    monkeypatch.setattr(gfql_unified_module, "parse_cypher", spy_compile)
     graph = _mk_graph()
     query = "RETURN 1 AS value"
 

@@ -109,9 +109,11 @@ from graphistry.compute.gfql.cypher.ast import (
     SourceSpan,
     UnwindClause,
     WhereClause,
+    WhereOp,
     WherePredicate,
     WherePatternPredicate,
 )
+from graphistry.compute.typing import DType, NodeDtypes
 from graphistry.compute.gfql.cypher._boolean_expr_text import boolean_expr_to_text
 from graphistry.compute.gfql.cypher.expression_text import (
     cypher_literal_expr_text as _cypher_literal_expr_text,
@@ -1255,15 +1257,6 @@ def _connected_join_alias_identity_expr(
     )
 
     def _rewrite(node_in: ExprNode) -> ExprNode:
-        if (
-            isinstance(node_in, FunctionCall)
-            and node_in.name.lower() == "count"
-            and len(node_in.args) == 1
-            and isinstance(node_in.args[0], Identifier)
-            and "." not in node_in.args[0].name
-            and node_in.args[0].name in alias_targets
-        ):
-            return node_in
         if isinstance(node_in, PropertyAccessExpr) and isinstance(node_in.value, Identifier):
             if "." not in node_in.value.name and node_in.value.name in alias_targets:
                 return node_in
@@ -7782,20 +7775,20 @@ def _logical_plan_from_query_graph(
     )
 
 
-def _connected_join_literal_op(op: str, *, reverse: bool = False) -> Optional[str]:
+def _connected_join_literal_op(op: str, *, reverse: bool = False) -> Optional[WhereOp]:
     normalized = "==" if op == "=" else op
     if normalized not in {"==", "!=", "<", "<=", ">", ">="}:
         return None
     if not reverse:
-        return normalized
-    return {
+        return cast(WhereOp, normalized)
+    return cast(WhereOp, {
         "==": "==",
         "!=": "!=",
         "<": ">",
         "<=": ">=",
         ">": "<",
         ">=": "<=",
-    }[normalized]
+    }[normalized])
 
 
 def _connected_join_expr_property_ref(
@@ -7815,6 +7808,10 @@ def _connected_join_expr_property_ref(
 
 
 def _connected_join_expr_literal_value(node: ExprNode) -> Tuple[bool, Optional[CypherLiteral]]:
+    # `NUMBER` carries an optional sign as a lexer terminal, so a signed literal only
+    # folds when the sign is lexically adjacent (`-1`). With a space or parens
+    # (`- 1`, `-(1)`) the unary survives as a node and must be folded here, or the
+    # comparison silently falls back to a row residual instead of pushing down.
     if isinstance(node, ExprLiteral):
         return True, cast(Optional[CypherLiteral], node.value)
     if isinstance(node, UnaryOp) and node.op in {"+", "-"} and isinstance(node.operand, ExprLiteral):
@@ -7824,37 +7821,190 @@ def _connected_join_expr_literal_value(node: ExprNode) -> Tuple[bool, Optional[C
     return False, None
 
 
-def _connected_join_lower_property_ref(
-    node: ExprNode,
+_CONNECTED_JOIN_STRING_OPS = frozenset({"contains", "starts_with", "ends_with", "regex"})
+_CONNECTED_JOIN_ORDERING_OPS = frozenset({"!=", "<", "<=", ">", ">="})
+def _connected_join_dtype_classes(dtype: Any) -> Tuple[bool, bool]:
+    """Classify `dtype` as (numeric, string) using the validator's own helpers, verbatim.
+
+    `_node_dtypes_for_pushdown` hands us the dtype the executor will actually filter on, so
+    asking `filter_by_dict`'s helpers is asking the executor itself -- planner and validator
+    agree by construction, and anything they both decline fails closed at the caller.
+
+    Deliberately no kind/text fallback. `pd.api.types.is_numeric_dtype` returns False without
+    raising both for a dtype pandas cannot parse and for one it authoritatively knows is not
+    numeric, so a "both False" fallback cannot tell those apart -- and overriding the
+    authoritative answer is what made Arrow bool/dictionary columns raise where the residual
+    answers.
+    """
+    from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe
+
+    return bool(_is_numeric_dtype_safe(dtype)), bool(_is_string_dtype_safe(dtype))
+
+
+def _connected_join_dtype_widens(dtype: Any) -> bool:
+    """Whether the join can change `dtype`'s class before the filter runs.
+
+    The gate reads the source nodes frame, but the executor filters a joined one, and an
+    unmatched row introduces NaN. `bool` cannot hold NaN so pandas widens it to `object` --
+    numeric to the gate, string to the validator. `int64` widens to `float64`, which stays
+    numeric and is harmless; `bool` is the only common dtype that crosses the boundary.
+    """
+    import pandas as _pd
+
+    try:
+        return bool(_pd.api.types.is_bool_dtype(dtype)) and not bool(_pd.api.types.is_extension_array_dtype(dtype))
+    except Exception:
+        return False
+
+
+def _connected_join_dtype_admits(op: WhereOp, value: Optional[Union[str, int, float, bool]], dtype: DType) -> bool:
+    """Whether pushing `op`/`value` onto a column of `dtype` matches residual semantics.
+
+    A pushed `filter_dict` is schema-validated against the real column, while the row
+    residual evaluates leniently (Cypher 3-valued logic yields no rows). Pushing a
+    type-incompatible atom therefore turns a correct empty result into a hard error, so
+    those atoms have to stay residual.
+
+    Mirrors the validator that actually runs, `compute/filter_by_dict.py`, and reuses its
+    dtype helpers: they agree by construction (`bool` counts as numeric there) and stay
+    correct on non-pandas dtypes. `compute/validate_schema.py` looks similar but is dead
+    code -- only a docs test imports it -- and it disagrees on `bool`.
+    """
+    if _connected_join_dtype_widens(dtype):
+        return False
+    is_numeric_col, is_string_col = _connected_join_dtype_classes(dtype)
+    if not is_numeric_col and not is_string_col:
+        # Unrecognized dtype: fail closed. Pushing on a guess is how a correct empty
+        # result becomes a type error.
+        return False
+    if op in _CONNECTED_JOIN_STRING_OPS:
+        return is_string_col
+    if op in _CONNECTED_JOIN_ORDERING_OPS:
+        # These lower to NumericASTPredicate, rejected on a non-numeric column.
+        return is_numeric_col
+    if isinstance(value, str):
+        return not is_numeric_col
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, (int, float)):
+        return not is_string_col
+    return True
+
+
+def _connected_join_pushable_value(
+    op: WhereOp,
+    value: Optional[CypherLiteral],
     *,
-    span: SourceSpan,
-) -> Optional[PropertyRef]:
-    if not isinstance(node, FunctionCall) or len(node.args) != 1:
-        return None
-    if node.name.lower() not in {"tolower", "lower"}:
-        return None
-    return _connected_join_expr_property_ref(node.args[0], span=span)
+    params: Optional[Mapping[str, Any]],
+    column: Optional[str] = None,
+    node_dtypes: Optional[NodeDtypes] = None,
+) -> bool:
+    """Whether `op`/`value` survives the trip into a node `filter_dict`.
+
+    Pushdown is an optimization: anything not exactly representable must stay a
+    `where_rows` residual rather than push a filter that means something else.
+
+    - `None` is unrepresentable: `_filter_dict_to_json` drops null-valued entries, so a
+      pushed `nick = null` would vanish on the executor's serialization round-trip and
+      silently return unfiltered rows.
+    - Ordering/inequality ops lower to `NumericASTPredicate`, which admits only int/float
+      (`bool` is an `int` subclass but is not a numeric column predicate), so pushing a
+      string or bool would raise where the residual answers correctly.
+
+    Parameters must be resolved first: `$v` arrives as an unresolved `ParameterRef`, and
+    judging that ref instead of its value is how `nick = $v`/`{'v': None}` slipped through.
+    An unresolvable ref stays a residual, which reports the missing parameter itself.
+    """
+    try:
+        resolved = _resolve_literal(cast(CypherLiteral, value), params=params, field="where") if value is not None else None
+    except GFQLValidationError:
+        return False
+    if resolved is None:
+        return False
+    if isinstance(resolved, (dict, list, tuple, set)):
+        # A dict survives `_filter_dict_to_json` verbatim and `maybe_filter_dict_from_json`
+        # revives it via `predicates_from_json`, so a param like {'type': 'GT', 'val': 26}
+        # would execute as `> 26` instead of an equality against a map.
+        return False
+    if (
+        isinstance(resolved, int)
+        and not isinstance(resolved, bool)
+        and not (_CYPHER_INT64_MIN <= resolved <= _CYPHER_INT64_MAX)
+    ):
+        # The 64-bit literal guard lives on the row-expr path, so pushing an out-of-range
+        # int would evade it and reach pandas, which overflows with a raw OverflowError.
+        return False
+    if op in _CONNECTED_JOIN_STRING_OPS:
+        if not isinstance(resolved, str):
+            return False
+    elif op == "==":
+        if not isinstance(resolved, (str, int, float, bool)):
+            return False
+    elif not (isinstance(resolved, (int, float)) and not isinstance(resolved, bool)):
+        return False
+    if node_dtypes is None:
+        # No schema (e.g. bare `compile_cypher()` with no graph). Keep the value-type
+        # decision; execution always goes through `gfql()`, which supplies dtypes.
+        return True
+    if column is None or column not in node_dtypes:
+        return False
+    return _connected_join_dtype_admits(op, resolved, node_dtypes[column])
 
 
-def _connected_join_lower_literal_value(node: ExprNode) -> Tuple[bool, Optional[str]]:
-    if isinstance(node, FunctionCall) and len(node.args) == 1 and node.name.lower() in {"tolower", "lower"}:
-        arg = node.args[0]
-        if isinstance(arg, ExprLiteral) and isinstance(arg.value, str):
-            return True, arg.value
-        return False, None
-    if isinstance(node, ExprLiteral) and isinstance(node.value, str):
-        return True, node.value
-    return False, None
+def _connected_join_mergeable_filter(target: ASTNode, prop: str, *, op: WhereOp, resolved: Optional[Union[str, int, float, bool]]) -> bool:
+    """Whether pushing `op`/`resolved` onto `prop` can merge with what is already there.
+
+    `_merge_filter_predicates` wraps raw scalars with `comparison.eq`, which serializes to
+    `{'type': 'EQ'}` -- but `predicates/from_json.py` binds that tag to `predicates.numeric.EQ`,
+    which admits only int/float. Merging a non-numeric scalar on EITHER side therefore builds
+    a filter that raises when the executor rehydrates it. That write/read split is not ours to
+    fix here; just don't create it.
+
+    Both sides must be checked. `filter_dict` is mutated as earlier atoms in the same WHERE
+    push, so the existing value may be an inline scalar OR a predicate a previous push left
+    behind -- checking only the existing side made this order-dependent
+    (`= 'a' AND CONTAINS 'x'` blocked, `CONTAINS 'x' AND = 'a'` not).
+    """
+    existing_filter = _target_filter_dict(target) or {}
+    if prop not in existing_filter:
+        return True
+    existing = existing_filter[prop]
+    if not (isinstance(existing, ASTPredicate) or (isinstance(existing, (int, float)) and not isinstance(existing, bool))):
+        return False
+    # `_predicate_value` keeps `==` as a raw value; every other supported op builds a real
+    # predicate, which round-trips on its own tag.
+    if op == "==" and not isinstance(resolved, (int, float)):
+        return False
+    return True
 
 
 def _apply_connected_join_node_filter(
     alias_targets_by_pattern: Sequence[Mapping[str, ASTObject]],
     *,
     prop_ref: PropertyRef,
-    op: str,
+    op: WhereOp,
     value: Optional[CypherLiteral],
     params: Optional[Mapping[str, Any]],
+    node_dtypes: Optional[NodeDtypes] = None,
 ) -> bool:
+    if not _connected_join_pushable_value(
+        op, value, params=params, column=prop_ref.property, node_dtypes=node_dtypes
+    ):
+        return False
+    try:
+        resolved_value = (
+            _resolve_literal(cast(CypherLiteral, value), params=params, field="where")
+            if value is not None
+            else None
+        )
+    except GFQLValidationError:
+        return False
+    for alias_targets in alias_targets_by_pattern:
+        target = alias_targets.get(prop_ref.alias)
+        if not isinstance(target, ASTNode):
+            continue
+        if not _connected_join_mergeable_filter(target, prop_ref.property, op=op, resolved=resolved_value):
+            return False
     pushed = False
     for alias_targets in alias_targets_by_pattern:
         target = alias_targets.get(prop_ref.alias)
@@ -7871,40 +8021,13 @@ def _apply_connected_join_node_filter(
     return pushed
 
 
-def _apply_connected_join_node_predicate(
-    alias_targets_by_pattern: Sequence[Mapping[str, ASTObject]],
-    *,
-    prop_ref: PropertyRef,
-    predicate: ASTPredicate,
-) -> bool:
-    pushed = False
-    for alias_targets in alias_targets_by_pattern:
-        target = alias_targets.get(prop_ref.alias)
-        if not isinstance(target, ASTNode):
-            continue
-        filter_dict = dict(target.filter_dict or {})
-        existing_filter = filter_dict.get(prop_ref.property)
-        if existing_filter is None or prop_ref.property not in filter_dict:
-            filter_dict[prop_ref.property] = predicate
-        else:
-            filter_dict[prop_ref.property] = _merge_filter_predicates(
-                existing_filter,
-                predicate,
-                field=f"where.{prop_ref.alias}.{prop_ref.property}",
-                line=prop_ref.span.line,
-                column=prop_ref.span.column,
-            )
-        target.filter_dict = filter_dict
-        pushed = True
-    return pushed
-
-
 def _pushdown_connected_join_atom_filter(
     expr: ExpressionText,
     alias_targets_by_pattern: Sequence[Mapping[str, ASTObject]],
     alias_targets: Mapping[str, ASTObject],
     *,
     params: Optional[Mapping[str, Any]],
+    node_dtypes: Optional[NodeDtypes] = None,
 ) -> bool:
     try:
         node = _parse_row_expr(
@@ -7931,6 +8054,7 @@ def _pushdown_connected_join_atom_filter(
                 op=op,
                 value=right_value,
                 params=params,
+                node_dtypes=node_dtypes,
             )
         reverse_op = _connected_join_literal_op(node.op, reverse=True)
         right_ref = _connected_join_expr_property_ref(node.right, span=expr.span)
@@ -7942,24 +8066,7 @@ def _pushdown_connected_join_atom_filter(
                 op=reverse_op,
                 value=left_value,
                 params=params,
-            )
-
-    if node.op in {"=", "=="}:
-        left_ref = _connected_join_lower_property_ref(node.left, span=expr.span)
-        right_is_literal, right_value = _connected_join_lower_literal_value(node.right)
-        if left_ref is not None and right_is_literal and right_value is not None:
-            return _apply_connected_join_node_predicate(
-                alias_targets_by_pattern,
-                prop_ref=left_ref,
-                predicate=fullmatch(re.escape(right_value), case=False, na=False),
-            )
-        right_ref = _connected_join_lower_property_ref(node.right, span=expr.span)
-        left_is_literal, left_value = _connected_join_lower_literal_value(node.left)
-        if right_ref is not None and left_is_literal and left_value is not None:
-            return _apply_connected_join_node_predicate(
-                alias_targets_by_pattern,
-                prop_ref=right_ref,
-                predicate=fullmatch(re.escape(left_value), case=False, na=False),
+                node_dtypes=node_dtypes,
             )
 
     return False
@@ -7971,6 +8078,7 @@ def _pushdown_connected_join_where_filters(
     alias_targets: Mapping[str, ASTObject],
     *,
     params: Optional[Mapping[str, Any]],
+    node_dtypes: Optional[NodeDtypes] = None,
 ) -> Optional[List[ExpressionText]]:
     if where is None:
         return []
@@ -7995,9 +8103,10 @@ def _pushdown_connected_join_where_filters(
             _apply_connected_join_node_filter(
                 alias_targets_by_pattern,
                 prop_ref=predicate.left,
-                op=cast(str, predicate.op),
+                op=predicate.op,
                 value=cast(Optional[CypherLiteral], predicate.right),
                 params=params,
+                node_dtypes=node_dtypes,
             )
 
     residuals: List[ExpressionText] = []
@@ -8014,6 +8123,7 @@ def _pushdown_connected_join_where_filters(
                 alias_targets_by_pattern,
                 alias_targets,
                 params=params,
+                node_dtypes=node_dtypes,
             )
             if not pushed:
                 residuals.append(atom)
@@ -8040,9 +8150,10 @@ def _pushdown_connected_join_where_filters(
             pushed = _apply_connected_join_node_filter(
                 alias_targets_by_pattern,
                 prop_ref=predicate.left,
-                op=cast(str, predicate.op),
+                op=predicate.op,
                 value=cast(Optional[CypherLiteral], predicate.right),
                 params=params,
+                node_dtypes=node_dtypes,
             )
         if pushed:
             continue
@@ -8098,6 +8209,13 @@ def _connected_join_required_property_aliases(
             return None
         required.update(alias for alias in non_aggregate_aliases if alias in node_aliases)
         required.update(alias for alias in prop_aliases if alias in node_aliases)
+        # A bare node alias used *inside* an aggregate (e.g. ``count(p)`` /
+        # ``count(DISTINCT p)``) is rewritten by _connected_join_alias_identity_expr to
+        # ``p.__gfql_node_id__``, so its identity column must still be attached even though
+        # it is neither a non-aggregate use nor a property access. Attaching by alias here
+        # is a no-op when the alias is already required via a property access (e.g.
+        # ``count(p.age)``); it only adds the otherwise-missing bare-aggregate case.
+        required.update(alias for alias in _aggregate_aliases if alias in node_aliases)
     return required
 
 
@@ -8106,6 +8224,7 @@ def _compile_connected_match_join(
     *,
     params: Optional[Mapping[str, Any]] = None,
     semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
+    node_dtypes: Optional[NodeDtypes] = None,
 ) -> CompiledCypherQuery:
     clause = query.matches[0]
     pattern_chains: List[Chain] = []
@@ -8161,6 +8280,7 @@ def _compile_connected_match_join(
             alias_targets_by_pattern,
             combined_alias_targets,
             params=params,
+            node_dtypes=node_dtypes,
         )
         if residual_filters is None:
             raise _unsupported(
@@ -8701,6 +8821,7 @@ def compile_cypher_query(
     query: Union[CypherQuery, CypherUnionQuery, CypherGraphQuery],
     *,
     params: Optional[Mapping[str, Any]] = None,
+    node_dtypes: Optional[NodeDtypes] = None,
 ) -> Union[CompiledCypherQuery, CompiledCypherUnionQuery, CompiledCypherGraphQuery]:
     from graphistry.compute.gfql.cypher import projection_planning as _projection
 
@@ -8853,6 +8974,7 @@ def compile_cypher_query(
                 query,
                 params=params,
                 semantic_entity_kinds=bound_context.entity_kinds,
+                node_dtypes=node_dtypes,
             )
         )
     if _is_connected_optional_match_query(query):
