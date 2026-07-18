@@ -1486,6 +1486,12 @@ def _connected_join_two_star_fast_rows(
     if any(alias != second_end_alias for alias in needed_attach_aliases):
         return None
     second_props_needed = _connected_join_post_property_columns(plan, second_end_alias)
+    # A bare aggregate over the second leaf (count(c) / count(DISTINCT c)) lowers `c` to its
+    # identity column c.__gfql_node_id__, which is NOT a materializable node property here --
+    # fast_rows would drop it and post_join's count(c.__gfql_node_id__) would dereference a
+    # missing column. Decline to the (correct) slow path in that case.
+    if NODE_IDENTITY_COLUMN in second_props_needed:
+        return None
     if second_end_alias in needed_attach_aliases and not second_props_needed:
         return None
 

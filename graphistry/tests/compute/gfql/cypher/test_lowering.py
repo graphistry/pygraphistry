@@ -16466,6 +16466,123 @@ def test_t1_connected_comma_two_star_multi_alias_residual_declines_to_slow_path(
     assert _to_pandas_df(graph.gfql(query, engine="pandas")._nodes).to_dict(orient="records") == [{"n": 1}]
 
 
+def _mk_two_star_coverage_graph(engine: str) -> Any:
+    # p0 age30 SF, p1 age45 SF, p2 age28 NY; all like i0 (Fine Dining). p1 excluded by age<=40.
+    nodes = pd.DataFrame({
+        "id": ["p0", "p1", "p2", "i0", "c0", "c1"],
+        "node_type": ["Person", "Person", "Person", "Interest", "City", "City"],
+        "age": [30, 45, 28, None, None, None],
+        "score": [1.5, 2.5, 1.5, None, None, None],
+        "active": [True, True, False, None, None, None],
+        "interest": [None, None, None, "Fine Dining", None, None],
+        "city": [None, None, None, None, "SF", "NY"],
+    })
+    edges = pd.DataFrame({
+        "s": ["p0", "p1", "p2", "p0", "p1", "p2"],
+        "d": ["i0", "i0", "i0", "c0", "c0", "c1"],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_range_filter_grouped_count(engine: str) -> None:
+    # Range filter lowers to an AllOf(GE,LE) predicate pushed into the node filter_dict, which
+    # exercises the polars cached fast path's filter-value cache key (composite + scalar-val
+    # predicate branches). Hand-derived truth: p0 (age30,SF) and p2 (age28,NY) pass 25<=age<=40;
+    # p1 (age45) excluded -> SF:1, NY:1.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_two_star_coverage_graph(engine)
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE p.age >= 25 AND p.age <= 40 "
+        "RETURN count(p) AS n, c.city AS city ORDER BY city"
+    )
+    got = _to_pandas_df(graph.gfql(query, engine=engine)._nodes).to_dict(orient="records")
+    assert got == [{"n": 1, "city": "NY"}, {"n": 1, "city": "SF"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_bool_and_float_filters_grouped_count(engine: str) -> None:
+    # Inline bool + float property filters push scalar bool/float values into the node
+    # filter_dict, exercising those filter-value cache-key branches on the polars cached path.
+    # Hand-derived truth: active=true AND score=1.5 -> only p0 (SF). (p2 is score1.5 but
+    # active=false; p1 is active but score2.5.)
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_two_star_coverage_graph(engine)
+    query = (
+        "MATCH (p {node_type:'Person', active: true, score: 1.5})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city ORDER BY city"
+    )
+    got = _to_pandas_df(graph.gfql(query, engine=engine)._nodes).to_dict(orient="records")
+    assert got == [{"n": 1, "city": "SF"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_singleton_leaf_grouped_count(engine: str) -> None:
+    # A single Interest node (i0) makes the first-leaf id set a singleton, exercising the
+    # singleton dst->source count optimization / cached first-arm path. Hand-derived truth:
+    # all three persons like the one interest; grouped by city -> SF:2 (p0,p1), NY:1 (p2).
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_two_star_coverage_graph(engine)
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city ORDER BY n DESC, city"
+    )
+    got = _to_pandas_df(graph.gfql(query, engine=engine)._nodes).to_dict(orient="records")
+    assert got == [{"n": 2, "city": "SF"}, {"n": 1, "city": "NY"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_count_star_uses_fast_rows(engine: str) -> None:
+    # count(*) references no alias identity, so fast_rows materializes the joined rows and
+    # post_join counts them. Hand-derived truth: one (p,i,c) row per person (each likes i0 and
+    # lives in one city) -> 3 rows -> count(*) = 3.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_two_star_coverage_graph(engine)
+    direct = _connected_join_two_star_fast_rows(
+        graph, _compiled_connected_join_plan(
+            "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+            "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) RETURN count(*) AS n"
+        ), engine=Engine(engine),
+    )
+    assert direct is not None  # fast_rows engages for count(*)
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) RETURN count(*) AS n"
+    )
+    assert _to_pandas_df(graph.gfql(query, engine=engine)._nodes).to_dict(orient="records") == [{"n": 3}]
+
+
+def test_t1_connected_comma_two_star_count_second_leaf_alias_no_crash() -> None:
+    # Regression: count(c)/count(DISTINCT c) lower `c` to c.__gfql_node_id__ (identity), which
+    # fast_rows cannot materialize as a node property -- it must DECLINE to the slow path rather
+    # than emit a frame that makes post_join's count(c.__gfql_node_id__) dereference a missing
+    # column (previously a GFQLTypeError crash on pandas). Slow-path truth: 3 (p,i,c) rows
+    # (p0->c0, p1->c0, p2->c1) -> count(c)=3, count(DISTINCT c)=2 (c0, c1).
+    graph = _mk_two_star_coverage_graph("pandas")
+    base = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+    )
+    # fast_rows declines (identity of the second leaf is not a materializable property).
+    assert _connected_join_two_star_fast_rows(
+        graph, _compiled_connected_join_plan(base + "RETURN count(c) AS n"), engine=Engine.PANDAS
+    ) is None
+    assert _to_pandas_df(graph.gfql(base + "RETURN count(c) AS n", engine="pandas")._nodes).to_dict(orient="records") == [{"n": 3}]
+    assert _to_pandas_df(graph.gfql(base + "RETURN count(DISTINCT c) AS n", engine="pandas")._nodes).to_dict(orient="records") == [{"n": 2}]
+
+
 def test_t1_connected_comma_two_star_no_stale_cache_after_inplace_edge_mutation() -> None:
     # BLOCKER 1: the fast-path caches were setattr'd onto the caller's Plottable and keyed by
     # id(), so a second gfql() after an in-place edge mutation returned a STALE wrong answer.
