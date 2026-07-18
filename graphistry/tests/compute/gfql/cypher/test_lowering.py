@@ -49,6 +49,7 @@ from graphistry.compute.gfql_unified import (
     _connected_join_post_property_columns,
     _connected_join_two_star_fast_grouped_count,
     _connected_join_two_star_fast_rows,
+    _connected_join_two_star_split_residuals,
 )
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, SemanticTable
@@ -16425,6 +16426,44 @@ def test_t1_connected_comma_two_star_direct_grouped_count_applies_single_alias_r
 
     result = graph.gfql(query, engine=engine)
     assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"n": 2, "city": "London"}]
+
+
+def test_t1_connected_comma_two_star_multi_alias_residual_declines_to_slow_path() -> None:
+    # A post-join residual spanning MORE THAN ONE materialized alias cannot be applied to a
+    # single node set, so _connected_join_two_star_split_residuals returns None and the fast
+    # path declines to the (correct) slow path. Verify the split helper declines AND the query
+    # still answers correctly.
+    nodes = pd.DataFrame({
+        "id": ["p0", "p1", "i0", "i1", "c0", "c1"],
+        "node_type": ["Person", "Person", "Interest", "Interest", "City", "City"],
+        "interest": [None, None, "London", "Paris", None, None],
+        "city": [None, None, None, None, "London", "Berlin"],
+    })
+    edges = pd.DataFrame({
+        "s": ["p0", "p1", "p0", "p1"],
+        "d": ["i0", "i1", "c0", "c1"],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN"],
+    })
+    graph = _mk_graph(nodes, edges)
+    # Cross-alias residual: interest string equals the city string (spans i and c).
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE i.interest = c.city RETURN count(p) AS n"
+    )
+    plan = _compiled_connected_join_plan(query)
+    materialized = set()
+    alias_targets = {}
+    for pattern in plan.pattern_chains:
+        for op in pattern.chain:
+            name = getattr(op, "_name", None)
+            if isinstance(op, ASTNode) and isinstance(name, str):
+                materialized.add(name)
+                alias_targets[name] = op
+    assert _connected_join_two_star_split_residuals(plan, alias_targets, materialized) is None
+
+    # Hand-derived truth: only p0 has interest 'London' AND lives in city 'London' -> n=1.
+    assert _to_pandas_df(graph.gfql(query, engine="pandas")._nodes).to_dict(orient="records") == [{"n": 1}]
 
 
 def test_t1_connected_comma_two_star_no_stale_cache_after_inplace_edge_mutation() -> None:
