@@ -234,6 +234,34 @@ class RowPipelineMixin:
         return base_graph
 
     @staticmethod
+    def _gfql_native_shortest_path_cache(base_graph: Any) -> Optional[Dict[Any, Any]]:
+        """Per-graph cache of built igraph/cugraph state, shared across the pairwise
+        shortestPath ops of ONE query execution (each op runs on a fresh row-pipeline
+        adapter, but they all resolve the same persistent ``base_graph``).
+
+        Attached to the persistent base graph, NOT the per-op adapter, and RESET whenever the
+        bound edge-frame identity changes. A functional rebind (``g.edges(...)`` / ``g.nodes(...)``)
+        yields a new base graph with no cache attribute, and an in-place ``base_graph._edges = ...``
+        reassignment flips the edges token below -- so neither returns stale state (the BLOCKER-1
+        rebind class). NOT detected: in-place CONTENT mutation of the same bound edge frame without
+        a rebind (``base_graph._edges.iloc[...] = ...``), a library-wide assumption for bound frames.
+        Returns None when there is no graph to attach to (caching disabled; correctness unaffected --
+        ``_get_or_build_cached_state`` treats a None cache as always-rebuild).
+        """
+        edges = getattr(base_graph, "_edges", None)
+        if edges is None:
+            return None
+        edges_token = id(edges)
+        cache = getattr(base_graph, "_gfql_native_sp_cache", None)
+        if not isinstance(cache, dict) or cache.get("__edges_token__") != edges_token:
+            cache = {"__edges_token__": edges_token}
+            try:
+                base_graph._gfql_native_sp_cache = cache
+            except Exception:
+                return None  # cannot attach (e.g. frozen/slots) -> skip caching
+        return cache
+
+    @staticmethod
     def _gfql_fresh_col_name(columns: Any, prefix: str) -> str:
         col = prefix
         while col in columns:
@@ -4017,6 +4045,16 @@ class RowPipelineMixin:
         sources = seed_table[start_alias]
         targets = seed_table[end_alias]
 
+        # Per-execution cache of the built native graph, shared across a query's pairwise
+        # shortestPath ops. cache_key fully captures the edge pattern via the op's canonical
+        # JSON (a partial key could reuse a graph built for a DIFFERENT pattern -> wrong
+        # distances); directedness is folded into the key inside try_native_shortest_path.
+        import json
+        sp_cache = self._gfql_native_shortest_path_cache(base_graph)
+        sp_cache_key = (
+            json.dumps(edge_op.to_json(), sort_keys=True) if sp_cache is not None else None
+        )
+
         native_result = try_native_shortest_path(
             step_pairs, sources, targets,
             min_hops=min_hops,
@@ -4024,6 +4062,8 @@ class RowPipelineMixin:
             directed=not sem.is_undirected,
             engine=engine,
             backend=cast(ShortestPathBackend, backend),
+            cache=sp_cache,
+            cache_key=sp_cache_key,
         )
         if native_result is None:
             return None
