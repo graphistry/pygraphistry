@@ -4744,8 +4744,25 @@ class RowPipelineMixin:
 
         if sort_cols:
             try:
-                effective_sort_cols = sort_cols + [row_order_col]
-                effective_ascending = ascending + [True]
+                # openCypher orders NULL as the LARGEST value: ASC -> nulls last, DESC -> nulls
+                # FIRST. pandas/cuDF sort_values `na_position` is a SINGLE scalar (cannot be
+                # per-key) and cuDF has no stable sort, so use a per-key null-indicator column
+                # sorted in the SAME direction as its key: ind = col.isna(); for an ASC key
+                # (ascending=True) True (null) sorts LAST, for a DESC key (ascending=False) True
+                # sorts FIRST. Matches the OLAP fast-path fix and order_by_polars. (Previously
+                # sort_values defaulted na_position='last' for every key, silently returning the
+                # wrong `... DESC LIMIT k` top-k over a column containing NULLs.)
+                interleaved_cols: List[Any] = []
+                interleaved_ascending: List[bool] = []
+                for _i, (_sc, _asc) in enumerate(zip(sort_cols, ascending)):
+                    _ind_col = RowPipelineMixin._gfql_fresh_col_name(
+                        work_df.columns, f"__gfql_sort_nullrank_{_i}__"
+                    )
+                    work_df = work_df.assign(**{_ind_col: work_df[_sc].isna()})
+                    interleaved_cols.extend([_ind_col, _sc])
+                    interleaved_ascending.extend([_asc, _asc])
+                effective_sort_cols = interleaved_cols + [row_order_col]
+                effective_ascending = interleaved_ascending + [True]
                 out_df = work_df.sort_values(by=effective_sort_cols, ascending=effective_ascending)
             except Exception as exc:
                 raise ValueError(
