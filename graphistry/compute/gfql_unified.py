@@ -410,7 +410,15 @@ def _apply_connected_optional_match(
             list(opt_binding_chain) + [ASTCall("rows", {"binding_ops": opt_binding_ops})] + opt_post_ops,
             where=arm.chain.where,
         )
-        opt_start_nodes = None if arm.chain.where else _optional_arm_start_nodes(
+        # The seed restriction is a pruning hint, not semantics: the arm's rows are
+        # left-outer-joined on the shared aliases, so unseeded arm rows that can't
+        # join are dropped (`where`-arms already run unseeded). The polars native
+        # bindings-row path declines seeded runs (start_nodes = bounded-reentry
+        # contract, pandas-only), so seed only on non-polars engines rather than
+        # forcing an NIE on a query polars can run.
+        opt_start_nodes = None if (
+            arm.chain.where or concrete_engine in POLARS_ENGINES
+        ) else _optional_arm_start_nodes(
             opt_binding_chain,
             arm.shared_node_aliases,
             joined,
@@ -441,7 +449,32 @@ def _apply_connected_optional_match(
                 and alias in opt_rows_df.columns
             ]
 
-        if opt_rows_df is not None and len(opt_rows_df) > 0 and join_cols:
+        if is_polars_df(joined):
+            # polars twin of the pandas block below: same semi-join prune +
+            # left-outer join + alias synthesis, with null-preserving semantics
+            # (polars nulls need no NaN->None normalization).
+            import polars as pl
+            if opt_rows_df is not None and len(opt_rows_df) > 0 and join_cols:
+                opt_only_cols = [c for c in opt_rows_df.columns if c not in joined.columns or c in join_cols]
+                if len(join_cols) == 1:
+                    jc = join_cols[0]
+                    opt_rows_df = opt_rows_df.filter(pl.col(jc).is_in(joined[jc]))
+                else:
+                    join_keys = joined.select(join_cols).unique()
+                    opt_rows_df = opt_rows_df.join(join_keys, on=join_cols, how="inner")
+                joined = joined.join(opt_rows_df.select(opt_only_cols), on=join_cols, how="left")
+            else:
+                for alias in arm.opt_only_aliases:
+                    if alias not in joined.columns:
+                        joined = joined.with_columns(pl.lit(None).alias(alias))
+            for alias in arm.opt_only_aliases:
+                if alias in joined.columns:
+                    continue
+                prefix = f"{alias}."
+                marker_col = next((c for c in joined.columns if c.startswith(prefix)), None)
+                if marker_col is not None:
+                    joined = joined.with_columns(pl.col(marker_col).alias(alias))
+        elif opt_rows_df is not None and len(opt_rows_df) > 0 and join_cols:
             opt_only_cols = [c for c in opt_rows_df.columns if c not in joined.columns or c in join_cols]
             # Semi-join filter: restrict opt rows to join-key values present in base
             # result before materialization. Prevents cross-product blowup when the
@@ -458,15 +491,17 @@ def _apply_connected_optional_match(
                 if alias not in joined.columns:
                     joined[alias] = None
 
-        # Synthesize bare alias columns for edge aliases in this arm.
-        for alias in arm.opt_only_aliases:
-            if alias in joined.columns:
-                continue
-            prefix = f"{alias}."
-            marker_col = next((c for c in joined.columns if c.startswith(prefix)), None)
-            if marker_col is not None:
-                marker = joined[marker_col]
-                joined[alias] = marker.where(marker.notna(), other=None)
+        # Synthesize bare alias columns for edge aliases in this arm (pandas/cuDF;
+        # the polars branch above does its own null-preserving synthesis).
+        if not is_polars_df(joined):
+            for alias in arm.opt_only_aliases:
+                if alias in joined.columns:
+                    continue
+                prefix = f"{alias}."
+                marker_col = next((c for c in joined.columns if c.startswith(prefix)), None)
+                if marker_col is not None:
+                    marker = joined[marker_col]
+                    joined[alias] = marker.where(marker.notna(), other=None)
 
     # Delegate RETURN / ORDER BY / SKIP / LIMIT to the standard row pipeline.
     joined_plottable = base_graph.bind()

@@ -62,8 +62,32 @@ def test_optional_match_pandas_oracle() -> None:
     assert list(rows["replyAuthorKnowsOriginalMessageAuthor"]) == [False, False]
 
 
+IS7_SHAPED_NO_CASE = """
+MATCH (m:Message {id: $messageId })<-[:REPLY_OF]-(c:Comment)-[:HAS_CREATOR]->(p:Person)
+    OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:Person)-[r:KNOWS]-(p)
+    RETURN c.id AS commentId,
+        c.creationDate AS commentCreationDate,
+        p.id AS replyAuthorId
+    ORDER BY commentCreationDate DESC, replyAuthorId
+"""
+
+
+@pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
+def test_optional_match_polars_native_end_to_end() -> None:
+    """Connected OPTIONAL MATCH + simple RETURN runs natively on polars, oracle-exact."""
+    nodes = pl.from_pandas(_nodes_pd())
+    edges = pl.from_pandas(_edges_pd())
+    g = graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+    res = g.gfql(IS7_SHAPED_NO_CASE, params={"messageId": 1}, engine="polars")
+    rows = res._nodes.to_pandas() if hasattr(res._nodes, "to_pandas") else res._nodes
+    rows = rows.reset_index(drop=True)
+    assert list(rows["commentId"]) == [3, 2]
+    assert list(rows["replyAuthorId"]) == [11, 10]
+
+
 @pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
 def test_optional_match_polars_no_pandasism_crash() -> None:
+    """Full IS7 (CASE projection) must run or honestly decline — never a pandas-ism crash."""
     nodes = pl.from_pandas(_nodes_pd())
     edges = pl.from_pandas(_edges_pd())
     g = graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
