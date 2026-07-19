@@ -3787,6 +3787,75 @@ class RowPipelineMixin:
         setattr(out, "_gfql_rows_edge_aliases", edge_aliases)
         return out
 
+    def _gfql_add_missing_binding_columns(
+        self, bindings: DataFrameT, ops: Sequence["ASTObject"]
+    ) -> DataFrameT:
+        """Ensure an EMPTY bindings frame still carries every declared alias column.
+
+        The walk assembles the schema incrementally, so an emptied hop returns a frame that
+        never acquired the columns later steps would have added -- edge-alias columns
+        (``e1.w``) and ``alias.alias`` markers. Node aliases survive via the row-frame merge's
+        empty lookup, but edge aliases have no ``.id`` fallback, so ``count(e1)`` /
+        ``e1.w``-in-WHERE dereferenced a missing column. Declared columns are derivable from
+        ``ops`` + the base edge frame, so add whatever is missing here (0-row only, no effect
+        on non-empty output). See #25/#27.
+        """
+        from graphistry.compute.ast import ASTEdge, ASTNode
+
+        base_graph = self._gfql_base_graph()
+        edges = base_graph._edges if base_graph is not None else None
+        src_col = base_graph._source if base_graph is not None else None
+        dst_col = base_graph._destination if base_graph is not None else None
+        # (column_name, source_series) — carry the source dtype so an edge property like
+        # `e1.w` stays int64 at 0 rows instead of an untyped object column (which would upcast
+        # a sum/avg and escape via UNION ALL). Mirrors the node path's typed empty slice. The
+        # `alias.alias` marker has no source dtype, so None-broadcast is fine for it.
+        missing: List[Tuple[str, Optional[Any]]] = []
+        for op in ops:
+            alias = getattr(op, "_name", None)
+            if not isinstance(alias, str):
+                continue
+            missing.append((f"{alias}.{alias}", None))  # the alias.alias marker
+            if isinstance(op, ASTEdge) and edges is not None:
+                for col in edges.columns:
+                    if col in (src_col, dst_col):
+                        continue
+                    missing.append((f"{alias}.{col}", edges[col]))
+        for col, source in missing:
+            if col not in bindings.columns:
+                if source is not None:
+                    bindings[col] = source.iloc[0:0].reindex(bindings.index)
+                else:
+                    bindings[col] = self._gfql_broadcast_scalar(bindings, None)
+        # Downstream node aliases (every node op after the first) reach the row via a hop
+        # whose unmatched rows introduce NaN, so the non-empty path widens the columns that
+        # cannot hold NaN: numpy int -> float64, numpy bool -> object. The 0-row path sourced
+        # them from the base node frame (int/bool), so match that widening or an emptied
+        # `sum(b.i)`/`max(b.bv)` returns int64/bool where the non-empty run and master give
+        # float64/object -- observable through UNION ALL (#31, Wave 37 Finding 2). Extension
+        # dtypes (`Int64`, `boolean`) hold NA natively and stay put in the non-empty path, so
+        # they must NOT be touched here (widening them re-introduced the divergence -- Wave 37
+        # Finding 1).
+        import pandas as _pd
+
+        node_ops = [op for op in ops if isinstance(op, ASTNode)]
+        for op in node_ops[1:]:
+            alias = getattr(op, "_name", None)
+            if not isinstance(alias, str):
+                continue
+            for col in [c for c in bindings.columns if c == alias or str(c).startswith(f"{alias}.")]:
+                try:
+                    dtype = bindings[col].dtype
+                    if _pd.api.types.is_extension_array_dtype(dtype):
+                        continue
+                    if dtype.kind in ("i", "u"):
+                        bindings[col] = bindings[col].astype("float64")
+                    elif dtype.kind == "b":
+                        bindings[col] = bindings[col].astype("object")
+                except Exception:
+                    continue
+        return bindings
+
     def _gfql_connected_bindings_row_frame_from_state(
         self,
         ops: Sequence["ASTObject"],
@@ -3848,6 +3917,8 @@ class RowPipelineMixin:
 
         drop_cols = ["__current__"]
         bindings = bindings.drop(columns=[col for col in drop_cols if col in bindings.columns])
+        if len(bindings) == 0:
+            bindings = self._gfql_add_missing_binding_columns(bindings, ops)
         return bindings
 
     def _gfql_shortest_path_scalar_native(

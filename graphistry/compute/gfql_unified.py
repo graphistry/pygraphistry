@@ -27,7 +27,7 @@ from graphistry.compute.gfql.same_path_types import (
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
-from graphistry.compute.gfql.cypher.api import compile_cypher
+from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.cypher.lowering import (
     ConnectedMatchJoinPlan,
     CompiledCypherGraphQuery,
@@ -35,7 +35,9 @@ from graphistry.compute.gfql.cypher.lowering import (
     CompiledCypherUnionQuery,
     CompiledGraphResidualFilter,
     ConnectedOptionalMatchPlan,
+    compile_cypher_query,
 )
+from graphistry.compute.filter_by_dict import _node_dtypes_for_pushdown
 from graphistry.compute.gfql.cypher.reentry.execution import (
     REENTRY_DUPLICATE_CARRIED_ROWS_REASON as _REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
     REENTRY_WHOLE_ROW_SUGGESTION as _REENTRY_WHOLE_ROW_SUGGESTION,
@@ -69,7 +71,7 @@ from graphistry.compute.gfql.physical_planner import PhysicalPlanner
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
 from graphistry.compute.gfql.search_any import search_any_mask
-from graphistry.compute.typing import DataFrameT, SeriesT
+from graphistry.compute.typing import DataFrameT, SeriesT, NodeDtypes
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
@@ -493,11 +495,14 @@ def _apply_connected_match_join(
         )
         pattern_result = _chain_dispatch(base_graph, with_rows, dispatch_engine, policy, context)
         pattern_rows = cast(Optional[DataFrameT], pattern_result._nodes)
-        if pattern_rows is None or len(pattern_rows) == 0:
+        if pattern_rows is None:
             out = base_graph.bind()
             out._nodes = df_ctor()
             out._edges = df_ctor()
             return out
+        # The rows op now emits the full binding schema even at 0 rows (#25), so an emptied
+        # pattern carries its columns and flows through post_join_chain -- which is where the
+        # aggregate RETURN lives. Short-circuiting here dropped that column.
         pattern_rows = cast(DataFrameT, pattern_rows[_binding_join_columns(pattern_rows)])
         if joined_rows is None:
             joined_rows = pattern_rows
@@ -526,7 +531,7 @@ def _apply_connected_match_join(
             engine=requested_engine,
         )
 
-    if joined_rows is None or len(joined_rows) == 0:
+    if joined_rows is None:
         out = base_graph.bind()
         out._nodes = df_ctor()
         out._edges = df_ctor()
@@ -1346,6 +1351,7 @@ def _compile_string_query(
     *,
     language: Optional[Literal["cypher", "gremlin"]],
     params: Optional[Mapping[str, Any]],
+    node_dtypes: Optional[NodeDtypes] = None,
 ) -> Any:
     query_language = language or "cypher"
     if query_language != "cypher":
@@ -1357,7 +1363,7 @@ def _compile_string_query(
             suggestion="Use language='cypher' for now; Gremlin string compilation is not implemented yet.",
             language="gfql",
         )
-    return compile_cypher(query, params=params, _warn_deprecated=False)
+    return compile_cypher_query(parse_cypher(query), params=params, node_dtypes=node_dtypes)
 
 
 def _compile_value_repr(value: Any) -> str:
@@ -1653,7 +1659,12 @@ def gfql(self: Plottable,
         if isinstance(query, str):
             query_language = language or "cypher"
             try:
-                compiled_query = _compile_string_query(query, language=language, params=params)
+                compiled_query = _compile_string_query(
+                    query,
+                    language=language,
+                    params=params,
+                    node_dtypes=_node_dtypes_for_pushdown(self, engine),
+                )
             except GFQLValidationError as exc:
                 _fire_postcompile_policy(
                     expanded_policy,
