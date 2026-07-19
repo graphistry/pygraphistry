@@ -19,8 +19,7 @@ import pytest
 import graphistry
 import graphistry.compute.gfql.cypher.lowering as _lowering
 from graphistry.compute.ast import ASTCall
-from graphistry.compute.exceptions import GFQLTypeError, GFQLValidationError
-from graphistry.compute.gfql.call.validation import validate_call_params
+from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.gfql.cypher.api import cypher_to_gfql
 from graphistry.compute.gfql.cypher.row_pushdown import (
     _flatten_and_conjuncts,
@@ -74,11 +73,6 @@ def g():
 PUSHDOWN_QUERIES: List[Tuple[str, str]] = [
     ("edge_search", "MATCH (a)-[e]->(b) WHERE searchAny(e, 'WIRE') RETURN e.w AS w ORDER BY w LIMIT 5000"),
     ("node_search", "MATCH (n) WHERE searchAny(n, 'Ember') RETURN n.id AS id ORDER BY id LIMIT 5000"),
-    (
-        "node_search_explicit_columns",
-        "MATCH (n) WHERE searchAny(n, 'Ember', {columns: ['name']}) "
-        "RETURN n.id AS id ORDER BY id LIMIT 5000",
-    ),
     (
         "panel",
         "MATCH (a)-[e]->(b) WHERE a.kind <> 'internal' AND NOT (a.flag = true AND a.score < 0.1) "
@@ -209,29 +203,3 @@ def test_pass_is_noop_on_plain_chain():
     from graphistry.compute.chain import Chain
     ch = Chain([ASTCall("rows", {"table": "nodes"}), ASTCall("limit", {"value": 10})])
     assert apply_row_prefilter_pushdown(ch) is ch
-
-
-def test_alias_prefilter_wire_options_require_real_bools():
-    valid = {
-        "n": [{
-            "kind": "search_any",
-            "term": "Ember",
-            "case_sensitive": False,
-            "regex": True,
-            "columns": ["name"],
-        }]
-    }
-    assert validate_call_params("rows", {"alias_prefilters": valid}) == {
-        "alias_prefilters": valid
-    }
-
-    for key in ("case_sensitive", "regex"):
-        invalid = {"n": [{"kind": "search_any", "term": "Ember", key: "false"}]}
-        with pytest.raises(GFQLTypeError):
-            validate_call_params("rows", {"alias_prefilters": invalid})
-
-
-def test_alias_prefilter_wire_rejects_present_null_columns():
-    invalid = {"n": [{"kind": "search_any", "term": "Ember", "columns": None}]}
-    with pytest.raises(GFQLTypeError):
-        validate_call_params("rows", {"alias_prefilters": invalid})

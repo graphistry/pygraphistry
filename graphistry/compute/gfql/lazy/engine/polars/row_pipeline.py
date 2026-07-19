@@ -968,6 +968,23 @@ def binding_rows_polars(
                 oriented = edges_f.rename({join_col: "__from__", result_col: "__to__"})
             if payload_renames:
                 oriented = oriented.rename(payload_renames)
+
+            next_op = ops[edge_idx + 1]
+            if not isinstance(next_op, ASTNode):
+                return None
+            next_nodes = filter_by_dict_polars(nodes_lf, next_op.filter_dict)
+            next_node_ids = next_nodes.select(node_id).unique()
+            if not sem.is_multihop:
+                # Filter endpoint candidates before joining from the current state.
+                # For graph-bench q5/q6/q7, pushed Interest/City predicates make
+                # this turn an all-edges scan into a small-domain edge semi-join.
+                oriented = oriented.join(
+                    next_node_ids,
+                    left_on="__to__",
+                    right_on=node_id,
+                    how="semi",
+                )
+
             # Column collision between edge payload and accumulated state → decline
             # (pandas resolves via merge suffixes; unreferenced-by-queries either way).
             overlap = (set(_names(oriented)) - {"__from__"}) & set(_names(state))
@@ -1012,12 +1029,8 @@ def binding_rows_polars(
                     .rename({"__to__": "__current__"})
                 )
 
-            next_op = ops[edge_idx + 1]
-            if not isinstance(next_op, ASTNode):
-                return None
-            next_nodes = filter_by_dict_polars(nodes_lf, next_op.filter_dict)
             state = state.join(
-                next_nodes.select(node_id).unique(),
+                next_node_ids,
                 left_on="__current__",
                 right_on=node_id,
                 how="semi",
@@ -1037,7 +1050,10 @@ def binding_rows_polars(
                 continue  # properties unreferenced — keep only the bare id column
             lookup_src = alias_frames[alias]
             lookup = lookup_src.select(
-                [pl.col(node_id), pl.col(node_id).alias(f"{alias}.{node_id}")]
+                [
+                    pl.col(node_id),
+                    pl.col(node_id).alias(f"{alias}.{node_id}"),
+                ]
                 + [
                     pl.col(col).alias(f"{alias}.{col}")
                     for col in _names(lookup_src)

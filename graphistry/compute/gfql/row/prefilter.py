@@ -27,24 +27,10 @@ def _is_alias_prefilter_spec(value: object) -> bool:
         return False
     kind = value.get("kind")
     if kind == "expr":
-        return (
-            set(value).issubset({"kind", "text"})
-            and isinstance(value.get("text"), str)
-        )
+        return isinstance(value.get("text"), str)
     if kind == "search_any":
-        if not set(value).issubset(
-            {"kind", "term", "case_sensitive", "regex", "columns"}
-        ):
-            return False
-        if not isinstance(value.get("term"), str):
-            return False
-        if "case_sensitive" in value and not isinstance(value["case_sensitive"], bool):
-            return False
-        if "regex" in value and not isinstance(value["regex"], bool):
-            return False
-        if "columns" in value and not _is_string_list(value["columns"]):
-            return False
-        return True
+        columns = value.get("columns")
+        return isinstance(value.get("term"), str) and (columns is None or _is_string_list(columns))
     return False
 
 

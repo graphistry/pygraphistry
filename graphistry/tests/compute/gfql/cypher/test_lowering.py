@@ -40,15 +40,35 @@ from graphistry.compute.gfql.cypher.procedures.networkx import (
     networkx_normalized_value_columns,
 )
 from graphistry.plugins.networkx.policy import NETWORKX_SCIPY_EXTRA_REQUIREMENTS, NETWORKX_VERSION_SPEC, SCIPY_VERSION_SPEC
-from graphistry.compute.gfql.cypher.ast import ExpressionText, OrderByClause, OrderItem, ReturnClause, ReturnItem, SourceSpan
+from graphistry.compute.gfql.cypher.ast import ExpressionText, LabelRef, OrderByClause, OrderItem, ParameterRef, PropertyRef, ReturnClause, ReturnItem, SourceSpan, WherePredicate
+import graphistry.compute.gfql.cypher.lowering as lowering_module
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery, compile_cypher_query
-from graphistry.compute.gfql.cypher.lowering import ConnectedMatchJoinPlan, _logical_plan_route_for_query
-from graphistry.compute.gfql_unified import (
+from graphistry.compute.gfql.cypher.lowering import (
+    ConnectedMatchJoinPlan,
+    _AggregateSpec,
+    _active_match_alias_for_stage,
+    _aggregate_runtime_spec,
+    _binding_prop_alias_set,
+    _distinct_aggregate_expr_text,
+    _clause_has_mixed_aggregate_item,
+    _expr_property_access_node_aliases,
+    _is_multi_source_match_alias_boundary_error,
+    _logical_plan_route_for_query,
+    _projection_ref_from_expr_safe,
+    _render_row_where_operand_text,
+    _row_where_predicate_text,
+    _whole_row_group_entity_expr,
+    _whole_row_group_key_expr,
+)
+from graphistry.compute.gfql_fast_paths import (
     _connected_join_cached_edge_filter,
     _connected_join_cached_singleton_dst_source_counts,
     _connected_join_post_property_columns,
     _connected_join_two_star_fast_grouped_count,
     _connected_join_two_star_fast_rows,
+    _execute_single_hop_grouped_aggregate_fast_path,
+    _execute_two_hop_count_fast_path,
+    _filter_nodes_for_fast_count,
     _connected_join_two_star_split_residuals,
 )
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
@@ -14947,6 +14967,225 @@ def test_issue_1273_multi_source_grouped_aggregate(agg: str, expected: list) -> 
     assert result._nodes.to_dict(orient="records") == expected
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t4_single_hop_grouped_fast_path_q1_count_bound_alias(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2],
+        "node_type": ["Person", "Person", "Person"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 0],
+        "d": [2, 2, 1],
+        "rel": ["FOLLOWS", "FOLLOWS", "FOLLOWS"],
+    })
+    query = (
+        "MATCH (f {node_type:'Person'})-[{rel:'FOLLOWS'}]->(p {node_type:'Person'}) "
+        "RETURN p.id AS personID, count(f) AS numFollowers "
+        "ORDER BY numFollowers DESC, personID LIMIT 3"
+    )
+
+    graph = _mk_graph(nodes, edges)
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    fast = _execute_single_hop_grouped_aggregate_fast_path(graph, compiled.chain, engine=engine)
+    assert fast is not None
+
+    result = graph.gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"personID": 2, "numFollowers": 2},
+        {"personID": 1, "numFollowers": 1},
+    ]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_single_hop_grouped_fast_path_orders_nulls_as_largest(engine: str) -> None:
+    # The single-hop grouped-aggregate fast path's polars sort omitted nulls_last; polars
+    # defaults nulls-first while openCypher orders NULL as the largest value. So ORDER BY the
+    # group key ASC ... LIMIT 1 must return the smallest NON-null group (SF), not the NULL group.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": ["p0", "p1", "p2", "c0", "c1", "c2"],
+        "node_type": ["Person", "Person", "Person", "City", "City", "City"],
+        "city": [None, None, None, "SF", "NY", None],  # c2 has a NULL city
+    })
+    edges = pd.DataFrame({
+        "s": ["p0", "p1", "p2"],
+        "d": ["c0", "c1", "c2"],
+        "rel": ["LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    graph = _mk_graph(nodes, edges)
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city ORDER BY city ASC LIMIT 1"
+    )
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    assert _execute_single_hop_grouped_aggregate_fast_path(graph, compiled.chain, engine=Engine(engine)) is not None
+    assert _to_pandas_df(graph.gfql(query, engine=engine)._nodes).to_dict(orient="records") == [{"n": 1, "city": "NY"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_single_hop_grouped_fast_path_orders_nulls_first_on_desc(engine: str) -> None:
+    # Amplification (round 001): the ASC sibling above only exercised ASC, where pandas'
+    # default na_position='last' is coincidentally correct. On DESC, openCypher orders NULL as
+    # the LARGEST value, so the NULL-city group must sort FIRST. The pandas fast-path branch used
+    # a single sort_values(ascending=[...]) with a SCALAR na_position (default 'last'), so it put
+    # the NULL group last on DESC -- a silent pandas/polars divergence (the polars branch pins
+    # nulls_last per key) that returns the WRONG ORDER BY ... DESC LIMIT top-k. Hand-derived
+    # openCypher order (NULL largest, DESC): NULL, then SF (count 2), then NY (count 1).
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": ["p0", "p1", "p2", "p3", "c0", "c1", "c2"],
+        "node_type": ["Person", "Person", "Person", "Person", "City", "City", "City"],
+        "city": [None, None, None, None, "SF", "NY", None],  # c2 has a NULL city
+    })
+    edges = pd.DataFrame({
+        "s": ["p0", "p3", "p1", "p2"],
+        "d": ["c0", "c0", "c1", "c2"],  # SF<-{p0,p3}=2, NY<-{p1}=1, NULL<-{p2}=1
+        "rel": ["LIVES_IN", "LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    graph = _mk_graph(nodes, edges)
+    base = (
+        "MATCH (p {node_type:'Person'})-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city ORDER BY city DESC"
+    )
+    compiled = cast(CompiledCypherQuery, compile_cypher(base))
+    assert _execute_single_hop_grouped_aggregate_fast_path(graph, compiled.chain, engine=Engine(engine)) is not None
+
+    def _recs(nodes: Any) -> list:
+        # Normalize the null-city representation (pandas nan vs polars None) so the ordered
+        # comparison tests ORDER, not null spelling.
+        df = _to_pandas_df(nodes)
+        return [{k: (None if pd.isna(v) else v) for k, v in rec.items()} for rec in df.to_dict(orient="records")]
+
+    # Full DESC order: NULL group first (largest), then SF, then NY.
+    assert _recs(graph.gfql(base, engine=engine)._nodes) == [
+        {"n": 1, "city": None},
+        {"n": 2, "city": "SF"},
+        {"n": 1, "city": "NY"},
+    ]
+    # DESC LIMIT 1 must return the NULL group (openCypher NULL == largest), not SF.
+    limited = base + " LIMIT 1"
+    assert _recs(graph.gfql(limited, engine=engine)._nodes) == [{"n": 1, "city": None}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t3_single_hop_grouped_fast_path_q3_avg_source_prop_by_dest_prop(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 10, 11],
+        "node_type": ["Person", "Person", "Person", "City", "City"],
+        "age": [20, 30, 40, None, None],
+        "city": [None, None, None, "NYC", "LA"],
+        "country": [None, None, None, "United States", "United States"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 2],
+        "d": [10, 10, 11],
+        "rel": ["LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE c.country = 'United States' "
+        "RETURN c.city AS city, avg(p.age) AS averageAge "
+        "ORDER BY averageAge, city LIMIT 5"
+    )
+
+    graph = _mk_graph(nodes, edges)
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    fast = _execute_single_hop_grouped_aggregate_fast_path(graph, compiled.chain, engine=engine)
+    assert fast is not None
+
+    result = graph.gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"city": "NYC", "averageAge": 25.0},
+        {"city": "LA", "averageAge": 40.0},
+    ]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t3_single_hop_grouped_fast_path_q4_count_preserves_edge_multiplicity(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 3, 10, 11],
+        "node_type": ["Person", "Person", "Person", "Person", "City", "City"],
+        "age": [25, 30, 35, 41, None, None],
+        "country": [None, None, None, None, "United States", "United Kingdom"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 2, 2, 3],
+        "d": [10, 10, 11, 11, 10],
+        "rel": ["LIVES_IN", "LIVES_IN", "LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE p.age >= 30 AND p.age <= 40 "
+        "RETURN c.country AS countries, count(*) AS personCounts "
+        "ORDER BY personCounts DESC, countries LIMIT 3"
+    )
+
+    graph = _mk_graph(nodes, edges)
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    fast = _execute_single_hop_grouped_aggregate_fast_path(graph, compiled.chain, engine=engine)
+    assert fast is not None
+
+    result = graph.gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"countries": "United Kingdom", "personCounts": 2},
+        {"countries": "United States", "personCounts": 1},
+    ]
+
+
+def test_t3_single_hop_grouped_fast_path_pandas_numeric_aggregates() -> None:
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 10, 11],
+        "node_type": ["Person", "Person", "Person", "City", "City"],
+        "age": [20, 30, 40, None, None],
+        "city": [None, None, None, "NYC", "LA"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 2],
+        "d": [10, 10, 11],
+        "rel": ["LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN c.city AS city, count(p.age) AS ageCount, sum(p.age) AS ageSum, "
+        "min(p.age) AS minAge, max(p.age) AS maxAge ORDER BY city"
+    )
+
+    graph = _mk_graph(nodes, edges)
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    fast = _execute_single_hop_grouped_aggregate_fast_path(graph, compiled.chain, engine="pandas")
+    assert fast is not None
+    assert _to_pandas_df(fast._nodes).to_dict(orient="records") == [
+        {"city": "LA", "ageCount": 1, "ageSum": 40, "minAge": 40, "maxAge": 40},
+        {"city": "NYC", "ageCount": 2, "ageSum": 50, "minAge": 20, "maxAge": 30},
+    ]
+
+
+def test_t3_single_hop_grouped_fast_path_pandas_missing_property_declines() -> None:
+    nodes = pd.DataFrame({
+        "id": [0, 10],
+        "node_type": ["Person", "City"],
+        "age": [20, None],
+        "city": [None, "NYC"],
+    })
+    edges = pd.DataFrame({"s": [0], "d": [10], "rel": ["LIVES_IN"]})
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN c.missing AS missing, count(*) AS n"
+    )
+
+    graph = _mk_graph(nodes, edges)
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    assert _execute_single_hop_grouped_aggregate_fast_path(graph, compiled.chain, engine="pandas") is None
+
+
 def test_issue_1712_connected_comma_pattern_where_intersects() -> None:
     """#1712: a connected comma-pattern sharing a node alias with a WHERE on a leaf
     alias must intersect both patterns (the WHERE was silently dropped on the
@@ -16738,6 +16977,107 @@ def test_t1_connected_comma_edge_filter_cache_reuses_simple_edge_match() -> None
     isolated = _connected_join_cached_edge_filter(graph, edges, {"rel": "HAS_INTEREST"}, engine=Engine.PANDAS)
     assert set(isolated["rel"].unique()) == {"HAS_INTEREST"}
     assert not [attr for attr in vars(graph) if attr.startswith("_gfql_connected_join")]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t2_two_hop_count_fast_path_q8_shape_preserves_multiplicity(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 3],
+        "node_type": ["Person", "Person", "Person", "Person"],
+        "age": [20, 30, 40, 50],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 0, 1, 1, 1, 2],
+        "d": [1, 1, 2, 2, 3, 3],
+        "rel": ["FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS"],
+    })
+    query = (
+        "MATCH (a {node_type:'Person'})-[{rel:'FOLLOWS'}]->(b {node_type:'Person'})"
+        "-[{rel:'FOLLOWS'}]->(d {node_type:'Person'}) "
+        "RETURN count(*) AS numPaths"
+    )
+
+    result = _mk_graph(nodes, edges).gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t2_two_hop_count_fast_path_q9_shape_filters_middle_and_end(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 3, 4],
+        "node_type": ["Person", "Person", "Person", "Person", "Person"],
+        "age": [20, 30, 60, 40, 10],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 4, 1, 1, 2, 2],
+        "d": [1, 1, 2, 3, 3, 4],
+        "rel": ["FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS"],
+    })
+    query = (
+        "MATCH (a {node_type:'Person'})-[{rel:'FOLLOWS'}]->(b {node_type:'Person'})"
+        "-[{rel:'FOLLOWS'}]->(d {node_type:'Person'}) "
+        "WHERE b.age < 50 AND d.age > 25 RETURN count(*) AS numPaths"
+    )
+
+    result = _mk_graph(nodes, edges).gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 5}]
+
+
+def test_t2_two_hop_count_fast_path_empty_count_returns_zero() -> None:
+    nodes = pd.DataFrame({"id": [0, 1], "node_type": ["Person", "Person"]})
+    edges = pd.DataFrame({"s": [0], "d": [1], "rel": ["FOLLOWS"]})
+    query = (
+        "MATCH (a {node_type:'Person'})-[{rel:'FOLLOWS'}]->(b {node_type:'Person'})"
+        "-[{rel:'FOLLOWS'}]->(d {node_type:'Person'}) "
+        "RETURN count(*) AS numPaths"
+    )
+
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    result = _execute_two_hop_count_fast_path(_mk_graph(nodes, edges), compiled.chain, engine="pandas")
+
+    assert result is not None
+    assert result._nodes.to_dict(orient="records") == [{"numPaths": 0}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t5_two_hop_equal_domain_degree_cache_reuses_counts(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 3],
+        "node_type": ["Person", "Person", "Person", "City"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 0, 1, 1, 2, 2, 3],
+        "d": [1, 1, 2, 3, 0, 3, 0],
+        "rel": ["FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "LIKES", "FOLLOWS"],
+    })
+    query = (
+        "MATCH (a {node_type:'Person'})-[{rel:'FOLLOWS'}]->(b {node_type:'Person'})"
+        "-[{rel:'FOLLOWS'}]->(d {node_type:'Person'}) "
+        "RETURN count(*) AS numPaths"
+    )
+    graph = _mk_graph(nodes, edges)
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+
+    first = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+    assert first is not None
+    assert _to_pandas_df(first._nodes).to_dict(orient="records") == [{"numPaths": 5}]
+
+    cache = getattr(graph, "_gfql_two_hop_equal_domain_degree_counts_cache")
+    assert isinstance(cache, dict)
+    assert len(cache) == 1
+    cached_counts = next(iter(cache.values()))
+
+    second = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+    assert second is not None
+    assert _to_pandas_df(second._nodes).to_dict(orient="records") == [{"numPaths": 5}]
+    assert len(cache) == 1
+    assert next(iter(cache.values())) is cached_counts
 
 
 def test_issue_1413_ic3_entity_membership_positive_same_city_friend_only() -> None:
@@ -19324,6 +19664,69 @@ def test_count_table_frame_op_error_and_empty_paths() -> None:
     assert out3._nodes.to_dict(orient="records") == [{"c": 0}]
 
 
+def test_connected_join_private_coverage_helpers_pandas() -> None:
+    edges = pd.DataFrame(
+        {
+            "s": ["a", "a", "b", "c"],
+            "d": ["z", "z", "z", "z"],
+            "kind": ["x", "x", "x", "y"],
+        }
+    )
+    graph = _mk_graph(pd.DataFrame({"id": ["a", "b", "c", "z"]}), edges)
+    x_edges = edges[edges["kind"] == "x"]
+
+    # Cache reuse is now scoped to a per-execution cache_store (never the Plottable, see
+    # BLOCKER 1 / #1730): a shared store returns the identical cached frame; without it, calls
+    # recompute.
+    cache_store: dict = {}
+    counts = _connected_join_cached_singleton_dst_source_counts(
+        graph,
+        graph._edges,
+        x_edges,
+        {"kind": "x"},
+        "z",
+        src_col="s",
+        dst_col="d",
+        engine=Engine.PANDAS,
+        cache_store=cache_store,
+    )
+    assert counts is not None
+    assert counts.sort_values("s").to_dict(orient="records") == [
+        {"s": "a", "__left_count__": 2},
+        {"s": "b", "__left_count__": 1},
+    ]
+    cached = _connected_join_cached_singleton_dst_source_counts(
+        graph,
+        graph._edges,
+        x_edges,
+        {"kind": "x"},
+        "z",
+        src_col="s",
+        dst_col="d",
+        engine=Engine.PANDAS,
+        cache_store=cache_store,
+    )
+    assert cached is counts
+    assert _connected_join_cached_singleton_dst_source_counts(
+        graph,
+        graph._edges,
+        x_edges,
+        {"kind": {"nested": "not-cacheable"}},
+        "z",
+        src_col="s",
+        dst_col="d",
+        engine=Engine.PANDAS,
+        cache_store=cache_store,
+    ) is None
+
+    filtered_nodes = _filter_nodes_for_fast_count(
+        pd.DataFrame({"id": ["a", "b"], "kind": ["keep", "drop"]}),
+        {"kind": "keep"},
+        engine=Engine.PANDAS,
+    )
+    assert filtered_nodes.to_dict(orient="records") == [{"id": "a", "kind": "keep"}]
+
+
 def test_connected_join_post_property_columns_walks_nested_params() -> None:
     plan = ConnectedMatchJoinPlan(
         pattern_chains=(),
@@ -19347,6 +19750,135 @@ def test_connected_join_post_property_columns_walks_nested_params() -> None:
     assert _connected_join_post_property_columns(plan, "a") == ["city", "country"]
     assert _connected_join_post_property_columns(plan, "b") == ["age"]
 
+
+def test_lowering_coverage_helper_projection_and_aggregate_decisions() -> None:
+    alias_targets = {"a": ASTNode(name="a"), "b": ASTNode(name="b")}
+
+    assert _projection_ref_from_expr_safe(" a.city ", alias_targets) == ("a", "city")
+    assert _projection_ref_from_expr_safe("a.city.name", alias_targets) is None
+    assert _projection_ref_from_expr_safe("missing.city", alias_targets) is None
+    assert _projection_ref_from_expr_safe("a.bad-name", alias_targets) is None
+
+    mixed_query = parse_cypher("MATCH (a)-->(b) RETURN a.city + count(b) AS score")
+    assert _clause_has_mixed_aggregate_item(mixed_query, alias_targets=alias_targets, params=None)
+
+    split_query = parse_cypher("MATCH (a)-->(b) RETURN a.city AS city, count(b) AS n")
+    assert not _clause_has_mixed_aggregate_item(split_query, alias_targets=alias_targets, params=None)
+    assert _binding_prop_alias_set(split_query, alias_targets=alias_targets, params=None) == ["a"]
+
+    count_only_query = parse_cypher("MATCH (a)-->(b) RETURN count(*) AS n")
+    assert _binding_prop_alias_set(count_only_query, alias_targets=alias_targets, params=None) == []
+
+
+def test_lowering_coverage_helper_conservative_binding_branches() -> None:
+    alias_targets = {"a": ASTNode(name="a"), "b": ASTNode(name="b")}
+
+    star_query = parse_cypher("MATCH (a) RETURN *")
+    assert not _clause_has_mixed_aggregate_item(star_query, alias_targets=alias_targets, params=None)
+    assert _binding_prop_alias_set(star_query, alias_targets={"a": ASTNode(name="a")}, params=None) == []
+
+    bad_mixed_query = parse_cypher("MATCH (a) RETURN ghost.city + count(a) AS score")
+    assert _clause_has_mixed_aggregate_item(bad_mixed_query, alias_targets={"a": ASTNode(name="a")}, params=None)
+
+    list_aggregate_query = parse_cypher("MATCH (a) RETURN [count(a)] AS xs")
+    assert _clause_has_mixed_aggregate_item(list_aggregate_query, alias_targets={"a": ASTNode(name="a")}, params=None)
+
+    with_query = parse_cypher("MATCH (a) WITH a RETURN a.city AS city")
+    assert _binding_prop_alias_set(with_query, alias_targets={"a": ASTNode(name="a")}, params=None) is None
+
+    optional_query = parse_cypher("OPTIONAL MATCH (a)-->(b) RETURN a.city AS city")
+    assert _binding_prop_alias_set(optional_query, alias_targets=alias_targets, params=None) is None
+
+    missing_alias_query = parse_cypher("MATCH (a) RETURN ghost.city AS g")
+    assert _binding_prop_alias_set(missing_alias_query, alias_targets={"a": ASTNode(name="a")}, params=None) == []
+    assert _binding_prop_alias_set(missing_alias_query, alias_targets={}, params=None) is None
+
+    collect_query = parse_cypher("MATCH (a) RETURN collect(a.city) AS cities")
+    assert _binding_prop_alias_set(collect_query, alias_targets={"a": ASTNode(name="a")}, params=None) is None
+
+    aggregate_prop_query = parse_cypher("MATCH (a)-->(b) RETURN avg(b.age) AS avg_age")
+    assert _binding_prop_alias_set(aggregate_prop_query, alias_targets=alias_targets, params=None) == ["b"]
+
+    order_by_query = parse_cypher("MATCH (a)-->(b) RETURN count(*) AS n ORDER BY b.age")
+    assert _binding_prop_alias_set(order_by_query, alias_targets=alias_targets, params=None) == ["b"]
+
+
+def test_lowering_coverage_helper_exception_fallbacks(monkeypatch: Any) -> None:
+    alias_targets = {"a": ASTNode(name="a")}
+    query = parse_cypher("MATCH (a) RETURN a.city AS city")
+
+    def raise_validation(*args: Any, **kwargs: Any) -> None:
+        raise GFQLValidationError(ErrorCode.E201, "forced validation failure")
+
+    with monkeypatch.context() as m:
+        m.setattr(lowering_module, "_parse_row_expr", raise_validation)
+        assert _clause_has_mixed_aggregate_item(query, alias_targets=alias_targets, params=None)
+
+    with monkeypatch.context() as m:
+        m.setattr(lowering_module, "_match_pattern_elements", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("forced")))
+        assert _binding_prop_alias_set(query, alias_targets=alias_targets, params=None) is None
+
+    with monkeypatch.context() as m:
+        m.setattr(lowering_module, "_collect_aggregate_specs_for_clause", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("forced")))
+        assert _binding_prop_alias_set(query, alias_targets=alias_targets, params=None) is None
+
+    with monkeypatch.context() as m:
+        m.setattr(lowering_module, "_expr_match_alias_usage", raise_validation)
+        assert _binding_prop_alias_set(query, alias_targets=alias_targets, params=None) is None
+
+
+def test_lowering_coverage_helper_direct_margin_paths() -> None:
+    span = SourceSpan(1, 1, 1, 1, 0, 0)
+    alias_targets = {"a": ASTNode(name="a"), "r": ASTEdgeForward(name="r")}
+
+    assert _render_row_where_operand_text(ParameterRef("p", span)) == "$p"
+    assert _render_row_where_operand_text(None) == "null"
+    assert _render_row_where_operand_text(True) == "true"
+    assert _render_row_where_operand_text(7) == "7"
+    assert _row_where_predicate_text(WherePredicate(PropertyRef("a", "age", span), "contains", "x", span)) is None
+    assert _row_where_predicate_text(WherePredicate(LabelRef("a", ("Person",), span), "has_labels", None, span)) is None
+
+    node_spec = _AggregateSpec("count(DISTINCT a)", "n", "count", "a", True, 1, 1)
+    edge_spec = _AggregateSpec("count(DISTINCT r)", "n", "count", "r", True, 1, 1)
+    collect_edge_spec = _AggregateSpec("collect(DISTINCT r)", "rs", "collect", "r", True, 1, 1)
+    avg_distinct_spec = _AggregateSpec("avg(DISTINCT a.age)", "avg_age", "avg", "a.age", True, 1, 1)
+
+    assert _distinct_aggregate_expr_text(_AggregateSpec("count(*)", "n", "count", None, True, 1, 1), alias_targets=alias_targets) is None
+    assert _aggregate_runtime_spec(node_spec, alias_targets=alias_targets) == ("count_distinct", NODE_IDENTITY_COLUMN)
+    assert _aggregate_runtime_spec(edge_spec, alias_targets=alias_targets) == ("count_distinct", "__gfql_edge_index_0__")
+    with pytest.raises(GFQLValidationError):
+        _aggregate_runtime_spec(collect_edge_spec, alias_targets=alias_targets)
+    with pytest.raises(GFQLValidationError):
+        _aggregate_runtime_spec(avg_distinct_spec, alias_targets=alias_targets)
+
+    assert _whole_row_group_entity_expr("a", alias_targets=alias_targets, field="return", line=1, column=1) == "__node_entity__(a)"
+    assert _whole_row_group_entity_expr("r", alias_targets=alias_targets, field="return", line=1, column=1) == "__edge_entity__(r)"
+    assert _whole_row_group_key_expr("r", alias_targets=alias_targets, field="return", line=1, column=1) == "__gfql_edge_index_0__"
+    with pytest.raises(GFQLValidationError):
+        _whole_row_group_key_expr("missing", alias_targets=alias_targets, field="return", line=1, column=1)
+
+    multi_agg_query = parse_cypher("MATCH (a)-[r]->(b) RETURN count(a) AS ca, count(b) AS cb")
+    with pytest.raises(GFQLValidationError):
+        _active_match_alias_for_stage(
+            unwinds=(),
+            clause=multi_agg_query.return_,
+            order_by_clause=multi_agg_query.order_by,
+            alias_targets={"a": ASTNode(name="a"), "b": ASTNode(name="b"), "r": ASTEdgeForward(name="r")},
+            params=None,
+        )
+
+    boundary_exc = GFQLValidationError(ErrorCode.E108, "forced", field="return", value=["a", "b"])
+    assert _is_multi_source_match_alias_boundary_error(boundary_exc, alias_targets={"a": ASTNode(name="a"), "b": ASTNode(name="b")})
+    assert not _is_multi_source_match_alias_boundary_error(GFQLValidationError(ErrorCode.E201, "forced", field="return", value=["a", "b"]), alias_targets={"a": ASTNode(name="a"), "b": ASTNode(name="b")})
+
+    assert _expr_property_access_node_aliases(
+        "[a.city, r.weight]",
+        alias_targets=alias_targets,
+        params=None,
+        field="return",
+        line=1,
+        column=1,
+    ) == {"a", "r"}
 
 def test_string_cypher_parenthesized_and_preserves_missing_property_as_null() -> None:
     # A parenthesized AND must stay on the row-filter path, not the filter_dict path:

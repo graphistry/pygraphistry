@@ -182,3 +182,78 @@ def test_polars_binding_rows_undirected_self_loop():
         rpl.sort_values(key).reset_index(drop=True),
         check_dtype=False,
     )
+
+
+
+def test_polars_binding_rows_focused_native_coverage():
+    """Focused coverage for narrow native-polars helpers used by binding rows."""
+    from graphistry.Engine import Engine
+    from graphistry.compute.dataframe.join import (
+        connected_inner_join_rows,
+        joined_alias_columns,
+        joined_hidden_scalar_columns,
+    )
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
+        binding_rows_polars,
+        can_order_by_native,
+        can_select_native,
+        select_extend_polars,
+    )
+
+    # Polars dataframe join helper paths used by connected comma joins.
+    hidden = pl.DataFrame({
+        "a.__gfql_hidden_score": [None, 2],
+        "b.__gfql_hidden_score": [1, None],
+    })
+    hidden_out = joined_hidden_scalar_columns(hidden)
+    assert hidden_out.select("__gfql_hidden_score").to_series().to_list() == [1, 2]
+
+    alias_out = joined_alias_columns(pl.DataFrame({"a.id": ["a1"], "b.b": ["b1"]}))
+    assert alias_out.select(["a", "b"]).to_dicts() == [{"a": "a1", "b": "b1"}]
+
+    joined = connected_inner_join_rows(
+        pl.DataFrame({"a.id": ["a1", "a2"], "a.num": [1, 2]}),
+        pl.DataFrame({"a.id": ["a1", "a1", "a3"], "b.id": ["b1", "b2", "b3"]}),
+        join_cols=["a.id"],
+        keep_cols=["a.id", "b.id"],
+        engine=Engine.POLARS,
+    )
+    assert joined.select(["a.id", "b.id"]).to_dicts() == [
+        {"a.id": "a1", "b.id": "b1"},
+        {"a.id": "a1", "b.id": "b2"},
+    ]
+
+    # select_extend_polars is the binding-aggregate extension helper, distinct from
+    # public with_(extend=True) dispatch.
+    g = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
+    extended = select_extend_polars(g, [("age2", "age + 1")])
+    assert extended is not None
+    assert extended._nodes.select(["id", "age2"]).to_dicts()[0] == {"id": 0, "age2": 11}
+    assert select_extend_polars(g, [("bad", "unsupported(age)")]) is None
+
+    assert can_select_native([("age2", "age + 1")], ["age"])
+    assert can_order_by_native([("age", "desc")], ["age"])
+
+
+def test_polars_binding_rows_decline_branches_direct():
+    """Directly exercise honest-decline branches that are hard to reach via Cypher."""
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import binding_rows_polars
+
+    bo = serialize_binding_ops([n(name="a"), e_forward(), n(name="b")])
+    no_edges = graphistry.nodes(pl.from_pandas(NODES), "id")
+    assert binding_rows_polars(no_edges, bo) is None
+
+    seeded = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
+    setattr(seeded, "_gfql_start_nodes", pl.DataFrame({"id": [0]}))
+    assert binding_rows_polars(seeded, bo) is None
+
+    g = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
+    assert binding_rows_polars(g, serialize_binding_ops([n(name="a"), n(name="b")])) is None
+    assert binding_rows_polars(g, serialize_binding_ops([n(name="a", query="id > 0"), e_forward(), n(name="b")])) is None
+    assert binding_rows_polars(g, serialize_binding_ops([n(name="a"), e_forward(source_node_match={"kind": "a"}), n(name="b")])) is None
+    assert binding_rows_polars(g, serialize_binding_ops([n(name="a"), e_forward(label_seeds=True), n(name="b")])) is None
+
+    # Polars cannot implicitly unify mismatched join-key dtypes; decline on collect SchemaError.
+    bad_edges = pl.DataFrame({"s": ["0"], "d": ["1"]})
+    bad = graphistry.nodes(pl.from_pandas(NODES), "id").edges(bad_edges, "s", "d")
+    assert binding_rows_polars(bad, bo) is None

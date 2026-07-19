@@ -23,9 +23,7 @@ from .wire import (
     is_index_op, is_index_op_json,
 )
 from .cypher_ddl import parse_index_ddl, looks_like_index_ddl
-from .cost import (
-    cost_gate_frac, cost_gate_min_frontier, reset_cost_gate_frac, set_cost_gate_frac,
-)
+from .cost import cost_gate_frac, reset_cost_gate_frac, set_cost_gate_frac
 from .explain import GfqlExplainReport
 
 __all__ = [
@@ -40,7 +38,6 @@ __all__ = [
     "CreateIndex", "DropIndex", "ShowIndexes", "IndexOp", "apply_index_op",
     "index_op_from_json", "is_index_op", "is_index_op_json",
     "parse_index_ddl", "looks_like_index_ddl",
-    "cost_gate_frac", "cost_gate_min_frontier", "reset_cost_gate_frac",
-    "set_cost_gate_frac",
+    "cost_gate_frac", "reset_cost_gate_frac", "set_cost_gate_frac",
     "GfqlExplainReport",
 ]
