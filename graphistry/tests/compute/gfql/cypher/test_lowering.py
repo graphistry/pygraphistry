@@ -15026,6 +15026,52 @@ def test_single_hop_grouped_fast_path_orders_nulls_as_largest(engine: str) -> No
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_single_hop_grouped_fast_path_orders_nulls_first_on_desc(engine: str) -> None:
+    # Amplification (round 001): the ASC sibling above only exercised ASC, where pandas'
+    # default na_position='last' is coincidentally correct. On DESC, openCypher orders NULL as
+    # the LARGEST value, so the NULL-city group must sort FIRST. The pandas fast-path branch used
+    # a single sort_values(ascending=[...]) with a SCALAR na_position (default 'last'), so it put
+    # the NULL group last on DESC -- a silent pandas/polars divergence (the polars branch pins
+    # nulls_last per key) that returns the WRONG ORDER BY ... DESC LIMIT top-k. Hand-derived
+    # openCypher order (NULL largest, DESC): NULL, then SF (count 2), then NY (count 1).
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": ["p0", "p1", "p2", "p3", "c0", "c1", "c2"],
+        "node_type": ["Person", "Person", "Person", "Person", "City", "City", "City"],
+        "city": [None, None, None, None, "SF", "NY", None],  # c2 has a NULL city
+    })
+    edges = pd.DataFrame({
+        "s": ["p0", "p3", "p1", "p2"],
+        "d": ["c0", "c0", "c1", "c2"],  # SF<-{p0,p3}=2, NY<-{p1}=1, NULL<-{p2}=1
+        "rel": ["LIVES_IN", "LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    graph = _mk_graph(nodes, edges)
+    base = (
+        "MATCH (p {node_type:'Person'})-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city ORDER BY city DESC"
+    )
+    compiled = cast(CompiledCypherQuery, compile_cypher(base))
+    assert _execute_single_hop_grouped_aggregate_fast_path(graph, compiled.chain, engine=Engine(engine)) is not None
+
+    def _recs(nodes: Any) -> list:
+        # Normalize the null-city representation (pandas nan vs polars None) so the ordered
+        # comparison tests ORDER, not null spelling.
+        df = _to_pandas_df(nodes)
+        return [{k: (None if pd.isna(v) else v) for k, v in rec.items()} for rec in df.to_dict(orient="records")]
+
+    # Full DESC order: NULL group first (largest), then SF, then NY.
+    assert _recs(graph.gfql(base, engine=engine)._nodes) == [
+        {"n": 1, "city": None},
+        {"n": 2, "city": "SF"},
+        {"n": 1, "city": "NY"},
+    ]
+    # DESC LIMIT 1 must return the NULL group (openCypher NULL == largest), not SF.
+    limited = base + " LIMIT 1"
+    assert _recs(graph.gfql(limited, engine=engine)._nodes) == [{"n": 1, "city": None}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
 def test_t3_single_hop_grouped_fast_path_q3_avg_source_prop_by_dest_prop(engine: str) -> None:
     if engine == "polars":
         pytest.importorskip("polars")

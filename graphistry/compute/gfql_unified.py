@@ -2142,7 +2142,26 @@ def _execute_single_hop_grouped_aggregate_fast_path(
                 return None
             out_df = cast(DataFrameT, out_df.merge(agg_df, on=group_keys, how="left", sort=False))
         if order_keys:
-            out_df = cast(DataFrameT, out_df.sort_values(by=[key for key, _ in order_keys], ascending=[not desc for _, desc in order_keys]))
+            # openCypher orders NULL as the largest value (ASC -> nulls last, DESC -> nulls
+            # first), matching the polars branch's per-key nulls_last above. pandas/cuDF
+            # sort_values take a SCALAR na_position (can't be per-key), and cuDF has no stable
+            # sort (kind='stable' silently falls back to quicksort), so a per-key multi-pass would
+            # lose tie order on GPU. Instead express null placement with an explicit per-key
+            # null-indicator column and sort in ONE pass: a key sorted ascending=(not desc) with
+            # its indicator sorted the same way puts NULL at the correct (largest) end, no stable
+            # sort required. The default single sort_values used pandas' na_position='last' for
+            # every key, so DESC keys put NULL last, flipping which row an ORDER BY ... LIMIT keeps.
+            sort_cols: List[str] = []
+            ascending: List[bool] = []
+            helper_cols: List[str] = []
+            for i, (key, desc) in enumerate(order_keys):
+                indicator = f"__gfql_nullrank_{i}__"
+                out_df[indicator] = out_df[key].isna()
+                sort_cols.extend([indicator, key])
+                ascending.extend([not desc, not desc])
+                helper_cols.append(indicator)
+            out_df = out_df.sort_values(by=sort_cols, ascending=ascending)
+            out_df = cast(DataFrameT, out_df.drop(columns=helper_cols))
         if limit_value is not None:
             out_df = cast(DataFrameT, out_df.head(limit_value))
         out_df = df_to_engine(out_df.reset_index(drop=True), requested_engine)
