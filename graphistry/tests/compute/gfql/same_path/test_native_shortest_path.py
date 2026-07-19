@@ -317,3 +317,50 @@ class TestCypherShortestPathViaIgraph:
             bfs = self._run(g, "p1", "p5")
 
         assert native == bfs
+
+
+class TestNativeShortestPathCacheWiring:
+    """#1705 wiring: the row-pipeline caller actually engages the native-graph cache — the built
+    igraph is shared across executions on the same graph object, and a functional edge rebind
+    (``g.edges(...)``) resets it so distances are never stale (the BLOCKER-1 rebind class)."""
+
+    def _run(self, g, a, b):
+        import graphistry  # noqa: F401 (ensures a real Plottable, not a test subclass)
+        return g.gfql(_SP_QUERY, params={"a": a, "b": b})._nodes["dist"].iloc[0]
+
+    def test_builds_graph_once_across_executions_and_resets_on_rebind(self):
+        pytest.importorskip("igraph")
+        import graphistry
+        import graphistry.compute.gfql.same_path.native_shortest_path as nsp
+
+        nodes = pd.DataFrame({"id": ["p0", "p1", "p2", "p3", "p4"], "label__Person": [True] * 5})
+        edges = pd.DataFrame(
+            {"s": ["p0", "p1", "p2", "p3"], "d": ["p1", "p2", "p3", "p4"], "type": ["KNOWS"] * 4}
+        )
+        g = graphistry.nodes(nodes, "id").edges(edges, "s", "d").bind(edge="type")
+
+        builds = []
+        orig = nsp._build_igraph_shortest_path_state
+
+        def counting_build(step_pairs, *, directed):
+            builds.append(1)
+            return orig(step_pairs, directed=directed)
+
+        with patch.object(nsp, "_build_igraph_shortest_path_state", counting_build):
+            assert self._run(g, "p0", "p4") == 4          # p0-p1-p2-p3-p4
+            assert len(builds) == 1
+            # Same graph object, second execution -> cache HIT, no rebuild.
+            assert self._run(g, "p0", "p4") == 4
+            assert len(builds) == 1
+
+            # Functional edge rebind to a shorter chain: p0->p4 is now unreachable. The rebound
+            # graph is a distinct object with no cache attr, so this must REBUILD (fresh) and
+            # return -1 (path is null), never the stale distance 4.
+            reduced = pd.DataFrame({"s": ["p0", "p1"], "d": ["p1", "p2"], "type": ["KNOWS"] * 2})
+            g2 = g.edges(reduced, "s", "d").bind(edge="type")
+            assert self._run(g2, "p0", "p4") == -1
+            assert len(builds) == 2
+
+            # The original graph still yields the correct cached distance.
+            assert self._run(g, "p0", "p4") == 4
+            assert len(builds) == 2
