@@ -4,7 +4,12 @@ from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.categorical import Duplicated
 from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.predicates.logical import AllOf
-from graphistry.compute.predicates.numeric import GT, LT, GE, LE, EQ, NE, Between, IsNA, NotNA
+# Register the comparison.py versions (numeric + temporal + string), NOT numeric.py's numeric-only
+# classes: they share __name__ ("EQ", "GT", ...) so the from_json type registry would otherwise
+# downgrade a live comparison predicate to numeric-only on a JSON round-trip — raising "val must be
+# numeric" for a string/temporal equality or temporal comparison built by Cypher lowering / the
+# public predicate API (both of which use comparison.py). See from_json round-trip regression tests.
+from graphistry.compute.predicates.comparison import GT, LT, GE, LE, EQ, NE, Between, IsNA, NotNA
 from graphistry.compute.predicates.str import (
     Contains, Startswith, Endswith, Match, Fullmatch, IsNumeric, IsAlpha, IsDecimal, IsDigit, IsLower, IsUpper,
     IsSpace, IsAlnum, IsTitle, IsNull, NotNull
