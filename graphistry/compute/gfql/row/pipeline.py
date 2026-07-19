@@ -241,7 +241,7 @@ class RowPipelineMixin:
         return col
 
     @staticmethod
-    def _gfql_coerce_case_branch_dtypes(a: Any, b: Any) -> "Tuple[Any, Any]":
+    def _gfql_coerce_case_branch_dtypes(a: Any, b: Any) -> "Tuple[Any, Any]":  # pragma: no cover - only reached from the cuDF CASE-mixed-dtype retry above; no cuDF coverage lane (validated on dgx)
         """Cast two CASE branches to a common dtype for engines (cuDF) whose ``.where`` rejects
         mismatched dtypes, where pandas coerces. Prefer a numeric common type (covers int / float /
         null — the shortestPath hops branch); fall back to string; last resort return unchanged so
@@ -1666,7 +1666,7 @@ class RowPipelineMixin:
             cond_true = cond_mask & ~cond_null
             try:
                 return True, true_value.where(cond_true, false_value)
-            except TypeError:
+            except TypeError:  # pragma: no cover - cuDF-only (.where mixed-dtype); no cuDF lane in the coverage gate (validated on dgx)
                 # cuDF rejects `.where` across mismatched branch dtypes ("cudf does not support
                 # mixed types"), where pandas coerces to a common type. This surfaced as a hard
                 # GFQLTypeError for e.g. `CASE WHEN path IS NULL THEN -1 ELSE length(path) END`
