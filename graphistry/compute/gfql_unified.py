@@ -6,7 +6,7 @@ import pandas as pd
 from types import MappingProxyType
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 from graphistry.Plottable import Plottable
-from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, is_polars_df, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
@@ -374,15 +374,16 @@ def _apply_connected_optional_match(
         if joined_col is None:
             return None
 
-        seed_frame = cast(
-            DataFrameT,
-            df_to_engine(
-                joined_rows[[joined_col]].dropna().drop_duplicates().rename(columns={joined_col: node_col}),
-                concrete_engine,
-            ),
-        )
+        seed_src = joined_rows[[joined_col]]
+        if is_polars_df(seed_src):
+            seed_src = seed_src.drop_nulls().unique().rename({joined_col: node_col})
+        else:
+            seed_src = seed_src.dropna().drop_duplicates().rename(columns={joined_col: node_col})
+        seed_frame = cast(DataFrameT, df_to_engine(seed_src, concrete_engine))
         seed_ids = cast(SeriesT, seed_frame[node_col])
         node_ids = cast(SeriesT, base_nodes[node_col])
+        if is_polars_df(base_nodes):
+            return cast(DataFrameT, base_nodes.filter(node_ids.is_in(seed_ids)))
         return cast(DataFrameT, base_nodes[node_ids.isin(seed_ids)].copy())
 
     # Run base chain to get binding rows.
