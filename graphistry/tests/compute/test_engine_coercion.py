@@ -356,6 +356,48 @@ class TestCoerceInputFormatsPolars(NoAuthTestCase):
         self.assertIs(twice._edges, once._edges)
 
 
+class TestPlNanToNull(NoAuthTestCase):
+    """_pl_nan_to_null must be identity-stable when no NaN is present (#1726) while
+    preserving the NaN -> null conversion when a float column actually carries a NaN."""
+
+    @unittest.skipUnless(HAS_POLARS, "polars not installed")
+    def test_float_col_without_nan_returns_same_object(self):
+        # A NaN-free float column must NOT trigger a rebuild (frame-identity churn would
+        # defeat the #1658 CSR index, which keys resident indexes on `source_ref is df`).
+        from graphistry.Engine import _pl_nan_to_null
+        inp = pl.DataFrame({"src": ["a", "b"], "w": [1.0, 2.0]})
+        out = _pl_nan_to_null(inp)
+        self.assertIs(out, inp)
+
+    @unittest.skipUnless(HAS_POLARS, "polars not installed")
+    def test_no_float_cols_returns_same_object(self):
+        from graphistry.Engine import _pl_nan_to_null
+        inp = pl.DataFrame({"src": ["a", "b"], "dst": ["b", "c"]})
+        out = _pl_nan_to_null(inp)
+        self.assertIs(out, inp)
+
+    @unittest.skipUnless(HAS_POLARS, "polars not installed")
+    def test_float_col_with_nan_still_converts_to_null(self):
+        # NaN-present path is unchanged: NaN -> null, other values untouched.
+        from graphistry.Engine import _pl_nan_to_null
+        inp = pl.DataFrame({"src": ["a", "b", "c"], "w": [1.0, float("nan"), 3.0]})
+        out = _pl_nan_to_null(inp)
+        self.assertIsNot(out, inp)
+        w = out.get_column("w")
+        # The NaN became a genuine null (not still a NaN), non-NaN values preserved.
+        self.assertEqual(w.null_count(), 1)
+        self.assertFalse(bool(w.is_nan().any()))
+        self.assertEqual(w.to_list(), [1.0, None, 3.0])
+
+    @unittest.skipUnless(HAS_POLARS, "polars not installed")
+    def test_existing_nulls_without_nan_returns_same_object(self):
+        # A float column with real nulls but no NaN needs no rewrite (identity preserved).
+        from graphistry.Engine import _pl_nan_to_null
+        inp = pl.DataFrame({"src": ["a", "b"], "w": [1.0, None]})
+        out = _pl_nan_to_null(inp)
+        self.assertIs(out, inp)
+
+
 class TestToPandas(NoAuthTestCase):
     """to_pandas() method — converts all supported input types to pandas."""
 

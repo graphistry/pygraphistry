@@ -141,7 +141,7 @@ def _execute_validated_call(g: Plottable, function: str, validated_params: Dict[
     # declined by that guard.
     if _active_frames_are_polars(g) and function in ("get_degrees", "get_indegrees", "get_outdegrees"):
         from graphistry.compute.gfql.lazy.engine.polars import degrees as _pl_degrees
-        return getattr(_pl_degrees, function + "_polars")(g, **validated_params)
+        return getattr(_pl_degrees, function + "_polars")(g, engine=engine.value, **validated_params)
 
     if not hasattr(g, function):
         raise AttributeError(

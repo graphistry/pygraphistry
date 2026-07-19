@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 from graphistry.utils.json import JSONVal
+from graphistry.compute.gfql.index.types import HopDirection
 
 from graphistry.Plottable import Plottable
 
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.ast import ASTObject
 
+from .dtypes import is_lazy
 from .row_pipeline import _active_table, _rewrap
 
 
@@ -124,6 +126,41 @@ def _pattern_alias_keys_polars(
         return None
     base_graph = _rows_base_graph(g)
     node_id = base_graph._node or "id"  # Plottable._node: Optional[str]
+    # GFQL #1658 index fast path (#3 membership): bare EXISTS pattern (no endpoint/
+    # edge filters, no drop-self neq) -> participating nodes == "has an edge in this
+    # direction" = CSR adjacency membership. Skips the O(E) chain_polars below.
+    # Strict guard; anything richer (filters/neq/multi-hop) falls through unchanged.
+    from graphistry.compute.gfql.index import get_index_policy
+    if (
+        neq is None
+        and get_index_policy(g) != "off"
+        and not n0.filter_dict and not n2.filter_dict
+        and not edge_op.edge_match
+        and edge_op.edge_query is None
+        and base_graph._edges is not None
+        and not is_lazy(base_graph._edges)
+    ):
+        import numpy as _np
+        from graphistry.compute.gfql.index import get_registry
+        from graphistry.compute.gfql.index.degrees import adjacency_membership_keys
+        from graphistry.Engine import Engine as _Engine
+        from graphistry.compute.gfql.lazy import active_target as _active_target, ExecutionTarget as _ExecutionTarget
+        _reg = get_registry(g)
+        if not _reg.is_empty():
+            _edir = edge_op.direction
+            _mdir: HopDirection
+            if _edir == "undirected":
+                _mdir = "undirected"
+            elif (alias == n0._name) == (_edir == "forward"):
+                _mdir = "forward"
+            else:
+                _mdir = "reverse"
+            _src, _dst = base_graph._source, base_graph._destination
+            if isinstance(_src, str) and isinstance(_dst, str):
+                _eng = _Engine.POLARS_GPU if _active_target() == _ExecutionTarget.GPU else _Engine.POLARS
+                _mk = adjacency_membership_keys(_reg, _mdir, base_graph._edges, (_src, _dst), _eng)
+                if _mk is not None:
+                    return pl.DataFrame({node_id: pl.Series(node_id, _np.asarray(_mk))})
     if neq:
         # EXISTS { (n)--(m) WHERE m <> n } — for the single-edge shape, endpoint
         # inequality == "witnessed by a NON-self-loop edge": pre-drop self loops and

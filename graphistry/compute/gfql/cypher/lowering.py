@@ -81,6 +81,7 @@ from graphistry.compute.gfql.expr_parser import (
     collect_identifiers,
     parse_expr,
     walk_expr_nodes,
+    is_expr_node,
 )
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.ast import (
@@ -177,6 +178,21 @@ class CompiledCypherExecutionExtras:
 
 
 @dataclass(frozen=True)
+class CompiledGraphResidualFilter:
+    """GRAPH WHERE expression left after normal chain-filter lowering.
+
+    Example: ``GRAPH { MATCH (n) WHERE n.score > 1 OR n.score IS NULL }``.
+    The OR cannot fit the Chain's simple node-filter map, but it still reads
+    only node alias ``n``, so execution can mask the node table and stay in
+    graph state without materializing joined match rows.
+    """
+    alias: str
+    kind: Literal["node", "edge"]
+    expr: str
+    pre_filters: Tuple[ASTCall, ...] = ()
+
+
+@dataclass(frozen=True)
 class CompiledCypherQuery:
     chain: Chain
     seed_rows: bool = False
@@ -185,6 +201,7 @@ class CompiledCypherQuery:
     execution_extras: Optional[CompiledCypherExecutionExtras] = None
     graph_bindings: Tuple["CompiledGraphBinding", ...] = ()
     use_ref: Optional[str] = None
+    graph_residual_filters: Tuple[CompiledGraphResidualFilter, ...] = ()
 
     @property
     def result_projection(self) -> Optional["ResultProjectionPlan"]:
@@ -242,6 +259,7 @@ class CompiledGraphBinding:
     use_ref: Optional[str] = None
     logical_plan: Optional[LogicalPlan] = None
     logical_plan_defer_reason: Optional[str] = None
+    graph_residual_filters: Tuple[CompiledGraphResidualFilter, ...] = ()
 
 @dataclass(frozen=True)
 class CompiledCypherGraphQuery:
@@ -252,6 +270,7 @@ class CompiledCypherGraphQuery:
     use_ref: Optional[str] = None
     logical_plan: Optional[LogicalPlan] = None
     logical_plan_defer_reason: Optional[str] = None
+    graph_residual_filters: Tuple[CompiledGraphResidualFilter, ...] = ()
 
 @dataclass(frozen=True)
 class OptionalNullFillPlan:
@@ -2215,6 +2234,215 @@ def _active_match_alias_for_stage(
         if allowed_alias is not None:
             return allowed_alias
     return next(iter(alias_targets))
+
+
+def _projection_ref_from_expr_safe(
+    expr_text: str, alias_targets: Mapping[str, ASTObject]
+) -> Optional[Tuple[str, str]]:
+    """(alias, prop) if ``expr_text`` is a bare ``alias.prop`` of a known alias, else None."""
+    text = (expr_text or "").strip()
+    if "." not in text:
+        return None
+    alias, _, prop = text.partition(".")
+    alias = alias.strip()
+    prop = prop.strip()
+    if not alias or not prop or "." in prop:
+        return None
+    if alias not in alias_targets:
+        return None
+    if not prop.replace("_", "").isalnum():
+        return None
+    return alias, prop
+
+
+def _clause_has_mixed_aggregate_item(
+    query: CypherQuery,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> bool:
+    """True if any RETURN / ORDER BY item mixes a non-aggregate alias reference with
+    an aggregate in ONE expression (e.g. ``me.age + count(you.age)``). Such compound
+    cross-source items have ambiguous multiplicity and must keep the conservative
+    fail-fast; a clean split (``c.city`` and ``avg(p.age)`` as separate items) does
+    not trip this (#1273 / rejects-unsound-multi-source-overlap contract)."""
+    return_clause = query.return_
+    exprs: List[Tuple[str, int, int]] = []
+    if return_clause is not None:
+        for item in return_clause.items:
+            exprs.append((item.expression.text, item.span.line, item.span.column))
+    order_by = query.order_by  # top-level ORDER BY (not on ReturnClause)
+    if order_by is not None:
+        for order_item in order_by.items:
+            exprs.append((order_item.expression.text, order_item.span.line, order_item.span.column))
+    for text, line, column in exprs:
+        if text == "*":
+            continue
+        try:
+            node = _parse_row_expr(
+                text, params=params, alias_targets=alias_targets,
+                allow_missing_params=True, field="return", line=line, column=column,
+            )
+        except GFQLValidationError:
+            return True  # can't analyze -> conservative (treat as mixed / fail-fast)
+        # An aggregate nested inside a larger expression (arithmetic / function /
+        # comparison) — e.g. ``me.age + count(you.age)`` or ``age + count(...)`` in
+        # ORDER BY — is a compound cross-source item with ambiguous multiplicity.
+        # A bare top-level aggregate call (``avg(p.age)``) or a pure group scalar
+        # (``c.city``) is clean and does NOT trip this.
+        if _expr_has_aggregate(node) and not _is_pure_aggregate_call(node):
+            return True
+    return False
+
+
+def _is_pure_aggregate_call(node: ExprNode) -> bool:
+    return isinstance(node, FunctionCall) and node.name.lower() in _CYPHER_AGGREGATES
+
+
+def _expr_has_aggregate(node: ExprNode) -> bool:
+    """True if the expression contains an aggregate function call anywhere."""
+    if isinstance(node, FunctionCall) and node.name.lower() in _CYPHER_AGGREGATES:
+        return True
+    for child in getattr(node, "__dict__", {}).values():
+        if is_expr_node(child):
+            if _expr_has_aggregate(cast(ExprNode, child)):
+                return True
+        elif isinstance(child, (list, tuple)):
+            for c in child:
+                if is_expr_node(c) and _expr_has_aggregate(cast(ExprNode, c)):
+                    return True
+    return False
+
+
+def _binding_prop_alias_set(
+    query: CypherQuery,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+) -> Optional[List[str]]:
+    """#1711 projection-pushdown: node aliases whose PROPERTIES are referenced by
+    the RETURN/ORDER BY, so the binding builders can skip property joins for the
+    rest (e.g. ``count(*)`` needs none; ``count(a)`` needs only a's bare id column).
+
+    Returns a list of node-alias names to attach, or ``None`` = attach all (the
+    conservative default). Deliberately CONSERVATIVE — only computed for the simple
+    single-clause shape (no WITH stages, no WHERE anywhere): a WHERE predicate may
+    run on the binding table and need a property column, and multi-stage pipelines
+    carry hidden reentry/carry columns; both are hard to bound safely, so we decline
+    to optimize them (they keep the current attach-all behavior). The referenced set
+    itself is EXACT: ``_expr_match_alias_usage`` non-aggregate refs are precisely the
+    property / whole-entity uses; aggregate-only refs (``count(a)``) are excluded.
+    """
+    if query.with_stages:
+        return None
+    if query.where is not None:
+        return None
+    matches = query.matches or ()
+    if len(matches) != 1:
+        return None  # multi-MATCH / cartesian — conservative
+    match_clause = matches[0]
+    if match_clause.where is not None or match_clause.optional:
+        return None
+    return_clause = query.return_
+    if return_clause is None:
+        return None
+
+    # A repeated node alias (e.g. `MATCH (n)-[:LOOP]->(n)`) enforces n==n via hidden
+    # bound-identity columns (`n.__gfql_node_id__`) that a RETURN-text walk can't see —
+    # skipping n's property join would drop them. Bail on any repeat (#1490).
+    try:
+        node_vars = [
+            el.variable
+            for el in _match_pattern_elements(match_clause)
+            if isinstance(el, NodePattern) and el.variable is not None
+        ]
+    except (GFQLValidationError, RuntimeError):
+        return None
+    if len(node_vars) != len(set(node_vars)):
+        return None
+    # `collect(...)` triggers the carry/reentry machinery (hidden columns) — bail (#1413).
+    try:
+        agg_specs = _collect_aggregate_specs_for_clause(
+            return_clause, params=params, alias_targets=alias_targets
+        )
+    except (GFQLValidationError, RuntimeError):
+        return None
+    if any(spec.func == "collect" for spec in agg_specs):
+        return None
+
+    node_aliases = {a for a, t in alias_targets.items() if isinstance(t, ASTNode)}
+    if not node_aliases:
+        return None
+
+    exprs: List[Tuple[str, int, int]] = []
+    for item in return_clause.items:
+        exprs.append((item.expression.text, item.span.line, item.span.column))
+    order_by = query.order_by  # top-level ORDER BY (not on ReturnClause)
+    if order_by is not None:
+        for order_item in order_by.items:
+            exprs.append((order_item.expression.text, order_item.span.line, order_item.span.column))
+
+    referenced: Set[str] = set()
+    for text, line, column in exprs:
+        if text == "*":
+            continue
+        try:
+            non_aggregate_aliases, _agg = _expr_match_alias_usage(
+                text,
+                alias_targets=alias_targets,
+                params=params,
+                field="return",
+                line=line,
+                column=column,
+            )
+            # Property accesses INSIDE aggregates need their columns too — e.g.
+            # ``avg(p.age)`` requires ``p``'s property join even though ``p`` is only
+            # referenced within the aggregate (#1273). ``non_aggregate_aliases`` alone
+            # (which excludes aggregate context) would drop it -> a missing column.
+            prop_aliases = _expr_property_access_node_aliases(
+                text, alias_targets=alias_targets, params=params,
+                field="return", line=line, column=column,
+            )
+        except GFQLValidationError:
+            return None  # can't analyze cleanly → conservative attach-all
+        referenced.update(a for a in non_aggregate_aliases if a in node_aliases)
+        referenced.update(a for a in prop_aliases if a in node_aliases)
+    return sorted(referenced)
+
+
+def _expr_property_access_node_aliases(
+    expr_text: str,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+    field: str,
+    line: int,
+    column: int,
+) -> Set[str]:
+    """Node aliases that appear in a ``alias.prop`` property access anywhere in the
+    expression (INCLUDING inside aggregates). Used by #1711 projection-pushdown so a
+    property referenced only via ``avg(alias.prop)`` still keeps that alias's join."""
+    node = _parse_row_expr(
+        expr_text, params=params, alias_targets=alias_targets,
+        allow_missing_params=True, field=field, line=line, column=column,
+    )
+    out: Set[str] = set()
+
+    def _visit(n: ExprNode) -> None:
+        if isinstance(n, PropertyAccessExpr) and isinstance(n.value, Identifier):
+            root = n.value.name.split(".", 1)[0]
+            if root in alias_targets:
+                out.add(root)
+        for child in getattr(n, "__dict__", {}).values():
+            if is_expr_node(child):
+                _visit(cast(ExprNode, child))
+            elif isinstance(child, (list, tuple)):
+                for c in child:
+                    if is_expr_node(c):
+                        _visit(cast(ExprNode, c))
+
+    _visit(node)
+    return out
 
 
 def _is_multi_source_match_alias_boundary_error(
@@ -6533,6 +6761,45 @@ def _lower_general_row_projection(
                         break
                     continue
                 if len(refs) > 1 or (len(refs) == 1 and base_active_alias not in refs):
+                    # An aggregate over a pattern alias other than the projection's
+                    # active alias. Two sound, benchmark-relevant shapes are routed to
+                    # the bindings-row table (which materializes every alias, one row
+                    # per matched path); everything else keeps the conservative
+                    # fail-fast (the misleading "one MATCH" error is the residual).
+                    #   (a) #1708: `count(<bare node alias>)` — "matched paths binding
+                    #       this node per group" (graph-bench q1 top-k in-degree).
+                    #   (b) #1273: a CLEAN grouped aggregate `func(<alias>.<prop>)`
+                    #       (avg/sum/min/max/count) grouped by another alias's property
+                    #       (graph-bench q3/q4: `RETURN c.city, avg(p.age)`) — a
+                    #       standard GROUP BY, sound on the per-path bindings rows.
+                    # BOTH require CLEAN agg/non-agg separation: if any RETURN/ORDER BY
+                    # item MIXES a non-aggregate ref with an aggregate in one
+                    # expression (`me.age + count(you.age)`), the cross-source
+                    # multiplicity is ambiguous — keep the fail-fast (the
+                    # rejects-unsound-multi-source-overlap contract, #1273 tests).
+                    agg_arg = (agg_spec.expr_text or "").strip()
+                    prop_ref = _projection_ref_from_expr_safe(agg_arg, alias_targets)
+                    prop_alias = prop_ref[0] if prop_ref is not None else None
+                    if (
+                        refs <= set(alias_targets.keys())
+                        and not _clause_has_mixed_aggregate_item(
+                            query, alias_targets=alias_targets, params=params
+                        )
+                        and (
+                            (  # (a) bare-alias non-distinct count
+                                agg_spec.func == "count"
+                                and not agg_spec.distinct
+                                and agg_arg in alias_targets
+                                and isinstance(alias_targets.get(agg_arg), ASTNode)
+                            )
+                            or (  # (b) clean property aggregate over a node alias
+                                agg_spec.func in ("avg", "sum", "min", "max", "count")
+                                and prop_alias is not None
+                                and isinstance(alias_targets.get(prop_alias), ASTNode)
+                            )
+                        )
+                    ):
+                        continue
                     can_force_bindings = False
                     break
         if can_force_bindings:
@@ -6555,7 +6822,14 @@ def _lower_general_row_projection(
     if active_match_alias is None:
         row_steps: List[ASTObject] = [rows(table="nodes")]
     elif binding_row_aliases:
-        row_steps = [rows(binding_ops=serialize_binding_ops(lowered.query))]
+        row_steps = [
+            rows(
+                binding_ops=serialize_binding_ops(lowered.query),
+                attach_prop_aliases=_binding_prop_alias_set(
+                    query, alias_targets=alias_targets, params=params
+                ),
+            )
+        ]
     else:
         row_steps = [
             rows(
@@ -7119,6 +7393,101 @@ def _compile_call_query(
     )
 
 
+# Current strict path: accept only residuals that filter one node/edge table.
+# Row-shaped cases need an explicit eager boundary, not hidden materialization.
+def _compile_graph_residual_filters(
+    lowered: LoweredCypherMatch,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]],
+    line: int,
+    column: int,
+) -> Tuple[CompiledGraphResidualFilter, ...]:
+    if lowered.row_where is None and not lowered.row_pre_filters:
+        return ()
+
+    unsupported_pre_filters = [op.function for op in lowered.row_pre_filters if op.function != "search_any"]
+    if unsupported_pre_filters or lowered.row_where is None:
+        raise _unsupported(
+            "Cypher GRAPH constructors do not yet support pattern-predicate residuals inside GRAPH { }",
+            field="graph_constructor",
+            value=unsupported_pre_filters or "row_pre_filters",
+            line=line,
+            column=column,
+        )
+
+    expr = lowered.row_where
+    expr_aliases = _expr_non_aggregate_match_aliases(
+        expr.text,
+        alias_targets=alias_targets,
+        params=params,
+        field="graph_constructor",
+        line=expr.span.line,
+        column=expr.span.column,
+    )
+    pre_filter_aliases = {
+        cast(str, op.params.get("alias"))
+        for op in lowered.row_pre_filters
+        if isinstance(op.params.get("alias"), str)
+    }
+    aliases = expr_aliases | pre_filter_aliases
+    if len(aliases) != 1:
+        raise _unsupported(
+            "Cypher GRAPH residual predicates must reference exactly one node or edge alias to be applied as graph masks",
+            field="graph_constructor",
+            value=expr.text,
+            line=expr.span.line,
+            column=expr.span.column,
+        )
+
+    alias = next(iter(aliases))
+    target = alias_targets.get(alias)
+    if isinstance(target, ASTNode):
+        kind: Literal["node", "edge"] = "node"
+        if not (
+            len(lowered.query) == 1
+            and isinstance(lowered.query[0], ASTNode)
+            and lowered.query[0]._name == alias
+        ):
+            raise _unsupported(
+                "Cypher GRAPH node residual predicates are only supported for single-node GRAPH MATCH masks",
+                field="graph_constructor",
+                value=expr.text,
+                line=expr.span.line,
+                column=expr.span.column,
+            )
+    elif isinstance(target, ASTEdge):
+        kind = "edge"
+    else:
+        raise _unsupported(
+            "Cypher GRAPH residual predicates must target a node or edge alias",
+            field="graph_constructor",
+            value=alias,
+            line=expr.span.line,
+            column=expr.span.column,
+        )
+
+    _validate_row_expr_scope(
+        expr.text,
+        alias_targets=alias_targets,
+        active_match_alias=alias,
+        allowed_match_aliases={alias},
+        unwind_aliases=(),
+        params=params,
+        field="graph_constructor",
+        line=expr.span.line,
+        column=expr.span.column,
+    )
+    return (
+        CompiledGraphResidualFilter(
+            alias=alias,
+            kind=kind,
+            expr=_row_expr_arg(expr, params=params, alias_targets=alias_targets, field="graph_constructor"),
+            pre_filters=tuple(lowered.row_pre_filters),
+        ),
+    )
+
+
 def _compile_graph_constructor(
     constructor: GraphConstructor,
     *,
@@ -7182,6 +7551,14 @@ def _compile_graph_constructor(
         reentry_unwinds=(),
     )
     lowered = lower_match_query(synthetic, params=params)
+    alias_targets = _alias_target(lowered.query)
+    graph_residual_filters = _compile_graph_residual_filters(
+        lowered,
+        alias_targets=alias_targets,
+        params=params,
+        line=constructor.span.line,
+        column=constructor.span.column,
+    )
     constructor_bound_ir = FrontendBinder().bind(synthetic, PlanContext(), strict_name_resolution=True)
     (
         constructor_logical_plan,
@@ -7203,6 +7580,7 @@ def _compile_graph_constructor(
                 logical_plan_defer_code=constructor_logical_plan_defer_code,
             )
         ),
+        graph_residual_filters=graph_residual_filters,
     )
 
 
@@ -7223,6 +7601,7 @@ def _compile_graph_bindings(
             use_ref=use_ref,
             logical_plan=compiled_query.logical_plan,
             logical_plan_defer_reason=compiled_query.logical_plan_defer_reason,
+            graph_residual_filters=compiled_query.graph_residual_filters,
         ))
     return tuple(compiled)
 
@@ -7445,9 +7824,24 @@ def _compile_connected_match_join(
         shared_aliases_per_pattern.append(shared)
         accumulated_aliases.update(node_aliases)
 
-    if query.where is not None and query.where.expr_tree is not None:
+    if query.where is not None:
+        # #1712: a WHERE on a connected comma-pattern join must be applied as a
+        # post-join row filter. Previously this only handled the ``expr_tree`` form
+        # and SILENTLY DROPPED the structured ``predicates`` form (e.g. a plain
+        # ``WHERE i.k = 'x'``), returning an unfiltered — wrong — result.
+        # ``_where_clause_expr_text`` renders BOTH forms; a WHERE it can't render
+        # (has-labels / outside the row-renderable subset) must NIE honestly, never
+        # be dropped.
         synthesized = _where_clause_expr_text(query.where)
-        assert synthesized is not None  # gated by expr_tree is not None
+        if synthesized is None:
+            raise _unsupported(
+                "Cypher connected comma-pattern join lowering cannot render this WHERE clause "
+                "to a row filter; use engine='pandas' with a supported WHERE shape",
+                field="where",
+                value=None,
+                line=clause.span.line,
+                column=clause.span.column,
+            )
         pre_join_filters.append(synthesized)
 
     for projection_clause in [stage.clause for stage in query.with_stages] + [query.return_]:
@@ -7931,6 +8325,35 @@ def _attach_logical_plan_route(
     )
 
 
+def _maybe_pushdown_row_prefilters(
+    result: CompiledCypherQuery, *, has_graph_context: bool
+) -> CompiledCypherQuery:
+    """L4: peel single-alias WHERE predicates into ``rows(alias_prefilters=...)``.
+
+    Guarded to the simple single-chain shape.  Skipped when an alias could be
+    NULL-filled (OPTIONAL MATCH / reentry / row guards) — pushing a predicate onto
+    a nullable alias would drop rows the post-join filter keeps — or for
+    procedure / seed-row / multi-graph programs whose chain semantics this narrow
+    rewrite has not been vetted against.
+    """
+    if (
+        result.procedure_call is not None
+        or result.seed_rows
+        or result.optional_null_fill is not None
+        or result.optional_projection_row_guard is not None
+        or result.optional_reentry
+        or result.reentry_plan is not None
+        or has_graph_context
+    ):
+        return result
+    from .row_pushdown import apply_row_prefilter_pushdown
+
+    new_chain = apply_row_prefilter_pushdown(result.chain)
+    if new_chain is result.chain:
+        return result
+    return replace(result, chain=new_chain)
+
+
 def compile_cypher_query(
     query: Union[CypherQuery, CypherUnionQuery, CypherGraphQuery],
     *,
@@ -7953,6 +8376,7 @@ def compile_cypher_query(
             use_ref=use_ref,
             logical_plan=compiled_constructor.logical_plan,
             logical_plan_defer_reason=compiled_constructor.logical_plan_defer_reason,
+            graph_residual_filters=compiled_constructor.graph_residual_filters,
         )
     if isinstance(query, CypherUnionQuery):
         branch_output_names: Optional[Tuple[str, ...]] = None
@@ -7997,6 +8421,7 @@ def compile_cypher_query(
     _bound_scope_stack: Tuple[ScopeFrame, ...] = ()
 
     def _attach_graph_context(result: CompiledCypherQuery) -> CompiledCypherQuery:
+        result = _maybe_pushdown_row_prefilters(result, has_graph_context=bool(compiled_bindings) or _use_ref is not None)
         result_extras = result.execution_extras or CompiledCypherExecutionExtras()
         out = result
         if not compiled_bindings and _use_ref is None:

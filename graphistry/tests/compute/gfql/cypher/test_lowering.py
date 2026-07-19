@@ -1775,6 +1775,53 @@ def test_string_cypher_supports_cartesian_node_only_grouped_count() -> None:
     ]
 
 
+def test_string_cypher_count_non_active_node_alias_in_degree() -> None:
+    """#1708: `MATCH (a)-[e]->(b) RETURN b.id, count(a)` (graph-benchmark q1
+    "top-k by in-degree") counts a bare NODE alias other than the projection's
+    active alias. It must route to the bindings-row source and return the true
+    in-degree per `b`, not fail with the misleading "one MATCH" error."""
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3, 4, 7, 8, 9]})
+    # in-degree: node 9 <- {0,1,2,4}=4 ; node 8 <- {3,0}=2 ; node 7 <- {1}=1
+    edges = pd.DataFrame({"s": [0, 1, 2, 3, 0, 1, 4], "d": [9, 9, 9, 8, 8, 7, 9]})
+    graph = _mk_graph(nodes, edges)
+    result = graph.gfql(
+        "MATCH (a)-[e]->(b) RETURN b.id AS id, count(a) AS c ORDER BY c DESC LIMIT 3"
+    )
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": 9, "c": 4},
+        {"id": 8, "c": 2},
+        {"id": 7, "c": 1},
+    ]
+
+
+def test_string_cypher_count_non_active_node_alias_matches_count_star() -> None:
+    """#1708 corollary: `count(<bare node alias>)` equals `count(*)` and
+    `count(<active alias>)` for the same q1 shape (each row binds exactly one of
+    each endpoint), so all three routes agree."""
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3, 8, 9]})
+    edges = pd.DataFrame({"s": [0, 1, 2, 3], "d": [9, 9, 9, 8]})
+    graph = _mk_graph(nodes, edges)
+    tmpl = "MATCH (a)-[e]->(b) RETURN b.id AS id, count({arg}) AS c ORDER BY c DESC LIMIT 3"
+    expected = [{"id": 9, "c": 3}, {"id": 8, "c": 1}]
+    for arg in ("a", "b", "*"):
+        got = graph.gfql(tmpl.format(arg=arg))._nodes.to_dict(orient="records")
+        assert got == expected, f"count({arg}) disagreed: {got}"
+
+
+def test_string_cypher_count_non_active_node_alias_cudf() -> None:
+    """#1708: bindings-route count of a non-active node alias also runs on cudf."""
+    _require_cudf_runtime()
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3, 8, 9]})
+    edges = pd.DataFrame({"s": [0, 1, 2, 3], "d": [9, 9, 9, 8]})
+    result = _mk_cudf_graph(nodes, edges).gfql(
+        "MATCH (a)-[e]->(b) RETURN b.id AS id, count(a) AS c ORDER BY c DESC LIMIT 3"
+    )
+    assert result._nodes.to_pandas().to_dict(orient="records") == [
+        {"id": 9, "c": 3},
+        {"id": 8, "c": 1},
+    ]
+
+
 def test_string_cypher_supports_cartesian_node_only_non_simple_scalar_expression() -> None:
     result = _mk_cartesian_node_graph().gfql(
         "MATCH (n), (m) "
@@ -2517,6 +2564,169 @@ def test_graph_constructor_empty_match_returns_empty_graph() -> None:
     )
     assert len(result._nodes) == 0
     assert len(result._edges) == 0
+
+
+def test_graph_constructor_rejects_node_residual_on_multi_alias_pattern() -> None:
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "score": [0.3, 0.1, None, 0.5],
+        "name": ["alpha", "beta", "gamma", "delta"],
+    })
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+        "weight": [7, 9, 11, 13],
+    })
+
+    with pytest.raises(GFQLValidationError, match="single-node GRAPH MATCH masks"):
+        _mk_graph(nodes, edges).gfql(
+            "GRAPH { MATCH (a)-[r]->(b) WHERE (a.score > 0.25 OR a.score IS NULL) }"
+        )
+
+
+def test_graph_constructor_single_node_residual_alias_marker_overrides_property_column_collision() -> None:
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "a": ["shadow-a", "shadow-b", "shadow-c", "shadow-d"],
+        "score": [0.3, 0.1, None, 0.5],
+    })
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+        "weight": [7, 9, 11, 13],
+    })
+
+    result = _mk_graph(nodes, edges).gfql(
+        "GRAPH { MATCH (a) WHERE (a.score > 0.25 OR a.score IS NULL) }"
+    )
+
+    assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"a", "c", "d"}
+
+
+def test_graph_constructor_applies_single_node_residual_row_predicate_as_graph_mask_cudf() -> None:
+    _require_cudf_runtime()
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "score": [0.3, 0.1, None, 0.5],
+    })
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+        "weight": [7, 9, 11, 13],
+    })
+
+    result = _mk_cudf_graph(nodes, edges).gfql(
+        "GRAPH { MATCH (a) WHERE (a.score > 0.25 OR a.score IS NULL) }",
+        engine="cudf",
+    )
+
+    assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"a", "c", "d"}
+
+
+def test_graph_constructor_residual_row_predicate_declines_on_polars() -> None:
+    pl = pytest.importorskip("polars")
+    nodes = pl.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "score": [0.3, 0.1, None, 0.5],
+    })
+    edges = pl.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+        "weight": [7, 9, 11, 13],
+    })
+
+    with pytest.raises(GFQLValidationError, match="not yet supported on polars"):
+        _CypherTestGraph().nodes(nodes, "id").edges(edges, "s", "d").gfql(
+            "GRAPH { MATCH (a) WHERE (a.score > 0.25 OR a.score IS NULL) }",
+            engine="polars",
+        )
+
+
+def test_graph_constructor_applies_search_any_residual_as_graph_mask() -> None:
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "name": ["alpha", "beta", "gamma", "delta"],
+    })
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+        "weight": [7, 9, 11, 13],
+    })
+
+    result = _mk_graph(nodes, edges).gfql(
+        "GRAPH { MATCH (a) WHERE searchAny(a, 'l') }"
+    )
+
+    assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"a", "d"}
+
+
+def test_graph_constructor_applies_edge_residual_row_predicate_as_graph_mask() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+        "weight": [7, 9, 11, 13],
+    })
+
+    result = _mk_graph(nodes, edges).gfql(
+        "GRAPH { MATCH (a)-[r]->(b) WHERE (r.weight > 8 OR r.weight IS NULL) }"
+    )
+
+    assert set(_to_pandas_df(result._nodes)["id"].tolist()) == {"a", "b", "c", "d"}
+    assert _to_pandas_df(result._edges)[["s", "d", "weight"]].to_dict(orient="records") == [
+        {"s": "b", "d": "c", "weight": 9},
+        {"s": "c", "d": "d", "weight": 11},
+        {"s": "d", "d": "a", "weight": 13},
+    ]
+
+
+def test_graph_constructor_edge_residual_alias_marker_overrides_property_column_collision() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+        "r": ["shadow-r0", "shadow-r1", "shadow-r2", "shadow-r3"],
+        "weight": [7, 9, 11, 13],
+    })
+
+    result = _mk_graph(nodes, edges).gfql(
+        "GRAPH { MATCH (a)-[r]->(b) WHERE (r.weight > 8 OR r.weight IS NULL) }"
+    )
+
+    assert _to_pandas_df(result._edges)[["s", "d", "weight"]].to_dict(orient="records") == [
+        {"s": "b", "d": "c", "weight": 9},
+        {"s": "c", "d": "d", "weight": 11},
+        {"s": "d", "d": "a", "weight": 13},
+    ]
+
+
+def test_graph_binding_applies_residual_mask_before_use() -> None:
+    nodes = pd.DataFrame({
+        "id": ["a", "b", "c", "d"],
+        "score": [0.3, 0.1, None, 0.5],
+    })
+    edges = pd.DataFrame({
+        "s": ["a", "b", "c", "d"],
+        "d": ["b", "c", "d", "a"],
+    })
+
+    result = _mk_graph(nodes, edges).gfql(
+        "GRAPH g = GRAPH { "
+        "MATCH (a) WHERE (a.score > 0.25 OR a.score IS NULL) "
+        "} USE g MATCH (n) RETURN n.id AS id ORDER BY id"
+    )
+
+    assert _to_pandas_df(result._nodes)["id"].tolist() == ["a", "c", "d"]
+
+
+def test_graph_constructor_rejects_pattern_residual_predicates() -> None:
+    nodes = pd.DataFrame({"id": ["a", "b", "c"]})
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], "type": ["R", "S"]})
+
+    with pytest.raises(GFQLValidationError, match="pattern-predicate residuals"):
+        _mk_graph(nodes, edges).gfql(
+            "GRAPH { MATCH (a)-[r]->(b) WHERE (a)-[:R]->() }"
+        )
 
 
 def test_standalone_graph_constructor_preserves_columns() -> None:
@@ -14663,6 +14873,77 @@ def test_issue_1413_ic3_collect_distinct_entity_membership_with_post_aggregate_w
         {"friendId": "friend3", "xCount": 0, "yCount": 1},
         {"friendId": "friend1", "xCount": 1, "yCount": 0},
     ]
+
+
+def _mk_1712_graph() -> "_CypherTestGraph":
+    # p0,p1 have interest Books; p2 has Music; all three LIVES_IN NYC.
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 10, 20, 21],
+        "node_type": ["Person", "Person", "Person", "City", "Interest", "Interest"],
+        "interest": [None, None, None, None, "Books", "Music"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 2, 0, 1, 2],
+        "d": [10, 10, 10, 20, 20, 21],
+        "rel": ["LIVES_IN", "LIVES_IN", "LIVES_IN", "HAS_INTEREST", "HAS_INTEREST", "HAS_INTEREST"],
+    })
+    return cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "id").edges(edges, "s", "d"))
+
+
+@pytest.mark.parametrize("carry", ["WITH p", "WITH p, collect(i.interest) AS ii"])
+def test_issue_1712_subset_with_carry_restricts_second_match(carry: str) -> None:
+    """#1712: the graph-benchmark q5/q6/q7 shape — filter a SUBSET of Person in the
+    first MATCH, carry via WITH, re-MATCH from the carried nodes — must count only the
+    carried subset (p0,p1 have Books → numPersons=2, not 3). The bug: the reentry
+    seed was never wired to the binding-ops build, so `p` re-matched the whole graph.
+    (The coverage gap that let the benchmark shortcuts hide it.)"""
+    result = _mk_1712_graph().gfql(
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}) "
+        "WHERE i.interest = 'Books' "
+        f"{carry} "
+        "MATCH (p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS numPersons"
+    )
+    assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
+
+
+@pytest.mark.parametrize("agg,expected", [
+    ("avg(p.age)", [{"city": "LA", "v": 40.0}, {"city": "NYC", "v": 25.0}]),
+    ("sum(p.age)", [{"city": "LA", "v": 40}, {"city": "NYC", "v": 50}]),
+    ("count(p.age)", [{"city": "LA", "v": 1}, {"city": "NYC", "v": 2}]),
+])
+def test_issue_1273_multi_source_grouped_aggregate(agg: str, expected: list) -> None:
+    """#1273: a CLEAN grouped aggregate `func(<alias>.<prop>)` grouped by another
+    alias's property (graph-benchmark q3 `RETURN c.city, avg(p.age)`) routes to the
+    bindings-row table instead of NIE-ing with 'one MATCH source alias'. p0(20),p1(30)
+    live in NYC; p2(40) lives in LA."""
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 10, 11],
+        "node_type": ["Person", "Person", "Person", "City", "City"],
+        "age": [20, 30, 40, 0, 0],
+        "city": [None, None, None, "NYC", "LA"],
+    })
+    edges = pd.DataFrame({"s": [0, 1, 2], "d": [10, 10, 11],
+                          "rel": ["LIVES_IN", "LIVES_IN", "LIVES_IN"]})
+    graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes, "id").edges(edges, "s", "d"))
+    result = graph.gfql(
+        "MATCH (p {node_type:'Person'})-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        f"RETURN c.city AS city, {agg} AS v ORDER BY city"
+    )
+    assert result._nodes.to_dict(orient="records") == expected
+
+
+def test_issue_1712_connected_comma_pattern_where_intersects() -> None:
+    """#1712: a connected comma-pattern sharing a node alias with a WHERE on a leaf
+    alias must intersect both patterns (the WHERE was silently dropped on the
+    structured-predicate path). Same expected count as the WITH form."""
+    result = _mk_1712_graph().gfql(
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE i.interest = 'Books' "
+        "RETURN count(p) AS numPersons"
+    )
+    assert result._nodes.to_dict(orient="records") == [{"numPersons": 2}]
 
 
 def test_issue_1413_ic3_entity_membership_positive_same_city_friend_only() -> None:

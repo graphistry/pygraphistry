@@ -353,7 +353,7 @@ def _try_native_row_op(g_cur, op):
     from graphistry.Engine import Engine
     from .row_pipeline import (
         select_polars, with_columns_polars, order_by_polars, group_by_polars,
-        unwind_polars, where_rows_polars,
+        unwind_polars, where_rows_polars, binding_rows_polars,
     )
     from .pattern_apply import (
         rows_binding_ops_polars, semi_apply_mark_polars, anti_semi_apply_polars,
@@ -361,6 +361,20 @@ def _try_native_row_op(g_cur, op):
     from .search import search_any_polars
 
     fn = getattr(op, "function", None)
+    if (
+        fn == "rows"
+        and op.params.get("binding_ops") is not None
+        and op.params.get("alias_endpoints") is None
+    ):
+        # Multi-alias bindings table (#1709): native for fixed-length connected
+        # patterns. A decline must fall through to the pre-existing correlated
+        # pattern handler below (EXISTS/searchAny); returning None here would turn
+        # those already-native shapes into an NIE.
+        bindings_result = binding_rows_polars(
+            g_cur, op.params["binding_ops"], op.params.get("attach_prop_aliases")
+        )
+        if bindings_result is not None:
+            return bindings_result
     if _call_native_on_polars(op):
         # frame ops (rows/limit/skip/distinct/drop_cols) — engine-polymorphic
         return op.execute(g=g_cur, prev_node_wavefront=None, target_wave_front=None, engine=Engine.POLARS)
@@ -405,6 +419,11 @@ def _try_native_row_op(g_cur, op):
     if fn == "order_by":
         return order_by_polars(g_cur, op.params.get("keys", []))
     if fn == "group_by":
+        if op.params.get("key_prefixes"):
+            # Whole-row grouping on a bindings table (alias-prefixed key expansion):
+            # silently ignoring key_prefixes would group on the wrong keys — a
+            # wrong answer. Decline until natively ported.
+            return None
         return group_by_polars(g_cur, op.params.get("keys", []), op.params.get("aggregations", []))
     if fn == "unwind":
         return unwind_polars(g_cur, op.params.get("expr", ""), op.params.get("as_", "value"))
@@ -573,6 +592,29 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                 and op.destination_node_match is None and op._name is None
                 and op.source_node_query is None and op.destination_node_query is None
                 and op.edge_query is None and not op.include_zero_hop_seed)
+
+    # GFQL physical index fast path for the seeded single-hop shape
+    # `MATCH (a {id-filter})-[e]->(b)` (forward/reverse, no destination filter) —
+    # the canonical seeded query. This native chain fast path does its own O(E)
+    # semi-join, so it must consult the index here too (not just compute/hop.py).
+    from graphistry.compute.gfql.index import get_index_policy
+    _idx_pol = get_index_policy(self)
+    if (start_nodes is None and len(ops) == 3 and _fp_node(ops[0]) and _plain_edge(ops[1])
+            and _fp_node(ops[2]) and ops[0].filter_dict and not ops[2].filter_dict
+            and ops[1].direction in ("forward", "reverse")):
+        from graphistry.compute.gfql.index import get_registry, maybe_index_hop
+        if (not get_registry(self).is_empty()) or _idx_pol in ("auto", "force"):
+            gf0 = ensure_nodes_polars(self)
+            seed0 = filter_by_dict_polars(gf0._nodes, ops[0].filter_dict)
+            from graphistry.Engine import Engine
+            from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
+            _eng0 = Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else Engine.POLARS
+            _idxed0 = maybe_index_hop(
+                gf0, _eng0, nodes=seed0, hops=1, direction=ops[1].direction,
+                return_as_wave_front=False, to_fixed_point=False, policy=_idx_pol,
+            )
+            if _idxed0 is not None:
+                return _idxed0
 
     if start_nodes is None and len(ops) == 3 and _fp_node(ops[0]) and _plain_edge(ops[1]) and _fp_node(ops[2]):
         n0, e1, n2 = ops

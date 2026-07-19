@@ -9,6 +9,7 @@ from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat,
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
+from .gfql.query_types import GFQLQuery
 from .chain_let import chain_let as chain_let_impl
 from .execution_context import ExecutionContext
 from .gfql.policy import (
@@ -32,6 +33,7 @@ from graphistry.compute.gfql.cypher.lowering import (
     CompiledCypherGraphQuery,
     CompiledCypherQuery,
     CompiledCypherUnionQuery,
+    CompiledGraphResidualFilter,
     ConnectedOptionalMatchPlan,
 )
 from graphistry.compute.gfql.cypher.reentry.execution import (
@@ -65,7 +67,8 @@ from graphistry.compute.gfql.ir.compilation import PhysicalPlan, PlanContext
 from graphistry.compute.gfql.ir.logical_plan import LogicalPlan
 from graphistry.compute.gfql.physical_planner import PhysicalPlanner
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
-from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
+from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
+from graphistry.compute.gfql.search_any import search_any_mask
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
@@ -537,11 +540,101 @@ def _apply_connected_match_join(
     return _chain_dispatch(joined_plottable, plan.post_join_chain, dispatch_engine, policy, context)
 
 
+def _graph_residual_eval_frame(df: DataFrameT, alias: str) -> DataFrameT:
+    return cast(DataFrameT, df.assign(**{alias: True}))
+
+
+def _evaluate_graph_residual_mask(
+    graph: Plottable,
+    df: DataFrameT,
+    residual: CompiledGraphResidualFilter,
+) -> Any:
+    eval_df = _graph_residual_eval_frame(df, residual.alias)
+    for pre_filter in residual.pre_filters:
+        if pre_filter.function != "search_any":
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher GRAPH residual pre-filter is not supported as a graph mask",
+                field="graph_constructor",
+                value=pre_filter.function,
+                language="cypher",
+            )
+        params = pre_filter.params
+        marker_col = cast(str, params.get("out_col"))
+        search_df = eval_df[[
+            col for col in eval_df.columns
+            if not str(col).startswith("__gfql_") and col != residual.alias
+        ]]
+        marker_mask = search_any_mask(
+            cast(DataFrameT, search_df),
+            cast(str, params.get("term")),
+            case_sensitive=bool(params.get("case_sensitive", False)),
+            regex=bool(params.get("regex", False)),
+            columns=cast(Optional[List[str]], params.get("columns")),
+        )
+        if marker_mask is None:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "searchAny columns= includes a column absent from the searched table",
+                field="columns",
+                value=params.get("columns"),
+                suggestion="List only columns present on the searched entity.",
+                language="cypher",
+            )
+        eval_df = cast(DataFrameT, eval_df.assign(**{marker_col: marker_mask}))
+
+    adapter = _RowPipelineAdapter(graph)
+    value = adapter._gfql_eval_string_expr(eval_df, residual.expr)
+    return adapter._gfql_bool_mask(eval_df, value)
+
+
+def _apply_graph_residual_filters(
+    base_graph: Plottable,
+    residual_filters: Tuple[CompiledGraphResidualFilter, ...],
+    *,
+    engine: Union[EngineAbstract, str],
+) -> Plottable:
+    if not residual_filters:
+        return base_graph
+    concrete_engine = resolve_engine(cast(Any, engine), base_graph)
+    if concrete_engine in POLARS_ENGINES:
+        raise GFQLValidationError(
+            ErrorCode.E108,
+            "Cypher GRAPH residual predicates are not yet supported on polars graph execution",
+            field="graph_constructor",
+            value=[residual.expr for residual in residual_filters],
+            suggestion="Use engine='pandas' or engine='cudf' for GRAPH residual predicates.",
+            language="cypher",
+        )
+
+    graph = base_graph
+    for residual in residual_filters:
+        if residual.kind == "node":
+            graph_with_nodes = graph if graph._nodes is not None else graph.materialize_nodes(engine=EngineAbstract(concrete_engine.value))
+            nodes_df = cast(DataFrameT, graph_with_nodes._nodes)
+            node_mask = _evaluate_graph_residual_mask(graph_with_nodes, nodes_df, residual)
+            filtered_nodes = cast(DataFrameT, nodes_df.loc[node_mask])
+            graph = graph_with_nodes.nodes(filtered_nodes)
+            if graph._edges is not None and graph._node is not None and graph._source is not None and graph._destination is not None:
+                node_ids = filtered_nodes[graph._node]
+                edges_df = cast(DataFrameT, graph._edges)
+                edge_mask = edges_df[graph._source].isin(node_ids) & edges_df[graph._destination].isin(node_ids)
+                graph = graph.edges(cast(DataFrameT, edges_df.loc[edge_mask]))
+        else:
+            if graph._edges is None:
+                continue
+            edges_df = cast(DataFrameT, graph._edges)
+            edge_mask = _evaluate_graph_residual_mask(graph, edges_df, residual)
+            graph = graph.edges(cast(DataFrameT, edges_df.loc[edge_mask]))
+    return graph
+
+
 def _execute_graph_constructor_compiled(
     base_graph: Plottable,
     chain: Chain,
     *,
     procedure_call: Any = None,
+    graph_residual_filters: Tuple[CompiledGraphResidualFilter, ...] = (),
     engine: Union[EngineAbstract, str],
     policy: Optional[PolicyDict],
     context: ExecutionContext,
@@ -549,7 +642,10 @@ def _execute_graph_constructor_compiled(
     """Execute a compiled graph constructor (MATCH-based or CALL-based)."""
     if procedure_call is not None:
         return execute_cypher_call(base_graph, procedure_call)
-    return _chain_dispatch(base_graph, chain, engine, policy, context)
+    filtered_graph = _apply_graph_residual_filters(
+        base_graph, graph_residual_filters, engine=engine
+    )
+    return _chain_dispatch(filtered_graph, chain, engine, policy, context)
 
 
 def _resolve_graph_bindings(
@@ -578,6 +674,7 @@ def _resolve_graph_bindings(
         result = _execute_graph_constructor_compiled(
             target_graph, binding.chain,
             procedure_call=binding.procedure_call,
+            graph_residual_filters=binding.graph_residual_filters,
             engine=engine, policy=policy, context=context,
         )
         scope[binding.name.lower()] = result
@@ -604,6 +701,7 @@ def _execute_graph_query(
     return _execute_graph_constructor_compiled(
         target_graph, compiled.chain,
         procedure_call=compiled.procedure_call,
+        graph_residual_filters=compiled.graph_residual_filters,
         engine=engine, policy=policy, context=context,
     )
 
@@ -860,6 +958,23 @@ def _execute_compiled_query_chain_non_union(
             compiled_query=compiled_query,
             engine=engine,
         )
+
+    # #1712: a bounded-reentry main chain that is a binding-ops row pipeline
+    # (rows(binding_ops) -> group_by -> ...) must seed its first alias from the
+    # prefix WITH result. The chain ``start_nodes`` carry that seed, but the binding
+    # builder reads it from ``_gfql_start_nodes`` (propagated through row ops by
+    # row_table). The boundary-call handler only set that for the traversal->suffix-
+    # call shape; an all-call reentry chain otherwise re-matched the carried alias
+    # from the WHOLE graph, dropping the prefix filter (silent wrong count).
+    if start_nodes is not None:
+        _chain_ops = getattr(compiled_query.chain, "chain", None) or []
+        _first_op = _chain_ops[0] if _chain_ops else None
+        if (
+            _first_op is not None
+            and getattr(_first_op, "function", None) == "rows"
+            and getattr(_first_op, "params", {}).get("binding_ops") is not None
+        ):
+            setattr(dispatch_graph, "_gfql_start_nodes", start_nodes)
 
     result = _chain_dispatch(dispatch_graph, compiled_query.chain, engine, policy, context, start_nodes=start_nodes)
     if compiled_query.empty_result_row is not None:
@@ -1179,7 +1294,7 @@ def _materialize_split_alias_columns(
 
 def _gfql_otel_attrs(
     self: Plottable,
-    query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict, str],
+    query: GFQLQuery,
     engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
     output: Optional[str] = None,
     policy: Optional[Dict[str, PolicyFunction]] = None,
@@ -1410,7 +1525,7 @@ def _fire_postcompile_policy(
 
 @otel_traced("gfql.run", attrs_fn=_gfql_otel_attrs)
 def gfql(self: Plottable,
-         query: Union[ASTObject, List[ASTObject], ASTLet, Chain, dict, str],
+         query: GFQLQuery,
          engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
          output: Optional[str] = None,
          policy: Optional[Dict[str, PolicyFunction]] = None,

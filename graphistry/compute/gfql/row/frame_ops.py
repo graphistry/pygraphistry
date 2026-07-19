@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, cast
 import pandas as pd
 
 from graphistry.compute.dataframe_utils import df_cons as template_df_cons
+from graphistry.compute.gfql.row.prefilter import AliasPrefilters
+from graphistry.utils.json import JSONVal
 
 if TYPE_CHECKING:
     from typing import Protocol
@@ -21,7 +23,11 @@ if TYPE_CHECKING:
         _edges: Any
         _edge: Any
         def bind(self) -> "Plottable": ...
-        def _gfql_binding_ops_row_table(self, binding_ops: Any) -> "Plottable": ...
+        def _gfql_binding_ops_row_table(
+            self,
+            binding_ops: List[Dict[str, JSONVal]],
+            alias_prefilters: Optional[AliasPrefilters] = None,
+        ) -> "Plottable": ...
         def _gfql_bindings_row_table(self, alias_endpoints: Any) -> "Plottable": ...
 
 
@@ -142,14 +148,20 @@ def coerce_non_negative_int(value: Any, op_name: str) -> int:
 
 
 def rows(
-    ctx: RowPipelineCtx,
-    table: str = "nodes",
+    ctx: Any,
+    table: Optional[str] = None,
     source: Optional[str] = None,
     alias_endpoints: Optional[Dict[str, str]] = None,
-    binding_ops: Optional[List[Dict[str, Any]]] = None,
+    binding_ops: Optional[List[Dict[str, JSONVal]]] = None,
+    alias_prefilters: Optional[AliasPrefilters] = None,
+    attach_prop_aliases: Optional[List[str]] = None,
 ) -> "Plottable":
     if binding_ops is not None:
-        return cast("Plottable", ctx._gfql_binding_ops_row_table(binding_ops))
+        return ctx._gfql_binding_ops_row_table(
+            binding_ops,
+            alias_prefilters=alias_prefilters,
+            attach_prop_aliases=attach_prop_aliases,
+        )
     if alias_endpoints is not None:
         return cast("Plottable", ctx._gfql_bindings_row_table(alias_endpoints))
 
