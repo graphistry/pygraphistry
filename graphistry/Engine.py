@@ -214,25 +214,11 @@ def _pl_nan_to_null(df):
     polars / Arrow / cuDF input carrying genuine NaN is treated as MISSING like the pandas
     oracle (which skipna/dropna's NaN). Without this, ``engine='polars'`` on a frame with a
     real NaN keeps rows a filter/aggregation should drop (silent divergence from pandas).
-    No-op when there are no float columns.
-
-    Identity-stable: returns the *same* frame object when no float column actually carries a
-    NaN. ``fill_nan(None)`` on a NaN-free column is a value-level no-op but still yields a
-    FRESH frame; that identity churn defeats frame-identity caches keyed on ``source_ref is
-    df`` (the #1658 CSR index) -- see #1726. So we probe for real NaN presence per float
-    column (``is_nan`` only applies to float dtypes, hence the schema gate) and rebuild only
-    when -- and only the columns where -- a NaN is genuinely present. Values are identical to
-    the old unconditional rewrite (``fill_nan(None)`` never touches non-NaN entries)."""
+    No-op when there are no float columns."""
     import polars as pl
     float_cols = [c for c, dt in df.schema.items() if dt in (pl.Float32, pl.Float64)]
     if not float_cols:
         return df
-    if isinstance(df, pl.DataFrame):
-        nan_cols = [c for c in float_cols if df.get_column(c).is_nan().any()]
-        if not nan_cols:
-            return df
-        return df.with_columns([pl.col(c).fill_nan(None) for c in nan_cols])
-    # LazyFrame (rare): no cheap eager NaN probe, keep the original unconditional rewrite.
     return df.with_columns([pl.col(c).fill_nan(None) for c in float_cols])
 
 

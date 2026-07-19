@@ -269,6 +269,22 @@ class RowPipelineMixin:
         return col
 
     @staticmethod
+    def _gfql_coerce_case_branch_dtypes(a: Any, b: Any) -> "Tuple[Any, Any]":  # pragma: no cover - only reached from the cuDF CASE-mixed-dtype retry above; no cuDF coverage lane (validated on dgx)
+        """Cast two CASE branches to a common dtype for engines (cuDF) whose ``.where`` rejects
+        mismatched dtypes, where pandas coerces. Prefer a numeric common type (covers int / float /
+        null — the shortestPath hops branch); fall back to string; last resort return unchanged so
+        the caller re-raises the original error rather than masking an unexpected failure."""
+        for target in ("float64",):
+            try:
+                return a.astype(target), b.astype(target)
+            except Exception:
+                continue
+        try:
+            return a.astype("str"), b.astype("str")
+        except Exception:
+            return a, b
+
+    @staticmethod
     def _gfql_mask_fill(series: Any, mask: Any, value: Any) -> Any:
         out = series.copy()
         has_mask = True
@@ -1676,7 +1692,17 @@ class RowPipelineMixin:
             cond_mask = self._gfql_bool_mask(table_df, cond_value)
             cond_null = self._gfql_null_mask(table_df, cond_value)
             cond_true = cond_mask & ~cond_null
-            return True, true_value.where(cond_true, false_value)
+            try:
+                return True, true_value.where(cond_true, false_value)
+            except TypeError:  # pragma: no cover - cuDF-only (.where mixed-dtype); no cuDF lane in the coverage gate (validated on dgx)
+                # cuDF rejects `.where` across mismatched branch dtypes ("cudf does not support
+                # mixed types"), where pandas coerces to a common type. This surfaced as a hard
+                # GFQLTypeError for e.g. `CASE WHEN path IS NULL THEN -1 ELSE length(path) END`
+                # over an UNREACHABLE shortestPath (the hops branch is an object/null column while
+                # the other branch is int -1). Unify the two branches to a common dtype and retry so
+                # CASE is engine-consistent (cuDF returns -1 like pandas instead of raising).
+                tv, fv = RowPipelineMixin._gfql_coerce_case_branch_dtypes(true_value, false_value)
+                return True, tv.where(cond_true, fv)
 
         if isinstance(node, QuantifierExpr):
             source_ok, list_value = self._gfql_eval_expr_ast(table_df, node.source)
@@ -3815,6 +3841,75 @@ class RowPipelineMixin:
         setattr(out, "_gfql_rows_edge_aliases", edge_aliases)
         return out
 
+    def _gfql_add_missing_binding_columns(
+        self, bindings: DataFrameT, ops: Sequence["ASTObject"]
+    ) -> DataFrameT:
+        """Ensure an EMPTY bindings frame still carries every declared alias column.
+
+        The walk assembles the schema incrementally, so an emptied hop returns a frame that
+        never acquired the columns later steps would have added -- edge-alias columns
+        (``e1.w``) and ``alias.alias`` markers. Node aliases survive via the row-frame merge's
+        empty lookup, but edge aliases have no ``.id`` fallback, so ``count(e1)`` /
+        ``e1.w``-in-WHERE dereferenced a missing column. Declared columns are derivable from
+        ``ops`` + the base edge frame, so add whatever is missing here (0-row only, no effect
+        on non-empty output). See #25/#27.
+        """
+        from graphistry.compute.ast import ASTEdge, ASTNode
+
+        base_graph = self._gfql_base_graph()
+        edges = base_graph._edges if base_graph is not None else None
+        src_col = base_graph._source if base_graph is not None else None
+        dst_col = base_graph._destination if base_graph is not None else None
+        # (column_name, source_series) — carry the source dtype so an edge property like
+        # `e1.w` stays int64 at 0 rows instead of an untyped object column (which would upcast
+        # a sum/avg and escape via UNION ALL). Mirrors the node path's typed empty slice. The
+        # `alias.alias` marker has no source dtype, so None-broadcast is fine for it.
+        missing: List[Tuple[str, Optional[Any]]] = []
+        for op in ops:
+            alias = getattr(op, "_name", None)
+            if not isinstance(alias, str):
+                continue
+            missing.append((f"{alias}.{alias}", None))  # the alias.alias marker
+            if isinstance(op, ASTEdge) and edges is not None:
+                for col in edges.columns:
+                    if col in (src_col, dst_col):
+                        continue
+                    missing.append((f"{alias}.{col}", edges[col]))
+        for col, source in missing:
+            if col not in bindings.columns:
+                if source is not None:
+                    bindings[col] = source.iloc[0:0].reindex(bindings.index)
+                else:
+                    bindings[col] = self._gfql_broadcast_scalar(bindings, None)
+        # Downstream node aliases (every node op after the first) reach the row via a hop
+        # whose unmatched rows introduce NaN, so the non-empty path widens the columns that
+        # cannot hold NaN: numpy int -> float64, numpy bool -> object. The 0-row path sourced
+        # them from the base node frame (int/bool), so match that widening or an emptied
+        # `sum(b.i)`/`max(b.bv)` returns int64/bool where the non-empty run and master give
+        # float64/object -- observable through UNION ALL (#31, Wave 37 Finding 2). Extension
+        # dtypes (`Int64`, `boolean`) hold NA natively and stay put in the non-empty path, so
+        # they must NOT be touched here (widening them re-introduced the divergence -- Wave 37
+        # Finding 1).
+        import pandas as _pd
+
+        node_ops = [op for op in ops if isinstance(op, ASTNode)]
+        for op in node_ops[1:]:
+            alias = getattr(op, "_name", None)
+            if not isinstance(alias, str):
+                continue
+            for col in [c for c in bindings.columns if c == alias or str(c).startswith(f"{alias}.")]:
+                try:
+                    dtype = bindings[col].dtype
+                    if _pd.api.types.is_extension_array_dtype(dtype):
+                        continue
+                    if dtype.kind in ("i", "u"):
+                        bindings[col] = bindings[col].astype("float64")
+                    elif dtype.kind == "b":
+                        bindings[col] = bindings[col].astype("object")
+                except Exception:
+                    continue
+        return bindings
+
     def _gfql_connected_bindings_row_frame_from_state(
         self,
         ops: Sequence["ASTObject"],
@@ -3876,6 +3971,8 @@ class RowPipelineMixin:
 
         drop_cols = ["__current__"]
         bindings = bindings.drop(columns=[col for col in drop_cols if col in bindings.columns])
+        if len(bindings) == 0:
+            bindings = self._gfql_add_missing_binding_columns(bindings, ops)
         return bindings
 
     def _gfql_shortest_path_scalar_native(
@@ -4784,8 +4881,25 @@ class RowPipelineMixin:
 
         if sort_cols:
             try:
-                effective_sort_cols = sort_cols + [row_order_col]
-                effective_ascending = ascending + [True]
+                # openCypher orders NULL as the LARGEST value: ASC -> nulls last, DESC -> nulls
+                # FIRST. pandas/cuDF sort_values `na_position` is a SINGLE scalar (cannot be
+                # per-key) and cuDF has no stable sort, so use a per-key null-indicator column
+                # sorted in the SAME direction as its key: ind = col.isna(); for an ASC key
+                # (ascending=True) True (null) sorts LAST, for a DESC key (ascending=False) True
+                # sorts FIRST. Matches the OLAP fast-path fix and order_by_polars. (Previously
+                # sort_values defaulted na_position='last' for every key, silently returning the
+                # wrong `... DESC LIMIT k` top-k over a column containing NULLs.)
+                interleaved_cols: List[Any] = []
+                interleaved_ascending: List[bool] = []
+                for _i, (_sc, _asc) in enumerate(zip(sort_cols, ascending)):
+                    _ind_col = RowPipelineMixin._gfql_fresh_col_name(
+                        work_df.columns, f"__gfql_sort_nullrank_{_i}__"
+                    )
+                    work_df = work_df.assign(**{_ind_col: work_df[_sc].isna()})
+                    interleaved_cols.extend([_ind_col, _sc])
+                    interleaved_ascending.extend([_asc, _asc])
+                effective_sort_cols = interleaved_cols + [row_order_col]
+                effective_ascending = interleaved_ascending + [True]
                 out_df = work_df.sort_values(by=effective_sort_cols, ascending=effective_ascending)
             except Exception as exc:
                 raise ValueError(

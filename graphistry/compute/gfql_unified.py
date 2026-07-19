@@ -2,8 +2,9 @@
 # ruff: noqa: E501
 
 from dataclasses import replace
+import pandas as pd
 from types import MappingProxyType
-from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union, cast
+from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
 from graphistry.util import setup_logger
@@ -22,12 +23,13 @@ from .gfql.policy import (
     expand_policy
 )
 from graphistry.compute.gfql.same_path_types import (
+    NODE_IDENTITY_COLUMN,
     WhereComparison,
     normalize_where_entries,
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
-from graphistry.compute.gfql.cypher.api import compile_cypher
+from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.cypher.lowering import (
     ConnectedMatchJoinPlan,
     CompiledCypherGraphQuery,
@@ -35,7 +37,9 @@ from graphistry.compute.gfql.cypher.lowering import (
     CompiledCypherUnionQuery,
     CompiledGraphResidualFilter,
     ConnectedOptionalMatchPlan,
+    compile_cypher_query,
 )
+from graphistry.compute.filter_by_dict import _node_dtypes_for_pushdown
 from graphistry.compute.gfql.cypher.reentry.execution import (
     REENTRY_DUPLICATE_CARRIED_ROWS_REASON as _REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
     REENTRY_WHOLE_ROW_SUGGESTION as _REENTRY_WHOLE_ROW_SUGGESTION,
@@ -63,13 +67,14 @@ from graphistry.compute.dataframe import (
     joined_alias_columns as _joined_alias_columns,
     joined_hidden_scalar_columns as _joined_hidden_scalar_columns,
 )
+from graphistry.compute.filter_by_dict import filter_by_dict
 from graphistry.compute.gfql.ir.compilation import PhysicalPlan, PlanContext
 from graphistry.compute.gfql.ir.logical_plan import LogicalPlan
 from graphistry.compute.gfql.physical_planner import PhysicalPlanner
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
 from graphistry.compute.gfql.search_any import search_any_mask
-from graphistry.compute.typing import DataFrameT, SeriesT
+from graphistry.compute.typing import DataFrameT, SeriesT, NodeDtypes
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
@@ -470,6 +475,16 @@ def _apply_connected_optional_match(
     return _chain_dispatch(joined_plottable, plan.post_join_chain, engine, policy, context)
 
 
+
+
+# Fast-path specialization helpers extracted to gfql_fast_paths.py (pure move; #1731).
+from .gfql_fast_paths import (
+    _connected_join_two_star_fast_grouped_count,
+    _connected_join_two_star_fast_rows,
+    _execute_single_hop_grouped_aggregate_fast_path,
+    _execute_two_hop_count_fast_path,
+)
+
 def _apply_connected_match_join(
     base_graph: Plottable,
     plan: ConnectedMatchJoinPlan,
@@ -478,36 +493,85 @@ def _apply_connected_match_join(
     policy: Optional[PolicyDict],
     context: ExecutionContext,
 ) -> Plottable:
-    from graphistry.compute.ast import ASTCall, serialize_binding_ops
+    from graphistry.compute.ast import ASTCall, ASTNode as _ASTNode, serialize_binding_ops
 
     requested_engine = resolve_engine(cast(Any, engine), base_graph)
     dispatch_engine: Union[EngineAbstract, str] = engine
     df_ctor = df_cons(requested_engine)
     node_col = getattr(base_graph, "_node", "id")
 
-    joined_rows: Optional[DataFrameT] = None
-    for idx, pattern_chain in enumerate(plan.pattern_chains):
-        with_rows = Chain(
-            list(pattern_chain.chain) + [ASTCall("rows", {"binding_ops": serialize_binding_ops(pattern_chain.chain)})],
-            where=pattern_chain.where,
-        )
-        pattern_result = _chain_dispatch(base_graph, with_rows, dispatch_engine, policy, context)
-        pattern_rows = cast(Optional[DataFrameT], pattern_result._nodes)
-        if pattern_rows is None or len(pattern_rows) == 0:
+    # One cache scope per connected-join execution: shared across the fast paths but never
+    # persisted on the caller's Plottable, so a second gfql() after an in-place mutation
+    # recomputes instead of returning a stale cached answer (BLOCKER 1).
+    cache_store: Dict[str, Any] = {}
+
+    fast_grouped_count = _connected_join_two_star_fast_grouped_count(base_graph, plan, engine=requested_engine, cache_store=cache_store)
+    if fast_grouped_count is not None:
+        out = base_graph.bind()
+        out._nodes = fast_grouped_count
+        out._edges = df_ctor()
+        return out
+
+    fast_rows = _connected_join_two_star_fast_rows(base_graph, plan, engine=requested_engine, cache_store=cache_store)
+    if fast_rows is not None:
+        if len(fast_rows) == 0:
             out = base_graph.bind()
             out._nodes = df_ctor()
             out._edges = df_ctor()
             return out
-        pattern_rows = cast(DataFrameT, pattern_rows[_binding_join_columns(pattern_rows)])
+        fast_rows = _joined_hidden_scalar_columns(fast_rows)
+        fast_rows = _joined_alias_columns(fast_rows)
+        joined_plottable = base_graph.bind()
+        joined_plottable._nodes = fast_rows
+        joined_plottable._edges = df_ctor()
+        return _chain_dispatch(joined_plottable, plan.post_join_chain, dispatch_engine, policy, context)
+
+    joined_rows: Optional[DataFrameT] = None
+    pattern_attach_prop_aliases = plan.pattern_attach_prop_aliases or tuple(None for _ in plan.pattern_chains)
+    for idx, pattern_chain in enumerate(plan.pattern_chains):
+        rows_params: Dict[str, Any] = {"binding_ops": serialize_binding_ops(pattern_chain.chain)}
+        if idx < len(pattern_attach_prop_aliases) and pattern_attach_prop_aliases[idx] is not None:
+            rows_params["attach_prop_aliases"] = list(cast(Tuple[str, ...], pattern_attach_prop_aliases[idx]))
+        with_rows = Chain(
+            list(pattern_chain.chain) + [ASTCall("rows", rows_params)],
+            where=pattern_chain.where,
+        )
+        pattern_result = _chain_dispatch(base_graph, with_rows, dispatch_engine, policy, context)
+        pattern_rows = cast(Optional[DataFrameT], pattern_result._nodes)
+        if pattern_rows is None:
+            out = base_graph.bind()
+            out._nodes = df_ctor()
+            out._edges = df_ctor()
+            return out
+        # The rows op now emits the full binding schema even at 0 rows (#25), so an emptied
+        # pattern carries its columns and flows through post_join_chain -- which is where the
+        # aggregate RETURN lives; short-circuiting here dropped that column. Beyond the join
+        # columns, rung-3 execution also keeps the bare node-alias columns (e.g. `count(i)`
+        # needs the `i` binding column downstream in post_join_chain).
+        node_aliases = [
+            cast(str, getattr(op, "_name"))
+            for op in pattern_chain.chain
+            if isinstance(op, _ASTNode) and isinstance(getattr(op, "_name", None), str)
+        ]
+        keep_binding_columns = _binding_join_columns(pattern_rows) + [
+            alias for alias in node_aliases if alias in pattern_rows.columns
+        ]
+        pattern_rows = cast(DataFrameT, pattern_rows[keep_binding_columns])
         if joined_rows is None:
             joined_rows = pattern_rows
             continue
         shared_aliases = plan.pattern_shared_node_aliases[idx - 1]
         join_cols = [
-            f"{alias}.{node_col}"
+            alias
             for alias in shared_aliases
-            if f"{alias}.{node_col}" in joined_rows.columns and f"{alias}.{node_col}" in pattern_rows.columns
+            if alias in joined_rows.columns and alias in pattern_rows.columns
         ]
+        if not join_cols:
+            join_cols = [
+                f"{alias}.{node_col}"
+                for alias in shared_aliases
+                if f"{alias}.{node_col}" in joined_rows.columns and f"{alias}.{node_col}" in pattern_rows.columns
+            ]
         if not join_cols:
             raise GFQLValidationError(
                 ErrorCode.E108,
@@ -526,7 +590,7 @@ def _apply_connected_match_join(
             engine=requested_engine,
         )
 
-    if joined_rows is None or len(joined_rows) == 0:
+    if joined_rows is None:
         out = base_graph.bind()
         out._nodes = df_ctor()
         out._edges = df_ctor()
@@ -627,7 +691,6 @@ def _apply_graph_residual_filters(
             edge_mask = _evaluate_graph_residual_mask(graph, edges_df, residual)
             graph = graph.edges(cast(DataFrameT, edges_df.loc[edge_mask]))
     return graph
-
 
 def _execute_graph_constructor_compiled(
     base_graph: Plottable,
@@ -875,6 +938,12 @@ def _execute_compiled_query_via_physical_plan(
         )
 
     if physical_plan.route in ("same_path", "row_pipeline"):
+        fast_grouped = _execute_single_hop_grouped_aggregate_fast_path(base_graph, compiled_query.chain, engine=engine)
+        if fast_grouped is not None:
+            return fast_grouped
+        fast_count = _execute_two_hop_count_fast_path(base_graph, compiled_query.chain, engine=engine)
+        if fast_count is not None:
+            return fast_count
         return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,
@@ -1341,23 +1410,124 @@ def detect_query_type(query: Any) -> QueryType:
         return "single"
 
 
+_COMPILED_STRING_QUERY_CACHE_ATTR = "_gfql_compiled_string_query_cache"
+_COMPILED_STRING_QUERY_CACHE_MAX = 128
+
+
+def _compile_cache_value_key(value: Any) -> Optional[Any]:
+    if value is None:
+        return ("none",)
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, int):
+        return ("int", value)
+    if isinstance(value, float):
+        return ("float", value)
+    if isinstance(value, str):
+        return ("str", value)
+    if isinstance(value, (list, tuple)):
+        items = []
+        for item in value:
+            item_key = _compile_cache_value_key(item)
+            if item_key is None:
+                return None
+            items.append(item_key)
+        return ("list", tuple(items))
+    if isinstance(value, Mapping):
+        items = []
+        seen_keys = set()
+        for key, item in value.items():
+            key_str = str(key)
+            if key_str in seen_keys:
+                return None
+            seen_keys.add(key_str)
+            item_key = _compile_cache_value_key(item)
+            if item_key is None:
+                return None
+            items.append((key_str, item_key))
+        return ("mapping", tuple(sorted(items)))
+    return None
+
+
+def _compile_cache_params_key(params: Optional[Mapping[str, Any]]) -> Optional[Tuple[Tuple[str, Any], ...]]:
+    if not params:
+        return ()
+    items = []
+    seen_keys = set()
+    for key, value in params.items():
+        key_str = str(key)
+        if key_str in seen_keys:
+            return None
+        seen_keys.add(key_str)
+        value_key = _compile_cache_value_key(value)
+        if value_key is None:
+            return None
+        items.append((key_str, value_key))
+    return tuple(sorted(items))
+
+
+def _node_dtypes_cache_key(
+    node_dtypes: Optional[NodeDtypes],
+) -> Optional[Tuple[Tuple[str, str], ...]]:
+    """Hashable key for node_dtypes so the compile cache never reuses an engine-specific
+    pushdown plan across differing dtype views (e.g. pandas numpy dtypes vs polars dtypes)."""
+    if node_dtypes is None:
+        return None
+    return tuple(sorted((str(col), str(dtype)) for col, dtype in node_dtypes.items()))
+
+
+def _compile_string_query_cache(
+    cache_owner: Optional[Plottable],
+) -> Optional[Dict[Tuple[str, str, Tuple[Tuple[str, Any], ...], Optional[Tuple[Tuple[str, str], ...]]], Any]]:
+    if cache_owner is None:
+        return None
+    try:
+        cache = getattr(cache_owner, _COMPILED_STRING_QUERY_CACHE_ATTR, None)
+        if cache is None:
+            cache = {}
+            setattr(cache_owner, _COMPILED_STRING_QUERY_CACHE_ATTR, cache)
+        if isinstance(cache, dict):
+            return cache
+    except Exception:
+        return None
+    return None
+
+
 def _compile_string_query(
     query: str,
     *,
     language: Optional[Literal["cypher", "gremlin"]],
     params: Optional[Mapping[str, Any]],
+    cache_owner: Optional[Plottable] = None,
+    node_dtypes: Optional[NodeDtypes] = None,
 ) -> Any:
     query_language = language or "cypher"
     if query_language != "cypher":
         raise GFQLValidationError(
             ErrorCode.E108,
-            f"Unsupported GFQL string language '{query_language}'",
+            f"Unsupported GFQL string language {query_language!r}",
             field="language",
             value=query_language,
-            suggestion="Use language='cypher' for now; Gremlin string compilation is not implemented yet.",
+            suggestion="Use language=\"cypher\" for now; Gremlin string compilation is not implemented yet.",
             language="gfql",
         )
-    return compile_cypher(query, params=params, _warn_deprecated=False)
+    params_key = _compile_cache_params_key(params)
+    # node_dtypes (from #1730/#1729 pushdown) makes compilation engine-dependent: the same
+    # (query, params) yields a different pushdown plan under pandas vs polars dtypes. The
+    # compile cache (#1731) must therefore key on node_dtypes too, or a plan compiled for one
+    # engine would be wrongly reused for another on the same graph.
+    node_dtypes_key = _node_dtypes_cache_key(node_dtypes)
+    cache = _compile_string_query_cache(cache_owner) if params_key is not None else None
+    cache_key = (query_language, query, params_key, node_dtypes_key) if params_key is not None else None
+    if cache is not None and cache_key is not None and cache_key in cache:
+        return cache[cache_key]
+
+    compiled = compile_cypher_query(parse_cypher(query), params=params, node_dtypes=node_dtypes)
+    if cache is not None and cache_key is not None:
+        if cache_key not in cache and len(cache) >= _COMPILED_STRING_QUERY_CACHE_MAX:
+            cache.clear()
+        cache[cache_key] = compiled
+    return compiled
 
 
 def _compile_value_repr(value: Any) -> str:
@@ -1653,7 +1823,13 @@ def gfql(self: Plottable,
         if isinstance(query, str):
             query_language = language or "cypher"
             try:
-                compiled_query = _compile_string_query(query, language=language, params=params)
+                compiled_query = _compile_string_query(
+                    query,
+                    language=language,
+                    params=params,
+                    cache_owner=dispatch_self,
+                    node_dtypes=_node_dtypes_for_pushdown(self, engine),
+                )
             except GFQLValidationError as exc:
                 _fire_postcompile_policy(
                     expanded_policy,

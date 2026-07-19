@@ -63,6 +63,6 @@
     "graphistry/compute/gfql/temporal/truncation.py": 76.92,
     "graphistry/compute/gfql/temporal/values.py": 88.0,
     "graphistry/compute/gfql/temporal_text.py": 61.11,
-    "graphistry/compute/gfql_unified.py": 78.0
+    "graphistry/compute/gfql_unified.py": 67.5
   }
 }

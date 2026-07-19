@@ -706,9 +706,13 @@ def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
     if lowered is None:
         return None
     exprs, descending = lowered
-    # cypher ORDER BY puts NULLs last; polars defaults to nulls_last=False (pandas sort_values
-    # default puts NaN last only for asc), so set nulls_last=True to match pandas na_position='last'.
-    return _rewrap(g, table.sort(exprs, descending=descending, nulls_last=True))
+    # openCypher orders NULL as the LARGEST value: ASC -> nulls last, DESC -> nulls FIRST.
+    # (Previously hardcoded nulls_last=True, which mis-ordered DESC keys and silently returned
+    # the wrong `... DESC LIMIT k` top-k over a column containing NULLs.) Normalize `descending`
+    # to a per-key list (it may arrive as a scalar bool) so `nulls_last` mirrors it per key.
+    descending_list = descending if isinstance(descending, list) else [descending] * len(exprs)
+    nulls_last = [not d for d in descending_list]
+    return _rewrap(g, table.sort(exprs, descending=descending_list, nulls_last=nulls_last))
 
 
 # Native aggs: count/sum/avg/min/max/count_distinct/collect/collect_distinct; stdev/percentile
@@ -968,6 +972,23 @@ def binding_rows_polars(
                 oriented = edges_f.rename({join_col: "__from__", result_col: "__to__"})
             if payload_renames:
                 oriented = oriented.rename(payload_renames)
+
+            next_op = ops[edge_idx + 1]
+            if not isinstance(next_op, ASTNode):
+                return None
+            next_nodes = filter_by_dict_polars(nodes_lf, next_op.filter_dict)
+            next_node_ids = next_nodes.select(node_id).unique()
+            if not sem.is_multihop:
+                # Filter endpoint candidates before joining from the current state.
+                # For graph-bench q5/q6/q7, pushed Interest/City predicates make
+                # this turn an all-edges scan into a small-domain edge semi-join.
+                oriented = oriented.join(
+                    next_node_ids,
+                    left_on="__to__",
+                    right_on=node_id,
+                    how="semi",
+                )
+
             # Column collision between edge payload and accumulated state → decline
             # (pandas resolves via merge suffixes; unreferenced-by-queries either way).
             overlap = (set(_names(oriented)) - {"__from__"}) & set(_names(state))
@@ -1012,12 +1033,8 @@ def binding_rows_polars(
                     .rename({"__to__": "__current__"})
                 )
 
-            next_op = ops[edge_idx + 1]
-            if not isinstance(next_op, ASTNode):
-                return None
-            next_nodes = filter_by_dict_polars(nodes_lf, next_op.filter_dict)
             state = state.join(
-                next_nodes.select(node_id).unique(),
+                next_node_ids,
                 left_on="__current__",
                 right_on=node_id,
                 how="semi",
@@ -1037,7 +1054,10 @@ def binding_rows_polars(
                 continue  # properties unreferenced — keep only the bare id column
             lookup_src = alias_frames[alias]
             lookup = lookup_src.select(
-                [pl.col(node_id), pl.col(node_id).alias(f"{alias}.{node_id}")]
+                [
+                    pl.col(node_id),
+                    pl.col(node_id).alias(f"{alias}.{node_id}"),
+                ]
                 + [
                     pl.col(col).alias(f"{alias}.{col}")
                     for col in _names(lookup_src)

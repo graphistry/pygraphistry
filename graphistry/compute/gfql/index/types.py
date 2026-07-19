@@ -30,7 +30,6 @@ class IndexTraceStep(TypedDict, total=False):
     seed_deg_sum: Optional[int]
     est_result_rows: Optional[int]
     threshold_frac: float
-    min_frontier_floor: int
 
 
 IndexTrace = List[IndexTraceStep]
