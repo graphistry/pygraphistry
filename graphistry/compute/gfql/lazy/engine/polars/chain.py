@@ -415,12 +415,12 @@ def _try_native_row_op(g_cur, op):
     if fn == "order_by":
         return order_by_polars(g_cur, op.params.get("keys", []))
     if fn == "group_by":
-        if op.params.get("key_prefixes"):
-            # Whole-row grouping on a bindings table (alias-prefixed key expansion):
-            # silently ignoring key_prefixes would group on the wrong keys — a
-            # wrong answer. Decline until natively ported.
-            return None
-        return group_by_polars(g_cur, op.params.get("keys", []), op.params.get("aggregations", []))
+        return group_by_polars(
+            g_cur,
+            op.params.get("keys", []),
+            op.params.get("aggregations", []),
+            key_prefixes=op.params.get("key_prefixes"),
+        )
     if fn == "unwind":
         return unwind_polars(g_cur, op.params.get("expr", ""), op.params.get("as_", "value"))
     if fn == "get_degrees":

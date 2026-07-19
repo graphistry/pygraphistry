@@ -83,6 +83,11 @@ def _resolve_property(alias: str, prop: str, columns: Sequence[str]) -> Optional
     prefixed = f"{alias}.{prop}"
     if prefixed in columns:
         return prefixed
+    if prop == "__gfql_node_id__" and alias in columns:
+        # Whole-entity identity key (#1650 lowering groups by `alias.__gfql_node_id__`).
+        # pandas' bindings table carries it as a join-residue column; the polars table
+        # deliberately doesn't — its value IS the bare alias id column.
+        return alias
     if prop in columns and alias in columns:
         return prop
     return None
@@ -776,12 +781,28 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     return None
 
 
-def group_by_polars(g: Plottable, keys: Sequence[Any], aggregations: Sequence[Any]) -> Optional[Plottable]:
+def group_by_polars(
+    g: Plottable,
+    keys: Sequence[Any],
+    aggregations: Sequence[Any],
+    key_prefixes: Optional[Sequence[Any]] = None,
+) -> Optional[Plottable]:
     """Native polars group-by; None if a key/agg isn't lowerable. Matches pandas dropna=False
     (null keys kept) + non-null agg semantics; output order is first-occurrence (maintain_order),
-    though the parity gate compares order-insensitively."""
+    though the parity gate compares order-insensitively. ``key_prefixes`` mirrors the pandas
+    whole-entity expansion: every ``<prefix>*`` column of the row table joins the key set (the
+    entity's columns are functionally dependent on its identity key, so this only carries them
+    through — group sizes are unchanged)."""
     table = _active_table(g)
     cols = list(table.columns)
+    keys = [str(k) for k in keys]
+    if key_prefixes:
+        seen = set(keys)
+        for prefix in key_prefixes:
+            for col in cols:
+                if isinstance(col, str) and col.startswith(str(prefix)) and col not in seen:
+                    keys.append(col)
+                    seen.add(col)
     if not keys or not all(isinstance(k, str) and k in cols for k in keys):
         return None
     aggs: List[Any] = []
@@ -928,10 +949,6 @@ def binding_rows_polars(
                 return None
             if bool(op.label_seeds) or bool(op.include_zero_hop_seed):
                 return None
-            # Duplicate-id + HAS_<Label> endpoint disambiguation: pandas has a
-            # bespoke candidate-domain rule here; decline rather than diverge.
-            if RowPipelineMixin._gfql_has_edge_destination_label_col(op, nodes.columns) is not None:
-                return None
 
     node_id = str(node_id)
     src = str(src)
@@ -992,6 +1009,19 @@ def binding_rows_polars(
             if not isinstance(next_op, ASTNode):
                 return None
             next_nodes = filter_by_dict_polars(nodes_lf, next_op.filter_dict)
+            # HAS_<Label> destination disambiguation — polars twin of pandas'
+            # _gfql_disambiguate_has_edge_destination_nodes: when an UNLABELED next
+            # node op follows a HAS_<Label>-typed edge and candidate node ids collide
+            # across labels, narrow candidates to that label. Exactly mirrors pandas:
+            # the narrowing applies ONLY under duplicated ids (unique ids keep the
+            # unnarrowed candidate domain), and a labeled next op is left alone.
+            dis_label_col = RowPipelineMixin._gfql_has_edge_destination_label_col(edge_op, nodes.columns)
+            if dis_label_col is not None and not RowPipelineMixin._gfql_node_filter_has_label(next_op.filter_dict):
+                _ids_dup = bool(
+                    next_nodes.select(pl.col(node_id).is_duplicated().any()).collect().item()
+                )
+                if _ids_dup:
+                    next_nodes = next_nodes.filter(pl.col(dis_label_col).fill_null(False))
             next_node_ids = next_nodes.select(node_id).unique()
             if not sem.is_multihop:
                 # Filter endpoint candidates before joining from the current state.
