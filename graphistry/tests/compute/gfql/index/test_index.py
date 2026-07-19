@@ -681,8 +681,6 @@ _TYPED_2HOP = [n({"id": 100}), e_forward({"etype": 1}, hops=1), n(),
 _UNTYPED_CHAIN = [n({"id": 100}), e_forward(hops=1)]
 _MEMBER_CHAIN = [n({"id": 100}), e_forward({"etype": [0, 1]}, hops=1)]
 
-_PANDAS_CUDF = [e for e in ENGINES if e in ("pandas", "cudf")]
-
 
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("chain", [_TYPED_CHAIN, _TYPED_2HOP, _UNTYPED_CHAIN, _MEMBER_CHAIN])
@@ -695,10 +693,11 @@ def test_chain_index_parity_vs_scan(typed_graph, engine, chain):
     assert _sig_typed(base) == _sig_typed(idx)
 
 
-@pytest.mark.parametrize("engine", _PANDAS_CUDF)
-def test_chain_typed_edge_engages_index_pandas_cudf(typed_graph, engine):
-    """pandas/cuDF: a typed-edge (simple-equality edge_match) seeded chain hop ENGAGES
-    the resident #1658 index instead of scanning."""
+@pytest.mark.parametrize("engine", ENGINES)
+def test_chain_typed_edge_engages_index(typed_graph, engine):
+    """All four engines: a typed-edge (simple-equality edge_match) seeded chain hop
+    ENGAGES the resident #1658 index instead of scanning (pandas/cuDF via the eager
+    chain rebind; polars/polars-gpu via the native lazy chain executor rebind)."""
     gi = typed_graph.gfql_index_all(engine=engine)
     rep = gi.gfql_explain(_TYPED_CHAIN, index_policy="use", engine=engine)
     assert rep["used_index"] is True, (engine, rep)
