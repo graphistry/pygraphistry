@@ -7,7 +7,10 @@ import pytest
 import graphistry
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
+from graphistry.Engine import Engine
+
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdge, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
+from graphistry.compute.chain import Chain
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
 from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, col, compare
@@ -39,7 +42,15 @@ from graphistry.compute.gfql.cypher.procedures.networkx import (
 from graphistry.plugins.networkx.policy import NETWORKX_SCIPY_EXTRA_REQUIREMENTS, NETWORKX_VERSION_SPEC, SCIPY_VERSION_SPEC
 from graphistry.compute.gfql.cypher.ast import ExpressionText, OrderByClause, OrderItem, ReturnClause, ReturnItem, SourceSpan
 from graphistry.compute.gfql.cypher.lowering import CompiledCypherExecutionExtras, CompiledCypherGraphQuery, compile_cypher_query
-from graphistry.compute.gfql.cypher.lowering import _logical_plan_route_for_query
+from graphistry.compute.gfql.cypher.lowering import ConnectedMatchJoinPlan, _logical_plan_route_for_query
+from graphistry.compute.gfql_unified import (
+    _connected_join_cached_edge_filter,
+    _connected_join_cached_singleton_dst_source_counts,
+    _connected_join_post_property_columns,
+    _connected_join_two_star_fast_grouped_count,
+    _connected_join_two_star_fast_rows,
+    _connected_join_two_star_split_residuals,
+)
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, SemanticTable
 from graphistry.compute.gfql.ir.compilation import PlanContext
@@ -14936,7 +14947,6 @@ def test_issue_1273_multi_source_grouped_aggregate(agg: str, expected: list) -> 
     assert result._nodes.to_dict(orient="records") == expected
 
 
-
 def test_issue_1712_connected_comma_pattern_where_intersects() -> None:
     """#1712: a connected comma-pattern sharing a node alias with a WHERE on a leaf
     alias must intersect both patterns (the WHERE was silently dropped on the
@@ -15964,7 +15974,9 @@ def test_t1_connected_comma_grouped_projection_attaches_only_city_props() -> Non
 
     plan = _compiled_connected_join_plan(query)
     assert "where_rows" in _post_join_functions(query)
-    assert plan.pattern_attach_prop_aliases == (("i",), ("c",))
+    # `p` is attached because count(p) lowers `p` to its `p.__gfql_node_id__` identity
+    # (connected-plan #1729); the toLower(i.interest) residual attaches `i`.
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("c", "p"))
 
 
 def test_t1_connected_comma_pushes_q5_literal_filters_and_retains_lower_residual() -> None:
@@ -16006,7 +16018,8 @@ def test_t1_connected_comma_pushes_reversed_single_alias_filters_before_join() -
 
     plan = _compiled_connected_join_plan(query)
     assert "where_rows" in _post_join_functions(query)
-    assert plan.pattern_attach_prop_aliases == (("i",), ())
+    # count(p) attaches `p` (identity rewrite, #1729); toLower(i.interest) attaches `i`.
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("p",))
 
     filters_by_alias = _compiled_connected_join_filters(query)
     assert not any("interest" in entry.get("i", {}) for entry in filters_by_alias)
@@ -16028,7 +16041,8 @@ def test_t1_connected_comma_retains_lower_property_plain_lowercase_literal() -> 
 
     plan = _compiled_connected_join_plan(query)
     assert "where_rows" in _post_join_functions(query)
-    assert plan.pattern_attach_prop_aliases == (("i",), ())
+    # count(p) attaches `p` (identity rewrite, #1729); toLower(i.interest) attaches `i`.
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("p",))
 
 
 def test_t1_connected_comma_retains_reversed_uppercase_plain_literal_residual() -> None:
@@ -16045,7 +16059,8 @@ def test_t1_connected_comma_retains_reversed_uppercase_plain_literal_residual() 
 
     plan = _compiled_connected_join_plan(query)
     assert "where_rows" in _post_join_functions(query)
-    assert plan.pattern_attach_prop_aliases == (("i",), ())
+    # count(p) attaches `p` (identity rewrite, #1729); toLower(i.interest) attaches `i`.
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("p",))
 
 
 @pytest.mark.parametrize(
@@ -16094,7 +16109,8 @@ def test_t1_connected_comma_retains_unicode_lower_equality_residual(where_expr: 
 
     plan = _compiled_connected_join_plan(query)
     assert "where_rows" in _post_join_functions(query)
-    assert plan.pattern_attach_prop_aliases == (("i",), ())
+    # count(p) attaches `p` (identity rewrite, #1729); toLower(i.interest) attaches `i`.
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("p",))
 
 
 def test_t1_connected_comma_pushes_q7_range_filters_before_join() -> None:
@@ -16112,13 +16128,616 @@ def test_t1_connected_comma_pushes_q7_range_filters_before_join() -> None:
 
     plan = _compiled_connected_join_plan(query)
     assert "where_rows" in _post_join_functions(query)
-    assert plan.pattern_attach_prop_aliases == (("i",), ("c",))
+    # count(p) attaches `p` (identity rewrite, #1729); toLower(i.interest) attaches `i`.
+    assert plan.pattern_attach_prop_aliases == (("i", "p"), ("c", "p"))
 
     filters_by_alias = _compiled_connected_join_filters(query)
     assert any("age" in entry.get("p", {}) for entry in filters_by_alias)
     assert not any("interest" in entry.get("i", {}) for entry in filters_by_alias)
     assert any(entry.get("c", {}).get("country") == "France" for entry in filters_by_alias)
 
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_q5_global_count_runs_on_pandas_and_polars(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = toLower('fine dining') "
+        "AND toLower(p.gender) = toLower('male') "
+        "AND c.city = 'London' AND c.country = 'United Kingdom' "
+        "RETURN count(p) AS numPersons"
+    )
+
+    result = _mk_graph_benchmark_t1_shape_graph().gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPersons": 1}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_q6_q7_grouped_count_runs_on_pandas_and_polars(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = toLower('fine dining') "
+        "AND p.age >= 23 AND p.age <= 30 "
+        "AND c.country = 'United Kingdom' "
+        "RETURN count(p) AS numPersons, c.state AS state, c.country AS country "
+        "ORDER BY state"
+    )
+
+    result = _mk_graph_benchmark_t1_shape_graph().gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"numPersons": 2, "state": "England", "country": "United Kingdom"}
+    ]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_fast_path_preserves_multiplicity(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": [0, 10, 20],
+        "node_type": ["Person", "City", "Interest"],
+        "gender": ["male", None, None],
+        "city": [None, "London", None],
+        "country": [None, "United Kingdom", None],
+        "state": [None, "England", None],
+        "interest": [None, None, "Fine Dining"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 0, 0, 0],
+        "d": [20, 20, 10, 10],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN"],
+    })
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = toLower('fine dining') "
+        "AND toLower(p.gender) = toLower('male') "
+        "AND c.city = 'London' AND c.country = 'United Kingdom' "
+        "RETURN count(p) AS numPersons"
+    )
+
+    result = _mk_graph(nodes, edges).gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPersons": 4}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_fast_path_groups_second_leaf_props(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": [0, 1, 10, 11, 20],
+        "node_type": ["Person", "Person", "City", "City", "Interest"],
+        "gender": ["female", "female", None, None, None],
+        "city": [None, None, "London", "Bristol", None],
+        "country": [None, None, "United Kingdom", "United Kingdom", None],
+        "state": [None, None, "England", "England", None],
+        "interest": [None, None, None, None, "tennis"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 1, 0, 1],
+        "d": [20, 20, 10, 11],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN"],
+    })
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = toLower('tennis') AND toLower(p.gender) = toLower('female') "
+        "RETURN count(p) AS numPersons, c.city AS city, c.country AS country "
+        "ORDER BY city"
+    )
+
+    result = _mk_graph(nodes, edges).gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"numPersons": 1, "city": "Bristol", "country": "United Kingdom"},
+        {"numPersons": 1, "city": "London", "country": "United Kingdom"},
+    ]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_connected_comma_two_star_direct_count_preserves_multiplicity(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": [0, 10, 20],
+        "node_type": ["Person", "City", "Interest"],
+        "gender": ["male", None, None],
+        "city": [None, "London", None],
+        "country": [None, "United Kingdom", None],
+        "interest": [None, None, "Fine Dining"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 0, 0, 0],
+        "d": [20, 20, 10, 10],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN"],
+    })
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = toLower('fine dining') "
+        "AND toLower(p.gender) = toLower('male') "
+        "AND c.city = 'London' AND c.country = 'United Kingdom' "
+        "RETURN count(p) AS numPersons"
+    )
+    graph = _mk_graph(nodes, edges)
+    plan = _compiled_connected_join_plan(query)
+
+    direct = _connected_join_two_star_fast_grouped_count(graph, plan, engine=Engine(engine))
+    assert direct is not None
+    assert _to_pandas_df(direct).to_dict(orient="records") == [{"numPersons": 4}]
+
+    result = graph.gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPersons": 4}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_connected_comma_two_star_direct_grouped_count_orders_and_limits(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": [0, 1, 10, 11, 20],
+        "node_type": ["Person", "Person", "City", "City", "Interest"],
+        "gender": ["female", "female", None, None, None],
+        "city": [None, None, "London", "Bristol", None],
+        "country": [None, None, "United Kingdom", "United Kingdom", None],
+        "state": [None, None, "England", "England", None],
+        "interest": [None, None, None, None, "tennis"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 0, 1, 0, 1],
+        "d": [20, 20, 20, 10, 11],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN"],
+    })
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = toLower('tennis') AND toLower(p.gender) = toLower('female') "
+        "RETURN count(p) AS numPersons, c.city AS city, c.country AS country "
+        "ORDER BY numPersons DESC, city LIMIT 1"
+    )
+    graph = _mk_graph(nodes, edges)
+    plan = _compiled_connected_join_plan(query)
+
+    direct = _connected_join_two_star_fast_grouped_count(graph, plan, engine=Engine(engine))
+    assert direct is not None
+    assert _to_pandas_df(direct).to_dict(orient="records") == [
+        {"city": "London", "country": "United Kingdom", "numPersons": 2}
+    ]
+
+    result = graph.gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+        {"city": "London", "country": "United Kingdom", "numPersons": 2}
+    ]
+
+
+def test_t9_connected_comma_two_star_direct_polars_native_reuses_node_filter_cache() -> None:
+    pl = pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": [0, 1, 10, 11, 20],
+        "node_type": ["Person", "Person", "City", "City", "Interest"],
+        "gender": ["female", "female", None, None, None],
+        "city": [None, None, "London", "Bristol", None],
+        "country": [None, None, "United Kingdom", "United Kingdom", None],
+        "interest": [None, None, None, None, "tennis"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 0, 1, 0, 1],
+        "d": [20, 20, 20, 10, 11],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN"],
+    })
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        # Plain-equality filters push into filter_dict so this exercises the polars-native
+        # CACHED path (the point of this test). Under connected-plan #1729, toLower(...) lowers
+        # to a post-join where_rows residual that deliberately bypasses the id/count caches
+        # (they key on filter_dict alone), so a residual query would not populate them.
+        "WHERE i.interest = 'tennis' AND p.gender = 'female' "
+        "RETURN count(p) AS numPersons, c.city AS city, c.country AS country "
+        "ORDER BY numPersons DESC, city LIMIT 1"
+    )
+    graph = cast(
+        _CypherTestGraph,
+        _CypherTestGraph().nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d"),
+    )
+    plan = _compiled_connected_join_plan(query)
+
+    # The polars-native cached path populates a PER-EXECUTION cache_store (never the Plottable,
+    # see BLOCKER 1). Threading one store across two calls exercises intra-store reuse: the
+    # cached frames are returned by identity, not recomputed.
+    cache_store: dict = {}
+    expected = [{"city": "London", "country": "United Kingdom", "numPersons": 2}]
+
+    direct = _connected_join_two_star_fast_grouped_count(graph, plan, engine=Engine.POLARS, cache_store=cache_store)
+    assert direct is not None
+    assert _to_pandas_df(direct).to_dict(orient="records") == expected
+
+    node_filter_cache = cache_store["_gfql_connected_join_node_filter_cache"]
+    node_ids_cache = cache_store["_gfql_connected_join_node_ids_cache"]
+    first_arm_cache = cache_store["_gfql_connected_join_first_arm_shared_counts_cache"]
+    second_arm_cache = cache_store["_gfql_connected_join_second_arm_group_rows_cache"]
+    assert len(node_filter_cache) == 2
+    assert len(node_ids_cache) == 3
+    assert len(first_arm_cache) == 1
+    assert len(second_arm_cache) == 1
+    snapshot = {
+        name: {key: id(value) for key, value in sub.items()}
+        for name, sub in cache_store.items()
+    }
+
+    direct_again = _connected_join_two_star_fast_grouped_count(graph, plan, engine=Engine.POLARS, cache_store=cache_store)
+    assert direct_again is not None
+    assert _to_pandas_df(direct_again).to_dict(orient="records") == expected
+    # Same store -> cached frames reused by identity, sizes unchanged.
+    assert {
+        name: {key: id(value) for key, value in sub.items()}
+        for name, sub in cache_store.items()
+    } == snapshot
+
+    # BLOCKER 1: caches must NEVER be persisted on the caller's Plottable (that leaked stale
+    # results across gfql() calls after in-place mutation).
+    assert not [attr for attr in vars(graph) if attr.startswith("_gfql_connected_join")]
+
+    # A fresh execution (no shared store) recomputes from scratch: correct + still no leak.
+    fresh = graph.gfql(query, engine="polars")
+    assert _to_pandas_df(fresh._nodes).to_dict(orient="records") == expected
+    assert not [attr for attr in vars(graph) if attr.startswith("_gfql_connected_join")]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_direct_grouped_count_applies_single_alias_residual(engine: str) -> None:
+    # Connected-plan #1729 lowers toLower(...) equality to a post-join where_rows RESIDUAL
+    # (not a Fullmatch filter_dict push). The structural fast grouped-count must still ENGAGE
+    # and apply that single-alias residual to the first-leaf node set before counting, else it
+    # would over-count. Hand-derived Cypher truth: only i0 ("Fine Dining") matches
+    # toLower(...)='fine dining'; p0 and p1 each reach i0 and live in c0 -> count(p)=2. Without
+    # the residual, p0's second interest (i1) would inflate the London group to 3.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": ["p0", "p1", "i0", "i1", "c0"],
+        "node_type": ["Person", "Person", "Interest", "Interest", "City"],
+        "interest": [None, None, "Fine Dining", "photography", None],
+        "city": [None, None, None, None, "London"],
+    })
+    edges = pd.DataFrame({
+        "s": ["p0", "p0", "p1", "p0", "p1"],
+        "d": ["i0", "i1", "i0", "c0", "c0"],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN"],
+    })
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = toLower('fine dining') "
+        "RETURN count(p) AS n, c.city AS city"
+    )
+    graph = _mk_graph(nodes, edges)
+    plan = _compiled_connected_join_plan(query)
+    assert "where_rows" in _post_join_functions(query)
+
+    # The fast grouped-count engages despite the residual (does not silently decline).
+    direct = _connected_join_two_star_fast_grouped_count(graph, plan, engine=Engine(engine))
+    assert direct is not None
+    assert _to_pandas_df(direct).to_dict(orient="records") == [{"n": 2, "city": "London"}]
+
+    result = graph.gfql(query, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"n": 2, "city": "London"}]
+
+
+def test_t1_connected_comma_two_star_multi_alias_residual_declines_to_slow_path() -> None:
+    # A post-join residual spanning MORE THAN ONE materialized alias cannot be applied to a
+    # single node set, so _connected_join_two_star_split_residuals returns None and the fast
+    # path declines to the (correct) slow path. Verify the split helper declines AND the query
+    # still answers correctly.
+    nodes = pd.DataFrame({
+        "id": ["p0", "p1", "i0", "i1", "c0", "c1"],
+        "node_type": ["Person", "Person", "Interest", "Interest", "City", "City"],
+        "interest": [None, None, "London", "Paris", None, None],
+        "city": [None, None, None, None, "London", "Berlin"],
+    })
+    edges = pd.DataFrame({
+        "s": ["p0", "p1", "p0", "p1"],
+        "d": ["i0", "i1", "c0", "c1"],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN"],
+    })
+    graph = _mk_graph(nodes, edges)
+    # Cross-alias residual: interest string equals the city string (spans i and c).
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE i.interest = c.city RETURN count(p) AS n"
+    )
+    plan = _compiled_connected_join_plan(query)
+    materialized = set()
+    alias_targets = {}
+    for pattern in plan.pattern_chains:
+        for op in pattern.chain:
+            name = getattr(op, "_name", None)
+            if isinstance(op, ASTNode) and isinstance(name, str):
+                materialized.add(name)
+                alias_targets[name] = op
+    assert _connected_join_two_star_split_residuals(plan, alias_targets, materialized) is None
+
+    # Hand-derived truth: only p0 has interest 'London' AND lives in city 'London' -> n=1.
+    assert _to_pandas_df(graph.gfql(query, engine="pandas")._nodes).to_dict(orient="records") == [{"n": 1}]
+
+
+def _mk_two_star_coverage_graph(engine: str) -> Any:
+    # p0 age30 SF, p1 age45 SF, p2 age28 NY; all like i0 (Fine Dining). p1 excluded by age<=40.
+    nodes = pd.DataFrame({
+        "id": ["p0", "p1", "p2", "i0", "c0", "c1"],
+        "node_type": ["Person", "Person", "Person", "Interest", "City", "City"],
+        "age": [30, 45, 28, None, None, None],
+        "score": [1.5, 2.5, 1.5, None, None, None],
+        "active": [True, True, False, None, None, None],
+        "interest": [None, None, None, "Fine Dining", None, None],
+        "city": [None, None, None, None, "SF", "NY"],
+    })
+    edges = pd.DataFrame({
+        "s": ["p0", "p1", "p2", "p0", "p1", "p2"],
+        "d": ["i0", "i0", "i0", "c0", "c0", "c1"],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_range_filter_grouped_count(engine: str) -> None:
+    # Range filter lowers to an AllOf(GE,LE) predicate pushed into the node filter_dict, which
+    # exercises the polars cached fast path's filter-value cache key (composite + scalar-val
+    # predicate branches). Hand-derived truth: p0 (age30,SF) and p2 (age28,NY) pass 25<=age<=40;
+    # p1 (age45) excluded -> SF:1, NY:1.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_two_star_coverage_graph(engine)
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE p.age >= 25 AND p.age <= 40 "
+        "RETURN count(p) AS n, c.city AS city ORDER BY city"
+    )
+    got = _to_pandas_df(graph.gfql(query, engine=engine)._nodes).to_dict(orient="records")
+    assert got == [{"n": 1, "city": "NY"}, {"n": 1, "city": "SF"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_bool_and_float_filters_grouped_count(engine: str) -> None:
+    # Inline bool + float property filters push scalar bool/float values into the node
+    # filter_dict, exercising those filter-value cache-key branches on the polars cached path.
+    # Hand-derived truth: active=true AND score=1.5 -> only p0 (SF). (p2 is score1.5 but
+    # active=false; p1 is active but score2.5.)
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_two_star_coverage_graph(engine)
+    query = (
+        "MATCH (p {node_type:'Person', active: true, score: 1.5})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city ORDER BY city"
+    )
+    got = _to_pandas_df(graph.gfql(query, engine=engine)._nodes).to_dict(orient="records")
+    assert got == [{"n": 1, "city": "SF"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_singleton_leaf_grouped_count(engine: str) -> None:
+    # A single Interest node (i0) makes the first-leaf id set a singleton, exercising the
+    # singleton dst->source count optimization / cached first-arm path. Hand-derived truth:
+    # all three persons like the one interest; grouped by city -> SF:2 (p0,p1), NY:1 (p2).
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_two_star_coverage_graph(engine)
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city ORDER BY n DESC, city"
+    )
+    got = _to_pandas_df(graph.gfql(query, engine=engine)._nodes).to_dict(orient="records")
+    assert got == [{"n": 2, "city": "SF"}, {"n": 1, "city": "NY"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_count_star_uses_fast_rows(engine: str) -> None:
+    # count(*) references no alias identity, so fast_rows materializes the joined rows and
+    # post_join counts them. Hand-derived truth: one (p,i,c) row per person (each likes i0 and
+    # lives in one city) -> 3 rows -> count(*) = 3.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_two_star_coverage_graph(engine)
+    direct = _connected_join_two_star_fast_rows(
+        graph, _compiled_connected_join_plan(
+            "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+            "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) RETURN count(*) AS n"
+        ), engine=Engine(engine),
+    )
+    assert direct is not None  # fast_rows engages for count(*)
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) RETURN count(*) AS n"
+    )
+    assert _to_pandas_df(graph.gfql(query, engine=engine)._nodes).to_dict(orient="records") == [{"n": 3}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_unsupported_aggregate_shapes_fall_back(engine: str) -> None:
+    # Shapes the fast grouped-count does not serve (two aggregates; a non-count aggregate) must
+    # DECLINE to the slow path and still answer correctly. Verifies the decline guards + fallback.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_two_star_coverage_graph(engine)
+    base = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+    )
+    two_agg = base + "RETURN count(p) AS n, count(DISTINCT c) AS m"
+    plan = _compiled_connected_join_plan(two_agg)
+    assert _connected_join_two_star_fast_grouped_count(graph, plan, engine=Engine(engine)) is None
+    if engine == "pandas":
+        # count(p)=3 persons; count(DISTINCT c)=2 (SF, NY).
+        assert _to_pandas_df(graph.gfql(two_agg, engine=engine)._nodes).to_dict(orient="records") == [{"n": 3, "m": 2}]
+        # Non-count aggregate (sum) grouped by city -> SF 30+45=75, NY 28.
+        got = _to_pandas_df(graph.gfql(base + "RETURN sum(p.age) AS s, c.city AS city ORDER BY city", engine=engine)._nodes).to_dict(orient="records")
+        assert got == [{"s": 28.0, "city": "NY"}, {"s": 75.0, "city": "SF"}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t1_connected_comma_two_star_grouped_count_order_asc_limit(engine: str) -> None:
+    # Exercises the fast grouped-count ORDER BY (asc) + LIMIT branch. SF:2, NY:1; ORDER BY city
+    # ASC LIMIT 1 -> NY.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_two_star_coverage_graph(engine)
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city ORDER BY city ASC LIMIT 1"
+    )
+    assert _to_pandas_df(graph.gfql(query, engine=engine)._nodes).to_dict(orient="records") == [{"n": 1, "city": "NY"}]
+
+
+def test_t1_connected_comma_two_star_count_second_leaf_alias_no_crash() -> None:
+    # Regression: count(c)/count(DISTINCT c) lower `c` to c.__gfql_node_id__ (identity), which
+    # fast_rows cannot materialize as a node property -- it must DECLINE to the slow path rather
+    # than emit a frame that makes post_join's count(c.__gfql_node_id__) dereference a missing
+    # column (previously a GFQLTypeError crash on pandas). Slow-path truth: 3 (p,i,c) rows
+    # (p0->c0, p1->c0, p2->c1) -> count(c)=3, count(DISTINCT c)=2 (c0, c1).
+    graph = _mk_two_star_coverage_graph("pandas")
+    base = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+    )
+    # fast_rows declines (identity of the second leaf is not a materializable property).
+    assert _connected_join_two_star_fast_rows(
+        graph, _compiled_connected_join_plan(base + "RETURN count(c) AS n"), engine=Engine.PANDAS
+    ) is None
+    assert _to_pandas_df(graph.gfql(base + "RETURN count(c) AS n", engine="pandas")._nodes).to_dict(orient="records") == [{"n": 3}]
+    assert _to_pandas_df(graph.gfql(base + "RETURN count(DISTINCT c) AS n", engine="pandas")._nodes).to_dict(orient="records") == [{"n": 2}]
+
+
+def test_t1_connected_comma_two_star_no_stale_cache_after_inplace_edge_mutation() -> None:
+    # BLOCKER 1: the fast-path caches were setattr'd onto the caller's Plottable and keyed by
+    # id(), so a second gfql() after an in-place edge mutation returned a STALE wrong answer.
+    # The per-execution cache_store fix must recompute on the second call (and never leak a
+    # cache attribute onto the Plottable).
+    nodes = pd.DataFrame({
+        "id": ["p0", "p1", "i0", "c0", "c1"],
+        "node_type": ["Person", "Person", "Interest", "City", "City"],
+        "city": [None, None, None, "SF", "NY"],
+    })
+    edges = pd.DataFrame({
+        "s": ["p0", "p1", "p0", "p1"],
+        "d": ["i0", "i0", "c0", "c1"],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN"],
+    })
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city"
+    )
+
+    def rows(res: Any) -> Any:
+        return sorted(_to_pandas_df(res._nodes).to_dict(orient="records"), key=lambda r: str(r["city"]))
+
+    assert rows(g.gfql(query, engine="pandas")) == [{"n": 1, "city": "NY"}, {"n": 1, "city": "SF"}]
+    assert not [attr for attr in vars(g) if attr.startswith("_gfql_connected_join")]
+
+    # Drop the p1->c1 (NY) LIVES_IN edge in place on the SAME edge object g holds by reference.
+    ny_idx = edges.index[(edges["s"] == "p1") & (edges["d"] == "c1")]
+    edges.drop(index=ny_idx, inplace=True)
+    assert g._edges is edges  # the fix must not depend on this being false
+
+    # Truth after the mutation: only SF remains.
+    assert rows(g.gfql(query, engine="pandas")) == [{"n": 1, "city": "SF"}]
+    assert not [attr for attr in vars(g) if attr.startswith("_gfql_connected_join")]
+
+
+def test_t1_connected_comma_two_star_polars_grouped_count_orders_nulls_as_largest() -> None:
+    pl = pytest.importorskip("polars")
+    # BLOCKER 3: the polars fast grouped-count sort omitted nulls_last, and polars defaults to
+    # nulls-first. openCypher orders NULL as the largest value, so ASC ... LIMIT 1 must return
+    # the smallest NON-null group key (NY), not the NULL-city group.
+    nodes = pl.DataFrame({
+        "id": ["p0", "p1", "p2", "i0", "c0", "c1", "c2"],
+        "node_type": ["Person", "Person", "Person", "Interest", "City", "City", "City"],
+        "city": [None, None, None, None, "NY", "SF", None],
+    })
+    edges = pl.DataFrame({
+        "s": ["p0", "p1", "p2", "p0", "p1", "p2"],
+        "d": ["i0", "i0", "i0", "c0", "c1", "c2"],
+        "rel": ["HAS_INTEREST", "HAS_INTEREST", "HAS_INTEREST", "LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city ORDER BY city ASC LIMIT 1"
+    )
+    assert _to_pandas_df(g.gfql(query, engine="polars")._nodes).to_dict(orient="records") == [{"n": 1, "city": "NY"}]
+
+
+def test_t1_connected_comma_two_star_polars_grouped_count_dedups_duplicate_node_rows() -> None:
+    pl = pytest.importorskip("polars")
+    # IMPORTANT: the polars second-leaf lookup lacked .unique(subset=[node_col]) (the pandas
+    # branch drop_duplicates it), so a duplicate node row multiplied the join and over-counted.
+    nodes = pl.DataFrame({
+        "id": ["p0", "i0", "c0", "c0"],  # c0 duplicated
+        "node_type": ["Person", "Interest", "City", "City"],
+        "city": [None, None, "SF", "SF"],
+    })
+    edges = pl.DataFrame({
+        "s": ["p0", "p0"],
+        "d": ["i0", "c0"],
+        "rel": ["HAS_INTEREST", "LIVES_IN"],
+    })
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN count(p) AS n, c.city AS city"
+    )
+    # Truth: one (p0,i0,c0) match -> SF n=1 (the duplicate c0 node row must not inflate it).
+    assert _to_pandas_df(g.gfql(query, engine="polars")._nodes).to_dict(orient="records") == [{"n": 1, "city": "SF"}]
+
+
+def test_t1_connected_comma_two_star_fast_path_rejects_first_leaf_props() -> None:
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "WHERE toLower(i.interest) = toLower('fine dining') "
+        "RETURN i.interest AS interest, count(p) AS numPersons"
+    )
+
+    plan = _compiled_connected_join_plan(query)
+    assert _connected_join_two_star_fast_rows(_mk_graph_benchmark_t1_shape_graph(), plan, engine=Engine.PANDAS) is None
+
+
+def test_t1_connected_comma_edge_filter_cache_reuses_simple_edge_match() -> None:
+    graph = _mk_graph_benchmark_t1_shape_graph()
+    edges = graph._edges
+    assert edges is not None
+
+    # Reuse is scoped to a per-execution cache_store (never the Plottable, see BLOCKER 1):
+    # two calls sharing the store return the identical cached frame.
+    cache_store: dict = {}
+    first = _connected_join_cached_edge_filter(graph, edges, {"rel": "HAS_INTEREST"}, engine=Engine.PANDAS, cache_store=cache_store)
+    second = _connected_join_cached_edge_filter(graph, edges, {"rel": "HAS_INTEREST"}, engine=Engine.PANDAS, cache_store=cache_store)
+
+    assert first is second
+    assert set(first["rel"].unique()) == {"HAS_INTEREST"}
+    # No cache attribute is persisted on the Plottable.
+    assert not [attr for attr in vars(graph) if attr.startswith("_gfql_connected_join")]
+
+    # Without a shared store, calls do not leak or cross-contaminate (fresh compute each time).
+    isolated = _connected_join_cached_edge_filter(graph, edges, {"rel": "HAS_INTEREST"}, engine=Engine.PANDAS)
+    assert set(isolated["rel"].unique()) == {"HAS_INTEREST"}
+    assert not [attr for attr in vars(graph) if attr.startswith("_gfql_connected_join")]
 
 
 def test_issue_1413_ic3_entity_membership_positive_same_city_friend_only() -> None:
@@ -18703,6 +19322,31 @@ def test_count_table_frame_op_error_and_empty_paths() -> None:
     assert ctx3._nodes is None and ctx3._edges is None
     out3 = frame_ops.count_table(ctx3, table="nodes", alias="c")
     assert out3._nodes.to_dict(orient="records") == [{"c": 0}]
+
+
+def test_connected_join_post_property_columns_walks_nested_params() -> None:
+    plan = ConnectedMatchJoinPlan(
+        pattern_chains=(),
+        pattern_shared_node_aliases=(),
+        post_join_chain=Chain(
+            [
+                ASTCall(
+                    "select",
+                    {
+                        "items": [
+                            ("city", "a.city"),
+                            ("nested", {"left": ["a.country", "b.age", "a.city"]}),
+                        ]
+                    },
+                ),
+            ],
+            validate=False,
+        ),
+    )
+
+    assert _connected_join_post_property_columns(plan, "a") == ["city", "country"]
+    assert _connected_join_post_property_columns(plan, "b") == ["age"]
+
 
 def test_string_cypher_parenthesized_and_preserves_missing_property_as_null() -> None:
     # A parenthesized AND must stay on the row-filter path, not the filter_dict path:

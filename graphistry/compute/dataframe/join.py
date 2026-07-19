@@ -3,7 +3,7 @@
 import operator
 from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
-from graphistry.Engine import Engine
+from graphistry.Engine import Engine, POLARS_ENGINES
 from graphistry.compute.typing import DataFrameT, DomainT
 
 
@@ -20,8 +20,14 @@ def joined_hidden_scalar_columns(frame: DataFrameT) -> DataFrameT:
         if suffix.startswith("__cypher_reentry_") or suffix.startswith("__gfql_hidden_"):
             hidden_suffixes.setdefault(suffix, []).append(column)
     out = frame
+    is_polars = "polars" in type(frame).__module__
     for suffix, columns in hidden_suffixes.items():
         if suffix in out.columns:
+            continue
+        if is_polars:
+            import polars as pl
+            expr = pl.coalesce([pl.col(column) for column in columns]).alias(suffix)
+            out = out.with_columns(expr)
             continue
         series = out[columns[0]]
         for column in columns[1:]:
@@ -44,6 +50,13 @@ def joined_alias_columns(frame: DataFrameT) -> DataFrameT:
         elif suffix == "id" and alias not in alias_candidates:
             alias_candidates[alias] = column
     out = frame
+    is_polars = "polars" in type(frame).__module__
+    if is_polars and alias_candidates:
+        import polars as pl
+        return cast(DataFrameT, out.with_columns([
+            pl.col(source_column).alias(alias)
+            for alias, source_column in alias_candidates.items()
+        ]))
     for alias, source_column in alias_candidates.items():
         out = out.assign(**{alias: out[source_column]})
     return out
@@ -65,6 +78,8 @@ def connected_inner_join_rows(
     join_cols_list = list(join_cols)
     keep_cols_list = list(keep_cols)
     rhs = cast(DataFrameT, pattern_rows[keep_cols_list])
+    if engine in POLARS_ENGINES:
+        return cast(DataFrameT, joined_rows.join(rhs, on=join_cols_list, how="inner"))
     if engine != Engine.CUDF:
         return cast(DataFrameT, joined_rows.merge(rhs, on=join_cols_list, how="inner"))
 

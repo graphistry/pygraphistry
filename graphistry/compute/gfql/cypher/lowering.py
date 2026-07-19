@@ -8209,6 +8209,13 @@ def _connected_join_required_property_aliases(
             return None
         required.update(alias for alias in non_aggregate_aliases if alias in node_aliases)
         required.update(alias for alias in prop_aliases if alias in node_aliases)
+        # A bare node alias used *inside* an aggregate (e.g. ``count(p)`` /
+        # ``count(DISTINCT p)``) is rewritten by _connected_join_alias_identity_expr to
+        # ``p.__gfql_node_id__``, so its identity column must still be attached even though
+        # it is neither a non-aggregate use nor a property access. Attaching by alias here
+        # is a no-op when the alias is already required via a property access (e.g.
+        # ``count(p.age)``); it only adds the otherwise-missing bare-aggregate case.
+        required.update(alias for alias in _aggregate_aliases if alias in node_aliases)
     return required
 
 
