@@ -93,6 +93,21 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
     parity-verified mappings admitted; anything else returns None (caller NIEs, never guesses)."""
     import polars as pl  # function-local: polars is an optional dependency
     name = node.name.lower()
+    if name == "__cypher_case_eq__" and len(node.args) == 2:
+        # Simple-CASE equality marker (`CASE x WHEN v`). Cypher/pandas semantics:
+        # null matches null (NOT 3-valued suppressed). Lower ONLY the null-literal
+        # forms (`CASE x WHEN null` = the LDBC IS7 shape) as the other side's
+        # null-mask, exactly like the pandas evaluator; the general form carries
+        # pandas' bool/numeric cross-dtype rules — decline it rather than diverge.
+        from graphistry.compute.gfql.expr_parser import Literal as _Lit
+        a_node, b_node = node.args
+        if isinstance(b_node, _Lit) and b_node.value is None:
+            a = lower_expr(a_node, columns)
+            return None if a is None else a.is_null()
+        if isinstance(a_node, _Lit) and a_node.value is None:
+            b = lower_expr(b_node, columns)
+            return None if b is None else b.is_null()
+        return None
     args: List[pl.Expr] = []
     for arg in node.args:
         lowered = lower_expr(arg, columns)

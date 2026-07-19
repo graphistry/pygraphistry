@@ -45,11 +45,12 @@ def _nodes_pd() -> pd.DataFrame:
 
 
 def _edges_pd() -> pd.DataFrame:
+    # message creator (12) KNOWS alice (10) but not bob (11) -> discriminating flags
     return pd.DataFrame({
-        "src": [2, 3, 2, 3, 1, 10, 11],
-        "dst": [1, 1, 10, 11, 12, 11, 10],
+        "src": [2, 3, 2, 3, 1, 10, 11, 12],
+        "dst": [1, 1, 10, 11, 12, 11, 10, 10],
         "type": ["REPLY_OF", "REPLY_OF", "HAS_CREATOR", "HAS_CREATOR", "HAS_CREATOR",
-                 "KNOWS", "KNOWS"],
+                 "KNOWS", "KNOWS", "KNOWS"],
     })
 
 
@@ -58,8 +59,8 @@ def test_optional_match_pandas_oracle() -> None:
     res = g.gfql(IS7_SHAPED, params={"messageId": 1}, engine="pandas")
     rows = res._nodes.reset_index(drop=True)
     assert list(rows["commentId"]) == [3, 2]
-    # message creator (12) KNOWS nobody -> flag false on both rows
-    assert list(rows["replyAuthorKnowsOriginalMessageAuthor"]) == [False, False]
+    # creator (12) KNOWS alice (10) but not bob (11): discriminating flags
+    assert list(rows["replyAuthorKnowsOriginalMessageAuthor"]) == [False, True]
 
 
 IS7_SHAPED_NO_CASE = """
@@ -87,7 +88,11 @@ def test_optional_match_polars_native_end_to_end() -> None:
 
 @pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
 def test_optional_match_polars_no_pandasism_crash() -> None:
-    """Full IS7 (CASE projection) must run or honestly decline — never a pandas-ism crash."""
+    """Full IS7 (CASE r WHEN null projection) runs natively on polars, oracle-exact.
+
+    The simple-CASE null-literal equality (`__cypher_case_eq__(x, null)`) lowers to
+    `is_null()` on polars (pandas-parity null-mask semantics). If a future edit
+    re-declines it, the honest NIE branch keeps this from crashing dishonestly."""
     nodes = pl.from_pandas(_nodes_pd())
     edges = pl.from_pandas(_edges_pd())
     g = graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
@@ -98,4 +103,4 @@ def test_optional_match_polars_no_pandasism_crash() -> None:
     rows = res._nodes.to_pandas() if hasattr(res._nodes, "to_pandas") else res._nodes
     rows = rows.reset_index(drop=True)
     assert list(rows["commentId"]) == [3, 2]
-    assert list(rows["replyAuthorKnowsOriginalMessageAuthor"]) == [False, False]
+    assert list(rows["replyAuthorKnowsOriginalMessageAuthor"]) == [False, True]
