@@ -241,6 +241,22 @@ class RowPipelineMixin:
         return col
 
     @staticmethod
+    def _gfql_coerce_case_branch_dtypes(a: Any, b: Any) -> "Tuple[Any, Any]":
+        """Cast two CASE branches to a common dtype for engines (cuDF) whose ``.where`` rejects
+        mismatched dtypes, where pandas coerces. Prefer a numeric common type (covers int / float /
+        null — the shortestPath hops branch); fall back to string; last resort return unchanged so
+        the caller re-raises the original error rather than masking an unexpected failure."""
+        for target in ("float64",):
+            try:
+                return a.astype(target), b.astype(target)
+            except Exception:
+                continue
+        try:
+            return a.astype("str"), b.astype("str")
+        except Exception:
+            return a, b
+
+    @staticmethod
     def _gfql_mask_fill(series: Any, mask: Any, value: Any) -> Any:
         out = series.copy()
         has_mask = True
@@ -1648,7 +1664,17 @@ class RowPipelineMixin:
             cond_mask = self._gfql_bool_mask(table_df, cond_value)
             cond_null = self._gfql_null_mask(table_df, cond_value)
             cond_true = cond_mask & ~cond_null
-            return True, true_value.where(cond_true, false_value)
+            try:
+                return True, true_value.where(cond_true, false_value)
+            except TypeError:
+                # cuDF rejects `.where` across mismatched branch dtypes ("cudf does not support
+                # mixed types"), where pandas coerces to a common type. This surfaced as a hard
+                # GFQLTypeError for e.g. `CASE WHEN path IS NULL THEN -1 ELSE length(path) END`
+                # over an UNREACHABLE shortestPath (the hops branch is an object/null column while
+                # the other branch is int -1). Unify the two branches to a common dtype and retry so
+                # CASE is engine-consistent (cuDF returns -1 like pandas instead of raising).
+                tv, fv = RowPipelineMixin._gfql_coerce_case_branch_dtypes(true_value, false_value)
+                return True, tv.where(cond_true, fv)
 
         if isinstance(node, QuantifierExpr):
             source_ok, list_value = self._gfql_eval_expr_ast(table_df, node.source)
