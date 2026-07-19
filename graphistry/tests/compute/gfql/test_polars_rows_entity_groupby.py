@@ -90,3 +90,55 @@ def test_ic4_shaped_polars_native_parity() -> None:
     rows = res._nodes.to_pandas() if hasattr(res._nodes, "to_pandas") else res._nodes
     rows = rows.reset_index(drop=True)
     assert list(zip(rows["tagName"], rows["postCount"])) == EXPECTED
+
+
+TAG_SCAN = """
+MATCH (post:Post {id: $postId })-[:HAS_TAG]->(tag)
+RETURN tag.name AS tagName
+ORDER BY tagName
+"""
+
+
+def _disambiguation_frames():
+    # Node id 500 is duplicated across Tag/Forum but UNREACHABLE from post 600's hop;
+    # reached ids {201, 300} are unique -> pandas does NOT narrow, so the unlabeled
+    # `tag` op binds the Forum node 300 too. Node id 400 IS duplicated among reached
+    # (Tag row + Forum row) from post 601 -> pandas narrows to the Tag row only.
+    nodes = pd.DataFrame({
+        "id": [600, 601, 201, 300, 400, 400, 500, 500],
+        "label__Post": [True, True, False, False, False, False, False, False],
+        "label__Tag": [False, False, True, False, True, False, True, False],
+        "label__Forum": [False, False, False, True, False, True, False, True],
+        "name": [None, None, "t1", "f-node", "t4", "f4", "t5", "f5"],
+    })
+    edges = pd.DataFrame({
+        "src": [600, 600, 601],
+        "dst": [201, 300, 400],
+        "type": ["HAS_TAG", "HAS_TAG", "HAS_TAG"],
+    })
+    return nodes, edges
+
+
+@pytest.mark.parametrize("engine", ["pandas"] + (["polars"] if HAS_POLARS else []))
+def test_has_label_narrowing_skipped_when_reached_ids_unique(engine: str) -> None:
+    """Global id collisions must NOT trigger narrowing when the REACHED ids are unique
+    (pandas probes duplicates on candidate_source ∩ wavefront, not the whole table)."""
+    nodes, edges = _disambiguation_frames()
+    if engine == "polars":
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    g = graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+    res = g.gfql(TAG_SCAN, params={"postId": 600}, engine=engine)
+    rows = res._nodes.to_pandas() if hasattr(res._nodes, "to_pandas") else res._nodes
+    assert sorted(rows["tagName"]) == ["f-node", "t1"]
+
+
+@pytest.mark.parametrize("engine", ["pandas"] + (["polars"] if HAS_POLARS else []))
+def test_has_label_narrowing_applies_on_reached_collision(engine: str) -> None:
+    """A reached id colliding across labels narrows the unlabeled op to the HAS_<Label> label."""
+    nodes, edges = _disambiguation_frames()
+    if engine == "polars":
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    g = graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+    res = g.gfql(TAG_SCAN, params={"postId": 601}, engine=engine)
+    rows = res._nodes.to_pandas() if hasattr(res._nodes, "to_pandas") else res._nodes
+    assert sorted(rows["tagName"]) == ["t4"]

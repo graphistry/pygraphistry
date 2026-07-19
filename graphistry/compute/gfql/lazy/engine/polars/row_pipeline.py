@@ -1009,19 +1009,6 @@ def binding_rows_polars(
             if not isinstance(next_op, ASTNode):
                 return None
             next_nodes = filter_by_dict_polars(nodes_lf, next_op.filter_dict)
-            # HAS_<Label> destination disambiguation — polars twin of pandas'
-            # _gfql_disambiguate_has_edge_destination_nodes: when an UNLABELED next
-            # node op follows a HAS_<Label>-typed edge and candidate node ids collide
-            # across labels, narrow candidates to that label. Exactly mirrors pandas:
-            # the narrowing applies ONLY under duplicated ids (unique ids keep the
-            # unnarrowed candidate domain), and a labeled next op is left alone.
-            dis_label_col = RowPipelineMixin._gfql_has_edge_destination_label_col(edge_op, nodes.columns)
-            if dis_label_col is not None and not RowPipelineMixin._gfql_node_filter_has_label(next_op.filter_dict):
-                _ids_dup = bool(
-                    next_nodes.select(pl.col(node_id).is_duplicated().any()).collect().item()
-                )
-                if _ids_dup:
-                    next_nodes = next_nodes.filter(pl.col(dis_label_col).fill_null(False))
             next_node_ids = next_nodes.select(node_id).unique()
             if not sem.is_multihop:
                 # Filter endpoint candidates before joining from the current state.
@@ -1084,6 +1071,36 @@ def binding_rows_polars(
                 right_on=node_id,
                 how="semi",
             )
+            # HAS_<Label> destination disambiguation — polars twin of pandas'
+            # _gfql_disambiguate_has_edge_destination_nodes at its exact call site:
+            # forward single-hop only, and the duplicate probe runs on the REACHED
+            # candidate domain (full node table ∩ post-hop wavefront, pre-filter_dict
+            # — pandas' candidate_source ∩ state), NOT the whole node table. Only
+            # when ids collide there does the unlabeled next op narrow to the edge's
+            # HAS_<Label> label; unique reached ids keep the unnarrowed domain.
+            dis_label_col = RowPipelineMixin._gfql_has_edge_destination_label_col(edge_op, nodes.columns)
+            if (
+                dis_label_col is not None
+                and not sem.is_multihop
+                and edge_op.direction == "forward"
+                and not RowPipelineMixin._gfql_node_filter_has_label(next_op.filter_dict)
+            ):
+                reached_ids = state.select(pl.col("__current__").alias(node_id)).unique()
+                _reached_dup = bool(
+                    nodes_lf.select(node_id)
+                    .join(reached_ids, on=node_id, how="semi")
+                    .select(pl.col(node_id).is_duplicated().any())
+                    .collect()
+                    .item()
+                )
+                if _reached_dup:
+                    next_nodes = next_nodes.filter(pl.col(dis_label_col).fill_null(False))
+                    state = state.join(
+                        next_nodes.select(node_id).unique(),
+                        left_on="__current__",
+                        right_on=node_id,
+                        how="semi",
+                    )
             next_alias = next_op._name
             if isinstance(next_alias, str):
                 state = state.with_columns(pl.col("__current__").alias(next_alias))
