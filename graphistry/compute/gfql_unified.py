@@ -343,6 +343,51 @@ def _apply_connected_optional_match(
     df_ctor = df_cons(concrete_engine)
     node_col = str(getattr(base_graph, "_node", "id"))
 
+    def _optional_arm_membership_chain(
+        binding_ops: Sequence[ASTObject],
+        shared_node_aliases: Sequence[str],
+        joined_rows: DataFrameT,
+    ) -> Optional[List[ASTObject]]:
+        """Polars twin of the start_nodes pruning: rewrite the arm's first node op with an
+        id-membership filter (the shared alias's bound ids) instead of seeding via
+        start_nodes, which the polars bindings-row path declines by contract. Returns the
+        pruned binding chain, or None when the shape doesn't qualify (run unseeded)."""
+        if not binding_ops:
+            return None
+        first_op = binding_ops[0]
+        if not isinstance(first_op, ASTNode):
+            return None
+        first_alias = getattr(first_op, "_name", None)
+        if not isinstance(first_alias, str) or first_alias not in shared_node_aliases:
+            return None
+        if first_op.query is not None:
+            return None
+        filter_dict = dict(first_op.filter_dict or {})
+        if node_col in filter_dict:
+            return None  # id already constrained; don't intersect two conditions on one key
+        joined_col = next(
+            (
+                col
+                for col in (f"{first_alias}.{node_col}", first_alias)
+                if col in joined_rows.columns
+            ),
+            None,
+        )
+        if joined_col is None:
+            return None
+        seed_col = joined_rows[joined_col]
+        if is_polars_df(joined_rows):
+            seed_ids = seed_col.drop_nulls().unique().to_list()
+        else:
+            seed_ids = seed_col.dropna().drop_duplicates().tolist()
+        if not seed_ids:
+            return None
+        pruned_first = ASTNode(
+            filter_dict={**filter_dict, node_col: seed_ids},
+            name=first_alias,
+        )
+        return [pruned_first, *binding_ops[1:]]
+
     def _optional_arm_start_nodes(
         binding_ops: Sequence[ASTObject],
         shared_node_aliases: Sequence[str],
@@ -405,23 +450,32 @@ def _apply_connected_optional_match(
     # Chained left-outer-join: one pass per OPTIONAL MATCH arm.
     for arm in plan.arms:
         opt_binding_chain, opt_post_ops = _split_binding_and_post_ops(arm.chain.chain)
+        # The seed restriction is a pruning hint, not semantics: the arm's rows are
+        # left-outer-joined on the shared aliases, so unpruned arm rows that can't
+        # join are dropped (`where`-arms already run unseeded). The polars native
+        # bindings-row path declines seeded runs (start_nodes = bounded-reentry
+        # contract, pandas-only), so on polars the SAME pruning is expressed as an
+        # id-membership filter on the arm's first (shared) node op instead.
+        opt_start_nodes = None
+        if not arm.chain.where:
+            if concrete_engine in POLARS_ENGINES:
+                pruned_chain = _optional_arm_membership_chain(
+                    opt_binding_chain,
+                    arm.shared_node_aliases,
+                    joined,
+                )
+                if pruned_chain is not None:
+                    opt_binding_chain = pruned_chain
+            else:
+                opt_start_nodes = _optional_arm_start_nodes(
+                    opt_binding_chain,
+                    arm.shared_node_aliases,
+                    joined,
+                )
         opt_binding_ops = serialize_binding_ops(opt_binding_chain)
         opt_with_rows = Chain(
             list(opt_binding_chain) + [ASTCall("rows", {"binding_ops": opt_binding_ops})] + opt_post_ops,
             where=arm.chain.where,
-        )
-        # The seed restriction is a pruning hint, not semantics: the arm's rows are
-        # left-outer-joined on the shared aliases, so unseeded arm rows that can't
-        # join are dropped (`where`-arms already run unseeded). The polars native
-        # bindings-row path declines seeded runs (start_nodes = bounded-reentry
-        # contract, pandas-only), so seed only on non-polars engines rather than
-        # forcing an NIE on a query polars can run.
-        opt_start_nodes = None if (
-            arm.chain.where or concrete_engine in POLARS_ENGINES
-        ) else _optional_arm_start_nodes(
-            opt_binding_chain,
-            arm.shared_node_aliases,
-            joined,
         )
         opt_rows_result = _chain_dispatch(
             base_graph,
