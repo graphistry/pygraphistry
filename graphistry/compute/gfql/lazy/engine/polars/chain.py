@@ -456,6 +456,31 @@ def _try_native_row_op(g_cur, op):
     return None
 
 
+# Recycle-safe cache: resident edge frame -> its row-indexed augmentation. The chain
+# rebuilt `with_row_index` on EVERY call — an O(E) copy AND, worse, a fresh frame object
+# per call, which defeated every id-keyed cache downstream (#1658 rebind still worked via
+# rebind_edges, but per-frame caches like the typed keep-mask could never hit). Reusing
+# ONE augmented frame per resident frame makes repeated seeded queries O(1) here and
+# gives downstream id-keyed caches a stable identity. weakref.finalize on the SOURCE
+# frame evicts, so a recycled id can never serve a stale augmentation.
+_AUGMENTED_EDGES_CACHE: dict = {}
+
+
+def _augmented_edges_cached(edges, eid_col: str):
+    key = (id(edges), eid_col)
+    hit = _AUGMENTED_EDGES_CACHE.get(key)
+    if hit is not None:
+        return hit
+    out = edges.with_row_index(eid_col)
+    try:
+        import weakref
+        weakref.finalize(edges, _AUGMENTED_EDGES_CACHE.pop, key, None)
+        _AUGMENTED_EDGES_CACHE[key] = out
+    except TypeError:  # pragma: no cover - frame not weakref-able -> don't cache
+        pass
+    return out
+
+
 def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plottable:
     from graphistry.compute.ast import ASTCall
     from graphistry.compute.chain import Chain, _get_boundary_calls
@@ -662,7 +687,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     g, _endpoint_restore = _align_edge_endpoints(g, g._node, g._source, g._destination)
     if g._edge is None:
         EID = "__gfql_edge_index__"
-        g = g.edges(g._edges.with_row_index(EID), g._source, g._destination, edge=EID)
+        g = g.edges(_augmented_edges_cached(g._edges, EID), g._source, g._destination, edge=EID)
         added_edge_index = True
         # with_row_index only PREPENDS a synthetic id column; the indexed src/dst are
         # preserved by value. Re-point any resident #1658 adjacency index at the new

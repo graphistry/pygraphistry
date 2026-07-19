@@ -80,6 +80,46 @@ def _apply_binop(op: str, left: pl.Expr, right: pl.Expr) -> Optional[pl.Expr]:
     return None
 
 
+
+# Recycle-safe cache of typed-edge slices: (id(edge frame), scalar edge_match items) ->
+# eager filtered frame. A seeded Cypher point query re-filtered the FULL edge frame's
+# string type column O(E) on EVERY call (~2.8ms/1M rows — the linear term that made LDBC
+# SF1 latency grow); a resident graph re-queries the same typed slice constantly. Same
+# lifetime pattern as Engine._pl_nan_to_null's clean-cache: weakref.finalize on the
+# SOURCE frame evicts, so a recycled id can never serve a stale slice.
+_TYPED_EDGE_SLICE_CACHE: Dict[Tuple[int, Any], Any] = {}
+
+
+def _typed_edge_slice(edges: Any, edge_match: Any) -> Optional[Any]:
+    """Eager typed-edge slice via cache; None when edge_match isn't scalar-only or the
+    frame isn't cacheable (caller falls back to the lazy per-call filter)."""
+    import polars as pl
+    if not isinstance(edges, pl.DataFrame) or not isinstance(edge_match, dict) or not edge_match:
+        return None
+    items = []
+    for k, v in edge_match.items():
+        if not isinstance(k, str) or isinstance(v, (dict, list, tuple, set)) or v is None:
+            return None  # predicate/membership/null forms keep the general path
+        items.append((k, v))
+    key = (id(edges), tuple(sorted(items)))
+    hit = _TYPED_EDGE_SLICE_CACHE.get(key)
+    if hit is not None:
+        return hit
+    from .predicates import filter_by_dict_polars
+    sliced_lf = filter_by_dict_polars(edges.lazy(), edge_match)
+    if sliced_lf is None:
+        return None
+    sliced = sliced_lf.collect()
+    _TYPED_EDGE_SLICE_CACHE[key] = sliced
+    try:
+        import weakref
+        weakref.finalize(edges, _TYPED_EDGE_SLICE_CACHE.pop, key, None)
+    except TypeError:  # pragma: no cover - pl.DataFrame is weakref-able; guard anyway
+        _TYPED_EDGE_SLICE_CACHE.pop(key, None)  # can't track lifetime -> don't cache
+        return sliced
+    return sliced
+
+
 def _resolve_property(alias: str, prop: str, columns: Sequence[str]) -> Optional[str]:
     """Resolve ``alias.prop`` to a row-table column (None if ambiguous/absent). Prefer the
     multi-entity prefixed form (``n.val``) over single-entity bare ``val`` + ``alias`` marker
@@ -993,7 +1033,11 @@ def binding_rows_polars(
             if not isinstance(edge_op, ASTEdge):
                 return None
             sem = EdgeSemantics.from_edge(edge_op)
-            edges_f = filter_by_dict_polars(edges_lf, edge_op.edge_match)
+            _cached_slice = _typed_edge_slice(edges, edge_op.edge_match)
+            if _cached_slice is not None:
+                edges_f = _cached_slice.lazy()
+            else:
+                edges_f = filter_by_dict_polars(edges_lf, edge_op.edge_match)
             edge_alias = edge_op._name
             if isinstance(edge_alias, str):
                 payload_renames = {
