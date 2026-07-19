@@ -16,7 +16,7 @@ from __future__ import annotations
 import contextvars
 import operator
 import re
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union, cast
 
 if TYPE_CHECKING:
     import polars as pl
@@ -25,6 +25,19 @@ if TYPE_CHECKING:
 from graphistry.Plottable import Plottable
 from graphistry.utils.json import JSONVal
 from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
+
+
+# Wire-format payload types for row-pipeline ops (ASTCall.params). JSON lists deserialize as
+# ``List``; Python-side lowering may pass tuples. Shapes are safelist-validated
+# (gfql/call/validation.py) before reaching these helpers, so the runtime isinstance/len
+# checks below are defense-in-depth, not the contract.
+SelectItem = Union[str, Tuple[str, JSONVal], List[JSONVal]]
+"""Projection item: ``'col'`` | ``(alias, expr)`` where a str expr is expression text and any
+other JSON scalar is a constant literal (e.g. synthetic ``__cypher_group__=1``)."""
+OrderKey = Union[Tuple[str, str], List[str]]
+"""Sort key: ``(expr, 'asc'|'desc')``."""
+AggSpec = Union[Tuple[str, str], Tuple[str, str, Optional[str]], List[Optional[str]]]
+"""Aggregation spec: ``(alias, func[, expr])``; ``expr`` None/omitted only for count(*)."""
 
 
 # Active row-table schema (col -> dtype), set around lowering so lower_expr can infer FLOAT
@@ -564,10 +577,12 @@ def lower_expr_str(expr: str, columns: Sequence[str]) -> Optional[pl.Expr]:
     return lower_expr(node, columns)
 
 
-def lower_select_items(items: Sequence[Any], columns: Sequence[str]) -> Optional[List[Any]]:
+def lower_select_items(items: Sequence[SelectItem], columns: Sequence[str]) -> Optional[List[Any]]:
     """Lower projection items [(alias, expr) | 'col'] to polars exprs, or None."""
     out: List[Any] = []
     for item in items:
+        alias: str
+        expr: JSONVal
         if isinstance(item, str):
             alias, expr = item, item
         elif isinstance(item, (list, tuple)) and len(item) == 2:
@@ -587,7 +602,7 @@ def lower_select_items(items: Sequence[Any], columns: Sequence[str]) -> Optional
     return out
 
 
-def lower_order_by_keys(keys: Sequence[Any], columns: Sequence[str]) -> Optional[Tuple[List[Any], List[bool]]]:
+def lower_order_by_keys(keys: Sequence[OrderKey], columns: Sequence[str]) -> Optional[Tuple[List[Any], List[bool]]]:
     """Lower order_by [(expr, direction)] to (polars exprs, descending flags)."""
     exprs: List[Any] = []
     descending: List[bool] = []
@@ -641,7 +656,7 @@ def _project_preserving_height(table: Any, exprs: List[Any]) -> Any:
     return table.select(exprs)
 
 
-def _project_polars(g: Plottable, items: Sequence[Any], extend: bool) -> Optional[Plottable]:
+def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> Optional[Plottable]:
     """Shared body of ``select_polars`` / ``with_columns_polars``; None if any item isn't
     lowerable (honest NIE, no pandas bridge)."""
     table = _active_table(g)
@@ -666,12 +681,12 @@ def _select_emits_temporal_constructor_text(out: Any) -> bool:
     return False
 
 
-def select_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
+def select_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[Plottable]:
     """Native polars projection (replaces the row table)."""
     return _project_polars(g, items, extend=False)
 
 
-def with_columns_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
+def with_columns_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[Plottable]:
     """Native polars WITH extend=True: add/overwrite columns, keep the rest. Mirrors pandas
     ``with_(extend=True)`` (``table_df.assign``): ``with_columns`` matches — an existing alias
     REPLACES in place (position kept), a new alias APPENDS at the end in item order."""
@@ -719,7 +734,7 @@ def where_rows_polars(
     return _rewrap(g, table.filter(combined))
 
 
-def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
+def order_by_polars(g: Plottable, keys: Sequence[OrderKey]) -> Optional[Plottable]:
     """Native polars sort; None if any key isn't lowerable."""
     table = _active_table(g)
     lowered = _lower_with_schema(table, lambda: lower_order_by_keys(keys, list(table.columns)))
@@ -737,7 +752,7 @@ def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
 
 # Native aggs: count/sum/avg/min/max/count_distinct/collect/collect_distinct; stdev/percentile
 # etc. return None → caller declines (NIE).
-def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str, schema: Optional[dict] = None) -> Optional[pl.Expr]:
+def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str, schema: Optional[Mapping[str, "pl.DataType"]] = None) -> Optional[pl.Expr]:
     import polars as pl
     func = func.lower()
     if func == "count" and (expr is None or expr == "*"):
@@ -783,9 +798,9 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
 
 def group_by_polars(
     g: Plottable,
-    keys: Sequence[Any],
-    aggregations: Sequence[Any],
-    key_prefixes: Optional[Sequence[Any]] = None,
+    keys: Sequence[str],
+    aggregations: Sequence[AggSpec],
+    key_prefixes: Optional[Sequence[str]] = None,
 ) -> Optional[Plottable]:
     """Native polars group-by; None if a key/agg isn't lowerable. Matches pandas dropna=False
     (null keys kept) + non-null agg semantics; output order is first-occurrence (maintain_order),
@@ -795,28 +810,31 @@ def group_by_polars(
     through — group sizes are unchanged)."""
     table = _active_table(g)
     cols = list(table.columns)
-    keys = [str(k) for k in keys]
+    key_cols = [str(k) for k in keys]
     if key_prefixes:
-        seen = set(keys)
+        seen = set(key_cols)
         for prefix in key_prefixes:
             for col in cols:
-                if isinstance(col, str) and col.startswith(str(prefix)) and col not in seen:
-                    keys.append(col)
+                if isinstance(col, str) and col.startswith(prefix) and col not in seen:
+                    key_cols.append(col)
                     seen.add(col)
-    if not keys or not all(isinstance(k, str) and k in cols for k in keys):
+    if not key_cols or not all(isinstance(k, str) and k in cols for k in key_cols):
         return None
-    aggs: List[Any] = []
+    aggs: List["pl.Expr"] = []
     for agg in aggregations:
         if not isinstance(agg, (list, tuple)) or len(agg) not in (2, 3):
             return None
-        alias = str(agg[0])
-        func = str(agg[1])
-        expr = agg[2] if len(agg) == 3 else None
+        # cast: the AggSpec tuple variants make agg[2] an out-of-range index to mypy;
+        # the len guard above already proved the shape.
+        spec = cast("Sequence[Optional[str]]", agg)
+        alias = str(spec[0])
+        func = str(spec[1])
+        expr = spec[2] if len(spec) == 3 else None
         lowered = _agg_expr(func, expr, cols, alias, table.schema)
         if lowered is None:
             return None
         aggs.append(lowered)
-    out = table.group_by(list(keys), maintain_order=True).agg(aggs)
+    out = table.group_by(key_cols, maintain_order=True).agg(aggs)
     return _rewrap(g, out)
 
 
@@ -846,7 +864,7 @@ def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plott
     return _rewrap(g, table.join(rhs, how="cross"))
 
 
-def select_extend_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
+def select_extend_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[Plottable]:
     """Native polars ``with_(items, extend=True)``: add/overwrite projected columns
     while keeping the existing row table (pandas ``assign`` semantics). Emitted by
     the bindings-path aggregate lowering (pre-aggregation group keys / agg args),
@@ -1149,9 +1167,9 @@ def binding_rows_polars(
     return out
 
 
-def can_select_native(items: Sequence[Any], columns: Sequence[str]) -> bool:
+def can_select_native(items: Sequence[SelectItem], columns: Sequence[str]) -> bool:
     return lower_select_items(items, columns) is not None
 
 
-def can_order_by_native(keys: Sequence[Any], columns: Sequence[str]) -> bool:
+def can_order_by_native(keys: Sequence[OrderKey], columns: Sequence[str]) -> bool:
     return lower_order_by_keys(keys, columns) is not None
