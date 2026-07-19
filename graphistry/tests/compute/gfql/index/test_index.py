@@ -768,3 +768,79 @@ def test_rebind_edges_drops_index_on_fingerprint_mismatch():
     aug["__synthetic_id__"] = aug.index
     reg4 = reg.rebind_edges(aug)
     assert reg4.has(EDGE_OUT_ADJ) and reg4.has(EDGE_IN_ADJ)
+
+
+# --- review F1/F2/F3 regressions: the guard's value/dtype domain must equal the scan's ----
+
+def _cpu_engines():
+    return [e for e in ENGINES if e in ("pandas", "polars")]
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_hop_frozenset_edge_match_parity_with_scan(typed_graph, engine):
+    """frozenset is membership (isin) on the scan path; the index path must not treat
+    it as scalar equality (a bare == is silently all-False). Parity, not zero rows."""
+    from graphistry.Engine import Engine as _E, df_to_engine
+    g = typed_graph
+    if engine == "polars":
+        g = g.edges(df_to_engine(g._edges, _E.POLARS), "src", "dst").nodes(
+            df_to_engine(g._nodes, _E.POLARS), "id")
+    gi = g.gfql_index_all(engine=engine)
+    seeds = g._nodes[:5] if engine == "pandas" else g._nodes.head(5)
+    kwargs = dict(hops=1, return_as_wave_front=True,
+                  edge_match={"etype": frozenset({0, 1})}, engine=engine)
+    base = g.hop(nodes=seeds, **kwargs)
+    idx = gi.hop(nodes=seeds, **kwargs)
+
+    def n_edges(h):
+        return int(h._edges.shape[0])
+    assert n_edges(base) > 0  # membership filter genuinely selects rows
+    assert n_edges(idx) == n_edges(base)
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_hop_null_carrying_match_column_no_crash_and_parity(engine):
+    """Null-carrying match columns (pandas nullable Int64 / polars nulls — common after
+    NaN->null coercion) must not blow up mask indexing; null == val drops like scan."""
+    from graphistry.Engine import Engine as _E, df_to_engine
+    edf = pd.DataFrame({
+        "src": [0, 0, 1, 1, 2, 2],
+        "dst": [1, 2, 2, 3, 3, 0],
+        "etype": pd.array([0, None, 0, 1, None, 0], dtype="Int64"),
+    })
+    ndf = pd.DataFrame({"id": np.arange(4)})
+    g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+    if engine == "polars":
+        g = g.edges(df_to_engine(g._edges, _E.POLARS), "src", "dst").nodes(
+            df_to_engine(g._nodes, _E.POLARS), "id")
+    gi = g.gfql_index_all(engine=engine)
+    seeds = g._nodes[:4] if engine == "pandas" else g._nodes.head(4)
+    kwargs = dict(hops=1, return_as_wave_front=True, edge_match={"etype": 0}, engine=engine)
+    base = g.hop(nodes=seeds, **kwargs)
+    idx = gi.hop(nodes=seeds, **kwargs)  # was: IndexError from object-dtype mask
+    assert int(idx._edges.shape[0]) == int(base._edges.shape[0]) == 3
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_hop_dtype_mismatch_edge_match_matches_scan_error(typed_graph, engine):
+    """Numeric column vs string value: the scan raises (GFQLSchemaError E302 on pandas;
+    polars raises its own ComputeError). The index path must decline (fall back to
+    scan) so users get the SAME error as their engine's scan — never a silent empty
+    subgraph."""
+    from graphistry.Engine import Engine as _E, df_to_engine
+    g = typed_graph
+    if engine == "polars":
+        g = g.edges(df_to_engine(g._edges, _E.POLARS), "src", "dst").nodes(
+            df_to_engine(g._nodes, _E.POLARS), "id")
+    gi = g.gfql_index_all(engine=engine)
+    seeds = g._nodes[:5] if engine == "pandas" else g._nodes.head(5)
+    kwargs = dict(hops=1, return_as_wave_front=True,
+                  edge_match={"etype": "zero"}, engine=engine)
+    with pytest.raises(Exception) as base_err:
+        g.hop(nodes=seeds, **kwargs)
+    with pytest.raises(Exception) as idx_err:
+        gi.hop(nodes=seeds, **kwargs)
+    assert type(idx_err.value) is type(base_err.value)
+    if engine == "pandas":
+        from graphistry.compute.exceptions import GFQLSchemaError
+        assert isinstance(base_err.value, GFQLSchemaError)

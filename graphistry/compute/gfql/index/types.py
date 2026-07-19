@@ -1,9 +1,10 @@
 """Shared internal types for GFQL physical indexes."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Mapping, Optional, Set, Tuple, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Literal, Mapping, Optional, Set, Tuple, TypedDict, Union
 
 import numpy as np
+import pandas as pd
 
 from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT
 
@@ -30,7 +31,8 @@ IndexPath = Literal["scan", "index"]
 ScalarMatchValue = Union[str, int, float, bool, None, np.generic]
 EdgeMatchValue = Union[
     ScalarMatchValue, "ASTPredicate",
-    List[Any], Tuple[Any, ...], Set[Any], Dict[str, Any],
+    List[Any], Tuple[Any, ...], Set[Any], FrozenSet[Any], Dict[str, Any],
+    "pd.Index", "pd.Series",
 ]
 EdgeMatch = Mapping[str, EdgeMatchValue]
 SimpleEqualityEdgeMatch = Mapping[str, ScalarMatchValue]

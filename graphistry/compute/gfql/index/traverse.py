@@ -61,10 +61,15 @@ def is_simple_equality_edge_match(
     if not edge_match:
         return False
     from graphistry.compute.predicates.ASTPredicate import ASTPredicate
+    from graphistry.compute.filter_by_dict import _is_membership_filter_value
     for v in edge_match.values():
         if isinstance(v, ASTPredicate):
             return False
-        if isinstance(v, (list, tuple, set, dict)):
+        # Membership must be decided by the SAME helper the scan path uses
+        # (filter_by_dict). A local (list, tuple, set, dict) check misses frozenset /
+        # pd.Index / pd.Series, which the scan lowers to isin — an equality mask over
+        # such a value is silently all-False (wrong answer), never an error.
+        if _is_membership_filter_value(v) or isinstance(v, dict):
             return False
     return True
 
@@ -83,16 +88,43 @@ def _build_edge_keep_mask(
     try:
         if not is_simple_equality_edge_match(edge_match):
             return None
+        from graphistry.compute.filter_by_dict import (
+            _is_numeric_dtype_safe, _is_string_dtype_safe,
+        )
+        n_edges = int(edges.shape[0])
         mask: Optional[ArrayLike] = None
         for col, val in edge_match.items():
             if col not in edges.columns:
                 return None
             if engine in (Engine.POLARS, Engine.POLARS_GPU):
-                col_mask = cast(ArrayLike, (edges.get_column(col) == val).to_numpy())
-            elif engine == Engine.CUDF:
-                col_mask = cast(ArrayLike, (edges[col] == val).values)
+                series = edges.get_column(col)
             else:
-                col_mask = cast(ArrayLike, (edges[col] == val).to_numpy())
+                series = edges[col]
+            # Obvious dtype mismatch (numeric col vs str val, string col vs numeric
+            # val): the scan raises GFQLSchemaError E302 where a naive == is silently
+            # all-False. Decline -> caller falls back to the scan, which raises the
+            # SAME error (parity-exact; mirrors filter_by_dict's exact two checks,
+            # skipped like the scan on empty frames).
+            if n_edges > 0:
+                dt = series.dtype
+                if _is_numeric_dtype_safe(dt) and isinstance(val, str):
+                    return None
+                if (_is_string_dtype_safe(dt)
+                        and isinstance(val, (int, float)) and not isinstance(val, bool)):
+                    return None
+            # Null-safe materialization: on null-carrying columns (pandas nullable
+            # Int64/boolean/string, polars nulls — which the NaN->null coercion makes
+            # common) a bare == yields NA cells, and to_numpy() then produces an
+            # OBJECT-dtype array that later explodes at rows[edge_keep[rows]]
+            # (IndexError: not int/bool). Null == val filters out on the scan path,
+            # so fill False is parity-exact.
+            if engine in (Engine.POLARS, Engine.POLARS_GPU):
+                col_mask = cast(ArrayLike, (series == val).fill_null(False).to_numpy())
+            elif engine == Engine.CUDF:
+                col_mask = cast(ArrayLike, (series == val).fillna(False).values)
+            else:
+                col_mask = cast(
+                    ArrayLike, (series == val).fillna(False).to_numpy(dtype=bool))
             mask = col_mask if mask is None else cast(ArrayLike, cast(Any, mask) & cast(Any, col_mask))
         return mask
     except Exception:  # pragma: no cover - defensive parity guard
