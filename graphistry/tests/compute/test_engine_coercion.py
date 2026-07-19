@@ -686,3 +686,49 @@ class TestChainCoercion(NoAuthTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPlNanCleanCache(NoAuthTestCase):
+    """_pl_nan_to_null: NaN->null correctness + identity-stable + O(1)-repeat clean cache."""
+
+    def _pl(self):
+        try:
+            import polars as pl  # noqa
+            return pl
+        except Exception:
+            raise unittest.SkipTest("polars not available")
+
+    def test_no_float_cols_is_noop_same_object(self):
+        pl = self._pl()
+        from graphistry.Engine import _pl_nan_to_null
+        df = pl.DataFrame({"a": [1, 2, 3], "s": ["x", "y", "z"]})
+        out = _pl_nan_to_null(df)
+        self.assertIs(out, df)
+
+    def test_nan_present_is_cleaned_to_null(self):
+        pl = self._pl()
+        from graphistry.Engine import _pl_nan_to_null
+        df = pl.DataFrame({"w": [1.0, float("nan"), 3.0]})
+        out = _pl_nan_to_null(df)
+        # NaN -> null: null_count reflects the converted cell; no NaN remains.
+        self.assertEqual(out.get_column("w").null_count(), 1)
+        self.assertFalse(bool(out.get_column("w").is_nan().any()))
+
+    def test_clean_float_frame_identity_stable_and_cached(self):
+        pl = self._pl()
+        from graphistry.Engine import _pl_nan_to_null, _PL_NAN_CLEAN_IDS
+        df = pl.DataFrame({"w": [1.0, 2.0, 3.0]})  # float col, no NaN
+        out1 = _pl_nan_to_null(df)
+        self.assertIs(out1, df)                       # clean -> unchanged (identity-stable)
+        self.assertIn(id(df), _PL_NAN_CLEAN_IDS)      # cached
+        out2 = _pl_nan_to_null(df)
+        self.assertIs(out2, df)                       # O(1) cache hit -> same object
+
+    def test_distinct_frames_do_not_cross_contaminate(self):
+        pl = self._pl()
+        from graphistry.Engine import _pl_nan_to_null
+        clean = pl.DataFrame({"w": [1.0, 2.0]})
+        _pl_nan_to_null(clean)                        # caches `clean`
+        dirty = pl.DataFrame({"w": [float("nan"), 2.0]})  # different object, has NaN
+        out = _pl_nan_to_null(dirty)                  # must NOT be skipped by the cache
+        self.assertEqual(out.get_column("w").null_count(), 1)
