@@ -43,3 +43,13 @@ if [ -n "${POLARS_COV:-}" ]; then
 fi
 python -B -m pytest -vv "${COV_APPEND_ARGS[@]}" \
     graphistry/tests/compute/gfql/cypher/test_lowering.py -k polars
+
+# Engine.py polars coercion (e.g. _pl_nan_to_null): Engine.py sits OUTSIDE graphistry/compute,
+# and the core coverage lane has no polars installed — this is the only lane that can execute
+# AND record its polars branches, so it needs its own --cov scope
+ENGINE_COV_ARGS=()
+if [ -n "${POLARS_COV:-}" ]; then
+    ENGINE_COV_ARGS=(--cov=graphistry.Engine --cov-report= --cov-append)
+fi
+python -B -m pytest -vv "${ENGINE_COV_ARGS[@]}" \
+    graphistry/tests/compute/test_engine_coercion.py
