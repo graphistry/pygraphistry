@@ -964,6 +964,15 @@ def _chain_impl(
             indexed_edges_df = g._edges.copy(deep=False)
             indexed_edges_df[GFQL_EDGE_INDEX] = indexed_edges_df.index
             g = g.edges(indexed_edges_df, edge=GFQL_EDGE_INDEX)
+            # The shallow copy above only ADDS the synthetic id column; the indexed
+            # src/dst columns are preserved by value. Re-point any resident #1658
+            # adjacency index at the new edge frame so the seeded fast path still
+            # engages through gfql()/Cypher chains (else the identity guard misses and
+            # every chain hop falls back to the O(E) scan).
+            from graphistry.compute.gfql.index import get_registry, set_registry
+            _reg = get_registry(g)
+            if not _reg.is_empty():
+                g = set_registry(g, _reg.rebind_edges(indexed_edges_df))
         else:
             added_edge_index = False
 

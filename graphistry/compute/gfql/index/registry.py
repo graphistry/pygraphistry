@@ -96,6 +96,46 @@ class GfqlIndexRegistry:
         new.pop(kind, None)
         return GfqlIndexRegistry(new)
 
+    def rebind_edges(self, new_edges: DataFrameT) -> "GfqlIndexRegistry":
+        """Re-point the EDGE adjacency indexes' identity guard at ``new_edges``.
+
+        Caller contract: ``new_edges`` was produced by a transform that preserves
+        the indexed src/dst columns by value (same rows, same order) — e.g. a shallow
+        copy that merely ADDS an unrelated column. The chain executor does exactly
+        this when it attaches its synthetic per-edge id (chain.py), which otherwise
+        breaks the ``source_ref is df`` identity guard and forces a full scan. The
+        CSR arrays stay valid (row positions unchanged); we only swap the strong-ref
+        so ``get_valid`` recognizes the live frame. NODE_ID is left untouched (node
+        materialization may legitimately change node rows).
+
+        ENFORCED (O(1), engine-portable): the swap happens only when ``new_edges``
+        still matches the index's structural fingerprint (row count + bound cols +
+        engine) and actually carries the indexed columns; on any mismatch the edge
+        index is DROPPED (safe miss -> scan path) instead of re-pointed at a frame
+        it wasn't built over. Value-level preservation remains the caller's promise —
+        checking it would be the O(E) scan this path exists to avoid."""
+        new = dict(self.indexes)
+        for kind in (EDGE_OUT_ADJ, EDGE_IN_ADJ):
+            idx = new.get(kind)
+            if idx is None:
+                continue
+            if not isinstance(idx, AdjacencyIndex):  # defensive; also narrows for mypy
+                new.pop(kind, None)
+                continue
+            ok = idx.fingerprint == frame_fingerprint(
+                new_edges, tuple(idx.fingerprint[1]), idx.engine)
+            if ok:
+                try:
+                    colnames = set(new_edges.columns)
+                    ok = idx.key_col in colnames and idx.other_col in colnames
+                except Exception:
+                    ok = False
+            if ok:
+                new[kind] = replace(idx, source_ref=new_edges)
+            else:
+                new.pop(kind, None)
+        return GfqlIndexRegistry(new)
+
     def get(self, kind: IndexKind) -> Optional[Union[AdjacencyIndex, NodeIdIndex]]:
         return self.indexes.get(kind)
 

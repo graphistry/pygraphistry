@@ -645,6 +645,16 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         EID = "__gfql_edge_index__"
         g = g.edges(g._edges.with_row_index(EID), g._source, g._destination, edge=EID)
         added_edge_index = True
+        # with_row_index only PREPENDS a synthetic id column; the indexed src/dst are
+        # preserved by value. Re-point any resident #1658 adjacency index at the new
+        # edge frame so the seeded fast path still engages through the native polars
+        # chain executor (mirrors compute/chain.py — else the identity guard misses
+        # and every hop falls back to the O(E) scan). Enables typed-edge chains on
+        # polars/polars-gpu (untyped already engaged; the frame swap blocked typed).
+        from graphistry.compute.gfql.index import get_registry, set_registry
+        _reg = get_registry(g)
+        if not _reg.is_empty():
+            g = set_registry(g, _reg.rebind_edges(g._edges))
     else:
         EID = g._edge
         added_edge_index = False

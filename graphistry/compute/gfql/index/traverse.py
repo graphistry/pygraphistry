@@ -6,13 +6,17 @@ hop() for the covered cases, or ``None`` when a feature isn't covered (caller
 falls back to the scan/join path — correctness is never traded for speed).
 
 Covered (v1): seeded (nodes given), integer ``hops`` >= 1 or ``to_fixed_point``,
-direction forward/reverse/undirected, ``return_as_wave_front``. Not covered
-(returns None): edge/source/destination match or query, target_wave_front,
-min_hops>1, output_min/max_hops, labeling, missing node table.
+direction forward/reverse/undirected, ``return_as_wave_front``, and a simple
+scalar-equality ``edge_match`` (typed edges, e.g. Cypher ``-[:KNOWS]->``) applied on
+the wavefront path. Not covered (returns None): predicate/membership edge_match,
+source/destination match or query, edge_query, target_wave_front, min_hops>1,
+output_min/max_hops, labeling, missing node table.
 """
 from __future__ import annotations
 
-from typing import List, Optional, Tuple, cast
+from typing import Any, List, Optional, Tuple, cast
+
+from typing_extensions import TypeGuard
 
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT
@@ -23,7 +27,7 @@ from .engine_arrays import (
 )
 from .lookup import lookup_edge_rows, lookup_node_rows
 from .registry import EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, AdjacencyIndex, GfqlIndexRegistry, NodeIdIndex
-from .types import ArrayLike, HopDirection
+from .types import ArrayLike, EdgeMatch, HopDirection, SimpleEqualityEdgeMatch
 
 
 def _indices_for_direction(
@@ -44,6 +48,89 @@ def _indices_for_direction(
     return [out_idx, in_idx]
 
 
+def is_simple_equality_edge_match(
+    edge_match: Optional[EdgeMatch],
+) -> TypeGuard[SimpleEqualityEdgeMatch]:
+    """True iff ``edge_match`` is a dict of plain scalar equalities.
+
+    This is the only ``edge_match`` shape the index path accelerates parity-exact:
+    it mirrors filter_by_dict's concrete scalar ``==`` branch. ASTPredicate values
+    (predicate path), membership lists/sets/tuples (isin path), and nested dicts are
+    NOT covered here — the caller keeps them on the scan path.
+    """
+    if not edge_match:
+        return False
+    from graphistry.compute.predicates.ASTPredicate import ASTPredicate
+    from graphistry.compute.filter_by_dict import _is_membership_filter_value
+    for v in edge_match.values():
+        if isinstance(v, ASTPredicate):
+            return False
+        # Membership must be decided by the SAME helper the scan path uses
+        # (filter_by_dict). A local (list, tuple, set, dict) check misses frozenset /
+        # pd.Index / pd.Series, which the scan lowers to isin — an equality mask over
+        # such a value is silently all-False (wrong answer), never an error.
+        if _is_membership_filter_value(v) or isinstance(v, dict):
+            return False
+    return True
+
+
+def _build_edge_keep_mask(
+    edges: DataFrameT, edge_match: EdgeMatch, engine: Engine, xp: "object"
+) -> Optional[ArrayLike]:
+    """Boolean array over ORIGINAL edge rows (length E, same indexing as
+    ``AdjacencyIndex.other_values`` / ``row_positions``) selecting rows that satisfy
+    a simple-equality ``edge_match``.
+
+    Built via each frame's native ``col == val`` (so cudf string columns stay on the
+    cudf layer instead of a cupy string compare). Returns ``None`` on ANY unexpected
+    shape or error, so the caller falls back to scan rather than risk a divergence.
+    """
+    try:
+        if not is_simple_equality_edge_match(edge_match):
+            return None
+        from graphistry.compute.filter_by_dict import (
+            _is_numeric_dtype_safe, _is_string_dtype_safe,
+        )
+        n_edges = int(edges.shape[0])
+        mask: Optional[ArrayLike] = None
+        for col, val in edge_match.items():
+            if col not in edges.columns:
+                return None
+            if engine in (Engine.POLARS, Engine.POLARS_GPU):
+                series = edges.get_column(col)
+            else:
+                series = edges[col]
+            # Obvious dtype mismatch (numeric col vs str val, string col vs numeric
+            # val): the scan raises GFQLSchemaError E302 where a naive == is silently
+            # all-False. Decline -> caller falls back to the scan, which raises the
+            # SAME error (parity-exact; mirrors filter_by_dict's exact two checks,
+            # skipped like the scan on empty frames).
+            if n_edges > 0:
+                dt = series.dtype
+                if _is_numeric_dtype_safe(dt) and isinstance(val, str):
+                    return None
+                if (_is_string_dtype_safe(dt)
+                        and isinstance(val, (int, float)) and not isinstance(val, bool)):
+                    return None
+            # Null-safe materialization: on null-carrying columns (pandas nullable
+            # Int64/boolean/string, polars nulls — which the NaN->null coercion makes
+            # common) a bare == yields NA cells, and to_numpy() then produces an
+            # OBJECT-dtype array that later explodes at rows[edge_keep[rows]]
+            # (IndexError: not int/bool). Null == val filters out on the scan path,
+            # so fill False is parity-exact.
+            if engine in (Engine.POLARS, Engine.POLARS_GPU):
+                col_mask = cast(ArrayLike, (series == val).fill_null(False).to_numpy())
+            elif engine == Engine.CUDF:
+                col_mask = cast(ArrayLike, (series == val).fillna(False).values)
+            else:
+                col_mask = cast(
+                    ArrayLike, (series == val).fillna(False).to_numpy(dtype=bool))
+            mask = col_mask if mask is None else cast(ArrayLike, cast(Any, mask) & cast(Any, col_mask))
+        return mask
+    except Exception:  # pragma: no cover - defensive parity guard
+        return None
+
+
 def index_seeded_hop(
     g: Plottable,
     registry: GfqlIndexRegistry,
@@ -57,6 +144,7 @@ def index_seeded_hop(
     to_fixed_point: bool,
     direction: HopDirection,
     return_as_wave_front: bool,
+    edge_match: Optional[EdgeMatch] = None,
 ) -> Optional[Plottable]:
     if nodes is None or g._edges is None or g._nodes is None:
         return None
@@ -76,6 +164,16 @@ def index_seeded_hop(
         return None
 
     xp, _backend = array_namespace(engine)
+
+    # Typed-edge (edge_match) support: a boolean mask over ORIGINAL edge rows that
+    # pass the match predicate, applied to the CSR-matched rows each hop. Gated to
+    # simple scalar equality + the wavefront path by the coverability check upstream
+    # (maybe_index_hop); an unsupported shape returns None here => scan (parity-safe).
+    edge_keep: Optional[ArrayLike] = None
+    if edge_match:
+        edge_keep = _build_edge_keep_mask(edges, edge_match, engine, xp)
+        if edge_keep is None:
+            return None
 
     # Do NOT narrow the seed to the index key dtype (a node-id int64 seed cast to
     # an int32 edge-endpoint key wraps large ids → false match). lookup promotes both
@@ -100,6 +198,11 @@ def index_seeded_hop(
         neigh_parts: List[ArrayLike] = []
         for ix in indices:
             rows, matched = lookup_edge_rows(ix, frontier, xp)
+            if edge_keep is not None:
+                # Keep only CSR-matched rows whose edge passes edge_match. Wavefront-
+                # only (coverability gate), so the `matched`/first-hop `visited`
+                # bookkeeping below — which edge_match does NOT filter — is never read.
+                rows = rows[edge_keep[rows]]
             edge_rows_parts.append(rows)
             neigh_parts.append(ix.other_values[rows])
             matched_parts.append(matched)

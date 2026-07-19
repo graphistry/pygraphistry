@@ -641,3 +641,206 @@ def test_exists_prune_membership_polars_gpu_uses_matching_index_engine(monkeypat
     assert Engine.POLARS_GPU in seen
     assert keys is not None
     assert sorted(keys.get_column("id").to_list()) == [0, 1, 2]
+
+
+# ---- chain / Cypher index engagement (#1658 through gfql(), incl. typed edges) -------
+# Regression: a seeded hop expressed as a gfql()/Cypher CHAIN (not a direct g.hop())
+# used to ALWAYS scan on pandas/cuDF, because _chain_impl attaches a synthetic per-edge
+# id column -> a fresh edge frame -> the index's `source_ref is df` identity guard missed.
+# rebind_edges (chain.py) re-points the adjacency index at the augmented frame; typed
+# edges additionally route a simple scalar-equality edge_match through the index.
+
+@pytest.fixture(scope="module")
+def typed_graph():
+    rng = np.random.default_rng(1)
+    n_nodes, deg = 2000, 6
+    m = n_nodes * deg
+    edf = pd.DataFrame({
+        "src": rng.integers(0, n_nodes, m),
+        "dst": rng.integers(0, n_nodes, m),
+        "etype": rng.integers(0, 3, m),
+    })
+    ndf = pd.DataFrame({"id": np.arange(n_nodes)})
+    return graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+
+
+def _sig_typed(g):
+    def topd(df):
+        mod = type(df).__module__
+        return df.to_pandas() if ("cudf" in mod or "polars" in mod) else df
+    nn = topd(g._nodes)
+    ee = topd(g._edges)
+    nodes = sorted(nn["id"].tolist())
+    edges = sorted(map(tuple, ee[["src", "dst", "etype"]].itertuples(index=False, name=None)))
+    return nodes, edges
+
+
+_TYPED_CHAIN = [n({"id": 100}), e_forward({"etype": 1}, hops=1)]
+_TYPED_2HOP = [n({"id": 100}), e_forward({"etype": 1}, hops=1), n(),
+               e_forward({"etype": 2}, hops=1)]
+_UNTYPED_CHAIN = [n({"id": 100}), e_forward(hops=1)]
+_MEMBER_CHAIN = [n({"id": 100}), e_forward({"etype": [0, 1]}, hops=1)]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("chain", [_TYPED_CHAIN, _TYPED_2HOP, _UNTYPED_CHAIN, _MEMBER_CHAIN])
+def test_chain_index_parity_vs_scan(typed_graph, engine, chain):
+    """Every chain shape returns the SAME subgraph via the index as via the scan,
+    on every engine. Correctness is never traded for the fast path."""
+    gi = typed_graph.gfql_index_all(engine=engine)
+    base = typed_graph.gfql(chain, index_policy="off", engine=engine)
+    idx = gi.gfql(chain, index_policy="use", engine=engine)
+    assert _sig_typed(base) == _sig_typed(idx)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_chain_typed_edge_engages_index(typed_graph, engine):
+    """All four engines: a typed-edge (simple-equality edge_match) seeded chain hop
+    ENGAGES the resident #1658 index instead of scanning (pandas/cuDF via the eager
+    chain rebind; polars/polars-gpu via the native lazy chain executor rebind)."""
+    gi = typed_graph.gfql_index_all(engine=engine)
+    rep = gi.gfql_explain(_TYPED_CHAIN, index_policy="use", engine=engine)
+    assert rep["used_index"] is True, (engine, rep)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_chain_untyped_engages_index(typed_graph, engine):
+    """An untyped seeded chain hop engages the index on every engine (pandas/cuDF via
+    the rebind fix; polars/polars-gpu via their native lazy executor)."""
+    gi = typed_graph.gfql_index_all(engine=engine)
+    rep = gi.gfql_explain(_UNTYPED_CHAIN, index_policy="use", engine=engine)
+    assert rep["used_index"] is True, (engine, rep)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_chain_membership_edge_match_stays_on_scan(typed_graph, engine):
+    """A membership-list edge_match is NOT simple-equality, so it deliberately stays on
+    the scan path (parity preserved; no over-reach of the index coverage)."""
+    gi = typed_graph.gfql_index_all(engine=engine)
+    rep = gi.gfql_explain(_MEMBER_CHAIN, index_policy="use", engine=engine)
+    assert rep["used_index"] is False, (engine, rep)
+
+
+def test_rebind_edges_revalidates_after_shallow_augmentation():
+    """rebind_edges re-points the edge adjacency index at a shallow-copied frame that
+    merely ADDS a column (the chain's synthetic edge id), so get_valid recognizes it."""
+    from graphistry.compute.gfql.index import get_registry
+    from graphistry.compute.gfql.index.registry import EDGE_OUT_ADJ
+    rng = np.random.default_rng(2)
+    edf = pd.DataFrame({"src": rng.integers(0, 500, 3000), "dst": rng.integers(0, 500, 3000)})
+    ndf = pd.DataFrame({"id": np.arange(500)})
+    gi = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all(engine="pandas")
+    reg = get_registry(gi)
+    from graphistry.Engine import Engine as _E
+    # augment like the chain does: shallow copy + an extra column -> a NEW frame object
+    aug = gi._edges.copy(deep=False)
+    aug["__synthetic_id__"] = aug.index
+    assert reg.get_valid(EDGE_OUT_ADJ, aug, ("src", "dst"), _E.PANDAS) is None  # identity miss
+    reg2 = reg.rebind_edges(aug)
+    assert reg2.get_valid(EDGE_OUT_ADJ, aug, ("src", "dst"), _E.PANDAS) is not None  # now valid
+
+
+def test_rebind_edges_drops_index_on_fingerprint_mismatch():
+    """rebind_edges ENFORCES its contract structurally: a frame with a different row
+    count (or missing indexed columns) cannot inherit the index — it is dropped
+    (safe miss -> scan) instead of re-pointed at a frame it wasn't built over."""
+    from graphistry.compute.gfql.index import get_registry
+    from graphistry.compute.gfql.index.registry import EDGE_IN_ADJ, EDGE_OUT_ADJ
+    rng = np.random.default_rng(3)
+    edf = pd.DataFrame({"src": rng.integers(0, 100, 500), "dst": rng.integers(0, 100, 500)})
+    ndf = pd.DataFrame({"id": np.arange(100)})
+    gi = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all(engine="pandas")
+    reg = get_registry(gi)
+    assert reg.has(EDGE_OUT_ADJ) and reg.has(EDGE_IN_ADJ)
+
+    # row count changed -> both edge indexes dropped, never mis-bound
+    fewer = gi._edges.iloc[:-1].copy(deep=False)
+    reg2 = reg.rebind_edges(fewer)
+    assert not reg2.has(EDGE_OUT_ADJ) and not reg2.has(EDGE_IN_ADJ)
+
+    # indexed column renamed away -> dropped
+    renamed = gi._edges.rename(columns={"dst": "dst2"})
+    reg3 = reg.rebind_edges(renamed)
+    assert not reg3.has(EDGE_OUT_ADJ) and not reg3.has(EDGE_IN_ADJ)
+
+    # same-shape shallow augmentation still rebinds (the intended use)
+    aug = gi._edges.copy(deep=False)
+    aug["__synthetic_id__"] = aug.index
+    reg4 = reg.rebind_edges(aug)
+    assert reg4.has(EDGE_OUT_ADJ) and reg4.has(EDGE_IN_ADJ)
+
+
+# --- review F1/F2/F3 regressions: the guard's value/dtype domain must equal the scan's ----
+
+def _cpu_engines():
+    return [e for e in ENGINES if e in ("pandas", "polars")]
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_hop_frozenset_edge_match_parity_with_scan(typed_graph, engine):
+    """frozenset is membership (isin) on the scan path; the index path must not treat
+    it as scalar equality (a bare == is silently all-False). Parity, not zero rows."""
+    from graphistry.Engine import Engine as _E, df_to_engine
+    g = typed_graph
+    if engine == "polars":
+        g = g.edges(df_to_engine(g._edges, _E.POLARS), "src", "dst").nodes(
+            df_to_engine(g._nodes, _E.POLARS), "id")
+    gi = g.gfql_index_all(engine=engine)
+    seeds = g._nodes[:5] if engine == "pandas" else g._nodes.head(5)
+    kwargs = dict(hops=1, return_as_wave_front=True,
+                  edge_match={"etype": frozenset({0, 1})}, engine=engine)
+    base = g.hop(nodes=seeds, **kwargs)
+    idx = gi.hop(nodes=seeds, **kwargs)
+
+    def n_edges(h):
+        return int(h._edges.shape[0])
+    assert n_edges(base) > 0  # membership filter genuinely selects rows
+    assert n_edges(idx) == n_edges(base)
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_hop_null_carrying_match_column_no_crash_and_parity(engine):
+    """Null-carrying match columns (pandas nullable Int64 / polars nulls — common after
+    NaN->null coercion) must not blow up mask indexing; null == val drops like scan."""
+    from graphistry.Engine import Engine as _E, df_to_engine
+    edf = pd.DataFrame({
+        "src": [0, 0, 1, 1, 2, 2],
+        "dst": [1, 2, 2, 3, 3, 0],
+        "etype": pd.array([0, None, 0, 1, None, 0], dtype="Int64"),
+    })
+    ndf = pd.DataFrame({"id": np.arange(4)})
+    g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+    if engine == "polars":
+        g = g.edges(df_to_engine(g._edges, _E.POLARS), "src", "dst").nodes(
+            df_to_engine(g._nodes, _E.POLARS), "id")
+    gi = g.gfql_index_all(engine=engine)
+    seeds = g._nodes[:4] if engine == "pandas" else g._nodes.head(4)
+    kwargs = dict(hops=1, return_as_wave_front=True, edge_match={"etype": 0}, engine=engine)
+    base = g.hop(nodes=seeds, **kwargs)
+    idx = gi.hop(nodes=seeds, **kwargs)  # was: IndexError from object-dtype mask
+    assert int(idx._edges.shape[0]) == int(base._edges.shape[0]) == 3
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_hop_dtype_mismatch_edge_match_matches_scan_error(typed_graph, engine):
+    """Numeric column vs string value: the scan raises (GFQLSchemaError E302 on pandas;
+    polars raises its own ComputeError). The index path must decline (fall back to
+    scan) so users get the SAME error as their engine's scan — never a silent empty
+    subgraph."""
+    from graphistry.Engine import Engine as _E, df_to_engine
+    g = typed_graph
+    if engine == "polars":
+        g = g.edges(df_to_engine(g._edges, _E.POLARS), "src", "dst").nodes(
+            df_to_engine(g._nodes, _E.POLARS), "id")
+    gi = g.gfql_index_all(engine=engine)
+    seeds = g._nodes[:5] if engine == "pandas" else g._nodes.head(5)
+    kwargs = dict(hops=1, return_as_wave_front=True,
+                  edge_match={"etype": "zero"}, engine=engine)
+    with pytest.raises(Exception) as base_err:
+        g.hop(nodes=seeds, **kwargs)
+    with pytest.raises(Exception) as idx_err:
+        gi.hop(nodes=seeds, **kwargs)
+    assert type(idx_err.value) is type(base_err.value)
+    if engine == "pandas":
+        from graphistry.compute.exceptions import GFQLSchemaError
+        assert isinstance(base_err.value, GFQLSchemaError)

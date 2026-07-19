@@ -88,6 +88,14 @@ def _attach(g: Plottable, registry: GfqlIndexRegistry) -> Plottable:
     return res
 
 
+def set_registry(g: Plottable, registry: GfqlIndexRegistry) -> Plottable:
+    """Attach ``registry`` to a copy of ``g`` (public wrapper over ``_attach``).
+
+    Used by the chain executor to re-point the resident index at an edge frame it
+    augmented in place (see ``GfqlIndexRegistry.rebind_edges``)."""
+    return _attach(g, registry)
+
+
 def index_name(kind: IndexKind, column: Optional[str]) -> str:
     return f"{kind}:{column}" if column else kind
 
@@ -279,16 +287,29 @@ def _hop_is_index_coverable(
     edge_query: Optional[str],
     include_zero_hop_seed: bool,
     target_wave_front: Optional[DataFrameT],
+    return_as_wave_front: bool = False,
 ) -> bool:
     if nodes is None:
         return False
     if any(x is not None for x in (
         min_hops if (min_hops is not None and min_hops > 1) else None,
         output_min_hops, output_max_hops, label_node_hops, label_edge_hops,
-        edge_match, source_node_match, destination_node_match,
+        source_node_match, destination_node_match,
         source_node_query, destination_node_query, edge_query, target_wave_front,
     )):
         return False
+    # Typed-edge edge_match: coverable only as a simple scalar-equality filter on the
+    # wavefront (chain/Cypher) path, where index_seeded_hop applies it per-hop parity-
+    # exact with the scan's filter_edges_by_dict. Predicate/membership forms and the
+    # direct-hop (non-wavefront) path stay on scan.
+    if edge_match is not None:
+        from .traverse import is_simple_equality_edge_match
+        if not (
+            return_as_wave_front
+            and isinstance(edge_match, dict)
+            and is_simple_equality_edge_match(edge_match)
+        ):
+            return False
     if label_seeds or include_zero_hop_seed:
         return False
     if not to_fixed_point and (not isinstance(hops, int) or hops < 1):
@@ -408,6 +429,7 @@ def maybe_index_hop(
         edge_query=edge_query,
         include_zero_hop_seed=include_zero_hop_seed,
         target_wave_front=target_wave_front,
+        return_as_wave_front=return_as_wave_front,
     ):
         return _bail("query not index-coverable")
     assert nodes is not None
@@ -460,6 +482,7 @@ def maybe_index_hop(
         g, registry, nodes=nodes, node_col=node_col, src=src, dst=dst, engine=engine,
         hops=eff_hops, to_fixed_point=to_fixed_point, direction=direction,
         return_as_wave_front=return_as_wave_front,
+        edge_match=cast(Optional[dict], rest.get("edge_match")),
     )
     if trace:
         _record(cast(IndexTraceStep, {
