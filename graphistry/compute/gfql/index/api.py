@@ -304,7 +304,11 @@ def _hop_is_index_coverable(
     # direct-hop (non-wavefront) path stay on scan.
     if edge_match is not None:
         from .traverse import is_simple_equality_edge_match
-        if not (return_as_wave_front and is_simple_equality_edge_match(edge_match)):
+        if not (
+            return_as_wave_front
+            and isinstance(edge_match, dict)
+            and is_simple_equality_edge_match(edge_match)
+        ):
             return False
     if label_seeds or include_zero_hop_seed:
         return False

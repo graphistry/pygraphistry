@@ -14,7 +14,7 @@ output_min/max_hops, labeling, missing node table.
 """
 from __future__ import annotations
 
-from typing import List, Optional, Tuple, cast
+from typing import Any, List, Optional, Tuple, cast
 
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT
@@ -89,7 +89,7 @@ def _build_edge_keep_mask(
                 col_mask = cast(ArrayLike, (edges[col] == val).values)
             else:
                 col_mask = cast(ArrayLike, (edges[col] == val).to_numpy())
-            mask = col_mask if mask is None else cast(ArrayLike, mask & col_mask)
+            mask = col_mask if mask is None else cast(ArrayLike, cast(Any, mask) & cast(Any, col_mask))
         return mask
     except Exception:  # pragma: no cover - defensive parity guard
         return None
