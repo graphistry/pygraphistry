@@ -332,13 +332,16 @@ def test_select_extend_polars_preserves_and_updates_columns():
     assert select_extend_polars(g, [("bad", "missing.property")]) is None
 
 
-def test_try_native_row_op_declines_whole_row_group_prefixes():
-    """Whole-row grouping must defer instead of silently ignoring prefixed keys."""
+def test_try_native_row_op_handles_whole_row_group_prefixes():
+    """Whole-row grouping (prefixed keys) lowers natively via group_by_polars(key_prefixes=...)
+    instead of deferring; keys expand to their entity columns and results match the oracle."""
     from graphistry.compute.ast import group_by
     from graphistry.compute.gfql.lazy.engine.polars.chain import _try_native_row_op
 
     op = group_by(["k"], [("count", "count", "v")], key_prefixes=["node."])
-    assert _try_native_row_op(_polars_graph(), op) is None
+    out = _try_native_row_op(_polars_graph(), op)
+    assert out is not None
+    assert sorted(out._nodes.select(["k", "count"]).rows()) == [("a", 2), ("b", 2)]
 
 
 def test_polars_rows_binding_ops_undirected_self_loop_multiplicity():
