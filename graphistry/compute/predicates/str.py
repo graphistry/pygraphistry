@@ -7,6 +7,44 @@ from .ASTPredicate import ASTPredicate
 from graphistry.compute.typing import SeriesT
 
 
+def _series_supports_str_ops(s: Any) -> bool:
+    """True if ``s`` has a usable string accessor (object / pandas ``string`` / categorical-of-str).
+
+    A numeric, temporal, or boolean column does NOT: pandas and cuDF both raise on ``s.str``
+    attribute access for those dtypes. Used to make the string predicates value-safe instead of
+    surfacing an opaque ``AttributeError: Can only use .str accessor with string values!``.
+    """
+    try:
+        s.str  # the accessor validates dtype on attribute access
+    except (AttributeError, TypeError):
+        return False
+    return True
+
+
+def _nonstring_null_result(s: Any, na: Optional[bool]) -> Any:
+    """Result of a string predicate applied to a NON-string column.
+
+    openCypher treats a string operation over a non-string value as null (a non-string value is
+    not a string, so the predicate is unknown → null → excluded from a ``WHERE``). This mirrors the
+    established per-cell behavior on an *object* column holding non-strings (those cells already
+    become null), and — crucially — NEVER stringifies the column (which would diverge pandas↔cuDF
+    and wrongly match, e.g. ``5 CONTAINS '5'``). ``na`` overrides the fill only when the caller
+    pinned it (``na=True``/``na=False``).
+    """
+    fill = None if na is None else na
+    n = len(s)
+    is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
+    if is_cudf:
+        import cudf
+        out = cudf.Series([fill] * n)
+        try:
+            out.index = s.index
+        except Exception:
+            pass
+        return out
+    return pd.Series([fill] * n, index=getattr(s, 'index', None))
+
+
 def _cudf_mask_value(result: Any, mask: Any, value: Any) -> Any:
     try:
         return result.mask(mask, value)
@@ -91,6 +129,8 @@ class Contains(ASTPredicate):
         self.regex = regex
 
     def __call__(self, s: SeriesT) -> SeriesT:
+        if not _series_supports_str_ops(s):
+            return _nonstring_null_result(s, self.na)
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
 
         # workaround cuDF not supporting 'case' and 'na' parameters
@@ -260,6 +300,8 @@ class _BoundaryStringPredicate(ASTPredicate):
         return self._match_boundary(s, self.pat)
 
     def __call__(self, s: SeriesT) -> SeriesT:
+        if not _series_supports_str_ops(s):
+            return _nonstring_null_result(s, self.na)
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
         result = self._compute_result(s, is_cudf)
         if is_cudf:
@@ -381,6 +423,8 @@ class _RegexStringPredicate(ASTPredicate):
         raise NotImplementedError
 
     def __call__(self, s: SeriesT) -> SeriesT:
+        if not _series_supports_str_ops(s):
+            return _nonstring_null_result(s, self.na)
         is_cudf = hasattr(s, '__module__') and 'cudf' in s.__module__
         result = self._compute_result(s, is_cudf)
         if is_cudf:
