@@ -96,6 +96,25 @@ class GfqlIndexRegistry:
         new.pop(kind, None)
         return GfqlIndexRegistry(new)
 
+    def rebind_edges(self, new_edges: DataFrameT) -> "GfqlIndexRegistry":
+        """Re-point the EDGE adjacency indexes' identity guard at ``new_edges``.
+
+        Use ONLY when the caller has produced ``new_edges`` by a transform that
+        provably preserves the indexed src/dst columns by value (same rows, same
+        order) — e.g. a shallow copy that merely ADDS an unrelated column. The chain
+        executor does exactly this when it attaches its synthetic per-edge id
+        (chain.py), which otherwise breaks the ``source_ref is df`` identity guard and
+        forces a full scan. The CSR arrays stay valid (row positions unchanged); we
+        only swap the strong-ref so ``get_valid`` recognizes the live frame. NODE_ID
+        is left untouched (node materialization may legitimately change node rows)."""
+        import dataclasses
+        new = dict(self.indexes)
+        for kind in (EDGE_OUT_ADJ, EDGE_IN_ADJ):
+            idx = new.get(kind)
+            if idx is not None:
+                new[kind] = dataclasses.replace(idx, source_ref=new_edges)
+        return GfqlIndexRegistry(new)
+
     def get(self, kind: IndexKind) -> Optional[Union[AdjacencyIndex, NodeIdIndex]]:
         return self.indexes.get(kind)
 

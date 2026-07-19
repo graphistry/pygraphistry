@@ -6,9 +6,11 @@ hop() for the covered cases, or ``None`` when a feature isn't covered (caller
 falls back to the scan/join path — correctness is never traded for speed).
 
 Covered (v1): seeded (nodes given), integer ``hops`` >= 1 or ``to_fixed_point``,
-direction forward/reverse/undirected, ``return_as_wave_front``. Not covered
-(returns None): edge/source/destination match or query, target_wave_front,
-min_hops>1, output_min/max_hops, labeling, missing node table.
+direction forward/reverse/undirected, ``return_as_wave_front``, and a simple
+scalar-equality ``edge_match`` (typed edges, e.g. Cypher ``-[:KNOWS]->``) applied on
+the wavefront path. Not covered (returns None): predicate/membership edge_match,
+source/destination match or query, edge_query, target_wave_front, min_hops>1,
+output_min/max_hops, labeling, missing node table.
 """
 from __future__ import annotations
 
@@ -44,6 +46,55 @@ def _indices_for_direction(
     return [out_idx, in_idx]
 
 
+def is_simple_equality_edge_match(edge_match: Optional[dict]) -> bool:
+    """True iff ``edge_match`` is a dict of plain scalar equalities.
+
+    This is the only ``edge_match`` shape the index path accelerates parity-exact:
+    it mirrors filter_by_dict's concrete scalar ``==`` branch. ASTPredicate values
+    (predicate path), membership lists/sets/tuples (isin path), and nested dicts are
+    NOT covered here — the caller keeps them on the scan path.
+    """
+    if not edge_match:
+        return False
+    from graphistry.compute.predicates.ASTPredicate import ASTPredicate
+    for v in edge_match.values():
+        if isinstance(v, ASTPredicate):
+            return False
+        if isinstance(v, (list, tuple, set, dict)):
+            return False
+    return True
+
+
+def _build_edge_keep_mask(
+    edges: DataFrameT, edge_match: dict, engine: Engine, xp: "object"
+) -> Optional[ArrayLike]:
+    """Boolean array over ORIGINAL edge rows (length E, same indexing as
+    ``AdjacencyIndex.other_values`` / ``row_positions``) selecting rows that satisfy
+    a simple-equality ``edge_match``.
+
+    Built via each frame's native ``col == val`` (so cudf string columns stay on the
+    cudf layer instead of a cupy string compare). Returns ``None`` on ANY unexpected
+    shape or error, so the caller falls back to scan rather than risk a divergence.
+    """
+    try:
+        if not is_simple_equality_edge_match(edge_match):
+            return None
+        mask: Optional[ArrayLike] = None
+        for col, val in edge_match.items():
+            if col not in edges.columns:
+                return None
+            if engine in (Engine.POLARS, Engine.POLARS_GPU):
+                col_mask = cast(ArrayLike, (edges.get_column(col) == val).to_numpy())
+            elif engine == Engine.CUDF:
+                col_mask = cast(ArrayLike, (edges[col] == val).values)
+            else:
+                col_mask = cast(ArrayLike, (edges[col] == val).to_numpy())
+            mask = col_mask if mask is None else cast(ArrayLike, mask & col_mask)
+        return mask
+    except Exception:  # pragma: no cover - defensive parity guard
+        return None
+
+
 def index_seeded_hop(
     g: Plottable,
     registry: GfqlIndexRegistry,
@@ -57,6 +108,7 @@ def index_seeded_hop(
     to_fixed_point: bool,
     direction: HopDirection,
     return_as_wave_front: bool,
+    edge_match: Optional[dict] = None,
 ) -> Optional[Plottable]:
     if nodes is None or g._edges is None or g._nodes is None:
         return None
@@ -76,6 +128,16 @@ def index_seeded_hop(
         return None
 
     xp, _backend = array_namespace(engine)
+
+    # Typed-edge (edge_match) support: a boolean mask over ORIGINAL edge rows that
+    # pass the match predicate, applied to the CSR-matched rows each hop. Gated to
+    # simple scalar equality + the wavefront path by the coverability check upstream
+    # (maybe_index_hop); an unsupported shape returns None here => scan (parity-safe).
+    edge_keep: Optional[ArrayLike] = None
+    if edge_match:
+        edge_keep = _build_edge_keep_mask(edges, edge_match, engine, xp)
+        if edge_keep is None:
+            return None
 
     # Do NOT narrow the seed to the index key dtype (a node-id int64 seed cast to
     # an int32 edge-endpoint key wraps large ids → false match). lookup promotes both
@@ -100,6 +162,11 @@ def index_seeded_hop(
         neigh_parts: List[ArrayLike] = []
         for ix in indices:
             rows, matched = lookup_edge_rows(ix, frontier, xp)
+            if edge_keep is not None:
+                # Keep only CSR-matched rows whose edge passes edge_match. Wavefront-
+                # only (coverability gate), so the `matched`/first-hop `visited`
+                # bookkeeping below — which edge_match does NOT filter — is never read.
+                rows = rows[edge_keep[rows]]
             edge_rows_parts.append(rows)
             neigh_parts.append(ix.other_values[rows])
             matched_parts.append(matched)

@@ -641,3 +641,101 @@ def test_exists_prune_membership_polars_gpu_uses_matching_index_engine(monkeypat
     assert Engine.POLARS_GPU in seen
     assert keys is not None
     assert sorted(keys.get_column("id").to_list()) == [0, 1, 2]
+
+
+# ---- chain / Cypher index engagement (#1658 through gfql(), incl. typed edges) -------
+# Regression: a seeded hop expressed as a gfql()/Cypher CHAIN (not a direct g.hop())
+# used to ALWAYS scan on pandas/cuDF, because _chain_impl attaches a synthetic per-edge
+# id column -> a fresh edge frame -> the index's `source_ref is df` identity guard missed.
+# rebind_edges (chain.py) re-points the adjacency index at the augmented frame; typed
+# edges additionally route a simple scalar-equality edge_match through the index.
+
+@pytest.fixture(scope="module")
+def typed_graph():
+    rng = np.random.default_rng(1)
+    n_nodes, deg = 2000, 6
+    m = n_nodes * deg
+    edf = pd.DataFrame({
+        "src": rng.integers(0, n_nodes, m),
+        "dst": rng.integers(0, n_nodes, m),
+        "etype": rng.integers(0, 3, m),
+    })
+    ndf = pd.DataFrame({"id": np.arange(n_nodes)})
+    return graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+
+
+def _sig_typed(g):
+    def topd(df):
+        mod = type(df).__module__
+        return df.to_pandas() if ("cudf" in mod or "polars" in mod) else df
+    nn = topd(g._nodes)
+    ee = topd(g._edges)
+    nodes = sorted(nn["id"].tolist())
+    edges = sorted(map(tuple, ee[["src", "dst", "etype"]].itertuples(index=False, name=None)))
+    return nodes, edges
+
+
+_TYPED_CHAIN = [n({"id": 100}), e_forward({"etype": 1}, hops=1)]
+_TYPED_2HOP = [n({"id": 100}), e_forward({"etype": 1}, hops=1), n(),
+               e_forward({"etype": 2}, hops=1)]
+_UNTYPED_CHAIN = [n({"id": 100}), e_forward(hops=1)]
+_MEMBER_CHAIN = [n({"id": 100}), e_forward({"etype": [0, 1]}, hops=1)]
+
+_PANDAS_CUDF = [e for e in ENGINES if e in ("pandas", "cudf")]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("chain", [_TYPED_CHAIN, _TYPED_2HOP, _UNTYPED_CHAIN, _MEMBER_CHAIN])
+def test_chain_index_parity_vs_scan(typed_graph, engine, chain):
+    """Every chain shape returns the SAME subgraph via the index as via the scan,
+    on every engine. Correctness is never traded for the fast path."""
+    gi = typed_graph.gfql_index_all(engine=engine)
+    base = typed_graph.gfql(chain, index_policy="off", engine=engine)
+    idx = gi.gfql(chain, index_policy="use", engine=engine)
+    assert _sig_typed(base) == _sig_typed(idx)
+
+
+@pytest.mark.parametrize("engine", _PANDAS_CUDF)
+def test_chain_typed_edge_engages_index_pandas_cudf(typed_graph, engine):
+    """pandas/cuDF: a typed-edge (simple-equality edge_match) seeded chain hop ENGAGES
+    the resident #1658 index instead of scanning."""
+    gi = typed_graph.gfql_index_all(engine=engine)
+    rep = gi.gfql_explain(_TYPED_CHAIN, index_policy="use", engine=engine)
+    assert rep["used_index"] is True, (engine, rep)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_chain_untyped_engages_index(typed_graph, engine):
+    """An untyped seeded chain hop engages the index on every engine (pandas/cuDF via
+    the rebind fix; polars/polars-gpu via their native lazy executor)."""
+    gi = typed_graph.gfql_index_all(engine=engine)
+    rep = gi.gfql_explain(_UNTYPED_CHAIN, index_policy="use", engine=engine)
+    assert rep["used_index"] is True, (engine, rep)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_chain_membership_edge_match_stays_on_scan(typed_graph, engine):
+    """A membership-list edge_match is NOT simple-equality, so it deliberately stays on
+    the scan path (parity preserved; no over-reach of the index coverage)."""
+    gi = typed_graph.gfql_index_all(engine=engine)
+    rep = gi.gfql_explain(_MEMBER_CHAIN, index_policy="use", engine=engine)
+    assert rep["used_index"] is False, (engine, rep)
+
+
+def test_rebind_edges_revalidates_after_shallow_augmentation():
+    """rebind_edges re-points the edge adjacency index at a shallow-copied frame that
+    merely ADDS a column (the chain's synthetic edge id), so get_valid recognizes it."""
+    from graphistry.compute.gfql.index import get_registry
+    from graphistry.compute.gfql.index.registry import EDGE_OUT_ADJ
+    rng = np.random.default_rng(2)
+    edf = pd.DataFrame({"src": rng.integers(0, 500, 3000), "dst": rng.integers(0, 500, 3000)})
+    ndf = pd.DataFrame({"id": np.arange(500)})
+    gi = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all(engine="pandas")
+    reg = get_registry(gi)
+    from graphistry.Engine import Engine as _E
+    # augment like the chain does: shallow copy + an extra column -> a NEW frame object
+    aug = gi._edges.copy(deep=False)
+    aug["__synthetic_id__"] = aug.index
+    assert reg.get_valid(EDGE_OUT_ADJ, aug, ("src", "dst"), _E.PANDAS) is None  # identity miss
+    reg2 = reg.rebind_edges(aug)
+    assert reg2.get_valid(EDGE_OUT_ADJ, aug, ("src", "dst"), _E.PANDAS) is not None  # now valid
