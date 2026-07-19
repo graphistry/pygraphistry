@@ -787,7 +787,11 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     from graphistry.compute.gfql.lazy import collect_all
     NORD = generate_safe_column_name("__gfql_norder__", g._nodes, prefix="__gfql_", suffix="__")
     EORD = generate_safe_column_name("__gfql_eorder__", g._edges, prefix="__gfql_", suffix="__")
-    g_lz = _LazyShim(g._nodes.with_row_index(NORD).lazy(), g._edges.with_row_index(EORD).lazy(),
+    # Defer the order-column stamping into the lazy plan: the eager form copied BOTH
+    # frames O(N)+O(E) on EVERY call before entering the fused plan; lazy
+    # with_row_index produces identical row numbering (source row order) inside the
+    # single collect.
+    g_lz = _LazyShim(g._nodes.lazy().with_row_index(NORD), g._edges.lazy().with_row_index(EORD),
                      node_col, src, dst, g._edge)
     steps_lz = [(op, _LazyShim.step(p)) for op, p in steps]
     edge_steps_lz = [(op, _LazyShim.step(p)) for op, p in edge_steps]
