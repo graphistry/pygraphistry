@@ -738,3 +738,33 @@ def test_rebind_edges_revalidates_after_shallow_augmentation():
     assert reg.get_valid(EDGE_OUT_ADJ, aug, ("src", "dst"), _E.PANDAS) is None  # identity miss
     reg2 = reg.rebind_edges(aug)
     assert reg2.get_valid(EDGE_OUT_ADJ, aug, ("src", "dst"), _E.PANDAS) is not None  # now valid
+
+
+def test_rebind_edges_drops_index_on_fingerprint_mismatch():
+    """rebind_edges ENFORCES its contract structurally: a frame with a different row
+    count (or missing indexed columns) cannot inherit the index — it is dropped
+    (safe miss -> scan) instead of re-pointed at a frame it wasn't built over."""
+    from graphistry.compute.gfql.index import get_registry
+    from graphistry.compute.gfql.index.registry import EDGE_IN_ADJ, EDGE_OUT_ADJ
+    rng = np.random.default_rng(3)
+    edf = pd.DataFrame({"src": rng.integers(0, 100, 500), "dst": rng.integers(0, 100, 500)})
+    ndf = pd.DataFrame({"id": np.arange(100)})
+    gi = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all(engine="pandas")
+    reg = get_registry(gi)
+    assert reg.has(EDGE_OUT_ADJ) and reg.has(EDGE_IN_ADJ)
+
+    # row count changed -> both edge indexes dropped, never mis-bound
+    fewer = gi._edges.iloc[:-1].copy(deep=False)
+    reg2 = reg.rebind_edges(fewer)
+    assert not reg2.has(EDGE_OUT_ADJ) and not reg2.has(EDGE_IN_ADJ)
+
+    # indexed column renamed away -> dropped
+    renamed = gi._edges.rename(columns={"dst": "dst2"})
+    reg3 = reg.rebind_edges(renamed)
+    assert not reg3.has(EDGE_OUT_ADJ) and not reg3.has(EDGE_IN_ADJ)
+
+    # same-shape shallow augmentation still rebinds (the intended use)
+    aug = gi._edges.copy(deep=False)
+    aug["__synthetic_id__"] = aug.index
+    reg4 = reg.rebind_edges(aug)
+    assert reg4.has(EDGE_OUT_ADJ) and reg4.has(EDGE_IN_ADJ)

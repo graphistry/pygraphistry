@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from typing import Any, List, Optional, Tuple, cast
 
+from typing_extensions import TypeGuard
+
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT
 from graphistry.Plottable import Plottable
@@ -25,7 +27,7 @@ from .engine_arrays import (
 )
 from .lookup import lookup_edge_rows, lookup_node_rows
 from .registry import EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, AdjacencyIndex, GfqlIndexRegistry, NodeIdIndex
-from .types import ArrayLike, HopDirection
+from .types import ArrayLike, EdgeMatch, HopDirection, SimpleEqualityEdgeMatch
 
 
 def _indices_for_direction(
@@ -46,7 +48,9 @@ def _indices_for_direction(
     return [out_idx, in_idx]
 
 
-def is_simple_equality_edge_match(edge_match: Optional[dict]) -> bool:
+def is_simple_equality_edge_match(
+    edge_match: Optional[EdgeMatch],
+) -> TypeGuard[SimpleEqualityEdgeMatch]:
     """True iff ``edge_match`` is a dict of plain scalar equalities.
 
     This is the only ``edge_match`` shape the index path accelerates parity-exact:
@@ -66,7 +70,7 @@ def is_simple_equality_edge_match(edge_match: Optional[dict]) -> bool:
 
 
 def _build_edge_keep_mask(
-    edges: DataFrameT, edge_match: dict, engine: Engine, xp: "object"
+    edges: DataFrameT, edge_match: EdgeMatch, engine: Engine, xp: "object"
 ) -> Optional[ArrayLike]:
     """Boolean array over ORIGINAL edge rows (length E, same indexing as
     ``AdjacencyIndex.other_values`` / ``row_positions``) selecting rows that satisfy
@@ -108,7 +112,7 @@ def index_seeded_hop(
     to_fixed_point: bool,
     direction: HopDirection,
     return_as_wave_front: bool,
-    edge_match: Optional[dict] = None,
+    edge_match: Optional[EdgeMatch] = None,
 ) -> Optional[Plottable]:
     if nodes is None or g._edges is None or g._nodes is None:
         return None
