@@ -706,9 +706,13 @@ def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
     if lowered is None:
         return None
     exprs, descending = lowered
-    # cypher ORDER BY puts NULLs last; polars defaults to nulls_last=False (pandas sort_values
-    # default puts NaN last only for asc), so set nulls_last=True to match pandas na_position='last'.
-    return _rewrap(g, table.sort(exprs, descending=descending, nulls_last=True))
+    # openCypher orders NULL as the LARGEST value: ASC -> nulls last, DESC -> nulls FIRST.
+    # (Previously hardcoded nulls_last=True, which mis-ordered DESC keys and silently returned
+    # the wrong `... DESC LIMIT k` top-k over a column containing NULLs.) Normalize `descending`
+    # to a per-key list (it may arrive as a scalar bool) so `nulls_last` mirrors it per key.
+    descending_list = descending if isinstance(descending, list) else [descending] * len(exprs)
+    nulls_last = [not d for d in descending_list]
+    return _rewrap(g, table.sort(exprs, descending=descending_list, nulls_last=nulls_last))
 
 
 # Native aggs: count/sum/avg/min/max/count_distinct/collect/collect_distinct; stdev/percentile

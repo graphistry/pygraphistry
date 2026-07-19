@@ -191,3 +191,46 @@ def test_json_roundtrip_validates():
     with pytest.raises(GFQLTypeError):
         json_data_invalid = {'type': 'Startswith', 'pat': 'test', 'case': 'not_bool', 'na': None}
         from_json(json_data_invalid)
+
+
+# --- Regression: comparison predicates must round-trip as the comparison.py (numeric+temporal+
+# string) versions, NOT be downgraded to numeric.py's numeric-only classes. Cypher lowering and
+# the public predicate API build comparison.* predicates; from_json previously registered the
+# same-named numeric.* classes, so a JSON round-trip lost temporal/string capability and RAISED
+# "val must be numeric" for a string/temporal equality or a temporal comparison. ---
+import datetime as _dt
+
+from graphistry.compute.predicates.comparison import (
+    eq as _cmp_eq, gt as _cmp_gt, ge as _cmp_ge, lt as _cmp_lt, le as _cmp_le, ne as _cmp_ne,
+    EQ as _CmpEQ, GT as _CmpGT,
+)
+
+
+@pytest.mark.parametrize("factory,val", [
+    (_cmp_eq, "foo"),            # string equality — previously RAISED on round-trip
+    (_cmp_eq, 5),                # numeric equality
+    (_cmp_eq, _dt.date(2020, 1, 1)),   # temporal equality — previously RAISED
+    (_cmp_ne, "bar"),
+    (_cmp_gt, _dt.date(2020, 1, 1)),   # temporal comparison — previously RAISED
+    (_cmp_gt, 3),
+    (_cmp_ge, 3),
+    (_cmp_lt, 3),
+    (_cmp_le, 3),
+])
+def test_comparison_predicate_json_roundtrip_preserves_comparison_class(factory, val):
+    pred = factory(val)
+    back = from_json(pred.to_json())
+    # must be the SAME comparison.py class, not a numeric.py downgrade
+    assert type(back) is type(pred), (
+        f"{type(pred).__module__}.{type(pred).__name__} round-tripped to "
+        f"{type(back).__module__}.{type(back).__name__}"
+    )
+    assert type(back).__module__ == "graphistry.compute.predicates.comparison"
+
+
+def test_string_and_temporal_eq_survive_roundtrip_without_raising():
+    # The exact pre-fix failure: numeric.EQ.validate() raised GFQLTypeError "val must be numeric".
+    from_json(_cmp_eq("foo").to_json())          # no raise
+    from_json(_cmp_eq(_dt.date(2020, 1, 1)).to_json())  # no raise
+    assert isinstance(from_json({'type': 'EQ', 'val': 'foo'}), _CmpEQ)
+    assert isinstance(from_json({'type': 'GT', 'val': {'type': 'date', 'value': '2020-01-01'}}), _CmpGT)
