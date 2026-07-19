@@ -14,7 +14,7 @@ output_min/max_hops, labeling, missing node table.
 """
 from __future__ import annotations
 
-from typing import Any, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from typing_extensions import TypeGuard
 
@@ -74,6 +74,16 @@ def is_simple_equality_edge_match(
     return True
 
 
+# Recycle-safe cache of edge keep-masks: (id(edge frame), engine, scalar items) -> mask.
+# The mask is a pure function of the resident edge frame + a scalar edge_match, but was
+# rebuilt via a full O(E) column compare on EVERY seeded hop (profiled: the eq_str scan
+# is the linear term that makes typed Cypher point queries grow with edge count — ~2.8ms
+# per call at 1M rows). Same lifetime pattern as Engine._pl_nan_to_null's clean-cache:
+# weakref.finalize on the SOURCE frame evicts, so a recycled id can never serve a stale
+# mask while the original frame is alive.
+_EDGE_KEEP_MASK_CACHE: Dict[Tuple[int, str, tuple], "ArrayLike"] = {}
+
+
 def _build_edge_keep_mask(
     edges: DataFrameT, edge_match: EdgeMatch, engine: Engine, xp: "object"
 ) -> Optional[ArrayLike]:
@@ -82,12 +92,18 @@ def _build_edge_keep_mask(
     a simple-equality ``edge_match``.
 
     Built via each frame's native ``col == val`` (so cudf string columns stay on the
-    cudf layer instead of a cupy string compare). Returns ``None`` on ANY unexpected
-    shape or error, so the caller falls back to scan rather than risk a divergence.
+    cudf layer instead of a cupy string compare), then cached per resident frame —
+    repeated seeded hops on the same typed edges hit O(1). Returns ``None`` on ANY
+    unexpected shape or error, so the caller falls back to scan rather than risk a
+    divergence.
     """
     try:
         if not is_simple_equality_edge_match(edge_match):
             return None
+        cache_key = (id(edges), engine.value, tuple(sorted(edge_match.items())))
+        cached = _EDGE_KEEP_MASK_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
         from graphistry.compute.filter_by_dict import (
             _is_numeric_dtype_safe, _is_string_dtype_safe,
         )
@@ -126,6 +142,13 @@ def _build_edge_keep_mask(
                 col_mask = cast(
                     ArrayLike, (series == val).fillna(False).to_numpy(dtype=bool))
             mask = col_mask if mask is None else cast(ArrayLike, cast(Any, mask) & cast(Any, col_mask))
+        if mask is not None:
+            try:
+                import weakref
+                weakref.finalize(edges, _EDGE_KEEP_MASK_CACHE.pop, cache_key, None)
+                _EDGE_KEEP_MASK_CACHE[cache_key] = mask
+            except TypeError:  # pragma: no cover - frame not weakref-able -> don't cache
+                pass
         return mask
     except Exception:  # pragma: no cover - defensive parity guard
         return None
