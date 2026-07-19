@@ -60,7 +60,7 @@ from graphistry.compute.gfql.cypher.lowering import (
     _whole_row_group_entity_expr,
     _whole_row_group_key_expr,
 )
-from graphistry.compute.gfql_unified import (
+from graphistry.compute.gfql_fast_paths import (
     _connected_join_cached_edge_filter,
     _connected_join_cached_singleton_dst_source_counts,
     _connected_join_post_property_columns,
