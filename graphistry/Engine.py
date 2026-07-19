@@ -207,21 +207,6 @@ def active_frames_are_polars(g: Any) -> bool:
     return is_polars_df(g._edges)
 
 
-def _pl_nan_to_null(df):
-    """Convert NaN -> null in float columns of a polars frame.
-
-    Matches ``pl.from_pandas(nan_to_null=True)`` (the pandas-input path) so a *native*
-    polars / Arrow / cuDF input carrying genuine NaN is treated as MISSING like the pandas
-    oracle (which skipna/dropna's NaN). Without this, ``engine='polars'`` on a frame with a
-    real NaN keeps rows a filter/aggregation should drop (silent divergence from pandas).
-    No-op when there are no float columns."""
-    import polars as pl
-    float_cols = [c for c, dt in df.schema.items() if dt in (pl.Float32, pl.Float64)]
-    if not float_cols:
-        return df
-    return df.with_columns([pl.col(c).fill_nan(None) for c in float_cols])
-
-
 def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = None, warn: bool = True):
     """Convert ``df`` to ``engine``'s frame type.
 
@@ -279,6 +264,9 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
         return dd.from_pandas(df, npartitions=1)
     elif engine in POLARS_ENGINES:
         import polars as pl
+        # polars-engine-specific NaN->null coercion lives with the polars engine; local
+        # import (lazy/... never imports Engine at module load -> no cycle)
+        from graphistry.compute.gfql.lazy.engine.polars.nan_clean import _pl_nan_to_null
         if isinstance(df, pl.DataFrame):
             return _pl_nan_to_null(df)
         if isinstance(df, pl.LazyFrame):

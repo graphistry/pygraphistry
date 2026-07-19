@@ -23,6 +23,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_polars_string_predicate_nonstring.py
     graphistry/tests/compute/gfql/cypher/test_order_by_null_placement.py
     graphistry/tests/compute/gfql/test_conformance_ledger.py
+    graphistry/tests/compute/gfql/test_polars_nan_clean.py
     # index tests exercise the seeded-index hook in the polars hop entry (hop.py) — without
     # them the hook dominates the now-thin file and trips its per-file coverage floor
     graphistry/tests/compute/gfql/index/test_index.py
