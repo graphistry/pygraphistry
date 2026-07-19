@@ -728,6 +728,29 @@ class TestPlNanToNull(NoAuthTestCase):
         out = _pl_nan_to_null(inp)
         self.assertIs(out, inp)
 
+    @unittest.skipUnless(HAS_POLARS, "polars not installed")
+    def test_multi_float_col_rebuilds_only_nan_carrying_columns(self):
+        # With several float columns, only the ones that actually carry a NaN are converted;
+        # NaN-free float columns are left byte-for-byte as-is (values identical to the old
+        # unconditional rewrite, which is a no-op on non-NaN entries anyway).
+        from graphistry.Engine import _pl_nan_to_null
+        inp = pl.DataFrame({
+            "id": [0, 1, 2],
+            "clean": [1.0, 2.0, 3.0],                 # float, no NaN -> untouched
+            "dirty": [1.0, float("nan"), 3.0],        # float, has NaN -> converted
+        })
+        out = _pl_nan_to_null(inp)
+        self.assertIsNot(out, inp)                     # a NaN was present -> new frame
+        # NaN-free column unchanged (still float, no nulls introduced).
+        self.assertEqual(out.get_column("clean").to_list(), [1.0, 2.0, 3.0])
+        self.assertEqual(out.get_column("clean").null_count(), 0)
+        # NaN column converted to null, non-NaN values preserved.
+        self.assertEqual(out.get_column("dirty").to_list(), [1.0, None, 3.0])
+        self.assertEqual(out.get_column("dirty").null_count(), 1)
+        # Column order + non-float columns preserved.
+        self.assertEqual(out.columns, ["id", "clean", "dirty"])
+        self.assertEqual(out.get_column("id").to_list(), [0, 1, 2])
+
 
 if __name__ == "__main__":
     unittest.main()
