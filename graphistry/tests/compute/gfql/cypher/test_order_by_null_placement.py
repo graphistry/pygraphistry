@@ -18,12 +18,18 @@ import pytest
 import graphistry
 
 try:
+    import polars  # noqa: F401
+    _HAS_POLARS = True
+except Exception:  # pragma: no cover - depends on test env
+    _HAS_POLARS = False
+
+try:
     import cudf  # noqa: F401
     _HAS_CUDF = True
 except Exception:  # pragma: no cover - depends on test env
     _HAS_CUDF = False
 
-_ENGINES = ["pandas", "polars"] + (["cudf"] if _HAS_CUDF else [])
+_ENGINES = ["pandas"] + (["polars"] if _HAS_POLARS else []) + (["cudf"] if _HAS_CUDF else [])
 
 # city groups: A:3 (0,3,7)  B:2 (1,4)  None:2 (2,5)  C:1 (6)
 _NODES = pd.DataFrame(

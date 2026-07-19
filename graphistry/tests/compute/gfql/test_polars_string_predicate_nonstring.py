@@ -10,12 +10,18 @@ import graphistry
 from graphistry.compute.exceptions import GFQLSchemaError
 
 try:
+    import polars  # noqa: F401
+    _HAS_POLARS = True
+except Exception:  # pragma: no cover
+    _HAS_POLARS = False
+
+try:
     import cudf  # noqa: F401
     _HAS_CUDF = True
 except Exception:  # pragma: no cover
     _HAS_CUDF = False
 
-_ENGINES = ["pandas", "polars"] + (["cudf"] if _HAS_CUDF else [])
+_ENGINES = ["pandas"] + (["polars"] if _HAS_POLARS else []) + (["cudf"] if _HAS_CUDF else [])
 
 _N = pd.DataFrame({
     "id": [0, 1, 2, 3, 4],
