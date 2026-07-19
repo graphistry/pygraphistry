@@ -9,6 +9,7 @@
     "graphistry/compute/gfql/lazy/engine/polars/dtypes.py": 92.0,
     "graphistry/compute/gfql/lazy/engine/polars/hop.py": 87.0,
     "graphistry/compute/gfql/lazy/engine/polars/hop_eager.py": 90.0,
+    "graphistry/compute/gfql/lazy/engine/polars/nan_clean.py": 90.0,
     "graphistry/compute/gfql/lazy/engine/polars/pattern_apply.py": 67.0,
     "graphistry/compute/gfql/lazy/engine/polars/predicates.py": 83.0,
     "graphistry/compute/gfql/lazy/engine/polars/projection.py": 65.0,

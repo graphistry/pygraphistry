@@ -23,6 +23,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_polars_string_predicate_nonstring.py
     graphistry/tests/compute/gfql/cypher/test_order_by_null_placement.py
     graphistry/tests/compute/gfql/test_conformance_ledger.py
+    graphistry/tests/compute/gfql/test_polars_nan_clean.py
     # index tests exercise the seeded-index hook in the polars hop entry (hop.py) — without
     # them the hook dominates the now-thin file and trips its per-file coverage floor
     graphistry/tests/compute/gfql/index/test_index.py
@@ -43,13 +44,3 @@ if [ -n "${POLARS_COV:-}" ]; then
 fi
 python -B -m pytest -vv "${COV_APPEND_ARGS[@]}" \
     graphistry/tests/compute/gfql/cypher/test_lowering.py -k polars
-
-# Engine.py polars coercion (e.g. _pl_nan_to_null): Engine.py sits OUTSIDE graphistry/compute,
-# and the core coverage lane has no polars installed — this is the only lane that can execute
-# AND record its polars branches, so it needs its own --cov scope
-ENGINE_COV_ARGS=()
-if [ -n "${POLARS_COV:-}" ]; then
-    ENGINE_COV_ARGS=(--cov=graphistry.Engine --cov-report= --cov-append)
-fi
-python -B -m pytest -vv "${ENGINE_COV_ARGS[@]}" \
-    graphistry/tests/compute/test_engine_coercion.py
