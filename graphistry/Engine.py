@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Set, Union
 from typing_extensions import Literal
 from enum import Enum
 
@@ -213,7 +213,7 @@ def active_frames_are_polars(g: Any) -> bool:
 # per-hop NaN probe on a RESIDENT graph (seeded Search / native-hop hammers the same edge
 # frame every call) from O(E)-per-call into O(1) after the first check — the dominant
 # per-call cost for polars/polars-gpu seeded traversal on float-column (i.e. real) graphs.
-_PL_NAN_CLEAN_IDS: "set[int]" = set()
+_PL_NAN_CLEAN_IDS: Set[int] = set()
 
 
 def _mark_pl_nan_clean(df) -> None:
