@@ -6,7 +6,7 @@ import pandas as pd
 from types import MappingProxyType
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 from graphistry.Plottable import Plottable
-from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, is_polars_df, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
@@ -343,6 +343,51 @@ def _apply_connected_optional_match(
     df_ctor = df_cons(concrete_engine)
     node_col = str(getattr(base_graph, "_node", "id"))
 
+    def _optional_arm_membership_chain(
+        binding_ops: Sequence[ASTObject],
+        shared_node_aliases: Sequence[str],
+        joined_rows: DataFrameT,
+    ) -> Optional[List[ASTObject]]:
+        """Polars twin of the start_nodes pruning: rewrite the arm's first node op with an
+        id-membership filter (the shared alias's bound ids) instead of seeding via
+        start_nodes, which the polars bindings-row path declines by contract. Returns the
+        pruned binding chain, or None when the shape doesn't qualify (run unseeded)."""
+        if not binding_ops:
+            return None
+        first_op = binding_ops[0]
+        if not isinstance(first_op, ASTNode):
+            return None
+        first_alias = getattr(first_op, "_name", None)
+        if not isinstance(first_alias, str) or first_alias not in shared_node_aliases:
+            return None
+        if first_op.query is not None:
+            return None
+        filter_dict = dict(first_op.filter_dict or {})
+        if node_col in filter_dict:
+            return None  # id already constrained; don't intersect two conditions on one key
+        joined_col = next(
+            (
+                col
+                for col in (f"{first_alias}.{node_col}", first_alias)
+                if col in joined_rows.columns
+            ),
+            None,
+        )
+        if joined_col is None:
+            return None
+        seed_col = joined_rows[joined_col]
+        if is_polars_df(joined_rows):
+            seed_ids = seed_col.drop_nulls().unique().to_list()
+        else:
+            seed_ids = seed_col.dropna().drop_duplicates().tolist()
+        if not seed_ids:
+            return None
+        pruned_first = ASTNode(
+            filter_dict={**filter_dict, node_col: seed_ids},
+            name=first_alias,
+        )
+        return [pruned_first, *binding_ops[1:]]
+
     def _optional_arm_start_nodes(
         binding_ops: Sequence[ASTObject],
         shared_node_aliases: Sequence[str],
@@ -374,15 +419,16 @@ def _apply_connected_optional_match(
         if joined_col is None:
             return None
 
-        seed_frame = cast(
-            DataFrameT,
-            df_to_engine(
-                joined_rows[[joined_col]].dropna().drop_duplicates().rename(columns={joined_col: node_col}),
-                concrete_engine,
-            ),
-        )
+        seed_src = joined_rows[[joined_col]]
+        if is_polars_df(seed_src):
+            seed_src = seed_src.drop_nulls().unique().rename({joined_col: node_col})
+        else:
+            seed_src = seed_src.dropna().drop_duplicates().rename(columns={joined_col: node_col})
+        seed_frame = cast(DataFrameT, df_to_engine(seed_src, concrete_engine))
         seed_ids = cast(SeriesT, seed_frame[node_col])
         node_ids = cast(SeriesT, base_nodes[node_col])
+        if is_polars_df(base_nodes):
+            return cast(DataFrameT, base_nodes.filter(node_ids.is_in(seed_ids)))
         return cast(DataFrameT, base_nodes[node_ids.isin(seed_ids)].copy())
 
     # Run base chain to get binding rows.
@@ -404,15 +450,32 @@ def _apply_connected_optional_match(
     # Chained left-outer-join: one pass per OPTIONAL MATCH arm.
     for arm in plan.arms:
         opt_binding_chain, opt_post_ops = _split_binding_and_post_ops(arm.chain.chain)
+        # The seed restriction is a pruning hint, not semantics: the arm's rows are
+        # left-outer-joined on the shared aliases, so unpruned arm rows that can't
+        # join are dropped (`where`-arms already run unseeded). The polars native
+        # bindings-row path declines seeded runs (start_nodes = bounded-reentry
+        # contract, pandas-only), so on polars the SAME pruning is expressed as an
+        # id-membership filter on the arm's first (shared) node op instead.
+        opt_start_nodes = None
+        if not arm.chain.where:
+            if concrete_engine in POLARS_ENGINES:
+                pruned_chain = _optional_arm_membership_chain(
+                    opt_binding_chain,
+                    arm.shared_node_aliases,
+                    joined,
+                )
+                if pruned_chain is not None:
+                    opt_binding_chain = pruned_chain
+            else:
+                opt_start_nodes = _optional_arm_start_nodes(
+                    opt_binding_chain,
+                    arm.shared_node_aliases,
+                    joined,
+                )
         opt_binding_ops = serialize_binding_ops(opt_binding_chain)
         opt_with_rows = Chain(
             list(opt_binding_chain) + [ASTCall("rows", {"binding_ops": opt_binding_ops})] + opt_post_ops,
             where=arm.chain.where,
-        )
-        opt_start_nodes = None if arm.chain.where else _optional_arm_start_nodes(
-            opt_binding_chain,
-            arm.shared_node_aliases,
-            joined,
         )
         opt_rows_result = _chain_dispatch(
             base_graph,
@@ -440,7 +503,32 @@ def _apply_connected_optional_match(
                 and alias in opt_rows_df.columns
             ]
 
-        if opt_rows_df is not None and len(opt_rows_df) > 0 and join_cols:
+        if is_polars_df(joined):
+            # polars twin of the pandas block below: same semi-join prune +
+            # left-outer join + alias synthesis, with null-preserving semantics
+            # (polars nulls need no NaN->None normalization).
+            import polars as pl
+            if opt_rows_df is not None and len(opt_rows_df) > 0 and join_cols:
+                opt_only_cols = [c for c in opt_rows_df.columns if c not in joined.columns or c in join_cols]
+                if len(join_cols) == 1:
+                    jc = join_cols[0]
+                    opt_rows_df = opt_rows_df.filter(pl.col(jc).is_in(joined[jc]))
+                else:
+                    join_keys = joined.select(join_cols).unique()
+                    opt_rows_df = opt_rows_df.join(join_keys, on=join_cols, how="inner")
+                joined = joined.join(opt_rows_df.select(opt_only_cols), on=join_cols, how="left")
+            else:
+                for alias in arm.opt_only_aliases:
+                    if alias not in joined.columns:
+                        joined = joined.with_columns(pl.lit(None).alias(alias))
+            for alias in arm.opt_only_aliases:
+                if alias in joined.columns:
+                    continue
+                prefix = f"{alias}."
+                marker_col = next((c for c in joined.columns if c.startswith(prefix)), None)
+                if marker_col is not None:
+                    joined = joined.with_columns(pl.col(marker_col).alias(alias))
+        elif opt_rows_df is not None and len(opt_rows_df) > 0 and join_cols:
             opt_only_cols = [c for c in opt_rows_df.columns if c not in joined.columns or c in join_cols]
             # Semi-join filter: restrict opt rows to join-key values present in base
             # result before materialization. Prevents cross-product blowup when the
@@ -457,15 +545,17 @@ def _apply_connected_optional_match(
                 if alias not in joined.columns:
                     joined[alias] = None
 
-        # Synthesize bare alias columns for edge aliases in this arm.
-        for alias in arm.opt_only_aliases:
-            if alias in joined.columns:
-                continue
-            prefix = f"{alias}."
-            marker_col = next((c for c in joined.columns if c.startswith(prefix)), None)
-            if marker_col is not None:
-                marker = joined[marker_col]
-                joined[alias] = marker.where(marker.notna(), other=None)
+        # Synthesize bare alias columns for edge aliases in this arm (pandas/cuDF;
+        # the polars branch above does its own null-preserving synthesis).
+        if not is_polars_df(joined):
+            for alias in arm.opt_only_aliases:
+                if alias in joined.columns:
+                    continue
+                prefix = f"{alias}."
+                marker_col = next((c for c in joined.columns if c.startswith(prefix)), None)
+                if marker_col is not None:
+                    marker = joined[marker_col]
+                    joined[alias] = marker.where(marker.notna(), other=None)
 
     # Delegate RETURN / ORDER BY / SKIP / LIMIT to the standard row pipeline.
     joined_plottable = base_graph.bind()
