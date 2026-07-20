@@ -305,9 +305,7 @@ def hop_polars(
     # walk stays UNLABELED (null) — the divergence #1741 is about. label_seeds writes hop 0 for
     # seeds instead. Edges take the hop that first traversed them (hop.py:555-557), min-aggregated.
     track_node_hops = (label_node_hops is not None or label_seeds) and not min_hops_active
-    track_edge_hops = label_edge_hops is not None and not min_hops_active
     node_hop_frames = []                 # list[DataFrame[NID, NHOP]]
-    edge_hop_frames = []                 # list[DataFrame[EID, HOP]]
     label_seen_nodes = empty_ids         # first-wins guard for node labels
     NHOP = generate_safe_column_name("__gfql_node_hop__", all_nodes, prefix="__gfql_", suffix="__")
 
@@ -353,11 +351,6 @@ def hop_polars(
             )
         else:
             visited_edge_frames.append(hop_edges.select(pl.col(EID)))
-
-        if track_edge_hops:
-            edge_hop_frames.append(
-                hop_edges.select(pl.col(EID)).unique().with_columns(pl.lit(current_hop, dtype=pl.Int64).alias(HOP))
-            )
 
         cand = hop_edges.select(pl.col(TO).alias(NID)).unique()
         new_frontier = cand.join(visited_nodes, on=NID, how="anti")
@@ -477,19 +470,4 @@ def hop_polars(
         )
         out_nodes = out_nodes.join(
             node_labels.rename({NID: node_col, NHOP: label_node_hops}), on=node_col, how="left")
-    if track_edge_hops and label_edge_hops is not None:
-        if edge_hop_frames:
-            edge_labels = pl.concat(edge_hop_frames, how="vertical_relaxed").group_by(EID).agg(pl.col(HOP).min())
-        else:
-            edge_labels = edges_idx.select(pl.col(EID)).clear().with_columns(pl.lit(None, dtype=pl.Int64).alias(HOP))
-        if synth_eid:
-            # EID was dropped from out_edges above; re-attach labels positionally via edges_idx.
-            out_edges = (
-                edges_idx.join(visited_edges, on=EID, how="semi")
-                .join(edge_labels.rename({HOP: label_edge_hops}), on=EID, how="left")
-                .drop(EID)
-            )
-        else:
-            out_edges = out_edges.join(edge_labels.rename({HOP: label_edge_hops}), on=EID, how="left")
-
     return g.nodes(out_nodes, node_col).edges(out_edges, src, dst)
