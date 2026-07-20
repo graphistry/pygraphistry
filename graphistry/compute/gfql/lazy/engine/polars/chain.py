@@ -494,6 +494,12 @@ _NODE_POS_CACHE: dict = {}
 _POS_MISS = object()
 _POS_SEEN_ONCE = object()
 
+# (id(edges frame), ids of compiled ops) whose lean probe truncated (big wavefronts): skip the
+# lean attempt entirely on warm calls — the probe would re-execute the traversal for nothing.
+# Recycle-safe: weakref.finalize on the edges frame evicts. A recycled key can only skip an
+# eligible lean attempt (conservative, never incorrect).
+_LEAN_SKIP_MEMO: dict = {}
+
 
 def _node_pos_frame_cached(nodes, node_col: str):
     key = (id(nodes), node_col)
@@ -995,8 +1001,13 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
 
     # Slice-3 lean combine: seeded single-hop chains skip the full-frame Track-B plan entirely
     # (position gathers over the resident frames, O(result) per call). Guards + fallback inside.
-    if not has_multihop and added_edge_index and (
-            start_nodes is not None or (isinstance(ops[0], ASTNode) and ops[0].filter_dict)):
+    # A truncated probe (None) means big wavefronts: the probe collect executed the traversal
+    # once and Track B will execute it again (in-memory limits don't early-stop joins), so
+    # memoize that outcome per (edges frame, compiled ops) — compiled-plan caching reuses the
+    # ops objects, so warm calls skip straight to the fused Track B plan with no probe at all.
+    _lean_key = (id(g._edges), tuple(id(op) for op in ops))
+    if (not has_multihop and added_edge_index and _lean_key not in _LEAN_SKIP_MEMO and (
+            start_nodes is not None or (isinstance(ops[0], ASTNode) and ops[0].filter_dict))):
         lean = _try_combine_lean(g, ops, steps, label_steps, EID)
         if lean is not None and lean[0] == "lean":
             _, final_nodes, final_edges = lean
@@ -1005,6 +1016,13 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         if lean is not None:  # guard fallback: reuse the materialized steps in Track B
             _, steps, label_steps = lean
             edge_steps = steps
+        else:
+            try:
+                import weakref
+                weakref.finalize(g._edges, _LEAN_SKIP_MEMO.pop, _lean_key, None)
+                _LEAN_SKIP_MEMO[_lean_key] = True
+            except TypeError:  # pragma: no cover - frame not weakref-able -> don't memoize
+                pass
 
     # Track B: build the WHOLE combine (combine_nodes/edges + endpoint + names) as ONE deferred
     # plan over already-materialized hop frames and collect ONCE — collapsing the ~dozen eager
