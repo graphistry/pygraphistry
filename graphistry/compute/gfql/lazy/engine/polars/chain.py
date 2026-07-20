@@ -553,7 +553,8 @@ def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
     ``("fallback", steps_m, label_steps)`` when step frames exceed the small-result guard or the
     node frame is unsuitable (null/dup ids) — with the MATERIALIZED steps, so Track B reuses
     them instead of re-executing the traversal; or None (pre-collect decline: non-node first
-    step — its edge combine would semi-join the full node frame).
+    step — its edge combine would semi-join the full node frame — or a capped-collect probe
+    truncated, meaning big wavefronts where Track B's fused lazy plan wins).
     """
     import polars as pl
     node_col, src, dst = g._node, g._source, g._destination
@@ -610,10 +611,17 @@ def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
                 and op._name in colnames(p._edges)):
             eproj = p._edges.filter(pl.col(op._name)).select(pl.col(eid_col))
         frames.extend((nproj, eproj))
+    # Collect lazily-capped at LEAN_MAX_ROWS+1: a frame back at <= cap is COMPLETE (the limit
+    # never truncated) and reusable; a truncated frame means big wavefronts -> return None so
+    # Track B runs on the ORIGINAL lazy steps with full traversal/combine fusion (predicate
+    # pushdown into the traversal is worth more there than reusing a partial probe).
     lazy_idx = [i for i, f in enumerate(frames) if f is not None and is_lazy(f)]
     if lazy_idx:
-        for i, df in zip(lazy_idx, collect_all([frames[i] for i in lazy_idx])):
+        for i, df in zip(lazy_idx,
+                         collect_all([frames[i].limit(LEAN_MAX_ROWS + 1) for i in lazy_idx])):
             frames[i] = df
+    if any(f is not None and f.height > LEAN_MAX_ROWS for f in frames):
+        return None
     steps_m = [
         (op, _LazyShim(frames[2 * i], frames[2 * i + 1], node_col, src, dst, g._edge))
         for i, (op, _) in enumerate(steps)
@@ -624,6 +632,7 @@ def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
         for i, (op, _) in enumerate(label_steps)
     ]
     if sum(f.height for f in frames if f is not None) > LEAN_MAX_ROWS:
+        # every frame complete, just jointly too big -> safe to reuse eagerly in Track B
         return ("fallback", steps_m, list(label_steps))
 
     # Mapping lookup LAST (after the row guard): None means first sighting of this node frame
