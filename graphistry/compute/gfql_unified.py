@@ -1815,6 +1815,24 @@ def gfql(self: Plottable,
     :returns: Resulting Plottable
     :rtype: Plottable
     """
+    # engine inference: resolve_engine(AUTO) maps polars frames to PANDAS (polars predates
+    # Engine.POLARS there), silently bridging polars-frame graphs onto the generic pandas path
+    # (~13x slower on cypher point queries, pandas frames out). Route AUTO to the native polars
+    # engine instead; an honest NIE (unsupported shape) falls back to the legacy AUTO path, which
+    # is allowed here because the user did not pin an engine.
+    if (
+        (engine == EngineAbstract.AUTO or engine == EngineAbstract.AUTO.value)
+        and is_polars_df(self._edges) and (self._nodes is None or is_polars_df(self._nodes))
+    ):
+        try:
+            return gfql(
+                self, query, engine=Engine.POLARS.value, output=output, policy=policy,
+                where=where, language=language, params=params, validate=validate,
+                shortest_path_backend=shortest_path_backend,
+            )
+        except NotImplementedError:
+            logger.debug('AUTO polars-native attempt declined; falling back to generic path')
+
     context = ExecutionContext()
 
     if policy and context.policy_depth >= 1:
