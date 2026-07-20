@@ -556,28 +556,46 @@ def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
         return None
     mapping_df, pos_col = mapping
 
-    # Materialize step frames in one batched collect, then bound total rows: the lean gathers
-    # and per-step joins are only a win (and only guaranteed small) on small wavefronts. On
-    # guard failure the MATERIALIZED steps go back to Track B (never the original lazy frames —
-    # that re-executed the whole traversal inside Track B's collect: +34-43% on the big-wavefront
-    # SF1 queries).
+    # Materialize the backward-pruned step frames plus ID PROJECTIONS of the forward label
+    # frames in ONE batched collect, then bound total rows: the lean gathers and per-step joins
+    # are only a win (and only guaranteed small) on small wavefronts. Label steps enter the lean
+    # combine solely as semi-join id sets (prev/next endpoints) and named-edge id sets — never
+    # materialize them in full: forward hub fan-out frames are exactly what Track B's fused
+    # lazy semi-joins avoid materializing (full-frame label collect cost new-topics +33% at SF1).
+    # On guard failure the MATERIALIZED steps go back to Track B (never the original lazy frames
+    # — that re-executed the whole traversal inside Track B's collect: +34-43% on big-wavefront
+    # SF1 queries); label steps stay as-is for Track B's fusion.
     from graphistry.compute.gfql.lazy import collect_all
     LEAN_MAX_ROWS = 100_000
-    pairs = list(steps) + list(label_steps)
     frames: List[Any] = []
-    for _, p in pairs:
+    for _, p in steps:
         frames.extend((p._nodes, p._edges))
+    n_step_frames = len(frames)
+    # label projections: nodes -> unique id column; edges -> named-flag eid column (or None)
+    for op, p in label_steps:
+        nproj = None
+        if p._nodes is not None and node_col in colnames(p._nodes):
+            nproj = p._nodes.select(pl.col(node_col)).unique()
+        eproj = None
+        if (op._name is not None and isinstance(op, ASTEdge) and p._edges is not None
+                and op._name in colnames(p._edges)):
+            eproj = p._edges.filter(pl.col(op._name)).select(pl.col(eid_col))
+        frames.extend((nproj, eproj))
     lazy_idx = [i for i, f in enumerate(frames) if f is not None and is_lazy(f)]
     if lazy_idx:
         for i, df in zip(lazy_idx, collect_all([frames[i] for i in lazy_idx])):
             frames[i] = df
-    shims = [
+    steps_m = [
         (op, _LazyShim(frames[2 * i], frames[2 * i + 1], node_col, src, dst, g._edge))
-        for i, (op, _) in enumerate(pairs)
+        for i, (op, _) in enumerate(steps)
     ]
-    steps_m, label_m = shims[:len(steps)], shims[len(steps):]
+    label_m = [
+        (op, _LazyShim(frames[n_step_frames + 2 * i], frames[n_step_frames + 2 * i + 1],
+                       node_col, src, dst, g._edge))
+        for i, (op, _) in enumerate(label_steps)
+    ]
     if sum(f.height for f in frames if f is not None) > LEAN_MAX_ROWS:
-        return ("fallback", steps_m, label_m)
+        return ("fallback", steps_m, list(label_steps))
 
     # Edges: _combine_edges' per-step prev/next endpoint semi-joins, on small frames only
     # (idx>0 always holds for edge steps — ops[0] is a node), then ONE position gather.
@@ -607,8 +625,8 @@ def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
     else:
         out_edges = g._edges.clear()
     for op, p in label_m:
-        if op._name is not None and isinstance(op, ASTEdge) and p._edges is not None and op._name in colnames(p._edges):
-            named = p._edges.filter(pl.col(op._name)).select(pl.col(eid_col)).with_columns(pl.lit(True).alias(op._name))
+        if p._edges is not None:  # pre-filtered named-edge eid projection (built above)
+            named = p._edges.with_columns(pl.lit(True).alias(op._name))
             out_edges = out_edges.join(named, on=eid_col, how="left").with_columns(pl.col(op._name).fill_null(False))
 
     # Nodes: step ids ∪ surviving-edge endpoints (endpoint repair), position-gathered in
