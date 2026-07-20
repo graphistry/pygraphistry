@@ -20,6 +20,7 @@ from graphistry.Engine import (
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.dataframe_utils import concat_frames
+from graphistry.compute.gfql.call.support import AggSpec
 from graphistry.compute.gfql.row import frame_ops as row_frame_ops
 from graphistry.compute.gfql.row.prefilter import AliasPrefilters
 from graphistry.compute.typing import DataFrameT
@@ -4993,7 +4994,7 @@ class RowPipelineMixin:
     def group_by(
         self,
         keys: Sequence[str],
-        aggregations: Sequence[Sequence[Any]],
+        aggregations: Sequence[AggSpec],
         key_prefixes: Optional[Sequence[str]] = None,
     ) -> "Plottable":
         """Vectorized grouped aggregations for row-table pipelines."""

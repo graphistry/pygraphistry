@@ -7,7 +7,13 @@ parity vs the pandas chain gates correctness; unsupported shapes raise NotImplem
 (no silent pandas fallback). Deferred: variable-length/multi-hop edge sub-cases, some
 undirected multi-edge combos, node query=.
 """
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, cast
+
+from typing_extensions import TypedDict
+
+# Runtime import (not TYPE_CHECKING): AggSpec is a pure typing Union of builtins (engine-
+# neutral wire type), and it keeps _GroupByParams introspectable (get_type_hints) at runtime.
+from graphistry.compute.gfql.call.support import AggSpec
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
@@ -348,6 +354,14 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     return g_cur
 
 
+
+class _GroupByParams(TypedDict, total=False):
+    """group_by's slice of ASTCall.params (wire JSON): keys + (out_col, agg, in_col)
+    aggregation triples + optional per-key entity prefixes ("node." / edge alias dots)."""
+    keys: List[str]
+    aggregations: List[AggSpec]
+    key_prefixes: Optional[List[str]]
+
 def _try_native_row_op(g_cur, op):
     """Run a row-pipeline call natively on polars, or return None to defer (NIE)."""
     from graphistry.Engine import Engine
@@ -415,12 +429,17 @@ def _try_native_row_op(g_cur, op):
     if fn == "order_by":
         return order_by_polars(g_cur, op.params.get("keys", []))
     if fn == "group_by":
-        if op.params.get("key_prefixes"):
-            # Whole-row grouping on a bindings table (alias-prefixed key expansion):
-            # silently ignoring key_prefixes would group on the wrong keys — a
-            # wrong answer. Decline until natively ported.
-            return None
-        return group_by_polars(g_cur, op.params.get("keys", []), op.params.get("aggregations", []))
+        # ASTCall.params is a wire-format Dict[str, Any] whose schema is keyed by the
+        # RUNTIME value of op.function, so precise typing lives in per-function
+        # TypedDicts narrowed at dispatch (full tagged-union ASTCall is a larger AST
+        # refactor). The cast is sound: validate() has already checked these shapes.
+        gb = cast(_GroupByParams, op.params)
+        return group_by_polars(
+            g_cur,
+            gb.get("keys", []),
+            gb.get("aggregations", []),
+            key_prefixes=gb.get("key_prefixes"),
+        )
     if fn == "unwind":
         return unwind_polars(g_cur, op.params.get("expr", ""), op.params.get("as_", "value"))
     if fn == "get_degrees":

@@ -16,7 +16,7 @@ from __future__ import annotations
 import contextvars
 import operator
 import re
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union, cast
 
 if TYPE_CHECKING:
     import polars as pl
@@ -24,6 +24,10 @@ if TYPE_CHECKING:
 
 from graphistry.Plottable import Plottable
 from graphistry.utils.json import JSONVal
+# Engine-neutral wire-format payload types (ASTCall.params). Shapes are safelist-validated
+# (gfql/call/validation.py) before reaching these helpers, so the runtime isinstance/len
+# checks below are defense-in-depth, not the contract.
+from graphistry.compute.gfql.call.support import AggSpec, OrderKey, SelectItem
 from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
 
 
@@ -83,6 +87,11 @@ def _resolve_property(alias: str, prop: str, columns: Sequence[str]) -> Optional
     prefixed = f"{alias}.{prop}"
     if prefixed in columns:
         return prefixed
+    if prop == "__gfql_node_id__" and alias in columns:
+        # Whole-entity identity key (#1650 lowering groups by `alias.__gfql_node_id__`).
+        # pandas' bindings table carries it as a join-residue column; the polars table
+        # deliberately doesn't — its value IS the bare alias id column.
+        return alias
     if prop in columns and alias in columns:
         return prop
     return None
@@ -559,10 +568,12 @@ def lower_expr_str(expr: str, columns: Sequence[str]) -> Optional[pl.Expr]:
     return lower_expr(node, columns)
 
 
-def lower_select_items(items: Sequence[Any], columns: Sequence[str]) -> Optional[List[Any]]:
+def lower_select_items(items: Sequence[SelectItem], columns: Sequence[str]) -> Optional[List["pl.Expr"]]:
     """Lower projection items [(alias, expr) | 'col'] to polars exprs, or None."""
-    out: List[Any] = []
+    out: List["pl.Expr"] = []
     for item in items:
+        alias: str
+        expr: JSONVal
         if isinstance(item, str):
             alias, expr = item, item
         elif isinstance(item, (list, tuple)) and len(item) == 2:
@@ -582,9 +593,9 @@ def lower_select_items(items: Sequence[Any], columns: Sequence[str]) -> Optional
     return out
 
 
-def lower_order_by_keys(keys: Sequence[Any], columns: Sequence[str]) -> Optional[Tuple[List[Any], List[bool]]]:
+def lower_order_by_keys(keys: Sequence[OrderKey], columns: Sequence[str]) -> Optional[Tuple[List["pl.Expr"], List[bool]]]:
     """Lower order_by [(expr, direction)] to (polars exprs, descending flags)."""
-    exprs: List[Any] = []
+    exprs: List["pl.Expr"] = []
     descending: List[bool] = []
     for key in keys:
         if not isinstance(key, (list, tuple)) or len(key) != 2:
@@ -636,7 +647,7 @@ def _project_preserving_height(table: Any, exprs: List[Any]) -> Any:
     return table.select(exprs)
 
 
-def _project_polars(g: Plottable, items: Sequence[Any], extend: bool) -> Optional[Plottable]:
+def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> Optional[Plottable]:
     """Shared body of ``select_polars`` / ``with_columns_polars``; None if any item isn't
     lowerable (honest NIE, no pandas bridge)."""
     table = _active_table(g)
@@ -661,12 +672,12 @@ def _select_emits_temporal_constructor_text(out: Any) -> bool:
     return False
 
 
-def select_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
+def select_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[Plottable]:
     """Native polars projection (replaces the row table)."""
     return _project_polars(g, items, extend=False)
 
 
-def with_columns_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
+def with_columns_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[Plottable]:
     """Native polars WITH extend=True: add/overwrite columns, keep the rest. Mirrors pandas
     ``with_(extend=True)`` (``table_df.assign``): ``with_columns`` matches — an existing alias
     REPLACES in place (position kept), a new alias APPENDS at the end in item order."""
@@ -714,7 +725,7 @@ def where_rows_polars(
     return _rewrap(g, table.filter(combined))
 
 
-def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
+def order_by_polars(g: Plottable, keys: Sequence[OrderKey]) -> Optional[Plottable]:
     """Native polars sort; None if any key isn't lowerable."""
     table = _active_table(g)
     lowered = _lower_with_schema(table, lambda: lower_order_by_keys(keys, list(table.columns)))
@@ -732,7 +743,7 @@ def order_by_polars(g: Plottable, keys: Sequence[Any]) -> Optional[Plottable]:
 
 # Native aggs: count/sum/avg/min/max/count_distinct/collect/collect_distinct; stdev/percentile
 # etc. return None → caller declines (NIE).
-def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str, schema: Optional[dict] = None) -> Optional[pl.Expr]:
+def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str, schema: Optional[Mapping[str, "pl.DataType"]] = None) -> Optional[pl.Expr]:
     import polars as pl
     func = func.lower()
     if func == "count" and (expr is None or expr == "*"):
@@ -776,26 +787,45 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     return None
 
 
-def group_by_polars(g: Plottable, keys: Sequence[Any], aggregations: Sequence[Any]) -> Optional[Plottable]:
+def group_by_polars(
+    g: Plottable,
+    keys: Sequence[str],
+    aggregations: Sequence[AggSpec],
+    key_prefixes: Optional[Sequence[str]] = None,
+) -> Optional[Plottable]:
     """Native polars group-by; None if a key/agg isn't lowerable. Matches pandas dropna=False
     (null keys kept) + non-null agg semantics; output order is first-occurrence (maintain_order),
-    though the parity gate compares order-insensitively."""
+    though the parity gate compares order-insensitively. ``key_prefixes`` mirrors the pandas
+    whole-entity expansion: every ``<prefix>*`` column of the row table joins the key set (the
+    entity's columns are functionally dependent on its identity key, so this only carries them
+    through — group sizes are unchanged)."""
     table = _active_table(g)
     cols = list(table.columns)
-    if not keys or not all(isinstance(k, str) and k in cols for k in keys):
+    key_cols = [str(k) for k in keys]
+    if key_prefixes:
+        seen = set(key_cols)
+        for prefix in key_prefixes:
+            for col in cols:
+                if isinstance(col, str) and col.startswith(prefix) and col not in seen:
+                    key_cols.append(col)
+                    seen.add(col)
+    if not key_cols or not all(isinstance(k, str) and k in cols for k in key_cols):
         return None
-    aggs: List[Any] = []
+    aggs: List["pl.Expr"] = []
     for agg in aggregations:
         if not isinstance(agg, (list, tuple)) or len(agg) not in (2, 3):
             return None
-        alias = str(agg[0])
-        func = str(agg[1])
-        expr = agg[2] if len(agg) == 3 else None
+        # cast: the AggSpec tuple variants make agg[2] an out-of-range index to mypy;
+        # the len guard above already proved the shape.
+        spec = cast("Sequence[Optional[str]]", agg)
+        alias = str(spec[0])
+        func = str(spec[1])
+        expr = spec[2] if len(spec) == 3 else None
         lowered = _agg_expr(func, expr, cols, alias, table.schema)
         if lowered is None:
             return None
         aggs.append(lowered)
-    out = table.group_by(list(keys), maintain_order=True).agg(aggs)
+    out = table.group_by(key_cols, maintain_order=True).agg(aggs)
     return _rewrap(g, out)
 
 
@@ -825,7 +855,7 @@ def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plott
     return _rewrap(g, table.join(rhs, how="cross"))
 
 
-def select_extend_polars(g: Plottable, items: Sequence[Any]) -> Optional[Plottable]:
+def select_extend_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[Plottable]:
     """Native polars ``with_(items, extend=True)``: add/overwrite projected columns
     while keeping the existing row table (pandas ``assign`` semantics). Emitted by
     the bindings-path aggregate lowering (pre-aggregation group keys / agg args),
@@ -858,8 +888,10 @@ def binding_rows_polars(
     Returns None to DECLINE (caller raises the honest NIE) for anything outside
     the supported subset: variable-length/multi-hop edges, shortestPath scalar
     bindings, node ``query=`` / edge query or endpoint-match params, hop labels,
-    HAS_-label destination disambiguation, seeded re-entry contexts, cartesian
-    (node-only) mode, and the legacy ``alias_endpoints`` variant. NO-CHEATING:
+    HAS_-label destination disambiguation on duplicate-node-id graphs (unique-id
+    graphs run native — pandas would not narrow there either), seeded re-entry
+    contexts, cartesian (node-only) mode, and the legacy ``alias_endpoints``
+    variant. NO-CHEATING:
     never bridges to pandas. Parity gate: differential tests vs the pandas oracle.
     """
     import polars as pl
@@ -927,10 +959,6 @@ def binding_rows_polars(
             ):
                 return None
             if bool(op.label_seeds) or bool(op.include_zero_hop_seed):
-                return None
-            # Duplicate-id + HAS_<Label> endpoint disambiguation: pandas has a
-            # bespoke candidate-domain rule here; decline rather than diverge.
-            if RowPipelineMixin._gfql_has_edge_destination_label_col(op, nodes.columns) is not None:
                 return None
 
     node_id = str(node_id)
@@ -1054,6 +1082,39 @@ def binding_rows_polars(
                 right_on=node_id,
                 how="semi",
             )
+            # HAS_<Label> destination disambiguation (pandas'
+            # _gfql_disambiguate_has_edge_destination_nodes): on DUPLICATE-id graphs
+            # pandas narrows the unlabeled next op to the edge's HAS_<Label> rows
+            # taken from the ORIGINAL node table (its base_nodes still carries the
+            # colliding label rows). By the time this rows op runs, ``g``'s node
+            # table is the chain-combine result — deduplicated by id, first
+            # occurrence kept — so the label row pandas narrows to may already be
+            # GONE here and a native answer would be silently row-order-dependent.
+            # Unique-id graphs need no narrowing (pandas' duplicated() probe is
+            # False) → native is parity-exact; duplicate-id graphs DECLINE (honest
+            # NIE). Probe the pre-chain base graph stashed by _run_calls_polars —
+            # if it isn't available, decline (can't prove uniqueness).
+            dis_label_col = RowPipelineMixin._gfql_has_edge_destination_label_col(edge_op, nodes.columns)
+            if (
+                dis_label_col is not None
+                and not sem.is_multihop
+                and edge_op.direction == "forward"
+                and not RowPipelineMixin._gfql_node_filter_has_label(next_op.filter_dict)
+            ):
+                base_graph = getattr(g, "_gfql_rows_base_graph", None)
+                base_nodes = getattr(base_graph, "_nodes", None)
+                if base_nodes is None:
+                    return None
+                base_lf = base_nodes.lazy()
+                if node_id not in base_lf.collect_schema().names():
+                    return None
+                _base_dup = bool(
+                    base_lf.select(pl.col(node_id).is_duplicated().any())
+                    .collect()
+                    .item()
+                )
+                if _base_dup:
+                    return None
             next_alias = next_op._name
             if isinstance(next_alias, str):
                 state = state.with_columns(pl.col("__current__").alias(next_alias))
@@ -1102,9 +1163,9 @@ def binding_rows_polars(
     return out
 
 
-def can_select_native(items: Sequence[Any], columns: Sequence[str]) -> bool:
+def can_select_native(items: Sequence[SelectItem], columns: Sequence[str]) -> bool:
     return lower_select_items(items, columns) is not None
 
 
-def can_order_by_native(keys: Sequence[Any], columns: Sequence[str]) -> bool:
+def can_order_by_native(keys: Sequence[OrderKey], columns: Sequence[str]) -> bool:
     return lower_order_by_keys(keys, columns) is not None

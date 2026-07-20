@@ -332,13 +332,50 @@ def test_select_extend_polars_preserves_and_updates_columns():
     assert select_extend_polars(g, [("bad", "missing.property")]) is None
 
 
-def test_try_native_row_op_declines_whole_row_group_prefixes():
-    """Whole-row grouping must defer instead of silently ignoring prefixed keys."""
+def test_try_native_row_op_handles_whole_row_group_prefixes():
+    """Whole-row grouping (prefixed keys) lowers natively via group_by_polars(key_prefixes=...)
+    instead of deferring; keys expand to their entity columns and results match the oracle."""
     from graphistry.compute.ast import group_by
     from graphistry.compute.gfql.lazy.engine.polars.chain import _try_native_row_op
 
     op = group_by(["k"], [("count", "count", "v")], key_prefixes=["node."])
-    assert _try_native_row_op(_polars_graph(), op) is None
+    out = _try_native_row_op(_polars_graph(), op)
+    assert out is not None
+    assert sorted(out._nodes.select(["k", "count"]).rows()) == [("a", 2), ("b", 2)]
+
+
+def test_group_by_polars_key_prefix_expands_and_dedups_overlap():
+    """key_prefixes genuinely expands `<prefix>*` columns into the key set AND skips
+    columns already present in keys (no polars DuplicateError; pandas twin:
+    test_row_pipeline_ops key-overlap case)."""
+    import polars as pl
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import group_by_polars
+
+    nodes = pl.DataFrame({
+        "tag.id": [1, 1, 2, 2],
+        "tag.name": ["a", "a", "b", "b"],
+        "v": [10, 20, 30, 40],
+    })
+    g = graphistry.nodes(nodes)
+    # "tag." expands to tag.id (already a key -> deduped) + tag.name (appended)
+    out = group_by_polars(g, ["tag.id"], [("total", "sum", "v")], key_prefixes=["tag."])
+    assert out is not None
+    assert sorted(out._nodes.columns) == ["tag.id", "tag.name", "total"]
+    assert sorted(out._nodes.select(["tag.id", "tag.name", "total"]).rows()) == [
+        (1, "a", 30), (2, "b", 70),
+    ]
+
+
+def test_group_by_polars_malformed_agg_declines_not_crashes():
+    """Runtime defense-in-depth: malformed AggSpec shapes and unsupported agg
+    functions decline to None (caller raises honest NIE), never crash."""
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import group_by_polars
+
+    g = _polars_graph()
+    assert group_by_polars(g, ["k"], ["not-a-spec"]) is None  # non-list/tuple item
+    assert group_by_polars(g, ["k"], [("alias",)]) is None  # wrong arity
+    assert group_by_polars(g, ["k"], [("alias", "stdev", "v")]) is None  # unsupported func
+    assert group_by_polars(g, ["missing"], [("count", "count", "v")]) is None  # bad key
 
 
 def test_polars_rows_binding_ops_undirected_self_loop_multiplicity():

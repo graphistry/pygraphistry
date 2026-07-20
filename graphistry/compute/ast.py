@@ -7,6 +7,9 @@ from typing_extensions import Literal
 
 if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
+    # TYPE_CHECKING only: graphistry.compute.gfql.call.__init__ pulls in executor/validation
+    # at import time — a module-level import here would be circular.
+    from graphistry.compute.gfql.call.support import AggSpec
 
 from graphistry.Engine import Engine, EngineAbstract
 from graphistry.compute.dataframe_utils import dbg_df
@@ -1809,7 +1812,7 @@ def count_table(
 
 def group_by(
     keys: Iterable[str],
-    aggregations: Iterable[Sequence[Any]],
+    aggregations: Iterable["AggSpec"],
     key_prefixes: Optional[Iterable[str]] = None,
 ) -> ASTCall:
     """Create grouped aggregation operation for row pipelines.

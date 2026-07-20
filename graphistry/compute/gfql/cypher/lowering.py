@@ -3,9 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 import math
 import re
-from typing import AbstractSet, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from typing import TYPE_CHECKING, AbstractSet, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 from typing_extensions import Literal
 import pandas as pd
+
+if TYPE_CHECKING:
+    # TYPE_CHECKING only: the gfql.call package __init__ imports executor/validation at
+    # import time - a module-level import here would be circular.
+    from graphistry.compute.gfql.call.support import AggSpec
 
 from graphistry.compute.ast import (
     ASTCall,
@@ -4876,7 +4881,7 @@ def _lower_match_alias_aggregate_stage(
             projected_property_outputs.setdefault(prop, output_name)
             output_to_source_property[output_name] = prop
 
-    aggregations: List[Sequence[Any]] = []
+    aggregations: List["AggSpec"] = []
     for agg_spec in aggregate_specs:
         if agg_spec.output_name in available_columns:
             raise _unsupported(
@@ -5440,7 +5445,7 @@ def _lower_row_column_aggregate_stage(
             alias_name=item.alias,
         )
 
-    aggregations: List[Sequence[Any]] = []
+    aggregations: List["AggSpec"] = []
     for agg_spec in aggregate_specs:
         if agg_spec.output_name in available_columns:
             raise _unsupported(
@@ -6998,7 +7003,7 @@ def _lower_general_row_projection(
                 alias_name=item.alias,
             )
 
-        aggregations: List[Sequence[Any]] = []
+        aggregations: List["AggSpec"] = []
         for agg_spec in aggregate_specs:
             if agg_spec.output_name in available_columns:
                 raise _unsupported(

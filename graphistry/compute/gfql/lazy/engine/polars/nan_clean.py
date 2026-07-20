@@ -22,6 +22,15 @@ if TYPE_CHECKING:
 # per-hop NaN probe on a RESIDENT graph (seeded Search / native-hop hammers the same edge
 # frame every call) from O(E)-per-call into O(1) after the first check — the dominant
 # per-call cost for polars/polars-gpu seeded traversal on float-column (i.e. real) graphs.
+#
+# Soundness contract: frames handed to GFQL must not be mutated in place afterwards.
+# polars DOES expose in-place mutation (``extend``, ``replace_column``, ``insert_column``,
+# ``hstack(in_place=True)``) that keeps ``id()`` stable — a caller injecting NaN through
+# those after a hop would get a stale "clean" verdict. This is the same implicit contract
+# the pandas-input paths already rely on (``pl.from_pandas(nan_to_null=True)`` snapshots
+# at entry); typical GFQL usage rebinds frames rather than mutating them. Thread-safety:
+# set.add/discard are atomic under the GIL and eviction-vs-insert races can only lose a
+# cache entry, never fabricate one — worst case a redundant re-probe, never a stale hit.
 _PL_NAN_CLEAN_IDS: Set[int] = set()
 
 
@@ -49,7 +58,10 @@ def _pl_nan_to_null(df: "PolarsT") -> "PolarsT":
     identity guard (reverted by #1731) AND removes the per-call O(E) re-scan that made
     polars/polars-gpu seeded Search grow with edge count (see plans/gfql-benchmark-numbers)."""
     import polars as pl
-    float_cols = [c for c, dt in df.schema.items() if dt in (pl.Float32, pl.Float64)]
+    # collect_schema(): resolves the LazyFrame schema without a PerformanceWarning
+    # (LazyFrame.schema is deprecated for that); on eager DataFrames .schema is free.
+    schema = df.collect_schema() if isinstance(df, pl.LazyFrame) else df.schema
+    float_cols = [c for c, dt in schema.items() if dt in (pl.Float32, pl.Float64)]
     if not float_cols:
         return df
     if isinstance(df, pl.DataFrame):
