@@ -482,18 +482,31 @@ def _augmented_edges_cached(edges, eid_col: str):
 
 
 # Recycle-safe cache #4: resident node frame -> sorted (id, row-position) lookup table for the
-# lean combine's position-gather. O(N log N) once per resident frame; weakref.finalize on the
-# source frame evicts so a recycled id can never serve stale positions. Frames with null or
-# duplicated ids cache a None verdict: position-gather keeps one row per id while the semi-join
-# combine keeps all matches, so those frames must stay on the Track-B path.
+# lean combine's position-gather. weakref.finalize on the source frame evicts so a recycled id
+# can never serve stale positions. TWO-SIGHTING protocol: the O(N log N) build (+ O(N) null/dup
+# suitability probe) only pays off when the frame recurs, and pipelines that rebind node frames
+# per call (whole-entity aggregation) would otherwise pay it every call for zero reuse
+# (new-topics cypher +32% at SF1) — so the first sighting is only MARKED (caller uses the O(N)
+# order-preserving is_in filter instead) and the mapping is built on the second sighting.
+# Frames with null or duplicated ids cache a None verdict: position-gather keeps one row per id
+# while the semi-join combine keeps all matches, so those frames stay on the is_in path.
 _NODE_POS_CACHE: dict = {}
 _POS_MISS = object()
+_POS_SEEN_ONCE = object()
 
 
 def _node_pos_frame_cached(nodes, node_col: str):
     key = (id(nodes), node_col)
     hit = _NODE_POS_CACHE.get(key, _POS_MISS)
-    if hit is not _POS_MISS:
+    if hit is _POS_MISS:
+        try:
+            import weakref
+            weakref.finalize(nodes, _NODE_POS_CACHE.pop, key, None)
+            _NODE_POS_CACHE[key] = _POS_SEEN_ONCE
+        except TypeError:  # pragma: no cover - frame not weakref-able -> don't cache
+            pass
+        return None
+    if hit is not _POS_SEEN_ONCE:
         return hit
     import polars as pl
     from graphistry.compute.util import generate_safe_column_name
@@ -503,12 +516,7 @@ def _node_pos_frame_cached(nodes, node_col: str):
     else:
         pos_col = generate_safe_column_name("__gfql_pos__", nodes, prefix="__gfql_", suffix="__")
         mapping = (nodes.select(pl.col(node_col)).with_row_index(pos_col).sort(node_col), pos_col)
-    try:
-        import weakref
-        weakref.finalize(nodes, _NODE_POS_CACHE.pop, key, None)
-        _NODE_POS_CACHE[key] = mapping
-    except TypeError:  # pragma: no cover - frame not weakref-able -> don't cache
-        pass
+    _NODE_POS_CACHE[key] = mapping
     return mapping
 
 
@@ -618,13 +626,10 @@ def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
     if sum(f.height for f in frames if f is not None) > LEAN_MAX_ROWS:
         return ("fallback", steps_m, list(label_steps))
 
-    # Mapping build LAST (after the row guard): it costs O(N log N) per resident node frame,
-    # and pipelines that rebind node frames per call (fresh identity -> cache miss) must not
-    # pay it just to land in the fallback anyway (new-topics cypher +35% at SF1).
+    # Mapping lookup LAST (after the row guard): None means first sighting of this node frame
+    # (or null/dup ids) -> the node gather below uses the O(N) order-preserving is_in filter
+    # instead of the O(k log N) position gather; the mapping only builds for recurring frames.
     mapping = _node_pos_frame_cached(g._nodes, node_col)
-    if mapping is None:
-        return ("fallback", steps_m, list(label_steps))
-    mapping_df, pos_col = mapping
 
     # Edges: _combine_edges' per-step prev/next endpoint semi-joins, on small frames only
     # (idx>0 always holds for edge steps — ops[0] is a node), then ONE position gather.
@@ -668,7 +673,17 @@ def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
         out_edges.select(pl.col(c).alias(node_col)) for c in (src, dst)
     ]
     ids = pl.concat(parts, how="vertical_relaxed").get_column(node_col)
-    final_nodes = _gather_nodes_by_id(g._nodes, mapping_df, pos_col, node_col, ids)
+    if mapping is not None:
+        mapping_df, pos_col = mapping
+        final_nodes = _gather_nodes_by_id(g._nodes, mapping_df, pos_col, node_col, ids)
+    else:
+        # First sighting / unsuitable frame: order-preserving hash-probe filter — same row set
+        # as the semi-join, original order for free. Track B DEDUPES final nodes by id
+        # (unique(subset, maintain_order)); a dup-id result would need Track B's exact
+        # first-occurrence pick, so send that rare shape to the fallback.
+        final_nodes = g._nodes.filter(pl.col(node_col).is_in(ids.drop_nulls()))
+        if final_nodes.get_column(node_col).n_unique() != final_nodes.height:
+            return ("fallback", steps_m, list(label_steps))
     final_nodes = _apply_node_names(final_nodes, g, steps_m)
     return ("lean", final_nodes, out_edges)
 

@@ -767,8 +767,8 @@ class TestLeanCombineDifferential:
         _assert_chain_parity(g, ch, f"lean-{label}", native=True, edge_count=True, aliases=True)
 
     def test_lean_falls_back_on_dup_node_ids(self, monkeypatch):
-        """Duplicate node ids break position-gather semantics (semi-join keeps all matches) —
-        the mapping cache must return None and Track B must serve the query."""
+        """Duplicate node ids break lean node-gather semantics (Track B dedupes by id with a
+        first-occurrence pick) — the lean attempt must detect the dup result and fall back."""
         from polars.testing import assert_frame_equal
         from graphistry.compute.gfql.lazy.engine.polars import chain as chain_mod
 
