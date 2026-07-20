@@ -909,6 +909,11 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     g, _endpoint_restore = _align_edge_endpoints(g, g._node, g._source, g._destination)
     if g._edge is None:
         EID = "__gfql_edge_index__"
+        # A cache HIT below means this edges frame recurred across calls (resident graph) —
+        # the signal the lean combine's probe gates on: per-call rebound frames (whole-entity
+        # aggregation pipelines) never recur, and probing them re-executes the traversal for
+        # nothing since in-memory limits can't early-stop joins (new-topics cypher +35% at SF1).
+        _edges_recurred = (id(g._edges), EID) in _AUGMENTED_EDGES_CACHE
         g = g.edges(_augmented_edges_cached(g._edges, EID), g._source, g._destination, edge=EID)
         added_edge_index = True
         # with_row_index only PREPENDS a synthetic id column; the indexed src/dst are
@@ -924,6 +929,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     else:
         EID = g._edge
         added_edge_index = False
+        _edges_recurred = False
 
     node_col, src, dst = g._node, g._source, g._destination
     assert node_col is not None and src is not None and dst is not None
@@ -1006,7 +1012,8 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     # memoize that outcome per (edges frame, compiled ops) — compiled-plan caching reuses the
     # ops objects, so warm calls skip straight to the fused Track B plan with no probe at all.
     _lean_key = (id(g._edges), tuple(id(op) for op in ops))
-    if (not has_multihop and added_edge_index and _lean_key not in _LEAN_SKIP_MEMO and (
+    if (not has_multihop and added_edge_index and _edges_recurred
+            and _lean_key not in _LEAN_SKIP_MEMO and (
             start_nodes is not None or (isinstance(ops[0], ASTNode) and ops[0].filter_dict))):
         lean = _try_combine_lean(g, ops, steps, label_steps, EID)
         if lean is not None and lean[0] == "lean":

@@ -746,6 +746,7 @@ class TestLeanCombineDifferential:
         from graphistry.compute.gfql.lazy.engine.polars import chain as chain_mod
 
         g = self._graph()
+        g.chain(ch, engine="polars")  # warm: lean gates on a recurring (resident) edges frame
         engaged = []
         orig = chain_mod._try_combine_lean
 
@@ -775,6 +776,7 @@ class TestLeanCombineDifferential:
         nodes = pl.concat([_LEAN_NODES, _LEAN_NODES.filter(pl.col("id") == "b")])
         g = graphistry.nodes(nodes, "id").edges(_LEAN_EDGES, "s", "d")
         ch = [n({"id": "a"}, name="src"), e_forward(name="E"), n()]
+        g.chain(ch, engine="polars")  # warm: lean gates on a recurring (resident) edges frame
 
         engaged = []
         orig = chain_mod._try_combine_lean
