@@ -81,6 +81,15 @@ SUPPORTED = [
     "MATCH (a)-[*2..2]->(b) RETURN count(*) AS c",           # exactly-k
     "MATCH (a)-[:F*1..2]->(b) RETURN count(*) AS c",         # typed var-length
     "MATCH (a)-[*1..2]->(b)-[]->(c) RETURN count(*) AS c",   # var-length + fixed hop
+    # bounded UNDIRECTED var-length, min_hops == 1 (LDBC IC11/IC6 `-[*1..k]-` shape):
+    # doubled-pair join + immediate-backtrack avoidance, exact pandas multiplicity.
+    "MATCH (a)-[*1..2]-(b) RETURN count(*) AS c",
+    "MATCH (a)-[*1..3]-(b) RETURN count(*) AS c",
+    "MATCH (a)-[:F*1..2]-(b) RETURN count(*) AS c",          # typed undirected var-length
+    # the residual IC11 clause: cross-alias node inequality over an undirected
+    # var-length bindings table (previously NIE'd on the undirected `rows` op).
+    "MATCH (a)-[*1..2]-(b) WHERE NOT a = b RETURN b.id AS id ORDER BY id",
+    "MATCH (a)-[*1..2]-(b) WHERE a <> b RETURN a.id AS ai, b.id AS bi ORDER BY ai, bi",
     # node-only cartesian: disconnected multi-source MATCH (#1273). <=3 named aliases.
     "MATCH (a), (b) RETURN a.id AS ai, b.id AS bi ORDER BY ai, bi",
     "MATCH (a {kind: 'a'}), (b {kind: 'b'}) RETURN a.id AS ai, b.id AS bi",
@@ -94,7 +103,13 @@ SUPPORTED = [
 # no silent wrong answer).
 DEFERRED = [
     "MATCH (a)-[*]->(b) RETURN count(*) AS c",               # unbounded var-length
-    "MATCH (a)-[*1..2]-(b) RETURN count(*) AS c",            # undirected var-length
+    # undirected var-length is native ONLY for min_hops == 1 (see SUPPORTED). Other
+    # windows still DECLINE: pandas' step_pairs come from the var-length hop whose
+    # backward-pruning / zero-hop handling changes edge multiplicity in a way the
+    # raw-edge reconstruction only reproduces for min_hops == 1.
+    "MATCH (a)-[*0..2]-(b) RETURN count(*) AS c",            # undirected, min_hops 0
+    "MATCH (a)-[*2..3]-(b) RETURN count(*) AS c",            # undirected, min_hops 2
+    "MATCH (a)-[*2..2]-(b) RETURN count(*) AS c",            # undirected, exactly-2
     "MATCH (a)-[e]->(b) WHERE a.age < b.age RETURN a.id",    # cross-alias same-path WHERE
     # cartesian outside the pandas-reliable subset (#1273): pandas itself errors or
     # is fragile here, so polars declines rather than diverge.
@@ -238,6 +253,79 @@ def test_polars_binding_rows_undirected_self_loop():
         check_dtype=False,
     )
 
+
+
+def _undirected_chain_graph():
+    # chain 0-1-2-3 (directed edges, read undirected by the query)
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3]})
+    edges = pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3]})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+def test_polars_undirected_varlen_min1_backtrack_and_multiplicity_pins():
+    """Undirected `-[*1..k]-` binding table (min_hops == 1) — pin the EXACT pandas
+    oracle semantics, not just parity, so a future drift on either engine is caught:
+
+    * immediate-backtrack avoidance (0->1->0 excluded, so `WHERE NOT a = b` on a chain
+      never re-reaches the start via a single edge),
+    * pandas' edge multiplicity (each non-loop edge contributes each directed
+      orientation TWICE), so a length-1 pair appears x2 and a length-2 pair appears x4.
+    """
+    g = _undirected_chain_graph()
+    # length-1 pairs appear x2, length-2 pairs appear x4 (pandas step_pairs doubling).
+    q = "MATCH (a)-[*1..2]-(b) WHERE NOT a = b RETURN a.id AS ai, b.id AS bi"
+    rpl = g.gfql(q, engine="polars")._nodes.to_pandas()
+    counts = rpl.groupby(["ai", "bi"]).size().to_dict()
+    # 1-hop neighbours (both orientations), each doubled
+    assert counts[(0, 1)] == 2 and counts[(1, 0)] == 2
+    assert counts[(1, 2)] == 2 and counts[(2, 1)] == 2
+    assert counts[(2, 3)] == 2 and counts[(3, 2)] == 2
+    # 2-hop reaches (backtrack-free), each x4
+    assert counts[(0, 2)] == 4 and counts[(2, 0)] == 4
+    assert counts[(1, 3)] == 4 and counts[(3, 1)] == 4
+    # backtrack pairs (a==b via 0->1->0) are excluded -> no (0,0)/(1,1)/... rows here
+    assert (0, 0) not in counts and (1, 1) not in counts
+    # and it exactly matches the pandas oracle
+    _assert_parity(q)
+
+
+def test_polars_undirected_varlen_min1_self_loop_multiplicity():
+    """Self-loops contribute (u,u) x2 only (NOT x4 like non-loops) — mirrors pandas,
+    which sources a single self-loop row from the var-length hop before orienting."""
+    nodes = pd.DataFrame({"id": [0, 1, 2]})
+    edges = pd.DataFrame({"s": [0, 1], "d": [1, 1]})  # edge 0->1 + self-loop 1->1
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    q = "MATCH (a)-[*1..2]-(b) RETURN a.id AS ai, b.id AS bi"
+    rpd = g.gfql(q, engine="pandas")._nodes
+    rpl = g.gfql(q, engine="polars")._nodes
+    assert "polars" in type(rpl).__module__
+    key = ["ai", "bi"]
+    pd.testing.assert_frame_equal(
+        rpd.sort_values(key).reset_index(drop=True),
+        rpl.to_pandas().sort_values(key).reset_index(drop=True),
+        check_dtype=False,
+    )
+
+
+def test_polars_undirected_varlen_min1_parity_string_ids_and_parallel():
+    """String node ids + parallel/antiparallel edges: the `__prev__` backtrack marker
+    is dtype-matched to the id column and multiplicity stays pandas-exact."""
+    nodes = pd.DataFrame({"id": ["x", "y", "z"]})
+    edges = pd.DataFrame({"s": ["x", "y", "y"], "d": ["y", "x", "z"]})  # antiparallel + extra
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    for q in [
+        "MATCH (a)-[*1..2]-(b) RETURN a.id AS ai, b.id AS bi",
+        "MATCH (a)-[*1..3]-(b) WHERE a <> b RETURN a.id AS ai, b.id AS bi",
+    ]:
+        rpd = g.gfql(q, engine="pandas")._nodes
+        rpl = g.gfql(q, engine="polars")._nodes
+        assert "polars" in type(rpl).__module__
+        key = ["ai", "bi"]
+        pd.testing.assert_frame_equal(
+            rpd.sort_values(key).reset_index(drop=True),
+            rpl.to_pandas().sort_values(key).reset_index(drop=True),
+            check_dtype=False,
+        )
 
 
 def test_polars_binding_rows_focused_native_coverage():
