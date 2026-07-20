@@ -526,7 +526,8 @@ def _gather_nodes_by_id(nodes, mapping_df, pos_col: str, node_col: str, ids):
     idx, ids = idx.filter(in_range), ids.filter(in_range)
     hit = sorted_ids.gather(idx) == ids
     pos = mapping_df.get_column(pos_col).gather(idx.filter(hit))
-    return nodes.gather(pos.sort())
+    # __getitem__ row selection, not DataFrame.gather — absent before polars 1.4x
+    return nodes[pos.sort()]
 
 
 def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
@@ -598,7 +599,7 @@ def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
 
     if id_frames:
         eids = pl.concat(id_frames, how="vertical_relaxed").get_column(eid_col).unique().sort()
-        out_edges = g._edges.gather(eids)  # sorted positions == original row order (EORD)
+        out_edges = g._edges[eids]  # sorted positions == original row order (EORD)
     else:
         out_edges = g._edges.clear()
     for op, p in label_m:
