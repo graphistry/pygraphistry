@@ -2,7 +2,7 @@
 # ruff: noqa: E501
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, cast
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union, cast
 
 from graphistry.Engine import EngineAbstract, df_concat, df_cons, resolve_engine, safe_merge
 from graphistry.Plottable import Plottable
@@ -23,7 +23,7 @@ REENTRY_DUPLICATE_CARRIED_ROWS_REASON = "duplicate_carried_node_rows"
 from graphistry.Engine import is_polars_df as _is_polars_df
 
 
-def _series_is_series_like(s: Any) -> bool:
+def _series_is_series_like(s: object) -> bool:
     """True for a pandas/cuDF Series (``.dropna``) or a polars Series (module check).
 
     The reentry executor recovers carried node identities from a projection-meta ``ids`` Series
@@ -31,28 +31,32 @@ def _series_is_series_like(s: Any) -> bool:
     return hasattr(s, "dropna") or _is_polars_df(s)
 
 
-def _series_not_null_mask(s: Any) -> Any:
+# The four helpers below are engine-agnostic (pandas/cuDF/polars); `SeriesT`/`DataFrameT` are the
+# repo's frame aliases (pandas types for mypy). The polars branches genuinely return polars objects
+# mypy can't narrow to the alias, so the suppression lives here at the dispatch point — callers get
+# a clean `SeriesT`/`DataFrameT` contract with no cast().
+def _series_not_null_mask(s: SeriesT) -> SeriesT:
     """Non-null boolean mask, engine-aware (polars ``is_not_null`` vs pandas ``notna``)."""
     if _is_polars_df(s):
-        return s.is_not_null()
+        return s.is_not_null()  # type: ignore[attr-defined,no-any-return]
     return s.notna()
 
 
-def _series_filter(s: Any, mask: Any) -> Any:
+def _series_filter(s: SeriesT, mask: SeriesT) -> SeriesT:
     """Filter a Series by a boolean mask, engine-aware, dropping the old index (pandas)."""
     if _is_polars_df(s):
-        return s.filter(mask)
+        return s.filter(mask)  # type: ignore[attr-defined,no-any-return]
     return s[mask].reset_index(drop=True)
 
 
-def _frame_filter(df: Any, mask: Any) -> Any:
+def _frame_filter(df: DataFrameT, mask: SeriesT) -> DataFrameT:
     """Filter a DataFrame's rows by a boolean mask, engine-aware, dropping the old index."""
     if _is_polars_df(df):
-        return df.filter(mask)
+        return df.filter(mask)  # type: ignore[attr-defined,no-any-return]
     return df.loc[mask].reset_index(drop=True)
 
 
-def _ordered_left_join(left: Any, right: Any, *, on: str) -> Any:
+def _ordered_left_join(left: DataFrameT, right: DataFrameT, *, on: str) -> DataFrameT:
     """Left join preserving ``left`` row order, engine-aware. Polars ``.merge`` does not exist;
     ``safe_merge`` (pandas/cuDF ``.merge``) cannot run on polars frames, so branch to
     ``.join(..., maintain_order='left')`` which pins the WITH-row ordering the reentry seed needs.
@@ -64,25 +68,25 @@ def _ordered_left_join(left: Any, right: Any, *, on: str) -> Any:
         from graphistry.Engine import Engine, df_to_engine
         if not _is_polars_df(right):
             right = df_to_engine(right, Engine.POLARS)
-        return left.join(right, on=on, how="left", maintain_order="left")
+        return left.join(right, on=on, how="left", maintain_order="left")  # type: ignore[call-arg,no-any-return]
     return safe_merge(left, right, on=on, how="left")
 
 
-def _reentry_row(prefix_rows: Any, row_index: int) -> Any:
+def _reentry_row(prefix_rows: DataFrameT, row_index: int) -> Mapping[str, Any]:
     """One prefix row as a col->scalar mapping, engine-aware (``row[col]`` works for
     both the pandas Series and the polars named-row dict)."""
     if _is_polars_df(prefix_rows):
-        return prefix_rows.row(row_index, named=True)
+        return prefix_rows.row(row_index, named=True)  # type: ignore[attr-defined,no-any-return]
     return prefix_rows.iloc[row_index]
 
 
-def _assign_constant_columns(df: Any, values: Dict[str, Any]) -> Any:
+def _assign_constant_columns(df: DataFrameT, values: Dict[str, Any]) -> DataFrameT:
     """Broadcast scalar ``values`` as constant columns, engine-aware."""
     if not values:
         return df
     if _is_polars_df(df):
         import polars as pl
-        return df.with_columns([pl.lit(v).alias(k) for k, v in values.items()])
+        return df.with_columns([pl.lit(v).alias(k) for k, v in values.items()])  # type: ignore[attr-defined,no-any-return]
     return df.assign(**values)
 
 
@@ -552,10 +556,10 @@ def aligned_reentry_rows(
         )
 
     non_null_mask = _series_not_null_mask(ids)
-    carried_ids = cast(SeriesT, _series_filter(ids, non_null_mask))
+    carried_ids = _series_filter(ids, non_null_mask)
     if prefix_rows is None:
         return carried_ids, None
-    return carried_ids, cast(DataFrameT, _frame_filter(prefix_rows, non_null_mask))
+    return carried_ids, _frame_filter(prefix_rows, non_null_mask)
 
 
 def reentry_carry_payload(
@@ -589,4 +593,4 @@ def ordered_reentry_start_nodes(
     id_column: str,
 ) -> DataFrameT:
     # MATCH re-entry must preserve the WITH row order, not the base node-table order.
-    return cast(DataFrameT, _ordered_left_join(carried_node_ids, node_rows, on=id_column))
+    return _ordered_left_join(carried_node_ids, node_rows, on=id_column)

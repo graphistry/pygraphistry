@@ -10,7 +10,7 @@ nested entity text, labels, multi-entity, edges, and exotic expressions raise No
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from graphistry.Plottable import Plottable
 
@@ -133,7 +133,7 @@ def _flat_entity_exprs_polars(rows_df: pl.DataFrame, projection: ResultProjectio
 
 
 def _record_entity_meta(
-    entity_meta: dict,
+    entity_meta: Dict[str, Dict[str, Any]],
     rows_df: pl.DataFrame,
     projection: ResultProjectionPlan,
     source_alias: str,
@@ -167,7 +167,7 @@ def _try_native_projection(result: Plottable, rows_df: pl.DataFrame, projection:
     # pandas projector (result_postprocess._apply_result_projection_pandas), which records the
     # carried alias's id column so the bounded-reentry executor can recover carried node
     # identities. Without it a WITH-projected node alias feeding a trailing MATCH declines.
-    entity_meta: dict = {}
+    entity_meta: Dict[str, Dict[str, Any]] = {}
     id_column = result._node
     for column in projection.columns:
         if column.kind == "whole_row":
