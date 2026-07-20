@@ -577,9 +577,9 @@ def lower_expr_str(expr: str, columns: Sequence[str]) -> Optional[pl.Expr]:
     return lower_expr(node, columns)
 
 
-def lower_select_items(items: Sequence[SelectItem], columns: Sequence[str]) -> Optional[List[Any]]:
+def lower_select_items(items: Sequence[SelectItem], columns: Sequence[str]) -> Optional[List["pl.Expr"]]:
     """Lower projection items [(alias, expr) | 'col'] to polars exprs, or None."""
-    out: List[Any] = []
+    out: List["pl.Expr"] = []
     for item in items:
         alias: str
         expr: JSONVal
@@ -602,9 +602,9 @@ def lower_select_items(items: Sequence[SelectItem], columns: Sequence[str]) -> O
     return out
 
 
-def lower_order_by_keys(keys: Sequence[OrderKey], columns: Sequence[str]) -> Optional[Tuple[List[Any], List[bool]]]:
+def lower_order_by_keys(keys: Sequence[OrderKey], columns: Sequence[str]) -> Optional[Tuple[List["pl.Expr"], List[bool]]]:
     """Lower order_by [(expr, direction)] to (polars exprs, descending flags)."""
-    exprs: List[Any] = []
+    exprs: List["pl.Expr"] = []
     descending: List[bool] = []
     for key in keys:
         if not isinstance(key, (list, tuple)) or len(key) != 2:
@@ -897,8 +897,10 @@ def binding_rows_polars(
     Returns None to DECLINE (caller raises the honest NIE) for anything outside
     the supported subset: variable-length/multi-hop edges, shortestPath scalar
     bindings, node ``query=`` / edge query or endpoint-match params, hop labels,
-    HAS_-label destination disambiguation, seeded re-entry contexts, cartesian
-    (node-only) mode, and the legacy ``alias_endpoints`` variant. NO-CHEATING:
+    HAS_-label destination disambiguation on duplicate-node-id graphs (unique-id
+    graphs run native — pandas would not narrow there either), seeded re-entry
+    contexts, cartesian (node-only) mode, and the legacy ``alias_endpoints``
+    variant. NO-CHEATING:
     never bridges to pandas. Parity gate: differential tests vs the pandas oracle.
     """
     import polars as pl
@@ -1089,13 +1091,18 @@ def binding_rows_polars(
                 right_on=node_id,
                 how="semi",
             )
-            # HAS_<Label> destination disambiguation — polars twin of pandas'
-            # _gfql_disambiguate_has_edge_destination_nodes at its exact call site:
-            # forward single-hop only, and the duplicate probe runs on the REACHED
-            # candidate domain (full node table ∩ post-hop wavefront, pre-filter_dict
-            # — pandas' candidate_source ∩ state), NOT the whole node table. Only
-            # when ids collide there does the unlabeled next op narrow to the edge's
-            # HAS_<Label> label; unique reached ids keep the unnarrowed domain.
+            # HAS_<Label> destination disambiguation (pandas'
+            # _gfql_disambiguate_has_edge_destination_nodes): on DUPLICATE-id graphs
+            # pandas narrows the unlabeled next op to the edge's HAS_<Label> rows
+            # taken from the ORIGINAL node table (its base_nodes still carries the
+            # colliding label rows). By the time this rows op runs, ``g``'s node
+            # table is the chain-combine result — deduplicated by id, first
+            # occurrence kept — so the label row pandas narrows to may already be
+            # GONE here and a native answer would be silently row-order-dependent.
+            # Unique-id graphs need no narrowing (pandas' duplicated() probe is
+            # False) → native is parity-exact; duplicate-id graphs DECLINE (honest
+            # NIE). Probe the pre-chain base graph stashed by _run_calls_polars —
+            # if it isn't available, decline (can't prove uniqueness).
             dis_label_col = RowPipelineMixin._gfql_has_edge_destination_label_col(edge_op, nodes.columns)
             if (
                 dis_label_col is not None
@@ -1103,22 +1110,20 @@ def binding_rows_polars(
                 and edge_op.direction == "forward"
                 and not RowPipelineMixin._gfql_node_filter_has_label(next_op.filter_dict)
             ):
-                reached_ids = state.select(pl.col("__current__").alias(node_id)).unique()
-                _reached_dup = bool(
-                    nodes_lf.select(node_id)
-                    .join(reached_ids, on=node_id, how="semi")
-                    .select(pl.col(node_id).is_duplicated().any())
+                base_graph = getattr(g, "_gfql_rows_base_graph", None)
+                base_nodes = getattr(base_graph, "_nodes", None)
+                if base_nodes is None:
+                    return None
+                base_lf = base_nodes.lazy()
+                if node_id not in base_lf.collect_schema().names():
+                    return None
+                _base_dup = bool(
+                    base_lf.select(pl.col(node_id).is_duplicated().any())
                     .collect()
                     .item()
                 )
-                if _reached_dup:
-                    next_nodes = next_nodes.filter(pl.col(dis_label_col).fill_null(False))
-                    state = state.join(
-                        next_nodes.select(node_id).unique(),
-                        left_on="__current__",
-                        right_on=node_id,
-                        how="semi",
-                    )
+                if _base_dup:
+                    return None
             next_alias = next_op._name
             if isinstance(next_alias, str):
                 state = state.with_columns(pl.col("__current__").alias(next_alias))

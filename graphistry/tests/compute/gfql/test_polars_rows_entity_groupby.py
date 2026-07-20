@@ -2,10 +2,11 @@
 sum-aggregation) runs natively on polars, parity-exact with the pandas oracle.
 
 Three polars lowerings this pins (each previously an honest NIE):
-1. HAS_<Label> destination disambiguation in ``binding_rows_polars`` (pandas'
-   ``_gfql_disambiguate_has_edge_destination_nodes`` candidate-domain rule: narrow an
-   UNLABELED next-node op after a HAS_<Label> edge to that label ONLY when candidate node
-   ids collide across labels).
+1. HAS_<Label> destination gate in ``binding_rows_polars``: on UNIQUE-node-id graphs the
+   pattern runs native (pandas' ``_gfql_disambiguate_has_edge_destination_nodes`` would
+   not narrow there either — parity-exact); on DUPLICATE-id graphs polars declines to the
+   honest NIE (the chain-combine result has already deduplicated nodes, so the label row
+   pandas narrows to may be gone — a native answer would be row-order-dependent).
 2. ``alias.__gfql_node_id__`` (whole-entity identity key, #1650) resolves to the bare
    ``alias`` id column (the polars bindings table doesn't carry pandas' join-residue
    columns; the bare alias column IS the identity key).
@@ -122,7 +123,10 @@ def _disambiguation_frames():
 @pytest.mark.parametrize("engine", ["pandas"] + (["polars"] if HAS_POLARS else []))
 def test_has_label_narrowing_skipped_when_reached_ids_unique(engine: str) -> None:
     """Global id collisions must NOT trigger narrowing when the REACHED ids are unique
-    (pandas probes duplicates on candidate_source ∩ wavefront, not the whole table)."""
+    (pandas probes duplicates on candidate_source ∩ wavefront, not the whole table).
+    NOTE: this single-MATCH shape routes through the plain chain executor, NOT
+    ``binding_rows_polars`` — it pins that path's parity; the binding-rows gate is
+    pinned by the ``test_binding_rows_dup_id_*`` tests below."""
     nodes, edges = _disambiguation_frames()
     if engine == "polars":
         nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
@@ -134,7 +138,8 @@ def test_has_label_narrowing_skipped_when_reached_ids_unique(engine: str) -> Non
 
 @pytest.mark.parametrize("engine", ["pandas"] + (["polars"] if HAS_POLARS else []))
 def test_has_label_narrowing_applies_on_reached_collision(engine: str) -> None:
-    """A reached id colliding across labels narrows the unlabeled op to the HAS_<Label> label."""
+    """A reached id colliding across labels narrows the unlabeled op to the HAS_<Label> label.
+    NOTE: single-MATCH shape — plain chain executor path, not ``binding_rows_polars``."""
     nodes, edges = _disambiguation_frames()
     if engine == "polars":
         nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
@@ -142,3 +147,78 @@ def test_has_label_narrowing_applies_on_reached_collision(engine: str) -> None:
     res = g.gfql(TAG_SCAN, params={"postId": 601}, engine=engine)
     rows = res._nodes.to_pandas() if hasattr(res._nodes, "to_pandas") else res._nodes
     assert sorted(rows["tagName"]) == ["t4"]
+
+
+# Comma-MATCH multi-alias shape: lowers to rows(binding_ops=...) and (on polars) routes
+# through binding_rows_polars — the path carrying the HAS_<Label> duplicate-id gate.
+COLLIDE_BINDINGS = """
+MATCH (person:Person {id: $personId })-[:KNOWS]-(friend:Person),
+      (friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag)
+WITH DISTINCT tag, post
+RETURN tag.name AS tagName, post.creationDate AS cd
+ORDER BY tagName, cd
+"""
+
+
+def _dup_id_frames(tag_first: bool):
+    # Node id 200 has TWO rows: a Tag row ('t1') and a Forum row ('FX'); `tag_first`
+    # controls their order so a first-occurrence-dependent answer flips between runs.
+    # pandas narrows to the Tag row in BOTH orders; a deduplicated native polars run
+    # would return whichever row happened to come first — hence the honest NIE.
+    rows = [
+        (1, True, False, False, False, None, None),
+        (2, True, False, False, False, None, None),
+        (100, False, True, False, False, 150, None),
+    ]
+    tag_row = (200, False, False, True, False, None, "t1")
+    forum_row = (200, False, False, False, True, None, "FX")
+    rows += [tag_row, forum_row] if tag_first else [forum_row, tag_row]
+    nodes = pd.DataFrame(
+        rows,
+        columns=["id", "label__Person", "label__Post", "label__Tag", "label__Forum",
+                 "creationDate", "name"],
+    )
+    edges = pd.DataFrame({
+        "src": [1, 100, 100],
+        "dst": [2, 2, 200],
+        "type": ["KNOWS", "HAS_CREATOR", "HAS_TAG"],
+    })
+    return nodes, edges
+
+
+@pytest.mark.parametrize("tag_first", [True, False])
+def test_binding_rows_dup_id_pandas_narrows_order_independent(tag_first: bool) -> None:
+    """Oracle: pandas narrows to the HAS_TAG label row regardless of node row order."""
+    nodes, edges = _dup_id_frames(tag_first)
+    g = graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+    res = g.gfql(COLLIDE_BINDINGS, params={"personId": 1}, engine="pandas")
+    assert sorted(zip(res._nodes["tagName"], res._nodes["cd"])) == [("t1", 150.0)]
+
+
+@pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
+@pytest.mark.parametrize("tag_first", [True, False])
+def test_binding_rows_dup_id_polars_declines_nie(tag_first: bool) -> None:
+    """Duplicate node ids + HAS_<Label> gate shape → honest NIE on polars, never a
+    silently row-order-dependent native answer (parity-or-error contract)."""
+    nodes, edges = _dup_id_frames(tag_first)
+    g = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "src", "dst")
+    with pytest.raises(NotImplementedError):
+        g.gfql(COLLIDE_BINDINGS, params={"personId": 1}, engine="polars")
+
+
+@pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
+def test_binding_rows_unique_ids_native_parity() -> None:
+    """Same gate shape with UNIQUE node ids stays native and parity-exact (the Forum
+    row gets its own id, so pandas would not narrow either)."""
+    nodes, edges = _dup_id_frames(tag_first=True)
+    nodes = nodes.copy()
+    nodes.loc[nodes["label__Forum"].fillna(False).astype(bool), "id"] = 300
+    gp = graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+    expected = sorted(zip(
+        gp.gfql(COLLIDE_BINDINGS, params={"personId": 1}, engine="pandas")._nodes["tagName"],
+        gp.gfql(COLLIDE_BINDINGS, params={"personId": 1}, engine="pandas")._nodes["cd"],
+    ))
+    gl = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "src", "dst")
+    res = gl.gfql(COLLIDE_BINDINGS, params={"personId": 1}, engine="polars")
+    out = res._nodes.to_pandas() if hasattr(res._nodes, "to_pandas") else res._nodes
+    assert sorted(zip(out["tagName"], out["cd"])) == expected == [("t1", 150.0)]

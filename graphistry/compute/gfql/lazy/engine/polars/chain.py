@@ -7,12 +7,14 @@ parity vs the pandas chain gates correctness; unsupported shapes raise NotImplem
 (no silent pandas fallback). Deferred: variable-length/multi-hop edge sub-cases, some
 undirected multi-edge combos, node query=.
 """
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple, cast
+from typing import Any, List, Optional, Tuple, cast
 
 from typing_extensions import TypedDict
 
-if TYPE_CHECKING:
-    from .row_pipeline import AggSpec
+# Runtime import (not TYPE_CHECKING): AggSpec is a pure typing Union of builtins —
+# row_pipeline imports polars lazily, so this is safe without polars installed, and it
+# keeps _GroupByParams introspectable (get_type_hints) at runtime.
+from .row_pipeline import AggSpec
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
@@ -358,7 +360,7 @@ class _GroupByParams(TypedDict, total=False):
     """group_by's slice of ASTCall.params (wire JSON): keys + (out_col, agg, in_col)
     aggregation triples + optional per-key entity prefixes ("node." / edge alias dots)."""
     keys: List[str]
-    aggregations: List["AggSpec"]
+    aggregations: List[AggSpec]
     key_prefixes: Optional[List[str]]
 
 def _try_native_row_op(g_cur, op):

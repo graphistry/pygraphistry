@@ -23,11 +23,14 @@ if TYPE_CHECKING:
 # frame every call) from O(E)-per-call into O(1) after the first check — the dominant
 # per-call cost for polars/polars-gpu seeded traversal on float-column (i.e. real) graphs.
 #
-# Soundness rests on pl.DataFrame immutability: polars exposes no in-place cell mutation,
-# so a frame that probed clean stays clean for its lifetime (a same-id DIFFERENT frame is
-# impossible while the finalize is alive). Thread-safety: set.add/discard are atomic under
-# the GIL and eviction-vs-insert races can only lose a cache entry, never fabricate one —
-# worst case is a redundant re-probe, never a stale hit.
+# Soundness contract: frames handed to GFQL must not be mutated in place afterwards.
+# polars DOES expose in-place mutation (``extend``, ``replace_column``, ``insert_column``,
+# ``hstack(in_place=True)``) that keeps ``id()`` stable — a caller injecting NaN through
+# those after a hop would get a stale "clean" verdict. This is the same implicit contract
+# the pandas-input paths already rely on (``pl.from_pandas(nan_to_null=True)`` snapshots
+# at entry); typical GFQL usage rebinds frames rather than mutating them. Thread-safety:
+# set.add/discard are atomic under the GIL and eviction-vs-insert races can only lose a
+# cache entry, never fabricate one — worst case a redundant re-probe, never a stale hit.
 _PL_NAN_CLEAN_IDS: Set[int] = set()
 
 
