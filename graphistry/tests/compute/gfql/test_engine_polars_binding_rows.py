@@ -311,6 +311,9 @@ def test_polars_binding_rows_decline_branches_direct():
     assert binding_rows_polars(
         g, serialize_binding_ops([n(name="a"), n(name="b"), n(name="c"), n(name="d")])
     ) is None
+    #  - an alias named exactly like the bound node-id column ("id"): pandas' leaked
+    #    flag column would overwrite the id column — no sane shared semantics, so decline
+    assert binding_rows_polars(g, serialize_binding_ops([n(name="id"), n(name="b")])) is None
     # ...but 2-3 named aliases now lower natively (returns a row table, not None)
     assert binding_rows_polars(g, serialize_binding_ops([n(name="a"), n(name="b")])) is not None
     assert binding_rows_polars(g, serialize_binding_ops([n(name="a", query="id > 0"), e_forward(), n(name="b")])) is None

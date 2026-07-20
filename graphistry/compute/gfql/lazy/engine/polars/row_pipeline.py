@@ -897,10 +897,10 @@ def _cartesian_node_bindings_polars(
     from .predicates import filter_by_dict_polars
 
     nodes = g._nodes
-    if nodes is None or node_id is None:
+    if nodes is None or node_id is None:  # pragma: no cover - defensive: bindings run post-materialize
         return None
     node_id = str(node_id)
-    if node_id not in nodes.columns:
+    if node_id not in nodes.columns:  # pragma: no cover - defensive: node_id is the bound id column
         return None
 
     aliases = [op._name for op in ops]
@@ -922,10 +922,10 @@ def _cartesian_node_bindings_polars(
     # annotated ``pl.DataFrame``; keep the accumulator loose, as this module does.
     per_alias: List[Any] = []
     for op in ops:
-        if not isinstance(op, ASTNode) or op.query is not None:
+        if not isinstance(op, ASTNode) or op.query is not None:  # pragma: no cover - node_cartesian only routes bare ASTNode ops
             return None
         alias = op._name
-        if not isinstance(alias, str):
+        if not isinstance(alias, str):  # pragma: no cover - non-str aliases already declined above
             return None
         if alias == node_id:
             # pandas' named-op flag column overwrites the id column here — neither
@@ -934,9 +934,9 @@ def _cartesian_node_bindings_polars(
             return None
         try:
             matched = filter_by_dict_polars(nodes_lf, op.filter_dict)
-        except NotImplementedError:
+        except NotImplementedError:  # pragma: no cover - propagate exotic-predicate NIE unchanged
             raise
-        except Exception:
+        except Exception:  # pragma: no cover - defensive: unexpected filter failure declines
             return None
         cols = matched.collect_schema().names()
         # prop_cols excludes node_id and any real column named == alias: the pandas
@@ -952,7 +952,7 @@ def _cartesian_node_bindings_polars(
         exprs.extend(pl.col(c).alias(f"{alias}.{c}") for c in prop_cols)
         per_alias.append(matched.select(exprs))
 
-    if not per_alias:
+    if not per_alias:  # pragma: no cover - defensive: ops is non-empty so per_alias is too
         return None
     state = per_alias[0]
     for frame in per_alias[1:]:
@@ -960,7 +960,7 @@ def _cartesian_node_bindings_polars(
         state = state.join(frame, how="cross")
     try:
         out_df = _lazy_collect(state)
-    except pl.exceptions.SchemaError:
+    except pl.exceptions.SchemaError:  # pragma: no cover - defensive: cross-join schema clash declines
         return None
     return _rewrap(g, out_df)
 
