@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import operator
 import re
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, TypeVar, Union, cast
 
 if TYPE_CHECKING:
     import polars as pl
@@ -636,7 +636,11 @@ def _rewrap(g: Plottable, table_df: Any) -> Plottable:
     return frame_ops.row_table(_RowPipelineAdapter(g), table_df)
 
 
-def _lower_with_schema(table: Any, fn, node_id: Optional[str] = None):
+_LowerT = TypeVar("_LowerT")
+
+
+def _lower_with_schema(table: "pl.DataFrame", fn: Callable[[], _LowerT],
+                       node_id: Optional[str] = None) -> _LowerT:
     """Run a lowering callable with the table schema published to ``_SCHEMA`` (float-operand
     inference for the NaN guard) and the graph node-id column published to ``_NODE_ID`` (bare
     ``__gfql_node_id__`` identity-sentinel resolution)."""
