@@ -132,12 +132,43 @@ def _flat_entity_exprs_polars(rows_df: pl.DataFrame, projection: ResultProjectio
     return out
 
 
+def _record_entity_meta(
+    entity_meta: dict,
+    rows_df: pl.DataFrame,
+    projection: ResultProjectionPlan,
+    source_alias: str,
+    output_name: str,
+    id_column: Optional[str],
+) -> None:
+    """Record whole-entity projection metadata for one column, mirroring the pandas projector.
+
+    ``_try_native_projection`` reaches this only in the single-entity branch (flat exprs and the
+    entity-text path both decline multi-entity prefixed columns), so ``rows_df`` is the aligned
+    source frame and ``rows_df[id_column]`` is the carried alias's id column, row-aligned with the
+    projected output. Snapshot (``.clone()``) the id column so downstream reentry recovery never
+    aliases a later-mutated working frame (see #1356)."""
+    if id_column is None or id_column not in rows_df.columns:  # pragma: no cover - defensive: node re-entry always carries the id column
+        return
+    entity_meta[output_name] = {
+        "table": projection.table,
+        "alias": source_alias,
+        "id_column": id_column,
+        "ids": rows_df.get_column(id_column).clone(),
+    }
+
+
 def _try_native_projection(result: Plottable, rows_df: pl.DataFrame, projection: ResultProjectionPlan, structured: bool) -> Optional[Plottable]:
     """Native projection for property/expr columns already in the polars row table + structured-
     flat or entity-text whole-entity returns; None → caller raises NIE."""
     import polars as pl
 
     exprs = []
+    # Whole-entity projection metadata side-channel (#1273 WITH->MATCH re-entry): mirror the
+    # pandas projector (result_postprocess._apply_result_projection_pandas), which records the
+    # carried alias's id column so the bounded-reentry executor can recover carried node
+    # identities. Without it a WITH-projected node alias feeding a trailing MATCH declines.
+    entity_meta: dict = {}
+    id_column = result._node
     for column in projection.columns:
         if column.kind == "whole_row":
             if projection.table != "nodes":
@@ -146,15 +177,16 @@ def _try_native_projection(result: Plottable, rows_df: pl.DataFrame, projection:
             if structured:
                 # #1650 default: flatten to {output}.{field} (near-free, any dtype);
                 # text fallback only for synthesized-absent rows.
-                id_column = result._node
                 flat = _flat_entity_exprs_polars(rows_df, projection, source_alias, column.output_name, id_column)
                 if flat is not None:
                     exprs.extend(flat)
+                    _record_entity_meta(entity_meta, rows_df, projection, source_alias, column.output_name, id_column)
                     continue
             ent = _native_node_entity_text_expr(rows_df, source_alias, projection.exclude_columns)
             if ent is None:
                 return None
             exprs.append(ent.alias(column.output_name))
+            _record_entity_meta(entity_meta, rows_df, projection, source_alias, column.output_name, id_column)
             continue
         src = column.source_name
         if src is None or src not in rows_df.columns:
@@ -172,6 +204,8 @@ def _try_native_projection(result: Plottable, rows_df: pl.DataFrame, projection:
         return None
     out = result.bind()
     out._nodes = rows_df.select(exprs)
+    if entity_meta:
+        setattr(out, "_cypher_entity_projection_meta", entity_meta)
     edges_df = result._edges
     if edges_df is not None:
         out._edges = edges_df.clear() if _is_polars_frame(edges_df) else edges_df[:0]

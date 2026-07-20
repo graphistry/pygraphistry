@@ -23,6 +23,51 @@ REENTRY_DUPLICATE_CARRIED_ROWS_REASON = "duplicate_carried_node_rows"
 from graphistry.Engine import is_polars_df as _is_polars_df
 
 
+def _series_is_series_like(s: Any) -> bool:
+    """True for a pandas/cuDF Series (``.dropna``) or a polars Series (module check).
+
+    The reentry executor recovers carried node identities from a projection-meta ``ids`` Series
+    that is pandas under ``engine='pandas'`` and polars under ``engine='polars'``; both are valid."""
+    return hasattr(s, "dropna") or _is_polars_df(s)
+
+
+def _series_not_null_mask(s: Any) -> Any:
+    """Non-null boolean mask, engine-aware (polars ``is_not_null`` vs pandas ``notna``)."""
+    if _is_polars_df(s):
+        return s.is_not_null()
+    return s.notna()
+
+
+def _series_filter(s: Any, mask: Any) -> Any:
+    """Filter a Series by a boolean mask, engine-aware, dropping the old index (pandas)."""
+    if _is_polars_df(s):
+        return s.filter(mask)
+    return s[mask].reset_index(drop=True)
+
+
+def _frame_filter(df: Any, mask: Any) -> Any:
+    """Filter a DataFrame's rows by a boolean mask, engine-aware, dropping the old index."""
+    if _is_polars_df(df):
+        return df.filter(mask)
+    return df.loc[mask].reset_index(drop=True)
+
+
+def _ordered_left_join(left: Any, right: Any, *, on: str) -> Any:
+    """Left join preserving ``left`` row order, engine-aware. Polars ``.merge`` does not exist;
+    ``safe_merge`` (pandas/cuDF ``.merge``) cannot run on polars frames, so branch to
+    ``.join(..., maintain_order='left')`` which pins the WITH-row ordering the reentry seed needs.
+
+    Under ``engine='polars'`` the carried ids come from the natively-projected (polars) prefix
+    while the base node table can still be pandas (the base graph is converted lazily), so align
+    ``right`` onto ``left``'s engine before the polars join."""
+    if _is_polars_df(left):
+        from graphistry.Engine import Engine, df_to_engine
+        if not _is_polars_df(right):
+            right = df_to_engine(right, Engine.POLARS)
+        return left.join(right, on=on, how="left", maintain_order="left")
+    return safe_merge(left, right, on=on, how="left")
+
+
 def _reentry_row(prefix_rows: Any, row_index: int) -> Any:
     """One prefix row as a col->scalar mapping, engine-aware (``row[col]`` works for
     both the pandas Series and the polars named-row dict)."""
@@ -274,7 +319,7 @@ def compiled_query_reentry_state(
         )
     ids = meta["ids"]
     id_column = meta["id_column"]
-    if not hasattr(ids, "dropna"):
+    if not _series_is_series_like(ids):
         raise reentry_validation_error(
             "Cypher MATCH after WITH could not recover carried node identities from the prefix stage",
             value=output_name,
@@ -305,6 +350,17 @@ def compiled_query_reentry_state(
             "Cypher MATCH after WITH could not recover carried row columns from the prefix stage",
             value=output_name,
             suggestion=REENTRY_SCALAR_SUGGESTION,
+        )
+    if _is_polars_df(carried_ids) or _is_polars_df(aligned_prefix_rows) or _is_polars_df(base_nodes):
+        # Whole-row re-entry that ALSO carries scalar WITH columns (e.g. `WITH a, a.val AS av
+        # MATCH (a)-...`) threads hidden ``__cypher_reentry_*`` payload columns through the
+        # binding pipeline; that carry path is pandas-only so far. The seed-only whole-row case
+        # (no carried scalars) returned above. Decline honestly rather than run the pandas-only
+        # payload merge on polars frames (parity-or-NIE; no silent bridge).
+        raise NotImplementedError(
+            "polars engine does not yet natively support Cypher WITH -> MATCH re-entry that carries "
+            "scalar WITH columns into the trailing MATCH; use engine='pandas' for this query "
+            "(no pandas fallback; parity-or-error by design)"
         )
     duplicate_mask = carried_ids.duplicated()
     if bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False:
@@ -488,18 +544,18 @@ def aligned_reentry_rows(
             value=output_name,
             suggestion="Retry with a direct whole-row carry through WITH or inspect intermediate row-shaping before MATCH re-entry.",
         )
-    if not hasattr(ids, "notna"):
+    if not _series_is_series_like(ids):
         raise reentry_validation_error(
             "Cypher MATCH after WITH could not align carried node identities from the prefix stage",
             value=output_name,
             suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
         )
 
-    non_null_mask = cast(SeriesT, ids.notna())
-    carried_ids = cast(SeriesT, ids[non_null_mask].reset_index(drop=True))
+    non_null_mask = _series_not_null_mask(ids)
+    carried_ids = cast(SeriesT, _series_filter(ids, non_null_mask))
     if prefix_rows is None:
         return carried_ids, None
-    return carried_ids, cast(DataFrameT, prefix_rows.loc[non_null_mask].reset_index(drop=True))
+    return carried_ids, cast(DataFrameT, _frame_filter(prefix_rows, non_null_mask))
 
 
 def reentry_carry_payload(
@@ -533,4 +589,4 @@ def ordered_reentry_start_nodes(
     id_column: str,
 ) -> DataFrameT:
     # MATCH re-entry must preserve the WITH row order, not the base node-table order.
-    return cast(DataFrameT, safe_merge(carried_node_ids, node_rows, on=id_column, how="left"))
+    return cast(DataFrameT, _ordered_left_join(carried_node_ids, node_rows, on=id_column))

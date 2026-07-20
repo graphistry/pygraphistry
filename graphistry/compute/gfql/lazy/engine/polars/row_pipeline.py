@@ -1050,15 +1050,37 @@ def binding_rows_polars(
     dst = g._destination
     if nodes is None or edges is None or node_id is None or src is None or dst is None:
         return None
-    if getattr(g, "_gfql_start_nodes", None) is not None:
-        # Bounded re-entry seeds the first alias from carried rows — pandas-only.
-        return None
+    seed_ids_lf: Optional[Any] = None  # LazyFrame; Any avoids the union-typed seed_nodes.join mismatch
+    start_nodes = getattr(g, "_gfql_start_nodes", None)
+    if start_nodes is not None:
+        # Bounded WITH->MATCH re-entry (#1273): the carried WITH rows seed the first
+        # alias. Constrain the first node alias to the carried ids via a semi-join —
+        # the native twin of the pandas wavefront seed. Support only UNIQUE carried
+        # ids: then the semi-join contributes each seed node exactly once, matching the
+        # pandas seed row-for-row; duplicate carried ids could change path multiplicity,
+        # so decline (return None -> honest NIE), never risk a silent-wrong count.
+        from graphistry.Engine import Engine as _Engine, df_to_engine as _df_to_engine, is_polars_df as _is_polars
+        sn = start_nodes.collect() if isinstance(start_nodes, pl.LazyFrame) else start_nodes
+        if not _is_polars(sn):
+            sn = _df_to_engine(sn, _Engine.POLARS)
+        if node_id not in sn.columns:
+            return None
+        seed_ids = sn.select(pl.col(node_id)).drop_nulls()
+        if seed_ids.height != seed_ids.unique().height:
+            return None
+        seed_ids_lf = seed_ids.lazy()
 
     ops: List[ASTObject] = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
     # Shared validation (engine-agnostic): raises the canonical GFQLValidationError
     # for malformed op sequences / duplicate aliases — same error as pandas.
     RowPipelineMixin._gfql_validate_binding_ops(ops)
     if RowPipelineMixin._gfql_binding_ops_mode(ops) == "node_cartesian":
+        if seed_ids_lf is not None:
+            # A WITH->MATCH seed constrains the FIRST alias, but the cartesian builder
+            # below does not thread it; running it would silently ignore the seed
+            # (wrong cross-product). Decline honestly (the alternating-path seed is
+            # applied at seed_nodes; node-cartesian re-entry stays pandas-only).
+            return None
         # MATCH (a), (b), ... disconnected node aliases: native cross-product (#1273).
         return _cartesian_node_bindings_polars(g, ops, node_id)
     if RowPipelineMixin._gfql_is_shortest_path_scalar_binding_ops(ops):
@@ -1132,6 +1154,9 @@ def binding_rows_polars(
         if not isinstance(first_op, ASTNode):
             return None
         seed_nodes = filter_by_dict_polars(nodes_lf, first_op.filter_dict)
+        if seed_ids_lf is not None:
+            # WITH->MATCH re-entry seed: constrain the first alias to the carried ids.
+            seed_nodes = seed_nodes.join(seed_ids_lf, on=node_id, how="semi")
         state = seed_nodes.select(pl.col(node_id).alias("__current__"))
         alias_frames: Dict[str, pl.LazyFrame] = {}
         node_aliases: List[str] = []
