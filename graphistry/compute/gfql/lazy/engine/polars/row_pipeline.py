@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 if TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.gfql.expr_parser import ExprNode, FunctionCall
+    from graphistry.compute.ast import ASTObject
 
 from graphistry.Plottable import Plottable
 from graphistry.utils.json import JSONVal
@@ -870,6 +871,101 @@ def select_extend_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[
     return _rewrap(g, out)
 
 
+def _cartesian_node_bindings_polars(
+    g: Plottable,
+    ops: "Sequence[ASTObject]",
+    node_id: Optional[str],
+) -> Optional[Plottable]:
+    """Native polars cross-product for disconnected MATCH aliases (#1273).
+
+    Mirrors the pandas ``_gfql_cartesian_node_bindings_row_table`` oracle: each
+    node alias is independently filtered, projected into the ``_gfql_node_alias_lookup_frame``
+    schema (``alias``, ``alias.node_id``, ``alias.<col>``, plus the leaked named-op
+    FLAG column ``alias.alias = True``), then cross-joined in op order (left-major,
+    matching pandas' ``merge`` order so no ORDER BY is needed for parity). The bare
+    ``node_id`` residue column that pandas carries (``id_x``/``id_y`` merge suffixes)
+    is intentionally dropped: no lowered query references it, and dropping avoids
+    polars cross-join column collisions on 3+ aliases.
+
+    Returns None to DECLINE (caller raises the honest NIE) outside the supported
+    subset: node ``query=`` params, ``alias == node_id`` (pandas' flag column
+    overwrites the id column — no sane shared semantics), and seeded re-entry
+    (already gated by the caller). NO-CHEATING: never bridges to pandas.
+    """
+    import polars as pl
+    from graphistry.compute.ast import ASTNode
+    from graphistry.compute.gfql.lazy import collect as _lazy_collect
+    from .predicates import filter_by_dict_polars
+
+    nodes = g._nodes
+    if nodes is None or node_id is None:  # pragma: no cover - defensive: bindings run post-materialize
+        return None
+    node_id = str(node_id)
+    if node_id not in nodes.columns:  # pragma: no cover - defensive: node_id is the bound id column
+        return None
+
+    aliases = [op._name for op in ops]
+    # Decline outside pandas' RELIABLE zone (empirically derived, keeps parity):
+    #  - anonymous node op: the pandas cartesian raises a spurious schema error on
+    #    an EMPTY result when a bare `()` is present (it drops the id column) rather
+    #    than returning empty — declining avoids that divergence.
+    #  - >3 named aliases: the pandas builder's per-alias bare-id merge residue
+    #    collides on the 4th frame ("Passing 'suffixes' which cause duplicate
+    #    columns"). Both engines must not diverge, so decline to the honest NIE.
+    if any(not isinstance(a, str) for a in aliases):
+        return None
+    named = [a for a in aliases if isinstance(a, str)]
+    if len(named) > 3:
+        return None
+
+    nodes_lf = nodes.lazy()
+    # filter_by_dict_polars is frame-polymorphic (LazyFrame in -> LazyFrame out) but
+    # annotated ``pl.DataFrame``; keep the accumulator loose, as this module does.
+    per_alias: List[Any] = []
+    for op in ops:
+        if not isinstance(op, ASTNode) or op.query is not None:  # pragma: no cover - node_cartesian only routes bare ASTNode ops
+            return None
+        alias = op._name
+        if not isinstance(alias, str):  # pragma: no cover - non-str aliases already declined above
+            return None
+        if alias == node_id:
+            # pandas' named-op flag column overwrites the id column here — neither
+            # engine has sane semantics; decline (mirrors the single-entity
+            # ``rows_binding_ops_polars`` corner).
+            return None
+        try:
+            matched = filter_by_dict_polars(nodes_lf, op.filter_dict)
+        except NotImplementedError:  # pragma: no cover - propagate exotic-predicate NIE unchanged
+            raise
+        except Exception:  # pragma: no cover - defensive: unexpected filter failure declines
+            return None
+        cols = matched.collect_schema().names()
+        # prop_cols excludes node_id and any real column named == alias: the pandas
+        # node execute() leaks a boolean FLAG into a column named ``alias``
+        # (shadowing a same-named real property), which the lookup frame surfaces
+        # as ``alias.alias = True``. Reproduce that exactly.
+        prop_cols = [c for c in cols if c != node_id and c != alias]
+        exprs = [
+            pl.col(node_id).alias(alias),
+            pl.col(node_id).alias(f"{alias}.{node_id}"),
+            pl.lit(True).alias(f"{alias}.{alias}"),
+        ]
+        exprs.extend(pl.col(c).alias(f"{alias}.{c}") for c in prop_cols)
+        per_alias.append(matched.select(exprs))
+
+    if not per_alias:  # pragma: no cover - defensive: ops is non-empty so per_alias is too
+        return None
+    state = per_alias[0]
+    for frame in per_alias[1:]:
+        # Left-major cross join → same row order as the pandas constant-key merge.
+        state = state.join(frame, how="cross")
+    try:
+        out_df = _lazy_collect(state)
+    except pl.exceptions.SchemaError:  # pragma: no cover - defensive: cross-join schema clash declines
+        return None
+    return _rewrap(g, out_df)
+
+
 def binding_rows_polars(
     g: Plottable,
     binding_ops: Sequence[Dict[str, JSONVal]],
@@ -921,7 +1017,8 @@ def binding_rows_polars(
     # for malformed op sequences / duplicate aliases — same error as pandas.
     RowPipelineMixin._gfql_validate_binding_ops(ops)
     if RowPipelineMixin._gfql_binding_ops_mode(ops) == "node_cartesian":
-        return None  # MATCH (a), (b) cross joins: deferred (rare; own schema study)
+        # MATCH (a), (b), ... disconnected node aliases: native cross-product (#1273).
+        return _cartesian_node_bindings_polars(g, ops, node_id)
     if RowPipelineMixin._gfql_is_shortest_path_scalar_binding_ops(ops):
         return None  # shortestPath scalar contract: BFS/native backends, pandas-only
 
