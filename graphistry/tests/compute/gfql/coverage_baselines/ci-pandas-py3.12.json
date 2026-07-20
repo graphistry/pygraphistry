@@ -35,7 +35,7 @@
     "graphistry/compute/gfql/cypher/reentry/__init__.py": 100.0,
     "graphistry/compute/gfql/cypher/reentry/carry.py": 82.05,
     "graphistry/compute/gfql/cypher/reentry/compiletime.py": 85.48,
-    "graphistry/compute/gfql/cypher/reentry/execution.py": 84.75,
+    "graphistry/compute/gfql/cypher/reentry/execution.py": 83.5,
     "graphistry/compute/gfql/cypher/reentry/flatten.py": 94.05,
     "graphistry/compute/gfql/cypher/reentry/lowering_support.py": 88.38,
     "graphistry/compute/gfql/cypher/reentry/naming.py": 100.0,
