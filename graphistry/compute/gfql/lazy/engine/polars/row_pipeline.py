@@ -13,7 +13,6 @@ temporal arithmetic) → NIE.
 """
 from __future__ import annotations
 
-import contextvars
 import operator
 import re
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union, cast
@@ -33,20 +32,11 @@ from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_num
 
 
 # Active row-table schema (col -> dtype), set around lowering so lower_expr can infer FLOAT
-# operands for the NaN guard. Free to populate — schema is already on the table, no scan.
-_SCHEMA: "contextvars.ContextVar[dict]" = contextvars.ContextVar("gfql_polars_schema", default={})
-
-# Whole-entity identity sentinel token (mirrors same_path_types.NODE_IDENTITY_COLUMN). The
-# aggregation lowering emits a BARE ``__gfql_node_id__`` as the agg arg for whole-entity
-# reductions (e.g. ``RETURN count(DISTINCT b)``); it must resolve to the graph's node-id
-# column, exactly like pandas ``_gfql_resolve_token``. (The ``alias.__gfql_node_id__`` prefixed
-# form is already handled by ``_resolve_property``.)
-_NODE_ID_TOKEN = "__gfql_node_id__"
-
-# Active graph node-id column name, published around lowering so ``lower_expr`` can resolve the
-# bare identity sentinel above to the real id column. None when unknown (identity sentinel then
-# declines -> honest NIE, never a wrong column).
-_NODE_ID: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar("gfql_polars_node_id", default=None)
+# operands for the NaN guard. Lowering contextvars live in the per-engine `lowering_context`
+# registry (aliased here to keep call sites terse); the whole-entity identity sentinel is the
+# shared cypher-lowering constant, NOT a local literal.
+from .lowering_context import SCHEMA as _SCHEMA, NODE_ID as _NODE_ID
+from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN as _NODE_ID_TOKEN
 
 # Ops needing the NaN guard: polars treats NaN as the LARGEST value (>/>=/== TRUE), but
 # IEEE/Python/pandas/Cypher compare NaN as FALSE (!= TRUE; Neo4j TCK agrees). Float operands
@@ -100,7 +90,7 @@ def _resolve_property(alias: str, prop: str, columns: Sequence[str]) -> Optional
     prefixed = f"{alias}.{prop}"
     if prefixed in columns:
         return prefixed
-    if prop == "__gfql_node_id__" and alias in columns:
+    if prop == _NODE_ID_TOKEN and alias in columns:
         # Whole-entity identity key (#1650 lowering groups by `alias.__gfql_node_id__`).
         # pandas' bindings table carries it as a join-residue column; the polars table
         # deliberately doesn't — its value IS the bare alias id column.
