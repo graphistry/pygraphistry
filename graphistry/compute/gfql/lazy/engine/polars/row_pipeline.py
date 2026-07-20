@@ -1057,17 +1057,31 @@ def binding_rows_polars(
             sem = EdgeSemantics.from_edge(op)
             if sem.is_multihop:
                 # Bounded directed var-length (`-[*1..k]->`, graph-bench q3) is
-                # supported via iterative pair joins; everything else declines:
-                # unbounded (`[*]`, needs fixed-point + termination error),
-                # undirected multihop (immediate-backtrack avoidance not ported),
-                # and aliased var-length edges (pandas rejects those outright).
+                # supported via iterative pair joins. Bounded UNDIRECTED var-length
+                # with min_hops == 1 (`-[*1..k]-`, the LDBC IC11/IC6 shape) is now
+                # also supported via a doubled-pair join with immediate-backtrack
+                # avoidance (see the execution branch below). Everything else declines:
+                # unbounded (`[*]`, needs fixed-point + termination error), aliased
+                # var-length edges (pandas rejects those outright), and undirected
+                # var-length with min_hops != 1 (`-[*0..k]-` / `-[*2..k]-`): pandas'
+                # step_pairs come from the var-length `edge_op.execute` hop, whose
+                # backward hop-window pruning / zero-hop handling changes the edge
+                # multiplicity in a way this raw-edge reconstruction only reproduces
+                # for min_hops == 1 (every edge is trivially a length-1 path, so no
+                # pruning occurs) — fuzz-verified vs the pandas oracle. Decline the
+                # rest honestly rather than risk silent-wrong multiplicities.
                 if (
-                    op.direction == "undirected"
-                    or bool(op.to_fixed_point)
+                    bool(op.to_fixed_point)
                     or (op.max_hops is None and op.hops is None)
                     or isinstance(op._name, str)
                 ):
                     return None
+                if op.direction == "undirected":
+                    _resolved_min = op.min_hops if op.min_hops is not None else (
+                        op.hops if op.hops is not None else 1
+                    )
+                    if _resolved_min != 1:
+                        return None
             if op.direction not in ("forward", "reverse", "undirected"):
                 return None
             if any(
@@ -1174,23 +1188,71 @@ def binding_rows_polars(
                     return None
                 min_hops = int(min_hops_value)
                 max_hops = int(max_hops_value)
-                pairs = oriented.select(["__from__", "__to__"])
                 state_cols = _names(state)
-                reachable = [state] if min_hops == 0 else []
-                current = state
-                # Lazy: build all max_hops iterations (no eager .height early-break —
-                # empty intermediates lazily join to empty, so the result is
-                # identical; the pandas break is an optimization, not semantics).
-                for _hop in range(1, max_hops + 1):
-                    current = (
-                        current.join(pairs, left_on="__current__", right_on="__from__", how="inner")
-                        .drop("__current__")
-                        .rename({"__to__": "__current__"})
-                        .select(state_cols)
+                if sem.is_undirected:
+                    # Bounded UNDIRECTED var-length, min_hops == 1 (gated above): the
+                    # LDBC IC11/IC6 `-[*1..k]-` shape. Mirror the pandas oracle
+                    # (`_gfql_multihop_binding_rows`, avoid_immediate_backtrack=True)
+                    # EXACTLY, including its edge multiplicity: pandas' `step_pairs`
+                    # come from the undirected var-length hop + `orient_edges`, which
+                    # emits each NON-loop edge as (u,v)x2 AND (v,u)x2, and each
+                    # SELF-loop as (u,u)x2 (loops are not double-counted). Reconstruct
+                    # that here: `exec_rows` = both directions of non-loops + one row
+                    # per self-loop; the final `pairs` doubles `exec_rows`
+                    # (fuzz-verified vs pandas over random graphs incl. self-loops,
+                    # parallel + antiparallel edges). A `__prev__` column (seeded null)
+                    # carries the just-left node so each hop can drop immediate
+                    # backtracks (`__to__ == __prev__`), matching pandas' Kleene mask
+                    # (null prev -> kept).
+                    normal = edges_f.filter(pl.col(src) != pl.col(dst))
+                    loops = edges_f.filter(pl.col(src) == pl.col(dst))
+                    fwd = normal.select([pl.col(src).alias("__from__"), pl.col(dst).alias("__to__")])
+                    rev = normal.select([pl.col(dst).alias("__from__"), pl.col(src).alias("__to__")])
+                    loop = loops.select([pl.col(src).alias("__from__"), pl.col(dst).alias("__to__")])
+                    exec_rows = pl.concat([fwd, rev, loop], how="vertical")
+                    pairs = pl.concat([exec_rows, exec_rows], how="vertical")
+                    prev_col = "__prev__"
+                    reachable = [state.select(state_cols)] if min_hops == 0 else []
+                    # Seed the backtrack marker with the SAME dtype as __current__ so a
+                    # non-Int64 node id (e.g. string ids) compares/concats cleanly.
+                    current = state.with_columns(
+                        pl.lit(None).cast(state.collect_schema()["__current__"]).alias(prev_col)
                     )
-                    if _hop >= min_hops:
-                        reachable.append(current)
-                state = pl.concat(reachable, how="vertical") if reachable else state.limit(0)
+                    for _hop in range(1, max_hops + 1):
+                        joined = current.join(
+                            pairs, left_on="__current__", right_on="__from__", how="inner"
+                        )
+                        joined = joined.filter(
+                            pl.col(prev_col).is_null() | (pl.col("__to__") != pl.col(prev_col))
+                        )
+                        # new prev = the node we are leaving (old __current__); new
+                        # __current__ = __to__. Set prev BEFORE dropping __current__.
+                        joined = (
+                            joined.with_columns(pl.col("__current__").alias(prev_col))
+                            .drop("__current__")
+                            .rename({"__to__": "__current__"})
+                        )
+                        current = joined.select(state_cols + [prev_col])
+                        if _hop >= min_hops:
+                            reachable.append(current.select(state_cols))
+                    state = pl.concat(reachable, how="vertical") if reachable else state.limit(0)
+                else:
+                    pairs = oriented.select(["__from__", "__to__"])
+                    reachable = [state] if min_hops == 0 else []
+                    current = state
+                    # Lazy: build all max_hops iterations (no eager .height early-break —
+                    # empty intermediates lazily join to empty, so the result is
+                    # identical; the pandas break is an optimization, not semantics).
+                    for _hop in range(1, max_hops + 1):
+                        current = (
+                            current.join(pairs, left_on="__current__", right_on="__from__", how="inner")
+                            .drop("__current__")
+                            .rename({"__to__": "__current__"})
+                            .select(state_cols)
+                        )
+                        if _hop >= min_hops:
+                            reachable.append(current)
+                    state = pl.concat(reachable, how="vertical") if reachable else state.limit(0)
             else:
                 state = (
                     state.join(oriented, left_on="__current__", right_on="__from__", how="inner")
