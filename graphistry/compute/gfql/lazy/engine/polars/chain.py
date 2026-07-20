@@ -481,6 +481,146 @@ def _augmented_edges_cached(edges, eid_col: str):
     return out
 
 
+# Recycle-safe cache #4: resident node frame -> sorted (id, row-position) lookup table for the
+# lean combine's position-gather. O(N log N) once per resident frame; weakref.finalize on the
+# source frame evicts so a recycled id can never serve stale positions. Frames with null or
+# duplicated ids cache a None verdict: position-gather keeps one row per id while the semi-join
+# combine keeps all matches, so those frames must stay on the Track-B path.
+_NODE_POS_CACHE: dict = {}
+_POS_MISS = object()
+
+
+def _node_pos_frame_cached(nodes, node_col: str):
+    key = (id(nodes), node_col)
+    hit = _NODE_POS_CACHE.get(key, _POS_MISS)
+    if hit is not _POS_MISS:
+        return hit
+    import polars as pl
+    from graphistry.compute.util import generate_safe_column_name
+    ids = nodes.get_column(node_col)
+    if ids.null_count() > 0 or ids.n_unique() != nodes.height:
+        mapping = None
+    else:
+        pos_col = generate_safe_column_name("__gfql_pos__", nodes, prefix="__gfql_", suffix="__")
+        mapping = (nodes.select(pl.col(node_col)).with_row_index(pos_col).sort(node_col), pos_col)
+    try:
+        import weakref
+        weakref.finalize(nodes, _NODE_POS_CACHE.pop, key, None)
+        _NODE_POS_CACHE[key] = mapping
+    except TypeError:  # pragma: no cover - frame not weakref-able -> don't cache
+        pass
+    return mapping
+
+
+def _gather_nodes_by_id(nodes, mapping_df, pos_col: str, node_col: str, ids):
+    """Rows of ``nodes`` whose id is in ``ids``, in original row order — semantically the
+    combine's ``nodes semi-join ids`` + NORD sort, but O(result·log N) via binary search on the
+    cached sorted mapping + position gather instead of an O(N) join/sort per call. Ids absent
+    from ``nodes`` (dangling endpoints) drop out via the equality mask, matching the semi-join."""
+    sorted_ids = mapping_df.get_column(node_col)
+    ids = ids.unique().drop_nulls().cast(sorted_ids.dtype)
+    if len(ids) == 0 or len(sorted_ids) == 0:
+        return nodes.clear()
+    idx = sorted_ids.search_sorted(ids, side="left")
+    in_range = idx < len(sorted_ids)
+    idx, ids = idx.filter(in_range), ids.filter(in_range)
+    hit = sorted_ids.gather(idx) == ids
+    pos = mapping_df.get_column(pos_col).gather(idx.filter(hit))
+    return nodes.gather(pos.sort())
+
+
+def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
+    """Slice-3 lean combine for seeded single-hop chains: O(result) instead of O(N+E) per call.
+
+    The Track-B combine rebuilds final frames by semi-joining the FULL node/edge frames and
+    re-sorting on in-plan row indices every call (~55ms of the ~72ms SF1 seed-lookup wall).
+    But when the chain added ``__gfql_edge_index__`` itself (``added_edge_index``), the surviving
+    edge ids ARE row positions in ``g._edges`` — so a sorted position gather rebuilds the exact
+    frame in original row order for free, and node rows come from the cached id→position mapping
+    the same way. Per-step endpoint semi-joins and alias flags run on the SMALL step/gathered
+    frames only, mirroring ``_combine_edges``/``_combine_nodes`` semantics exactly.
+
+    Returns ``(final_nodes, final_edges)`` (final_edges still carries ``eid_col``) or None to
+    fall back to Track B: non-node first step (its edge combine would semi-join the full node
+    frame), unsuitable node frame (null/dup ids), or step frames above the small-result guard.
+    """
+    import polars as pl
+    node_col, src, dst = g._node, g._source, g._destination
+    if not isinstance(ops[0], ASTNode):
+        return None
+    mapping = _node_pos_frame_cached(g._nodes, node_col)
+    if mapping is None:
+        return None
+    mapping_df, pos_col = mapping
+
+    # Materialize step frames in one batched collect, then bound total rows: the lean gathers
+    # and per-step joins are only a win (and only guaranteed small) on small wavefronts. On
+    # guard failure Track B proceeds with the original frames.
+    from graphistry.compute.gfql.lazy import collect_all
+    LEAN_MAX_ROWS = 100_000
+    pairs = list(steps) + list(label_steps)
+    frames: List[Any] = []
+    for _, p in pairs:
+        frames.extend((p._nodes, p._edges))
+    lazy_idx = [i for i, f in enumerate(frames) if f is not None and is_lazy(f)]
+    if lazy_idx:
+        for i, df in zip(lazy_idx, collect_all([frames[i] for i in lazy_idx])):
+            frames[i] = df
+    if sum(f.height for f in frames if f is not None) > LEAN_MAX_ROWS:
+        return None
+    shims = [
+        (op, _LazyShim(frames[2 * i], frames[2 * i + 1], node_col, src, dst, g._edge))
+        for i, (op, _) in enumerate(pairs)
+    ]
+    steps_m, label_m = shims[:len(steps)], shims[len(steps):]
+
+    # Edges: _combine_edges' per-step prev/next endpoint semi-joins, on small frames only
+    # (idx>0 always holds for edge steps — ops[0] is a node), then ONE position gather.
+    id_frames = []
+    for idx, (op, p) in enumerate(steps_m):
+        edges_df = p._edges
+        if edges_df is None or edges_df.height == 0:
+            continue
+        prev_nodes = label_m[idx - 1][1]._nodes if idx > 0 else None
+        next_nodes = label_m[idx + 1][1]._nodes if idx + 1 < len(label_m) else None
+        direction = op.direction if isinstance(op, ASTEdge) else "forward"
+        if direction == "undirected" and prev_nodes is not None and next_nodes is not None:
+            fwd = _semi(_semi(edges_df, prev_nodes, src, node_col), next_nodes, dst, node_col)
+            rev = _semi(_semi(edges_df, prev_nodes, dst, node_col), next_nodes, src, node_col)
+            edges_df = pl.concat([fwd, rev], how="vertical_relaxed").unique(subset=[eid_col])
+        else:
+            prev_col, next_col = (dst, src) if direction == "reverse" else (src, dst)
+            if prev_nodes is not None:
+                edges_df = _semi(edges_df, prev_nodes, prev_col, node_col)
+            if next_nodes is not None:
+                edges_df = _semi(edges_df, next_nodes, next_col, node_col)
+        id_frames.append(edges_df.select(pl.col(eid_col)))
+
+    if id_frames:
+        eids = pl.concat(id_frames, how="vertical_relaxed").get_column(eid_col).unique().sort()
+        out_edges = g._edges.gather(eids)  # sorted positions == original row order (EORD)
+    else:
+        out_edges = g._edges.clear()
+    for op, p in label_m:
+        if op._name is not None and isinstance(op, ASTEdge) and p._edges is not None and op._name in colnames(p._edges):
+            named = p._edges.filter(pl.col(op._name)).select(pl.col(eid_col)).with_columns(pl.lit(True).alias(op._name))
+            out_edges = out_edges.join(named, on=eid_col, how="left").with_columns(pl.col(op._name).fill_null(False))
+
+    # Nodes: step ids ∪ surviving-edge endpoints (endpoint repair), position-gathered in
+    # original row order (NORD). Dangling endpoints drop in the lookup, matching the semi-join.
+    parts = [
+        p._nodes.select(pl.col(node_col))
+        for _, p in steps_m
+        if p._nodes is not None and node_col in colnames(p._nodes)
+    ] + [
+        out_edges.select(pl.col(c).alias(node_col)) for c in (src, dst)
+    ]
+    ids = pl.concat(parts, how="vertical_relaxed").get_column(node_col)
+    final_nodes = _gather_nodes_by_id(g._nodes, mapping_df, pos_col, node_col, ids)
+    final_nodes = _apply_node_names(final_nodes, g, steps_m)
+    return final_nodes, out_edges
+
+
 def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plottable:
     from graphistry.compute.ast import ASTCall
     from graphistry.compute.chain import Chain, _get_boundary_calls
@@ -776,6 +916,16 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                 edge_steps.append((op, _exec(op, g_sub, prev_wf, None)))
             else:
                 edge_steps.append((op, g_step))
+
+    # Slice-3 lean combine: seeded single-hop chains skip the full-frame Track-B plan entirely
+    # (position gathers over the resident frames, O(result) per call). Guards + fallback inside.
+    if not has_multihop and added_edge_index and (
+            start_nodes is not None or (isinstance(ops[0], ASTNode) and ops[0].filter_dict)):
+        lean = _try_combine_lean(g, ops, steps, label_steps, EID)
+        if lean is not None:
+            final_nodes, final_edges = lean
+            final_edges = _restore_edge_dtypes(final_edges.drop(EID), src, dst, _endpoint_restore)
+            return self.nodes(final_nodes, node_col).edges(final_edges, src, dst)
 
     # Track B: build the WHOLE combine (combine_nodes/edges + endpoint + names) as ONE deferred
     # plan over already-materialized hop frames and collect ONCE — collapsing the ~dozen eager
