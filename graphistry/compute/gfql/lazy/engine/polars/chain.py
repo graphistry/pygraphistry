@@ -21,6 +21,7 @@ from .hop_eager import ensure_nodes_polars
 from .dtypes import is_lazy, colnames, endpoint_ids
 from .degrees import get_degrees_polars, get_indegrees_polars, get_outdegrees_polars
 from .predicates import filter_by_dict_polars
+from .reserved_columns import CHAIN_NODE_HOP
 
 
 def _semi(df, ids_df, df_col, id_col):
@@ -76,11 +77,12 @@ def _restore_edge_dtypes(edges, src, dst, restore):
 # The concrete column name is resolved once per chain against the user's node columns via
 # generate_safe_column_name (see _chain_traversal_polars), so a user column literally named
 # `__gfql_chain_node_hop__` can't be clobbered (would otherwise crash on the int/str compare in
-# the gate). This base string is only the seed + the fallback for callers that don't resolve.
-_AUTO_NODE_HOP = "__gfql_chain_node_hop__"
+# the gate). This base string (declared in reserved_columns.py, the per-engine symbol registry)
+# is only the seed + the fallback for callers that don't resolve.
+_AUTO_NODE_HOP: str = CHAIN_NODE_HOP
 
 
-def _auto_node_hop_col(op, name: str = _AUTO_NODE_HOP) -> Optional[str]:
+def _auto_node_hop_col(op: ASTObject, name: str = _AUTO_NODE_HOP) -> Optional[str]:
     """The auto-label column for an edge op, or None when labels are unnecessary/unsupported."""
     if not isinstance(op, ASTEdge):
         return None
@@ -97,8 +99,8 @@ def _auto_node_hop_col(op, name: str = _AUTO_NODE_HOP) -> Optional[str]:
     return name if needs else None
 
 
-def _alias_hop_bounds(op) -> Tuple[int, Optional[int]]:
-    """pandas' (min_hop, max_hop) alias window for a node op preceded by `op` (chain.py:477-499)."""
+def _alias_hop_bounds(op: ASTEdge) -> Tuple[int, Optional[int]]:
+    """pandas' (min_hop, max_hop) alias window for a node op preceded by edge `op` (chain.py:477-499)."""
     min_hop = (
         op.output_min_hops if op.output_min_hops is not None
         else (op.min_hops if op.min_hops is not None else (op.hops if op.hops is not None else 1))
@@ -112,8 +114,11 @@ def _alias_hop_bounds(op) -> Tuple[int, Optional[int]]:
     return min_hop, max_hop
 
 
-def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf, intermediate_universe=None,
+def _exec(op: ASTObject, g: Plottable, prev_wf: Optional[Any], target_wf: Optional[Any],
+          intermediate_universe: Optional[Any] = None,
           auto_hop_col: str = _AUTO_NODE_HOP) -> Plottable:
+    # prev_wf/target_wf/intermediate_universe are polars wavefront frames (DataFrame|LazyFrame)
+    # or None; typed Optional[Any] to match this module's frame-annotation convention.
     import polars as pl
 
     node_col = g._node
