@@ -542,19 +542,15 @@ def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
     frames only, mirroring ``_combine_edges``/``_combine_nodes`` semantics exactly.
 
     Returns ``("lean", final_nodes, final_edges)`` (final_edges still carries ``eid_col``);
-    ``("fallback", steps_m, label_m)`` when step frames exceed the small-result guard — the
-    MATERIALIZED steps, so Track B reuses them instead of re-executing the traversal; or None
-    (pre-collect declines: non-node first step — its edge combine would semi-join the full node
-    frame — or unsuitable node frame with null/dup ids).
+    ``("fallback", steps_m, label_steps)`` when step frames exceed the small-result guard or the
+    node frame is unsuitable (null/dup ids) — with the MATERIALIZED steps, so Track B reuses
+    them instead of re-executing the traversal; or None (pre-collect decline: non-node first
+    step — its edge combine would semi-join the full node frame).
     """
     import polars as pl
     node_col, src, dst = g._node, g._source, g._destination
     if not isinstance(ops[0], ASTNode):
         return None
-    mapping = _node_pos_frame_cached(g._nodes, node_col)
-    if mapping is None:
-        return None
-    mapping_df, pos_col = mapping
 
     # Materialize the backward-pruned step frames plus ID PROJECTIONS of the forward label
     # frames in ONE batched collect, then bound total rows: the lean gathers and per-step joins
@@ -596,6 +592,14 @@ def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
     ]
     if sum(f.height for f in frames if f is not None) > LEAN_MAX_ROWS:
         return ("fallback", steps_m, list(label_steps))
+
+    # Mapping build LAST (after the row guard): it costs O(N log N) per resident node frame,
+    # and pipelines that rebind node frames per call (fresh identity -> cache miss) must not
+    # pay it just to land in the fallback anyway (new-topics cypher +35% at SF1).
+    mapping = _node_pos_frame_cached(g._nodes, node_col)
+    if mapping is None:
+        return ("fallback", steps_m, list(label_steps))
+    mapping_df, pos_col = mapping
 
     # Edges: _combine_edges' per-step prev/next endpoint semi-joins, on small frames only
     # (idx>0 always holds for edge steps — ops[0] is a node), then ONE position gather.
