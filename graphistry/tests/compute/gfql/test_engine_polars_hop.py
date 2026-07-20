@@ -245,3 +245,61 @@ class TestHopLabelsDifferential:
         with pytest.raises(NotImplementedError, match="label_node_hops"):
             g_pl.hop(nodes=pl.DataFrame({"id": ["a"]}), direction="forward",
                      min_hops=2, max_hops=3, label_node_hops="_h", engine="polars")
+
+    # --- Amplified axes (#1746 review): these combinations regressed before the undirected
+    # seed pre-seed fix — the node/edge SET matched pandas but the LABELS diverged, because a
+    # seed filtered out of the frontier (source_node_match / return_as_wave_front) was not
+    # counted as "seen" and got re-labeled. The chain drives the polars hop in wavefront mode and
+    # keys its alias gate off these labels, so a wrong label is a wrong query result.
+    SEED_FILTER_GRAPHS = {
+        "tri": (pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "a"]}),
+                pd.DataFrame({"id": ["a", "b", "c"], "k": [0, 1, 1]}), ["a"]),
+        "selfloop2": (pd.DataFrame({"s": ["n0", "n1", "n4"], "d": ["n1", "n0", "n4"]}),
+                      pd.DataFrame({"id": ["n0", "n1", "n4"], "k": [0, 0, 1]}), ["n0", "n4"]),
+    }
+
+    @pytest.mark.parametrize("graph_name", sorted(SEED_FILTER_GRAPHS))
+    @pytest.mark.parametrize("direction", ["forward", "reverse", "undirected"])
+    @pytest.mark.parametrize("hops", [1, 2])
+    @pytest.mark.parametrize("rwf", [True, False])
+    @pytest.mark.parametrize("snm", [None, {"k": 0}])
+    @pytest.mark.parametrize("dnm", [None, {"k": 1}])
+    def test_node_hop_labels_match_pandas_with_seed_filters(
+            self, graph_name, direction, hops, rwf, snm, dnm):
+        edf, ndf, seeds = self.SEED_FILTER_GRAPHS[graph_name]
+
+        g_pd = graphistry.nodes(ndf, "id").edges(edf, "s", "d")
+        seeds_pd = g_pd._nodes[g_pd._nodes["id"].isin(seeds)]
+        exp = g_pd.hop(
+            nodes=seeds_pd, direction=direction, hops=hops, return_as_wave_front=rwf,
+            label_node_hops="_h", source_node_match=snm, destination_node_match=dnm,
+            engine="pandas",
+        )._nodes[["id", "_h"]].sort_values("id").reset_index(drop=True)
+
+        g_pl = graphistry.nodes(pl.from_pandas(ndf), "id").edges(pl.from_pandas(edf), "s", "d")
+        act = g_pl.hop(
+            # full-column seed (carries "k") so source_node_match can filter it at hops=1, exactly
+            # as the pandas oracle above receives seeds_pd with its columns.
+            nodes=pl.from_pandas(seeds_pd), direction=direction, hops=hops,
+            return_as_wave_front=rwf, label_node_hops="_h",
+            source_node_match=snm, destination_node_match=dnm, engine="polars",
+        )._nodes.select(["id", "_h"]).sort("id").to_pandas()
+
+        assert list(act["id"]) == list(exp["id"])
+        assert (act["_h"].astype("float").fillna(-1).tolist()
+                == exp["_h"].astype("float").fillna(-1).tolist())
+
+    def test_requested_label_column_collision_redirects_like_pandas(self):
+        """#1746 review IMPORTANT-1: a label_node_hops name that already exists on the node table
+        must be redirected to `<name>_1` (pandas resolve_label_col), not clobbered/`_right`-ed."""
+        edf = self.LABEL_GRAPHS["line5"]
+        ndf = pd.DataFrame({"id": ["a", "b", "c", "d", "e"], "_h": ["u0", "u1", "u2", "u3", "u4"]})
+        g_pd = graphistry.nodes(ndf, "id").edges(edf, "s", "d")
+        exp = g_pd.hop(nodes=g_pd._nodes[g_pd._nodes["id"] == "a"], direction="forward", hops=2,
+                       label_node_hops="_h", engine="pandas")._nodes
+        g_pl = graphistry.nodes(pl.from_pandas(ndf), "id").edges(pl.from_pandas(edf), "s", "d")
+        act = g_pl.hop(nodes=pl.DataFrame({"id": ["a"]}), direction="forward", hops=2,
+                       label_node_hops="_h", engine="polars")._nodes
+        # pandas redirected the label to a non-clobbering name and kept the user's "_h" strings.
+        assert "_h_1" in exp.columns and "_h_1" in act.columns
+        assert set(act["_h"].to_list()) <= {"u0", "u1", "u2", "u3", "u4"}

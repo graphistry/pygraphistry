@@ -310,6 +310,12 @@ def hop_polars(
     NHOP = generate_safe_column_name("__gfql_node_hop__", all_nodes, prefix="__gfql_", suffix="__")
 
     seed = _idframe(nodes if nodes is not None else all_nodes, node_col)
+    if track_node_hops and direction == "undirected":
+        # Undirected only: seeds count as already-seen for LABELING, so backtracking into a seed
+        # leaves it null (pandas). Must not depend on return_as_wave_front — the chain hops in
+        # wavefront mode, where `visited_nodes` starts empty, and pandas labels p0 null in BOTH
+        # modes. fwd/rev deliberately do NOT pre-seed: pandas labels a re-entered seed there.
+        label_seen_nodes = seed
     if track_node_hops and label_seeds:
         # hop.py:361-363 — seeds pre-seeded at hop 0, which also makes them "seen" so a
         # re-reached seed keeps 0 rather than picking up its re-entry distance.
@@ -359,8 +365,7 @@ def hop_polars(
             # new_node_ids = all TO ids) — so a seed re-entered at hop 1 IS labeled 1.
             # undirected: the same destinations minus everything already VISITED, so a seed
             # re-reached by backtracking along the edge it arrived on stays unlabeled (#1741).
-            src_ids = cand if direction != "undirected" else new_frontier
-            fresh = src_ids.join(label_seen_nodes, on=NID, how="anti")
+            fresh = cand.join(label_seen_nodes, on=NID, how="anti")
             if fresh.height > 0:
                 node_hop_frames.append(fresh.with_columns(pl.lit(current_hop, dtype=pl.Int64).alias(NHOP)))
                 label_seen_nodes = pl.concat([label_seen_nodes, fresh], how="vertical_relaxed").unique(subset=[NID])
@@ -468,6 +473,16 @@ def hop_polars(
             pl.concat(node_hop_frames, how="vertical_relaxed").unique(subset=[NID], keep="first")
             if node_hop_frames else empty_ids.with_columns(pl.lit(None, dtype=pl.Int64).alias(NHOP))
         )
+        # Match pandas' resolve_label_col (hop.py:287-297): a requested label column that already
+        # exists is redirected to `<name>_1`/`_2`/... rather than clobbered. Without this the
+        # left-join below would auto-suffix to `<name>_right` (label lands in the wrong column) or,
+        # if it equals the node-id column, raise DuplicateError — both diverging from pandas.
+        out_label = label_node_hops
+        if out_label in out_nodes.columns:
+            _c = 1
+            while f"{out_label}_{_c}" in out_nodes.columns:
+                _c += 1
+            out_label = f"{out_label}_{_c}"
         out_nodes = out_nodes.join(
-            node_labels.rename({NID: node_col, NHOP: label_node_hops}), on=node_col, how="left")
+            node_labels.rename({NID: node_col, NHOP: out_label}), on=node_col, how="left")
     return g.nodes(out_nodes, node_col).edges(out_edges, src, dst)
