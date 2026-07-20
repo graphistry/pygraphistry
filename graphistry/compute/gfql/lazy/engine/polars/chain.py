@@ -11,10 +11,9 @@ from typing import Any, List, Optional, Tuple, cast
 
 from typing_extensions import TypedDict
 
-# Runtime import (not TYPE_CHECKING): AggSpec is a pure typing Union of builtins —
-# row_pipeline imports polars lazily, so this is safe without polars installed, and it
-# keeps _GroupByParams introspectable (get_type_hints) at runtime.
-from .row_pipeline import AggSpec
+# Runtime import (not TYPE_CHECKING): AggSpec is a pure typing Union of builtins (engine-
+# neutral wire type), and it keeps _GroupByParams introspectable (get_type_hints) at runtime.
+from graphistry.compute.gfql.call.support import AggSpec
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge

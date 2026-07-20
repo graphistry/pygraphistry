@@ -1,8 +1,24 @@
 """Shared non-parser helpers for GFQL call safelist definitions."""
 
-from typing import Any, Callable, Dict, List, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from graphistry.compute.gfql.language_defs import GFQL_AGGREGATION_FUNCTIONS
+from graphistry.utils.json import JSONVal
+
+
+# Wire-format payload types for row-pipeline ASTCall.params, ENGINE-NEUTRAL (pandas, polars,
+# cuDF consumers alike). JSON deserialization turns tuples into ``List``; Python-side builders
+# (ast.py — cf. the builder-side ``ProjectionItem``) may pass tuples. Each alias mirrors the
+# runtime validator of the same shape below / in validation.py — keep them in lockstep.
+SelectItem = Union[str, Tuple[str, JSONVal], List[JSONVal]]
+"""Projection item: ``'col'`` | ``(alias, expr)`` where a str expr is expression text and any
+other JSON scalar is a constant literal (e.g. synthetic ``__cypher_group__=1``).
+Validator: ``is_projection_items``."""
+OrderKey = Union[Tuple[str, str], List[str]]
+"""Sort key: ``(expr, 'asc'|'desc')``. Validator: ``is_order_keys``."""
+AggSpec = Union[Tuple[str, str], Tuple[str, str, Optional[str]], List[Optional[str]]]
+"""Aggregation spec: ``(alias, func[, expr])``; ``expr`` None/omitted only for count(*).
+Validator: ``is_list_of_agg_specs``."""
 
 
 def is_string(v: object) -> bool:

@@ -24,20 +24,11 @@ if TYPE_CHECKING:
 
 from graphistry.Plottable import Plottable
 from graphistry.utils.json import JSONVal
-from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
-
-
-# Wire-format payload types for row-pipeline ops (ASTCall.params). JSON lists deserialize as
-# ``List``; Python-side lowering may pass tuples. Shapes are safelist-validated
+# Engine-neutral wire-format payload types (ASTCall.params). Shapes are safelist-validated
 # (gfql/call/validation.py) before reaching these helpers, so the runtime isinstance/len
 # checks below are defense-in-depth, not the contract.
-SelectItem = Union[str, Tuple[str, JSONVal], List[JSONVal]]
-"""Projection item: ``'col'`` | ``(alias, expr)`` where a str expr is expression text and any
-other JSON scalar is a constant literal (e.g. synthetic ``__cypher_group__=1``)."""
-OrderKey = Union[Tuple[str, str], List[str]]
-"""Sort key: ``(expr, 'asc'|'desc')``."""
-AggSpec = Union[Tuple[str, str], Tuple[str, str, Optional[str]], List[Optional[str]]]
-"""Aggregation spec: ``(alias, func[, expr])``; ``expr`` None/omitted only for count(*)."""
+from graphistry.compute.gfql.call.support import AggSpec, OrderKey, SelectItem
+from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
 
 
 # Active row-table schema (col -> dtype), set around lowering so lower_expr can infer FLOAT
