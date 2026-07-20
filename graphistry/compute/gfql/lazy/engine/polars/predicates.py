@@ -15,11 +15,19 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.str import Contains, Endswith, Fullmatch, Match, Startswith
 from graphistry.compute.filter_by_dict import resolve_filter_column
-from .dtypes import is_numeric as _dtype_numeric, is_stringlike as _dtype_stringlike
+from .dtypes import is_lazy, is_numeric as _dtype_numeric, is_stringlike as _dtype_stringlike
+
 
 if TYPE_CHECKING:
     import datetime
     import polars as pl
+
+
+def _schema_of(df: Any) -> Any:
+    """Schema for an eager or lazy frame. ``LazyFrame.schema`` resolves the schema AND warns
+    (PerformanceWarning) on every access; ``collect_schema()`` is the sanctioned form. Called
+    per predicate per call on the seeded fast path, so the repeated resolution is not free."""
+    return df.collect_schema() if is_lazy(df) else df.schema
 
 # Comparison-predicate RHS: genuinely dynamic (Cypher properties are dynamically typed) — a
 # python scalar or a GFQL/py temporal matched structurally by type(val).__name__
@@ -290,7 +298,7 @@ def _is_cross_type_predicate(df: "pl.DataFrame", col: str, pred: ASTPredicate) -
     name = type(pred).__name__
     if name == "AllOf" and hasattr(pred, "predicates"):
         return any(_is_cross_type_predicate(df, col, p) for p in pred.predicates)
-    dtype = df.schema.get(col)
+    dtype = _schema_of(df).get(col)
     col_num = _dtype_numeric(dtype)
     col_str = _dtype_stringlike(dtype)
 
@@ -331,7 +339,7 @@ def filter_by_dict_polars(df: "pl.DataFrame", filter_dict: "Optional[Dict[str, A
             # on a Categorical/Enum/numeric column. Raise the SAME clean, typed error so all three
             # engines agree (categorical is treated as non-string here, exactly as filter_by_dict).
             if isinstance(resolved_val, (Contains, Startswith, Endswith, Match)):
-                _col_dtype = df.schema.get(resolved_col)
+                _col_dtype = _schema_of(df).get(resolved_col)
                 if _col_dtype is not None and _col_dtype != pl.String:
                     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
                     raise GFQLSchemaError(
@@ -342,7 +350,7 @@ def filter_by_dict_polars(df: "pl.DataFrame", filter_dict: "Optional[Dict[str, A
                         column_type=str(_col_dtype),
                         suggestion='Use numeric predicates like gt() or lt() for numeric columns',
                     )
-            expr = predicate_to_expr(resolved_col, resolved_val, df.schema.get(resolved_col))
+            expr = predicate_to_expr(resolved_col, resolved_val, _schema_of(df).get(resolved_col))
             if expr is None:
                 # decline (NIE): no native lowering for this predicate; no pandas bridge.
                 raise NotImplementedError(
@@ -354,7 +362,7 @@ def filter_by_dict_polars(df: "pl.DataFrame", filter_dict: "Optional[Dict[str, A
             exprs.append(expr)
         elif _is_membership(resolved_val):
             exprs.append(pl.col(resolved_col).is_in(list(resolved_val)))
-        elif isinstance(df.schema.get(resolved_col), pl.List):
+        elif isinstance(_schema_of(df).get(resolved_col), pl.List):
             if resolved_col == "labels":
                 # MATCH (n:Label) = scalar match on the RESERVED `labels` List column ->
                 # list.contains (empty for a non-existent label, matching pandas). A plain ==

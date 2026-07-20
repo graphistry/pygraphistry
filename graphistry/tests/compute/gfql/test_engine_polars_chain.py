@@ -704,3 +704,107 @@ def test_engine_polars_predicate_correctness_fixes():
     # temporal val -> _cmp_expr declines (None) so upstream raises honest NIE; numeric still lowers.
     assert _cmp_expr(None, operator.gt, datetime.date(2020, 1, 1)) is None
     assert _cmp_expr(pl.col("x"), operator.gt, 5) is not None
+
+
+# ---------------------------------------------------------------------------
+# Slice-3 lean gather-combine: differential vs Track B (byte-identical frames)
+# ---------------------------------------------------------------------------
+
+_LEAN_NODES = pl.DataFrame({
+    "id": ["a", "b", "c", "d", "e", "f", "g"],
+    "kind": ["x", "y", "y", "z", "x", "z", "y"],
+    "score": [10, 20, 30, 40, 50, 60, 70],
+})
+_LEAN_EDGES = pl.DataFrame({
+    "s": ["a", "a", "b", "c", "d", "e", "g", "f"],
+    "d": ["b", "c", "d", "d", "e", "b", "a", "zz_dangling"],
+    "etype": ["k", "k", "l", "l", "k", "l", "k", "k"],
+})
+
+_LEAN_CHAINS = [
+    ("named-fwd", [n({"id": "a"}, name="src"), e_forward(name="E"), n(name="dst")], True),
+    ("named-two-hop", [n({"id": "a"}), e_forward(), n(name="mid"), e_forward(name="E2"), n()], True),
+    ("undirected-filtered", [n({"id": "c"}), e_undirected(), n({"kind": "y"})], True),
+    ("reverse-named", [n({"id": "d"}, name="seed"), e_reverse(), n()], True),
+    ("edge-match", [n({"id": "a"}), e_forward(edge_match={"etype": "k"}, name="E"), n()], True),
+    ("empty-seed", [n({"id": "no_such"}), e_forward(name="E"), n()], True),
+    ("dangling-endpoint", [n({"id": "f"}, name="seed"), e_forward(), n()], True),
+]
+
+
+class TestLeanCombineDifferential:
+    """The lean position-gather combine must be byte-identical to Track B (frames, dtypes,
+    row order, alias flags) on every seeded shape it engages for, and must actually engage."""
+
+    def _graph(self):
+        return graphistry.nodes(_LEAN_NODES, "id").edges(_LEAN_EDGES, "s", "d")
+
+    @pytest.mark.parametrize("label,ch,expect_lean", [(la, c, x) for la, c, x in _LEAN_CHAINS],
+                             ids=[la for la, _, _ in _LEAN_CHAINS])
+    def test_lean_vs_trackb_byte_identical(self, label, ch, expect_lean, monkeypatch):
+        from polars.testing import assert_frame_equal
+        from graphistry.compute.gfql.lazy.engine.polars import chain as chain_mod
+
+        g = self._graph()
+        g.chain(ch, engine="polars")  # warm: lean gates on a recurring (resident) edges frame
+        engaged = []
+        orig = chain_mod._try_combine_lean
+
+        def spy(*a, **k):
+            r = orig(*a, **k)
+            engaged.append(r is not None and r[0] == "lean")
+            return r
+
+        monkeypatch.setattr(chain_mod, "_try_combine_lean", spy)
+        g_lean = g.chain(ch, engine="polars")
+        assert engaged and engaged[-1] == expect_lean, f"[{label}] lean engagement mismatch: {engaged}"
+
+        monkeypatch.setattr(chain_mod, "_try_combine_lean", lambda *a, **k: None)
+        g_trackb = g.chain(ch, engine="polars")
+
+        assert_frame_equal(g_lean._nodes, g_trackb._nodes)
+        assert_frame_equal(g_lean._edges, g_trackb._edges)
+        # and both agree with the pandas oracle on sets + aliases
+        _assert_chain_parity(g, ch, f"lean-{label}", native=True, edge_count=True, aliases=True)
+
+    def test_lean_falls_back_on_dup_node_ids(self, monkeypatch):
+        """Duplicate node ids break lean node-gather semantics (Track B dedupes by id with a
+        first-occurrence pick) — the lean attempt must detect the dup result and fall back."""
+        from polars.testing import assert_frame_equal
+        from graphistry.compute.gfql.lazy.engine.polars import chain as chain_mod
+
+        nodes = pl.concat([_LEAN_NODES, _LEAN_NODES.filter(pl.col("id") == "b")])
+        g = graphistry.nodes(nodes, "id").edges(_LEAN_EDGES, "s", "d")
+        ch = [n({"id": "a"}, name="src"), e_forward(name="E"), n()]
+        g.chain(ch, engine="polars")  # warm: lean gates on a recurring (resident) edges frame
+
+        engaged = []
+        orig = chain_mod._try_combine_lean
+
+        def spy(*a, **k):
+            r = orig(*a, **k)
+            engaged.append(r is not None and r[0] == "lean")
+            return r
+
+        monkeypatch.setattr(chain_mod, "_try_combine_lean", spy)
+        g_lean = g.chain(ch, engine="polars")
+        assert engaged == [False], f"dup-id graph must fall back to Track B: {engaged}"
+
+        monkeypatch.setattr(chain_mod, "_try_combine_lean", lambda *a, **k: None)
+        g_trackb = g.chain(ch, engine="polars")
+        assert_frame_equal(g_lean._nodes, g_trackb._nodes)
+        assert_frame_equal(g_lean._edges, g_trackb._edges)
+
+    def test_lean_falls_back_on_prebound_edge_id(self, monkeypatch):
+        """User-bound edge ids are values, not row positions — lean must not engage."""
+        from graphistry.compute.gfql.lazy.engine.polars import chain as chain_mod
+
+        edges = _LEAN_EDGES.with_row_index("eid").with_columns((pl.col("eid") + 100).alias("eid"))
+        g = graphistry.nodes(_LEAN_NODES, "id").edges(edges, "s", "d").bind(edge="eid")
+
+        called = []
+        orig = chain_mod._try_combine_lean
+        monkeypatch.setattr(chain_mod, "_try_combine_lean",
+                            lambda *a, **k: called.append(True) or orig(*a, **k))
+        g.chain([n({"id": "a"}, name="src"), e_forward(name="E"), n()], engine="polars")
+        assert not called, "lean guard must skip pre-bound edge ids (added_edge_index=False)"
