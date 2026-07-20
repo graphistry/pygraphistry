@@ -569,6 +569,21 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             "include_zero_hop_seed, prune_to_endpoints) require engine='pandas'."
         )
 
+    # issue #1741: undirected multi-hop lacks pandas' backtrack avoidance — the node/edge SETS
+    # still agree (reachability), but the named-alias flag on nodes after the undirected varlen
+    # edge can tag a node whose only path bounces back over one edge (seed at *1..2), which
+    # pandas correctly leaves untagged (trail semantics). Cypher RETURN projects those flags, so
+    # this silently returned wrong rows. Decline the affected shape (undirected non-single-hop +
+    # any node alias) until the backtrack-avoidance port lands; unnamed chains keep running.
+    if any(isinstance(op, ASTEdge) and not op.is_simple_single_hop()
+           and op.direction == "undirected" for op in ops) and any(
+               isinstance(op, ASTNode) and op._name is not None for op in ops):
+        raise NotImplementedError(
+            "polars chain engine: undirected variable-length hops with node aliases are not "
+            "yet supported (missing backtrack avoidance would mis-tag aliases — issue #1741); "
+            "use engine='pandas' for this query"
+        )
+
     edge_ops = [op for op in ops if isinstance(op, ASTEdge)]
     # Undirected edges in multi-edge chains: NATIVE for single-hop (backward pass threads BOTH
     # endpoints — see override below) and fixed-length multi-hop (generic backward hop +

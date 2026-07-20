@@ -704,3 +704,34 @@ def test_engine_polars_predicate_correctness_fixes():
     # temporal val -> _cmp_expr declines (None) so upstream raises honest NIE; numeric still lowers.
     assert _cmp_expr(None, operator.gt, datetime.date(2020, 1, 1)) is None
     assert _cmp_expr(pl.col("x"), operator.gt, 5) is not None
+
+
+class TestUndirectedVarlenAliasNIE:
+    """issue #1741: undirected varlen + node alias mis-tagged the alias on bounce-back-only
+    nodes (pandas trail semantics leaves them untagged; Cypher RETURN projects the flag ->
+    silent wrong rows). The shape must decline honestly; unnamed chains keep native parity."""
+
+    def _graphs(self):
+        nodes = pd.DataFrame({"id": [f"p{i}" for i in range(6)], "label__Person": [True] * 6})
+        edges = pd.DataFrame({"s": ["p0", "p1", "p2", "p0", "p3"],
+                              "d": ["p1", "p2", "p3", "p4", "p5"], "type": ["KNOWS"] * 5})
+        return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+    def test_named_node_after_undirected_varlen_declines(self):
+        g = self._graphs()
+        ch = [n({"id": "p0"}), e_undirected(min_hops=1, max_hops=2), n(name="f")]
+        with pytest.raises(NotImplementedError, match="1741"):
+            g.chain(ch, engine="polars")
+
+    def test_cypher_undirected_varlen_declines_not_wrong(self):
+        g = self._graphs()
+        q = "MATCH (p:Person {id: 'p0'})-[:KNOWS*1..2]-(f:Person) RETURN f.id AS fid ORDER BY fid"
+        # pandas oracle: p0 is NOT a valid *1..2 endpoint (only path re-uses one edge)
+        assert g.gfql(q, engine="pandas")._nodes["fid"].tolist() == ["p1", "p2", "p4"]
+        with pytest.raises(NotImplementedError):
+            g.gfql(q, engine="polars")
+
+    def test_unnamed_undirected_varlen_still_native_parity(self):
+        g = self._graphs()
+        ch = [n({"id": "p0"}), e_undirected(min_hops=1, max_hops=2), n()]
+        _assert_chain_parity(g, ch, "unnamed undirected varlen", native=True)
