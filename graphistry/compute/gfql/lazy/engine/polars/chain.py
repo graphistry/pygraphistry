@@ -563,9 +563,34 @@ def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
     # SF1 queries); label steps stay as-is for Track B's fusion.
     from graphistry.compute.gfql.lazy import collect_all
     LEAN_MAX_ROWS = 100_000
+
+    def _node_cols(op, f):
+        cols = [node_col] if node_col in colnames(f) else []
+        if op._name is not None and isinstance(op, ASTNode) and op._name in colnames(f):
+            cols.append(op._name)
+        return cols
+
+    def _edge_cols(op, f):
+        cols = [c for c in (eid_col, src, dst) if c in colnames(f)]
+        if op._name is not None and isinstance(op, ASTEdge) and op._name in colnames(f):
+            cols.append(op._name)
+        return cols
+
     frames: List[Any] = []
-    for _, p in steps:
-        frames.extend((p._nodes, p._edges))
+    for op, p in steps:
+        # Project to the columns the combine actually reads (ids, endpoints, alias flags):
+        # both the lean gathers AND Track B rebuild output rows from the RESIDENT frames, so
+        # materializing full wavefront columns is pure waste (column pushdown does this inside
+        # Track B's fused plan; the eager collect must do it explicitly).
+        nf = p._nodes
+        if nf is not None:
+            cols = _node_cols(op, nf)
+            nf = nf.select([pl.col(c) for c in cols]) if cols else nf
+        ef = p._edges
+        if ef is not None:
+            cols = _edge_cols(op, ef)
+            ef = ef.select([pl.col(c) for c in cols]) if cols else ef
+        frames.extend((nf, ef))
     n_step_frames = len(frames)
     # label projections: nodes -> unique id column; edges -> named-flag eid column (or None)
     for op, p in label_steps:
