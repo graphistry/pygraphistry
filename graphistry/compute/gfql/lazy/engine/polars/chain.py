@@ -494,11 +494,24 @@ _NODE_POS_CACHE: dict = {}
 _POS_MISS = object()
 _POS_SEEN_ONCE = object()
 
-# (id(edges frame), ids of compiled ops) whose lean probe truncated (big wavefronts): skip the
-# lean attempt entirely on warm calls — the probe would re-execute the traversal for nothing.
-# Recycle-safe: weakref.finalize on the edges frame evicts. A recycled key can only skip an
-# eligible lean attempt (conservative, never incorrect).
+# (id(edges frame), structural chain shape) whose lean probe truncated (big wavefronts): skip
+# the lean attempt entirely on warm calls — the probe would re-execute the traversal for
+# nothing. The key is STRUCTURAL (op kinds/directions/hops/aliases/filter KEYS — not values,
+# and not object ids: lowering builds fresh op objects per call, and seed values vary while
+# fan-out shape doesn't). Recycle-safe: weakref.finalize on the edges frame evicts. A recycled
+# or colliding key can only skip an eligible lean attempt (conservative, never incorrect).
 _LEAN_SKIP_MEMO: dict = {}
+
+
+def _lean_ops_key(ops) -> tuple:
+    parts = []
+    for op in ops:
+        if isinstance(op, ASTEdge):
+            parts.append(("e", op.direction, op.hops, op.min_hops, op.max_hops, op._name,
+                          tuple(sorted(op.edge_match or {}))))
+        else:
+            parts.append(("n", op._name, tuple(sorted(getattr(op, "filter_dict", None) or {}))))
+    return tuple(parts)
 
 
 def _node_pos_frame_cached(nodes, node_col: str):
@@ -1009,9 +1022,9 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     # (position gathers over the resident frames, O(result) per call). Guards + fallback inside.
     # A truncated probe (None) means big wavefronts: the probe collect executed the traversal
     # once and Track B will execute it again (in-memory limits don't early-stop joins), so
-    # memoize that outcome per (edges frame, compiled ops) — compiled-plan caching reuses the
-    # ops objects, so warm calls skip straight to the fused Track B plan with no probe at all.
-    _lean_key = (id(g._edges), tuple(id(op) for op in ops))
+    # memoize that outcome per (edges frame, structural chain shape) — warm calls of the same
+    # query shape skip straight to the fused Track B plan with no probe at all.
+    _lean_key = (id(g._edges), _lean_ops_key(ops))
     if (not has_multihop and added_edge_index and _edges_recurred
             and _lean_key not in _LEAN_SKIP_MEMO and (
             start_nodes is not None or (isinstance(ops[0], ASTNode) and ops[0].filter_dict))):
