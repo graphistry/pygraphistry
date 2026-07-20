@@ -705,11 +705,25 @@ def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> 
 
 def _select_emits_temporal_constructor_text(out: Any) -> bool:
     import polars as pl
-    from graphistry.compute.gfql.lazy.engine.polars.projection import _has_temporal_constructor_text
-    for name, dtype in out.schema.items():
-        if dtype == pl.String and _has_temporal_constructor_text(out, name):
-            return True
-    return False
+    from graphistry.compute.gfql.temporal.constructors import TEMPORAL_CALL_EXPR_RE
+    from .dtypes import is_lazy
+    schema = out.collect_schema() if is_lazy(out) else out.schema
+    string_cols = [name for name, dtype in schema.items() if dtype == pl.String]
+    if not string_cols:
+        return False
+    # ONE fused scan for every String column, not one collect per column (the per-column
+    # _has_temporal_constructor_text probe cost a collect each — 6 per call on LDBC IS1).
+    # Same ^-anchored pattern and same any() semantics as the per-column helper.
+    pattern = r"^\s*" + TEMPORAL_CALL_EXPR_RE.pattern
+    try:
+        probe = out.select([
+            pl.col(name).str.contains(pattern).any().alias(name) for name in string_cols
+        ])
+        row = (probe.collect() if is_lazy(probe) else probe).row(0)
+    except Exception:
+        # Parity with the per-column helper, which swallowed its own failures as False.
+        return False
+    return any(bool(v) for v in row)
 
 
 def select_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[Plottable]:
