@@ -774,18 +774,24 @@ class TestVarlenAliasHopGate:
         got = g_pl.gfql("MATCH (a {id: 'p0'})-[*1..2]-(b) RETURN b", engine="polars")
         assert sorted(got._nodes["b.id"].to_list()) == ["p1", "p2"]
 
-    # --- Known gap: forward/reverse min_hops>1 alias is NOT gated (issue #1748). ----------------
-    # These shapes run natively but the hop label is deliberately not produced for min_hops>1
-    # (the layered backward walk that yields it is not ported), so the alias is currently ungated
-    # and returns nodes OUTSIDE the [min_hop, max_hop] window. Pinned xfail so the gap is visible
-    # in CI and flips to a hard failure the moment #1748 is fixed. Undirected *2..3 correctly NIEs
-    # instead of silently mis-answering, so it is not in this list.
+    # --- #1748: forward/reverse min_hops>1 alias can't be hop-gated yet (label not ported), so
+    # rather than silently return nodes OUTSIDE the [min_hop, max_hop] window, the chain DECLINES
+    # that shape (honest NIE). Adapted from the retired #1742 decline pattern. When #1748 is fully
+    # fixed (label ported + gate applied) these should flip to a pandas-parity assertion.
     @pytest.mark.parametrize("pattern", ["-[*2..3]->", "<-[*2..3]-"])
-    @pytest.mark.xfail(reason="#1748: fwd/rev min_hops>1 alias ungated (silent-wrong)",
-                       strict=True)
-    def test_fwd_rev_min_hops_gt_one_alias_matches_pandas_KNOWN_GAP(self, pattern):
+    def test_fwd_rev_min_hops_gt_one_alias_declines_not_silently_wrong(self, pattern):
         q = f"MATCH (a {{id: 'p0'}}){pattern}(b) RETURN b"
+        _, g_pl = self._pair(self.BACKTRACK)
+        with pytest.raises(NotImplementedError, match="1748"):
+            g_pl.gfql(q, engine="polars")
+
+    def test_fwd_min_hops_gt_one_without_alias_still_runs(self):
+        """The decline is narrow: min_hops>1 fwd/rev with NO node alias after the edge is correct
+        (only the SET is needed, no alias to mis-gate) and must keep running natively."""
         g_pd, g_pl = self._pair(self.BACKTRACK)
-        expected = sorted(g_pd.gfql(q, engine="pandas")._nodes["b.id"].tolist())
-        actual = sorted(g_pl.gfql(q, engine="polars")._nodes["b.id"].to_list())
-        assert actual == expected
+        # unnamed terminal node -> no alias projected -> node/edge sets, which are correct
+        from graphistry.compute.ast import n, e_forward
+        ch = [n({"id": "p0"}), e_forward(min_hops=2, max_hops=3), n()]
+        gp = g_pd.chain(ch, engine="pandas")
+        gl = g_pl.chain(ch, engine="polars")
+        assert set(gp._nodes["id"].tolist()) == set(gl._nodes["id"].to_list())

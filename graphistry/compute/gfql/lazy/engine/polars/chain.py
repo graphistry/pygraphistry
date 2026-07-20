@@ -630,6 +630,24 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             "include_zero_hop_seed, prune_to_endpoints) require engine='pandas'."
         )
 
+    # issue #1748: forward/reverse min_hops>1 gets its node hop-labels from pandas' layered
+    # backward walk, which is not ported — so a node named AFTER such an edge cannot be hop-gated
+    # (_auto_node_hop_col returns None for min_hops>1), and its alias would include nodes OUTSIDE
+    # the [min_hop, max_hop] window. The node/edge SETS stay correct; only the projected alias is
+    # wrong. Decline that specific shape (honest NIE) instead of emitting silently-wrong rows —
+    # min_hops>1 chains WITHOUT a following node alias keep running. Adapted from the retired
+    # #1742 decline pattern (which did the same for undirected, now natively gated by #1741).
+    for _i in range(1, len(ops)):
+        _prev, _cur = ops[_i - 1], ops[_i]
+        if (isinstance(_prev, ASTEdge) and _prev.direction in ("forward", "reverse")
+                and _prev.min_hops is not None and _prev.min_hops > 1
+                and isinstance(_cur, ASTNode) and _cur._name is not None):
+            raise NotImplementedError(
+                "polars chain engine: a node alias after a forward/reverse variable-length edge "
+                "with min_hops>1 is not yet hop-gated (would tag nodes outside the hop window — "
+                "issue #1748); use engine='pandas' for this query"
+            )
+
     edge_ops = [op for op in ops if isinstance(op, ASTEdge)]
     # Undirected edges in multi-edge chains: NATIVE for single-hop (backward pass threads BOTH
     # endpoints — see override below) and fixed-length multi-hop (generic backward hop +
