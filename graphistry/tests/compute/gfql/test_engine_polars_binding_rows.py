@@ -81,6 +81,13 @@ SUPPORTED = [
     "MATCH (a)-[*2..2]->(b) RETURN count(*) AS c",           # exactly-k
     "MATCH (a)-[:F*1..2]->(b) RETURN count(*) AS c",         # typed var-length
     "MATCH (a)-[*1..2]->(b)-[]->(c) RETURN count(*) AS c",   # var-length + fixed hop
+    # node-only cartesian: disconnected multi-source MATCH (#1273). <=3 named aliases.
+    "MATCH (a), (b) RETURN a.id AS ai, b.id AS bi ORDER BY ai, bi",
+    "MATCH (a {kind: 'a'}), (b {kind: 'b'}) RETURN a.id AS ai, b.id AS bi",
+    "MATCH (a {kind: 'a'}), (b) RETURN a.id AS ai, a.age AS aa, b.id AS bi",
+    "MATCH (a {kind: 'a'}), (b {kind: 'b'}) WHERE a.age > 20 RETURN a.id AS ai, b.id AS bi",
+    "MATCH (a), (b), (c {kind: 'a'}) RETURN a.id AS ai, b.id AS bi, c.id AS ci ORDER BY ai, bi, ci",
+    "MATCH (a {kind: 'z'}), (b) RETURN a.id AS ai, b.id AS bi",   # empty (no kind=z) keeps schema
 ]
 
 # Outside the MVP subset: must raise NotImplementedError (honest NIE, no bridge,
@@ -89,6 +96,10 @@ DEFERRED = [
     "MATCH (a)-[*]->(b) RETURN count(*) AS c",               # unbounded var-length
     "MATCH (a)-[*1..2]-(b) RETURN count(*) AS c",            # undirected var-length
     "MATCH (a)-[e]->(b) WHERE a.age < b.age RETURN a.id",    # cross-alias same-path WHERE
+    # cartesian outside the pandas-reliable subset (#1273): pandas itself errors or
+    # is fragile here, so polars declines rather than diverge.
+    "MATCH (a), (b), (c), (d) RETURN a.id, b.id, c.id, d.id",  # >3 named aliases
+    "MATCH (a), (b), () RETURN a.id, b.id",                    # anonymous companion
 ]
 
 
@@ -119,6 +130,50 @@ def test_polars_binding_rows_raw_table_meaningful_cols():
     a = rpd[list(rpl.columns)].sort_values(key).reset_index(drop=True)
     b = rpl.to_pandas().sort_values(key).reset_index(drop=True)
     pd.testing.assert_frame_equal(a, b, check_dtype=False)
+
+
+def test_polars_cartesian_binding_rows_raw_meaningful_cols():
+    """Raw node-only cartesian rows(binding_ops): polars carries the same meaningful
+    per-alias schema as pandas (bare ``alias`` id, ``alias.id``, ``alias.<prop>``,
+    plus the leaked named-op flag ``alias.alias = True``), values equal to pandas."""
+    bo = serialize_binding_ops([n(name="a"), n(name="b")])
+    rpd = BASE.gfql([rows(binding_ops=bo)], engine="pandas")._nodes
+    rpl = BASE.gfql([rows(binding_ops=bo)], engine="polars")._nodes
+    assert "polars" in type(rpl).__module__
+    expected = {"a", "a.id", "a.age", "a.kind", "a.a", "b", "b.id", "b.age", "b.kind", "b.b"}
+    assert expected <= set(rpl.columns)
+    assert set(rpl.columns) <= set(rpd.columns)  # no columns pandas lacks
+    key = ["a", "b"]
+    a = rpd[list(rpl.columns)].sort_values(key).reset_index(drop=True)
+    b = rpl.to_pandas().sort_values(key).reset_index(drop=True)
+    pd.testing.assert_frame_equal(a, b, check_dtype=False)
+
+
+def test_polars_cartesian_alias_name_collides_with_property():
+    """A node property named the same as a MATCH alias is shadowed by the leaked
+    named-op flag (``alias.alias = True``) on BOTH engines — polars mirrors the
+    pandas quirk exactly rather than surfacing the real property value."""
+    nodes = pd.DataFrame({"id": [0, 1, 2], "kind": ["a", "b", "a"], "a": [10, 20, 30], "b": [1, 2, 3]})
+    g = graphistry.nodes(nodes, "id").edges(pd.DataFrame({"s": [0], "d": [1]}), "s", "d")
+    q = "MATCH (a {kind: 'a'}), (b {kind: 'b'}) RETURN a.id AS ai, a.a AS aa, b.id AS bi, b.b AS bb"
+    rpd = g.gfql(q, engine="pandas")._nodes.reset_index(drop=True)
+    rpl = g.gfql(q, engine="polars")._nodes.to_pandas().reset_index(drop=True)
+    assert list(rpd["aa"]) == [True, True] and list(rpd["bb"]) == [True, True]  # flag, not 10/30
+    pd.testing.assert_frame_equal(
+        rpd.sort_values(["ai", "bi"]).reset_index(drop=True),
+        rpl[rpd.columns.tolist()].sort_values(["ai", "bi"]).reset_index(drop=True),
+        check_dtype=False,
+    )
+
+
+def test_polars_cartesian_multiplicity_three_aliases():
+    """Three-alias cross product has |a|*|b|*|c| rows in left-major order on polars,
+    identical to pandas."""
+    q = "MATCH (a {kind: 'a'}), (b {kind: 'b'}), (c {kind: 'a'}) RETURN a.id AS ai, b.id AS bi, c.id AS ci"
+    rpd = BASE.gfql(q, engine="pandas")._nodes.reset_index(drop=True)
+    rpl = BASE.gfql(q, engine="polars")._nodes.to_pandas().reset_index(drop=True)
+    assert len(rpl) == 3 * 2 * 3  # kind a = {0,2,4}, kind b = {1,3}
+    pd.testing.assert_frame_equal(rpd, rpl[rpd.columns.tolist()], check_dtype=False)  # order-exact
 
 
 def test_binding_rows_projection_pushdown_skips_unused_props():
@@ -248,7 +303,16 @@ def test_polars_binding_rows_decline_branches_direct():
     assert binding_rows_polars(seeded, bo) is None
 
     g = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
-    assert binding_rows_polars(g, serialize_binding_ops([n(name="a"), n(name="b")])) is None
+    # node-only cartesian (#1273) is now natively supported for <=3 named aliases;
+    # it declines only outside the pandas-reliable subset:
+    #  - anonymous node op (pandas raises a spurious schema error on empty results)
+    assert binding_rows_polars(g, serialize_binding_ops([n(name="a"), n()])) is None
+    #  - >3 named aliases (pandas' bare-id merge residue collides on the 4th frame)
+    assert binding_rows_polars(
+        g, serialize_binding_ops([n(name="a"), n(name="b"), n(name="c"), n(name="d")])
+    ) is None
+    # ...but 2-3 named aliases now lower natively (returns a row table, not None)
+    assert binding_rows_polars(g, serialize_binding_ops([n(name="a"), n(name="b")])) is not None
     assert binding_rows_polars(g, serialize_binding_ops([n(name="a", query="id > 0"), e_forward(), n(name="b")])) is None
     assert binding_rows_polars(g, serialize_binding_ops([n(name="a"), e_forward(source_node_match={"kind": "a"}), n(name="b")])) is None
     assert binding_rows_polars(g, serialize_binding_ops([n(name="a"), e_forward(label_seeds=True), n(name="b")])) is None
