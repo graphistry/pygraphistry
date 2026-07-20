@@ -504,7 +504,7 @@ _LEAN_SKIP_MEMO: dict = {}
 
 
 def _lean_ops_key(ops) -> tuple:
-    parts = []
+    parts: List[Tuple[Any, ...]] = []
     for op in ops:
         if isinstance(op, ASTEdge):
             parts.append(("e", op.direction, op.hops, op.min_hops, op.max_hops, op._name,
