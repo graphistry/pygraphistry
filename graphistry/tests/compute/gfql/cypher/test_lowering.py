@@ -15997,7 +15997,7 @@ def test_connected_join_polars_nullable_columns_match_master(predicate: str, exp
     query = f"MATCH (p)-[]->(x), (p)-[]->(y) WHERE {predicate} RETURN count(p) AS n"
 
     out = g.gfql(query)._nodes
-    records = out.to_dict(orient="records") if hasattr(out, "to_dict") else out.to_dicts()
+    records = out.to_dicts() if hasattr(out, "to_dicts") else out.to_dict(orient="records")
     assert records == expected
 
 
@@ -16027,7 +16027,7 @@ def test_arrow_table_nodes_match_master_results() -> None:
     def run(predicate: str) -> Any:
         query = f"MATCH (p)-[]->(x), (p)-[]->(y) WHERE {predicate} RETURN count(p) AS n"
         out = g.gfql(query)._nodes
-        return out.to_dict(orient="records") if hasattr(out, "to_dict") else out.to_dicts()
+        return out.to_dicts() if hasattr(out, "to_dicts") else out.to_dict(orient="records")
 
     assert run("p.name = 5") == []
     assert run("p.name = 'ann'") == [{"n": 4}]
@@ -16084,7 +16084,7 @@ def test_connected_join_polars_decimal_matches_master(predicate: str, expected: 
     query = f"MATCH (p)-->(a), (p)-->(b) WHERE {predicate} RETURN count(p) AS n"
 
     result = g.gfql(query)._nodes
-    records = result.to_dict(orient="records") if hasattr(result, "to_dict") else result.to_dicts()
+    records = result.to_dicts() if hasattr(result, "to_dicts") else result.to_dict(orient="records")
     assert records == expected
 
 
@@ -16099,7 +16099,7 @@ def test_connected_join_polars_backed_graph_matches_pandas_results() -> None:
 
     g_polars = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
     result = g_polars.gfql(query)._nodes
-    records = result.to_dict(orient="records") if hasattr(result, "to_dict") else result.to_dicts()
+    records = result.to_dicts() if hasattr(result, "to_dicts") else result.to_dict(orient="records")
     assert records == []
 
 
