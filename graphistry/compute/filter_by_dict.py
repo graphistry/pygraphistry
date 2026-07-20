@@ -82,15 +82,26 @@ def _label_series_contains(series: Any, label: str) -> Any:
     return series.apply(lambda value: label in _normalize_labels_cell(value))
 
 
+def _column_names(df: DataFrameT) -> Any:
+    """Column names without resolving a polars LazyFrame schema via ``.columns``, which warns
+    (PerformanceWarning) and re-resolves on every access — this runs per predicate per call on
+    the seeded fast path. ``collect_schema().names()`` is the sanctioned lazy form."""
+    collect_schema = getattr(df, "collect_schema", None)
+    if collect_schema is not None and type(df).__name__ == "LazyFrame":
+        return collect_schema().names()
+    return df.columns
+
+
 def resolve_filter_column(df: DataFrameT, col: str, val: Any) -> Tuple[str, Any]:
-    if col in df.columns:
+    names = _column_names(df)
+    if col in names:
         return col, val
 
     if col.startswith("label__") and val is True:
         label = col[len("label__") :]
-        if "labels" in df.columns:
+        if "labels" in names:
             return "labels", label
-        if "type" in df.columns and not _looks_like_edge_dataframe(df):
+        if "type" in names and not _looks_like_edge_dataframe(df):
             return "type", label
 
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
@@ -100,7 +111,7 @@ def resolve_filter_column(df: DataFrameT, col: str, val: Any) -> Tuple[str, Any]
         f'Column "{col}" does not exist in dataframe',
         field=col,
         value=val,
-        suggestion=f'Available columns: {", ".join(df.columns[:10])}{"..." if len(df.columns) > 10 else ""}'
+        suggestion=f'Available columns: {", ".join(list(names)[:10])}{"..." if len(names) > 10 else ""}'
     )
 
 
