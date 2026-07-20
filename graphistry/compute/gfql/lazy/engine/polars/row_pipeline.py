@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 if TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.gfql.expr_parser import ExprNode, FunctionCall
+    from graphistry.compute.ast import ASTObject
 
 from graphistry.Plottable import Plottable
 from graphistry.utils.json import JSONVal
@@ -872,7 +873,7 @@ def select_extend_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[
 
 def _cartesian_node_bindings_polars(
     g: Plottable,
-    ops: "Sequence[Any]",
+    ops: "Sequence[ASTObject]",
     node_id: Optional[str],
 ) -> Optional[Plottable]:
     """Native polars cross-product for disconnected MATCH aliases (#1273).
