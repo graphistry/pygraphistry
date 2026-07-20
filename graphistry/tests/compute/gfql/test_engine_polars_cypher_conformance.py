@@ -496,3 +496,33 @@ def test_bool_modulo_declines_like_pandas():
     # bool + int still computes in parity (not over-declined)
     got = g.gfql("MATCH (n) RETURN n.flag + 2 AS r", engine="polars")._nodes["r"].to_list()
     assert got == [3, 2, 3]
+
+
+class TestAutoEngineRoutesPolarsNative:
+    """engine=auto on polars-frame graphs must run the native polars path (frames in = frames
+    out), not the silent pandas bridge (~13x on point queries); polars-NIE shapes still answer
+    via the legacy AUTO fallback since the user did not pin an engine."""
+
+    def _graph(self):
+        nodes = pl.DataFrame({"id": [0, 1, 2, 3], "label__Person": [True] * 4})
+        edges = pl.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3], "type": ["KNOWS"] * 3})
+        return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+    def test_auto_returns_polars_frames_and_matches_explicit(self):
+        g = self._graph()
+        q = "MATCH (a:Person {id: 0})-[:KNOWS]->(b) RETURN b.id AS bid ORDER BY bid"
+        r_auto = g.gfql(q)._nodes
+        r_expl = g.gfql(q, engine="polars")._nodes
+        assert "polars" in type(r_auto).__module__, "auto must not bridge polars graphs to pandas"
+        from polars.testing import assert_frame_equal
+        assert_frame_equal(r_auto, r_expl)
+
+    def test_auto_falls_back_on_polars_nie(self):
+        g = self._graph()
+        q = ("MATCH p = shortestPath((a:Person {id: 0})-[:KNOWS*]-(b:Person {id: 3})) "
+             "RETURN length(p) AS l")
+        with pytest.raises(NotImplementedError):
+            g.gfql(q, engine="polars")  # pinned engine: honest NIE
+        out = g.gfql(q)._nodes  # auto: answers via fallback
+        rows = out.to_dict("records") if hasattr(out, "to_dict") else out.to_pandas().to_dict("records")
+        assert rows == [{"l": 3}]
