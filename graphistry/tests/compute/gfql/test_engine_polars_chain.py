@@ -704,3 +704,94 @@ def test_engine_polars_predicate_correctness_fixes():
     # temporal val -> _cmp_expr declines (None) so upstream raises honest NIE; numeric still lowers.
     assert _cmp_expr(None, operator.gt, datetime.date(2020, 1, 1)) is None
     assert _cmp_expr(pl.col("x"), operator.gt, 5) is not None
+
+
+class TestVarlenAliasHopGate:
+    """#1741 — a node named after a variable-length edge carries its alias only if its hop
+    distance falls inside the edge's [min_hop, max_hop] window (pandas chain.py:456-501).
+
+    Before this gate the polars chain over-flagged the seed of an undirected `*1..2` walk that
+    backtracked into it — silently wrong rows, not an error.
+    """
+
+    BACKTRACK = pd.DataFrame({"s": ["p0", "p1", "p2", "p1"], "d": ["p1", "p2", "p4", "p0"]})
+
+    def _pair(self, edf):
+        g_pd = graphistry.edges(edf, "s", "d").materialize_nodes()
+        g_pl = graphistry.edges(pl.from_pandas(edf), "s", "d").materialize_nodes(engine="polars")
+        return g_pd, g_pl
+
+    def test_undirected_varlen_alias_matches_pandas(self):
+        q = "MATCH (a {id: 'p0'})-[*1..2]-(b) RETURN b"
+        g_pd, g_pl = self._pair(self.BACKTRACK)
+        expected = sorted(g_pd.gfql(q, engine="pandas")._nodes["b.id"].tolist())
+        actual = sorted(g_pl.gfql(q, engine="polars")._nodes["b.id"].to_list())
+        assert actual == expected == ["p1", "p2"]
+
+    def test_backtracked_seed_loses_the_alias(self):
+        """The seed is reachable at distance 2, but its hop label is null, so it is NOT aliased."""
+        _, g_pl = self._pair(self.BACKTRACK)
+        out = g_pl.gfql("MATCH (a {id: 'p0'})-[*1..2]-(b) RETURN b", engine="polars")
+        assert "p0" not in out._nodes["b.id"].to_list()
+
+    @pytest.mark.parametrize("pattern", ["-[*1..2]->", "<-[*1..2]-", "-[*1..2]-", "-[*1..3]-"])
+    def test_varlen_alias_parity_across_directions(self, pattern):
+        q = f"MATCH (a {{id: 'p0'}}){pattern}(b) RETURN b"
+        g_pd, g_pl = self._pair(self.BACKTRACK)
+        expected = sorted(g_pd.gfql(q, engine="pandas")._nodes["b.id"].tolist())
+        actual = sorted(g_pl.gfql(q, engine="polars")._nodes["b.id"].to_list())
+        assert actual == expected
+
+    def test_fixed_length_hop_is_not_gated(self):
+        """A plain single-hop edge sets no min_hops, so no labels are requested and no gate runs —
+        the guard must not silently start filtering ordinary chains."""
+        q = "MATCH (a {id: 'p0'})-->(b) RETURN b"
+        g_pd, g_pl = self._pair(self.BACKTRACK)
+        expected = sorted(g_pd.gfql(q, engine="pandas")._nodes["b.id"].tolist())
+        actual = sorted(g_pl.gfql(q, engine="polars")._nodes["b.id"].to_list())
+        assert actual == expected == ["p1"]
+
+    def test_auto_hop_label_does_not_leak_into_output(self):
+        _, g_pl = self._pair(self.BACKTRACK)
+        out = g_pl.gfql("MATCH (a {id: 'p0'})-[*1..2]-(b) RETURN b", engine="polars")
+        assert not any("__gfql_chain_node_hop__" in c for c in out._nodes.columns)
+
+    def test_user_column_named_like_the_auto_label_is_not_clobbered(self):
+        """#1747 finding 2: the auto hop-label column is resolved against the user's node columns
+        via generate_safe_column_name, so a user column literally named `__gfql_chain_node_hop__`
+        neither corrupts the polars gate (an int/str compare crash) nor is overwritten.
+
+        NB: the pandas engine has the SAME collision via its `'hop' in c.lower()` heuristic and
+        crashes on this input — tracked separately as shared debt — so the oracle here is the
+        clean-graph answer, not a pandas run over the colliding frame.
+        """
+        edf = self.BACKTRACK
+        ndf = pd.DataFrame({"id": ["p0", "p1", "p2", "p4"],
+                            "__gfql_chain_node_hop__": ["keep0", "keep1", "keep2", "keep4"]})
+        g_pl = graphistry.nodes(pl.from_pandas(ndf), "id").edges(pl.from_pandas(edf), "s", "d")
+        # Before the fix this raised polars ComputeError (compare str col vs int hop bound); the
+        # correct answer is the un-collided one, with the backtracked-to seed p0 excluded.
+        got = g_pl.gfql("MATCH (a {id: 'p0'})-[*1..2]-(b) RETURN b", engine="polars")
+        assert sorted(got._nodes["b.id"].to_list()) == ["p1", "p2"]
+
+    # --- #1748: forward/reverse min_hops>1 alias can't be hop-gated yet (label not ported), so
+    # rather than silently return nodes OUTSIDE the [min_hop, max_hop] window, the chain DECLINES
+    # that shape (honest NIE). Adapted from the retired #1742 decline pattern. When #1748 is fully
+    # fixed (label ported + gate applied) these should flip to a pandas-parity assertion.
+    @pytest.mark.parametrize("pattern", ["-[*2..3]->", "<-[*2..3]-"])
+    def test_fwd_rev_min_hops_gt_one_alias_declines_not_silently_wrong(self, pattern):
+        q = f"MATCH (a {{id: 'p0'}}){pattern}(b) RETURN b"
+        _, g_pl = self._pair(self.BACKTRACK)
+        with pytest.raises(NotImplementedError, match="1748"):
+            g_pl.gfql(q, engine="polars")
+
+    def test_fwd_min_hops_gt_one_without_alias_still_runs(self):
+        """The decline is narrow: min_hops>1 fwd/rev with NO node alias after the edge is correct
+        (only the SET is needed, no alias to mis-gate) and must keep running natively."""
+        g_pd, g_pl = self._pair(self.BACKTRACK)
+        # unnamed terminal node -> no alias projected -> node/edge sets, which are correct
+        from graphistry.compute.ast import n, e_forward
+        ch = [n({"id": "p0"}), e_forward(min_hops=2, max_hops=3), n()]
+        gp = g_pd.chain(ch, engine="pandas")
+        gl = g_pl.chain(ch, engine="polars")
+        assert set(gp._nodes["id"].tolist()) == set(gl._nodes["id"].to_list())

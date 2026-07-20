@@ -13,6 +13,7 @@
     "graphistry/compute/gfql/lazy/engine/polars/pattern_apply.py": 67.0,
     "graphistry/compute/gfql/lazy/engine/polars/predicates.py": 83.0,
     "graphistry/compute/gfql/lazy/engine/polars/projection.py": 65.0,
+    "graphistry/compute/gfql/lazy/engine/polars/reserved_columns.py": 90.0,
     "graphistry/compute/gfql/lazy/engine/polars/row_pipeline.py": 79.0,
     "graphistry/compute/gfql/lazy/engine/polars/search.py": 79.0
   }

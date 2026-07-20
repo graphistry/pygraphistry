@@ -21,6 +21,7 @@ from .hop_eager import ensure_nodes_polars
 from .dtypes import is_lazy, colnames, endpoint_ids
 from .degrees import get_degrees_polars, get_indegrees_polars, get_outdegrees_polars
 from .predicates import filter_by_dict_polars
+from .reserved_columns import CHAIN_NODE_HOP
 
 
 def _semi(df, ids_df, df_col, id_col):
@@ -68,7 +69,56 @@ def _restore_edge_dtypes(edges, src, dst, restore):
     return edges.with_columns([pl.col(src).cast(sdt), pl.col(dst).cast(ddt)])
 
 
-def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf, intermediate_universe=None) -> Plottable:
+# Auto-injected hop-distance label (#1741). pandas' chain asks the hop for node hop labels
+# whenever an edge op is variable-length or output-sliced (ast.py:621-625 needs_auto_labels) and
+# then gates node ALIASES by that distance (chain.py:456-501). Without the labels the polars chain
+# had no distance to gate on, so `MATCH (a)-[*1..2]-(b)` over-flagged a backtracked-to seed.
+#
+# The concrete column name is resolved once per chain against the user's node columns via
+# generate_safe_column_name (see _chain_traversal_polars), so a user column literally named
+# `__gfql_chain_node_hop__` can't be clobbered (would otherwise crash on the int/str compare in
+# the gate). This base string (declared in reserved_columns.py, the per-engine symbol registry)
+# is only the seed + the fallback for callers that don't resolve.
+_AUTO_NODE_HOP: str = CHAIN_NODE_HOP
+
+
+def _auto_node_hop_col(op: ASTObject, name: str = _AUTO_NODE_HOP) -> Optional[str]:
+    """The auto-label column for an edge op, or None when labels are unnecessary/unsupported."""
+    if not isinstance(op, ASTEdge):
+        return None
+    if op.min_hops is not None and op.min_hops > 1:
+        # min_hops>1 labels come from the layered backward walk, not yet ported -> asking for
+        # them would turn a currently-native chain into an NIE. Gap tracked on #1741/#1748.
+        return None
+    needs = (
+        (op.min_hops is not None and op.min_hops > 0)
+        or op.output_min_hops is not None
+        or op.output_max_hops is not None
+        or op.prune_to_endpoints
+    )
+    return name if needs else None
+
+
+def _alias_hop_bounds(op: ASTEdge) -> Tuple[int, Optional[int]]:
+    """pandas' (min_hop, max_hop) alias window for a node op preceded by edge `op` (chain.py:477-499)."""
+    min_hop = (
+        op.output_min_hops if op.output_min_hops is not None
+        else (op.min_hops if op.min_hops is not None else (op.hops if op.hops is not None else 1))
+    )
+    max_hop = (
+        op.output_max_hops if op.output_max_hops is not None
+        else (op.max_hops if op.max_hops is not None else op.hops)
+    )
+    if op.to_fixed_point:
+        max_hop = None
+    return min_hop, max_hop
+
+
+def _exec(op: ASTObject, g: Plottable, prev_wf: Optional[Any], target_wf: Optional[Any],
+          intermediate_universe: Optional[Any] = None,
+          auto_hop_col: str = _AUTO_NODE_HOP) -> Plottable:
+    # prev_wf/target_wf/intermediate_universe are polars wavefront frames (DataFrame|LazyFrame)
+    # or None; typed Optional[Any] to match this module's frame-annotation convention.
     import polars as pl
 
     node_col = g._node
@@ -100,7 +150,7 @@ def _exec(op: ASTObject, g: Plottable, prev_wf, target_wf, intermediate_universe
             source_node_query=op.source_node_query,
             destination_node_query=op.destination_node_query,
             edge_query=op.edge_query,
-            label_node_hops=op.label_node_hops,
+            label_node_hops=op.label_node_hops or _auto_node_hop_col(op, auto_hop_col),
             label_edge_hops=op.label_edge_hops,
             label_seeds=op.label_seeds,
             output_min_hops=op.output_min_hops,
@@ -243,7 +293,7 @@ def _combine_nodes(g, steps):
     return g._nodes.join(ids, on=node_col, how="semi")
 
 
-def _apply_node_names(out, g, steps):
+def _apply_node_names(out, g, steps, auto_hop_col: str = _AUTO_NODE_HOP):
     """Tag node aliases on the FINAL node frame (after endpoint materialization). A node carries
     the alias iff it matched the named step in the backward-PRUNED frame (dead-end matches
     excluded) AND, when followed by an edge step, participates in that edge's PRUNED edges.
@@ -259,6 +309,22 @@ def _apply_node_names(out, g, steps):
         if op._name not in colnames(g_step._nodes):
             continue
         named = g_step._nodes.filter(pl.col(op._name)).select(pl.col(node_col)).unique()
+        # #1741 hop-distance gate: a node named AFTER a variable-length edge carries the alias
+        # only if its hop distance lands inside that edge's [min_hop, max_hop] window (pandas
+        # chain.py:456-501). An unlabeled node (null distance) always fails — which is how the
+        # seed of an undirected `*1..2` walk loses the alias when the walk backtracks into it.
+        if idx > 0:
+            prev_op, _prev_step = step_list[idx - 1]
+            # The distance travels WITH the wavefront, so it lands on this node step's own frame.
+            if isinstance(prev_op, ASTEdge) and auto_hop_col in colnames(g_step._nodes):
+                min_hop, max_hop = _alias_hop_bounds(prev_op)
+                hop = pl.col(auto_hop_col)
+                in_window = hop.is_not_null() & (hop >= min_hop)
+                if max_hop is not None:
+                    in_window = in_window & (hop <= max_hop)
+                named = named.join(
+                    g_step._nodes.filter(in_window).select(pl.col(node_col)).unique(),
+                    on=node_col, how="semi")
         if idx + 1 < len(step_list):
             next_op, next_step = step_list[idx + 1]
             if isinstance(next_op, ASTEdge) and next_step._edges is not None and (is_lazy(next_step._edges) or next_step._edges.height > 0):
@@ -569,6 +635,24 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             "include_zero_hop_seed, prune_to_endpoints) require engine='pandas'."
         )
 
+    # issue #1748: forward/reverse min_hops>1 gets its node hop-labels from pandas' layered
+    # backward walk, which is not ported — so a node named AFTER such an edge cannot be hop-gated
+    # (_auto_node_hop_col returns None for min_hops>1), and its alias would include nodes OUTSIDE
+    # the [min_hop, max_hop] window. The node/edge SETS stay correct; only the projected alias is
+    # wrong. Decline that specific shape (honest NIE) instead of emitting silently-wrong rows —
+    # min_hops>1 chains WITHOUT a following node alias keep running. Adapted from the retired
+    # #1742 decline pattern (which did the same for undirected, now natively gated by #1741).
+    for _i in range(1, len(ops)):
+        _prev, _cur = ops[_i - 1], ops[_i]
+        if (isinstance(_prev, ASTEdge) and _prev.direction in ("forward", "reverse")
+                and _prev.min_hops is not None and _prev.min_hops > 1
+                and isinstance(_cur, ASTNode) and _cur._name is not None):
+            raise NotImplementedError(
+                "polars chain engine: a node alias after a forward/reverse variable-length edge "
+                "with min_hops>1 is not yet hop-gated (would tag nodes outside the hop window — "
+                "issue #1748); use engine='pandas' for this query"
+            )
+
     edge_ops = [op for op in ops if isinstance(op, ASTEdge)]
     # Undirected edges in multi-edge chains: NATIVE for single-hop (backward pass threads BOTH
     # endpoints — see override below) and fixed-length multi-hop (generic backward hop +
@@ -681,11 +765,17 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     node_col, src, dst = g._node, g._source, g._destination
     assert node_col is not None and src is not None and dst is not None
 
+    # Resolve the #1741 auto hop-label column against the user's node columns ONCE, so it can't
+    # collide with a real column (a clash would clobber user data and crash the int/str gate).
+    # Same helper the endpoint block below uses for NORD/EORD.
+    from graphistry.compute.util import generate_safe_column_name as _gsafe
+    auto_hop_col = _gsafe(_AUTO_NODE_HOP, g._nodes, prefix="__gfql_", suffix="__")
+
     # Forward pass.
     g_stack: List[Plottable] = []
     for i, op in enumerate(ops):
         prev = start_nodes if i == 0 else g_stack[-1]._nodes
-        g_stack.append(_exec(op, g, prev, None))
+        g_stack.append(_exec(op, g, prev, None, auto_hop_col=auto_hop_col))
 
     # Backward pass.
     g_rev: List[Plottable] = []
@@ -705,7 +795,8 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         # use_fast_backward (full g._nodes).
         _iu = g_step._nodes if (isinstance(op, ASTEdge) and not op.is_simple_single_hop()) else None
         g_step_full = g_step.nodes(g._nodes, g._node)
-        rev = _exec(op.reverse(), g_step_full, prev_wf, target_wf, intermediate_universe=_iu)
+        rev = _exec(op.reverse(), g_step_full, prev_wf, target_wf, intermediate_universe=_iu,
+                    auto_hop_col=auto_hop_col)
         # Undirected single-hop backward threading: the generic hop returns a ONE-SIDED
         # (TO-side) wavefront; pandas' fast backward branch (chain.py:1090-1098) threads BOTH
         # endpoints of surviving edges. One-sided drops an intermediate node reachable only as
@@ -748,7 +839,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                     if prev_src is not None else None
                 )
                 g_sub = g.edges(g_step._edges, src, dst, edge=g._edge)
-                edge_steps.append((op, _exec(op, g_sub, prev_wf, None)))
+                edge_steps.append((op, _exec(op, g_sub, prev_wf, None, auto_hop_col=auto_hop_col)))
             else:
                 edge_steps.append((op, g_step))
 
@@ -776,7 +867,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     extra = g_lz._nodes.join(missing, on=node_col, how="semi")
     final_nodes = pl.concat([final_nodes, extra], how="diagonal_relaxed").unique(
         subset=[node_col], maintain_order=True)
-    final_nodes = _apply_node_names(final_nodes, g_lz, steps_lz)
+    final_nodes = _apply_node_names(final_nodes, g_lz, steps_lz, auto_hop_col=auto_hop_col)
 
     final_nodes = final_nodes.sort(NORD).drop(NORD)
     final_edges = final_edges.sort(EORD).drop(EORD)
