@@ -155,9 +155,16 @@ def hop_polars(
                                    or not min_hops_label_policy)) else None,
         output_min_hops=output_min_hops,
         output_max_hops=output_max_hops,
-        label_node_hops=label_node_hops,
+        # Hop labels are NATIVE on the plain (shortest-path) BFS — see the labeling block below.
+        # decline (NIE): min_hops>1 runs the NON-anti-joined revisit BFS whose labels come from
+        # the layered backward walk (hop.py:676-778), a different rule not yet ported.
+        label_node_hops=label_node_hops if (min_hops is not None and min_hops > 1) else None,
+        # decline (NIE): label_edge_hops stays deferred at every shape — with labels on, the
+        # pandas edge output DUPLICATES an undirected edge traversed in both directions (one row
+        # per labeled traversal; 448/4800 differential cases). Reproducing that row duplication
+        # would bake a questionable pandas artifact into polars; #1741 needs only node labels.
         label_edge_hops=label_edge_hops,
-        label_seeds=label_seeds or None,
+        label_seeds=(label_seeds or None) if (min_hops is not None and min_hops > 1) else None,
         source_node_query=source_node_query,
         destination_node_query=destination_node_query,
         edge_query=edge_query,
@@ -209,6 +216,7 @@ def hop_polars(
     # early-break + revisit bookkeeping need per-hop materialization, and for hops>=2 an
     # unrolled lazy plan recomputes the big edge-join per hop (polars CSE doesn't dedup it).
     if (not to_fixed_point and resolved_max_hops == 1
+            and not (label_node_hops is not None or label_edge_hops is not None or label_seeds)
             and not (min_hops is not None and min_hops > 1 and direction in ("forward", "reverse"))):
         from graphistry.compute.gfql.lazy import collect_all
         edges_lf = edges_idx.lazy()
@@ -290,7 +298,25 @@ def hop_polars(
 
     empty_ids = all_nodes.select(pl.col(node_col).cast(node_dtype).alias(NID)).clear()
 
+    # Hop labeling (#1741) — plain (non-min_hops) BFS only. pandas labels a node with the hop at
+    # which the ANTI-JOINED wavefront first discovers it (hop.py:581-603 over new_node_ids), i.e.
+    # its shortest-path distance; that is exactly `new_frontier` here. Seeds are already in
+    # `visited_nodes` after the first iteration, so a seed re-reached by a backtracking undirected
+    # walk stays UNLABELED (null) — the divergence #1741 is about. label_seeds writes hop 0 for
+    # seeds instead. Edges take the hop that first traversed them (hop.py:555-557), min-aggregated.
+    track_node_hops = (label_node_hops is not None or label_seeds) and not min_hops_active
+    track_edge_hops = label_edge_hops is not None and not min_hops_active
+    node_hop_frames = []                 # list[DataFrame[NID, NHOP]]
+    edge_hop_frames = []                 # list[DataFrame[EID, HOP]]
+    label_seen_nodes = empty_ids         # first-wins guard for node labels
+    NHOP = generate_safe_column_name("__gfql_node_hop__", all_nodes, prefix="__gfql_", suffix="__")
+
     seed = _idframe(nodes if nodes is not None else all_nodes, node_col)
+    if track_node_hops and label_seeds:
+        # hop.py:361-363 — seeds pre-seeded at hop 0, which also makes them "seen" so a
+        # re-reached seed keeps 0 rather than picking up its re-entry distance.
+        node_hop_frames.append(seed.with_columns(pl.lit(0, dtype=pl.Int64).alias(NHOP)))
+        label_seen_nodes = seed
     frontier = seed                      # DataFrame[NID]
     visited_nodes = empty_ids            # DataFrame[NID]
     visited_edge_frames = []             # collect per-hop EID frames; concat once at end
@@ -328,8 +354,23 @@ def hop_polars(
         else:
             visited_edge_frames.append(hop_edges.select(pl.col(EID)))
 
+        if track_edge_hops:
+            edge_hop_frames.append(
+                hop_edges.select(pl.col(EID)).unique().with_columns(pl.lit(current_hop, dtype=pl.Int64).alias(HOP))
+            )
+
         cand = hop_edges.select(pl.col(TO).alias(NID)).unique()
         new_frontier = cand.join(visited_nodes, on=NID, how="anti")
+        if track_node_hops:
+            # fwd/rev: pandas labels EVERY destination of the hop, first-wins (hop.py:540
+            # new_node_ids = all TO ids) — so a seed re-entered at hop 1 IS labeled 1.
+            # undirected: the same destinations minus everything already VISITED, so a seed
+            # re-reached by backtracking along the edge it arrived on stays unlabeled (#1741).
+            src_ids = cand if direction != "undirected" else new_frontier
+            fresh = src_ids.join(label_seen_nodes, on=NID, how="anti")
+            if fresh.height > 0:
+                node_hop_frames.append(fresh.with_columns(pl.lit(current_hop, dtype=pl.Int64).alias(NHOP)))
+                label_seen_nodes = pl.concat([label_seen_nodes, fresh], how="vertical_relaxed").unique(subset=[NID])
         visited_nodes = pl.concat([visited_nodes, new_frontier], how="vertical_relaxed").unique(subset=[NID])
         if min_hops_active:
             # Advance with ALL destinations (revisits, hop.py:620) so a cycle-re-entered node
@@ -428,5 +469,27 @@ def hop_polars(
         out_nodes = _min_hops_labeled_node_output(all_nodes, needed, reached_for_attrs, node_col, NID)
     else:
         out_nodes = all_nodes.join(needed.rename({NID: node_col}), on=node_col, how="semi")
+
+    if track_node_hops and label_node_hops is not None:
+        node_labels = (
+            pl.concat(node_hop_frames, how="vertical_relaxed").unique(subset=[NID], keep="first")
+            if node_hop_frames else empty_ids.with_columns(pl.lit(None, dtype=pl.Int64).alias(NHOP))
+        )
+        out_nodes = out_nodes.join(
+            node_labels.rename({NID: node_col, NHOP: label_node_hops}), on=node_col, how="left")
+    if track_edge_hops and label_edge_hops is not None:
+        if edge_hop_frames:
+            edge_labels = pl.concat(edge_hop_frames, how="vertical_relaxed").group_by(EID).agg(pl.col(HOP).min())
+        else:
+            edge_labels = edges_idx.select(pl.col(EID)).clear().with_columns(pl.lit(None, dtype=pl.Int64).alias(HOP))
+        if synth_eid:
+            # EID was dropped from out_edges above; re-attach labels positionally via edges_idx.
+            out_edges = (
+                edges_idx.join(visited_edges, on=EID, how="semi")
+                .join(edge_labels.rename({HOP: label_edge_hops}), on=EID, how="left")
+                .drop(EID)
+            )
+        else:
+            out_edges = out_edges.join(edge_labels.rename({HOP: label_edge_hops}), on=EID, how="left")
 
     return g.nodes(out_nodes, node_col).edges(out_edges, src, dst)
