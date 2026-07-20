@@ -139,6 +139,100 @@ def test_polars_row_pipeline_deferred_raises(query):
         BASE.gfql(query, engine="polars")
 
 
+# Native polars UNWIND of a CARRIED list column (collect() output / carried binding), the row-
+# pipeline analogue of the IC6 `WITH collect(...) AS xs UNWIND xs AS y` shape. These are literal-
+# seeded (a MATCH-introduced alias before UNWIND-after-WITH is parser-gated for BOTH engines), so
+# the graph is irrelevant; the collect() result is what the UNWIND explodes. Parity gate: pandas.
+COLLECT_UNWIND = [
+    "UNWIND [1, 2, 3] AS x WITH collect(x) AS xs UNWIND xs AS y RETURN y",
+    "UNWIND [3, 1, 2, 1] AS x WITH collect(DISTINCT x) AS xs UNWIND xs AS y RETURN y",
+    "UNWIND [5, 1, 9, 2] AS x WITH collect(x) AS xs UNWIND xs AS y RETURN y ORDER BY y DESC",
+    "UNWIND [1, 2, 3, 4] AS x WITH x % 2 AS k, collect(x) AS xs UNWIND xs AS y RETURN k, y ORDER BY k, y",
+    "UNWIND [1, 2, 3, 4] AS x WITH collect(x) AS xs UNWIND xs AS y RETURN count(y) AS c, sum(y) AS s",
+    "UNWIND [1, 2, 3, 4] AS x WITH x % 2 AS k, collect(x) AS xs UNWIND xs AS y RETURN k, count(y) AS c ORDER BY k",
+    # nested pipeline: collect -> unwind -> collect -> unwind
+    "UNWIND [1, 1, 2, 2, 3] AS x WITH collect(DISTINCT x) AS xs UNWIND xs AS y "
+    "WITH collect(y * 10) AS ys UNWIND ys AS z RETURN z ORDER BY z",
+]
+
+
+@pytest.mark.parametrize("query", COLLECT_UNWIND)
+def test_polars_collect_unwind_parity(query):
+    """collect() -> UNWIND (list-column explode) matches the pandas oracle exactly."""
+    _assert_parity(query, order_sensitive="ORDER BY" in query)
+
+
+@pytest.mark.parametrize("query", COLLECT_UNWIND)
+def test_polars_collect_unwind_is_polars_typed(query):
+    """collect() -> UNWIND stays native (polars-typed, no pandas round-trip)."""
+    assert "polars" in type(BASE.gfql(query, engine="polars")._nodes).__module__
+
+
+def test_polars_unwind_list_column_semantics_unit():
+    """unwind_polars list-column branch == pandas oracle on empty/null/nested cells.
+
+    These cells (empty list, null cell, null WITHIN a list) can't be produced through Cypher
+    collect() — which strips nulls and yields ``[]`` for empty groups — so exercise them by
+    building the list column directly and comparing the native explode to the pandas oracle
+    (``RowPipelineMixin.unwind``)."""
+    import pandas as _pd
+    import polars as _pl
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import unwind_polars
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+
+    rows = {"k": [0, 1, 2, 3, 4], "xs": [[10, 20], [], [30, None, 40], None, [50]]}
+
+    class _Oracle(RowPipelineMixin):
+        def __init__(self, df):
+            self._df = df
+
+        def _gfql_get_active_table(self):
+            return self._df
+
+        def _gfql_row_table(self, df):
+            return df
+
+    oracle = _Oracle(_pd.DataFrame(rows)).unwind("xs", as_="v").reset_index(drop=True)
+
+    g = graphistry.nodes(_pd.DataFrame({"id": [0]}), "id").bind()
+    g._nodes = _pl.DataFrame(rows)
+    native = unwind_polars(g, "xs", "v")
+    assert "polars" in type(native._nodes).__module__
+    got = native._nodes.to_pandas().reset_index(drop=True)
+
+    # empty list + null cell drop out (0 rows); nulls WITHIN a list survive as real elements.
+    assert list(got.columns) == list(oracle.columns)
+    assert len(got) == len(oracle) == 6
+
+    def _canon(df):
+        # normalize NaN/None null representation (polars -> NaN, pandas oracle -> None) so the
+        # comparison is null-representation agnostic; keep the surviving in-list null as a row.
+        # Compare only the meaningful key/exploded columns (the retained ``xs`` list column
+        # carries an in-list null whose NaN/None rendering differs harmlessly per engine).
+        out = df.sort_values(["k", "v"], na_position="last").reset_index(drop=True)[["k", "v"]]
+        out["v"] = [None if pd.isna(x) else int(x) for x in out["v"]]
+        return out
+
+    pd.testing.assert_frame_equal(_canon(got), _canon(oracle), check_dtype=False)
+
+
+def test_polars_unwind_declines_non_list_and_collisions():
+    """Non-list column / name collision / unknown identifier UNWIND declines (None -> NIE),
+    never a wrong-shape explode."""
+    import pandas as _pd
+    import polars as _pl
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import unwind_polars
+
+    g = graphistry.nodes(_pd.DataFrame({"id": [0]}), "id").bind()
+    g._nodes = _pl.DataFrame({"a": [1, 2, 3], "xs": [[1], [2], [3]]})
+    assert unwind_polars(g, "a", "v") is None          # scalar (non-list) column -> decline
+    assert unwind_polars(g, "xs", "a") is None          # as_ collides with existing column
+    assert unwind_polars(g, "nope", "v") is None        # unknown identifier
+    # nested-list literal is still declined (only scalar-literal lists lowered natively)
+    with pytest.raises(NotImplementedError):
+        BASE.gfql("UNWIND [[1, 2], [3, 4]] AS pair UNWIND pair AS z RETURN z", engine="polars")
+
+
 def test_row_expr_lowering_unit():
     """lower_expr_str / lower_select_items / lower_order_by_keys edge cases."""
     from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (

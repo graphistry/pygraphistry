@@ -831,11 +831,21 @@ def group_by_polars(
 
 
 def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plottable]:
-    """Native UNWIND for a literal list: cross-join each row with the values (cypher per-row
-    expansion; empty list → 0 rows); None → caller NIEs. List-column / expression unwinds
-    (null/empty-element semantics) decline (NIE) for now."""
+    """Native UNWIND for two shapes; None → caller NIEs.
+
+    1. Literal scalar list (``UNWIND [1, 2] AS x``): cross-join each row with the values
+       (cypher per-row expansion; empty list → 0 rows).
+    2. Carried list column (``WITH collect(x) AS xs UNWIND xs AS y``, i.e. a ``collect()``
+       output or any List-dtype binding): explode the list column. Mirrors the pandas oracle
+       (``RowPipelineMixin.unwind`` list-column branch) exactly — an empty-list or null cell
+       contributes 0 rows; nulls WITHIN a list survive as real elements; the source column is
+       retained and the exploded values are appended as ``as_``.
+
+    Everything else — nested-list literals, scalar/non-list columns (whose single-element-list
+    Cypher coercion is not yet ported), function/arithmetic results — still declines (NIE)
+    rather than risk diverging from pandas."""
     import polars as pl
-    from graphistry.compute.gfql.expr_parser import ListLiteral, Literal
+    from graphistry.compute.gfql.expr_parser import Identifier, ListLiteral, Literal
 
     if not isinstance(expr, str):
         return None
@@ -846,14 +856,29 @@ def unwind_polars(g: Plottable, expr: str, as_: str = "value") -> Optional[Plott
         node = parse(expr)
     except Exception:
         return None
-    if not isinstance(node, ListLiteral) or not all(isinstance(it, Literal) for it in node.items):
-        return None
     table = _active_table(g)
     if as_ in table.columns:
         return None
-    values = [it.value for it in node.items if isinstance(it, Literal)]
-    rhs = pl.DataFrame({as_: values})
-    return _rewrap(g, table.join(rhs, how="cross"))
+    if isinstance(node, ListLiteral) and all(isinstance(it, Literal) for it in node.items):
+        values = [it.value for it in node.items if isinstance(it, Literal)]
+        rhs = pl.DataFrame({as_: values})
+        return _rewrap(g, table.join(rhs, how="cross"))
+    if isinstance(node, Identifier) and node.name in table.columns:
+        col = node.name
+        if not isinstance(table.schema[col], pl.List):
+            # Non-list column: Cypher UNWIND coerces a scalar to a 1-element list (null → 0
+            # rows). Those semantics aren't ported here yet, so decline rather than diverge.
+            return None
+        # pandas oracle: empty/null list cells drop out (0 rows); nulls within a list survive.
+        # Copy the source into ``as_`` first (keeping the source column, like pandas), filter
+        # out empty/null cells (``list.len()`` is null for a null cell → excluded by the
+        # predicate), then explode. Pre-filtering empties also makes the explode independent of
+        # the polars ``empty_as_null`` default (stable across polars versions).
+        out = table.with_columns(pl.col(col).alias(as_))
+        out = out.filter(pl.col(as_).list.len() > 0)
+        out = out.explode(as_)
+        return _rewrap(g, out)
+    return None
 
 
 def select_extend_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[Plottable]:
