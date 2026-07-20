@@ -541,9 +541,11 @@ def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
     the same way. Per-step endpoint semi-joins and alias flags run on the SMALL step/gathered
     frames only, mirroring ``_combine_edges``/``_combine_nodes`` semantics exactly.
 
-    Returns ``(final_nodes, final_edges)`` (final_edges still carries ``eid_col``) or None to
-    fall back to Track B: non-node first step (its edge combine would semi-join the full node
-    frame), unsuitable node frame (null/dup ids), or step frames above the small-result guard.
+    Returns ``("lean", final_nodes, final_edges)`` (final_edges still carries ``eid_col``);
+    ``("fallback", steps_m, label_m)`` when step frames exceed the small-result guard — the
+    MATERIALIZED steps, so Track B reuses them instead of re-executing the traversal; or None
+    (pre-collect declines: non-node first step — its edge combine would semi-join the full node
+    frame — or unsuitable node frame with null/dup ids).
     """
     import polars as pl
     node_col, src, dst = g._node, g._source, g._destination
@@ -556,7 +558,9 @@ def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
 
     # Materialize step frames in one batched collect, then bound total rows: the lean gathers
     # and per-step joins are only a win (and only guaranteed small) on small wavefronts. On
-    # guard failure Track B proceeds with the original frames.
+    # guard failure the MATERIALIZED steps go back to Track B (never the original lazy frames —
+    # that re-executed the whole traversal inside Track B's collect: +34-43% on the big-wavefront
+    # SF1 queries).
     from graphistry.compute.gfql.lazy import collect_all
     LEAN_MAX_ROWS = 100_000
     pairs = list(steps) + list(label_steps)
@@ -567,13 +571,13 @@ def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
     if lazy_idx:
         for i, df in zip(lazy_idx, collect_all([frames[i] for i in lazy_idx])):
             frames[i] = df
-    if sum(f.height for f in frames if f is not None) > LEAN_MAX_ROWS:
-        return None
     shims = [
         (op, _LazyShim(frames[2 * i], frames[2 * i + 1], node_col, src, dst, g._edge))
         for i, (op, _) in enumerate(pairs)
     ]
     steps_m, label_m = shims[:len(steps)], shims[len(steps):]
+    if sum(f.height for f in frames if f is not None) > LEAN_MAX_ROWS:
+        return ("fallback", steps_m, label_m)
 
     # Edges: _combine_edges' per-step prev/next endpoint semi-joins, on small frames only
     # (idx>0 always holds for edge steps — ops[0] is a node), then ONE position gather.
@@ -619,7 +623,7 @@ def _try_combine_lean(g, ops, steps, label_steps, eid_col: str):
     ids = pl.concat(parts, how="vertical_relaxed").get_column(node_col)
     final_nodes = _gather_nodes_by_id(g._nodes, mapping_df, pos_col, node_col, ids)
     final_nodes = _apply_node_names(final_nodes, g, steps_m)
-    return final_nodes, out_edges
+    return ("lean", final_nodes, out_edges)
 
 
 def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plottable:
@@ -923,10 +927,13 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     if not has_multihop and added_edge_index and (
             start_nodes is not None or (isinstance(ops[0], ASTNode) and ops[0].filter_dict)):
         lean = _try_combine_lean(g, ops, steps, label_steps, EID)
-        if lean is not None:
-            final_nodes, final_edges = lean
+        if lean is not None and lean[0] == "lean":
+            _, final_nodes, final_edges = lean
             final_edges = _restore_edge_dtypes(final_edges.drop(EID), src, dst, _endpoint_restore)
             return self.nodes(final_nodes, node_col).edges(final_edges, src, dst)
+        if lean is not None:  # guard fallback: reuse the materialized steps in Track B
+            _, steps, label_steps = lean
+            edge_steps = steps
 
     # Track B: build the WHOLE combine (combine_nodes/edges + endpoint + names) as ONE deferred
     # plan over already-materialized hop frames and collect ONCE — collapsing the ~dozen eager

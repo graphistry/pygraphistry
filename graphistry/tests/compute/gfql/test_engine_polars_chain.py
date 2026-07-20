@@ -751,7 +751,7 @@ class TestLeanCombineDifferential:
 
         def spy(*a, **k):
             r = orig(*a, **k)
-            engaged.append(r is not None)
+            engaged.append(r is not None and r[0] == "lean")
             return r
 
         monkeypatch.setattr(chain_mod, "_try_combine_lean", spy)
@@ -781,7 +781,7 @@ class TestLeanCombineDifferential:
 
         def spy(*a, **k):
             r = orig(*a, **k)
-            engaged.append(r is not None)
+            engaged.append(r is not None and r[0] == "lean")
             return r
 
         monkeypatch.setattr(chain_mod, "_try_combine_lean", spy)
