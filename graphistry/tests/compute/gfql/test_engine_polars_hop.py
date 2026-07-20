@@ -220,6 +220,22 @@ class TestHopLabelsDifferential:
         )._nodes.sort("id")
         assert dict(zip(out["id"].to_list(), out["_h"].to_list())) == {"a": 2, "b": 1}
 
+    def test_direction_dependent_seed_labeling_is_asymmetric(self):
+        """The crux of the #1746 hop_eager fix, pinned on ONE graph so the asymmetry is legible:
+        a 2-cycle a<->b, seed a, hops=2. FORWARD labels every hop destination first-wins, so the
+        seed re-entered at hop 2 IS labeled 2 (pandas hop.py:540 new_node_ids). UNDIRECTED labels
+        destinations MINUS everything already visited, and the seed is pre-seeded as visited, so
+        the backtracked-to seed stays NULL. Same graph, same seed, opposite label — the exact
+        direction-dependent rule the fix bakes in."""
+        edf = pd.DataFrame({"s": ["a", "b"], "d": ["b", "a"]})
+        g_pl = graphistry.edges(pl.from_pandas(edf), "s", "d").materialize_nodes(engine="polars")
+        fwd = g_pl.hop(nodes=pl.DataFrame({"id": ["a"]}), direction="forward", hops=2,
+                       label_node_hops="_h", engine="polars")._nodes
+        und = g_pl.hop(nodes=pl.DataFrame({"id": ["a"]}), direction="undirected", hops=2,
+                       label_node_hops="_h", engine="polars")._nodes
+        assert dict(zip(fwd["id"].to_list(), fwd["_h"].to_list()))["a"] == 2   # forward: labeled
+        assert dict(zip(und["id"].to_list(), und["_h"].to_list()))["a"] is None  # undirected: null
+
     def test_label_seeds_writes_hop_zero(self):
         edf = self.LABEL_GRAPHS["line5"]
         g_pl = graphistry.edges(pl.from_pandas(edf), "s", "d").materialize_nodes(engine="polars")
