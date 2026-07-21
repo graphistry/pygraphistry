@@ -9,7 +9,7 @@ from graphistry.Engine import safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
 from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json, serialize_binding_ops
-from .typing import DataFrameT
+from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql.same_path_types import (
@@ -35,6 +35,12 @@ def _filter_edges_by_endpoint(
         return edges_df
     # isin() is set-membership, so the dropped .unique() is redundant (byte-identical).
     return edges_df[edges_df[edge_col].isin(nodes_df[node_id])]
+
+
+from .chain_lean_combine import (
+    _lean_combine_enabled, _is_unique_ids, _lean_engine_ok,
+    _lean_intersect_full, _lean_prefilter_right,
+)
 
 
 class Chain(ASTSerializable):
@@ -413,7 +419,12 @@ def combine_steps(
                 out_df = out_df[~has_na | has_tag]
 
     g_df = getattr(g, df_fld)
-    out_df = safe_merge(out_df, g_df, on=id, how='left', engine=engine)
+    # slice 5 (#1755): a seeded result attaches the full node/edge frame via a
+    # how='left' merge whose big side (g_df) is scanned in full even for a 1-row
+    # out_df. Pre-shrink g_df to the ids actually present (unmatched rows are
+    # dropped by how='left' regardless) so the join runs small-vs-small.
+    g_df_join = _lean_prefilter_right(out_df, g_df, id, engine) if id in out_df.columns else g_df
+    out_df = safe_merge(out_df, g_df_join, on=id, how='left', engine=engine)
 
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug('COMBINED[%s] >> %s', kind, dbg_df(out_df))
@@ -1050,7 +1061,12 @@ def _chain_impl(
                     prev_orig_step = g_stack[-(len(g_stack_reverse) + 2)]
                 prev_wavefront_nodes = prev_loop_step._nodes
                 if g._node is not None and prev_wavefront_nodes is not None and g._nodes is not None:
-                    prev_wavefront_nodes = safe_merge(
+                    # slice 5 (#1755): re-attach full node columns to the reverse
+                    # wavefront. The inner merge scans all of g._nodes; when the
+                    # wavefront is tiny (seeded chain), the byte-identical result
+                    # is an isin membership filter (see _lean_intersect_full).
+                    _lean = _lean_intersect_full(g._nodes, prev_wavefront_nodes[[g._node]], g._node, engine_concrete)
+                    prev_wavefront_nodes = _lean if _lean is not None else safe_merge(
                         g._nodes,
                         prev_wavefront_nodes[[g._node]],
                         on=g._node,
@@ -1059,7 +1075,8 @@ def _chain_impl(
                     )
                 target_wave_front_nodes = prev_orig_step._nodes if prev_orig_step is not None else None
                 if g._node is not None and target_wave_front_nodes is not None and g._nodes is not None:
-                    target_wave_front_nodes = safe_merge(
+                    _lean = _lean_intersect_full(g._nodes, target_wave_front_nodes[[g._node]], g._node, engine_concrete)
+                    target_wave_front_nodes = _lean if _lean is not None else safe_merge(
                         g._nodes,
                         target_wave_front_nodes[[g._node]],
                         on=g._node,
