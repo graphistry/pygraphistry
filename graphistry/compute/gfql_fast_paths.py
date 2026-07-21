@@ -12,8 +12,11 @@ from dataclasses import replace
 import pandas as pd
 import re
 from types import MappingProxyType
-from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, TYPE_CHECKING, Union, cast
 from graphistry.Plottable import Plottable
+
+if TYPE_CHECKING:
+    import polars as pl
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
@@ -620,8 +623,13 @@ _RESIDUAL_SCALAR_CMP = re.compile(
 )
 
 
-def _residual_polars_expr(expr: str, alias: str, columns: Sequence[str]) -> Optional[Any]:
+def _residual_polars_expr(expr: str, alias: str, columns: Sequence[str]) -> Optional['pl.Expr']:
     """Translate a simple residual to a native polars expression, or None to fall back.
+
+    ``expr`` is a *string* by contract: the #1729 connected-join lowering serializes
+    residual predicates into ASTCall params as canonical predicate strings (e.g.
+    ``(tolower(a.col) = tolower('lit'))``), not typed AST terms — so string parsing here
+    is the honest interface; a typed term would require a lowering-level refactor.
 
     Covered (exactly the #1729 scalar-residual shapes): ``(tolower(a.col) = tolower('lit'))``
     and ``(a.col <op> literal)`` for ``= >= <= > <``. Semantics match the where_rows
