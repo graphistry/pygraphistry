@@ -1,7 +1,7 @@
 """Parity + gating tests for the #1755 seeded typed-hop fast path.
 
 Two layers close the seeded-Cypher abstraction tax on pandas:
-  * native  — `_try_chain_fast_path` / `_seeded_typed_hop_numpy_pandas` accelerate
+  * native  — `_try_chain_fast_path` / `_seeded_typed_hop_pandas_cudf` accelerate
     a seeded typed 1-hop chain [n({id}), e(edge_match), n({type})];
   * cypher   — `_execute_seeded_typed_hop_fast_path` accelerates the lowered
     MATCH (m {id})-[:T]->(p) RETURN p string surface.
@@ -92,7 +92,7 @@ class TestNativeSeededTypedHop:
         g, P = _graph()
         seed = P + 42
         hits = {"n": 0}
-        real = chain_mod._seeded_typed_hop_numpy_pandas
+        real = chain_mod._seeded_typed_hop_pandas_cudf
 
         def spy(*a, **k):
             r = real(*a, **k)
@@ -100,7 +100,7 @@ class TestNativeSeededTypedHop:
                 hits["n"] += 1
             return r
 
-        monkeypatch.setattr(chain_mod, "_seeded_typed_hop_numpy_pandas", spy)
+        monkeypatch.setattr(chain_mod, "_seeded_typed_hop_pandas_cudf", spy)
         g.gfql([n({"id": seed}), e_forward(edge_match={"type": "HAS_CREATOR"}), n({"type": "Person"})], engine="pandas")
         assert hits["n"] >= 1
 
@@ -127,11 +127,11 @@ class TestNativeSeededTypedHop:
         g, P = _graph()
         node, src, dst = "id", "src", "dst"
         # predicate (non-scalar) edge filter -> decline
-        assert chain_mod._seeded_typed_hop_numpy_pandas(
+        assert chain_mod._seeded_typed_hop_pandas_cudf(
             g.materialize_nodes(), n({"id": P + 1}), n(), e_forward(edge_match={"type": gt(0)}),
             src, dst, node, "forward") is None
         # undirected -> decline
-        assert chain_mod._seeded_typed_hop_numpy_pandas(
+        assert chain_mod._seeded_typed_hop_pandas_cudf(
             g.materialize_nodes(), n({"id": P + 1}), n(), e_forward(),
             src, dst, node, "undirected") is None
 
@@ -148,7 +148,7 @@ class TestNativeSeededTypedHop:
             "node_predicate": [n({"id": seed}), e_forward(edge_match={"type": "HAS_CREATOR"}), n({"age": gt(0)})],
         }[ops_name]
         hits = {"n": 0}
-        real = chain_mod._seeded_typed_hop_numpy_pandas
+        real = chain_mod._seeded_typed_hop_pandas_cudf
 
         def spy(*a, **k):
             r = real(*a, **k)
@@ -156,7 +156,7 @@ class TestNativeSeededTypedHop:
                 hits["n"] += 1
             return r
 
-        monkeypatch.setattr(chain_mod, "_seeded_typed_hop_numpy_pandas", spy)
+        monkeypatch.setattr(chain_mod, "_seeded_typed_hop_pandas_cudf", spy)
         fast = g.gfql(ops, engine="pandas")
         monkeypatch.undo()
         chain_mod._try_chain_fast_path, saved = (lambda *a, **k: None), chain_mod._try_chain_fast_path

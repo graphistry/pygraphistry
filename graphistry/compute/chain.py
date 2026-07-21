@@ -8,7 +8,7 @@ from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.Engine import safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
-from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json, serialize_binding_ops
+from .ast import ASTObject, ASTNode, ASTEdge, Direction, from_json as ASTObject_from_json, serialize_binding_ops
 from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
@@ -684,24 +684,26 @@ def _chain_otel_attrs(
     return attrs
 
 
-def _seeded_typed_hop_numpy_pandas(
+def _seeded_typed_hop_pandas_cudf(
     g: Plottable, n0: ASTNode, n2: ASTNode, e1: ASTEdge,
-    src: str, dst: str, node: str, direction: str,
+    src: str, dst: str, node: str, direction: Direction,
 ) -> Optional[Plottable]:
-    """#1755 lever-3: pandas-only numpy fast path for a scalar-filtered seeded
-    typed 1-hop. Byte-identical to the engine-agnostic seeded branch for the
-    covered shape (all node/edge filters are plain scalars, directed), collapsing
-    it into a handful of numpy passes so a seeded lookup lands sub-ms. Returns
-    None to fall back for anything it does not cover (predicates, undirected,
-    missing columns) — the caller then runs the general engine-agnostic branch."""
-    import numpy as np
-    import pandas as pd
+    """#1755 lever-3: engine-generic (pandas + cuDF) fast path for a scalar-filtered
+    seeded typed 1-hop. Byte-identical to the general seeded branch for the covered
+    shape (all node/edge filters are plain scalars, directed), collapsing it into a
+    few DataFrame filters so a seeded lookup lands sub-ms. Uses only the shared
+    pandas/cuDF DataFrame API (no numpy array drops) so the same body runs on both
+    engines. Returns None to fall back for anything it does not cover (predicates,
+    undirected, missing columns) — the caller then runs the general branch."""
     if direction == "undirected":
         return None
 
     nodes_df, edges_df = g._nodes, g._edges
+    if nodes_df is None or edges_df is None:
+        return None
+    node_cols, edge_cols = set(nodes_df.columns), set(edges_df.columns)
 
-    def _scalars(fd, df):
+    def _scalars(fd: Optional[Dict[str, Any]], cols: set) -> Optional[Dict[str, Any]]:
         """Resolve a filter dict to plain scalar column==value pairs, or None to
         bail. Handles the cypher ``label__X: True`` form by resolving it to the
         ``type`` column (equality) — matching filter_by_dict.resolve_filter_column
@@ -712,138 +714,113 @@ def _seeded_typed_hop_numpy_pandas(
         for k, v in fd.items():
             if not isinstance(v, (int, float, str, bool)):
                 return None  # predicate / non-scalar -> bail to the general path
-            if k in df.columns:
+            if k in cols:
                 out[k] = v
-            elif isinstance(k, str) and k.startswith("label__") and v is True and "type" in df.columns:
+            elif isinstance(k, str) and k.startswith("label__") and v is True and "type" in cols:
                 out["type"] = k[len("label__"):]
             else:
                 return None  # unknown / list-label column -> bail
         return out
 
-    n0f, n2f, ef = _scalars(n0.filter_dict, nodes_df), _scalars(n2.filter_dict, nodes_df), _scalars(e1.edge_match, edges_df)
+    n0f = _scalars(n0.filter_dict, node_cols)
+    n2f = _scalars(n2.filter_dict, node_cols)
+    ef = _scalars(e1.edge_match, edge_cols)
     if n0f is None or n2f is None or ef is None:
         return None
     from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
 
-    nid = nodes_df[node].to_numpy()
     # from-side seed FIRST: reduce edges to the seed's out-edges before the
-    # (object) edge_match compare, so the type filter runs on the tiny frontier
-    # rather than all edges — this is what makes a seeded lookup sub-ms.
+    # edge_match compare, so the type filter runs on the tiny frontier rather than
+    # all edges — this is what makes a seeded lookup sub-ms. The id filter goes
+    # first (int, unique -> ~1 row in one pass) so any remaining object filters
+    # (label__X->type) run on that tiny survivor frame, not the whole node table.
     if n0f:
-        # Successive subsetting, id-column first: the (int, unique) id filter
-        # reduces 250k -> ~1 row in one cheap pass, so any remaining (object)
-        # filters like label__X->type run on that tiny set instead of scanning
-        # the whole node frame. `from_pos` tracks positions into nodes_df.
-        from_pos = np.arange(len(nodes_df))
+        seed_nodes = nodes_df
         for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
-            col = (nid if k == node else nodes_df[k].to_numpy())[from_pos]
-            from_pos = from_pos[col == v]
-            if from_pos.size == 0:
-                break
-        from_ids = nid[from_pos]
-        from_vals = edges_df[from_col].to_numpy()
-        seed_mask = (from_vals == from_ids[0]) if len(from_ids) == 1 else np.isin(from_vals, from_ids)
-        edges = edges_df[seed_mask]
+            seed_nodes = seed_nodes[seed_nodes[k] == v]
+        edges = edges_df[edges_df[from_col].isin(seed_nodes[node])]
     else:
         edges = edges_df
     if ef:  # typed edge (edge_match) — now on the reduced frontier
-        tmask = np.ones(len(edges), dtype=bool)
         for k, v in ef.items():
-            tmask &= (edges[k].to_numpy() == v)
-        edges = edges[tmask]
+            edges = edges[edges[k] == v]
 
-    # Gather candidate endpoint nodes with a SINGLE O(N) node scan, then run the
-    # dest filter, dangling-edge drop and final-node selection on the small
-    # candidate/edge frames (no second full-node scan).
-    esrc, edst = edges[src].to_numpy(), edges[dst].to_numpy()
-    eto = edst if to_col == dst else esrc          # reuse; no extra column fetch
-    ep = np.unique(np.concatenate([esrc, edst]))
-    cand = nodes_df[np.isin(nid, ep)].drop_duplicates(subset=[node])
-    cand_ids = cand[node].to_numpy()
-    valid = cand_ids[~pd.isna(cand_ids)]          # endpoints that are real nodes
-    if n2f:                                        # destination-node filter (to-side)
-        dmask = np.ones(len(cand), dtype=bool)
+    # Gather candidate endpoint nodes (both endpoints of surviving edges), then run
+    # the dest filter, dangling-edge drop and final-node selection on the small
+    # candidate/edge frames. Selecting from nodes_df keeps only real nodes, so the
+    # endpoint-in-nodes check subsumes the old NaN-endpoint guard.
+    cand = nodes_df[
+        nodes_df[node].isin(edges[src]) | nodes_df[node].isin(edges[dst])
+    ].drop_duplicates(subset=[node])
+    if n2f:  # destination-node filter (to-side)
+        n2_cand = cand
         for k, v in n2f.items():
-            dmask &= (cand[k].to_numpy() == v)
-        n2_ok = cand_ids[dmask]
+            n2_cand = n2_cand[n2_cand[k] == v]
+        n2_ok = n2_cand[node]
     else:
-        n2_ok = valid
-    keep = np.isin(esrc, valid) & np.isin(edst, valid) & np.isin(eto, n2_ok)
-    if not keep.all():
-        edges = edges[keep]
-        fep = np.unique(np.concatenate([edges[src].to_numpy(), edges[dst].to_numpy()]))
-        cand = cand[np.isin(cand_ids, fep)]
+        n2_ok = cand[node]
+    to_vals = edges[dst] if to_col == dst else edges[src]
+    keep = edges[src].isin(cand[node]) & edges[dst].isin(cand[node]) & to_vals.isin(n2_ok)
+    edges = edges[keep]
+    cand = cand[cand[node].isin(edges[src]) | cand[node].isin(edges[dst])]
     return g.nodes(cand).edges(edges)
 
 
-def _seeded_typed_return_dst_pandas(
+def _seeded_typed_return_dst_pandas_cudf(
     g: Plottable, n0: ASTNode, n2: ASTNode, e1: ASTEdge,
-    src: str, dst: str, node: str, direction: str,
+    src: str, dst: str, node: str, direction: Direction,
 ) -> Optional[Tuple[DataFrameT, DataFrameT]]:
-    """#1755 cypher RETURN-alias fast path: like _seeded_typed_hop_numpy_pandas but
+    """#1755 cypher RETURN-alias fast path: like _seeded_typed_hop_pandas_cudf but
     returns ONLY the destination (RETURN-alias) node rows + surviving edges — no
     seed-node gather, no Plottable round-trip — so the seeded cypher projection
-    lands sub-ms. Returns ``(dst_node_rows, edges)`` or None to fall back."""
-    import numpy as np
-    import pandas as pd
+    lands sub-ms. Engine-generic (pandas + cuDF): only the shared DataFrame API,
+    no numpy array drops. Returns ``(dst_node_rows, edges)`` or None to fall back."""
     if direction == "undirected":
         return None
     nodes_df, edges_df = g._nodes, g._edges
+    if nodes_df is None or edges_df is None:
+        return None
+    node_cols, edge_cols = set(nodes_df.columns), set(edges_df.columns)
 
-    def _sc(fd, df):
+    def _sc(fd: Optional[Dict[str, Any]], cols: set) -> Optional[Dict[str, Any]]:
         if not fd:
             return {}
         out: Dict[str, Any] = {}
         for k, v in fd.items():
             if not isinstance(v, (int, float, str, bool)):
                 return None
-            if k in df.columns:
+            if k in cols:
                 out[k] = v
-            elif isinstance(k, str) and k.startswith("label__") and v is True and "type" in df.columns:
+            elif isinstance(k, str) and k.startswith("label__") and v is True and "type" in cols:
                 out["type"] = k[len("label__"):]
             else:
                 return None
         return out
 
-    n0f, n2f, ef = _sc(n0.filter_dict, nodes_df), _sc(n2.filter_dict, nodes_df), _sc(e1.edge_match, edges_df)
+    n0f = _sc(n0.filter_dict, node_cols)
+    n2f = _sc(n2.filter_dict, node_cols)
+    ef = _sc(e1.edge_match, edge_cols)
     if n0f is None or n2f is None or ef is None or not n0f:
         return None
     from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
-    nid = nodes_df[node].to_numpy()
-    # id-first successive subset. The first (id) filter scans the full id array
-    # once; later filters index the already-tiny survivor rows via .iloc, so an
-    # object column like label__X->type is never fully materialized.
-    from_pos: Optional[Any] = None
+    # id-first seed reduction: filter by the id column first (int/unique -> ~1 row)
+    # so any remaining object filters (label__X->type) run on the tiny survivor
+    # frame, never materializing an object column over the whole node table.
+    seed_nodes = nodes_df
     for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
-        if from_pos is None:
-            base = nid if k == node else nodes_df[k].to_numpy()
-            from_pos = np.flatnonzero(base == v)
-        else:
-            sub = nid[from_pos] if k == node else nodes_df[k].iloc[from_pos].to_numpy()
-            from_pos = from_pos[sub == v]
-        if from_pos.size == 0:
-            break
-    from_ids = nid[from_pos] if from_pos is not None and from_pos.size else nid[:0]
-    if from_ids.size == 0:
-        return nodes_df.iloc[0:0], edges_df.iloc[0:0]
-    fv = edges_df[from_col].to_numpy()
-    seed_mask = (fv == from_ids[0]) if from_ids.size == 1 else np.isin(fv, from_ids)
-    edges = edges_df[seed_mask]
+        seed_nodes = seed_nodes[seed_nodes[k] == v]
+    edges = edges_df[edges_df[from_col].isin(seed_nodes[node])]
     if ef:
-        tmask = np.ones(len(edges), dtype=bool)
         for k, v in ef.items():
-            tmask &= (edges[k].to_numpy() == v)
-        edges = edges[tmask]
-    to_vals = edges[to_col].to_numpy()
-    dst_ids = np.unique(to_vals[~pd.isna(to_vals)])
-    dstn = nodes_df[np.isin(nid, dst_ids)]
+            edges = edges[edges[k] == v]
+    # destination nodes = real nodes that are edge to-endpoints, then the dest
+    # filter, dangling-edge drop and dedup on the small dst/edge frames.
+    dstn = nodes_df[nodes_df[node].isin(edges[to_col])]
     if n2f:
-        dm = np.ones(len(dstn), dtype=bool)
         for k, v in n2f.items():
-            dm &= (dstn[k].to_numpy() == v)
-        dstn = dstn[dm]
-    edges = edges[np.isin(edges[to_col].to_numpy(), dstn[node].to_numpy())]
-    dstn = dstn[np.isin(dstn[node].to_numpy(), edges[to_col].to_numpy())].drop_duplicates(subset=[node])
+            dstn = dstn[dstn[k] == v]
+    edges = edges[edges[to_col].isin(dstn[node])]
+    dstn = dstn[dstn[node].isin(edges[to_col])].drop_duplicates(subset=[node])
     return dstn, edges
 
 
@@ -933,13 +910,13 @@ def _try_chain_fast_path(
         # tiny frontier, not all edges. The from-side ids come from the node table
         # (so that endpoint is validated); the node gather below validates the to
         # side and drops any edge dangling off the node table.
-        # pandas: a scalar-filtered seeded typed hop collapses to a few numpy
-        # passes (sub-ms); falls back to the engine-agnostic branch below for
-        # predicates / undirected / missing columns and for cuDF.
-        if engine_concrete == Engine.PANDAS:
-            _np_res = _seeded_typed_hop_numpy_pandas(g, n0, n2, e1, src, dst, node, direction)
-            if _np_res is not None:
-                return _np_res
+        # pandas + cuDF: a scalar-filtered seeded typed hop collapses to a few
+        # DataFrame filters (sub-ms); falls back to the general branch below for
+        # predicates / undirected / missing columns (and non-pandas/cuDF engines).
+        if engine_concrete in (Engine.PANDAS, Engine.CUDF):
+            _fast_res = _seeded_typed_hop_pandas_cudf(g, n0, n2, e1, src, dst, node, direction)
+            if _fast_res is not None:
+                return _fast_res
         from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
         edges = g._edges
         if n0.filter_dict:
