@@ -684,6 +684,81 @@ def _chain_otel_attrs(
     return attrs
 
 
+def _seeded_typed_hop_numpy_pandas(g, n0, n2, e1, src, dst, node, direction):
+    """#1755 lever-3: pandas-only numpy fast path for a scalar-filtered seeded
+    typed 1-hop. Byte-identical to the engine-agnostic seeded branch for the
+    covered shape (all node/edge filters are plain scalars, directed), collapsing
+    it into a handful of numpy passes so a seeded lookup lands sub-ms. Returns
+    None to fall back for anything it does not cover (predicates, undirected,
+    missing columns) — the caller then runs the general engine-agnostic branch."""
+    import numpy as np
+    import pandas as pd
+    if direction == "undirected":
+        return None
+
+    def _scalars(fd):
+        if not fd:
+            return {}
+        out = {}
+        for k, v in fd.items():
+            if not isinstance(v, (int, float, str, bool)):
+                return None  # predicate / non-scalar -> bail to the general path
+            out[k] = v
+        return out
+
+    n0f, n2f, ef = _scalars(n0.filter_dict), _scalars(n2.filter_dict), _scalars(e1.edge_match)
+    if n0f is None or n2f is None or ef is None:
+        return None
+    nodes_df, edges_df = g._nodes, g._edges
+    if any(c not in nodes_df.columns for c in (*n0f, *n2f)) or any(c not in edges_df.columns for c in ef):
+        return None
+    from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
+
+    nid = nodes_df[node].to_numpy()
+    # from-side seed FIRST: reduce edges to the seed's out-edges before the
+    # (object) edge_match compare, so the type filter runs on the tiny frontier
+    # rather than all edges — this is what makes a seeded lookup sub-ms.
+    if n0f:
+        nmask = np.ones(len(nodes_df), dtype=bool)
+        for k, v in n0f.items():
+            col = nid if k == node else nodes_df[k].to_numpy()  # reuse nid for the id col
+            nmask &= (col == v)
+        from_ids = nid[nmask]
+        from_vals = edges_df[from_col].to_numpy()
+        seed_mask = (from_vals == from_ids[0]) if len(from_ids) == 1 else np.isin(from_vals, from_ids)
+        edges = edges_df[seed_mask]
+    else:
+        edges = edges_df
+    if ef:  # typed edge (edge_match) — now on the reduced frontier
+        tmask = np.ones(len(edges), dtype=bool)
+        for k, v in ef.items():
+            tmask &= (edges[k].to_numpy() == v)
+        edges = edges[tmask]
+
+    # Gather candidate endpoint nodes with a SINGLE O(N) node scan, then run the
+    # dest filter, dangling-edge drop and final-node selection on the small
+    # candidate/edge frames (no second full-node scan).
+    esrc, edst = edges[src].to_numpy(), edges[dst].to_numpy()
+    eto = edst if to_col == dst else esrc          # reuse; no extra column fetch
+    ep = np.unique(np.concatenate([esrc, edst]))
+    cand = nodes_df[np.isin(nid, ep)].drop_duplicates(subset=[node])
+    cand_ids = cand[node].to_numpy()
+    valid = cand_ids[~pd.isna(cand_ids)]          # endpoints that are real nodes
+    if n2f:                                        # destination-node filter (to-side)
+        dmask = np.ones(len(cand), dtype=bool)
+        for k, v in n2f.items():
+            dmask &= (cand[k].to_numpy() == v)
+        n2_ok = cand_ids[dmask]
+    else:
+        n2_ok = valid
+    keep = np.isin(esrc, valid) & np.isin(edst, valid) & np.isin(eto, n2_ok)
+    if not keep.all():
+        edges = edges[keep]
+        fep = np.unique(np.concatenate([edges[src].to_numpy(), edges[dst].to_numpy()]))
+        cand = cand[np.isin(cand_ids, fep)]
+    return g.nodes(cand).edges(edges)
+
+
 def _try_chain_fast_path(
     g_in: Plottable,
     ops: List[ASTObject],
@@ -768,6 +843,13 @@ def _try_chain_fast_path(
         # tiny frontier, not all edges. The from-side ids come from the node table
         # (so that endpoint is validated); the node gather below validates the to
         # side and drops any edge dangling off the node table.
+        # pandas: a scalar-filtered seeded typed hop collapses to a few numpy
+        # passes (sub-ms); falls back to the engine-agnostic branch below for
+        # predicates / undirected / missing columns and for cuDF.
+        if engine_concrete == Engine.PANDAS:
+            _np_res = _seeded_typed_hop_numpy_pandas(g, n0, n2, e1, src, dst, node, direction)
+            if _np_res is not None:
+                return _np_res
         from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
         edges = g._edges
         if n0.filter_dict:
