@@ -3,11 +3,17 @@ import warnings
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-from typing import Any, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Sequence, Union
 from typing_extensions import Literal
 from enum import Enum
 
 from graphistry.models.types import ValidationParam
+
+if TYPE_CHECKING:
+    # Frame aliases (pandas types for mypy; ``Any`` at runtime). Imported under TYPE_CHECKING
+    # and referenced via string annotations below so Engine.py — imported very early — never
+    # triggers ``graphistry.compute`` package init at runtime (would be circular).
+    from graphistry.compute.typing import DataFrameT, SeriesT
 
 
 class Engine(Enum):
@@ -850,3 +856,103 @@ def safe_merge(
         raise ValueError("Must specify either 'on' or both 'left_on' and 'right_on'")
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Engine-agnostic series / frame primitives (pandas / cuDF / polars dispatch).
+#
+# Pure per-row/per-column dispatch helpers with no domain knowledge — the polars
+# branches genuinely return polars objects mypy can't narrow to the pandas frame
+# aliases, so the localized ``# type: ignore`` lives here at the dispatch point and
+# callers get a clean ``SeriesT`` / ``DataFrameT`` contract with no ``cast()``.
+# Annotations are strings so the TYPE_CHECKING-only alias import stays runtime-free.
+# ---------------------------------------------------------------------------
+
+
+def is_series_like(s: object) -> bool:
+    """True for a pandas/cuDF Series (``.dropna``) or a polars Series (module check).
+
+    Some engine-agnostic callers accept an ``ids`` Series that is pandas under
+    ``engine='pandas'`` and polars under ``engine='polars'``; both are valid."""
+    return hasattr(s, "dropna") or is_polars_df(s)
+
+
+def series_not_null_mask(s: "SeriesT") -> "SeriesT":
+    """Non-null boolean mask, engine-aware (polars ``is_not_null`` vs pandas ``notna``)."""
+    if is_polars_df(s):
+        return s.is_not_null()  # type: ignore[attr-defined,no-any-return]
+    return s.notna()
+
+
+def series_filter(s: "SeriesT", mask: "SeriesT") -> "SeriesT":
+    """Filter a Series by a boolean mask, engine-aware, dropping the old index (pandas)."""
+    if is_polars_df(s):
+        return s.filter(mask)  # type: ignore[attr-defined,no-any-return]
+    return s[mask].reset_index(drop=True)
+
+
+def frame_filter(df: "DataFrameT", mask: "SeriesT") -> "DataFrameT":
+    """Filter a DataFrame's rows by a boolean mask, engine-aware, dropping the old index."""
+    if is_polars_df(df):
+        return df.filter(mask)  # type: ignore[attr-defined,no-any-return]
+    return df.loc[mask].reset_index(drop=True)
+
+
+def ordered_left_join(left: "DataFrameT", right: "DataFrameT", *, on: str) -> "DataFrameT":
+    """Left join preserving ``left`` row order, engine-aware. Polars ``.merge`` does not exist;
+    ``safe_merge`` (pandas/cuDF ``.merge``) cannot run on polars frames, so branch to
+    ``.join(..., maintain_order='left')`` which pins the left-row ordering the caller needs.
+
+    ``right`` may arrive on a different engine than ``left`` (e.g. natively-projected polars
+    ``left`` against a still-pandas base table), so align ``right`` onto ``left``'s engine
+    before the polars join."""
+    if is_polars_df(left):
+        if not is_polars_df(right):
+            right = df_to_engine(right, Engine.POLARS)
+        return left.join(right, on=on, how="left", maintain_order="left")  # type: ignore[call-arg,no-any-return]
+    return safe_merge(left, right, on=on, how="left")
+
+
+def row_as_mapping(rows: "DataFrameT", row_index: int) -> Mapping[str, Any]:
+    """One frame row as a col->scalar mapping, engine-aware (``row[col]`` works for
+    both the pandas Series and the polars named-row dict)."""
+    if is_polars_df(rows):
+        return rows.row(row_index, named=True)  # type: ignore[attr-defined,no-any-return]
+    return rows.iloc[row_index]
+
+
+def assign_constant_columns(df: "DataFrameT", values: Dict[str, Any]) -> "DataFrameT":
+    """Broadcast scalar ``values`` as constant columns, engine-aware."""
+    if not values:
+        return df
+    if is_polars_df(df):
+        import polars as pl
+        return df.with_columns([pl.lit(v).alias(k) for k, v in values.items()])  # type: ignore[attr-defined,no-any-return]
+    return df.assign(**values)
+
+
+def drop_columns(df: "DataFrameT", cols: Sequence[str]) -> "DataFrameT":
+    """Drop columns by name, engine-aware (polars ``drop(list)`` vs pandas ``drop(columns=)``)."""
+    if is_polars_df(df):
+        return df.drop(list(cols))  # type: ignore[no-any-return]
+    return df.drop(columns=list(cols))
+
+
+def series_to_pylist(values: "SeriesT") -> List[Any]:
+    """Series -> python list, engine-aware, with defensive arrow/pandas fallbacks."""
+    if hasattr(values, "to_arrow"):
+        try:
+            return list(values.to_arrow().to_pylist())
+        except Exception:
+            pass
+    if hasattr(values, "to_pandas"):
+        try:
+            return list(values.to_pandas().tolist())
+        except Exception:
+            pass
+    if hasattr(values, "tolist"):
+        try:
+            return list(values.tolist())
+        except Exception:
+            pass
+    return list(values)
