@@ -623,7 +623,9 @@ _RESIDUAL_SCALAR_CMP = re.compile(
 )
 
 
-def _residual_polars_expr(expr: str, alias: str, columns: Sequence[str]) -> Optional['pl.Expr']:
+def _residual_polars_expr(
+    expr: str, alias: str, schema: Mapping[str, Any]
+) -> Optional['pl.Expr']:
     """Translate a simple residual to a native polars expression, or None to fall back.
 
     ``expr`` is a *string* by contract: the #1729 connected-join lowering serializes
@@ -635,29 +637,56 @@ def _residual_polars_expr(expr: str, alias: str, columns: Sequence[str]) -> Opti
     and ``(a.col <op> literal)`` for ``= >= <= > <``. Semantics match the where_rows
     evaluator on these shapes: string compares are null-safe (null -> filtered out, since
     polars comparisons on null yield null which ``filter`` drops, same as the evaluator's
-    null-propagating comparisons); toLower equality compares casefolded via
-    ``str.to_lowercase()`` — the same lowering the polars row pipeline uses for toLower
-    (row_pipeline.py `_fn_lower_upper`). Returns None for any other shape, non-matching
-    alias, or a column absent from the frame (caller then uses the chain fallback).
+    null-propagating comparisons); toLower equality lowercases the column via polars
+    ``str.to_lowercase()`` and the literal via Python ``str.lower()`` (empirically equal
+    on the ASCII/latin shapes the lowering emits; a divergence would need a Rust-vs-Python
+    Unicode table drift). Float NaN ranking differs between polars and the evaluator, but
+    gfql ingest normalizes NaN->null (``_pl_nan_to_null``) so NaN never reaches this
+    filter through ``gfql()``. Declines (returns None, caller uses the chain fallback) on:
+    any other shape, non-matching alias, a column absent from the schema, an ESCAPED
+    string literal (``\\`` — the renderer escapes ``' \\ \\n`` etc. to ``\\uXXXX`` which the
+    evaluator unescapes; raw comparison would silently mismatch), and dtype-incompatible
+    column/literal pairs (string predicate on non-string column and vice versa — the
+    lowering deliberately keeps those residual so the evaluator can raise its designed
+    parity-or-error NotImplementedError rather than a raw polars ComputeError).
     """
     import polars as pl
 
+    def _is_string_dtype(dtype: Any) -> bool:
+        return dtype == pl.Utf8 or dtype == pl.String
+
+    def _is_numeric_dtype(dtype: Any) -> bool:
+        return dtype.is_numeric() if hasattr(dtype, "is_numeric") else False
+
     m = _RESIDUAL_TOLOWER_EQ.match(expr)
     if m is not None:
-        if m.group("alias") != alias or m.group("col") not in columns:
+        col_name = m.group("col")
+        tolower_lit = m.group("lit")
+        if m.group("alias") != alias or col_name not in schema:
             return None
-        return pl.col(m.group("col")).str.to_lowercase() == m.group("lit").lower()
+        if "\\" in tolower_lit:
+            return None  # escaped literal: let the evaluator unescape it
+        if not _is_string_dtype(schema[col_name]):
+            return None  # tolower on non-string column: evaluator raises designed NIE
+        return pl.col(col_name).str.to_lowercase() == tolower_lit.lower()
     m = _RESIDUAL_SCALAR_CMP.match(expr)
     if m is not None:
-        if m.group("alias") != alias or m.group("col") not in columns:
+        col_name = m.group("col")
+        if m.group("alias") != alias or col_name not in schema:
             return None
         lit: Any
         if m.group("slit") is not None:
             lit = m.group("slit")
+            if "\\" in lit:
+                return None  # escaped literal: let the evaluator unescape it
+            if not _is_string_dtype(schema[col_name]):
+                return None  # string literal vs non-string column: designed NIE path
         else:
             raw = m.group("nlit")
             lit = float(raw) if "." in raw else int(raw)
-        col = pl.col(m.group("col"))
+            if not _is_numeric_dtype(schema[col_name]):
+                return None  # numeric literal vs non-numeric column: designed NIE path
+        col = pl.col(col_name)
         op = m.group("op")
         if op == "=":
             return col == lit
@@ -696,13 +725,12 @@ def _connected_join_apply_node_residuals(
     """
     is_polars = "polars" in type(node_frame).__module__
     if is_polars:
-        translated = [_residual_polars_expr(e, alias, list(node_frame.columns)) for e in exprs]
+        translated = [_residual_polars_expr(e, alias, dict(node_frame.schema)) for e in exprs]
         if all(t is not None for t in translated):
             out = node_frame
             for t in translated:
                 out = out.filter(t)
             return cast(DataFrameT, out)
-    if is_polars:
         aliased = node_frame.rename({col: f"{alias}.{col}" for col in node_frame.columns})
     else:
         aliased = node_frame.rename(columns={col: f"{alias}.{col}" for col in node_frame.columns})
