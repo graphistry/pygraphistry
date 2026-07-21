@@ -448,3 +448,94 @@ class TestFastPathSideChannelGates:
         full = _canon_nodes(_run_diff(g, "pandas", q, fast=False))
         pd.testing.assert_frame_equal(fast, full)
         assert sorted(fast["b.id"].tolist()) == [10, 11]
+
+
+# ---------------------------------------------------------------------------
+# polars cypher surface  (#1755 generalization: MATCH (m {id})-[:T]->(p) RETURN p)
+# ---------------------------------------------------------------------------
+
+class TestCypherSeededTypedHopPolars:
+    """The seeded cypher fast path also covers polars via _seeded_typed_return_dst_polars
+    (dispatched from _execute_seeded_typed_hop_fast_path for Engine.POLARS/POLARS_GPU).
+    Same differential-parity + independent-oracle + decline bar as the pandas class."""
+
+    def _pl_graph(self):
+        pl = pytest.importorskip("polars")
+        g, P = _graph()
+        gp = graphistry.nodes(pl.from_pandas(pd.DataFrame(g._nodes)), "id").edges(
+            pl.from_pandas(pd.DataFrame(g._edges)), "src", "dst")
+        return gp, P, g  # g (pandas) reused for the independent oracle
+
+    def _run(self, g, cy, force_full):
+        real = gfql_unified._execute_seeded_typed_hop_fast_path
+        try:
+            if force_full:
+                gfql_unified._execute_seeded_typed_hop_fast_path = lambda *a, **k: None
+            return g.gfql(cy, engine="polars")
+        finally:
+            gfql_unified._execute_seeded_typed_hop_fast_path = real
+
+    @pytest.mark.parametrize("label", ["p:Person", "p"])
+    def test_parity_return_p(self, label):
+        gp, P, _ = self._pl_graph()
+        seed = P + 42
+        cy = f"MATCH (m:Message {{id: {seed}}})-[:HAS_CREATOR]->({label}) RETURN p"
+        fast = self._run(gp, cy, force_full=False)
+        full = self._run(gp, cy, force_full=True)
+        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+
+    def test_independent_oracle_values(self):
+        gp, P, g_pd = self._pl_graph()
+        seed = P + 42
+        oracle = _oracle_creators(g_pd, seed)
+        assert len(oracle) >= 1
+        res = self._run(gp, f"MATCH (m:Message {{id: {seed}}})-[:HAS_CREATOR]->(p:Person) RETURN p", force_full=False)
+        df = _canon_nodes(res)
+        id_col = "p.id" if "p.id" in df.columns else "id"
+        assert sorted(df[id_col].tolist()) == oracle
+
+    def test_fast_path_engages(self, monkeypatch):
+        gp, P, _ = self._pl_graph()
+        seed = P + 42
+        hits = {"n": 0}
+        real = gfql_unified._execute_seeded_typed_hop_fast_path
+
+        def spy(*a, **k):
+            r = real(*a, **k)
+            if r is not None:
+                hits["n"] += 1
+            return r
+
+        monkeypatch.setattr(gfql_unified, "_execute_seeded_typed_hop_fast_path", spy)
+        gp.gfql(f"MATCH (m:Message {{id: {seed}}})-[:HAS_CREATOR]->(p:Person) RETURN p", engine="polars")
+        assert hits["n"] >= 1
+
+    # Only shapes the full polars path can itself render (polars declines
+    # multi-entity/field whole-row RETURN by design — those aren't a parity
+    # target). Variable-length is the shape the fast path must decline (the bug
+    # this generalization inherited from the pandas path).
+    @pytest.mark.parametrize("cy_tmpl,reason", [
+        ("MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR*1..2]->(p) RETURN p", "varlen range hop"),
+        ("MATCH (m:Message {{id: {s}}})-[*1..2]->(p) RETURN p", "varlen untyped hop"),
+    ])
+    def test_declines_and_stays_correct(self, cy_tmpl, reason):
+        gp, P, _ = self._pl_graph()
+        seed = P + 42
+        cy = cy_tmpl.format(s=seed)
+        real = gfql_unified._execute_seeded_typed_hop_fast_path
+        hits = {"n": 0}
+
+        def spy(*a, **k):
+            r = real(*a, **k)
+            if r is not None:
+                hits["n"] += 1
+            return r
+
+        gfql_unified._execute_seeded_typed_hop_fast_path = spy
+        try:
+            fast = gp.gfql(cy, engine="polars")
+        finally:
+            gfql_unified._execute_seeded_typed_hop_fast_path = real
+        full = self._run(gp, cy, force_full=True)
+        assert hits["n"] == 0, f"polars fast path must decline {reason}"
+        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))

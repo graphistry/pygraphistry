@@ -989,12 +989,13 @@ def _execute_seeded_typed_hop_fast_path(
 ) -> Optional[Plottable]:
     """#1755 cypher-surface fast path: a seeded typed 1-hop with a whole-row node
     RETURN — ``MATCH (m {id})-[:T]->(p) RETURN p`` — reduces the graph to the seed's
-    1-hop neighborhood with a few DataFrame filters (pandas + cuDF), then applies the
-    RETURN projection to just the destination rows (value-identical to the full
-    path: same rows/columns/dtypes; row order and RangeIndex may differ; sub-ms
-    because the frame is tiny). Returns None to fall through for anything outside
-    this exact shape or carrying side-channels (policy, same-path WHERE, OPTIONAL
-    null-row, carried reentry seeds)."""
+    1-hop neighborhood with a few DataFrame filters (pandas/cuDF via the shared
+    DataFrame API, or polars via polars filters), then applies the RETURN projection
+    to just the destination rows (value-identical to the full path: same rows/
+    columns/dtypes; row order and RangeIndex may differ; sub-ms because the frame
+    is tiny). Returns None to fall through for anything outside this exact shape
+    or carrying side-channels (policy, same-path WHERE, OPTIONAL null-row,
+    carried reentry seeds)."""
     if start_nodes is not None:
         # A carried seed set (WITH..MATCH reentry) restricts n0 to those rows; the fast
         # path derives its seed from n0.filter_dict alone, so engaging here would
@@ -1015,7 +1016,7 @@ def _execute_seeded_typed_hop_fast_path(
         # openCypher null row; the lean projection would return an empty frame.
         return None
     requested_engine = resolve_engine(cast(Any, engine), base_graph)
-    if requested_engine not in (Engine.PANDAS, Engine.CUDF):
+    if requested_engine not in (Engine.PANDAS, Engine.CUDF, Engine.POLARS, Engine.POLARS_GPU):
         return None
     projection = compiled_query.result_projection
     if projection is None or projection.table != "nodes":
@@ -1058,9 +1059,18 @@ def _execute_seeded_typed_hop_fast_path(
     if not (n0.filter_dict and any(not str(k).startswith("label__") for k in n0.filter_dict)):
         return None  # n0 must carry a selective (non-label) seed
     direction = e1.direction
-    from graphistry.compute.chain import _seeded_typed_return_dst_pandas_cudf
-    dst_res = _seeded_typed_return_dst_pandas_cudf(
-        base_graph, n0, n2, e1, src, dst, node, direction)
+    # Dispatch on the ACTUAL frame type, not the requested engine: the WITH..MATCH
+    # reentry path can request engine=polars while handing us a pandas-materialized
+    # intermediate graph, so trusting requested_engine would run polars ops on a
+    # pandas frame (and vice versa). The pandas branch also covers cuDF (shared API).
+    from graphistry.Engine import is_polars_df
+    from graphistry.compute.chain import (
+        _seeded_typed_return_dst_pandas_cudf, _seeded_typed_return_dst_polars,
+    )
+    nodes_frame = base_graph._nodes
+    is_polars = is_polars_df(nodes_frame)
+    helper = _seeded_typed_return_dst_polars if is_polars else _seeded_typed_return_dst_pandas_cudf
+    dst_res = helper(base_graph, n0, n2, e1, src, dst, node, direction)
     if dst_res is None:
         return None
     p_rows, _edges = dst_res
@@ -1068,7 +1078,11 @@ def _execute_seeded_typed_hop_fast_path(
     # Tag with the alias and reuse apply_result_projection for the exact
     # column-order/flatten semantics — all on a handful of rows, so seeded cypher
     # stays sub-ms (vs the ~25ms rows-pivot pipeline on the full graph).
-    tagged = p_rows.assign(**{projection.alias: True})
+    if is_polars:
+        import polars as pl
+        tagged = p_rows.with_columns(pl.lit(True).alias(projection.alias))
+    else:
+        tagged = p_rows.assign(**{projection.alias: True})
     result = base_graph.nodes(tagged)
     return apply_result_projection(result, projection)
 

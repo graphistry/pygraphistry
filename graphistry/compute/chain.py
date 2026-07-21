@@ -818,6 +818,67 @@ def _seeded_typed_return_dst_pandas_cudf(
     return dstn, edges
 
 
+def _seeded_typed_return_dst_polars(
+    g: Plottable, n0: ASTNode, n2: ASTNode, e1: ASTEdge,
+    src: str, dst: str, node: str, direction: str,
+) -> Optional[Tuple[DataFrameT, DataFrameT]]:
+    """#1755 polars analog of _seeded_typed_return_dst_pandas_cudf: same seed-first
+    reduction (seed out-edges -> typed-edge filter -> destination nodes) expressed
+    with polars filters, so a seeded cypher RETURN on polars/polars-gpu also lands
+    sub-ms. Returns ``(dst_node_rows, edges)`` (polars frames) or None to fall back
+    to the full lazy pipeline. Byte-identical node set to the full path for the
+    covered shape (scalar filters, directed, single hop)."""
+    import polars as pl
+    if direction == "undirected":
+        return None
+    nodes_df, edges_df = g._nodes, g._edges
+    if nodes_df is None or edges_df is None:
+        return None
+    node_cols, edge_cols = set(nodes_df.columns), set(edges_df.columns)
+
+    def _sc(fd: Any, cols: set) -> Optional[Dict[str, Any]]:
+        if not fd:
+            return {}
+        out: Dict[str, Any] = {}
+        for k, v in fd.items():
+            if not isinstance(v, (int, float, str, bool)):
+                return None
+            if k in cols:
+                out[k] = v
+            elif isinstance(k, str) and k.startswith("label__") and v is True and "type" in cols:
+                out["type"] = k[len("label__"):]
+            else:
+                return None
+        return out
+
+    n0f = _sc(n0.filter_dict, node_cols)
+    n2f = _sc(n2.filter_dict, node_cols)
+    ef = _sc(e1.edge_match, edge_cols)
+    if n0f is None or n2f is None or ef is None or not n0f:
+        return None
+    from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
+
+    # from-side seed: reduce the node frame to the seed rows, take their ids.
+    seed_nodes = nodes_df
+    for k, v in n0f.items():
+        seed_nodes = seed_nodes.filter(pl.col(k) == v)
+    from_ids = seed_nodes.get_column(node)
+    if from_ids.len() == 0:
+        return nodes_df.clear(), edges_df.clear()
+    edges = edges_df.filter(pl.col(from_col).is_in(from_ids))
+    for k, v in ef.items():  # typed edge on the reduced frontier
+        edges = edges.filter(pl.col(k) == v)
+    dst_ids = edges.get_column(to_col).drop_nulls().unique()
+    dstn = nodes_df.filter(pl.col(node).is_in(dst_ids))
+    for k, v in n2f.items():  # destination-node filter
+        dstn = dstn.filter(pl.col(k) == v)
+    # drop dangling edges + dedup destination nodes (mirror the pandas tail)
+    keep_ids = dstn.get_column(node)
+    edges = edges.filter(pl.col(to_col).is_in(keep_ids))
+    dstn = dstn.filter(pl.col(node).is_in(edges.get_column(to_col))).unique(subset=[node], maintain_order=True)
+    return dstn, edges
+
+
 def _try_chain_fast_path(
     g_in: Plottable,
     ops: List[ASTObject],
