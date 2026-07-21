@@ -976,6 +976,82 @@ def _run_logical_pass_pipeline(logical_plan: LogicalPlan, ctx: PlanContext) -> L
     return PassManager(DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES).run(logical_plan, ctx).plan
 
 
+_SEEDED_FASTPATH_GUARD = "_gfql_seeded_typed_hop_fastpath_done"
+
+
+def _execute_seeded_typed_hop_fast_path(
+    base_graph: Plottable,
+    compiled_query: CompiledCypherQuery,
+    physical_plan: "PhysicalPlan",
+    *,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+    start_nodes: Optional[DataFrameT] = None,
+) -> Optional[Plottable]:
+    """#1755 cypher-surface fast path: a seeded typed 1-hop with a whole-row node
+    RETURN — ``MATCH (m {id})-[:T]->(p) RETURN p`` — numpy-reduces the graph to the
+    seed's 1-hop neighborhood, then re-runs the SAME cypher pipeline on that tiny
+    subgraph (guaranteed byte-identical to the full path; sub-ms because the graph
+    is tiny). Returns None to fall through for anything outside this exact shape."""
+    from graphistry.compute.chain import _seeded_typed_hop_numpy_pandas
+    if getattr(base_graph, _SEEDED_FASTPATH_GUARD, False):
+        return None  # recursion guard: the re-run below must take the full path
+    requested_engine = resolve_engine(cast(Any, engine), base_graph)
+    if requested_engine != Engine.PANDAS:
+        return None
+    projection = compiled_query.result_projection
+    if projection is None or getattr(projection, "table", None) != "nodes":
+        return None
+    # Only a single whole-row node alias (RETURN p). Multi-alias returns (RETURN
+    # m, p) combine aliases into one row per match — different shape — so bail.
+    proj_cols = getattr(projection, "columns", None)
+    if not proj_cols or len(proj_cols) != 1 or getattr(proj_cols[0], "kind", None) != "whole_row":
+        return None
+    if compiled_query.execution_extras is not None and (
+        compiled_query.execution_extras.connected_match_join is not None
+        or compiled_query.execution_extras.connected_optional_match is not None
+    ):
+        return None
+    ops = list(compiled_query.chain.chain)
+    if len(ops) != 4:
+        return None
+    n0, e1, n2, call = ops
+    if not (isinstance(n0, ASTNode) and isinstance(e1, ASTEdge)
+            and isinstance(n2, ASTNode) and isinstance(call, ASTCall)):
+        return None
+    if call.function != "rows":
+        return None
+    node = getattr(base_graph, "_node", None)
+    src = getattr(base_graph, "_source", None)
+    dst = getattr(base_graph, "_destination", None)
+    if node is None or src is None or dst is None:
+        return None
+    # RETURN alias must be the DESTINATION node (n2) and the seed must sit on the
+    # source node (n0) — the forward seeded shape MATCH (m {id})-[:T]->(p) RETURN p.
+    # Other alias/seed placements (e.g. reverse patterns where the seed is on the
+    # RETURN node) fall back to the full path.
+    if getattr(n2, "_name", None) != projection.alias:
+        return None
+    if not (n0.filter_dict and any(not str(k).startswith("label__") for k in n0.filter_dict)):
+        return None  # n0 must carry a selective (non-label) seed
+    direction = getattr(e1, "direction", "forward")
+    node_s, src_s, dst_s = str(node), str(src), str(dst)
+    from graphistry.compute.chain import _seeded_typed_return_dst_pandas
+    dst_res = _seeded_typed_return_dst_pandas(
+        base_graph, n0, n2, e1, src_s, dst_s, node_s, direction)
+    if dst_res is None:
+        return None
+    p_rows, _edges = dst_res
+    # Lean projection: p_rows already IS the RETURN-alias (destination) node set.
+    # Tag with the alias and reuse apply_result_projection for the exact
+    # column-order/flatten semantics — all on a handful of rows, so seeded cypher
+    # stays sub-ms (vs the ~25ms rows-pivot pipeline on the full graph).
+    tagged = p_rows.assign(**{projection.alias: True})
+    result = base_graph.nodes(tagged)
+    return apply_result_projection(result, projection)
+
+
 def _execute_compiled_query_via_physical_plan(
     base_graph: Plottable,
     *,
@@ -1015,6 +1091,11 @@ def _execute_compiled_query_via_physical_plan(
         fast_count = _execute_two_hop_count_fast_path(base_graph, compiled_query.chain, engine=engine)
         if fast_count is not None:
             return fast_count
+        fast_hop = _execute_seeded_typed_hop_fast_path(
+            base_graph, compiled_query, physical_plan,
+            engine=engine, policy=policy, context=context, start_nodes=start_nodes)
+        if fast_hop is not None:
+            return fast_hop
         return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,

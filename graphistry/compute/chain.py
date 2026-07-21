@@ -696,21 +696,29 @@ def _seeded_typed_hop_numpy_pandas(g, n0, n2, e1, src, dst, node, direction):
     if direction == "undirected":
         return None
 
-    def _scalars(fd):
+    nodes_df, edges_df = g._nodes, g._edges
+
+    def _scalars(fd, df):
+        """Resolve a filter dict to plain scalar column==value pairs, or None to
+        bail. Handles the cypher ``label__X: True`` form by resolving it to the
+        ``type`` column (equality) — matching filter_by_dict.resolve_filter_column
+        — but bails on the list-valued ``labels`` form to stay equality-safe."""
         if not fd:
             return {}
-        out = {}
+        out: Dict[str, Any] = {}
         for k, v in fd.items():
             if not isinstance(v, (int, float, str, bool)):
                 return None  # predicate / non-scalar -> bail to the general path
-            out[k] = v
+            if k in df.columns:
+                out[k] = v
+            elif isinstance(k, str) and k.startswith("label__") and v is True and "type" in df.columns:
+                out["type"] = k[len("label__"):]
+            else:
+                return None  # unknown / list-label column -> bail
         return out
 
-    n0f, n2f, ef = _scalars(n0.filter_dict), _scalars(n2.filter_dict), _scalars(e1.edge_match)
+    n0f, n2f, ef = _scalars(n0.filter_dict, nodes_df), _scalars(n2.filter_dict, nodes_df), _scalars(e1.edge_match, edges_df)
     if n0f is None or n2f is None or ef is None:
-        return None
-    nodes_df, edges_df = g._nodes, g._edges
-    if any(c not in nodes_df.columns for c in (*n0f, *n2f)) or any(c not in edges_df.columns for c in ef):
         return None
     from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
 
@@ -719,11 +727,17 @@ def _seeded_typed_hop_numpy_pandas(g, n0, n2, e1, src, dst, node, direction):
     # (object) edge_match compare, so the type filter runs on the tiny frontier
     # rather than all edges — this is what makes a seeded lookup sub-ms.
     if n0f:
-        nmask = np.ones(len(nodes_df), dtype=bool)
-        for k, v in n0f.items():
-            col = nid if k == node else nodes_df[k].to_numpy()  # reuse nid for the id col
-            nmask &= (col == v)
-        from_ids = nid[nmask]
+        # Successive subsetting, id-column first: the (int, unique) id filter
+        # reduces 250k -> ~1 row in one cheap pass, so any remaining (object)
+        # filters like label__X->type run on that tiny set instead of scanning
+        # the whole node frame. `from_pos` tracks positions into nodes_df.
+        from_pos = np.arange(len(nodes_df))
+        for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
+            col = (nid if k == node else nodes_df[k].to_numpy())[from_pos]
+            from_pos = from_pos[col == v]
+            if from_pos.size == 0:
+                break
+        from_ids = nid[from_pos]
         from_vals = edges_df[from_col].to_numpy()
         seed_mask = (from_vals == from_ids[0]) if len(from_ids) == 1 else np.isin(from_vals, from_ids)
         edges = edges_df[seed_mask]
@@ -757,6 +771,74 @@ def _seeded_typed_hop_numpy_pandas(g, n0, n2, e1, src, dst, node, direction):
         fep = np.unique(np.concatenate([edges[src].to_numpy(), edges[dst].to_numpy()]))
         cand = cand[np.isin(cand_ids, fep)]
     return g.nodes(cand).edges(edges)
+
+
+def _seeded_typed_return_dst_pandas(g, n0, n2, e1, src, dst, node, direction):
+    """#1755 cypher RETURN-alias fast path: like _seeded_typed_hop_numpy_pandas but
+    returns ONLY the destination (RETURN-alias) node rows + surviving edges — no
+    seed-node gather, no Plottable round-trip — so the seeded cypher projection
+    lands sub-ms. Returns ``(dst_node_rows, edges)`` or None to fall back."""
+    import numpy as np
+    import pandas as pd
+    if direction == "undirected":
+        return None
+    nodes_df, edges_df = g._nodes, g._edges
+
+    def _sc(fd, df):
+        if not fd:
+            return {}
+        out: Dict[str, Any] = {}
+        for k, v in fd.items():
+            if not isinstance(v, (int, float, str, bool)):
+                return None
+            if k in df.columns:
+                out[k] = v
+            elif isinstance(k, str) and k.startswith("label__") and v is True and "type" in df.columns:
+                out["type"] = k[len("label__"):]
+            else:
+                return None
+        return out
+
+    n0f, n2f, ef = _sc(n0.filter_dict, nodes_df), _sc(n2.filter_dict, nodes_df), _sc(e1.edge_match, edges_df)
+    if n0f is None or n2f is None or ef is None or not n0f:
+        return None
+    from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
+    nid = nodes_df[node].to_numpy()
+    # id-first successive subset. The first (id) filter scans the full id array
+    # once; later filters index the already-tiny survivor rows via .iloc, so an
+    # object column like label__X->type is never fully materialized.
+    from_pos: Optional[Any] = None
+    for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
+        if from_pos is None:
+            base = nid if k == node else nodes_df[k].to_numpy()
+            from_pos = np.flatnonzero(base == v)
+        else:
+            sub = nid[from_pos] if k == node else nodes_df[k].iloc[from_pos].to_numpy()
+            from_pos = from_pos[sub == v]
+        if from_pos.size == 0:
+            break
+    from_ids = nid[from_pos] if from_pos is not None and from_pos.size else nid[:0]
+    if from_ids.size == 0:
+        return nodes_df.iloc[0:0], edges_df.iloc[0:0]
+    fv = edges_df[from_col].to_numpy()
+    seed_mask = (fv == from_ids[0]) if from_ids.size == 1 else np.isin(fv, from_ids)
+    edges = edges_df[seed_mask]
+    if ef:
+        tmask = np.ones(len(edges), dtype=bool)
+        for k, v in ef.items():
+            tmask &= (edges[k].to_numpy() == v)
+        edges = edges[tmask]
+    to_vals = edges[to_col].to_numpy()
+    dst_ids = np.unique(to_vals[~pd.isna(to_vals)])
+    dstn = nodes_df[np.isin(nid, dst_ids)]
+    if n2f:
+        dm = np.ones(len(dstn), dtype=bool)
+        for k, v in n2f.items():
+            dm &= (dstn[k].to_numpy() == v)
+        dstn = dstn[dm]
+    edges = edges[np.isin(edges[to_col].to_numpy(), dstn[node].to_numpy())]
+    dstn = dstn[np.isin(dstn[node].to_numpy(), edges[to_col].to_numpy())].drop_duplicates(subset=[node])
+    return dstn, edges
 
 
 def _try_chain_fast_path(
