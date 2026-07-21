@@ -205,6 +205,35 @@ def test_binding_rows_seed_pandas_and_missing_id_col():
     assert binding_rows_polars(seeded_cart, cart) is None
 
 
+def test_with_match_reentry_binding_table_parity(monkeypatch):
+    """End-to-end parity for the case that routes the WITH re-entry seed through the multi-alias
+    BINDING-ROWS path (`binding_rows_polars`), not the single-alias hop path: a trailing MATCH that
+    binds two fresh aliases and RETURNs both forces a binding table, seeded from the carried WITH ids.
+    The direct-call tests above pin the seed branches in isolation; this proves the whole cypher
+    stack (lower -> reentry -> seeded binding_rows -> project) matches pandas on real output columns.
+    Guards that the seeded binding path is actually exercised, so it can't silently stop covering it."""
+    from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as _rp
+
+    seeded_calls = {"n": 0}
+    _orig = _rp.binding_rows_polars
+
+    def _counting(g, binding_ops, *a, **k):
+        if getattr(g, "_gfql_start_nodes", None) is not None:
+            seeded_calls["n"] += 1
+        return _orig(g, binding_ops, *a, **k)
+
+    monkeypatch.setattr(_rp, "binding_rows_polars", _counting)
+
+    # (friend)-[:HAS_CREATOR]-(a)-[:LINK]-(b): two fresh aliases + multi-alias RETURN -> binding table,
+    # with the first alias (friend) constrained to the carried WITH ids.
+    q = (
+        "MATCH (p {id:0})-[:KNOWS]-(friend) WITH DISTINCT friend "
+        "MATCH (friend)-[:HAS_CREATOR]-(a)-[:LINK]-(b) RETURN a.id AS aid, b.id AS bid"
+    )
+    _assert_parity(BASE, q)
+    assert seeded_calls["n"] > 0, "query did not route through the seeded binding_rows path"
+
+
 def test_scalar_carry_declines_cleanly_polars():
     """WITH that carries a scalar column ALONGSIDE the whole-row alias into the trailing MATCH is
     pandas-only so far; polars must DECLINE (NotImplementedError), never crash or silently diverge.
