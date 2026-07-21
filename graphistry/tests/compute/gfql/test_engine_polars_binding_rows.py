@@ -386,9 +386,20 @@ def test_polars_binding_rows_decline_branches_direct():
     no_edges = graphistry.nodes(pl.from_pandas(NODES), "id")
     assert binding_rows_polars(no_edges, bo) is None
 
+    # WITH->MATCH re-entry seed (#1273): a UNIQUE carried-id seed now lowers natively — the
+    # first alias is semi-joined to the seed ids (native twin of the pandas wavefront).
     seeded = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
     setattr(seeded, "_gfql_start_nodes", pl.DataFrame({"id": [0]}))
-    assert binding_rows_polars(seeded, bo) is None
+    seeded_out = binding_rows_polars(seeded, bo)
+    assert seeded_out is not None
+    # seed {0} -[F]-> b: EDGES forward from 0 with type F -> b in {1}; the bindings 'a' column
+    # is pinned to the seed and every row's 'a' id is 0.
+    seeded_rows = seeded_out._nodes
+    assert set(seeded_rows["a"].to_list()) == {0}
+    # A DUPLICATE-id seed still declines (semi-join would drop path multiplicity vs pandas).
+    dup = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
+    setattr(dup, "_gfql_start_nodes", pl.DataFrame({"id": [0, 0]}))
+    assert binding_rows_polars(dup, bo) is None
 
     g = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
     # node-only cartesian (#1273) is now natively supported for <=3 named aliases;
