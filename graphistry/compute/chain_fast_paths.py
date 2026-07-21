@@ -7,7 +7,7 @@ direction); this module imports only leaf modules (no back-edge into chain.py).
 """
 # ruff: noqa: E501
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, cast
 
 from graphistry.Plottable import Plottable
 from .ast import ASTNode, ASTEdge, Direction
@@ -174,25 +174,32 @@ def _seeded_typed_return_dst_polars(
         return None
     from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
 
-    # from-side seed: reduce the node frame to the seed rows, take their ids.
-    # Membership sets are drop_nulls()'d (null ids/endpoints never link, matching
-    # the full pipeline's joins) and passed via .implode() (Series-arg is_in is
-    # deprecated in polars 1.42, see polars#22149).
-    seed_nodes = nodes_df
+    # ONE fused lazy plan, collected once (#1755 lane-3): the eager form paid a fixed
+    # collect cost per op (~19 collects/exec = ~70% of the fast path's time). Same
+    # reduction — seed filter -> seed out-edges -> typed-edge filter -> destination
+    # nodes -> dangling drop/dedup — expressed with semi-joins over drop_nulls()'d id
+    # sets (null ids/endpoints never link, matching the full pipeline's joins; the
+    # old empty-seed early return is subsumed: an empty seed flows through to empty,
+    # schema-identical frames). Value-identical rows; row order may differ (documented
+    # contract; cypher without ORDER BY is unordered).
+    lf_nodes = nodes_df.lazy()
+    lf_edges = edges_df.lazy()
+    seed_lf = lf_nodes
     for k, v in n0f.items():
-        seed_nodes = seed_nodes.filter(pl.col(k) == v)
-    from_ids = seed_nodes.get_column(node).drop_nulls()
-    if from_ids.len() == 0:
-        return nodes_df.clear(), edges_df.clear()
-    edges = edges_df.filter(pl.col(from_col).is_in(from_ids.implode()))
+        seed_lf = seed_lf.filter(pl.col(k) == v)
+    from_ids_lf = seed_lf.select(pl.col(node).drop_nulls()).unique()
+    edges_lf = lf_edges.join(from_ids_lf, left_on=from_col, right_on=node, how="semi")
     for k, v in ef.items():  # typed edge on the reduced frontier
-        edges = edges.filter(pl.col(k) == v)
-    dst_ids = edges.get_column(to_col).drop_nulls().unique()
-    dstn = nodes_df.filter(pl.col(node).is_in(dst_ids.implode()))
+        edges_lf = edges_lf.filter(pl.col(k) == v)
+    dst_ids_lf = edges_lf.select(pl.col(to_col).drop_nulls().alias(node)).unique()
+    dstn_lf = lf_nodes.join(dst_ids_lf, on=node, how="semi")
     for k, v in n2f.items():  # destination-node filter
-        dstn = dstn.filter(pl.col(k) == v)
+        dstn_lf = dstn_lf.filter(pl.col(k) == v)
     # drop dangling edges + dedup destination nodes (mirror the pandas tail)
-    keep_ids = dstn.get_column(node).drop_nulls()
-    edges = edges.filter(pl.col(to_col).is_in(keep_ids.implode()))
-    dstn = dstn.filter(pl.col(node).is_in(edges.get_column(to_col).implode())).unique(subset=[node], maintain_order=True)
-    return dstn, edges
+    keep_ids_lf = dstn_lf.select(pl.col(node).drop_nulls()).unique()
+    edges_lf = edges_lf.join(keep_ids_lf, left_on=to_col, right_on=node, how="semi")
+    dstn_lf = dstn_lf.join(
+        edges_lf.select(pl.col(to_col).alias(node)).unique(), on=node, how="semi"
+    ).unique(subset=[node], maintain_order=True)
+    dstn, edges = pl.collect_all([dstn_lf, edges_lf])
+    return cast(DataFrameT, dstn), cast(DataFrameT, edges)
