@@ -1020,6 +1020,13 @@ def _execute_seeded_typed_hop_fast_path(
     if not (isinstance(n0, ASTNode) and isinstance(e1, ASTEdge)
             and isinstance(n2, ASTNode) and isinstance(call, ASTCall)):
         return None
+    # Only a genuine SINGLE hop. A variable-length edge (-[*1..2]->) is still one
+    # ASTEdge but expands to multiple hops, so the seeded 1-hop reduction below
+    # would silently truncate it. Reuse the same canonical gate the native fast
+    # path uses (also rejects hop labels / output slicing / fixed-point). See
+    # test_engine_polars_chain::TestVarlenAliasHopGate.
+    if not e1.is_simple_single_hop():
+        return None
     if call.function != "rows":
         return None
     node = getattr(base_graph, "_node", None)

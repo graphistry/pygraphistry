@@ -236,6 +236,10 @@ class TestCypherSeededTypedHop:
         ("MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR]->(p:Person) RETURN p.age", "field projection"),
         ("MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR]->(p:Person) RETURN m", "return source"),
         ("MATCH (p:Person)<-[:HAS_CREATOR]-(m:Message {{id: {s}}}) RETURN p", "reverse (seed on return node)"),
+        # variable-length edges are one ASTEdge but multiple hops — must decline or
+        # the 1-hop reduction silently truncates (regressed polars varlen parity).
+        ("MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR*1..2]->(p) RETURN p", "varlen range hop"),
+        ("MATCH (m:Message {{id: {s}}})-[*1..2]->(p) RETURN p", "varlen untyped hop"),
     ])
     def test_declines_and_stays_correct(self, cy_tmpl, reason):
         g, P = _graph()
