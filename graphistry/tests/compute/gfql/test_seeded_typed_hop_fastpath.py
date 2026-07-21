@@ -580,9 +580,9 @@ class TestPolarsFastPathGates:
             return r
         gfql_unified._execute_seeded_typed_hop_fast_path = spy
         try:
-            res = mixed.gfql(self._q(P + 1), engine="polars")
+            mixed.gfql(self._q(P + 1), engine="polars")
         except Exception:
-            res = None  # full path may or may not support mixed frames; no crash IN the fast path
+            pass  # full path may or may not support mixed frames; no crash IN the fast path
         finally:
             gfql_unified._execute_seeded_typed_hop_fast_path = real
         assert hits["n"] == 0, "fast path must not engage on mixed-engine frames"
