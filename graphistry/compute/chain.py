@@ -9,7 +9,7 @@ from graphistry.Engine import safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
 from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json, serialize_binding_ops
-from .typing import DataFrameT
+from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql.same_path_types import (
@@ -35,6 +35,112 @@ def _filter_edges_by_endpoint(
         return edges_df
     # isin() is set-membership, so the dropped .unique() is redundant (byte-identical).
     return edges_df[edges_df[edge_col].isin(nodes_df[node_id])]
+
+
+# ---------------------------------------------------------------------------
+# slice 5: cardinality-aware "lean combine" for seeded chains (#1755)
+#
+# The two-pass chain executor (_chain_impl backward pass + combine_steps) fires
+# full-graph `safe_merge`/`pandas.merge` calls to reconcile boundaries even when
+# the seeded result is a single row (root cause: #1755 / seeded-lookup-tax-
+# rootcause.md). Two hot merges scan the whole node frame:
+#   (a) backward pass: safe_merge(g._nodes, wavefront[[id]], how='inner')  -- 2x/op
+#   (b) combine tail:  safe_merge(out_df,  g._nodes/_edges,  how='left')
+# When the small side is much smaller than the full frame, we get the byte-
+# identical result far cheaper by an isin membership filter (no join-indexer /
+# block-consolidation machinery). Gated narrowly on cardinality + uniqueness so
+# the bulk/multi-source path is untouched.
+# ---------------------------------------------------------------------------
+
+import os as _os  # noqa: E402
+
+
+def _lean_combine_enabled() -> bool:
+    """Fast path is on by default; set GFQL_LEAN_COMBINE=0 to force the legacy
+    full-frame merges (used by the differential parity harness)."""
+    return _os.environ.get('GFQL_LEAN_COMBINE', '1') != '0'
+
+
+# Only engage when the small side is at least this many times smaller than the
+# full frame — below the gate the isin pre-pass is pure overhead vs the merge.
+_LEAN_SHRINK_RATIO = 4
+
+
+def _is_unique_ids(ids: SeriesT) -> bool:
+    """Cheap uniqueness probe on a (small) id Series, engine-agnostic."""
+    try:
+        n = len(ids)
+        if n <= 1:
+            return True
+        # pandas/cuDF both expose is_unique; fall back to nunique.
+        iu = getattr(ids, 'is_unique', None)
+        if iu is not None:
+            return bool(iu)
+        return int(ids.nunique()) == n
+    except Exception:
+        return False
+
+
+def _lean_engine_ok(engine: Engine) -> bool:
+    """Only pandas benefits: pandas' merge machinery (join-indexer build + block
+    consolidation) dominates the seeded chain, so an isin pre-filter is a large
+    win. On cuDF the GPU hash-join is already sub-ms and the extra isin pass +
+    boolean-mask gather is net-negative (measured dgx-spark 26.02, ~0.95-0.99x),
+    so the fast path stays off there. polars/dask/spark take their own engines."""
+    return engine == Engine.PANDAS
+
+
+def _lean_intersect_full(full: DataFrameT, key_frame: DataFrameT, key: str, engine: Engine) -> Optional[DataFrameT]:
+    """Byte-identical replacement for ``safe_merge(full, key_frame[[key]], on=key,
+    how='inner')`` when ``key_frame`` carries only ``key`` and is small + unique.
+
+    ``full`` is the whole node frame (unique on ``key``); the inner merge keeps
+    exactly the ``full`` rows whose id is in ``key_frame`` (1:1, ``full`` order,
+    ``full`` columns), which is precisely an isin filter. Returns ``None`` to
+    signal "not applicable — use the merge" (guards fan-out / column carry).
+    """
+    if not _lean_combine_enabled() or not _lean_engine_ok(engine):
+        return None
+    if key not in full.columns or key not in key_frame.columns:
+        return None
+    try:
+        full_len = len(full)
+        small_len = len(key_frame)
+    except Exception:
+        return None
+    if small_len == 0:
+        return None
+    if small_len * _LEAN_SHRINK_RATIO > full_len:
+        return None  # not enough size gap to be worth the isin pass
+    # key_frame must contribute no columns beyond key, and be unique on key, else
+    # the inner merge would fan out / add columns and diverge from an isin filter.
+    if list(key_frame.columns) != [key]:
+        return None
+    if not _is_unique_ids(key_frame[key]):
+        return None
+    out = full[full[key].isin(key_frame[key])]
+    # match the merge's RangeIndex so any positional downstream use is identical.
+    return out.reset_index(drop=True)
+
+
+def _lean_prefilter_right(left: DataFrameT, right: DataFrameT, key: str, engine: Engine) -> DataFrameT:
+    """Shrink ``right`` to the keys present in ``left`` before a ``how='left'``
+    merge. A left merge discards unmatched ``right`` rows anyway, so this is
+    byte-identical (row order = ``left`` order; matched right rows preserved,
+    including any fan-out). Only shrinks when ``left`` is materially smaller.
+    """
+    if not _lean_combine_enabled() or not _lean_engine_ok(engine):
+        return right
+    if key not in left.columns or key not in right.columns:
+        return right
+    try:
+        left_len = len(left)
+        right_len = len(right)
+    except Exception:
+        return right
+    if left_len == 0 or left_len * _LEAN_SHRINK_RATIO > right_len:
+        return right
+    return right[right[key].isin(left[key])]
 
 
 class Chain(ASTSerializable):
@@ -413,7 +519,12 @@ def combine_steps(
                 out_df = out_df[~has_na | has_tag]
 
     g_df = getattr(g, df_fld)
-    out_df = safe_merge(out_df, g_df, on=id, how='left', engine=engine)
+    # slice 5 (#1755): a seeded result attaches the full node/edge frame via a
+    # how='left' merge whose big side (g_df) is scanned in full even for a 1-row
+    # out_df. Pre-shrink g_df to the ids actually present (unmatched rows are
+    # dropped by how='left' regardless) so the join runs small-vs-small.
+    g_df_join = _lean_prefilter_right(out_df, g_df, id, engine) if id in out_df.columns else g_df
+    out_df = safe_merge(out_df, g_df_join, on=id, how='left', engine=engine)
 
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug('COMBINED[%s] >> %s', kind, dbg_df(out_df))
@@ -1050,7 +1161,12 @@ def _chain_impl(
                     prev_orig_step = g_stack[-(len(g_stack_reverse) + 2)]
                 prev_wavefront_nodes = prev_loop_step._nodes
                 if g._node is not None and prev_wavefront_nodes is not None and g._nodes is not None:
-                    prev_wavefront_nodes = safe_merge(
+                    # slice 5 (#1755): re-attach full node columns to the reverse
+                    # wavefront. The inner merge scans all of g._nodes; when the
+                    # wavefront is tiny (seeded chain), the byte-identical result
+                    # is an isin membership filter (see _lean_intersect_full).
+                    _lean = _lean_intersect_full(g._nodes, prev_wavefront_nodes[[g._node]], g._node, engine_concrete)
+                    prev_wavefront_nodes = _lean if _lean is not None else safe_merge(
                         g._nodes,
                         prev_wavefront_nodes[[g._node]],
                         on=g._node,
@@ -1059,7 +1175,8 @@ def _chain_impl(
                     )
                 target_wave_front_nodes = prev_orig_step._nodes if prev_orig_step is not None else None
                 if g._node is not None and target_wave_front_nodes is not None and g._nodes is not None:
-                    target_wave_front_nodes = safe_merge(
+                    _lean = _lean_intersect_full(g._nodes, target_wave_front_nodes[[g._node]], g._node, engine_concrete)
+                    target_wave_front_nodes = _lean if _lean is not None else safe_merge(
                         g._nodes,
                         target_wave_front_nodes[[g._node]],
                         on=g._node,
