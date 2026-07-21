@@ -969,6 +969,94 @@ def _connected_join_two_star_fast_grouped_count(
             if shared_ids is None or first_leaf_ids is None or second_leaf_ids is None:
                 return None
         else:
+            # FUSED lazy lane (#1755 lane-1): when every residual translates natively,
+            # express the whole two-star grouped-count as ONE lazy plan and collect
+            # once at the join. The eager path below pays a fixed collect cost per op
+            # (~27 collects/exec dominated q5-q7 profiles); the plan is value-identical
+            # — same filters/semi-joins/aggregation — minus two perf-only shortcuts
+            # (leaf-singleton edge prefilter; the all-left-counts==1 early count),
+            # both provably result-equivalent to the generic join+sum path.
+            from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_expr_by_dict_polars
+            frame_aliases = {shared_alias, first_end_alias, second_end_alias}
+            node_schema = dict(nodes.schema)
+            residual_exprs: Dict[str, List[Any]] = {}
+            fused_ok = True
+            for r_alias, r_exprs in residual_map.items():
+                if r_alias not in frame_aliases:
+                    continue  # mirror the eager path: residuals for unbound aliases are not applied here
+                r_translated = [_residual_polars_expr(e, r_alias, node_schema) for e in r_exprs]
+                if any(t is None for t in r_translated):
+                    fused_ok = False
+                    break
+                residual_exprs[r_alias] = [t for t in r_translated if t is not None]
+            if fused_ok:
+                for _, prop in group_prop_refs:
+                    if prop not in nodes.columns:
+                        return None
+                lf_nodes = nodes.lazy()
+                lf_edges = edges.lazy()
+
+                def _alias_nodes_lf(fds: List[Optional[dict]], r_alias: str) -> Any:
+                    lf = lf_nodes
+                    for fd in fds:
+                        fe = filter_expr_by_dict_polars(nodes, cast(Optional[dict], fd))
+                        if fe is not None:
+                            lf = lf.filter(fe)
+                    for rexpr in residual_exprs.get(r_alias, []):
+                        lf = lf.filter(rexpr)
+                    return lf
+
+                shared_lf = _alias_nodes_lf([first_start.filter_dict, second_start.filter_dict], shared_alias)
+                second_leaf_lf = _alias_nodes_lf([second_end.filter_dict], second_end_alias)
+                shared_ids_lf = shared_lf.select(node_col).unique()
+                first_leaf_ids_lf = _alias_nodes_lf([first_end.filter_dict], first_end_alias).select(node_col).unique()
+                second_leaf_ids_lf = second_leaf_lf.select(node_col).unique()
+                fe1 = filter_expr_by_dict_polars(edges, cast(Optional[dict], first_edge.edge_match))
+                fe2 = filter_expr_by_dict_polars(edges, cast(Optional[dict], second_edge.edge_match))
+                first_edges_lf = lf_edges.filter(fe1) if fe1 is not None else lf_edges
+                second_edges_lf = lf_edges.filter(fe2) if fe2 is not None else lf_edges
+                left_counts_lf = (
+                    first_edges_lf
+                    .join(shared_ids_lf, left_on=src_col, right_on=node_col, how="semi")
+                    .join(first_leaf_ids_lf, left_on=dst_col, right_on=node_col, how="semi")
+                    .group_by(src_col)
+                    .len("__left_count__")
+                    .rename({src_col: shared_alias})
+                )
+                right_base_lf = (
+                    second_edges_lf
+                    .join(shared_ids_lf, left_on=src_col, right_on=node_col, how="semi")
+                    .join(second_leaf_ids_lf, left_on=dst_col, right_on=node_col, how="semi")
+                )
+                if group_prop_refs:
+                    fused_lookup_key = "__gfql_fast_second_leaf_id__"
+                    lookup_lf = second_leaf_lf.select(
+                        [pl.col(node_col).alias(fused_lookup_key)]
+                        + [pl.col(prop).alias(out_col) for out_col, prop in group_prop_refs]
+                    ).unique(subset=[fused_lookup_key])
+                    right_base_lf = right_base_lf.join(lookup_lf, left_on=dst_col, right_on=fused_lookup_key, how="inner")
+                right_rows_lf = right_base_lf.select(
+                    [pl.col(src_col).alias(shared_alias)] + [pl.col(key) for key in output_group_keys]
+                )
+                joined = right_rows_lf.join(left_counts_lf, on=shared_alias, how="inner").collect()
+                if len(joined) == 0:
+                    return cast(DataFrameT, joined.select([]))
+                if output_group_keys:
+                    out_df = joined.group_by(output_group_keys, maintain_order=True).agg(
+                        pl.col("__left_count__").sum().cast(pl.Int64).alias(agg_alias))
+                else:
+                    out_df = joined.select(pl.col("__left_count__").sum().cast(pl.Int64).alias(agg_alias))
+                if order_keys:
+                    out_df = out_df.sort(
+                        [key for key, _ in order_keys],
+                        descending=[desc for _, desc in order_keys],
+                        nulls_last=[not desc for _, desc in order_keys],
+                    )
+                if limit_value is not None:
+                    out_df = out_df.head(limit_value)
+                if select_items is not None:
+                    out_df = out_df.select([pl.col(s_col).alias(d_col) for s_col, d_col in select_items])
+                return cast(DataFrameT, out_df)
             shared_nodes = filter_by_dict_polars(nodes, cast(Optional[dict], first_start.filter_dict))
             shared_nodes = filter_by_dict_polars(shared_nodes, cast(Optional[dict], second_start.filter_dict))
             first_leaf_nodes = filter_by_dict_polars(nodes, cast(Optional[dict], first_end.filter_dict))

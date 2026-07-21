@@ -309,10 +309,22 @@ def _is_cross_type_predicate(df: "pl.DataFrame", col: str, pred: ASTPredicate) -
 
 def filter_by_dict_polars(df: "pl.DataFrame", filter_dict: "Optional[Dict[str, Any]]") -> "pl.DataFrame":
     """Return rows of polars ``df`` matching all entries in ``filter_dict`` via one filter."""
+    combined = filter_expr_by_dict_polars(df, filter_dict)
+    if combined is None:
+        return df
+    return df.filter(combined)
+
+
+def filter_expr_by_dict_polars(df: "pl.DataFrame", filter_dict: "Optional[Dict[str, Any]]") -> "Optional[pl.Expr]":
+    """Build the combined boolean ``pl.Expr`` filter_by_dict_polars would apply, or None
+    for an empty/absent filter dict. ``df`` supplies the schema for column/dtype
+    resolution only — callers may apply the expr to a LazyFrame over the same schema
+    (the fused connected-join lane), with identical semantics incl. the same typed
+    error/NIE contract for unsupported shapes."""
     import polars as pl
 
     if not filter_dict:
-        return df
+        return None
 
     exprs: "List[pl.Expr]" = []
     for col, val in filter_dict.items():
@@ -373,8 +385,8 @@ def filter_by_dict_polars(df: "pl.DataFrame", filter_dict: "Optional[Dict[str, A
             exprs.append(pl.col(resolved_col) == resolved_val)
 
     if not exprs:
-        return df
+        return None
     combined = exprs[0]
     for e in exprs[1:]:
         combined = combined & e
-    return df.filter(combined)
+    return combined

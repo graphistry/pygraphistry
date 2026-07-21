@@ -216,3 +216,67 @@ class TestResidualDtypeAndEscapeGates:
         with pytest.raises(NotImplementedError):
             fp._connected_join_apply_node_residuals(
                 g, nodes, "a", ["(a.name >= 25)"], "node_id", engine=Engine.POLARS)
+
+
+class TestFusedTwoStarLane:
+    """#1755 lane-1: the fused single-collect two-star plan must be value-identical
+    to the eager path (which it replaces when residuals translate natively)."""
+
+    def _star_graph(self):
+        pl2 = pytest.importorskip("polars")
+        ndf = pl2.DataFrame({
+            "node_id": list(range(1, 11)),
+            "node_type": ["Person"] * 4 + ["Interest"] * 3 + ["City"] * 3,
+            "interest": [None] * 4 + ["Fine Dining", "fine dining", "tennis"] + [None] * 3,
+            "city": [None] * 7 + ["London", "london", "Paris"],
+            "gender": ["male", "female", "male", "female"] + [None] * 6,
+        })
+        edf = pl2.DataFrame({
+            "src": [1, 1, 2, 2, 3, 4, 1, 2, 3, 4],
+            "dst": [5, 6, 5, 7, 6, 5, 8, 8, 9, 10],
+            "rel": ["HAS_INTEREST"] * 6 + ["LIVES_IN"] * 4,
+        })
+        return graphistry.nodes(ndf, "node_id").edges(edf, "src", "dst")
+
+    Q = ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+         "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+         "WHERE toLower(i.interest) = toLower('FINE DINING') AND p.gender = 'male' "
+         "RETURN c.city AS city, count(*) AS n ORDER BY n DESC, city LIMIT 5")
+
+    @requires_polars
+    def test_fused_matches_eager_chain_path(self, monkeypatch):
+        g = self._star_graph()
+        fused = g.gfql(self.Q, engine="polars")
+        # forcing every translation to decline disables the fused lane AND the
+        # residual fast lane -> full eager path + where_rows chain fallback
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        eager = g.gfql(self.Q, engine="polars")
+
+        def rows(res):
+            df = res._nodes
+            df = df.to_pandas() if hasattr(df, "to_pandas") else df
+            return df.to_dict("records")
+        assert rows(fused) == rows(eager)
+        assert rows(fused)  # non-empty: ORDER BY pinned, exact row order compared
+
+    @requires_polars
+    def test_fused_empty_result(self, monkeypatch):
+        g = self._star_graph()
+        q = self.Q.replace("FINE DINING", "no such interest")
+        fused = g.gfql(q, engine="polars")
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        eager = g.gfql(q, engine="polars")
+        def shape(res):
+            df = res._nodes
+            df = df.to_pandas() if hasattr(df, "to_pandas") else df
+            return (len(df), sorted(map(str, df.columns)))
+        assert shape(fused) == shape(eager)
+
+    @requires_polars
+    def test_fused_matches_pandas_oracle(self):
+        g = self._star_graph()
+        gpd = graphistry.nodes(g._nodes.to_pandas(), "node_id").edges(g._edges.to_pandas(), "src", "dst")
+        got = g.gfql(self.Q, engine="polars")._nodes
+        got = (got.to_pandas() if hasattr(got, "to_pandas") else got).to_dict("records")
+        oracle = gpd.gfql(self.Q, engine="pandas")._nodes.to_dict("records")
+        assert got == oracle
