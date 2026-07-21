@@ -820,7 +820,7 @@ def _seeded_typed_return_dst_pandas_cudf(
 
 def _seeded_typed_return_dst_polars(
     g: Plottable, n0: ASTNode, n2: ASTNode, e1: ASTEdge,
-    src: str, dst: str, node: str, direction: str,
+    src: str, dst: str, node: str, direction: Direction,
 ) -> Optional[Tuple[DataFrameT, DataFrameT]]:
     """#1755 polars analog of _seeded_typed_return_dst_pandas_cudf: same seed-first
     reduction (seed out-edges -> typed-edge filter -> destination nodes) expressed
