@@ -40,10 +40,39 @@ def _graph(n_persons=1500, n_messages=6000, seed=0):
 
 
 def _canon_nodes(res):
-    df = pd.DataFrame(res._nodes)
+    nodes = res._nodes
+    df = nodes.to_pandas() if hasattr(nodes, "to_pandas") else pd.DataFrame(nodes)
     cols = sorted(str(c) for c in df.columns)
     df.columns = [str(c) for c in df.columns]
     return df.sort_values(cols).reset_index(drop=True)[cols] if cols else df
+
+
+def _engine_graph(engine):
+    """Build the probe graph in the requested engine (cuDF skips if unavailable)."""
+    g, P = _graph()
+    if engine == "pandas":
+        return g, P
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        return graphistry.nodes(
+            cudf.from_pandas(pd.DataFrame(g._nodes)), "id"
+        ).edges(cudf.from_pandas(pd.DataFrame(g._edges)), "src", "dst"), P
+    raise ValueError(engine)
+
+
+def _run_diff(g, engine, query, fast):
+    """Run `query` with BOTH seeded fast paths (native + cypher) either live or
+    forced-off, so a single differential asserts fast==full for any shape/engine."""
+    real_native = chain_mod._try_chain_fast_path
+    real_cyp = gfql_unified._execute_seeded_typed_hop_fast_path
+    try:
+        if not fast:
+            chain_mod._try_chain_fast_path = lambda *a, **k: None
+            gfql_unified._execute_seeded_typed_hop_fast_path = lambda *a, **k: None
+        return g.gfql(query, engine=engine)
+    finally:
+        chain_mod._try_chain_fast_path = real_native
+        gfql_unified._execute_seeded_typed_hop_fast_path = real_cyp
 
 
 def _oracle_creators(g, seed):
@@ -262,3 +291,56 @@ class TestCypherSeededTypedHop:
         full = self._run(g, cy, force_full=True)
         assert hits["n"] == 0, f"fast path must decline {reason}"
         pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+
+
+# ---------------------------------------------------------------------------
+# Differential fast-vs-full sweep across shapes × engines
+# ---------------------------------------------------------------------------
+
+class TestSeededFastPathDifferentialSweep:
+    """Broad fast-vs-full byte-parity across a matrix of seeded shapes × engines.
+
+    Answers the coverage question: is every ENGAGED shape verified through BOTH
+    the fast path and the full path, on every supported engine (pandas + cuDF)?
+    This complements the ~1114 implicit DECLINE-path exercises the cypher
+    conformance suite already drives through `_execute_seeded_typed_hop_fast_path`
+    (real queries that fall through and still return correct values). Here we pin
+    the ENGAGED shapes byte-identical fast-vs-full so the specialization can never
+    silently diverge from the general path on any covered engine."""
+
+    SHAPES = {
+        "native_typed": lambda s: [n({"id": s}), e_forward(edge_match={"type": "HAS_CREATOR"}), n({"type": "Person"})],
+        "native_untyped": lambda s: [n({"id": s}), e_forward(), n()],
+        "native_reverse": lambda s: [n({"type": "Person"}), e_reverse(edge_match={"type": "HAS_CREATOR"}), n({"id": s})],
+        "native_type_src": lambda s: [n({"type": "Message"}), e_forward(edge_match={"type": "HAS_CREATOR"}), n({"type": "Person"})],
+        "cypher_p_labelled": lambda s: f"MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR]->(p:Person) RETURN p",
+        "cypher_p_unlabelled": lambda s: f"MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR]->(p) RETURN p",
+        "cypher_no_match": lambda s: "MATCH (m:Message {id: 9999999})-[:HAS_CREATOR]->(p:Person) RETURN p",
+    }
+
+    @pytest.mark.parametrize("engine", ["pandas", "cudf"])
+    @pytest.mark.parametrize("shape", list(SHAPES))
+    def test_fast_vs_full_parity(self, engine, shape):
+        g, P = _engine_graph(engine)
+        query = self.SHAPES[shape](P + 42)
+        fast = _run_diff(g, engine, query, fast=True)
+        full = _run_diff(g, engine, query, fast=False)
+        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+
+    @pytest.mark.parametrize("engine", ["pandas", "cudf"])
+    def test_engaged_shapes_match_independent_oracle(self, engine):
+        """The two headline engaged shapes must equal the hand-computed creator set
+        (native = {seed} ∪ creators; cypher RETURN p = creators) on each engine —
+        not merely fast==full, since the full path could share a bug."""
+        g, P = _engine_graph(engine)
+        pd_g, _ = _graph()  # pandas twin for the independent oracle
+        seed = P + 42
+        oracle = _oracle_creators(pd_g, seed)
+        assert len(oracle) >= 1
+        native = _run_diff(g, engine, self.SHAPES["native_typed"](seed), fast=True)
+        got_native = sorted(_canon_nodes(native)["id"].tolist())
+        assert got_native == sorted(set(oracle) | {seed})
+        cyp = _run_diff(g, engine, self.SHAPES["cypher_p_labelled"](seed), fast=True)
+        cdf = _canon_nodes(cyp)
+        idc = "p.id" if "p.id" in cdf.columns else "id"
+        assert sorted(cdf[idc].tolist()) == oracle
