@@ -38,7 +38,9 @@ def _pl_graph(nodes):
     return graphistry.nodes(nodes, "node_id").edges(edges, "src", "dst")
 
 
-COLS = ["node_id", "name", "age", "score"]
+def COLS():
+    """Schema of the _pl_nodes fixture (the translator now dtype-gates)."""
+    return dict(_pl_nodes().schema)
 
 
 def _canon(df):
@@ -50,14 +52,14 @@ def _canon(df):
 class TestResidualTranslator:
     @requires_polars
     def test_tolower_eq_casefold(self):
-        expr = fp._residual_polars_expr("(tolower(a.name) = tolower('ALICE'))", "a", COLS)
+        expr = fp._residual_polars_expr("(tolower(a.name) = tolower('ALICE'))", "a", COLS())
         assert expr is not None
         out = _pl_nodes().filter(expr)
         assert sorted(out["node_id"].to_list()) == [1, 2]
 
     @requires_polars
     def test_tolower_eq_null_dropped(self):
-        expr = fp._residual_polars_expr("(tolower(a.name) = tolower('bob'))", "a", COLS)
+        expr = fp._residual_polars_expr("(tolower(a.name) = tolower('bob'))", "a", COLS())
         out = _pl_nodes().filter(expr)
         assert sorted(out["node_id"].to_list()) == [3, 6]  # null name row 4 dropped
 
@@ -70,7 +72,7 @@ class TestResidualTranslator:
         ("<", "30", [2, 6]),
     ])
     def test_scalar_int_cmp(self, op, lit, expected):
-        expr = fp._residual_polars_expr(f"(a.age {op} {lit})", "a", COLS)
+        expr = fp._residual_polars_expr(f"(a.age {op} {lit})", "a", COLS())
         assert expr is not None
         out = _pl_nodes().filter(expr)
         # null age (row 3) always dropped: null comparison -> null -> filtered
@@ -78,20 +80,20 @@ class TestResidualTranslator:
 
     @requires_polars
     def test_scalar_float_cmp(self):
-        expr = fp._residual_polars_expr("(a.score >= 2.5)", "a", COLS)
+        expr = fp._residual_polars_expr("(a.score >= 2.5)", "a", COLS())
         out = _pl_nodes().filter(expr)
         assert sorted(out["node_id"].to_list()) == [2, 3, 6]
 
     @requires_polars
     def test_scalar_string_eq(self):
-        expr = fp._residual_polars_expr("(a.name = 'BOB')", "a", COLS)
+        expr = fp._residual_polars_expr("(a.name = 'BOB')", "a", COLS())
         out = _pl_nodes().filter(expr)
         assert out["node_id"].to_list() == [3]  # exact case, unlike tolower
 
     @requires_polars
     def test_negative_int_literal(self):
         nodes = pl.DataFrame({"node_id": [1, 2], "delta": [-5, 5]})
-        expr = fp._residual_polars_expr("(a.delta < -1)", "a", ["node_id", "delta"])
+        expr = fp._residual_polars_expr("(a.delta < -1)", "a", dict(nodes.schema))
         assert expr is not None
         assert nodes.filter(expr)["node_id"].to_list() == [1]
 
@@ -106,7 +108,7 @@ class TestResidualTranslator:
         "(a.missing = 25)",             # absent column
     ])
     def test_unsupported_shapes_decline(self, bad):
-        assert fp._residual_polars_expr(bad, "a", COLS) is None
+        assert fp._residual_polars_expr(bad, "a", COLS()) is None
 
 
 class TestResidualApplyFastLane:
@@ -172,3 +174,45 @@ class TestResidualApplyFastLane:
             g, nodes, "a", ["(tolower(a.name) = tolower('alice'))"], "node_id",
             engine=Engine.PANDAS)
         assert sorted(out["node_id"].tolist()) == [1, 2]
+
+
+class TestResidualDtypeAndEscapeGates:
+    """Review-skill wave (#1763): escaped literals + dtype mismatches must DECLINE
+    so the chain fallback keeps the evaluator's exact semantics (unescaping, or the
+    designed parity-or-error NotImplementedError) instead of raw polars behavior."""
+
+    @requires_polars
+    def test_escaped_literal_declines(self):
+        # renderer escapes ' \\ \n etc to \uXXXX text; raw regex compare would mismatch
+        assert fp._residual_polars_expr(
+            "(tolower(a.name) = tolower('It\\u0027s'))", "a", COLS()) is None
+        assert fp._residual_polars_expr(
+            "(a.name = 'C:\\u005Cx')", "a", COLS()) is None
+
+    @requires_polars
+    @pytest.mark.parametrize("expr", [
+        "(a.age = 'thirty')",           # string literal vs numeric column
+        "(tolower(a.age) = tolower('x'))",  # tolower on numeric column
+        "(a.name >= 25)",               # numeric literal vs string column
+    ])
+    def test_dtype_mismatch_declines(self, expr):
+        assert fp._residual_polars_expr(expr, "a", COLS()) is None
+
+    @requires_polars
+    def test_categorical_column_declines(self):
+        nodes = pl.DataFrame({"node_id": [1], "cat": ["x"]}).with_columns(
+            pl.col("cat").cast(pl.Categorical))
+        assert fp._residual_polars_expr(
+            "(tolower(a.cat) = tolower('x'))", "a", dict(nodes.schema)) is None
+        assert fp._residual_polars_expr("(a.cat = 'x')", "a", dict(nodes.schema)) is None
+
+    @requires_polars
+    def test_dtype_mismatch_group_reaches_designed_error(self):
+        """End-to-end at the apply level: the group falls back whole and the chain
+        evaluator raises its designed parity-or-error NotImplementedError (never a
+        raw polars ComputeError)."""
+        nodes = _pl_nodes()
+        g = _pl_graph(nodes)
+        with pytest.raises(NotImplementedError):
+            fp._connected_join_apply_node_residuals(
+                g, nodes, "a", ["(a.name >= 25)"], "node_id", engine=Engine.POLARS)
