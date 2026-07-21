@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.ast import n, e_forward
+from graphistry.compute.ast import n, e_forward, e_reverse
 from graphistry.compute.chain import (
     _is_unique_ids,
     _lean_combine_enabled,
@@ -99,6 +99,10 @@ def test_lean_intersect_full_declines_when_not_applicable():
     assert _lean_intersect_full(full, dup, "id", Engine.PANDAS) is None
     # non-pandas engine -> decline
     assert _lean_intersect_full(full, pd.DataFrame({"id": [1]}), "id", Engine.CUDF) is None
+    # null in the (small) key frame -> decline (isin matches nulls, merge is
+    # version-dependent; declining keeps the equivalence version-independent)
+    nullkey = pd.DataFrame({"id": [1.0, np.nan]})
+    assert _lean_intersect_full(full.astype({"id": float}), nullkey, "id", Engine.PANDAS) is None
     # disabled -> decline
     os.environ['GFQL_LEAN_COMBINE'] = '0'
     assert _lean_intersect_full(full, pd.DataFrame({"id": [1]}), "id", Engine.PANDAS) is None
@@ -159,18 +163,40 @@ def test_lean_path_actually_engages(monkeypatch):
     must fire at least once (return a non-None frame)."""
     import graphistry.compute.chain as chain_mod
 
-    real = chain_mod._lean_intersect_full
-    hits = {"non_none": 0}
+    real_intersect = chain_mod._lean_intersect_full
+    real_prefilter = chain_mod._lean_prefilter_right
+    hits = {"intersect": 0, "prefilter": 0}
 
-    def _spy(full, key_frame, key, engine):
-        out = real(full, key_frame, key, engine)
+    def _spy_intersect(full, key_frame, key, engine):
+        out = real_intersect(full, key_frame, key, engine)
         if out is not None:
-            hits["non_none"] += 1
+            hits["intersect"] += 1
         return out
 
-    monkeypatch.setattr(chain_mod, "_lean_intersect_full", _spy)
+    def _spy_prefilter(left, right, key, engine):
+        out = real_prefilter(left, right, key, engine)
+        # engaged iff it actually shrank the right frame
+        try:
+            if len(out) < len(right):
+                hits["prefilter"] += 1
+        except Exception:
+            pass
+        return out
+
+    monkeypatch.setattr(chain_mod, "_lean_intersect_full", _spy_intersect)
+    monkeypatch.setattr(chain_mod, "_lean_prefilter_right", _spy_prefilter)
     os.environ['GFQL_LEAN_COMBINE'] = '1'
     g, n_persons = _seeded_graph()
     seed_msg = n_persons + 456
-    g.gfql([n({"id": seed_msg}), e_forward(), n({"type": "Person"})], engine='pandas')
-    assert hits["non_none"] >= 1
+    # A MULTI-hop seeded chain with a backward reconciliation: the single-hop
+    # degenerate fast path (#1755) intercepts a seeded 1-hop before combine_steps,
+    # so lean-combine (which optimizes combine_steps + the backward pass) is
+    # exercised by a chain that actually reaches those passes. fwd->typed->rev
+    # engages BOTH lean helpers (combine intersect + backward-pass prefilter).
+    g.gfql(
+        [n({"id": seed_msg}), e_forward(), n({"type": "Person"}), e_reverse(), n()],
+        engine='pandas',
+    )
+    # both lean paths must fire on a seeded chain (else parity tests are vacuous)
+    assert hits["intersect"] >= 1
+    assert hits["prefilter"] >= 1

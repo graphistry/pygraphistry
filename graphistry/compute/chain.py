@@ -118,6 +118,12 @@ def _lean_intersect_full(full: DataFrameT, key_frame: DataFrameT, key: str, engi
         return None
     if not _is_unique_ids(key_frame[key]):
         return None
+    # isin() matches nulls, but merge's null-key semantics are version-dependent;
+    # only the (small) key_frame need be null-free for equivalence: if it carries
+    # no null, both isin and inner-merge drop full's null-id rows identically,
+    # regardless of nulls in full. Checking the small side keeps this O(small).
+    if bool(key_frame[key].isna().any()):
+        return None
     out = full[full[key].isin(key_frame[key])]
     # match the merge's RangeIndex so any positional downstream use is identical.
     return out.reset_index(drop=True)
