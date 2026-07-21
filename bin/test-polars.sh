@@ -30,11 +30,14 @@ POLARS_TEST_FILES=(
     # index tests exercise the seeded-index hook in the polars hop entry (hop.py) — without
     # them the hook dominates the now-thin file and trips its per-file coverage floor
     graphistry/tests/compute/gfql/index/test_index.py
+    # engine-agnostic frame/series primitives (graphistry/Engine.py) — the polars branches of
+    # these dispatch helpers are only measured when this lane covers graphistry (see cov widen below)
+    graphistry/tests/test_engine_frame_helpers.py
 )
 
 COV_ARGS=()
 if [ -n "${POLARS_COV:-}" ]; then
-    COV_ARGS=(--cov=graphistry/compute --cov-report=)
+    COV_ARGS=(--cov=graphistry --cov-report=)
 fi
 
 python -B -m pytest -vv "${COV_ARGS[@]}" "${POLARS_TEST_FILES[@]}" "$@"
@@ -43,7 +46,7 @@ python -B -m pytest -vv "${COV_ARGS[@]}" "${POLARS_TEST_FILES[@]}" "$@"
 # appended into the same coverage data file when POLARS_COV=1 (CI audit reads it)
 COV_APPEND_ARGS=()
 if [ -n "${POLARS_COV:-}" ]; then
-    COV_APPEND_ARGS=(--cov=graphistry/compute --cov-report= --cov-append)
+    COV_APPEND_ARGS=(--cov=graphistry --cov-report= --cov-append)
 fi
 python -B -m pytest -vv "${COV_APPEND_ARGS[@]}" \
     graphistry/tests/compute/gfql/cypher/test_lowering.py -k polars
