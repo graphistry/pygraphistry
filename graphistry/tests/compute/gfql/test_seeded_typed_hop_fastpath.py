@@ -552,7 +552,7 @@ class TestPolarsFastPathGates:
     def test_lazyframe_declines_not_crashes(self):
         """A LazyFrame-backed graph must decline (full path), not AttributeError."""
         pl = pytest.importorskip("polars")
-        from graphistry.compute.chain import _seeded_typed_return_dst_polars
+        from graphistry.compute.chain_fast_paths import _seeded_typed_return_dst_polars
         from graphistry.compute.ast import ASTNode, ASTEdge
         g, P = _graph()
         lazy_g = graphistry.nodes(
