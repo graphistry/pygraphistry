@@ -990,9 +990,30 @@ def _execute_seeded_typed_hop_fast_path(
     """#1755 cypher-surface fast path: a seeded typed 1-hop with a whole-row node
     RETURN — ``MATCH (m {id})-[:T]->(p) RETURN p`` — reduces the graph to the seed's
     1-hop neighborhood with a few DataFrame filters (pandas + cuDF), then applies the
-    RETURN projection to just the destination rows (guaranteed byte-identical to the
-    full path; sub-ms because the frame is tiny). Returns None to fall through for
-    anything outside this exact shape."""
+    RETURN projection to just the destination rows (value-identical to the full
+    path: same rows/columns/dtypes; row order and RangeIndex may differ; sub-ms
+    because the frame is tiny). Returns None to fall through for anything outside
+    this exact shape or carrying side-channels (policy, same-path WHERE, OPTIONAL
+    null-row, carried reentry seeds)."""
+    if start_nodes is not None:
+        # A carried seed set (WITH..MATCH reentry) restricts n0 to those rows; the fast
+        # path derives its seed from n0.filter_dict alone, so engaging here would
+        # silently widen the seed back to the whole graph. Decline.
+        return None
+    if policy:
+        # The full path fires prechain/postchain/postload policy hooks; the lean
+        # projection below never enters chain(), so engaging would silently skip
+        # them. Policy-gated queries always take the full path (native twin gates
+        # identically in chain._try_chain_fast_path).
+        return None
+    if compiled_query.chain.where:
+        # Same-path WHERE entries (e.g. WHERE p.id < m.id) are evaluated by the
+        # full pipeline, not by the seed-first reduction — engaging would drop them.
+        return None
+    if compiled_query.empty_result_row is not None:
+        # OPTIONAL MATCH null-row semantics: on no match the full path emits the
+        # openCypher null row; the lean projection would return an empty frame.
+        return None
     requested_engine = resolve_engine(cast(Any, engine), base_graph)
     if requested_engine not in (Engine.PANDAS, Engine.CUDF):
         return None

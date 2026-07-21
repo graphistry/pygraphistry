@@ -684,13 +684,41 @@ def _chain_otel_attrs(
     return attrs
 
 
+def _seeded_scalar_filters(fd: Optional[Dict[str, Any]], df: DataFrameT) -> Optional[Dict[str, Any]]:
+    """Resolve a filter dict to plain scalar column==value pairs, or None to bail
+    to the general path. Mirrors filter_by_dict.resolve_filter_column exactly for
+    the shapes it accepts: the cypher ``label__X: True`` form maps to ``type``
+    equality ONLY when no list-valued ``labels`` column exists (labels-containment
+    is not scalar equality) and the frame is not edge-shaped — same precedence as
+    the live resolver. Anything else (predicates, non-scalar values, absent
+    columns) bails, so the full path keeps its exact semantics incl. E301."""
+    from graphistry.compute.filter_by_dict import _looks_like_edge_dataframe
+    if not fd:
+        return {}
+    cols = set(df.columns)
+    out: Dict[str, Any] = {}
+    for k, v in fd.items():
+        if not isinstance(v, (int, float, str, bool)):
+            return None  # predicate / non-scalar -> bail to the general path
+        if k in cols:
+            out[k] = v
+        elif (isinstance(k, str) and k.startswith("label__") and v is True
+              and "labels" not in cols and "type" in cols
+              and not _looks_like_edge_dataframe(df)):
+            out["type"] = k[len("label__"):]
+        else:
+            return None  # labels-list / unknown column -> bail
+    return out
+
+
 def _seeded_typed_hop_pandas_cudf(
     g: Plottable, n0: ASTNode, n2: ASTNode, e1: ASTEdge,
     src: str, dst: str, node: str, direction: Direction,
 ) -> Optional[Plottable]:
     """#1755 lever-3: engine-generic (pandas + cuDF) fast path for a scalar-filtered
-    seeded typed 1-hop. Byte-identical to the general seeded branch for the covered
-    shape (all node/edge filters are plain scalars, directed), collapsing it into a
+    seeded typed 1-hop. Value-identical to the general seeded branch for the covered
+    shape (all node/edge filters are plain scalars, directed) — same rows, columns,
+    and dtypes; row order and RangeIndex may differ — collapsing it into a
     few DataFrame filters so a seeded lookup lands sub-ms. Uses only the shared
     pandas/cuDF DataFrame API (no numpy array drops) so the same body runs on both
     engines. Returns None to fall back for anything it does not cover (predicates,
@@ -701,30 +729,9 @@ def _seeded_typed_hop_pandas_cudf(
     nodes_df, edges_df = g._nodes, g._edges
     if nodes_df is None or edges_df is None:
         return None
-    node_cols, edge_cols = set(nodes_df.columns), set(edges_df.columns)
-
-    def _scalars(fd: Optional[Dict[str, Any]], cols: set) -> Optional[Dict[str, Any]]:
-        """Resolve a filter dict to plain scalar column==value pairs, or None to
-        bail. Handles the cypher ``label__X: True`` form by resolving it to the
-        ``type`` column (equality) — matching filter_by_dict.resolve_filter_column
-        — but bails on the list-valued ``labels`` form to stay equality-safe."""
-        if not fd:
-            return {}
-        out: Dict[str, Any] = {}
-        for k, v in fd.items():
-            if not isinstance(v, (int, float, str, bool)):
-                return None  # predicate / non-scalar -> bail to the general path
-            if k in cols:
-                out[k] = v
-            elif isinstance(k, str) and k.startswith("label__") and v is True and "type" in cols:
-                out["type"] = k[len("label__"):]
-            else:
-                return None  # unknown / list-label column -> bail
-        return out
-
-    n0f = _scalars(n0.filter_dict, node_cols)
-    n2f = _scalars(n2.filter_dict, node_cols)
-    ef = _scalars(e1.edge_match, edge_cols)
+    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df)
+    n2f = _seeded_scalar_filters(n2.filter_dict, nodes_df)
+    ef = _seeded_scalar_filters(e1.edge_match, edges_df)
     if n0f is None or n2f is None or ef is None:
         return None
     from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
@@ -738,7 +745,7 @@ def _seeded_typed_hop_pandas_cudf(
         seed_nodes = nodes_df
         for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
             seed_nodes = seed_nodes[seed_nodes[k] == v]
-        edges = edges_df[edges_df[from_col].isin(seed_nodes[node])]
+        edges = edges_df[edges_df[from_col].isin(seed_nodes[node].dropna())]
     else:
         edges = edges_df
     if ef:  # typed edge (edge_match) — now on the reduced frontier
@@ -748,9 +755,11 @@ def _seeded_typed_hop_pandas_cudf(
     # Gather candidate endpoint nodes (both endpoints of surviving edges), then run
     # the dest filter, dangling-edge drop and final-node selection on the small
     # candidate/edge frames. Selecting from nodes_df keeps only real nodes, so the
-    # endpoint-in-nodes check subsumes the old NaN-endpoint guard.
+    # endpoint-in-nodes check subsumes the old NaN-endpoint guard. Membership sets
+    # are dropna()'d: pandas .isin matches NaN<->NaN, but the general branch's BFS
+    # joins never join on null keys, so a null id/endpoint must not link.
     cand = nodes_df[
-        nodes_df[node].isin(edges[src]) | nodes_df[node].isin(edges[dst])
+        nodes_df[node].isin(edges[src].dropna()) | nodes_df[node].isin(edges[dst].dropna())
     ].drop_duplicates(subset=[node])
     if n2f:  # destination-node filter (to-side)
         n2_cand = cand
@@ -759,8 +768,8 @@ def _seeded_typed_hop_pandas_cudf(
         n2_ok = n2_cand[node]
     else:
         n2_ok = cand[node]
-    to_vals = edges[dst] if to_col == dst else edges[src]
-    keep = edges[src].isin(cand[node]) & edges[dst].isin(cand[node]) & to_vals.isin(n2_ok)
+    to_vals = edges[to_col]
+    keep = edges[src].isin(cand[node].dropna()) & edges[dst].isin(cand[node].dropna()) & to_vals.isin(n2_ok.dropna())
     edges = edges[keep]
     cand = cand[cand[node].isin(edges[src]) | cand[node].isin(edges[dst])]
     return g.nodes(cand).edges(edges)
@@ -780,47 +789,32 @@ def _seeded_typed_return_dst_pandas_cudf(
     nodes_df, edges_df = g._nodes, g._edges
     if nodes_df is None or edges_df is None:
         return None
-    node_cols, edge_cols = set(nodes_df.columns), set(edges_df.columns)
-
-    def _sc(fd: Optional[Dict[str, Any]], cols: set) -> Optional[Dict[str, Any]]:
-        if not fd:
-            return {}
-        out: Dict[str, Any] = {}
-        for k, v in fd.items():
-            if not isinstance(v, (int, float, str, bool)):
-                return None
-            if k in cols:
-                out[k] = v
-            elif isinstance(k, str) and k.startswith("label__") and v is True and "type" in cols:
-                out["type"] = k[len("label__"):]
-            else:
-                return None
-        return out
-
-    n0f = _sc(n0.filter_dict, node_cols)
-    n2f = _sc(n2.filter_dict, node_cols)
-    ef = _sc(e1.edge_match, edge_cols)
+    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df)
+    n2f = _seeded_scalar_filters(n2.filter_dict, nodes_df)
+    ef = _seeded_scalar_filters(e1.edge_match, edges_df)
     if n0f is None or n2f is None or ef is None or not n0f:
         return None
     from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
     # id-first seed reduction: filter by the id column first (int/unique -> ~1 row)
     # so any remaining object filters (label__X->type) run on the tiny survivor
     # frame, never materializing an object column over the whole node table.
+    # Membership sets are dropna()'d: pandas .isin matches NaN<->NaN, but the full
+    # pipeline's joins never join on null keys, so a null id/endpoint must not link.
     seed_nodes = nodes_df
     for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
         seed_nodes = seed_nodes[seed_nodes[k] == v]
-    edges = edges_df[edges_df[from_col].isin(seed_nodes[node])]
+    edges = edges_df[edges_df[from_col].isin(seed_nodes[node].dropna())]
     if ef:
         for k, v in ef.items():
             edges = edges[edges[k] == v]
     # destination nodes = real nodes that are edge to-endpoints, then the dest
     # filter, dangling-edge drop and dedup on the small dst/edge frames.
-    dstn = nodes_df[nodes_df[node].isin(edges[to_col])]
+    dstn = nodes_df[nodes_df[node].isin(edges[to_col].dropna())]
     if n2f:
         for k, v in n2f.items():
             dstn = dstn[dstn[k] == v]
-    edges = edges[edges[to_col].isin(dstn[node])]
-    dstn = dstn[dstn[node].isin(edges[to_col])].drop_duplicates(subset=[node])
+    edges = edges[edges[to_col].isin(dstn[node].dropna())]
+    dstn = dstn[dstn[node].isin(edges[to_col].dropna())].drop_duplicates(subset=[node])
     return dstn, edges
 
 

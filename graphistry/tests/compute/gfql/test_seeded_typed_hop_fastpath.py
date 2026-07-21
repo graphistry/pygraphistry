@@ -6,9 +6,12 @@ Two layers close the seeded-Cypher abstraction tax on pandas:
   * cypher   — `_execute_seeded_typed_hop_fast_path` accelerates the lowered
     MATCH (m {id})-[:T]->(p) RETURN p string surface.
 
-Both are byte-identical to the full path by construction; these tests pin that
+Both are value-identical to the full path by construction (same rows/columns;
+row order and index may differ — comparisons canonicalize); these tests pin that
 (fast-on vs fast-off, differential) and that the fast path actually ENGAGES for
-the accelerated shapes and DECLINES (falls through) for everything else.
+the accelerated shapes and DECLINES (falls through) for everything else,
+including full-path side-channels (policy hooks, same-path WHERE, OPTIONAL
+null rows, WITH..MATCH carried seeds, list-`labels` columns, null ids).
 """
 import numpy as np
 import pandas as pd
@@ -344,3 +347,104 @@ class TestSeededFastPathDifferentialSweep:
         cdf = _canon_nodes(cyp)
         idc = "p.id" if "p.id" in cdf.columns else "id"
         assert sorted(cdf[idc].tolist()) == oracle
+
+
+# ---------------------------------------------------------------------------
+# side-channel decline gates + semantics parity (review-skill blockers, wave 2026-07-21)
+# ---------------------------------------------------------------------------
+
+class TestFastPathSideChannelGates:
+    """Each test pins a shape where ENGAGING the fast path was empirically proven
+    to diverge from the full path (probes in plans/review-pr-1759/): the fix is
+    to decline (or match semantics exactly), and these lock that in."""
+
+    def _canon_edges(self, res):
+        edges = res._edges
+        df = edges.to_pandas() if hasattr(edges, "to_pandas") else pd.DataFrame(edges)
+        cols = sorted(str(c) for c in df.columns)
+        df.columns = [str(c) for c in df.columns]
+        return df.sort_values(cols).reset_index(drop=True)[cols] if cols else df
+
+    def test_labels_column_precedence(self):
+        """label__X must follow resolve_filter_column: `labels` (list containment)
+        wins over `type` — the fast path's type-equality shortcut must decline."""
+        ndf = pd.DataFrame({
+            "id": [0, 1],
+            "type": ["Person", "Person"],
+            "labels": [["Admin"], ["Person"]],  # containment says only id=1 is a Person
+        })
+        edf = pd.DataFrame({"src": [0], "dst": [1], "type": ["KNOWS"]})
+        g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+        q = "MATCH (m {id: 0})-[{type:'KNOWS'}]->(p:Person) RETURN p"
+        fast = _canon_nodes(_run_diff(g, "pandas", q, fast=True))
+        full = _canon_nodes(_run_diff(g, "pandas", q, fast=False))
+        pd.testing.assert_frame_equal(fast, full)
+
+    def test_null_ids_never_link(self):
+        """NaN node id + NaN edge endpoint: pandas .isin matches NaN<->NaN but the
+        full pipeline's joins never link null keys — nodes AND edges must agree."""
+        ndf = pd.DataFrame({"id": [0.0, 1.0, np.nan],
+                            "type": ["Person", "Message", "Message"]})
+        edf = pd.DataFrame({"src": [1.0, np.nan], "dst": [0.0, 0.0],
+                            "type": ["HAS_CREATOR", "HAS_CREATOR"]})
+        g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+        ops = [n({"type": "Message"}), e_forward(edge_match={"type": "HAS_CREATOR"}),
+               n({"type": "Person"})]
+        fast_r = _run_diff(g, "pandas", ops, fast=True)
+        full_r = _run_diff(g, "pandas", ops, fast=False)
+        pd.testing.assert_frame_equal(_canon_nodes(fast_r), _canon_nodes(full_r))
+        pd.testing.assert_frame_equal(self._canon_edges(fast_r), self._canon_edges(full_r))
+
+    def test_policy_hooks_not_skipped(self):
+        """A policy dict must force the full path so pre/post hooks fire."""
+        g, P = _graph()
+        seed = P + 7
+        fired = []
+
+        def hook(ctx):
+            fired.append(ctx.get("phase", "?"))
+            return None
+        q = f"MATCH (m {{id: {seed}}})-[{{type:'HAS_CREATOR'}}]->(p {{type:'Person'}}) RETURN p"
+        policy = {"prechain": hook, "postchain": hook}
+        r_pol = g.gfql(q, engine="pandas", policy=policy)
+        assert fired, "policy hooks must fire (fast path must decline under policy)"
+        r_nopol = g.gfql(q, engine="pandas")
+        pd.testing.assert_frame_equal(_canon_nodes(r_pol), _canon_nodes(r_nopol))
+
+    def test_same_path_where_not_dropped(self):
+        """WHERE p.id < m.id (same-path cross-alias) must not be silently dropped."""
+        ndf = pd.DataFrame({"id": [0, 1, 2], "type": ["Message", "Person", "Person"],
+                            "age": [np.nan, 31.0, 32.0]})
+        edf = pd.DataFrame({"src": [0, 0], "dst": [1, 2], "type": ["T", "T"]})
+        g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+        q = "MATCH (m {id: 0})-[{type:'T'}]->(p {type:'Person'}) WHERE p.id > m.id + 1 RETURN p"
+        fast = _canon_nodes(_run_diff(g, "pandas", q, fast=True))
+        full = _canon_nodes(_run_diff(g, "pandas", q, fast=False))
+        pd.testing.assert_frame_equal(fast, full)
+
+    def test_optional_match_null_row(self):
+        """No-match OPTIONAL MATCH returns the openCypher null row, not empty."""
+        ndf = pd.DataFrame({"id": [0, 1], "type": ["Message", "Person"]})
+        edf = pd.DataFrame({"src": [0], "dst": [1], "type": ["OTHER"]})
+        g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+        q = "OPTIONAL MATCH (m {id: 0})-[{type:'MISSING'}]->(p {type:'Person'}) RETURN p"
+        fast = _canon_nodes(_run_diff(g, "pandas", q, fast=True))
+        full = _canon_nodes(_run_diff(g, "pandas", q, fast=False))
+        pd.testing.assert_frame_equal(fast, full)
+
+    def test_with_match_reentry_carried_seeds(self):
+        """WITH..MATCH reentry hands carried seeds via start_nodes; the fast path
+        deriving its seed from the filter alone would silently widen the seed set.
+        Node 0 is excluded by the WITH but matches the reentry filter and has a
+        LIKES edge -> divergence unless the fast path declines."""
+        ndf = pd.DataFrame({"id": [0, 1, 2, 10, 11, 13],
+                            "kind": ["person"] * 3 + ["post"] * 3})
+        edf = pd.DataFrame({"src": [0, 0, 1, 2, 0], "dst": [1, 2, 10, 11, 13],
+                            "type": ["KNOWS", "KNOWS", "LIKES", "LIKES", "LIKES"]})
+        g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+        q = ("MATCH (p {id:0})-[{type:'KNOWS'}]->(a) WITH a "
+             "MATCH (a {kind:'person'})-[{type:'LIKES'}]->(b) RETURN b")
+        fast = _canon_nodes(_run_diff(g, "pandas", q, fast=True))
+        full = _canon_nodes(_run_diff(g, "pandas", q, fast=False))
+        pd.testing.assert_frame_equal(fast, full)
+        assert sorted(fast["b.id"].tolist()) == [10, 11]
