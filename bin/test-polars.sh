@@ -28,6 +28,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_optional_match_polars_frames.py
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
     graphistry/tests/compute/gfql/test_seeded_typed_hop_fastpath.py
+    graphistry/tests/compute/gfql/test_residual_polars_native.py
     # index tests exercise the seeded-index hook in the polars hop entry (hop.py) — without
     # them the hook dominates the now-thin file and trips its per-file coverage floor
     graphistry/tests/compute/gfql/index/test_index.py
