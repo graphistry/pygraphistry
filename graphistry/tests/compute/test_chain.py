@@ -675,13 +675,17 @@ _FAST_SHAPES = [
     ("hop_fwd_dst_filter", lambda: [n(), e_forward(hops=1), n({'attr': 40})]),
     ("hop_fwd_both_filter", lambda: [n({'attr': 10}), e_forward(hops=1), n({'attr': 30})]),
     ("hop_rev_dst_filter", lambda: [n(), e_reverse(hops=1), n({'attr': 10})]),
+    # #1755 lever-3: typed edges (edge_match) are now a fast shape — a plain edge
+    # filter applied on the (seed-reduced) frontier, not a fall-through.
+    ("edge_match_unconstrained", lambda: [n(), e_forward(hops=1, edge_match={'w': 5}), n()]),
+    ("edge_match_seeded", lambda: [n({'attr': 10}), e_forward(hops=1, edge_match={'w': 5}), n()]),
+    ("edge_match_dst_filter", lambda: [n(), e_forward(hops=1, edge_match={'w': 5}), n({'attr': 30})]),
 ]
 
 # shapes that BYPASS the fast path (still must be correct via the full path)
 _BYPASS_SHAPES = [
     ("hops_2", lambda: [n(), e_forward(hops=2), n()]),
     ("filtered_undirected", lambda: [n({'attr': 10}), e_undirected(hops=1), n({'attr': 30})]),
-    ("edge_match", lambda: [n(), e_forward(hops=1, edge_match={'w': 5}), n()]),
     ("named_node", lambda: [n(name='x'), e_forward(hops=1), n()]),
     # prune_to_endpoints: fast path returns both endpoints; full path keeps only the
     # arrival side. Must bypass the fast path (regression guard for the prune gate).
@@ -751,6 +755,9 @@ def test_fast_path_gating_returns_none_for_ineligible():
         [n({'attr': 20})],
         [n(), e_forward(hops=1), n()],
         [n(), e_reverse(hops=1), n()],
+        # #1755 lever-3: typed edges are now accepted (edge filter on the frontier)
+        [n(), e_forward(hops=1, edge_match={'w': 5}), n()],
+        [n({'attr': 10}), e_forward(hops=1, edge_match={'w': 5}), n()],
     ]
     for ops in eligible:
         assert _try_chain_fast_path(g, ops, Engine.PANDAS, None) is not None, f"should accept {ops}"
@@ -758,7 +765,6 @@ def test_fast_path_gating_returns_none_for_ineligible():
     ineligible = [
         ("hops_2", [n(), e_forward(hops=2), n()], None, Engine.PANDAS),
         ("filtered_undirected", [n({'attr': 10}), e_undirected(hops=1), n({'attr': 30})], None, Engine.PANDAS),
-        ("edge_match", [n(), e_forward(hops=1, edge_match={'w': 5}), n()], None, Engine.PANDAS),
         ("named_node", [n(name='x'), e_forward(hops=1), n()], None, Engine.PANDAS),
         ("node_query", [n(query='attr > 5'), e_forward(hops=1), n()], None, Engine.PANDAS),
         ("prune_endpoints", [n(), e_forward(hops=1, prune_to_endpoints=True), n()], None, Engine.PANDAS),

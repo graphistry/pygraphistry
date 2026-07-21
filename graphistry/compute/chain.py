@@ -731,12 +731,16 @@ def _try_chain_fast_path(
     if not (isinstance(n2, ASTNode) and n2._name is None and n2.query is None):
         return None
     if not (isinstance(e1, ASTEdge) and e1.is_simple_single_hop()
-            and e1.edge_match is None and e1.source_node_match is None
+            and e1.source_node_match is None
             and e1.destination_node_match is None and e1._name is None
             and e1.source_node_query is None and e1.destination_node_query is None
             and e1.edge_query is None and not e1.include_zero_hop_seed
             and not e1.prune_to_endpoints):  # prune keeps only the arrival side -> full path
         return None
+    # #1755 lever-3: a typed edge (edge_match, e.g. -[:HAS_CREATOR]->) is a plain
+    # equality/predicate filter on the edge frame — apply it in the fast-path body
+    # below rather than falling through to the full two-pass machinery. source/dest
+    # node match + edge_query (richer predicates) still bail above.
     direction = e1.direction
     unconstrained = not n0.filter_dict and not n2.filter_dict
     if not unconstrained and direction == "undirected":
@@ -745,20 +749,58 @@ def _try_chain_fast_path(
     if g._nodes is None or g._edges is None:
         return None
     src, dst, node = g._source, g._destination, g._node
-    # Keep only edges with BOTH endpoints in the node table (the full path drops
-    # dangling edges via its joins). dropna so a NaN node id can't validate a NaN
-    # endpoint — .isin treats NaN as matchable but the BFS joins never match NaN<->NaN.
-    node_ids = g._nodes[node].dropna()
-    edges = g._edges[g._edges[src].isin(node_ids) & g._edges[dst].isin(node_ids)]
-    if not unconstrained:
-        from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
-        if n0.filter_dict:
-            ids = filter_by_dict(g._nodes, n0.filter_dict, engine_abs)[node]
-            edges = edges[edges[from_col].isin(ids)]
-        if n2.filter_dict:
-            ids = filter_by_dict(g._nodes, n2.filter_dict, engine_abs)[node]
-            edges = edges[edges[to_col].isin(ids)]
     concat = df_concat(engine_concrete)
+    if unconstrained:
+        # No node filter to reduce by: validate BOTH endpoints against the full
+        # node table (the full path drops dangling edges via its joins). dropna so
+        # a NaN node id can't validate a NaN endpoint — .isin treats NaN as
+        # matchable but the BFS joins never match NaN<->NaN.
+        node_ids = g._nodes[node].dropna()
+        edges = g._edges[g._edges[src].isin(node_ids) & g._edges[dst].isin(node_ids)]
+        if e1.edge_match:
+            # typed edge (e.g. -[:HAS_CREATOR]->) — same edge-frame filter the full
+            # hop applies, so the result set is identical.
+            edges = filter_by_dict(edges, e1.edge_match, engine_abs)
+    else:
+        # #1755 lever-3 seed-first: a seeded 1-hop must be O(result), not O(E).
+        # Reduce edges by the selective node filter(s) BEFORE the typed-edge scan
+        # and endpoint validation, so the expensive object/isin passes run on the
+        # tiny frontier, not all edges. The from-side ids come from the node table
+        # (so that endpoint is validated); the node gather below validates the to
+        # side and drops any edge dangling off the node table.
+        from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
+        edges = g._edges
+        if n0.filter_dict:
+            from_ids = filter_by_dict(g._nodes, n0.filter_dict, engine_abs)[node]
+            edges = edges[edges[from_col].isin(from_ids)]
+        if e1.edge_match:
+            edges = filter_by_dict(edges, e1.edge_match, engine_abs)
+        if n2.filter_dict:
+            # Apply the destination filter to the SMALL set of gathered dst nodes,
+            # not the full node table — an O(N) object/type scan on all nodes is
+            # exactly the tax we're removing. Gather the frontier's dst nodes
+            # (small isin key), filter those, then drop edges to the losers.
+            to_present = edges[to_col].dropna().unique()
+            to_nodes = filter_by_dict(
+                g._nodes[g._nodes[node].isin(to_present)], n2.filter_dict, engine_abs)
+            edges = edges[edges[to_col].isin(to_nodes[node])]
+        # Validate endpoints + build result nodes on the reduced edge set (small
+        # isin key -> small hashtable; no O(E)-values scan). Engine-agnostic
+        # (pandas + cuDF): gather candidate endpoint nodes, drop edges dangling off
+        # the node table, then keep only nodes still referenced by a surviving edge.
+        ep = concat([
+            edges[[src]].rename(columns={src: node}),
+            edges[[dst]].rename(columns={dst: node}),
+        ]).drop_duplicates()
+        cand = g._nodes[g._nodes[node].isin(ep[node])].drop_duplicates(subset=[node])
+        valid = cand[node].dropna()
+        edges = edges[edges[src].isin(valid) & edges[dst].isin(valid)]
+        final = concat([
+            edges[[src]].rename(columns={src: node}),
+            edges[[dst]].rename(columns={dst: node}),
+        ]).drop_duplicates()
+        nodes = cand[cand[node].isin(final[node])]
+        return g.nodes(nodes).edges(edges)
     endpoints = concat([
         edges[[src]].rename(columns={src: node}),
         edges[[dst]].rename(columns={dst: node}),
