@@ -2,11 +2,10 @@
 
 Extracted verbatim from gfql_unified.py (#1731) to keep that orchestrator readable: the
 connected-join single/two-star fast paths and the grouped-aggregate / two-hop-count fast
-paths. Pure code move, no behavior change. gfql_unified imports from here (one direction);
-this module imports only leaf modules (no back-edge into gfql_unified).
+paths, plus the seeded typed-hop cypher dispatcher (#1755, _execute_seeded_typed_hop_fast_path).
+Pure code moves, no behavior change. gfql_unified imports from here (one direction);
+no back-edge into gfql_unified (the .chain import is a leaf-ward edge, cycle-free).
 """
-
-"""GFQL unified entrypoint for chains, DAGs, and local string-compiled queries."""
 # ruff: noqa: E501
 
 from dataclasses import replace
