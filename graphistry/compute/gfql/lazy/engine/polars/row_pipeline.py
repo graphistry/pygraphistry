@@ -13,10 +13,9 @@ temporal arithmetic) → NIE.
 """
 from __future__ import annotations
 
-import contextvars
 import operator
 import re
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, TypeVar, Union, cast
 
 if TYPE_CHECKING:
     import polars as pl
@@ -33,8 +32,11 @@ from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_num
 
 
 # Active row-table schema (col -> dtype), set around lowering so lower_expr can infer FLOAT
-# operands for the NaN guard. Free to populate — schema is already on the table, no scan.
-_SCHEMA: "contextvars.ContextVar[dict]" = contextvars.ContextVar("gfql_polars_schema", default={})
+# operands for the NaN guard. Lowering contextvars live in the per-engine `lowering_context`
+# registry (aliased here to keep call sites terse); the whole-entity identity sentinel is the
+# shared cypher-lowering constant, NOT a local literal.
+from .lowering_context import SCHEMA as _SCHEMA, NODE_ID as _NODE_ID
+from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN as _NODE_ID_TOKEN
 
 # Ops needing the NaN guard: polars treats NaN as the LARGEST value (>/>=/== TRUE), but
 # IEEE/Python/pandas/Cypher compare NaN as FALSE (!= TRUE; Neo4j TCK agrees). Float operands
@@ -88,7 +90,7 @@ def _resolve_property(alias: str, prop: str, columns: Sequence[str]) -> Optional
     prefixed = f"{alias}.{prop}"
     if prefixed in columns:
         return prefixed
-    if prop == "__gfql_node_id__" and alias in columns:
+    if prop == _NODE_ID_TOKEN and alias in columns:
         # Whole-entity identity key (#1650 lowering groups by `alias.__gfql_node_id__`).
         # pandas' bindings table carries it as a join-residue column; the polars table
         # deliberately doesn't — its value IS the bare alias id column.
@@ -473,7 +475,16 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
     if isinstance(node, ListLiteral):
         return _lower_list_literal(node.items, columns)
     if isinstance(node, Identifier):
-        return pl.col(node.name) if node.name in columns else None
+        if node.name in columns:
+            return pl.col(node.name)
+        # Bare whole-entity identity sentinel -> the graph node-id column (pandas
+        # _gfql_resolve_token bare form). Only when the id column is actually present;
+        # otherwise decline (None -> NIE) rather than invent a column.
+        if node.name == _NODE_ID_TOKEN:
+            node_id = _NODE_ID.get()
+            if node_id is not None and node_id in columns:
+                return pl.col(node_id)
+        return None
     if isinstance(node, PropertyAccessExpr):
         if isinstance(node.value, Identifier):
             src = _resolve_property(node.value.name, node.property, columns)
@@ -625,14 +636,21 @@ def _rewrap(g: Plottable, table_df: Any) -> Plottable:
     return frame_ops.row_table(_RowPipelineAdapter(g), table_df)
 
 
-def _lower_with_schema(table: Any, fn):
+_LowerT = TypeVar("_LowerT")
+
+
+def _lower_with_schema(table: "pl.DataFrame", fn: Callable[[], _LowerT],
+                       node_id: Optional[str] = None) -> _LowerT:
     """Run a lowering callable with the table schema published to ``_SCHEMA`` (float-operand
-    inference for the NaN guard)."""
-    token = _SCHEMA.set(dict(table.schema))
+    inference for the NaN guard) and the graph node-id column published to ``_NODE_ID`` (bare
+    ``__gfql_node_id__`` identity-sentinel resolution)."""
+    schema_token = _SCHEMA.set(dict(table.schema))
+    node_id_token = _NODE_ID.set(node_id)
     try:
         return fn()
     finally:
-        _SCHEMA.reset(token)
+        _SCHEMA.reset(schema_token)
+        _NODE_ID.reset(node_id_token)
 
 
 def _project_preserving_height(table: Any, exprs: List[Any]) -> Any:
@@ -652,7 +670,7 @@ def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> 
     """Shared body of ``select_polars`` / ``with_columns_polars``; None if any item isn't
     lowerable (honest NIE, no pandas bridge)."""
     table = _active_table(g)
-    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)))
+    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)), node_id=g._node)
     if exprs is None:
         return None
     out = table.with_columns(exprs) if extend else _project_preserving_height(table, exprs)
@@ -714,7 +732,7 @@ def where_rows_polars(
     if expr is not None:
         if not isinstance(expr, str):
             return None
-        lowered = _lower_with_schema(table, lambda: lower_expr_str(expr, columns))
+        lowered = _lower_with_schema(table, lambda: lower_expr_str(expr, columns), node_id=g._node)
         if lowered is None:
             return None
         preds.append(lowered)
@@ -729,17 +747,16 @@ def where_rows_polars(
 def order_by_polars(g: Plottable, keys: Sequence[OrderKey]) -> Optional[Plottable]:
     """Native polars sort; None if any key isn't lowerable."""
     table = _active_table(g)
-    lowered = _lower_with_schema(table, lambda: lower_order_by_keys(keys, list(table.columns)))
+    lowered = _lower_with_schema(table, lambda: lower_order_by_keys(keys, list(table.columns)), node_id=g._node)
     if lowered is None:
         return None
     exprs, descending = lowered
     # openCypher orders NULL as the LARGEST value: ASC -> nulls last, DESC -> nulls FIRST.
     # (Previously hardcoded nulls_last=True, which mis-ordered DESC keys and silently returned
-    # the wrong `... DESC LIMIT k` top-k over a column containing NULLs.) Normalize `descending`
-    # to a per-key list (it may arrive as a scalar bool) so `nulls_last` mirrors it per key.
-    descending_list = descending if isinstance(descending, list) else [descending] * len(exprs)
-    nulls_last = [not d for d in descending_list]
-    return _rewrap(g, table.sort(exprs, descending=descending_list, nulls_last=nulls_last))
+    # the wrong `... DESC LIMIT k` top-k over a column containing NULLs.) `descending` is one
+    # bool per key (see lower_order_by_keys), so `nulls_last` mirrors it per key.
+    nulls_last = [not d for d in descending]
+    return _rewrap(g, table.sort(exprs, descending=descending, nulls_last=nulls_last))
 
 
 # Native aggs: count/sum/avg/min/max/count_distinct/collect/collect_distinct; stdev/percentile
@@ -887,7 +904,7 @@ def select_extend_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[
     the bindings-path aggregate lowering (pre-aggregation group keys / agg args),
     so it is required for binding-row queries (#1709). None → NIE."""
     table = _active_table(g)
-    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)))
+    exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)), node_id=g._node)
     if exprs is None:
         return None
     out = table.with_columns(exprs)

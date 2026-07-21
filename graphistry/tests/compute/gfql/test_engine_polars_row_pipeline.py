@@ -108,6 +108,15 @@ NATIVE_LOWERED = [
     "MATCH (n) UNWIND [1, 2, 3] AS x RETURN x",
     # multi-entity property projection via native rows(binding_ops) (#1709)
     "MATCH (n)-[e]->(m) RETURN n.val, m.val",
+    # whole-entity identity aggregation (#1709): count(DISTINCT n) lowers the agg arg to the
+    # bare ``__gfql_node_id__`` identity sentinel, now resolved to the node-id column natively.
+    "MATCH (n) RETURN count(DISTINCT n) AS c",
+    "MATCH (n) WHERE n.val > 25 RETURN count(DISTINCT n) AS c",
+    "MATCH (n) RETURN n.kind, count(DISTINCT n) AS c",
+    "MATCH (n) RETURN n.kind, count(DISTINCT n) AS c ORDER BY c DESC",
+    "MATCH (a)-[e]->(b) RETURN count(DISTINCT b) AS c",
+    # property-arg distinct (already native; guard against regression)
+    "MATCH (n) RETURN n.kind, count(DISTINCT n.val) AS c",
 ]
 
 # NO-CHEATING (see plan.md): no native impl yet -> NotImplementedError, never a
@@ -117,6 +126,13 @@ NATIVE_LOWERED = [
 DEFERRED = [
     "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",   # cross-entity WHERE
     "MATCH (n)-[e]->(m) RETURN n, m",                       # whole-row multi-entity render
+    # whole-entity collect: agg arg is the __node_entity__(n) whole-entity token (not the bare
+    # identity sentinel), whose native list-of-entities representation isn't ported yet -> NIE.
+    "MATCH (n) RETURN collect(n) AS xs",
+    # multi-alias binding-table identity aggregation: the bare ``__gfql_node_id__`` sentinel has
+    # no bare node-id column on the connected-pattern binding table (identity lives in the bare
+    # ALIAS column), so it declines honestly rather than resolve to a wrong/absent column.
+    "MATCH (a)-[e]->(b) RETURN b.kind, count(DISTINCT b) AS c, count(b) AS t",
 ]
 
 
@@ -261,6 +277,30 @@ def test_row_expr_lowering_unit():
     assert lower_order_by_keys(["bad-shape"], cols) is None
 
 
+def test_node_identity_sentinel_resolution():
+    """Bare ``__gfql_node_id__`` (whole-entity identity, #1709) resolves ONLY when the graph
+    node-id column is published AND present in the frame; else declines (None -> NIE), never a
+    wrong column. Mirrors pandas ``_gfql_resolve_token`` bare form."""
+    from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+    cols = ["id", "val", "kind"]
+    # no node-id published -> decline
+    assert rp.lower_expr_str("__gfql_node_id__", cols) is None
+    # published + present -> resolves to that column
+    tok = rp._NODE_ID.set("id")
+    try:
+        expr = rp.lower_expr_str("__gfql_node_id__", cols)
+        assert expr is not None
+        assert expr.meta.root_names() == ["id"]
+    finally:
+        rp._NODE_ID.reset(tok)
+    # published but absent from frame -> decline (never invent a column)
+    tok = rp._NODE_ID.set("node_id_missing")
+    try:
+        assert rp.lower_expr_str("__gfql_node_id__", cols) is None
+    finally:
+        rp._NODE_ID.reset(tok)
+
+
 def test_polars_frame_op_limit_matches_slice():
     """limit/skip operate on a polars active table without index artifacts."""
     g = BASE.gfql("MATCH (n) RETURN n LIMIT 4", engine="polars")
@@ -311,6 +351,98 @@ def test_polars_empty_result_shape():
     g_pd = BASE.gfql("MATCH (n) RETURN n SKIP 1000", engine="pandas")
     assert g._nodes.height == 0
     assert list(g._nodes.columns) == list(g_pd._nodes.columns)
+
+
+@pytest.mark.parametrize("query,expected", [
+    ("MATCH (n) RETURN count(DISTINCT n) AS c", 6),               # 6 distinct ids
+    ("MATCH (n) WHERE n.val > 25 RETURN count(DISTINCT n) AS c", 4),  # ids with val 30/40/50/60
+])
+def test_polars_count_distinct_entity_absolute(query, expected):
+    """Explicit pin: whole-entity count(DISTINCT n) returns the TRUE distinct-identity count
+    on the native polars engine (pandas oracle can't mask a wrong constant)."""
+    rpl = BASE.gfql(query, engine="polars")._nodes
+    assert "polars" in type(rpl).__module__
+    assert rpl.height == 1
+    assert rpl["c"].to_list() == [expected]
+
+
+def test_polars_count_distinct_entity_grouped_values():
+    """Grouped whole-entity count(DISTINCT n) matches pandas value-for-value and equals the
+    per-group node count (ids unique). BASE kinds: a=3, b=2, c=1."""
+    q = "MATCH (n) RETURN n.kind, count(DISTINCT n) AS c"
+    rpd = _to_pandas(BASE.gfql(q, engine="pandas")._nodes)
+    rpl = _to_pandas(BASE.gfql(q, engine="polars")._nodes)
+    a = rpd.sort_values("n.kind").reset_index(drop=True)
+    b = rpl.sort_values("n.kind").reset_index(drop=True)
+    pd.testing.assert_frame_equal(a, b, check_dtype=False)
+    assert dict(zip(b["n.kind"], b["c"])) == {"a": 3, "b": 2, "c": 1}
+
+
+@pytest.mark.parametrize("seed", list(range(60)))
+def test_polars_identity_aggregation_fuzz_matches_pandas(seed):
+    """Bounded differential fuzz (#1709): random small graphs x whole-entity identity
+    aggregation shapes; native polars MUST equal the pandas oracle value-for-value, or both
+    decline. A silent divergence is the worst outcome, so any polars-ok/pandas-nie or value
+    mismatch fails. Larger sweep lives in scratch (600/600 clean); this pins a deterministic
+    subset into the coverage lane."""
+    import random
+    from .polars_test_utils import graph_sig
+    import numpy as np
+
+    def _norm(sig):
+        def cell(v):
+            if isinstance(v, np.ndarray):
+                return tuple(v.tolist())
+            if isinstance(v, list):
+                return tuple(v)
+            return v
+
+        def frame(f):
+            if f is None:
+                return None
+            c, rows = f
+            return (c, tuple(tuple(cell(v) for v in r) for r in rows))
+        return tuple(frame(f) for f in sig)
+
+    rng = random.Random(seed)
+    n = rng.randint(1, 7)
+    ids = [f"n{i}" for i in range(n)]
+    nodes = pd.DataFrame({
+        "id": pd.Series(ids, dtype="object"),
+        "kind": pd.Series([rng.choice(["A", "B", "C"]) for _ in ids], dtype="object"),
+        "v": pd.Series([rng.choice([1, 2, 3, None]) for _ in ids], dtype="float64"),
+        "grp": pd.Series([rng.choice(["x", "y", None]) for _ in ids], dtype="object"),
+    })
+    ne = rng.randint(0, 8)
+    s = [rng.choice(ids) for _ in range(ne)]
+    d = [rng.choice(ids) for _ in range(ne)]
+    g = graphistry.nodes(nodes, "id").edges(
+        pd.DataFrame({"s": pd.Series(s, dtype="object"), "d": pd.Series(d, dtype="object")}),
+        "s", "d",
+    )
+    queries = [
+        "MATCH (b) RETURN count(DISTINCT b) AS c",
+        "MATCH (b {kind:'A'}) RETURN count(DISTINCT b) AS c",
+        "MATCH (b) RETURN b.kind, count(DISTINCT b) AS c",
+        "MATCH (b) RETURN b.grp, count(DISTINCT b) AS c, count(b) AS t",
+        "MATCH (a)-[]->(b) RETURN count(DISTINCT b) AS c",
+        "MATCH (b) RETURN b.kind, count(DISTINCT b.v) AS c",
+    ]
+    for q in queries:
+        try:
+            base = ("ok", _norm(graph_sig(g.gfql(q, engine="pandas"))))
+        except NotImplementedError:
+            base = ("nie",)
+        try:
+            got = ("ok", _norm(graph_sig(g.gfql(q, engine="polars"))))
+        except NotImplementedError:
+            got = ("nie",)
+        # polars may decline where pandas succeeds (honest NIE); never the reverse, never a
+        # value mismatch.
+        if base[0] == "ok" and got[0] == "ok":
+            assert base[1] == got[1], f"value divergence {q!r} seed={seed}: {base} vs {got}"
+        elif got[0] == "ok":
+            raise AssertionError(f"polars ok but pandas nie for {q!r} seed={seed}")
 
 
 # Direct frame-op coverage: each native polars branch on a real polars-framed graph, independent
