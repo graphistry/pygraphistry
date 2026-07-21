@@ -265,7 +265,7 @@ class TestCypherSeededTypedHop:
 
     @pytest.mark.parametrize("cy_tmpl,reason", [
         ("MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR]->(p:Person) RETURN m, p", "multi-alias"),
-        ("MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR]->(p:Person) RETURN p.age", "field projection"),
+        ("MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR]->(p:Person) RETURN m.id, p.age", "cross-alias field projection"),
         ("MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR]->(p:Person) RETURN m", "return source"),
         ("MATCH (p:Person)<-[:HAS_CREATOR]-(m:Message {{id: {s}}}) RETURN p", "reverse (seed on return node)"),
         # variable-length edges are one ASTEdge but multiple hops — must decline or
@@ -614,3 +614,77 @@ class TestPolarsFastPathGates:
         full = _canon_nodes(_run_diff(gp, "polars", q, fast=False))
         pd.testing.assert_frame_equal(fast, full)
         assert fast["p.id"].tolist() == [1]
+
+
+# ---------------------------------------------------------------------------
+# single-alias property projection (IS5 shape): RETURN p.a AS x, p.b (#1755)
+# ---------------------------------------------------------------------------
+
+class TestSeededPropertyProjection:
+    """Property RETURNs lower to rows(source=alias)+select(items); the fast path
+    covers the pure single-alias case and must decline everything else."""
+
+    def _rich_graph(self):
+        ndf = pd.DataFrame({
+            "id": [0, 1, 2, 10, 11],
+            "type": ["Person"] * 3 + ["Message"] * 2,
+            "firstName": ["A", "B", "C", None, None],
+            "age": [30.0, 40.0, 50.0, None, None],
+        })
+        edf = pd.DataFrame({"src": [10, 10, 11], "dst": [0, 1, 2],
+                            "type": ["HAS_CREATOR"] * 3})
+        return graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+
+    def _diff(self, g, engine, q, expect_engage):
+        hits = {"n": 0}
+        real = gfql_unified._execute_seeded_typed_hop_fast_path
+
+        def spy(*a, **k):
+            r = real(*a, **k)
+            hits["n"] += r is not None
+            return r
+        gfql_unified._execute_seeded_typed_hop_fast_path = spy
+        try:
+            fast = _canon_nodes(g.gfql(q, engine=engine))
+        finally:
+            gfql_unified._execute_seeded_typed_hop_fast_path = real
+        full = _canon_nodes(_run_diff(g, engine, q, fast=False))
+        pd.testing.assert_frame_equal(fast, full)
+        assert bool(hits["n"]) == expect_engage, f"engaged={hits['n']} expected={expect_engage}"
+        return fast
+
+    @pytest.mark.parametrize("engine", ["pandas", "polars"])
+    def test_is5_shape_engages_and_matches(self, engine):
+        if engine == "polars":
+            pytest.importorskip("polars")
+        g = self._rich_graph()
+        if engine == "polars":
+            import polars as pl
+            g = graphistry.nodes(pl.from_pandas(pd.DataFrame(g._nodes)), "id").edges(
+                pl.from_pandas(pd.DataFrame(g._edges)), "src", "dst")
+        out = self._diff(
+            g, engine,
+            "MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) "
+            "RETURN p.id AS personId, p.firstName AS firstName", True)
+        assert sorted(out["personId"].tolist()) == [0, 1]
+
+    @pytest.mark.parametrize("q,label", [
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN m.id AS mid, p.id AS pid", "cross-alias"),
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p, p.age", "mixed whole+prop"),
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN DISTINCT p.age", "distinct"),
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p.age ORDER BY p.age LIMIT 1", "order/limit"),
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p.nosuch", "absent property"),
+    ])
+    def test_out_of_shape_declines_with_parity(self, q, label):
+        g = self._rich_graph()
+        try:
+            self._diff(g, "pandas", q, False)
+        except AssertionError:
+            raise
+        except Exception:
+            # some shapes raise on BOTH paths (e.g. absent property) — parity of the
+            # raise is asserted inside _diff via matching failures; a raise before
+            # _diff's compare means fast-off also raises: verify explicitly
+            import pytest as _pt
+            with _pt.raises(Exception):
+                _run_diff(g, "pandas", q, fast=False)

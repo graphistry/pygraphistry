@@ -1870,12 +1870,14 @@ def _execute_seeded_typed_hop_fast_path(
     if requested_engine not in (Engine.PANDAS, Engine.CUDF, Engine.POLARS, Engine.POLARS_GPU):
         return None
     projection = compiled_query.result_projection
-    if projection is None or projection.table != "nodes":
+    if projection is not None and projection.table != "nodes":
         return None
     # Only a single whole-row node alias (RETURN p). Multi-alias returns (RETURN
     # m, p) combine aliases into one row per match — different shape — so bail.
-    proj_cols = projection.columns
-    if len(proj_cols) != 1 or proj_cols[0].kind != "whole_row":
+    # (Single-alias PROPERTY returns lower with result_projection=None + a select
+    # op and are covered by the select-shape branch below.)
+    proj_cols = () if projection is None else projection.columns
+    if projection is not None and (len(proj_cols) != 1 or proj_cols[0].kind != "whole_row"):
         return None
     if compiled_query.execution_extras is not None and (
         compiled_query.execution_extras.connected_match_join is not None
@@ -1883,8 +1885,18 @@ def _execute_seeded_typed_hop_fast_path(
     ):
         return None
     ops = list(compiled_query.chain.chain)
-    if len(ops) != 4:
-        return None
+    select_op: Optional[ASTCall] = None
+    if projection is not None:
+        if len(ops) != 4:
+            return None
+    else:
+        # property-RETURN lowering: [n0, e1, n2, rows(source=alias), select(items)]
+        # (the LDBC IS5 shape: RETURN p.a AS x, p.b). Anything else (ORDER BY /
+        # LIMIT / DISTINCT add further ops; exprs lower differently) falls back.
+        if len(ops) != 5 or not isinstance(ops[4], ASTCall) or ops[4].function != "select":
+            return None
+        select_op = ops[4]
+        ops = ops[:4]
     n0, e1, n2, call = ops
     if not (isinstance(n0, ASTNode) and isinstance(e1, ASTEdge)
             and isinstance(n2, ASTNode) and isinstance(call, ASTCall)):
@@ -1905,8 +1917,31 @@ def _execute_seeded_typed_hop_fast_path(
     # source node (n0) — the forward seeded shape MATCH (m {id})-[:T]->(p) RETURN p.
     # Other alias/seed placements (e.g. reverse patterns where the seed is on the
     # RETURN node) fall back to the full path.
-    if n2._name != projection.alias:
+    return_alias = projection.alias if projection is not None else str((call.params or {}).get("source", ""))
+    if n2._name != return_alias:
         return None
+    select_items: Optional[list] = None
+    if select_op is not None:
+        raw_items = (select_op.params or {}).get("items")
+        if not raw_items or not isinstance(raw_items, (list, tuple)):
+            return None
+        nodes_frame_cols = None if base_graph._nodes is None else set(map(str, base_graph._nodes.columns))
+        if nodes_frame_cols is None:
+            return None
+        prefix = f"{return_alias}."
+        select_items = []
+        for it in raw_items:
+            if not (isinstance(it, (list, tuple)) and len(it) == 2):
+                return None
+            out_name, src_ref = str(it[0]), str(it[1])
+            # only same-alias property refs; the bare property must exist on the
+            # node frame (absent -> full path's null/error semantics must apply)
+            if not src_ref.startswith(prefix):
+                return None
+            prop = src_ref[len(prefix):]
+            if "." in prop or prop not in nodes_frame_cols:
+                return None
+            select_items.append((out_name, prop))
     if not (n0.filter_dict and any(not str(k).startswith("label__") for k in n0.filter_dict)):
         return None  # n0 must carry a selective (non-label) seed
     direction = e1.direction
@@ -1927,6 +1962,22 @@ def _execute_seeded_typed_hop_fast_path(
     if dst_res is None:
         return None
     p_rows, _edges = dst_res
+    if select_items is not None:
+        # Lean property projection (IS5 shape): the deduped destination rows carry
+        # the raw property columns — rename/select directly, same values the
+        # rows-pivot + select pipeline emits (row order may differ; documented
+        # value-identical contract).
+        if is_polars:
+            import polars as pl
+            out_frame = p_rows.select([pl.col(prop).alias(out) for out, prop in select_items])
+        else:
+            out_frame = p_rows[[prop for _, prop in select_items]].copy()
+            out_frame.columns = [out for out, _ in select_items]
+        out = base_graph.bind()
+        out._nodes = out_frame
+        out._edges = None
+        return out
+    assert projection is not None  # narrowed by the gate above
     # Lean projection: p_rows already IS the RETURN-alias (destination) node set.
     # Tag with the alias and reuse apply_result_projection for the exact
     # column-order/flatten semantics — all on a handful of rows, so seeded cypher
