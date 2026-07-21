@@ -172,48 +172,13 @@ uv run python benchmarks/gfql/realdata_benchmarks.py \
 
 Use `--kuzu-rebuild` to recreate the Kuzu database from CSVs when needed.
 
-## Graph-benchmark q1-q9
+## Graph-benchmark q1-q9 and cross-DB competitor runners
 
-Replay the q1-q9 queries from https://github.com/prrao87/graph-benchmark against Graphistry.
-See `benchmarks/gfql/graph_benchmark.md` for setup details.
-
-```bash
-uv run python benchmarks/gfql/graph_benchmark_q1_q9.py \
-  --graph-benchmark-root /home/lmeyerov/Work/graph-benchmark \
-  --runs 5 --warmup 1 \
-  --output-json /tmp/graph-benchmark-q1-q9.json
-```
-
-Preindexed variant (relation/type split per query):
-
-```bash
-uv run python benchmarks/gfql/graph_benchmark_q1_q9.py \
-  --graph-benchmark-root /home/lmeyerov/Work/graph-benchmark \
-  --mode preindexed \
-  --runs 5 --warmup 1 \
-  --output-json /tmp/graph-benchmark-q1-q9-preindexed.json
-```
-
-Include preindex build time in per-query medians (adds `preindex_ms` and `median_ms_with_preindex`):
-
-```bash
-uv run python benchmarks/gfql/graph_benchmark_q1_q9.py \
-  --graph-benchmark-root /home/lmeyerov/Work/graph-benchmark \
-  --mode preindexed \
-  --include-preindex \
-  --runs 5 --warmup 1 \
-  --output-json /tmp/graph-benchmark-q1-q9-preindexed-with-preindex.json
-```
-
-Presorted variant (global sort by rel/src/dst and node_type/node_id):
-
-```bash
-uv run python benchmarks/gfql/graph_benchmark_q1_q9.py \
-  --graph-benchmark-root /home/lmeyerov/Work/graph-benchmark \
-  --mode presorted \
-  --runs 5 --warmup 1 \
-  --output-json /tmp/graph-benchmark-q1-q9-presorted.json
-```
+The q1–q9 (prrao87/graph-benchmark) replay, the Pokec runners, and the
+cross-database competitor harnesses (Kuzu / Memgraph / Neo4j) have moved to the
+private **pyg-bench** repo under `benchmarks/graphbench/`, which is the home for
+perf-benchmark orchestration. Public pygraphistry keeps library optimizations
+and their correctness tests; the campaign benchmark runners live in pyg-bench.
 
 ## WHERE opt matrix (comparative)
 
