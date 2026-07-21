@@ -684,7 +684,10 @@ def _chain_otel_attrs(
     return attrs
 
 
-def _seeded_typed_hop_numpy_pandas(g, n0, n2, e1, src, dst, node, direction):
+def _seeded_typed_hop_numpy_pandas(
+    g: Plottable, n0: ASTNode, n2: ASTNode, e1: ASTEdge,
+    src: str, dst: str, node: str, direction: str,
+) -> Optional[Plottable]:
     """#1755 lever-3: pandas-only numpy fast path for a scalar-filtered seeded
     typed 1-hop. Byte-identical to the engine-agnostic seeded branch for the
     covered shape (all node/edge filters are plain scalars, directed), collapsing
@@ -773,7 +776,10 @@ def _seeded_typed_hop_numpy_pandas(g, n0, n2, e1, src, dst, node, direction):
     return g.nodes(cand).edges(edges)
 
 
-def _seeded_typed_return_dst_pandas(g, n0, n2, e1, src, dst, node, direction):
+def _seeded_typed_return_dst_pandas(
+    g: Plottable, n0: ASTNode, n2: ASTNode, e1: ASTEdge,
+    src: str, dst: str, node: str, direction: str,
+) -> Optional[Tuple[DataFrameT, DataFrameT]]:
     """#1755 cypher RETURN-alias fast path: like _seeded_typed_hop_numpy_pandas but
     returns ONLY the destination (RETURN-alias) node rows + surviving edges — no
     seed-node gather, no Plottable round-trip — so the seeded cypher projection
@@ -906,6 +912,8 @@ def _try_chain_fast_path(
     if g._nodes is None or g._edges is None:
         return None
     src, dst, node = g._source, g._destination, g._node
+    if src is None or dst is None or node is None:
+        return None  # no edge/node bindings -> can't fast-path; full path handles it
     concat = df_concat(engine_concrete)
     if unconstrained:
         # No node filter to reduce by: validate BOTH endpoints against the full
