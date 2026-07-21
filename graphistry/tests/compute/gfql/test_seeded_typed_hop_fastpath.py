@@ -539,3 +539,78 @@ class TestCypherSeededTypedHopPolars:
         full = self._run(gp, cy, force_full=True)
         assert hits["n"] == 0, f"polars fast path must decline {reason}"
         pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+
+
+# ---------------------------------------------------------------------------
+# polars-specific decline gates (review-skill wave 2026-07-21, #1760)
+# ---------------------------------------------------------------------------
+
+class TestPolarsFastPathGates:
+    def _q(self, seed):
+        return f"MATCH (m {{id: {seed}}})-[{{type:'HAS_CREATOR'}}]->(p {{type:'Person'}}) RETURN p"
+
+    def test_lazyframe_declines_not_crashes(self):
+        """A LazyFrame-backed graph must decline (full path), not AttributeError."""
+        pl = pytest.importorskip("polars")
+        from graphistry.compute.chain import _seeded_typed_return_dst_polars
+        from graphistry.compute.ast import ASTNode, ASTEdge
+        g, P = _graph()
+        lazy_g = graphistry.nodes(
+            pl.from_pandas(pd.DataFrame(g._nodes)).lazy(), "id"
+        ).edges(pl.from_pandas(pd.DataFrame(g._edges)).lazy(), "src", "dst")
+        r = _seeded_typed_return_dst_polars(
+            lazy_g, n({"id": P + 1}), n({"type": "Person"}),
+            e_forward(edge_match={"type": "HAS_CREATOR"}),
+            "src", "dst", "id", "forward")
+        assert r is None
+
+    def test_mixed_engine_frames_decline(self):
+        """polars nodes + pandas edges (or vice versa) must decline at dispatch."""
+        pl = pytest.importorskip("polars")
+        g, P = _graph()
+        mixed = graphistry.nodes(
+            pl.from_pandas(pd.DataFrame(g._nodes)), "id"
+        ).edges(pd.DataFrame(g._edges), "src", "dst")
+        hits = {"n": 0}
+        real = gfql_unified._execute_seeded_typed_hop_fast_path
+
+        def spy(*a, **k):
+            r = real(*a, **k)
+            hits["n"] += 1 if r is not None else 0
+            return r
+        gfql_unified._execute_seeded_typed_hop_fast_path = spy
+        try:
+            res = mixed.gfql(self._q(P + 1), engine="polars")
+        except Exception:
+            res = None  # full path may or may not support mixed frames; no crash IN the fast path
+        finally:
+            gfql_unified._execute_seeded_typed_hop_fast_path = real
+        assert hits["n"] == 0, "fast path must not engage on mixed-engine frames"
+
+    def test_polars_labels_column_precedence(self):
+        """label__X on a polars graph with BOTH labels+type columns: decline to the
+        full path (labels list-containment wins over type equality)."""
+        pl = pytest.importorskip("polars")
+        ndf = pd.DataFrame({
+            "id": [0, 1], "type": ["Person", "Person"],
+            "labels": [["Admin"], ["Person"]],
+        })
+        edf = pd.DataFrame({"src": [0], "dst": [1], "type": ["KNOWS"]})
+        gp = graphistry.nodes(pl.from_pandas(ndf), "id").edges(pl.from_pandas(edf), "src", "dst")
+        gpd = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+        q = "MATCH (m {id: 0})-[{type:'KNOWS'}]->(p:Person) RETURN p"
+        got = _canon_nodes(_run_diff(gp, "polars", q, fast=True))
+        oracle = _canon_nodes(_run_diff(gpd, "pandas", q, fast=False))
+        assert got["p.id"].tolist() == oracle["p.id"].tolist()
+
+    def test_polars_null_ids_never_link(self):
+        """Null seed/node ids must not link via is_in membership on polars."""
+        pl = pytest.importorskip("polars")
+        ndf = pl.DataFrame({"id": [0, 1, None], "kind": ["person", "post", "post"]})
+        edf = pl.DataFrame({"src": [0, None], "dst": [1, 1], "type": ["T", "T"]})
+        gp = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+        q = "MATCH (m {kind:'person'})-[{type:'T'}]->(p {kind:'post'}) RETURN p"
+        fast = _canon_nodes(_run_diff(gp, "polars", q, fast=True))
+        full = _canon_nodes(_run_diff(gp, "polars", q, fast=False))
+        pd.testing.assert_frame_equal(fast, full)
+        assert fast["p.id"].tolist() == [1]

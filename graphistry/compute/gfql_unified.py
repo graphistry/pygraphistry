@@ -1069,6 +1069,8 @@ def _execute_seeded_typed_hop_fast_path(
     )
     nodes_frame = base_graph._nodes
     is_polars = is_polars_df(nodes_frame)
+    if is_polars != is_polars_df(base_graph._edges):
+        return None  # mixed-engine node/edge frames: decline, full path decides
     helper = _seeded_typed_return_dst_polars if is_polars else _seeded_typed_return_dst_pandas_cudf
     dst_res = helper(base_graph, n0, n2, e1, src, dst, node, direction)
     if dst_res is None:
