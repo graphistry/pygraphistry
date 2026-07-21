@@ -8,7 +8,7 @@ from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.Engine import safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
-from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json, serialize_binding_ops
+from .ast import ASTObject, ASTNode, ASTEdge, Direction, from_json as ASTObject_from_json, serialize_binding_ops
 from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
@@ -684,6 +684,140 @@ def _chain_otel_attrs(
     return attrs
 
 
+def _seeded_scalar_filters(fd: Optional[Dict[str, Any]], df: DataFrameT) -> Optional[Dict[str, Any]]:
+    """Resolve a filter dict to plain scalar column==value pairs, or None to bail
+    to the general path. Mirrors filter_by_dict.resolve_filter_column exactly for
+    the shapes it accepts: the cypher ``label__X: True`` form maps to ``type``
+    equality ONLY when no list-valued ``labels`` column exists (labels-containment
+    is not scalar equality) and the frame is not edge-shaped — same precedence as
+    the live resolver. Anything else (predicates, non-scalar values, absent
+    columns) bails, so the full path keeps its exact semantics incl. E301."""
+    from graphistry.compute.filter_by_dict import _looks_like_edge_dataframe
+    if not fd:
+        return {}
+    cols = set(df.columns)
+    out: Dict[str, Any] = {}
+    for k, v in fd.items():
+        if not isinstance(v, (int, float, str, bool)):
+            return None  # predicate / non-scalar -> bail to the general path
+        if k in cols:
+            out[k] = v
+        elif (isinstance(k, str) and k.startswith("label__") and v is True
+              and "labels" not in cols and "type" in cols
+              and not _looks_like_edge_dataframe(df)):
+            out["type"] = k[len("label__"):]
+        else:
+            return None  # labels-list / unknown column -> bail
+    return out
+
+
+def _seeded_typed_hop_pandas_cudf(
+    g: Plottable, n0: ASTNode, n2: ASTNode, e1: ASTEdge,
+    src: str, dst: str, node: str, direction: Direction,
+) -> Optional[Plottable]:
+    """#1755 lever-3: engine-generic (pandas + cuDF) fast path for a scalar-filtered
+    seeded typed 1-hop. Value-identical to the general seeded branch for the covered
+    shape (all node/edge filters are plain scalars, directed) — same rows, columns,
+    and dtypes; row order and RangeIndex may differ — collapsing it into a
+    few DataFrame filters so a seeded lookup lands sub-ms. Uses only the shared
+    pandas/cuDF DataFrame API (no numpy array drops) so the same body runs on both
+    engines. Returns None to fall back for anything it does not cover (predicates,
+    undirected, missing columns) — the caller then runs the general branch."""
+    if direction == "undirected":
+        return None
+
+    nodes_df, edges_df = g._nodes, g._edges
+    if nodes_df is None or edges_df is None:
+        return None
+    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df)
+    n2f = _seeded_scalar_filters(n2.filter_dict, nodes_df)
+    ef = _seeded_scalar_filters(e1.edge_match, edges_df)
+    if n0f is None or n2f is None or ef is None:
+        return None
+    from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
+
+    # from-side seed FIRST: reduce edges to the seed's out-edges before the
+    # edge_match compare, so the type filter runs on the tiny frontier rather than
+    # all edges — this is what makes a seeded lookup sub-ms. The id filter goes
+    # first (int, unique -> ~1 row in one pass) so any remaining object filters
+    # (label__X->type) run on that tiny survivor frame, not the whole node table.
+    if n0f:
+        seed_nodes = nodes_df
+        for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
+            seed_nodes = seed_nodes[seed_nodes[k] == v]
+        edges = edges_df[edges_df[from_col].isin(seed_nodes[node].dropna())]
+    else:
+        edges = edges_df
+    if ef:  # typed edge (edge_match) — now on the reduced frontier
+        for k, v in ef.items():
+            edges = edges[edges[k] == v]
+
+    # Gather candidate endpoint nodes (both endpoints of surviving edges), then run
+    # the dest filter, dangling-edge drop and final-node selection on the small
+    # candidate/edge frames. Selecting from nodes_df keeps only real nodes, so the
+    # endpoint-in-nodes check subsumes the old NaN-endpoint guard. Membership sets
+    # are dropna()'d: pandas .isin matches NaN<->NaN, but the general branch's BFS
+    # joins never join on null keys, so a null id/endpoint must not link.
+    cand = nodes_df[
+        nodes_df[node].isin(edges[src].dropna()) | nodes_df[node].isin(edges[dst].dropna())
+    ].drop_duplicates(subset=[node])
+    if n2f:  # destination-node filter (to-side)
+        n2_cand = cand
+        for k, v in n2f.items():
+            n2_cand = n2_cand[n2_cand[k] == v]
+        n2_ok = n2_cand[node]
+    else:
+        n2_ok = cand[node]
+    to_vals = edges[to_col]
+    keep = edges[src].isin(cand[node].dropna()) & edges[dst].isin(cand[node].dropna()) & to_vals.isin(n2_ok.dropna())
+    edges = edges[keep]
+    cand = cand[cand[node].isin(edges[src]) | cand[node].isin(edges[dst])]
+    return g.nodes(cand).edges(edges)
+
+
+def _seeded_typed_return_dst_pandas_cudf(
+    g: Plottable, n0: ASTNode, n2: ASTNode, e1: ASTEdge,
+    src: str, dst: str, node: str, direction: Direction,
+) -> Optional[Tuple[DataFrameT, DataFrameT]]:
+    """#1755 cypher RETURN-alias fast path: like _seeded_typed_hop_pandas_cudf but
+    returns ONLY the destination (RETURN-alias) node rows + surviving edges — no
+    seed-node gather, no Plottable round-trip — so the seeded cypher projection
+    lands sub-ms. Engine-generic (pandas + cuDF): only the shared DataFrame API,
+    no numpy array drops. Returns ``(dst_node_rows, edges)`` or None to fall back."""
+    if direction == "undirected":
+        return None
+    nodes_df, edges_df = g._nodes, g._edges
+    if nodes_df is None or edges_df is None:
+        return None
+    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df)
+    n2f = _seeded_scalar_filters(n2.filter_dict, nodes_df)
+    ef = _seeded_scalar_filters(e1.edge_match, edges_df)
+    if n0f is None or n2f is None or ef is None or not n0f:
+        return None
+    from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
+    # id-first seed reduction: filter by the id column first (int/unique -> ~1 row)
+    # so any remaining object filters (label__X->type) run on the tiny survivor
+    # frame, never materializing an object column over the whole node table.
+    # Membership sets are dropna()'d: pandas .isin matches NaN<->NaN, but the full
+    # pipeline's joins never join on null keys, so a null id/endpoint must not link.
+    seed_nodes = nodes_df
+    for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
+        seed_nodes = seed_nodes[seed_nodes[k] == v]
+    edges = edges_df[edges_df[from_col].isin(seed_nodes[node].dropna())]
+    if ef:
+        for k, v in ef.items():
+            edges = edges[edges[k] == v]
+    # destination nodes = real nodes that are edge to-endpoints, then the dest
+    # filter, dangling-edge drop and dedup on the small dst/edge frames.
+    dstn = nodes_df[nodes_df[node].isin(edges[to_col].dropna())]
+    if n2f:
+        for k, v in n2f.items():
+            dstn = dstn[dstn[k] == v]
+    edges = edges[edges[to_col].isin(dstn[node].dropna())]
+    dstn = dstn[dstn[node].isin(edges[to_col].dropna())].drop_duplicates(subset=[node])
+    return dstn, edges
+
+
 def _try_chain_fast_path(
     g_in: Plottable,
     ops: List[ASTObject],
@@ -731,12 +865,16 @@ def _try_chain_fast_path(
     if not (isinstance(n2, ASTNode) and n2._name is None and n2.query is None):
         return None
     if not (isinstance(e1, ASTEdge) and e1.is_simple_single_hop()
-            and e1.edge_match is None and e1.source_node_match is None
+            and e1.source_node_match is None
             and e1.destination_node_match is None and e1._name is None
             and e1.source_node_query is None and e1.destination_node_query is None
             and e1.edge_query is None and not e1.include_zero_hop_seed
             and not e1.prune_to_endpoints):  # prune keeps only the arrival side -> full path
         return None
+    # #1755 lever-3: a typed edge (edge_match, e.g. -[:HAS_CREATOR]->) is a plain
+    # equality/predicate filter on the edge frame — apply it in the fast-path body
+    # below rather than falling through to the full two-pass machinery. source/dest
+    # node match + edge_query (richer predicates) still bail above.
     direction = e1.direction
     unconstrained = not n0.filter_dict and not n2.filter_dict
     if not unconstrained and direction == "undirected":
@@ -745,20 +883,67 @@ def _try_chain_fast_path(
     if g._nodes is None or g._edges is None:
         return None
     src, dst, node = g._source, g._destination, g._node
-    # Keep only edges with BOTH endpoints in the node table (the full path drops
-    # dangling edges via its joins). dropna so a NaN node id can't validate a NaN
-    # endpoint — .isin treats NaN as matchable but the BFS joins never match NaN<->NaN.
-    node_ids = g._nodes[node].dropna()
-    edges = g._edges[g._edges[src].isin(node_ids) & g._edges[dst].isin(node_ids)]
-    if not unconstrained:
-        from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
-        if n0.filter_dict:
-            ids = filter_by_dict(g._nodes, n0.filter_dict, engine_abs)[node]
-            edges = edges[edges[from_col].isin(ids)]
-        if n2.filter_dict:
-            ids = filter_by_dict(g._nodes, n2.filter_dict, engine_abs)[node]
-            edges = edges[edges[to_col].isin(ids)]
+    if src is None or dst is None or node is None:
+        return None  # no edge/node bindings -> can't fast-path; full path handles it
     concat = df_concat(engine_concrete)
+    if unconstrained:
+        # No node filter to reduce by: validate BOTH endpoints against the full
+        # node table (the full path drops dangling edges via its joins). dropna so
+        # a NaN node id can't validate a NaN endpoint — .isin treats NaN as
+        # matchable but the BFS joins never match NaN<->NaN.
+        node_ids = g._nodes[node].dropna()
+        edges = g._edges[g._edges[src].isin(node_ids) & g._edges[dst].isin(node_ids)]
+        if e1.edge_match:
+            # typed edge (e.g. -[:HAS_CREATOR]->) — same edge-frame filter the full
+            # hop applies, so the result set is identical.
+            edges = filter_by_dict(edges, e1.edge_match, engine_abs)
+    else:
+        # #1755 lever-3 seed-first: a seeded 1-hop must be O(result), not O(E).
+        # Reduce edges by the selective node filter(s) BEFORE the typed-edge scan
+        # and endpoint validation, so the expensive object/isin passes run on the
+        # tiny frontier, not all edges. The from-side ids come from the node table
+        # (so that endpoint is validated); the node gather below validates the to
+        # side and drops any edge dangling off the node table.
+        # pandas + cuDF: a scalar-filtered seeded typed hop collapses to a few
+        # DataFrame filters (sub-ms); falls back to the general branch below for
+        # predicates / undirected / missing columns (and non-pandas/cuDF engines).
+        if engine_concrete in (Engine.PANDAS, Engine.CUDF):
+            _fast_res = _seeded_typed_hop_pandas_cudf(g, n0, n2, e1, src, dst, node, direction)
+            if _fast_res is not None:
+                return _fast_res
+        from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
+        edges = g._edges
+        if n0.filter_dict:
+            from_ids = filter_by_dict(g._nodes, n0.filter_dict, engine_abs)[node]
+            edges = edges[edges[from_col].isin(from_ids)]
+        if e1.edge_match:
+            edges = filter_by_dict(edges, e1.edge_match, engine_abs)
+        if n2.filter_dict:
+            # Apply the destination filter to the SMALL set of gathered dst nodes,
+            # not the full node table — an O(N) object/type scan on all nodes is
+            # exactly the tax we're removing. Gather the frontier's dst nodes
+            # (small isin key), filter those, then drop edges to the losers.
+            to_present = edges[to_col].dropna().unique()
+            to_nodes = filter_by_dict(
+                g._nodes[g._nodes[node].isin(to_present)], n2.filter_dict, engine_abs)
+            edges = edges[edges[to_col].isin(to_nodes[node])]
+        # Validate endpoints + build result nodes on the reduced edge set (small
+        # isin key -> small hashtable; no O(E)-values scan). Engine-agnostic
+        # (pandas + cuDF): gather candidate endpoint nodes, drop edges dangling off
+        # the node table, then keep only nodes still referenced by a surviving edge.
+        ep = concat([
+            edges[[src]].rename(columns={src: node}),
+            edges[[dst]].rename(columns={dst: node}),
+        ]).drop_duplicates()
+        cand = g._nodes[g._nodes[node].isin(ep[node])].drop_duplicates(subset=[node])
+        valid = cand[node].dropna()
+        edges = edges[edges[src].isin(valid) & edges[dst].isin(valid)]
+        final = concat([
+            edges[[src]].rename(columns={src: node}),
+            edges[[dst]].rename(columns={dst: node}),
+        ]).drop_duplicates()
+        nodes = cand[cand[node].isin(final[node])]
+        return g.nodes(nodes).edges(edges)
     endpoints = concat([
         edges[[src]].rename(columns={src: node}),
         edges[[dst]].rename(columns={dst: node}),

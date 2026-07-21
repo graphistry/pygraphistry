@@ -976,6 +976,103 @@ def _run_logical_pass_pipeline(logical_plan: LogicalPlan, ctx: PlanContext) -> L
     return PassManager(DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES).run(logical_plan, ctx).plan
 
 
+
+def _execute_seeded_typed_hop_fast_path(
+    base_graph: Plottable,
+    compiled_query: CompiledCypherQuery,
+    physical_plan: "PhysicalPlan",
+    *,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+    start_nodes: Optional[DataFrameT] = None,
+) -> Optional[Plottable]:
+    """#1755 cypher-surface fast path: a seeded typed 1-hop with a whole-row node
+    RETURN — ``MATCH (m {id})-[:T]->(p) RETURN p`` — reduces the graph to the seed's
+    1-hop neighborhood with a few DataFrame filters (pandas + cuDF), then applies the
+    RETURN projection to just the destination rows (value-identical to the full
+    path: same rows/columns/dtypes; row order and RangeIndex may differ; sub-ms
+    because the frame is tiny). Returns None to fall through for anything outside
+    this exact shape or carrying side-channels (policy, same-path WHERE, OPTIONAL
+    null-row, carried reentry seeds)."""
+    if start_nodes is not None:
+        # A carried seed set (WITH..MATCH reentry) restricts n0 to those rows; the fast
+        # path derives its seed from n0.filter_dict alone, so engaging here would
+        # silently widen the seed back to the whole graph. Decline.
+        return None
+    if policy:
+        # The full path fires prechain/postchain/postload policy hooks; the lean
+        # projection below never enters chain(), so engaging would silently skip
+        # them. Policy-gated queries always take the full path (native twin gates
+        # identically in chain._try_chain_fast_path).
+        return None
+    if compiled_query.chain.where:
+        # Same-path WHERE entries (e.g. WHERE p.id < m.id) are evaluated by the
+        # full pipeline, not by the seed-first reduction — engaging would drop them.
+        return None
+    if compiled_query.empty_result_row is not None:
+        # OPTIONAL MATCH null-row semantics: on no match the full path emits the
+        # openCypher null row; the lean projection would return an empty frame.
+        return None
+    requested_engine = resolve_engine(cast(Any, engine), base_graph)
+    if requested_engine not in (Engine.PANDAS, Engine.CUDF):
+        return None
+    projection = compiled_query.result_projection
+    if projection is None or projection.table != "nodes":
+        return None
+    # Only a single whole-row node alias (RETURN p). Multi-alias returns (RETURN
+    # m, p) combine aliases into one row per match — different shape — so bail.
+    proj_cols = projection.columns
+    if len(proj_cols) != 1 or proj_cols[0].kind != "whole_row":
+        return None
+    if compiled_query.execution_extras is not None and (
+        compiled_query.execution_extras.connected_match_join is not None
+        or compiled_query.execution_extras.connected_optional_match is not None
+    ):
+        return None
+    ops = list(compiled_query.chain.chain)
+    if len(ops) != 4:
+        return None
+    n0, e1, n2, call = ops
+    if not (isinstance(n0, ASTNode) and isinstance(e1, ASTEdge)
+            and isinstance(n2, ASTNode) and isinstance(call, ASTCall)):
+        return None
+    # Only a genuine SINGLE hop. A variable-length edge (-[*1..2]->) is still one
+    # ASTEdge but expands to multiple hops, so the seeded 1-hop reduction below
+    # would silently truncate it. Reuse the same canonical gate the native fast
+    # path uses (also rejects hop labels / output slicing / fixed-point). See
+    # test_engine_polars_chain::TestVarlenAliasHopGate.
+    if not e1.is_simple_single_hop():
+        return None
+    if call.function != "rows":
+        return None
+    node, src, dst = base_graph._node, base_graph._source, base_graph._destination
+    if node is None or src is None or dst is None:
+        return None
+    # RETURN alias must be the DESTINATION node (n2) and the seed must sit on the
+    # source node (n0) — the forward seeded shape MATCH (m {id})-[:T]->(p) RETURN p.
+    # Other alias/seed placements (e.g. reverse patterns where the seed is on the
+    # RETURN node) fall back to the full path.
+    if n2._name != projection.alias:
+        return None
+    if not (n0.filter_dict and any(not str(k).startswith("label__") for k in n0.filter_dict)):
+        return None  # n0 must carry a selective (non-label) seed
+    direction = e1.direction
+    from graphistry.compute.chain import _seeded_typed_return_dst_pandas_cudf
+    dst_res = _seeded_typed_return_dst_pandas_cudf(
+        base_graph, n0, n2, e1, src, dst, node, direction)
+    if dst_res is None:
+        return None
+    p_rows, _edges = dst_res
+    # Lean projection: p_rows already IS the RETURN-alias (destination) node set.
+    # Tag with the alias and reuse apply_result_projection for the exact
+    # column-order/flatten semantics — all on a handful of rows, so seeded cypher
+    # stays sub-ms (vs the ~25ms rows-pivot pipeline on the full graph).
+    tagged = p_rows.assign(**{projection.alias: True})
+    result = base_graph.nodes(tagged)
+    return apply_result_projection(result, projection)
+
+
 def _execute_compiled_query_via_physical_plan(
     base_graph: Plottable,
     *,
@@ -1015,6 +1112,11 @@ def _execute_compiled_query_via_physical_plan(
         fast_count = _execute_two_hop_count_fast_path(base_graph, compiled_query.chain, engine=engine)
         if fast_count is not None:
             return fast_count
+        fast_hop = _execute_seeded_typed_hop_fast_path(
+            base_graph, compiled_query, physical_plan,
+            engine=engine, policy=policy, context=context, start_nodes=start_nodes)
+        if fast_hop is not None:
+            return fast_hop
         return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,
