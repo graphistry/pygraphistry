@@ -220,7 +220,11 @@ class TestResidualDtypeAndEscapeGates:
 
 class TestFusedTwoStarLane:
     """#1755 lane-1: the fused single-collect two-star plan must be value-identical
-    to the eager path (which it replaces when residuals translate natively)."""
+    to the eager path (which it replaces when residuals translate natively).
+    Every fused-arm test ASSERTS lane engagement via a spy on the extracted
+    _connected_join_two_star_fused_polars helper -- the original tests silently
+    compared slow-path vs slow-path because count(*) lowers to a 2-tuple agg that
+    declines the whole two-star fast path before either lane."""
 
     def _star_graph(self):
         pl2 = pytest.importorskip("polars")
@@ -238,34 +242,54 @@ class TestFusedTwoStarLane:
         })
         return graphistry.nodes(ndf, "node_id").edges(edf, "src", "dst")
 
+    # count(p) -- count(*) lowers to a 2-tuple agg and declines the two-star fast
+    # path entirely (pinned below), so it can never reach the fused lane.
     Q = ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
          "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
          "WHERE toLower(i.interest) = toLower('FINE DINING') AND p.gender = 'male' "
-         "RETURN c.city AS city, count(*) AS n ORDER BY n DESC, city LIMIT 5")
+         "RETURN c.city AS city, count(p) AS n ORDER BY n DESC, city LIMIT 5")
+
+    def _spy_fused(self, monkeypatch):
+        calls = []
+        orig = fp._connected_join_two_star_fused_polars
+
+        def spy(*a, **k):
+            out = orig(*a, **k)
+            calls.append(out is not None)
+            return out
+
+        monkeypatch.setattr(fp, "_connected_join_two_star_fused_polars", spy)
+        return calls
+
+    @staticmethod
+    def _rows(res):
+        df = res._nodes
+        df = df.to_pandas() if hasattr(df, "to_pandas") else df
+        return df.to_dict("records")
 
     @requires_polars
     def test_fused_matches_eager_chain_path(self, monkeypatch):
         g = self._star_graph()
+        calls = self._spy_fused(monkeypatch)
         fused = g.gfql(self.Q, engine="polars")
+        assert calls and calls[-1], "fused lane did not engage (vacuous comparison)"
         # forcing every translation to decline disables the fused lane AND the
         # residual fast lane -> full eager path + where_rows chain fallback
         monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
         eager = g.gfql(self.Q, engine="polars")
-
-        def rows(res):
-            df = res._nodes
-            df = df.to_pandas() if hasattr(df, "to_pandas") else df
-            return df.to_dict("records")
-        assert rows(fused) == rows(eager)
-        assert rows(fused)  # non-empty: ORDER BY pinned, exact row order compared
+        assert self._rows(fused) == self._rows(eager)
+        assert self._rows(fused)  # non-empty: ORDER BY pinned, exact row order compared
 
     @requires_polars
     def test_fused_empty_result(self, monkeypatch):
         g = self._star_graph()
         q = self.Q.replace("FINE DINING", "no such interest")
+        calls = self._spy_fused(monkeypatch)
         fused = g.gfql(q, engine="polars")
+        assert calls and calls[-1], "fused lane did not engage"
         monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
         eager = g.gfql(q, engine="polars")
+
         def shape(res):
             df = res._nodes
             df = df.to_pandas() if hasattr(df, "to_pandas") else df
@@ -273,10 +297,54 @@ class TestFusedTwoStarLane:
         assert shape(fused) == shape(eager)
 
     @requires_polars
-    def test_fused_matches_pandas_oracle(self):
+    def test_fused_matches_pandas_oracle(self, monkeypatch):
         g = self._star_graph()
         gpd = graphistry.nodes(g._nodes.to_pandas(), "node_id").edges(g._edges.to_pandas(), "src", "dst")
+        calls = self._spy_fused(monkeypatch)
         got = g.gfql(self.Q, engine="polars")._nodes
+        assert calls and calls[-1], "fused lane did not engage"
         got = (got.to_pandas() if hasattr(got, "to_pandas") else got).to_dict("records")
         oracle = gpd.gfql(self.Q, engine="pandas")._nodes.to_dict("records")
         assert got == oracle
+
+    @requires_polars
+    def test_pandas_frames_polars_engine_no_crash(self, monkeypatch):
+        """BLOCKER-1 pin: pandas frames + engine='polars' (the WITH..MATCH reentry
+        shape) must run the residual two-star query, not AttributeError on
+        edges.lazy() -- the fused lane converts edges before going lazy."""
+        g = self._star_graph()
+        gpd = graphistry.nodes(g._nodes.to_pandas(), "node_id").edges(g._edges.to_pandas(), "src", "dst")
+        res = gpd.gfql(self.Q, engine="polars")
+        assert self._rows(res) == self._rows(g.gfql(self.Q, engine="polars"))
+
+    @requires_polars
+    def test_fused_ungrouped_empty_match_returns_zero_row(self, monkeypatch):
+        """BLOCKER-2 pin: ungrouped count with a live first arm but empty join must
+        return the single n=0 row (the eager all-left-counts==1 shortcut / the
+        openCypher count over no rows), not a 0x0 frame."""
+        g = self._star_graph()
+        # tennis -> only person 2, one HAS_INTEREST edge (left counts all == 1, non-empty);
+        # NoSuchCity -> right arm empty -> empty join
+        q = ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+             "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+             "WHERE toLower(i.interest) = toLower('TENNIS') AND c.city = 'NoSuchCity' "
+             "RETURN count(p) AS n")
+        calls = self._spy_fused(monkeypatch)
+        fused = g.gfql(q, engine="polars")
+        assert calls and calls[-1], "fused lane did not engage"
+        assert self._rows(fused) == [{"n": 0}]
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        eager = g.gfql(q, engine="polars")
+        assert self._rows(fused) == self._rows(eager)
+
+    @requires_polars
+    def test_count_star_declines_two_star_fast_path(self, monkeypatch):
+        """Decline-shape pin: count(*) lowers to a 2-tuple agg, so the two-star fast
+        path (fused AND eager) declines and the general path answers -- and the
+        fused lane must NOT engage."""
+        g = self._star_graph()
+        q = self.Q.replace("count(p)", "count(*)")
+        calls = self._spy_fused(monkeypatch)
+        res = g.gfql(q, engine="polars")
+        assert not any(calls), "count(*) unexpectedly reached the fused lane"
+        assert self._rows(res)  # still answered (general path)
