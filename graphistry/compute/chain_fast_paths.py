@@ -66,8 +66,17 @@ def _resident_seed_indexes(
     else:
         return None
     kind = EDGE_OUT_ADJ if direction == "forward" else EDGE_IN_ADJ
-    adj = registry.get_valid(kind, edges_df, (src, dst), engine)
-    nid = registry.get_valid(NODE_ID, nodes_df, (node,), engine)
+    engines = [engine]
+    if engine == Engine.POLARS:
+        # an index built with explicit engine='polars-gpu' serves the same eager
+        # polars frames (same numpy sidecars + polars row-gather)
+        engines.append(Engine.POLARS_GPU)
+    adj = nid = None
+    for eng_try in engines:
+        adj = registry.get_valid(kind, edges_df, (src, dst), eng_try)
+        nid = registry.get_valid(NODE_ID, nodes_df, (node,), eng_try)
+        if adj is not None and nid is not None:
+            break
     if adj is None or nid is None:
         return None
     xp, _ = array_namespace(engine)
@@ -80,13 +89,24 @@ def _ids_to_key_array(vals: Any, keys: Any, xp: Any) -> Optional[Any]:
     dropna semantics). None when the cast is not value-safe (mismatched families
     like str-vs-int decline to the scan path rather than risk false matches)."""
     try:
-        arr = xp.asarray(vals.to_numpy() if hasattr(vals, "to_numpy") else vals)
+        if 'cudf' in str(type(vals).__module__):
+            vals = vals.dropna()
+            raw = vals.values  # device array; to_numpy() raises on nulls + round-trips host
+        elif hasattr(vals, "to_numpy"):
+            raw = vals.to_numpy()
+        else:
+            raw = vals
+        arr = xp.asarray(raw)
         if arr.dtype.kind == "f":
             arr = arr[~xp.isnan(arr)]
         if arr.dtype.kind not in "iuf" or keys.dtype.kind not in "iuf":
             return None  # numeric id families only: object/str ids keep the scan path (null-object semantics)
         if arr.dtype != keys.dtype:
             common = xp.promote_types(arr.dtype, keys.dtype)
+            if arr.dtype.kind in "iu" and keys.dtype.kind in "iu" and common.kind == "f":
+                # int64<->uint64 promotes to float64, which collapses distinct ids
+                # >= 2^53 into false matches; the scan path compares exactly -> decline.
+                return None
             arr = arr.astype(common)
         return xp.unique(arr)
     except (TypeError, ValueError):

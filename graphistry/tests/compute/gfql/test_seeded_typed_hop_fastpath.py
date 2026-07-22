@@ -818,11 +818,17 @@ class TestResidentIndexSeededFastPath:
         return df[cols].sort_values(cols).reset_index(drop=True)
 
     def _spied(self, g, q, engine, monkeypatch):
+        # counts SERVES (non-None returns), not calls: a gate regression that
+        # declines everything must fail these tests, not silently pass them
         import graphistry.compute.chain_fast_paths as cfp
         counts = {"n": 0}
         on = cfp._index_node_rows
-        monkeypatch.setattr(cfp, "_index_node_rows",
-                            lambda *a, **k: (counts.__setitem__("n", counts["n"] + 1), on(*a, **k))[1])
+
+        def spy(*a, **k):
+            out = on(*a, **k)
+            counts["n"] += out is not None
+            return out
+        monkeypatch.setattr(cfp, "_index_node_rows", spy)
         res = g.gfql(q, engine=engine)
         monkeypatch.setattr(cfp, "_index_node_rows", on)
         return res, counts["n"]
@@ -840,7 +846,11 @@ class TestResidentIndexSeededFastPath:
         else:
             mk = lambda: graphistry.nodes(ndf, "id").edges(edf, "src", "dst")  # noqa: E731
         plain = mk().gfql(self.Q, engine=engine)
-        indexed, hits = self._spied(mk().gfql_index_all(), self.Q, engine, monkeypatch)
+        # explicit engine: on master, gfql_index_all(AUTO) on polars frames still
+        # swaps them to pandas (resolve_engine legacy input-format policy), so the
+        # polars index must be requested explicitly; #1767 (separate PR) makes
+        # AUTO preserve polars frames, at which point bare gfql_index_all() also works.
+        indexed, hits = self._spied(mk().gfql_index_all(engine=engine), self.Q, engine, monkeypatch)
         assert hits > 0, "resident index did not serve the seeded fast path"
         pd.testing.assert_frame_equal(self._canon(indexed), self._canon(plain))
 
@@ -871,4 +881,55 @@ class TestResidentIndexSeededFastPath:
         got = g2.gfql(self.Q, engine="pandas")
         plain = graphistry.nodes(ndf, "id").edges(edf2, "src", "dst").gfql(self.Q, engine="pandas")
         assert counts["n"] == 0, "stale index must not serve"
+        pd.testing.assert_frame_equal(self._canon(got), self._canon(plain))
+
+
+    def test_native_chain_hop_indexed_parity_forward_and_reverse(self, monkeypatch):
+        """M1 pin: the native-chain hop helper's indexed branch (only reachable via
+        chain ops, never Cypher) — forward (EDGE_OUT_ADJ) and reverse (EDGE_IN_ADJ),
+        serve-asserted, parity vs the un-indexed graph."""
+        from graphistry.compute.ast import n, e_forward, e_reverse
+        import graphistry.compute.chain_fast_paths as cfp
+        ndf, edf = self._frames()
+        mk = lambda: graphistry.nodes(ndf, "id").edges(edf, "src", "dst")  # noqa: E731
+        for ops in (
+            [n({"id": 33}), e_forward(edge_match={"type": "KNOWS"}), n({"type": "Person"})],
+            [n({"id": 33}), e_reverse(edge_match={"type": "KNOWS"}), n({"type": "Person"})],
+        ):
+            serves = {"n": 0}
+            oe = cfp._index_edge_rows
+
+            def spy(*a, **k):
+                out = oe(*a, **k)
+                serves["n"] += out is not None
+                return out
+            monkeypatch.setattr(cfp, "_index_edge_rows", spy)
+            got = mk().gfql_index_all().gfql(ops, engine="pandas")
+            monkeypatch.setattr(cfp, "_index_edge_rows", oe)
+            assert serves["n"] > 0, f"indexed hop branch did not serve for {ops[1].direction}"
+            plain = mk().gfql(ops, engine="pandas")
+            pd.testing.assert_frame_equal(self._canon(got), self._canon(plain))
+
+    def test_uint64_int64_id_mix_declines_not_collapses(self, monkeypatch):
+        """B1 pin: int64<->uint64 promotes to float64, which collapses ids >= 2**53
+        into false matches; the gate must DECLINE (scan path compares exactly)."""
+        import graphistry.compute.chain_fast_paths as cfp
+        big = np.uint64(2**62)
+        ndf = pd.DataFrame({"id": np.array([big, big + np.uint64(1), np.uint64(7)], dtype=np.uint64),
+                            "type": ["Person"] * 3})
+        edf = pd.DataFrame({"src": np.array([int(big) + 1], dtype=np.int64),
+                            "dst": np.array([7], dtype=np.int64), "type": ["KNOWS"]})
+        g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all()
+        q = f"MATCH (m {{id: {int(big) + 1}}})-[:KNOWS]->(p) RETURN p"
+        serves = {"n": 0}
+        on = cfp._index_node_rows
+
+        def spy(*a, **k):
+            out = on(*a, **k)
+            serves["n"] += out is not None
+            return out
+        monkeypatch.setattr(cfp, "_index_node_rows", spy)
+        got = g.gfql(q, engine="pandas")
+        monkeypatch.setattr(cfp, "_index_node_rows", on)
+        plain = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql(q, engine="pandas")
         pd.testing.assert_frame_equal(self._canon(got), self._canon(plain))
