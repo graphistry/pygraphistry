@@ -382,7 +382,7 @@ results on every engine — see :doc:`Choosing an Engine <engines>`.
 
 ::
 
-    g_result = g.gfql([ ... ], engine='polars')   # e.g. 12.3x over pandas on LDBC SNB SF1 seed-lookup
+    g_result = g.gfql([ ... ], engine='polars')   # often much faster on query-heavy workloads
 
 **Example: Force GFQL to use a GPU engine**
 
