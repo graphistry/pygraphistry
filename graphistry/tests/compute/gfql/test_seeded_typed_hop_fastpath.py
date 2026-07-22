@@ -933,3 +933,32 @@ class TestResidentIndexSeededFastPath:
         monkeypatch.setattr(cfp, "_index_node_rows", on)
         plain = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql(q, engine="pandas")
         pd.testing.assert_frame_equal(self._canon(got), self._canon(plain))
+
+    @pytest.mark.skipif("GFQL_PERF_TESTS" not in __import__("os").environ,
+                        reason="wall-clock perf gate: opt-in (GFQL_PERF_TESTS=1) — run on the "
+                               "benchmarking rig, not CI runners (noisy shared hardware)")
+    def test_perf_indexed_beats_scan_at_scale(self):
+        """Perf regression gate for the resident-index path: at 500k edges the
+        indexed covered-shape query must beat the scan fast path by >=1.5x
+        (measured margin is ~2-20x engine/scale dependent; 1.5x is the alarm
+        threshold, not the claim). Deterministic engagement is asserted by the
+        functional tests; this catches a silently-slow index path."""
+        import time, statistics
+        rng = np.random.default_rng(0)
+        N, E = 125_000, 500_000
+        ndf = pd.DataFrame({"id": np.arange(N), "type": np.where(np.arange(N) % 3 == 0, "Person", "Message")})
+        edf = pd.DataFrame({"src": rng.integers(0, N, E), "dst": rng.integers(0, N, E), "type": "KNOWS"})
+        q = "MATCH (m {id: 33})-[:KNOWS]->(p) RETURN p"
+
+        def med(g):
+            g.gfql(q, engine="pandas")
+            ts = []
+            for _ in range(15):
+                t0 = time.perf_counter()
+                g.gfql(q, engine="pandas")
+                ts.append(time.perf_counter() - t0)
+            return statistics.median(ts)
+
+        scan = med(graphistry.nodes(ndf, "id").edges(edf, "src", "dst"))
+        indexed = med(graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all())
+        assert indexed * 1.5 < scan, f"indexed {indexed*1e3:.2f}ms not >=1.5x faster than scan {scan*1e3:.2f}ms"

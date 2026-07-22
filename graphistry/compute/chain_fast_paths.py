@@ -7,11 +7,15 @@ direction); this module imports only leaf modules (no back-edge into chain.py).
 """
 # ruff: noqa: E501
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple, TYPE_CHECKING, Union, cast
 
 from graphistry.Plottable import Plottable
 from .ast import ASTNode, ASTEdge, Direction
-from .typing import DataFrameT
+from .typing import ArrayLike, ArrayNamespace, DataFrameT, SeriesT
+
+if TYPE_CHECKING:
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.registry import AdjacencyIndex, NodeIdIndex
 
 
 def _seeded_scalar_filters(fd: Optional[Dict[str, Any]], df: DataFrameT) -> Optional[Dict[str, Any]]:
@@ -44,7 +48,7 @@ def _seeded_scalar_filters(fd: Optional[Dict[str, Any]], df: DataFrameT) -> Opti
 def _resident_seed_indexes(
     g: Plottable, nodes_df: DataFrameT, edges_df: DataFrameT,
     node: str, src: str, dst: str, direction: Direction,
-) -> Optional[Tuple[Any, Any, Any, Any]]:
+) -> Optional[Tuple["NodeIdIndex", "AdjacencyIndex", ArrayNamespace, "Engine"]]:
     """(node_id_index, adjacency_index, xp, engine) when BOTH resident indexes
     validly cover this directed seeded hop on these EXACT frames (fingerprint +
     identity via get_valid), else None — callers keep the scan path, so a stale
@@ -80,18 +84,21 @@ def _resident_seed_indexes(
     if adj is None or nid is None:
         return None
     xp, _ = array_namespace(engine)
-    return nid, adj, xp, engine
+    # get_valid returns the union type; kind selection above guarantees the concrete classes
+    return cast("NodeIdIndex", nid), cast("AdjacencyIndex", adj), xp, engine
 
 
-def _ids_to_key_array(vals: Any, keys: Any, xp: Any) -> Optional[Any]:
+def _ids_to_key_array(
+    vals: Union["SeriesT", Sequence[Any]], keys: ArrayLike, xp: ArrayNamespace,
+) -> Optional[ArrayLike]:
     """Values (python list / Series / array) -> deduped backend array in the index
     key dtype, nulls dropped (null ids never link — matching the scan path's
     dropna semantics). None when the cast is not value-safe (mismatched families
     like str-vs-int decline to the scan path rather than risk false matches)."""
     try:
         if 'cudf' in str(type(vals).__module__):
-            vals = vals.dropna()
-            raw = vals.values  # device array; to_numpy() raises on nulls + round-trips host
+            vals = vals.dropna()  # type: ignore[union-attr]  # cudf Series by module check
+            raw = vals.values  # type: ignore[union-attr]  # device array; to_numpy() raises on nulls + round-trips host
         elif hasattr(vals, "to_numpy"):
             raw = vals.to_numpy()
         else:
@@ -113,7 +120,10 @@ def _ids_to_key_array(vals: Any, keys: Any, xp: Any) -> Optional[Any]:
         return None
 
 
-def _index_node_rows(nid: Any, ids: Any, xp: Any, engine: Any, nodes_df: DataFrameT) -> Optional[DataFrameT]:
+def _index_node_rows(
+    nid: "NodeIdIndex", ids: Union["SeriesT", Sequence[Any]],
+    xp: ArrayNamespace, engine: "Engine", nodes_df: DataFrameT,
+) -> Optional[DataFrameT]:
     """Node rows whose id is in ``ids`` via the resident node-id index (positional
     gather; row order is id-sorted, covered by the value-identical contract)."""
     from graphistry.compute.gfql.index.lookup import lookup_node_rows
@@ -124,7 +134,10 @@ def _index_node_rows(nid: Any, ids: Any, xp: Any, engine: Any, nodes_df: DataFra
     return take_rows(nodes_df, lookup_node_rows(nid, arr, xp), engine)
 
 
-def _index_edge_rows(adj: Any, ids: Any, xp: Any, engine: Any, edges_df: DataFrameT) -> Optional[DataFrameT]:
+def _index_edge_rows(
+    adj: "AdjacencyIndex", ids: Union["SeriesT", Sequence[Any]],
+    xp: ArrayNamespace, engine: "Engine", edges_df: DataFrameT,
+) -> Optional[DataFrameT]:
     """Edge rows incident to ``ids`` on the indexed side via the CSR adjacency
     (searchsorted gather; replaces the O(E) isin scan)."""
     from graphistry.compute.gfql.index.lookup import lookup_edge_rows
