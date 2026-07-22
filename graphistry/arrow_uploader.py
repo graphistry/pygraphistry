@@ -247,6 +247,22 @@ class ArrowUploader:
                 verify=self.certificate_validation,
             )
             log_requests_error(response)
+            if not (200 <= response.status_code < 300):
+                logger.warning(
+                    "Org switch to %s failed with HTTP %s; not recording switch",
+                    org_name, response.status_code
+                )
+                return
+            try:
+                body = response.json().get('data', {})
+            except Exception:
+                body = {}
+            if isinstance(body, dict) and body.get('idp'):
+                logger.warning(
+                    "Org switch to %s returned an SSO challenge; not recording switch",
+                    org_name
+                )
+                return
             self._client_session._last_switched_org_token = (org_name, token)
             from .pygraphistry import PyGraphistry
             if PyGraphistry.session is self._client_session:
