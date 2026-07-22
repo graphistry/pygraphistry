@@ -962,3 +962,41 @@ class TestResidentIndexSeededFastPath:
         scan = med(graphistry.nodes(ndf, "id").edges(edf, "src", "dst"))
         indexed = med(graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all())
         assert indexed * 1.5 < scan, f"indexed {indexed*1e3:.2f}ms not >=1.5x faster than scan {scan*1e3:.2f}ms"
+
+    @pytest.mark.parametrize("engine", ["pandas", "polars"])
+    def test_property_seeded_engages_adjacency_index(self, engine, monkeypatch):
+        """Decoupled-index pin (the SF1-harness/LDBC pattern): the graph binds a
+        synthetic key column while the seed filter hits the `id` PROPERTY. The
+        node-id index can't serve the seed row, but the CSR adjacency + node-id
+        gathers must still engage — binding-column values are the key domain
+        regardless of how the seed rows were found."""
+        if engine == "polars":
+            pytest.importorskip("polars")
+        import graphistry.compute.chain_fast_paths as cfp
+        ndf, edf = self._frames()
+        # rebind: __key__ is the node/edge key domain; `id` becomes a plain property
+        ndf = ndf.rename(columns={"id": "prop_id"}).assign(__key__=lambda d: d.index.to_numpy())
+        key_of = dict(zip(ndf["prop_id"], ndf["__key__"]))
+        edf = edf.dropna(subset=["src", "dst"])
+        edf = edf[edf["src"].isin(key_of) & edf["dst"].isin(key_of)]
+        edf = edf.assign(src=edf["src"].map(key_of), dst=edf["dst"].map(key_of))
+        ndf = ndf.rename(columns={"prop_id": "id"})
+        if engine == "polars":
+            import polars as pl
+            mk = lambda: graphistry.nodes(pl.from_pandas(ndf), "__key__").edges(pl.from_pandas(edf), "src", "dst")  # noqa: E731
+        else:
+            mk = lambda: graphistry.nodes(ndf, "__key__").edges(edf, "src", "dst")  # noqa: E731
+        q = "MATCH (m {id: 33.0})-[:KNOWS]->(p) RETURN p"
+        plain = mk().gfql(q, engine=engine)
+        serves = {"e": 0}
+        oe = cfp._index_edge_rows
+
+        def spy(*a, **k):
+            out = oe(*a, **k)
+            serves["e"] += out is not None
+            return out
+        monkeypatch.setattr(cfp, "_index_edge_rows", spy)
+        indexed = mk().gfql_index_all(engine=engine).gfql(q, engine=engine)
+        monkeypatch.setattr(cfp, "_index_edge_rows", oe)
+        assert serves["e"] > 0, "adjacency index did not serve the property-seeded lookup"
+        pd.testing.assert_frame_equal(self._canon(indexed), self._canon(plain))
