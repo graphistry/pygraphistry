@@ -184,16 +184,28 @@ def _seeded_typed_hop_pandas_cudf(
     # O(E) frontier isin, and the O(N) candidate gather become positional lookups.
     # Any decline (no index, stale fingerprint, unsafe id cast) falls back to the
     # scan body below — identical results either way, only speed differs.
-    ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction) if (n0f and node in n0f) else None
+    # Decoupled index use: the seed row lookup uses the node-id index ONLY when
+    # the seed filter includes the binding column, but the frontier edge gather
+    # (CSR adjacency) and candidate gathers (node-id index) engage regardless of
+    # HOW the seed rows were found — their inputs are binding-column values, which
+    # are the index key domain. (LDBC/user pattern: seed on the `id` PROPERTY
+    # while the graph binds a different key column — previously disqualified the
+    # whole index path.)
+    ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction) if n0f else None
     seed_nodes = edges = cand = None
     if ctx is not None:
         nid, adj, xp, idx_engine = ctx
-        seed_nodes = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
+        if node in n0f:
+            seed_nodes = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
         if seed_nodes is not None:
             for k, v in n0f.items():
                 if k != node:
                     seed_nodes = seed_nodes[seed_nodes[k] == v]
-            edges = _index_edge_rows(adj, seed_nodes[node], xp, idx_engine, edges_df)
+        else:
+            seed_nodes = nodes_df
+            for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
+                seed_nodes = seed_nodes[seed_nodes[k] == v]
+        edges = _index_edge_rows(adj, seed_nodes[node], xp, idx_engine, edges_df)
         if edges is not None:
             if ef:
                 for k, v in ef.items():
@@ -266,16 +278,24 @@ def _seeded_typed_return_dst_pandas_cudf(
     # frame, never materializing an object column over the whole node table.
     # Membership sets are dropna()'d: pandas .isin matches NaN<->NaN, but the full
     # pipeline's joins never join on null keys, so a null id/endpoint must not link.
-    ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction) if node in n0f else None
+    ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction)
     seed_nodes = edges = dstn = None
     if ctx is not None:
         nid, adj, xp, idx_engine = ctx
-        seed_nodes = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
+        if node in n0f:
+            seed_nodes = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
         if seed_nodes is not None:
             for k, v in n0f.items():
                 if k != node:
                     seed_nodes = seed_nodes[seed_nodes[k] == v]
-            edges = _index_edge_rows(adj, seed_nodes[node], xp, idx_engine, edges_df)
+        else:
+            # property-seeded (binding col not in the filter): scan the seed row,
+            # then the CSR/node-index gathers below still engage — binding-column
+            # values are the index key domain no matter how the seed was found.
+            seed_nodes = nodes_df
+            for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
+                seed_nodes = seed_nodes[seed_nodes[k] == v]
+        edges = _index_edge_rows(adj, seed_nodes[node], xp, idx_engine, edges_df)
         if edges is not None:
             if ef:
                 for k, v in ef.items():
@@ -331,16 +351,23 @@ def _seeded_typed_return_dst_polars(
     # Membership sets are drop_nulls()'d (null ids/endpoints never link, matching
     # the full pipeline's joins) and passed via .implode() (Series-arg is_in is
     # deprecated in polars 1.42, see polars#22149).
-    ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction) if node in n0f else None
+    ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction)
     seed_nodes = edges = dstn = None
     if ctx is not None:
         nid, adj, xp, idx_engine = ctx
-        seed_nodes = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
+        if node in n0f:
+            seed_nodes = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
         if seed_nodes is not None:
             for k, v in n0f.items():
                 if k != node:
                     seed_nodes = seed_nodes.filter(pl.col(k) == v)
-            edges = _index_edge_rows(adj, seed_nodes.get_column(node), xp, idx_engine, edges_df)
+        else:
+            # property-seeded: scan the seed row; CSR/node-index gathers below
+            # still engage (binding-column values = index key domain).
+            seed_nodes = nodes_df
+            for k, v in n0f.items():
+                seed_nodes = seed_nodes.filter(pl.col(k) == v)
+        edges = _index_edge_rows(adj, seed_nodes.get_column(node), xp, idx_engine, edges_df)
         if edges is not None:
             for k, v in ef.items():
                 edges = edges.filter(pl.col(k) == v)
