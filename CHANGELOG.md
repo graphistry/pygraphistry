@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Documentation
+- **GFQL pay-as-you-go resident indexing user guide**: New :doc:`Pay-As-You-Go Resident Indexing <gfql/indexing>` page — the lifecycle guide to resident indexes (`gfql_index_all()` / `gfql_index_edges()` / `create_index()` / `show_indexes()` / `drop_index()`): what the node-id + CSR in/out adjacency sidecars are, what engages them on 0.58.0 (seeded typed-hop fast paths incl. property RETURNs and property-seeded lookups per #1768/#1770, direct `g.hop()`; the general polars chain traversal honestly noted as not yet covered), the staleness/validity contract (identity + fingerprint; rebind invalidates; declines are safe — identical results either way), engine notes (polars needs `gfql_index_all(engine='polars')` until #1767), 0.58.0-tag measured numbers, and a runnable end-to-end example. Wired into the GFQL toctree + recommended paths alongside :doc:`Seeded Traversal Indexes <gfql/index_adjacency>`.
+
 ## [0.58.0 - 2026-07-22]
 
 ### Performance
