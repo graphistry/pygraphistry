@@ -36,7 +36,7 @@ Recommended paths:
 
 - New to GFQL: :doc:`overview` -> :doc:`quick` -> :doc:`where` -> :doc:`return`
 - Running Cypher syntax in GFQL: :doc:`cypher` -> :doc:`quick` -> :doc:`return` -> :doc:`spec/cypher_mapping`
-- Faster on CPU (no GPU): :doc:`engines` -> :doc:`performance` (one keyword, ``engine='polars'``, up to ~38x over pandas)
+- Faster on CPU (no GPU): :doc:`engines` -> :doc:`performance` (one keyword, ``engine='polars'``, e.g. 12.3x over pandas on LDBC SNB SF1 seed-lookup)
 - Performance path (intro -> engine choice -> GPU -> remote GPU): :doc:`about` -> :doc:`engines` -> :doc:`performance` -> :doc:`remote`
 - Fast seeded lookups (start from known nodes, like a DB index): :doc:`indexing` (build once with ``gfql_index_all()``, reused automatically) -> :doc:`index_adjacency` (O(degree), flat in graph size, 9-28x vs Kuzu/Neo4j)
 - Translating existing Cypher to native GFQL: :doc:`spec/cypher_mapping`
