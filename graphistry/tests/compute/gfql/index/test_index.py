@@ -884,10 +884,14 @@ class TestIndexAutoPreservesPolarsFrames:
         g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all()
         hits = []
         orig = index_api.index_seeded_hop
-        monkeypatch.setattr(index_api, "index_seeded_hop",
-                            lambda *a, **k: (hits.append(1), orig(*a, **k))[1])
+
+        def spy(*a, **k):
+            out = orig(*a, **k)
+            hits.append(out is not None)  # None = scan fallback; only a real serve counts
+            return out
+        monkeypatch.setattr(index_api, "index_seeded_hop", spy)
         r = g.hop(nodes=pl.DataFrame({"id": [7]}), hops=1, direction="forward", engine="polars")
-        assert hits, "resident polars index did not serve the polars hop"
+        assert any(hits), "resident polars index did not SERVE the polars hop (call alone is not service)"
         # parity vs the pandas indexed oracle on the same data
         gp = graphistry.nodes(ndf.to_pandas(), "id").edges(edf.to_pandas(), "src", "dst").gfql_index_all()
         rp = gp.hop(nodes=pd.DataFrame({"id": [7]}), hops=1, direction="forward", engine="pandas")
@@ -897,5 +901,26 @@ class TestIndexAutoPreservesPolarsFrames:
         g = self._pl_graph()
         gi = g.gfql_index_all(engine="pandas")
         assert isinstance(gi._edges, pd.DataFrame)
+        from graphistry.compute.gfql.index import show_indexes
+        assert set(show_indexes(gi)["engine"]) == {"pandas"}
+
+
+    def test_nodeless_polars_graph_indexes(self):
+        # B1 pin: edges-only polars graph — materialize_nodes synthesizes under its
+        # own AUTO rules; the NODE_ID build must re-align engines, not crash.
+        pl = pytest.importorskip("polars")
+        g = graphistry.edges(pl.DataFrame({"src": [0, 1, 2], "dst": [1, 2, 3]}), "src", "dst")
+        gi = g.gfql_index_all()
+        from graphistry.compute.gfql.index import show_indexes
+        idx = show_indexes(gi)
+        assert len(idx) >= 2 and idx["valid"].all()
+
+    def test_lazyframe_auto_keeps_legacy_pandas_path(self):
+        # M1 pin: LazyFrame frames under AUTO must coerce to pandas like master
+        # (the eager-polars-only gate), never crash in a polars index build.
+        pl = pytest.importorskip("polars")
+        g = graphistry.nodes(pl.LazyFrame({"id": [0, 1, 2]}), "id").edges(
+            pl.LazyFrame({"src": [0, 1], "dst": [1, 2]}), "src", "dst")
+        gi = g.gfql_index_all()
         from graphistry.compute.gfql.index import show_indexes
         assert set(show_indexes(gi)["engine"]) == {"pandas"}
