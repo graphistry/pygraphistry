@@ -1988,6 +1988,8 @@ def _execute_seeded_typed_hop_fast_path(
                 if prop == node:
                     continue
                 d = p_rows[prop].dtype
+                if isinstance(d, pd.StringDtype):
+                    continue  # pandas>=3 default str dtype: pivot preserves it (verified parity)
                 if not isinstance(d, np.dtype):
                     return None
                 if d == np.dtype(bool):

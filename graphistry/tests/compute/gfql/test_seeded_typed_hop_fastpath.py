@@ -772,3 +772,18 @@ class TestSeededProjectionDtypeAndEdgesParity:
         fast2, full2 = self._fast_and_full(self._typed_graph(), "polars", self.Q, expect_engage=False)
         assert type(fast2._nodes).__module__ == type(full2._nodes).__module__
         pd.testing.assert_frame_equal(_canon_nodes(fast2), _canon_nodes(full2))
+
+    def test_string_dtype_property_engages_and_matches(self):
+        """pandas StringDtype (explicit 'string' on pandas 2; the DEFAULT str dtype
+        on pandas>=3) passes through the pivot unchanged on both versions —
+        passthrough, engaged, exact dtype parity (CI py3.12/3.14 lanes run pandas 3,
+        where declining str props would disengage the whole IS5 shape)."""
+        g = self._typed_graph()
+        ndf = g._nodes.copy()
+        ndf["nm"] = pd.array(["a", "b", "c", "d", "e"], dtype="string")
+        g = graphistry.nodes(ndf, "id").edges(g._edges, "src", "dst")
+        q = ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) "
+             "RETURN p.id AS pid, p.nm AS nm")
+        fast, full = self._fast_and_full(g, "pandas", q)
+        assert str(fast._nodes["nm"].dtype) == str(full._nodes["nm"].dtype)
+        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
