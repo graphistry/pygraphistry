@@ -265,7 +265,7 @@ class TestCypherSeededTypedHop:
 
     @pytest.mark.parametrize("cy_tmpl,reason", [
         ("MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR]->(p:Person) RETURN m, p", "multi-alias"),
-        ("MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR]->(p:Person) RETURN p.age", "field projection"),
+        ("MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR]->(p:Person) RETURN m.id, p.age", "cross-alias field projection"),
         ("MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR]->(p:Person) RETURN m", "return source"),
         ("MATCH (p:Person)<-[:HAS_CREATOR]-(m:Message {{id: {s}}}) RETURN p", "reverse (seed on return node)"),
         # variable-length edges are one ASTEdge but multiple hops — must decline or
@@ -614,3 +614,176 @@ class TestPolarsFastPathGates:
         full = _canon_nodes(_run_diff(gp, "polars", q, fast=False))
         pd.testing.assert_frame_equal(fast, full)
         assert fast["p.id"].tolist() == [1]
+
+
+# ---------------------------------------------------------------------------
+# single-alias property projection (IS5 shape): RETURN p.a AS x, p.b (#1755)
+# ---------------------------------------------------------------------------
+
+class TestSeededPropertyProjection:
+    """Property RETURNs lower to rows(source=alias)+select(items); the fast path
+    covers the pure single-alias case and must decline everything else."""
+
+    def _rich_graph(self):
+        ndf = pd.DataFrame({
+            "id": [0, 1, 2, 10, 11],
+            "type": ["Person"] * 3 + ["Message"] * 2,
+            "firstName": ["A", "B", "C", None, None],
+            "age": [30.0, 40.0, 50.0, None, None],
+        })
+        edf = pd.DataFrame({"src": [10, 10, 11], "dst": [0, 1, 2],
+                            "type": ["HAS_CREATOR"] * 3})
+        return graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+
+    def _diff(self, g, engine, q, expect_engage):
+        hits = {"n": 0}
+        real = gfql_unified._execute_seeded_typed_hop_fast_path
+
+        def spy(*a, **k):
+            r = real(*a, **k)
+            hits["n"] += r is not None
+            return r
+        gfql_unified._execute_seeded_typed_hop_fast_path = spy
+        try:
+            fast = _canon_nodes(g.gfql(q, engine=engine))
+        finally:
+            gfql_unified._execute_seeded_typed_hop_fast_path = real
+        full = _canon_nodes(_run_diff(g, engine, q, fast=False))
+        pd.testing.assert_frame_equal(fast, full)
+        assert bool(hits["n"]) == expect_engage, f"engaged={hits['n']} expected={expect_engage}"
+        return fast
+
+    @pytest.mark.parametrize("engine", ["pandas", "polars"])
+    def test_is5_shape_engages_and_matches(self, engine):
+        if engine == "polars":
+            pytest.importorskip("polars")
+        g = self._rich_graph()
+        if engine == "polars":
+            import polars as pl
+            g = graphistry.nodes(pl.from_pandas(pd.DataFrame(g._nodes)), "id").edges(
+                pl.from_pandas(pd.DataFrame(g._edges)), "src", "dst")
+        out = self._diff(
+            g, engine,
+            "MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) "
+            "RETURN p.id AS personId, p.firstName AS firstName", True)
+        assert sorted(out["personId"].tolist()) == [0, 1]
+
+    @pytest.mark.parametrize("q,label", [
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN m.id AS mid, p.id AS pid", "cross-alias"),
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p, p.age", "mixed whole+prop"),
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN DISTINCT p.age", "distinct"),
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p.age ORDER BY p.age LIMIT 1", "order/limit"),
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p.nosuch", "absent property"),
+    ])
+    def test_out_of_shape_declines_with_parity(self, q, label):
+        g = self._rich_graph()
+        try:
+            self._diff(g, "pandas", q, False)
+        except AssertionError:
+            raise
+        except Exception:
+            # some shapes raise on BOTH paths (e.g. absent property) — parity of the
+            # raise is asserted inside _diff via matching failures; a raise before
+            # _diff's compare means fast-off also raises: verify explicitly
+            import pytest as _pt
+            with _pt.raises(Exception):
+                _run_diff(g, "pandas", q, fast=False)
+
+
+class TestSeededProjectionDtypeAndEdgesParity:
+    """Review pins (plans/review-pr-1766/review.md): B1 int-property dtype parity
+    (the full pandas path's rows-pivot upcasts non-id int/float props to float64
+    and bool to object; the id prop keeps its dtype), M1 res._edges is an EMPTY
+    edges frame (never None), M2 requested-vs-actual engine mismatch declines."""
+
+    Q = ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) "
+         "RETURN p.id AS pid, p.age AS a, p.flag AS f")
+
+    def _typed_graph(self):
+        ndf = pd.DataFrame({
+            "id": [0, 1, 2, 10, 11],
+            "type": ["Person"] * 3 + ["Message"] * 2,
+            "age": [30, 40, 50, 0, 0],              # int64: pivot upcasts to float64
+            "flag": [True, False, True, False, False],  # bool: pivot upcasts to object
+            "ts": pd.to_datetime(["2020-01-01"] * 5),   # datetime: fast path declines
+        })
+        edf = pd.DataFrame({"src": [10, 10, 11], "dst": [0, 1, 2],
+                            "type": ["HAS_CREATOR"] * 3})
+        return graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+
+    def _pl_graph(self):
+        pl = pytest.importorskip("polars")
+        g = self._typed_graph()
+        return graphistry.nodes(pl.from_pandas(g._nodes), "id").edges(
+            pl.from_pandas(g._edges), "src", "dst")
+
+    def _fast_and_full(self, g, engine, q, expect_engage=True):
+        hits = {"n": 0}
+        real = gfql_unified._execute_seeded_typed_hop_fast_path
+
+        def spy(*a, **k):
+            r = real(*a, **k)
+            hits["n"] += r is not None
+            return r
+        gfql_unified._execute_seeded_typed_hop_fast_path = spy
+        try:
+            fast = g.gfql(q, engine=engine)
+        finally:
+            gfql_unified._execute_seeded_typed_hop_fast_path = real
+        full = _run_diff(g, engine, q, fast=False)
+        assert bool(hits["n"]) == expect_engage, f"engaged={hits['n']} expected={expect_engage}"
+        return fast, full
+
+    def test_pandas_int_bool_dtype_parity(self):
+        fast, full = self._fast_and_full(self._typed_graph(), "pandas", self.Q)
+        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+        dt = dict(zip(fast._nodes.columns, map(str, fast._nodes.dtypes)))
+        assert dt == {"pid": "int64", "a": "float64", "f": "object"}
+
+    def test_polars_int_bool_dtype_parity(self):
+        pytest.importorskip("polars")
+        fast, full = self._fast_and_full(self._pl_graph(), "polars", self.Q)
+        assert dict(fast._nodes.schema) == dict(full._nodes.schema)
+        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+
+    def test_pandas_datetime_property_declines(self):
+        q = self.Q.replace("p.flag AS f", "p.ts AS t")
+        fast, full = self._fast_and_full(self._typed_graph(), "pandas", q, expect_engage=False)
+        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+
+    @pytest.mark.parametrize("engine", ["pandas", "polars"])
+    def test_edges_empty_frame_not_none(self, engine):
+        g = self._typed_graph() if engine == "pandas" else self._pl_graph()
+        if engine == "polars":
+            pytest.importorskip("polars")
+        fast, full = self._fast_and_full(g, engine, self.Q)
+        assert fast._edges is not None
+        assert fast._edges.shape[0] == 0
+        assert sorted(map(str, fast._edges.columns)) == sorted(map(str, full._edges.columns))
+        assert full._edges.shape[0] == 0
+
+    def test_engine_mismatch_declines(self):
+        pytest.importorskip("polars")
+        # polars frames + engine='pandas': full converts to pandas; fast must decline
+        fast, full = self._fast_and_full(self._pl_graph(), "pandas", self.Q, expect_engage=False)
+        assert type(fast._nodes).__module__.startswith("pandas")
+        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+        # pandas frames + engine='polars' (reentry direction): also declines
+        fast2, full2 = self._fast_and_full(self._typed_graph(), "polars", self.Q, expect_engage=False)
+        assert type(fast2._nodes).__module__ == type(full2._nodes).__module__
+        pd.testing.assert_frame_equal(_canon_nodes(fast2), _canon_nodes(full2))
+
+    def test_string_dtype_property_engages_and_matches(self):
+        """pandas StringDtype (explicit 'string' on pandas 2; the DEFAULT str dtype
+        on pandas>=3) passes through the pivot unchanged on both versions —
+        passthrough, engaged, exact dtype parity (CI py3.12/3.14 lanes run pandas 3,
+        where declining str props would disengage the whole IS5 shape)."""
+        g = self._typed_graph()
+        ndf = g._nodes.copy()
+        ndf["nm"] = pd.array(["a", "b", "c", "d", "e"], dtype="string")
+        g = graphistry.nodes(ndf, "id").edges(g._edges, "src", "dst")
+        q = ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) "
+             "RETURN p.id AS pid, p.nm AS nm")
+        fast, full = self._fast_and_full(g, "pandas", q)
+        assert str(fast._nodes["nm"].dtype) == str(full._nodes["nm"].dtype)
+        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
