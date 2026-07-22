@@ -844,3 +844,58 @@ def test_hop_dtype_mismatch_edge_match_matches_scan_error(typed_graph, engine):
     if engine == "pandas":
         from graphistry.compute.exceptions import GFQLSchemaError
         assert isinstance(base_err.value, GFQLSchemaError)
+
+
+class TestIndexAutoPreservesPolarsFrames:
+    """gfql_index_all(engine='auto') on a polars graph must index in place, NOT
+    coerce-and-replace the frames with pandas. Regression pin for the C3 "polars
+    hop is O(E)" mystery: resolve_engine(AUTO) maps polars->PANDAS, so create_index
+    used to swap the frames to pandas, and every later hop(engine='polars') paid a
+    full-frame pandas->polars conversion per call (~220ms at 4M edges vs a ~1ms
+    indexed hop) while the pandas-engine index could never fingerprint-match."""
+
+    def _pl_graph(self):
+        pl = pytest.importorskip("polars")
+        ndf = pl.DataFrame({"id": [0, 1, 2, 3], "type": ["a", "b", "a", "b"]})
+        edf = pl.DataFrame({"src": [0, 1, 2], "dst": [1, 2, 3]})
+        return graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+
+    def test_auto_keeps_polars_frames_and_polars_index(self):
+        from graphistry.Engine import Engine
+        g = self._pl_graph()
+        gi = g.gfql_index_all()  # AUTO
+        assert "polars" in type(gi._nodes).__module__
+        assert "polars" in type(gi._edges).__module__
+        # frames indexed in place: identity preserved so get_valid's `is` check holds
+        assert gi._edges is g._edges
+        from graphistry.compute.gfql.index import show_indexes
+        idx = show_indexes(gi)
+        assert set(idx["engine"]) == {Engine.POLARS.value}
+        assert idx["valid"].all()
+
+    def test_auto_polars_hop_engages_index(self, monkeypatch):
+        # big enough that one seed passes the frontier-fraction cost gate
+        pl = pytest.importorskip("polars")
+        import graphistry.compute.gfql.index.api as index_api
+        rng = np.random.default_rng(0)
+        n_nodes, m = 2000, 12000
+        ndf = pl.DataFrame({"id": np.arange(n_nodes)})
+        edf = pl.DataFrame({"src": rng.integers(0, n_nodes, m), "dst": rng.integers(0, n_nodes, m)})
+        g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all()
+        hits = []
+        orig = index_api.index_seeded_hop
+        monkeypatch.setattr(index_api, "index_seeded_hop",
+                            lambda *a, **k: (hits.append(1), orig(*a, **k))[1])
+        r = g.hop(nodes=pl.DataFrame({"id": [7]}), hops=1, direction="forward", engine="polars")
+        assert hits, "resident polars index did not serve the polars hop"
+        # parity vs the pandas indexed oracle on the same data
+        gp = graphistry.nodes(ndf.to_pandas(), "id").edges(edf.to_pandas(), "src", "dst").gfql_index_all()
+        rp = gp.hop(nodes=pd.DataFrame({"id": [7]}), hops=1, direction="forward", engine="pandas")
+        assert sorted(r._nodes.get_column("id").to_list()) == sorted(rp._nodes["id"].tolist())
+
+    def test_explicit_engine_still_coerces(self):
+        g = self._pl_graph()
+        gi = g.gfql_index_all(engine="pandas")
+        assert isinstance(gi._edges, pd.DataFrame)
+        from graphistry.compute.gfql.index import show_indexes
+        assert set(show_indexes(gi)["engine"]) == {"pandas"}
