@@ -8,8 +8,9 @@ Engine speedups at a glance
 
 GFQL runs the **same query** on four interchangeable engines — ``pandas`` (default),
 ``polars`` (CPU, columnar), ``cudf`` (NVIDIA GPU), and ``polars-gpu`` (GPU) — and returns
-**identical results** on each (differential parity is a release gate; every number on this
-page was kept only after the result rows were verified identical across engines).
+**identical results** on each (differential parity is a release gate; every four-engine
+number on this page was kept only after the result rows were verified identical across
+engines, and the cross-database pairs were validated against expected result rows).
 Unsupported engine/query combinations are declined before execution during validation,
 compilation, or planning rather than silently falling back. The biggest, easiest win is one
 keyword, **no GPU required**:
@@ -31,8 +32,10 @@ Release-verified numbers (0.58.0)
 ---------------------------------
 
 All numbers in this section were measured on the **0.58.0 release tag** on an NVIDIA DGX
-Spark (GB10), warm medians over N=30 runs, with results asserted identical across engines
-before any timing was kept.
+Spark (GB10), warm medians over N=30 runs. The four-engine numbers (seeded fast paths,
+resident index, scaling) were kept only after the result rows were asserted identical
+across engines; the competitor pairs (vs Neo4j, vs Kuzu) were validated against expected
+result rows and cross-database value/row-count checks.
 
 Seeded typed-hop fast path
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

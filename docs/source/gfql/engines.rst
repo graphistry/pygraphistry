@@ -658,9 +658,12 @@ Methodology
 - **0.58.0 release-tag sweep** (the seeded typed-hop snapshot, resident-index and
   flat-scaling numbers, LDBC SNB SF1 / Neo4j 5.26 pairs, and OLAP q8/q9 above): measured
   on the ``0.58.0`` release tag on an NVIDIA DGX Spark (GB10), **warm medians over
-  N=30 runs**, result rows asserted identical across engines before any timing was kept;
-  the Neo4j pairs ran on the same box, warm.
-- Prior bulk sweep (the Orkut / LiveJournal tables and their derived ratios), pre-0.58.0:
+  N=30 runs**. Four-engine numbers were kept only after result rows were asserted
+  identical across engines; the cross-database pairs (Neo4j, Kuzu) were validated against
+  expected result rows and cross-database value/row-count checks. The Neo4j pairs ran on
+  the same box, warm.
+- Prior bulk sweep (the Orkut / LiveJournal tables and their derived ratios), pre-0.58.0 —
+  the remaining bullets in this section describe that sweep's setup:
 - Host: NVIDIA DGX Spark (GB10 Grace-Blackwell, unified memory — the F3 memory-pressure
   boundary is partly a property of this box), RAPIDS container
   ``graphistry/test-rapids-official:26.02-gfql-polars``.
