@@ -145,6 +145,12 @@ time). Consequences:
 uncovered, results are identical either way — indexes only ever change speed, never
 answers (index-vs-scan parity is differentially tested across engines).
 
+.. note::
+   **Stability.** The index kinds, sidecar layout, and ``show_indexes()`` columns describe
+   the current implementation and may evolve between releases; the stable contract is the
+   lifecycle and decline-safety guarantees on this page — pay once, automatic reuse,
+   staleness on rebind, and identical results with or without an index.
+
 Engines
 -------
 
