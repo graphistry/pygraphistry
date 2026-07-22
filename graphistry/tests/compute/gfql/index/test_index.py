@@ -904,16 +904,26 @@ class TestIndexAutoPreservesPolarsFrames:
         from graphistry.compute.gfql.index import show_indexes
         assert set(show_indexes(gi)["engine"]) == {"pandas"}
 
-
-    def test_nodeless_polars_graph_indexes(self):
-        # B1 pin: edges-only polars graph — materialize_nodes synthesizes under its
-        # own AUTO rules; the NODE_ID build must re-align engines, not crash.
+    def test_edges_only_polars_keeps_legacy_pandas_path(self):
         pl = pytest.importorskip("polars")
-        g = graphistry.edges(pl.DataFrame({"src": [0, 1, 2], "dst": [1, 2, 3]}), "src", "dst")
+        g = graphistry.edges(
+            pl.DataFrame({"src": [0, 1, 2], "dst": [1, 2, 3]}), "src", "dst"
+        )
         gi = g.gfql_index_all()
+        assert isinstance(gi._nodes, pd.DataFrame)
+        assert isinstance(gi._edges, pd.DataFrame)
         from graphistry.compute.gfql.index import show_indexes
-        idx = show_indexes(gi)
-        assert len(idx) >= 2 and idx["valid"].all()
+        assert set(show_indexes(gi)["engine"]) == {"pandas"}
+
+    def test_nodes_only_polars_keeps_legacy_pandas_path(self):
+        pl = pytest.importorskip("polars")
+        gi = (
+            graphistry.nodes(pl.DataFrame({"id": [0, 1, 2]}), "id")
+            .create_index("node_id")
+        )
+        assert isinstance(gi._nodes, pd.DataFrame)
+        from graphistry.compute.gfql.index import show_indexes
+        assert set(show_indexes(gi)["engine"]) == {"pandas"}
 
     def test_lazyframe_auto_keeps_legacy_pandas_path(self):
         # M1 pin: LazyFrame frames under AUTO must coerce to pandas like master
@@ -922,5 +932,51 @@ class TestIndexAutoPreservesPolarsFrames:
         g = graphistry.nodes(pl.LazyFrame({"id": [0, 1, 2]}), "id").edges(
             pl.LazyFrame({"src": [0, 1], "dst": [1, 2]}), "src", "dst")
         gi = g.gfql_index_all()
+        from graphistry.compute.gfql.index import show_indexes
+        assert set(show_indexes(gi)["engine"]) == {"pandas"}
+
+    def test_pandas_auto_stays_pandas(self):
+        ndf = pd.DataFrame({"id": [0, 1, 2]})
+        edf = pd.DataFrame({"src": [0, 1], "dst": [1, 2]})
+        gi = (
+            graphistry.nodes(ndf, "id")
+            .edges(edf, "src", "dst")
+            .gfql_index_all()
+        )
+        assert isinstance(gi._nodes, pd.DataFrame)
+        assert isinstance(gi._edges, pd.DataFrame)
+        from graphistry.compute.gfql.index import show_indexes
+        assert set(show_indexes(gi)["engine"]) == {"pandas"}
+
+    def test_cudf_auto_stays_cudf(self):
+        cudf = pytest.importorskip("cudf")
+        ndf = cudf.DataFrame({"id": [0, 1, 2]})
+        edf = cudf.DataFrame({"src": [0, 1], "dst": [1, 2]})
+        gi = (
+            graphistry.nodes(ndf, "id")
+            .edges(edf, "src", "dst")
+            .gfql_index_all()
+        )
+        assert isinstance(gi._nodes, cudf.DataFrame)
+        assert isinstance(gi._edges, cudf.DataFrame)
+        from graphistry.compute.gfql.index import show_indexes
+        assert set(show_indexes(gi)["engine"]) == {"cudf"}
+
+    @pytest.mark.parametrize("polars_side", ["nodes", "edges"])
+    def test_mixed_eager_frames_keep_legacy_pandas_path(self, polars_side):
+        pl = pytest.importorskip("polars")
+        if polars_side == "nodes":
+            ndf = pl.DataFrame({"id": [0, 1, 2]})
+            edf = pd.DataFrame({"src": [0, 1], "dst": [1, 2]})
+        else:
+            ndf = pd.DataFrame({"id": [0, 1, 2]})
+            edf = pl.DataFrame({"src": [0, 1], "dst": [1, 2]})
+        gi = (
+            graphistry.nodes(ndf, "id")
+            .edges(edf, "src", "dst")
+            .gfql_index_all()
+        )
+        assert isinstance(gi._nodes, pd.DataFrame)
+        assert isinstance(gi._edges, pd.DataFrame)
         from graphistry.compute.gfql.index import show_indexes
         assert set(show_indexes(gi)["engine"]) == {"pandas"}

@@ -130,8 +130,12 @@ def _resolve_index_engine(engine: EngineAbstractType, g: Plottable) -> Engine:
     eng = resolve_engine(engine, g)
     abstract = EngineAbstract(engine) if isinstance(engine, str) else engine
     if abstract == EngineAbstract.AUTO and eng == Engine.PANDAS:
-        frames = [f for f in (g._edges, g._nodes) if f is not None]
-        if frames and all(_is_eager_polars(f) for f in frames):
+        if (
+            g._edges is not None
+            and g._nodes is not None
+            and _is_eager_polars(g._edges)
+            and _is_eager_polars(g._nodes)
+        ):
             return Engine.POLARS
     return eng
 
@@ -197,11 +201,6 @@ def create_index(
 
     if kind == NODE_ID:
         g2 = g.materialize_nodes() if g._nodes is None else g
-        if g._nodes is None:
-            # materialize_nodes synthesizes under its own AUTO rules (pandas for polars
-            # edges), so re-align the frames with the engine this index builds in —
-            # otherwise build_node_id_index runs polars gathers on a pandas frame.
-            g2 = _coerce_input_formats(g2, eng)
         node_col = g2._node
         assert node_col is not None and g2._nodes is not None
         _check_column(column, node_col, kind)
@@ -286,12 +285,6 @@ def gfql_index_all(g: Plottable,
     per-id semantics), so this convenience SKIPS it rather than raising — seeded
     traversal stays correct via the un-indexed node materialization path. (Explicit
     ``create_index(NODE_ID)`` still raises, since the caller asked for it specifically.)"""
-    if g._nodes is None:
-        # Materialize + engine-align BEFORE any index builds: materialize_nodes
-        # synthesizes (and can rebind edges) under its own AUTO rules, which would
-        # invalidate adjacency indexes built first (identity fingerprint).
-        from graphistry.compute.ComputeMixin import _coerce_input_formats
-        g = _coerce_input_formats(g.materialize_nodes(), _resolve_index_engine(engine, g))
     g = gfql_index_edges(g, "both", engine=engine)
     try:
         g = create_index(g, NODE_ID, engine=engine)
