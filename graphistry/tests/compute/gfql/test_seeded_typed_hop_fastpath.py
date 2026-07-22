@@ -688,3 +688,87 @@ class TestSeededPropertyProjection:
             import pytest as _pt
             with _pt.raises(Exception):
                 _run_diff(g, "pandas", q, fast=False)
+
+
+class TestSeededProjectionDtypeAndEdgesParity:
+    """Review pins (plans/review-pr-1766/review.md): B1 int-property dtype parity
+    (the full pandas path's rows-pivot upcasts non-id int/float props to float64
+    and bool to object; the id prop keeps its dtype), M1 res._edges is an EMPTY
+    edges frame (never None), M2 requested-vs-actual engine mismatch declines."""
+
+    Q = ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) "
+         "RETURN p.id AS pid, p.age AS a, p.flag AS f")
+
+    def _typed_graph(self):
+        ndf = pd.DataFrame({
+            "id": [0, 1, 2, 10, 11],
+            "type": ["Person"] * 3 + ["Message"] * 2,
+            "age": [30, 40, 50, 0, 0],              # int64: pivot upcasts to float64
+            "flag": [True, False, True, False, False],  # bool: pivot upcasts to object
+            "ts": pd.to_datetime(["2020-01-01"] * 5),   # datetime: fast path declines
+        })
+        edf = pd.DataFrame({"src": [10, 10, 11], "dst": [0, 1, 2],
+                            "type": ["HAS_CREATOR"] * 3})
+        return graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+
+    def _pl_graph(self):
+        pl = pytest.importorskip("polars")
+        g = self._typed_graph()
+        return graphistry.nodes(pl.from_pandas(g._nodes), "id").edges(
+            pl.from_pandas(g._edges), "src", "dst")
+
+    def _fast_and_full(self, g, engine, q, expect_engage=True):
+        hits = {"n": 0}
+        real = gfql_unified._execute_seeded_typed_hop_fast_path
+
+        def spy(*a, **k):
+            r = real(*a, **k)
+            hits["n"] += r is not None
+            return r
+        gfql_unified._execute_seeded_typed_hop_fast_path = spy
+        try:
+            fast = g.gfql(q, engine=engine)
+        finally:
+            gfql_unified._execute_seeded_typed_hop_fast_path = real
+        full = _run_diff(g, engine, q, fast=False)
+        assert bool(hits["n"]) == expect_engage, f"engaged={hits['n']} expected={expect_engage}"
+        return fast, full
+
+    def test_pandas_int_bool_dtype_parity(self):
+        fast, full = self._fast_and_full(self._typed_graph(), "pandas", self.Q)
+        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+        dt = dict(zip(fast._nodes.columns, map(str, fast._nodes.dtypes)))
+        assert dt == {"pid": "int64", "a": "float64", "f": "object"}
+
+    def test_polars_int_bool_dtype_parity(self):
+        pytest.importorskip("polars")
+        fast, full = self._fast_and_full(self._pl_graph(), "polars", self.Q)
+        assert dict(fast._nodes.schema) == dict(full._nodes.schema)
+        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+
+    def test_pandas_datetime_property_declines(self):
+        q = self.Q.replace("p.flag AS f", "p.ts AS t")
+        fast, full = self._fast_and_full(self._typed_graph(), "pandas", q, expect_engage=False)
+        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+
+    @pytest.mark.parametrize("engine", ["pandas", "polars"])
+    def test_edges_empty_frame_not_none(self, engine):
+        g = self._typed_graph() if engine == "pandas" else self._pl_graph()
+        if engine == "polars":
+            pytest.importorskip("polars")
+        fast, full = self._fast_and_full(g, engine, self.Q)
+        assert fast._edges is not None
+        assert fast._edges.shape[0] == 0
+        assert sorted(map(str, fast._edges.columns)) == sorted(map(str, full._edges.columns))
+        assert full._edges.shape[0] == 0
+
+    def test_engine_mismatch_declines(self):
+        pytest.importorskip("polars")
+        # polars frames + engine='pandas': full converts to pandas; fast must decline
+        fast, full = self._fast_and_full(self._pl_graph(), "pandas", self.Q, expect_engage=False)
+        assert type(fast._nodes).__module__.startswith("pandas")
+        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+        # pandas frames + engine='polars' (reentry direction): also declines
+        fast2, full2 = self._fast_and_full(self._typed_graph(), "polars", self.Q, expect_engage=False)
+        assert type(fast2._nodes).__module__ == type(full2._nodes).__module__
+        pd.testing.assert_frame_equal(_canon_nodes(fast2), _canon_nodes(full2))

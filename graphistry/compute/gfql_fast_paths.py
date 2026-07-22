@@ -1957,6 +1957,11 @@ def _execute_seeded_typed_hop_fast_path(
     is_polars = is_polars_df(nodes_frame)
     if is_polars != is_polars_df(base_graph._edges):
         return None  # mixed-engine node/edge frames: decline, full path decides
+    if select_items is not None and (requested_engine in (Engine.POLARS, Engine.POLARS_GPU)) != is_polars:
+        # Requested-vs-actual engine mismatch (e.g. polars frames + engine='pandas'):
+        # the full path CONVERTS the result to the requested engine, so the lean
+        # projection would leak actual-engine frames. Decline; the full path decides.
+        return None
     helper = _seeded_typed_return_dst_polars if is_polars else _seeded_typed_return_dst_pandas_cudf
     dst_res = helper(base_graph, n0, n2, e1, src, dst, node, direction)
     if dst_res is None:
@@ -1971,11 +1976,36 @@ def _execute_seeded_typed_hop_fast_path(
             import polars as pl
             out_frame = p_rows.select([pl.col(prop).alias(out) for out, prop in select_items])
         else:
+            # dtype parity with the full path: non-id properties ride the rows-pivot,
+            # which upcasts int/float -> float64 and bool -> object; the node-id
+            # property passes through the pivot key and keeps its dtype. Any dtype
+            # class not verified against the pivot (datetimes, pandas extension
+            # dtypes like nullable Int64/StringDtype, categoricals) declines to the
+            # full path rather than risk a silent dtype divergence.
+            import numpy as np
+            casts: Dict[str, str] = {}
+            for out_name, prop in select_items:
+                if prop == node:
+                    continue
+                d = p_rows[prop].dtype
+                if not isinstance(d, np.dtype):
+                    return None
+                if d == np.dtype(bool):
+                    casts[out_name] = "object"
+                elif d.kind in "iuf":
+                    casts[out_name] = "float64"
+                elif d.kind != "O":
+                    return None
             out_frame = p_rows[[prop for _, prop in select_items]].copy()
             out_frame.columns = [out for out, _ in select_items]
+            for out_name, target in casts.items():
+                out_frame[out_name] = out_frame[out_name].astype(target)
         out = base_graph.bind()
         out._nodes = out_frame
-        out._edges = None
+        # full-path parity: a property RETURN yields an EMPTY edges frame with the
+        # edge schema (never None — res._edges must stay usable). The helper's
+        # edges are the matched hop edges, so take their zero-row head.
+        out._edges = _edges.head(0)
         return out
     assert projection is not None  # narrowed by the gate above
     # Lean projection: p_rows already IS the RETURN-alias (destination) node set.
