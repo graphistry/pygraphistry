@@ -787,3 +787,88 @@ class TestSeededProjectionDtypeAndEdgesParity:
         fast, full = self._fast_and_full(g, "pandas", q)
         assert str(fast._nodes["nm"].dtype) == str(full._nodes["nm"].dtype)
         pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+class TestResidentIndexSeededFastPath:
+    """#1658 x #1755: when node-id + adjacency indexes are resident and valid, the
+    seeded helpers replace their O(N)/O(E) scans with positional lookups. Results
+    must be identical to the un-indexed scan path (which stays the fallback for
+    every decline: absent/stale index, non-numeric ids)."""
+
+    def _frames(self):
+        rng = np.random.default_rng(0)
+        N, E = 5000, 30000
+        ndf = pd.DataFrame({
+            "id": np.arange(N),
+            "type": np.where(np.arange(N) % 3 == 0, "Person", "Message"),
+            "age": rng.integers(20, 60, N).astype(float),
+        })
+        edf = pd.DataFrame({
+            "src": rng.integers(0, N, E).astype(float),
+            "dst": rng.integers(0, N, E).astype(float),
+            "type": np.where(np.arange(E) % 2 == 0, "KNOWS", "LIKES"),
+        })
+        edf.loc[5, "dst"] = np.nan   # null endpoint must not link
+        edf.loc[9, "dst"] = N + 999  # dangling endpoint
+        return ndf, edf
+
+    def _canon(self, res):
+        df = res._nodes
+        df = df.to_pandas() if hasattr(df, "to_pandas") else pd.DataFrame(df)
+        cols = sorted(map(str, df.columns))
+        df.columns = list(map(str, df.columns))
+        return df[cols].sort_values(cols).reset_index(drop=True)
+
+    def _spied(self, g, q, engine, monkeypatch):
+        import graphistry.compute.chain_fast_paths as cfp
+        counts = {"n": 0}
+        on = cfp._index_node_rows
+        monkeypatch.setattr(cfp, "_index_node_rows",
+                            lambda *a, **k: (counts.__setitem__("n", counts["n"] + 1), on(*a, **k))[1])
+        res = g.gfql(q, engine=engine)
+        monkeypatch.setattr(cfp, "_index_node_rows", on)
+        return res, counts["n"]
+
+    Q = "MATCH (m {id: 33})-[:KNOWS]->(p) RETURN p"
+
+    @pytest.mark.parametrize("engine", ["pandas", "polars"])
+    def test_indexed_parity_and_engagement(self, engine, monkeypatch):
+        if engine == "polars":
+            pytest.importorskip("polars")
+        ndf, edf = self._frames()
+        if engine == "polars":
+            import polars as pl
+            mk = lambda: graphistry.nodes(pl.from_pandas(ndf), "id").edges(pl.from_pandas(edf), "src", "dst")  # noqa: E731
+        else:
+            mk = lambda: graphistry.nodes(ndf, "id").edges(edf, "src", "dst")  # noqa: E731
+        plain = mk().gfql(self.Q, engine=engine)
+        indexed, hits = self._spied(mk().gfql_index_all(), self.Q, engine, monkeypatch)
+        assert hits > 0, "resident index did not serve the seeded fast path"
+        pd.testing.assert_frame_equal(self._canon(indexed), self._canon(plain))
+
+    def test_string_ids_decline_to_scan(self, monkeypatch):
+        # numeric-only gate: object/str ids keep the scan path (null-object semantics)
+        ndf, edf = self._frames()
+        ndf = ndf.assign(id="n" + ndf["id"].astype(str))
+        edf = edf.dropna(subset=["src", "dst"]).astype({"src": int, "dst": int})
+        edf = edf.assign(src="n" + edf["src"].astype(str), dst="n" + edf["dst"].astype(str))
+        g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all()
+        q = "MATCH (m {id: 'n33'})-[:KNOWS]->(p) RETURN p"
+        plain = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql(q, engine="pandas")
+        got = g.gfql(q, engine="pandas")
+        pd.testing.assert_frame_equal(self._canon(got), self._canon(plain))
+
+    def test_stale_index_declines_to_scan(self, monkeypatch):
+        # rebinding edges invalidates the fingerprint: results must stay correct
+        import graphistry.compute.chain_fast_paths as cfp
+        ndf, edf = self._frames()
+        g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all()
+        edf2 = pd.DataFrame(edf).copy()
+        edf2 = edf2[edf2["type"] == "KNOWS"]
+        g2 = g.edges(edf2, "src", "dst")  # stale registry rides along
+        counts = {"n": 0}
+        oe = cfp._index_edge_rows
+        monkeypatch.setattr(cfp, "_index_edge_rows",
+                            lambda *a, **k: (counts.__setitem__("n", counts["n"] + 1), oe(*a, **k))[1])
+        got = g2.gfql(self.Q, engine="pandas")
+        plain = graphistry.nodes(ndf, "id").edges(edf2, "src", "dst").gfql(self.Q, engine="pandas")
+        assert counts["n"] == 0, "stale index must not serve"
+        pd.testing.assert_frame_equal(self._canon(got), self._canon(plain))
