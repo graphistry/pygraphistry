@@ -865,15 +865,17 @@ def _connected_join_two_star_fused_polars(
         [pl.col(src_col).alias(shared_alias)] + [pl.col(key) for key in output_group_keys]
     )
     joined_lf = right_rows_lf.join(left_counts_lf, on=shared_alias, how="inner")
-    # left_counts rides the same collect (shared subplan via CSE): the empty-match
-    # boundary below needs it to reproduce the eager lane's shortcut semantics.
-    joined, left_counts_df = pl.collect_all([joined_lf, left_counts_lf])
+    # HOT PATH: one collect. left_counts is collected ONLY on the empty-match
+    # boundary below (collect_all of both plans measured +2.5ms/query on the
+    # 20k graphbench q5-q7 -- CSE does not absorb the left-arm recompute).
+    joined = joined_lf.collect()
     if len(joined) == 0:
         # Eager-lane parity on the empty match: the eager all-left-counts==1
         # shortcut counts matched rows with pl.len(), emitting a single n=0 row
         # when the first arm is live but nothing joins (the openCypher-correct
         # count over zero rows). Every other empty shape returns the 0x0 frame,
         # exactly like the eager generic branch.
+        left_counts_df = left_counts_lf.collect()
         if (
             not output_group_keys
             and len(left_counts_df) > 0
