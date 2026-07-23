@@ -11,6 +11,8 @@ lifecycle: what the indexes are, what engages them, when they go stale, and what
 For the planner policy knobs and competitive benchmarks, see
 :doc:`Seeded Traversal Indexes <index_adjacency>`.
 
+.. doc-test: skip
+
 .. code-block:: python
 
    g = g.gfql_index_all()   # pay once ...
@@ -137,6 +139,7 @@ time). Consequences:
 
 .. code-block:: python
 
+   new_edges_df = edges_df.assign(amount=edges_df["amount"] + 1)
    g2 = g_indexed.edges(new_edges_df, "src", "dst")
    g2.show_indexes()          # edge_out_adj / edge_in_adj now valid=False; node_id still True
    g2 = g2.gfql_index_all()   # pay again for the new frame; all valid=True
