@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from graphistry.compute.typing import DataFrameT, SeriesT
 
 
-class Engine(Enum):
+class Engine(str, Enum):
     PANDAS = 'pandas'
     CUDF = 'cudf'
     DASK = 'dask'
@@ -32,7 +32,7 @@ class Engine(Enum):
 # the same lazy Polars engine — frames stay ``pl.DataFrame``, so it shares the path.
 POLARS_ENGINES = (Engine.POLARS, Engine.POLARS_GPU)
 
-class EngineAbstract(Enum):
+class EngineAbstract(str, Enum):
     PANDAS = Engine.PANDAS.value
     CUDF = Engine.CUDF.value
     DASK = Engine.DASK.value
