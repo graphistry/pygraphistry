@@ -795,3 +795,89 @@ class TestVarlenAliasHopGate:
         gp = g_pd.chain(ch, engine="pandas")
         gl = g_pl.chain(ch, engine="polars")
         assert set(gp._nodes["id"].tolist()) == set(gl._nodes["id"].to_list())
+
+
+class TestSeededChainTaxCaches:
+    """#1755 seeded-chain abstraction-tax fix: the three recycle-safe per-frame caches that
+    kill the per-call O(E) terms (typed keep-mask, edge-frame augmentation, typed-edge slice).
+    White-box (cache identity + eviction + decline branches) + an end-to-end run-twice parity
+    guard proving the caches never serve stale/corrupt frames."""
+
+    # --- chain.py augmentation cache ---
+    def test_augmented_edges_cached_identity_and_column(self):
+        from graphistry.compute.gfql.lazy.engine.polars.chain import (
+            _augmented_edges_cached, _AUGMENTED_EDGES_CACHE,
+        )
+        e1 = pl.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0]})
+        a = _augmented_edges_cached(e1, "__eid__")
+        b = _augmented_edges_cached(e1, "__eid__")
+        assert a is b, "same frame must return the cached augmentation (stable identity)"
+        assert "__eid__" in a.columns and a["__eid__"].to_list() == [0, 1, 2]
+        # A distinct frame is an independent entry (no cross-frame bleed).
+        e2 = pl.DataFrame({"s": [9], "d": [9]})
+        c = _augmented_edges_cached(e2, "__eid__")
+        assert c is not a and c["__eid__"].to_list() == [0]
+
+    def test_augmented_edges_cache_evicts_on_gc(self):
+        import gc
+        from graphistry.compute.gfql.lazy.engine.polars.chain import (
+            _augmented_edges_cached, _AUGMENTED_EDGES_CACHE,
+        )
+        e1 = pl.DataFrame({"s": [0, 1], "d": [1, 0]})
+        key = (id(e1), "__eid__")
+        _augmented_edges_cached(e1, "__eid__")
+        assert key in _AUGMENTED_EDGES_CACHE
+        del e1
+        gc.collect()
+        assert key not in _AUGMENTED_EDGES_CACHE, "weakref.finalize must evict on source GC"
+
+    # --- row_pipeline.py typed-edge slice cache ---
+    def test_typed_edge_slice_caches_scalar_match(self):
+        from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
+            _typed_edge_slice, _TYPED_EDGE_SLICE_CACHE,
+        )
+        edges = pl.DataFrame({"s": [0, 1, 2, 3], "d": [1, 2, 3, 0],
+                              "rel": ["KNOWS", "LIKES", "KNOWS", "LIKES"]})
+        s1 = _typed_edge_slice(edges, {"rel": "KNOWS"})
+        s2 = _typed_edge_slice(edges, {"rel": "KNOWS"})
+        assert s1 is s2, "same (frame, scalar edge_match) must hit the cache"
+        assert s1["rel"].to_list() == ["KNOWS", "KNOWS"]
+        # A different scalar match is a different key (not the same slice).
+        s3 = _typed_edge_slice(edges, {"rel": "LIKES"})
+        assert s3 is not s1 and s3["rel"].to_list() == ["LIKES", "LIKES"]
+
+    def test_typed_edge_slice_declines_non_scalar_forms(self):
+        from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import _typed_edge_slice
+        edges = pl.DataFrame({"s": [0], "d": [1], "rel": ["KNOWS"]})
+        assert _typed_edge_slice(edges, {}) is None            # empty match
+        assert _typed_edge_slice(edges, {"rel": None}) is None  # null form -> general path
+        assert _typed_edge_slice(edges, {"rel": ["A", "B"]}) is None  # membership -> general path
+        assert _typed_edge_slice("not a frame", {"rel": "KNOWS"}) is None  # non-DataFrame
+
+    # --- traverse.py typed keep-mask cache ---
+    def test_edge_keep_mask_caches_per_frame(self):
+        import numpy as np
+        from graphistry.Engine import Engine
+        from graphistry.compute.gfql.index import traverse as _trav
+        edges = pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0],
+                              "rel": ["KNOWS", "LIKES", "KNOWS"]})
+        m1 = _trav._build_edge_keep_mask(edges, {"rel": "KNOWS"}, Engine.PANDAS, np)
+        m2 = _trav._build_edge_keep_mask(edges, {"rel": "KNOWS"}, Engine.PANDAS, np)
+        assert m1 is not None and m1 is m2, "same (frame, engine, match) must return the cached mask"
+        assert list(m1) == [True, False, True]
+
+    # --- end-to-end: caches must never corrupt results across repeated seeded queries ---
+    def test_seeded_typed_query_run_twice_is_stable_and_native(self):
+        nodes = pd.DataFrame({"id": ["p0", "p1", "p2", "p3"], "node_type": ["Person"] * 4})
+        edges = pd.DataFrame({"s": ["p0", "p0", "p1", "p2"], "d": ["p1", "p2", "p3", "p3"],
+                              "rel": ["KNOWS", "LIKES", "KNOWS", "KNOWS"]})
+        g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+        q = "MATCH (a {id: 'p0'})-[{rel: 'KNOWS'}]->(b) RETURN b.id AS bid ORDER BY bid"
+        r1 = g.gfql(q, engine="polars")._nodes
+        r2 = g.gfql(q, engine="polars")._nodes
+        assert "polars" in type(r1).__module__, "seeded typed query must run native polars"
+        assert r1["bid"].to_list() == r2["bid"].to_list() == ["p1"], \
+            "repeated seeded typed query must be stable (cache must not corrupt/stale)"
+        # pandas oracle agreement
+        rp = g.gfql(q, engine="pandas")._nodes
+        assert sorted(rp["bid"].tolist()) == ["p1"]
