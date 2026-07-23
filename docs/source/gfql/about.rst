@@ -382,7 +382,7 @@ results on every engine — see :doc:`Choosing an Engine <engines>`.
 
 ::
 
-    g_result = g.gfql([ ... ], engine='polars')   # up to ~38x over pandas on real graphs
+    g_result = g.gfql([ ... ], engine='polars')   # often much faster on query-heavy workloads
 
 **Example: Force GFQL to use a GPU engine**
 

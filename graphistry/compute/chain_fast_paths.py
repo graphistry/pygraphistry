@@ -7,11 +7,15 @@ direction); this module imports only leaf modules (no back-edge into chain.py).
 """
 # ruff: noqa: E501
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple, TYPE_CHECKING, Union, cast
 
 from graphistry.Plottable import Plottable
 from .ast import ASTNode, ASTEdge, Direction
-from .typing import DataFrameT
+from .typing import ArrayLike, ArrayNamespace, DataFrameT, SeriesT
+
+if TYPE_CHECKING:
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.registry import AdjacencyIndex, NodeIdIndex
 
 
 def _seeded_scalar_filters(fd: Optional[Dict[str, Any]], df: DataFrameT) -> Optional[Dict[str, Any]]:
@@ -39,6 +43,110 @@ def _seeded_scalar_filters(fd: Optional[Dict[str, Any]], df: DataFrameT) -> Opti
         else:
             return None  # labels-list / unknown column -> bail
     return out
+
+
+def _resident_seed_indexes(
+    g: Plottable, nodes_df: DataFrameT, edges_df: DataFrameT,
+    node: str, src: str, dst: str, direction: Direction,
+) -> Optional[Tuple["NodeIdIndex", "AdjacencyIndex", ArrayNamespace, "Engine"]]:
+    """(node_id_index, adjacency_index, xp, engine) when BOTH resident indexes
+    validly cover this directed seeded hop on these EXACT frames (fingerprint +
+    identity via get_valid), else None — callers keep the scan path, so a stale
+    or absent index can never change results, only speed."""
+    from graphistry.Engine import Engine, is_polars_df
+    from graphistry.compute.gfql.index import get_registry
+    from graphistry.compute.gfql.index.registry import EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID
+    from graphistry.compute.gfql.index.engine_arrays import array_namespace
+    registry = get_registry(g)
+    if registry.is_empty():
+        return None
+    mod = str(type(nodes_df).__module__)
+    if is_polars_df(nodes_df):
+        engine = Engine.POLARS
+    elif 'cudf' in mod:
+        engine = Engine.CUDF
+    elif mod.startswith('pandas'):
+        engine = Engine.PANDAS
+    else:
+        return None
+    kind = EDGE_OUT_ADJ if direction == "forward" else EDGE_IN_ADJ
+    engines = [engine]
+    if engine == Engine.POLARS:
+        # an index built with explicit engine='polars-gpu' serves the same eager
+        # polars frames (same numpy sidecars + polars row-gather)
+        engines.append(Engine.POLARS_GPU)
+    adj = nid = None
+    for eng_try in engines:
+        adj = registry.get_valid(kind, edges_df, (src, dst), eng_try)
+        nid = registry.get_valid(NODE_ID, nodes_df, (node,), eng_try)
+        if adj is not None and nid is not None:
+            break
+    if adj is None or nid is None:
+        return None
+    xp, _ = array_namespace(engine)
+    # get_valid returns the union type; kind selection above guarantees the concrete classes
+    return cast("NodeIdIndex", nid), cast("AdjacencyIndex", adj), xp, engine
+
+
+def _ids_to_key_array(
+    vals: Union["SeriesT", Sequence[Any]], keys: ArrayLike, xp: ArrayNamespace,
+) -> Optional[ArrayLike]:
+    """Values (python list / Series / array) -> deduped backend array in the index
+    key dtype, nulls dropped (null ids never link — matching the scan path's
+    dropna semantics). None when the cast is not value-safe (mismatched families
+    like str-vs-int decline to the scan path rather than risk false matches)."""
+    try:
+        if 'cudf' in str(type(vals).__module__):
+            vals = vals.dropna()  # type: ignore[union-attr]  # cudf Series by module check
+            raw = vals.values  # type: ignore[union-attr]  # device array; to_numpy() raises on nulls + round-trips host
+        elif hasattr(vals, "to_numpy"):
+            raw = vals.to_numpy()
+        else:
+            raw = vals
+        arr = xp.asarray(raw)
+        if arr.dtype.kind == "f":
+            arr = arr[~xp.isnan(arr)]
+        if arr.dtype.kind not in "iuf" or keys.dtype.kind not in "iuf":
+            return None  # numeric id families only: object/str ids keep the scan path (null-object semantics)
+        if arr.dtype != keys.dtype:
+            common = xp.promote_types(arr.dtype, keys.dtype)
+            if arr.dtype.kind in "iu" and keys.dtype.kind in "iu" and common.kind == "f":
+                # int64<->uint64 promotes to float64, which collapses distinct ids
+                # >= 2^53 into false matches; the scan path compares exactly -> decline.
+                return None
+            arr = arr.astype(common)
+        return xp.unique(arr)
+    except (TypeError, ValueError):
+        return None
+
+
+def _index_node_rows(
+    nid: "NodeIdIndex", ids: Union["SeriesT", Sequence[Any]],
+    xp: ArrayNamespace, engine: "Engine", nodes_df: DataFrameT,
+) -> Optional[DataFrameT]:
+    """Node rows whose id is in ``ids`` via the resident node-id index (positional
+    gather; row order is id-sorted, covered by the value-identical contract)."""
+    from graphistry.compute.gfql.index.lookup import lookup_node_rows
+    from graphistry.compute.gfql.index.engine_arrays import take_rows
+    arr = _ids_to_key_array(ids, nid.keys_sorted, xp)
+    if arr is None:
+        return None
+    return take_rows(nodes_df, lookup_node_rows(nid, arr, xp), engine)
+
+
+def _index_edge_rows(
+    adj: "AdjacencyIndex", ids: Union["SeriesT", Sequence[Any]],
+    xp: ArrayNamespace, engine: "Engine", edges_df: DataFrameT,
+) -> Optional[DataFrameT]:
+    """Edge rows incident to ``ids`` on the indexed side via the CSR adjacency
+    (searchsorted gather; replaces the O(E) isin scan)."""
+    from graphistry.compute.gfql.index.lookup import lookup_edge_rows
+    from graphistry.compute.gfql.index.engine_arrays import take_rows
+    arr = _ids_to_key_array(ids, adj.keys_sorted, xp)
+    if arr is None:
+        return None
+    rows, _ = lookup_edge_rows(adj, arr, xp)
+    return take_rows(edges_df, rows, engine)
 
 
 def _seeded_typed_hop_pandas_cudf(
@@ -71,26 +179,66 @@ def _seeded_typed_hop_pandas_cudf(
     # all edges — this is what makes a seeded lookup sub-ms. The id filter goes
     # first (int, unique -> ~1 row in one pass) so any remaining object filters
     # (label__X->type) run on that tiny survivor frame, not the whole node table.
-    if n0f:
-        seed_nodes = nodes_df
-        for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
-            seed_nodes = seed_nodes[seed_nodes[k] == v]
-        edges = edges_df[edges_df[from_col].isin(seed_nodes[node].dropna())]
-    else:
-        edges = edges_df
-    if ef:  # typed edge (edge_match) — now on the reduced frontier
-        for k, v in ef.items():
-            edges = edges[edges[k] == v]
+    # Resident-index acceleration (#1658 x #1755): when node-id + directional
+    # adjacency indexes are valid for these exact frames, the O(N) seed scan, the
+    # O(E) frontier isin, and the O(N) candidate gather become positional lookups.
+    # Any decline (no index, stale fingerprint, unsafe id cast) falls back to the
+    # scan body below — identical results either way, only speed differs.
+    # Decoupled index use: the seed row lookup uses the node-id index ONLY when
+    # the seed filter includes the binding column, but the frontier edge gather
+    # (CSR adjacency) and candidate gathers (node-id index) engage regardless of
+    # HOW the seed rows were found — their inputs are binding-column values, which
+    # are the index key domain. (LDBC/user pattern: seed on the `id` PROPERTY
+    # while the graph binds a different key column — previously disqualified the
+    # whole index path.)
+    ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction) if n0f else None
+    seed_nodes = edges = cand = None
+    if ctx is not None:
+        nid, adj, xp, idx_engine = ctx
+        if node in n0f:
+            seed_nodes = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
+        if seed_nodes is not None:
+            for k, v in n0f.items():
+                if k != node:
+                    seed_nodes = seed_nodes[seed_nodes[k] == v]
+        else:
+            seed_nodes = nodes_df
+            for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
+                seed_nodes = seed_nodes[seed_nodes[k] == v]
+        edges = _index_edge_rows(adj, seed_nodes[node], xp, idx_engine, edges_df)
+        if edges is not None:
+            if ef:
+                for k, v in ef.items():
+                    edges = edges[edges[k] == v]
+            if 'cudf' in str(type(edges).__module__):
+                import cudf as _cd  # type: ignore
+                endpoint_ids = _cd.concat([edges[src], edges[dst]])
+            else:
+                import pandas as _pd
+                endpoint_ids = _pd.concat([edges[src], edges[dst]])
+            cand = _index_node_rows(nid, endpoint_ids, xp, idx_engine, nodes_df)
+    if cand is None:
+        if n0f:
+            seed_nodes = nodes_df
+            for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
+                seed_nodes = seed_nodes[seed_nodes[k] == v]
+            edges = edges_df[edges_df[from_col].isin(seed_nodes[node].dropna())]
+        else:
+            edges = edges_df
+        if ef:  # typed edge (edge_match) — now on the reduced frontier
+            for k, v in ef.items():
+                edges = edges[edges[k] == v]
 
-    # Gather candidate endpoint nodes (both endpoints of surviving edges), then run
-    # the dest filter, dangling-edge drop and final-node selection on the small
-    # candidate/edge frames. Selecting from nodes_df keeps only real nodes, so the
-    # endpoint-in-nodes check subsumes the old NaN-endpoint guard. Membership sets
-    # are dropna()'d: pandas .isin matches NaN<->NaN, but the general branch's BFS
-    # joins never join on null keys, so a null id/endpoint must not link.
-    cand = nodes_df[
-        nodes_df[node].isin(edges[src].dropna()) | nodes_df[node].isin(edges[dst].dropna())
-    ].drop_duplicates(subset=[node])
+        # Gather candidate endpoint nodes (both endpoints of surviving edges), then run
+        # the dest filter, dangling-edge drop and final-node selection on the small
+        # candidate/edge frames. Selecting from nodes_df keeps only real nodes, so the
+        # endpoint-in-nodes check subsumes the old NaN-endpoint guard. Membership sets
+        # are dropna()'d: pandas .isin matches NaN<->NaN, but the general branch's BFS
+        # joins never join on null keys, so a null id/endpoint must not link.
+        cand = nodes_df[
+            nodes_df[node].isin(edges[src].dropna()) | nodes_df[node].isin(edges[dst].dropna())
+        ].drop_duplicates(subset=[node])
+    assert edges is not None and cand is not None  # both branches above assign
     if n2f:  # destination-node filter (to-side)
         n2_cand = cand
         for k, v in n2f.items():
@@ -130,16 +278,41 @@ def _seeded_typed_return_dst_pandas_cudf(
     # frame, never materializing an object column over the whole node table.
     # Membership sets are dropna()'d: pandas .isin matches NaN<->NaN, but the full
     # pipeline's joins never join on null keys, so a null id/endpoint must not link.
-    seed_nodes = nodes_df
-    for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
-        seed_nodes = seed_nodes[seed_nodes[k] == v]
-    edges = edges_df[edges_df[from_col].isin(seed_nodes[node].dropna())]
-    if ef:
-        for k, v in ef.items():
-            edges = edges[edges[k] == v]
-    # destination nodes = real nodes that are edge to-endpoints, then the dest
-    # filter, dangling-edge drop and dedup on the small dst/edge frames.
-    dstn = nodes_df[nodes_df[node].isin(edges[to_col].dropna())]
+    ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction)
+    seed_nodes = edges = dstn = None
+    if ctx is not None:
+        nid, adj, xp, idx_engine = ctx
+        if node in n0f:
+            seed_nodes = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
+        if seed_nodes is not None:
+            for k, v in n0f.items():
+                if k != node:
+                    seed_nodes = seed_nodes[seed_nodes[k] == v]
+        else:
+            # property-seeded (binding col not in the filter): scan the seed row,
+            # then the CSR/node-index gathers below still engage — binding-column
+            # values are the index key domain no matter how the seed was found.
+            seed_nodes = nodes_df
+            for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
+                seed_nodes = seed_nodes[seed_nodes[k] == v]
+        edges = _index_edge_rows(adj, seed_nodes[node], xp, idx_engine, edges_df)
+        if edges is not None:
+            if ef:
+                for k, v in ef.items():
+                    edges = edges[edges[k] == v]
+            dstn = _index_node_rows(nid, edges[to_col], xp, idx_engine, nodes_df)
+    if dstn is None:
+        seed_nodes = nodes_df
+        for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
+            seed_nodes = seed_nodes[seed_nodes[k] == v]
+        edges = edges_df[edges_df[from_col].isin(seed_nodes[node].dropna())]
+        if ef:
+            for k, v in ef.items():
+                edges = edges[edges[k] == v]
+        # destination nodes = real nodes that are edge to-endpoints, then the dest
+        # filter, dangling-edge drop and dedup on the small dst/edge frames.
+        dstn = nodes_df[nodes_df[node].isin(edges[to_col].dropna())]
+    assert edges is not None and dstn is not None  # both branches above assign
     if n2f:
         for k, v in n2f.items():
             dstn = dstn[dstn[k] == v]
@@ -178,17 +351,40 @@ def _seeded_typed_return_dst_polars(
     # Membership sets are drop_nulls()'d (null ids/endpoints never link, matching
     # the full pipeline's joins) and passed via .implode() (Series-arg is_in is
     # deprecated in polars 1.42, see polars#22149).
-    seed_nodes = nodes_df
-    for k, v in n0f.items():
-        seed_nodes = seed_nodes.filter(pl.col(k) == v)
-    from_ids = seed_nodes.get_column(node).drop_nulls()
-    if from_ids.len() == 0:
-        return nodes_df.clear(), edges_df.clear()
-    edges = edges_df.filter(pl.col(from_col).is_in(from_ids.implode()))
-    for k, v in ef.items():  # typed edge on the reduced frontier
-        edges = edges.filter(pl.col(k) == v)
-    dst_ids = edges.get_column(to_col).drop_nulls().unique()
-    dstn = nodes_df.filter(pl.col(node).is_in(dst_ids.implode()))
+    ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction)
+    seed_nodes = edges = dstn = None
+    if ctx is not None:
+        nid, adj, xp, idx_engine = ctx
+        if node in n0f:
+            seed_nodes = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
+        if seed_nodes is not None:
+            for k, v in n0f.items():
+                if k != node:
+                    seed_nodes = seed_nodes.filter(pl.col(k) == v)
+        else:
+            # property-seeded: scan the seed row; CSR/node-index gathers below
+            # still engage (binding-column values = index key domain).
+            seed_nodes = nodes_df
+            for k, v in n0f.items():
+                seed_nodes = seed_nodes.filter(pl.col(k) == v)
+        edges = _index_edge_rows(adj, seed_nodes.get_column(node), xp, idx_engine, edges_df)
+        if edges is not None:
+            for k, v in ef.items():
+                edges = edges.filter(pl.col(k) == v)
+            dstn = _index_node_rows(nid, edges.get_column(to_col), xp, idx_engine, nodes_df)
+    if dstn is None:
+        seed_nodes = nodes_df
+        for k, v in n0f.items():
+            seed_nodes = seed_nodes.filter(pl.col(k) == v)
+        from_ids = seed_nodes.get_column(node).drop_nulls()
+        if from_ids.len() == 0:
+            return nodes_df.clear(), edges_df.clear()
+        edges = edges_df.filter(pl.col(from_col).is_in(from_ids.implode()))
+        for k, v in ef.items():  # typed edge on the reduced frontier
+            edges = edges.filter(pl.col(k) == v)
+        dst_ids = edges.get_column(to_col).drop_nulls().unique()
+        dstn = nodes_df.filter(pl.col(node).is_in(dst_ids.implode()))
+    assert edges is not None and dstn is not None  # both branches above assign
     for k, v in n2f.items():  # destination-node filter
         dstn = dstn.filter(pl.col(k) == v)
     # drop dangling edges + dedup destination nodes (mirror the pandas tail)

@@ -31,7 +31,11 @@ engine is a one-keyword change — no GPU, same results:
    query = "MATCH (a)-[e]->(b) RETURN b"     # any GFQL / Cypher query
 
    g.gfql(query)                    # engine='pandas' (default)
-   g.gfql(query, engine='polars')   # up to ~38x faster on real graphs, no GPU, identical results
+   g.gfql(query, engine='polars')   # often much faster on query-heavy workloads, identical results
+
+Switching is often an order-of-magnitude speedup on query-heavy workloads — the current
+measured numbers (release-verified engine sweeps, cross-database pairs, OLAP) live in
+:ref:`gfql-0580-numbers` on the :doc:`performance` page.
 
 Your existing pandas, Polars, or cuDF graph works as-is: the input frames are accepted and
 coerced once; the only change is the keyword. The catch: a few exotic Cypher features still
@@ -96,72 +100,31 @@ The four engines
 ``engine='auto'`` resolves to ``cudf`` for cuDF input and ``pandas`` otherwise. **AUTO
 never selects Polars or Polars-GPU** — they are explicit opt-in (see *Why opt-in?* below).
 
-Motivating comparison (real graphs)
------------------------------------
+How the engines compare
+-----------------------
 
-Same query, same answers, four engines. Warm-median latency on **Orkut** (3.1M nodes /
-**117M edges**, SNAP), measured on a single machine:
+The measured tables live on the :doc:`performance` page — the release-verified engine
+sweeps plus the large-graph bulk comparison — and in :doc:`index_adjacency` for the
+resident-index benchmarks. The stable pattern they show:
 
-.. list-table::
-   :header-rows: 1
-   :widths: 34 16 16 16 16
+- **Polars-CPU is the everyday win**: typically much faster than pandas on query-heavy
+  workloads (traversal, ``WHERE``/``ORDER``, aggregation) from roughly 10K edges up —
+  often by an order of magnitude on bulk traversal — with **no GPU**. It also frequently
+  beats eager cuDF on bulk work, because it builds **one fused lazy plan and collects
+  once** while cuDF pays a kernel launch and a materialized intermediate per op.
+- **Polars-GPU leads heavy multi-hop and full-graph aggregation**: the same fused plan,
+  executed on the GPU, once there is enough work to amortize kernel launches.
+- **cuDF wins the extreme single materialization**: one very large join/output where raw
+  GPU throughput dominates and the in-memory Polars-GPU executor comes under memory
+  pressure.
+- **pandas keeps trivial sub-millisecond operations**: a bare equality filter's boolean
+  mask beats Polars' plan overhead — immaterial at <1 ms.
+- **Seeded / selective lookups are an indexing problem**, not an engine race: with the
+  opt-in resident index they run in low single-digit milliseconds on every engine and stay
+  flat in graph size — see [F5] below and :doc:`index_adjacency`.
 
-   * - Workload (Orkut, 117M edges)
-     - ``pandas``
-     - ``polars``
-     - ``cudf``
-     - ``polars-gpu``
-   * - 1-hop from 10K seeds
-     - 2613 ms
-     - **68 ms**
-     - 1005 ms
-     - 63 ms
-   * - 2-hop from 10K seeds
-     - 18161 ms
-     - 2695 ms
-     - 2774 ms
-     - **1518 ms**
-   * - Full out-degree aggregation
-     - 799 ms
-     - 205 ms
-     - 314 ms
-     - **167 ms**
-   * - 2-hop from 100K seeds (~85M output rows)
-     - 28822 ms
-     - 8215 ms
-     - **6002 ms**
-     - 8559 ms
-
-*Warm median, identical result rows across all four engines. Reproducer:*
-``benchmarks/gfql/index_bulk_olap_bench.py``. *See Methodology below.*
-
-Reading the table:
-
-- **Polars-CPU beats pandas up to ~38x** on bulk traversal and ~4x on aggregation — **with no
-  GPU**. On the 1-hop workload it is ~38x faster than pandas (68 ms vs 2613 ms).
-- **Polars-CPU also beats cuDF** on these shapes (68 ms vs 1005 ms on 1-hop). cuDF runs
-  GFQL *eagerly*, op by op (a kernel launch + a materialized intermediate per hop), while
-  Polars builds **one fused lazy plan and collects once**. The fused plan wins until the
-  work is large enough to amortize GPU launch costs.
-- **Polars-GPU is fastest on heavy multi-hop** (2-hop from 10K seeds: 1518 ms) and on
-  aggregation — the same fused plan, executed on the GPU.
-- **cuDF wins the one extreme case** — a 2-hop from 100K seeds materializing ~85M output rows
-  (6.0 s) — where raw GPU throughput on a single massive join overtakes everything and
-  Polars-GPU comes under memory pressure (footnote F3).
-- On a smaller graph (**LiveJournal**, 35M edges) the pattern holds: 1-hop from 10K seeds is
-  pandas 1129 ms → polars **37 ms** (~30x). Filter- and lookup-heavy workloads favor Polars
-  even more strongly — a separate **LDBC SNB sf1** benchmark shows order-of-magnitude gains
-  (tens of × over pandas; see ``benchmarks/gfql/`` and the GFQL benchmark notes).
-
-.. note::
-   Route by workload shape and size (next section). **CPU Polars wins the common graph-query
-   shapes from ~10K edges up** — on LiveJournal subsampled (CPU, warm-median): 1-hop traversal
-   2.7× / 4.5× / 7.6× and ``WHERE``+``ORDER`` 3.0× / 3.0× / 18× over pandas at 10K / 100K / 1M.
-   The **GPU** engines (cuDF / Polars-GPU) are the ones with a real small-size floor — they need
-   enough work to amortize kernel-launch cost (work-bound, [F2]). The only case pandas edges out
-   is a trivial sub-millisecond operation (e.g. a bare node-equality filter), where its boolean
-   mask beats Polars' plan overhead — but at <1 ms the difference is immaterial. Reproducer:
-   ``benchmarks/gfql/index_crossover_bench.py``.
+Current measured numbers: :ref:`gfql-0580-numbers` (release-verified sweep) and the bulk
+engine comparison on the same page.
 
 .. _gfql-vs-external-tools:
 
@@ -171,9 +134,10 @@ GFQL vs external graph tools
 GFQL is **dataframe-native**: ``pip install``, then query your existing pandas / Polars /
 cuDF frame in-process — no separate database to stand up, no ETL to load, no cluster. Graph
 databases (Neo4j, Kuzu) are a **system-of-record** you provision and ingest into first. The
-table below is deliberately conservative: every speedup is stated with its condition, ``>``
-and did-not-finish markers are kept, and where we have no head-to-head we say **not
-benchmarked** rather than guess.
+table below is deliberately conservative: wins are stated with their conditions, losses are
+reported as-is, and where we have no head-to-head we say **not benchmarked** rather than
+guess. The measured pairs behind every claim live in :doc:`performance` (and
+:doc:`index_adjacency` for the index benchmarks).
 
 .. list-table::
    :header-rows: 1
@@ -185,37 +149,42 @@ benchmarked** rather than guess.
      - Where it complements / GFQL doesn't claim
    * - **Neo4j + GDS**
      - Server + GDS library; stand up a DB and ETL your data in.
-     - **Filter→PageRank→filter pipeline**, dgx-spark GB10, warm median: Twitter 2.4M —
-       13.83 s Neo4j vs 2.55 s GFQL-CPU / **0.30 s GFQL-GPU (46×)**; GPlus 30M —
-       **>187 s (did-not-finish)** vs 75.78 s CPU / **3.33 s GPU (>56×)**.
-     - Neo4j remains the transactional system-of-record; run the read-heavy analytics in
-       GFQL. See :doc:`benchmark_filter_pagerank`.
+     - **LDBC SNB interactive pairs** (same box, warm): GFQL wins most clean pairs —
+       seeded lookups, message content/creator projections, one-hop expands. **End-to-end
+       filter→PageRank→filter pipelines**: GFQL wins by large margins on CPU and
+       especially GPU, including a case where Neo4j did not finish. Measured pairs in
+       :ref:`gfql-0580-numbers`; pipeline benchmark in :doc:`benchmark_filter_pagerank`.
+     - **Neo4j wins some interactive shapes** (e.g. the recent-replies pair) — reported
+       as-is in :doc:`performance`. Neo4j remains the transactional system-of-record; run
+       the read-heavy analytics in GFQL.
    * - **Kuzu**
      - Embedded graph DB; still a separate store to load + index.
-     - **Seeded index lookup** (0.8M nodes / 6.4M edges): 1-hop **0.123 ms vs 1.15 ms
-       (9.4×)**, 2-hop **0.150 ms vs 4.25 ms (28×)**; prepared-Kuzu LiveJournal 35M ~ **17×**
-       typical seed, 6× hub. **Bulk frontier expansion** (LiveJournal 35M, 1-hop, many
-       seeds): **22× Kuzu**, up to **87× at k=100k**. See :doc:`index_adjacency`.
-     - **Not claimed:** cyclic / multi-way-join patterns (triangles, cliques) where Kuzu's
-       worst-case-optimal joins can win. Use Kuzu as the store; GFQL for bulk read analytics.
+     - GFQL typically wins **multi-join OLAP** (by one to two orders of magnitude with
+       ``engine='polars'``), **seeded / selective index lookups**, and **bulk frontier
+       expansion**. Measured pairs in :ref:`gfql-0580-numbers`; index benchmarks in
+       :doc:`index_adjacency`.
+     - **Embedded Kuzu typically wins single-table aggregates and seeded
+       property-projection lookups** (shapes GFQL's covered fast paths don't yet reach) —
+       exact ratios in :doc:`performance`. GFQL's strengths are traversals, multi-join
+       OLAP, and covered seeded shapes. Also **not claimed:** cyclic / multi-way-join
+       patterns (triangles, cliques) where Kuzu's worst-case-optimal joins can win. Use
+       Kuzu as the store; GFQL for bulk read analytics.
    * - **LadybugDB**
      - Actively-maintained **Kuzu fork** (Kuzu is archived); embedded C++, strongly-typed
        Cypher, opt-in ART *or* hash indexing, zero-copy Arrow/CSR scans, and **out-of-core
        billion-scale** (query a 1.8B-edge graph in <8 GB RAM).
      - Against **LadybugDB's published numbers** for their own 5M-node / 20M-edge suite
-       (their figures, their hardware; GFQL measured separately on an NVIDIA DGX Spark
-       GB10 running the identical Cypher ``MATCH … RETURN`` row pipeline, each engine on
-       its **native** frames — a cross-machine comparison, so read the ratios as
-       indicative): GFQL **wins the scan-shaped ops** — full node scan **~65×** (polars
-       58 ms vs 3789 ms), id **range ~1.2×** (polars 6.1 ms vs 7.5 ms), relationship
-       property/rowid scans **~3.5–3.7×** (cuDF 4.2 s vs ~15 s). **Point lookup** (single
-       id) is ~4 ms vs Ladybug's ~0.3 ms — a full columnar scan vs a B-tree/hash **index
-       seek**; close in absolute terms, and a resident GFQL node-id index (tracked in
-       issue #1676) should close it. Ladybug still wins the two ops backed by
-       persistent structure: point lookups and a relationship ``COUNT(*)`` (an O(1) cached
-       count vs GFQL's O(E) endpoint-validated scan — a dataframe has no referential
-       integrity). GFQL's angle is dataframe-native, in-process, and GPU-accelerated with
-       no separate store to load/index.
+       (their figures, their hardware; GFQL measured separately on the same Cypher row
+       pipeline, each engine on its **native** frames — a cross-machine comparison, so
+       read it as indicative): GFQL **wins the scan-shaped ops** — full node scans and
+       relationship property/rowid scans — by large margins. **Point lookups** are close
+       in absolute terms but favor Ladybug's B-tree/hash **index seek** over a columnar
+       scan; a resident GFQL node-id index (tracked in issue #1676) should close that.
+       Ladybug wins the two ops backed by persistent structure: point lookups and a
+       cached relationship ``COUNT(*)`` (an O(1) count vs GFQL's O(E) endpoint-validated
+       scan — a dataframe has no referential integrity). GFQL's angle is
+       dataframe-native, in-process, and GPU-accelerated with no separate store to
+       load/index. Details and reproducer in the :doc:`performance` methodology notes.
      - **Complement:** Ladybug is a durable embedded store with an out-of-core mode
        (billion-scale in <8 GB RAM); GFQL is a query engine over your dataframes. GFQL's
        *default* is in-memory, but it is **not limited to it** — Polars streaming
@@ -238,10 +207,9 @@ benchmarked** rather than guess.
      - *Distributed* graph engine on a Spark cluster; provision + tune the cluster.
      - GFQL is *single-node* (CPU or one GPU): 100M+ edges in-process on **one machine**,
        no cluster to stand up, interactive latency — and a single node often matches or beats
-       Spark on read-heavy traversal and, with the GPU engine, PageRank at a fraction of the cost.
-       Head-to-head on LiveJournal (35M) and Orkut (117M): GFQL wins filter/traversal 1.3–43×
-       even on CPU, and the GPU engine wins PageRank ~10–15×; on CPU, PageRank via igraph is
-       *slower* than GraphFrames — see :doc:`benchmark_graphframes`.
+       Spark on read-heavy filter/traversal even on CPU, while the GPU engine wins PageRank
+       by an order of magnitude; on CPU, PageRank via igraph is *slower* than GraphFrames.
+       Measured head-to-head in :doc:`benchmark_graphframes`.
      - Reach for GraphFrames when the graph genuinely exceeds one machine's memory. Motif /
        triangle / multi-way-join queries **run** in GFQL but are not yet perf-benchmarked.
    * - **PuppyGraph**
@@ -254,9 +222,11 @@ benchmarked** rather than guess.
 GFQL **complements** a graph database more than it replaces one: keep Neo4j or Kuzu as the
 system-of-record, and do the read-heavy search + analytics in GFQL so ETL, traversal, and
 scoring stay in one in-process dataframe pipeline. Route by shape — **selective** seeded
-lookups favor the GFQL index (up to 28× Kuzu, 16.9× Neo4j on 2-hop), **bulk** frontier
-expansion and full pipelines favor Polars / GPU (22–87× Kuzu; **46–56× Neo4j** on the
-filter→PageRank→filter pipeline). Against the **distributed** engines the axis is different:
+lookups favor the GFQL index, **multi-join OLAP** favors Polars, and **bulk** frontier
+expansion and full pipelines favor Polars / GPU (measured pairs in :doc:`performance` and
+:doc:`index_adjacency`). The inverse holds too: embedded engines win single-table
+aggregates and seeded property-projection lookups.
+Against the **distributed** engines the axis is different:
 GFQL trades horizontal scale-out for zero cluster/warehouse setup and interactive latency —
 choose it below the single-machine ceiling (100M+ edges fit in-process; a cluster is only
 needed once the graph genuinely exceeds one node's memory), and complement PuppyGraph's
@@ -285,7 +255,7 @@ Decision matrix
      - > ~10K
      - CPU
      - ``polars``
-     - wins from ~10K (2.7x); up to ~38x pandas, ~15x cuDF at 100M [F1]
+     - wins from ~10K; gap grows to order-of-magnitude at scale [F1]
    * - Heavy multi-hop (2-hop+)
      - large
      - GPU
@@ -313,18 +283,20 @@ Decision matrix
      - O(degree), not an engine choice [F5]
 
 **[F1] CPU crossover is ~10K, not ~1M.** For the common graph-query shapes (traversal,
-``WHERE``/``ORDER``, aggregation) CPU Polars beats pandas from ~10K edges up (2.7-18× in our
-runs). Pandas only edges out on a trivial sub-millisecond operation (a bare equality mask),
+``WHERE``/``ORDER``, aggregation) CPU Polars beats pandas from ~10K edges up (measured
+crossover in :doc:`performance`).
+Pandas only edges out on a trivial sub-millisecond operation (a bare equality mask),
 where the absolute difference is immaterial. The real small-size floor is **GPU-only** —
 cuDF / Polars-GPU need enough work to amortize kernel launch ([F2]).
 
 **[F2] GPU is work-bound, not size-bound.** A GPU wins when there is enough work to amortize
-its ~3 ms kernel-launch floor: big frontiers, dense joins, full-graph aggregation. Tiny or
-seeded work finishes faster on CPU.
+its millisecond-scale kernel-launch floor: big frontiers, dense joins, full-graph
+aggregation. Tiny or seeded work finishes faster on CPU.
 
-**[F3] Polars-GPU memory pressure.** On an extreme single materialization (~85M output rows,
-2-hop from 100K seeds on Orkut) raw ``cudf`` leads (6.0 s) and ``polars-gpu`` slips (8.6 s)
-as its in-memory GPU executor comes under memory pressure. Prefer ``cudf`` for that regime.
+**[F3] Polars-GPU memory pressure.** On an extreme single materialization (tens of millions
+of output rows from one join) raw ``cudf`` leads and ``polars-gpu`` slips as its in-memory
+GPU executor comes under memory pressure (measured in :doc:`performance`). Prefer ``cudf``
+for that regime.
 
 **[F4] Polars-GPU is GPU-or-error.** It never silently falls back to CPU and reports the
 result as a GPU run (see *Honesty* below).
@@ -332,12 +304,12 @@ result as a GPU run (see *Honesty* below).
 **[F5] Selective traversal is an indexing problem, not an engine choice.** A seeded ``hop``
 from a few nodes is fastest with the opt-in **CSR adjacency index** (``g.gfql_index_all()`` /
 ``g.create_index(...)``, ``index_policy=``), which turns the O(E) scan into an O(degree)
-gather — flat in graph size, and 9–28× faster than Kuzu / Neo4j on selective lookups. It works
-on all four engines, but seeded work is so small that **CPU wins**: on LiveJournal 35M a
-typical-seed 1-hop is ~0.13 ms on pandas and ~0.16 ms on Polars (numpy ``searchsorted``) vs
-~3 ms on cuDF (GPU kernel-launch floor) — the clean inverse of bulk, where the GPU pulls
-ahead. So pick the index for selective traversal and a CPU engine to drive it. See
-:doc:`index_adjacency` for the full guide.
+gather — flat in graph size (measured flat-scaling numbers in :ref:`gfql-0580-numbers`;
+index routing for the native seeded ``g.hop()`` currently engages on pandas, not yet the
+Polars hop path). It works on all four engines, but seeded work is so small that **CPU
+wins** — sub-millisecond on pandas/Polars vs the GPU kernel-launch floor on cuDF — the
+clean inverse of bulk, where the GPU pulls ahead. So pick the index for selective
+traversal and a CPU engine to drive it. See :doc:`index_adjacency` for the full guide.
 
 Switching engines
 -----------------
@@ -386,7 +358,10 @@ never selects Polars or Polars-GPU**, so those two are always an explicit opt-in
 .. tip::
    For selective, seeded traversal, build the CSR adjacency index once with
    ``g.gfql_index_all()`` (or ``index_policy=``) — it works on all four engines
-   and turns the O(E) scan into an O(degree) gather. See :doc:`index_adjacency`.
+   and turns the O(E) scan into an O(degree) gather. **Polars frames currently need
+   the engine passed explicitly** — ``g.gfql_index_all(engine='polars')`` — because an
+   AUTO build swaps Polars frames to pandas (fix tracked in PR #1767).
+   See :doc:`index_adjacency`.
 
 .. _gfql-offengine-calls:
 
@@ -480,9 +455,9 @@ little latency for a much larger working set:
        results **larger than device memory** (the default in-memory executor
        would OOM).
 
-Both are **off by default** on purpose: they add overhead that *regresses*
-small/interactive work (~0.86× at 100K edges), and for the in-memory regime this
-page measures, the default is faster and more stable. Results are
+Both are **off by default** on purpose: they add overhead that mildly *regresses*
+small/interactive work, and for the in-memory regime the benchmarks measure, the
+default is faster and more stable. Results are
 **parity-identical** to the default — streaming changes *how* the plan runs, not
 *what* it returns.
 
@@ -549,11 +524,14 @@ Honesty matters more than a bigger number:
   misreport pandas performance as Polars (see *Honesty*).
 - **One extreme materialization (80M+ output rows):** prefer ``cudf`` over ``polars-gpu``
   (footnote F3).
-- **vs graph databases:** GFQL-Polars beats embedded kuzu on frontier expansion (up to ~87x
-  on LiveJournal 1-hop in our runs — reproducer ``benchmarks/gfql/index_vs_kuzu_prepared.py``),
-  and separately beats Neo4j+GDS end-to-end (:doc:`benchmark_filter_pagerank`). The honest
-  boundary: kuzu's worst-case-optimal joins target **cyclic / multi-way join** patterns
-  (triangles, cliques) that we have **not** yet benchmarked, and kuzu may lead there.
+- **vs graph databases:** GFQL-Polars typically beats embedded kuzu on multi-join OLAP and
+  bulk frontier expansion by one to two orders of magnitude (measured pairs in
+  :doc:`performance`; reproducer ``benchmarks/gfql/index_vs_kuzu_prepared.py``); it
+  separately beats Neo4j+GDS end-to-end (:doc:`benchmark_filter_pagerank`). The honest
+  boundary: embedded kuzu **wins single-table aggregates and seeded property-projection
+  lookups** (exact ratios in :doc:`performance`), and its worst-case-optimal joins
+  target **cyclic / multi-way join** patterns (triangles, cliques) that we have **not**
+  yet benchmarked, and kuzu may lead there.
 
 Parity and honesty
 ------------------
@@ -580,22 +558,10 @@ Parity and honesty
 Methodology
 -----------
 
-- Host: NVIDIA DGX Spark (GB10 Grace-Blackwell, unified memory — the F3 memory-pressure
-  boundary is partly a property of this box), RAPIDS container
-  ``graphistry/test-rapids-official:26.02-gfql-polars``.
-- Datasets: `SNAP <https://snap.stanford.edu/data/>`_ **com-LiveJournal** (35M edges),
-  **com-Orkut** (117M edges). The order-of-magnitude filter/lookup figure is from a separate
-  **LDBC SNB sf1** benchmark, not the table above.
-- Measurement: **warm median** after 2 warmups (5 timed runs on Orkut, 8 on LiveJournal);
-  every reported cell is **guarded** — the result rows are verified identical across engines
-  before any timing is kept.
-- Reproduce: ``benchmarks/gfql/index_bulk_olap_bench.py`` (engine comparison),
-  ``benchmarks/gfql/pandas_vs_polars.py``, and ``benchmarks/gfql/index_vs_kuzu_prepared.py``
-  (vs kuzu). Numbers on this page are rendered from saved runs; the page does not re-run them.
-- **LadybugDB row**: the Ladybug figures are **their published results on their hardware**;
-  the GFQL side ran on the host above via ``benchmarks/gfql/bench_ladybug_cypher.py``
-  (5M/20M synthetic per their suite shape, native frames per engine, warm medians) — a
-  cross-machine comparison, disclosed as such in the row.
+The measured tables and their full methodology — hosts, datasets, warm-median protocol,
+cross-engine parity guards, and reproducer scripts — live with the numbers on the
+:doc:`performance` page (release-verified tag sweeps plus the prior large-graph bulk
+sweep) and in :doc:`index_adjacency` for the resident-index benchmarks.
 
 Install
 -------

@@ -767,6 +767,141 @@ def _connected_join_filter_node_frames_by_residuals(
     return out
 
 
+
+def _connected_join_two_star_fused_polars(
+    nodes: DataFrameT,
+    edges: DataFrameT,
+    *,
+    node_col: str,
+    src_col: str,
+    dst_col: str,
+    residual_map: Dict[str, List[Any]],
+    shared_alias: str,
+    first_end_alias: str,
+    second_end_alias: str,
+    first_start_fd: Optional[dict],
+    second_start_fd: Optional[dict],
+    first_end_fd: Optional[dict],
+    second_end_fd: Optional[dict],
+    first_edge_match: Optional[dict],
+    second_edge_match: Optional[dict],
+    group_prop_refs: List[Tuple[str, str]],
+    output_group_keys: List[str],
+    agg_alias: str,
+    order_keys: List[Tuple[str, bool]],
+    limit_value: Optional[int],
+    select_items: Optional[List[Tuple[str, str]]],
+) -> Optional[DataFrameT]:
+    """FUSED lazy lane (#1755 lane-1): the whole two-star grouped-count as ONE lazy
+    plan, collected once at the join (the eager path pays a fixed collect cost per
+    op; ~27 collects/exec dominated q5-q7 profiles). Value-identical to the eager
+    lane -- same filters/semi-joins/aggregation, and the empty-match boundary
+    reproduces the eager all-left-counts==1 shortcut's single n=0 row (openCypher
+    count over no rows). Returns None to decline (untranslatable residual, missing
+    group property) so the caller falls through to the eager path. Both frames must
+    already be engine-converted polars frames.
+    """
+    import polars as pl
+    from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_expr_by_dict_polars
+
+    if isinstance(nodes, pl.LazyFrame) or isinstance(edges, pl.LazyFrame):
+        return None  # eager lane owns LazyFrame inputs (schema probes on a LazyFrame warn/cost)
+    frame_aliases = {shared_alias, first_end_alias, second_end_alias}
+    node_schema = dict(nodes.schema)
+    residual_exprs: Dict[str, List["pl.Expr"]] = {}
+    for r_alias, r_exprs in residual_map.items():
+        if r_alias not in frame_aliases:
+            continue  # mirror the eager path: residuals for unbound aliases are not applied here
+        r_translated = [_residual_polars_expr(e, r_alias, node_schema) for e in r_exprs]
+        if any(t is None for t in r_translated):
+            return None
+        residual_exprs[r_alias] = [t for t in r_translated if t is not None]
+    for _, prop in group_prop_refs:
+        if prop not in nodes.columns:
+            return None
+    lf_nodes = nodes.lazy()
+    lf_edges = edges.lazy()
+
+    def _alias_nodes_lf(fds: List[Optional[dict]], r_alias: str) -> "pl.LazyFrame":
+        lf = lf_nodes
+        for fd in fds:
+            fe = filter_expr_by_dict_polars(nodes, fd)
+            if fe is not None:
+                lf = lf.filter(fe)
+        for rexpr in residual_exprs.get(r_alias, []):
+            lf = lf.filter(rexpr)
+        return lf
+
+    shared_lf = _alias_nodes_lf([first_start_fd, second_start_fd], shared_alias)
+    second_leaf_lf = _alias_nodes_lf([second_end_fd], second_end_alias)
+    shared_ids_lf = shared_lf.select(node_col).unique()
+    first_leaf_ids_lf = _alias_nodes_lf([first_end_fd], first_end_alias).select(node_col).unique()
+    second_leaf_ids_lf = second_leaf_lf.select(node_col).unique()
+    fe1 = filter_expr_by_dict_polars(edges, first_edge_match)
+    fe2 = filter_expr_by_dict_polars(edges, second_edge_match)
+    first_edges_lf = lf_edges.filter(fe1) if fe1 is not None else lf_edges
+    second_edges_lf = lf_edges.filter(fe2) if fe2 is not None else lf_edges
+    left_counts_lf = (
+        first_edges_lf
+        .join(shared_ids_lf, left_on=src_col, right_on=node_col, how="semi")
+        .join(first_leaf_ids_lf, left_on=dst_col, right_on=node_col, how="semi")
+        .group_by(src_col)
+        .len("__left_count__")
+        .rename({src_col: shared_alias})
+    )
+    right_base_lf = (
+        second_edges_lf
+        .join(shared_ids_lf, left_on=src_col, right_on=node_col, how="semi")
+        .join(second_leaf_ids_lf, left_on=dst_col, right_on=node_col, how="semi")
+    )
+    if group_prop_refs:
+        fused_lookup_key = "__gfql_fast_second_leaf_id__"
+        lookup_lf = second_leaf_lf.select(
+            [pl.col(node_col).alias(fused_lookup_key)]
+            + [pl.col(prop).alias(out_col) for out_col, prop in group_prop_refs]
+        ).unique(subset=[fused_lookup_key])
+        right_base_lf = right_base_lf.join(lookup_lf, left_on=dst_col, right_on=fused_lookup_key, how="inner")
+    right_rows_lf = right_base_lf.select(
+        [pl.col(src_col).alias(shared_alias)] + [pl.col(key) for key in output_group_keys]
+    )
+    joined_lf = right_rows_lf.join(left_counts_lf, on=shared_alias, how="inner")
+    # HOT PATH: one collect. left_counts is collected ONLY on the empty-match
+    # boundary below (collect_all of both plans measured +2.5ms/query on the
+    # 20k graphbench q5-q7 -- CSE does not absorb the left-arm recompute).
+    joined = joined_lf.collect()
+    if len(joined) == 0:
+        # Eager-lane parity on the empty match: the eager all-left-counts==1
+        # shortcut counts matched rows with pl.len(), emitting a single n=0 row
+        # when the first arm is live but nothing joins (the openCypher-correct
+        # count over zero rows). Every other empty shape returns the 0x0 frame,
+        # exactly like the eager generic branch.
+        left_counts_df = left_counts_lf.collect()
+        if (
+            not output_group_keys
+            and len(left_counts_df) > 0
+            and bool(left_counts_df.select((pl.col("__left_count__") == 1).all()).item())
+        ):
+            out_df = pl.DataFrame({agg_alias: [0]}).with_columns(pl.col(agg_alias).cast(pl.Int64))
+        else:
+            return cast(DataFrameT, joined.select([]))
+    elif output_group_keys:
+        out_df = joined.group_by(output_group_keys, maintain_order=True).agg(
+            pl.col("__left_count__").sum().cast(pl.Int64).alias(agg_alias))
+    else:
+        out_df = joined.select(pl.col("__left_count__").sum().cast(pl.Int64).alias(agg_alias))
+    if order_keys:
+        out_df = out_df.sort(
+            [key for key, _ in order_keys],
+            descending=[desc for _, desc in order_keys],
+            nulls_last=[not desc for _, desc in order_keys],
+        )
+    if limit_value is not None:
+        out_df = out_df.head(limit_value)
+    if select_items is not None:
+        out_df = out_df.select([pl.col(s_col).alias(d_col) for s_col, d_col in select_items])
+    return cast(DataFrameT, out_df)
+
+
 def _connected_join_two_star_fast_grouped_count(
     base_graph: Plottable,
     plan: ConnectedMatchJoinPlan,
@@ -969,6 +1104,37 @@ def _connected_join_two_star_fast_grouped_count(
             if shared_ids is None or first_leaf_ids is None or second_leaf_ids is None:
                 return None
         else:
+            # FUSED lazy lane (#1755 lane-1): one lazy plan, one collect at the join.
+            # Returns None to fall through to the eager path (untranslatable residual,
+            # missing group property). Edges are engine-converted HERE because the
+            # fused lane runs native polars ops directly on them (the eager path's
+            # cached edge filter does its own conversion) -- pandas edges with
+            # engine='polars' (incl. WITH..MATCH reentry frames) crash otherwise.
+            fused_out = _connected_join_two_star_fused_polars(
+                nodes,
+                df_to_engine(edges, engine),
+                node_col=node_col,
+                src_col=src_col,
+                dst_col=dst_col,
+                residual_map=residual_map,
+                shared_alias=shared_alias,
+                first_end_alias=first_end_alias,
+                second_end_alias=second_end_alias,
+                first_start_fd=cast(Optional[dict], first_start.filter_dict),
+                second_start_fd=cast(Optional[dict], second_start.filter_dict),
+                first_end_fd=cast(Optional[dict], first_end.filter_dict),
+                second_end_fd=cast(Optional[dict], second_end.filter_dict),
+                first_edge_match=cast(Optional[dict], first_edge.edge_match),
+                second_edge_match=cast(Optional[dict], second_edge.edge_match),
+                group_prop_refs=group_prop_refs,
+                output_group_keys=output_group_keys,
+                agg_alias=agg_alias,
+                order_keys=order_keys,
+                limit_value=limit_value,
+                select_items=select_items,
+            )
+            if fused_out is not None:
+                return fused_out
             shared_nodes = filter_by_dict_polars(nodes, cast(Optional[dict], first_start.filter_dict))
             shared_nodes = filter_by_dict_polars(shared_nodes, cast(Optional[dict], second_start.filter_dict))
             first_leaf_nodes = filter_by_dict_polars(nodes, cast(Optional[dict], first_end.filter_dict))
@@ -1870,12 +2036,14 @@ def _execute_seeded_typed_hop_fast_path(
     if requested_engine not in (Engine.PANDAS, Engine.CUDF, Engine.POLARS, Engine.POLARS_GPU):
         return None
     projection = compiled_query.result_projection
-    if projection is None or projection.table != "nodes":
+    if projection is not None and projection.table != "nodes":
         return None
     # Only a single whole-row node alias (RETURN p). Multi-alias returns (RETURN
     # m, p) combine aliases into one row per match — different shape — so bail.
-    proj_cols = projection.columns
-    if len(proj_cols) != 1 or proj_cols[0].kind != "whole_row":
+    # (Single-alias PROPERTY returns lower with result_projection=None + a select
+    # op and are covered by the select-shape branch below.)
+    proj_cols = () if projection is None else projection.columns
+    if projection is not None and (len(proj_cols) != 1 or proj_cols[0].kind != "whole_row"):
         return None
     if compiled_query.execution_extras is not None and (
         compiled_query.execution_extras.connected_match_join is not None
@@ -1883,8 +2051,18 @@ def _execute_seeded_typed_hop_fast_path(
     ):
         return None
     ops = list(compiled_query.chain.chain)
-    if len(ops) != 4:
-        return None
+    select_op: Optional[ASTCall] = None
+    if projection is not None:
+        if len(ops) != 4:
+            return None
+    else:
+        # property-RETURN lowering: [n0, e1, n2, rows(source=alias), select(items)]
+        # (the LDBC IS5 shape: RETURN p.a AS x, p.b). Anything else (ORDER BY /
+        # LIMIT / DISTINCT add further ops; exprs lower differently) falls back.
+        if len(ops) != 5 or not isinstance(ops[4], ASTCall) or ops[4].function != "select":
+            return None
+        select_op = ops[4]
+        ops = ops[:4]
     n0, e1, n2, call = ops
     if not (isinstance(n0, ASTNode) and isinstance(e1, ASTEdge)
             and isinstance(n2, ASTNode) and isinstance(call, ASTCall)):
@@ -1905,8 +2083,31 @@ def _execute_seeded_typed_hop_fast_path(
     # source node (n0) — the forward seeded shape MATCH (m {id})-[:T]->(p) RETURN p.
     # Other alias/seed placements (e.g. reverse patterns where the seed is on the
     # RETURN node) fall back to the full path.
-    if n2._name != projection.alias:
+    return_alias = projection.alias if projection is not None else str((call.params or {}).get("source", ""))
+    if n2._name != return_alias:
         return None
+    select_items: Optional[list] = None
+    if select_op is not None:
+        raw_items = (select_op.params or {}).get("items")
+        if not raw_items or not isinstance(raw_items, (list, tuple)):
+            return None
+        nodes_frame_cols = None if base_graph._nodes is None else set(map(str, base_graph._nodes.columns))
+        if nodes_frame_cols is None:
+            return None
+        prefix = f"{return_alias}."
+        select_items = []
+        for it in raw_items:
+            if not (isinstance(it, (list, tuple)) and len(it) == 2):
+                return None
+            out_name, src_ref = str(it[0]), str(it[1])
+            # only same-alias property refs; the bare property must exist on the
+            # node frame (absent -> full path's null/error semantics must apply)
+            if not src_ref.startswith(prefix):
+                return None
+            prop = src_ref[len(prefix):]
+            if "." in prop or prop not in nodes_frame_cols:
+                return None
+            select_items.append((out_name, prop))
     if not (n0.filter_dict and any(not str(k).startswith("label__") for k in n0.filter_dict)):
         return None  # n0 must carry a selective (non-label) seed
     direction = e1.direction
@@ -1922,11 +2123,59 @@ def _execute_seeded_typed_hop_fast_path(
     is_polars = is_polars_df(nodes_frame)
     if is_polars != is_polars_df(base_graph._edges):
         return None  # mixed-engine node/edge frames: decline, full path decides
+    if select_items is not None and (requested_engine in (Engine.POLARS, Engine.POLARS_GPU)) != is_polars:
+        # Requested-vs-actual engine mismatch (e.g. polars frames + engine='pandas'):
+        # the full path CONVERTS the result to the requested engine, so the lean
+        # projection would leak actual-engine frames. Decline; the full path decides.
+        return None
     helper = _seeded_typed_return_dst_polars if is_polars else _seeded_typed_return_dst_pandas_cudf
     dst_res = helper(base_graph, n0, n2, e1, src, dst, node, direction)
     if dst_res is None:
         return None
     p_rows, _edges = dst_res
+    if select_items is not None:
+        # Lean property projection (IS5 shape): the deduped destination rows carry
+        # the raw property columns — rename/select directly, same values the
+        # rows-pivot + select pipeline emits (row order may differ; documented
+        # value-identical contract).
+        if is_polars:
+            import polars as pl
+            out_frame = p_rows.select([pl.col(prop).alias(out) for out, prop in select_items])
+        else:
+            # dtype parity with the full path: non-id properties ride the rows-pivot,
+            # which upcasts int/float -> float64 and bool -> object; the node-id
+            # property passes through the pivot key and keeps its dtype. Any dtype
+            # class not verified against the pivot (datetimes, pandas extension
+            # dtypes like nullable Int64/StringDtype, categoricals) declines to the
+            # full path rather than risk a silent dtype divergence.
+            import numpy as np
+            casts: Dict[str, str] = {}
+            for out_name, prop in select_items:
+                if prop == node:
+                    continue
+                d = p_rows[prop].dtype
+                if isinstance(d, pd.StringDtype):
+                    continue  # pandas>=3 default str dtype: pivot preserves it (verified parity)
+                if not isinstance(d, np.dtype):
+                    return None
+                if d == np.dtype(bool):
+                    casts[out_name] = "object"
+                elif d.kind in "iuf":
+                    casts[out_name] = "float64"
+                elif d.kind != "O":
+                    return None
+            out_frame = p_rows[[prop for _, prop in select_items]].copy()
+            out_frame.columns = [out for out, _ in select_items]
+            for out_name, target in casts.items():
+                out_frame[out_name] = out_frame[out_name].astype(target)
+        out = base_graph.bind()
+        out._nodes = out_frame
+        # full-path parity: a property RETURN yields an EMPTY edges frame with the
+        # edge schema (never None — res._edges must stay usable). The helper's
+        # edges are the matched hop edges, so take their zero-row head.
+        out._edges = _edges.head(0)
+        return out
+    assert projection is not None  # narrowed by the gate above
     # Lean projection: p_rows already IS the RETURN-alias (destination) node set.
     # Tag with the alias and reuse apply_result_projection for the exact
     # column-order/flatten semantics — all on a handful of rows, so seeded cypher
