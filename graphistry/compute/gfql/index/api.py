@@ -111,13 +111,42 @@ def _check_column(column: Optional[str], expected: str, kind: IndexKind) -> None
         )
 
 
+def _resolve_index_engine(engine: EngineAbstractType, g: Plottable) -> Engine:
+    """Engine for index build/validation: AUTO keeps resident polars frames polars.
+
+    ``resolve_engine(AUTO)`` maps polars input frames to PANDAS (the legacy
+    input-format policy), which would make ``create_index`` coerce-and-REPLACE the
+    user's polars frames with pandas copies — and then every later
+    ``engine='polars'`` query pays a full-frame pandas->polars re-conversion, an
+    O(E) tax per call that dwarfs the indexed hop itself. The index layer is
+    engine-polymorphic (numpy sidecar arrays + polars row-gather), so when the
+    caller said AUTO and the resident frames are polars, index them in place.
+    Explicit engines are honored unchanged.
+    """
+    def _is_eager_polars(df: object) -> bool:
+        # EAGER frames only: LazyFrame passes the module check but no index/coercion
+        # path can gather rows from it — those graphs keep the legacy pandas path.
+        return df is not None and 'polars' in str(type(df).__module__) and type(df).__name__ == 'DataFrame'
+    eng = resolve_engine(engine, g)
+    abstract = EngineAbstract(engine) if isinstance(engine, str) else engine
+    if abstract == EngineAbstract.AUTO and eng == Engine.PANDAS:
+        if (
+            g._edges is not None
+            and g._nodes is not None
+            and _is_eager_polars(g._edges)
+            and _is_eager_polars(g._nodes)
+        ):
+            return Engine.POLARS
+    return eng
+
+
 def _is_resident_index_valid(
     g: Plottable,
     kind: IndexKind,
     engine: EngineAbstractType = EngineAbstract.AUTO,
 ) -> bool:
     """True when a resident index still matches the current graph frames."""
-    eng = resolve_engine(engine, g)
+    eng = _resolve_index_engine(engine, g)
     registry = get_registry(g)
     if kind in ADJ_KINDS:
         src, dst = g._source, g._destination
@@ -148,7 +177,7 @@ def create_index(
     O(E log E) once, amortized over later seeded queries.
     """
     from dataclasses import replace
-    eng = resolve_engine(engine, g)
+    eng = _resolve_index_engine(engine, g)
     # Build over frames already in the target engine so the index arrays land on
     # the right backend (cupy for cudf, numpy otherwise). No-op when already in-engine.
     from graphistry.compute.ComputeMixin import _coerce_input_formats
