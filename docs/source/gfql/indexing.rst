@@ -11,6 +11,8 @@ lifecycle: what the indexes are, what engages them, when they go stale, and what
 For the planner policy knobs and competitive benchmarks, see
 :doc:`Seeded Traversal Indexes <index_adjacency>`.
 
+.. doc-test: skip
+
 .. code-block:: python
 
    g = g.gfql_index_all()   # pay once ...
@@ -134,6 +136,8 @@ time). Consequences:
 - ``g.show_indexes()`` reports liveness in the ``valid`` column, so you can see at a
   glance whether a rebind knocked an index out.
 - Rebuild by calling ``gfql_index_all()`` again on the rebound ``g``.
+
+.. doc-test: skip
 
 .. code-block:: python
 
