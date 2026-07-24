@@ -22,6 +22,7 @@ from graphistry.models.types import SchemaValidationParam, ValidationParam
 from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 
 if TYPE_CHECKING:
+    from graphistry.schema import GraphSchema
     try:
         from umap import UMAP
     except:
@@ -82,6 +83,7 @@ class Plottable(Protocol):
     _point_y : Optional[str]
     _point_longitude : Optional[str]
     _point_latitude : Optional[str]
+    _gfql_schema: Optional["GraphSchema"]
     _height : int
     _render : RenderModesConcrete
     _url_params : URLParamsDict
@@ -368,6 +370,10 @@ class Plottable(Protocol):
         ...
 
     def copy(self) -> 'Plottable':
+        ...
+
+    @property
+    def schema(self) -> Optional["GraphSchema"]:
         ...
 
     # ### ComputeMixin

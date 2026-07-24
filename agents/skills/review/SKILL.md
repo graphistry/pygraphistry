@@ -296,6 +296,32 @@ Write `plans/<task>/final-report.md` with:
 `both` mode:
 - Complete findings artifacts first, then comment flow.
 
+### GitHub Markdown Body Safety
+
+When creating or updating PR descriptions, issue comments, PR comments, or
+review summaries with multi-line Markdown, backticks, code fences, `$()`, or
+literal `\n` sequences, do **not** pass the body inline through shell flags such
+as `--body "..."`, `--body '...'`, `-f body=...`, or `-F body=...`.
+
+Instead:
+
+1. Write the exact body to a local Markdown artifact, preferably under
+   `plans/<task>/github-body-<target>.md` for durable review or `/tmp/` for a
+   throwaway retry.
+2. Inspect the rendered source with `sed -n '1,220p' <body-file>` before
+   posting.
+3. Use file-based GitHub CLI flags:
+   - `gh pr create --body-file <body-file>`
+   - `gh pr edit <PR> --body-file <body-file>`
+   - `gh issue comment <issue> --body-file <body-file>`
+   - `gh pr comment <PR> --body-file <body-file>`
+4. After posting, verify with `gh pr view <PR> --json body` or
+   `gh api repos/<owner>/<repo>/issues/comments/<comment-id>` and confirm the
+   body contains real newlines and literal Markdown backticks.
+
+Reason: inline shell bodies can turn Markdown backticks into command
+substitution and can post literal `\n` text instead of newlines.
+
 ## Guardrails
 
 - `fixes=deferred`: read-only; do not edit source files.
