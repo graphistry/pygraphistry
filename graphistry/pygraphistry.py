@@ -2710,6 +2710,27 @@ class GraphistryClient(AuthManagerProtocol):
         result = self._handle_api_response(response)
 
         if result is True:
+            # Server-side quirk: for an org the caller is a plain member of
+            # (not owner/admin) that has its own SSO IDP configured, the
+            # switch endpoint still returns status=='OK' but does NOT
+            # actually switch -- it instead returns an SSO challenge
+            # (data['idp']) requiring a fresh org-scoped SSO login before the
+            # switch is honored. Treating that as success would silently
+            # leave the caller on their previous org.
+            try:
+                data = response.json().get('data', {})
+            except Exception:
+                data = {}
+            if isinstance(data, dict) and data.get('idp'):
+                idp_names = list(data['idp'].keys())
+                raise Exception(
+                    "Switching to organization '{}' requires SSO re-authentication "
+                    "(idp: {}) -- the server did not actually switch. Complete the "
+                    "auth_url in the response's data['idp'], or use "
+                    "sso_login(org_name='{}') instead of switch_org().".format(
+                        value.strip(), idp_names, value.strip()
+                    )
+                )
             self.session.org_name = value.strip()
             logger.info("Switched to organization: {}".format(value.strip()))
         else:  # print the error message
