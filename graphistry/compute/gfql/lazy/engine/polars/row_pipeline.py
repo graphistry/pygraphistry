@@ -700,7 +700,7 @@ def _finish_binding_rows_polars(
         for alias in [op._name]
         if isinstance(alias, str)
     }
-    setattr(out, "_gfql_rows_edge_aliases", edge_aliases)
+    out._gfql_rows_edge_aliases = edge_aliases
     return out
 
 
@@ -1119,7 +1119,7 @@ def binding_rows_polars(
     if nodes is None or edges is None or node_id is None or src is None or dst is None:
         return None
     seed_ids_lf: Optional[Any] = None  # LazyFrame; Any avoids the union-typed seed_nodes.join mismatch
-    start_nodes = getattr(g, "_gfql_start_nodes", None)
+    start_nodes = g._gfql_start_nodes
     if start_nodes is not None:
         # Bounded WITH->MATCH re-entry (#1273): the carried WITH rows seed the first
         # alias. Constrain the first node alias to the carried ids via a semi-join —
@@ -1157,7 +1157,7 @@ def binding_rows_polars(
     from graphistry.compute.gfql.index import bindings as indexed_bindings
     from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
     from graphistry.Engine import Engine
-    base_graph = getattr(g, "_gfql_rows_base_graph", None)
+    base_graph = g._gfql_rows_base_graph
     if base_graph is None:
         base_graph = g
     engine_concrete = (
@@ -1435,7 +1435,7 @@ def binding_rows_polars(
                 and edge_op.direction == "forward"
                 and not RowPipelineMixin._gfql_node_filter_has_label(next_op.filter_dict)
             ):
-                base_graph = getattr(g, "_gfql_rows_base_graph", None)
+                base_graph = g._gfql_rows_base_graph
                 base_nodes = getattr(base_graph, "_nodes", None)
                 if base_nodes is None:
                     return None

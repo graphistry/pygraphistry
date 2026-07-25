@@ -724,9 +724,8 @@ def _handle_boundary_calls(
     if suffix:
         logger.debug('Executing boundary suffix calls: %s', suffix)
         if start_nodes is not None:
-            setattr(g_temp, "_gfql_start_nodes", start_nodes)
-        setattr(g_temp, "_gfql_rows_base_graph", suffix_base_graph)
-        setattr(g_temp, "_gfql_shortest_path_backend", getattr(g_temp, "_gfql_shortest_path_backend", "auto"))
+            g_temp._gfql_start_nodes = start_nodes
+        g_temp._gfql_rows_base_graph = suffix_base_graph
         if (
             middle
             and any(getattr(op, "_name", None) is not None for op in middle)

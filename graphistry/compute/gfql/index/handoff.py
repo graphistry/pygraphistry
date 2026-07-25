@@ -6,10 +6,10 @@ re-deriving it. This module owns the whole contract — the dataclass, the singl
 attribute it rides on, and the only attribute access — so callers stay typed and
 no other module hand-rolls ``getattr``/``setattr`` for it.
 
-The attribute rides on a Plottable because that is how the row pipeline already
-threads per-execution context (``_gfql_rows_base_graph``, ``_gfql_start_nodes``);
-it is internal, always attached to an internal copy, and cleared before the
-result is handed back to the caller.
+The field is DECLARED on Plottable (with its default on PlotterBase) rather than
+smuggled on with ``setattr``, so every access here is ordinary typed attribute
+access. It is internal, always attached to an internal copy, and cleared before
+the result is handed back to the caller.
 """
 from __future__ import annotations
 
@@ -22,9 +22,6 @@ from graphistry.utils.json import JSONVal
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
     from .bindings import IndexedBindingsState
-
-
-HANDOFF_ATTR = "_gfql_indexed_bindings_handoff"
 
 
 @dataclass(frozen=True)
@@ -56,21 +53,20 @@ class IndexedBindingsHandoff:
 def attach_handoff(g: "Plottable", handoff: IndexedBindingsHandoff) -> "Plottable":
     """Return an internal copy of ``g`` carrying ``handoff`` (never mutates ``g``)."""
     out = g.bind()
-    setattr(out, HANDOFF_ATTR, handoff)
+    out._gfql_indexed_bindings_handoff = handoff
     return out
 
 
 def set_handoff(g: Any, handoff: IndexedBindingsHandoff) -> None:
-    """Attach ``handoff`` to a graph the caller already owns."""
-    setattr(g, HANDOFF_ATTR, handoff)
+    """Attach ``handoff`` to an object the caller is itself constructing."""
+    g._gfql_indexed_bindings_handoff = handoff
 
 
 def read_handoff(g: Any) -> Optional[IndexedBindingsHandoff]:
     """The boundary decision riding on ``g``, if any."""
-    return getattr(g, HANDOFF_ATTR, None)
+    return g._gfql_indexed_bindings_handoff
 
 
 def clear_handoff(g: Any) -> None:
     """Drop the handoff so it never escapes on a user-visible result."""
-    if hasattr(g, HANDOFF_ATTR):
-        delattr(g, HANDOFF_ATTR)
+    g._gfql_indexed_bindings_handoff = None

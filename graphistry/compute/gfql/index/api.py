@@ -105,16 +105,17 @@ _seed_id_array = seed_id_array
 _seed_deg_sum = seed_deg_sum
 
 def get_registry(g: Plottable) -> GfqlIndexRegistry:
-    return cast(GfqlIndexRegistry, getattr(g, REGISTRY_ATTR, EMPTY_REGISTRY))
+    registry = g._gfql_index_registry
+    return registry if registry is not None else EMPTY_REGISTRY
 
 
 def get_index_policy(g: Plottable) -> IndexPolicy:
-    return cast(IndexPolicy, getattr(g, POLICY_ATTR, "use"))
+    return g._gfql_index_policy
 
 
 def _attach(g: Plottable, registry: GfqlIndexRegistry) -> Plottable:
     res = copy.copy(g)
-    setattr(res, REGISTRY_ATTR, registry)
+    res._gfql_index_registry = registry
     return res
 
 
