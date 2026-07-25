@@ -582,10 +582,71 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
             "use engine='pandas' for this chain."
         )
 
-    g_cur = _chain_traversal_polars(self, middle, start_nodes)
+    indexed_state, indexed_attempted = _try_indexed_middle_polars(self, middle, suffix, start_nodes)
+    if indexed_state is not None:
+        from graphistry.compute.chain import serialize_binding_ops
+        # Skip the canonical traversal: the compact indexed path bag already IS the
+        # binding rows the suffix asks for. Hand it to the unchanged native rows
+        # materializer through an internal graph copy.
+        g_cur = self.bind()
+        setattr(g_cur, "_gfql_indexed_bindings_state", (serialize_binding_ops(middle), indexed_state))
+        setattr(
+            g_cur,
+            "_gfql_rows_edge_aliases",
+            tuple(op._name for op in middle if isinstance(op, ASTEdge) and isinstance(op._name, str)),
+        )
+    else:
+        g_cur = _chain_traversal_polars(self, middle, start_nodes)
+        if indexed_attempted:
+            # Record the exact declined plan so the rows materializer does not
+            # re-attempt (and re-record) the same decision.
+            from graphistry.compute.chain import serialize_binding_ops
+            setattr(g_cur, "_gfql_indexed_bindings_declined_ops", serialize_binding_ops(middle))
     if suffix:
         g_cur = _run_calls_polars(g_cur, suffix, start_nodes, base_graph=self, middle=middle)
     return g_cur
+
+
+def _try_indexed_middle_polars(g, middle, suffix, start_nodes):
+    """Attempt the indexed fixed-hop path BEFORE the canonical polars traversal.
+
+    Returns ``(state_or_None, attempted)``. The shape gate mirrors the pandas
+    boundary gate and ``_run_calls_polars``' named-middle rewrite: the bypass is
+    only sound when the leading rows call consumes exactly this middle as binding
+    ops. Everything else (prefiltered/seeded/aliased-endpoint rows, unnamed middle
+    without binding ops, non-traversal middle) keeps the canonical path.
+    """
+    from graphistry.compute.ast import ASTCall
+    from graphistry.compute.chain import serialize_binding_ops
+
+    if (
+        not middle
+        or not suffix
+        or start_nodes is not None
+        or not isinstance(suffix[0], ASTCall)
+        or suffix[0].function != "rows"
+        or suffix[0].params.get("source") is not None
+        or suffix[0].params.get("alias_endpoints") is not None
+        or suffix[0].params.get("alias_prefilters")
+        or not all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
+    ):
+        return None, False
+    binding_ops = suffix[0].params.get("binding_ops")
+    if not (
+        binding_ops == serialize_binding_ops(middle)
+        or (
+            binding_ops is None
+            and any(getattr(op, "_name", None) is not None for op in middle)
+        )
+    ):
+        return None, False
+
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.bindings import try_indexed_connected_bindings_state
+    from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
+
+    engine = Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else Engine.POLARS
+    return try_indexed_connected_bindings_state(g, middle, engine=engine), True
 
 
 def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plottable:

@@ -607,6 +607,8 @@ def _handle_boundary_calls(
                 len(prefix), len(middle), len(suffix))
 
     g_temp = self
+    indexed_middle_state = None
+    indexed_middle_attempted = False
     suffix_base_graph = g_temp
 
     if prefix:
@@ -622,7 +624,61 @@ def _handle_boundary_calls(
         )
         suffix_base_graph = g_temp
 
-    if middle:
+    if (
+        not prefix
+        and middle
+        and suffix
+        and start_nodes is None
+        and not policy
+        and isinstance(suffix[0], ASTCall)
+        and suffix[0].function == "rows"
+        and (
+            # The bypass is only sound when the rows call actually consumes the
+            # WHOLE middle as binding ops: either it already carries them, or the
+            # named-middle rewrite below will install exactly them. A rows call
+            # with no binding ops over an UNNAMED middle instead reads the
+            # traversal-narrowed node table, which the bypass would not produce.
+            suffix[0].params.get("binding_ops") == serialize_binding_ops(middle)
+            or (
+                suffix[0].params.get("binding_ops") is None
+                and any(getattr(op, "_name", None) is not None for op in middle)
+            )
+        )
+        and suffix[0].params.get("source") is None
+        and suffix[0].params.get("alias_endpoints") is None
+        and not suffix[0].params.get("alias_prefilters")
+        and all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
+    ):
+        engine_concrete = resolve_engine(engine, self)  # type: ignore[arg-type]
+        if engine_concrete in (Engine.PANDAS, Engine.CUDF):
+            from graphistry.compute.gfql.index.bindings import (
+                try_indexed_connected_bindings_state,
+            )
+
+            indexed_middle_attempted = True
+            indexed_middle_state = try_indexed_connected_bindings_state(
+                self,
+                middle,
+                engine=engine_concrete,
+            )
+            if indexed_middle_state is not None:
+                g_temp = self.bind()
+                setattr(
+                    g_temp,
+                    "_gfql_indexed_bindings_state",
+                    (serialize_binding_ops(middle), indexed_middle_state),
+                )
+                setattr(
+                    g_temp,
+                    "_gfql_rows_edge_aliases",
+                    tuple(
+                        op._name
+                        for op in middle
+                        if isinstance(op, ASTEdge) and isinstance(op._name, str)
+                    ),
+                )
+
+    if middle and indexed_middle_state is None:
         logger.debug('Executing middle operations: %s', middle)
         g_temp = _chain_impl(
             g_temp,
@@ -632,6 +688,13 @@ def _handle_boundary_calls(
             policy,
             context,
             start_nodes
+        )
+
+    if indexed_middle_attempted and indexed_middle_state is None:
+        setattr(
+            g_temp,
+            "_gfql_indexed_bindings_declined_ops",
+            serialize_binding_ops(middle),
         )
 
     if suffix:
@@ -898,6 +961,14 @@ def chain(
         # undirected multi-edge); that honest signal propagates to the caller.
         _tgt = ExecutionTarget.GPU if engine_concrete_early == Engine.POLARS_GPU else ExecutionTarget.CPU
         with target_mode(_tgt):
+            if policy:
+                from graphistry.compute.gfql.call.executor import _thread_local as call_thread_local
+                old_policy = getattr(call_thread_local, 'policy', None)
+                try:
+                    call_thread_local.policy = policy
+                    return chain_polars(self, ops, start_nodes=start_nodes)
+                finally:
+                    call_thread_local.policy = old_policy
             return chain_polars(self, ops, start_nodes=start_nodes)
 
     if policy:

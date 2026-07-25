@@ -56,7 +56,14 @@ def _alias_true_mask(table_df: Any, source: str) -> Any:
 
 def row_table(ctx: RowPipelineCtx, table_df: Any) -> "Plottable":
     """Return a plottable that treats ``table_df`` as the active row table."""
+    indexed_bindings_state = getattr(ctx, "_gfql_indexed_bindings_state", None)
     out = ctx.bind()
+    for attr in (
+        "_gfql_indexed_bindings_state",
+        "_gfql_indexed_bindings_declined_ops",
+    ):
+        if hasattr(out, attr):
+            delattr(out, attr)
     # polars has no row index, so reset_index is both unnecessary and absent.
     if not _is_polars(table_df):
         table_df = table_df.reset_index(drop=True)
@@ -65,6 +72,34 @@ def row_table(ctx: RowPipelineCtx, table_df: Any) -> "Plottable":
         out._edges = _empty_like(ctx._edges)
     else:
         out._edges = _empty_like(table_df)
+    if indexed_bindings_state is not None and out._edges is not None:
+        indexed_edge_aliases = tuple(
+            getattr(ctx, "_gfql_rows_edge_aliases", None) or ()
+        )
+        if indexed_edge_aliases:
+            missing = [
+                alias
+                for alias in indexed_edge_aliases
+                if alias not in out._edges.columns
+            ]
+            if _is_polars(out._edges):
+                # polars' canonical traversal APPENDS alias flag columns; pandas'
+                # puts them first. Match each engine's own canonical column order.
+                import polars as pl
+
+                if missing:
+                    out._edges = out._edges.with_columns(
+                        [pl.lit(True).alias(alias) for alias in missing]
+                    )
+            else:
+                original_cols = [
+                    col
+                    for col in out._edges.columns
+                    if col not in indexed_edge_aliases
+                ]
+                for alias in missing:
+                    out._edges[alias] = True
+                out._edges = out._edges[list(indexed_edge_aliases) + original_cols]
     out._source = None
     out._destination = None
     out._edge = ctx._edge if ctx._edge is not None and ctx._edge in table_df.columns else None

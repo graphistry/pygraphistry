@@ -70,6 +70,36 @@ def _trace_active() -> bool:
     return _get_trace_steps() is not None
 
 
+def _record_indexed_traversal(
+    *,
+    seam: str,
+    engine: Engine,
+    served: bool,
+    reason: str,
+    hop_count: int,
+    public_seed_scan: bool,
+    hop_details: Optional[List[Dict[str, object]]] = None,
+) -> None:
+    """Record one backward-compatible indexed traversal decision when tracing."""
+    if not _trace_active():
+        return
+    path = "index" if served else "scan"
+    _record(cast(IndexTraceStep, {
+        "op": "indexed_traversal",
+        "operation": "indexed_traversal",
+        "seam": seam,
+        "engine": engine.value,
+        "served": served,
+        "reason": reason,
+        "hops": hop_count,
+        "hop_count": hop_count,
+        "public_seed_scan": public_seed_scan,
+        "hop_details": [] if hop_details is None else hop_details,
+        "path": path,
+        "decision_reason": reason,
+    }))
+
+
 # Back-compat for existing private tests while helpers live in cost.py.
 _seed_id_array = seed_id_array
 _seed_deg_sum = seed_deg_sum

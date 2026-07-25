@@ -40,10 +40,17 @@ SimpleEqualityEdgeMatch = Mapping[str, ScalarMatchValue]
 
 class IndexTraceStep(TypedDict, total=False):
     op: str
+    operation: str
+    seam: str
     direction: HopDirection
     hops: Optional[int]
+    hop_count: int
     policy: str
     engine: str
+    served: bool
+    reason: str
+    public_seed_scan: bool
+    hop_details: List[Dict[str, Any]]
     frontier_n: int
     path: IndexPath
     decision_reason: str

@@ -3581,7 +3581,7 @@ class RowPipelineMixin:
         alias_prefilters: Optional[AliasPrefilters] = None,
     ) -> Tuple[DataFrameT, Dict[str, DataFrameT]]:
         from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
-        from graphistry.compute.ast import ASTEdge, ASTNode
+        from graphistry.compute.ast import ASTEdge, ASTNode, serialize_binding_ops
 
         if self._nodes is None or self._edges is None:
             return self._gfql_empty_frame(), {}
@@ -3608,6 +3608,35 @@ class RowPipelineMixin:
         base_df = self._nodes if self._nodes is not None else self._edges
         engine = resolve_engine(EngineAbstract.AUTO, base_df)
         start_nodes = getattr(self, "_gfql_start_nodes", None)
+        precomputed = getattr(self, "_gfql_indexed_bindings_state", None)
+        if precomputed is not None:
+            precomputed_ops, precomputed_state = precomputed
+            if (
+                precomputed_ops == serialize_binding_ops(ops)
+                and not alias_prefilters
+                and precomputed_state.engine == engine
+            ):
+                return precomputed_state.state, precomputed_state.alias_frames
+        declined_ops = getattr(self, "_gfql_indexed_bindings_declined_ops", None)
+        previously_declined = (
+            declined_ops == serialize_binding_ops(ops)
+            if declined_ops is not None
+            else False
+        )
+        if (
+            not previously_declined
+            and not RowPipelineMixin._gfql_is_shortest_path_scalar_binding_ops(ops)
+        ):
+            from graphistry.compute.gfql.index import bindings as indexed_bindings
+            indexed_state = indexed_bindings.try_indexed_connected_bindings_state(
+                base_graph,
+                ops,
+                engine=engine,
+                start_nodes=start_nodes,
+                alias_prefilters=alias_prefilters,
+            )
+            if indexed_state is not None:
+                return indexed_state.state, indexed_state.alias_frames
         first_op = ops[0]
         if not isinstance(first_op, ASTNode):
             self._gfql_bindings_error(
@@ -5162,6 +5191,12 @@ class _RowPipelineAdapter(RowPipelineMixin):
         self._gfql_start_nodes = getattr(g, "_gfql_start_nodes", None)
         self._gfql_rows_base_graph = getattr(g, "_gfql_rows_base_graph", None)
         self._gfql_rows_edge_aliases = getattr(g, "_gfql_rows_edge_aliases", None)
+        self._gfql_indexed_bindings_declined_ops = getattr(
+            g, "_gfql_indexed_bindings_declined_ops", None
+        )
+        self._gfql_indexed_bindings_state = getattr(
+            g, "_gfql_indexed_bindings_state", None
+        )
         self._nodes = g._nodes
         self._edges = g._edges
         self._node = g._node

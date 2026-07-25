@@ -2052,6 +2052,7 @@ def _execute_seeded_typed_hop_fast_path(
         return None
     ops = list(compiled_query.chain.chain)
     select_op: Optional[ASTCall] = None
+    suffix_ops: List[ASTCall] = []
     if projection is not None:
         if len(ops) != 4:
             return None
@@ -2059,9 +2060,16 @@ def _execute_seeded_typed_hop_fast_path(
         # property-RETURN lowering: [n0, e1, n2, rows(source=alias), select(items)]
         # (the LDBC IS5 shape: RETURN p.a AS x, p.b). Anything else (ORDER BY /
         # LIMIT / DISTINCT add further ops; exprs lower differently) falls back.
-        if len(ops) != 5 or not isinstance(ops[4], ASTCall) or ops[4].function != "select":
+        if len(ops) < 5 or not isinstance(ops[4], ASTCall) or ops[4].function != "select":
             return None
         select_op = ops[4]
+        suffix_ops = cast(List[ASTCall], ops[5:])
+        if any(
+            not isinstance(op, ASTCall)
+            or op.function not in ("distinct", "order_by", "skip", "limit")
+            for op in suffix_ops
+        ):
+            return None
         ops = ops[:4]
     n0, e1, n2, call = ops
     if not (isinstance(n0, ASTNode) and isinstance(e1, ASTEdge)
@@ -2118,6 +2126,7 @@ def _execute_seeded_typed_hop_fast_path(
     from graphistry.Engine import is_polars_df
     from graphistry.compute.chain_fast_paths import (
         _seeded_typed_return_dst_pandas_cudf, _seeded_typed_return_dst_polars,
+        _resident_seed_indexes,
     )
     nodes_frame = base_graph._nodes
     is_polars = is_polars_df(nodes_frame)
@@ -2128,10 +2137,46 @@ def _execute_seeded_typed_hop_fast_path(
         # the full path CONVERTS the result to the requested engine, so the lean
         # projection would leak actual-engine frames. Decline; the full path decides.
         return None
+    from graphistry.compute.gfql.index import get_index_policy, get_registry
+    from graphistry.compute.gfql.index.api import _record_indexed_traversal
+    from graphistry.compute.gfql.index.registry import EDGE_IN_ADJ, EDGE_OUT_ADJ, NODE_ID
+    index_ctx = _resident_seed_indexes(
+        base_graph, base_graph._nodes, base_graph._edges,
+        node, src, dst, direction,
+    )
+    if get_index_policy(base_graph) == "off":
+        index_reason = "index_policy_off"
+    elif index_ctx is not None:
+        index_reason = "served"
+    else:
+        registry = get_registry(base_graph)
+        adjacency_kind = EDGE_OUT_ADJ if direction == "forward" else EDGE_IN_ADJ
+        index_reason = (
+            "index_missing"
+            if registry.get(NODE_ID) is None or registry.get(adjacency_kind) is None
+            else "index_stale"
+        )
     helper = _seeded_typed_return_dst_polars if is_polars else _seeded_typed_return_dst_pandas_cudf
     dst_res = helper(base_graph, n0, n2, e1, src, dst, node, direction)
     if dst_res is None:
+        _record_indexed_traversal(
+            seam="destination_return",
+            engine=requested_engine,
+            served=False,
+            reason="unsupported_shape",
+            hop_count=1,
+            public_seed_scan=node not in cast(Dict[str, Any], n0.filter_dict),
+        )
         return None
+    _record_indexed_traversal(
+        seam="destination_return",
+        engine=requested_engine,
+        served=index_ctx is not None,
+        reason=index_reason,
+        hop_count=1,
+        public_seed_scan=node not in cast(Dict[str, Any], n0.filter_dict),
+        hop_details=[{"hop": 1}] if index_ctx is not None else None,
+    )
     p_rows, _edges = dst_res
     if select_items is not None:
         # Lean property projection (IS5 shape): the deduped destination rows carry
@@ -2149,6 +2194,11 @@ def _execute_seeded_typed_hop_fast_path(
             # dtypes like nullable Int64/StringDtype, categoricals) declines to the
             # full path rather than risk a silent dtype divergence.
             import numpy as np
+            # The upcast above is a PANDAS pivot artifact. cuDF's rows-pivot keeps
+            # the source dtypes (verified: int64 stays int64, bool stays bool), so
+            # applying the pandas casts there would diverge from its own canonical
+            # path. The dtype-class decline guard still applies to both.
+            is_cudf_rows = "cudf" in type(p_rows).__module__
             casts: Dict[str, str] = {}
             for out_name, prop in select_items:
                 if prop == node:
@@ -2159,9 +2209,11 @@ def _execute_seeded_typed_hop_fast_path(
                 if not isinstance(d, np.dtype):
                     return None
                 if d == np.dtype(bool):
-                    casts[out_name] = "object"
+                    if not is_cudf_rows:
+                        casts[out_name] = "object"
                 elif d.kind in "iuf":
-                    casts[out_name] = "float64"
+                    if not is_cudf_rows:
+                        casts[out_name] = "float64"
                 elif d.kind != "O":
                     return None
             out_frame = p_rows[[prop for _, prop in select_items]].copy()
@@ -2173,7 +2225,15 @@ def _execute_seeded_typed_hop_fast_path(
         # full-path parity: a property RETURN yields an EMPTY edges frame with the
         # edge schema (never None — res._edges must stay usable). The helper's
         # edges are the matched hop edges, so take their zero-row head.
-        out._edges = _edges.head(0)
+        out._edges = _edges.head(0) if is_polars else _edges.head(0).reset_index(drop=True)
+        if suffix_ops:
+            return chain_impl(
+                out,
+                suffix_ops,
+                engine=engine,
+                policy=policy,
+                context=context,
+            )
         return out
     assert projection is not None  # narrowed by the gate above
     # Lean projection: p_rows already IS the RETURN-alias (destination) node set.
