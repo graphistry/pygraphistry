@@ -638,10 +638,10 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index import create_index as _ci
         return _ci(self, kind, column=column, name=name, engine=engine)
 
-    def drop_index(self, kind=None):
-        """Drop one resident GFQL index (by kind) or all (kind=None). Idempotent; returns a new Plottable."""
+    def drop_index(self, kind=None, *, column=None):
+        """Drop one resident GFQL index (by kind, or one property index by column) or all (kind=None). Idempotent; returns a new Plottable."""
         from graphistry.compute.gfql.index import drop_index as _di
-        return _di(self, kind)
+        return _di(self, kind, column=column)
 
     def show_indexes(self):
         """Return a pandas DataFrame describing resident GFQL indexes (name, kind, column, valid). Empty if none; ``valid=False`` marks a stale index after a frame rebind."""
@@ -657,6 +657,15 @@ class ComputeMixin(Plottable):
         """Convenience: build all GFQL physical indexes (both edge adjacencies + node_id). Returns a new Plottable."""
         from graphistry.compute.gfql.index import gfql_index_all as _gia
         return _gia(self, engine=engine)
+
+    def gfql_index_node_props(self, columns, engine='auto'):
+        """Convenience: build node PROPERTY indexes for ``columns`` (secondary indexes).
+
+        A seed predicate on a non-key column (``{id: 42}`` when the graph's node id
+        is some other column) otherwise costs a full node scan. Unindexable columns
+        are skipped, keeping the correct scan path. Returns a new Plottable."""
+        from graphistry.compute.gfql.index import gfql_index_node_props as _ginp
+        return _ginp(self, columns, engine=engine)
 
     def filter_nodes_by_dict(self, *args, **kwargs):
         return filter_nodes_by_dict_base(self, *args, **kwargs)

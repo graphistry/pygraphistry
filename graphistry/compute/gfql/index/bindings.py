@@ -24,8 +24,20 @@ from .api import (
 )
 from .cost import cost_gate_frac
 from .engine_arrays import array_namespace, col_to_array, take_rows
-from .lookup import lookup_edge_rows, lookup_node_rows
-from .registry import EDGE_IN_ADJ, EDGE_OUT_ADJ, NODE_ID, AdjacencyIndex, NodeIdIndex
+from .lookup import (
+    lookup_edge_rows,
+    lookup_node_rows,
+    lookup_prop_rows,
+    prop_match_count,
+)
+from .registry import (
+    EDGE_IN_ADJ,
+    EDGE_OUT_ADJ,
+    NODE_ID,
+    AdjacencyIndex,
+    GfqlIndexRegistry,
+    NodeIdIndex,
+)
 from .traverse import _indices_for_direction
 
 
@@ -363,6 +375,55 @@ def _lookup_degree(index: AdjacencyIndex, frontier: Any, xp: Any) -> int:
     counts = index.group_offsets[hits + 1] - index.group_offsets[hits]
     return int(counts.sum())
 
+
+def _seed_rows_via_property_index(
+    registry: GfqlIndexRegistry,
+    nodes: DataFrameT,
+    first_filter: Mapping[str, Any],
+    engine: Engine,
+    xp: Any,
+    *,
+    policy: str,
+) -> Optional[Any]:
+    """Node row positions for the most selective indexed scalar seed predicate.
+
+    The seed of a fixed-hop pattern is usually a high-selectivity equality on a
+    business key (``{id: 42}``) that is NOT the graph's node-id binding, which
+    otherwise costs a full node scan. When a resident, still-valid property index
+    covers such a column, gather its candidates instead; the caller re-applies the
+    WHOLE filter to them, so the result is identical to the scan either way.
+
+    Returns None (keep scanning) when nothing is indexed, no predicate is a plain
+    integer scalar, or the estimated candidate count is not selective enough to
+    beat the scan (``force`` skips the cost gate).
+    """
+    if not first_filter:
+        return None
+    best_rows = None
+    best_count: Optional[int] = None
+    for column in registry.node_prop_cols():
+        value = first_filter.get(column)
+        if value is None or isinstance(value, bool) or not isinstance(value, Integral):
+            continue
+        index = registry.get_node_prop_valid(column, nodes, engine)
+        if index is None:
+            continue
+        values = xp.asarray([value])
+        count = prop_match_count(index, values, xp)
+        if best_count is not None and count >= best_count:
+            continue
+        best_count = count
+        best_rows = (index, values)
+    if best_rows is None or best_count is None:
+        return None
+    if policy != "force":
+        n_nodes = int(nodes.shape[0])
+        if best_count >= cost_gate_frac(engine) * n_nodes:
+            return None  # not selective enough to beat one vectorized scan
+    index, values = best_rows
+    return xp.sort(lookup_prop_rows(index, values, xp))
+
+
 def _try_indexed_connected_bindings_state(
     base_graph: Plottable,
     ops: Sequence[Any],
@@ -501,10 +562,20 @@ def _try_indexed_connected_bindings_state(
         first_nodes = take_rows(nodes, seed_rows, engine)
         first_nodes = _filter_frame(first_nodes, first_filter, engine)
     else:
-        hop_count = (len(ops) - 1) // 2
-        if int(nodes.shape[0]) >= hop_count * int(edges.shape[0]):
-            return None
-        first_nodes = _filter_frame(nodes, first_filter, engine)
+        prop_rows = _seed_rows_via_property_index(
+            registry, nodes, first_filter, engine, xp, policy=get_index_policy(base_graph),
+        )
+        if prop_rows is not None:
+            # Secondary index hit: gather the candidates, then let the UNCHANGED
+            # filter apply every remaining predicate to that small frame.
+            first_nodes = _filter_frame(
+                take_rows(nodes, prop_rows, engine), first_filter, engine,
+            )
+        else:
+            hop_count = (len(ops) - 1) // 2
+            if int(nodes.shape[0]) >= hop_count * int(edges.shape[0]):
+                return None
+            first_nodes = _filter_frame(nodes, first_filter, engine)
 
     first_alias = first_op._name
     alias_frames: Dict[str, DataFrameT] = {}

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Tuple
 
-from .registry import AdjacencyIndex, NodeIdIndex
+from .registry import AdjacencyIndex, NodeIdIndex, NodePropIndex
 from .types import ArrayLike, ArrayNamespace
 
 
@@ -93,3 +93,58 @@ def lookup_node_rows(index: NodeIdIndex, ids: ArrayLike, xp: ArrayNamespace) -> 
     pos_clipped = xp.where(pos < U, pos, U - 1)
     hit = keys[pos_clipped] == f
     return index.row_positions[pos_clipped[hit]]
+
+
+def lookup_prop_rows(index: NodePropIndex, values: ArrayLike, xp: ArrayNamespace) -> ArrayLike:
+    """values (backend array) -> node row positions of every row holding one of them.
+
+    Same searchsorted + CSR range-expansion as the adjacency lookup, so a seed
+    predicate on an indexed property costs O(V_q log U + matches) instead of the
+    O(N) scan. Order is unspecified here; callers that need frame order sort.
+    """
+    keys = index.keys_sorted
+    empty = index.row_positions[:0]
+    U = int(keys.shape[0])
+    if U == 0 or int(values.shape[0]) == 0:
+        return empty
+
+    v = values
+    if v.dtype != keys.dtype:
+        common = xp.promote_types(v.dtype, keys.dtype)
+        v = v.astype(common)
+        keys = keys.astype(common)
+
+    pos = xp.searchsorted(keys, v)
+    pos_clipped = xp.where(pos < U, pos, U - 1)
+    hit = keys[pos_clipped] == v
+    pos_hit = pos_clipped[hit]
+    if int(pos_hit.shape[0]) == 0:
+        return empty
+
+    start = index.group_offsets[pos_hit]
+    counts = index.group_offsets[pos_hit + 1] - start
+    total = int(counts.sum())
+    if total == 0:
+        return empty
+    return index.row_positions[_expand_ranges(start, counts, total, xp)]
+
+
+def prop_match_count(index: NodePropIndex, values: ArrayLike, xp: ArrayNamespace) -> int:
+    """How many rows ``lookup_prop_rows`` would return — the free selectivity
+    estimate the planner cost-gates on (CSR offsets only, no gather)."""
+    keys = index.keys_sorted
+    U = int(keys.shape[0])
+    if U == 0 or int(values.shape[0]) == 0:
+        return 0
+    v = values
+    if v.dtype != keys.dtype:
+        common = xp.promote_types(v.dtype, keys.dtype)
+        v = v.astype(common)
+        keys = keys.astype(common)
+    pos = xp.searchsorted(keys, v)
+    pos_clipped = xp.where(pos < U, pos, U - 1)
+    hit = keys[pos_clipped] == v
+    pos_hit = pos_clipped[hit]
+    if int(pos_hit.shape[0]) == 0:
+        return 0
+    return int((index.group_offsets[pos_hit + 1] - index.group_offsets[pos_hit]).sum())

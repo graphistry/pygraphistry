@@ -526,6 +526,160 @@ def test_pandas_internal_id_plus_constraints_gathers_seed_before_filter(
     assert filtered_lengths[0] == 1
 
 
+# --- secondary (node property) index -----------------------------------------
+# CONNECTED_QUERY seeds on ``public``, which is NOT the graph's node-id binding
+# (``id``), so without a property index the seed costs a full node scan.
+
+
+def _prop_frames() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    nodes, edges = _base_frames()
+    # ``grp`` repeats (4 rows per value): the duplicate-key case a node-id index
+    # cannot express but a CSR property index can.
+    nodes = nodes.assign(grp=(nodes["rank"] % 3).astype("int64"))
+    return nodes, edges
+
+
+def _prop_graph(engine: str, columns: Sequence[str] = ("public",)) -> Any:
+    nodes, edges = _prop_frames()
+    return _graph_from_frames(engine, nodes, edges).gfql_index_node_props(
+        list(columns), engine=engine
+    )
+
+
+def _seed_filter_widths(
+    g: Any, query: Any, engine: str, monkeypatch: pytest.MonkeyPatch
+) -> Tuple[Any, List[Dict[str, Any]], List[int]]:
+    """Run traced, recording how many rows each helper filter had to look at."""
+    import graphistry.compute.gfql.index.bindings as indexed_bindings
+
+    widths: List[int] = []
+    original = indexed_bindings._filter_frame
+
+    def record(frame: Any, *args: Any, **kwargs: Any) -> Any:
+        widths.append(int(frame.shape[0]))
+        return original(frame, *args, **kwargs)
+
+    monkeypatch.setattr(indexed_bindings, "_filter_frame", record)
+    actual, steps = _trace_run(g, query, engine)
+    return actual, steps, widths
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_node_property_index_seeds_without_scanning(
+    engine: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    g = _prop_graph(engine)
+    with monkeypatch.context() as m:
+        expected = _run(g, CONNECTED_QUERY, engine, m, generic=True)
+    actual, steps, widths = _seed_filter_widths(
+        g, CONNECTED_QUERY, engine, monkeypatch
+    )
+    _assert_result_exact(actual, expected, engine)
+    decisions = [s for s in steps if s.get("seam") == "connected_bindings"]
+    assert len(decisions) == 1
+    _assert_decision(decisions[0], seam="connected_bindings", served=True)
+    assert widths and widths[0] == 1  # one indexed candidate, not the node table
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_node_property_index_absent_matches_indexed(
+    engine: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same query, same answer, with and without the secondary index."""
+    nodes, edges = _prop_frames()
+    plain = _graph_from_frames(engine, nodes, edges)
+    indexed = plain.gfql_index_node_props(["public"], engine=engine)
+    with monkeypatch.context() as m:
+        expected = _run(plain, CONNECTED_QUERY, engine, m, generic=True)
+    for g in (plain, indexed):
+        actual, _ = _trace_run(g, CONNECTED_QUERY, engine)
+        _assert_result_exact(actual, expected, engine)
+
+
+def test_node_property_index_duplicate_values_match_scan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-unique property still gathers EVERY matching row (CSR, not first-hit)."""
+    from graphistry.compute.ast import rows as rows_call
+
+    g = _prop_graph("pandas", columns=("grp",))
+    query = [n({"grp": 0}, name="a"), e_forward({"type": "A"}, name="r"), n(name="b"), rows_call()]
+    with monkeypatch.context() as m:
+        expected = _run(g, query, "pandas", m, generic=True)
+    actual, steps, widths = _seed_filter_widths(g, query, "pandas", monkeypatch)
+    _assert_result_exact(actual, expected, "pandas")
+    assert widths and widths[0] == 4  # every row with grp == 0, none of the others
+    assert [s for s in steps if s.get("seam") == "connected_bindings"]
+
+
+@pytest.mark.parametrize("case", ["stale", "policy_off"])
+def test_node_property_index_lifecycle_falls_back(
+    case: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    g = _prop_graph("pandas")
+    index_policy = "off" if case == "policy_off" else "force"
+    if case == "stale":
+        g = g.nodes(_native_copy(g._nodes), "id")  # rebind -> index treated as absent
+    with monkeypatch.context() as m:
+        expected = _run(
+            g, CONNECTED_QUERY, "pandas", m, generic=True, index_policy=index_policy
+        )
+    actual, _ = _trace_run(g, CONNECTED_QUERY, "pandas", index_policy=index_policy)
+    _assert_result_exact(actual, expected, "pandas")
+
+
+def test_node_property_index_declines_unindexable_columns() -> None:
+    from graphistry.compute.gfql.index import NODE_PROP, create_index, get_registry
+
+    g = _prop_graph("pandas", columns=())
+    for column in ("kind", "maybe"):  # object dtype, float-with-null
+        with pytest.raises(ValueError):
+            create_index(g, NODE_PROP, column=column)
+    with pytest.raises(ValueError):
+        create_index(g, NODE_PROP, column="nosuch")
+    with pytest.raises(ValueError):
+        create_index(g, NODE_PROP)  # column is required for a property index
+    # the convenience wrapper skips instead of raising, and indexes what it can
+    g2 = g.gfql_index_node_props(["kind", "maybe", "public"])
+    assert get_registry(g2).node_prop_cols() == ("public",)
+
+
+def test_node_property_index_prefers_the_most_selective_column(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from graphistry.compute.ast import rows as rows_call
+
+    g = _prop_graph("pandas", columns=("public", "grp"))
+    query = [
+        n({"public": 100, "grp": 0}, name="a"),
+        e_forward({"type": "A"}, name="r"),
+        n(name="b"),
+        rows_call(),
+    ]
+    with monkeypatch.context() as m:
+        expected = _run(g, query, "pandas", m, generic=True)
+    actual, _, widths = _seed_filter_widths(g, query, "pandas", monkeypatch)
+    _assert_result_exact(actual, expected, "pandas")
+    assert widths and widths[0] == 1  # 'public' (1 match) beats 'grp' (4 matches)
+
+
+def test_node_property_index_shows_and_drops() -> None:
+    from graphistry.compute.gfql.index import NODE_PROP, get_registry
+
+    g = _prop_graph("pandas", columns=("public", "grp"))
+    shown = g.show_indexes()
+    props = shown[shown["kind"] == NODE_PROP]
+    assert sorted(props["key_col"]) == ["grp", "public"]
+    assert bool(props["valid"].all())
+    assert sorted(props["n_keys"]) == [3, 12]
+    assert get_registry(g.drop_index(NODE_PROP, column="grp")).node_prop_cols() == ("public",)
+    assert get_registry(g.drop_index(NODE_PROP)).node_prop_cols() == ()
+    assert get_registry(g.drop_index()).is_empty()
+
+
 @pytest.mark.parametrize("engine", ENGINES)
 def test_indexed_execution_is_pure(
     engine: str,

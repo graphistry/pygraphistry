@@ -8,7 +8,7 @@ stale indexes (treated as absent, never a wrong answer).
 from __future__ import annotations
 
 import copy
-from typing import Dict, List, Literal, Optional, cast
+from typing import Dict, List, Literal, Optional, Sequence, cast
 
 import pandas as pd
 
@@ -17,9 +17,9 @@ from graphistry.compute.typing import DataFrameT
 from graphistry.Plottable import Plottable
 from .registry import (
     AdjacencyIndex, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
-    EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, ADJ_KINDS, ALL_KINDS,
+    EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, ADJ_KINDS, ALL_KINDS,
 )
-from .build import build_adjacency_index, build_node_id_index
+from .build import build_adjacency_index, build_node_id_index, build_node_prop_index
 from .traverse import index_seeded_hop
 from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
 from .policy import IndexPolicy, validate_index_policy
@@ -216,14 +216,43 @@ def create_index(
         registry = registry.with_index(NODE_ID, node_idx)
         return _attach(g2, registry)
 
+    if kind == NODE_PROP:
+        if not column:
+            raise ValueError(
+                f"A {NODE_PROP!r} index indexes one node PROPERTY column; pass "
+                f"column='<name>'."
+            )
+        g2 = g.materialize_nodes() if g._nodes is None else g
+        assert g2._nodes is not None
+        if column not in g2._nodes.columns:
+            raise ValueError(
+                f"Cannot build a {NODE_PROP!r} index: node column {column!r} not found."
+            )
+        prop_idx = build_node_prop_index(g2._nodes, column, eng)
+        if prop_idx is None:
+            raise ValueError(
+                f"Cannot build a {NODE_PROP!r} index on {column!r}: only integer "
+                f"columns without nulls are indexable today. Seeded queries still "
+                f"work via the un-indexed scan path."
+            )
+        prop_idx = replace(prop_idx, name=name or index_name(kind, column))
+        registry = registry.with_node_prop(column, prop_idx)
+        return _attach(g2, registry)
+
     raise ValueError(f"Unknown GFQL index kind: {kind!r}. Expected one of {ALL_KINDS}.")
 
 
-def drop_index(g: Plottable, kind: Optional[IndexKind] = None) -> Plottable:
-    """Drop one index (by kind) or all indexes (kind=None). Idempotent."""
+def drop_index(
+    g: Plottable, kind: Optional[IndexKind] = None, *, column: Optional[str] = None
+) -> Plottable:
+    """Drop one index (by kind, or one property index by column) or all (kind=None).
+
+    Idempotent."""
     registry = get_registry(g)
     if kind is None:
         return _attach(g, EMPTY_REGISTRY)
+    if kind == NODE_PROP and column is not None:
+        return _attach(g, registry.without_node_prop(column))
     return _attach(g, registry.without(kind))
 
 
@@ -263,6 +292,19 @@ def show_indexes(g: Plottable) -> pd.DataFrame:
             "nbytes": index_nbytes(idx),
             "valid": valid,
         })
+    for column in registry.node_prop_cols():
+        prop = registry.node_props[column]
+        rows.append({
+            "name": prop.name or index_name(NODE_PROP, column),
+            "kind": NODE_PROP,
+            "key_col": column,
+            "engine": prop.engine.value,
+            "backend": prop.backend,
+            "n_keys": prop.n_keys,
+            "n_rows": prop.n_nodes,
+            "nbytes": index_nbytes(prop),
+            "valid": registry.get_node_prop_valid(column, g._nodes, prop.engine) is not None,
+        })
     cols = ["name", "kind", "key_col", "engine", "backend", "n_keys", "n_rows", "nbytes", "valid"]
     return pd.DataFrame(rows, columns=cols)
 
@@ -274,6 +316,21 @@ def gfql_index_edges(g: Plottable, direction: EdgeIndexDirection = "both",
         g = create_index(g, EDGE_OUT_ADJ, engine=engine)
     if direction in ("reverse", "both"):
         g = create_index(g, EDGE_IN_ADJ, engine=engine)
+    return g
+
+
+def gfql_index_node_props(g: Plottable, columns: Sequence[str],
+                          engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
+    """Convenience: build node property indexes for ``columns`` (skips unindexable).
+
+    Skipping mirrors ``gfql_index_all``'s node_id behaviour — a column that cannot
+    be indexed keeps the correct scan path. ``create_index(NODE_PROP, column=...)``
+    still raises, since the caller asked for that column specifically."""
+    for column in columns:
+        try:
+            g = create_index(g, NODE_PROP, column=column, engine=engine)
+        except ValueError:
+            pass
     return g
 
 
