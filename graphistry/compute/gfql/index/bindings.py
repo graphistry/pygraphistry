@@ -16,7 +16,12 @@ from graphistry.Engine import Engine
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT
 
-from .api import _record_indexed_traversal, get_index_policy, get_registry
+from .api import (
+    _record_indexed_traversal,
+    _trace_active,
+    get_index_policy,
+    get_registry,
+)
 from .cost import cost_gate_frac
 from .engine_arrays import array_namespace, col_to_array, take_rows
 from .lookup import lookup_edge_rows, lookup_node_rows
@@ -678,12 +683,20 @@ def try_indexed_connected_bindings_state(
         alias_prefilters=alias_prefilters,
     )
     if result is None:
-        reason = _connected_decline_reason(
-            base_graph,
-            ops,
-            engine=engine,
-            start_nodes=start_nodes,
-            alias_prefilters=alias_prefilters,
+        # Classifying WHY we declined re-validates index fingerprints and can even
+        # filter the seed frame — diagnostic work whose only consumer is the trace.
+        # Compute it strictly inside a trace context (api._trace_active contract:
+        # diagnostic enrichment costs the hot path nothing).
+        reason = (
+            _connected_decline_reason(
+                base_graph,
+                ops,
+                engine=engine,
+                start_nodes=start_nodes,
+                alias_prefilters=alias_prefilters,
+            )
+            if _trace_active()
+            else "not_traced"
         )
         _record_indexed_traversal(
             seam="connected_bindings",
