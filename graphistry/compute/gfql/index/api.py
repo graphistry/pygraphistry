@@ -112,6 +112,13 @@ def get_index_policy(g: Plottable) -> IndexPolicy:
     return cast(IndexPolicy, getattr(g, POLICY_ATTR, "use"))
 
 
+def with_index_policy(g: Plottable, policy: IndexPolicy) -> Plottable:
+    """A copy of ``g`` carrying ``policy`` (the attribute lives only in this module)."""
+    out = g.bind()
+    setattr(out, POLICY_ATTR, policy)
+    return out
+
+
 def _attach(g: Plottable, registry: GfqlIndexRegistry) -> Plottable:
     res = copy.copy(g)
     setattr(res, REGISTRY_ATTR, registry)

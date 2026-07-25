@@ -1168,17 +1168,16 @@ def binding_rows_polars(
     # The chain boundary may already have decided this exact plan (served or
     # declined) before the canonical traversal; reuse that decision instead of
     # recomputing it — and re-recording a duplicate trace step.
-    precomputed = getattr(g, "_gfql_indexed_bindings_state", None)
-    declined_ops = getattr(g, "_gfql_indexed_bindings_declined_ops", None)
-    indexed_state = None
-    if precomputed is not None:
-        precomputed_ops, precomputed_state = precomputed
-        if (
-            precomputed_ops == list(binding_ops)
-            and precomputed_state.engine == engine_concrete
-        ):
-            indexed_state = precomputed_state
-    if indexed_state is None and declined_ops != list(binding_ops):
+    from graphistry.compute.gfql.index.handoff import read_handoff
+
+    handoff = read_handoff(g)
+    plan = list(binding_ops)
+    indexed_state = (
+        handoff.state
+        if handoff is not None and handoff.serves(plan, engine_concrete)
+        else None
+    )
+    if indexed_state is None and not (handoff is not None and handoff.declined(plan)):
         indexed_state = indexed_bindings.try_indexed_connected_bindings_state(
             base_graph,
             ops,

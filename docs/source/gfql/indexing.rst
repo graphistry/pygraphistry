@@ -39,6 +39,12 @@ carrying them:
      - Sorted node-id lookup: seed-row and endpoint materialization become positional
        gathers instead of ``O(N)`` scans. Requires unique node ids —
        ``gfql_index_all()`` silently skips it otherwise (adjacency is still built).
+   * - ``node_prop``
+     - Sorted lookup on a node **property** column (a secondary index): a seed
+       predicate like ``MATCH (m {id: 42})`` on a column that is not the node-id
+       binding becomes a positional gather instead of an ``O(N)`` scan. Duplicate
+       values are fine (all matching rows are gathered). Integer columns without
+       nulls only — anything else declines to the scan. Opt-in per column.
 
 They are **sidecars over row positions**: your ``.edges`` / ``.nodes`` frames are never
 reordered or copied, and the resident footprint is visible per index via
@@ -93,11 +99,35 @@ API):
    g = g.gfql_index_all()               # out+in adjacency + node_id (the one-liner)
    g = g.gfql_index_edges("forward")    # or just one direction: 'forward'|'reverse'|'both'
    g = g.create_index("edge_out_adj")   # or one kind: 'edge_out_adj'|'edge_in_adj'|'node_id'
+   g = g.gfql_index_node_props(["id"])  # secondary indexes on node property columns
    g.show_indexes()                     # pandas DataFrame: kind, engine, n_keys, nbytes, valid
    g = g.drop_index()                   # drop all (or drop_index("edge_out_adj"))
 
 Unlike ``gfql_index_all()``, an explicit ``create_index("node_id")`` **raises** on
 non-unique node ids rather than skipping.
+
+Seeding on a property (secondary index)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``node_id`` index covers the column bound as the node id. A query that seeds on
+a *different* column — a business key such as ``MATCH (m {id: 42})`` when the graph
+is keyed by something else — otherwise scans the whole node table to find its seed.
+``node_prop`` indexes that column instead:
+
+.. code-block:: python
+
+   g = g.gfql_index_all().gfql_index_node_props(["id"])   # skips unindexable columns
+   g = g.create_index("node_prop", column="id")           # or one column, raising if it cannot
+
+   # equivalently over the Cypher DDL / JSON surfaces
+   g.gfql('CREATE GFQL INDEX FOR node_prop ON id')
+   g = g.drop_index("node_prop", column="id")             # or drop_index("node_prop") for all
+
+When several indexed columns appear in one seed predicate, the planner gathers on the
+**most selective** one (estimated for free from the index's own offsets) and applies
+the remaining predicates to those candidates, so results never depend on which index
+happens to be resident. As with every kind, a missing, stale, or cost-gated-out index
+simply falls back to the scan.
 
 What uses the index today
 -------------------------

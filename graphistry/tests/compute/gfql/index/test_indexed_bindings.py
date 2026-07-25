@@ -666,6 +666,62 @@ def test_node_property_index_prefers_the_most_selective_column(
     assert widths and widths[0] == 1  # 'public' (1 match) beats 'grp' (4 matches)
 
 
+@pytest.mark.parametrize(
+    "seed,indexed_column,expect_gathered",
+    [
+        pytest.param({"public": 100}, "public", True, id="selective-uses-index"),
+        pytest.param({"grp": 0}, "grp", False, id="unselective-keeps-scan"),
+    ],
+)
+def test_node_property_index_cost_gate_under_policy_use(
+    seed: Dict[str, Any],
+    indexed_column: str,
+    expect_gathered: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Under the default `use` policy the gate must reject a non-selective predicate.
+
+    `force` skips the gate, so the other property-index cases cannot exercise it.
+    The crossover is pinned here via the public knob rather than relying on the
+    engine default, so the test states the threshold it is testing: at 25%,
+    `public` (1 of 12 rows) gathers through the index and `grp` (4 of 12) does not.
+    Either way the answer is the canonical one.
+    """
+    from graphistry.compute.ast import rows as rows_call
+    from graphistry.compute.gfql.index import reset_cost_gate_frac, set_cost_gate_frac
+
+    set_cost_gate_frac(Engine.PANDAS, 0.25)
+    try:
+        g = _prop_graph("pandas", columns=(indexed_column,))
+        query = [
+            n(seed, name="a"), e_forward({"type": "A"}, name="r"), n(name="b"), rows_call(),
+        ]
+        with monkeypatch.context() as m:
+            expected = _run(g, query, "pandas", m, generic=True, index_policy="use")
+
+        import graphistry.compute.gfql.index.bindings as indexed_bindings
+
+        widths: List[int] = []
+        original = indexed_bindings._filter_frame
+
+        def record(frame: Any, *args: Any, **kwargs: Any) -> Any:
+            widths.append(int(frame.shape[0]))
+            return original(frame, *args, **kwargs)
+
+        monkeypatch.setattr(indexed_bindings, "_filter_frame", record)
+        actual, _ = _trace_run(g, query, "pandas", index_policy="use")
+    finally:
+        reset_cost_gate_frac(Engine.PANDAS)
+
+    _assert_result_exact(actual, expected, "pandas")
+    assert widths
+    n_nodes = int(g._nodes.shape[0])
+    if expect_gathered:
+        assert widths[0] < n_nodes  # indexed candidates only
+    else:
+        assert widths[0] == n_nodes  # gate declined -> canonical scan
+
+
 def test_node_property_index_shows_and_drops() -> None:
     from graphistry.compute.gfql.index import NODE_PROP, get_registry
 
@@ -678,6 +734,70 @@ def test_node_property_index_shows_and_drops() -> None:
     assert get_registry(g.drop_index(NODE_PROP, column="grp")).node_prop_cols() == ("public",)
     assert get_registry(g.drop_index(NODE_PROP)).node_prop_cols() == ()
     assert get_registry(g.drop_index()).is_empty()
+
+
+@pytest.mark.parametrize(
+    "suffix_params,seeded,reason",
+    [
+        pytest.param({"source": "a"}, False, "rows-with-source", id="rows-source"),
+        pytest.param({"alias_endpoints": {"a": "src"}}, False, "alias-endpoints", id="alias-endpoints"),
+        pytest.param({"alias_prefilters": {"b": {"rank": 1}}}, False, "prefiltered", id="alias-prefilters"),
+        pytest.param({}, True, "seeded re-entry", id="carried-seed"),
+    ],
+)
+def test_polars_early_gate_refuses_unsupported_boundaries(
+    suffix_params: Dict[str, Any],
+    seeded: bool,
+    reason: str,
+) -> None:
+    """The polars bypass must not engage on shapes its rows call does not consume.
+
+    Engaging on any of these would hand the materializer a compact state for a plan
+    it is not executing, so each refusal condition is asserted on the gate directly.
+    """
+    pytest.importorskip("polars")
+    from graphistry.compute.ast import rows as rows_call
+    from graphistry.compute.gfql.lazy.engine.polars.chain import _try_indexed_middle_polars
+
+    g = _graph("polars")
+    middle = [n({"public": 100}, name="a"), e_forward({"type": "A"}, name="r"), n(name="b")]
+    start_nodes = g._nodes.head(1) if seeded else None
+
+    state, attempted = _try_indexed_middle_polars(
+        g, middle, [rows_call(**suffix_params)], start_nodes
+    )
+    assert state is None, f"polars gate engaged on {reason}"
+    assert attempted is False, f"polars gate recorded an attempt on {reason}"
+
+
+def test_polars_early_gate_requires_the_whole_middle() -> None:
+    """binding_ops that do not cover the middle must not take the bypass."""
+    pytest.importorskip("polars")
+    from graphistry.compute.ast import rows as rows_call
+    from graphistry.compute.chain import serialize_binding_ops
+    from graphistry.compute.gfql.lazy.engine.polars.chain import _try_indexed_middle_polars
+
+    g = _graph("polars")
+    middle = [n({"public": 100}, name="a"), e_forward({"type": "A"}, name="r"), n(name="b")]
+
+    other = serialize_binding_ops([n({"public": 101}, name="a"), e_forward(), n(name="b")])
+    state, attempted = _try_indexed_middle_polars(
+        g, middle, [rows_call(binding_ops=other)], None
+    )
+    assert state is None and attempted is False  # a different plan
+
+    unnamed = [n({"public": 100}), e_forward({"type": "A"}), n()]
+    state, attempted = _try_indexed_middle_polars(g, unnamed, [rows_call()], None)
+    assert state is None and attempted is False  # rewrite would not install them
+
+    # the supported shape DOES engage (guards against a vacuous negative suite);
+    # `force` skips the cost gate, which a 12-row fixture would otherwise trip
+    from graphistry.compute.gfql.index import with_index_policy
+
+    state, attempted = _try_indexed_middle_polars(
+        with_index_policy(g, "force"), middle, [rows_call()], None
+    )
+    assert attempted is True and state is not None
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -700,6 +820,7 @@ def test_indexed_execution_is_pure(
     pd.testing.assert_frame_equal(_to_pandas(g._edges), edges_before)
 
 
+@pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize(
     "ops,kwargs",
     [
@@ -758,18 +879,25 @@ def test_indexed_execution_is_pure(
     ],
 )
 def test_unsupported_shapes_decline_before_work(
+    engine: str,
     ops: Sequence[Any],
     kwargs: Dict[str, Any],
 ) -> None:
     import graphistry.compute.gfql.index.bindings as indexed_bindings
     from graphistry.compute.gfql.index import index_trace
 
+    call_kwargs = dict(kwargs)
+    if engine != "pandas" and "start_nodes" in call_kwargs:
+        native_seed, _ = _native_frames(
+            engine, call_kwargs["start_nodes"], _base_frames()[1]
+        )
+        call_kwargs["start_nodes"] = native_seed
     with index_trace() as captured:
         out = indexed_bindings.try_indexed_connected_bindings_state(
-            _graph("pandas"),
+            _graph(engine),
             ops,
-            engine=Engine.PANDAS,
-            **kwargs,
+            engine=ENGINE_ENUM[engine],
+            **call_kwargs,
         )
     assert out is None
     decisions = [

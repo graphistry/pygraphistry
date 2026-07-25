@@ -294,3 +294,124 @@ def semijoin_eval_pairs(
     if right_keep:
         right_eval = right_eval[list(right_keep)]
     return left_eval, right_eval, mid_values
+
+
+def estimate_inner_join_rows(
+    left: DataFrameT,
+    right: DataFrameT,
+    *,
+    left_on: str,
+    right_on: str,
+    engine: Engine,
+) -> int:
+    """Rows an inner join WOULD emit, without materializing it.
+
+    Sum over matched keys of (left count * right count) — a group-by on each side
+    instead of the join itself, so a planner can cost-gate a hop before paying for
+    it.
+    """
+    if len(left) == 0 or len(right) == 0:
+        return 0
+    left_n, right_n = "__gfql_join_left_n__", "__gfql_join_right_n__"
+    if engine in POLARS_ENGINES:
+        import polars as pl
+
+        left_counts = left.group_by(left_on).len().rename({"len": left_n})  # type: ignore[operator]
+        right_counts = right.group_by(right_on).len().rename({"len": right_n})  # type: ignore[operator]
+        value = (
+            left_counts.join(right_counts, left_on=left_on, right_on=right_on, how="inner")
+            .select((pl.col(left_n) * pl.col(right_n)).sum())
+            .item()
+        )
+        return 0 if value is None else int(value)
+
+    left_counts = left.groupby(left_on, sort=False).size().reset_index()
+    left_counts.columns = [left_on, left_n]
+    right_counts = right.groupby(right_on, sort=False).size().reset_index()
+    right_counts.columns = [right_on, right_n]
+    counts = left_counts.merge(
+        right_counts, left_on=left_on, right_on=right_on, how="inner", sort=False,
+    )
+    if len(counts) == 0:
+        return 0
+    return int((counts[left_n] * counts[right_n]).sum())
+
+
+def path_ordered_expand_join(
+    state: DataFrameT,
+    step: DataFrameT,
+    *,
+    current_col: str,
+    from_col: str,
+    to_col: str,
+    path_order_col: str,
+    tiebreak_cols: Sequence[str],
+    alias: Optional[str],
+    engine: Engine,
+) -> DataFrameT:
+    """Expand a path-bag by one step, preserving (path, tiebreak...) row order.
+
+    ``state[current_col]`` joins ``step[from_col]``; ``step[to_col]`` becomes the new
+    ``current_col``. A synthetic ``path_order_col`` pins the incoming row order so the
+    result is deterministic under any engine's join, and the bookkeeping columns are
+    dropped on the way out. ``alias``, when given, also exposes the new current value
+    under that name.
+    """
+    drop_after = [from_col, path_order_col, *tiebreak_cols]
+    if engine in POLARS_ENGINES:
+        import polars as pl
+
+        joined = (
+            state.with_row_index(path_order_col)  # type: ignore[operator]
+            .join(step, left_on=current_col, right_on=from_col, how="inner")
+            .sort([path_order_col, *tiebreak_cols])
+            .drop(current_col)
+            .rename({to_col: current_col})
+        )
+        if isinstance(alias, str):
+            joined = joined.with_columns(pl.col(current_col).alias(alias))
+        return cast(
+            DataFrameT,
+            joined.drop([col for col in drop_after if col in joined.columns]),
+        )
+
+    import numpy as np
+
+    out = state.assign(**{path_order_col: np.arange(len(state))}).merge(
+        step, left_on=current_col, right_on=from_col, how="inner", sort=False,
+    )
+    if len(out):
+        sort_cols = [path_order_col, *tiebreak_cols]
+        out = (
+            out.sort_values(sort_cols, kind="stable") if engine == Engine.PANDAS
+            else out.sort_values(sort_cols)
+        )
+    out = out.drop(columns=[current_col]).rename(columns={to_col: current_col})
+    if isinstance(alias, str):
+        out = out.assign(**{alias: out[current_col]})
+    return cast(
+        DataFrameT,
+        out.drop(columns=[col for col in drop_after if col in out.columns]),
+    )
+
+
+def semijoin_by_column(
+    frame: DataFrameT,
+    keys: DataFrameT,
+    *,
+    left_on: str,
+    right_on: str,
+    engine: Engine,
+) -> DataFrameT:
+    """Rows of ``frame`` whose ``left_on`` value appears in ``keys[right_on]``."""
+    if engine in POLARS_ENGINES:
+        return cast(
+            DataFrameT,
+            frame.join(  # type: ignore[call-arg]
+                keys.select(right_on).unique(),  # type: ignore[operator]
+                left_on=left_on,
+                right_on=right_on,
+                how="semi",  # type: ignore[arg-type]
+            ),
+        )
+    return cast(DataFrameT, frame[frame[left_on].isin(keys[right_on])])

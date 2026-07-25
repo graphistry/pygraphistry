@@ -211,6 +211,20 @@ GFQL is vectorization-first and pure-functional. The row pipeline runs on pandas
 
 Vectorized mutation (`df.loc[mask, col] = v`) is still mutation — prefer `df.assign(...)`.
 
+**Batch the assign** (SUGGESTION; IMPORTANT on a hot row path): copy-then-mutate
+(`out = df.copy()` followed by one or more `out[col] = ...`) should be a single
+`df.assign(col_a=..., col_b=...)`. It is the functional phrasing the rest of the
+codebase uses, it drops the explicit copy (assign already returns a new frame), and
+one assign builds the result once instead of copying and then writing column by
+column.
+
+| Pattern | Fix |
+|---|---|
+| `out = df.copy()` + `out[c] = v` | `df.assign(c=v)` |
+| `out = df.copy()` + several `out[c] = v` | one `df.assign(c1=v1, c2=v2)` |
+| `df.copy().rename(columns=...)` | `df.rename(columns=...)` — rename already copies |
+| `out = df[mask].copy()` with no later mutation | `df[mask]` — masking already copies |
+
 **cuDF compatibility** — flag IMPORTANT unless noted:
 
 | Pattern | Fix |

@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from numbers import Integral
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union, cast
 
-from graphistry.Engine import Engine
+from graphistry.Engine import Engine, df_concat
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT
 
@@ -21,10 +21,18 @@ from .api import (
     _trace_active,
     get_index_policy,
     get_registry,
+    with_index_policy,
 )
+from graphistry.compute.dataframe.join import (
+    estimate_inner_join_rows,
+    path_ordered_expand_join,
+    semijoin_by_column,
+)
+
 from .cost import cost_gate_frac
 from .engine_arrays import array_namespace, col_to_array, take_rows
 from .lookup import (
+    lookup_degree,
     lookup_edge_rows,
     lookup_node_rows,
     lookup_prop_rows,
@@ -37,6 +45,7 @@ from .registry import (
     AdjacencyIndex,
     GfqlIndexRegistry,
     NodeIdIndex,
+    NodePropIndex,
 )
 from .traverse import _indices_for_direction
 
@@ -88,13 +97,16 @@ def _simple_filter_dict(value: Any, *, allow_empty: bool = True) -> bool:
     )
 
 
-def _integer_index(index: Any) -> bool:
-    key_dtype = getattr(getattr(index, "keys_sorted", None), "dtype", None)
-    other_dtype = getattr(getattr(index, "other_values", None), "dtype", None)
-    key_ok = getattr(key_dtype, "kind", None) in ("i", "u")
-    if isinstance(index, NodeIdIndex):
+def _integer_index(index: Union[AdjacencyIndex, NodeIdIndex, NodePropIndex]) -> bool:
+    """Whether an index's keys (and, for adjacency, its neighbor ids) are integral.
+
+    The vectorized gather promotes dtypes rather than narrowing, so non-integral
+    keys are declined rather than risking a lossy compare.
+    """
+    key_ok = index.keys_sorted.dtype.kind in ("i", "u")
+    if not isinstance(index, AdjacencyIndex):
         return key_ok
-    return key_ok and getattr(other_dtype, "kind", None) in ("i", "u")
+    return key_ok and index.other_values.dtype.kind in ("i", "u")
 
 
 def _filter_compatible(frame: DataFrameT, filter_dict: Optional[dict]) -> bool:
@@ -149,23 +161,7 @@ def _with_marker(frame: DataFrameT, name: Optional[str], engine: Engine) -> Data
     if engine == Engine.POLARS:
         # Native Polars intentionally omits pandas' alias-marker residue.
         return frame
-    out = frame.copy()
-    out[name] = True
-    return cast(DataFrameT, out)
-
-
-def _concat(frames: Sequence[DataFrameT], engine: Engine) -> DataFrameT:
-    if engine == Engine.POLARS:
-        import polars as pl
-
-        return cast(DataFrameT, pl.concat(list(frames), how="vertical"))  # type: ignore[type-var]
-    if engine == Engine.CUDF:
-        import cudf  # type: ignore
-
-        return cast(DataFrameT, cudf.concat(list(frames), ignore_index=True))
-    import pandas as pd
-
-    return cast(DataFrameT, pd.concat(list(frames), ignore_index=True))
+    return cast(DataFrameT, frame.assign(**{name: True}))
 
 
 def _frame_with_positions(
@@ -179,9 +175,7 @@ def _frame_with_positions(
             DataFrameT,
             frame.with_columns(pl.Series(_EDGE_ORD, np.asarray(positions))),  # type: ignore[operator]
         )
-    out = frame.copy()
-    out[_EDGE_ORD] = positions
-    return cast(DataFrameT, out)
+    return cast(DataFrameT, frame.assign(**{_EDGE_ORD: positions}))
 
 
 def _orient_edges(
@@ -217,9 +211,9 @@ def _orient_edges(
             )
 
     else:
-        work = gathered.copy()
+        work = gathered
         if isinstance(alias, str):
-            work[alias] = True
+            work = gathered.assign(**{alias: True})
             payload = payload + [alias]
             renames = {col: f"{alias}.{col}" for col in payload}
         else:
@@ -229,151 +223,23 @@ def _orient_edges(
             out = work.rename(columns={from_col: _FROM, to_col: _TO})
             if renames:
                 out = out.rename(columns=renames)
-            out[_ORIENT_ORD] = orient
-            return cast(DataFrameT, out)
+            return cast(DataFrameT, out.assign(**{_ORIENT_ORD: orient}))
 
     if direction == "undirected":
         forward = one(src, dst, 0)
         reverse = one(dst, src, 1)
         if engine == Engine.POLARS:
             reverse = reverse.select(forward.columns)  # type: ignore[operator]
-        return _concat([forward, reverse], engine)
+        return cast(DataFrameT, df_concat(engine)([forward, reverse], ignore_index=True))
     if direction == "reverse":
         return one(dst, src, 0)
     return one(src, dst, 0)
-
-
-def _estimate_join_rows(
-    state: DataFrameT, oriented: DataFrameT, engine: Engine,
-) -> int:
-    if len(state) == 0 or len(oriented) == 0:
-        return 0
-    if engine == Engine.POLARS:
-        import polars as pl
-
-        left = state.group_by(_CURRENT).len().rename({"len": _LEFT_N})  # type: ignore[operator]
-        right = oriented.group_by(_FROM).len().rename({"len": _RIGHT_N})  # type: ignore[operator]
-        value = (
-            left.join(right, left_on=_CURRENT, right_on=_FROM, how="inner")
-            .select((pl.col(_LEFT_N) * pl.col(_RIGHT_N)).sum())
-            .item()
-        )
-        return 0 if value is None else int(value)
-
-    left = state.groupby(_CURRENT, sort=False).size().reset_index()
-    left.columns = [_CURRENT, _LEFT_N]
-    right = oriented.groupby(_FROM, sort=False).size().reset_index()
-    right.columns = [_FROM, _RIGHT_N]
-    counts = left.merge(
-        right, left_on=_CURRENT, right_on=_FROM, how="inner", sort=False,
-    )
-    if len(counts) == 0:
-        return 0
-    return int((counts[_LEFT_N] * counts[_RIGHT_N]).sum())
-
-
-def _join_state(
-    state: DataFrameT,
-    oriented: DataFrameT,
-    *,
-    node_alias: Optional[str],
-    engine: Engine,
-) -> DataFrameT:
-    if engine == Engine.POLARS:
-        import polars as pl
-
-        joined = (
-            state.with_row_index(_PATH_ORD)  # type: ignore[operator]
-            .join(oriented, left_on=_CURRENT, right_on=_FROM, how="inner")
-            .sort([_PATH_ORD, _ORIENT_ORD, _EDGE_ORD])
-            .drop(_CURRENT)
-            .rename({_TO: _CURRENT})
-        )
-        if isinstance(node_alias, str):
-            joined = joined.with_columns(pl.col(_CURRENT).alias(node_alias))
-        return cast(
-            DataFrameT,
-            joined.drop([
-                col for col in (_FROM, _PATH_ORD, _EDGE_ORD, _ORIENT_ORD)
-                if col in joined.columns
-            ]),
-        )
-
-    out = state.copy()
-    xp, _ = array_namespace(engine)
-    out[_PATH_ORD] = xp.arange(len(out))  # type: ignore[call-overload]
-    out = out.merge(
-        oriented, left_on=_CURRENT, right_on=_FROM, how="inner", sort=False,
-    )
-    if len(out):
-        if engine == Engine.PANDAS:
-            out = out.sort_values(
-                [_PATH_ORD, _ORIENT_ORD, _EDGE_ORD], kind="stable",
-            )
-        else:
-            out = out.sort_values([_PATH_ORD, _ORIENT_ORD, _EDGE_ORD])
-    out = out.drop(columns=[_CURRENT]).rename(columns={_TO: _CURRENT})
-    if isinstance(node_alias, str):
-        out[node_alias] = out[_CURRENT]
-    return cast(
-        DataFrameT,
-        out.drop(
-            columns=[
-                col for col in (_FROM, _PATH_ORD, _EDGE_ORD, _ORIENT_ORD)
-                if col in out.columns
-            ],
-        ),
-    )
 
 
 def _policy_is_active() -> bool:
     from graphistry.compute.gfql.call.executor import _thread_local
 
     return getattr(_thread_local, "policy", None) is not None
-
-
-def _filter_oriented_endpoints(
-    oriented: DataFrameT,
-    next_nodes: DataFrameT,
-    node_id: str,
-    engine: Engine,
-) -> DataFrameT:
-    if engine == Engine.POLARS:
-        return cast(
-            DataFrameT,
-            oriented.join(  # type: ignore[call-arg]
-                next_nodes.select(node_id).unique(),  # type: ignore[operator]
-                left_on=_TO,
-                right_on=node_id,
-                how="semi",  # type: ignore[arg-type]
-            ),
-        )
-    return cast(
-        DataFrameT,
-        oriented[oriented[_TO].isin(next_nodes[node_id])].copy(),
-    )
-
-
-
-def _lookup_degree(index: AdjacencyIndex, frontier: Any, xp: Any) -> int:
-    """Native O(frontier) degree estimate before CSR range expansion."""
-    keys = index.keys_sorted
-    if int(keys.shape[0]) == 0 or int(frontier.shape[0]) == 0:
-        return 0
-    values = frontier
-    if values.dtype != keys.dtype:
-        common = xp.promote_types(values.dtype, keys.dtype)
-        values = values.astype(common)
-        keys = keys.astype(common)
-    positions = xp.searchsorted(keys, values)
-    clipped = xp.where(
-        positions < keys.shape[0], positions, keys.shape[0] - 1,
-    )
-    hits = clipped[keys[clipped] == values]
-    if int(hits.shape[0]) == 0:
-        return 0
-    counts = index.group_offsets[hits + 1] - index.group_offsets[hits]
-    return int(counts.sum())
 
 
 def _seed_rows_via_property_index(
@@ -456,9 +322,8 @@ def _try_indexed_connected_bindings_state(
     node_id, src, dst = str(node_id), str(src), str(dst)
 
     aliases = [
-        getattr(op, "_name", None)
-        for op in ops
-        if isinstance(getattr(op, "_name", None), str)
+        op._name for op in ops
+        if isinstance(op, (ASTNode, ASTEdge)) and isinstance(op._name, str)
     ]
     if (
         len(aliases) != len(set(aliases))
@@ -590,9 +455,9 @@ def _try_indexed_connected_bindings_state(
         if isinstance(first_alias, str):
             state = state.with_columns(pl.col(_CURRENT).alias(first_alias))
     else:
-        state = first_nodes[[node_id]].copy().rename(columns={node_id: _CURRENT})
+        state = first_nodes[[node_id]].rename(columns={node_id: _CURRENT})
         if isinstance(first_alias, str):
-            state[first_alias] = state[_CURRENT]
+            state = state.assign(**{first_alias: state[_CURRENT]})
 
     estimated_rows = int(state.shape[0])
     policy = get_index_policy(base_graph)
@@ -609,7 +474,7 @@ def _try_indexed_connected_bindings_state(
             if int(frontier.shape[0]) >= threshold:
                 return None
         gather_estimate = sum(
-            _lookup_degree(index, frontier, xp) for index in edge_indexes
+            lookup_degree(index, frontier, xp) for index in edge_indexes
         )
         if (
             policy != "force"
@@ -645,17 +510,24 @@ def _try_indexed_connected_bindings_state(
         next_nodes = take_rows(nodes, node_rows, engine)
         next_nodes = _filter_frame(next_nodes, next_op.filter_dict, engine)
         next_alias_frame = _with_marker(next_nodes, next_op._name, engine)
-        oriented = _filter_oriented_endpoints(
-            oriented, next_nodes, node_id, engine,
+        oriented = semijoin_by_column(
+            oriented, next_nodes, left_on=_TO, right_on=node_id, engine=engine,
         )
 
-        estimated_rows = _estimate_join_rows(state, oriented, engine)
+        estimated_rows = estimate_inner_join_rows(
+            state, oriented, left_on=_CURRENT, right_on=_FROM, engine=engine,
+        )
         if policy != "force" and estimated_rows > 0 and estimated_rows >= n_edges:
             return None
-        state = _join_state(
+        state = path_ordered_expand_join(
             state,
             oriented,
-            node_alias=next_op._name,
+            current_col=_CURRENT,
+            from_col=_FROM,
+            to_col=_TO,
+            path_order_col=_PATH_ORD,
+            tiebreak_cols=(_ORIENT_ORD, _EDGE_ORD),
+            alias=next_op._name,
             engine=engine,
         )
         if isinstance(next_op._name, str):
@@ -677,7 +549,7 @@ def _connected_decline_reason(
     alias_prefilters: Optional[Any],
 ) -> str:
     """Classify a completed safe decline without changing canonical behavior."""
-    from graphistry.compute.ast import ASTEdge
+    from graphistry.compute.ast import ASTEdge, ASTNode
 
     if engine not in (Engine.PANDAS, Engine.CUDF, Engine.POLARS):
         return "unsupported_engine"
@@ -711,21 +583,19 @@ def _connected_decline_reason(
         if not _integer_index(valid):
             return "unsupported_dtype"
 
-    if get_index_policy(base_graph) != "force" and ops:
-        first_filter = getattr(ops[0], "filter_dict", None)
-        if isinstance(first_filter, Mapping) and first_filter:
-            first_nodes = _filter_frame(nodes, cast(dict, first_filter), engine)
-            frontier_n = int(first_nodes.shape[0])
-            adjacency = [
-                cast(AdjacencyIndex, valid)
-                for kind, frame, columns in required
-                for valid in [registry.get_valid(kind, frame, columns, engine)]
-                if kind != NODE_ID and valid is not None
-            ]
-            if adjacency and frontier_n >= cost_gate_frac(engine) * min(
-                index.n_keys for index in adjacency
-            ):
-                return "cost_frontier"
+    if get_index_policy(base_graph) != "force":
+        # Was cost the ONLY thing in the way? Re-run the real gate with the cost
+        # checks disabled rather than re-deriving them here: a second copy of the
+        # thresholds drifts, and on engines with a tighter gate it mislabelled
+        # structurally-unsupported shapes as "cost_frontier". Trace-only path.
+        if _try_indexed_connected_bindings_state(
+            with_index_policy(base_graph, "force"),
+            ops,
+            engine=engine,
+            start_nodes=start_nodes,
+            alias_prefilters=alias_prefilters,
+        ) is not None:
+            return "cost_frontier"
     return "unsupported_shape"
 
 
@@ -738,8 +608,13 @@ def try_indexed_connected_bindings_state(
     alias_prefilters: Optional[Any] = None,
 ) -> Optional[IndexedBindingsState]:
     """Attempt the indexed path; only explicit safe declines fall through."""
+    from graphistry.compute.ast import ASTNode
+
     hop_count = max(0, (len(ops) - 1) // 2)
-    first_filter = getattr(ops[0], "filter_dict", None) if ops else None
+    first_op_any = ops[0] if ops else None
+    first_filter = (
+        first_op_any.filter_dict if isinstance(first_op_any, ASTNode) else None
+    )
     node_id = base_graph._node
     public_seed_scan = not (
         isinstance(first_filter, Mapping)
