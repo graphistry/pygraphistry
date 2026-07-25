@@ -632,19 +632,32 @@ def test_node_property_index_lifecycle_falls_back(
 
 
 def test_node_property_index_declines_unindexable_columns() -> None:
-    from graphistry.compute.gfql.index import NODE_PROP, create_index, get_registry
+    """Unindexable DTYPE is skippable; a caller mistake is not.
+
+    The convenience builder suppresses exactly one condition — a column whose dtype
+    this index cannot serve. A missing column, a missing argument, or any other
+    failure must propagate, or a typo would silently leave the query unindexed.
+    """
+    from graphistry.compute.gfql.index import (
+        NODE_PROP, GfqlIndexUnsupportedError, create_index, get_registry,
+    )
 
     g = _prop_graph("pandas", columns=())
     for column in ("kind", "maybe"):  # object dtype, float-with-null
-        with pytest.raises(ValueError):
+        with pytest.raises(GfqlIndexUnsupportedError):
             create_index(g, NODE_PROP, column=column)
-    with pytest.raises(ValueError):
-        create_index(g, NODE_PROP, column="nosuch")
-    with pytest.raises(ValueError):
-        create_index(g, NODE_PROP)  # column is required for a property index
-    # the convenience wrapper skips instead of raising, and indexes what it can
+    # caller mistakes are NOT the skippable kind
+    for bad in ({"column": "nosuch"}, {}):
+        with pytest.raises(ValueError) as excinfo:
+            create_index(g, NODE_PROP, **bad)
+        assert not isinstance(excinfo.value, GfqlIndexUnsupportedError)
+
+    # the convenience wrapper skips the unindexable dtypes and indexes what it can
     g2 = g.gfql_index_node_props(["kind", "maybe", "public"])
     assert get_registry(g2).node_prop_cols() == ("public",)
+    # ...but does NOT swallow a real failure
+    with pytest.raises(ValueError):
+        g.gfql_index_node_props(["nosuch"])
 
 
 def test_node_property_index_prefers_the_most_selective_column(

@@ -22,6 +22,9 @@ if TYPE_CHECKING:
         _nodes: Any
         _edges: Any
         _edge: Any
+        _gfql_rows_base_graph: Optional["Plottable"]
+        _gfql_start_nodes: Any
+        _gfql_rows_edge_aliases: Any
         def bind(self) -> "Plottable": ...
         def _gfql_binding_ops_row_table(
             self,
@@ -102,17 +105,15 @@ def row_table(ctx: RowPipelineCtx, table_df: Any) -> "Plottable":
     out._edge = ctx._edge if ctx._edge is not None and ctx._edge in table_df.columns else None
     if out._node is not None and out._node not in table_df.columns:
         out._node = None
-    base_graph = getattr(ctx, "_gfql_rows_base_graph", None)
+    base_graph = ctx._gfql_rows_base_graph
     if base_graph is None:
-        base_graph = getattr(ctx, "_g", None)
+        base_graph = getattr(ctx, "_g", None)  # adapter-only back-reference
     if base_graph is not None:
-        setattr(out, "_gfql_rows_base_graph", base_graph)
-    start_nodes = getattr(ctx, "_gfql_start_nodes", None)
-    if start_nodes is not None:
-        setattr(out, "_gfql_start_nodes", start_nodes)
-    edge_aliases = getattr(ctx, "_gfql_rows_edge_aliases", None)
-    if edge_aliases is not None:
-        setattr(out, "_gfql_rows_edge_aliases", edge_aliases)
+        out._gfql_rows_base_graph = base_graph
+    if ctx._gfql_start_nodes is not None:
+        out._gfql_start_nodes = ctx._gfql_start_nodes
+    if ctx._gfql_rows_edge_aliases is not None:
+        out._gfql_rows_edge_aliases = ctx._gfql_rows_edge_aliases
     return cast("Plottable", out)
 
 
@@ -127,7 +128,7 @@ def empty_frame(
         elif ctx._edges is not None:
             template_df = ctx._edges
         else:
-            base_graph = getattr(ctx, "_gfql_rows_base_graph", None)
+            base_graph = ctx._gfql_rows_base_graph
             if base_graph is None:
                 base_graph = getattr(ctx, "_g", None)
             if base_graph is not None:

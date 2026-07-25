@@ -373,9 +373,8 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
         return g_cur
 
     if start_nodes is not None:
-        setattr(g_cur, "_gfql_start_nodes", start_nodes)
-    setattr(g_cur, "_gfql_rows_base_graph", base_graph)
-    setattr(g_cur, "_gfql_shortest_path_backend", getattr(g_cur, "_gfql_shortest_path_backend", "auto"))
+        g_cur._gfql_start_nodes = start_nodes
+    g_cur._gfql_rows_base_graph = base_graph
 
     if (
         middle

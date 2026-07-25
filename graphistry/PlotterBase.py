@@ -1,5 +1,10 @@
 from graphistry.Plottable import Plottable, RenderModes, RenderModesConcrete
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, cast, overload, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
+    from graphistry.compute.gfql.index.policy import IndexPolicy
+    from graphistry.compute.gfql.index.registry import GfqlIndexRegistry
 from typing_extensions import Literal
 from graphistry.io.types import ComplexEncodingsDict
 from graphistry.models.collections import CollectionsInput
@@ -212,6 +217,17 @@ class PlotterBase(Plottable):
 
     The class supports convenience methods for mixing calls across Pandas, NetworkX, and IGraph.
     """
+
+    # GFQL execution context defaults (fields declared on Plottable). Immutable
+    # scalars / None only, so sharing the class attribute is safe; `bind()` is a
+    # shallow copy, so a per-graph value set on an instance travels with it.
+    _gfql_index_policy: "IndexPolicy" = "use"
+    _gfql_index_registry: Optional["GfqlIndexRegistry"] = None
+    _gfql_indexed_bindings_handoff: Optional["IndexedBindingsHandoff"] = None
+    _gfql_rows_base_graph: Optional["Plottable"] = None
+    _gfql_start_nodes: Optional[Any] = None
+    _gfql_rows_edge_aliases: Optional[Any] = None
+    _gfql_shortest_path_backend: str = "auto"
 
     _defaultNodeId = NODE
     _defaultEdgeSourceId = SRC

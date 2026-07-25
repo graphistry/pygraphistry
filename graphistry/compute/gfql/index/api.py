@@ -32,6 +32,17 @@ from .types import (
 POLICY_ATTR = "_gfql_index_policy"
 REGISTRY_ATTR = "_gfql_index_registry"
 
+
+class GfqlIndexUnsupportedError(ValueError):
+    """The DATA cannot support this index (duplicate node ids, an unindexable
+    property dtype). Distinct from a caller mistake — a missing column, an unknown
+    kind, unbound edges — which stays a plain ``ValueError`` and must propagate.
+
+    Subclasses ``ValueError`` so existing ``except ValueError`` callers keep
+    working; the convenience builders catch only THIS type, so a real failure is
+    never silently skipped.
+    """
+
 # --- lightweight, thread-local index decision trace (for gfql_explain) -------
 import threading as _threading
 _TRACE = _threading.local()
@@ -105,23 +116,24 @@ _seed_id_array = seed_id_array
 _seed_deg_sum = seed_deg_sum
 
 def get_registry(g: Plottable) -> GfqlIndexRegistry:
-    return cast(GfqlIndexRegistry, getattr(g, REGISTRY_ATTR, EMPTY_REGISTRY))
+    registry = g._gfql_index_registry
+    return registry if registry is not None else EMPTY_REGISTRY
 
 
 def get_index_policy(g: Plottable) -> IndexPolicy:
-    return cast(IndexPolicy, getattr(g, POLICY_ATTR, "use"))
+    return g._gfql_index_policy
 
 
 def with_index_policy(g: Plottable, policy: IndexPolicy) -> Plottable:
-    """A copy of ``g`` carrying ``policy`` (the attribute lives only in this module)."""
+    """A copy of ``g`` carrying ``policy`` (never mutates ``g``)."""
     out = g.bind()
-    setattr(out, POLICY_ATTR, policy)
+    out._gfql_index_policy = policy
     return out
 
 
 def _attach(g: Plottable, registry: GfqlIndexRegistry) -> Plottable:
     res = copy.copy(g)
-    setattr(res, REGISTRY_ATTR, registry)
+    res._gfql_index_registry = registry
     return res
 
 
@@ -214,7 +226,7 @@ def create_index(
         _check_column(column, node_col, kind)
         node_idx = build_node_id_index(g2._nodes, node_col, eng)
         if node_idx is None:
-            raise ValueError(
+            raise GfqlIndexUnsupportedError(
                 f"Cannot build a {NODE_ID!r} index: node id column {node_col!r} has "
                 f"duplicate values (a node-id index requires unique ids). Seeded "
                 f"traversal still works via the un-indexed node materialization path."
@@ -237,7 +249,7 @@ def create_index(
             )
         prop_idx = build_node_prop_index(g2._nodes, column, eng)
         if prop_idx is None:
-            raise ValueError(
+            raise GfqlIndexUnsupportedError(
                 f"Cannot build a {NODE_PROP!r} index on {column!r}: only integer "
                 f"columns without nulls are indexable today. Seeded queries still "
                 f"work via the un-indexed scan path."
@@ -330,14 +342,16 @@ def gfql_index_node_props(g: Plottable, columns: Sequence[str],
                           engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
     """Convenience: build node property indexes for ``columns`` (skips unindexable).
 
-    Skipping mirrors ``gfql_index_all``'s node_id behaviour — a column that cannot
-    be indexed keeps the correct scan path. ``create_index(NODE_PROP, column=...)``
-    still raises, since the caller asked for that column specifically."""
+    Skipping mirrors ``gfql_index_all``'s node_id behaviour — a column whose dtype
+    this index cannot serve keeps the correct scan path. ONLY that case is skipped:
+    a missing column, an unknown kind, or any unexpected failure propagates.
+    ``create_index(NODE_PROP, column=...)`` still raises for everything, since the
+    caller asked for that column specifically."""
     for column in columns:
         try:
             g = create_index(g, NODE_PROP, column=column, engine=engine)
-        except ValueError:
-            pass
+        except GfqlIndexUnsupportedError:
+            continue  # dtype this index cannot serve -> keep the correct scan path
     return g
 
 
@@ -353,7 +367,7 @@ def gfql_index_all(g: Plottable,
     g = gfql_index_edges(g, "both", engine=engine)
     try:
         g = create_index(g, NODE_ID, engine=engine)
-    except ValueError:
+    except GfqlIndexUnsupportedError:
         pass  # non-unique node ids -> skip the node_id accelerator (adjacency still built)
     return g
 
