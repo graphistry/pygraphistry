@@ -582,26 +582,32 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
             "use engine='pandas' for this chain."
         )
 
+    from graphistry.compute.chain import serialize_binding_ops
+    from graphistry.compute.gfql.index.handoff import (
+        IndexedBindingsHandoff, attach_handoff, set_handoff,
+    )
+
     indexed_state, indexed_attempted = _try_indexed_middle_polars(self, middle, suffix, start_nodes)
     if indexed_state is not None:
-        from graphistry.compute.chain import serialize_binding_ops
         # Skip the canonical traversal: the compact indexed path bag already IS the
         # binding rows the suffix asks for. Hand it to the unchanged native rows
         # materializer through an internal graph copy.
-        g_cur = self.bind()
-        setattr(g_cur, "_gfql_indexed_bindings_state", (serialize_binding_ops(middle), indexed_state))
-        setattr(
-            g_cur,
-            "_gfql_rows_edge_aliases",
-            tuple(op._name for op in middle if isinstance(op, ASTEdge) and isinstance(op._name, str)),
-        )
+        g_cur = attach_handoff(self, IndexedBindingsHandoff(
+            binding_ops=serialize_binding_ops(middle),
+            state=indexed_state,
+            edge_aliases=tuple(
+                op._name for op in middle
+                if isinstance(op, ASTEdge) and isinstance(op._name, str)
+            ),
+        ))
     else:
         g_cur = _chain_traversal_polars(self, middle, start_nodes)
         if indexed_attempted:
             # Record the exact declined plan so the rows materializer does not
             # re-attempt (and re-record) the same decision.
-            from graphistry.compute.chain import serialize_binding_ops
-            setattr(g_cur, "_gfql_indexed_bindings_declined_ops", serialize_binding_ops(middle))
+            set_handoff(g_cur, IndexedBindingsHandoff(
+                binding_ops=serialize_binding_ops(middle),
+            ))
     if suffix:
         g_cur = _run_calls_polars(g_cur, suffix, start_nodes, base_graph=self, middle=middle)
     return g_cur
@@ -636,7 +642,7 @@ def _try_indexed_middle_polars(g, middle, suffix, start_nodes):
         binding_ops == serialize_binding_ops(middle)
         or (
             binding_ops is None
-            and any(getattr(op, "_name", None) is not None for op in middle)
+            and any(op._name is not None for op in middle)
         )
     ):
         return None, False

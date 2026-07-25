@@ -606,6 +606,10 @@ def _handle_boundary_calls(
     logger.debug('Boundary call pattern detected: prefix=%s, middle=%s, suffix=%s',
                 len(prefix), len(middle), len(suffix))
 
+    # Function-scope import: `gfql.index` transitively imports this module, so a
+    # module-scope import would be a cycle.
+    from .gfql.index.handoff import IndexedBindingsHandoff, attach_handoff, set_handoff
+
     g_temp = self
     indexed_middle_state = None
     indexed_middle_attempted = False
@@ -641,7 +645,8 @@ def _handle_boundary_calls(
             suffix[0].params.get("binding_ops") == serialize_binding_ops(middle)
             or (
                 suffix[0].params.get("binding_ops") is None
-                and any(getattr(op, "_name", None) is not None for op in middle)
+                and any(op._name is not None for op in middle
+                        if isinstance(op, (ASTNode, ASTEdge)))
             )
         )
         and suffix[0].params.get("source") is None
@@ -662,21 +667,15 @@ def _handle_boundary_calls(
                 engine=engine_concrete,
             )
             if indexed_middle_state is not None:
-                g_temp = self.bind()
-                setattr(
-                    g_temp,
-                    "_gfql_indexed_bindings_state",
-                    (serialize_binding_ops(middle), indexed_middle_state),
-                )
-                setattr(
-                    g_temp,
-                    "_gfql_rows_edge_aliases",
-                    tuple(
+                g_temp = attach_handoff(self, IndexedBindingsHandoff(
+                    binding_ops=serialize_binding_ops(middle),
+                    state=indexed_middle_state,
+                    edge_aliases=tuple(
                         op._name
                         for op in middle
                         if isinstance(op, ASTEdge) and isinstance(op._name, str)
                     ),
-                )
+                ))
 
     if middle and indexed_middle_state is None:
         logger.debug('Executing middle operations: %s', middle)
@@ -691,11 +690,9 @@ def _handle_boundary_calls(
         )
 
     if indexed_middle_attempted and indexed_middle_state is None:
-        setattr(
-            g_temp,
-            "_gfql_indexed_bindings_declined_ops",
-            serialize_binding_ops(middle),
-        )
+        set_handoff(g_temp, IndexedBindingsHandoff(
+            binding_ops=serialize_binding_ops(middle),
+        ))
 
     if suffix:
         logger.debug('Executing boundary suffix calls: %s', suffix)

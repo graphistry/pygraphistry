@@ -56,14 +56,11 @@ def _alias_true_mask(table_df: Any, source: str) -> Any:
 
 def row_table(ctx: RowPipelineCtx, table_df: Any) -> "Plottable":
     """Return a plottable that treats ``table_df`` as the active row table."""
-    indexed_bindings_state = getattr(ctx, "_gfql_indexed_bindings_state", None)
+    from graphistry.compute.gfql.index.handoff import clear_handoff, read_handoff
+
+    handoff = read_handoff(ctx)
     out = ctx.bind()
-    for attr in (
-        "_gfql_indexed_bindings_state",
-        "_gfql_indexed_bindings_declined_ops",
-    ):
-        if hasattr(out, attr):
-            delattr(out, attr)
+    clear_handoff(out)  # internal plumbing must never escape on a user-visible result
     # polars has no row index, so reset_index is both unnecessary and absent.
     if not _is_polars(table_df):
         table_df = table_df.reset_index(drop=True)
@@ -72,10 +69,10 @@ def row_table(ctx: RowPipelineCtx, table_df: Any) -> "Plottable":
         out._edges = _empty_like(ctx._edges)
     else:
         out._edges = _empty_like(table_df)
-    if indexed_bindings_state is not None and out._edges is not None:
-        indexed_edge_aliases = tuple(
-            getattr(ctx, "_gfql_rows_edge_aliases", None) or ()
-        )
+    if handoff is not None and handoff.state is not None and out._edges is not None:
+        # The canonical traversal we skipped is what would have added these alias
+        # marker columns to the (zero-row) edge frame; synthesize them for parity.
+        indexed_edge_aliases = handoff.edge_aliases
         if indexed_edge_aliases:
             missing = [
                 alias
@@ -97,9 +94,9 @@ def row_table(ctx: RowPipelineCtx, table_df: Any) -> "Plottable":
                     for col in out._edges.columns
                     if col not in indexed_edge_aliases
                 ]
-                for alias in missing:
-                    out._edges[alias] = True
-                out._edges = out._edges[list(indexed_edge_aliases) + original_cols]
+                out._edges = out._edges.assign(
+                    **{alias: True for alias in missing}
+                )[list(indexed_edge_aliases) + original_cols]
     out._source = None
     out._destination = None
     out._edge = ctx._edge if ctx._edge is not None and ctx._edge in table_df.columns else None
