@@ -5184,9 +5184,11 @@ class _RowPipelineAdapter(RowPipelineMixin):
         self._gfql_start_nodes = getattr(g, "_gfql_start_nodes", None)
         self._gfql_rows_base_graph = getattr(g, "_gfql_rows_base_graph", None)
         self._gfql_rows_edge_aliases = getattr(g, "_gfql_rows_edge_aliases", None)
-        from graphistry.compute.gfql.index.handoff import HANDOFF_ATTR, read_handoff
+        from graphistry.compute.gfql.index.handoff import read_handoff, set_handoff
 
-        setattr(self, HANDOFF_ATTR, read_handoff(g))
+        handoff = read_handoff(g)
+        if handoff is not None:
+            set_handoff(self, handoff)
         self._nodes = g._nodes
         self._edges = g._edges
         self._node = g._node

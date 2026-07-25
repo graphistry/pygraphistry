@@ -584,7 +584,7 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
 
     from graphistry.compute.chain import serialize_binding_ops
     from graphistry.compute.gfql.index.handoff import (
-        IndexedBindingsHandoff, attach_handoff, set_handoff,
+        IndexedBindingsHandoff, attach_handoff,
     )
 
     indexed_state, indexed_attempted = _try_indexed_middle_polars(self, middle, suffix, start_nodes)
@@ -604,8 +604,10 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
         g_cur = _chain_traversal_polars(self, middle, start_nodes)
         if indexed_attempted:
             # Record the exact declined plan so the rows materializer does not
-            # re-attempt (and re-record) the same decision.
-            set_handoff(g_cur, IndexedBindingsHandoff(
+            # re-attempt (and re-record) the same decision. Attach, never mutate:
+            # the pandas twin does the same, so neither boundary can write onto a
+            # graph it does not own.
+            g_cur = attach_handoff(g_cur, IndexedBindingsHandoff(
                 binding_ops=serialize_binding_ops(middle),
             ))
     if suffix:

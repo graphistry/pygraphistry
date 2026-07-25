@@ -8,7 +8,7 @@ from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.Engine import safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
-from .ast import ASTObject, ASTNode, ASTEdge, Direction, from_json as ASTObject_from_json, serialize_binding_ops
+from .ast import ASTObject, ASTNode, ASTEdge, ASTCall, Direction, from_json as ASTObject_from_json, serialize_binding_ops
 from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
 from .chain_fast_paths import _seeded_typed_hop_pandas_cudf
@@ -25,6 +25,7 @@ from graphistry.otel import otel_traced, otel_detail_enabled
 
 if TYPE_CHECKING:
     from graphistry.compute.exceptions import GFQLSchemaError, GFQLValidationError
+    from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
 
 logger = setup_logger(__name__)
 
@@ -556,6 +557,71 @@ def _get_boundary_calls(ops: List[ASTObject]) -> Tuple[List[ASTObject], List[AST
     return (prefix, middle, suffix)
 
 
+
+def _plan_indexed_middle(
+    g: Plottable,
+    prefix: List[ASTObject],
+    middle: List[ASTObject],
+    suffix: List[ASTObject],
+    engine: Union[EngineAbstract, str],
+    policy: Optional[Any],
+    start_nodes: Optional[DataFrameT],
+) -> Optional["IndexedBindingsHandoff"]:
+    """Decide ONCE whether the resident indexes can serve this boundary's middle.
+
+    Returns ``None`` when the indexed path does not apply to this shape at all, a
+    handoff carrying a state when it serves, and a handoff without one when it was
+    tried and declined. The twin of ``_try_indexed_middle_polars`` on the polars
+    chain; keeping both as a single predicate-plus-plan keeps the two boundaries
+    comparable instead of two inline condition chains that drift.
+    """
+    from .gfql.index.handoff import IndexedBindingsHandoff
+
+    if not (middle and suffix) or prefix or start_nodes is not None or policy:
+        return None
+    call = suffix[0]
+    if not isinstance(call, ASTCall) or call.function != "rows":
+        return None
+    if (
+        call.params.get("source") is not None
+        or call.params.get("alias_endpoints") is not None
+        or call.params.get("alias_prefilters")
+        or not all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
+    ):
+        return None
+    plan = serialize_binding_ops(middle)
+    # The bypass is only sound when the rows call actually consumes the WHOLE
+    # middle as binding ops: either it already carries them, or the named-middle
+    # rewrite installs exactly them. A rows call with no binding ops over an
+    # UNNAMED middle instead reads the traversal-narrowed node table, which the
+    # bypass would not produce.
+    if not (
+        call.params.get("binding_ops") == plan
+        or (
+            call.params.get("binding_ops") is None
+            and any(op._name is not None for op in middle
+                    if isinstance(op, (ASTNode, ASTEdge)))
+        )
+    ):
+        return None
+
+    engine_concrete = resolve_engine(engine, g)  # type: ignore[arg-type]
+    if engine_concrete not in (Engine.PANDAS, Engine.CUDF):
+        return None
+
+    from .gfql.index.bindings import try_indexed_connected_bindings_state
+
+    state = try_indexed_connected_bindings_state(g, middle, engine=engine_concrete)
+    return IndexedBindingsHandoff(
+        binding_ops=plan,
+        state=state,
+        edge_aliases=tuple(
+            op._name for op in middle
+            if isinstance(op, ASTEdge) and isinstance(op._name, str)
+        ) if state is not None else (),
+    )
+
+
 def _handle_boundary_calls(
     self: Plottable,
     ops: List[ASTObject],
@@ -608,11 +674,9 @@ def _handle_boundary_calls(
 
     # Function-scope import: `gfql.index` transitively imports this module, so a
     # module-scope import would be a cycle.
-    from .gfql.index.handoff import IndexedBindingsHandoff, attach_handoff, set_handoff
+    from .gfql.index.handoff import attach_handoff
 
     g_temp = self
-    indexed_middle_state = None
-    indexed_middle_attempted = False
     suffix_base_graph = g_temp
 
     if prefix:
@@ -628,71 +692,34 @@ def _handle_boundary_calls(
         )
         suffix_base_graph = g_temp
 
-    if (
-        not prefix
-        and middle
-        and suffix
-        and start_nodes is None
-        and not policy
-        and isinstance(suffix[0], ASTCall)
-        and suffix[0].function == "rows"
-        and (
-            # The bypass is only sound when the rows call actually consumes the
-            # WHOLE middle as binding ops: either it already carries them, or the
-            # named-middle rewrite below will install exactly them. A rows call
-            # with no binding ops over an UNNAMED middle instead reads the
-            # traversal-narrowed node table, which the bypass would not produce.
-            suffix[0].params.get("binding_ops") == serialize_binding_ops(middle)
-            or (
-                suffix[0].params.get("binding_ops") is None
-                and any(op._name is not None for op in middle
-                        if isinstance(op, (ASTNode, ASTEdge)))
-            )
-        )
-        and suffix[0].params.get("source") is None
-        and suffix[0].params.get("alias_endpoints") is None
-        and not suffix[0].params.get("alias_prefilters")
-        and all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
-    ):
-        engine_concrete = resolve_engine(engine, self)  # type: ignore[arg-type]
-        if engine_concrete in (Engine.PANDAS, Engine.CUDF):
-            from graphistry.compute.gfql.index.bindings import (
-                try_indexed_connected_bindings_state,
-            )
+    # ONE value carries the whole decision: None = the indexed path does not apply
+    # to this boundary, a handoff WITH state = it serves, a handoff WITHOUT state =
+    # it was tried and declined (which the row materializer must know, so it does
+    # not re-attempt the same plan after the canonical traversal).
+    handoff = _plan_indexed_middle(
+        self, prefix, middle, suffix, engine, policy, start_nodes,
+    )
+    served = handoff is not None and handoff.state is not None
 
-            indexed_middle_attempted = True
-            indexed_middle_state = try_indexed_connected_bindings_state(
-                self,
+    if served:
+        assert handoff is not None  # narrowed by `served`
+        g_temp = attach_handoff(self, handoff)
+    else:
+        if middle:
+            logger.debug('Executing middle operations: %s', middle)
+            g_temp = _chain_impl(
+                g_temp,
                 middle,
-                engine=engine_concrete,
+                engine,
+                validate_schema,
+                policy,
+                context,
+                start_nodes
             )
-            if indexed_middle_state is not None:
-                g_temp = attach_handoff(self, IndexedBindingsHandoff(
-                    binding_ops=serialize_binding_ops(middle),
-                    state=indexed_middle_state,
-                    edge_aliases=tuple(
-                        op._name
-                        for op in middle
-                        if isinstance(op, ASTEdge) and isinstance(op._name, str)
-                    ),
-                ))
-
-    if middle and indexed_middle_state is None:
-        logger.debug('Executing middle operations: %s', middle)
-        g_temp = _chain_impl(
-            g_temp,
-            middle,
-            engine,
-            validate_schema,
-            policy,
-            context,
-            start_nodes
-        )
-
-    if indexed_middle_attempted and indexed_middle_state is None:
-        set_handoff(g_temp, IndexedBindingsHandoff(
-            binding_ops=serialize_binding_ops(middle),
-        ))
+        if handoff is not None:
+            # attach (not mutate): `g_temp` may still be the caller's graph on
+            # paths where nothing rebuilt it, and this is internal plumbing.
+            g_temp = attach_handoff(g_temp, handoff)
 
     if suffix:
         logger.debug('Executing boundary suffix calls: %s', suffix)
