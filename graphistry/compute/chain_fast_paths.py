@@ -299,11 +299,20 @@ def _seeded_typed_return_dst_pandas_cudf(
     seed_nodes = edges = dstn = None
     if ctx is not None:
         nid, adj, xp, idx_engine = ctx
+        seeded_by_id = False
         if node in n0f:
             seed_nodes = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
+            seeded_by_id = seed_nodes is not None
+        if seed_nodes is None:
+            # Seed is not on the binding column (the `public_seed_scan` case this
+            # seam already records): the node-id index cannot answer it, but a
+            # resident PROPERTY index can (#1780). Structural engagement only.
+            seed_nodes = _seed_rows_via_prop_index(g, nodes_df, n0f, xp, idx_engine)
         if seed_nodes is not None:
             for k, v in n0f.items():
-                if k != node:
+                # skip the binding column ONLY when the node-id index answered it;
+                # property-index seeds have not had it applied (superset otherwise)
+                if k != node or not seeded_by_id:
                     seed_nodes = seed_nodes[seed_nodes[k] == v]
         else:
             # property-seeded (binding col not in the filter): scan the seed row,
@@ -372,11 +381,20 @@ def _seeded_typed_return_dst_polars(
     seed_nodes = edges = dstn = None
     if ctx is not None:
         nid, adj, xp, idx_engine = ctx
+        seeded_by_id = False
         if node in n0f:
             seed_nodes = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
+            seeded_by_id = seed_nodes is not None
+        if seed_nodes is None:
+            # Seed is not on the binding column (the `public_seed_scan` case this
+            # seam already records): the node-id index cannot answer it, but a
+            # resident PROPERTY index can (#1780). Structural engagement only.
+            seed_nodes = _seed_rows_via_prop_index(g, nodes_df, n0f, xp, idx_engine)
         if seed_nodes is not None:
             for k, v in n0f.items():
-                if k != node:
+                # skip the binding column ONLY when the node-id index answered it;
+                # property-index seeds have not had it applied (superset otherwise)
+                if k != node or not seeded_by_id:
                     seed_nodes = seed_nodes.filter(pl.col(k) == v)
         else:
             # property-seeded: scan the seed row; CSR/node-index gathers below
