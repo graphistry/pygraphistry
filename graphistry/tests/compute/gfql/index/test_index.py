@@ -884,3 +884,98 @@ def test_hop_dtype_mismatch_edge_match_matches_scan_error(typed_graph, engine):
     if engine == "pandas":
         from graphistry.compute.exceptions import GFQLSchemaError
         assert isinstance(base_err.value, GFQLSchemaError)
+
+
+# ---- typed-edge predicate cost is proportional to the traversal, not the graph -------
+# Regression (measured 2026-07-26, LDBC SNB SF1 lane): the index path built the
+# edge_match mask over ALL E edges (`(series == val)`) and then read it at only the
+# handful of CSR-matched rows, putting an O(E) predicate scan inside an O(degree)
+# traversal. On a 14M-edge graph that single compare was 248ms of a 308ms query, and
+# it is why the indexed surface SCALED with the graph while the native hop stayed flat.
+# These tests pin the SHAPE (predicate sees only candidate rows), not a wall-clock
+# number, so they can't go flaky on a loaded host.
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_typed_edge_predicate_only_reads_candidate_rows(typed_graph, engine, monkeypatch):
+    """The edge_match predicate must be evaluated on the CSR-matched rows only.
+
+    A one-seed hop touches ~deg edges out of 12000; if the predicate is ever handed
+    the whole column again this assertion fails loudly.
+    """
+    from graphistry.Engine import Engine as _E, df_to_engine
+    from graphistry.compute.gfql.index import traverse as _traverse
+
+    g = typed_graph
+    if engine == "polars":
+        g = g.edges(df_to_engine(g._edges, _E.POLARS), "src", "dst").nodes(
+            df_to_engine(g._nodes, _E.POLARS), "id")
+    n_edges = int(g._edges.shape[0])
+    gi = g.gfql_index_all(engine=engine)
+
+    seen = []
+    orig = _traverse._gather_series
+
+    def spy(series, rows, eng):
+        seen.append(int(len(rows)))
+        return orig(series, rows, eng)
+
+    monkeypatch.setattr(_traverse, "_gather_series", spy)
+    seeds = g._nodes[:1] if engine == "pandas" else g._nodes.head(1)
+    kwargs = dict(hops=1, return_as_wave_front=True, edge_match={"etype": 1}, engine=engine)
+    idx = gi.hop(nodes=seeds, **kwargs)
+    base = g.hop(nodes=seeds, **kwargs)
+
+    assert seen, "edge_match predicate never ran on the index path"
+    assert int(idx._edges.shape[0]) == int(base._edges.shape[0])
+    # Proportional to the traversal: a single seed's out-degree, not the edge count.
+    assert max(seen) < n_edges // 10, (
+        f"predicate saw {max(seen)} rows of {n_edges} — it is scanning the graph, "
+        "not the traversal candidates")
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_typed_edge_predicate_cost_flat_in_graph_size(engine):
+    """Growing the graph 8x while holding degree fixed must NOT grow the number of
+    rows the edge_match predicate examines. This is the property that makes the
+    indexed path O(degree); it is engine- and schema-independent."""
+    from graphistry.Engine import Engine as _E, df_to_engine
+    from graphistry.compute.gfql.index import traverse as _traverse
+
+    def probe(n_nodes):
+        rng = np.random.default_rng(7)
+        deg = 6
+        m = n_nodes * deg
+        edf = pd.DataFrame({
+            "src": rng.integers(0, n_nodes, m),
+            "dst": rng.integers(0, n_nodes, m),
+            "etype": rng.integers(0, 3, m),
+        })
+        ndf = pd.DataFrame({"id": np.arange(n_nodes)})
+        g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+        if engine == "polars":
+            g = g.edges(df_to_engine(g._edges, _E.POLARS), "src", "dst").nodes(
+                df_to_engine(g._nodes, _E.POLARS), "id")
+        gi = g.gfql_index_all(engine=engine)
+        seen = []
+        orig = _traverse._gather_series
+
+        def spy(series, rows, eng):
+            seen.append(int(len(rows)))
+            return orig(series, rows, eng)
+
+        _traverse._gather_series = spy
+        try:
+            seeds = g._nodes[:1] if engine == "pandas" else g._nodes.head(1)
+            gi.hop(nodes=seeds, hops=1, return_as_wave_front=True,
+                   edge_match={"etype": 1}, engine=engine)
+        finally:
+            _traverse._gather_series = orig
+        return sum(seen)
+
+    small, big = probe(1000), probe(8000)
+    assert small > 0 and big > 0
+    # Degree is held fixed, so candidate rows must not scale with |E| (allow slack
+    # for the random degree distribution of a single seed).
+    assert big <= small * 4 + 20, (
+        f"predicate rows grew {small} -> {big} as the graph grew 8x; "
+        "the edge_match filter is scaling with the graph")
