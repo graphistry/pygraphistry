@@ -14,12 +14,12 @@ output_min/max_hops, labeling, missing node table.
 """
 from __future__ import annotations
 
-from typing import Any, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from typing_extensions import TypeGuard
 
 from graphistry.Engine import Engine
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Plottable import Plottable
 from .engine_arrays import (
     array_namespace, col_to_array, ids_to_array, take_rows, select_by_ids,
@@ -82,8 +82,12 @@ class _EdgeMatchRowFilter:
     therefore put an O(E) predicate scan inside an O(degree) traversal, which is what
     made the indexed path scale with the graph instead of with the answer. Evaluating
     ``col == val`` on the gathered candidate rows makes the predicate proportional to
-    the edges the traversal actually visits, and never examines more elements in total
-    than the eager mask did.
+    the edges the traversal actually visits. Each edge row is returned by a given index
+    at most once (frontiers are set-differenced against ``visited``), so a seeded hop
+    examines O(edges traversed) elements; the worst case is a fixed-point undirected
+    walk that reaches the whole graph, where the out- and in-indices are filtered
+    separately and the total approaches 2E against the eager form's E — a constant
+    factor on a query that was already O(E) in its traversal alone.
 
     Column values are compared with each frame's native ``==`` (so cudf string columns
     stay on the cudf layer rather than becoming a cupy string compare), matching the
@@ -92,7 +96,12 @@ class _EdgeMatchRowFilter:
 
     __slots__ = ("_series", "_items", "_engine")
 
-    def __init__(self, series: dict, items: list, engine: Engine) -> None:
+    def __init__(
+        self,
+        series: Dict[str, SeriesT],
+        items: List[Tuple[str, Any]],
+        engine: Engine,
+    ) -> None:
         self._series = series
         self._items = items
         self._engine = engine
@@ -123,7 +132,7 @@ class _EdgeMatchRowFilter:
             return None
 
 
-def _gather_series(series: Any, rows: ArrayLike, engine: Engine) -> Any:
+def _gather_series(series: SeriesT, rows: ArrayLike, engine: Engine) -> SeriesT:
     """Positionally gather ``rows`` out of a single column. O(len(rows))."""
     if engine in (Engine.POLARS, Engine.POLARS_GPU):
         import numpy as np
@@ -149,8 +158,8 @@ def _build_edge_row_filter(
             _is_numeric_dtype_safe, _is_string_dtype_safe,
         )
         n_edges = int(edges.shape[0])
-        series: dict = {}
-        items: list = []
+        series: Dict[str, SeriesT] = {}
+        items: List[Tuple[str, Any]] = []
         for col, val in edge_match.items():
             if col not in edges.columns:
                 return None
