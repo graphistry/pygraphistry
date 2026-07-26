@@ -979,3 +979,100 @@ def test_typed_edge_predicate_cost_flat_in_graph_size(engine):
     assert big <= small * 4 + 20, (
         f"predicate rows grew {small} -> {big} as the graph grew 8x; "
         "the edge_match filter is scaling with the graph")
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_typed_edge_predicate_abandons_indexed_path_on_evaluation_failure(
+    typed_graph, engine, monkeypatch
+):
+    """The one branch the candidate-row form adds: `mask_for` -> None -> abandon.
+
+    It carries all of this path's parity risk and previously had no test. Force the
+    gather to raise mid-traversal and assert the result is byte-identical to the
+    no-index scan — i.e. the hop really did fall back, rather than returning a partial
+    answer built from the rows it had already filtered.
+    """
+    from graphistry.Engine import Engine as _E, df_to_engine
+    from graphistry.compute.gfql.index import traverse as _traverse
+
+    g = typed_graph
+    if engine == "polars":
+        g = g.edges(df_to_engine(g._edges, _E.POLARS), "src", "dst").nodes(
+            df_to_engine(g._nodes, _E.POLARS), "id")
+    gi = g.gfql_index_all(engine=engine)
+    seeds = g._nodes[:1] if engine == "pandas" else g._nodes.head(1)
+    kwargs = dict(hops=1, return_as_wave_front=True, edge_match={"etype": 1}, engine=engine)
+
+    expected = g.hop(nodes=seeds, **kwargs)
+
+    calls = {"n": 0}
+
+    def boom(series, rows, eng):
+        calls["n"] += 1
+        raise RuntimeError("synthetic gather failure")
+
+    monkeypatch.setattr(_traverse, "_gather_series", boom)
+    got = gi.hop(nodes=seeds, **kwargs)
+
+    assert calls["n"] > 0, "the failure was never triggered — test proves nothing"
+    assert int(got._edges.shape[0]) == int(expected._edges.shape[0])
+    assert int(got._nodes.shape[0]) == int(expected._nodes.shape[0])
+    def _pairs(df):
+        col = (lambda c: df[c].to_list()) if hasattr(df[df.columns[0]], "to_list") \
+            else (lambda c: df[c].tolist())
+        return sorted(zip(col("src"), col("dst")))
+
+    got_pairs, exp_pairs = _pairs(got._edges), _pairs(expected._edges)
+    assert got_pairs == exp_pairs, "fallback did not reproduce the scan result exactly"
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_fixed_point_typed_walk_bounds_predicate_work(engine):
+    """A fixed-point walk reaching most of the graph must NOT gather unboundedly.
+
+    This is the regime where candidate-row evaluation loses to one whole-column compare
+    (it gathers up to 2E by random access). The cumulative-cost guard must notice and
+    switch to the whole-column mask, so total gathered stays a bounded fraction of E —
+    and the answer must be unchanged either way.
+    """
+    from graphistry.Engine import Engine as _E, df_to_engine
+    from graphistry.compute.gfql.index import traverse as _traverse
+
+    rng = np.random.default_rng(11)
+    n_nodes, n_edges = 4000, 40000
+    nodes = pd.DataFrame({"id": np.arange(n_nodes, dtype=np.int64)})
+    edges = pd.DataFrame({
+        "src": rng.integers(0, n_nodes, n_edges).astype(np.int64),
+        "dst": rng.integers(0, n_nodes, n_edges).astype(np.int64),
+        "etype": rng.integers(0, 2, n_edges).astype(np.int64),
+    })
+    g = graphistry.edges(edges, "src", "dst").nodes(nodes, "id")
+    if engine == "polars":
+        g = g.edges(df_to_engine(g._edges, _E.POLARS), "src", "dst").nodes(
+            df_to_engine(g._nodes, _E.POLARS), "id")
+    gi = g.gfql_index_all(engine=engine)
+    seeds = g._nodes[:1] if engine == "pandas" else g._nodes.head(1)
+    kwargs = dict(to_fixed_point=True, direction="undirected", return_as_wave_front=True,
+                  edge_match={"etype": 1}, engine=engine)
+
+    gathered = []
+    orig = _traverse._gather_series
+
+    def spy(series, rows, eng):
+        gathered.append(int(len(rows)))
+        return orig(series, rows, eng)
+
+    import unittest.mock as _mock
+    with _mock.patch.object(_traverse, "_gather_series", spy):
+        got = gi.hop(nodes=seeds, **kwargs)
+    expected = g.hop(nodes=seeds, **kwargs)
+
+    assert int(got._edges.shape[0]) == int(expected._edges.shape[0]), \
+        "guard changed the answer"
+    total = sum(gathered)
+    limit = max(_traverse._EAGER_MASK_SWITCH_FLOOR,
+                n_edges // _traverse._EAGER_MASK_SWITCH_DIVISOR)
+    assert total <= limit, (
+        f"gathered {total} rows of {n_edges} edges — the cost guard did not engage; "
+        "an unbounded gather is the regression this pins"
+    )

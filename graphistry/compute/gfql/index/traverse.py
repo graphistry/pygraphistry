@@ -31,6 +31,16 @@ from .types import (
     ArrayLike, EdgeMatch, HopDirection, ScalarMatchValue, SimpleEqualityEdgeMatch,
 )
 
+# Cost guard for candidate-row edge_match evaluation. Gathering candidate rows beats one
+# whole-column compare only while the candidates stay a small fraction of the frame; a
+# fixed-point walk that reaches most of the graph inverts that and gathers up to 2E by
+# random access. Once cumulative gathered rows reach E/DIVISOR we build the whole-column
+# mask once and reuse it, bounding total predicate work at ~(1 + 1/DIVISOR)*E. The FLOOR
+# keeps small frames on the candidate-row path, where the whole-column compare is cheap
+# anyway and the switch would only add a branch.
+_EAGER_MASK_SWITCH_DIVISOR = 8
+_EAGER_MASK_SWITCH_FLOOR = 1024
+
 
 def _indices_for_direction(
     registry: GfqlIndexRegistry,
@@ -84,12 +94,19 @@ class _EdgeMatchRowFilter:
     therefore put an O(E) predicate scan inside an O(degree) traversal, which is what
     made the indexed path scale with the graph instead of with the answer. Evaluating
     ``col == val`` on the gathered candidate rows makes the predicate proportional to
-    the edges the traversal actually visits. Each edge row is returned by a given index
-    at most once (frontiers are set-differenced against ``visited``), so a seeded hop
-    examines O(edges traversed) elements; the worst case is a fixed-point undirected
-    walk that reaches the whole graph, where the out- and in-indices are filtered
-    separately and the total approaches 2E against the eager form's E — a constant
-    factor on a query that was already O(E) in its traversal alone.
+    the edges the traversal actually visits, so a seeded hop examines O(edges traversed)
+    elements.
+
+    A row is *mostly* returned once per index — frontiers are set-differenced against
+    ``visited`` — but not strictly: ``edge_match`` is only reachable with
+    ``return_as_wave_front=True``, and that mode skips the first-hop ``visited`` seeding
+    below, so seed ids can re-enter a later frontier and their rows be gathered twice.
+    The worst case is a fixed-point undirected walk reaching the whole graph, where the
+    out- and in-indices are filtered separately and the gathered total approaches 2E
+    against the eager form's single sequential pass over E. That regime is a genuine
+    REGRESSION for this form (measured: 1.94×E gathered, 1.2–1.6× slower than the eager
+    mask), which is why the caller keeps a cumulative-gathered counter and falls back to
+    ``full_mask()`` once it crosses a fraction of the frame.
 
     Column values are compared with each frame's native ``==`` (so cudf string columns
     stay on the cudf layer rather than becoming a cupy string compare), matching the
@@ -134,6 +151,34 @@ class _EdgeMatchRowFilter:
                     col_mask = (sub == val).fillna(False).values
                 else:
                     col_mask = (sub == val).fillna(False).to_numpy(dtype=bool)
+                mask = col_mask if mask is None else mask & col_mask
+            return mask
+        except Exception:  # pragma: no cover - defensive parity guard
+            return None
+
+    def full_mask(self) -> Optional[ArrayLike]:
+        """The eager whole-column mask, length E — the pre-candidate-row form.
+
+        Candidate-row evaluation is a win exactly while the candidates are a small
+        fraction of the frame. A fixed-point walk that reaches most of the graph inverts
+        that: it gathers up to 2E elements (out- and in-indices filtered separately), by
+        random access, versus one sequential compare over E. The caller switches to this
+        once it has gathered enough to know it is in that regime; see
+        ``_EAGER_MASK_SWITCH_DIVISOR``.
+        """
+        try:
+            mask: Optional[ArrayLike] = None
+            for col, val in self._items:
+                col_mask: ArrayLike
+                series = self._series[col]
+                # Same null-safe materialization as mask_for, so the two forms agree
+                # cell for cell — this is the parity-critical property of the switch.
+                if self._engine in (Engine.POLARS, Engine.POLARS_GPU):
+                    col_mask = (series == val).fill_null(False).to_numpy()
+                elif self._engine == Engine.CUDF:
+                    col_mask = (series == val).fillna(False).values
+                else:
+                    col_mask = (series == val).fillna(False).to_numpy(dtype=bool)
                 mask = col_mask if mask is None else mask & col_mask
             return mask
         except Exception:  # pragma: no cover - defensive parity guard
@@ -240,6 +285,14 @@ def index_seeded_hop(
         edge_filter = _build_edge_row_filter(edges, edge_match, engine)
         if edge_filter is None:
             return None
+    # Cost guard for the candidate-row form (see _EdgeMatchRowFilter.full_mask). Cumulative
+    # gathered rows; once they reach a fraction of the frame we are demonstrably NOT in the
+    # seeded regime, so we pay for the whole-column mask once and reuse it. Bounds total
+    # predicate work at ~(1 + 1/D)*E instead of the unbounded-in-hops gather, while a seeded
+    # hop — which gathers ~degree — never comes close to the threshold and never builds it.
+    gathered_rows = 0
+    eager_keep: Optional[ArrayLike] = None
+    switch_at = max(_EAGER_MASK_SWITCH_FLOOR, len(edges) // _EAGER_MASK_SWITCH_DIVISOR)
 
     # Do NOT narrow the seed to the index key dtype (a node-id int64 seed cast to
     # an int32 edge-endpoint key wraps large ids → false match). lookup promotes both
@@ -268,13 +321,25 @@ def index_seeded_hop(
                 # Keep only CSR-matched rows whose edge passes edge_match. Wavefront-
                 # only (coverability gate), so the `matched`/first-hop `visited`
                 # bookkeeping below — which edge_match does NOT filter — is never read.
-                keep = edge_filter.mask_for(rows)
-                if keep is None:
-                    # Evaluation failed on this candidate batch: abandon the indexed
-                    # path entirely so the caller re-runs the hop on the scan. Nothing
-                    # observable has been mutated, so this stays parity-safe.
-                    return None
-                rows = rows[keep]
+                # Decide BEFORE gathering this batch, not after: a single hop's batch can
+                # be arbitrarily large, so a post-hoc check would overshoot by up to one
+                # whole batch. Checking the projected total keeps gathered <= switch_at.
+                if (eager_keep is None
+                        and gathered_rows + int(rows.shape[0]) > switch_at):
+                    eager_keep = edge_filter.full_mask()
+                    if eager_keep is None:
+                        return None
+                if eager_keep is not None:
+                    rows = rows[eager_keep[rows]]
+                else:
+                    gathered_rows += int(rows.shape[0])
+                    keep = edge_filter.mask_for(rows)
+                    if keep is None:
+                        # Evaluation failed on this candidate batch: abandon the indexed
+                        # path entirely so the caller re-runs the hop on the scan. Nothing
+                        # observable has been mutated, so this stays parity-safe.
+                        return None
+                    rows = rows[keep]
             edge_rows_parts.append(rows)
             neigh_parts.append(ix.other_values[rows])
             matched_parts.append(matched)
