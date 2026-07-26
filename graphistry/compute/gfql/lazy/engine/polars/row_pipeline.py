@@ -1094,6 +1094,96 @@ def _cartesian_node_bindings_polars(
     return _rewrap(g, out_df)
 
 
+def _directed_fixed_point_binding_rows_polars(
+    state: "pl.LazyFrame",
+    pairs: "pl.LazyFrame",
+    state_cols: List[str],
+    *,
+    min_hops: int,
+) -> "pl.LazyFrame":
+    """Unbounded DIRECTED variable-length binding rows (``-[*0..]->`` / ``-[*]->``), #1709.
+
+    The native twin of the ``max_hops is None and to_fixed_point`` arm of pandas'
+    ``RowPipelineMixin._gfql_multihop_binding_rows``. One row per distinct edge
+    SEQUENCE (Cypher path multiplicity): ``pairs`` is never deduped, so parallel
+    edges multiply per hop exactly as the pandas merge does. ``min_hops == 0``
+    contributes the zero-hop rows (endpoint == start) first, then hop 1, 2, ... —
+    the same ``reachable`` concat order pandas builds.
+
+    Pandas discovers the traversal depth by expanding the PATH frontier until it is
+    empty, which materializes every partial path at every hop. This lowering splits
+    that into (a) a cheap dedup-by-node frontier walk that computes the exhaustion
+    depth ``D``, then (b) the SAME lazy bounded pair-join loop the ``-[*1..k]->`` arm
+    uses, with ``max_hops = D``. Step (a) is exact, not an approximation: the path
+    frontier at hop ``h`` is non-empty iff a walk of length ``h`` leaves some seed,
+    and deduping by endpoint node changes no walk's EXISTENCE — only its
+    multiplicity, which step (b) then reproduces in full. So the emitted rows are
+    identical to pandas' while the exponential path blow-up happens once, lazily.
+
+    Non-termination: a cycle reachable from a seed makes the walk infinite, and
+    pandas raises ``E108`` ("require terminating variable-length segments"). We raise
+    the same error via the same helper, and we detect it strictly: with ``N`` distinct
+    nodes touched by ``pairs``, any walk of ``N`` edges visits ``N + 1`` nodes and so
+    must repeat one (pigeonhole) — a non-empty frontier at hop ``N`` is a reachable
+    cycle, exactly the condition under which pandas' own cap
+    (``max(len(step_pairs), 1) + 1``) also fails to exhaust. Conversely an acyclic
+    reachable subgraph has every walk shorter than ``N``, so both engines exhaust.
+    Same outcome on both sides of the branch, without pandas' cost of expanding paths
+    into the cycle before giving up.
+    """
+    import polars as pl
+    from graphistry.compute.gfql.lazy import collect as _lazy_collect
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+
+    pairs_df = _lazy_collect(pairs)
+    pairs_lf = pairs_df.lazy()
+    node_cap = int(
+        pl.concat(
+            [
+                pairs_df.select(pl.col("__from__").alias("__n__")),
+                pairs_df.select(pl.col("__to__").alias("__n__")),
+            ],
+            how="vertical",
+        )
+        .select(pl.col("__n__").n_unique())
+        .item()
+    )
+
+    # (a) depth probe: dedup-by-node frontier, so each hop costs O(N) not O(paths).
+    frontier = _lazy_collect(state.select(pl.col("__current__")).unique())
+    depth = 0
+    exhausted = node_cap == 0  # no matched edges at all -> no walk of length >= 1
+    for hop in range(1, node_cap + 1):
+        frontier = _lazy_collect(
+            frontier.lazy()
+            .join(pairs_lf, left_on="__current__", right_on="__from__", how="inner")
+            .select(pl.col("__to__").alias("__current__"))
+            .unique()
+        )
+        if frontier.height == 0:
+            exhausted = True
+            break
+        depth = hop
+    if not exhausted:
+        RowPipelineMixin._gfql_bindings_error(
+            "Cypher multi-alias row bindings currently require terminating variable-length segments"
+        )
+
+    # (b) bounded path expansion, identical to the `-[*1..k]->` arm with max_hops=depth.
+    reachable: List["pl.LazyFrame"] = [state] if min_hops == 0 else []
+    current = state
+    for hop in range(1, depth + 1):
+        current = (
+            current.join(pairs_lf, left_on="__current__", right_on="__from__", how="inner")
+            .drop("__current__")
+            .rename({"__to__": "__current__"})
+            .select(state_cols)
+        )
+        if hop >= min_hops:
+            reachable.append(current)
+    return pl.concat(reachable, how="vertical") if reachable else state.limit(0)
+
+
 def binding_rows_polars(
     g: Plottable,
     binding_ops: Sequence[Dict[str, JSONVal]],
@@ -1129,11 +1219,23 @@ def binding_rows_polars(
         # LazyFrame column names WITHOUT collecting data (schema-only resolve).
         return lf.collect_schema().names()
 
-    nodes = g._nodes
-    edges = g._edges
-    node_id = g._node
-    src = g._source
-    dst = g._destination
+    # Build from the PRE-CHAIN base graph, exactly like the pandas oracle
+    # (`_gfql_binding_rows`: `base_nodes = base_graph._nodes`, every alias step
+    # `op.execute(g=base_graph, ...)`) and like the indexed builder below, which is
+    # already handed `base_graph`. Rebuilding from the chain OUTPUT instead would
+    # silently under-report: the traversal prunes to nodes/edges IT considers
+    # matched, and that is not the same set the bindings builder matches — e.g. a
+    # zero-hop var-length segment (`-[*0..k]->`, `-[*0..]->`) binds a seed with no
+    # outgoing edge, which the traversal drops entirely. Fuzz-verified: with the
+    # chain output as the source, `-[*0..2]->` lost those rows against pandas.
+    base_graph = g._gfql_rows_base_graph
+    if base_graph is None:
+        base_graph = g
+    nodes = base_graph._nodes
+    edges = base_graph._edges
+    node_id = base_graph._node
+    src = base_graph._source
+    dst = base_graph._destination
     if nodes is None or edges is None or node_id is None or src is None or dst is None:
         return None
     seed_ids_lf: Optional[Any] = None  # LazyFrame; Any avoids the union-typed seed_nodes.join mismatch
@@ -1175,9 +1277,6 @@ def binding_rows_polars(
     from graphistry.compute.gfql.index import bindings as indexed_bindings
     from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
     from graphistry.Engine import Engine
-    base_graph = g._gfql_rows_base_graph
-    if base_graph is None:
-        base_graph = g
     engine_concrete = (
         Engine.POLARS_GPU
         if active_target() == ExecutionTarget.GPU
@@ -1229,20 +1328,31 @@ def binding_rows_polars(
                 # supported via iterative pair joins. Bounded UNDIRECTED var-length
                 # with min_hops == 1 (`-[*1..k]-`, the LDBC IC11/IC6 shape) is now
                 # also supported via a doubled-pair join with immediate-backtrack
-                # avoidance (see the execution branch below). Everything else declines:
-                # unbounded (`[*]`, needs fixed-point + termination error), aliased
-                # var-length edges (pandas rejects those outright), and undirected
-                # var-length with min_hops != 1 (`-[*0..k]-` / `-[*2..k]-`): pandas'
-                # step_pairs come from the var-length `edge_op.execute` hop, whose
-                # backward hop-window pruning / zero-hop handling changes the edge
-                # multiplicity in a way this raw-edge reconstruction only reproduces
-                # for min_hops == 1 (every edge is trivially a length-1 path, so no
-                # pruning occurs) — fuzz-verified vs the pandas oracle. Decline the
-                # rest honestly rather than risk silent-wrong multiplicities.
-                if (
-                    bool(op.to_fixed_point)
-                    or (op.max_hops is None and op.hops is None)
-                    or isinstance(op._name, str)
+                # avoidance (see the execution branch below). UNBOUNDED DIRECTED
+                # fixed-point (`-[*0..]->` / `-[*]->`, the LDBC IS6 REPLY_OF ancestor
+                # walk, #1709) runs the same pair join to exhaustion — see
+                # `_directed_fixed_point_binding_rows_polars` for the parity argument.
+                # Everything else declines:
+                #  - aliased var-length edges (pandas rejects those outright);
+                #  - undirected var-length with min_hops != 1 (`-[*0..k]-` /
+                #    `-[*2..k]-`): pandas' step_pairs come from the var-length
+                #    `edge_op.execute` hop, whose backward hop-window pruning /
+                #    zero-hop handling changes the edge multiplicity in a way this
+                #    raw-edge reconstruction only reproduces for min_hops == 1 (every
+                #    edge is trivially a length-1 path, so no pruning occurs) —
+                #    fuzz-verified vs the pandas oracle;
+                #  - undirected UNBOUNDED (`-[*]-`): would need both the multiplicity
+                #    reconstruction above and backtrack-aware termination;
+                #  - unbounded WITHOUT to_fixed_point (`min_hops=2` and no max): pandas
+                #    silently truncates at `len(step_pairs) + 1` iterations instead of
+                #    erroring, and its step_pairs row count is not reconstructible here,
+                #    so the truncation depth (hence the answer) is not reproducible.
+                # Decline the rest honestly rather than risk silent-wrong multiplicities.
+                if isinstance(op._name, str):
+                    return None
+                _resolved_max = op.max_hops if op.max_hops is not None else op.hops
+                if _resolved_max is None and (
+                    not bool(op.to_fixed_point) or op.direction == "undirected"
                 ):
                     return None
                 if op.direction == "undirected":
@@ -1356,12 +1466,20 @@ def binding_rows_polars(
                     edge_op.hops if edge_op.hops is not None else 1
                 )
                 max_hops_value = edge_op.max_hops if edge_op.max_hops is not None else edge_op.hops
-                if max_hops_value is None:
-                    return None
                 min_hops = int(min_hops_value)
-                max_hops = int(max_hops_value)
                 state_cols = _names(state)
-                if sem.is_undirected:
+                if max_hops_value is None:
+                    # UNBOUNDED directed fixed point (`-[*0..]->`, LDBC IS6). Gated
+                    # above to to_fixed_point=True and a directed edge. Termination is
+                    # data-dependent, so unlike the bounded branch this one cannot stay
+                    # fully lazy — it collects one frontier per hop.
+                    state = _directed_fixed_point_binding_rows_polars(
+                        state,
+                        oriented.select(["__from__", "__to__"]),
+                        state_cols,
+                        min_hops=min_hops,
+                    )
+                elif sem.is_undirected:
                     # Bounded UNDIRECTED var-length, min_hops == 1 (gated above): the
                     # LDBC IC11/IC6 `-[*1..k]-` shape. Mirror the pandas oracle
                     # (`_gfql_multihop_binding_rows`, avoid_immediate_backtrack=True)
@@ -1376,6 +1494,7 @@ def binding_rows_polars(
                     # carries the just-left node so each hop can drop immediate
                     # backtracks (`__to__ == __prev__`), matching pandas' Kleene mask
                     # (null prev -> kept).
+                    max_hops = int(max_hops_value)
                     normal = edges_f.filter(pl.col(src) != pl.col(dst))
                     loops = edges_f.filter(pl.col(src) == pl.col(dst))
                     fwd = normal.select([pl.col(src).alias("__from__"), pl.col(dst).alias("__to__")])
@@ -1409,6 +1528,7 @@ def binding_rows_polars(
                             reachable.append(current.select(state_cols))
                     state = pl.concat(reachable, how="vertical") if reachable else state.limit(0)
                 else:
+                    max_hops = int(max_hops_value)
                     pairs = oriented.select(["__from__", "__to__"])
                     reachable = [state] if min_hops == 0 else []
                     current = state
@@ -1441,15 +1561,13 @@ def binding_rows_polars(
             # HAS_<Label> destination disambiguation (pandas'
             # _gfql_disambiguate_has_edge_destination_nodes): on DUPLICATE-id graphs
             # pandas narrows the unlabeled next op to the edge's HAS_<Label> rows
-            # taken from the ORIGINAL node table (its base_nodes still carries the
-            # colliding label rows). By the time this rows op runs, ``g``'s node
-            # table is the chain-combine result — deduplicated by id, first
-            # occurrence kept — so the label row pandas narrows to may already be
-            # GONE here and a native answer would be silently row-order-dependent.
-            # Unique-id graphs need no narrowing (pandas' duplicated() probe is
-            # False) → native is parity-exact; duplicate-id graphs DECLINE (honest
-            # NIE). Probe the pre-chain base graph stashed by _run_calls_polars —
-            # if it isn't available, decline (can't prove uniqueness).
+            # taken from the ORIGINAL node table, which still carries the colliding
+            # label rows. Reproducing that narrowing natively would be silently
+            # row-order-dependent, so: unique-id graphs need no narrowing (pandas'
+            # duplicated() probe is False) → native is parity-exact; duplicate-id
+            # graphs DECLINE (honest NIE). ``nodes`` above IS the pre-chain node
+            # table; when there is no pre-chain graph to probe we cannot prove
+            # uniqueness of what pandas would have seen, so decline.
             dis_label_col = RowPipelineMixin._gfql_has_edge_destination_label_col(edge_op, nodes.columns)
             if (
                 dis_label_col is not None
@@ -1457,15 +1575,11 @@ def binding_rows_polars(
                 and edge_op.direction == "forward"
                 and not RowPipelineMixin._gfql_node_filter_has_label(next_op.filter_dict)
             ):
-                base_graph = g._gfql_rows_base_graph
-                base_nodes = getattr(base_graph, "_nodes", None)
-                if base_nodes is None:
-                    return None
-                base_lf = base_nodes.lazy()
-                if node_id not in base_lf.collect_schema().names():
+                if g._gfql_rows_base_graph is None:
                     return None
                 _base_dup = bool(
-                    base_lf.select(pl.col(node_id).is_duplicated().any())
+                    nodes.lazy()
+                    .select(pl.col(node_id).is_duplicated().any())
                     .collect()
                     .item()
                 )
