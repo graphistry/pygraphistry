@@ -1120,7 +1120,7 @@ def _execute_compiled_query_chain_non_union(
             and getattr(_first_op, "function", None) == "rows"
             and getattr(_first_op, "params", {}).get("binding_ops") is not None
         ):
-            setattr(dispatch_graph, "_gfql_start_nodes", start_nodes)
+            dispatch_graph._gfql_start_nodes = start_nodes
 
     result = _chain_dispatch(dispatch_graph, compiled_query.chain, engine, policy, context, start_nodes=start_nodes)
     if compiled_query.empty_result_row is not None:
@@ -1848,7 +1848,7 @@ def gfql(self: Plottable,
                 raise
 
         dispatch_self = self
-        setattr(dispatch_self, "_gfql_shortest_path_backend", shortest_path_backend)
+        dispatch_self._gfql_shortest_path_backend = shortest_path_backend
         compiled_query = None
 
         if where_param and isinstance(query, (dict, ASTLet)):

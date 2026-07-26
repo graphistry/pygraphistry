@@ -2137,6 +2137,7 @@ class _SyntheticRowGraph:
         self._gfql_rows_edge_aliases = None
         self._gfql_indexed_bindings_handoff = None
         self._gfql_index_policy = "use"
+        self._gfql_index_registry = None
         self._gfql_shortest_path_backend = "auto"
 
     def bind(self) -> "_SyntheticRowGraph":

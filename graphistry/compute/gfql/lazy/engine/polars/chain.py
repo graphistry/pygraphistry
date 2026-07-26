@@ -7,7 +7,7 @@ parity vs the pandas chain gates correctness; unsupported shapes raise NotImplem
 (no silent pandas fallback). Deferred: variable-length/multi-hop edge sub-cases, some
 undirected multi-edge combos, node query=.
 """
-from typing import Any, List, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, cast
 
 from typing_extensions import TypedDict
 
@@ -17,6 +17,9 @@ from graphistry.compute.gfql.call.support import AggSpec
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
+
+if TYPE_CHECKING:
+    from graphistry.compute.gfql.index.bindings import IndexedBindingsState
 from .hop_eager import ensure_nodes_polars
 from .dtypes import is_lazy, colnames, endpoint_ids
 from .degrees import get_degrees_polars, get_indegrees_polars, get_outdegrees_polars
@@ -614,7 +617,12 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
     return g_cur
 
 
-def _try_indexed_middle_polars(g, middle, suffix, start_nodes):
+def _try_indexed_middle_polars(
+    g: Plottable,
+    middle: List[ASTObject],
+    suffix: List[ASTObject],
+    start_nodes: Optional[Any],
+) -> Tuple[Optional["IndexedBindingsState"], bool]:
     """Attempt the indexed fixed-hop path BEFORE the canonical polars traversal.
 
     Returns ``(state_or_None, attempted)``. The shape gate mirrors the pandas
