@@ -82,6 +82,7 @@ from graphistry.compute.gfql.temporal.durations import (
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
     from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
+    from graphistry.compute.gfql.index.registry import GfqlIndexRegistry
     from graphistry.compute.ast import ASTObject
     from graphistry.compute.gfql.expr_parser import ExprNode
 
@@ -201,6 +202,7 @@ class RowPipelineMixin:
     # is also used by `_RowPipelineAdapter`, which is not a PlotterBase, so the
     # defaults must exist here too for typed access to be total.
     _gfql_index_policy: str = "use"
+    _gfql_index_registry: Optional["GfqlIndexRegistry"] = None
     _gfql_indexed_bindings_handoff: Optional["IndexedBindingsHandoff"] = None
     _gfql_shortest_path_backend: str = "auto"
 

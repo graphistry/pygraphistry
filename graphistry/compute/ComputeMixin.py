@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Union
 from typing_extensions import Literal
 from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, POLARS_ENGINES, resolve_engine, df_to_engine, df_concat, safe_merge
 from graphistry.Plottable import Plottable
@@ -29,6 +29,7 @@ from .filter_by_dict import (
 )
 
 if TYPE_CHECKING:
+    from graphistry.compute.gfql.index.types import IndexKind
     from graphistry.compute.gfql.index.explain import GfqlExplainReport
     from graphistry.compute.gfql.index.policy import IndexPolicy
     from graphistry.compute.gfql.query_types import GFQLQuery
@@ -638,7 +639,7 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index import create_index as _ci
         return _ci(self, kind, column=column, name=name, engine=engine)
 
-    def drop_index(self, kind=None, *, column=None):
+    def drop_index(self, kind: Optional['IndexKind'] = None, *, column: Optional[str] = None) -> 'Plottable':
         """Drop one resident GFQL index (by kind, or one property index by column) or all (kind=None). Idempotent; returns a new Plottable."""
         from graphistry.compute.gfql.index import drop_index as _di
         return _di(self, kind, column=column)
@@ -658,7 +659,7 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index import gfql_index_all as _gia
         return _gia(self, engine=engine)
 
-    def gfql_index_node_props(self, columns, engine='auto'):
+    def gfql_index_node_props(self, columns: Sequence[str], engine: EngineAbstractType = 'auto') -> 'Plottable':
         """Convenience: build node PROPERTY indexes for ``columns`` (secondary indexes).
 
         A seed predicate on a non-key column (``{id: 42}`` when the graph's node id
