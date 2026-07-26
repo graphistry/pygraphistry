@@ -1094,6 +1094,41 @@ def _cartesian_node_bindings_polars(
     return _rewrap(g, out_df)
 
 
+def _directed_varlen_reachable_polars(
+    state: "pl.LazyFrame",
+    pairs: "pl.LazyFrame",
+    state_cols: List[str],
+    *,
+    min_hops: int,
+    max_hops: int,
+) -> "pl.LazyFrame":
+    """Bounded DIRECTED variable-length expansion of a bindings path bag.
+
+    One row per distinct edge SEQUENCE: ``pairs`` is NOT deduped, so parallel edges
+    multiply per hop, matching pandas' ``_gfql_multihop_binding_rows`` merge. Zero-hop
+    rows (``min_hops == 0``) keep the seed row (endpoint == start) and come first, then
+    hop 1, 2, ... — the same ``reachable`` concat order pandas builds.
+
+    Stays fully lazy: all ``max_hops`` iterations are built without an eager
+    ``.height`` early-break, because an empty intermediate lazily joins to empty and
+    yields the identical result (pandas' break is an optimization, not semantics).
+    """
+    import polars as pl
+
+    reachable: List["pl.LazyFrame"] = [state] if min_hops == 0 else []
+    current = state
+    for hop in range(1, max_hops + 1):
+        current = (
+            current.join(pairs, left_on="__current__", right_on="__from__", how="inner")
+            .drop("__current__")
+            .rename({"__to__": "__current__"})
+            .select(state_cols)
+        )
+        if hop >= min_hops:
+            reachable.append(current)
+    return pl.concat(reachable, how="vertical") if reachable else state.limit(0)
+
+
 def _directed_fixed_point_binding_rows_polars(
     state: "pl.LazyFrame",
     pairs: "pl.LazyFrame",
@@ -1169,19 +1204,10 @@ def _directed_fixed_point_binding_rows_polars(
             "Cypher multi-alias row bindings currently require terminating variable-length segments"
         )
 
-    # (b) bounded path expansion, identical to the `-[*1..k]->` arm with max_hops=depth.
-    reachable: List["pl.LazyFrame"] = [state] if min_hops == 0 else []
-    current = state
-    for hop in range(1, depth + 1):
-        current = (
-            current.join(pairs_lf, left_on="__current__", right_on="__from__", how="inner")
-            .drop("__current__")
-            .rename({"__to__": "__current__"})
-            .select(state_cols)
-        )
-        if hop >= min_hops:
-            reachable.append(current)
-    return pl.concat(reachable, how="vertical") if reachable else state.limit(0)
+    # (b) the SAME bounded expansion the `-[*1..k]->` arm runs, with max_hops = depth.
+    return _directed_varlen_reachable_polars(
+        state, pairs_lf, state_cols, min_hops=min_hops, max_hops=depth
+    )
 
 
 def binding_rows_polars(
@@ -1397,7 +1423,11 @@ def binding_rows_polars(
         if seed_ids_lf is not None:
             # WITH->MATCH re-entry seed: constrain the first alias to the carried ids.
             seed_nodes = seed_nodes.join(seed_ids_lf, on=node_id, how="semi")
-        state = seed_nodes.select(pl.col(node_id).alias("__current__"))
+        # The whole generic builder works in LazyFrames (`nodes_lf` / `edges_lf` above);
+        # `filter_by_dict_polars` is frame-polymorphic at runtime but declares the eager
+        # type, so pin the path bag lazy here instead of leaving every downstream lazy
+        # op to fight an eager inference.
+        state: pl.LazyFrame = seed_nodes.select(pl.col(node_id).alias("__current__"))  # type: ignore[assignment]
         alias_frames: Dict[str, pl.LazyFrame] = {}
         node_aliases: List[str] = []
         first_alias = first_op._name
@@ -1528,23 +1558,14 @@ def binding_rows_polars(
                             reachable.append(current.select(state_cols))
                     state = pl.concat(reachable, how="vertical") if reachable else state.limit(0)
                 else:
-                    max_hops = int(max_hops_value)
-                    pairs = oriented.select(["__from__", "__to__"])
-                    reachable = [state] if min_hops == 0 else []
-                    current = state
-                    # Lazy: build all max_hops iterations (no eager .height early-break —
-                    # empty intermediates lazily join to empty, so the result is
-                    # identical; the pandas break is an optimization, not semantics).
-                    for _hop in range(1, max_hops + 1):
-                        current = (
-                            current.join(pairs, left_on="__current__", right_on="__from__", how="inner")
-                            .drop("__current__")
-                            .rename({"__to__": "__current__"})
-                            .select(state_cols)
-                        )
-                        if _hop >= min_hops:
-                            reachable.append(current)
-                    state = pl.concat(reachable, how="vertical") if reachable else state.limit(0)
+                    # Bounded directed var-length (`-[*1..k]->`, graph-bench q3).
+                    state = _directed_varlen_reachable_polars(
+                        state,
+                        oriented.select(["__from__", "__to__"]),
+                        state_cols,
+                        min_hops=min_hops,
+                        max_hops=int(max_hops_value),
+                    )
             else:
                 state = (
                     state.join(oriented, left_on="__current__", right_on="__from__", how="inner")

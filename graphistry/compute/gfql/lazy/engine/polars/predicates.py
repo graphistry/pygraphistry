@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import operator
 import re
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar, Union
 
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.str import Contains, Endswith, Fullmatch, Match, Startswith
@@ -20,6 +20,12 @@ from .dtypes import is_numeric as _dtype_numeric, is_stringlike as _dtype_string
 if TYPE_CHECKING:
     import datetime
     import polars as pl
+
+    # These helpers are frame-polymorphic: the eager (viz/crossfilter) lane hands them
+    # DataFrames, the lazy chain/bindings lane hands them LazyFrames, and both take the
+    # SAME `.filter(expr)` path. A constrained TypeVar says exactly that and keeps the
+    # caller's flavour on the way out (a plain union would not).
+    PolarsFrameT = TypeVar("PolarsFrameT", "pl.DataFrame", "pl.LazyFrame")
 
 # Comparison-predicate RHS: genuinely dynamic (Cypher properties are dynamically typed) — a
 # python scalar or a GFQL/py temporal matched structurally by type(val).__name__
@@ -282,7 +288,7 @@ def _is_membership(value: Any) -> bool:
     return isinstance(value, (list, tuple, set, frozenset))
 
 
-def _is_cross_type_predicate(df: "pl.DataFrame", col: str, pred: ASTPredicate) -> bool:
+def _is_cross_type_predicate(df: "Union[pl.DataFrame, pl.LazyFrame]", col: str, pred: ASTPredicate) -> bool:
     """True iff the predicate compares a numeric column to a string value (or vice versa):
     polars raises `cannot compare string with numeric type` (an uncatchable Rust panic when
     nested); pandas/cypher return a value/null. Recurses into AllOf (fold of x>a AND x<b) and
@@ -307,7 +313,7 @@ def _is_cross_type_predicate(df: "pl.DataFrame", col: str, pred: ASTPredicate) -
     return _mismatch(val)
 
 
-def filter_by_dict_polars(df: "pl.DataFrame", filter_dict: "Optional[Dict[str, Any]]") -> "pl.DataFrame":
+def filter_by_dict_polars(df: "PolarsFrameT", filter_dict: "Optional[Dict[str, Any]]") -> "PolarsFrameT":
     """Return rows of polars ``df`` matching all entries in ``filter_dict`` via one filter."""
     combined = filter_expr_by_dict_polars(df, filter_dict)
     if combined is None:
@@ -315,7 +321,7 @@ def filter_by_dict_polars(df: "pl.DataFrame", filter_dict: "Optional[Dict[str, A
     return df.filter(combined)
 
 
-def filter_expr_by_dict_polars(df: "pl.DataFrame", filter_dict: "Optional[Dict[str, Any]]") -> "Optional[pl.Expr]":
+def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_dict: "Optional[Dict[str, Any]]") -> "Optional[pl.Expr]":
     """Build the combined boolean ``pl.Expr`` filter_by_dict_polars would apply, or None
     for an empty/absent filter dict. ``df`` supplies the schema for column/dtype
     resolution only — callers may apply the expr to a LazyFrame over the same schema
