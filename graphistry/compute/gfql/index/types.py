@@ -11,7 +11,7 @@ from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT
 if TYPE_CHECKING:
     from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 
-IndexKind = Literal["edge_out_adj", "edge_in_adj", "node_id"]
+IndexKind = Literal["edge_out_adj", "edge_in_adj", "node_id", "node_prop"]
 AdjacencyIndexKind = Literal["edge_out_adj", "edge_in_adj"]
 IndexBackend = Literal["numpy", "cupy"]
 HopDirection = Literal["forward", "reverse", "undirected"]

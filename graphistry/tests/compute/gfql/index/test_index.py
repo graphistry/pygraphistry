@@ -145,6 +145,46 @@ def test_wire_roundtrip(graph):
     show = g.gfql({"type": "ShowIndexes"})
     assert show.shape[0] == 1
 
+def test_node_prop_ddl_and_wire_surfaces(graph):
+    """The property index must be reachable from all three surfaces (review of #1777):
+    Python, Cypher DDL, and the JSON wire protocol — including targeted drops."""
+    from graphistry.compute.gfql.index import NODE_PROP
+
+    # Cypher DDL
+    assert parse_index_ddl("CREATE GFQL INDEX FOR node_prop ON lab").column == "lab"
+    g = graph.gfql("CREATE GFQL INDEX FOR node_prop ON lab")
+    assert get_registry(g).node_prop_cols() == ("lab",)
+    assert g.gfql("SHOW GFQL INDEXES").shape[0] == 1
+
+    # JSON wire, incl. a second column, then a TARGETED drop of just one of them
+    g = g.gfql({"type": "CreateIndex", "kind": "node_prop", "column": "id"})
+    assert get_registry(g).node_prop_cols() == ("id", "lab")
+    g2 = g.gfql({"type": "DropIndex", "kind": "node_prop", "column": "lab"})
+    assert get_registry(g2).node_prop_cols() == ("id",)
+
+    # kind-wide drop, and idempotent re-create of a still-valid resident index
+    assert get_registry(g.gfql({"type": "DropIndex", "kind": "node_prop"})).node_prop_cols() == ()
+    again = g.gfql({"type": "CreateIndex", "kind": "node_prop", "column": "id"})
+    assert get_registry(again).node_props["id"] is get_registry(g).node_props["id"]
+
+
+def test_node_prop_drop_resident_does_not_raise(graph):
+    """`has()` only knows kind-keyed indexes, so a resident property index must not
+    report itself missing (review of #1777)."""
+    g = graph.gfql("CREATE GFQL INDEX FOR node_prop ON lab")
+    assert get_registry(g.gfql("DROP GFQL INDEX FOR node_prop")).node_prop_cols() == ()
+    with pytest.raises(ValueError):
+        graph.gfql("DROP GFQL INDEX FOR node_prop")  # none resident, no IF EXISTS
+    assert graph.gfql("DROP GFQL INDEX IF EXISTS FOR node_prop") is not None
+
+
+def test_node_prop_drop_by_name(graph):
+    """A custom-named property index resolves by name, like the kind-keyed ones."""
+    g = graph.create_index("node_prop", column="lab", name="by_lab")
+    assert get_registry(g).node_props["lab"].name == "by_lab"
+    assert get_registry(g.gfql("DROP GFQL INDEX by_lab")).node_prop_cols() == ()
+
+
 def test_create_rebuilds_stale_resident_index():
     g = graphistry.edges(pd.DataFrame({"src": [0, 1], "dst": [1, 2]}), "src", "dst").materialize_nodes()
     gi = g.gfql("CREATE GFQL INDEX FOR edge_out_adj")
