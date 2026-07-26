@@ -79,8 +79,12 @@ def select_by_ids(df: DataFrameT, col: str, ids: ArrayLike, engine: Engine) -> D
         # Semi-join (not Expr.is_in(Series), which polars 1.42 deprecates as ambiguous —
         # pola-rs/polars#22149) — vectorized AND preserves the left (df) row order, which
         # the node materialization relies on (table-order parity with the scan).
+        # Not deduplicated: a semi-join emits a left row iff >=1 match exists, so repeated
+        # ids neither change the result nor multiply rows — the dedup is a hash pass for
+        # nothing. (cudf/pandas `isin` below has the same set semantics, also without a
+        # dedup.) Anything needing a distinct id set must apply its own `.unique()`.
         ids_df = pl.DataFrame({col: np.asarray(ids)}).cast({col: df.schema[col]})
-        return cast(DataFrameT, df.join(ids_df.unique(), on=col, how="semi"))
+        return cast(DataFrameT, df.join(ids_df, on=col, how="semi"))
     if engine == Engine.CUDF:
         import cudf  # type: ignore
 
