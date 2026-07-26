@@ -149,7 +149,9 @@ def _filter_frame(
             filter_by_dict_polars,
         )
 
-        return cast(DataFrameT, filter_by_dict_polars(frame, filter_dict))  # type: ignore[arg-type]
+        # frame is DataFrameT (engine-neutral); on this branch it IS a polars frame,
+        # which the helper's constrained TypeVar cannot see through the alias
+        return cast(DataFrameT, filter_by_dict_polars(frame, filter_dict))  # type: ignore[type-var]
     from graphistry.compute.filter_by_dict import filter_by_dict
 
     return filter_by_dict(frame, filter_dict, engine)  # type: ignore[arg-type]

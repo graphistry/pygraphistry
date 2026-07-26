@@ -1518,7 +1518,8 @@ def _connected_join_two_star_fast_rows(
 def _filter_nodes_for_fast_count(nodes: DataFrameT, filter_dict: Optional[dict], *, engine: Engine) -> DataFrameT:
     if engine in POLARS_ENGINES:
         from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
-        return cast(DataFrameT, filter_by_dict_polars(nodes, filter_dict))
+        # engine-neutral DataFrameT that IS a polars frame on this branch (see gate above)
+        return cast(DataFrameT, filter_by_dict_polars(nodes, filter_dict))  # type: ignore[type-var]
     return filter_by_dict(nodes, filter_dict, engine=EngineAbstract(engine.value))
 
 

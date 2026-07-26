@@ -1185,19 +1185,19 @@ def _directed_fixed_point_binding_rows_polars(
     )
 
     # (a) depth probe: dedup-by-node frontier, so each hop costs O(N) not O(paths).
-    frontier = _lazy_collect(state.select(pl.col("__current__")).unique())
+    frontier_lf = state.select(pl.col("__current__")).unique()
     depth = 0
     exhausted = node_cap == 0  # no matched edges at all -> no walk of length >= 1
     for hop in range(1, node_cap + 1):
         frontier = _lazy_collect(
-            frontier.lazy()
-            .join(pairs_lf, left_on="__current__", right_on="__from__", how="inner")
+            frontier_lf.join(pairs_lf, left_on="__current__", right_on="__from__", how="inner")
             .select(pl.col("__to__").alias("__current__"))
             .unique()
         )
         if frontier.height == 0:
             exhausted = True
             break
+        frontier_lf = frontier.lazy()
         depth = hop
     if not exhausted:
         RowPipelineMixin._gfql_bindings_error(
@@ -1215,7 +1215,7 @@ def binding_rows_polars(
     binding_ops: Sequence[Dict[str, JSONVal]],
     attach_prop_aliases: Optional[Sequence[str]] = None,
 ) -> Optional[Plottable]:
-    """Native polars bindings-row table for FIXED-LENGTH connected patterns (#1709).
+    """Native polars bindings-row table for connected alias patterns (#1709).
 
     Materializes one row per matched path for an alternating ``n/e/n/...`` pattern
     (the ``rows(binding_ops=...)`` op emitted by Cypher multi-alias lowering), with
@@ -1225,14 +1225,19 @@ def binding_rows_polars(
     columns — raw ``node_id``, ``a__a_join__``, leaked ``__gfql_edge_index__`` —
     that no lowered query references; those are intentionally not replicated.)
 
+    Covers fixed-length hops, bounded variable-length (directed ``-[*i..k]->`` and
+    undirected ``-[*1..k]-``), unbounded DIRECTED fixed point (``-[*]->`` /
+    ``-[*0..]->``), and the node-only cartesian mode.
+
     Returns None to DECLINE (caller raises the honest NIE) for anything outside
-    the supported subset: variable-length/multi-hop edges, shortestPath scalar
-    bindings, node ``query=`` / edge query or endpoint-match params, hop labels,
-    HAS_-label destination disambiguation on duplicate-node-id graphs (unique-id
-    graphs run native — pandas would not narrow there either), seeded re-entry
-    contexts, cartesian (node-only) mode, and the legacy ``alias_endpoints``
-    variant. NO-CHEATING:
-    never bridges to pandas. Parity gate: differential tests vs the pandas oracle.
+    that subset: undirected variable-length outside ``min_hops == 1`` (including
+    undirected unbounded), aliased variable-length relationships, unbounded
+    segments without ``to_fixed_point``, shortestPath scalar bindings, node
+    ``query=`` / edge query or endpoint-match params, hop labels, HAS_-label
+    destination disambiguation on duplicate-node-id graphs (unique-id graphs run
+    native — pandas would not narrow there either), duplicate-id re-entry seeds,
+    and the legacy ``alias_endpoints`` variant. NO-CHEATING: never bridges to
+    pandas. Parity gate: differential tests vs the pandas oracle.
     """
     import polars as pl
     from graphistry.compute.ast import ASTEdge, ASTNode, ASTObject, from_json as ast_from_json
