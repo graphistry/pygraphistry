@@ -14,7 +14,7 @@ output_min/max_hops, labeling, missing node table.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Dict, List, Optional, Tuple, cast
 
 from typing_extensions import TypeGuard
 
@@ -27,7 +27,9 @@ from .engine_arrays import (
 )
 from .lookup import lookup_edge_rows, lookup_node_rows
 from .registry import EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, AdjacencyIndex, GfqlIndexRegistry, NodeIdIndex
-from .types import ArrayLike, EdgeMatch, HopDirection, SimpleEqualityEdgeMatch
+from .types import (
+    ArrayLike, EdgeMatch, HopDirection, ScalarMatchValue, SimpleEqualityEdgeMatch,
+)
 
 
 def _indices_for_direction(
@@ -96,10 +98,16 @@ class _EdgeMatchRowFilter:
 
     __slots__ = ("_series", "_items", "_engine")
 
+    # Typed slots: the per-column edge Series keyed by column name, the validated
+    # (column, scalar) equalities in ``edge_match`` order, and the frame engine.
+    _series: Dict[str, SeriesT]
+    _items: List[Tuple[str, ScalarMatchValue]]
+    _engine: Engine
+
     def __init__(
         self,
         series: Dict[str, SeriesT],
-        items: List[Tuple[str, Any]],
+        items: List[Tuple[str, ScalarMatchValue]],
         engine: Engine,
     ) -> None:
         self._series = series
@@ -113,6 +121,7 @@ class _EdgeMatchRowFilter:
             mask: Optional[ArrayLike] = None
             for col, val in self._items:
                 sub = _gather_series(self._series[col], rows, self._engine)
+                col_mask: ArrayLike
                 # Null-safe materialization: on null-carrying columns (pandas nullable
                 # Int64/boolean/string, polars nulls — which the NaN->null coercion
                 # makes common) a bare == yields NA cells, and to_numpy() then produces
@@ -120,13 +129,12 @@ class _EdgeMatchRowFilter:
                 # not int/bool). Null == val filters out on the scan path, so fill
                 # False is parity-exact.
                 if self._engine in (Engine.POLARS, Engine.POLARS_GPU):
-                    col_mask = cast(ArrayLike, (sub == val).fill_null(False).to_numpy())
+                    col_mask = (sub == val).fill_null(False).to_numpy()
                 elif self._engine == Engine.CUDF:
-                    col_mask = cast(ArrayLike, (sub == val).fillna(False).values)
+                    col_mask = (sub == val).fillna(False).values
                 else:
-                    col_mask = cast(
-                        ArrayLike, (sub == val).fillna(False).to_numpy(dtype=bool))
-                mask = col_mask if mask is None else cast(ArrayLike, cast(Any, mask) & cast(Any, col_mask))
+                    col_mask = (sub == val).fillna(False).to_numpy(dtype=bool)
+                mask = col_mask if mask is None else mask & col_mask
             return mask
         except Exception:  # pragma: no cover - defensive parity guard
             return None
@@ -159,10 +167,11 @@ def _build_edge_row_filter(
         )
         n_edges = int(edges.shape[0])
         series: Dict[str, SeriesT] = {}
-        items: List[Tuple[str, Any]] = []
+        items: List[Tuple[str, ScalarMatchValue]] = []
         for col, val in edge_match.items():
             if col not in edges.columns:
                 return None
+            col_series: SeriesT
             if engine in (Engine.POLARS, Engine.POLARS_GPU):
                 col_series = edges.get_column(col)
             else:
