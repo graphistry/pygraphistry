@@ -671,8 +671,6 @@ class TestSeededPropertyProjection:
     @pytest.mark.parametrize("q,label", [
         ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN m.id AS mid, p.id AS pid", "cross-alias"),
         ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p, p.age", "mixed whole+prop"),
-        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN DISTINCT p.age", "distinct"),
-        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p.age ORDER BY p.age LIMIT 1", "order/limit"),
         ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p.nosuch", "absent property"),
     ])
     def test_out_of_shape_declines_with_parity(self, q, label):
@@ -688,6 +686,17 @@ class TestSeededPropertyProjection:
             import pytest as _pt
             with _pt.raises(Exception):
                 _run_diff(g, "pandas", q, fast=False)
+
+
+    @pytest.mark.parametrize("q,label", [
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN DISTINCT p.age", "distinct"),
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p.age ORDER BY p.age LIMIT 1", "order/limit"),
+    ])
+    def test_canonical_projection_suffix_engages_with_parity(self, q, label):
+        """DISTINCT / ORDER BY / SKIP / LIMIT after the lean projection are plain
+        row-frame ops: the fast path now keeps the seeded gather and delegates the
+        suffix to the canonical chain, so these shapes engage AND stay exact."""
+        self._diff(self._rich_graph(), "pandas", q, True)
 
 
 class TestSeededProjectionDtypeAndEdgesParity:

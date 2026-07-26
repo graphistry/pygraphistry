@@ -7,7 +7,7 @@ parity vs the pandas chain gates correctness; unsupported shapes raise NotImplem
 (no silent pandas fallback). Deferred: variable-length/multi-hop edge sub-cases, some
 undirected multi-edge combos, node query=.
 """
-from typing import Any, List, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, cast
 
 from typing_extensions import TypedDict
 
@@ -17,6 +17,9 @@ from graphistry.compute.gfql.call.support import AggSpec
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
+
+if TYPE_CHECKING:
+    from graphistry.compute.gfql.index.bindings import IndexedBindingsState
 from .hop_eager import ensure_nodes_polars
 from .dtypes import is_lazy, colnames, endpoint_ids
 from .degrees import get_degrees_polars, get_indegrees_polars, get_outdegrees_polars
@@ -373,9 +376,8 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
         return g_cur
 
     if start_nodes is not None:
-        setattr(g_cur, "_gfql_start_nodes", start_nodes)
-    setattr(g_cur, "_gfql_rows_base_graph", base_graph)
-    setattr(g_cur, "_gfql_shortest_path_backend", getattr(g_cur, "_gfql_shortest_path_backend", "auto"))
+        g_cur._gfql_start_nodes = start_nodes
+    g_cur._gfql_rows_base_graph = base_graph
 
     if (
         middle
@@ -582,10 +584,84 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
             "use engine='pandas' for this chain."
         )
 
-    g_cur = _chain_traversal_polars(self, middle, start_nodes)
+    from graphistry.compute.chain import serialize_binding_ops
+    from graphistry.compute.gfql.index.handoff import (
+        IndexedBindingsHandoff, attach_handoff,
+    )
+
+    indexed_state, indexed_attempted = _try_indexed_middle_polars(self, middle, suffix, start_nodes)
+    if indexed_state is not None:
+        # Skip the canonical traversal: the compact indexed path bag already IS the
+        # binding rows the suffix asks for. Hand it to the unchanged native rows
+        # materializer through an internal graph copy.
+        g_cur = attach_handoff(self, IndexedBindingsHandoff(
+            binding_ops=serialize_binding_ops(middle),
+            state=indexed_state,
+            edge_aliases=tuple(
+                op._name for op in middle
+                if isinstance(op, ASTEdge) and isinstance(op._name, str)
+            ),
+        ))
+    else:
+        g_cur = _chain_traversal_polars(self, middle, start_nodes)
+        if indexed_attempted:
+            # Record the exact declined plan so the rows materializer does not
+            # re-attempt (and re-record) the same decision. Attach, never mutate:
+            # the pandas twin does the same, so neither boundary can write onto a
+            # graph it does not own.
+            g_cur = attach_handoff(g_cur, IndexedBindingsHandoff(
+                binding_ops=serialize_binding_ops(middle),
+            ))
     if suffix:
         g_cur = _run_calls_polars(g_cur, suffix, start_nodes, base_graph=self, middle=middle)
     return g_cur
+
+
+def _try_indexed_middle_polars(
+    g: Plottable,
+    middle: List[ASTObject],
+    suffix: List[ASTObject],
+    start_nodes: Optional[Any],
+) -> Tuple[Optional["IndexedBindingsState"], bool]:
+    """Attempt the indexed fixed-hop path BEFORE the canonical polars traversal.
+
+    Returns ``(state_or_None, attempted)``. The shape gate mirrors the pandas
+    boundary gate and ``_run_calls_polars``' named-middle rewrite: the bypass is
+    only sound when the leading rows call consumes exactly this middle as binding
+    ops. Everything else (prefiltered/seeded/aliased-endpoint rows, unnamed middle
+    without binding ops, non-traversal middle) keeps the canonical path.
+    """
+    from graphistry.compute.ast import ASTCall
+    from graphistry.compute.chain import serialize_binding_ops
+
+    if (
+        not middle
+        or not suffix
+        or start_nodes is not None
+        or not isinstance(suffix[0], ASTCall)
+        or suffix[0].function != "rows"
+        or suffix[0].params.get("source") is not None
+        or suffix[0].params.get("alias_endpoints") is not None
+        or suffix[0].params.get("alias_prefilters")
+        or not all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
+    ):
+        return None, False
+    binding_ops = suffix[0].params.get("binding_ops")
+    if not (
+        binding_ops == serialize_binding_ops(middle)
+        or (
+            binding_ops is None
+            and any(op._name is not None for op in middle)
+        )
+    ):
+        return None, False
+
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.bindings import try_indexed_connected_bindings_state
+    from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
+
+    engine = Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else Engine.POLARS
+    return try_indexed_connected_bindings_state(g, middle, engine=engine), True
 
 
 def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plottable:

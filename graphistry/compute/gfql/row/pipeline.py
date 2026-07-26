@@ -5,7 +5,7 @@ import re
 import warnings
 from functools import lru_cache
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Sequence, Tuple, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, NoReturn, Optional, Sequence, Tuple, cast
 from typing_extensions import Literal
 
 import pandas as pd
@@ -81,6 +81,9 @@ from graphistry.compute.gfql.temporal.durations import (
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
+    from graphistry.compute.typing import DataFrameT
+    from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
+    from graphistry.compute.gfql.index.registry import GfqlIndexRegistry
     from graphistry.compute.ast import ASTObject
     from graphistry.compute.gfql.expr_parser import ExprNode
 
@@ -196,10 +199,18 @@ def is_row_pipeline_call(function: str) -> bool:
 
 
 class RowPipelineMixin:
-    _g: Any
-    _gfql_start_nodes: Any
-    _gfql_rows_base_graph: Any
-    _gfql_rows_edge_aliases: Any
+    # Mirrors the GFQL execution-context fields declared on Plottable: this mixin
+    # is also used by `_RowPipelineAdapter`, which is not a PlotterBase, so the
+    # defaults must exist here too for typed access to be total.
+    _gfql_index_policy: str = "use"
+    _gfql_index_registry: Optional["GfqlIndexRegistry"] = None
+    _gfql_indexed_bindings_handoff: Optional["IndexedBindingsHandoff"] = None
+    _gfql_shortest_path_backend: str = "auto"
+
+    _g: Optional["Plottable"] = None
+    _gfql_start_nodes: Optional["DataFrameT"] = None
+    _gfql_rows_base_graph: Optional["Plottable"] = None
+    _gfql_rows_edge_aliases: Optional[Iterable[str]] = None
     _nodes: Any
     _edges: Any
     _node: Any
@@ -2759,7 +2770,7 @@ class RowPipelineMixin:
         # identity column (alias.{node_id_col}).  This lets expressions like
         # count(post) work when the table has post.id, post.name, etc. (#880)
         if "." not in txt and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, txt):
-            edge_aliases = getattr(self, "_gfql_rows_edge_aliases", None)
+            edge_aliases = self._gfql_rows_edge_aliases
             if edge_aliases is not None and txt in edge_aliases:
                 # Relationship aliases should render as entities (parity with
                 # Cypher RETURN <relAlias>) instead of collapsing to id-like
@@ -3581,7 +3592,7 @@ class RowPipelineMixin:
         alias_prefilters: Optional[AliasPrefilters] = None,
     ) -> Tuple[DataFrameT, Dict[str, DataFrameT]]:
         from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
-        from graphistry.compute.ast import ASTEdge, ASTNode
+        from graphistry.compute.ast import ASTEdge, ASTNode, serialize_binding_ops
 
         if self._nodes is None or self._edges is None:
             return self._gfql_empty_frame(), {}
@@ -3607,7 +3618,29 @@ class RowPipelineMixin:
 
         base_df = self._nodes if self._nodes is not None else self._edges
         engine = resolve_engine(EngineAbstract.AUTO, base_df)
-        start_nodes = getattr(self, "_gfql_start_nodes", None)
+        start_nodes = self._gfql_start_nodes
+        from graphistry.compute.gfql.index.handoff import read_handoff
+
+        handoff = read_handoff(self)
+        binding_ops = serialize_binding_ops(ops)
+        if handoff is not None and handoff.serves(binding_ops, engine) and not alias_prefilters:
+            assert handoff.state is not None  # narrowed by serves()
+            return handoff.state.state, handoff.state.alias_frames
+        previously_declined = handoff is not None and handoff.declined(binding_ops)
+        if (
+            not previously_declined
+            and not RowPipelineMixin._gfql_is_shortest_path_scalar_binding_ops(ops)
+        ):
+            from graphistry.compute.gfql.index import bindings as indexed_bindings
+            indexed_state = indexed_bindings.try_indexed_connected_bindings_state(
+                base_graph,
+                ops,
+                engine=engine,
+                start_nodes=start_nodes,
+                alias_prefilters=alias_prefilters,
+            )
+            if indexed_state is not None:
+                return indexed_state.state, indexed_state.alias_frames
         first_op = ops[0]
         if not isinstance(first_op, ASTNode):
             self._gfql_bindings_error(
@@ -3839,7 +3872,7 @@ class RowPipelineMixin:
             for alias in [getattr(op, "_name", None)]
             if isinstance(op, ASTEdge) and isinstance(alias, str)
         }
-        setattr(out, "_gfql_rows_edge_aliases", edge_aliases)
+        out._gfql_rows_edge_aliases = edge_aliases
         return out
 
     def _gfql_add_missing_binding_columns(
@@ -4097,7 +4130,7 @@ class RowPipelineMixin:
             return self._gfql_row_table(self._gfql_empty_frame())
 
         # Try native igraph/cugraph backend first; fall back to BFS
-        sp_backend = getattr(self, "_gfql_shortest_path_backend", "auto")
+        sp_backend = self._gfql_shortest_path_backend
         reachable_hops = self._gfql_shortest_path_scalar_native(
             seed_table, ops, start_alias, end_alias, hop_column, backend=sp_backend
         )
@@ -4168,7 +4201,7 @@ class RowPipelineMixin:
 
         base_df = self._nodes if self._nodes is not None else self._edges
         engine = resolve_engine(EngineAbstract.AUTO, base_df)
-        start_nodes = getattr(self, "_gfql_start_nodes", None)
+        start_nodes = self._gfql_start_nodes
         join_col = RowPipelineMixin._gfql_fresh_col_name(base_nodes.columns, "__gfql_bindings_join__")
         bindings: Optional[Any] = None
         anonymous_cols: List[str] = []
@@ -5158,10 +5191,13 @@ class _RowPipelineAdapter(RowPipelineMixin):
     """Adapter for row-pipeline calls without requiring global ComputeMixin inheritance."""
 
     def __init__(self, g: "Plottable") -> None:
+        from graphistry.compute.gfql.index.handoff import read_handoff
+
         self._g = g
-        self._gfql_start_nodes = getattr(g, "_gfql_start_nodes", None)
-        self._gfql_rows_base_graph = getattr(g, "_gfql_rows_base_graph", None)
-        self._gfql_rows_edge_aliases = getattr(g, "_gfql_rows_edge_aliases", None)
+        self._gfql_start_nodes = g._gfql_start_nodes
+        self._gfql_rows_base_graph = g._gfql_rows_base_graph
+        self._gfql_rows_edge_aliases = g._gfql_rows_edge_aliases
+        self._gfql_indexed_bindings_handoff = read_handoff(g)
         self._nodes = g._nodes
         self._edges = g._edges
         self._node = g._node
@@ -5170,6 +5206,7 @@ class _RowPipelineAdapter(RowPipelineMixin):
         self._edge = g._edge
 
     def bind(self) -> "Plottable":
+        assert self._g is not None  # set by __init__; kept Optional for the protocol
         return self._g.bind()
 
 

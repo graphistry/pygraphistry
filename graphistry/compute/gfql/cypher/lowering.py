@@ -2130,8 +2130,14 @@ class _SyntheticRowGraph:
         self._destination = None
         self._edge = None
         self._g = self
+        # Full GFQL execution context (see Plottable): this stand-in flows through
+        # the same row pipeline, so every field must exist or typed access breaks.
         self._gfql_start_nodes = None
         self._gfql_rows_base_graph = None
+        self._gfql_rows_edge_aliases = None
+        self._gfql_indexed_bindings_handoff = None
+        self._gfql_index_policy = "use"
+        self._gfql_index_registry = None
         self._gfql_shortest_path_backend = "auto"
 
     def bind(self) -> "_SyntheticRowGraph":

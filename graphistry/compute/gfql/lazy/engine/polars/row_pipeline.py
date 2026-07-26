@@ -22,6 +22,12 @@ if TYPE_CHECKING:
     from graphistry.compute.gfql.expr_parser import ExprNode, FunctionCall
     from graphistry.compute.ast import ASTObject
 
+    # Within ONE call the path bag and its per-alias frames are the same polars
+    # flavour — the generic builder works in LazyFrames, the indexed one in eager
+    # frames. A constrained TypeVar says that; a plain union does not, and then
+    # `state.join(lookup)` cannot type-check.
+    PolarsFrameT = TypeVar("PolarsFrameT", "pl.DataFrame", "pl.LazyFrame")
+
 from graphistry.Plottable import Plottable
 from graphistry.utils.json import JSONVal
 # Engine-neutral wire-format payload types (ASTCall.params). Shapes are safelist-validated
@@ -636,6 +642,86 @@ def _rewrap(g: Plottable, table_df: Any) -> Plottable:
     return frame_ops.row_table(_RowPipelineAdapter(g), table_df)
 
 
+def _finish_binding_rows_polars(
+    g: Plottable,
+    ops: "Sequence[ASTObject]",
+    state: "PolarsFrameT",
+    alias_frames: Dict[str, "PolarsFrameT"],
+    node_id: str,
+    attach_prop_aliases: Optional[Sequence[str]],
+    *,
+    decline_on_schema_error: bool,
+) -> Optional[Plottable]:
+    """Canonical property attachment/materialization for generic or indexed state.
+
+    ``decline_on_schema_error`` reflects WHOSE state this is. The generic builder
+    joins frames polars will not unify the way pandas implicitly does (int vs float
+    join keys), so a ``SchemaError`` there is an honest decline. The indexed state
+    comes from a helper that already checked those dtypes, so a ``SchemaError``
+    there is a BUG and must surface rather than become a silent slow-path fallback.
+    """
+    import polars as pl
+    from graphistry.compute.ast import ASTEdge, ASTNode
+    from graphistry.compute.gfql.lazy import collect as _lazy_collect
+
+    def names(frame: "PolarsFrameT") -> List[str]:
+        return (
+            frame.collect_schema().names()
+            if isinstance(frame, pl.LazyFrame)
+            else list(frame.columns)
+        )
+
+    try:
+        attach_set = (
+            None if attach_prop_aliases is None else set(attach_prop_aliases)
+        )
+        node_aliases: List[str] = [
+            op._name
+            for op in ops[::2]
+            if isinstance(op, (ASTNode, ASTEdge)) and isinstance(op._name, str)
+        ]
+        for alias in node_aliases:
+            if attach_set is not None and alias not in attach_set:
+                continue
+            lookup_src = alias_frames[alias]
+            lookup = lookup_src.select(
+                [
+                    pl.col(node_id),
+                    pl.col(node_id).alias(f"{alias}.{node_id}"),
+                ]
+                + [
+                    pl.col(col).alias(f"{alias}.{col}")
+                    for col in names(lookup_src)
+                    if col != node_id
+                ]
+            )
+            if (set(names(lookup)) - {node_id}) & set(names(state)):
+                return None
+            state = state.join(
+                lookup, left_on=alias, right_on=node_id, how="left",
+            )
+        state = state.drop("__current__")
+        out_df = (
+            _lazy_collect(state)
+            if isinstance(state, pl.LazyFrame)
+            else state
+        )
+    except pl.exceptions.SchemaError:
+        if not decline_on_schema_error:
+            raise
+        return None
+
+    out = _rewrap(g, out_df)
+    edge_aliases = {
+        alias
+        for op in ops[1::2]
+        for alias in [op._name]
+        if isinstance(alias, str)
+    }
+    out._gfql_rows_edge_aliases = edge_aliases
+    return out
+
+
 _LowerT = TypeVar("_LowerT")
 
 
@@ -1051,7 +1137,7 @@ def binding_rows_polars(
     if nodes is None or edges is None or node_id is None or src is None or dst is None:
         return None
     seed_ids_lf: Optional[Any] = None  # LazyFrame; Any avoids the union-typed seed_nodes.join mismatch
-    start_nodes = getattr(g, "_gfql_start_nodes", None)
+    start_nodes = g._gfql_start_nodes
     if start_nodes is not None:
         # Bounded WITH->MATCH re-entry (#1273): the carried WITH rows seed the first
         # alias. Constrain the first node alias to the carried ids via a semi-join —
@@ -1065,7 +1151,7 @@ def binding_rows_polars(
             sn = _df_to_engine(sn, _Engine.POLARS)
         if node_id not in sn.columns:
             return None
-        seed_ids = sn.select(pl.col(node_id)).drop_nulls()
+        seed_ids = sn.select(pl.col(node_id)).drop_nulls()  # type: ignore[operator]  # polars op on a DataFrameT-typed seed
         if seed_ids.height != seed_ids.unique().height:
             return None
         seed_ids_lf = seed_ids.lazy()
@@ -1085,6 +1171,50 @@ def binding_rows_polars(
         return _cartesian_node_bindings_polars(g, ops, node_id)
     if RowPipelineMixin._gfql_is_shortest_path_scalar_binding_ops(ops):
         return None  # shortestPath scalar contract: BFS/native backends, pandas-only
+
+    from graphistry.compute.gfql.index import bindings as indexed_bindings
+    from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
+    from graphistry.Engine import Engine
+    base_graph = g._gfql_rows_base_graph
+    if base_graph is None:
+        base_graph = g
+    engine_concrete = (
+        Engine.POLARS_GPU
+        if active_target() == ExecutionTarget.GPU
+        else Engine.POLARS
+    )
+    # The chain boundary may already have decided this exact plan (served or
+    # declined) before the canonical traversal; reuse that decision instead of
+    # recomputing it — and re-recording a duplicate trace step.
+    from graphistry.compute.gfql.index.handoff import read_handoff
+
+    handoff = read_handoff(g)
+    plan = list(binding_ops)
+    indexed_state = (
+        handoff.state
+        if handoff is not None and handoff.serves(plan, engine_concrete)
+        else None
+    )
+    if indexed_state is None and not (handoff is not None and handoff.declined(plan)):
+        indexed_state = indexed_bindings.try_indexed_connected_bindings_state(
+            base_graph,
+            ops,
+            engine=engine_concrete,
+            start_nodes=start_nodes,
+        )
+    if indexed_state is not None:
+        return _finish_binding_rows_polars(
+            g,
+            ops,
+            # engine-polymorphic by declaration; on the polars branch the helper
+            # builds polars frames, so narrow once here rather than widening the
+            # finisher's contract back to Any
+            cast("pl.DataFrame", indexed_state.state),
+            cast(Dict[str, "pl.DataFrame"], indexed_state.alias_frames),
+            str(node_id),
+            attach_prop_aliases,
+            decline_on_schema_error=False,  # our own state: a schema clash is a bug
+        )
 
     for idx, op in enumerate(ops):
         if idx % 2 == 0:
@@ -1327,7 +1457,7 @@ def binding_rows_polars(
                 and edge_op.direction == "forward"
                 and not RowPipelineMixin._gfql_node_filter_has_label(next_op.filter_dict)
             ):
-                base_graph = getattr(g, "_gfql_rows_base_graph", None)
+                base_graph = g._gfql_rows_base_graph
                 base_nodes = getattr(base_graph, "_nodes", None)
                 if base_nodes is None:
                     return None
@@ -1347,46 +1477,17 @@ def binding_rows_polars(
                 alias_frames[next_alias] = next_nodes
                 node_aliases.append(next_alias)
 
-        # #1711 projection-pushdown: attach_prop_aliases (from the cypher lowering)
-        # names node aliases whose PROPERTIES are referenced downstream; others skip
-        # the property join (their bare id column suffices). None = attach all.
-        attach_set = None if attach_prop_aliases is None else set(attach_prop_aliases)
-        for alias in node_aliases:
-            if attach_set is not None and alias not in attach_set:
-                continue  # properties unreferenced — keep only the bare id column
-            lookup_src = alias_frames[alias]
-            lookup = lookup_src.select(
-                [
-                    pl.col(node_id),
-                    pl.col(node_id).alias(f"{alias}.{node_id}"),
-                ]
-                + [
-                    pl.col(col).alias(f"{alias}.{col}")
-                    for col in _names(lookup_src)
-                    if col != node_id
-                ]
-            )
-            if (set(_names(lookup)) - {node_id}) & set(_names(state)):
-                return None
-            state = state.join(lookup, left_on=alias, right_on=node_id, how="left")
-        state = state.drop("__current__")
-        # Single collect on the active target (CPU / GPU). Deferred SchemaError
-        # (int/float join-key dtype divergence pandas unifies implicitly) surfaces
-        # here → decline honestly; a GPU-incapable node raises NotImplementedError
-        # (from the lazy `collect` NO-CHEATING contract), which we let propagate.
-        out_df = _lazy_collect(state)
+        # The finisher's frame type is a constrained TypeVar so `state.join(lookup)`
+        # type-checks. The GENERIC builder above mixes eager and lazy frames across
+        # its (pre-existing) branches, so inference cannot pick one here; the
+        # indexed caller binds cleanly. Narrow just this call rather than widening
+        # the finisher back to `Any`.
+        return _finish_binding_rows_polars(  # type: ignore[misc]
+            g, ops, state, alias_frames, node_id, attach_prop_aliases,
+            decline_on_schema_error=True,  # pandas-vs-polars join-key dtype divergence
+        )
     except pl.exceptions.SchemaError:
         return None
-
-    out = _rewrap(g, out_df)
-    edge_aliases = {
-        alias
-        for op in ops[1::2]
-        for alias in [op._name]
-        if isinstance(alias, str)
-    }
-    setattr(out, "_gfql_rows_edge_aliases", edge_aliases)
-    return out
 
 
 def can_select_native(items: Sequence[SelectItem], columns: Sequence[str]) -> bool:
