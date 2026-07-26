@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union, Protocol, overload
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Set, Tuple, Union, Protocol, overload
 from typing_extensions import Literal, runtime_checkable
 import pandas as pd
 
@@ -22,6 +22,7 @@ from graphistry.models.types import SchemaValidationParam, ValidationParam
 from graphistry.models.surfaces.graphistry_frontend.url_params import URLParamsDict
 
 if TYPE_CHECKING:
+    from graphistry.compute.typing import DataFrameT
     from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
     from graphistry.compute.gfql.index.policy import IndexPolicy
     from graphistry.compute.gfql.index.registry import GfqlIndexRegistry
@@ -66,8 +67,8 @@ class Plottable(Protocol):
     _gfql_index_registry: Optional["GfqlIndexRegistry"]
     _gfql_indexed_bindings_handoff: Optional["IndexedBindingsHandoff"]
     _gfql_rows_base_graph: Optional["Plottable"]
-    _gfql_start_nodes: Optional[Any]
-    _gfql_rows_edge_aliases: Optional[Any]
+    _gfql_start_nodes: Optional["DataFrameT"]
+    _gfql_rows_edge_aliases: Optional[Iterable[str]]
     _gfql_shortest_path_backend: str
 
     _edges : Any
