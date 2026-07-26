@@ -125,8 +125,11 @@ def test_duplicate_start_nodes_do_not_change_the_result(shape):
     schema, not just a malformed graph."""
     _, g_pl = _pair(*_clean_frames())
     chain = list(SHAPES[shape])
-    uniq = pl.DataFrame({"key": [0, 1, 2]})
-    dup = pl.DataFrame({"key": [0, 1, 1, 2, 2, 2]})
+    # Full node rows, not a bare key column: start_nodes stands in for the node frame, so
+    # a key-only frame would make the seed's own `id` predicate fail before reaching the
+    # semi-join this test is about.
+    uniq = g_pl._nodes.filter(pl.col("key").is_in([0, 1, 2]))
+    dup = pl.concat([uniq, uniq.head(2), uniq.head(2)], how="vertical")
     try:
         a = g_pl.chain(chain, engine="polars", start_nodes=uniq)
         b = g_pl.chain(chain, engine="polars", start_nodes=dup)
