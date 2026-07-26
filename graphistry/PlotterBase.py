@@ -228,6 +228,7 @@ class PlotterBase(Plottable):
     _gfql_start_nodes: Optional[Any] = None
     _gfql_rows_edge_aliases: Optional[Any] = None
     _gfql_shortest_path_backend: str = "auto"
+    _g: Optional["Plottable"] = None  # set only on row-pipeline adapters
 
     _defaultNodeId = NODE
     _defaultEdgeSourceId = SRC

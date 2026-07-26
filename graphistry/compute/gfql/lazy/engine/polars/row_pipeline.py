@@ -638,14 +638,27 @@ def _rewrap(g: Plottable, table_df: Any) -> Plottable:
 
 def _finish_binding_rows_polars(
     g: Plottable,
-    ops: Sequence[Any],
+    ops: "Sequence[ASTObject]",
+    # Deliberately Any, not a polars union: the SAME parameter receives a polars
+    # eager frame, a polars LazyFrame, and the engine-polymorphic `DataFrameT` the
+    # indexed helper returns. A precise union here only buys `# type: ignore`s.
     state: Any,
     alias_frames: Dict[str, Any],
     node_id: str,
     attach_prop_aliases: Optional[Sequence[str]],
+    *,
+    decline_on_schema_error: bool,
 ) -> Optional[Plottable]:
-    """Canonical property attachment/materialization for generic or indexed state."""
+    """Canonical property attachment/materialization for generic or indexed state.
+
+    ``decline_on_schema_error`` reflects WHOSE state this is. The generic builder
+    joins frames polars will not unify the way pandas implicitly does (int vs float
+    join keys), so a ``SchemaError`` there is an honest decline. The indexed state
+    comes from a helper that already checked those dtypes, so a ``SchemaError``
+    there is a BUG and must surface rather than become a silent slow-path fallback.
+    """
     import polars as pl
+    from graphistry.compute.ast import ASTEdge, ASTNode
     from graphistry.compute.gfql.lazy import collect as _lazy_collect
 
     def names(frame: Any) -> List[str]:
@@ -659,10 +672,10 @@ def _finish_binding_rows_polars(
         attach_set = (
             None if attach_prop_aliases is None else set(attach_prop_aliases)
         )
-        node_aliases = [
+        node_aliases: List[str] = [
             op._name
             for op in ops[::2]
-            if isinstance(getattr(op, "_name", None), str)
+            if isinstance(op, (ASTNode, ASTEdge)) and isinstance(op._name, str)
         ]
         for alias in node_aliases:
             if attach_set is not None and alias not in attach_set:
@@ -691,6 +704,8 @@ def _finish_binding_rows_polars(
             else state
         )
     except pl.exceptions.SchemaError:
+        if not decline_on_schema_error:
+            raise
         return None
 
     out = _rewrap(g, out_df)
@@ -1192,6 +1207,7 @@ def binding_rows_polars(
             indexed_state.alias_frames,
             str(node_id),
             attach_prop_aliases,
+            decline_on_schema_error=False,  # our own state: a schema clash is a bug
         )
 
     for idx, op in enumerate(ops):
@@ -1457,6 +1473,7 @@ def binding_rows_polars(
 
         return _finish_binding_rows_polars(
             g, ops, state, alias_frames, node_id, attach_prop_aliases,
+            decline_on_schema_error=True,  # pandas-vs-polars join-key dtype divergence
         )
     except pl.exceptions.SchemaError:
         return None
