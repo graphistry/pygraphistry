@@ -28,8 +28,15 @@ from .reserved_columns import CHAIN_NODE_HOP
 
 
 def _semi(df, ids_df, df_col, id_col):
-    """Rows of df whose df_col is present in ids_df[id_col] (vectorized semi-join)."""
-    return df.join(ids_df.select(id_col).unique(), left_on=df_col, right_on=id_col, how="semi")
+    """Rows of df whose df_col is present in ids_df[id_col] (vectorized semi-join).
+
+    The key frame is NOT deduplicated: a semi-join emits a left row iff at least one
+    matching right row exists, so duplicate keys cannot change which rows come back (and
+    a semi-join never multiplies rows the way an inner join would). Deduplicating first
+    is a whole extra hash pass over the key column for no observable effect — 60.7 -> 8.6 ms
+    on a 3.18M-key build side. See the module note on semi-join key frames.
+    """
+    return df.join(ids_df.select(id_col), left_on=df_col, right_on=id_col, how="semi")
 
 
 def _align_seed_dtype(seed, node_col, ref_nodes):
@@ -326,7 +333,7 @@ def _apply_node_names(out, g, steps, auto_hop_col: str = _AUTO_NODE_HOP):
                 if max_hop is not None:
                     in_window = in_window & (hop <= max_hop)
                 named = named.join(
-                    g_step._nodes.filter(in_window).select(pl.col(node_col)).unique(),
+                    g_step._nodes.filter(in_window).select(pl.col(node_col)),
                     on=node_col, how="semi")
         if idx + 1 < len(step_list):
             next_op, next_step = step_list[idx + 1]
@@ -338,7 +345,9 @@ def _apply_node_names(out, g, steps, auto_hop_col: str = _AUTO_NODE_HOP):
                     part = e.select(pl.col(dst).alias(node_col))
                 else:
                     part = endpoint_ids(e, src, dst, node_col)
-                named = named.join(part.unique(), on=node_col, how="semi")
+                # `part` is a semi-join key side (dupes cannot change it); `named` above keeps
+                # its .unique() because it feeds a how="left" join, where they WOULD multiply.
+                named = named.join(part, on=node_col, how="semi")
         flag = named.with_columns(pl.lit(True).alias(op._name))
         out = out.join(flag, on=node_col, how="left").with_columns(pl.col(op._name).fill_null(False))
     return out
@@ -809,7 +818,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                     to_ids = filter_by_dict_polars(gf._nodes, n2.filter_dict).select(pl.col(ncol))
                     edges = edges.join(to_ids, left_on=to_col, right_on=ncol, how="semi")
             endpoints = endpoint_ids(edges, scol, dcol, ncol)
-            nodes = gf._nodes.join(endpoints.unique(), on=ncol, how="semi")
+            nodes = gf._nodes.join(endpoints, on=ncol, how="semi")
             return gf.nodes(nodes, ncol).edges(_restore_edge_dtypes(edges, scol, dcol, restore), scol, dcol)
 
     if start_nodes is not None:
