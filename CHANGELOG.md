@@ -16,7 +16,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Indexed seed lookup now covers a unique node id PLUS extra scalar constraints**: `{node_id: v, other: w}` previously fell back to a full node-table scan even though the unique node-id index can gather at most one row; it now gathers that one row and applies the remaining constraints to it. Missing ids and non-matching extra constraints return the same empty result as before, and duplicate-id graphs (which cannot build the index) are unaffected.
 - **Seeded typed-hop property projection keeps its fast path through DISTINCT / ORDER BY / SKIP / LIMIT**: those trailing row ops are plain frame operations, so the fast path now delegates them to the canonical chain instead of declining the whole query.
 
+### Changed
+- **GFQL execution context is declared rather than attached at runtime**: the private `_gfql_*` per-execution fields (index policy and registry, row-pipeline base graph, carried seed nodes, edge aliases, shortest-path backend, and the indexed-bindings handoff) are now declared on `Plottable` with defaults on `PlotterBase`, instead of being set with `setattr` and read back with `getattr(..., default)`. No public API or behaviour change; internal call sites are typed, and hand-rolled `Plottable` stand-ins must now construct the full context.
+
 ### Fixed
+- **Indexed bypass could return every node for `rows()` over an unnamed pattern**: the boundary accepted a `rows()` call carrying no binding ops over a middle with no aliases. That call reads the traversal-narrowed node table, but the bypass hands it the full graph, so the query would have returned all nodes. The gate now requires that the rows call actually consumes the whole middle as binding ops — either it already carries them, or the named-middle rewrite installs exactly them.
 - **Seeded property-RETURN dtype divergence on cuDF**: the lean projection applied the pandas rows-pivot artifact (int → float64, bool → object) on every engine, but cuDF's canonical pivot preserves the source dtypes — so the fast path returned `float64`/`object` where cuDF's own canonical path returns `int64`/`bool`. The cast rule is now engine-aware; the dtype-class decline guard is unchanged.
 
 ### Documentation
