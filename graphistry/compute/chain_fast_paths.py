@@ -197,11 +197,26 @@ def _seeded_typed_hop_pandas_cudf(
     seed_nodes = edges = cand = None
     if ctx is not None:
         nid, adj, xp, idx_engine = ctx
+        seeded_by_id = False
         if node in n0f:
             seed_nodes = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
+            seeded_by_id = seed_nodes is not None
+        if seed_nodes is None:
+            # Seed predicate is not answerable by the node-id index (it is not on
+            # the binding column, or the id cast was unsafe). A resident PROPERTY
+            # index can answer it (#1780): without this, seeding on a business key
+            # while the graph binds a different column costs a full node scan —
+            # the dominant cost of a seeded lookup at scale, not the traversal.
+            # Engagement is structural (integer scalar equality on an indexed
+            # column, selectivity-gated); nothing inspects which query this is.
+            seed_nodes = _seed_rows_via_prop_index(g, nodes_df, n0f, xp, idx_engine)
         if seed_nodes is not None:
+            # Re-apply the filter to the candidates. Skip the binding column ONLY
+            # when the node-id index already answered it; property-index seeds
+            # have NOT had it applied, and skipping it there would return a
+            # superset (a silent wrong answer, not just a slow one).
             for k, v in n0f.items():
-                if k != node:
+                if k != node or not seeded_by_id:
                     seed_nodes = seed_nodes[seed_nodes[k] == v]
         else:
             seed_nodes = nodes_df
@@ -394,3 +409,29 @@ def _seeded_typed_return_dst_polars(
     edges = edges.filter(pl.col(to_col).is_in(keep_ids.implode()))
     dstn = dstn.filter(pl.col(node).is_in(edges.get_column(to_col).implode())).unique(subset=[node], maintain_order=True)
     return dstn, edges
+
+
+def _seed_rows_via_prop_index(
+    g: Plottable, nodes_df: DataFrameT, node_filter: Dict[str, Any],
+    xp: ArrayNamespace, engine: "Engine",
+) -> Optional[DataFrameT]:
+    """Seed candidate rows from a resident node PROPERTY index, else None.
+
+    Bridges the single-alias seeded chain shape (``n({prop: v}) -> e -> n()``) to
+    the property index #1777 added, which was previously only reachable from the
+    connected-bindings seam (#1780). Returns CANDIDATES: the caller must re-apply
+    the whole node filter, so an engaged index can only change speed, never rows.
+    """
+    from graphistry.compute.gfql.index import get_index_policy, get_registry
+    from graphistry.compute.gfql.index.bindings import _seed_rows_via_property_index
+    from graphistry.compute.gfql.index.engine_arrays import take_rows
+
+    registry = get_registry(g)
+    if registry.is_empty():
+        return None
+    positions = _seed_rows_via_property_index(
+        registry, nodes_df, node_filter, engine, xp, policy=get_index_policy(g),
+    )
+    if positions is None:
+        return None
+    return take_rows(nodes_df, positions, engine)
