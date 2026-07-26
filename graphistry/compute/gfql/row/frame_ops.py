@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, cast
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, cast
 
 import pandas as pd
 
@@ -11,6 +11,7 @@ from graphistry.utils.json import JSONVal
 if TYPE_CHECKING:
     from typing import Protocol
     from graphistry.Plottable import Plottable
+    from graphistry.compute.typing import DataFrameT
 
     class RowPipelineCtx(Protocol):
         """Structural contract the row-pipeline frame ops need from their host graph.
@@ -19,12 +20,15 @@ if TYPE_CHECKING:
         former ``ctx: Any`` so the attribute/method access is type-checked instead of duck-typed.
         Type-check-only (annotations are strings under ``from __future__ import annotations``) —
         zero runtime effect, no runtime Protocol import."""
-        _nodes: Any
-        _edges: Any
-        _edge: Any
+        _nodes: Optional["DataFrameT"]
+        _edges: Optional["DataFrameT"]
+        _edge: Optional[str]
+        _node: Optional[str]
+        # Back-reference to the graph an adapter wraps; None on a graph that IS one.
+        _g: Optional["Plottable"]
         _gfql_rows_base_graph: Optional["Plottable"]
-        _gfql_start_nodes: Any
-        _gfql_rows_edge_aliases: Any
+        _gfql_start_nodes: Optional["DataFrameT"]
+        _gfql_rows_edge_aliases: Optional[Iterable[str]]
         def bind(self) -> "Plottable": ...
         def _gfql_binding_ops_row_table(
             self,
@@ -107,7 +111,7 @@ def row_table(ctx: RowPipelineCtx, table_df: Any) -> "Plottable":
         out._node = None
     base_graph = ctx._gfql_rows_base_graph
     if base_graph is None:
-        base_graph = getattr(ctx, "_g", None)  # adapter-only back-reference
+        base_graph = ctx._g  # adapter-only back-reference
     if base_graph is not None:
         out._gfql_rows_base_graph = base_graph
     if ctx._gfql_start_nodes is not None:
@@ -130,11 +134,11 @@ def empty_frame(
         else:
             base_graph = ctx._gfql_rows_base_graph
             if base_graph is None:
-                base_graph = getattr(ctx, "_g", None)
+                base_graph = ctx._g
             if base_graph is not None:
-                template_df = getattr(base_graph, "_nodes", None)
+                template_df = base_graph._nodes
                 if template_df is None:
-                    template_df = getattr(base_graph, "_edges", None)
+                    template_df = base_graph._edges
 
     if template_df is not None:
         if columns is None:
@@ -220,7 +224,7 @@ def rows(
             raise ValueError(f"rows(source=...) alias column not found: {source!r}")
         if _is_polars(table_df):
             import polars as pl
-            table_df = table_df.filter(pl.col(source).fill_null(False).cast(pl.Boolean))
+            table_df = table_df.filter(pl.col(source).fill_null(False).cast(pl.Boolean))  # type: ignore[arg-type]
         else:
             table_df = table_df.loc[_alias_true_mask(table_df, source)]
 
@@ -264,7 +268,7 @@ def count_table(
         import polars as pl
         if source is not None:
             # LazyFrame lacks .columns without a resolve; collect_schema is lazy-safe.
-            cols = table_df.collect_schema().names()
+            cols = table_df.collect_schema().names()  # type: ignore[operator]
             if source not in cols:
                 raise ValueError(
                     f"count_table(source=...) alias column not found: {source!r}"
@@ -272,7 +276,7 @@ def count_table(
             count_expr = pl.col(source).fill_null(False).cast(pl.Boolean).sum()
         else:
             count_expr = pl.len()
-        res = table_df.select(count_expr.alias(alias))
+        res = table_df.select(count_expr.alias(alias))  # type: ignore[operator]
         # eager DataFrame.select -> DataFrame (no collect); LazyFrame.select -> LazyFrame.
         if hasattr(res, "collect"):
             res = res.collect()
