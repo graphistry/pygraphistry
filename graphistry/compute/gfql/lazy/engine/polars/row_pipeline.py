@@ -22,6 +22,12 @@ if TYPE_CHECKING:
     from graphistry.compute.gfql.expr_parser import ExprNode, FunctionCall
     from graphistry.compute.ast import ASTObject
 
+    # Within ONE call the path bag and its per-alias frames are the same polars
+    # flavour — the generic builder works in LazyFrames, the indexed one in eager
+    # frames. A constrained TypeVar says that; a plain union does not, and then
+    # `state.join(lookup)` cannot type-check.
+    PolarsFrameT = TypeVar("PolarsFrameT", "pl.DataFrame", "pl.LazyFrame")
+
 from graphistry.Plottable import Plottable
 from graphistry.utils.json import JSONVal
 # Engine-neutral wire-format payload types (ASTCall.params). Shapes are safelist-validated
@@ -639,11 +645,8 @@ def _rewrap(g: Plottable, table_df: Any) -> Plottable:
 def _finish_binding_rows_polars(
     g: Plottable,
     ops: "Sequence[ASTObject]",
-    # Deliberately Any, not a polars union: the SAME parameter receives a polars
-    # eager frame, a polars LazyFrame, and the engine-polymorphic `DataFrameT` the
-    # indexed helper returns. A precise union here only buys `# type: ignore`s.
-    state: Any,
-    alias_frames: Dict[str, Any],
+    state: "PolarsFrameT",
+    alias_frames: Dict[str, "PolarsFrameT"],
     node_id: str,
     attach_prop_aliases: Optional[Sequence[str]],
     *,
@@ -661,7 +664,7 @@ def _finish_binding_rows_polars(
     from graphistry.compute.ast import ASTEdge, ASTNode
     from graphistry.compute.gfql.lazy import collect as _lazy_collect
 
-    def names(frame: Any) -> List[str]:
+    def names(frame: "PolarsFrameT") -> List[str]:
         return (
             frame.collect_schema().names()
             if isinstance(frame, pl.LazyFrame)
@@ -1148,7 +1151,7 @@ def binding_rows_polars(
             sn = _df_to_engine(sn, _Engine.POLARS)
         if node_id not in sn.columns:
             return None
-        seed_ids = sn.select(pl.col(node_id)).drop_nulls()
+        seed_ids = sn.select(pl.col(node_id)).drop_nulls()  # type: ignore[operator]  # polars op on a DataFrameT-typed seed
         if seed_ids.height != seed_ids.unique().height:
             return None
         seed_ids_lf = seed_ids.lazy()
@@ -1203,8 +1206,11 @@ def binding_rows_polars(
         return _finish_binding_rows_polars(
             g,
             ops,
-            indexed_state.state,
-            indexed_state.alias_frames,
+            # engine-polymorphic by declaration; on the polars branch the helper
+            # builds polars frames, so narrow once here rather than widening the
+            # finisher's contract back to Any
+            cast("pl.DataFrame", indexed_state.state),
+            cast(Dict[str, "pl.DataFrame"], indexed_state.alias_frames),
             str(node_id),
             attach_prop_aliases,
             decline_on_schema_error=False,  # our own state: a schema clash is a bug
@@ -1471,7 +1477,12 @@ def binding_rows_polars(
                 alias_frames[next_alias] = next_nodes
                 node_aliases.append(next_alias)
 
-        return _finish_binding_rows_polars(
+        # The finisher's frame type is a constrained TypeVar so `state.join(lookup)`
+        # type-checks. The GENERIC builder above mixes eager and lazy frames across
+        # its (pre-existing) branches, so inference cannot pick one here; the
+        # indexed caller binds cleanly. Narrow just this call rather than widening
+        # the finisher back to `Any`.
+        return _finish_binding_rows_polars(  # type: ignore[misc]
             g, ops, state, alias_frames, node_id, attach_prop_aliases,
             decline_on_schema_error=True,  # pandas-vs-polars join-key dtype divergence
         )

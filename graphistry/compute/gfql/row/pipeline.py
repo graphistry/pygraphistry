@@ -5,7 +5,7 @@ import re
 import warnings
 from functools import lru_cache
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Sequence, Tuple, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, NoReturn, Optional, Sequence, Tuple, cast
 from typing_extensions import Literal
 
 import pandas as pd
@@ -81,6 +81,7 @@ from graphistry.compute.gfql.temporal.durations import (
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
+    from graphistry.compute.typing import DataFrameT
     from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
     from graphistry.compute.gfql.index.registry import GfqlIndexRegistry
     from graphistry.compute.ast import ASTObject
@@ -206,10 +207,10 @@ class RowPipelineMixin:
     _gfql_indexed_bindings_handoff: Optional["IndexedBindingsHandoff"] = None
     _gfql_shortest_path_backend: str = "auto"
 
-    _g: Any
-    _gfql_start_nodes: Any = None
-    _gfql_rows_base_graph: Any = None
-    _gfql_rows_edge_aliases: Any = None
+    _g: Optional["Plottable"] = None
+    _gfql_start_nodes: Optional["DataFrameT"] = None
+    _gfql_rows_base_graph: Optional["Plottable"] = None
+    _gfql_rows_edge_aliases: Optional[Iterable[str]] = None
     _nodes: Any
     _edges: Any
     _node: Any
@@ -5205,6 +5206,7 @@ class _RowPipelineAdapter(RowPipelineMixin):
         self._edge = g._edge
 
     def bind(self) -> "Plottable":
+        assert self._g is not None  # set by __init__; kept Optional for the protocol
         return self._g.bind()
 
 
