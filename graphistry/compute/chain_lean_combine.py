@@ -102,6 +102,16 @@ def _lean_prefilter_right(left: DataFrameT, right: DataFrameT, key: str, engine:
         right_len = len(right)
     except Exception:
         return right
-    if left_len == 0 or left_len * _LEAN_SHRINK_RATIO > right_len:
+    if left_len == 0:
+        # No left key can match anything, and a how='left' merge keeps only the right
+        # rows that DO match, so the result is empty whatever `right` holds. Hand back
+        # a zero-row slice -- same columns and dtypes, so the merge still produces the
+        # identical schema -- instead of letting the join materialize the whole frame.
+        # This is the case where shrinking is both maximally profitable and trivially
+        # correct, and it was the one case the gate below declined: an empty
+        # intermediate against a graph-sized side (measured: a 0-row left joined
+        # against 14M edges dominated a 112ms single-node query).
+        return right[0:0]
+    if left_len * _LEAN_SHRINK_RATIO > right_len:
         return right
     return right[right[key].isin(left[key])]
