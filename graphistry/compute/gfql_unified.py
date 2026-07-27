@@ -30,6 +30,7 @@ from graphistry.compute.gfql.same_path_types import (
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.parser import parse_cypher
+from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
 from graphistry.compute.gfql.cypher.lowering import (
     ConnectedMatchJoinPlan,
     CompiledCypherGraphQuery,
@@ -1120,9 +1121,14 @@ def _execute_compiled_query_chain_non_union(
             and getattr(_first_op, "function", None) == "rows"
             and getattr(_first_op, "params", {}).get("binding_ops") is not None
         ):
-            dispatch_graph._gfql_start_nodes = start_nodes
+            # #1786: on the no-seed-rows path `_seeded_dispatch_graph` hands back
+            # `base_graph` ITSELF (the caller's object), so this must land on a copy.
+            dispatch_graph = attach_row_exec_context(dispatch_graph, start_nodes=start_nodes)
 
     result = _chain_dispatch(dispatch_graph, compiled_query.chain, engine, policy, context, start_nodes=start_nodes)
+    # Attach/detach pair (#1786): the chain has run, so the seed is spent and must not
+    # ride out on the result -- a follow-up query on it is about a DIFFERENT graph.
+    result = clear_row_exec_context(result)
     if compiled_query.empty_result_row is not None:
         result = _apply_empty_result_row(
             result,
@@ -1847,8 +1853,14 @@ def gfql(self: Plottable,
                     e.query_type = policy_context.get('query_type')
                 raise
 
+        # #1786: `shortest_path_backend` is an argument to THIS call, not a property of
+        # the caller's graph, so it may not be written onto `self`. Copy only when the
+        # value actually differs: the default call then keeps `self`'s identity, and the
+        # compiled-query memo cache below is owned by `self` either way.
         dispatch_self = self
-        dispatch_self._gfql_shortest_path_backend = shortest_path_backend
+        if self._gfql_shortest_path_backend != shortest_path_backend:
+            dispatch_self = self.bind()
+            dispatch_self._gfql_shortest_path_backend = shortest_path_backend
         compiled_query = None
 
         if where_param and isinstance(query, (dict, ASTLet)):
@@ -1904,7 +1916,9 @@ def gfql(self: Plottable,
                     query,
                     language=language,
                     params=params,
-                    cache_owner=dispatch_self,
+                    # `self`, not `dispatch_self`: the memo cache must outlive the call,
+                    # and `dispatch_self` is a throwaway copy on the non-default backend.
+                    cache_owner=self,
                     node_dtypes=_node_dtypes_for_pushdown(self, engine),
                 )
             except GFQLValidationError as exc:

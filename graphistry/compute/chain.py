@@ -684,6 +684,7 @@ def _handle_boundary_calls(
     # Function-scope import: `gfql.index` transitively imports this module, so a
     # module-scope import would be a cycle.
     from .gfql.index.handoff import attach_handoff
+    from .gfql.exec_context import attach_row_exec_context, clear_row_exec_context
 
     g_temp = self
     suffix_base_graph = g_temp
@@ -732,9 +733,13 @@ def _handle_boundary_calls(
 
     if suffix:
         logger.debug('Executing boundary suffix calls: %s', suffix)
-        if start_nodes is not None:
-            g_temp._gfql_start_nodes = start_nodes
-        g_temp._gfql_rows_base_graph = suffix_base_graph
+        # #1786: per-execution state rides on an INTERNAL COPY. Without prefix/middle
+        # ops (or a handoff) nothing above rebuilt `g_temp`, so it is still the CALLER's
+        # graph -- assigning here left the WITH re-entry seed on the user's object and
+        # the next, unrelated query was answered against it (silent wrong count).
+        g_temp = attach_row_exec_context(
+            g_temp, start_nodes=start_nodes, rows_base_graph=suffix_base_graph
+        )
         if (
             middle
             and any(getattr(op, "_name", None) is not None for op in middle)
@@ -779,7 +784,9 @@ def _handle_boundary_calls(
             start_nodes
         )
 
-    return g_temp
+    # Each site that attaches the row context also detaches it: the suffix chain has run,
+    # so the context is spent, and a caller who queries THIS result must not inherit it.
+    return clear_row_exec_context(g_temp)
 
 
 def _chain_otel_attrs(

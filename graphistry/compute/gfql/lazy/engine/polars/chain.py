@@ -503,14 +503,16 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     """
     from graphistry.compute.ast import ASTCall, ASTNode as _ASTNode, ASTEdge as _ASTEdge, rows as rows_fn
     from graphistry.compute.chain import serialize_binding_ops
+    from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
 
     calls = list(calls)
     if not calls:
         return g_cur
 
-    if start_nodes is not None:
-        g_cur._gfql_start_nodes = start_nodes
-    g_cur._gfql_rows_base_graph = base_graph
+    # #1786: twin of the generic chain -- per-execution state on an INTERNAL COPY.
+    # `g_cur` is the CALLER's graph on the all-calls boundary run, so assigning here
+    # left the WITH re-entry seed behind for the next, unrelated query.
+    g_cur = attach_row_exec_context(g_cur, start_nodes=start_nodes, rows_base_graph=base_graph)
 
     if (
         middle
@@ -585,7 +587,9 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
             f"{getattr(op, 'function', op)!r}; use engine='pandas' for this query "
             f"(no pandas fallback; parity-or-error by design)"
         )
-    return g_cur
+    # Attach/detach pair: the boundary run is done, so the context is spent and must not
+    # ride out on the result the caller sees (see the twin in compute/chain.py).
+    return clear_row_exec_context(g_cur)
 
 
 
