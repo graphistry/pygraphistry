@@ -19,7 +19,9 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
 
 if TYPE_CHECKING:
+    import polars as pl
     from graphistry.compute.gfql.index.bindings import IndexedBindingsState
+    from .dtypes import PolarsFrame
 from .hop_eager import ensure_nodes_polars
 from .dtypes import is_lazy, colnames, endpoint_ids
 from .degrees import get_degrees_polars, get_indegrees_polars, get_outdegrees_polars
@@ -230,8 +232,22 @@ class _LazyShim:
     only place in the lazy combine where the count is still available."""
     __slots__ = ("_nodes", "_edges", "_node", "_source", "_destination", "_edge", "edges_empty")
 
-    def __init__(self, nodes_lf, edges_lf, node, source, destination, edge,
-                 edges_empty: Optional[bool] = None):
+    # Bare annotations only — a class-level VALUE would collide with __slots__ at class
+    # creation. These make the slots statically typed rather than inferred from __init__.
+    # LazyFrame, not the PolarsFrame union: every construction site (`step` and the Track-B
+    # entry) calls `.lazy()` first, which is the whole point of the shim, so the union would
+    # be both less true and unusable — `pl.concat`'s TypeVar rejects a DataFrame|LazyFrame.
+    _nodes: "Optional[pl.LazyFrame]"
+    _edges: "Optional[pl.LazyFrame]"
+    _node: Optional[str]
+    _source: Optional[str]
+    _destination: Optional[str]
+    _edge: Optional[str]
+    edges_empty: Optional[bool]
+
+    def __init__(self, nodes_lf: "Optional[pl.LazyFrame]", edges_lf: "Optional[pl.LazyFrame]",
+                 node: Optional[str], source: Optional[str], destination: Optional[str],
+                 edge: Optional[str], edges_empty: Optional[bool] = None) -> None:
         self._nodes = nodes_lf
         self._edges = edges_lf
         self._node = node
@@ -241,18 +257,21 @@ class _LazyShim:
         self.edges_empty = edges_empty
 
     @staticmethod
-    def step(p):
+    def step(p: Plottable) -> "_LazyShim":
         nd = p._nodes.lazy() if p._nodes is not None else None
         ed = p._edges.lazy() if p._edges is not None else None
         return _LazyShim(nd, ed, None, None, None, None, edges_empty=_known_empty(p._edges))
 
 
-def _known_empty(frame) -> Optional[bool]:
+def _known_empty(frame: "Optional[PolarsFrame]") -> Optional[bool]:
     """Tri-state emptiness of an already-materialized frame: True/False, or None when unknown
     (frame absent, or already lazy so the height is not available without collecting)."""
     if frame is None or is_lazy(frame):
         return None
-    return frame.height == 0
+    # `is_lazy` is a plain bool predicate, so the else-branch narrowing has to be asserted
+    # here rather than inferred. Widening `is_lazy` to a TypeIs would narrow this for every
+    # caller in the engine, but that is a dtypes.py-wide change, not this PR's.
+    return cast("pl.DataFrame", frame).height == 0
 
 
 def _combine_edges(g, steps, label_steps, has_multihop=False):
@@ -314,7 +333,8 @@ def _combine_edges(g, steps, label_steps, has_multihop=False):
     return out
 
 
-def _combine_node_ids(g, steps):
+def _combine_node_ids(g: "_LazyShim",
+                      steps: List[Tuple[ASTObject, "_LazyShim"]]) -> "pl.LazyFrame":
     """One-column frame of the node ids the traversal kept, unioned over the pruned steps.
 
     IDS ONLY, not the node rows: the caller still has to fold in the surviving edges' endpoints,
@@ -329,19 +349,22 @@ def _combine_node_ids(g, steps):
     import polars as pl
     node_col = g._node
     assert node_col is not None
+    all_nodes = g._nodes
+    assert all_nodes is not None
     frames = [
         g_step._nodes.select(pl.col(node_col))
         for _, g_step in steps
         if g_step._nodes is not None and node_col in colnames(g_step._nodes)
     ]
     if not frames:
-        return g._nodes.select(pl.col(node_col)).limit(0)
+        return all_nodes.select(pl.col(node_col)).limit(0)
     if len(frames) == 1:
         return frames[0]
     return pl.concat(frames, how="vertical_relaxed")
 
 
-def _materialize_node_rows(all_nodes, step_ids, endpoint_ids_frame, node_col):
+def _materialize_node_rows(all_nodes: "pl.LazyFrame", step_ids: "pl.LazyFrame",
+                           endpoint_ids_frame: "pl.LazyFrame", node_col: str) -> "pl.LazyFrame":
     """The output node ROWS: every node the steps kept, plus every endpoint of a surviving edge.
 
     Union the two ID sides FIRST, then read the node table ONCE. Materializing the step rows and
@@ -1030,8 +1053,10 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
 
     node_ids = _combine_node_ids(g_lz, steps_lz)
     final_edges = _combine_edges(g_lz, edge_steps_lz, label_lz, has_multihop)
+    all_nodes_lz = g_lz._nodes
+    assert all_nodes_lz is not None  # constructed from g._nodes two statements above
     final_nodes = _materialize_node_rows(
-        g_lz._nodes, node_ids, endpoint_ids(final_edges, src, dst, node_col), node_col)
+        all_nodes_lz, node_ids, endpoint_ids(final_edges, src, dst, node_col), node_col)
     final_nodes = _apply_node_names(final_nodes, g_lz, steps_lz, auto_hop_col=auto_hop_col)
 
     final_nodes = final_nodes.sort(NORD).drop(NORD)
@@ -1039,6 +1064,9 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     # single drop above removes it. There is no `added_edge_index and EID != EORD` case left
     # to handle: the only branch that sets added_edge_index also sets EORD = EID.
     final_edges = final_edges.sort(EORD).drop(EORD)
-    final_edges, final_nodes = collect_all([final_edges, final_nodes])
-    final_edges = _restore_edge_dtypes(final_edges, src, dst, _endpoint_restore)
-    return self.nodes(final_nodes, node_col).edges(final_edges, src, dst)
+    # Distinct names on the eager side: `final_nodes` is statically a LazyFrame all the way
+    # down this block, and `collect_all` hands back DataFrames — rebinding would be a type
+    # error, and silencing it would cost the lazy/eager distinction the shim exists to keep.
+    final_edges_eager, final_nodes_eager = collect_all([final_edges, final_nodes])
+    final_edges_eager = _restore_edge_dtypes(final_edges_eager, src, dst, _endpoint_restore)
+    return self.nodes(final_nodes_eager, node_col).edges(final_edges_eager, src, dst)
