@@ -1312,50 +1312,39 @@ def binding_rows_polars(
                     )
                     if _resolved_min != 1:
                         return None
-            # #1787: three more BOUNDED var-length shapes this raw-edge reconstruction gets
-            # SILENTLY wrong, all found by differential fuzzing against the pandas oracle
-            # over random small graphs (the `n/60` counts below are diverging graphs out of
-            # 60 random ones per shape). Same root-cause family as the unbounded case #1781
-            # declined: pandas' step_pairs come from the var-length `edge_op.execute` hop,
-            # whose hop-window pruning -- and, when seeded, its per-seed BFS -- changes the
-            # edge multiplicity in a way a rebuild from the raw matching edge table does not
-            # reproduce. Pandas is the oracle and the contract is parity-or-NotImplementedError,
-            # so decline until the multiplicity is reconstructible.
+            # #1787, same root-cause family as the unbounded shapes #1781 declined: pandas'
+            # step_pairs come from the var-length `edge_op.execute` hop, whose hop-window
+            # pruning -- and, when seeded, its per-seed BFS -- changes an edge multiplicity
+            # this raw-edge rebuild cannot reproduce. Declining is a DELIBERATE divergence
+            # from master, which served these: parity-or-NIE means a loud error, never a
+            # different number. Shrink the gate again once the multiplicity is reconstructible.
+            # WHICH shapes, why each boundary sits where it does, and the counts that prove
+            # each one are executable rather than prose -- every claim that used to be written
+            # out here is now a named test in:
+            #   graphistry/tests/compute/gfql/test_varlen_bounded_engine_parity_1787.py
             #
-            # Gated on an EXPLICIT var-length window, not on `sem.is_multihop`: the degenerate
-            # `-[*1..1]-` resolves to min == max == 1 and so is NOT multihop, yet pandas still
-            # routes it through the var-length hop (`-[]-` gives 18 where `-[*1..1]-` gives 36
-            # on the same graph). That is exactly why the existing tests miss it.
+            # Keyed on an EXPLICIT window, NOT on `sem.is_multihop`: `-[*1..1]-` resolves to
+            # min == max == 1, is therefore not multihop, and pandas still routes it here.
             if op.min_hops is not None or op.max_hops is not None:
                 _vl_max = op.max_hops if op.max_hops is not None else op.hops
                 _vl_min = op.min_hops if op.min_hops is not None else (
                     op.hops if op.hops is not None else 1
                 )
-                # A seed is anything that starts the segment from less than the whole node
-                # set: a filtered start alias, or a re-entry / `WITH` seed frame.
+                # a seed is anything that starts the segment from less than the whole node
+                # set: a filtered start alias, or a re-entry / `WITH` seed frame
                 _prev_op = ops[idx - 1] if idx >= 1 else None
                 _seeded_start = start_nodes is not None or (
                     isinstance(_prev_op, ASTNode) and bool(_prev_op.filter_dict)
                 )
                 if _vl_max is not None:
                     if op.direction == "undirected":
-                        #  - `-[*1..1]-` / `-[*1]-`: the DEGENERATE window halves the count
-                        #    (60/60; pandas 36 vs polars 18). `-[*1..2]-` and wider agree.
-                        if _vl_max == 1:
+                        if _vl_max == 1:  # the degenerate window `-[*1..1]-` / `-[*1]-`
                             return None
-                        #  - undirected `-[*1..k]-` OFF THE FULL NODE SET: the doubled-pair
-                        #    expansion over-counts when the segment does not start from every
-                        #    node -- filtered seed 51/60, non-first segment 36/60. Every
-                        #    DIRECTED equivalent agrees, so this is specific to the doubling.
-                        if _seeded_start or idx > 1:
+                        if _seeded_start or idx > 1:  # doubled-pair expansion over-counts
                             return None
-                    #  - directed `-[*k..m]->` with min_hops >= 3 (53/60; pandas 0 vs polars
-                    #    35), and min_hops >= 2 WITH a filtered seed (27-30/60).
-                    #    `max_reached_hop` in compute/hop.py is a dedup-by-node BFS
-                    #    eccentricity, not a longest-walk length, so pandas returns empty (or
-                    #    prunes) where this rebuild expands a different edge multiset.
-                    #    min_hops <= 2 off the full node set is fuzz-clean (0/60, including as
-                    #    a non-first segment) -- that is the graph-bench q3 `-[*1..k]->` shape.
+                    # `max_reached_hop` (compute/hop.py) is a dedup-by-node BFS eccentricity,
+                    # not a longest-walk length, so pandas prunes where this rebuild expands
+                    # a different edge multiset
                     elif _vl_min >= 3 or (_vl_min >= 2 and _seeded_start):
                         return None
             if op.direction not in ("forward", "reverse", "undirected"):
