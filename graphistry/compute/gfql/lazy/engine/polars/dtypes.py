@@ -11,6 +11,11 @@ from typing import TYPE_CHECKING, List, Optional, TypeVar, Union
 
 if TYPE_CHECKING:
     import polars as pl
+    # TypeIs (PEP 742), not TypeGuard: it narrows the NEGATIVE branch too, which is the whole
+    # point for `is_lazy` — every eager-side caller sits in the `else`. TYPE_CHECKING-only so
+    # no runtime typing_extensions>=4.10 floor is introduced (this module is `from __future__
+    # import annotations`, so the annotation is never evaluated).
+    from typing_extensions import TypeIs
     PolarsFrame = Union["pl.DataFrame", "pl.LazyFrame"]
     # eager-in→eager-out / lazy-in→lazy-out (a Union return would type-error at call sites)
     PolarsT = TypeVar("PolarsT", "pl.DataFrame", "pl.LazyFrame")
@@ -49,8 +54,15 @@ def is_stringlike(dt: "Optional[pl.DataType]") -> bool:
 # --- frame-shape helpers (lazy/eager agnostic), shared by chain orchestration + degree
 # helpers so frame introspection is uniform across DataFrame-vs-LazyFrame ------------
 
-def is_lazy(df: "PolarsFrame") -> bool:
-    """True for a ``pl.LazyFrame`` (vs an eager ``pl.DataFrame``)."""
+def is_lazy(df: "PolarsFrame") -> "TypeIs[pl.LazyFrame]":
+    """True for a ``pl.LazyFrame`` (vs an eager ``pl.DataFrame``).
+
+    Declared ``TypeIs``, not ``bool``: ``PolarsFrame`` is a two-member union and this predicate
+    decides WHICH member, so the type checker can carry that decision into BOTH branches — lazy
+    in the ``if``, eager in the ``else``. As a plain ``bool`` the else-branch fact was invisible
+    and every eager-only attribute access after a lazy guard (``.height``, ``.columns``,
+    ``.schema``) had to be re-asserted with a ``cast`` at each call site. ``TypeGuard`` would not
+    do: it narrows only the positive branch, and the eager side is the one that needs it."""
     import polars as pl
     return isinstance(df, pl.LazyFrame)
 
