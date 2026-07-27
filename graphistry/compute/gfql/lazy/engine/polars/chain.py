@@ -928,8 +928,17 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     from graphistry.compute.util import generate_safe_column_name
     from graphistry.compute.gfql.lazy import collect_all
     NORD = generate_safe_column_name("__gfql_norder__", g._nodes, prefix="__gfql_", suffix="__")
-    EORD = generate_safe_column_name("__gfql_eorder__", g._edges, prefix="__gfql_", suffix="__")
-    g_lz = _LazyShim(g._nodes.with_row_index(NORD).lazy(), g._edges.with_row_index(EORD).lazy(),
+    if added_edge_index:
+        # EID was attached above as `with_row_index` over THIS frame in THIS order, so it
+        # already IS the stable edge order. Materializing a second identical 0..n-1 column
+        # over a graph-sized edge frame is pure duplication (measured: `with_row_index`
+        # cost ~34ms/query across the eager calls on a 14M-edge graph). Reuse EID.
+        EORD = EID
+        edges_lz = g._edges.lazy()
+    else:
+        EORD = generate_safe_column_name("__gfql_eorder__", g._edges, prefix="__gfql_", suffix="__")
+        edges_lz = g._edges.with_row_index(EORD).lazy()
+    g_lz = _LazyShim(g._nodes.with_row_index(NORD).lazy(), edges_lz,
                      node_col, src, dst, g._edge)
     steps_lz = [(op, _LazyShim.step(p)) for op, p in steps]
     edge_steps_lz = [(op, _LazyShim.step(p)) for op, p in edge_steps]
@@ -946,9 +955,10 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     final_nodes = _apply_node_names(final_nodes, g_lz, steps_lz, auto_hop_col=auto_hop_col)
 
     final_nodes = final_nodes.sort(NORD).drop(NORD)
+    # EORD IS EID whenever we synthesized the id (that is the point of this change), so the
+    # single drop above removes it. There is no `added_edge_index and EID != EORD` case left
+    # to handle: the only branch that sets added_edge_index also sets EORD = EID.
     final_edges = final_edges.sort(EORD).drop(EORD)
-    if added_edge_index:
-        final_edges = final_edges.drop(EID)
     final_edges, final_nodes = collect_all([final_edges, final_nodes])
     final_edges = _restore_edge_dtypes(final_edges, src, dst, _endpoint_restore)
     return self.nodes(final_nodes, node_col).edges(final_edges, src, dst)
