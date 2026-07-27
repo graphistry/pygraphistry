@@ -586,6 +586,15 @@ def _plan_indexed_middle(
         call.params.get("source") is not None
         or call.params.get("alias_endpoints") is not None
         or call.params.get("alias_prefilters")
+        # Serving the bypass SKIPS the canonical traversal, so the suffix runs against the
+        # PRE-traversal graph. That is sound for a bindings table (the path bag already is
+        # the answer) but not for `rows(table="edges")`, which would read the whole edge
+        # table instead of the traversal-narrowed one. Non-default `table` therefore keeps
+        # the scan path, for the same reason `source`/`alias_endpoints` do above. Compared
+        # against "nodes", not None: `rows()` defaults `table` to "nodes" and always emits
+        # it, so an `is None` test would disable the bypass outright — the same trap the
+        # named-middle rewrite's guard documents below.
+        or call.params.get("table", "nodes") != "nodes"
         or not all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
     ):
         return None
@@ -747,7 +756,19 @@ def _handle_boundary_calls(
             and suffix[0].params.get("table", "nodes") == "nodes"
             and all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
         ):
-            suffix = [rows_fn(binding_ops=serialize_binding_ops(middle))] + list(suffix[1:])
+            # ADD binding_ops to the call the caller wrote; do not build a fresh one. The
+            # rewrite's job is to say WHERE the bindings come from, and every other param
+            # on `rows()` is still the caller's — `attach_prop_aliases` (the #1711
+            # projection pushdown) and the advisory `alias_prefilters` both survive into
+            # the binding_ops builder, which is the only place they are read. Rebuilding
+            # threw them away, so merely naming the middle silently attached every alias's
+            # properties. The excluded params above cannot be present here.
+            prev_params = suffix[0].params
+            suffix = [rows_fn(
+                binding_ops=serialize_binding_ops(middle),
+                alias_prefilters=prev_params.get("alias_prefilters"),
+                attach_prop_aliases=prev_params.get("attach_prop_aliases"),
+            )] + list(suffix[1:])
         g_temp = _chain_impl(
             g_temp,
             suffix,

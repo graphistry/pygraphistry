@@ -528,7 +528,15 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
         and calls[0].params.get("table", "nodes") == "nodes"
         and all(isinstance(op, (_ASTNode, _ASTEdge)) for op in middle)
     ):
-        calls = [rows_fn(binding_ops=serialize_binding_ops(middle))] + list(calls[1:])
+        # See the twin in compute/chain.py: ADD binding_ops to the caller's call rather
+        # than building a fresh one, so the params the rewrite has no opinion about
+        # (`attach_prop_aliases`, `alias_prefilters`) reach the binding_ops builder.
+        prev_params = calls[0].params
+        calls = [rows_fn(
+            binding_ops=serialize_binding_ops(middle),
+            alias_prefilters=prev_params.get("alias_prefilters"),
+            attach_prop_aliases=prev_params.get("attach_prop_aliases"),
+        )] + list(calls[1:])
 
     # Per-op NATIVE-OR-DEFER. Ops that don't lower:
     #  - non-native ROW op (correlated-subquery semi_apply/anti_semi_apply/join_apply):
@@ -801,6 +809,11 @@ def _try_indexed_middle_polars(
         or suffix[0].params.get("source") is not None
         or suffix[0].params.get("alias_endpoints") is not None
         or suffix[0].params.get("alias_prefilters")
+        # See the twin guard in chain._plan_indexed_middle: serving the bypass skips the
+        # canonical traversal, so a non-default `table` would read the PRE-traversal edge
+        # table (the whole graph) instead of the narrowed one. "nodes", not None — `rows()`
+        # always emits `table`.
+        or suffix[0].params.get("table", "nodes") != "nodes"
         or not all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
     ):
         return None, False
