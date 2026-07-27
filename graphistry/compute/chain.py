@@ -734,6 +734,17 @@ def _handle_boundary_calls(
             and suffix[0].params.get("binding_ops") is None
             and suffix[0].params.get("source") is None
             and suffix[0].params.get("alias_endpoints") is None
+            # A NON-DEFAULT `table` names the table the caller wants. Rewriting that into a
+            # bindings table silently answers a different question — and on an even-length
+            # middle (a path ending on an EDGE, e.g. LDBC IS3's edge lookup) the rewritten
+            # op list is not an alternating node/edge path at all, so it hard-errors. Same
+            # reason `source` and `alias_endpoints` are excluded above.
+            # Tested against `"nodes"` rather than None because `rows()` DEFAULTS table to
+            # "nodes" and always emits it, so `is None` is never true and would disable the
+            # rewrite outright (measured: it breaks the IS6 bindings path). The cost is that
+            # an EXPLICIT `rows(table="nodes")` is indistinguishable from a bare `rows()` at
+            # the params level, so it still rewrites; only a non-default table opts out.
+            and suffix[0].params.get("table", "nodes") == "nodes"
             and all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
         ):
             suffix = [rows_fn(binding_ops=serialize_binding_ops(middle))] + list(suffix[1:])

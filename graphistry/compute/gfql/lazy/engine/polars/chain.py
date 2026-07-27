@@ -494,6 +494,12 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
         and calls[0].params.get("binding_ops") is None
         and calls[0].params.get("source") is None
         and calls[0].params.get("alias_endpoints") is None
+        # See the twin guard in compute/chain.py: a NON-DEFAULT `table` names the table the
+        # caller wants, so the bindings rewrite must not override it. Both surfaces need
+        # the check — this one is the native polars chain, that one the generic chain.
+        # `== "nodes"`, not `is None`: `rows()` defaults table to "nodes" and always emits
+        # it, so an `is None` test disables the rewrite entirely.
+        and calls[0].params.get("table", "nodes") == "nodes"
         and all(isinstance(op, (_ASTNode, _ASTEdge)) for op in middle)
     ):
         calls = [rows_fn(binding_ops=serialize_binding_ops(middle))] + list(calls[1:])
