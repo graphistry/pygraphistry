@@ -67,7 +67,7 @@ def rows_binding_ops_polars(g: Plottable, binding_ops: Sequence[Dict[str, JSONVa
         # decline the whole wavefront-constrained case (wave-2 W2-3).
         sn = start_nodes.collect() if isinstance(start_nodes, pl.LazyFrame) else start_nodes
         try:
-            nodes = nodes.join(sn.select(node_id).unique(), on=node_id, how="semi")  # type: ignore[operator]  # polars op on a DataFrameT-typed seed
+            nodes = nodes.join(sn.select(node_id), on=node_id, how="semi")  # type: ignore[operator]  # polars op on a DataFrameT-typed seed
         except Exception:
             return None
     try:
