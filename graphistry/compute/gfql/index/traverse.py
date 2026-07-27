@@ -42,6 +42,20 @@ _EAGER_MASK_SWITCH_DIVISOR = 8
 _EAGER_MASK_SWITCH_FLOOR = 1024
 
 
+def _candidate_edge_mask_enabled() -> bool:
+    """Candidate-row ``edge_match`` evaluation is on by default; set
+    ``GFQL_INDEX_CANDIDATE_EDGE_MASK=0`` to force the whole-column mask on every hop.
+
+    Follows the ``GFQL_LEAN_COMBINE`` precedent: the BOUNDARY is externally switchable so
+    the differential harness can exercise both sides of it and assert they agree, while the
+    numeric thresholds above stay private module constants like ``_LEAN_SHRINK_RATIO`` —
+    they are a cost heuristic, not an interface, and the guard already bounds the bad case.
+    """
+    import os as _os
+
+    return _os.environ.get("GFQL_INDEX_CANDIDATE_EDGE_MASK", "1") != "0"
+
+
 def _indices_for_direction(
     registry: GfqlIndexRegistry,
     direction: HopDirection,
@@ -292,7 +306,10 @@ def index_seeded_hop(
     # hop — which gathers ~degree — never comes close to the threshold and never builds it.
     gathered_rows = 0
     eager_keep: Optional[ArrayLike] = None
-    switch_at = max(_EAGER_MASK_SWITCH_FLOOR, len(edges) // _EAGER_MASK_SWITCH_DIVISOR)
+    switch_at = (
+        max(_EAGER_MASK_SWITCH_FLOOR, len(edges) // _EAGER_MASK_SWITCH_DIVISOR)
+        if _candidate_edge_mask_enabled() else 0  # 0 => build the whole-column mask up front
+    )
 
     # Do NOT narrow the seed to the index key dtype (a node-id int64 seed cast to
     # an int32 edge-endpoint key wraps large ids → false match). lookup promotes both

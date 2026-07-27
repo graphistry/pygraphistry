@@ -1076,3 +1076,101 @@ def test_fixed_point_typed_walk_bounds_predicate_work(engine):
         f"gathered {total} rows of {n_edges} edges — the cost guard did not engage; "
         "an unbounded gather is the regression this pins"
     )
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+@pytest.mark.parametrize("shape", ["one_hop", "two_hop", "fixed_point", "undirected"])
+def test_both_sides_of_the_edge_mask_cost_boundary_agree(typed_graph, engine, shape, monkeypatch):
+    """Either side of the optimization boundary must return the same answer.
+
+    The candidate-row form and the whole-column form are two implementations of one
+    predicate; the cost guard switches between them mid-traversal based on how much has
+    been gathered. That switch is only safe if the two forms agree cell-for-cell, so pin
+    it directly: force each side via GFQL_INDEX_CANDIDATE_EDGE_MASK and compare, with the
+    unindexed scan as a third opinion so a shared bug in both forms cannot hide.
+    """
+    from graphistry.Engine import Engine as _E, df_to_engine
+
+    g = typed_graph
+    if engine == "polars":
+        g = g.edges(df_to_engine(g._edges, _E.POLARS), "src", "dst").nodes(
+            df_to_engine(g._nodes, _E.POLARS), "id")
+    gi = g.gfql_index_all(engine=engine)
+    seeds = g._nodes[:1] if engine == "pandas" else g._nodes.head(1)
+    kw = dict(one_hop=dict(hops=1, direction="forward"),
+              two_hop=dict(hops=2, direction="forward"),
+              fixed_point=dict(to_fixed_point=True, direction="forward"),
+              undirected=dict(to_fixed_point=True, direction="undirected"))[shape]
+    kwargs = dict(return_as_wave_front=True, edge_match={"etype": 1}, engine=engine, **kw)
+
+    def run():
+        return gi.hop(nodes=seeds, **kwargs)
+
+    monkeypatch.setenv("GFQL_INDEX_CANDIDATE_EDGE_MASK", "1")
+    candidate = run()
+    monkeypatch.setenv("GFQL_INDEX_CANDIDATE_EDGE_MASK", "0")
+    whole_column = run()
+    monkeypatch.delenv("GFQL_INDEX_CANDIDATE_EDGE_MASK", raising=False)
+    scan = g.hop(nodes=seeds, **kwargs)   # no index at all — independent oracle
+
+    def pairs(gg):
+        df = gg._edges
+        col = (lambda c: df[c].to_list()) if hasattr(df[df.columns[0]], "to_list") \
+            else (lambda c: df[c].tolist())
+        return sorted(zip(col("src"), col("dst")))
+
+    assert pairs(candidate) == pairs(whole_column), f"[{shape}] the two forms disagree"
+    assert pairs(candidate) == pairs(scan), f"[{shape}] both forms disagree with the scan"
+
+    def node_ids(gg):
+        s = gg._nodes["id"]
+        return set(s.to_list() if hasattr(s, "to_list") else s.tolist())
+
+    # The two forms must agree with each other EXACTLY — that is the boundary property this
+    # test exists for, and it holds on nodes as well as edges.
+    assert node_ids(candidate) == node_ids(whole_column), f"[{shape}] node sets differ"
+
+    # Against the scan we compare only the nodes the scan also produces. There is a
+    # PRE-EXISTING indexed-vs-scan divergence, unrelated to this PR and present identically
+    # on master 84be35fb: for an undirected to_fixed_point wavefront hop the indexed path
+    # keeps the SEED in `_nodes` while the scan drops it when the walk never returns to it
+    # (edges are identical). Asserting equality here would encode that bug as expected; this
+    # asserts the indexed result is a superset and that any excess is exactly the seed.
+    seed_ids = set(seeds["id"].to_list() if hasattr(seeds["id"], "to_list") else seeds["id"].tolist())
+    extra = node_ids(candidate) - node_ids(scan)
+    assert not (node_ids(scan) - node_ids(candidate)), f"[{shape}] indexed path LOST nodes"
+    assert extra <= seed_ids, f"[{shape}] indexed path gained non-seed nodes: {sorted(extra)[:5]}"
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_forcing_the_whole_column_mask_actually_changes_the_path(typed_graph, engine, monkeypatch):
+    """The negative side of the boundary must be reachable — otherwise the test above is
+    comparing the candidate-row form against itself and proves nothing."""
+    from graphistry.Engine import Engine as _E, df_to_engine
+    from graphistry.compute.gfql.index import traverse as _traverse
+
+    g = typed_graph
+    if engine == "polars":
+        g = g.edges(df_to_engine(g._edges, _E.POLARS), "src", "dst").nodes(
+            df_to_engine(g._nodes, _E.POLARS), "id")
+    gi = g.gfql_index_all(engine=engine)
+    seeds = g._nodes[:1] if engine == "pandas" else g._nodes.head(1)
+    kwargs = dict(hops=1, return_as_wave_front=True, edge_match={"etype": 1}, engine=engine)
+
+    seen = []
+    orig = _traverse._gather_series
+
+    def spy(series, rows, eng):
+        seen.append(int(len(rows)))
+        return orig(series, rows, eng)
+
+    monkeypatch.setattr(_traverse, "_gather_series", spy)
+
+    monkeypatch.setenv("GFQL_INDEX_CANDIDATE_EDGE_MASK", "1")
+    gi.hop(nodes=seeds, **kwargs)
+    assert seen, "candidate-row path did not gather — the ON side never engaged"
+
+    seen.clear()
+    monkeypatch.setenv("GFQL_INDEX_CANDIDATE_EDGE_MASK", "0")
+    gi.hop(nodes=seeds, **kwargs)
+    assert not seen, "OFF side still gathered candidate rows — the switch does nothing"
