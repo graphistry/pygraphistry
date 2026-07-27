@@ -21,7 +21,7 @@ from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
 if TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.gfql.index.bindings import IndexedBindingsState
-    from .dtypes import PolarsFrame
+    from .dtypes import PolarsFrame, PolarsT
 from .hop_eager import ensure_nodes_polars
 from .dtypes import is_lazy, colnames, endpoint_ids
 from .degrees import get_degrees_polars, get_indegrees_polars, get_outdegrees_polars
@@ -29,8 +29,14 @@ from .predicates import filter_by_dict_polars
 from .reserved_columns import CHAIN_NODE_HOP
 
 
-def _semi(df, ids_df, df_col, id_col):
+def _semi(df: "PolarsT", ids_df: "PolarsT", df_col: str, id_col: str) -> "PolarsT":
     """Rows of df whose df_col is present in ids_df[id_col] (vectorized semi-join).
+
+    Both frames share the ``PolarsT`` TypeVar because polars joins do not mix eagerness:
+    ``DataFrame.join`` takes a ``DataFrame`` and ``LazyFrame.join`` takes a ``LazyFrame``, and a
+    mixed pair raises at runtime. Same variable in, same variable out — the semi-join preserves
+    the left frame's eagerness, so an eager caller keeps its ``.height``/``.columns`` and a lazy
+    caller keeps a plan.
 
     The key frame is NOT deduplicated: a semi-join emits a left row iff at least one
     matching right row exists, so duplicate keys cannot change which rows come back (and
@@ -268,18 +274,32 @@ def _known_empty(frame: "Optional[PolarsFrame]") -> Optional[bool]:
     (frame absent, or already lazy so the height is not available without collecting)."""
     if frame is None or is_lazy(frame):
         return None
-    # `is_lazy` is a plain bool predicate, so the else-branch narrowing has to be asserted
-    # here rather than inferred. Widening `is_lazy` to a TypeIs would narrow this for every
-    # caller in the engine, but that is a dtypes.py-wide change, not this PR's.
-    return cast("pl.DataFrame", frame).height == 0
+    # No cast: `is_lazy` is a TypeIs, so surviving this guard IS the proof that `frame` is the
+    # eager member of the union and `.height` exists. A cast here would have asserted the same
+    # fact the predicate already establishes, unchecked — and would have had to be repeated at
+    # every other eager-side call site in the engine.
+    return frame.height == 0
 
 
-def _combine_edges(g, steps, label_steps, has_multihop=False):
+def _combine_edges(g: "_LazyShim",
+                   steps: List[Tuple[ASTObject, "_LazyShim"]],
+                   label_steps: List[Tuple[ASTObject, "_LazyShim"]],
+                   has_multihop: bool = False) -> "pl.LazyFrame":
+    """The output edge ROWS: the graph's edges restricted to the ids the traversal kept, plus a
+    boolean flag column per named edge step.
+
+    Takes the ``_LazyShim`` duck-type, NOT a ``Plottable``: the Track-B combine runs entirely on
+    already-materialized-then-lazified hop frames, which is exactly what the shim carries (and
+    why its frames are ``LazyFrame``, not the ``PolarsFrame`` union). ``steps`` are the edge
+    steps (recomputed ones when ``has_multihop``); ``label_steps`` are the forward-pass steps
+    used for the endpoint gates and the alias flags."""
     import polars as pl
     src, dst, node_col, edge_id = g._source, g._destination, g._node, g._edge
     assert src is not None and dst is not None and node_col is not None and edge_id is not None
+    all_edges = g._edges
+    assert all_edges is not None  # the shim's edge frame is the thing being combined
 
-    frames = []
+    frames: List["pl.LazyFrame"] = []
     for idx, (op, g_step) in enumerate(steps):
         edges_df = g_step._edges
         if edges_df is None:
@@ -320,11 +340,11 @@ def _combine_edges(g, steps, label_steps, has_multihop=False):
         frames.append(edges_df.select(pl.col(edge_id)))
 
     if not frames:
-        out_ids = g._edges.select(pl.col(edge_id)).limit(0)
+        out_ids = all_edges.select(pl.col(edge_id)).limit(0)
     else:
         out_ids = pl.concat(frames, how="vertical_relaxed").unique(subset=[edge_id])
 
-    out = g._edges.join(out_ids, on=edge_id, how="semi")
+    out = all_edges.join(out_ids, on=edge_id, how="semi")
 
     for op, g_step in label_steps:
         if op._name is not None and isinstance(op, ASTEdge) and g_step._edges is not None and op._name in colnames(g_step._edges):
@@ -392,7 +412,9 @@ def _materialize_node_rows(all_nodes: "pl.LazyFrame", step_ids: "pl.LazyFrame",
         subset=[node_col], maintain_order=True)
 
 
-def _apply_node_names(out, g, steps, auto_hop_col: str = _AUTO_NODE_HOP):
+def _apply_node_names(out: "pl.LazyFrame", g: "_LazyShim",
+                      steps: List[Tuple[ASTObject, "_LazyShim"]],
+                      auto_hop_col: str = _AUTO_NODE_HOP) -> "pl.LazyFrame":
     """Tag node aliases on the FINAL node frame (after endpoint materialization). A node carries
     the alias iff it matched the named step in the backward-PRUNED frame (dead-end matches
     excluded) AND, when followed by an edge step, participates in that edge's PRUNED edges.
@@ -401,7 +423,7 @@ def _apply_node_names(out, g, steps, auto_hop_col: str = _AUTO_NODE_HOP):
     import polars as pl
     node_col, src, dst = g._node, g._source, g._destination
     assert node_col is not None and src is not None and dst is not None
-    step_list = list(steps)
+    step_list: List[Tuple[ASTObject, "_LazyShim"]] = list(steps)
     for idx, (op, g_step) in enumerate(step_list):
         if op._name is None or not isinstance(op, ASTNode) or g_step._nodes is None:
             continue
@@ -433,7 +455,11 @@ def _apply_node_names(out, g, steps, auto_hop_col: str = _AUTO_NODE_HOP):
             # function above; leaving a second copy of it here is how the bug recurs.
             # Unlike the edges combine this one is SEMANTIC, not a cost guard: an empty next
             # edge step must not empty `named` via the gate below.
-            next_edges_empty = getattr(next_step, "edges_empty", None)
+            # Plain attribute read, not getattr: `next_step` is a `_LazyShim`, which declares
+            # `edges_empty` in __slots__ with a real `Optional[bool]` annotation, so the
+            # tri-state is part of the type and a typo here is a checker error rather than a
+            # silent None (which would have re-armed the very gate this guard disarms).
+            next_edges_empty = next_step.edges_empty
             if (isinstance(next_op, ASTEdge) and next_step._edges is not None
                     and next_edges_empty is not True):
                 e = next_step._edges
