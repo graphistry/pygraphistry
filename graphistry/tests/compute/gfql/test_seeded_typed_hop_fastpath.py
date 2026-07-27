@@ -13,11 +13,14 @@ the accelerated shapes and DECLINES (falls through) for everything else,
 including full-path side-channels (policy hooks, same-path WHERE, OPTIONAL
 null rows, WITH..MATCH carried seeds, list-`labels` columns, null ids).
 """
+from typing import Dict, Tuple
+
 import numpy as np
 import pandas as pd
 import pytest
 
 import graphistry
+from graphistry.Plottable import Plottable
 from graphistry.compute.ast import n, e_forward, e_reverse
 import graphistry.compute.chain as chain_mod
 import graphistry.compute.gfql_unified as gfql_unified
@@ -726,6 +729,49 @@ class TestSeededProjectionDtypeAndEdgesParity:
         return graphistry.nodes(pl.from_pandas(g._nodes), "id").edges(
             pl.from_pandas(g._edges), "src", "dst")
 
+    # ------------------------------------------------------------------
+    # THE PANDAS FULL PATH'S int64->float64 / bool->object UPCAST IS AN ARTIFACT.
+    #
+    # It comes from the rows-pivot's merges, not from Cypher. Evidence, three independent
+    # sources (this is a DELIBERATE rule, not a test "fix"):
+    #   1. openCypher TCK `tck/features/clauses/return/Return2.feature` scenario [2]
+    #      "Returning a node property value": `CREATE ({num: 1})` / `MATCH (a) RETURN a.num`
+    #      expects `1`. The TCK value grammar (`tck/README.adoc`) writes an Integer as a
+    #      bare string of decimal digits and a Float "in decimal form with all present
+    #      decimals", so `1.0` would be a DIFFERENT expected value.
+    #   2. Neo4j (reference engine) Cypher manual: INTEGER and FLOAT are distinct property
+    #      types and an INTEGER property read back is INTEGER
+    #      (`valueType(n.prop)` -> "INTEGER NOT NULL").
+    #   3. This repo's own POLARS full path already returns int64/bool for this exact
+    #      query — only the pandas merge upcasts. So the upcast is engine-local, which is
+    #      what an artifact looks like and what a semantic does not.
+    # => int64/bool is the CONFORMANT result. Where a fast path serves, it keeps the
+    # conformant dtype rather than casting back to reproduce the defect (casting back was
+    # also measured to be per-column and unprincipled: a blanket cast took the suite from
+    # 20 to 45 failures).
+    # NOT YET ALIGNED (deliberately out of scope, tracked as follow-up): the pandas full
+    # path itself, and the Cypher-layer projection pinned by
+    # `test_pandas_int_bool_dtype_parity` below, still emit the artifact.
+    _FULL_PATH_PANDAS_UPCASTS: Dict[str, Tuple[str, str]] = {
+        "a": ("int64", "float64"), "f": ("bool", "object")}
+
+    def _assert_values_equal_conformant_dtypes(self, fast: Plottable, full: Plottable) -> None:
+        """Values identical; where the pandas full path upcast, the served path keeps the
+        Cypher-conformant dtype and we assert BOTH sides explicitly."""
+        f, u = _canon_nodes(fast), _canon_nodes(full)
+        assert list(f.columns) == list(u.columns)
+        for col in f.columns:
+            rule = self._FULL_PATH_PANDAS_UPCASTS.get(col)
+            if rule is not None and str(u[col].dtype) == rule[1]:
+                conformant, artifact = rule
+                assert str(f[col].dtype) == conformant, (
+                    f"{col}: served path must keep the conformant dtype "
+                    f"{conformant}, got {f[col].dtype}")
+                pd.testing.assert_series_equal(
+                    f[col].astype(artifact), u[col], check_names=False)
+            else:
+                pd.testing.assert_series_equal(f[col], u[col], check_names=False)
+
     def _fast_and_full(self, g, engine, q, expect_engage=True):
         hits = {"n": 0}
         real = gfql_unified._execute_seeded_typed_hop_fast_path
@@ -756,9 +802,16 @@ class TestSeededProjectionDtypeAndEdgesParity:
         pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
 
     def test_pandas_datetime_property_declines(self):
+        """M2/dtype pin: the CYPHER seeded projection still DECLINES a datetime property.
+        DELIBERATE CHANGE: the assertion used to be a plain frame_equal against the full
+        path, which incidentally locked the pandas merge upcast (`a` as float64). That was
+        never the guarantee this test exists for — the guarantee is "the Cypher fast path
+        declines, and the answer is still right". Since the native chain fast path now
+        serves the declined shape, `a` comes back int64, which is the conformant type
+        (see _FULL_PATH_PANDAS_UPCASTS above). Values are still asserted identical."""
         q = self.Q.replace("p.flag AS f", "p.ts AS t")
         fast, full = self._fast_and_full(self._typed_graph(), "pandas", q, expect_engage=False)
-        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+        self._assert_values_equal_conformant_dtypes(fast, full)
 
     @pytest.mark.parametrize("engine", ["pandas", "polars"])
     def test_edges_empty_frame_not_none(self, engine):
@@ -772,11 +825,18 @@ class TestSeededProjectionDtypeAndEdgesParity:
         assert full._edges.shape[0] == 0
 
     def test_engine_mismatch_declines(self):
+        """M2 pin: a requested-vs-actual engine mismatch DECLINES the Cypher seeded
+        projection. DELIBERATE CHANGE, same reason as test_pandas_datetime_property_
+        declines: the first arm's frame_equal incidentally locked the pandas merge upcast.
+        The declined shape is now served by the native chain fast path, so `a`/`f` come
+        back int64/bool — the conformant types. Note arm 2 needs no change at all: the
+        POLARS full path already returns int64/bool, which is the third piece of evidence
+        that the pandas float64 is engine-local artifact rather than Cypher semantics."""
         pytest.importorskip("polars")
         # polars frames + engine='pandas': full converts to pandas; fast must decline
         fast, full = self._fast_and_full(self._pl_graph(), "pandas", self.Q, expect_engage=False)
         assert type(fast._nodes).__module__.startswith("pandas")
-        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+        self._assert_values_equal_conformant_dtypes(fast, full)
         # pandas frames + engine='polars' (reentry direction): also declines
         fast2, full2 = self._fast_and_full(self._typed_graph(), "polars", self.Q, expect_engage=False)
         assert type(fast2._nodes).__module__ == type(full2._nodes).__module__

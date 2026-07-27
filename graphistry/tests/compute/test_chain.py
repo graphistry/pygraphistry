@@ -1,9 +1,12 @@
 import os
+from typing import Sequence
+
 import pandas as pd
 import pytest
 
 from graphistry.compute.ast import ASTEdgeUndirected, ASTNode, ASTEdge, n, e, e_undirected, e_forward, e_reverse
 from graphistry.compute.chain import Chain, _try_chain_fast_path
+from graphistry.compute.typing import DataFrameT
 from graphistry.compute.predicates.is_in import IsIn, is_in
 from graphistry.compute.predicates.numeric import gt
 from graphistry.tests.test_compute import CGFull
@@ -680,13 +683,27 @@ _FAST_SHAPES = [
     ("edge_match_unconstrained", lambda: [n(), e_forward(hops=1, edge_match={'w': 5}), n()]),
     ("edge_match_seeded", lambda: [n({'attr': 10}), e_forward(hops=1, edge_match={'w': 5}), n()]),
     ("edge_match_dst_filter", lambda: [n(), e_forward(hops=1, edge_match={'w': 5}), n({'attr': 30})]),
+    # DELIBERATE RULE CHANGE: naming an op is a PROJECTION concern, not a traversal one,
+    # so it no longer decides which engine path runs. `_tag_fast_path_aliases` reconstructs
+    # the alias flag columns `combine_steps` would have merged in, so these are now FAST
+    # shapes. (Was `("named_node", ...)` under _BYPASS_SHAPES: that entry encoded the old
+    # "any alias -> decline" gate, not a semantic guarantee.)
+    ("named_src", lambda: [n(name='x'), e_forward(hops=1), n()]),
+    ("named_dst", lambda: [n(), e_forward(hops=1), n(name='y')]),
+    ("named_edge", lambda: [n(), e_forward(hops=1, name='r'), n()]),
+    ("named_all_fwd", lambda: [n(name='x'), e_forward(hops=1, name='r'), n(name='y')]),
+    ("named_all_rev", lambda: [n(name='x'), e_reverse(hops=1, name='r'), n(name='y')]),
+    ("named_filtered", lambda: [n({'attr': 10}, name='x'), e_forward(hops=1), n(name='y')]),
 ]
 
 # shapes that BYPASS the fast path (still must be correct via the full path)
 _BYPASS_SHAPES = [
     ("hops_2", lambda: [n(), e_forward(hops=2), n()]),
     ("filtered_undirected", lambda: [n({'attr': 10}), e_undirected(hops=1), n({'attr': 30})]),
-    ("named_node", lambda: [n(name='x'), e_forward(hops=1), n()]),
+    # Named + undirected STAYS a bypass: an undirected edge makes a node reachable as
+    # EITHER endpoint, so "which alias does this node carry" is not derivable from the
+    # endpoint columns the way it is for a directed hop.
+    ("named_undirected", lambda: [n(name='x'), e_undirected(hops=1), n(name='y')]),
     # prune_to_endpoints: fast path returns both endpoints; full path keeps only the
     # arrival side. Must bypass the fast path (regression guard for the prune gate).
     ("prune_endpoints_fwd", lambda: [n(), e_forward(hops=1, prune_to_endpoints=True), n()]),
@@ -716,6 +733,58 @@ def test_fast_path_differential_parity_vs_full_path(engine, label, build):
         eng = Engine.PANDAS
         assert _try_chain_fast_path(g, build(), eng, None) is None, \
             f"{label}: bypass shape must decline the fast path"
+
+
+# Named shapes whose ALIAS FLAG COLUMNS (not merely node/edge sets) must match the full
+# path. `_setsig` above compares ids only, so it cannot see a wrong alias tag.
+_NAMED_ALIAS_SHAPES = [
+    ("src_only", lambda: [n(name='x'), e_forward(hops=1), n()]),
+    ("dst_only", lambda: [n(), e_forward(hops=1), n(name='y')]),
+    ("edge_only", lambda: [n(), e_forward(hops=1, name='r'), n()]),
+    ("all_forward", lambda: [n(name='x'), e_forward(hops=1, name='r'), n(name='y')]),
+    ("all_reverse", lambda: [n(name='x'), e_reverse(hops=1, name='r'), n(name='y')]),
+    ("src_filtered", lambda: [n({'attr': 10}, name='x'), e_forward(hops=1, name='r'), n(name='y')]),
+    ("dst_filtered", lambda: [n(name='x'), e_forward(hops=1, name='r'), n({'attr': 30}, name='y')]),
+    ("edge_match", lambda: [n(name='x'), e_forward(hops=1, edge_match={'w': 5}, name='r'), n(name='y')]),
+    # DEAD END: attr==50 is node 4, which has no outgoing edge. The tag keys on the
+    # SURVIVING EDGES, so the alias must come back False/empty rather than True.
+    ("dead_end_seed", lambda: [n({'attr': 50}, name='x'), e_forward(hops=1, name='r'), n(name='y')]),
+]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("label,build", _NAMED_ALIAS_SHAPES,
+                         ids=[s[0] for s in _NAMED_ALIAS_SHAPES])
+def test_fast_path_named_alias_columns_match_full_path(engine, label, build):
+    """The capability this fast-path extension actually adds: when the traversal is
+    served without the BFS, the alias flag columns `combine_steps` would have merged in
+    are RECONSTRUCTED from the surviving edges, and must be identical to the full path's
+    — column set, per-row values and all. Serve-asserted so a gate regression that
+    declines everything fails here instead of passing vacuously."""
+    from graphistry.compute.chain import _try_chain_fast_path
+    from graphistry.Engine import Engine
+    g = _fast_graph(engine)
+    if engine == "pandas":
+        assert _try_chain_fast_path(g, build(), Engine.PANDAS, None) is not None, \
+            f"{label}: named shape must be SERVED by the fast path"
+    fast = g.gfql(build())
+    full = g.gfql(build(), policy=_FAST_NOOP_POLICY)
+
+    def flags(df: DataFrameT, key_cols: Sequence[str]) -> pd.DataFrame:
+        # cuDF frames satisfy DataFrameT structurally but only they carry .to_pandas()
+        pdf = pd.DataFrame(df.to_pandas() if "cudf" in type(df).__module__ else df)  # type: ignore[attr-defined]
+        alias_cols = sorted(set(pdf.columns) & {'x', 'y', 'r'})
+        cols = list(key_cols) + alias_cols
+        out = pdf[cols].sort_values(cols).reset_index(drop=True)
+        # bool vs object is the same merge artifact as int64 vs float64 (see
+        # test_fast_path_preserves_int_node_dtypes); this test pins the alias VALUES,
+        # and the dtype rule is pinned separately.
+        for c in alias_cols:
+            out[c] = out[c].astype(bool)
+        return out
+
+    pd.testing.assert_frame_equal(flags(fast._nodes, ['v']), flags(full._nodes, ['v']))
+    pd.testing.assert_frame_equal(flags(fast._edges, ['s', 'd']), flags(full._edges, ['s', 'd']))
 
 
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
@@ -758,6 +827,16 @@ def test_fast_path_gating_returns_none_for_ineligible():
         # #1755 lever-3: typed edges are now accepted (edge filter on the frontier)
         [n(), e_forward(hops=1, edge_match={'w': 5}), n()],
         [n({'attr': 10}), e_forward(hops=1, edge_match={'w': 5}), n()],
+        # DELIBERATE RULE CHANGE (was asserted INELIGIBLE as "named_node"): an alias is a
+        # PROJECTION concern, so it no longer gates the traversal path. The old assertion
+        # encoded the gate itself, not a semantic the fast path could not meet — the alias
+        # flag columns are reconstructible from the surviving edges
+        # (`_tag_fast_path_aliases`), which is exactly what `combine_steps` computes.
+        [n(name='x'), e_forward(hops=1), n()],
+        [n(), e_forward(hops=1), n(name='y')],
+        [n(), e_forward(hops=1, name='r'), n()],
+        [n(name='x'), e_forward(hops=1, name='r'), n(name='y')],
+        [n(name='x'), e_reverse(hops=1, name='r'), n(name='y')],
     ]
     for ops in eligible:
         assert _try_chain_fast_path(g, ops, Engine.PANDAS, None) is not None, f"should accept {ops}"
@@ -765,7 +844,14 @@ def test_fast_path_gating_returns_none_for_ineligible():
     ineligible = [
         ("hops_2", [n(), e_forward(hops=2), n()], None, Engine.PANDAS),
         ("filtered_undirected", [n({'attr': 10}), e_undirected(hops=1), n({'attr': 30})], None, Engine.PANDAS),
-        ("named_node", [n(name='x'), e_forward(hops=1), n()], None, Engine.PANDAS),
+        # NEW declines that come with serving aliases. Undirected: a node is reachable as
+        # EITHER endpoint, so alias identity is not derivable from the endpoint columns.
+        ("named_undirected", [n(name='x'), e_undirected(hops=1), n(name='y')], None, Engine.PANDAS),
+        ("named_undirected_edge", [n(), e_undirected(hops=1, name='r'), n(name='y')], None, Engine.PANDAS),
+        # Duplicate alias reuse is E201, and `combine_steps` is what raises it; serving
+        # here would BYPASS the check and let alias reuse silently succeed.
+        ("duplicate_alias_nodes", [n(name='x'), e_forward(hops=1), n(name='x')], None, Engine.PANDAS),
+        ("duplicate_alias_edge", [n(name='r'), e_forward(hops=1, name='r'), n()], None, Engine.PANDAS),
         ("node_query", [n(query='attr > 5'), e_forward(hops=1), n()], None, Engine.PANDAS),
         ("prune_endpoints", [n(), e_forward(hops=1, prune_to_endpoints=True), n()], None, Engine.PANDAS),
         ("seeded", [n()], seed, Engine.PANDAS),
