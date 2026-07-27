@@ -292,3 +292,22 @@ def test_empty_left_shrink_holds_through_the_chain():
         on._nodes.sort_values(list(on._nodes.columns)).reset_index(drop=True),
     )
     assert len(on._nodes) == 0
+
+
+def test_empty_left_shrink_works_on_a_float_index():
+    """`right[0:0]` is LABEL-based on a float index — pandas routes those through
+    slice_indexer — so the bare-slice spelling returns ONE row there and the shrink
+    silently does nothing. The result stays correct either way (a 0-row left still yields
+    a 0-row how='left' merge), which is exactly why this needs its own test: the bug is a
+    silent perf no-op, invisible to any assertion about the merge result."""
+    right = _wide_right()
+    right.index = np.arange(len(right), dtype=float)
+    left = right.iloc[:0][["id"]]
+
+    out = _lean_prefilter_right(left, right, "id", Engine.PANDAS)
+    assert len(out) == 0, (
+        f"shrink returned {len(out)} rows on a float index — bare [0:0] label-sliced "
+        "instead of position-sliced, so the optimization did not fire"
+    )
+    pd.testing.assert_frame_equal(
+        left.merge(out, on="id", how="left"), left.merge(right, on="id", how="left"))

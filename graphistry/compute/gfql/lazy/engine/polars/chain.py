@@ -955,10 +955,10 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     final_nodes = _apply_node_names(final_nodes, g_lz, steps_lz, auto_hop_col=auto_hop_col)
 
     final_nodes = final_nodes.sort(NORD).drop(NORD)
+    # EORD IS EID whenever we synthesized the id (that is the point of this change), so the
+    # single drop above removes it. There is no `added_edge_index and EID != EORD` case left
+    # to handle: the only branch that sets added_edge_index also sets EORD = EID.
     final_edges = final_edges.sort(EORD).drop(EORD)
-    if added_edge_index and EID != EORD:
-        # When EORD IS EID the drop above already removed it (same column, one drop).
-        final_edges = final_edges.drop(EID)
     final_edges, final_nodes = collect_all([final_edges, final_nodes])
     final_edges = _restore_edge_dtypes(final_edges, src, dst, _endpoint_restore)
     return self.nodes(final_nodes, node_col).edges(final_edges, src, dst)
