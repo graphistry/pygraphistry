@@ -337,11 +337,19 @@ def test_duplicate_node_ids_still_collapse_to_one_row():
     assert graph_sig(g_pd.chain(chain, engine="pandas")) == graph_sig(out)
 
 
-def test_output_row_order_survives_a_frame_big_enough_to_parallelize():
+@pytest.mark.parametrize("streaming", [False, True], ids=["in-memory", "streaming"])
+def test_output_row_order_survives_a_frame_big_enough_to_parallelize(streaming):
     """Order at fixture scale proves little: polars' joins happen to come back in left order on a
     handful of rows and only reorder once the hash join actually runs in parallel. Use a frame
     large enough to reorder, shuffled so input order is not id order, and pin that the combine's
-    explicit sorts put both output frames back into input-frame order."""
+    explicit sorts put both output frames back into input-frame order.
+
+    Parametrized over the collect engine because the IN-MEMORY engine hides the edge sort: with
+    `final_edges.sort(EORD)` deleted, in-memory still returns EORD-ordered rows at every size
+    probed, so an in-memory-only test would call that sort dead code. Under STREAMING it does
+    not, and a trailing rows(limit=)/skip would then slice the wrong rows. Both engines here,
+    so neither sort can be removed on the strength of the other's silence."""
+    from graphistry.compute.gfql.lazy import set_cpu_streaming
     size = 60_000
     rng = list(range(size))
     order = rng[1::2] + rng[0::2][::-1]                       # deterministic shuffle
@@ -350,8 +358,12 @@ def test_output_row_order_survives_a_frame_big_enough_to_parallelize():
                           "d": [(k * 13 + 1) % size for k in order],
                           "type": ["K" if k % 2 else "L" for k in order]})
     _, g_pl = _pair(nodes, edges)
-    out = g_pl.chain([n({"grp": 1}, name="m"), e_forward({"type": "K"}, name="r"), n(name="p")],
-                     engine="polars")
+    set_cpu_streaming(streaming)
+    try:
+        out = g_pl.chain([n({"grp": 1}, name="m"), e_forward({"type": "K"}, name="r"), n(name="p")],
+                         engine="polars")
+    finally:
+        set_cpu_streaming(None)
     assert out._nodes.height > 1000 and out._edges.height > 1000, "fixture stopped being big"
 
     node_rank = {k: i for i, k in enumerate(nodes["key"].tolist())}

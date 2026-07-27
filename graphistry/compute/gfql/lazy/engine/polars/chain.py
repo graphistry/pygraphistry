@@ -358,7 +358,11 @@ def _materialize_node_rows(all_nodes, step_ids, endpoint_ids_frame, node_col):
     Row ORDER out of here is arbitrary — a polars semi-join does not preserve left-frame order —
     and the caller restores input-frame order with an explicit sort. ``maintain_order`` is kept
     verbatim from the pre-refactor call so that WHICH duplicate row survives is decided the same
-    way it was before (A/B over 400 duplicate-id combos: identical full frames)."""
+    way it was before: A/B over 400 duplicate-id combos gives identical full frames **under the
+    default in-memory collect**. Scoped deliberately — under streaming collect the survivor DOES
+    differ from the pre-refactor call (measured), so it is not a guaranteed property of this
+    helper, only a stable one on the default engine. Anything needing a specific survivor must
+    order explicitly rather than rely on this."""
     import polars as pl
     ids = pl.concat([step_ids, endpoint_ids_frame], how="vertical_relaxed")
     return all_nodes.join(ids, on=node_col, how="semi").unique(
@@ -399,7 +403,16 @@ def _apply_node_names(out, g, steps, auto_hop_col: str = _AUTO_NODE_HOP):
                     on=node_col, how="semi")
         if idx + 1 < len(step_list):
             next_op, next_step = step_list[idx + 1]
-            if isinstance(next_op, ASTEdge) and next_step._edges is not None and (is_lazy(next_step._edges) or next_step._edges.height > 0):
+            # Cardinality guard, restated against a fact that SURVIVES lazification. The old
+            # spelling was `is_lazy(df) or df.height > 0`, and `_apply_node_names` is always
+            # called with lazified steps — so `is_lazy` short-circuited True and the height
+            # test was unreachable. That is the identical silent death this commit fixes one
+            # function above; leaving a second copy of it here is how the bug recurs.
+            # Unlike the edges combine this one is SEMANTIC, not a cost guard: an empty next
+            # edge step must not empty `named` via the gate below.
+            next_edges_empty = getattr(next_step, "edges_empty", None)
+            if (isinstance(next_op, ASTEdge) and next_step._edges is not None
+                    and next_edges_empty is not True):
                 e = next_step._edges
                 if next_op.direction == "forward":
                     part = e.select(pl.col(src).alias(node_col))
