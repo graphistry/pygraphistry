@@ -707,14 +707,23 @@ def test_cypher_unbounded_varlen_min_hops_matches_pandas_or_declines(query):
     assert got == expected, f"polars diverged from the pandas oracle on {query!r}"
 
 
-@pytest.mark.parametrize("min_hops,max_hops", [(0, 2), (1, 2), (1, 3), (2, 3), (0, 1)])
-def test_polars_bounded_varlen_with_to_fixed_point_matches_pandas(min_hops, max_hops):
-    """`to_fixed_point=True` COMBINED WITH an explicit bound is newly served here.
+@pytest.mark.parametrize("min_hops,max_hops", [(0, 1), (0, 2), (1, 2), (1, 3), (2, 3),
+                                               (3, 4), (3, 5), (4, 5)])
+def test_polars_bounded_varlen_with_to_fixed_point_declines(min_hops, max_hops):
+    """`to_fixed_point=True` COMBINED WITH an explicit bound must DECLINE, as on master.
 
-    Master declined whenever ``bool(op.to_fixed_point)``; the gate now only declines when
-    the RESOLVED MAX is None, so bounded+fixed-point falls through to the bounded arm. That
-    is parity-correct — pandas ignores ``to_fixed_point`` once ``max_hops`` is set — but the
-    widening was undocumented and unpinned, so nothing would have caught it regressing.
+    Master declined on `bool(op.to_fixed_point)` alone. #1781 restructured the gate to key
+    on the RESOLVED MAX, which incidentally let bounded+fixed-point through to the bounded
+    arm — and that arm is silently wrong there for min_hops >= 3, the same reconstruction
+    gap as the unbounded case: `-[*3..5]->` with the flag set returns 30 rows against
+    pandas' 0. Declining restores master's behaviour exactly, so it cannot regress anything.
+
+    An earlier version of this test asserted the OPPOSITE (that the shape is served) and
+    checked values by comparing flagged-vs-unflagged WITHIN each engine, with the
+    parametrization stopping at min_hops=2. It was structurally incapable of catching the
+    divergence: within-engine comparison never consults the pandas oracle, and min_hops<=2
+    happens to agree on this fixture. Hence the range now runs past 3 and the assertion is
+    about the gate, not about values.
     """
     from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import binding_rows_polars
 
@@ -722,34 +731,39 @@ def test_polars_bounded_varlen_with_to_fixed_point_matches_pandas(min_hops, max_
            e_forward(min_hops=min_hops, max_hops=max_hops, to_fixed_point=True),
            n(name="b")]
     g_pl = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
+    assert binding_rows_polars(g_pl, serialize_binding_ops(ops)) is None, \
+        "bounded var-length carrying to_fixed_point must DECLINE, not answer"
 
-    # The gate must SERVE it — the half of the claim a value comparison cannot make on its
-    # own, since a decline would still produce an equally-correct answer via pandas.
-    assert binding_rows_polars(g_pl, serialize_binding_ops(ops)) is not None, \
-        "bounded var-length carrying to_fixed_point must be served natively, not declined"
 
-    # The claim being pinned is that the FLAG IS INERT once a maximum is present, so compare
-    # flag vs no-flag WITHIN each engine. Not across engines: a bare `rows()` call with no
-    # trailing projection emits engine-specific scaffolding (pandas keeps `id`,
-    # `a__a_join__`, `a.a`, ...; polars emits only the alias columns) on EVERY shape,
-    # including a plain fixed 1-hop — pre-existing and unrelated to var-length, and the
-    # Cypher surface never shows it because a projection always follows.
-    unflagged = [n(name="a"), e_forward(min_hops=min_hops, max_hops=max_hops), n(name="b")]
-    call_flagged = [rows(binding_ops=serialize_binding_ops(ops))]
-    call_plain = [rows(binding_ops=serialize_binding_ops(unflagged))]
-    for g, engine in ((BASE, "pandas"), (g_pl, "polars")):
-        plain = _to_pandas(g.gfql(call_plain, engine=engine)._nodes)
-        flagged = _to_pandas(g.gfql(call_flagged, engine=engine)._nodes)
-        assert list(plain.columns) == list(flagged.columns), \
-            f"[{engine}] to_fixed_point changed the columns: " \
-            f"{list(flagged.columns)} vs {list(plain.columns)}"
-        key = list(plain.columns)
-        pd.testing.assert_frame_equal(
-            plain.sort_values(key).reset_index(drop=True),
-            flagged.sort_values(key).reset_index(drop=True),
-            check_dtype=False,
-            obj=f"[{engine}] to_fixed_point is not inert on a bounded segment",
-        )
+def test_bounded_varlen_with_to_fixed_point_never_answers_differently_than_pandas():
+    """The value side of the gate above, on the graph where it actually diverged.
+
+    Contract: polars either matches the pandas oracle or raises. `min_hops >= 3` is where
+    the bounded reconstruction and pandas' hop-window pruning part company, so these are
+    the shapes an over-permissive gate returns wrong counts for (30 vs 0, 6 vs 0, 24 vs 0).
+
+    Compares ROW COUNTS, not frames: a bare `rows()` call with no trailing projection emits
+    engine-specific scaffolding columns (pandas keeps `id`, `a__a_join__`, `a.a`, ...;
+    polars emits only the alias columns) on every shape, including a plain fixed 1-hop.
+    That is pre-existing and unrelated; the row count is the binding multiplicity, which is
+    exactly what diverges here and is engine-neutral.
+    """
+    g_pd = graphistry.nodes(_MINHOP_NODES, "id").edges(_MINHOP_EDGES, "s", "d")
+    g_pl = graphistry.nodes(pl.from_pandas(_MINHOP_NODES), "id").edges(
+        pl.from_pandas(_MINHOP_EDGES), "s", "d")
+    for min_hops, max_hops in [(3, 4), (3, 5), (4, 5), (2, 3), (1, 3), (0, 2)]:
+        ops = [n(name="a"),
+               e_forward(min_hops=min_hops, max_hops=max_hops, to_fixed_point=True),
+               n(name="b")]
+        call = [rows(binding_ops=serialize_binding_ops(ops))]
+        expected = len(_to_pandas(g_pd.gfql(call, engine="pandas")._nodes))
+        try:
+            got = len(_to_pandas(g_pl.gfql(call, engine="polars")._nodes))
+        except NotImplementedError:
+            continue  # an honest decline is allowed; a different answer is not
+        assert got == expected, \
+            f"polars diverged from the pandas oracle on min={min_hops} max={max_hops} " \
+            f"to_fixed_point=True: {got} rows vs {expected}"
 
 
 def test_polars_unbounded_varlen_no_matching_edges_keeps_zero_hop_rows():

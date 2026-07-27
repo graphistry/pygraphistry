@@ -1284,6 +1284,18 @@ def binding_rows_polars(
                 if isinstance(op._name, str):
                     return None
                 _resolved_max = op.max_hops if op.max_hops is not None else op.hops
+                if bool(op.to_fixed_point) and _resolved_max is not None:
+                    #  - `to_fixed_point` COMBINED WITH an explicit bound. Master declined
+                    #    this outright (it declined on `bool(op.to_fixed_point)` alone), and
+                    #    serving it is silently wrong for min_hops >= 3 — the same
+                    #    reconstruction gap as the unbounded case: `MATCH (a)-[*3..5]->(b)`
+                    #    with the flag set gives pandas 0 and polars 30 on a 7-node acyclic
+                    #    graph. Cypher never emits this combination (the parser sets
+                    #    to_fixed_point False for `*k` / `*i..k` and only leaves max_hops
+                    #    None for `*` / `*k..`), so it is reachable through the AST /
+                    #    `rows(binding_ops=...)` wire surface only — but "hard to reach" is
+                    #    not "correct", and declining it merely restores what master did.
+                    return None
                 if _resolved_max is None:
                     if not bool(op.to_fixed_point) or op.direction == "undirected":
                         return None
