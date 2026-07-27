@@ -81,6 +81,19 @@ SUPPORTED = [
     "MATCH (a)-[*2..2]->(b) RETURN count(*) AS c",           # exactly-k
     "MATCH (a)-[:F*1..2]->(b) RETURN count(*) AS c",         # typed var-length
     "MATCH (a)-[*1..2]->(b)-[]->(c) RETURN count(*) AS c",   # var-length + fixed hop
+    # zero-hop window: the seed binds to itself, INCLUDING seeds with no outgoing
+    # edge (which the traversal prunes away — hence the base-graph rebuild).
+    "MATCH (a)-[*0..2]->(b) RETURN count(*) AS c",
+    "MATCH (a)-[*0..2]->(b) RETURN a.id AS ai, b.id AS bi ORDER BY ai, bi",
+    # UNBOUNDED directed fixed point (#1709, LDBC IS6 `REPLY_OF*0..` ancestor walk)
+    "MATCH (a)-[*]->(b) RETURN count(*) AS c",
+    "MATCH (a)-[*0..]->(b) RETURN count(*) AS c",
+    "MATCH (a)-[*]->(b) RETURN a.id AS ai, b.id AS bi ORDER BY ai, bi",
+    "MATCH (a)<-[*]-(b) RETURN count(*) AS c",               # reverse direction
+    "MATCH (a)-[:F*]->(b) RETURN count(*) AS c",             # typed unbounded
+    "MATCH (a)-[*]->(b) WHERE b.age > 25 RETURN a.id AS ai, b.id AS bi ORDER BY ai, bi",
+    "MATCH (a)-[*]->(b)-[]->(c) RETURN count(*) AS c",       # unbounded + fixed hop
+    "MATCH (a {kind: 'a'})-[*0..]->(b) RETURN count(*) AS c",  # filtered seed alias
     # bounded UNDIRECTED var-length, min_hops == 1 (LDBC IC11/IC6 `-[*1..k]-` shape):
     # doubled-pair join + immediate-backtrack avoidance, exact pandas multiplicity.
     "MATCH (a)-[*1..2]-(b) RETURN count(*) AS c",
@@ -102,7 +115,9 @@ SUPPORTED = [
 # Outside the MVP subset: must raise NotImplementedError (honest NIE, no bridge,
 # no silent wrong answer).
 DEFERRED = [
-    "MATCH (a)-[*]->(b) RETURN count(*) AS c",               # unbounded var-length
+    # UNDIRECTED unbounded: would need both the min_hops == 1 multiplicity
+    # reconstruction and backtrack-aware termination (pandas rejects it outright).
+    "MATCH (a)-[*]-(b) RETURN count(*) AS c",
     # undirected var-length is native ONLY for min_hops == 1 (see SUPPORTED). Other
     # windows still DECLINE: pandas' step_pairs come from the var-length hop whose
     # backward-pruning / zero-hop handling changes edge multiplicity in a way the
@@ -423,3 +438,351 @@ def test_polars_binding_rows_decline_branches_direct():
     bad_edges = pl.DataFrame({"s": ["0"], "d": ["1"]})
     bad = graphistry.nodes(pl.from_pandas(NODES), "id").edges(bad_edges, "s", "d")
     assert binding_rows_polars(bad, bo) is None
+
+
+# ---------------------------------------------------------------------------
+# Unbounded DIRECTED variable-length binding rows (#1709): `-[*]->` / `-[*0..]->`.
+# Motivating query: LDBC SNB interactive-short-6 walks `REPLY_OF*0..` from a
+# message to its root post, then out to the forum and moderator.
+# ---------------------------------------------------------------------------
+
+
+def _reply_chain_graph():
+    """IS6 shape: message 1 -REPLY_OF-> 2 -REPLY_OF-> post 3, contained by forum 10,
+    moderated by person 30. Message 4 is its own root post (zero-hop case)."""
+    nodes = pd.DataFrame({
+        "id": [1, 2, 3, 4, 10, 30],
+        "label__Message": [True, True, True, True, False, False],
+        "label__Post": [False, False, True, True, False, False],
+        "label__Forum": [False, False, False, False, True, False],
+        "label__Person": [False, False, False, False, False, True],
+        "title": ["m1", "m2", "p3", "p4", "f10", "mod"],
+    })
+    edges = pd.DataFrame({
+        "s": [1, 2, 10, 10, 10],
+        "d": [2, 3, 3, 4, 30],
+        "type": ["REPLY_OF", "REPLY_OF", "CONTAINER_OF", "CONTAINER_OF", "HAS_MODERATOR"],
+    })
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+@pytest.mark.parametrize("seed", [1, 4])
+def test_polars_unbounded_varlen_is6_ancestor_walk_parity(seed):
+    """The LDBC IS6 pattern end-to-end. seed=1 exercises the 2-hop ancestor walk,
+    seed=4 the ZERO-hop case (the message already is the post) — the case that
+    forced the bindings rebuild onto the pre-chain base graph."""
+    from graphistry.compute.ast import e_reverse, n as node, rows as rows_call, select as select_call
+
+    g = _reply_chain_graph()
+    query = [
+        node({"id": seed, "label__Message": True}, name="message"),
+        e_forward({"type": "REPLY_OF"}, min_hops=0, to_fixed_point=True),
+        node({"label__Post": True}, name="post"),
+        e_reverse({"type": "CONTAINER_OF"}),
+        node({"label__Forum": True}, name="forum"),
+        e_forward({"type": "HAS_MODERATOR"}),
+        node({"label__Person": True}, name="moderator"),
+        rows_call(),
+        select_call([("forumId", "forum.id"), ("moderatorId", "moderator.id")]),
+    ]
+    rpd = g.gfql(query, engine="pandas")._nodes
+    rpl = g.gfql(query, engine="polars")._nodes
+    assert "polars" in type(rpl).__module__
+    assert len(rpd) == 1  # the pattern really does match (guards a vacuous pass)
+    pd.testing.assert_frame_equal(
+        rpd.reset_index(drop=True), rpl.to_pandas().reset_index(drop=True), check_dtype=False
+    )
+
+
+def test_polars_unbounded_varlen_zero_hop_seed_without_outgoing_edge():
+    """`-[*0..]->` binds a seed that has NO matching outgoing edge. The chain
+    traversal prunes such a node away, so a bindings rebuild from the chain OUTPUT
+    would silently return nothing; pandas (and now polars) rebuild from the
+    pre-chain graph and keep the zero-hop row."""
+    from graphistry.compute.ast import n as node, rows as rows_call, select as select_call
+
+    nodes = pd.DataFrame({"id": [0, 1, 2], "kind": ["B", "B", "A"]})
+    edges = pd.DataFrame({"s": [0, 0], "d": [2, 1], "type": ["X", "R"]})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    query = [
+        node({"kind": "A"}, name="a"),
+        e_forward({"type": "R"}, min_hops=0, to_fixed_point=True),
+        node(name="b"),
+        rows_call(),
+        select_call([("ai", "a.id"), ("bi", "b.id")]),
+    ]
+    rpd = g.gfql(query, engine="pandas")._nodes
+    rpl = g.gfql(query, engine="polars")._nodes.to_pandas()
+    assert rpd.to_dict("records") == [{"ai": 2, "bi": 2}]
+    pd.testing.assert_frame_equal(
+        rpd.reset_index(drop=True), rpl.reset_index(drop=True), check_dtype=False
+    )
+
+
+def test_polars_unbounded_varlen_path_multiplicity_matches_pandas():
+    """One row per distinct edge SEQUENCE: parallel edges multiply per hop, and a
+    diamond contributes one row per path — not per reachable endpoint."""
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3]})
+    edges = pd.DataFrame({
+        "s": [0, 0, 1, 2],
+        "d": [1, 2, 3, 3],   # diamond 0->{1,2}->3
+        "type": ["R"] * 4,
+    })
+    edges = pd.concat([edges, pd.DataFrame({"s": [0], "d": [1], "type": ["R"]})])  # parallel 0->1
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    q = "MATCH (a)-[*]->(b) RETURN a.id AS ai, b.id AS bi"
+    rpd = g.gfql(q, engine="pandas")._nodes
+    rpl = g.gfql(q, engine="polars")._nodes.to_pandas()
+    # 0->3 has three distinct edge sequences (two via the parallel 0->1, one via 2)
+    assert sorted(rpl[(rpl.ai == 0) & (rpl.bi == 3)].bi.tolist()) == [3, 3, 3]
+    key = ["ai", "bi"]
+    pd.testing.assert_frame_equal(
+        rpd.sort_values(key).reset_index(drop=True),
+        rpl.sort_values(key).reset_index(drop=True),
+        check_dtype=False,
+    )
+
+
+def test_polars_unbounded_varlen_cycle_raises_same_error_as_pandas():
+    """A cycle reachable from the seed means infinitely many paths. Pandas raises
+    E108 ('require terminating variable-length segments'); polars must raise the
+    SAME diagnosis, never truncate to a subtly different answer.
+
+    Asserts the CLASS and `.code` are engine-INDEPENDENT, not just that polars carries
+    some code of its own. An earlier version pinned `errs['polars'].code == E108` and so
+    passed while the two engines actually disagreed — pandas re-wraps the kernel error as
+    GFQLTypeError(E303) via `execute_call`, polars ran the native kernel before that
+    wrapper and leaked the raw GFQLValidationError(E108). Callers switch on `.code`, so
+    a per-engine code is a real divergence; the E108 text survives inside the message."""
+    from graphistry.compute.exceptions import GFQLValidationError
+
+    nodes = pd.DataFrame({"id": [0, 1, 2]})
+    edges = pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0], "type": ["R"] * 3})  # 3-cycle
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    q = "MATCH (a)-[*]->(b) RETURN count(*) AS c"
+    errs = {}
+    for engine in ("pandas", "polars"):
+        with pytest.raises(GFQLValidationError) as exc:
+            g.gfql(q, engine=engine)
+        errs[engine] = exc.value
+    assert type(errs["polars"]) is type(errs["pandas"]), (
+        f"exception class differs by engine: {type(errs['polars'])} vs {type(errs['pandas'])}")
+    assert errs["polars"].code == errs["pandas"].code, (
+        f"error code differs by engine: {errs['polars'].code} vs {errs['pandas'].code}")
+    for engine in ("pandas", "polars"):
+        assert (
+            "Cypher multi-alias row bindings currently require terminating "
+            "variable-length segments"
+        ) in str(errs[engine])
+
+
+def test_polars_unbounded_varlen_cycle_bound_is_the_reachable_set_not_the_graph():
+    """The exhaustion probe bounds itself by the REACHABLE node count, not the graph's.
+
+    Both directions of that bound are failure modes, so pin both:
+      * too TIGHT and a long acyclic walk is mistaken for a cycle (false E108),
+      * too LOOSE and a reachable cycle is never detected (wrong answer, or a hang).
+    The chain is deliberately longer than the cyclic component so a bound derived from
+    the cycle's own size would cut the acyclic walk short.
+    """
+    from graphistry.compute.exceptions import GFQLValidationError
+
+    # 0 -> 1 -> ... -> 60, acyclic, walk length 60.
+    chain_edges = pd.DataFrame({"s": list(range(60)), "d": list(range(1, 61))})
+    chain_nodes = pd.DataFrame({"id": list(range(61))})
+    g_pd = graphistry.nodes(chain_nodes, "id").edges(chain_edges, "s", "d")
+    g_pl = graphistry.nodes(pl.from_pandas(chain_nodes), "id").edges(
+        pl.from_pandas(chain_edges), "s", "d")
+    q = "MATCH (a)-[*]->(b) RETURN count(*) AS c"
+    assert _to_pandas(g_pl.gfql(q, engine="polars")._nodes)["c"].tolist() == \
+        _to_pandas(g_pd.gfql(q, engine="pandas")._nodes)["c"].tolist(), \
+        "a long acyclic walk must exhaust, not be reported as a cycle"
+
+    # A 2-cycle {0,1} reachable from the seed, plus 300 nodes of UNREACHABLE chain. A
+    # probe bounded by the global node count would spend ~300 eager collects here; the
+    # answer (E108) must be the same either way.
+    cyc = pd.DataFrame({"s": [0, 1] + list(range(100, 400)),
+                        "d": [1, 0] + list(range(101, 401))})
+    cyc_nodes = pd.DataFrame({"id": list(range(401))})
+    g_cyc = graphistry.nodes(pl.from_pandas(cyc_nodes), "id").edges(
+        pl.from_pandas(cyc), "s", "d")
+    with pytest.raises(GFQLValidationError):
+        g_cyc.gfql(q, engine="polars")
+
+
+def test_polars_unbounded_varlen_self_loop_raises():
+    """A self-loop is the smallest cycle — one hop that never exhausts."""
+    from graphistry.compute.exceptions import GFQLValidationError
+
+    nodes = pd.DataFrame({"id": [0, 1]})
+    edges = pd.DataFrame({"s": [0, 1], "d": [1, 1], "type": ["R", "R"]})  # 1->1 self-loop
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    with pytest.raises(GFQLValidationError):
+        g.gfql("MATCH (a)-[*]->(b) RETURN count(*) AS c", engine="polars")
+
+
+def test_polars_unbounded_varlen_declines_undirected_and_aliased():
+    """Honest declines around the supported subset (NIE, never a silent answer)."""
+    from graphistry.compute.ast import e_undirected
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import binding_rows_polars
+
+    g = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
+    # undirected unbounded: multiplicity reconstruction + backtrack-aware termination
+    assert binding_rows_polars(
+        g, serialize_binding_ops([n(name="a"), e_undirected(to_fixed_point=True), n(name="b")])
+    ) is None
+    # aliased variable-length relationship: pandas rejects it outright
+    assert binding_rows_polars(
+        g, serialize_binding_ops([n(name="a"), e_forward(to_fixed_point=True, name="r"), n(name="b")])
+    ) is None
+    # unbounded WITHOUT to_fixed_point: pandas silently truncates at a bound this
+    # lowering cannot reconstruct, so decline rather than guess the depth.
+    assert binding_rows_polars(
+        g, serialize_binding_ops([n(name="a"), e_forward(hops=None, min_hops=2), n(name="b")])
+    ) is None
+
+
+@pytest.mark.parametrize("min_hops", [0, 1, 2, 3])
+def test_polars_unbounded_varlen_gate_admits_min_hops_le_1_only(min_hops):
+    """Either side of the min_hops boundary on the UNBOUNDED DIRECTED arm.
+
+    This is the Cypher-reachable shape: `-[*k..]->` lowers to
+    ``{hops: None, min_hops: k, to_fixed_point: True, direction: forward}``. The sibling
+    decline test above uses ``to_fixed_point=False``, which Cypher never emits — that is
+    exactly why it missed this. For k >= 2 pandas' step_pairs come from the var-length
+    ``edge_op.execute`` hop, which empties/prunes by min_hops against a dedup-by-node
+    eccentricity; the raw-edge reconstruction here does not, so serving k >= 2 diverges
+    SILENTLY (see the value test below).
+    """
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import binding_rows_polars
+
+    g = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
+    out = binding_rows_polars(g, serialize_binding_ops([
+        n(name="a"), e_forward(hops=None, min_hops=min_hops, to_fixed_point=True), n(name="b"),
+    ]))
+    if min_hops <= 1:
+        assert out is not None, f"min_hops={min_hops} is a supported shape and must be served"
+    else:
+        assert out is None, f"min_hops={min_hops} must DECLINE, not answer"
+
+
+# 7 nodes, strictly increasing edges (acyclic, so the fixed point terminates and neither
+# engine errors), with repeated edges so multiplicity — not just reachability — is under
+# test. Serving `-[*k..]->` for k >= 2 returns counts of 30/41/6 here against pandas'
+# 0/24/0; the whole point is that both engines answer, so only a value check catches it.
+_MINHOP_NODES = pd.DataFrame({"id": list(range(7))})
+_MINHOP_EDGES = pd.DataFrame(
+    [(0, 3), (1, 2), (4, 6), (3, 5), (5, 6), (1, 2), (3, 5), (0, 6),
+     (5, 6), (3, 4), (0, 4), (0, 4), (4, 5), (0, 3), (0, 3)],
+    columns=["s", "d"],
+)
+
+
+@pytest.mark.parametrize("query", [
+    "MATCH (a)-[*]->(b) RETURN count(*) AS c",
+    "MATCH (a)-[*0..]->(b) RETURN count(*) AS c",
+    "MATCH (a)-[*1..]->(b) RETURN count(*) AS c",
+    "MATCH (a)-[*2..]->(b) RETURN count(*) AS c",
+    "MATCH (a {id: 0})-[*2..]->(b) RETURN count(*) AS c",
+    "MATCH (a)-[*3..]->(b) RETURN count(*) AS c",
+    "MATCH (a)-[*4..]->(b) RETURN count(*) AS c",
+])
+def test_cypher_unbounded_varlen_min_hops_matches_pandas_or_declines(query):
+    """End-to-end through Cypher, where the divergence is actually reachable.
+
+    ``RETURN count(*)`` lowers to a pure-CALL chain (no ASTNode/ASTEdge), so
+    ``_is_native_multihop`` in ``_chain_traversal_polars`` never runs and the ``rows`` gate
+    is the ONLY gate — a decline there is the only thing standing between a user and a
+    wrong count. Contract: polars either matches the pandas oracle or raises; never a
+    different number.
+    """
+    g_pd = graphistry.nodes(_MINHOP_NODES, "id").edges(_MINHOP_EDGES, "s", "d")
+    g_pl = graphistry.nodes(pl.from_pandas(_MINHOP_NODES), "id").edges(
+        pl.from_pandas(_MINHOP_EDGES), "s", "d")
+    expected = _to_pandas(g_pd.gfql(query, engine="pandas")._nodes)["c"].tolist()
+    try:
+        got = _to_pandas(g_pl.gfql(query, engine="polars")._nodes)["c"].tolist()
+    except NotImplementedError:
+        return  # an honest decline is allowed; a different answer is not
+    assert got == expected, f"polars diverged from the pandas oracle on {query!r}"
+
+
+@pytest.mark.parametrize("min_hops,max_hops", [(0, 1), (0, 2), (1, 2), (1, 3), (2, 3),
+                                               (3, 4), (3, 5), (4, 5)])
+def test_polars_bounded_varlen_with_to_fixed_point_declines(min_hops, max_hops):
+    """`to_fixed_point=True` COMBINED WITH an explicit bound must DECLINE, as on master.
+
+    Master declined on `bool(op.to_fixed_point)` alone. #1781 restructured the gate to key
+    on the RESOLVED MAX, which incidentally let bounded+fixed-point through to the bounded
+    arm — and that arm is silently wrong there for min_hops >= 3, the same reconstruction
+    gap as the unbounded case: `-[*3..5]->` with the flag set returns 30 rows against
+    pandas' 0. Declining restores master's behaviour exactly, so it cannot regress anything.
+
+    An earlier version of this test asserted the OPPOSITE (that the shape is served) and
+    checked values by comparing flagged-vs-unflagged WITHIN each engine, with the
+    parametrization stopping at min_hops=2. It was structurally incapable of catching the
+    divergence: within-engine comparison never consults the pandas oracle, and min_hops<=2
+    happens to agree on this fixture. Hence the range now runs past 3 and the assertion is
+    about the gate, not about values.
+    """
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import binding_rows_polars
+
+    ops = [n(name="a"),
+           e_forward(min_hops=min_hops, max_hops=max_hops, to_fixed_point=True),
+           n(name="b")]
+    g_pl = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
+    assert binding_rows_polars(g_pl, serialize_binding_ops(ops)) is None, \
+        "bounded var-length carrying to_fixed_point must DECLINE, not answer"
+
+
+def test_bounded_varlen_with_to_fixed_point_never_answers_differently_than_pandas():
+    """The value side of the gate above, on the graph where it actually diverged.
+
+    Contract: polars either matches the pandas oracle or raises. `min_hops >= 3` is where
+    the bounded reconstruction and pandas' hop-window pruning part company, so these are
+    the shapes an over-permissive gate returns wrong counts for (30 vs 0, 6 vs 0, 24 vs 0).
+
+    Compares ROW COUNTS, not frames: a bare `rows()` call with no trailing projection emits
+    engine-specific scaffolding columns (pandas keeps `id`, `a__a_join__`, `a.a`, ...;
+    polars emits only the alias columns) on every shape, including a plain fixed 1-hop.
+    That is pre-existing and unrelated; the row count is the binding multiplicity, which is
+    exactly what diverges here and is engine-neutral.
+    """
+    g_pd = graphistry.nodes(_MINHOP_NODES, "id").edges(_MINHOP_EDGES, "s", "d")
+    g_pl = graphistry.nodes(pl.from_pandas(_MINHOP_NODES), "id").edges(
+        pl.from_pandas(_MINHOP_EDGES), "s", "d")
+    for min_hops, max_hops in [(3, 4), (3, 5), (4, 5), (2, 3), (1, 3), (0, 2)]:
+        ops = [n(name="a"),
+               e_forward(min_hops=min_hops, max_hops=max_hops, to_fixed_point=True),
+               n(name="b")]
+        call = [rows(binding_ops=serialize_binding_ops(ops))]
+        expected = len(_to_pandas(g_pd.gfql(call, engine="pandas")._nodes))
+        try:
+            got = len(_to_pandas(g_pl.gfql(call, engine="polars")._nodes))
+        except NotImplementedError:
+            continue  # an honest decline is allowed; a different answer is not
+        assert got == expected, \
+            f"polars diverged from the pandas oracle on min={min_hops} max={max_hops} " \
+            f"to_fixed_point=True: {got} rows vs {expected}"
+
+
+def test_polars_unbounded_varlen_no_matching_edges_keeps_zero_hop_rows():
+    """No edge matches the type at all: the fixed point has depth 0, so only the
+    zero-hop rows survive (min_hops == 0) or the table is empty (min_hops >= 1)."""
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import binding_rows_polars
+
+    g = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
+    zero = binding_rows_polars(
+        g,
+        serialize_binding_ops([
+            n(name="a"), e_forward({"type": "NOPE"}, min_hops=0, to_fixed_point=True), n(name="b"),
+        ]),
+    )
+    assert zero is not None and zero._nodes.height == len(NODES)
+    one = binding_rows_polars(
+        g,
+        serialize_binding_ops([
+            n(name="a"), e_forward({"type": "NOPE"}, min_hops=1, to_fixed_point=True), n(name="b"),
+        ]),
+    )
+    assert one is not None and one._nodes.height == 0
