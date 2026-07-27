@@ -94,16 +94,20 @@ def test_duplicate_node_keys_do_not_multiply_result_rows(shape):
     hardcoding a count, so the test survives changes to the fixture.
     """
     chain = list(SHAPES[shape])
+    g_pd_dup, g_pl_dup = _pair(*_dup_key_frames())
     _, g_clean = _pair(*_clean_frames())
-    _, g_dup = _pair(*_dup_key_frames())
-    out_clean = g_clean.chain(chain, engine="polars")
-    out_dup = g_dup.chain(chain, engine="polars")
+    out_dup = g_pl_dup.chain(chain, engine="polars")
 
-    # each key appears at most twice in the duplicated node table
-    counts = out_dup._nodes["key"].value_counts()
-    worst = int(counts[counts.columns[-1]].max()) if counts.height else 0
-    assert worst <= 2, f"[{shape}] a node key came back {worst}x — alias join multiplied rows"
-    assert set(out_clean._nodes["key"].to_list()) == set(out_dup._nodes["key"].to_list()), \
+    # Compare against the PANDAS ORACLE, exactly. An earlier version of this test bounded
+    # per-key multiplicity at <=2 (the fixture duplicates each of two keys once), which reads
+    # like it catches row multiplication but does NOT: mutation-checked, dropping the kept
+    # `.unique()` on the alias frame left all 8 parameterizations green, because the bound
+    # absorbs precisely the duplication it was meant to detect. Exact oracle equality is the
+    # real contract and it does fail on that mutation.
+    assert graph_sig(g_pd_dup.chain(chain, engine="pandas")) == graph_sig(out_dup), \
+        f"[{shape}] polars diverged from the pandas oracle on a duplicate-key graph"
+    assert set(g_clean.chain(chain, engine="polars")._nodes["key"].to_list()) == \
+        set(out_dup._nodes["key"].to_list()), \
         f"[{shape}] duplicating node rows changed WHICH nodes matched"
 
 
@@ -120,9 +124,12 @@ def test_dangling_endpoint_is_still_excluded():
 
 @pytest.mark.parametrize("shape", ["fwd_typed", "undirected", "two_hop"])
 def test_duplicate_start_nodes_do_not_change_the_result(shape):
-    """`start_nodes` reaches a semi key side (pattern_apply); repeating rows in it must be
-    inert. This is the one key side a CALLER controls, so it can carry duplicates on any
-    schema, not just a malformed graph."""
+    """Repeating rows in `start_nodes` must be inert — this is the one key side a CALLER
+    controls, so it can carry duplicates on any schema, not just a malformed graph.
+
+    Scope correction: this exercises `chain.py`'s `_semi` / node-only fast path, NOT
+    `pattern_apply.py:70` — instrumenting shows `rows_binding_ops_polars` is called zero
+    times from this file. pattern_apply's own start_nodes gate is covered separately."""
     _, g_pl = _pair(*_clean_frames())
     chain = list(SHAPES[shape])
     # Full node rows, not a bare key column: start_nodes stands in for the node frame, so
