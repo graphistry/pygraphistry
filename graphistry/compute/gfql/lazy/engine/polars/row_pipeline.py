@@ -1175,8 +1175,10 @@ def binding_rows_polars(
             sn = _df_to_engine(sn, _Engine.POLARS)
         if node_id not in sn.columns:
             return None
-        seed_ids = sn.select(pl.col(node_id)).drop_nulls()  # type: ignore[operator]  # polars op on a DataFrameT-typed seed
-        if seed_ids.height != seed_ids.unique().height:
+        seed_ids = sn.select(pl.col(node_id)).drop_nulls()
+        # eager by construction (a LazyFrame start_nodes is collected above), but the polars
+        # guard narrows to the eager-or-lazy union and cannot express "eager only"
+        if seed_ids.height != seed_ids.unique().height:  # type: ignore[union-attr]
             return None
         seed_ids_lf = seed_ids.lazy()
 

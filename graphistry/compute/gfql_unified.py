@@ -402,11 +402,15 @@ def _apply_connected_optional_match(
             return None
 
         seed_src = joined_rows[[joined_col]]
+        # each branch builds ``seed_frame`` directly rather than rebinding ``seed_src``: the
+        # polars result would otherwise widen the variable and break the pandas branch below
+        # (``is_polars_df`` is a TypeGuard -- it does not narrow the negative branch back).
         if is_polars_df(seed_src):
-            seed_src = seed_src.drop_nulls().unique().rename({joined_col: node_col})
+            seed_frame = cast(DataFrameT, df_to_engine(
+                seed_src.drop_nulls().unique().rename({joined_col: node_col}), concrete_engine))
         else:
-            seed_src = seed_src.dropna().drop_duplicates().rename(columns={joined_col: node_col})
-        seed_frame = cast(DataFrameT, df_to_engine(seed_src, concrete_engine))
+            seed_frame = cast(DataFrameT, df_to_engine(
+                seed_src.dropna().drop_duplicates().rename(columns={joined_col: node_col}), concrete_engine))
         seed_ids = cast(SeriesT, seed_frame[node_col])
         node_ids = cast(SeriesT, base_nodes[node_col])
         if is_polars_df(base_nodes):
@@ -494,7 +498,9 @@ def _apply_connected_optional_match(
                 opt_only_cols = [c for c in opt_rows_df.columns if c not in joined.columns or c in join_cols]
                 if len(join_cols) == 1:
                     jc = join_cols[0]
-                    opt_rows_df = opt_rows_df.filter(pl.col(jc).is_in(joined[jc]))
+                    # ``joined`` is eager here (this block indexes and ``len()``s it); the
+                    # polars guard narrows to the eager-or-lazy union and cannot say so.
+                    opt_rows_df = opt_rows_df.filter(pl.col(jc).is_in(joined[jc]))  # type: ignore[index,arg-type]
                 else:
                     join_keys = joined.select(join_cols).unique()
                     opt_rows_df = opt_rows_df.join(join_keys, on=join_cols, how="inner")
