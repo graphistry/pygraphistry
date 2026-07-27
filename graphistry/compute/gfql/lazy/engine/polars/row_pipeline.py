@@ -35,6 +35,13 @@ from graphistry.utils.json import JSONVal
 # checks below are defense-in-depth, not the contract.
 from graphistry.compute.gfql.call.support import AggSpec, OrderKey, SelectItem
 from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
+# Same-package sibling holding the var-length specializations. Safe at module scope:
+# `varlen_rows` has no runtime module-level imports of its own (polars and the pandas
+# mixin are both function-local there), so it cannot cycle back through this module.
+from .varlen_rows import (
+    _directed_varlen_reachable_polars,
+    _directed_fixed_point_binding_rows_polars,
+)
 
 
 # Active row-table schema (col -> dtype), set around lowering so lower_expr can infer FLOAT
@@ -1094,12 +1101,6 @@ def _cartesian_node_bindings_polars(
     return _rewrap(g, out_df)
 
 
-from .varlen_rows import (  # noqa: E402  (moved specializations; see module docstring)
-    _directed_varlen_reachable_polars,
-    _directed_fixed_point_binding_rows_polars,
-)
-
-
 def binding_rows_polars(
     g: Plottable,
     binding_ops: Sequence[Dict[str, JSONVal]],
@@ -1268,14 +1269,31 @@ def binding_rows_polars(
                 #    silently truncates at `len(step_pairs) + 1` iterations instead of
                 #    erroring, and its step_pairs row count is not reconstructible here,
                 #    so the truncation depth (hence the answer) is not reproducible.
+                #  - UNBOUNDED with min_hops >= 2 (`-[*2..]->`): same multiplicity hazard as
+                #    the undirected min_hops != 1 case above, and it is Cypher-reachable.
+                #    Pandas' step_pairs come from the var-length `edge_op.execute` hop, which
+                #    returns an EMPTY frame when its `max_reached_hop < min_hops`
+                #    (compute/hop.py) and otherwise drops edges labelled below min_hops.
+                #    `max_reached_hop` is a dedup-by-node BFS eccentricity, NOT a longest-walk
+                #    length, so the raw-edge reconstruction below expands a DIFFERENT edge
+                #    multiset and disagrees SILENTLY — on a 7-node acyclic graph
+                #    `MATCH (a)-[*3..]->(b) RETURN count(*)` gives pandas 0 vs polars 30.
+                #    `RETURN count(*)` lowers to a pure-CALL chain, so `_is_native_multihop`
+                #    in `_chain_traversal_polars` never runs: this gate is the only gate.
                 # Decline the rest honestly rather than risk silent-wrong multiplicities.
                 if isinstance(op._name, str):
                     return None
                 _resolved_max = op.max_hops if op.max_hops is not None else op.hops
-                if _resolved_max is None and (
-                    not bool(op.to_fixed_point) or op.direction == "undirected"
-                ):
-                    return None
+                if _resolved_max is None:
+                    if not bool(op.to_fixed_point) or op.direction == "undirected":
+                        return None
+                    # min_hops 0 and 1 are the fuzz-verified shapes (`-[*]->`, `-[*0..]->`,
+                    # the #1709 IS6 walk); >= 2 is the divergence above.
+                    _resolved_min_unbounded = op.min_hops if op.min_hops is not None else (
+                        op.hops if op.hops is not None else 1
+                    )
+                    if _resolved_min_unbounded > 1:
+                        return None
                 if op.direction == "undirected":
                     _resolved_min = op.min_hops if op.min_hops is not None else (
                         op.hops if op.hops is not None else 1

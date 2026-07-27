@@ -401,8 +401,27 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     #    is MECHANICAL (is_row_pipeline_call), not curated. (umap/hypergraph never reach here —
     #    the generic chain routes schema-changers straight to execute_call.)
     from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
+    from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
     for op in calls:
-        native = _try_native_row_op(g_cur, op)
+        try:
+            native = _try_native_row_op(g_cur, op)
+        except GFQLTypeError:
+            raise
+        except GFQLValidationError as validation_error:
+            # Same wrapping `execute_call` applies (gfql/call/executor.py): a kernel that
+            # raises a validation error surfaces as GFQLTypeError(E303) with this message
+            # shape. The native attempt runs BEFORE execute_call, so without this the SAME
+            # query carries a different class AND a different `.code` per engine — and this
+            # repo's control flow keys on `.code`. Scoped to GFQLValidationError, the one
+            # divergence actually observed (an E108 from the var-length cycle guard);
+            # other exception classes are left alone rather than blanket-normalized.
+            fn_name = getattr(op, "function", None)
+            raise GFQLTypeError(
+                ErrorCode.E303,
+                f"Error executing '{fn_name}': {validation_error}",
+                field="function",
+                value=fn_name,
+            ) from validation_error
         if native is not None:
             g_cur = native
             continue

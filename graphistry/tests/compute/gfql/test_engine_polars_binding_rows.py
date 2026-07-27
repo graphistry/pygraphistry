@@ -546,10 +546,15 @@ def test_polars_unbounded_varlen_path_multiplicity_matches_pandas():
 def test_polars_unbounded_varlen_cycle_raises_same_error_as_pandas():
     """A cycle reachable from the seed means infinitely many paths. Pandas raises
     E108 ('require terminating variable-length segments'); polars must raise the
-    SAME diagnosis, never truncate to a subtly different answer. (The pandas surface
-    additionally re-wraps it as "Error executing 'rows'"; both carry the identical
-    E108 text, which is what a caller matches on.)"""
-    from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+    SAME diagnosis, never truncate to a subtly different answer.
+
+    Asserts the CLASS and `.code` are engine-INDEPENDENT, not just that polars carries
+    some code of its own. An earlier version pinned `errs['polars'].code == E108` and so
+    passed while the two engines actually disagreed — pandas re-wraps the kernel error as
+    GFQLTypeError(E303) via `execute_call`, polars ran the native kernel before that
+    wrapper and leaked the raw GFQLValidationError(E108). Callers switch on `.code`, so
+    a per-engine code is a real divergence; the E108 text survives inside the message."""
+    from graphistry.compute.exceptions import GFQLValidationError
 
     nodes = pd.DataFrame({"id": [0, 1, 2]})
     edges = pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0], "type": ["R"] * 3})  # 3-cycle
@@ -560,12 +565,49 @@ def test_polars_unbounded_varlen_cycle_raises_same_error_as_pandas():
         with pytest.raises(GFQLValidationError) as exc:
             g.gfql(q, engine=engine)
         errs[engine] = exc.value
-    assert errs["polars"].code == ErrorCode.E108
+    assert type(errs["polars"]) is type(errs["pandas"]), (
+        f"exception class differs by engine: {type(errs['polars'])} vs {type(errs['pandas'])}")
+    assert errs["polars"].code == errs["pandas"].code, (
+        f"error code differs by engine: {errs['polars'].code} vs {errs['pandas'].code}")
     for engine in ("pandas", "polars"):
         assert (
             "Cypher multi-alias row bindings currently require terminating "
             "variable-length segments"
         ) in str(errs[engine])
+
+
+def test_polars_unbounded_varlen_cycle_bound_is_the_reachable_set_not_the_graph():
+    """The exhaustion probe bounds itself by the REACHABLE node count, not the graph's.
+
+    Both directions of that bound are failure modes, so pin both:
+      * too TIGHT and a long acyclic walk is mistaken for a cycle (false E108),
+      * too LOOSE and a reachable cycle is never detected (wrong answer, or a hang).
+    The chain is deliberately longer than the cyclic component so a bound derived from
+    the cycle's own size would cut the acyclic walk short.
+    """
+    from graphistry.compute.exceptions import GFQLValidationError
+
+    # 0 -> 1 -> ... -> 60, acyclic, walk length 60.
+    chain_edges = pd.DataFrame({"s": list(range(60)), "d": list(range(1, 61))})
+    chain_nodes = pd.DataFrame({"id": list(range(61))})
+    g_pd = graphistry.nodes(chain_nodes, "id").edges(chain_edges, "s", "d")
+    g_pl = graphistry.nodes(pl.from_pandas(chain_nodes), "id").edges(
+        pl.from_pandas(chain_edges), "s", "d")
+    q = "MATCH (a)-[*]->(b) RETURN count(*) AS c"
+    assert _to_pandas(g_pl.gfql(q, engine="polars")._nodes)["c"].tolist() == \
+        _to_pandas(g_pd.gfql(q, engine="pandas")._nodes)["c"].tolist(), \
+        "a long acyclic walk must exhaust, not be reported as a cycle"
+
+    # A 2-cycle {0,1} reachable from the seed, plus 300 nodes of UNREACHABLE chain. A
+    # probe bounded by the global node count would spend ~300 eager collects here; the
+    # answer (E108) must be the same either way.
+    cyc = pd.DataFrame({"s": [0, 1] + list(range(100, 400)),
+                        "d": [1, 0] + list(range(101, 401))})
+    cyc_nodes = pd.DataFrame({"id": list(range(401))})
+    g_cyc = graphistry.nodes(pl.from_pandas(cyc_nodes), "id").edges(
+        pl.from_pandas(cyc), "s", "d")
+    with pytest.raises(GFQLValidationError):
+        g_cyc.gfql(q, engine="polars")
 
 
 def test_polars_unbounded_varlen_self_loop_raises():
@@ -598,6 +640,116 @@ def test_polars_unbounded_varlen_declines_undirected_and_aliased():
     assert binding_rows_polars(
         g, serialize_binding_ops([n(name="a"), e_forward(hops=None, min_hops=2), n(name="b")])
     ) is None
+
+
+@pytest.mark.parametrize("min_hops", [0, 1, 2, 3])
+def test_polars_unbounded_varlen_gate_admits_min_hops_le_1_only(min_hops):
+    """Either side of the min_hops boundary on the UNBOUNDED DIRECTED arm.
+
+    This is the Cypher-reachable shape: `-[*k..]->` lowers to
+    ``{hops: None, min_hops: k, to_fixed_point: True, direction: forward}``. The sibling
+    decline test above uses ``to_fixed_point=False``, which Cypher never emits — that is
+    exactly why it missed this. For k >= 2 pandas' step_pairs come from the var-length
+    ``edge_op.execute`` hop, which empties/prunes by min_hops against a dedup-by-node
+    eccentricity; the raw-edge reconstruction here does not, so serving k >= 2 diverges
+    SILENTLY (see the value test below).
+    """
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import binding_rows_polars
+
+    g = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
+    out = binding_rows_polars(g, serialize_binding_ops([
+        n(name="a"), e_forward(hops=None, min_hops=min_hops, to_fixed_point=True), n(name="b"),
+    ]))
+    if min_hops <= 1:
+        assert out is not None, f"min_hops={min_hops} is a supported shape and must be served"
+    else:
+        assert out is None, f"min_hops={min_hops} must DECLINE, not answer"
+
+
+# 7 nodes, strictly increasing edges (acyclic, so the fixed point terminates and neither
+# engine errors), with repeated edges so multiplicity — not just reachability — is under
+# test. Serving `-[*k..]->` for k >= 2 returns counts of 30/41/6 here against pandas'
+# 0/24/0; the whole point is that both engines answer, so only a value check catches it.
+_MINHOP_NODES = pd.DataFrame({"id": list(range(7))})
+_MINHOP_EDGES = pd.DataFrame(
+    [(0, 3), (1, 2), (4, 6), (3, 5), (5, 6), (1, 2), (3, 5), (0, 6),
+     (5, 6), (3, 4), (0, 4), (0, 4), (4, 5), (0, 3), (0, 3)],
+    columns=["s", "d"],
+)
+
+
+@pytest.mark.parametrize("query", [
+    "MATCH (a)-[*]->(b) RETURN count(*) AS c",
+    "MATCH (a)-[*0..]->(b) RETURN count(*) AS c",
+    "MATCH (a)-[*1..]->(b) RETURN count(*) AS c",
+    "MATCH (a)-[*2..]->(b) RETURN count(*) AS c",
+    "MATCH (a {id: 0})-[*2..]->(b) RETURN count(*) AS c",
+    "MATCH (a)-[*3..]->(b) RETURN count(*) AS c",
+    "MATCH (a)-[*4..]->(b) RETURN count(*) AS c",
+])
+def test_cypher_unbounded_varlen_min_hops_matches_pandas_or_declines(query):
+    """End-to-end through Cypher, where the divergence is actually reachable.
+
+    ``RETURN count(*)`` lowers to a pure-CALL chain (no ASTNode/ASTEdge), so
+    ``_is_native_multihop`` in ``_chain_traversal_polars`` never runs and the ``rows`` gate
+    is the ONLY gate — a decline there is the only thing standing between a user and a
+    wrong count. Contract: polars either matches the pandas oracle or raises; never a
+    different number.
+    """
+    g_pd = graphistry.nodes(_MINHOP_NODES, "id").edges(_MINHOP_EDGES, "s", "d")
+    g_pl = graphistry.nodes(pl.from_pandas(_MINHOP_NODES), "id").edges(
+        pl.from_pandas(_MINHOP_EDGES), "s", "d")
+    expected = _to_pandas(g_pd.gfql(query, engine="pandas")._nodes)["c"].tolist()
+    try:
+        got = _to_pandas(g_pl.gfql(query, engine="polars")._nodes)["c"].tolist()
+    except NotImplementedError:
+        return  # an honest decline is allowed; a different answer is not
+    assert got == expected, f"polars diverged from the pandas oracle on {query!r}"
+
+
+@pytest.mark.parametrize("min_hops,max_hops", [(0, 2), (1, 2), (1, 3), (2, 3), (0, 1)])
+def test_polars_bounded_varlen_with_to_fixed_point_matches_pandas(min_hops, max_hops):
+    """`to_fixed_point=True` COMBINED WITH an explicit bound is newly served here.
+
+    Master declined whenever ``bool(op.to_fixed_point)``; the gate now only declines when
+    the RESOLVED MAX is None, so bounded+fixed-point falls through to the bounded arm. That
+    is parity-correct — pandas ignores ``to_fixed_point`` once ``max_hops`` is set — but the
+    widening was undocumented and unpinned, so nothing would have caught it regressing.
+    """
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import binding_rows_polars
+
+    ops = [n(name="a"),
+           e_forward(min_hops=min_hops, max_hops=max_hops, to_fixed_point=True),
+           n(name="b")]
+    g_pl = graphistry.nodes(pl.from_pandas(NODES), "id").edges(pl.from_pandas(EDGES), "s", "d")
+
+    # The gate must SERVE it — the half of the claim a value comparison cannot make on its
+    # own, since a decline would still produce an equally-correct answer via pandas.
+    assert binding_rows_polars(g_pl, serialize_binding_ops(ops)) is not None, \
+        "bounded var-length carrying to_fixed_point must be served natively, not declined"
+
+    # The claim being pinned is that the FLAG IS INERT once a maximum is present, so compare
+    # flag vs no-flag WITHIN each engine. Not across engines: a bare `rows()` call with no
+    # trailing projection emits engine-specific scaffolding (pandas keeps `id`,
+    # `a__a_join__`, `a.a`, ...; polars emits only the alias columns) on EVERY shape,
+    # including a plain fixed 1-hop — pre-existing and unrelated to var-length, and the
+    # Cypher surface never shows it because a projection always follows.
+    unflagged = [n(name="a"), e_forward(min_hops=min_hops, max_hops=max_hops), n(name="b")]
+    call_flagged = [rows(binding_ops=serialize_binding_ops(ops))]
+    call_plain = [rows(binding_ops=serialize_binding_ops(unflagged))]
+    for g, engine in ((BASE, "pandas"), (g_pl, "polars")):
+        plain = _to_pandas(g.gfql(call_plain, engine=engine)._nodes)
+        flagged = _to_pandas(g.gfql(call_flagged, engine=engine)._nodes)
+        assert list(plain.columns) == list(flagged.columns), \
+            f"[{engine}] to_fixed_point changed the columns: " \
+            f"{list(flagged.columns)} vs {list(plain.columns)}"
+        key = list(plain.columns)
+        pd.testing.assert_frame_equal(
+            plain.sort_values(key).reset_index(drop=True),
+            flagged.sort_values(key).reset_index(drop=True),
+            check_dtype=False,
+            obj=f"[{engine}] to_fixed_point is not inert on a bounded segment",
+        )
 
 
 def test_polars_unbounded_varlen_no_matching_edges_keeps_zero_hop_rows():
