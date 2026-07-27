@@ -19,7 +19,9 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
 
 if TYPE_CHECKING:
+    import polars as pl
     from graphistry.compute.gfql.index.bindings import IndexedBindingsState
+    from .dtypes import PolarsFrame
 from .hop_eager import ensure_nodes_polars
 from .dtypes import is_lazy, colnames, endpoint_ids
 from .degrees import get_degrees_polars, get_indegrees_polars, get_outdegrees_polars
@@ -219,22 +221,57 @@ def _is_native_multihop(op: ASTObject) -> bool:
 
 class _LazyShim:
     """Track B collect-once shim: carries _nodes/_edges as LazyFrames (+ col names) so the eager
-    combine helpers run lazily over already-materialized hop frames without Plottable rebinds."""
-    __slots__ = ("_nodes", "_edges", "_node", "_source", "_destination", "_edge")
+    combine helpers run lazily over already-materialized hop frames without Plottable rebinds.
 
-    def __init__(self, nodes_lf, edges_lf, node, source, destination, edge):
+    ``edges_empty`` records whether the step's edge frame was empty while it was still eager
+    (tri-state: True/False, or None when unknown). ``.lazy()`` throws that fact away — a
+    LazyFrame has no height without collecting — and the combine's cardinality shortcuts then go
+    dead, which is a graph-sized mistake: an empty relation annihilates a join, but polars cannot
+    know the relation is empty until it has already built the hash table over the OTHER side.
+    Capturing it here costs nothing (the frames are materialized at construction) and this is the
+    only place in the lazy combine where the count is still available."""
+    __slots__ = ("_nodes", "_edges", "_node", "_source", "_destination", "_edge", "edges_empty")
+
+    # Bare annotations only — a class-level VALUE would collide with __slots__ at class
+    # creation. These make the slots statically typed rather than inferred from __init__.
+    # LazyFrame, not the PolarsFrame union: every construction site (`step` and the Track-B
+    # entry) calls `.lazy()` first, which is the whole point of the shim, so the union would
+    # be both less true and unusable — `pl.concat`'s TypeVar rejects a DataFrame|LazyFrame.
+    _nodes: "Optional[pl.LazyFrame]"
+    _edges: "Optional[pl.LazyFrame]"
+    _node: Optional[str]
+    _source: Optional[str]
+    _destination: Optional[str]
+    _edge: Optional[str]
+    edges_empty: Optional[bool]
+
+    def __init__(self, nodes_lf: "Optional[pl.LazyFrame]", edges_lf: "Optional[pl.LazyFrame]",
+                 node: Optional[str], source: Optional[str], destination: Optional[str],
+                 edge: Optional[str], edges_empty: Optional[bool] = None) -> None:
         self._nodes = nodes_lf
         self._edges = edges_lf
         self._node = node
         self._source = source
         self._destination = destination
         self._edge = edge
+        self.edges_empty = edges_empty
 
     @staticmethod
-    def step(p):
+    def step(p: Plottable) -> "_LazyShim":
         nd = p._nodes.lazy() if p._nodes is not None else None
         ed = p._edges.lazy() if p._edges is not None else None
-        return _LazyShim(nd, ed, None, None, None, None)
+        return _LazyShim(nd, ed, None, None, None, None, edges_empty=_known_empty(p._edges))
+
+
+def _known_empty(frame: "Optional[PolarsFrame]") -> Optional[bool]:
+    """Tri-state emptiness of an already-materialized frame: True/False, or None when unknown
+    (frame absent, or already lazy so the height is not available without collecting)."""
+    if frame is None or is_lazy(frame):
+        return None
+    # `is_lazy` is a plain bool predicate, so the else-branch narrowing has to be asserted
+    # here rather than inferred. Widening `is_lazy` to a TypeIs would narrow this for every
+    # caller in the engine, but that is a dtypes.py-wide change, not this PR's.
+    return cast("pl.DataFrame", frame).height == 0
 
 
 def _combine_edges(g, steps, label_steps, has_multihop=False):
@@ -247,7 +284,16 @@ def _combine_edges(g, steps, label_steps, has_multihop=False):
         edges_df = g_step._edges
         if edges_df is None:
             continue
-        if not is_lazy(edges_df) and edges_df.height == 0:
+        # A step with no edges contributes no ids to the union below, so drop it BEFORE the
+        # endpoint gates rather than semi-joining an empty frame against the graph. The gates
+        # are the expensive part and their cost is on the side we do NOT need: polars builds
+        # the hash table on the RIGHT (the node universe / a neighbouring step's node frame)
+        # and only then probes with the empty left, so an unfiltered `prev_nodes = g._nodes`
+        # costs a full O(N) hash build to produce the zero rows we already knew about
+        # (measured: 6.99 ms for one such join at N=2M, and a chain hits one per node step).
+        # Height is read from the pre-lazy fact recorded by _LazyShim.step because `.lazy()`
+        # erases it; `not is_lazy(...)` keeps the direct-eager-frame case working.
+        if g_step.edges_empty is True or (not is_lazy(edges_df) and edges_df.height == 0):
             continue
         if has_multihop or (isinstance(op, ASTEdge) and not op.is_simple_single_hop()):
             # has_multihop: every edge step was already recomputed path-valid (forward re-exec over
@@ -287,20 +333,63 @@ def _combine_edges(g, steps, label_steps, has_multihop=False):
     return out
 
 
-def _combine_nodes(g, steps):
+def _combine_node_ids(g: "_LazyShim",
+                      steps: List[Tuple[ASTObject, "_LazyShim"]]) -> "pl.LazyFrame":
+    """One-column frame of the node ids the traversal kept, unioned over the pruned steps.
+
+    IDS ONLY, not the node rows: the caller still has to fold in the surviving edges' endpoints,
+    and materializing the node rows before that fold means scanning the node table TWICE (once
+    here, once for the endpoints the first scan missed). The union is over per-step id columns,
+    so it is proportional to the traversal result, not to the graph.
+
+    Not deduplicated: the single consumer is a ``how="semi"`` key side, where duplicate keys can
+    neither change which rows come back nor multiply them (see the module note on semi-join key
+    frames). The caller's own ``.unique()`` on the materialized node rows is a DIFFERENT dedup
+    (by node id, over rows) and is still required."""
     import polars as pl
     node_col = g._node
     assert node_col is not None
+    all_nodes = g._nodes
+    assert all_nodes is not None
     frames = [
         g_step._nodes.select(pl.col(node_col))
         for _, g_step in steps
         if g_step._nodes is not None and node_col in colnames(g_step._nodes)
     ]
-    if frames:
-        ids = pl.concat(frames, how="vertical_relaxed").unique(subset=[node_col])
-    else:
-        ids = g._nodes.select(pl.col(node_col)).limit(0)
-    return g._nodes.join(ids, on=node_col, how="semi")
+    if not frames:
+        return all_nodes.select(pl.col(node_col)).limit(0)
+    if len(frames) == 1:
+        return frames[0]
+    return pl.concat(frames, how="vertical_relaxed")
+
+
+def _materialize_node_rows(all_nodes: "pl.LazyFrame", step_ids: "pl.LazyFrame",
+                           endpoint_ids_frame: "pl.LazyFrame", node_col: str) -> "pl.LazyFrame":
+    """The output node ROWS: every node the steps kept, plus every endpoint of a surviving edge.
+
+    Union the two ID sides FIRST, then read the node table ONCE. Materializing the step rows and
+    then fetching the endpoint rows the first pass missed reads the whole node frame TWICE for
+    the same answer — two pure O(N) passes for a result that is usually a handful of rows
+    (measured: 0.90 + 0.86 ms at N=2M). Row identity is unchanged: semi-joining the UNION of two
+    key sets selects exactly the rows the two semi-joins selected between them.
+
+    Neither id side is deduplicated — both feed a ``how="semi"`` key side, where duplicates
+    cannot change or multiply the rows that come back. The trailing ``unique`` is a DIFFERENT
+    dedup and is REQUIRED: it is over the node ROWS, and these rows go on to feed ``how="left"``
+    alias joins where a node table carrying the same id twice would multiply every matching row.
+
+    Row ORDER out of here is arbitrary — a polars semi-join does not preserve left-frame order —
+    and the caller restores input-frame order with an explicit sort. ``maintain_order`` is kept
+    verbatim from the pre-refactor call so that WHICH duplicate row survives is decided the same
+    way it was before: A/B over 400 duplicate-id combos gives identical full frames **under the
+    default in-memory collect**. Scoped deliberately — under streaming collect the survivor DOES
+    differ from the pre-refactor call (measured), so it is not a guaranteed property of this
+    helper, only a stable one on the default engine. Anything needing a specific survivor must
+    order explicitly rather than rely on this."""
+    import polars as pl
+    ids = pl.concat([step_ids, endpoint_ids_frame], how="vertical_relaxed")
+    return all_nodes.join(ids, on=node_col, how="semi").unique(
+        subset=[node_col], maintain_order=True)
 
 
 def _apply_node_names(out, g, steps, auto_hop_col: str = _AUTO_NODE_HOP):
@@ -337,7 +426,16 @@ def _apply_node_names(out, g, steps, auto_hop_col: str = _AUTO_NODE_HOP):
                     on=node_col, how="semi")
         if idx + 1 < len(step_list):
             next_op, next_step = step_list[idx + 1]
-            if isinstance(next_op, ASTEdge) and next_step._edges is not None and (is_lazy(next_step._edges) or next_step._edges.height > 0):
+            # Cardinality guard, restated against a fact that SURVIVES lazification. The old
+            # spelling was `is_lazy(df) or df.height > 0`, and `_apply_node_names` is always
+            # called with lazified steps — so `is_lazy` short-circuited True and the height
+            # test was unreachable. That is the identical silent death this commit fixes one
+            # function above; leaving a second copy of it here is how the bug recurs.
+            # Unlike the edges combine this one is SEMANTIC, not a cost guard: an empty next
+            # edge step must not empty `named` via the gate below.
+            next_edges_empty = getattr(next_step, "edges_empty", None)
+            if (isinstance(next_op, ASTEdge) and next_step._edges is not None
+                    and next_edges_empty is not True):
                 e = next_step._edges
                 if next_op.direction == "forward":
                     part = e.select(pl.col(src).alias(node_col))
@@ -953,14 +1051,12 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     edge_steps_lz = [(op, _LazyShim.step(p)) for op, p in edge_steps]
     label_lz = [(op, _LazyShim.step(p)) for op, p in label_steps]
 
-    final_nodes = _combine_nodes(g_lz, steps_lz)
+    node_ids = _combine_node_ids(g_lz, steps_lz)
     final_edges = _combine_edges(g_lz, edge_steps_lz, label_lz, has_multihop)
-    # Endpoint (lazy: always compute; maintain_order keeps the semi-join order).
-    endpoints = endpoint_ids(final_edges, src, dst, node_col).unique(subset=[node_col])
-    missing = endpoints.join(final_nodes.select(pl.col(node_col)), on=node_col, how="anti")
-    extra = g_lz._nodes.join(missing, on=node_col, how="semi")
-    final_nodes = pl.concat([final_nodes, extra], how="diagonal_relaxed").unique(
-        subset=[node_col], maintain_order=True)
+    all_nodes_lz = g_lz._nodes
+    assert all_nodes_lz is not None  # constructed from g._nodes two statements above
+    final_nodes = _materialize_node_rows(
+        all_nodes_lz, node_ids, endpoint_ids(final_edges, src, dst, node_col), node_col)
     final_nodes = _apply_node_names(final_nodes, g_lz, steps_lz, auto_hop_col=auto_hop_col)
 
     final_nodes = final_nodes.sort(NORD).drop(NORD)
@@ -968,6 +1064,9 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     # single drop above removes it. There is no `added_edge_index and EID != EORD` case left
     # to handle: the only branch that sets added_edge_index also sets EORD = EID.
     final_edges = final_edges.sort(EORD).drop(EORD)
-    final_edges, final_nodes = collect_all([final_edges, final_nodes])
-    final_edges = _restore_edge_dtypes(final_edges, src, dst, _endpoint_restore)
-    return self.nodes(final_nodes, node_col).edges(final_edges, src, dst)
+    # Distinct names on the eager side: `final_nodes` is statically a LazyFrame all the way
+    # down this block, and `collect_all` hands back DataFrames — rebinding would be a type
+    # error, and silencing it would cost the lazy/eager distinction the shim exists to keep.
+    final_edges_eager, final_nodes_eager = collect_all([final_edges, final_nodes])
+    final_edges_eager = _restore_edge_dtypes(final_edges_eager, src, dst, _endpoint_restore)
+    return self.nodes(final_nodes_eager, node_col).edges(final_edges_eager, src, dst)
