@@ -85,7 +85,7 @@ from graphistry.compute.gfql.physical_planner import PhysicalPlanner
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
 from graphistry.compute.gfql.search_any import search_any_mask
-from graphistry.compute.typing import DataFrameT, SeriesT, NodeDtypes
+from graphistry.compute.typing import DataFrameT, DType, SeriesT, NodeDtypes
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
@@ -611,11 +611,20 @@ def _connected_join_two_star_split_residuals(
 
 
 # The simple residual shapes the connected-join lowering emits for scalar predicates it
-# cannot push into filter_dict (see #1729): case-insensitive equality and scalar
+# cannot push into filter_dict (see #1729): case-folded equality and scalar
 # equality/range on a single aliased column. Anything else falls back to the where_rows
 # chain evaluator. Literals: single-quoted strings (no embedded quotes) or numbers.
-_RESIDUAL_TOLOWER_EQ = re.compile(
-    r"^\(tolower\((?P<alias>\w+)\.(?P<col>\w+)\) = tolower\('(?P<lit>[^']*)'\)\)$"
+#
+# ONE CANONICAL SHAPE. The lowering constant-folds literal-only sub-expressions
+# (``graphistry/compute/gfql/expr_const_fold.py``), so ``toLower(a.c) = toLower('LIT')``
+# arrives here already reduced to ``(tolower(a.c) = 'lit')``. This matcher therefore
+# learns the case-function-vs-LITERAL form only, and the literal is used AS WRITTEN --
+# the where_rows evaluator does not case-fold a bare literal, so ``toLower(x) = 'MALE'``
+# correctly matches nothing. (Case-folding the RHS here would be a silent wrong answer
+# that every all-lowercase benchmark literal would hide.)
+_RESIDUAL_CASE_FN_EQ = re.compile(
+    r"^\((?P<fn>tolower|lower|toupper|upper)\((?P<alias>\w+)\.(?P<col>\w+)\) = "
+    r"'(?P<lit>[^']*)'\)$"
 )
 _RESIDUAL_SCALAR_CMP = re.compile(
     r"^\((?P<alias>\w+)\.(?P<col>\w+) (?P<op>=|>=|<=|>|<) "
@@ -624,25 +633,30 @@ _RESIDUAL_SCALAR_CMP = re.compile(
 
 
 def _residual_polars_expr(
-    expr: str, alias: str, schema: Mapping[str, Any]
+    expr: str, alias: str, schema: NodeDtypes
 ) -> Optional['pl.Expr']:
     """Translate a simple residual to a native polars expression, or None to fall back.
 
     ``expr`` is a *string* by contract: the #1729 connected-join lowering serializes
     residual predicates into ASTCall params as canonical predicate strings (e.g.
-    ``(tolower(a.col) = tolower('lit'))``), not typed AST terms — so string parsing here
+    ``(tolower(a.col) = 'lit')``), not typed AST terms — so string parsing here
     is the honest interface; a typed term would require a lowering-level refactor.
 
-    Covered (exactly the #1729 scalar-residual shapes): ``(tolower(a.col) = tolower('lit'))``
-    and ``(a.col <op> literal)`` for ``= >= <= > <``. Semantics match the where_rows
-    evaluator on these shapes: string compares are null-safe (null -> filtered out, since
-    polars comparisons on null yield null which ``filter`` drops, same as the evaluator's
-    null-propagating comparisons); toLower equality lowercases the column via polars
-    ``str.to_lowercase()`` and the literal via Python ``str.lower()`` (empirically equal
-    on the ASCII/latin shapes the lowering emits; a divergence would need a Rust-vs-Python
-    Unicode table drift). Float NaN ranking differs between polars and the evaluator, but
-    gfql ingest normalizes NaN->null (``_pl_nan_to_null``) so NaN never reaches this
-    filter through ``gfql()``. Declines (returns None, caller uses the chain fallback) on:
+    Covered (exactly the #1729 scalar-residual shapes): ``(<case fn>(a.col) = 'lit')``
+    for ``toLower``/``lower``/``toUpper``/``upper``, and ``(a.col <op> literal)`` for
+    ``= >= <= > <``. Semantics match the where_rows evaluator on these shapes: string
+    compares are null-safe (null -> filtered out, since polars comparisons on null yield
+    null which ``filter`` drops, same as the evaluator's null-propagating comparisons);
+    the case functions map to the SAME polars kernels the evaluator uses
+    (``str.to_lowercase`` / ``str.to_uppercase``) so the column side is identical by
+    construction, and the LITERAL side is used verbatim because the evaluator does not
+    case-fold a bare literal. Nothing is case-folded in Python here — the lowering's
+    constant-folding pass has already reduced ``= toLower('LIT')`` to ``= 'lit'`` where
+    every engine provably agrees on that value (see ``expr_const_fold`` and #1802), and
+    where it does not, the two-sided text arrives unfolded and DECLINES below.
+    Float NaN ranking differs between polars and the evaluator, but gfql ingest
+    normalizes NaN->null (``_pl_nan_to_null``) so NaN never reaches this filter through
+    ``gfql()``. Declines (returns None, caller uses the chain fallback) on:
     any other shape, non-matching alias, a column absent from the schema, an ESCAPED
     string literal (``\\`` — the renderer escapes ``' \\ \\n`` etc. to ``\\uXXXX`` which the
     evaluator unescapes; raw comparison would silently mismatch), and dtype-incompatible
@@ -652,23 +666,29 @@ def _residual_polars_expr(
     """
     import polars as pl
 
-    def _is_string_dtype(dtype: Any) -> bool:
+    def _is_string_dtype(dtype: DType) -> bool:
         return dtype == pl.Utf8 or dtype == pl.String
 
-    def _is_numeric_dtype(dtype: Any) -> bool:
+    def _is_numeric_dtype(dtype: DType) -> bool:
         return dtype.is_numeric() if hasattr(dtype, "is_numeric") else False
 
-    m = _RESIDUAL_TOLOWER_EQ.match(expr)
+    m = _RESIDUAL_CASE_FN_EQ.match(expr)
     if m is not None:
         col_name = m.group("col")
-        tolower_lit = m.group("lit")
+        case_lit = m.group("lit")
         if m.group("alias") != alias or col_name not in schema:
             return None
-        if "\\" in tolower_lit:
+        if "\\" in case_lit:
             return None  # escaped literal: let the evaluator unescape it
         if not _is_string_dtype(schema[col_name]):
-            return None  # tolower on non-string column: evaluator raises designed NIE
-        return pl.col(col_name).str.to_lowercase() == tolower_lit.lower()
+            return None  # case fn on non-string column: evaluator raises designed NIE
+        col_str = pl.col(col_name).str
+        folded_col = (
+            col_str.to_lowercase()
+            if m.group("fn") in ("tolower", "lower")
+            else col_str.to_uppercase()
+        )
+        return folded_col == case_lit
     m = _RESIDUAL_SCALAR_CMP.match(expr)
     if m is not None:
         col_name = m.group("col")
@@ -712,8 +732,9 @@ def _connected_join_apply_node_residuals(
     """Filter a fast-path node frame by single-alias post-join residual expressions.
 
     Fast lane (polars): the simple scalar shapes the #1729 lowering emits
-    (``tolower(a.col) = tolower('lit')``, ``a.col <op> literal``) translate directly to
-    native polars filters — no chain dispatch (the where_rows chain costs ~1.7ms/alias,
+    (``tolower(a.col) = 'lit'`` and the other case functions, ``a.col <op> literal``;
+    the lowering constant-folds ``= toLower('LIT')`` into that one shape) translate
+    directly to native polars filters — no chain dispatch (the where_rows chain costs ~1.7ms/alias,
     the dominant cost of the residual OLAP fast path). Any expression outside those
     shapes falls back to the chain evaluator below, so semantics never diverge.
 
