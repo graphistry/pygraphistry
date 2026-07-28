@@ -40,6 +40,14 @@ from graphistry.compute.gfql.same_path_types import (
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.gfql.agg_types import (
+    GFQL_NUMERIC_ONLY_AGGREGATIONS,
+    numeric_agg_all_null_value,
+    pandas_dtype_is_numeric_for_agg,
+    pandas_non_numeric_agg_dtype,
+    polars_non_numeric_agg_dtype,
+    raise_non_numeric_aggregation,
+)
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.cypher.lowering import (
     ConnectedMatchJoinPlan,
@@ -1781,6 +1789,11 @@ def _single_hop_grouped_aggregate_fused_polars(
     * a projected output column that collides with an edge endpoint column or with the
       internal lookup key;
     * an aggregate the expression builder cannot translate;
+    * a Categorical/Enum property column -- the twin CASTS those to ``String`` before it
+      groups or aggregates, and this lane does not;
+    * ``sum``/``avg`` over a non-numeric or all-null column -- the twin owns the one cypher
+      aggregate type contract (``gfql/agg_types.py``), and declining keeps that contract from
+      depending on which of the two lanes served the query;
     * **a result row order that ORDER BY does not fully determine** -- i.e. no ORDER BY,
       or an ORDER BY that does not mention every group key. When the sort is total over
       the output rows (group keys are unique per row, so naming them all makes it total),
@@ -1791,6 +1804,8 @@ def _single_hop_grouped_aggregate_fused_polars(
       difference into a different ROW SET. That shape stays with the eager twin.
     """
     import polars as pl
+
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_stringlike
 
     if not isinstance(start_nodes, pl.DataFrame) or not isinstance(end_nodes, pl.DataFrame):
         return None
@@ -1807,15 +1822,36 @@ def _single_hop_grouped_aggregate_fused_polars(
         end_alias: _GROUPED_AGG_LOOKUP_KEY_FMT.format(alias=end_alias),
     }
     reserved_out_cols = {src_col, dst_col} | set(lookup_keys.values())
+    prop_dtypes: Dict[str, Any] = {}
     for alias, node_frame in ((start_alias, start_nodes), (end_alias, end_nodes)):
         for out_col, prop in needed_by_alias.get(alias, ()):
             if prop not in node_frame.columns:
                 return None
             if out_col in reserved_out_cols:
                 return None
+            prop_dtype = node_frame.schema[prop]
+            # Categorical/Enum is a STRING column to cypher, and the eager twin CASTS it to
+            # `String` before aggregating or grouping -- both to match the row pipelines and to
+            # dodge the polars 1.35.2 rust panic on a grouped min/max over a Categorical. This
+            # lane does not cast, so it DECLINES rather than answer with a different dtype.
+            if is_stringlike(prop_dtype) and prop_dtype != pl.String:
+                return None
+            prop_dtypes[out_col] = prop_dtype
 
     agg_exprs: List["pl.Expr"] = []
     for out_alias, func, expr_col in agg_specs:
+        # ONE cypher type contract for sum()/avg() whichever lane serves the query (see
+        # gfql/agg_types.py). A non-numeric or all-null input is the eager twin's job -- it
+        # raises GFQLTypeError(E302), or substitutes cypher's `0`/`null` for an all-null column
+        # -- so decline instead of letting `.collect()` surface a raw `polars.exceptions.*`.
+        if func in GFQL_NUMERIC_ONLY_AGGREGATIONS and expr_col is not None:
+            agg_dtype = prop_dtypes.get(expr_col)
+            if (
+                agg_dtype is None
+                or agg_dtype == pl.Null
+                or polars_non_numeric_agg_dtype(agg_dtype) is not None
+            ):
+                return None
         if func == "count" and expr_col is None:
             agg_exprs.append(pl.len().alias(out_alias))
         elif expr_col is None:
@@ -2077,7 +2113,33 @@ def _execute_single_hop_grouped_aggregate_fast_path(
         if work is None:
             return None
         agg_exprs = []
+        # Categorical/Enum is a STRING column to cypher; cast it BEFORE any aggregate, matching
+        # the row pipelines on both engines (and dodging the polars 1.35.2 rust panic on a
+        # grouped min/max over a Categorical). Done on the frame, so `pl.col(...)` below is
+        # already the string column.
+        from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_stringlike
+        cat_cols = [c for c, dt in work.schema.items() if is_stringlike(dt) and dt != pl.String]
+        if cat_cols:
+            work = work.with_columns([pl.col(c).cast(pl.String) for c in cat_cols])
+        work_schema = work.schema
         for alias, func, expr_alias in aggregations:
+            # Same Cypher sum()/avg() type contract the row-pipeline kernels enforce (see
+            # gfql/agg_types.py). This fast path reimplements the aggregates, so without the
+            # guard here the exact same query answers differently depending on whether it
+            # matched the fast-path shape.
+            if func in GFQL_NUMERIC_ONLY_AGGREGATIONS and expr_alias is not None:
+                # Dtype first, data second -- see the row-pipeline twin: only a column the schema
+                # already rejects is worth the O(n) null scan.
+                dtype_label = polars_non_numeric_agg_dtype(work_schema.get(expr_alias))
+                if work_schema.get(expr_alias) == pl.Null or (
+                    dtype_label is not None
+                    and work.height > 0
+                    and work[expr_alias].null_count() == work.height
+                ):
+                    agg_exprs.append(pl.lit(numeric_agg_all_null_value(func)).alias(alias))
+                    continue
+                if dtype_label is not None:
+                    raise_non_numeric_aggregation(func, expr_alias, dtype_label, alias)
             if func == "count" and (expr_alias is None or with_items[expr_alias][1] is None):
                 agg_exprs.append(pl.len().alias(alias))
             elif func == "count" and expr_alias is not None:
@@ -2141,6 +2203,18 @@ def _execute_single_hop_grouped_aggregate_fast_path(
             grouped = work.groupby(group_keys, sort=False)
         out_df = grouped.size().reset_index(name="__gfql_group_size__")[group_keys]
         for alias, func, expr_alias in aggregations:
+            # Twin of the polars branch above: one Cypher sum()/avg() type contract, enforced on
+            # whichever engine runs the fast path (see gfql/agg_types.py).
+            if func in GFQL_NUMERIC_ONLY_AGGREGATIONS and expr_alias is not None:
+                if not pandas_dtype_is_numeric_for_agg(work[expr_alias]):
+                    if len(work) > 0 and bool(work[expr_alias].isna().all()):
+                        agg_df = out_df[group_keys].copy()
+                        agg_df[alias] = numeric_agg_all_null_value(func)
+                        out_df = cast(DataFrameT, out_df.merge(agg_df, on=group_keys, how="left", sort=False))
+                        continue
+                    dtype_label = pandas_non_numeric_agg_dtype(work[expr_alias])
+                    if dtype_label is not None:
+                        raise_non_numeric_aggregation(func, expr_alias, dtype_label, alias)
             if func == "count" and (expr_alias is None or with_items[expr_alias][1] is None):
                 agg_df = grouped.size().reset_index(name=alias)
             elif func == "count" and expr_alias is not None:
