@@ -136,8 +136,10 @@ gathers (PR #1770). Neo4j still wins recent-replies — reported as-is.
 OLAP multi-join
 ~~~~~~~~~~~~~~~
 
-On the graph-benchmark OLAP multi-join queries at 100k-node scale with
-``engine='polars'``: GFQL wins q8 against embedded Kuzu; q9 is **14.2×**.
+On the graph-benchmark OLAP multi-join queries at 100k-node scale (100,000 persons /
+2.4M ``FOLLOWS``) with ``engine='polars'``, against embedded Kuzu 0.11.3 on the same host
+and in the same session: GFQL wins q8, and **q9 runs in 66.6 ms vs 84.1 ms (1.26×)**. Both
+sides run the same canonical query text and return identical values.
 
 When not to use GFQL
 ~~~~~~~~~~~~~~~~~~~~
