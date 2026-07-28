@@ -10,6 +10,8 @@ LOUD-FAILURE CONTRACTS (do not "simplify" away):
   signature tier; files with weaker stringified sigs keep them deliberately (documented there).
 NOT a pytest module (no ``test_`` prefix): importers do their own pytest.importorskip("polars")
 — nothing here imports polars at module scope."""
+from typing import Callable, Mapping, Optional, Tuple
+
 import pandas as pd
 import pytest
 
@@ -181,3 +183,66 @@ def assert_surfaces_agree(res_a, res_b, label):
     assert res_a[0] == res_b[0], f"{label}: surface divergence {res_a[0]} != {res_b[0]} (silent-bridge class)"
     if res_a[0] == "ok":
         assert res_a[1] == res_b[1], f"{label}: surfaces both ok but signatures differ"
+
+
+# --- fixed-engine-list plumbing (#1795 / CB3). ONE definition, because the alternative is the
+# trap this replaces: `available_nonpandas_engines()` above BUILDS its list by importability, so
+# an engine that is missing simply vanishes from the report instead of showing as SKIPPED. ---
+
+#: Substrings that identify a broken/absent GPU STACK rather than a product defect. Matched
+#: against `type(ex).__name__: str(ex)`, lowercased. Deliberately narrow: everything not listed
+#: here is treated as a REAL failure, because the cost of guessing wrong in that direction is a
+#: silently green GPU lane.
+_GPU_ENVIRONMENT_MARKERS = (
+    "libnvrtc", "libcuda", "libcudart", "nvrtc", "cuinit",
+    "no cuda-capable device", "cuda driver", "cuda runtime",
+    "cuda_error", "cudaerror", "driver version",
+    "gpu engine requested",  # polars' own message when cudf_polars is absent
+)
+
+
+def gpu_environment_reason(ex: BaseException) -> Optional[str]:
+    """Return a skip reason iff ``ex`` is an ENVIRONMENT fact, else None (= a real failure).
+
+    A probe that swallows every exception is worse than no probe: it converts a genuine
+    regression into a SKIP, and a skipped GPU parameter reads as evidence of passing. Measured
+    on the dgx box — a probe that ran the shape under test turned a reverted production guard
+    into 20 skips instead of 20 failures, and an intermittent cold-start error in a fresh
+    container silently dropped cuDF from a run that otherwise passed.
+    """
+    if isinstance(ex, ImportError):
+        return f"{type(ex).__name__}: {ex}"
+    text = f"{type(ex).__name__}: {ex}".lower()
+    if any(marker in text for marker in _GPU_ENVIRONMENT_MARKERS):
+        return f"{type(ex).__name__}: {ex}"
+    return None
+
+
+#: Engine name -> the modules whose ABSENCE is a stated skip. Fixed on purpose: an engine that
+#: is not listed here has no excuse to skip, which is what keeps a missing engine visible.
+_ENGINE_REQUIRED_MODULES: Mapping[str, Tuple[str, ...]] = {
+    "polars": ("polars",),
+    "polars-gpu": ("polars", "cudf_polars"),
+    "cudf": ("cudf",),
+}
+
+
+def engine_skip_reason(engine: str, smoke: Callable[[], object]) -> Optional[str]:
+    """``None`` => this engine MUST run here. A string => a stated, checkable skip reason.
+
+    ``smoke`` is a zero-argument callable running a query that is NOT the shape under test —
+    running the asserted shape would let a regression disarm its own test.
+    """
+    import importlib.util
+
+    for module in _ENGINE_REQUIRED_MODULES.get(engine, ()):
+        if importlib.util.find_spec(module) is None:
+            return f"{module} is not installed"
+    try:
+        smoke()
+    except BaseException as ex:  # noqa: BLE001 — classified below, never blanket-swallowed
+        reason = gpu_environment_reason(ex)
+        if reason is not None:
+            return reason
+        raise
+    return None
