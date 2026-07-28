@@ -1,0 +1,191 @@
+"""Consumer-side re-verification of the benchmark numbers pyg-bench publishes.
+
+`docs/source/_data/gfql_benchmarks.json` is a vendored copy of that repository's
+`published/docs-numbers.json`, and `gfql_benchmarks.contract.json` is a vendored copy of
+the contract it promises to satisfy. pyg-bench checks those promises before it publishes;
+this checks them again before we print anything, because a boundary only holds if both
+sides check it.
+
+These run in the ordinary test lane, not only in the docs build, so a number going stale
+or a page referencing a key that no longer exists fails CI rather than a nightly.
+"""
+
+import datetime
+import json
+import os
+import re
+import sys
+
+import pytest
+
+DOCS_DIR = os.path.dirname(os.path.abspath(__file__))
+SOURCE_DIR = os.path.join(DOCS_DIR, 'source')
+sys.path.insert(0, os.path.join(SOURCE_DIR, '_ext'))
+
+import gfql_bench  # noqa: E402
+
+#: ``:bench:`key``` / ``:bench-diag:`key``` as written in the .rst sources.
+BENCH_REF = re.compile(r':(bench|bench-diag):`([^`]+)`')
+
+
+@pytest.fixture(scope='module')
+def payload():
+    return gfql_bench._load(gfql_bench.BENCHMARKS_JSON)
+
+
+@pytest.fixture(scope='module')
+def contract():
+    return gfql_bench._load(gfql_bench.CONTRACT_JSON)
+
+
+def _rst_sources():
+    for root, _dirs, files in os.walk(SOURCE_DIR):
+        for name in files:
+            if name.endswith('.rst') or name.endswith('.md'):
+                yield os.path.join(root, name)
+
+
+def _references():
+    """(path, key, is_diagnostic) for every benchmark reference in the docs."""
+    for path in sorted(_rst_sources()):
+        with open(path, encoding='utf-8') as handle:
+            text = handle.read()
+        for role, key in BENCH_REF.findall(text):
+            yield path, key, role == 'bench-diag'
+
+
+def test_the_vendored_artifact_satisfies_the_vendored_contract(payload, contract):
+    gfql_bench._reverify(payload, contract)
+
+
+def test_the_vendored_contract_is_the_one_the_artifact_was_built_against(payload, contract):
+    assert payload['contract_version'] == contract['contract_version']
+
+
+def test_no_published_number_is_stale(payload):
+    """The staleness rule is the whole reason this pipeline exists: a number nobody
+    re-measured must fail loudly rather than keep looking authoritative."""
+    max_age = payload['policy']['max_age_days']
+    today = datetime.date.today()
+    overdue = []
+    for run_id, run in sorted(payload['runs'].items()):
+        measured = datetime.datetime.strptime(run['measured_at'], '%Y-%m-%d').date()
+        age = (today - measured).days
+        if age > max_age:
+            overdue.append('{} measured {} days ago (limit {})'.format(run_id, age, max_age))
+    assert not overdue, (
+        'Re-measure in pyg-bench and republish published/docs-numbers.json: '
+        + '; '.join(overdue))
+
+
+def test_every_number_the_docs_reference_is_published(payload):
+    cells = payload['cells']
+    missing = ['{}: {}'.format(os.path.relpath(path, DOCS_DIR), key)
+               for path, key, _ in _references() if key not in cells]
+    assert not missing, 'the docs reference numbers pyg-bench does not publish: ' + '; '.join(missing)
+
+
+def test_every_reference_uses_the_role_its_quotability_allows(payload):
+    cells = payload['cells']
+    wrong = []
+    for path, key, diagnostic in _references():
+        cell = cells.get(key)
+        if cell is None:
+            continue
+        quotable = cell['board_quotable'] is True
+        if quotable and diagnostic:
+            wrong.append('{}: {} is a published result, use :bench:'.format(path, key))
+        if not quotable and not diagnostic:
+            wrong.append('{}: {} is diagnostic-only, use :bench-diag:'.format(path, key))
+    assert not wrong, '; '.join(wrong)
+
+
+def test_a_board_quotable_cell_that_is_not_comparable_is_rejected(payload, contract):
+    broken = json.loads(json.dumps(payload))
+    key = sorted(broken['cells'])[0]
+    broken['cells'][key]['board_quotable'] = True
+    broken['cells'][key]['comparison_allowed'] = False
+    with pytest.raises(gfql_bench.BenchNumberError) as excinfo:
+        gfql_bench._reverify(broken, contract)
+    assert 'not comparison_allowed' in str(excinfo.value)
+
+
+def test_a_run_missing_provenance_is_rejected(payload, contract):
+    broken = json.loads(json.dumps(payload))
+    run_id = sorted(broken['runs'])[0]
+    del broken['runs'][run_id]['host']
+    with pytest.raises(gfql_bench.BenchNumberError) as excinfo:
+        gfql_bench._reverify(broken, contract)
+    assert "missing provenance 'host'" in str(excinfo.value)
+
+
+def test_a_caveated_number_without_its_caveat_is_rejected(payload, contract):
+    broken = json.loads(json.dumps(payload))
+    key = sorted(broken['cells'])[0]
+    broken['cells'][key]['status'] = 'partial'
+    broken['cells'][key]['board_quotable'] = False
+    broken['cells'][key]['comparison_allowed'] = False
+    broken['cells'][key]['disclosures'] = []
+    with pytest.raises(gfql_bench.BenchNumberError) as excinfo:
+        gfql_bench._reverify(broken, contract)
+    assert 'carries no disclosure' in str(excinfo.value)
+
+
+class _Document(object):
+    class settings(object):
+        class env(object):
+            docname = 'gfql/example'
+
+
+class _Inliner(object):
+    document = _Document
+
+
+def _use(key, diagnostic=False, today=None):
+    """Reference a benchmark key the way a page does, and report what broke."""
+    payload = gfql_bench._load(gfql_bench.BENCHMARKS_JSON)
+    state = gfql_bench._State(payload, today or datetime.date.today())
+    previous = gfql_bench._STATE
+    gfql_bench._STATE = state
+    try:
+        gfql_bench._bench_role(diagnostic)('bench', '', key, 1, _Inliner)
+    finally:
+        gfql_bench._STATE = previous
+    return state.problems
+
+
+def test_a_key_that_is_not_published_fails_the_build(payload):
+    problems = _use('pagerank.twitter.this_was_never_measured')
+    assert problems and 'no published benchmark number' in problems[0]
+
+
+def test_a_published_key_renders_cleanly(payload):
+    assert _use(sorted(payload['cells'])[0]) == []
+
+
+def test_a_number_older_than_the_policy_fails_the_build(payload):
+    """The failure the withdrawn figures needed and did not have."""
+    oldest = min(
+        datetime.datetime.strptime(run['measured_at'], '%Y-%m-%d').date()
+        for run in payload['runs'].values())
+    much_later = oldest + datetime.timedelta(days=payload['policy']['max_age_days'] + 400)
+    problems = _use(sorted(payload['cells'])[0], today=much_later)
+    assert problems and 'max_age_days' in problems[0]
+
+
+def test_a_diagnostic_only_number_cannot_be_printed_as_a_result(payload):
+    diagnostic = [key for key, cell in sorted(payload['cells'].items())
+                  if cell['board_quotable'] is not True]
+    if not diagnostic:
+        pytest.skip('the artifact currently publishes no diagnostic-only cell')
+    problems = _use(diagnostic[0])
+    assert problems and 'not board-quotable' in problems[0]
+    assert _use(diagnostic[0], diagnostic=True) == []
+
+
+def test_an_artifact_from_another_contract_version_is_rejected(payload, contract):
+    broken = json.loads(json.dumps(payload))
+    broken['contract_version'] = int(contract['contract_version']) + 1
+    with pytest.raises(gfql_bench.BenchNumberError) as excinfo:
+        gfql_bench._reverify(broken, contract)
+    assert 'contract_version' in str(excinfo.value)
