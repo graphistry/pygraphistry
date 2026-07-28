@@ -52,14 +52,14 @@ def _canon(df):
 class TestResidualTranslator:
     @requires_polars
     def test_tolower_eq_casefold(self):
-        expr = fp._residual_polars_expr("(tolower(a.name) = tolower('ALICE'))", "a", COLS())
+        expr = fp._residual_polars_expr("(tolower(a.name) = 'alice')", "a", COLS())
         assert expr is not None
         out = _pl_nodes().filter(expr)
         assert sorted(out["node_id"].to_list()) == [1, 2]
 
     @requires_polars
     def test_tolower_eq_null_dropped(self):
-        expr = fp._residual_polars_expr("(tolower(a.name) = tolower('bob'))", "a", COLS())
+        expr = fp._residual_polars_expr("(tolower(a.name) = 'bob')", "a", COLS())
         out = _pl_nodes().filter(expr)
         assert sorted(out["node_id"].to_list()) == [3, 6]  # null name row 4 dropped
 
@@ -101,7 +101,14 @@ class TestResidualTranslator:
     @pytest.mark.parametrize("bad", [
         "(a.name <> 'x')",              # unsupported operator
         "(a.name CONTAINS 'x')",        # unsupported predicate
-        "(tolower(a.name) = 'x')",      # rhs not tolower-wrapped
+        "(tolower(a.name) = tolower('x'))",   # two-sided: the lowering folds it away first
+        "(tolower(b.name) = 'alice')",  # alias mismatch (checked with alias='a')
+        "(toupper(b.name) = 'ALICE')",  # alias mismatch, other case fn
+        "(upper(zz.name) = 'ALICE')",   # alias mismatch, GQL alias spelling
+        "('x' = tolower(a.name))",      # reversed operand order
+        "(tolower(a.name) = b.name)",   # rhs is a column, not a literal
+        "(tolower(a.name) = 25)",       # rhs is a number, not a string literal
+        "(substring(a.name, 0, 2) = 'x')",  # a foldable fn on the COLUMN is not this shape
         "((a.age = 25) AND (a.age = 30))",  # compound
         "a.age = 25",                   # missing outer parens
         "(b.age = 25)",                 # alias mismatch (checked with alias='a')
@@ -117,7 +124,7 @@ class TestResidualApplyFastLane:
         """The fast lane and the where_rows chain fallback agree byte-for-byte."""
         nodes = _pl_nodes()
         g = _pl_graph(nodes)
-        exprs = ["(tolower(a.name) = tolower('Alice'))", "(a.age >= 25)"]
+        exprs = ["(tolower(a.name) = 'alice')", "(a.age >= 25)"]
         fast = fp._connected_join_apply_node_residuals(
             g, nodes, "a", exprs, "node_id", engine=Engine.POLARS)
         # force the fallback by declining every translation
@@ -137,7 +144,7 @@ class TestResidualApplyFastLane:
         """
         nodes = _pl_nodes()
         g = _pl_graph(nodes)
-        exprs = ["(a.age >= 25)", "(tolower(a.name) = tolower('alice'))"]
+        exprs = ["(a.age >= 25)", "(tolower(a.name) = 'alice')"]
         real = fp._residual_polars_expr
         calls = []
 
@@ -171,7 +178,7 @@ class TestResidualApplyFastLane:
             raise AssertionError("fast lane must not engage on pandas frames")
         monkeypatch.setattr(fp, "_residual_polars_expr", boom)
         out = fp._connected_join_apply_node_residuals(
-            g, nodes, "a", ["(tolower(a.name) = tolower('alice'))"], "node_id",
+            g, nodes, "a", ["(tolower(a.name) = 'alice')"], "node_id",
             engine=Engine.PANDAS)
         assert sorted(out["node_id"].tolist()) == [1, 2]
 
@@ -185,14 +192,14 @@ class TestResidualDtypeAndEscapeGates:
     def test_escaped_literal_declines(self):
         # renderer escapes ' \\ \n etc to \uXXXX text; raw regex compare would mismatch
         assert fp._residual_polars_expr(
-            "(tolower(a.name) = tolower('It\\u0027s'))", "a", COLS()) is None
+            "(tolower(a.name) = 'it\\u0027s')", "a", COLS()) is None
         assert fp._residual_polars_expr(
             "(a.name = 'C:\\u005Cx')", "a", COLS()) is None
 
     @requires_polars
     @pytest.mark.parametrize("expr", [
         "(a.age = 'thirty')",           # string literal vs numeric column
-        "(tolower(a.age) = tolower('x'))",  # tolower on numeric column
+        "(tolower(a.age) = 'x')",       # tolower on numeric column
         "(a.name >= 25)",               # numeric literal vs string column
     ])
     def test_dtype_mismatch_declines(self, expr):
@@ -203,7 +210,7 @@ class TestResidualDtypeAndEscapeGates:
         nodes = pl.DataFrame({"node_id": [1], "cat": ["x"]}).with_columns(
             pl.col("cat").cast(pl.Categorical))
         assert fp._residual_polars_expr(
-            "(tolower(a.cat) = tolower('x'))", "a", dict(nodes.schema)) is None
+            "(tolower(a.cat) = 'x')", "a", dict(nodes.schema)) is None
         assert fp._residual_polars_expr("(a.cat = 'x')", "a", dict(nodes.schema)) is None
 
     @requires_polars
@@ -348,3 +355,129 @@ class TestFusedTwoStarLane:
         res = g.gfql(q, engine="polars")
         assert not any(calls), "count(*) unexpectedly reached the fused lane"
         assert self._rows(res)  # still answered (general path)
+
+    # --- CONSTANT FOLDING: one canonical residual shape reaches the translator ------
+
+    #: The BOARD's own spelling (benchmarks/graphbench/matched_q1_q9/gb_queries.py,
+    #: md5 6e7ae268a5a41742587fcb87854b6e27): a ONE-SIDED toLower with an already
+    #: lowercase literal. Master declines this and drops the whole fused lane.
+    Q_ONE_SIDED = ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+                   "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+                   "WHERE toLower(i.interest) = 'fine dining' AND p.gender = 'male' "
+                   "RETURN c.city AS city, count(p) AS n ORDER BY n DESC, city LIMIT 5")
+
+    def _spy_residual_texts(self, monkeypatch):
+        """Record the residual STRINGS the translator is asked to handle."""
+        seen = []
+        real = fp._residual_polars_expr
+
+        def spy(expr, alias, columns):
+            out = real(expr, alias, columns)
+            seen.append((expr, out is not None))
+            return out
+
+        monkeypatch.setattr(fp, "_residual_polars_expr", spy)
+        return seen
+
+    @requires_polars
+    def test_two_sided_query_reaches_the_translator_already_folded(self, monkeypatch):
+        """CANONICALIZATION, observed at the fast-path boundary: the user writes the
+        TWO-SIDED form, and what arrives here is the ONE-SIDED text. This is what
+        makes a single matcher shape sufficient."""
+        g = self._star_graph()
+        seen = self._spy_residual_texts(monkeypatch)
+        g.gfql(self.Q, engine="polars")
+        tolower_exprs = [e for e, _ in seen if "tolower" in e]
+        assert tolower_exprs, "no toLower residual reached the translator"
+        assert all(e == "(tolower(i.interest) = 'fine dining')" for e in tolower_exprs), \
+            f"expected the folded one-sided text, got {tolower_exprs}"
+
+    @requires_polars
+    def test_one_sided_residual_engages_fused_lane(self, monkeypatch):
+        """STRUCTURAL LOCK-IN (not a timing gate): a single untranslatable residual
+        declines the ENTIRE fused lane, so `served == 1` is the regression signal.
+        A scaling-ladder gate is the wrong shape here -- the removed cost is a
+        per-op constant, so the residual O(N) term dominates any growth ratio."""
+        g = self._star_graph()
+        calls = self._spy_fused(monkeypatch)
+        g.gfql(self.Q_ONE_SIDED, engine="polars")
+        assert calls.count(True) == 1, (
+            f"fused lane served {calls.count(True)} times, expected 1 "
+            "(0 => the one-sided toLower residual stopped translating)")
+
+    @requires_polars
+    def test_one_sided_fused_matches_eager_chain_path(self, monkeypatch):
+        g = self._star_graph()
+        calls = self._spy_fused(monkeypatch)
+        fused = g.gfql(self.Q_ONE_SIDED, engine="polars")
+        assert calls and calls[-1], "fused lane did not engage (vacuous comparison)"
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        eager = g.gfql(self.Q_ONE_SIDED, engine="polars")
+        assert self._rows(fused) == self._rows(eager)
+        # `Fine Dining` + `fine dining` both fold on the COLUMN side -> persons 1, 2, 4
+        assert self._rows(fused) == [{"city": "London", "n": 2}, {"city": "london", "n": 1}]
+
+    @requires_polars
+    @pytest.mark.parametrize("lit", ["FINE DINING", "Fine Dining", "fine Dining"])
+    def test_one_sided_mixed_case_literal_matches_nothing_end_to_end(self, lit, monkeypatch):
+        """THE TRAP, end to end. A mixed-case ONE-SIDED literal must return the SAME
+        (empty) answer through the fused lane as through the chain evaluator: the
+        evaluator does NOT case-fold a bare literal, and neither may the translator.
+        The two-sided form of the same query returns rows -- pinned below, so this is
+        not a vacuous 'everything is empty' assertion. Every board literal is already
+        lowercase, which is exactly why a wrong rule here would ship green."""
+        g = self._star_graph()
+        q = self.Q_ONE_SIDED.replace("'fine dining'", f"'{lit}'")
+        calls = self._spy_fused(monkeypatch)
+        fused = g.gfql(q, engine="polars")
+        assert calls and calls[-1], "fused lane did not engage"
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        eager = g.gfql(q, engine="polars")
+        assert self._rows(fused) == self._rows(eager) == []
+        # control: folding the literal (two-sided) DOES match -> the empty answer above
+        # is a real semantic difference, not an inert query
+        assert self._rows(g.gfql(q.replace(f"'{lit}'", f"toLower('{lit}')"), engine="polars"))
+
+    @requires_polars
+    def test_one_sided_matches_pandas_oracle(self, monkeypatch):
+        g = self._star_graph()
+        gpd = graphistry.nodes(g._nodes.to_pandas(), "node_id").edges(
+            g._edges.to_pandas(), "src", "dst")
+        calls = self._spy_fused(monkeypatch)
+        got = g.gfql(self.Q_ONE_SIDED, engine="polars")._nodes
+        assert calls and calls[-1], "fused lane did not engage"
+        got = (got.to_pandas() if hasattr(got, "to_pandas") else got).to_dict("records")
+        assert got == gpd.gfql(self.Q_ONE_SIDED, engine="pandas")._nodes.to_dict("records")
+
+    @requires_polars
+    @pytest.mark.parametrize("fn,lit", [
+        ("toUpper", "FINE DINING"), ("upper", "FINE DINING"), ("lower", "fine dining"),
+    ])
+    def test_other_case_functions_engage_and_match_the_evaluator(self, fn, lit, monkeypatch):
+        """The generalization is not toLower-shaped: every case function the row
+        evaluator supports takes the same lane, on the same canonical text."""
+        g = self._star_graph()
+        q = self.Q_ONE_SIDED.replace("toLower(i.interest) = 'fine dining'",
+                                     f"{fn}(i.interest) = '{lit}'")
+        calls = self._spy_fused(monkeypatch)
+        fused = g.gfql(q, engine="polars")
+        assert calls and calls[-1], f"{fn}: fused lane did not engage"
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        assert self._rows(fused) == self._rows(g.gfql(q, engine="polars"))
+        assert self._rows(fused), f"{fn}: vacuous (empty) comparison"
+
+    @requires_polars
+    def test_non_ascii_two_sided_declines_the_lane_but_not_the_answer(self, monkeypatch):
+        """DISCLOSED NARROWING. A non-ASCII two-sided literal is outside the region
+        where the engines provably agree, so the fold DECLINES, the residual stays
+        two-sided, and the fused lane declines with it. That costs speed on an exotic
+        shape and buys back a Python-vs-Rust case-table assumption master was making
+        silently. The ANSWER must be unchanged -- that is what is asserted."""
+        g = self._star_graph()
+        q = self.Q_ONE_SIDED.replace("toLower(i.interest) = 'fine dining'",
+                                     "toLower(i.interest) = toLower('FINE DINİNG')")
+        calls = self._spy_fused(monkeypatch)
+        declined = g.gfql(q, engine="polars")
+        assert not any(calls), "non-ASCII two-sided residual unexpectedly served the fused lane"
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        assert self._rows(declined) == self._rows(g.gfql(q, engine="polars"))
