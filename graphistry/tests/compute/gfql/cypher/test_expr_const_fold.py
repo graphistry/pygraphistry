@@ -91,20 +91,26 @@ class TestCanonicalization:
         ("n.a = size('abcd') / 2", "(n.a = (4 / 2))"),
     ])
     def test_folding_runs_AFTER_the_integer_division_rewrite(self, text, expected):
-        """PASS ORDER IS LOAD-BEARING, and this is not obvious.
+        """PASS ORDER PIN -- a STRUCTURAL assertion, deliberately not an answer one.
 
         `_rewrite_cypher_integer_division_ast` wraps a division in `toInteger(...)`
-        only when BOTH operands are already integer literals.  If folding ran first,
-        `size('abcd') / 2` would become `4 / 2` in time for that rewrite to fire and
-        the expression would start truncating -- a DIFFERENT ANSWER from master, from
-        a pass whose whole contract is to preserve answers.  Folding therefore runs
-        after, and this pins it.
+        only when BOTH operands are already integer literals.  Folding first would make
+        `size('abcd') / 2` into `4 / 2` in time for that rewrite to fire, so the plan
+        text a downstream matcher sees changes: `(4 / 2)` becomes `toInteger((4 / 2))`.
 
-        (Separately and pre-existing: openCypher says `size(s) / 2` IS integer
-        division, because `size` returns an Integer.  GFQL's rewrite only recognizes
-        literal operands, so it does not truncate here -- on master or on this branch.
-        Fixing that is a real change to division semantics and does not belong in a
-        constant-folding PR.)"""
+        HONEST LIMIT, MEASURED RATHER THAN ASSUMED: that text change did NOT change any
+        answer on the nine division shapes tried (`size(...)/int`, `/float`,
+        `/size(...)`, negated, and substring-derived), because the row evaluators
+        already floor-divide two integer VALUES -- `6 / 4` answers `1` with or without
+        the wrapper, on master and on this branch.  So this pins the ORDER and the plan
+        TEXT; it does not claim a wrong answer.  It is still worth pinning: the wrapper
+        is semantically load-bearing wherever the evaluator would not integer-divide on
+        its own, and a plan-time pass must not silently move which expressions get it.
+
+        (Separately and pre-existing on master: openCypher says `size(col) / 2` IS
+        integer division, because `size` returns an Integer.  GFQL answers `1.5` for
+        `size(n.s) / 4` and `1` for `size('abcdef') / 4` -- an internal inconsistency
+        this PR neither creates nor fixes.)"""
         assert _lowered_text(text) == expected
 
     @pytest.mark.parametrize("value,expected", [
