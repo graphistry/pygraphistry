@@ -20,6 +20,9 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_engine_polars_binding_rows.py
     graphistry/tests/compute/gfql/test_engine_polars_with_match_reentry.py
     graphistry/tests/compute/gfql/test_engine_polars_cypher_conformance.py
+    # aggregate x dtype type contract: the polars params of this file are the ONLY lane where the
+    # native polars aggregate guard and the raw-polars-exception wrap are exercised
+    graphistry/tests/compute/gfql/test_aggregate_type_contract.py
     graphistry/tests/compute/gfql/test_engine_polars_conformance_matrix.py
     graphistry/tests/compute/gfql/test_polars_string_predicate_nonstring.py
     graphistry/tests/compute/gfql/cypher/test_order_by_null_placement.py
