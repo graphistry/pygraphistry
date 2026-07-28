@@ -93,7 +93,7 @@ from graphistry.compute.gfql.physical_planner import PhysicalPlanner
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
 from graphistry.compute.gfql.search_any import search_any_mask
-from graphistry.compute.typing import DataFrameT, SeriesT, NodeDtypes
+from graphistry.compute.typing import DataFrameT, DType, SeriesT, NodeDtypes
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
@@ -619,11 +619,20 @@ def _connected_join_two_star_split_residuals(
 
 
 # The simple residual shapes the connected-join lowering emits for scalar predicates it
-# cannot push into filter_dict (see #1729): case-insensitive equality and scalar
+# cannot push into filter_dict (see #1729): case-folded equality and scalar
 # equality/range on a single aliased column. Anything else falls back to the where_rows
 # chain evaluator. Literals: single-quoted strings (no embedded quotes) or numbers.
-_RESIDUAL_TOLOWER_EQ = re.compile(
-    r"^\(tolower\((?P<alias>\w+)\.(?P<col>\w+)\) = tolower\('(?P<lit>[^']*)'\)\)$"
+#
+# ONE CANONICAL SHAPE. The lowering constant-folds literal-only sub-expressions
+# (``graphistry/compute/gfql/expr_const_fold.py``), so ``toLower(a.c) = toLower('LIT')``
+# arrives here already reduced to ``(tolower(a.c) = 'lit')``. This matcher therefore
+# learns the case-function-vs-LITERAL form only, and the literal is used AS WRITTEN --
+# the where_rows evaluator does not case-fold a bare literal, so ``toLower(x) = 'MALE'``
+# correctly matches nothing. (Case-folding the RHS here would be a silent wrong answer
+# that every all-lowercase benchmark literal would hide.)
+_RESIDUAL_CASE_FN_EQ = re.compile(
+    r"^\((?P<fn>tolower|lower|toupper|upper)\((?P<alias>\w+)\.(?P<col>\w+)\) = "
+    r"'(?P<lit>[^']*)'\)$"
 )
 _RESIDUAL_SCALAR_CMP = re.compile(
     r"^\((?P<alias>\w+)\.(?P<col>\w+) (?P<op>=|>=|<=|>|<) "
@@ -632,25 +641,30 @@ _RESIDUAL_SCALAR_CMP = re.compile(
 
 
 def _residual_polars_expr(
-    expr: str, alias: str, schema: Mapping[str, Any]
+    expr: str, alias: str, schema: NodeDtypes
 ) -> Optional['pl.Expr']:
     """Translate a simple residual to a native polars expression, or None to fall back.
 
     ``expr`` is a *string* by contract: the #1729 connected-join lowering serializes
     residual predicates into ASTCall params as canonical predicate strings (e.g.
-    ``(tolower(a.col) = tolower('lit'))``), not typed AST terms — so string parsing here
+    ``(tolower(a.col) = 'lit')``), not typed AST terms — so string parsing here
     is the honest interface; a typed term would require a lowering-level refactor.
 
-    Covered (exactly the #1729 scalar-residual shapes): ``(tolower(a.col) = tolower('lit'))``
-    and ``(a.col <op> literal)`` for ``= >= <= > <``. Semantics match the where_rows
-    evaluator on these shapes: string compares are null-safe (null -> filtered out, since
-    polars comparisons on null yield null which ``filter`` drops, same as the evaluator's
-    null-propagating comparisons); toLower equality lowercases the column via polars
-    ``str.to_lowercase()`` and the literal via Python ``str.lower()`` (empirically equal
-    on the ASCII/latin shapes the lowering emits; a divergence would need a Rust-vs-Python
-    Unicode table drift). Float NaN ranking differs between polars and the evaluator, but
-    gfql ingest normalizes NaN->null (``_pl_nan_to_null``) so NaN never reaches this
-    filter through ``gfql()``. Declines (returns None, caller uses the chain fallback) on:
+    Covered (exactly the #1729 scalar-residual shapes): ``(<case fn>(a.col) = 'lit')``
+    for ``toLower``/``lower``/``toUpper``/``upper``, and ``(a.col <op> literal)`` for
+    ``= >= <= > <``. Semantics match the where_rows evaluator on these shapes: string
+    compares are null-safe (null -> filtered out, since polars comparisons on null yield
+    null which ``filter`` drops, same as the evaluator's null-propagating comparisons);
+    the case functions map to the SAME polars kernels the evaluator uses
+    (``str.to_lowercase`` / ``str.to_uppercase``) so the column side is identical by
+    construction, and the LITERAL side is used verbatim because the evaluator does not
+    case-fold a bare literal. Nothing is case-folded in Python here — the lowering's
+    constant-folding pass has already reduced ``= toLower('LIT')`` to ``= 'lit'`` where
+    every engine provably agrees on that value (see ``expr_const_fold`` and #1802), and
+    where it does not, the two-sided text arrives unfolded and DECLINES below.
+    Float NaN ranking differs between polars and the evaluator, but gfql ingest
+    normalizes NaN->null (``_pl_nan_to_null``) so NaN never reaches this filter through
+    ``gfql()``. Declines (returns None, caller uses the chain fallback) on:
     any other shape, non-matching alias, a column absent from the schema, an ESCAPED
     string literal (``\\`` — the renderer escapes ``' \\ \\n`` etc. to ``\\uXXXX`` which the
     evaluator unescapes; raw comparison would silently mismatch), and dtype-incompatible
@@ -660,23 +674,29 @@ def _residual_polars_expr(
     """
     import polars as pl
 
-    def _is_string_dtype(dtype: Any) -> bool:
+    def _is_string_dtype(dtype: DType) -> bool:
         return dtype == pl.Utf8 or dtype == pl.String
 
-    def _is_numeric_dtype(dtype: Any) -> bool:
+    def _is_numeric_dtype(dtype: DType) -> bool:
         return dtype.is_numeric() if hasattr(dtype, "is_numeric") else False
 
-    m = _RESIDUAL_TOLOWER_EQ.match(expr)
+    m = _RESIDUAL_CASE_FN_EQ.match(expr)
     if m is not None:
         col_name = m.group("col")
-        tolower_lit = m.group("lit")
+        case_lit = m.group("lit")
         if m.group("alias") != alias or col_name not in schema:
             return None
-        if "\\" in tolower_lit:
+        if "\\" in case_lit:
             return None  # escaped literal: let the evaluator unescape it
         if not _is_string_dtype(schema[col_name]):
-            return None  # tolower on non-string column: evaluator raises designed NIE
-        return pl.col(col_name).str.to_lowercase() == tolower_lit.lower()
+            return None  # case fn on non-string column: evaluator raises designed NIE
+        col_str = pl.col(col_name).str
+        folded_col = (
+            col_str.to_lowercase()
+            if m.group("fn") in ("tolower", "lower")
+            else col_str.to_uppercase()
+        )
+        return folded_col == case_lit
     m = _RESIDUAL_SCALAR_CMP.match(expr)
     if m is not None:
         col_name = m.group("col")
@@ -720,8 +740,9 @@ def _connected_join_apply_node_residuals(
     """Filter a fast-path node frame by single-alias post-join residual expressions.
 
     Fast lane (polars): the simple scalar shapes the #1729 lowering emits
-    (``tolower(a.col) = tolower('lit')``, ``a.col <op> literal``) translate directly to
-    native polars filters — no chain dispatch (the where_rows chain costs ~1.7ms/alias,
+    (``tolower(a.col) = 'lit'`` and the other case functions, ``a.col <op> literal``;
+    the lowering constant-folds ``= toLower('LIT')`` into that one shape) translate
+    directly to native polars filters — no chain dispatch (the where_rows chain costs ~1.7ms/alias,
     the dominant cost of the residual OLAP fast path). Any expression outside those
     shapes falls back to the chain evaluator below, so semantics never diverge.
 
@@ -1582,6 +1603,136 @@ def _property_ref(expr: Any, valid_aliases: Sequence[str]) -> Optional[Tuple[str
 
 _GROUPED_AGG_LOOKUP_KEY_FMT = "__gfql_t3_{alias}_id__"
 
+# Thresholds for the low-cardinality pure-count(*) formulation below. Both were fixed
+# from an interleaved crossover sweep (polars 1.35.2, 20 threads, 90 samples/arm/cell)
+# BEFORE the formulation was validated on any query, because a threshold chosen after
+# seeing the verdicts is unfalsifiable.
+#
+#   * ``group_by(maintain_order=True).agg(pl.len())`` carries a FLAT ~2 ms coordination
+#     cost that exists only at LOW group cardinality and vanishes between 32 and 64
+#     groups (int keys, 20,000 rows: 32 groups 2.054 ms -> 48 groups 0.411 -> 64 groups
+#     0.291).
+#   * ``value_counts`` has no such cost but scales WORSE with input rows: at 1,000,000
+#     rows it loses even at 2 groups (4.137 ms -> 8.591 ms).
+#
+# So neither bound alone is sound; the gate needs both. 32 is the largest cardinality
+# whose worst case (group_by p25 vs value_counts p75) still favours value_counts in every
+# measured dtype x row-count cell -- 48 groups already fails at 0.96x on string keys.
+# 100,000 is the largest measured input-row count where that holds for every cardinality
+# <= 32 in both key dtypes -- 150,000 fails at 0.82x on string keys.
+_LOWCARD_COUNT_MAX_GROUPS = 32
+_LOWCARD_COUNT_MAX_INPUT_ROWS = 100_000
+
+
+def _low_cardinality_pure_count_key(
+    group_keys: Sequence[str],
+    agg_specs: Sequence[Tuple[str, str, Optional[str]]],
+) -> Optional[Tuple[str, str]]:
+    """``(group_key, out_alias)`` iff this is a single-key, pure ``count(*)`` aggregate.
+
+    Pure ``count(*)`` is the ONLY aggregate the alternative formulation below can express,
+    and the only one measured value-identical to ``pl.len()``. Anything else -- a second
+    group key, a second aggregate, ``avg``/``sum``/``min``/``max``, or a ``count`` over a
+    named property (which counts NON-NULL values, not rows) -- declines here.
+
+    ``out_alias == group_key`` also declines: both formulations raise polars
+    ``DuplicateError`` on it, and declining keeps the twin's error rather than minting a
+    second one.
+    """
+    if len(group_keys) != 1 or len(agg_specs) != 1:
+        return None
+    out_alias, func, expr_col = agg_specs[0]
+    if func != "count" or expr_col is not None:
+        return None
+    group_key = group_keys[0]
+    if out_alias == group_key:
+        return None
+    return group_key, out_alias
+
+
+def _low_cardinality_pure_count_plan(
+    work_lf: "pl.LazyFrame",
+    *,
+    node_col: str,
+    group_keys: Sequence[str],
+    agg_specs: Sequence[Tuple[str, str, Optional[str]]],
+    needed_by_alias: Mapping[str, Sequence[Tuple[str, str]]],
+    frames_by_alias: Mapping[str, DataFrameT],
+    edge_rows: int,
+) -> Optional["pl.LazyFrame"]:
+    """STRICTLY ADDITIVE alternative for a single-key pure ``count(*)``: emit
+    ``value_counts`` instead of ``group_by(..).agg(pl.len())``. Returns ``None`` on every
+    decline and the caller keeps the existing ``group_by`` formulation, so the blast radius
+    is a decline away from zero.
+
+    The two formulations are VALUE-IDENTICAL wherever this admits -- same key rows, same
+    counts, same ``UInt32`` count dtype, same treatment of null / NaN / empty-input keys --
+    and the caller's gate has already made the following ``sort`` TOTAL over the output
+    rows, so neither formulation's internal row order can reach the answer. They differ
+    only in COST, which is why this is a routing decision and not a semantic one.
+
+    THE BOUNDS ARE STATIC, O(1) IN THE DATA, AND THEY ARE UPPER BOUNDS:
+
+    * **group cardinality <= height of the alias node frame supplying the group key.**
+      The group key column is produced by an inner join that reads ``prop`` out of that one
+      frame, so every group value in the aggregate input is a ``prop`` value of some row of
+      it; distinct values cannot exceed its height. ``height`` is metadata.
+    * **aggregate input rows <= height of the (already filtered) edge frame.** The two
+      semi-joins only remove edge rows. The property inner-join can MULTIPLY them when a
+      node id repeats in the node frame -- the lane deliberately does not dedup, because
+      the eager twin does not -- so the bound only holds once the sole property join is
+      known to be non-multiplying. Hence the two structural conditions below: exactly one
+      alias may carry properties, and its node ids must be unique. That uniqueness check
+      runs on a frame already known to be <= ``_LOWCARD_COUNT_MAX_GROUPS`` rows, so it is
+      bounded work regardless of graph size.
+
+    BOTH BOUNDS ARE LOOSE IN THE SAFE DIRECTION. A loose bound over-estimates, so it can
+    only make this DECLINE a shape the alternative would have served -- it can never route
+    a high-cardinality or high-row aggregate into the wrong formulation, which is the
+    failure that would matter (that formulation is 2.7 ms slower on a ~20,000-group
+    aggregate). The cost of looseness is a forgone speedup: a 7,117-row City frame carrying
+    only 3 distinct countries declines here, because an O(1) height bound cannot see the 3.
+
+    DECLINES: a non-single-key or non-pure-``count(*)`` aggregate; a group key not supplied
+    by exactly one alias; a second alias also contributing property columns (the row bound
+    stops holding); a group-key alias frame taller than ``_LOWCARD_COUNT_MAX_GROUPS``,
+    missing its node-id column, or carrying duplicate node ids; an edge frame taller than
+    ``_LOWCARD_COUNT_MAX_INPUT_ROWS``.
+    """
+    import polars as pl
+
+    keyed = _low_cardinality_pure_count_key(group_keys, agg_specs)
+    if keyed is None:
+        return None
+    group_key, out_alias = keyed
+
+    owners = [
+        alias
+        for alias, props in needed_by_alias.items()
+        if any(out_col == group_key for out_col, _ in props)
+    ]
+    if len(owners) != 1:
+        return None
+    owner = owners[0]
+    if any(alias != owner and props for alias, props in needed_by_alias.items()):
+        return None
+
+    owner_frame = frames_by_alias.get(owner)
+    if owner_frame is None or not isinstance(owner_frame, pl.DataFrame):
+        return None
+    if owner_frame.height > _LOWCARD_COUNT_MAX_GROUPS:
+        return None
+    if node_col not in owner_frame.columns:
+        return None
+    if owner_frame.get_column(node_col).n_unique() != owner_frame.height:
+        return None
+    if edge_rows > _LOWCARD_COUNT_MAX_INPUT_ROWS:
+        return None
+
+    # ``name=`` (polars >= 1.0, and the declared floor is 1.29) keeps the count column out
+    # of a rename, so a group key literally named ``count`` is served rather than crashing.
+    return work_lf.select(pl.col(group_key).value_counts(name=out_alias)).unnest(group_key)
+
 
 def _single_hop_grouped_aggregate_fused_polars(
     start_nodes: DataFrameT,
@@ -1615,6 +1766,11 @@ def _single_hop_grouped_aggregate_fused_polars(
     ``group_by(maintain_order=True).agg(..)``, same per-key ``nulls_last`` sort, same
     ``head``), so the value -- including row ORDER and openCypher's null-largest ordering
     -- is identical.
+
+    ONE aggregate shape has a second, value-identical polars formulation: see
+    :func:`_low_cardinality_pure_count_plan`. It is chosen only when static O(1) bounds
+    prove both the group cardinality and the aggregate input rows are low, and it declines
+    to this ``group_by`` everywhere else.
 
     NOT a GPU change: like the eager twin and the fused two-star lane, it collects on CPU
     polars for both POLARS and POLARS_GPU.
@@ -1735,7 +1891,21 @@ def _single_hop_grouped_aggregate_fused_polars(
         )
         work_lf = work_lf.join(lookup_lf, left_on=edge_col, right_on=lookup_key, how="inner")
 
-    out_lf = work_lf.group_by(list(group_keys), maintain_order=True).agg(agg_exprs)
+    # STRICTLY ADDITIVE: a single-key pure count(*) whose group cardinality and input rows
+    # are both statically bounded low takes the value_counts formulation, which skips
+    # polars' partitioned group-by coordination. Every other shape -- and every shape whose
+    # bounds are not provably low -- keeps the group_by below, unchanged.
+    out_lf = _low_cardinality_pure_count_plan(
+        work_lf,
+        node_col=node_col,
+        group_keys=group_keys,
+        agg_specs=agg_specs,
+        needed_by_alias=needed_by_alias,
+        frames_by_alias={start_alias: start_nodes, end_alias: end_nodes},
+        edge_rows=edges.height,
+    )
+    if out_lf is None:
+        out_lf = work_lf.group_by(list(group_keys), maintain_order=True).agg(agg_exprs)
     # openCypher orders NULL as the largest value (ASC -> nulls last, DESC -> nulls
     # first); polars defaults nulls-first, so pin nulls_last per key exactly as the twin
     # does. The gate above guarantees this sort is TOTAL over the output rows.
