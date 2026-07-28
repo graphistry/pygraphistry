@@ -12,14 +12,26 @@ function comes along for free.  THE TRAP: for exactly the functions this targets
 Arrow-backed ``str`` uses SIMPLE case mappings where polars/Python use FULL ones
 (#1802) — so folding outside the provable region silently changes answers.  The
 non-ASCII decline tests below are the load-bearing ones.
+
+THE BAR FOR A DECLINE: every disqualifier must have a violating existence proof -- a
+concrete expression where folding would change the answer.  A disqualifier with no
+constructible witness is a guess, and the function either folds or its reason is stated
+as POLICY (perf) rather than CORRECTNESS.  ``TestArgumentClosureWitness`` and the engine
+witnesses in ``test_const_fold_engine_parity.py`` are that proof; ``TestClassification``
+proves only COVERAGE (nothing forgotten), which is worth having but is not meaning.
 """
 from typing import Mapping, Optional
 
 import pytest
 
 from graphistry.compute.gfql.expr_const_fold import (
+    DECLINED_FUNCTIONS,
+    DENIED_AGGREGATE,
+    DENIED_BY_POLICY,
+    DENIED_NOT_ARGUMENT_CLOSED,
+    DENIED_RESULT_TYPE,
+    DENIED_UNVERIFIED,
     FOLDABLE_FUNCTIONS,
-    NON_FOLDABLE_REASONS,
     ConstantFolder,
     FoldedValue,
     LiteralArgs,
@@ -30,6 +42,7 @@ from graphistry.compute.gfql.expr_parser import (
     Identifier,
     Literal,
     PropertyAccessExpr,
+    QuantifierExpr,
     parse_expr,
 )
 from graphistry.compute.gfql.cypher.ast import ExpressionText, SourceSpan
@@ -293,24 +306,174 @@ class TestTotality:
 
 
 # --------------------------------------------------------------------------------
-# THE CLASSIFICATION IS A PARTITION, NOT A LIST
+# EVERY FOLDABLE ENTRY GETS THREE TESTS
+#
+# (a) a literal-only call folds to the EXPECTED literal (the value is pinned, not just
+#     "something changed"), (b) the same function with a non-literal argument comes back
+#     untouched.  (c) VALUE IDENTITY -- folded and unfolded plans answer the same on the
+#     same data, per engine -- is the one that actually protects the change, and it needs
+#     real frames, so it lives in test_const_fold_engine_parity.py.
+# --------------------------------------------------------------------------------
+
+#: name -> (literal-only call, the literal it must fold to, a non-literal spelling)
+FOLD_CASES = [
+    ("tolower", "toLower('MALE')", "'male'", "toLower(a.c)"),
+    ("lower", "lower('MALE')", "'male'", "lower(a.c)"),
+    ("toupper", "toUpper('male')", "'MALE'", "toUpper(a.c)"),
+    ("upper", "upper('male')", "'MALE'", "upper(a.c)"),
+    ("size", "size('abcde')", "5", "size(a.c)"),
+    ("substring", "substring('abcdef', 1, 3)", "'bcd'", "substring(a.c, 1, 3)"),
+    ("head", "head('abc')", "'a'", "head(a.c)"),
+    ("tail", "tail('abc')", "'bc'", "tail(a.c)"),
+    ("reverse", "reverse('abc')", "'cba'", "reverse(a.c)"),
+]
+
+
+class TestFoldableEntries:
+    def test_every_foldable_function_has_a_pinned_case(self):
+        """A new folder cannot ship without its three tests."""
+        assert {case[0] for case in FOLD_CASES} == set(FOLDABLE_FUNCTIONS)
+
+    @pytest.mark.parametrize("name,call,expected,_column", FOLD_CASES, ids=[c[0] for c in FOLD_CASES])
+    def test_literal_only_call_folds_to_the_expected_literal(self, name, call, expected, _column):
+        assert _fold_text(call) == expected
+
+    @pytest.mark.parametrize("name,_call,_expected,column", FOLD_CASES, ids=[c[0] for c in FOLD_CASES])
+    def test_non_literal_argument_is_returned_untouched(self, name, _call, _expected, column):
+        assert _fold_text(column) == render_expr_node(parse_expr(column))
+
+
+# --------------------------------------------------------------------------------
+# head / tail / reverse: the STRING overload, and every decline around it
+# --------------------------------------------------------------------------------
+
+class TestSequenceStringFolds:
+    """On GFQL's surface these are STRING operations, not list operations.
+
+    ``row/dispatch.py`` implements them as ``.str.get(0)`` / ``.str.slice(start=1)`` /
+    ``.str[::-1]`` on a Series, and ``eval_sequence_fn_scalar`` checks
+    ``isinstance(value, str)`` FIRST for ``reverse``.  They were previously declined
+    with "(A) sequence op; list literals parse to ListLiteral, not Literal" -- a reason
+    that describes only the LIST overload, which the driver's per-call argument guard
+    already declines on its own.  For the string overload the reason had no witness:
+    ``head('abc')`` is argument-closed and answers ``'a'``, a value the contract guard
+    accepts, identically on every engine for ASCII input.  So they fold.
+    """
+
+    @pytest.mark.parametrize("text,expected", [
+        ("head('a')", "'a'"),
+        ("head('abc')", "'a'"),
+        ("tail('a')", "''"),
+        ("tail('')", "''"),
+        ("tail('abc')", "'bc'"),
+        ("reverse('')", "''"),
+        ("reverse('a')", "'a'"),
+        ("reverse('abc')", "'cba'"),
+        ("reverse(reverse('abc'))", "'abc'"),
+        ("toUpper(tail('xabc'))", "'ABC'"),
+        ("size(reverse('abcd'))", "4"),
+    ])
+    def test_string_overload_folds(self, text, expected):
+        assert _fold_text(text) == expected
+
+    def test_head_of_the_empty_string_declines(self):
+        """``eval_sequence_fn_scalar`` answers ``value[0] if len(value) > 0 else None``,
+        so ``head('')`` is null at runtime -- and NULL POLICY forbids synthesizing one.
+        ``tail('')`` is ``''`` rather than null, so it does NOT need this carve-out."""
+        assert _fold_text("head('')") == "head('')"
+
+    @pytest.mark.parametrize("text", [
+        "head([1, 2, 3])", "tail([1, 2, 3])", "reverse([1, 2, 3])", "reverse(['a', 'b'])",
+    ])
+    def test_list_overload_declines_on_the_argument_guard(self, text):
+        """A ``ListLiteral`` is not a ``Literal``, so the driver declines before any
+        folder runs -- which is exactly what the old (A) reason described, and all it
+        described."""
+        node = parse_expr(text)
+        assert isinstance(node, FunctionCall)
+        assert not all(isinstance(arg, Literal) for arg in node.args)
+        assert _fold_text(text) == render_expr_node(node)
+
+    @pytest.mark.parametrize("fn", ["head", "tail", "reverse"])
+    @pytest.mark.parametrize("lit", NON_ASCII_LITERALS)
+    def test_non_ascii_declines_like_the_case_folds(self, fn, lit):
+        """Same gate, same reason: ``[::-1]`` and ``[0]`` are CODEPOINT operations, which
+        only coincide with character operations where there are no combining sequences or
+        surrogate pairs."""
+        text = f"{fn}('{lit}')"
+        assert _fold_text(text) == render_expr_node(parse_expr(text))
+
+    @pytest.mark.parametrize("text", [
+        "head(5)", "tail(1.5)", "reverse(true)", "head(null)", "tail(null)", "reverse(null)",
+        "head('a', 'b')", "reverse('a', 'b')",
+    ])
+    def test_non_string_null_or_bad_arity_declines(self, text):
+        assert _fold_text(text) == render_expr_node(parse_expr(text))
+
+
+# --------------------------------------------------------------------------------
+# THE DECLINE TAXONOMY IS A SET OF WITNESSES, NOT A LIST OF OPINIONS
+#
+# A decline is cheap to write and expensive to check.  The previous
+# ``NON_FOLDABLE_REASONS`` was 40 free-text criteria that NOTHING read -- the driver's
+# only name-keyed gate is ``table.get(name) is None`` -- and the obvious test for it is
+# vacuous: ``fold_constants(parse_expr(q)) == parse_expr(q)`` passes for all 40 names
+# trivially, because nothing outside FOLDABLE_FUNCTIONS can fold at all.  So each bucket
+# is now tested by THE MECHANISM ITS NAME CLAIMS, and the two buckets with no available
+# mechanism say so instead.
 # --------------------------------------------------------------------------------
 
 class TestClassification:
+    """Coverage, not meaning: this proves nothing can be forgotten, not that anything
+    below is right.  The witness tests are what carry the meaning."""
+
     def test_every_surface_function_is_classified_exactly_once(self):
         surface = set(GFQL_ALLOWED_FUNCTIONS) | set(GFQL_AGGREGATION_FUNCTIONS)
-        foldable = set(FOLDABLE_FUNCTIONS)
-        declined = set(NON_FOLDABLE_REASONS)
-        assert not (foldable & declined), f"classified twice: {sorted(foldable & declined)}"
-        assert foldable | declined == surface, (
-            "UNCLASSIFIED (add to FOLDABLE_FUNCTIONS or NON_FOLDABLE_REASONS with a "
-            f"criterion): {sorted(surface - (foldable | declined))}; "
-            f"stale (no longer on the surface): {sorted((foldable | declined) - surface)}"
+        buckets = {
+            "FOLDABLE_FUNCTIONS": set(FOLDABLE_FUNCTIONS),
+            "DENIED_AGGREGATE": set(DENIED_AGGREGATE),
+            "DENIED_NOT_ARGUMENT_CLOSED": set(DENIED_NOT_ARGUMENT_CLOSED),
+            "DENIED_RESULT_TYPE": set(DENIED_RESULT_TYPE),
+            "DENIED_BY_POLICY": set(DENIED_BY_POLICY),
+            "DENIED_UNVERIFIED": set(DENIED_UNVERIFIED),
+        }
+        seen: set = set()
+        for label, names in buckets.items():
+            twice = seen & names
+            assert not twice, f"{label}: classified twice: {sorted(twice)}"
+            seen |= names
+        assert seen == surface, (
+            "UNCLASSIFIED (put it in FOLDABLE_FUNCTIONS with three tests, or in the "
+            "bucket naming the mechanism that stops it -- with that mechanism's "
+            f"witness): {sorted(surface - seen)}; "
+            f"stale (no longer on the surface): {sorted(seen - surface)}"
         )
 
-    def test_every_decline_cites_a_criterion(self):
-        for name, reason in NON_FOLDABLE_REASONS.items():
-            assert reason.startswith(("(P)", "(A)", "(E)", "(T)")), (name, reason)
+    def test_declined_functions_is_the_union_of_the_decline_buckets(self):
+        assert DECLINED_FUNCTIONS == (
+            set(DENIED_AGGREGATE) | set(DENIED_NOT_ARGUMENT_CLOSED)
+            | set(DENIED_RESULT_TYPE) | set(DENIED_BY_POLICY) | set(DENIED_UNVERIFIED)
+        )
+        assert not (DECLINED_FUNCTIONS & set(FOLDABLE_FUNCTIONS))
+
+    def test_the_only_name_keyed_gate_is_the_registry_lookup(self):
+        """THE STRUCTURAL INVARIANT the old reason list was gesturing at, stated so it can
+        be false.  ``fold_constants`` reads NO decline table: a name declines iff it is
+        absent from the registry it is handed.  Prove it by handing the driver a registry
+        that contains a declined name -- if a decline table were consulted anywhere, this
+        would still decline."""
+        recorded = []
+
+        def _spy(args: LiteralArgs) -> Optional[FoldedValue]:
+            recorded.append(args)
+            return "folded"
+
+        for name in ["count", "abs", "range", "tostring", "keys"]:
+            registry: Mapping[str, ConstantFolder] = {name: _spy}
+            assert render_expr_node(
+                fold_constants(FunctionCall(name, (Literal(1),)), registry=registry)
+            ) == "'folded'", f"{name}: something other than the name lookup declined it"
+        assert len(recorded) == 5
 
     @pytest.mark.parametrize("name", ["rand", "randomuuid", "timestamp", "now", "date", "datetime"])
     def test_nondeterministic_functions_are_not_on_the_surface(self, name):
@@ -322,13 +485,69 @@ class TestClassification:
     def test_aggregates_are_never_folded(self):
         for name in GFQL_AGGREGATION_FUNCTIONS:
             assert name not in FOLDABLE_FUNCTIONS
+        assert set(GFQL_AGGREGATION_FUNCTIONS) == set(DENIED_AGGREGATE)
 
-    def test_foldable_set_is_exactly_the_documented_six(self):
+    def test_foldable_set_is_exactly_the_documented_nine(self):
         """A guard against silently widening the pass: adding a function here must be a
         deliberate edit with its own (E) argument and parity tests."""
         assert set(FOLDABLE_FUNCTIONS) == {
-            "tolower", "lower", "toupper", "upper", "size", "substring"
+            "tolower", "lower", "toupper", "upper", "size", "substring",
+            "head", "tail", "reverse",
         }
+
+
+class TestArgumentClosureWitness:
+    """(A): the witness is the parsed node of the shape the lowering actually emits."""
+
+    @pytest.mark.parametrize(
+        "name,shape",
+        sorted(DENIED_NOT_ARGUMENT_CLOSED.items()),
+        ids=sorted(DENIED_NOT_ARGUMENT_CLOSED),
+    )
+    def test_the_emitted_shape_is_not_argument_closed(self, name, shape):
+        node = parse_expr(shape)
+        if not isinstance(node, FunctionCall):
+            # The quantifiers are the strongest form of this: they parse to a
+            # QuantifierExpr, so they cannot reach the driver's name lookup at all.
+            assert isinstance(node, QuantifierExpr), (name, shape, type(node).__name__)
+            return
+        assert node.name.lower() == name, (name, shape, node.name)
+        assert any(not isinstance(arg, Literal) for arg in node.args), (
+            f"{name}: `{shape}` IS argument-closed, so criterion (A) does not stop it -- "
+            "either move it to FOLDABLE_FUNCTIONS or refile it under the mechanism that "
+            "actually does"
+        )
+        assert _fold_text(shape) == render_expr_node(node)
+
+    @pytest.mark.parametrize("text", [
+        "head('abc')", "tail('abc')", "reverse('abc')", "range(1, 5)",
+    ])
+    def test_criterion_A_is_NOT_available_for_these(self, text):
+        """THE TEST THAT FOUND THE MISCLASSIFICATION, kept as a regression pin.
+
+        All four were filed under (A).  All four are argument-closed ``FunctionCall``s
+        with ``Literal`` arguments, so the argument guard never sees them: (A) was never
+        the mechanism.  ``head``/``tail``/``reverse`` moved into FOLDABLE_FUNCTIONS;
+        ``range`` moved to DENIED_RESULT_TYPE, where the witness is that the engine
+        answers it with a ``list``."""
+        node = parse_expr(text)
+        assert isinstance(node, FunctionCall)
+        assert all(isinstance(arg, Literal) for arg in node.args)
+
+    @pytest.mark.parametrize("name", [
+        "keys", "labels", "type", "properties", "nodes", "relationships",
+    ])
+    def test_the_grammar_accepts_a_literal_spelling_the_lowering_never_emits(self, name):
+        """HONEST SCOPE OF THE (A) CLAIM.  The grammar is looser than the language:
+        ``keys('x')`` parses, and it IS argument-closed.  So for the entity functions (A)
+        is a statement about the shape the LOWERING emits, and what declines the
+        hand-written literal spelling is the name lookup alone.  Pinned so the qualified
+        claim cannot quietly rot back into an unqualified one."""
+        node = parse_expr(f"{name}('x')")
+        assert isinstance(node, FunctionCall)
+        assert all(isinstance(arg, Literal) for arg in node.args)
+        assert name not in FOLDABLE_FUNCTIONS
+        assert _fold_text(f"{name}('x')") == render_expr_node(node)
 
 
 # --------------------------------------------------------------------------------
@@ -355,8 +574,11 @@ class TestStructurePreservation:
         assert _fold_text(text) == render_expr_node(parse_expr(text))
 
     def test_literal_only_arithmetic_is_not_folded(self):
-        """Numeric folding is DECLINED by classification (engine-pinned kernels), so
-        arithmetic over literals must survive to the runtime unchanged."""
+        """Numeric folding is declined, so arithmetic over literals must survive to the
+        runtime unchanged.  Note the reason: ``abs`` is DENIED_BY_POLICY, not by a
+        correctness criterion -- ``abs(-3)`` is ``3`` on every engine and folding it
+        could not change an answer.  What it also could not do is speed anything up, and
+        this pass exists to canonicalize predicate spellings."""
         assert _fold_text("abs(0 - 3)") == render_expr_node(parse_expr("abs(0 - 3)"))
 
     def test_fold_is_idempotent(self):

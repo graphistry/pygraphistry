@@ -18,8 +18,16 @@ assert cross-engine agreement; ASCII cases assert both.
 ENGAGEMENT IS INSTRUMENTED, NOT ASSUMED.  Each case declares whether the pass is
 expected to fire, and a spy asserts it — so an "identical answers" pass cannot come
 from a rewrite that never ran (`folds_expected=False` rows are the negative control).
+
+THE ENGINE IS ALSO THE ORACLE FOR THE DECLINE TAXONOMY (`TestDeclineWitnesses`).  A
+function is declined for a stated MECHANISM, and two of those mechanisms are only
+observable by asking an engine what the literal-only call actually answers: whether the
+value is a type the driver's contract guard rejects (`float`/`bool`/`list`), and whether
+an argument-closed aggregate depends on the row set rather than on its arguments.  The
+groups with NO available witness are asserted to have none, so a preference cannot pass
+itself off as a correctness claim.
 """
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 import importlib.util
 
@@ -28,6 +36,11 @@ import pytest
 
 import graphistry  # noqa: F401  (registers the plottable methods)
 from graphistry.compute.gfql.cypher import lowering as lowering_module
+from graphistry.compute.gfql.expr_const_fold import (
+    DENIED_BY_POLICY,
+    DENIED_RESULT_TYPE,
+    DENIED_UNVERIFIED,
+)
 
 
 ENGINES = ["pandas", "polars", "cudf", "polars-gpu"]
@@ -55,12 +68,16 @@ def _require_engine(engine: str) -> None:
 
 
 # node 4 is NULL, node 5 is the empty string; 9/10 are the German sharp-s pair whose
-# case mapping is where SIMPLE and FULL implementations part company.
-NAMES = ["Alice", "alice", "ALICE", None, "", "male", "MALE", "Male", "straße", "STRASSE"]
+# case mapping is where SIMPLE and FULL implementations part company; 11/12 are the
+# single characters `head('Male')` and `head(reverse('Male'))` fold to, so a head() case
+# can pin a NON-EMPTY id set instead of an uninformative [].  Neither matches any
+# pre-existing case's literal ('m'/'M'/'e'/'E' appear in none of them).
+NAMES = ["Alice", "alice", "ALICE", None, "", "male", "MALE", "Male", "straße", "STRASSE",
+         "M", "e"]
 
 
 def _graph():
-    nodes = pd.DataFrame({"node_id": list(range(1, 11)), "name": NAMES})
+    nodes = pd.DataFrame({"node_id": list(range(1, len(NAMES) + 1)), "name": NAMES})
     edges = pd.DataFrame({"src": [1, 2, 3], "dst": [2, 3, 4]})
     return graphistry.nodes(nodes, "node_id").edges(edges, "src", "dst")
 
@@ -265,3 +282,172 @@ def test_folded_plan_is_not_reused_across_parameter_values(engine):
     out = g.gfql(query, params={"p": "ALICE"}, engine=engine)._nodes
     out = out.to_pandas() if hasattr(out, "to_pandas") else out
     assert sorted(int(v) for v in out["id"].tolist()) == [1, 2, 3]
+
+
+# ================================================================================
+# (c) VALUE IDENTITY for every FOLDABLE_FUNCTIONS entry
+#
+# The unit tests pin that `head('abc')` folds to `'a'`.  This pins the thing that
+# actually matters: the folded plan and the unfolded plan ANSWER THE SAME on the same
+# data, on each engine.  `size` and `substring` get their own cases here rather than
+# only appearing nested inside a toLower case.
+# ================================================================================
+
+SCALAR_FOLD_CASES = [
+    Case("size_two_sided", "size(n.name) = size('abcde')",
+         folds_expected=True, ascii_stable=True, pandas_ids=[1, 2, 3]),
+    Case("substring_literal", "n.name = substring('xAlicex', 1, 5)",
+         folds_expected=True, ascii_stable=True, pandas_ids=[1]),
+    Case("head_literal", "n.name = head('Male')",
+         folds_expected=True, ascii_stable=True, pandas_ids=[11]),
+    Case("tail_literal", "toLower(n.name) = tail('xmale')",
+         folds_expected=True, ascii_stable=True, pandas_ids=[6, 7, 8]),
+    Case("reverse_literal", "toLower(n.name) = reverse('elam')",
+         folds_expected=True, ascii_stable=True, pandas_ids=[6, 7, 8]),
+    Case("head_of_reverse", "n.name = head(reverse('Male'))",
+         folds_expected=True, ascii_stable=True, pandas_ids=[12]),
+]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("case", SCALAR_FOLD_CASES, ids=lambda c: c.label)
+def test_scalar_folds_are_value_identical_per_engine(engine, case, monkeypatch):
+    """Folded vs unfolded, same engine, same graph — plus an explicit id oracle.
+
+    ONE DISCLOSED ASYMMETRY.  For the `head`/`tail`/`reverse`/`substring` literals the
+    polars engine has no native row-op lowering of the UNFOLDED spelling and raises
+    `NotImplementedError`, while the folded spelling is a plain literal comparison it
+    runs natively.  So on polars this pass does not merely rename a predicate, it WIDENS
+    native coverage.  That is recorded here rather than papered over, and pandas — which
+    can always run both arms — still has to produce identical answers, which is where
+    the value identity is actually established.
+    """
+    _require_engine(engine)
+    g = _graph()
+    query = _query(case)
+
+    with monkeypatch.context() as mp:
+        changed = _install_fold_spy(mp)
+        folded_ids = _ids(g, query, engine)
+    assert changed, f"{case.label}: the pass never fired; equal answers prove nothing"
+    assert folded_ids == case.pandas_ids, f"{case.label}[{engine}]: {folded_ids}"
+
+    unfolded_ids: Optional[List[int]] = None
+    with monkeypatch.context() as mp:
+        _disable_folding(mp)
+        try:
+            unfolded_ids = _ids(g, query, engine)
+        except NotImplementedError:
+            unfolded_ids = None
+
+    if unfolded_ids is None:
+        assert engine != "pandas", (
+            f"{case.label}: pandas must be able to run the UNFOLDED spelling; without it "
+            "there is no engine left that establishes value identity"
+        )
+    else:
+        assert unfolded_ids == folded_ids, (
+            f"{case.label}[{engine}]: folding changed the answer "
+            f"{unfolded_ids} -> {folded_ids}"
+        )
+
+
+# ================================================================================
+# WITNESSES FOR THE DECLINE TAXONOMY
+# ================================================================================
+
+def _scalar(expr: str, engine: str = "pandas") -> Any:
+    """The engine's own value for a literal-only call — the oracle, not a re-derivation."""
+    out = _graph().gfql(
+        f"MATCH (n) WHERE n.node_id = 1 RETURN {expr} AS v", engine=engine
+    )._nodes
+    out = out.to_pandas() if hasattr(out, "to_pandas") else out
+    return out["v"].tolist()[0]
+
+
+def _contract_guard_rejects(value: Any) -> bool:
+    """The driver's contract guard, quoted from ``fold_constants``: a folder result that
+    is not a non-bool ``str``/``int`` is refused."""
+    return not isinstance(value, (str, int)) or isinstance(value, bool)
+
+
+#: What a plain Python fold would produce for the witness-free declines.
+PYTHON_ANSWER: Dict[str, Any] = {
+    "abs": 3, "sign": -1, "coalesce": 1,      # DENIED_BY_POLICY
+    "tostring": "1.5", "tointeger": 1,        # DENIED_UNVERIFIED
+}
+
+
+class TestDeclineWitnesses:
+    @pytest.mark.parametrize("name,call", sorted(DENIED_RESULT_TYPE.items()),
+                             ids=sorted(DENIED_RESULT_TYPE))
+    def test_result_type_group_answers_a_type_the_contract_guard_rejects(self, name, call):
+        """THE WITNESS for this bucket: these calls ARE argument-closed, so the argument
+        guard never sees them — what stops them is that even a PERFECT folder could not
+        return their value.  ``FoldedValue`` is ``str | int``; these answer ``float``,
+        ``bool`` or ``list``.
+
+        This is also where the `round` reasoning gets put in its place: the neo4j tie /
+        JDK-6430675 argument is real, and it does no work HERE, because `round(1.5)` is
+        `2.0` and the guard rejects it before any tie rule can matter."""
+        value = _scalar(call)
+        assert _contract_guard_rejects(value), (
+            f"{name}: `{call}` answers {value!r} ({type(value).__name__}), which the "
+            "contract guard ACCEPTS — so the result type is not what declines it. Refile "
+            "it under the mechanism that does, or fold it."
+        )
+
+    @pytest.mark.parametrize("limit,expected", [(1, 1), (5, 5), (12, 12)])
+    def test_aggregates_depend_on_the_row_set_not_on_their_arguments(self, limit, expected):
+        """THE WITNESS for DENIED_AGGREGATE, and the only genuinely load-bearing deny-set
+        here: `count(1)` is argument-closed and answers an `int`, so it passes every
+        structural guard the driver has.  The same call answers differently on different
+        row sets, so folding it to a literal would be WRONG — nothing but its absence
+        from FOLDABLE_FUNCTIONS prevents that."""
+        out = _graph().gfql(
+            f"MATCH (n) WHERE n.node_id <= {limit} RETURN count(1) AS c", engine="pandas"
+        )._nodes
+        assert int(out["c"].tolist()[0]) == expected
+
+    @pytest.mark.parametrize("name,call", sorted(DENIED_BY_POLICY.items()),
+                             ids=sorted(DENIED_BY_POLICY))
+    def test_policy_declines_have_NO_witness_and_say_so(self, name, call):
+        """THE ABSENCE OF A WITNESS, asserted rather than assumed.  For these the engine's
+        answer is guard-passing AND identical to the plain Python fold, so no expression
+        exists where folding would change the answer.  They stay declined as a PERF call,
+        not a correctness one.  If an engine ever stops agreeing with Python here, this
+        fails and the entry earns a real criterion."""
+        value = _scalar(call)
+        assert not _contract_guard_rejects(value), (name, call, value)
+        assert value == PYTHON_ANSWER[name] and type(value) is type(PYTHON_ANSWER[name]), (
+            f"{name}: `{call}` answers {value!r}, not the Python answer "
+            f"{PYTHON_ANSWER[name]!r} — that IS a witness; reclassify it"
+        )
+
+    @pytest.mark.parametrize("engine", ENGINES)
+    @pytest.mark.parametrize("name,call", sorted(DENIED_UNVERIFIED.items()),
+                             ids=sorted(DENIED_UNVERIFIED))
+    def test_unverified_declines_agree_on_every_engine_this_lane_can_reach(
+        self, engine, name, call
+    ):
+        """`toString`/`toInteger` are the ONLY declines where a real engine-divergence
+        witness COULD exist: both answer guard-passing values, so nothing structural
+        stops them.  The claimed divergence is cuDF-vs-pandas float->string formatting,
+        and NO CI LANE HERE RUNS A GPU — so it is UNVERIFIED, not established.
+
+        This asserts what IS reachable: pandas and polars agree with the plain Python
+        answer.  If a GPU lane is ever added and cuDF disagrees, this fails — and that
+        failure is the witness, at which point the entry is upgraded from UNVERIFIED to a
+        real criterion.  If it never fails, the honest reading is that these belong in
+        DENIED_BY_POLICY."""
+        _require_engine(engine)
+        try:
+            value = _scalar(call, engine)
+        except NotImplementedError:
+            pytest.skip(f"{engine}: no native lowering for `RETURN {call}`")
+        assert not _contract_guard_rejects(value), (name, call, value)
+        assert value == PYTHON_ANSWER[name], (
+            f"WITNESS FOUND — {name} on {engine}: `{call}` answers {value!r}, not "
+            f"{PYTHON_ANSWER[name]!r}. Move it out of DENIED_UNVERIFIED and record this "
+            "pair as its criterion."
+        )
