@@ -1593,6 +1593,147 @@ def _property_ref(expr: Any, valid_aliases: Sequence[str]) -> Optional[Tuple[str
     return alias, prop
 
 
+_GROUPED_AGG_LOOKUP_KEY_FMT = "__gfql_t3_{alias}_id__"
+
+
+def _single_hop_grouped_aggregate_fused_polars(
+    start_nodes: DataFrameT,
+    end_nodes: DataFrameT,
+    edges: DataFrameT,
+    *,
+    node_col: str,
+    src_col: str,
+    dst_col: str,
+    start_alias: str,
+    end_alias: str,
+    needed_by_alias: Mapping[str, Sequence[Tuple[str, str]]],
+    group_keys: Sequence[str],
+    agg_specs: Sequence[Tuple[str, str, Optional[str]]],
+    order_keys: Sequence[Tuple[str, bool]],
+    limit_value: Optional[int],
+) -> Optional[DataFrameT]:
+    """FUSED lazy lane for the single-hop GROUPED AGGREGATE (graph-bench q1/q3/q4 shape):
+    ``MATCH (a {..})-[{..}]->(b {..}) [WHERE ..] RETURN <prop> AS k, <agg> AS v
+    ORDER BY .. [LIMIT n]``.
+
+    The eager twin below issues one ``lazy().collect(_eager=True)`` per op -- two
+    semi-joins, two property inner-joins, a group_by/agg, a sort and a head -- so every
+    intermediate materializes and neither the ``select([src, dst])`` projection nor the
+    ``head()`` can be pushed across an op boundary. Expressing the SAME op sequence as
+    one lazy plan collected once lets polars push the projection into the semi-joins and
+    plan the property joins against it.
+
+    Algebra is character-identical to the eager twin (same ``.unique()`` id frames, same
+    semi-joins, same un-deduplicated property lookups, same
+    ``group_by(maintain_order=True).agg(..)``, same per-key ``nulls_last`` sort, same
+    ``head``), so the value -- including row ORDER and openCypher's null-largest ordering
+    -- is identical.
+
+    NOT a GPU change: like the eager twin and the fused two-star lane, it collects on CPU
+    polars for both POLARS and POLARS_GPU.
+
+    DECLINES (returns None; the caller falls through to the untouched eager twin, so a
+    decline can never answer differently):
+
+    * a non-eager-polars input frame -- LazyFrame schema probes warn and cost, and a
+      non-polars frame has no polars ``.lazy()``;
+    * a needed property column missing from its alias' node frame. The eager twin
+      discovers this mid-chain and returns ``None`` from the whole fast path, so this
+      METADATA-ONLY guard is hoisted BEFORE any plan is built -- otherwise the fused lane
+      would answer a query the fast path is supposed to decline;
+    * source and destination bound to the SAME edge column (the twin's
+      ``select([src, dst])`` cannot name a column twice);
+    * a projected output column that collides with an edge endpoint column or with the
+      internal lookup key;
+    * an aggregate the expression builder cannot translate;
+    * **a result row order that ORDER BY does not fully determine** -- i.e. no ORDER BY,
+      or an ORDER BY that does not mention every group key. When the sort is total over
+      the output rows (group keys are unique per row, so naming them all makes it total),
+      neither ``maintain_order=True`` nor sort stability can affect the answer. When it is
+      NOT total, the twin's row order falls back to group FIRST-APPEARANCE order in the
+      joined frame, which is join-output order -- a property a lazy plan is free to change
+      by reordering or re-siding joins, and one that ``LIMIT`` turns from a cosmetic
+      difference into a different ROW SET. That shape stays with the eager twin.
+    """
+    import polars as pl
+
+    if not isinstance(start_nodes, pl.DataFrame) or not isinstance(end_nodes, pl.DataFrame):
+        return None
+    if not isinstance(edges, pl.DataFrame):
+        return None
+    if src_col == dst_col:
+        return None
+    ordered_keys = {key for key, _ in order_keys}
+    if not ordered_keys or not set(group_keys).issubset(ordered_keys):
+        return None
+
+    lookup_keys = {
+        start_alias: _GROUPED_AGG_LOOKUP_KEY_FMT.format(alias=start_alias),
+        end_alias: _GROUPED_AGG_LOOKUP_KEY_FMT.format(alias=end_alias),
+    }
+    reserved_out_cols = {src_col, dst_col} | set(lookup_keys.values())
+    for alias, node_frame in ((start_alias, start_nodes), (end_alias, end_nodes)):
+        for out_col, prop in needed_by_alias.get(alias, ()):
+            if prop not in node_frame.columns:
+                return None
+            if out_col in reserved_out_cols:
+                return None
+
+    agg_exprs: List["pl.Expr"] = []
+    for out_alias, func, expr_col in agg_specs:
+        if func == "count" and expr_col is None:
+            agg_exprs.append(pl.len().alias(out_alias))
+        elif expr_col is None:
+            return None
+        elif func == "count":
+            agg_exprs.append(pl.col(expr_col).count().alias(out_alias))
+        elif func == "avg":
+            agg_exprs.append(pl.col(expr_col).mean().alias(out_alias))
+        elif func == "sum":
+            agg_exprs.append(pl.col(expr_col).sum().alias(out_alias))
+        elif func == "min":
+            agg_exprs.append(pl.col(expr_col).min().alias(out_alias))
+        elif func == "max":
+            agg_exprs.append(pl.col(expr_col).max().alias(out_alias))
+        else:
+            return None
+
+    work_lf: "pl.LazyFrame" = (
+        edges.lazy()
+        .join(start_nodes.lazy().select(node_col).unique(), left_on=src_col, right_on=node_col, how="semi")
+        .join(end_nodes.lazy().select(node_col).unique(), left_on=dst_col, right_on=node_col, how="semi")
+        .select([src_col, dst_col])
+    )
+    for alias, node_frame, edge_col in (
+        (start_alias, start_nodes, src_col),
+        (end_alias, end_nodes, dst_col),
+    ):
+        props = needed_by_alias.get(alias, ())
+        if not props:
+            continue
+        lookup_key = lookup_keys[alias]
+        # NOT deduplicated by node id -- the eager twin does not dedup either, so a node
+        # table carrying the same id twice multiplies matched rows on both lanes.
+        lookup_lf = node_frame.lazy().select(
+            [pl.col(node_col).alias(lookup_key)]
+            + [pl.col(prop).alias(out_col) for out_col, prop in props]
+        )
+        work_lf = work_lf.join(lookup_lf, left_on=edge_col, right_on=lookup_key, how="inner")
+
+    out_lf = work_lf.group_by(list(group_keys), maintain_order=True).agg(agg_exprs)
+    # openCypher orders NULL as the largest value (ASC -> nulls last, DESC -> nulls
+    # first); polars defaults nulls-first, so pin nulls_last per key exactly as the twin
+    # does. The gate above guarantees this sort is TOTAL over the output rows.
+    out_lf = out_lf.sort(
+        [key for key, _ in order_keys],
+        descending=[desc for _, desc in order_keys],
+        nulls_last=[not desc for _, desc in order_keys],
+    )
+    if limit_value is not None:
+        out_lf = out_lf.head(limit_value)
+    return cast(DataFrameT, out_lf.collect())
+
+
 def _execute_single_hop_grouped_aggregate_fast_path(
     base_graph: Plottable,
     chain: Chain,
@@ -1731,7 +1872,32 @@ def _execute_single_hop_grouped_aggregate_fast_path(
         if prop is not None:
             needed_by_alias[alias].append((out_col, prop))
 
-    if requested_engine in POLARS_ENGINES:  # pragma: no cover - polars-only, covered by polars lane
+    fused_out: Optional[DataFrameT] = None
+    if requested_engine in POLARS_ENGINES:
+        # ONE lazy plan instead of ~7 eager collects. Declines (-> None) fall through to
+        # the untouched eager twin below, so the blast radius is a decline away from zero.
+        fused_out = _single_hop_grouped_aggregate_fused_polars(
+            start_nodes,
+            end_nodes,
+            edges,
+            node_col=node_col,
+            src_col=src_col,
+            dst_col=dst_col,
+            start_alias=start_alias,
+            end_alias=end_alias,
+            needed_by_alias=needed_by_alias,
+            group_keys=group_keys,
+            agg_specs=[
+                (agg_alias, func, expr_alias if expr_alias is not None and with_items[expr_alias][1] is not None else None)
+                for agg_alias, func, expr_alias in aggregations
+            ],
+            order_keys=order_keys,
+            limit_value=limit_value,
+        )
+
+    if fused_out is not None:
+        out_df = fused_out
+    elif requested_engine in POLARS_ENGINES:  # pragma: no cover - polars-only, covered by polars lane
         import polars as pl
         start_ids = start_nodes.select(node_col).unique()
         end_ids = end_nodes.select(node_col).unique()

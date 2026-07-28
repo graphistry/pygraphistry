@@ -137,8 +137,7 @@ OLAP multi-join
 ~~~~~~~~~~~~~~~
 
 On the graph-benchmark OLAP multi-join queries at 100k-node scale with
-``engine='polars'``: **q8 runs in 5.0 ms vs 1,004 ms for embedded Kuzu (200×)**; q9 is
-**14.2×**.
+``engine='polars'``: GFQL wins q8 against embedded Kuzu; q9 is **14.2×**.
 
 When not to use GFQL
 ~~~~~~~~~~~~~~~~~~~~
