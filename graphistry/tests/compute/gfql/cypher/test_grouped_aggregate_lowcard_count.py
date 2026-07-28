@@ -132,19 +132,22 @@ def _wide_group_key_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
     """``MAX_GROUPS + 1`` cities: the O(1) height bound cannot certify low cardinality even
     though every city here shares ONE country. This is the q1-shaped decline in miniature."""
     n_cities = MAX_GROUPS + 1
+    # DTYPES ARE EXPLICIT ON PURPOSE. Letting ``age`` fall out as an OBJECT column of ints
+    # and Nones makes cudf raise MixedTypeError on ingest -- a fixture defect that a
+    # CPU-only run cannot see, and that showed up only in the RAPIDS image.
     persons = pd.DataFrame({
         "id": np.arange(1, 21, dtype="int64"),
         "kind": "P",
-        "age": np.arange(20, 40, dtype="int64"),
-        "city": None,
-        "country": None,
+        "age": np.arange(20, 40, dtype="float64"),
+        "city": pd.Series([None] * 20, dtype="object"),
+        "country": pd.Series([None] * 20, dtype="object"),
     })
     cities = pd.DataFrame({
         "id": np.arange(1000, 1000 + n_cities, dtype="int64"),
         "kind": "C",
-        "age": None,
-        "city": [f"city{i}" for i in range(n_cities)],
-        "country": "US",
+        "age": np.full(n_cities, np.nan, dtype="float64"),
+        "city": pd.Series([f"city{i}" for i in range(n_cities)], dtype="object"),
+        "country": pd.Series(["US"] * n_cities, dtype="object"),
     })
     rng = np.random.default_rng(3)
     edges = pd.DataFrame({
@@ -171,14 +174,16 @@ def _many_edges_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
     persons = pd.DataFrame({
         "id": np.arange(1, n_persons + 1, dtype="int64"),
         "kind": "P",
-        "age": np.arange(20, 20 + n_persons, dtype="int64") % 60,
-        "city": None,
-        "country": None,
+        "age": (np.arange(20, 20 + n_persons, dtype="float64") % 60),
+        "city": pd.Series([None] * n_persons, dtype="object"),
+        "country": pd.Series([None] * n_persons, dtype="object"),
     })
     cities = pd.DataFrame({
         "id": np.array([1000, 1001, 1002], dtype="int64"),
-        "kind": "C", "age": None,
-        "city": ["LA", "NY", "SF"], "country": ["US", "US", "MX"],
+        "kind": "C",
+        "age": np.full(3, np.nan, dtype="float64"),
+        "city": pd.Series(["LA", "NY", "SF"], dtype="object"),
+        "country": pd.Series(["US", "US", "MX"], dtype="object"),
     })
     m = MAX_INPUT_ROWS + 1
     rng = np.random.default_rng(5)
@@ -629,6 +634,13 @@ def test_gate_unit_admits_the_canonical_shape() -> None:
     ("two_aggregates", {"agg_specs": (("n", "count", None), ("m", "count", None))}),
     ("no_aggregates", {"agg_specs": ()}),
     ("avg_aggregate", {"agg_specs": (("a", "avg", "age"),)}),
+    # The next two are UNREACHABLE from the cypher surface -- the fast path refuses a
+    # non-count aggregate without an expression alias long before the fused lane is built
+    # -- but the gate is a standalone function and its contract is checked here, not
+    # inherited. Mutation testing found this: dropping ``func != "count"`` from the guard
+    # SURVIVED the whole suite until these two cases existed.
+    ("avg_without_an_expression", {"agg_specs": (("a", "avg", None),)}),
+    ("sum_without_an_expression", {"agg_specs": (("s", "sum", None),)}),
     ("count_over_property", {"agg_specs": (("n", "count", "age"),)}),
     ("out_alias_equals_group_key", {"agg_specs": (("city", "count", None),)}),
     ("edge_rows_over_bound", {"edge_rows": MAX_INPUT_ROWS + 1}),
@@ -642,6 +654,13 @@ def test_gate_unit_declines_when_the_group_key_has_no_owning_alias() -> None:
 
 
 def test_gate_unit_declines_when_two_aliases_own_the_group_key() -> None:
+    """DISCLOSED: the ``len(owners) != 1`` guard is PROVABLY REDUNDANT against the check
+    that immediately follows it, and mutation testing says so -- relaxing it to
+    ``len(owners) < 1`` survives the entire suite. Two owners means a second alias with a
+    NON-EMPTY property list, which the ``other alias carries properties`` check declines
+    anyway, so no input can distinguish the two forms. The guard is kept because it states
+    the precondition the height bound depends on; this test pins the OUTCOME, which is all
+    that is observable."""
     pl = _require_polars()
     assert _gate(
         needed_by_alias={"p": [("city", "city")], "c": [("city", "city")]},
