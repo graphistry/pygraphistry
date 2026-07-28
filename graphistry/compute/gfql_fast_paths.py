@@ -1546,6 +1546,101 @@ def _two_hop_count_alias(chain: Chain) -> Optional[str]:
     return alias
 
 
+_TWO_HOP_IN_COUNT_COL = "__in_count__"
+_TWO_HOP_OUT_COUNT_COL = "__out_count__"
+
+
+def _two_hop_count_fused_polars(
+    start_nodes: DataFrameT,
+    middle_nodes: DataFrameT,
+    end_nodes: DataFrameT,
+    first_edges: DataFrameT,
+    second_edges: DataFrameT,
+    *,
+    node_col: str,
+    src_col: str,
+    dst_col: str,
+    alias: str,
+) -> Optional[DataFrameT]:
+    """FUSED lazy lane for the DISTINCT-DOMAIN two-hop count (graph-bench q9 shape):
+    ``MATCH (a)-[]->(b)-[]->(c) RETURN count(*)`` where the three node domains and/or
+    the two edge domains are not all equal.
+
+    The eager twin in ``_execute_two_hop_count_fast_path`` issues one ``collect()``
+    per op, so every intermediate materializes with every edge column attached -- the
+    4-semi-join chain built a 199,939-row wide frame that the degree join immediately
+    reduced to 120,586. Expressing the same five ops (3 id-dedups, 2 semi-join +
+    degree-count arms, 1 degree-product sum) as ONE lazy plan lets polars push the
+    src/dst projection into the semi-joins and collect once.
+
+    NOT a GPU change: like the eager twin (and like the fused two-star lane), this
+    collects on CPU polars for both POLARS and POLARS_GPU.
+
+    Algebra is character-identical to the eager twin -- the same semi-joins, the same
+    ``group_by().len()``, the same ``(in*out).sum().fill_null(0).cast(Int64)`` -- so the
+    value is identical, including openCypher's count-over-no-rows 0 on an empty match.
+    Returns None to DECLINE (non-eager polars input, reserved count-column collision)
+    so the caller falls through to the eager twin rather than answering differently.
+    """
+    import polars as pl
+
+    frames = (start_nodes, middle_nodes, end_nodes, first_edges, second_edges)
+    if not all(isinstance(frame, pl.DataFrame) for frame in frames):
+        # LazyFrame (or a non-polars frame) input: the eager twin owns those. Schema
+        # probes on a LazyFrame warn and cost, and a non-polars frame has no .lazy().
+        return None
+    for edge_frame in (first_edges, second_edges):
+        if _TWO_HOP_IN_COUNT_COL in edge_frame.columns or _TWO_HOP_OUT_COUNT_COL in edge_frame.columns:
+            # DEFENSIVE decline: an edge column already carrying a degree-counter name.
+            # Measured on polars 1.42 both lanes still agree (group_by().len() replaces the
+            # column, and projection pushdown drops it), but whether a name collision
+            # survives projection pushdown is a polars-version-dependent detail and the
+            # eager twin answers this shape correctly -- so hand it back rather than bet.
+            return None
+
+    lf_first: "pl.LazyFrame" = first_edges.lazy()
+    lf_second: "pl.LazyFrame" = lf_first if second_edges is first_edges else second_edges.lazy()
+
+    def ids_of(frame: DataFrameT) -> "pl.LazyFrame":
+        return cast("pl.DataFrame", frame).lazy().select(node_col).unique()
+
+    # Reuse the SAME sub-plan when the caller aliased the frames (equal filter dicts),
+    # so the optimizer sees one node scan instead of three.
+    start_ids = ids_of(start_nodes)
+    middle_ids = start_ids if middle_nodes is start_nodes else ids_of(middle_nodes)
+    end_ids = (
+        start_ids
+        if end_nodes is start_nodes
+        else middle_ids
+        if end_nodes is middle_nodes
+        else ids_of(end_nodes)
+    )
+
+    in_counts = (
+        lf_first
+        .join(start_ids, left_on=src_col, right_on=node_col, how="semi")
+        .join(middle_ids, left_on=dst_col, right_on=node_col, how="semi")
+        .group_by(dst_col)
+        .len(_TWO_HOP_IN_COUNT_COL)
+    )
+    out_counts = (
+        lf_second
+        .join(middle_ids, left_on=src_col, right_on=node_col, how="semi")
+        .join(end_ids, left_on=dst_col, right_on=node_col, how="semi")
+        .group_by(src_col)
+        .len(_TWO_HOP_OUT_COUNT_COL)
+    )
+    total_lf = (
+        in_counts
+        .join(out_counts, left_on=dst_col, right_on=src_col, how="inner")
+        .select(
+            (pl.col(_TWO_HOP_IN_COUNT_COL) * pl.col(_TWO_HOP_OUT_COUNT_COL))
+            .sum().fill_null(0).cast(pl.Int64).alias(alias)
+        )
+    )
+    return cast(DataFrameT, total_lf.collect())
+
+
 def _two_hop_count_binding_ops(chain: Chain) -> Optional[Tuple[ASTNode, ASTEdge, ASTNode, ASTEdge, ASTNode]]:
     if not chain.chain or not isinstance(chain.chain[0], ASTCall):
         return None
@@ -1904,7 +1999,27 @@ def _execute_two_hop_count_fast_path(
         else _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], second_edge.edge_match), engine=requested_engine)
     )
 
-    if requested_engine in POLARS_ENGINES:
+    fused_total: Optional[DataFrameT] = None
+    if requested_engine in POLARS_ENGINES and not reuse_single_edge_domain:
+        # Distinct-domain shape (q9): ONE lazy plan instead of five eager collects.
+        # The equal-domain shape (q8) is deliberately NOT routed here -- it takes the
+        # cached degree-count branch below, whose counts are memoized on the Plottable
+        # across calls, so fusing it would trade a cache hit for a replan.
+        fused_total = _two_hop_count_fused_polars(
+            start_nodes,
+            middle_nodes,
+            end_nodes,
+            first_edges,
+            second_edges,
+            node_col=node_col,
+            src_col=src_col,
+            dst_col=dst_col,
+            alias=alias,
+        )
+
+    if fused_total is not None:
+        out_nodes = fused_total
+    elif requested_engine in POLARS_ENGINES:
         import polars as pl
         if reuse_single_edge_domain:
             cached_counts = _two_hop_cached_equal_domain_degree_counts(
