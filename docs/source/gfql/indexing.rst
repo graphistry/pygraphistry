@@ -200,38 +200,28 @@ Engines
 What it costs, what it buys
 ---------------------------
 
-All numbers below: 0.58.0 tag sweep on DGX Spark, warm medians over 30 runs.
+**Build (the "pay" side)**: one-time and ``O(E log E)`` — a sort over the edge frame,
+amortized across every subsequent seeded query. ``index_policy='auto'`` only pays it when
+the planner predicts a selective query will earn it back.
 
-**Build (the "pay" side)**: one-time; on a 30.6M-edge graph the full
-``gfql_index_all()`` build is about 5.7s.
+**Seeded lookup (the "go" side)**: on a covered shape, the seeded lookup drops from the
+general path to the fast path, and again with the index resident, on both CPU engines.
 
-**Seeded lookup (the "go" side)**: a covered-shape seeded Cypher lookup:
+**Flat in graph size**: a direct seeded ``g.hop()`` with the index resident turns the
+``O(E)`` scan into an ``O(degree)`` gather, so its cost tracks the seeds' neighborhood
+rather than the graph.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 40 30 30
-
-   * - Seeded typed lookup
-     - pandas
-     - Polars
-   * - General path (no fast path)
-     - 29.9 ms
-     - 13.8 ms
-   * - Fast path, no index
-     - 2.46 ms
-     - 2.28 ms
-   * - **Fast path + resident index**
-     - **1.74 ms**
-     - **1.59 ms**
-
-**Flat in graph size**: a direct seeded ``g.hop()`` with the index resident holds
-0.159–0.164 ms from 0.25M to 32M edges (pandas) — cost tracks seed degree, not graph
-size.
+.. warning::
+   **The tag-sweep latencies that used to appear in this section have been withdrawn.**
+   Their raw artifacts were not committed anywhere, so they cannot be confirmed or
+   refuted, and re-measuring them is the only honest way to restore them. Measured
+   figures now live only on :doc:`performance` and :doc:`index_adjacency`, referenced
+   from a provenance-carrying source of truth rather than transcribed.
 
 See also
 --------
 
 - :doc:`Seeded Traversal Indexes <index_adjacency>` — the planner (``index_policy``),
-  Cypher DDL / wire protocol forms, and competitive benchmarks vs Kuzu / Neo4j.
+  Cypher DDL / wire protocol forms, and the index cost model.
 - :doc:`engines` — choosing pandas / Polars / cuDF / Polars-GPU.
 - :doc:`performance` — the vectorization + GPU design behind GFQL.

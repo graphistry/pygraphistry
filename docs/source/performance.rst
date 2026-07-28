@@ -6,7 +6,7 @@ CPU & GPU Acceleration in PyGraphistry
 Why PyGraphistry is Fast
 ------------------------
 
-PyGraphistry is designed for speed. By focusing on **vectorized processing**, it outperforms most graph libraries on standard CPUs. When you leverage GPUs and AI models, PyGraphistry can become **100X+ faster**, enabling real-time analytics and machine learning at  scale. We regularly use it on datasets with millions and billions of rows.
+PyGraphistry is designed for speed. By focusing on **vectorized processing**, it outperforms most graph libraries on standard CPUs. When you leverage GPUs and AI models, PyGraphistry can become **dramatically faster**, enabling real-time analytics and machine learning at  scale. We regularly use it on datasets with millions and billions of rows.
 
 Just as Apache Spark used in-memory processing to replace racks of Hadoop servers with faster and smaller multicore ones, the PyGraphistry ecosystem uses GPU acceleration to increase speeds and decrease costs even further.
 
