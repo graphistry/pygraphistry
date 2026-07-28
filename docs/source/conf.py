@@ -17,6 +17,8 @@ from sphinx.application import Sphinx
 
 
 sys.path.insert(0, os.path.abspath("../.."))
+# Local Sphinx extensions (gfql_bench: benchmark numbers from the source-of-truth)
+sys.path.insert(0, os.path.abspath("_ext"))
 import graphistry
 
 
@@ -54,6 +56,9 @@ extensions = [
     "sphinx.ext.ifconfig",
     #"sphinx_autodoc_typehints",
     "sphinx_copybutton",
+    # Resolves :bench:`key` against docs/source/_data/gfql_benchmarks.json and fails
+    # the build on a missing, stale, non-quotable or undisclosed benchmark number.
+    "gfql_bench",
 ]
 
 

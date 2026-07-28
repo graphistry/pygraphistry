@@ -179,7 +179,7 @@ It is easy to turn arbitrary data into insightful graphs. PyGraphistry comes wit
     g2.plot()
     ```
 
-    Enable GFQL's optional automatic GPU acceleration for 43X+ speedups:
+    Enable GFQL's optional automatic GPU acceleration on larger graphs:
     
     ```python
     # Switch from Pandas CPU dataframes to RAPIDS GPU dataframes
