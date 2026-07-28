@@ -25,6 +25,9 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_engine_polars_row_pipeline.py
     graphistry/tests/compute/gfql/test_engine_polars_binding_rows.py
     graphistry/tests/compute/gfql/test_engine_polars_with_match_reentry.py
+    # engine-parametrized: its pandas params run in test-gfql-core, but the polars params
+    # only ever run here (the file has no module-level importorskip, so nothing else flags it)
+    graphistry/tests/compute/gfql/test_exec_context_scoping.py
     graphistry/tests/compute/gfql/test_engine_polars_cypher_conformance.py
     graphistry/tests/compute/gfql/test_engine_polars_conformance_matrix.py
     graphistry/tests/compute/gfql/test_polars_string_predicate_nonstring.py
