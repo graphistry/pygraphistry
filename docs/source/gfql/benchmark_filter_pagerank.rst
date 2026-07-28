@@ -12,28 +12,30 @@ no database required. This benchmark compares **Graphistry's local Cypher**
 
 .. list-table::
    :header-rows: 1
-   :widths: 30 20 20 20 20
+   :widths: 26 18 18 18 20
 
    * -
      - Neo4j + GDS
      - GFQL Cypher (CPU)
      - GFQL Cypher (GPU)
-     - GPU speedup vs Neo4j
-   * - **Twitter** (2.4M edges)
-     - 13.83s
-     - 2.55s
-     - **0.30s**
-     - **46x**
-   * - **GPlus** (30M edges)
-     - >187s
-     - 75.78s
-     - **3.33s**
-     - **>56x**
+     - GPU vs Neo4j
+   * - **Twitter** (81,306 nodes / 2.4M edges)
+     - :bench:`pagerank.twitter.neo4j_gds`
+     - :bench:`pagerank.twitter.gfql_cpu`
+     - :bench:`pagerank.twitter.gfql_gpu`
+     - :bench:`pagerank.twitter.gfql_gpu_vs_neo4j_gds`
+   * - **GPlus** (107,614 nodes / 30M edges)
+     -
+     - :bench:`pagerank.gplus.gfql_cpu`
+     - :bench:`pagerank.gplus.gfql_gpu`
+     -
 
-*Pipeline time (search + PageRank + search), warm median of 5 runs, 2 warmup iterations. DGX
-dgx-spark, GB10 GPU. The per-graph sections below report full-lifecycle totals that also include
-one-time ETL/load — hence the slightly larger numbers there (e.g. GPlus GPU 3.33s pipeline vs
-~7.1s lifecycle).*
+Warm pipeline time — search, PageRank, search — on the resident graph.
+
+On Twitter the CPU path alone is :bench:`pagerank.twitter.gfql_cpu_vs_neo4j_gds` faster
+than Neo4j + GDS, before any GPU is involved. Moving the same query text to the GPU adds
+another :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu`; on the 30M-edge GPlus graph the
+GPU is :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu` faster than the CPU path.
 
 The pipeline
 ------------
@@ -77,38 +79,9 @@ The same pipeline shape, different backends:
 The Neo4j equivalent requires ~30 lines of Cypher + GDS projection + batched
 writes (see :ref:`neo4j-analog` below).
 
-Twitter (2.4M edges): exact 3-way comparison
---------------------------------------------
+.. bench-provenance:: filter-pagerank-20260728
 
-.. image:: _static/filter_pagerank/twitter_lifecycle.svg
-   :alt: Twitter end-to-end: Neo4j vs GFQL Cypher CPU vs GFQL Cypher GPU
-
-Stacked by workload phase: **ETL** (load + shape), **Search** (graph queries), **Analytics** (PageRank).
-
-- Neo4j total lifecycle: ~21.6s (6.0s import + 1.7s prep + 13.8s pipeline)
-- GFQL Cypher CPU: ~2.8s — **8x faster than Neo4j**
-- GFQL Cypher GPU: ~0.4s — **54x faster than Neo4j**
-
-GPlus (30M edges): larger graph
--------------------------------
-
-.. image:: _static/filter_pagerank/gplus_lifecycle.svg
-   :alt: GPlus: Neo4j (lower bound) vs GFQL Cypher CPU vs GFQL Cypher GPU
-
-- Neo4j: **>187s** (lower bound — the transaction did not finish)
-- GFQL Cypher CPU: ~85.5s — still faster than Neo4j's incomplete run
-- GFQL Cypher GPU: ~7.1s — **>26x faster than Neo4j**
-
-Why this matters
-----------------
-
-The CPU path already beats Neo4j without a GPU. You get Cypher-style graph
-search + PageRank directly on your dataframe, no database to stand up or
-maintain.
-
-The GPU path accelerates everything — ETL, search, and analytics — because
-``cudf`` and ``cugraph`` are drop-in replacements for ``pandas`` and ``igraph``
-under the same GFQL Cypher surface.
+.. bench-disclosures::
 
 .. _neo4j-analog:
 
@@ -184,10 +157,9 @@ falling back or returning a different answer. See :doc:`engines` for the full
 parity and static-safety contract.
 
 This page is one workload (a filter → PageRank → filter pipeline) against one
-external baseline (Neo4j+GDS). For the full four-engine picture — when Polars
+external baseline (Neo4j + GDS). For the full four-engine picture — when Polars
 beats pandas on CPU, when the GPU pulls ahead, and how to choose — see
-:doc:`engines`. For sub-millisecond *seeded* lookups that beat Kuzu and Neo4j
-by 9–28×, see :doc:`index_adjacency`.
+:doc:`engines`. For seeded lookups, see :doc:`index_adjacency`.
 
 For more on the GFQL design and supported surface:
 
@@ -196,18 +168,3 @@ For more on the GFQL design and supported surface:
 - :doc:`cypher` — Cypher syntax through ``g.gfql("MATCH ...")``
 - :doc:`overview` — GFQL design, features, and GPU acceleration
 - :doc:`about` — 10-minute introduction to GFQL
-
-Benchmark environment
----------------------
-
-- Host: ``dgx-spark``, GPU: ``GB10``, driver ``580.126.09``
-- Container: ``graphistry/test-gpu:latest``
-- Datasets: `SNAP <https://snap.stanford.edu/data/>`_ Twitter (2.4M edges) and GPlus (30M edges)
-- Measurement: median of 5 runs after 2 warmup iterations
-- Results rendered from saved JSON — this page does **not** rerun benchmarks
-
-Notebook version
-----------------
-
-See ``demos/gfql/benchmark_filter_pagerank_cpu_gpu.ipynb`` for a notebook
-version of this writeup using the same saved DGX results.
