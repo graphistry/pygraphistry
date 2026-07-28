@@ -102,6 +102,9 @@ class TestResidualTranslator:
         "(a.name <> 'x')",              # unsupported operator
         "(a.name CONTAINS 'x')",        # unsupported predicate
         "(tolower(a.name) = tolower('x'))",   # two-sided: the lowering folds it away first
+        "(tolower(b.name) = 'alice')",  # alias mismatch (checked with alias='a')
+        "(toupper(b.name) = 'ALICE')",  # alias mismatch, other case fn
+        "(upper(zz.name) = 'ALICE')",   # alias mismatch, GQL alias spelling
         "('x' = tolower(a.name))",      # reversed operand order
         "(tolower(a.name) = b.name)",   # rhs is a column, not a literal
         "(tolower(a.name) = 25)",       # rhs is a number, not a string literal

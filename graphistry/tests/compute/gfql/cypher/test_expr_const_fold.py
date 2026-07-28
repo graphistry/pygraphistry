@@ -84,6 +84,29 @@ class TestCanonicalization:
     def test_column_side_is_never_folded(self):
         assert _lowered_text("toLower(a.c) = toLower(b.d)") == "(tolower(a.c) = tolower(b.d))"
 
+    @pytest.mark.parametrize("text,expected", [
+        ("size('abcd') / 2", "(4 / 2)"),
+        ("size('abcdef') / 4", "(6 / 4)"),
+        ("size('abcd') / size('ab')", "(4 / 2)"),
+        ("n.a = size('abcd') / 2", "(n.a = (4 / 2))"),
+    ])
+    def test_folding_runs_AFTER_the_integer_division_rewrite(self, text, expected):
+        """PASS ORDER IS LOAD-BEARING, and this is not obvious.
+
+        `_rewrite_cypher_integer_division_ast` wraps a division in `toInteger(...)`
+        only when BOTH operands are already integer literals.  If folding ran first,
+        `size('abcd') / 2` would become `4 / 2` in time for that rewrite to fire and
+        the expression would start truncating -- a DIFFERENT ANSWER from master, from
+        a pass whose whole contract is to preserve answers.  Folding therefore runs
+        after, and this pins it.
+
+        (Separately and pre-existing: openCypher says `size(s) / 2` IS integer
+        division, because `size` returns an Integer.  GFQL's rewrite only recognizes
+        literal operands, so it does not truncate here -- on master or on this branch.
+        Fixing that is a real change to division semantics and does not belong in a
+        constant-folding PR.)"""
+        assert _lowered_text(text) == expected
+
     def test_projection_output_name_is_unaffected(self):
         """The RETURN column name comes from the SOURCE text, not the folded text.
         Folding must not rename a user's output column."""
