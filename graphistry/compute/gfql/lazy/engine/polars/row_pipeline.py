@@ -1314,6 +1314,41 @@ def binding_rows_polars(
                     )
                     if _resolved_min != 1:
                         return None
+            # #1787, same root-cause family as the unbounded shapes #1781 declined: pandas'
+            # step_pairs come from the var-length `edge_op.execute` hop, whose hop-window
+            # pruning -- and, when seeded, its per-seed BFS -- changes an edge multiplicity
+            # this raw-edge rebuild cannot reproduce. Declining is a DELIBERATE divergence
+            # from master, which served these: parity-or-NIE means a loud error, never a
+            # different number. Shrink the gate again once the multiplicity is reconstructible.
+            # WHICH shapes, why each boundary sits where it does, and the counts that prove
+            # each one are executable rather than prose -- every claim that used to be written
+            # out here is now a named test in:
+            #   graphistry/tests/compute/gfql/test_varlen_bounded_engine_parity_1787.py
+            #
+            # Keyed on an EXPLICIT window, NOT on `sem.is_multihop`: `-[*1..1]-` resolves to
+            # min == max == 1, is therefore not multihop, and pandas still routes it here.
+            if op.min_hops is not None or op.max_hops is not None:
+                _vl_max = op.max_hops if op.max_hops is not None else op.hops
+                _vl_min = op.min_hops if op.min_hops is not None else (
+                    op.hops if op.hops is not None else 1
+                )
+                # a seed is anything that starts the segment from less than the whole node
+                # set: a filtered start alias, or a re-entry / `WITH` seed frame
+                _prev_op = ops[idx - 1] if idx >= 1 else None
+                _seeded_start = start_nodes is not None or (
+                    isinstance(_prev_op, ASTNode) and bool(_prev_op.filter_dict)
+                )
+                if _vl_max is not None:
+                    if op.direction == "undirected":
+                        if _vl_max == 1:  # the degenerate window `-[*1..1]-` / `-[*1]-`
+                            return None
+                        if _seeded_start or idx > 1:  # doubled-pair expansion over-counts
+                            return None
+                    # `max_reached_hop` (compute/hop.py) is a dedup-by-node BFS eccentricity,
+                    # not a longest-walk length, so pandas prunes where this rebuild expands
+                    # a different edge multiset
+                    elif _vl_min >= 3 or (_vl_min >= 2 and _seeded_start):
+                        return None
             if op.direction not in ("forward", "reverse", "undirected"):
                 return None
             if any(
