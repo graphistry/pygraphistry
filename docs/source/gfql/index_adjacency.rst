@@ -19,7 +19,8 @@ When to use it
   ring's known members) and hop out 1–3 steps.
 - **Repeated queries** against the same graph: build the index once, amortize it over many
   seeded lookups.
-- **Interactive / point-lookup latency**: sub-millisecond neighbor expansion.
+- **Interactive / point-lookup latency**: neighbor expansion whose cost tracks the
+  seeds rather than the graph.
 
 It does **not** help a full-graph scan (a property filter over every node, a global
 PageRank). For those, choose an *engine* instead — see :doc:`engines`.
@@ -92,9 +93,8 @@ Performance
 **What the index changes is the complexity class**, and that part is structural
 rather than measured: an indexed seeded hop is an ``O(degree)`` gather into a
 sorted adjacency, so its cost tracks the seeds' neighborhood size, while the
-default scan is ``O(E)`` and grows with the whole graph. Indexed lookups stay in
-the sub-millisecond, interactive range on graphs where the scan is already well
-into the hundreds of milliseconds.
+default scan is ``O(E)`` and grows with the whole graph. The bigger the graph
+relative to the seeds' neighborhood, the larger that difference gets.
 
 **Selective traversal is CPU's game.** The indexed hop is tiny work, so a GPU
 engine's kernel-launch floor dominates it and a CPU engine (pandas or Polars,

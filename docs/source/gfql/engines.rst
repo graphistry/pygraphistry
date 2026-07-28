@@ -117,7 +117,7 @@ resident index. The four engines differ in character rather than in degree:
 - **cuDF suits the extreme single materialization**: one very large join/output where raw
   GPU throughput dominates and the in-memory Polars-GPU executor comes under memory
   pressure.
-- **pandas keeps trivial sub-millisecond operations**: a bare equality filter's boolean
+- **pandas keeps trivially small operations**: a bare equality filter's boolean
   mask beats Polars' plan overhead — immaterial in absolute terms.
 - **Seeded / selective lookups are an indexing problem**, not an engine race: the opt-in
   resident index turns the ``O(E)`` scan into an ``O(degree)`` gather on every engine, so
@@ -267,7 +267,7 @@ Decision matrix
      - GPU
      - ``cudf``
      - Polars-GPU can hit memory pressure here [F3]
-   * - Trivial sub-millisecond op (bare equality filter)
+   * - Trivially small op (bare equality filter)
      - any
      - CPU
      - ``pandas``
@@ -282,7 +282,7 @@ Decision matrix
 (traversal, ``WHERE``/``ORDER``, aggregation) CPU Polars takes over from pandas once
 graphs get past small/interactive sizes, and the gap widens as the data grows (see the
 board on :doc:`performance`).
-Pandas only edges out on a trivial sub-millisecond operation (a bare equality mask),
+Pandas only edges out on a trivially small operation (a bare equality mask),
 where the absolute difference is immaterial. The real small-size floor is **GPU-only** —
 cuDF / Polars-GPU need enough work to amortize kernel launch ([F2]).
 
@@ -303,7 +303,7 @@ from a few nodes is fastest with the opt-in **CSR adjacency index** (``g.gfql_in
 gather — a complexity-class change, so the cost tracks the seeds' neighborhood rather than
 the graph (index routing for the native seeded ``g.hop()`` currently engages on pandas, not
 yet the Polars hop path). It works on all four engines, but seeded work is so small that
-**CPU wins** — sub-millisecond on pandas/Polars vs the GPU kernel-launch floor on cuDF — the
+**CPU wins** — the gather is tiny work on pandas/Polars, below the GPU kernel-launch floor — the
 clean inverse of bulk, where the GPU pulls ahead. So pick the index for selective
 traversal and a CPU engine to drive it. See :doc:`index_adjacency` for the full guide.
 
@@ -509,7 +509,7 @@ When **not** to use Polars
 
 Honesty matters more than a bigger number:
 
-- **Trivial sub-millisecond operations** (a bare node-equality filter): pandas' boolean mask
+- **Trivially small operations** (a bare node-equality filter): pandas' boolean mask
   beats Polars' plan overhead — but in absolute terms it is immaterial. For traversal /
   ``WHERE`` / ``ORDER`` / aggregation, CPU Polars takes over past small/interactive sizes
   (footnote F1). The real small-size caveat is **GPU-only** (cuDF / Polars-GPU need larger
@@ -588,7 +588,7 @@ require ``engine='pandas'`` and are **rejected before execution** rather than si
 bridge, so auto-selecting Polars would turn queries that work today on pandas into hard
 errors. (Performance is rarely the
 downside — CPU Polars wins common graph queries past small/interactive sizes; only trivial
-sub-millisecond operations favor pandas, immaterially.) Opting in keeps the default behavior
+trivially small operations favor pandas, immaterially.) Opting in keeps the default behavior
 unchanged and
 guarantees a working result.
 
