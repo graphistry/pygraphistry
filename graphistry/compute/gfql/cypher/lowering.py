@@ -130,6 +130,7 @@ from graphistry.compute.gfql.cypher.call_procedures import (
     compile_cypher_call,
 )
 from graphistry.compute.gfql.cypher.ast_normalizer import ASTNormalizer
+from graphistry.compute.gfql.expr_const_fold import fold_constants
 from graphistry.compute.gfql.cypher.shortest_path_aliases import (
     _ShortestPathAliasSpec,
     _is_variable_length_relationship_pattern,
@@ -1795,7 +1796,16 @@ def _row_expr_arg(
         node,
         integer_identifiers=frozenset(),
     )
-    return _render_expr_node(rewritten)
+    # Plan-time constant folding: evaluate pure, deterministic, literal-only
+    # sub-expressions here, so a single canonical predicate text reaches the row
+    # evaluators and the connected-join residual translator regardless of which
+    # equivalent spelling the user wrote (`toLower(a.x) = toLower('LIT')` and
+    # `toLower(a.x) = 'lit'` become the same string).  Folds only where every
+    # supported engine provably agrees on the value — see expr_const_fold's
+    # criterion, in particular (E) and issue #1802.  A decline leaves the node
+    # untouched, so declining is always behavior-preserving.
+    folded = fold_constants(rewritten)
+    return _render_expr_node(folded)
 
 
 def _projected_source_replacement(binding: _StageColumnBinding) -> str:

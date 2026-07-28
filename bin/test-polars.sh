@@ -47,6 +47,7 @@ POLARS_TEST_FILES=(
     # polars-parametrized cases inside otherwise-pandas modules: these files DO run in the
     # pandas lanes, but their polars/polars-gpu parameters are skipped there for want of the
     # wheel, so the polars lane is the only place those parameters can execute
+    graphistry/tests/compute/gfql/test_const_fold_engine_parity.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings.py
     graphistry/tests/compute/gfql/test_reentry_caller_graph_immutability.py
     graphistry/tests/compute/gfql/test_rewrite_param_discard.py
