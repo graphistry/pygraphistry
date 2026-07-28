@@ -227,14 +227,20 @@ Methodology (prior sweep)
   ``benchmarks/gfql/pandas_vs_polars.py``, and ``benchmarks/gfql/index_vs_kuzu_prepared.py``
   (vs kuzu). Numbers on this page are rendered from saved runs; the page does not re-run
   them.
-- **LadybugDB comparison** (referenced qualitatively in :doc:`engines`): the Ladybug
-  figures are **their published results on their hardware**; the GFQL side ran on the host
-  above via ``benchmarks/gfql/bench_ladybug_cypher.py`` (5M/20M synthetic per their suite
-  shape, native frames per engine, warm medians) — a cross-machine comparison, disclosed
-  as such. GFQL won the scan-shaped ops by large margins (full node scan ~65×,
-  relationship property/rowid scans ~3.5–3.7×); Ladybug won the two ops backed by
-  persistent structure — point lookups (index seek vs columnar scan) and a cached
-  relationship ``COUNT(*)``.
+- **LadybugDB comparison** (referenced qualitatively in :doc:`engines`): **both sides
+  measured on the host above, in one session, on the same generated 5M-node / 20M-edge
+  graph** — LadybugDB **0.18.1** embedded in a host venv against GFQL ``engine='polars'``
+  in the container above. Op shapes are those of
+  `LadybugDB/kuzu-ladybug-benchmark <https://github.com/LadybugDB/kuzu-ladybug-benchmark>`_
+  via ``benchmarks/gfql/bench_ladybug_cypher.py``; warm medians (2 warmups + 5 timed runs),
+  slots interleaved L G G L, and **every op's result values are digest-identical across the
+  two engines**. Ladybug is timed at its **fastest** result-producing scope of the four measured — for
+  both cells below that is zero-copy Arrow, not its Python row iterator — because GFQL
+  returns a materialized columnar frame.
+  GFQL wins the node-scan shapes: **full node scan 59.0 ms vs 364.3 ms (6.2×)** and the
+  1,001-row **range scan 5.1 ms vs 7.6 ms (1.5×)**. Point lookups stay with Ladybug's
+  index seek over a columnar scan (a resident GFQL node-id index is tracked in issue
+  #1676), as does a cached relationship ``COUNT(*)``.
 
 There is **no universal winner**: ``polars`` typically takes over from ~10K edges up
 (``pandas`` still wins trivial sub-millisecond operations), and the right GPU
