@@ -138,8 +138,15 @@ OLAP multi-join
 
 On the graph-benchmark OLAP multi-join queries at 100k-node scale (100,000 persons /
 2.4M ``FOLLOWS``) with ``engine='polars'``, against embedded Kuzu 0.11.3 on the same host
-and in the same session: GFQL wins q8, and **q9 runs in 66.6 ms vs 84.1 ms (1.26×)**. Both
-sides run the same canonical query text and return identical values.
+and in the same session, **q9 runs in 66.6 ms vs 84.1 ms (1.26×)**. Both sides run the same
+canonical query text and return identical values.
+
+The q8 comparison is **withdrawn**, not merely caveated. The figure it rested on was a warm
+cross-call memo hit rather than a one-shot measurement: the two-hop degree counts are cached
+onto the caller's graph object (#1825), so a cold run measures 13.2–14.6 ms at 20k and
+49.7–53.0 ms at 100k against the 2.0/5.1 ms once quoted. Measured one-shot, q8 **loses** to
+embedded Kuzu. The ratio is gone from the published data rather than footnoted, and the
+comparison returns only once a regenerated run (#1827) supports it.
 
 When not to use GFQL
 ~~~~~~~~~~~~~~~~~~~~

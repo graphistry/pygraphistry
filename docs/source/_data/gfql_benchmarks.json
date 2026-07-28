@@ -579,30 +579,19 @@
       "workload": "graph-benchmark 100k q8 \u2014 GFQL-pandas vs kuzu"
     },
     "graphbench.100k.q8.polars": {
-      "board_quotable": true,
-      "comparison_allowed": true,
+      "board_quotable": false,
+      "comparison_allowed": false,
       "competitor": "kuzu",
       "decimals": 2,
-      "disclosures": [],
+      "disclosures": [
+        "q8's polars figure is a WARM cross-call memo hit, not a one-shot measurement: the two-hop equal-domain degree counts are cached onto the caller's Plottable keyed by id() (#1825). Cold/fresh arms measure 13.18/14.60 ms at 20k and 49.68/53.02 ms at 100k against the warm 2.02/5.09 ms quoted here, with a bind_only control at 0.02-0.04 ms ruling out re-binding. A one-shot q8 LOSES to embedded Kuzu by 3.1-5.2x at 20k and 2.8-6.0x at 100k. The memo affects all engines. Withdrawn from the board pending a regenerated run (#1827)."
+      ],
       "engine": "polars",
       "run": "graphbench-q1q9-100k-20260726",
       "status": "ok",
       "unit": "ms",
       "value": 5.06,
       "workload": "graph-benchmark 100k q8"
-    },
-    "graphbench.100k.q8.polars_vs_kuzu": {
-      "board_quotable": true,
-      "comparison_allowed": true,
-      "competitor": "kuzu",
-      "decimals": 2,
-      "disclosures": [],
-      "engine": "polars",
-      "run": "graphbench-q1q9-100k-20260726",
-      "status": "ok",
-      "unit": "x",
-      "value": 1.93,
-      "workload": "graph-benchmark 100k q8 \u2014 GFQL-polars vs kuzu"
     },
     "graphbench.100k.q8.polars_vs_pandas": {
       "board_quotable": true,
@@ -1272,30 +1261,19 @@
       "workload": "graph-benchmark 20k q8 \u2014 GFQL-pandas vs kuzu"
     },
     "graphbench.20k.q8.polars": {
-      "board_quotable": true,
-      "comparison_allowed": true,
+      "board_quotable": false,
+      "comparison_allowed": false,
       "competitor": "kuzu",
       "decimals": 2,
-      "disclosures": [],
+      "disclosures": [
+        "q8's polars figure is a WARM cross-call memo hit, not a one-shot measurement: the two-hop equal-domain degree counts are cached onto the caller's Plottable keyed by id() (#1825). Cold/fresh arms measure 13.18/14.60 ms at 20k and 49.68/53.02 ms at 100k against the warm 2.02/5.09 ms quoted here, with a bind_only control at 0.02-0.04 ms ruling out re-binding. A one-shot q8 LOSES to embedded Kuzu by 3.1-5.2x at 20k and 2.8-6.0x at 100k. The memo affects all engines. Withdrawn from the board pending a regenerated run (#1827)."
+      ],
       "engine": "polars",
       "run": "graphbench-q1q9-20k-20260726",
       "status": "ok",
       "unit": "ms",
       "value": 2.07,
       "workload": "graph-benchmark 20k q8"
-    },
-    "graphbench.20k.q8.polars_vs_kuzu": {
-      "board_quotable": true,
-      "comparison_allowed": true,
-      "competitor": "kuzu",
-      "decimals": 2,
-      "disclosures": [],
-      "engine": "polars",
-      "run": "graphbench-q1q9-20k-20260726",
-      "status": "ok",
-      "unit": "x",
-      "value": 1.22,
-      "workload": "graph-benchmark 20k q8 \u2014 GFQL-polars vs kuzu"
     },
     "graphbench.20k.q8.polars_vs_pandas": {
       "board_quotable": true,
