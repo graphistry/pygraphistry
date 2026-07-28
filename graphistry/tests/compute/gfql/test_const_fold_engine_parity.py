@@ -240,3 +240,28 @@ def test_non_ascii_case_divergence_is_pre_existing_not_introduced(query, monkeyp
     assert folded == unfolded, (
         f"this PR changed the #1802 cross-engine picture: {unfolded} -> {folded}"
     )
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_folded_plan_is_not_reused_across_parameter_values(engine):
+    """THE CLASSIC constant-folding-plus-plan-cache BUG, pinned.
+
+    A `$param` is a literal by the time this pass runs, so `toLower($p)` folds the
+    PARAMETER VALUE into the plan. That is only safe because the compiled-plan cache
+    keys on the params as well as the query text. Same query text, three different
+    parameter values, on the SAME graph object (which is what owns the cache):
+    each must get its own answer."""
+    _require_engine(engine)
+    g = _graph()
+    query = ("MATCH (n) WHERE toLower(n.name) = toLower($p) "
+             "RETURN n.node_id AS id ORDER BY id")
+    got = {}
+    for value, expected in (("ALICE", [1, 2, 3]), ("MALE", [6, 7, 8]), ("nope", [])):
+        out = g.gfql(query, params={"p": value}, engine=engine)._nodes
+        out = out.to_pandas() if hasattr(out, "to_pandas") else out
+        got[value] = sorted(int(v) for v in out["id"].tolist())
+        assert got[value] == expected, f"{value}: {got[value]} != {expected} (got so far {got})"
+    # and again in a different order, to catch a cache that keys only on the text
+    out = g.gfql(query, params={"p": "ALICE"}, engine=engine)._nodes
+    out = out.to_pandas() if hasattr(out, "to_pandas") else out
+    assert sorted(int(v) for v in out["id"].tolist()) == [1, 2, 3]

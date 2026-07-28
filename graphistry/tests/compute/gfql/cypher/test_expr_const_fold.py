@@ -46,10 +46,10 @@ def _fold_text(text: str) -> str:
     return render_expr_node(fold_constants(parse_expr(text)))
 
 
-def _lowered_text(text: str) -> str:
+def _lowered_text(text: str, params: Optional[Mapping[str, object]] = None) -> str:
     """The predicate text the lowering actually serializes into ``where_rows``."""
     span = SourceSpan(1, 0, 1, len(text), 0, len(text))
-    out = _row_expr_arg(ExpressionText(text=text, span=span), params=None, field="where")
+    out = _row_expr_arg(ExpressionText(text=text, span=span), params=params, field="where")
     assert isinstance(out, str)
     return out
 
@@ -106,6 +106,23 @@ class TestCanonicalization:
         Fixing that is a real change to division semantics and does not belong in a
         constant-folding PR.)"""
         assert _lowered_text(text) == expected
+
+    @pytest.mark.parametrize("value,expected", [
+        ("FINE DINING", "(tolower(a.c) = 'fine dining')"),
+        ("Fine Dining", "(tolower(a.c) = 'fine dining')"),
+        ("fine dining", "(tolower(a.c) = 'fine dining')"),
+    ])
+    def test_parameter_values_fold_too(self, value, expected):
+        """A `$param` is substituted before this pass runs, so a parameterized
+        `toLower($p)` canonicalizes exactly like a written literal. Safe because the
+        compiled-plan cache keys on the params (`_compile_string_query`), so a plan
+        folded for one parameter value is never reused for another -- pinned end to
+        end in test_const_fold_engine_parity.py."""
+        assert _lowered_text("toLower(a.c) = toLower($p)", params={"p": value}) == expected
+
+    def test_non_ascii_parameter_declines_like_a_written_literal(self):
+        assert _lowered_text("toLower(a.c) = toLower($p)", params={"p": "STRAßE"}) \
+            == "(tolower(a.c) = tolower('STRAßE'))"
 
     def test_projection_output_name_is_unaffected(self):
         """The RETURN column name comes from the SOURCE text, not the folded text.
