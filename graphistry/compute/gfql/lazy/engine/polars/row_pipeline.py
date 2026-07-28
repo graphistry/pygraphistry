@@ -33,6 +33,12 @@ from graphistry.utils.json import JSONVal
 # Engine-neutral wire-format payload types (ASTCall.params). Shapes are safelist-validated
 # (gfql/call/validation.py) before reaching these helpers, so the runtime isinstance/len
 # checks below are defense-in-depth, not the contract.
+from graphistry.compute.gfql.agg_types import (
+    GFQL_NUMERIC_ONLY_AGGREGATIONS,
+    numeric_agg_all_null_value,
+    polars_non_numeric_agg_dtype,
+    raise_non_numeric_aggregation,
+)
 from graphistry.compute.gfql.call.support import AggSpec, OrderKey, SelectItem
 from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
 # Same-package sibling holding the var-length specializations. Safe at module scope:
@@ -854,7 +860,9 @@ def order_by_polars(g: Plottable, keys: Sequence[OrderKey]) -> Optional[Plottabl
 
 # Native aggs: count/sum/avg/min/max/count_distinct/collect/collect_distinct; stdev/percentile
 # etc. return None → caller declines (NIE).
-def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str, schema: Optional[Mapping[str, "pl.DataType"]] = None) -> Optional[pl.Expr]:
+def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str,
+              schema: Optional[Mapping[str, "pl.DataType"]] = None,
+              is_all_null: Optional[Callable[[str], bool]] = None) -> Optional[pl.Expr]:
     import polars as pl
     func = func.lower()
     if func == "count" and (expr is None or expr == "*"):
@@ -862,6 +870,15 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     if not isinstance(expr, str) or expr not in columns:
         return None
     col = pl.col(expr)
+    dtype = schema.get(expr) if schema is not None else None
+    if dtype is not None and _dtype_is_stringlike(dtype) and dtype != pl.String:
+        # Categorical/Enum is a STRING column to cypher (its categories are the values). Twin of
+        # the pandas row pipeline's decategorize, and load-bearing on older polars: 1.35.2 (the
+        # RAPIDS 26.02 image) PANICS in the rust core on a grouped min/max over a Categorical
+        # (`categorical.rs: not implemented`), which escapes as a pyo3 PanicException -- not even
+        # a polars exception, so nothing on the python side can wrap it. Casting to String makes
+        # the aggregate well-defined on every polars version AND matches what pandas returns.
+        col = col.cast(pl.String)
     # pandas aggs skip NaN (skipna); polars skips only NULL and treats NaN as a value (NaN == NaN
     # is True, so self-inequality can't detect it). For FLOAT columns convert in-query NaN -> null
     # first so every agg matches the oracle (pandas sum([nan, 1]) == 1 vs raw polars == nan).
@@ -869,6 +886,26 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     # NaN created mid-query (e.g. 0.0/0.0).
     if schema is not None and _dtype_is_float(schema.get(expr)):
         col = col.fill_nan(None)
+    if func in GFQL_NUMERIC_ONLY_AGGREGATIONS and schema is not None:
+        # DTYPE FIRST, data second -- deliberately, for cost. Cypher restricts sum()/avg() to
+        # INTEGER|FLOAT|DURATION (see gfql/agg_types.py for the sources), and that verdict is a
+        # schema lookup; only a column the SCHEMA already rejects is worth an O(n) null scan. A
+        # numeric column -- every served aggregate -- therefore pays nothing here.
+        if dtype == pl.Null:
+            # all-null by construction: `sum`/`mean` are unsupported on `null` dtype in polars,
+            # while cypher says 0 / null.
+            return pl.lit(numeric_agg_all_null_value(func)).alias(alias)
+        dtype_label = polars_non_numeric_agg_dtype(dtype)
+        if dtype_label is not None:
+            # An ALL-NULL column carries no type evidence, so it is never a type error: cypher
+            # answers `sum(null)` with 0 and `avg(null)` with null whatever the declared type,
+            # and pandas already did (an all-None pandas object column arrives here typed
+            # `String`). Both would otherwise raise -- `sum`/`mean` are unsupported on `str`.
+            if is_all_null is not None and is_all_null(expr):
+                return pl.lit(numeric_agg_all_null_value(func)).alias(alias)
+            # Raise, don't return None: None is an NIE-decline that falls back to the pandas
+            # kernel, which would then ANSWER the same wrong-typed query.
+            raise_non_numeric_aggregation(func, expr, dtype_label, alias)
     if func == "count":
         return col.count().alias(alias)
     if func == "sum":
@@ -932,7 +969,13 @@ def group_by_polars(
         alias = str(spec[0])
         func = str(spec[1])
         expr = spec[2] if len(spec) == 3 else None
-        lowered = _agg_expr(func, expr, cols, alias, table.schema)
+        # Passed as a CALLABLE, not a precomputed flag: the null scan is O(n) and is only ever
+        # consulted for a column the dtype check has already rejected, so a normal numeric
+        # aggregate never runs it.
+        def _is_all_null(col_name: str) -> bool:
+            return table.height > 0 and table[col_name].null_count() == table.height
+
+        lowered = _agg_expr(func, expr, cols, alias, table.schema, _is_all_null)
         if lowered is None:
             return None
         aggs.append(lowered)
@@ -1175,8 +1218,10 @@ def binding_rows_polars(
             sn = _df_to_engine(sn, _Engine.POLARS)
         if node_id not in sn.columns:
             return None
-        seed_ids = sn.select(pl.col(node_id)).drop_nulls()  # type: ignore[operator]  # polars op on a DataFrameT-typed seed
-        if seed_ids.height != seed_ids.unique().height:
+        seed_ids = sn.select(pl.col(node_id)).drop_nulls()
+        # eager by construction (a LazyFrame start_nodes is collected above), but the polars
+        # guard narrows to the eager-or-lazy union and cannot express "eager only"
+        if seed_ids.height != seed_ids.unique().height:  # type: ignore[union-attr]
             return None
         seed_ids_lf = seed_ids.lazy()
 

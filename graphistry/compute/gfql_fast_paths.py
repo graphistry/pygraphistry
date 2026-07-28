@@ -40,6 +40,14 @@ from graphistry.compute.gfql.same_path_types import (
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.gfql.agg_types import (
+    GFQL_NUMERIC_ONLY_AGGREGATIONS,
+    numeric_agg_all_null_value,
+    pandas_dtype_is_numeric_for_agg,
+    pandas_non_numeric_agg_dtype,
+    polars_non_numeric_agg_dtype,
+    raise_non_numeric_aggregation,
+)
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.cypher.lowering import (
     ConnectedMatchJoinPlan,
@@ -85,7 +93,7 @@ from graphistry.compute.gfql.physical_planner import PhysicalPlanner
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
 from graphistry.compute.gfql.search_any import search_any_mask
-from graphistry.compute.typing import DataFrameT, SeriesT, NodeDtypes
+from graphistry.compute.typing import DataFrameT, DType, SeriesT, NodeDtypes
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
@@ -618,11 +626,20 @@ def _connected_join_two_star_split_residuals(
 
 
 # The simple residual shapes the connected-join lowering emits for scalar predicates it
-# cannot push into filter_dict (see #1729): case-insensitive equality and scalar
+# cannot push into filter_dict (see #1729): case-folded equality and scalar
 # equality/range on a single aliased column. Anything else falls back to the where_rows
 # chain evaluator. Literals: single-quoted strings (no embedded quotes) or numbers.
-_RESIDUAL_TOLOWER_EQ = re.compile(
-    r"^\(tolower\((?P<alias>\w+)\.(?P<col>\w+)\) = tolower\('(?P<lit>[^']*)'\)\)$"
+#
+# ONE CANONICAL SHAPE. The lowering constant-folds literal-only sub-expressions
+# (``graphistry/compute/gfql/expr_const_fold.py``), so ``toLower(a.c) = toLower('LIT')``
+# arrives here already reduced to ``(tolower(a.c) = 'lit')``. This matcher therefore
+# learns the case-function-vs-LITERAL form only, and the literal is used AS WRITTEN --
+# the where_rows evaluator does not case-fold a bare literal, so ``toLower(x) = 'MALE'``
+# correctly matches nothing. (Case-folding the RHS here would be a silent wrong answer
+# that every all-lowercase benchmark literal would hide.)
+_RESIDUAL_CASE_FN_EQ = re.compile(
+    r"^\((?P<fn>tolower|lower|toupper|upper)\((?P<alias>\w+)\.(?P<col>\w+)\) = "
+    r"'(?P<lit>[^']*)'\)$"
 )
 _RESIDUAL_SCALAR_CMP = re.compile(
     r"^\((?P<alias>\w+)\.(?P<col>\w+) (?P<op>=|>=|<=|>|<) "
@@ -631,25 +648,30 @@ _RESIDUAL_SCALAR_CMP = re.compile(
 
 
 def _residual_polars_expr(
-    expr: str, alias: str, schema: Mapping[str, Any]
+    expr: str, alias: str, schema: NodeDtypes
 ) -> Optional['pl.Expr']:
     """Translate a simple residual to a native polars expression, or None to fall back.
 
     ``expr`` is a *string* by contract: the #1729 connected-join lowering serializes
     residual predicates into ASTCall params as canonical predicate strings (e.g.
-    ``(tolower(a.col) = tolower('lit'))``), not typed AST terms — so string parsing here
+    ``(tolower(a.col) = 'lit')``), not typed AST terms — so string parsing here
     is the honest interface; a typed term would require a lowering-level refactor.
 
-    Covered (exactly the #1729 scalar-residual shapes): ``(tolower(a.col) = tolower('lit'))``
-    and ``(a.col <op> literal)`` for ``= >= <= > <``. Semantics match the where_rows
-    evaluator on these shapes: string compares are null-safe (null -> filtered out, since
-    polars comparisons on null yield null which ``filter`` drops, same as the evaluator's
-    null-propagating comparisons); toLower equality lowercases the column via polars
-    ``str.to_lowercase()`` and the literal via Python ``str.lower()`` (empirically equal
-    on the ASCII/latin shapes the lowering emits; a divergence would need a Rust-vs-Python
-    Unicode table drift). Float NaN ranking differs between polars and the evaluator, but
-    gfql ingest normalizes NaN->null (``_pl_nan_to_null``) so NaN never reaches this
-    filter through ``gfql()``. Declines (returns None, caller uses the chain fallback) on:
+    Covered (exactly the #1729 scalar-residual shapes): ``(<case fn>(a.col) = 'lit')``
+    for ``toLower``/``lower``/``toUpper``/``upper``, and ``(a.col <op> literal)`` for
+    ``= >= <= > <``. Semantics match the where_rows evaluator on these shapes: string
+    compares are null-safe (null -> filtered out, since polars comparisons on null yield
+    null which ``filter`` drops, same as the evaluator's null-propagating comparisons);
+    the case functions map to the SAME polars kernels the evaluator uses
+    (``str.to_lowercase`` / ``str.to_uppercase``) so the column side is identical by
+    construction, and the LITERAL side is used verbatim because the evaluator does not
+    case-fold a bare literal. Nothing is case-folded in Python here — the lowering's
+    constant-folding pass has already reduced ``= toLower('LIT')`` to ``= 'lit'`` where
+    every engine provably agrees on that value (see ``expr_const_fold`` and #1802), and
+    where it does not, the two-sided text arrives unfolded and DECLINES below.
+    Float NaN ranking differs between polars and the evaluator, but gfql ingest
+    normalizes NaN->null (``_pl_nan_to_null``) so NaN never reaches this filter through
+    ``gfql()``. Declines (returns None, caller uses the chain fallback) on:
     any other shape, non-matching alias, a column absent from the schema, an ESCAPED
     string literal (``\\`` — the renderer escapes ``' \\ \\n`` etc. to ``\\uXXXX`` which the
     evaluator unescapes; raw comparison would silently mismatch), and dtype-incompatible
@@ -659,23 +681,29 @@ def _residual_polars_expr(
     """
     import polars as pl
 
-    def _is_string_dtype(dtype: Any) -> bool:
+    def _is_string_dtype(dtype: DType) -> bool:
         return dtype == pl.Utf8 or dtype == pl.String
 
-    def _is_numeric_dtype(dtype: Any) -> bool:
+    def _is_numeric_dtype(dtype: DType) -> bool:
         return dtype.is_numeric() if hasattr(dtype, "is_numeric") else False
 
-    m = _RESIDUAL_TOLOWER_EQ.match(expr)
+    m = _RESIDUAL_CASE_FN_EQ.match(expr)
     if m is not None:
         col_name = m.group("col")
-        tolower_lit = m.group("lit")
+        case_lit = m.group("lit")
         if m.group("alias") != alias or col_name not in schema:
             return None
-        if "\\" in tolower_lit:
+        if "\\" in case_lit:
             return None  # escaped literal: let the evaluator unescape it
         if not _is_string_dtype(schema[col_name]):
-            return None  # tolower on non-string column: evaluator raises designed NIE
-        return pl.col(col_name).str.to_lowercase() == tolower_lit.lower()
+            return None  # case fn on non-string column: evaluator raises designed NIE
+        col_str = pl.col(col_name).str
+        folded_col = (
+            col_str.to_lowercase()
+            if m.group("fn") in ("tolower", "lower")
+            else col_str.to_uppercase()
+        )
+        return folded_col == case_lit
     m = _RESIDUAL_SCALAR_CMP.match(expr)
     if m is not None:
         col_name = m.group("col")
@@ -719,8 +747,9 @@ def _connected_join_apply_node_residuals(
     """Filter a fast-path node frame by single-alias post-join residual expressions.
 
     Fast lane (polars): the simple scalar shapes the #1729 lowering emits
-    (``tolower(a.col) = tolower('lit')``, ``a.col <op> literal``) translate directly to
-    native polars filters — no chain dispatch (the where_rows chain costs ~1.7ms/alias,
+    (``tolower(a.col) = 'lit'`` and the other case functions, ``a.col <op> literal``;
+    the lowering constant-folds ``= toLower('LIT')`` into that one shape) translate
+    directly to native polars filters — no chain dispatch (the where_rows chain costs ~1.7ms/alias,
     the dominant cost of the residual OLAP fast path). Any expression outside those
     shapes falls back to the chain evaluator below, so semantics never diverge.
 
@@ -1862,6 +1891,11 @@ def _single_hop_grouped_aggregate_fused_polars(
     * a projected output column that collides with an edge endpoint column or with the
       internal lookup key;
     * an aggregate the expression builder cannot translate;
+    * a Categorical/Enum property column -- the twin CASTS those to ``String`` before it
+      groups or aggregates, and this lane does not;
+    * ``sum``/``avg`` over a non-numeric or all-null column -- the twin owns the one cypher
+      aggregate type contract (``gfql/agg_types.py``), and declining keeps that contract from
+      depending on which of the two lanes served the query;
     * **a result row order that ORDER BY does not fully determine** -- i.e. no ORDER BY,
       or an ORDER BY that does not mention every group key. When the sort is total over
       the output rows (group keys are unique per row, so naming them all makes it total),
@@ -1872,6 +1906,8 @@ def _single_hop_grouped_aggregate_fused_polars(
       difference into a different ROW SET. That shape stays with the eager twin.
     """
     import polars as pl
+
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_stringlike
 
     if not isinstance(start_nodes, pl.DataFrame) or not isinstance(end_nodes, pl.DataFrame):
         return None
@@ -1888,15 +1924,36 @@ def _single_hop_grouped_aggregate_fused_polars(
         end_alias: _GROUPED_AGG_LOOKUP_KEY_FMT.format(alias=end_alias),
     }
     reserved_out_cols = {src_col, dst_col} | set(lookup_keys.values())
+    prop_dtypes: Dict[str, Any] = {}
     for alias, node_frame in ((start_alias, start_nodes), (end_alias, end_nodes)):
         for out_col, prop in needed_by_alias.get(alias, ()):
             if prop not in node_frame.columns:
                 return None
             if out_col in reserved_out_cols:
                 return None
+            prop_dtype = node_frame.schema[prop]
+            # Categorical/Enum is a STRING column to cypher, and the eager twin CASTS it to
+            # `String` before aggregating or grouping -- both to match the row pipelines and to
+            # dodge the polars 1.35.2 rust panic on a grouped min/max over a Categorical. This
+            # lane does not cast, so it DECLINES rather than answer with a different dtype.
+            if is_stringlike(prop_dtype) and prop_dtype != pl.String:
+                return None
+            prop_dtypes[out_col] = prop_dtype
 
     agg_exprs: List["pl.Expr"] = []
     for out_alias, func, expr_col in agg_specs:
+        # ONE cypher type contract for sum()/avg() whichever lane serves the query (see
+        # gfql/agg_types.py). A non-numeric or all-null input is the eager twin's job -- it
+        # raises GFQLTypeError(E302), or substitutes cypher's `0`/`null` for an all-null column
+        # -- so decline instead of letting `.collect()` surface a raw `polars.exceptions.*`.
+        if func in GFQL_NUMERIC_ONLY_AGGREGATIONS and expr_col is not None:
+            agg_dtype = prop_dtypes.get(expr_col)
+            if (
+                agg_dtype is None
+                or agg_dtype == pl.Null
+                or polars_non_numeric_agg_dtype(agg_dtype) is not None
+            ):
+                return None
         if func == "count" and expr_col is None:
             agg_exprs.append(pl.len().alias(out_alias))
         elif expr_col is None:
@@ -2158,7 +2215,33 @@ def _execute_single_hop_grouped_aggregate_fast_path(
         if work is None:
             return None
         agg_exprs = []
+        # Categorical/Enum is a STRING column to cypher; cast it BEFORE any aggregate, matching
+        # the row pipelines on both engines (and dodging the polars 1.35.2 rust panic on a
+        # grouped min/max over a Categorical). Done on the frame, so `pl.col(...)` below is
+        # already the string column.
+        from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_stringlike
+        cat_cols = [c for c, dt in work.schema.items() if is_stringlike(dt) and dt != pl.String]
+        if cat_cols:
+            work = work.with_columns([pl.col(c).cast(pl.String) for c in cat_cols])
+        work_schema = work.schema
         for alias, func, expr_alias in aggregations:
+            # Same Cypher sum()/avg() type contract the row-pipeline kernels enforce (see
+            # gfql/agg_types.py). This fast path reimplements the aggregates, so without the
+            # guard here the exact same query answers differently depending on whether it
+            # matched the fast-path shape.
+            if func in GFQL_NUMERIC_ONLY_AGGREGATIONS and expr_alias is not None:
+                # Dtype first, data second -- see the row-pipeline twin: only a column the schema
+                # already rejects is worth the O(n) null scan.
+                dtype_label = polars_non_numeric_agg_dtype(work_schema.get(expr_alias))
+                if work_schema.get(expr_alias) == pl.Null or (
+                    dtype_label is not None
+                    and work.height > 0
+                    and work[expr_alias].null_count() == work.height
+                ):
+                    agg_exprs.append(pl.lit(numeric_agg_all_null_value(func)).alias(alias))
+                    continue
+                if dtype_label is not None:
+                    raise_non_numeric_aggregation(func, expr_alias, dtype_label, alias)
             if func == "count" and (expr_alias is None or with_items[expr_alias][1] is None):
                 agg_exprs.append(pl.len().alias(alias))
             elif func == "count" and expr_alias is not None:
@@ -2222,6 +2305,18 @@ def _execute_single_hop_grouped_aggregate_fast_path(
             grouped = work.groupby(group_keys, sort=False)
         out_df = grouped.size().reset_index(name="__gfql_group_size__")[group_keys]
         for alias, func, expr_alias in aggregations:
+            # Twin of the polars branch above: one Cypher sum()/avg() type contract, enforced on
+            # whichever engine runs the fast path (see gfql/agg_types.py).
+            if func in GFQL_NUMERIC_ONLY_AGGREGATIONS and expr_alias is not None:
+                if not pandas_dtype_is_numeric_for_agg(work[expr_alias]):
+                    if len(work) > 0 and bool(work[expr_alias].isna().all()):
+                        agg_df = out_df[group_keys].copy()
+                        agg_df[alias] = numeric_agg_all_null_value(func)
+                        out_df = cast(DataFrameT, out_df.merge(agg_df, on=group_keys, how="left", sort=False))
+                        continue
+                    dtype_label = pandas_non_numeric_agg_dtype(work[expr_alias])
+                    if dtype_label is not None:
+                        raise_non_numeric_aggregation(func, expr_alias, dtype_label, alias)
             if func == "count" and (expr_alias is None or with_items[expr_alias][1] is None):
                 agg_df = grouped.size().reset_index(name=alias)
             elif func == "count" and expr_alias is not None:

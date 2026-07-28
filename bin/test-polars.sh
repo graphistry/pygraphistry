@@ -34,6 +34,9 @@ POLARS_TEST_FILES=(
     # only ever run here (the file has no module-level importorskip, so nothing else flags it)
     graphistry/tests/compute/gfql/test_exec_context_scoping.py
     graphistry/tests/compute/gfql/test_engine_polars_cypher_conformance.py
+    # aggregate x dtype type contract: the polars params of this file are the ONLY lane where the
+    # native polars aggregate guard and the raw-polars-exception wrap are exercised
+    graphistry/tests/compute/gfql/test_aggregate_type_contract.py
     graphistry/tests/compute/gfql/test_engine_polars_conformance_matrix.py
     graphistry/tests/compute/gfql/test_polars_string_predicate_nonstring.py
     graphistry/tests/compute/gfql/cypher/test_order_by_null_placement.py
@@ -55,6 +58,7 @@ POLARS_TEST_FILES=(
     # polars-parametrized cases inside otherwise-pandas modules: these files DO run in the
     # pandas lanes, but their polars/polars-gpu parameters are skipped there for want of the
     # wheel, so the polars lane is the only place those parameters can execute
+    graphistry/tests/compute/gfql/test_const_fold_engine_parity.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings.py
     graphistry/tests/compute/gfql/test_reentry_caller_graph_immutability.py
     graphistry/tests/compute/gfql/test_rewrite_param_discard.py
