@@ -466,8 +466,50 @@ def _trick_matrix():
     ]
 
 
-@pytest.mark.parametrize("label,query,pinned,mirror", _trick_matrix(),
-                         ids=[t[0] for t in _trick_matrix()])
+def _pandas_str_accessor_is_full_case_mapping() -> bool:
+    """pandas<3 stores text as object and delegates .str.upper()/.lower() to Python, which
+    applies FULL Unicode case mapping ('straße' -> 'STRASSE', 'İ' -> 'i̇').
+    pandas>=3 backs the default `str` dtype with Arrow, whose utf8_upper/utf8_lower are
+    SIMPLE per-codepoint mappings ('straße' -> 'STRAẞE', 'İ' -> 'i')."""
+    upper = pd.Series(["straße"]).str.upper().iloc[0]
+    lower = pd.Series(["İ"]).str.lower().iloc[0]
+    return bool(upper == "STRASSE" and lower == "i̇")
+
+
+# GFQL's pandas toLower/toUpper delegate to that accessor, so under pandas>=3 they return
+# SIMPLE mappings while the polars engine (Rust to_uppercase/to_lowercase) and Cypher itself
+# (neo4j toUpper == Java String.toUpperCase) return FULL ones. That is a silent cross-engine
+# divergence, not a decline: pandas answers [9] where polars answers [8, 9]. Tracked in
+# https://github.com/graphistry/pygraphistry/issues/1802 — the hand pins below stay at the
+# Cypher-correct values, so `strict=True` turns the fix into an XPASS that retires this mark.
+_SIMPLE_CASE_MAPPING_XFAIL = pytest.mark.xfail(
+    not _pandas_str_accessor_is_full_case_mapping(),
+    reason=(
+        "pandas>=3 Arrow-backed str dtype does SIMPLE case mapping; GFQL pandas toLower/"
+        "toUpper inherit it and diverge from the polars engine and from Cypher (#1802)"
+    ),
+    strict=True,
+)
+
+_SIMPLE_CASE_MAPPING_LABELS = frozenset({"toupper-eq-ss-fold", "tolower-turkish-dotted-i"})
+
+
+def _trick_params():
+    return [
+        pytest.param(
+            *case,
+            id=case[0],
+            marks=(
+                [_SIMPLE_CASE_MAPPING_XFAIL]
+                if case[0] in _SIMPLE_CASE_MAPPING_LABELS
+                else []
+            ),
+        )
+        for case in _trick_matrix()
+    ]
+
+
+@pytest.mark.parametrize("label,query,pinned,mirror", _trick_params())
 def test_case_regex_unicode_trick_matrix(label, query, pinned, mirror):
     g = _panel_graph()
     nd = _panel_nodes()

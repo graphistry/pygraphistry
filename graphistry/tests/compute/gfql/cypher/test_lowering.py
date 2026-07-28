@@ -15913,7 +15913,7 @@ def test_node_dtypes_for_pushdown_fails_closed_on_unreadable_nodes() -> None:
     assert dict(dtypes) == {}
 
 
-def test_node_dtypes_for_pushdown_defers_the_conversion() -> None:
+def test_node_dtypes_for_pushdown_on_polars_defers_the_conversion() -> None:
     # Reading dtypes costs a full engine conversion, and only connected-join pushdown asks --
     # a path most queries never reach. Computing eagerly charged every string query for a
     # frame it discarded. Nothing may convert until a lookup actually happens.
@@ -15944,7 +15944,7 @@ def test_node_dtypes_for_pushdown_defers_the_conversion() -> None:
         filter_by_dict._read_node_dtypes = original
 
 
-def test_node_dtypes_for_pushdown_matches_the_full_conversion() -> None:
+def test_node_dtypes_for_pushdown_on_polars_matches_the_full_conversion() -> None:
     # polars -> pandas is DATA-dependent: an empty probe reports `bool` for a nullable Boolean
     # while the real conversion yields `object`. The gate must report what the executor sees,
     # so compare against the full conversion rather than asserting probe dtypes in isolation.
