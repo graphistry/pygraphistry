@@ -90,35 +90,22 @@ remote ``gfql_remote`` call can carry the same index intent.
 Performance
 -----------
 
-**What the index changes is the complexity class**, and that part is structural
-rather than measured: an indexed seeded hop is an ``O(degree)`` gather into a
-sorted adjacency, so its cost tracks the seeds' neighborhood size, while the
-default scan is ``O(E)`` and grows with the whole graph. The bigger the graph
-relative to the seeds' neighborhood, the larger that difference gets.
+**The index changes the complexity class.** An indexed seeded hop is an ``O(degree)``
+gather into a sorted adjacency, so its cost tracks the size of the seeds' neighborhood.
+The default scan is ``O(E)`` and grows with the whole graph. The bigger the graph is
+relative to the seeds' neighborhood, the wider that gap.
 
-**Selective traversal is CPU's game.** The indexed hop is tiny work, so a GPU
-engine's kernel-launch floor dominates it and a CPU engine (pandas or Polars,
-both backed by a ``searchsorted`` gather) wins — the clean inverse of *bulk*
-analytics, where the GPU pulls ahead (see :doc:`engines`). Pick the index for
-selective traversal and a **CPU engine** to drive it.
+**Selective traversal is CPU's game.** The indexed hop is tiny work, so a GPU engine's
+kernel-launch floor dominates it and a CPU engine — pandas or Polars, both backed by a
+``searchsorted`` gather — wins. That is the clean inverse of *bulk* analytics, where the
+GPU pulls ahead (see :doc:`engines`). Pick the index for selective traversal and a **CPU
+engine** to drive it.
 
-.. warning::
-   **The measured figures that used to appear here have been withdrawn.** They
-   were transcribed by hand from runs whose raw artifacts no longer exist
-   anywhere — the reproducers wrote to ``/tmp`` (or only printed), recorded no
-   commit, host or timestamp, and were never committed. That makes those numbers
-   impossible to confirm *or* refute, so they are treated as unpublishable rather
-   than assumed correct. The comparisons against Kuzu and Neo4j are withdrawn on
-   the same grounds.
-
-   They will return once the seeded-index lane runs under the provenance-carrying
-   harness described on :doc:`performance` — committed per-slot artifacts, recorded
-   commit/host/perf-lock/reps, and result rows validated against the competitor before
-   any ratio is published.
-
-Reproduce (note the caveat above — these reproducers do not yet emit a
-provenance-carrying artifact): ``benchmarks/gfql/index_takeover_bench.py``,
-``benchmarks/gfql/index_vs_dbs.py``, ``benchmarks/gfql/index_vs_kuzu_prepared.py``.
+Latency figures for this lane are not published yet: it has not been run under the
+provenance-carrying harness described on :doc:`performance`, and this page publishes
+nothing it cannot trace to a committed artifact. Reproducers:
+``benchmarks/gfql/index_takeover_bench.py``, ``benchmarks/gfql/index_vs_dbs.py``,
+``benchmarks/gfql/index_vs_kuzu_prepared.py``.
 
 Honesty and cost
 ----------------

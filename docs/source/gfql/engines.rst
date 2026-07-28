@@ -33,7 +33,9 @@ engine is a one-keyword change — no GPU, same results:
    g.gfql(query)                    # engine='pandas' (default)
    g.gfql(query, engine='polars')   # often much faster on query-heavy workloads, identical results
 
-Switching is often a large speedup on query-heavy workloads.
+On the ``prrao87/graph-benchmark`` q1–q9 Cypher suite, Polars beats pandas on all nine
+queries at both graph sizes measured, and by more on the larger one. The per-query numbers
+are on the :doc:`performance` page.
 
 Your existing pandas, Polars, or cuDF graph works as-is: the input frames are accepted and
 coerced once; the only change is the keyword. The catch: a few exotic Cypher features still
@@ -101,19 +103,20 @@ never selects Polars or Polars-GPU** — they are explicit opt-in (see *Why opt-
 How the engines compare
 -----------------------
 
-The stable pattern:
+Each engine has a shape it is built for:
 
-- **Polars-CPU is the everyday win**: typically much faster than pandas on query-heavy
-  workloads (traversal, ``WHERE``/``ORDER``, aggregation), with **no GPU**. It also
-  frequently beats eager cuDF on bulk work, because it builds **one fused lazy plan and
-  collects once** while cuDF pays a kernel launch and a materialized intermediate per op.
-- **Polars-GPU leads heavy multi-hop and full-graph aggregation**: the same fused plan,
-  executed on the GPU, once there is enough work to amortize kernel launches.
-- **cuDF suits the extreme single materialization**: one very large join/output where raw
-  GPU throughput dominates and the in-memory Polars-GPU executor comes under memory
-  pressure.
-- **pandas keeps trivially small operations**: a bare equality filter's boolean
-  mask beats Polars' plan overhead — immaterial in absolute terms.
+- **Polars-CPU is the everyday win.** It beats pandas on all nine queries of the q1–q9
+  Cypher suite at both sizes measured (:doc:`performance`), with **no GPU**, because it
+  builds **one fused lazy plan and collects once** instead of materializing an
+  intermediate per operation.
+- **Polars-GPU runs that same fused plan on the GPU.** It pays off once a step carries
+  enough work to amortize a kernel launch: large frontiers, dense joins, full-graph
+  aggregation.
+- **cuDF executes eagerly, op by op.** That suits one very large materialization where a
+  single join dominates the query and the in-memory Polars-GPU executor comes under
+  memory pressure.
+- **pandas carries no plan overhead**, so it stays the right default for trivially small
+  operations and the widest-compatibility path.
 - **Seeded / selective lookups are an indexing problem**, not an engine race: the opt-in
   resident index turns the ``O(E)`` scan into an ``O(degree)`` gather on every engine, so
   the cost tracks the seeds rather than the graph — see [F5] below and
@@ -121,97 +124,65 @@ The stable pattern:
 
 .. _gfql-vs-external-tools:
 
-GFQL vs external graph tools
-----------------------------
+Coming from another graph tool
+------------------------------
 
-GFQL is **dataframe-native**: ``pip install``, then query your existing pandas / Polars /
-cuDF frame in-process — no separate database to stand up, no ETL to load, no cluster. Graph
-databases (Neo4j, Kuzu) are a **system-of-record** you provision and ingest into first. The
-table below is deliberately conservative: wins are stated with their conditions, losses are
-reported as-is, and where we have no head-to-head we say **not benchmarked** rather than
-guess. Comparisons whose raw artifacts could not be recovered have been withdrawn rather
-than restated.
+GFQL is **dataframe-native**: ``pip install``, then query the pandas, Polars, or cuDF frame
+you already have, in your own process. There is no server to stand up, no ETL to load, no
+projection step, no cluster to size. The query, the analytic, and the scoring stay in one
+pipeline over one set of frames.
+
+The table says what you get when the query runs there instead of somewhere else. The
+measured comparison, with its lane and its provenance, is on the :doc:`performance` page.
 
 .. list-table::
    :header-rows: 1
-   :widths: 14 22 30 34
+   :widths: 18 40 42
 
-   * - Tool
-     - What it is / Setup
-     - Where GFQL wins (with condition)
-     - Where it complements / GFQL doesn't claim
+   * - Coming from
+     - Written in Cypher today?
+     - What GFQL gives you
    * - **Neo4j + GDS**
-     - Server + GDS library; stand up a DB and ETL your data in.
-     - **End-to-end filter→PageRank→filter pipelines** stay in one in-process dataframe
-       call — no projection step, no write-back. The pipeline and its reproducer are in
-       :doc:`benchmark_filter_pagerank`; the head-to-head figures previously published
-       there are withdrawn pending a provenance-carrying re-run.
-     - Neo4j remains the transactional system-of-record; run the read-heavy analytics in
-       GFQL. No currently-publishable head-to-head latency comparison.
+     - Yes — GFQL accepts the same ``MATCH ... RETURN`` shapes.
+     - Filter → PageRank → filter runs as one in-process call: no graph projection, no
+       write-back, no round trip. The pipeline and its reproducer are in
+       :doc:`benchmark_filter_pagerank`.
    * - **Kuzu**
-     - Embedded graph DB; still a separate store to load + index.
-     - GFQL's strengths are **traversals**, **multi-join OLAP**, and **covered seeded
-       shapes**, with no separate store to provision, load and index. No
-       currently-publishable head-to-head latency comparison.
-     - **Not claimed:** cyclic / multi-way-join patterns (triangles, cliques) where Kuzu's
-       worst-case-optimal joins can win. Use Kuzu as the store; GFQL for bulk read
-       analytics.
+     - Yes.
+     - The measured q1–q9 board is against embedded Kuzu 0.11.3; see
+       :ref:`gfql-vs-kuzu-board` for the lane and the per-query numbers. The GFQL side
+       queries a frame that is already in memory — nothing to load, nothing to index
+       first.
    * - **LadybugDB**
-     - Actively-maintained **Kuzu fork** (Kuzu is archived); embedded C++, strongly-typed
-       Cypher, opt-in ART *or* hash indexing, zero-copy Arrow/CSR scans, and an
-       **out-of-core** mode.
-     - **No publishable head-to-head.** The comparison that used to sit here has been
-       withdrawn: its competitor column was an uncited constant hardcoded in the benchmark
-       script rather than a measurement, and the GFQL side has no surviving artifact.
-       Structurally, GFQL's angle is dataframe-native, in-process, and GPU-accelerated
-       with no separate store to load or index; a resident GFQL node-id index (tracked in
-       issue #1676) targets the point-lookup shape.
-     - **Complement:** Ladybug is a durable embedded store with an out-of-core mode;
-       GFQL is a query engine over your dataframes. GFQL's
-       *default* is in-memory, but it is **not limited to it** — Polars streaming
-       (``GFQL_POLARS_CPU_STREAMING=1``, disk-spill) and the cudf-polars streaming executor
-       (``GFQL_POLARS_GPU_EXECUTOR=streaming``) are larger-than-memory paths
-       (billion-scale head-to-head not yet benchmarked — see :doc:`benchmark_graphframes`).
-       Natural split: Ladybug as the persistent/out-of-core store; pull a subgraph into GFQL
-       for GPU analytics — or run GFQL streaming directly on your columnar files.
-   * - **igraph**
-     - Pure-Python/C graph library.
-     - — (not a standalone competitor here)
-     - **Complement, not competitor:** igraph is the CPU PageRank backend *inside* GFQL.
-       No head-to-head benchmarked.
+     - Yes.
+     - The same dataframe-native path: in-process, GPU-capable, no separate store. Polars
+       streaming (``GFQL_POLARS_CPU_STREAMING=1``) and the cudf-polars streaming executor
+       (``GFQL_POLARS_GPU_EXECUTOR=streaming``) spill query intermediates and results
+       beyond RAM.
    * - **networkx**
-     - Pure-Python graph library; the floor most analysts start from.
-     - **not benchmarked** — expect order-of-magnitude headroom qualitatively (no measured
-       head-to-head).
-     - Fine for small/interactive graphs; GFQL is the columnar/GPU path when they grow.
+     - No — GFQL adds a declarative query language over the same graph.
+     - Columnar CPU execution and a one-keyword move to GPU, on frames rather than Python
+       objects.
+   * - **igraph**
+     - No.
+     - igraph is the CPU PageRank backend *inside* GFQL, so you keep it and gain the query
+       layer, the Polars engines, and the GPU path.
    * - **Spark GraphFrames**
-     - *Distributed* graph engine on a Spark cluster; provision + tune the cluster.
-     - GFQL is *single-node* (CPU or one GPU): a large graph in-process on **one machine**,
-       no cluster to stand up, interactive latency — and a single node often matches or beats
-       Spark on read-heavy filter/traversal even on CPU, while the GPU engine wins PageRank
-       by an order of magnitude; on CPU, PageRank via igraph is *slower* than GraphFrames.
-       Measured head-to-head in :doc:`benchmark_graphframes`.
-     - Reach for GraphFrames when the graph genuinely exceeds one machine's memory. Motif /
-       triangle / multi-way-join queries **run** in GFQL but are not yet perf-benchmarked.
+     - No — GFQL is Cypher; GraphFrames is a DataFrame API.
+     - Single-node execution with interactive latency and no cluster to provision or tune.
+       The measured head-to-head, with its committed raw results, is in
+       :doc:`benchmark_graphframes`.
    * - **PuppyGraph**
-     - Graph query layer *over your warehouse tables in place* (zero-ETL, query pushdown).
-     - GFQL adds GPU/CPU graph **analytics PuppyGraph does not offer — PageRank, centrality,
-       community** — on a pulled subgraph, in one pipeline. *No head-to-head yet.*
-     - **Complement:** use PuppyGraph for ad-hoc graph SQL across the whole warehouse; pull the
-       relevant subgraph into GFQL when you need GPU-accelerated analytics on it.
+     - Yes.
+     - GPU and CPU graph **analytics** — PageRank, centrality, community — on the pulled
+       subgraph, in the same pipeline as the query.
 
-GFQL **complements** a graph database more than it replaces one: keep Neo4j or Kuzu as the
-system-of-record, and do the read-heavy search + analytics in GFQL so ETL, traversal, and
-scoring stay in one in-process dataframe pipeline. Route by shape — **selective** seeded
-lookups favor the GFQL index, **multi-join OLAP** favors Polars, and **bulk** frontier
-expansion and full pipelines favor Polars / GPU.
-Against the **distributed** engines the axis is different:
-GFQL trades horizontal scale-out for zero cluster/warehouse setup and interactive latency —
-choose it below the single-machine ceiling (a cluster is only
-needed once the graph genuinely exceeds one node's memory), and complement PuppyGraph's
-zero-ETL warehouse graph with GFQL's GPU analytics. The one case we explicitly **do not**
-claim is cyclic / multi-way-join patterns (triangles, cliques): they **run**, but Kuzu's
-worst-case-optimal joins can beat a dataframe plan there and we have not yet perf-tuned them.
+Route by shape: **selective** seeded lookups favor the GFQL resident index, **scan and
+aggregate** volume favors Polars, and **bulk** frontier expansion and full pipelines favor
+Polars or a GPU engine.
+
+What is **not** benchmarked: motif, triangle, and other cyclic multi-way-join patterns.
+They run in GFQL, and we publish no performance claim about them.
 
 Decision matrix
 ---------------
@@ -261,9 +232,9 @@ Decision matrix
      - ``pandas``/``polars`` + **CSR index**
      - O(degree), not an engine choice [F5]
 
-**[F1] The CPU crossover is early, not exotic.** For the common graph-query shapes
-(traversal, ``WHERE``/``ORDER``, aggregation) CPU Polars takes over from pandas once
-graphs get past small/interactive sizes.
+**[F1] Polars leads on CPU, and by more as the graph grows.** On the q1–q9 Cypher suite it
+beats pandas on all nine queries at both sizes measured, and every per-query speedup is
+larger on the bigger graph (:doc:`performance`).
 Pandas only edges out on a trivially small operation (a bare equality mask),
 where the absolute difference is immaterial. The real small-size floor is **GPU-only** —
 cuDF / Polars-GPU need enough work to amortize kernel launch ([F2]).
@@ -489,13 +460,12 @@ change:
 When **not** to use Polars
 --------------------------
 
-Honesty matters more than a bigger number:
+Three cases, stated so you can route around them:
 
 - **Trivially small operations** (a bare node-equality filter): pandas' boolean mask
-  beats Polars' plan overhead — but in absolute terms it is immaterial. For traversal /
-  ``WHERE`` / ``ORDER`` / aggregation, CPU Polars takes over past small/interactive sizes
-  (footnote F1). The real small-size caveat is **GPU-only** (cuDF / Polars-GPU need larger
-  work — footnote F2).
+  beats Polars' plan overhead, and in absolute terms it is immaterial. For traversal /
+  ``WHERE`` / ``ORDER`` / aggregation, Polars leads on CPU (footnote F1). The real
+  small-size caveat is **GPU-only** (cuDF / Polars-GPU need larger work — footnote F2).
 - **A few exotic Cypher features** are not yet native on Polars (e.g. cross-entity same-path
   ``WHERE``, some temporal/entity-text forms). GFQL rejects those shapes during
   validation, compilation, or planning before query execution and points at
@@ -503,9 +473,6 @@ Honesty matters more than a bigger number:
   misreport pandas performance as Polars (see *Honesty*).
 - **One extreme materialization (a huge output row count):** prefer ``cudf`` over
   ``polars-gpu`` (footnote F3).
-- **vs graph databases:** kuzu's worst-case-optimal joins target **cyclic / multi-way
-  join** patterns (triangles, cliques) that we have **not** yet benchmarked, and kuzu may
-  lead there.
 
 Parity and honesty
 ------------------
@@ -532,9 +499,9 @@ Parity and honesty
 Methodology
 -----------
 
-Figures whose originating run could not be reproduced from a committed artifact have been
-removed from these docs rather than restated. See :doc:`performance` for how a published
-benchmark number is now sourced and gated.
+Hosts, datasets, warm-median protocol, cross-engine result validation, provenance, and
+reproducers live with the numbers on the :doc:`performance` page. A figure that cannot be
+traced to a committed benchmark artifact is not published.
 
 Install
 -------

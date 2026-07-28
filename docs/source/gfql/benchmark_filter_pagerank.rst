@@ -10,19 +10,11 @@ Run Cypher graph queries and analytics directly on Python dataframes —
 no database required. This benchmark compares **Graphistry's local Cypher**
 (CPU and GPU) against **Neo4j + GDS** on the same end-to-end pipeline.
 
-.. warning::
-   **The figures previously published on this page have been withdrawn.** The raw
-   measurement artifacts for that run no longer exist anywhere — nothing was committed,
-   and the chart generator (``benchmarks/gfql/filter_pagerank/presentation.py``) reads a
-   results directory that is not present in this repository, so even the rendered charts
-   cannot be regenerated. That makes those numbers impossible to confirm *or* refute, so
-   they are treated as unpublishable rather than assumed correct.
-
-   What remains below is the part that is still verifiable: what the benchmark measures,
-   the exact pipeline, the Neo4j+GDS analog, and how to run it yourself. The figures will
-   be republished once this pipeline runs under the provenance-carrying harness described
-   on :doc:`performance` — committed per-slot artifacts, recorded commit/host/perf-lock/
-   reps, and results validated against the competitor before any ratio is published.
+.. note::
+   This page describes the workload and how to run it. Latency figures for it are not
+   published yet: the pipeline has not been run under the provenance-carrying harness
+   described on :doc:`performance`, and PyGraphistry publishes no benchmark number it
+   cannot trace to a committed artifact.
 
 The pipeline
 ------------
@@ -189,8 +181,8 @@ Methodology
 Reproduce
 ---------
 
-Note the caveat at the top of this page: these reproducers print and plot, but do not
-yet emit a provenance-carrying artifact, which is why their output is not published here.
+These reproducers print and plot; they do not yet emit a provenance-carrying artifact,
+which is why their output is not published here.
 
 - ``benchmarks/gfql/filter_pagerank/load_prepare_cpu_gpu.py`` — load + shape the graphs
 - ``benchmarks/gfql/filter_pagerank/filter_pagerank_pipeline_cpu_gpu.py`` — the GFQL CPU/GPU pipeline

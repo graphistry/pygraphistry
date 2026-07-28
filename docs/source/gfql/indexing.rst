@@ -211,12 +211,8 @@ general path to the fast path, and again with the index resident, on both CPU en
 ``O(E)`` scan into an ``O(degree)`` gather, so its cost tracks the seeds' neighborhood
 rather than the graph.
 
-.. warning::
-   **The tag-sweep latencies that used to appear in this section have been withdrawn.**
-   Their raw artifacts were not committed anywhere, so they cannot be confirmed or
-   refuted, and re-measuring them is the only honest way to restore them. Measured
-   figures now live only on :doc:`performance` and :doc:`index_adjacency`, referenced
-   from a provenance-carrying source of truth rather than transcribed.
+Measured figures are published on :doc:`performance` and :doc:`index_adjacency` only, and
+only when they trace to a committed benchmark artifact.
 
 See also
 --------
