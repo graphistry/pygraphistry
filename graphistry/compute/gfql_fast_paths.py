@@ -1676,6 +1676,136 @@ def _property_ref(expr: Any, valid_aliases: Sequence[str]) -> Optional[Tuple[str
 
 _GROUPED_AGG_LOOKUP_KEY_FMT = "__gfql_t3_{alias}_id__"
 
+# Thresholds for the low-cardinality pure-count(*) formulation below. Both were fixed
+# from an interleaved crossover sweep (polars 1.35.2, 20 threads, 90 samples/arm/cell)
+# BEFORE the formulation was validated on any query, because a threshold chosen after
+# seeing the verdicts is unfalsifiable.
+#
+#   * ``group_by(maintain_order=True).agg(pl.len())`` carries a FLAT ~2 ms coordination
+#     cost that exists only at LOW group cardinality and vanishes between 32 and 64
+#     groups (int keys, 20,000 rows: 32 groups 2.054 ms -> 48 groups 0.411 -> 64 groups
+#     0.291).
+#   * ``value_counts`` has no such cost but scales WORSE with input rows: at 1,000,000
+#     rows it loses even at 2 groups (4.137 ms -> 8.591 ms).
+#
+# So neither bound alone is sound; the gate needs both. 32 is the largest cardinality
+# whose worst case (group_by p25 vs value_counts p75) still favours value_counts in every
+# measured dtype x row-count cell -- 48 groups already fails at 0.96x on string keys.
+# 100,000 is the largest measured input-row count where that holds for every cardinality
+# <= 32 in both key dtypes -- 150,000 fails at 0.82x on string keys.
+_LOWCARD_COUNT_MAX_GROUPS = 32
+_LOWCARD_COUNT_MAX_INPUT_ROWS = 100_000
+
+
+def _low_cardinality_pure_count_key(
+    group_keys: Sequence[str],
+    agg_specs: Sequence[Tuple[str, str, Optional[str]]],
+) -> Optional[Tuple[str, str]]:
+    """``(group_key, out_alias)`` iff this is a single-key, pure ``count(*)`` aggregate.
+
+    Pure ``count(*)`` is the ONLY aggregate the alternative formulation below can express,
+    and the only one measured value-identical to ``pl.len()``. Anything else -- a second
+    group key, a second aggregate, ``avg``/``sum``/``min``/``max``, or a ``count`` over a
+    named property (which counts NON-NULL values, not rows) -- declines here.
+
+    ``out_alias == group_key`` also declines: both formulations raise polars
+    ``DuplicateError`` on it, and declining keeps the twin's error rather than minting a
+    second one.
+    """
+    if len(group_keys) != 1 or len(agg_specs) != 1:
+        return None
+    out_alias, func, expr_col = agg_specs[0]
+    if func != "count" or expr_col is not None:
+        return None
+    group_key = group_keys[0]
+    if out_alias == group_key:
+        return None
+    return group_key, out_alias
+
+
+def _low_cardinality_pure_count_plan(
+    work_lf: "pl.LazyFrame",
+    *,
+    node_col: str,
+    group_keys: Sequence[str],
+    agg_specs: Sequence[Tuple[str, str, Optional[str]]],
+    needed_by_alias: Mapping[str, Sequence[Tuple[str, str]]],
+    frames_by_alias: Mapping[str, DataFrameT],
+    edge_rows: int,
+) -> Optional["pl.LazyFrame"]:
+    """STRICTLY ADDITIVE alternative for a single-key pure ``count(*)``: emit
+    ``value_counts`` instead of ``group_by(..).agg(pl.len())``. Returns ``None`` on every
+    decline and the caller keeps the existing ``group_by`` formulation, so the blast radius
+    is a decline away from zero.
+
+    The two formulations are VALUE-IDENTICAL wherever this admits -- same key rows, same
+    counts, same ``UInt32`` count dtype, same treatment of null / NaN / empty-input keys --
+    and the caller's gate has already made the following ``sort`` TOTAL over the output
+    rows, so neither formulation's internal row order can reach the answer. They differ
+    only in COST, which is why this is a routing decision and not a semantic one.
+
+    THE BOUNDS ARE STATIC, O(1) IN THE DATA, AND THEY ARE UPPER BOUNDS:
+
+    * **group cardinality <= height of the alias node frame supplying the group key.**
+      The group key column is produced by an inner join that reads ``prop`` out of that one
+      frame, so every group value in the aggregate input is a ``prop`` value of some row of
+      it; distinct values cannot exceed its height. ``height`` is metadata.
+    * **aggregate input rows <= height of the (already filtered) edge frame.** The two
+      semi-joins only remove edge rows. The property inner-join can MULTIPLY them when a
+      node id repeats in the node frame -- the lane deliberately does not dedup, because
+      the eager twin does not -- so the bound only holds once the sole property join is
+      known to be non-multiplying. Hence the two structural conditions below: exactly one
+      alias may carry properties, and its node ids must be unique. That uniqueness check
+      runs on a frame already known to be <= ``_LOWCARD_COUNT_MAX_GROUPS`` rows, so it is
+      bounded work regardless of graph size.
+
+    BOTH BOUNDS ARE LOOSE IN THE SAFE DIRECTION. A loose bound over-estimates, so it can
+    only make this DECLINE a shape the alternative would have served -- it can never route
+    a high-cardinality or high-row aggregate into the wrong formulation, which is the
+    failure that would matter (that formulation is 2.7 ms slower on a ~20,000-group
+    aggregate). The cost of looseness is a forgone speedup: a 7,117-row City frame carrying
+    only 3 distinct countries declines here, because an O(1) height bound cannot see the 3.
+
+    DECLINES: a non-single-key or non-pure-``count(*)`` aggregate; a group key not supplied
+    by exactly one alias; a second alias also contributing property columns (the row bound
+    stops holding); a group-key alias frame taller than ``_LOWCARD_COUNT_MAX_GROUPS``,
+    missing its node-id column, or carrying duplicate node ids; an edge frame taller than
+    ``_LOWCARD_COUNT_MAX_INPUT_ROWS``.
+    """
+    import polars as pl
+
+    keyed = _low_cardinality_pure_count_key(group_keys, agg_specs)
+    if keyed is None:
+        return None
+    group_key, out_alias = keyed
+
+    owners = [
+        alias
+        for alias, props in needed_by_alias.items()
+        if any(out_col == group_key for out_col, _ in props)
+    ]
+    if len(owners) != 1:
+        return None
+    owner = owners[0]
+    if any(alias != owner and props for alias, props in needed_by_alias.items()):
+        return None
+
+    owner_frame = frames_by_alias.get(owner)
+    if owner_frame is None or not isinstance(owner_frame, pl.DataFrame):
+        return None
+    if owner_frame.height > _LOWCARD_COUNT_MAX_GROUPS:
+        return None
+    if node_col not in owner_frame.columns:
+        return None
+    if owner_frame.get_column(node_col).n_unique() != owner_frame.height:
+        return None
+    if edge_rows > _LOWCARD_COUNT_MAX_INPUT_ROWS:
+        return None
+
+    # ``name=`` (polars >= 1.0, and the declared floor is 1.29) keeps the count column out
+    # of a rename, so a group key literally named ``count`` is served rather than crashing.
+    return work_lf.select(pl.col(group_key).value_counts(name=out_alias)).unnest(group_key)
+
 
 def _single_hop_grouped_aggregate_fused_polars(
     start_nodes: DataFrameT,
@@ -1709,6 +1839,11 @@ def _single_hop_grouped_aggregate_fused_polars(
     ``group_by(maintain_order=True).agg(..)``, same per-key ``nulls_last`` sort, same
     ``head``), so the value -- including row ORDER and openCypher's null-largest ordering
     -- is identical.
+
+    ONE aggregate shape has a second, value-identical polars formulation: see
+    :func:`_low_cardinality_pure_count_plan`. It is chosen only when static O(1) bounds
+    prove both the group cardinality and the aggregate input rows are low, and it declines
+    to this ``group_by`` everywhere else.
 
     NOT a GPU change: like the eager twin and the fused two-star lane, it collects on CPU
     polars for both POLARS and POLARS_GPU.
@@ -1801,7 +1936,21 @@ def _single_hop_grouped_aggregate_fused_polars(
         )
         work_lf = work_lf.join(lookup_lf, left_on=edge_col, right_on=lookup_key, how="inner")
 
-    out_lf = work_lf.group_by(list(group_keys), maintain_order=True).agg(agg_exprs)
+    # STRICTLY ADDITIVE: a single-key pure count(*) whose group cardinality and input rows
+    # are both statically bounded low takes the value_counts formulation, which skips
+    # polars' partitioned group-by coordination. Every other shape -- and every shape whose
+    # bounds are not provably low -- keeps the group_by below, unchanged.
+    out_lf = _low_cardinality_pure_count_plan(
+        work_lf,
+        node_col=node_col,
+        group_keys=group_keys,
+        agg_specs=agg_specs,
+        needed_by_alias=needed_by_alias,
+        frames_by_alias={start_alias: start_nodes, end_alias: end_nodes},
+        edge_rows=edges.height,
+    )
+    if out_lf is None:
+        out_lf = work_lf.group_by(list(group_keys), maintain_order=True).agg(agg_exprs)
     # openCypher orders NULL as the largest value (ASC -> nulls last, DESC -> nulls
     # first); polars defaults nulls-first, so pin nulls_last per key exactly as the twin
     # does. The gate above guarantees this sort is TOTAL over the output rows.
