@@ -526,3 +526,79 @@ class TestAutoEngineRoutesPolarsNative:
         out = g.gfql(q)._nodes  # auto: answers via fallback
         rows = out.to_dict("records") if hasattr(out, "to_dict") else out.to_pandas().to_dict("records")
         assert rows == [{"l": 3}]
+
+    def test_auto_routes_edges_only_graph(self):
+        """``self._nodes is None`` is inside the guard's condition, so it must actually work."""
+        edges = pl.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3], "type": ["KNOWS"] * 3})
+        g = graphistry.edges(edges, "s", "d")
+        out = g.gfql("MATCH (a)-[:KNOWS]->(b) RETURN b.id AS bid ORDER BY bid")._nodes
+        assert "polars" in type(out).__module__
+        assert out["bid"].to_list() == [1, 2, 3]
+
+    def test_auto_enum_form_routes_too(self):
+        """AUTO arrives as either the enum or its string value; both must route."""
+        from graphistry.Engine import EngineAbstract
+        g = self._graph()
+        q = "MATCH (a:Person {id: 0})-[:KNOWS]->(b) RETURN b.id AS bid"
+        for eng in (EngineAbstract.AUTO, EngineAbstract.AUTO.value):
+            assert "polars" in type(g.gfql(q, engine=eng)._nodes).__module__
+
+
+class TestAutoEngineDoesNotRoutePolarsNative:
+    """The negative half: what must NOT be diverted. A routing change is only as safe as the
+    set of inputs it refuses, so each of these pins a case where the pre-change path must
+    still be taken byte-for-byte."""
+
+    NODES = {"id": [0, 1, 2, 3], "label__Person": [True] * 4}
+    EDGES = {"s": [0, 1, 2], "d": [1, 2, 3], "type": ["KNOWS"] * 3}
+    Q = "MATCH (a:Person {id: 0})-[:KNOWS]->(b) RETURN b.id AS bid"
+
+    def test_pandas_frames_unaffected(self):
+        g = graphistry.nodes(pd.DataFrame(self.NODES), "id").edges(pd.DataFrame(self.EDGES), "s", "d")
+        assert "pandas" in type(g.gfql(self.Q)._nodes).__module__
+
+    def test_mixed_frames_not_routed(self):
+        """Polars edges + pandas nodes: the native engine has no bridge, so AUTO must not try."""
+        g = (graphistry
+             .nodes(pd.DataFrame(self.NODES), "id")
+             .edges(pl.DataFrame(self.EDGES), "s", "d"))
+        assert "pandas" in type(g.gfql(self.Q)._nodes).__module__
+        g2 = (graphistry
+              .nodes(pl.DataFrame(self.NODES), "id")
+              .edges(pd.DataFrame(self.EDGES), "s", "d"))
+        assert "pandas" in type(g2.gfql(self.Q)._nodes).__module__
+
+    def test_explicit_pandas_engine_still_pandas(self):
+        g = graphistry.nodes(pl.DataFrame(self.NODES), "id").edges(pl.DataFrame(self.EDGES), "s", "d")
+        assert "pandas" in type(g.gfql(self.Q, engine="pandas")._nodes).__module__
+
+    def test_policy_disables_the_route(self):
+        """The native executor does not go through ``chain_impl`` and so never emits
+        ``postload``/``postchain``. Diverting a policy-carrying query would silently stop
+        enforcing a DENYING postload policy -- measured, not theorised."""
+        from graphistry.compute.gfql.policy import PolicyException
+        g = graphistry.nodes(pl.DataFrame(self.NODES), "id").edges(pl.DataFrame(self.EDGES), "s", "d")
+
+        def deny(ctx):
+            raise PolicyException(phase="postload", reason="denied by test")
+
+        with pytest.raises(PolicyException):
+            g.gfql(self.Q, policy={"postload": deny})
+        # ...and structurally: a policy-bearing AUTO query stays on the generic path,
+        # which is what makes the hook trace identical to the pre-change build.
+        assert "pandas" in type(g.gfql(self.Q, policy={"preload": lambda ctx: None})._nodes).__module__
+        seen = []
+        pol = {h: (lambda ctx, h=h: seen.append(h)) for h in ("preload", "postload", "precompile")}
+        g.gfql(self.Q, policy=pol)
+        assert "postload" in seen, "postload must still fire under AUTO on a polars graph"
+
+    def test_policy_hooks_fire_once_on_nie_shape(self):
+        """A retry-on-NIE route would fire the compile/load hooks twice for one user call."""
+        g = graphistry.nodes(pl.DataFrame(self.NODES), "id").edges(pl.DataFrame(self.EDGES), "s", "d")
+        q = ("MATCH p = shortestPath((a:Person {id: 0})-[:KNOWS*]-(b:Person {id: 3})) "
+             "RETURN length(p) AS l")
+        seen = []
+        pol = {h: (lambda ctx, h=h: seen.append(h)) for h in ("preload", "precompile", "postcompile")}
+        g.gfql(q, policy=pol)
+        assert seen.count("precompile") == 1, seen
+        assert seen.count("preload") == 1, seen

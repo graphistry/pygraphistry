@@ -1810,11 +1810,24 @@ def gfql(self: Plottable,
     """
     # engine inference: resolve_engine(AUTO) maps polars frames to PANDAS (polars predates
     # Engine.POLARS there), silently bridging polars-frame graphs onto the generic pandas path
-    # (~13x slower on cypher point queries, pandas frames out). Route AUTO to the native polars
-    # engine instead; an honest NIE (unsupported shape) falls back to the legacy AUTO path, which
-    # is allowed here because the user did not pin an engine.
+    # and handing pandas frames back. Measured on the matched graph-benchmark q1-q9 lane through
+    # this exact surface (dgx-spark, perf lock, position-balanced over 8 slots): 2.45-11.9x at 20k
+    # and 4.8-37.2x at 100k, values identical. Route AUTO to the native polars engine instead;
+    # an honest NIE (unsupported shape) falls back to the legacy AUTO path -- allowed here
+    # because the user pinned no engine -- at a flat ~0.23 ms, the decline being raised at
+    # planning before any data is touched.
+    #
+    # ``policy is None`` is REQUIRED, not conservatism: the native polars executor does not go
+    # through ``chain_impl``, so it never emits the ``postload``/``postchain`` hooks that path
+    # emits. Routing a policy-carrying query there would silently stop enforcing a DENYING
+    # ``postload`` policy (measured: deny-on-postload blocks under the generic path and does not
+    # under the native one) -- a governance hook that stops firing is worse than a slow query.
+    # The NIE fallback compounds it: re-running the query would fire ``preload``/``precompile``/
+    # ``postcompile`` twice for one user call. Explicit ``engine='polars'`` is unchanged and still
+    # carries the pre-existing hook gap; this guard only refuses to make that gap the default.
     if (
         (engine == EngineAbstract.AUTO or engine == EngineAbstract.AUTO.value)
+        and policy is None
         and is_polars_df(self._edges) and (self._nodes is None or is_polars_df(self._nodes))
     ):
         try:
