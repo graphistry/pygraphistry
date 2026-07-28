@@ -140,7 +140,11 @@ def pandas_non_numeric_agg_dtype(series: "SeriesT") -> Optional[str]:
         return str(dtype)
     if "category" in dtype_txt:
         return str(dtype)
-    if dtype_txt in {"string", "str", "large_string[pyarrow]", "string[pyarrow]", "string[python]"}:
+    # Prefix match, not a fixed set: pandas spells its string dtype differently across versions and
+    # storages -- `object` on pandas 2, `str` by default on pandas 3, plus `string`,
+    # `string[pyarrow]`, `string[python]`, `str[pyarrow]`. A missed spelling here fails OPEN
+    # (delegates to the kernel, restoring the concatenation), so the check is deliberately broad.
+    if dtype_txt.startswith("str") or dtype_txt.startswith("large_string"):
         return str(dtype)
     if dtype_txt == "object" and _object_series_is_str_like(series):
         return "object (strings)"

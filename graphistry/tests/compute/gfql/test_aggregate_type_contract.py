@@ -456,6 +456,7 @@ def test_pandas_fast_numeric_gate_admits_exactly_the_kernel_safe_dtypes():
     assert numeric(pd.Series([1], dtype="boolean"))
     assert numeric(pd.to_timedelta([1], unit="D").to_series())
     assert not numeric(pd.Series(["a"]))
+    assert not numeric(pd.Series(["a"], dtype="object"))
     assert not numeric(pd.Series(["a"], dtype="string"))
     assert not numeric(pd.Series(pd.Categorical(["a"])))
     assert not numeric(pd.Series(pd.to_datetime(["2020-01-01"])))
@@ -471,8 +472,20 @@ def test_pandas_classifier_rejects_strings_and_admits_numbers_and_durations():
     assert reject(pd.Series([True, False])) is None
     assert reject(pd.to_timedelta([1, 2], unit="D").to_series()) is None
     assert reject(pd.Series([1, 2], dtype="object")) is None      # numbers boxed in object
-    assert reject(pd.Series(["a", "b"])) == "object (strings)"
+    # The LABEL is the dtype's own repr and pandas changes it across versions (a bare
+    # pd.Series(["a"]) is `object` on pandas 2 and `str` on pandas 3), so assert the VERDICT and
+    # that the label carries the dtype -- pinning the exact text tests pandas, not this contract.
+    assert reject(pd.Series(["a", "b"], dtype="object")) == "object (strings)"
+    assert reject(pd.Series(["a", "b"])) is not None
     assert reject(pd.Series(["a"], dtype="string")) == "string"
+    # every string spelling pandas has used across versions/storages must reject; a missed one
+    # fails OPEN (delegates to the kernel and restores the concatenation)
+    for spelling in ["object", "str", "string", "string[python]", "string[pyarrow]"]:
+        try:
+            series = pd.Series(["a", "b"], dtype=spelling)
+        except (TypeError, ValueError):
+            continue   # dtype not available in this pandas/pyarrow build
+        assert reject(series) is not None, spelling
     assert reject(pd.Series(pd.Categorical(["a"]))) is not None
     assert reject(pd.Series(pd.to_datetime(["2020-01-01"]))) is not None
 
