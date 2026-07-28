@@ -19,7 +19,7 @@ from __future__ import annotations
 import ast
 import re
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Union
 
 import pytest
 
@@ -77,23 +77,24 @@ def _lane_file_list() -> List[str]:
     return files
 
 
-def _node_source(source_lines: List[str], node: ast.AST) -> str:
+FuncDef = Union[ast.FunctionDef, ast.AsyncFunctionDef]
+
+
+def _node_source(source_lines: List[str], node: Union[ast.stmt, ast.expr]) -> str:
     """py3.8-safe source slice for an AST node (``ast.unparse`` is 3.9+)."""
-    start = getattr(node, "lineno", 0)
-    end = getattr(node, "end_lineno", start)
+    start: int = node.lineno
+    end: int = node.end_lineno if node.end_lineno is not None else start
     return "\n".join(source_lines[max(start - 1, 0):end])
 
 
-def _selected_by_k_polars(source_lines: List[str], node: ast.AST) -> bool:
+def _selected_by_k_polars(source_lines: List[str], node: FuncDef) -> bool:
     """True when ``-k polars`` can select the node: either the function name carries it, or a
     decorator does (a ``parametrize`` over an engine id containing 'polars' puts it in the
     node id, which is what ``-k`` matches against)."""
-    name = getattr(node, "name", "")
-    if "polars" in name:
+    if "polars" in node.name:
         return True
-    decorators = getattr(node, "decorator_list", [])
     return any(
-        "polars" in _node_source(source_lines, dec) for dec in decorators
+        "polars" in _node_source(source_lines, dec) for dec in node.decorator_list
     )
 
 
