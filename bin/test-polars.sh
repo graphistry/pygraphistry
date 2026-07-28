@@ -12,6 +12,12 @@ set -ex
 python -m pytest --version
 
 # Single source of truth for the polars test file list (CI reuses this script).
+#
+# COMPLETENESS IS ENFORCED, NOT REMEMBERED: polars is installed in NO other CI lane, so a
+# module gated by `pytest.importorskip("polars")` that is missing from this array runs
+# NOWHERE — it is collection-skipped everywhere else and silently reports green.
+# `graphistry/tests/compute/gfql/test_polars_lane_completeness.py` parses this array and
+# fails if any module-level polars-gated test file is absent from it (or listed but gone).
 POLARS_TEST_FILES=(
     graphistry/tests/compute/test_polars.py
     graphistry/tests/compute/gfql/test_engine_polars_hop.py
@@ -29,6 +35,20 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
     graphistry/tests/compute/gfql/test_seeded_typed_hop_fastpath.py
     graphistry/tests/compute/gfql/test_residual_polars_native.py
+    # module-level `importorskip("polars")` files that previously ran in no lane at all
+    graphistry/tests/compute/gfql/test_engine_polars_narrow_combine.py
+    graphistry/tests/compute/gfql/test_engine_polars_semi_key_dedup.py
+    graphistry/tests/compute/gfql/test_engine_polars_call_modality.py
+    graphistry/tests/compute/gfql/test_engine_polars_gpu.py
+    graphistry/tests/compute/gfql/test_rows_table_named_middle.py
+    graphistry/tests/compute/gfql/test_viz_pipeline_conformance.py
+    # polars-parametrized cases inside otherwise-pandas modules: these files DO run in the
+    # pandas lanes, but their polars/polars-gpu parameters are skipped there for want of the
+    # wheel, so the polars lane is the only place those parameters can execute
+    graphistry/tests/compute/gfql/index/test_indexed_bindings.py
+    graphistry/tests/compute/gfql/test_reentry_caller_graph_immutability.py
+    graphistry/tests/compute/gfql/test_rewrite_param_discard.py
+    graphistry/tests/compute/test_engine_coercion.py
     # index tests exercise the seeded-index hook in the polars hop entry (hop.py) — without
     # them the hook dominates the now-thin file and trips its per-file coverage floor
     graphistry/tests/compute/gfql/index/test_index.py
