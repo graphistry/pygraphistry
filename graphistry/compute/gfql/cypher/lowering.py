@@ -130,6 +130,7 @@ from graphistry.compute.gfql.cypher.call_procedures import (
     compile_cypher_call,
 )
 from graphistry.compute.gfql.cypher.ast_normalizer import ASTNormalizer
+from graphistry.compute.gfql.expr_const_fold import fold_constants
 from graphistry.compute.gfql.cypher.shortest_path_aliases import (
     _ShortestPathAliasSpec,
     _is_variable_length_relationship_pattern,
@@ -1795,7 +1796,11 @@ def _row_expr_arg(
         node,
         integer_identifiers=frozenset(),
     )
-    return _render_expr_node(rewritten)
+    # Plan-time constant folding, so ONE canonical predicate text reaches the row
+    # evaluators and the residual translator whichever equivalent spelling was
+    # written. Runs AFTER the integer-division rewrite (order is load-bearing) and
+    # only where every engine provably agrees — see expr_const_fold, criterion (E).
+    return _render_expr_node(fold_constants(rewritten))
 
 
 def _projected_source_replacement(binding: _StageColumnBinding) -> str:

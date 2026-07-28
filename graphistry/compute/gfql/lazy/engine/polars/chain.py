@@ -7,7 +7,7 @@ parity vs the pandas chain gates correctness; unsupported shapes raise NotImplem
 (no silent pandas fallback). Deferred: variable-length/multi-hop edge sub-cases, some
 undirected multi-edge combos, node query=.
 """
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type, cast
 
 from typing_extensions import TypedDict
 
@@ -27,6 +27,21 @@ from .dtypes import is_lazy, colnames, endpoint_ids
 from .degrees import get_degrees_polars, get_indegrees_polars, get_outdegrees_polars
 from .predicates import filter_by_dict_polars
 from .reserved_columns import CHAIN_NODE_HOP
+
+
+def _polars_error_types() -> Tuple[Type[BaseException], ...]:
+    """The polars exception hierarchy root, as an ``except`` target.
+
+    A tuple (not the class) so the empty tuple is available as the fail-closed answer when an
+    older polars has no ``PolarsError`` base: ``except ()`` matches nothing, which degrades to
+    today's behaviour rather than swallowing something unrelated. Evaluated only while an
+    exception is being matched, so it costs nothing on the success path.
+    """
+    import polars as pl
+    base = getattr(pl.exceptions, "PolarsError", None)
+    if isinstance(base, type) and issubclass(base, BaseException):
+        return (base,)
+    return ()
 
 
 def _semi(df: "PolarsT", ids_df: "PolarsT", df_col: str, id_col: str) -> "PolarsT":
@@ -571,6 +586,20 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
                 field="function",
                 value=fn_name,
             ) from validation_error
+        except _polars_error_types() as polars_error:
+            # A THIRD-PARTY exception must never be the GFQL surface. On the pandas/cuDF side
+            # `execute_call` already wraps any kernel exception as GFQLTypeError(E303) — the
+            # native polars path runs BEFORE execute_call and so skipped that wrapper entirely,
+            # letting e.g. `polars.exceptions.InvalidOperationError: \`sum\` operation not
+            # supported for dtype \`str\`` reach the caller verbatim. Same code, same message
+            # shape as the pandas surface; the polars text is preserved as the cause.
+            fn_name = getattr(op, "function", None)
+            raise GFQLTypeError(
+                ErrorCode.E303,
+                f"Error executing '{fn_name}': {polars_error}",
+                field="function",
+                value=fn_name,
+            ) from polars_error
         if native is not None:
             g_cur = native
             continue

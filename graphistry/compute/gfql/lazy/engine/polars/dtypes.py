@@ -7,7 +7,7 @@ fixed at one site. Polars imported lazily (optional dependency), per engine conv
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, List, Optional
 
 if TYPE_CHECKING:
     import polars as pl
@@ -16,9 +16,10 @@ if TYPE_CHECKING:
     # no runtime typing_extensions>=4.10 floor is introduced (this module is `from __future__
     # import annotations`, so the annotation is never evaluated).
     from typing_extensions import TypeIs
-    PolarsFrame = Union["pl.DataFrame", "pl.LazyFrame"]
-    # eager-in→eager-out / lazy-in→lazy-out (a Union return would type-error at call sites)
-    PolarsT = TypeVar("PolarsT", "pl.DataFrame", "pl.LazyFrame")
+    # `PolarsFrame` / `PolarsT` were defined here first; they now live in the canonical
+    # engine-typing module (graphistry.compute.typing) and are re-exported so this module's
+    # existing importers keep working off ONE definition.
+    from graphistry.compute.typing import PolarsFrame, PolarsT
 
 
 def is_int(dt: "Optional[pl.DataType]") -> bool:
