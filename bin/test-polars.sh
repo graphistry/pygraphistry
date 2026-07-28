@@ -5,6 +5,8 @@ set -ex
 # - Extra args are passed through to the pytest phase
 # - Set POLARS_COV=1 to collect coverage over graphistry/compute; the coverage
 #   data file location is taken from $COVERAGE_FILE (as the CI py3.12 lane sets it)
+# - Set POLARS_XDIST to pick the pytest-xdist worker spec (default `auto`); `0` forces
+#   the serial path, which is what an A/B of this lane compares against
 # - Non-zero exit code on fail
 
 # Assume [polars,test] installed
@@ -24,7 +26,13 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_engine_polars_chain.py
     graphistry/tests/compute/gfql/test_engine_polars_row_pipeline.py
     graphistry/tests/compute/gfql/test_engine_polars_binding_rows.py
+    # engine-parametrized (pandas/polars/cudf/polars-gpu); the pandas params also run in
+    # test-gfql-core, but only this lane has polars installed
+    graphistry/tests/compute/gfql/test_varlen_bounded_engine_parity_1787.py
     graphistry/tests/compute/gfql/test_engine_polars_with_match_reentry.py
+    # engine-parametrized: its pandas params run in test-gfql-core, but the polars params
+    # only ever run here (the file has no module-level importorskip, so nothing else flags it)
+    graphistry/tests/compute/gfql/test_exec_context_scoping.py
     graphistry/tests/compute/gfql/test_engine_polars_cypher_conformance.py
     graphistry/tests/compute/gfql/test_engine_polars_conformance_matrix.py
     graphistry/tests/compute/gfql/test_polars_string_predicate_nonstring.py
@@ -35,6 +43,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
     graphistry/tests/compute/gfql/test_seeded_typed_hop_fastpath.py
     graphistry/tests/compute/gfql/test_residual_polars_native.py
+    graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_fused_polars.py
     # module-level `importorskip("polars")` files that previously ran in no lane at all
     graphistry/tests/compute/gfql/test_engine_polars_narrow_combine.py
     graphistry/tests/compute/gfql/test_engine_polars_semi_key_dedup.py
@@ -57,15 +66,40 @@ POLARS_TEST_FILES=(
     graphistry/tests/test_engine_frame_helpers.py
 )
 
+# PARALLELISM. The py3.12 cell of this lane is the coverage cell and has repeatedly run out
+# of its CI budget; xdist is the lever that does not require a workflow edit (pytest-xdist is
+# already in the [test] extra, and test-gfql-core already runs `-n auto` under --cov, so
+# coverage+xdist is an established combination in this repo).
+#   * worker spec `auto` = os.cpu_count(): 4 on a GitHub-hosted ubuntu-latest runner, and it
+#     scales DOWN on a 2-vCPU runner where a fixed `-n 4` could be slower than serial.
+#   * --maxprocesses caps the count so a 24-core dev box does not fan out 24 polars processes
+#     that then oversubscribe polars' own thread pool.
+#   * --dist load (xdist's default) balances per test. `loadfile` was measured too: it is
+#     bounded by the single largest module and only reaches 1.4x where `load` reaches 3.2x.
+#     No test in this lane depends on execution order or on cross-test module state, and the
+#     pass/skip node-id sets were compared serial-vs-parallel and are identical; POLARS_XDIST_DIST
+#     is the escape hatch if a future order-dependent test needs `loadfile`/`loadscope`.
+XDIST_ARGS=()
+if [ "${POLARS_XDIST:-auto}" != "0" ]; then
+    XDIST_ARGS=(
+        -n "${POLARS_XDIST:-auto}"
+        --maxprocesses "${POLARS_XDIST_MAX:-4}"
+        --dist "${POLARS_XDIST_DIST:-load}"
+    )
+fi
+
 COV_ARGS=()
 if [ -n "${POLARS_COV:-}" ]; then
     COV_ARGS=(--cov=graphistry --cov-report=)
 fi
 
-python -B -m pytest -vv "${COV_ARGS[@]}" "${POLARS_TEST_FILES[@]}" "$@"
+python -B -m pytest -vv "${XDIST_ARGS[@]}" "${COV_ARGS[@]}" "${POLARS_TEST_FILES[@]}" "$@"
 
 # cypher-lowering polars-parametrized cases (round ties, lower/upper, =~, numeric fns);
-# appended into the same coverage data file when POLARS_COV=1 (CI audit reads it)
+# appended into the same coverage data file when POLARS_COV=1 (CI audit reads it).
+# Left SERIAL on purpose: it is one module and ~8s of the lane, so worker startup would eat
+# the gain. Appending into the data file the xdist phase produced is verified — the merged
+# result is line-for-line identical to running the whole script in one go.
 COV_APPEND_ARGS=()
 if [ -n "${POLARS_COV:-}" ]; then
     COV_APPEND_ARGS=(--cov=graphistry --cov-report= --cov-append)
