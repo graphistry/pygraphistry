@@ -17091,7 +17091,7 @@ def test_t5_two_hop_equal_domain_degree_cache_reuses_counts(engine: str) -> None
 # ordering/null-ordering guards the H2 grouped-aggregate path needs do not exist here;
 # `test_h3_two_hop_count_fast_path_has_no_order_by_or_limit_surface` PROVES that rather
 # than assuming it).  Inside that shape the fused lazy lane serves the DISTINCT-DOMAIN
-# case; the equal-domain case (q8) keeps the cached degree-count branch.
+# case; the equal-domain case keeps the cached degree-count branch.
 # ---------------------------------------------------------------------------
 
 _H3_DISTINCT_DOMAIN_QUERY = (
@@ -17147,7 +17147,7 @@ def _mk_h3_graph(engine: str, nodes_df: pd.DataFrame, edges_df: pd.DataFrame) ->
 
 def _probe_fused_two_hop(monkeypatch: pytest.MonkeyPatch) -> List[bool]:
     """Record one entry per fused-lane CALL: True=served, False=declined. An empty list means
-    the lane was never reached (the q8/equal-domain and non-polars contract)."""
+    the lane was never reached (the equal-domain and non-polars contract)."""
     calls: List[bool] = []
     original = gfql_fast_paths_module._two_hop_count_fused_polars
 
@@ -17228,10 +17228,10 @@ def test_h3_fused_two_hop_count_serves_distinct_edge_domains(engine: str, monkey
 
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
-def test_h3_fused_two_hop_count_never_reached_by_equal_domain_q8_shape(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """q8 NO-REGRESSION GUARD (structural). The equal-domain shape is a WIN on the board and is
-    served by the memoized degree-count branch; routing it through the fused lane would trade a
-    cross-call cache hit for a replan. Assert the fused lane is not even CALLED."""
+def test_h3_fused_two_hop_count_never_reached_by_equal_domain_shape(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """EQUAL-DOMAIN NO-REGRESSION GUARD (structural). The equal-domain shape is served by the
+    memoized degree-count branch; routing it through the fused lane would trade a cross-call
+    cache hit for a replan. Assert the fused lane is not even CALLED."""
     nodes, edges = _mk_h3_base_data()
     oracle = _h3_records(_mk_graph(nodes, edges).gfql(_H3_EQUAL_DOMAIN_QUERY, engine="pandas"))
     graph = _mk_h3_graph(engine, nodes, edges)
@@ -17239,8 +17239,33 @@ def test_h3_fused_two_hop_count_never_reached_by_equal_domain_q8_shape(engine: s
     calls = _probe_fused_two_hop(monkeypatch)
     result = graph.gfql(_H3_EQUAL_DOMAIN_QUERY, engine=engine)
 
-    assert calls == [], "equal-domain (q8) shape must keep the cached degree-count branch"
+    assert calls == [], "equal-domain shape must keep the cached degree-count branch"
     assert _h3_records(result) == oracle == [{"numPaths": 7}]
+
+
+_H3_DEGREE_MEMO_ATTR = "_gfql_two_hop_equal_domain_degree_counts_cache"
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+def test_h3_equal_domain_two_hop_count_memo_miss_matches_memo_hit(engine: str) -> None:
+    """The equal-domain degree counts are memoized on the Plottable, so a FIRST call runs a
+    different branch (compute the two degree frames) than every later call on the same frames
+    (read them back). Both branches are pinned here rather than assumed: engagement is asserted
+    via the memo attribute (absent before, one entry after), and the memo-MISS answer, the
+    memo-HIT answer and a never-warmed Plottable's answer must all equal the pandas oracle."""
+    nodes, edges = _mk_h3_base_data()
+    oracle = _h3_records(_mk_graph(nodes, edges).gfql(_H3_EQUAL_DOMAIN_QUERY, engine="pandas"))
+
+    graph = _mk_h3_graph(engine, nodes, edges)
+    assert not getattr(graph, _H3_DEGREE_MEMO_ATTR, None), "memo must start empty"
+    cold = _h3_records(graph.gfql(_H3_EQUAL_DOMAIN_QUERY, engine=engine))
+    assert len(getattr(graph, _H3_DEGREE_MEMO_ATTR, {}) or {}) == 1, "memo lane was not reached"
+    warm = _h3_records(graph.gfql(_H3_EQUAL_DOMAIN_QUERY, engine=engine))
+
+    unwarmed = _mk_h3_graph(engine, nodes, edges)
+    fresh = _h3_records(unwarmed.gfql(_H3_EQUAL_DOMAIN_QUERY, engine=engine))
+
+    assert cold == warm == fresh == oracle == [{"numPaths": 7}]
 
 
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])

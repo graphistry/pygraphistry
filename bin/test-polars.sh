@@ -26,7 +26,13 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_engine_polars_chain.py
     graphistry/tests/compute/gfql/test_engine_polars_row_pipeline.py
     graphistry/tests/compute/gfql/test_engine_polars_binding_rows.py
+    # engine-parametrized (pandas/polars/cudf/polars-gpu); the pandas params also run in
+    # test-gfql-core, but only this lane has polars installed
+    graphistry/tests/compute/gfql/test_varlen_bounded_engine_parity_1787.py
     graphistry/tests/compute/gfql/test_engine_polars_with_match_reentry.py
+    # engine-parametrized: its pandas params run in test-gfql-core, but the polars params
+    # only ever run here (the file has no module-level importorskip, so nothing else flags it)
+    graphistry/tests/compute/gfql/test_exec_context_scoping.py
     graphistry/tests/compute/gfql/test_engine_polars_cypher_conformance.py
     graphistry/tests/compute/gfql/test_engine_polars_conformance_matrix.py
     graphistry/tests/compute/gfql/test_polars_string_predicate_nonstring.py
@@ -37,6 +43,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
     graphistry/tests/compute/gfql/test_seeded_typed_hop_fastpath.py
     graphistry/tests/compute/gfql/test_residual_polars_native.py
+    graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_fused_polars.py
     # module-level `importorskip("polars")` files that previously ran in no lane at all
     graphistry/tests/compute/gfql/test_engine_polars_narrow_combine.py
     graphistry/tests/compute/gfql/test_engine_polars_semi_key_dedup.py
