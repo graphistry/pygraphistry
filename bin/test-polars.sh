@@ -37,6 +37,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
     graphistry/tests/compute/gfql/test_seeded_typed_hop_fastpath.py
     graphistry/tests/compute/gfql/test_residual_polars_native.py
+    graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_fused_polars.py
     # module-level `importorskip("polars")` files that previously ran in no lane at all
     graphistry/tests/compute/gfql/test_engine_polars_narrow_combine.py
     graphistry/tests/compute/gfql/test_engine_polars_semi_key_dedup.py
