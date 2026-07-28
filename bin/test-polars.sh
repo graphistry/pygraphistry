@@ -25,6 +25,10 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_engine_polars_row_pipeline.py
     graphistry/tests/compute/gfql/test_engine_polars_binding_rows.py
     graphistry/tests/compute/gfql/test_engine_polars_with_match_reentry.py
+    # #1788 / #1790 regression suites: engine-parametrized over pandas/cuDF/polars/polars-gpu,
+    # so their POLARS params only ever run here (test-gfql-core installs no polars)
+    graphistry/tests/compute/gfql/test_rows_table_named_middle.py
+    graphistry/tests/compute/gfql/test_rewrite_param_discard.py
     graphistry/tests/compute/gfql/test_engine_polars_cypher_conformance.py
     graphistry/tests/compute/gfql/test_engine_polars_conformance_matrix.py
     graphistry/tests/compute/gfql/test_polars_string_predicate_nonstring.py
