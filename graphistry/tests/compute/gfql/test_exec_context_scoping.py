@@ -38,15 +38,18 @@ COVERAGE BOUNDARY, stated rather than hidden behind a skip: the context is engin
 plumbing, but the shapes below are exercised on all four engines because the two attach/clear
 pairs are duplicated across the generic chain and the native polars chain. No CI lane runs cuDF
 or polars-gpu (``ci-gpu.yml`` is hard-disabled and does not install the ``polars`` extra), so
-those two parameters report SKIPPED on CI — visibly, via a runtime probe, never as a silent
-pass. They are exercised out of band on the dgx GPU box against
+those two parameters report SKIPPED on CI — visibly, with the reason quoted, never as a silent
+pass. The availability check CLASSIFIES rather than swallows: a missing module skips, a
+recognisable GPU-stack error skips with its text quoted, and any other failure propagates,
+because a silently skipped GPU parameter reads as evidence of passing. They are exercised out
+of band on the dgx GPU box against
 ``graphistry/test-rapids-official:26.02-gfql-polars`` (``docker run --gpus all`` — omitting
 ``--gpus all`` FABRICATES failures rather than skipping).
 """
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any, List, Tuple
+from typing import Any, List, Optional, Tuple
 
 import pandas as pd
 import pytest
@@ -101,26 +104,61 @@ def _seed(engine: str) -> Any:
     return _frame(engine, pd.DataFrame({"id": [0]}))
 
 
-@lru_cache(maxsize=None)
-def _engine_runnable(engine: str) -> bool:
-    """Probe by RUNNING the smallest version of what these tests do.
+#: Substrings that identify a broken/absent GPU STACK rather than a product defect. Matched
+#: against ``type(ex).__name__: str(ex)``, lowercased. Deliberately narrow — anything not
+#: listed is treated as a REAL failure, because guessing wrong in that direction produces a
+#: silently green GPU lane. (Duplicated from the copy landing in `polars_test_utils.py`
+#: alongside the #1788/#1790 engine parametrization; collapse to one definition once both land.)
+_GPU_ENVIRONMENT_MARKERS = (
+    "libnvrtc", "libcuda", "libcudart", "nvrtc", "cuinit",
+    "no cuda-capable device", "cuda driver", "cuda runtime",
+    "cuda_error", "cudaerror", "driver version",
+    "gpu engine requested",  # polars' own message when cudf_polars is absent
+)
 
-    Cheaper probes do not discriminate on a box with cudf/cudf_polars importable but no working
-    CUDA runtime — frame construction and simple ops all succeed there and the suite then dies
-    inside the first real kernel. So the probe is an actual boundary-call run.
+
+@lru_cache(maxsize=None)
+def _engine_skip_reason(engine: str) -> Optional[str]:
+    """``None`` => this engine MUST run here; a string => a stated, checkable skip reason.
+
+    Two traps, both established by trying rather than by argument:
+
+    * An IMPORT-only check does not discriminate on a box where cudf / cudf_polars import
+      against an incomplete CUDA runtime — construction and simple ops succeed and the suite
+      then dies inside the first real kernel, which reads as a product failure. So a smoke
+      QUERY runs.
+    * A check that SWALLOWS every exception is worse. A transient `cudaErrorMemoryAllocation`
+      in a fresh GPU container silently dropped cuDF from an otherwise-green run, and a
+      skipped GPU parameter reads as evidence of passing. So: a missing module skips, a
+      recognisable GPU-stack error skips WITH ITS TEXT QUOTED, and anything else propagates.
+
+    The smoke query is a plain traversal, never the shape under test — a check that ran the
+    asserted shape would let a regression disarm its own test.
     """
+    import importlib.util
+
+    for module in {"polars": ("polars",), "polars-gpu": ("polars", "cudf_polars"),
+                   "cudf": ("cudf",)}.get(engine, ()):
+        if importlib.util.find_spec(module) is None:
+            return f"{module} is not installed"
     try:
-        _graph(engine).gfql(list(BOUNDARY_OPS), engine=engine)
-        return True
-    except Exception:  # noqa: BLE001 — any failure means "cannot run", never "test fails"
-        return False
+        _graph(engine).gfql([n(), e_forward(), n()], engine=engine)
+    except BaseException as ex:  # noqa: BLE001 — classified below, never blanket-swallowed
+        if isinstance(ex, ImportError):
+            return f"{type(ex).__name__}: {ex}"
+        text = f"{type(ex).__name__}: {ex}".lower()
+        if any(marker in text for marker in _GPU_ENVIRONMENT_MARKERS):
+            return f"{type(ex).__name__}: {ex}"
+        raise
+    return None
 
 
 def _require(engine: str) -> None:
-    if not _engine_runnable(engine):
+    reason = _engine_skip_reason(engine)
+    if reason is not None:
         pytest.skip(
-            f"engine {engine!r} is not runnable in this environment — NOT evidence that it "
-            "passes; see the COVERAGE BOUNDARY note in this module's docstring"
+            f"engine {engine!r} unavailable here ({reason}) — NOT evidence that it passes; "
+            "see the COVERAGE BOUNDARY note in this module's docstring"
         )
 
 
