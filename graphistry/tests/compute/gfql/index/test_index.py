@@ -29,7 +29,13 @@ def _engines():
         import polars  # noqa
         out.append("polars")
         try:
-            import cudf  # noqa
+            # `cudf_polars`, NOT `cudf`: engine='polars-gpu' is the cudf_polars GPU collect
+            # target and raises `ImportError: GFQL engine='polars-gpu' requires the RAPIDS
+            # cudf_polars stack` without it. Gating on `cudf` FABRICATED 20 failures on every
+            # box that has cuDF but not cudf_polars — a real configuration, and the failures
+            # are indistinguishable from product breakage. CI never caught it because its
+            # polars lane installs neither, so the parameter simply did not exist there.
+            import cudf_polars  # noqa
             out.append("polars-gpu")
         except Exception:
             pass
