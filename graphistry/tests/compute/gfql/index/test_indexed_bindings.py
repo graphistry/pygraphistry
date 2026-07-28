@@ -1110,9 +1110,17 @@ def test_use_policy_sparse_serves_dense_declines(
         assert decisions[0]["reason"] == expected_reason
 
 
-def test_explicit_polars_gpu_declines_indexed_helper_and_falls_back(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def _cudf_polars_available() -> bool:
+    """Mirrors chain.py's own gate: engine='polars-gpu' EXECUTION raises ImportError without
+    the RAPIDS cudf_polars stack. The helper-declines half needs no GPU at all."""
+    import importlib.util
+
+    return importlib.util.find_spec("cudf_polars") is not None
+
+
+def test_explicit_polars_gpu_declines_indexed_helper() -> None:
+    """CPU-only half: the indexed helper must decline for Engine.POLARS_GPU. Split out of the
+    fall-back test so it runs wherever polars does, instead of being lost behind a GPU gate."""
     import graphistry.compute.gfql.index.bindings as indexed_bindings
 
     g = _graph("polars-gpu")
@@ -1124,6 +1132,16 @@ def test_explicit_polars_gpu_declines_indexed_helper_and_falls_back(
     assert indexed_bindings.try_indexed_connected_bindings_state(
         g, ops, engine=Engine.POLARS_GPU
     ) is None
+
+
+@pytest.mark.skipif(
+    not _cudf_polars_available(),
+    reason="engine='polars-gpu' execution requires the RAPIDS cudf_polars stack",
+)
+def test_explicit_polars_gpu_declines_indexed_helper_and_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    g = _graph("polars-gpu")
     _assert_parity(
         g,
         CONNECTED_QUERY,
