@@ -7,7 +7,10 @@ this checks them again before we print anything, because a boundary only holds i
 sides check it.
 
 These run in the ordinary test lane, not only in the docs build, so a number going stale
-or a page referencing a key that no longer exists fails CI rather than a nightly.
+or a page referencing a key that no longer exists fails CI rather than a nightly. That is
+why every rule lives in `gfql_bench_data`, which imports nothing but the standard library;
+the docutils half is a renderer. A gate that needs Sphinx to run is a gate that runs in one
+job out of forty.
 """
 
 import datetime
@@ -22,7 +25,7 @@ DOCS_DIR = os.path.dirname(os.path.abspath(__file__))
 SOURCE_DIR = os.path.join(DOCS_DIR, 'source')
 sys.path.insert(0, os.path.join(SOURCE_DIR, '_ext'))
 
-import gfql_bench  # noqa: E402
+import gfql_bench_data as bench  # noqa: E402
 
 #: ``:bench:`key``` / ``:bench-diag:`key``` as written in the .rst sources.
 BENCH_REF = re.compile(r':(bench|bench-diag):`([^`]+)`')
@@ -30,12 +33,12 @@ BENCH_REF = re.compile(r':(bench|bench-diag):`([^`]+)`')
 
 @pytest.fixture(scope='module')
 def payload():
-    return gfql_bench._load(gfql_bench.BENCHMARKS_JSON)
+    return bench.load(bench.BENCHMARKS_JSON)
 
 
 @pytest.fixture(scope='module')
 def contract():
-    return gfql_bench._load(gfql_bench.CONTRACT_JSON)
+    return bench.load(bench.CONTRACT_JSON)
 
 
 def _rst_sources():
@@ -55,7 +58,7 @@ def _references():
 
 
 def test_the_vendored_artifact_satisfies_the_vendored_contract(payload, contract):
-    gfql_bench._reverify(payload, contract)
+    bench.reverify(payload, contract)
 
 
 def test_the_vendored_contract_is_the_one_the_artifact_was_built_against(payload, contract):
@@ -105,8 +108,8 @@ def test_a_board_quotable_cell_that_is_not_comparable_is_rejected(payload, contr
     key = sorted(broken['cells'])[0]
     broken['cells'][key]['board_quotable'] = True
     broken['cells'][key]['comparison_allowed'] = False
-    with pytest.raises(gfql_bench.BenchNumberError) as excinfo:
-        gfql_bench._reverify(broken, contract)
+    with pytest.raises(bench.BenchDataError) as excinfo:
+        bench.reverify(broken, contract)
     assert 'not comparison_allowed' in str(excinfo.value)
 
 
@@ -114,8 +117,8 @@ def test_a_run_missing_provenance_is_rejected(payload, contract):
     broken = json.loads(json.dumps(payload))
     run_id = sorted(broken['runs'])[0]
     del broken['runs'][run_id]['host']
-    with pytest.raises(gfql_bench.BenchNumberError) as excinfo:
-        gfql_bench._reverify(broken, contract)
+    with pytest.raises(bench.BenchDataError) as excinfo:
+        bench.reverify(broken, contract)
     assert "missing provenance 'host'" in str(excinfo.value)
 
 
@@ -126,31 +129,19 @@ def test_a_caveated_number_without_its_caveat_is_rejected(payload, contract):
     broken['cells'][key]['board_quotable'] = False
     broken['cells'][key]['comparison_allowed'] = False
     broken['cells'][key]['disclosures'] = []
-    with pytest.raises(gfql_bench.BenchNumberError) as excinfo:
-        gfql_bench._reverify(broken, contract)
+    with pytest.raises(bench.BenchDataError) as excinfo:
+        bench.reverify(broken, contract)
     assert 'carries no disclosure' in str(excinfo.value)
 
 
-class _Document(object):
-    class settings(object):
-        class env(object):
-            docname = 'gfql/example'
-
-
-class _Inliner(object):
-    document = _Document
-
-
 def _use(key, diagnostic=False, today=None):
-    """Reference a benchmark key the way a page does, and report what broke."""
-    payload = gfql_bench._load(gfql_bench.BENCHMARKS_JSON)
-    state = gfql_bench._State(payload, today or datetime.date.today())
-    previous = gfql_bench._STATE
-    gfql_bench._STATE = state
-    try:
-        gfql_bench._bench_role(diagnostic)('bench', '', key, 1, _Inliner)
-    finally:
-        gfql_bench._STATE = previous
+    """Reference a benchmark key the way a page does, and report what broke.
+
+    Deliberately does not go through Sphinx: the decision lives in the stdlib-only
+    module precisely so it is checked in every lane, not just the docs build.
+    """
+    state = bench.State(bench.load(bench.BENCHMARKS_JSON), today or datetime.date.today())
+    bench.check_reference(state, key, 'gfql/example', 1, diagnostic)
     return state.problems
 
 
@@ -186,6 +177,16 @@ def test_a_diagnostic_only_number_cannot_be_printed_as_a_result(payload):
 def test_an_artifact_from_another_contract_version_is_rejected(payload, contract):
     broken = json.loads(json.dumps(payload))
     broken['contract_version'] = int(contract['contract_version']) + 1
-    with pytest.raises(gfql_bench.BenchNumberError) as excinfo:
-        gfql_bench._reverify(broken, contract)
+    with pytest.raises(bench.BenchDataError) as excinfo:
+        bench.reverify(broken, contract)
     assert 'contract_version' in str(excinfo.value)
+
+
+def test_the_rules_module_stays_importable_without_sphinx():
+    """CI caught the first draft: the rules lived in the docutils module, so the
+    minimal lane could not import them and the whole gate ran in one job."""
+    with open(os.path.join(SOURCE_DIR, '_ext', 'gfql_bench_data.py'), encoding='utf-8') as f:
+        source = f.read()
+    for forbidden in ('docutils', 'sphinx'):
+        assert 'import {}'.format(forbidden) not in source
+        assert 'from {}'.format(forbidden) not in source
