@@ -25,6 +25,7 @@ DOCS_DIR = os.path.dirname(os.path.abspath(__file__))
 SOURCE_DIR = os.path.join(DOCS_DIR, 'source')
 sys.path.insert(0, os.path.join(SOURCE_DIR, '_ext'))
 
+import gfql_bench_charts as charts  # noqa: E402
 import gfql_bench_data as bench  # noqa: E402
 
 #: ``:bench:`key``` / ``:bench-diag:`key``` as written in the .rst sources.
@@ -180,6 +181,59 @@ def test_an_artifact_from_another_contract_version_is_rejected(payload, contract
     with pytest.raises(bench.BenchDataError) as excinfo:
         bench.reverify(broken, contract)
     assert 'contract_version' in str(excinfo.value)
+
+
+def test_every_chart_matches_the_published_numbers():
+    """A chart is a number too.
+
+    The withdrawn figures outlived their withdrawal on this page because they were
+    baked into an SVG as glyph paths, where no check could see them. The charts are
+    now rendered from the artifact, so this re-renders them and fails on any drift.
+    Regenerate with ``python3 docs/source/_ext/gfql_bench_charts.py --write``.
+    """
+    stale = []
+    for name, svg in charts.rendered().items():
+        path = os.path.join(charts.CHART_DIR, name)
+        if not os.path.exists(path):
+            stale.append('{} is missing'.format(name))
+            continue
+        with open(path, encoding='utf-8') as handle:
+            if handle.read() != svg:
+                stale.append('{} no longer matches the published numbers'.format(name))
+    assert not stale, (
+        'Regenerate: python3 docs/source/_ext/gfql_bench_charts.py --write — '
+        + '; '.join(stale))
+
+
+def test_every_chart_draws_only_published_cells(payload):
+    """The charts obey the same rule the prose does: published cells, or nothing."""
+    referenced = sorted({
+        key
+        for chart in charts.CHARTS.values()
+        for bar in chart.bars
+        for key in (bar.value, bar.ratio)
+        if key is not None})
+    assert referenced, 'the charts reference no benchmark cell at all'
+    missing = [key for key in referenced if key not in payload['cells']]
+    assert not missing, 'charts draw numbers pyg-bench does not publish: ' + '; '.join(missing)
+
+
+def test_a_chart_over_an_unpublished_cell_fails(payload):
+    """The failure the SVGs needed and did not have."""
+    broken = json.loads(json.dumps(payload))
+    name = sorted(charts.CHARTS)[0]
+    drawn = next(bar.value for bar in charts.CHARTS[name].bars if bar.value)
+    del broken['cells'][drawn]
+    with pytest.raises(charts.ChartError) as excinfo:
+        charts.render(name, broken)
+    assert 'does not publish' in str(excinfo.value)
+
+
+def test_the_chart_renderer_stays_importable_without_sphinx():
+    with open(os.path.join(SOURCE_DIR, '_ext', 'gfql_bench_charts.py'), encoding='utf-8') as f:
+        source = f.read()
+    for forbidden in ('docutils', 'sphinx', 'matplotlib'):
+        assert 'import {}'.format(forbidden) not in source
 
 
 def test_the_rules_module_stays_importable_without_sphinx():
