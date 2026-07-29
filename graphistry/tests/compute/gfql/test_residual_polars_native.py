@@ -275,6 +275,20 @@ def _tricky_nodes():
     })
 
 
+def _float_nodes():
+    """A FLOAT column (``score``) plus a second float for in-query math, an int and a string --
+    the dtype spread the NaN-mask scoping turns on."""
+    return pl.DataFrame({
+        "node_id": [1, 2, 3, 4],
+        "score": [0.5, 1.5, 2.5, None],
+        # num/other is 0.0/0.0 on row 2 -> a GENUINE in-query NaN, and an ordinary number
+        # elsewhere, so a mask on the computed operand is discriminating rather than vacuous
+        "num": [1.0, 0.0, 3.0, 0.0],
+        "other": [1.0, 0.0, 2.0, 4.0],
+        "label": ["x", "x", "y", "x"],
+    })
+
+
 def _fast_lane_ids_matching_fallback(expr, nodes=None, alias="a"):
     """Assert the native path is TAKEN for ``expr`` and answers exactly like the fallback.
 
@@ -808,3 +822,262 @@ class TestFusedTwoStarLane:
         got = (got.to_pandas() if hasattr(got, "to_pandas") else got).to_dict("records")
         assert got == gpd.gfql(q, engine="pandas")._nodes.to_dict("records")
         assert got, f"{pred}: vacuous (empty) comparison"
+
+
+class TestFusedLaneNanGuardScoping:
+    """#1832 follow-up: the fused lane skips the IEEE NaN mask for BARE COLUMN operands only.
+
+    Mechanism: the general row lowering wraps every float comparison in
+    ``& col.is_nan().not()`` so NaN compares IEEE-style rather than polars-style
+    (NaN = largest). On the connected-join fused lane that mask is provably dead --
+    gfql ingest ran ``_pl_nan_to_null`` over the frame -- and it measurably doubled the
+    cost of the graph benchmark's two ``p.age`` comparisons. Suppression is opt-in, is
+    scoped to column reads, and must never leak to the general lowering.
+    """
+
+    def _schema(self):
+        return dict(_float_nodes().schema)
+
+    @requires_polars
+    def test_fused_lane_drops_the_mask_for_a_bare_column(self):
+        """The board's own shape: float COLUMN vs int literal, the whole mask goes."""
+        e = fp._residual_polars_expr("(a.score >= 1)", "a", self._schema())
+        assert e is not None
+        assert "is_nan" not in str(e), f"fused lane still carries the NaN mask: {e}"
+
+    @requires_polars
+    def test_only_the_column_side_loses_its_mask(self):
+        """SCOPE pin: a float LITERAL operand is not a column read, so its own is_nan()
+        term is untouched. Only the column term is dropped, and only here."""
+        e = fp._residual_polars_expr("(a.score >= 1.0)", "a", self._schema())
+        assert e is not None
+        assert 'col("score").is_nan()' not in str(e), f"column term survived: {e}"
+        assert "is_nan" in str(e), f"literal term was also dropped (out of scope): {e}"
+
+    @requires_polars
+    def test_column_vs_column_drops_both_terms(self):
+        e = fp._residual_polars_expr("(a.score >= a.other)", "a", self._schema())
+        assert e is not None
+        assert "is_nan" not in str(e), f"a column-vs-column compare kept a mask: {e}"
+
+    @requires_polars
+    def test_general_row_lowering_still_emits_the_mask(self):
+        """The DEFAULT (no opt-in) must stay guarded, for BOTH entry points."""
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        # 1. the same seam without the opt-in
+        e = rp.lower_single_alias_predicate("(a.score >= 1)", "a", self._schema())
+        assert e is not None and 'col("score").is_nan()' in str(e), f"default lost the mask: {e}"
+
+        # 2. the general row-table lowering (`where_rows_polars`'s own path)
+        table = _float_nodes().rename({c: f"a.{c}" for c in _float_nodes().columns})
+        general = rp._lower_with_schema(
+            table, lambda: rp.lower_expr_str("a.score >= 1", list(table.columns))
+        )
+        assert general is not None and "is_nan" in str(general), f"row table lost it: {general}"
+
+    @requires_polars
+    def test_computed_float_operand_keeps_the_mask_even_on_the_fused_lane(self):
+        """In-query math manufactures NaN (0.0/0.0) that ingest cannot have removed."""
+        e = fp._residual_polars_expr("((a.num / a.other) >= 1)", "a", self._schema())
+        assert e is not None
+        assert "is_nan" in str(e), f"computed operand lost its NaN mask: {e}"
+
+    @requires_polars
+    def test_a_computed_nan_is_still_answered_ieee_style_on_the_fused_lane(self):
+        """VALUE proof for the exclusion above: `other` holds a 0.0, so `score/other` is a
+        genuine in-query NaN on row 2. NaN >= 1 must be FALSE (IEEE/pandas), not TRUE
+        (polars NaN = largest)."""
+        nodes = _float_nodes()
+        e = fp._residual_polars_expr("((a.num / a.other) >= 1)", "a", dict(nodes.schema))
+        assert e is not None
+        kept = nodes.filter(e)["node_id"].to_list()
+        assert 2 not in kept, f"the in-query NaN row survived a >= compare: {kept}"
+        pdf = nodes.to_pandas()
+        assert kept == sorted(pdf[(pdf["num"] / pdf["other"]) >= 1]["node_id"].tolist())
+        assert kept, "vacuous (empty) comparison"
+
+    @requires_polars
+    def test_int_and_string_columns_are_unaffected(self):
+        for expr in ("(a.node_id >= 2)", "(a.label = 'x')"):
+            e = fp._residual_polars_expr(expr, "a", self._schema())
+            assert e is not None and "is_nan" not in str(e)
+
+    @requires_polars
+    def test_contextvar_is_restored_after_the_call(self):
+        from graphistry.compute.gfql.lazy.engine.polars.lowering_context import COLUMNS_NAN_FREE
+
+        assert COLUMNS_NAN_FREE.get() is False
+        fp._residual_polars_expr("(a.score >= 1.0)", "a", self._schema())
+        assert COLUMNS_NAN_FREE.get() is False, "opt-in leaked out of the fused lane"
+
+    @requires_polars
+    def test_mask_free_expr_matches_the_masked_one_on_ingested_data(self):
+        """VALUE gate, not just a repr gate: same rows, mask or no mask."""
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        nodes = _float_nodes()
+        for expr in ("(a.score >= 1)", "(a.score < 2)", "(a.score = 1.5)", "(a.score <> 1.5)"):
+            fast = nodes.filter(fp._residual_polars_expr(expr, "a", dict(nodes.schema)))
+            guarded = nodes.filter(
+                rp.lower_single_alias_predicate(expr, "a", dict(nodes.schema)))
+            assert _canon(fast).equals(_canon(guarded)), f"{expr}: mask changed the answer"
+
+    @requires_polars
+    def test_genuine_nan_bypassing_pandas_is_normalized_by_ingest(self):
+        """The suppression's PREMISE, end to end, ON THE LANE THAT USES IT.
+
+        A natively-built polars frame is the only way to carry a real NaN into gfql (the
+        pandas path converts at `from_pandas(nan_to_null=True)`), and `_coerce_input_formats`
+        -> `_pl_nan_to_null` normalizes it to null on the way in. Three assertions, in
+        increasing strength: the residual lane is actually reached; the frame it is handed
+        carries no NaN in any float column; and the answer equals the pandas oracle.
+        """
+        pl2 = pytest.importorskip("polars")
+        ndf = pl2.DataFrame({
+            "node_id": list(range(1, 11)),
+            "node_type": ["Person"] * 4 + ["Interest"] * 3 + ["City"] * 3,
+            "interest": [None] * 4 + ["Fine Dining", "fine dining", "tennis"] + [None] * 3,
+            "city": [None] * 7 + ["London", "london", "Paris"],
+            # float column WITH A GENUINE NaN (rows 2 and 3), built natively -- no pandas hop
+            "score": [1.5, float("nan"), float("nan"), 2.5] + [None] * 6,
+        })
+        assert ndf.get_column("score").is_nan().sum() == 2, "fixture lost its NaN"
+        edf = pl2.DataFrame({
+            "src": [1, 1, 2, 2, 3, 4, 1, 2, 3, 4],
+            "dst": [5, 6, 5, 7, 6, 5, 8, 8, 9, 10],
+            "rel": ["HAS_INTEREST"] * 6 + ["LIVES_IN"] * 4,
+        })
+        q = ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+             "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+             "WHERE toLower(i.interest) = 'fine dining' AND p.score >= 1 "
+             "RETURN c.city AS city, count(p) AS n ORDER BY n DESC, city LIMIT 5")
+
+        seen = []
+        orig = fp._residual_polars_expr
+
+        def spy(expr, alias, schema):
+            seen.append(expr)
+            return orig(expr, alias, schema)
+
+        g = graphistry.nodes(ndf, "node_id").edges(edf, "src", "dst")
+        try:
+            fp._residual_polars_expr = spy
+            got = g.gfql(q, engine="polars")._nodes
+        finally:
+            fp._residual_polars_expr = orig
+        assert any("score" in e for e in seen), f"float residual never translated: {seen}"
+        got = (got.to_pandas() if hasattr(got, "to_pandas") else got).to_dict("records")
+
+        gp = graphistry.nodes(ndf.to_pandas(), "node_id").edges(edf.to_pandas(), "src", "dst")
+        assert got == gp.gfql(q, engine="pandas")._nodes.to_dict("records")
+        assert got, "vacuous (empty) comparison"
+
+        # the load-bearing one: the ingested frame this lane reads has no NaN left, so the
+        # dropped mask had nothing to mask.
+        from graphistry.compute.ComputeMixin import _coerce_input_formats
+        ingested = _coerce_input_formats(g, Engine.POLARS)._nodes
+        floats = [c for c, dt in ingested.schema.items() if dt in (pl.Float32, pl.Float64)]
+        assert floats, "fixture has no float column (vacuous)"
+        for c in floats:
+            assert not ingested.get_column(c).is_nan().any(), f"ingest left a raw NaN in {c}"
+
+
+class TestSingleAliasLoweringMemo:
+    """#1832 follow-up: the lowering is memoized, and the key is complete.
+
+    A stale key here is a silent wrong answer, so the negative cases (dtype change, column
+    change, alias change, opt-in change) matter more than the positive one.
+    """
+
+    @requires_polars
+    def test_same_key_returns_the_identical_expr(self):
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        schema = dict(_float_nodes().schema)
+        a = rp.lower_single_alias_predicate("(a.score >= 1.0)", "a", schema)
+        b = rp.lower_single_alias_predicate("(a.score >= 1.0)", "a", dict(schema))
+        assert a is b, "memo did not hit for an identical key"
+
+    @requires_polars
+    def test_a_dtype_change_alone_gives_a_different_expr(self):
+        """Same predicate, same column NAMES, different dtype -> the mask appears/disappears."""
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        float_schema = {"node_id": pl.Int64, "score": pl.Float64}
+        int_schema = {"node_id": pl.Int64, "score": pl.Int64}
+        f = rp.lower_single_alias_predicate("(a.score >= 1)", "a", float_schema)
+        i = rp.lower_single_alias_predicate("(a.score >= 1)", "a", int_schema)
+        assert f is not None and i is not None
+        assert "is_nan" in str(f) and "is_nan" not in str(i), (
+            f"dtype not reflected in the memo key: float={f} int={i}")
+
+    @requires_polars
+    def test_a_column_set_change_gives_a_different_result(self):
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        present = rp.lower_single_alias_predicate(
+            "(a.score >= 1.0)", "a", {"node_id": pl.Int64, "score": pl.Float64})
+        absent = rp.lower_single_alias_predicate(
+            "(a.score >= 1.0)", "a", {"node_id": pl.Int64})
+        assert present is not None
+        assert absent is None, "an absent column must still decline under the memo"
+
+    @requires_polars
+    def test_alias_and_optin_are_both_in_the_key(self):
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        schema = {"node_id": pl.Int64, "score": pl.Float64}
+        assert rp.lower_single_alias_predicate("(a.score >= 1.0)", "b", schema) is None
+        assert rp.lower_single_alias_predicate("(a.score >= 1.0)", "a", schema) is not None
+        guarded = rp.lower_single_alias_predicate("(a.score >= 1)", "a", schema)
+        free = rp.lower_single_alias_predicate(
+            "(a.score >= 1)", "a", schema, columns_nan_free=True)
+        assert "is_nan" in str(guarded) and "is_nan" not in str(free), (
+            "columns_nan_free is missing from the memo key")
+
+    @requires_polars
+    def test_memo_matches_the_uncached_lowering_for_every_board_shape(self):
+        """The memo is a cache, not a behaviour change: identical repr on every shape."""
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        schema = dict(_float_nodes().schema)
+        shapes = [
+            "(a.score >= 1.0)", "(a.score <= 2.0)", "(a.label = 'x')",
+            "(tolower(a.label) = 'x')", "(a.node_id >= 2)", "(a.score IS NULL)",
+            "(a.label IN ['x', 'y'])", "(a.score >= 1.0 AND a.label = 'x')",
+            "(NOT (a.label = 'x'))", "((a.num / a.other) >= 1)",
+            "(a.missing = 1)", "(b.score >= 1.0)",
+        ]
+        for s in shapes:
+            for opt in (False, True):
+                memo = rp.lower_single_alias_predicate(s, "a", schema, columns_nan_free=opt)
+                raw = rp._lower_single_alias_predicate_uncached(s, "a", schema, opt)
+                assert (memo is None) == (raw is None), f"{s} (opt={opt}): decline mismatch"
+                if memo is not None:
+                    assert str(memo) == str(raw), f"{s} (opt={opt}): {memo} != {raw}"
+
+    @requires_polars
+    def test_cache_is_bounded(self):
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        for i in range(rp._SINGLE_ALIAS_CACHE_MAX * 2 + 5):
+            rp.lower_single_alias_predicate(
+                f"(a.score >= {i}.0)", "a", {"node_id": pl.Int64, "score": pl.Float64})
+        assert len(rp._SINGLE_ALIAS_CACHE) <= rp._SINGLE_ALIAS_CACHE_MAX
+
+    @requires_polars
+    def test_a_cached_expr_is_reusable_across_frames(self):
+        """The memo hands the SAME pl.Expr to different frames; polars exprs are immutable
+        plan fragments, so each frame must still get its own answer."""
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        schema = {"node_id": pl.Int64, "score": pl.Float64}
+        f1 = pl.DataFrame({"node_id": [1, 2], "score": [0.5, 2.5]})
+        f2 = pl.DataFrame({"node_id": [3, 4], "score": [5.5, 0.1]})
+        e = rp.lower_single_alias_predicate("(a.score >= 1.0)", "a", schema)
+        assert e is not None
+        assert f1.filter(e)["node_id"].to_list() == [2]
+        assert f2.filter(e)["node_id"].to_list() == [3]
+        assert rp.lower_single_alias_predicate("(a.score >= 1.0)", "a", schema) is e
+        assert f1.filter(e)["node_id"].to_list() == [2], "expr mutated by use"

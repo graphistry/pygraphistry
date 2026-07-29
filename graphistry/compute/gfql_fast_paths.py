@@ -682,12 +682,27 @@ def _residual_polars_expr(
     all, so the whole comma-pattern query is rejected upstream with a GFQLValidationError and
     no such residual ever reaches this translator. Teaching this function those shapes would
     be dead code; the gap is in the connected-join WHERE renderer, not here.
+
+    ``columns_nan_free=True`` (#1832 follow-up) is the ONE guard this lane opts out of, and only
+    for BARE COLUMN operands. Every frame reaching here is a filtered/joined projection of the
+    graph's own ``_nodes``, which ``_coerce_input_formats`` has already run through
+    ``nan_clean._pl_nan_to_null`` on the way into ``gfql()``; column selection, filtering and
+    joining cannot introduce a NaN a column did not already hold, so no float COLUMN read on this
+    lane can yield NaN and its ``is_nan()`` mask is dead weight. That mask is not free: it is a
+    second full pass over the column plus a boolean AND, and it measurably doubled the cost of
+    the two ``p.age`` comparisons on the graph benchmark's q7. The general row-table lowering
+    keeps the mask (the contextvar defaults to guard-ON) because its frames have NOT been through
+    gfql ingest, and a COMPUTED float operand keeps the mask on both lanes because in-query math
+    (``0.0/0.0``, ``sqrt`` of a negative) manufactures NaN that no ingest can have removed. This
+    restores exactly the guard-free set of the pre-#1832 narrow translator, whose docstring gave
+    the same justification, and mirrors ``predicates.filter_expr_by_dict_polars``, which already
+    omits the mask on the same lane for the same reason.
     """
     from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
         lower_single_alias_predicate,
     )
 
-    return lower_single_alias_predicate(expr, alias, schema)
+    return lower_single_alias_predicate(expr, alias, schema, columns_nan_free=True)
 
 
 def _connected_join_apply_node_residuals(
