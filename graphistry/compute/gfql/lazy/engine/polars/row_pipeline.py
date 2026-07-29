@@ -599,6 +599,110 @@ def lower_expr_str(expr: str, columns: Sequence[str]) -> Optional[pl.Expr]:
     return lower_expr(node, columns)
 
 
+def _bare_column_ast(node: ExprNode, alias: str) -> Optional[ExprNode]:
+    """Rewrite ``alias.prop`` property access to the BARE column ``prop``; None to decline.
+
+    Used by callers that hold ONE alias's own frame (bare column names) rather than the
+    joined row table (``alias.col`` names). ``alias.col -> col`` is a bijection over that
+    frame's columns, so lowering the rewritten tree against the bare schema builds the SAME
+    polars expression the row table would build against the prefixed schema.
+
+    Declines (returns None):
+    - a property access on any OTHER alias -- that alias's columns are not in this frame, and
+      the row-table route cannot resolve them either (``_resolve_property`` -> None -> NIE);
+    - a BARE ``Identifier`` -- no bare name is a column of the prefixed row table, so the
+      row-table route declines it and accepting it here would invent a resolution. The one
+      exception is the whole-entity identity sentinel ``__gfql_node_id__``, which the
+      row-table route DOES resolve through ``_NODE_ID``; this frame publishes no identity
+      column, so it is declined here too. That decline costs only speed -- the caller falls
+      back and the row-table route answers it -- and never changes an answer;
+    - any node type outside the set ``lower_expr`` itself handles (map/subscript/slice/
+      quantifier/comprehension/wildcard), which ``lower_expr`` declines anyway.
+    """
+    from graphistry.compute.gfql.expr_parser import (
+        BinaryOp, CaseWhen, FunctionCall, Identifier, IsNullOp, ListLiteral, Literal,
+        PropertyAccessExpr, UnaryOp,
+    )
+    if isinstance(node, PropertyAccessExpr):
+        if isinstance(node.value, Identifier) and node.value.name == alias:
+            return Identifier(name=node.property)
+        return None
+    if isinstance(node, Literal):
+        return node
+    if isinstance(node, BinaryOp):
+        left = _bare_column_ast(node.left, alias)
+        right = _bare_column_ast(node.right, alias)
+        if left is None or right is None:
+            return None
+        return BinaryOp(op=node.op, left=left, right=right)
+    if isinstance(node, UnaryOp):
+        operand = _bare_column_ast(node.operand, alias)
+        return None if operand is None else UnaryOp(op=node.op, operand=operand)
+    if isinstance(node, IsNullOp):
+        value = _bare_column_ast(node.value, alias)
+        return None if value is None else IsNullOp(value=value, negated=node.negated)
+    if isinstance(node, CaseWhen):
+        condition = _bare_column_ast(node.condition, alias)
+        when_true = _bare_column_ast(node.when_true, alias)
+        when_false = _bare_column_ast(node.when_false, alias)
+        if condition is None or when_true is None or when_false is None:
+            return None
+        return CaseWhen(condition=condition, when_true=when_true, when_false=when_false)
+    if isinstance(node, ListLiteral):
+        items: List[ExprNode] = []
+        for item in node.items:
+            rewritten_item = _bare_column_ast(item, alias)
+            if rewritten_item is None:
+                return None
+            items.append(rewritten_item)
+        return ListLiteral(items=tuple(items))
+    if isinstance(node, FunctionCall):
+        args: List[ExprNode] = []
+        for arg in node.args:
+            rewritten_arg = _bare_column_ast(arg, alias)
+            if rewritten_arg is None:
+                return None
+            args.append(rewritten_arg)
+        return FunctionCall(name=node.name, args=tuple(args), distinct=node.distinct)
+    return None
+
+
+def lower_single_alias_predicate(
+    expr: str, alias: str, schema: Mapping[str, "pl.DataType"]
+) -> Optional[pl.Expr]:
+    """Lower a single-alias predicate STRING against a BARE-column frame schema; None to defer.
+
+    The parity seam for callers that filter one alias's own frame directly instead of routing
+    the predicate through ``where_rows_polars`` on a prefixed row table. Both routes run the
+    SAME parser and the SAME ``lower_expr`` under the SAME ``_SCHEMA`` dtypes, and
+    ``where_rows_polars`` does nothing to the lowered expression but ``table.filter(...)`` --
+    so ``frame.filter(lower_single_alias_predicate(...))`` is value-identical to the where_rows
+    route by construction, including every decline (a decline here is a decline there, i.e. the
+    caller's fallback reaches the row op's designed NotImplementedError rather than guessing).
+
+    ``_NODE_ID`` is pinned to None: this frame has no row-table identity column, so the bare
+    ``__gfql_node_id__`` sentinel must resolve to nothing, exactly as it does on the prefixed
+    row table where the sentinel is not a column either.
+    """
+    parse = _parser()
+    if parse is None:
+        return None
+    try:
+        node = parse(expr)
+    except Exception:
+        return None
+    bare = _bare_column_ast(node, alias)
+    if bare is None:
+        return None
+    schema_token = _SCHEMA.set(dict(schema))
+    node_id_token = _NODE_ID.set(None)
+    try:
+        return lower_expr(bare, list(schema))
+    finally:
+        _SCHEMA.reset(schema_token)
+        _NODE_ID.reset(node_id_token)
+
+
 def lower_select_items(items: Sequence[SelectItem], columns: Sequence[str]) -> Optional[List["pl.Expr"]]:
     """Lower projection items [(alias, expr) | 'col'] to polars exprs, or None."""
     out: List["pl.Expr"] = []

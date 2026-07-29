@@ -1,4 +1,4 @@
-"""#1729/#1755: native polars translation of simple connected-join residuals.
+"""#1729/#1755/#1806: native polars translation of connected-join residuals.
 
 Covers `_residual_polars_expr` (the string→pl.Expr translator) and the fast-lane /
 chain-fallback split in `_connected_join_apply_node_residuals`:
@@ -7,6 +7,13 @@ chain-fallback split in `_connected_join_apply_node_residuals`:
 - negative: unsupported shapes, alias mismatches, and absent columns decline
   (translator returns None); a group with ANY untranslatable expr falls back whole
 - cross-engine: pandas frames never enter the fast lane (chain fallback only)
+
+#1806 widened the translator from two hand-written regex shapes to the full
+single-alias vocabulary by delegating to the SAME `lower_expr` the where_rows
+fallback uses (`row_pipeline.lower_single_alias_predicate`). The differential
+classes below are the gate: for every shape, `frame.filter(translated)` must equal
+the forced chain fallback on the same frame, and every decline must be a shape the
+fallback declines too (so the designed NotImplementedError still surfaces).
 """
 import pandas as pd
 import pytest
@@ -99,23 +106,47 @@ class TestResidualTranslator:
 
     @requires_polars
     @pytest.mark.parametrize("bad", [
-        "(a.name <> 'x')",              # unsupported operator
-        "(a.name CONTAINS 'x')",        # unsupported predicate
-        "(tolower(a.name) = tolower('x'))",   # two-sided: the lowering folds it away first
+        # --- string predicates: the row lowering has no native kernel for them, AND the
+        # connected-join WHERE renderer cannot emit them at all (pinned in
+        # TestStringPredicatesAreUnreachable), so covering them here would be dead code
+        "(a.name CONTAINS 'x')",
+        "(a.name STARTS WITH 'x')",
+        "(a.name ENDS WITH 'x')",
+        "(a.name =~ '.*x.*')",
+        # --- another alias's column: not in THIS frame, and the fallback's prefixed row
+        # table cannot resolve it either (-> its designed NotImplementedError)
         "(tolower(b.name) = 'alice')",  # alias mismatch (checked with alias='a')
         "(toupper(b.name) = 'ALICE')",  # alias mismatch, other case fn
         "(upper(zz.name) = 'ALICE')",   # alias mismatch, GQL alias spelling
-        "('x' = tolower(a.name))",      # reversed operand order
-        "(tolower(a.name) = b.name)",   # rhs is a column, not a literal
-        "(tolower(a.name) = 25)",       # rhs is a number, not a string literal
-        "(substring(a.name, 0, 2) = 'x')",  # a foldable fn on the COLUMN is not this shape
-        "((a.age = 25) AND (a.age = 30))",  # compound
-        "a.age = 25",                   # missing outer parens
+        "(tolower(a.name) = b.name)",   # rhs is another alias's column
         "(b.age = 25)",                 # alias mismatch (checked with alias='a')
-        "(a.missing = 25)",             # absent column
+        "((a.age = 25) AND (b.age = 30))",  # one conjunct on a foreign alias
+        "(NOT (b.age = 25))",           # foreign alias under NOT
+        "(b.age IS NULL)",              # foreign alias under IS NULL
+        "(a.name IN ['x', b.name])",    # foreign alias inside the IN list
+        "(CASE WHEN b.age > 1 THEN 1 ELSE 0 END = 1)",  # foreign alias inside CASE
+        "(a.age + b.age = 2)",          # foreign alias inside arithmetic
+        # --- bare identifiers: no bare name is a column of the fallback's prefixed table
+        "(age = 25)",
+        "(__gfql_node_id__ = 1)",
+        "(a.__gfql_node_id__ = 1)",     # sentinel has no column on a bare-name frame
+        # --- absent column / dtype mismatch: must stay residual (designed NIE)
+        "(a.missing = 25)",
+        "(tolower(a.name) = 25)",       # case fn (String) vs number: cross-type
+        # --- unparseable / outside the row lowering's node whitelist
+        "not-an-expression @@",
+        "(a.age = 25) AND",
+        "(a.name[0] = 'A')",            # subscript: lower_expr declines it
     ])
     def test_unsupported_shapes_decline(self, bad):
         assert fp._residual_polars_expr(bad, "a", COLS()) is None
+
+    @requires_polars
+    def test_declines_when_the_row_expr_parser_is_unavailable(self, monkeypatch):
+        """No parser bundle => decline, never a half-translated filter."""
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+        monkeypatch.setattr(rp, "_parser", lambda: None)
+        assert fp._residual_polars_expr("(a.age = 25)", "a", COLS()) is None
 
 
 class TestResidualApplyFastLane:
@@ -184,17 +215,16 @@ class TestResidualApplyFastLane:
 
 
 class TestResidualDtypeAndEscapeGates:
-    """Review-skill wave (#1763): escaped literals + dtype mismatches must DECLINE
-    so the chain fallback keeps the evaluator's exact semantics (unescaping, or the
-    designed parity-or-error NotImplementedError) instead of raw polars behavior."""
+    """Review-skill wave (#1763): dtype mismatches must DECLINE so the chain fallback
+    keeps the evaluator's designed parity-or-error NotImplementedError instead of raw
+    polars behavior.
 
-    @requires_polars
-    def test_escaped_literal_declines(self):
-        # renderer escapes ' \\ \n etc to \uXXXX text; raw regex compare would mismatch
-        assert fp._residual_polars_expr(
-            "(tolower(a.name) = 'it\\u0027s')", "a", COLS()) is None
-        assert fp._residual_polars_expr(
-            "(a.name = 'C:\\u005Cx')", "a", COLS()) is None
+    #1806 RETIRED the escaped-literal decline: the residual text is now parsed by the
+    evaluator's OWN parser (which unescapes ``\\uXXXX`` exactly as the fallback does)
+    rather than compared as raw regex text, so there is nothing left to mismatch. The
+    replacement is a non-vacuous differential (`TestEscapedLiteralParity`) over rows that
+    really contain a quote and a backslash.
+    """
 
     @requires_polars
     @pytest.mark.parametrize("expr", [
@@ -206,12 +236,13 @@ class TestResidualDtypeAndEscapeGates:
         assert fp._residual_polars_expr(expr, "a", COLS()) is None
 
     @requires_polars
-    def test_categorical_column_declines(self):
+    def test_case_fn_on_categorical_declines(self):
+        """`.str` on Categorical raises in polars only, so the row lowering gates
+        toLower/toUpper on a String OUTPUT dtype -- Categorical stays residual."""
         nodes = pl.DataFrame({"node_id": [1], "cat": ["x"]}).with_columns(
             pl.col("cat").cast(pl.Categorical))
         assert fp._residual_polars_expr(
             "(tolower(a.cat) = 'x')", "a", dict(nodes.schema)) is None
-        assert fp._residual_polars_expr("(a.cat = 'x')", "a", dict(nodes.schema)) is None
 
     @requires_polars
     def test_dtype_mismatch_group_reaches_designed_error(self):
@@ -223,6 +254,231 @@ class TestResidualDtypeAndEscapeGates:
         with pytest.raises(NotImplementedError):
             fp._connected_join_apply_node_residuals(
                 g, nodes, "a", ["(a.name >= 25)"], "node_id", engine=Engine.POLARS)
+
+
+# ---------------------------------------------------------------------------------------
+# #1806: the widened vocabulary.
+#
+# THE GATE IS DIFFERENTIAL, NOT DECLARATIVE. For every shape below the native filter must
+# equal the forced where_rows chain fallback on the SAME frame, and the expected row ids are
+# pinned as well so a differential that both sides get wrong is not mistaken for parity.
+# ---------------------------------------------------------------------------------------
+
+def _tricky_nodes():
+    """Nulls, the empty string, non-ASCII, regex metacharacters, an embedded quote and an
+    embedded backslash -- the values a raw-text/regex translator silently gets wrong."""
+    return pl.DataFrame({
+        "node_id": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        "name": ["Alice", "alice", "BOB", None, "Chloé", "", "a.b*c[d]", "it's", "C:\\x"],
+        "age": [30, 25, None, 40, 35, 0, -5, 7, 8],
+        "flag": [True, False, None, True, False, True, None, False, True],
+    })
+
+
+def _fast_lane_ids_matching_fallback(expr, nodes=None, alias="a"):
+    """Assert the native path is TAKEN for ``expr`` and answers exactly like the fallback.
+
+    Returns the surviving node ids so the caller also pins the ANSWER. Forcing the
+    translator to decline is what makes the right-hand side the pre-#1806 chain evaluator.
+    """
+    nodes = _pl_nodes() if nodes is None else nodes
+    translated = fp._residual_polars_expr(expr, alias, dict(nodes.schema))
+    assert translated is not None, f"{expr!r} declined -- the native path was NOT taken"
+    fast = nodes.filter(translated)
+    real = fp._residual_polars_expr
+    try:
+        fp._residual_polars_expr = lambda *a, **k: None
+        slow = fp._connected_join_apply_node_residuals(
+            _pl_graph(nodes), nodes, alias, [expr], "node_id", engine=Engine.POLARS)
+    finally:
+        fp._residual_polars_expr = real
+    assert _canon(fast).equals(_canon(slow)), f"{expr!r}: fast lane != where_rows fallback"
+    return sorted(fast["node_id"].to_list())
+
+
+class TestWidenedShapesTakeTheNativePath:
+    """(a) POSITIVE: each shape the pre-#1806 regex pair declined now translates, and the
+    native answer is the chain evaluator's answer.
+
+    Null handling is the sharp edge and is pinned per shape: Cypher WHERE is 3-valued, so a
+    NULL operand yields NULL and ``filter`` drops the row for ``!=``/``<>`` just as it does
+    for ``=`` -- the fast lane must NOT keep those rows (pandas' object-dtype ``!=`` on a
+    missing value would).
+    """
+
+    @requires_polars
+    @pytest.mark.parametrize("expr,expected", [
+        ("(a.name != 'BOB')", [1, 2, 5, 6]),          # null name (4) DROPPED, not kept
+        ("(a.name <> 'BOB')", [1, 2, 5, 6]),          # `<>` spelling of the same op
+        ("(a.age != 25)", [1, 4, 5]),                 # null age (3) dropped
+        ("(a.name IS NULL)", [4]),
+        ("(a.name IS NOT NULL)", [1, 2, 3, 5, 6]),
+        ("(a.age IS NULL)", [3]),
+        ("(a.name IN ['BOB', 'alice'])", [2, 3]),
+        ("(a.age IN [25, 30])", [1, 2, 6]),
+        ("((a.name = 'BOB') OR (a.age = 25))", [2, 3, 6]),
+        ("(NOT (a.name = 'BOB'))", [1, 2, 5, 6]),     # NOT null = null -> dropped
+        ("((a.age >= 25) AND (a.age <= 30))", [1, 2, 6]),
+        ("(tolower(a.name) != 'alice')", [3, 5, 6]),
+        ("(toupper(a.name) <> 'BOB')", [1, 2, 5]),
+        # shapes the regex pair rejected purely for LAYOUT, not semantics
+        ("a.age = 25", [2, 6]),                       # no outer parens
+        ("('alice' = tolower(a.name))", [1, 2]),      # reversed operand order
+        ("(substring(a.name, 0, 2) = 'al')", [2]),    # fn on the column side
+        ("(CASE WHEN a.age > 30 THEN 1 ELSE 0 END = 1)", [4, 5]),  # ternary
+        ("(a.age + 1 = 26)", [2, 6]),                 # arithmetic
+    ])
+    def test_shape_translates_and_matches_fallback(self, expr, expected):
+        assert _fast_lane_ids_matching_fallback(expr) == expected
+
+
+class TestEscapedLiteralParity:
+    """The renderer escapes ``'`` and ``\\`` to ``\\uXXXX`` text. The pre-#1806 translator
+    DECLINED any literal containing a backslash because it compared the raw regex capture;
+    the widened one hands the text to the evaluator's own parser, which unescapes it the
+    same way. Rows that really contain a quote and a backslash keep this non-vacuous."""
+
+    @requires_polars
+    @pytest.mark.parametrize("expr,expected", [
+        ("(a.name = 'it\\u0027s')", [8]),
+        ("(a.name != 'it\\u0027s')", [1, 2, 3, 5, 6, 7, 9]),
+        ("(a.name = 'C:\\u005Cx')", [9]),
+        ("(a.name != 'C:\\u005Cx')", [1, 2, 3, 5, 6, 7, 8]),
+        ("(a.name IN ['it\\u0027s', 'C:\\u005Cx'])", [8, 9]),
+        ("(tolower(a.name) = 'it\\u0027s')", [8]),
+    ])
+    def test_escaped_literal_matches_fallback(self, expr, expected):
+        assert _fast_lane_ids_matching_fallback(expr, _tricky_nodes()) == expected
+
+
+class TestLiteralTextSemanticsParity:
+    """(c) DIFFERENTIAL over the values that separate a literal comparison from a regex or
+    a byte comparison: metacharacters, the empty string, non-ASCII, and NULL."""
+
+    @requires_polars
+    @pytest.mark.parametrize("expr,expected", [
+        # `.` `*` `[` are DATA here, never a pattern
+        ("(a.name = 'a.b*c[d]')", [7]),
+        ("(a.name != 'a.b*c[d]')", [1, 2, 3, 5, 6, 8, 9]),
+        ("(a.name IN ['a.b*c[d]'])", [7]),
+        # a metacharacter-only literal must match NOTHING, not everything
+        ("(a.name = '.*')", []),
+        # empty string is a value, not a null
+        ("(a.name = '')", [6]),
+        ("(a.name != '')", [1, 2, 3, 5, 7, 8, 9]),
+        # non-ASCII round-trips through the escape + the case kernels
+        ("(a.name = 'Chlo\\u00e9')", [5]),
+        ("(tolower(a.name) = 'chlo\\u00e9')", [5]),
+        ("(a.name != 'Chlo\\u00e9')", [1, 2, 3, 6, 7, 8, 9]),
+        # 3-valued booleans
+        ("(a.flag IS NULL)", [3, 7]),
+        ("(a.flag IS NOT NULL)", [1, 2, 4, 5, 6, 8, 9]),
+        ("(NOT (a.flag = true))", [2, 5, 8]),
+        ("((a.name IS NULL) OR (a.age > 30))", [4, 5]),
+    ])
+    def test_value_semantics_match_fallback(self, expr, expected):
+        assert _fast_lane_ids_matching_fallback(expr, _tricky_nodes()) == expected
+
+
+class TestWrongDtypeStaysResidual:
+    """(b) NEGATIVE: a dtype-incompatible variant of every widened shape must DECLINE, and
+    the fallback must then raise the row op's designed NotImplementedError. Declining is
+    load-bearing here: translating would hand back a raw polars error (or, for ``IN``, a
+    silently different membership answer) instead of the designed one."""
+
+    @requires_polars
+    @pytest.mark.parametrize("expr", [
+        "(a.name != 25)",              # numeric literal vs String column
+        "(a.age != 'thirty')",         # string literal vs Int column
+        "(a.age IN ['x'])",            # cross-category IN
+        "(toupper(a.age) != 'X')",     # case fn on a non-String column
+    ])
+    def test_declines_and_fallback_raises_designed_error(self, expr):
+        nodes = _tricky_nodes()
+        assert fp._residual_polars_expr(expr, "a", dict(nodes.schema)) is None
+        with pytest.raises(NotImplementedError):
+            fp._connected_join_apply_node_residuals(
+                _pl_graph(nodes), nodes, "a", [expr], "node_id", engine=Engine.POLARS)
+
+
+class TestCategoricalNonStrOpsParity:
+    """A Categorical column is only a problem for ``.str`` kernels. ``=``/``!=``/``IS NULL``/
+    ``IN`` are not, and the where_rows evaluator answers them, so the fast lane must too --
+    the pre-#1806 dtype gate declined them wholesale (correct but needlessly)."""
+
+    @staticmethod
+    def _cat_nodes():
+        return pl.DataFrame({
+            "node_id": [1, 2, 3, 4],
+            "cat": ["Alice", "BOB", None, "bob"],
+        }).with_columns(pl.col("cat").cast(pl.Categorical))
+
+    @requires_polars
+    @pytest.mark.parametrize("expr,expected", [
+        ("(a.cat = 'BOB')", [2]),
+        ("(a.cat != 'BOB')", [1, 4]),
+        ("(a.cat IS NULL)", [3]),
+        ("(a.cat IN ['BOB', 'bob'])", [2, 4]),
+    ])
+    def test_categorical_non_str_ops_match_fallback(self, expr, expected):
+        assert _fast_lane_ids_matching_fallback(expr, self._cat_nodes()) == expected
+
+
+class TestStringPredicatesAreUnreachable:
+    """DECLINE WITH EVIDENCE (contradicting the obvious guess).
+
+    ``STARTS WITH`` / ``ENDS WITH`` / ``CONTAINS`` / ``=~`` are declined not because parity
+    is hard but because NO such residual can reach this translator: on the polars engine
+    ``_pushdown_connected_join_where_filters`` cannot render them to a row filter, so the
+    comma-pattern query is rejected upstream and the translator is never called. Teaching
+    it those shapes would be unreachable code; the gap is in the WHERE renderer.
+    """
+
+    Q = ("MATCH (p {node_type:'Person'})-[]->(i), (p)-[]->(c) WHERE %s "
+         "RETURN count(p) AS n")
+
+    @staticmethod
+    def _g():
+        nodes = pl.DataFrame({
+            "node_id": [1, 2, 3],
+            "node_type": ["Person", "X", "Y"],
+            "s": ["ab", "cd", None],
+        })
+        edges = pl.DataFrame({"src": [1, 1], "dst": [2, 3]})
+        return graphistry.nodes(nodes, "node_id").edges(edges, "src", "dst")
+
+    @requires_polars
+    @pytest.mark.parametrize("pred", [
+        "i.s STARTS WITH 'a'", "i.s ENDS WITH 'b'", "i.s CONTAINS 'b'", "i.s =~ '.*b'",
+    ])
+    def test_no_such_residual_ever_reaches_the_translator(self, pred, monkeypatch):
+        from graphistry.compute.exceptions import GFQLValidationError
+        seen = []
+        real = fp._residual_polars_expr
+
+        def spy(expr, alias, columns):
+            seen.append(expr)
+            return real(expr, alias, columns)
+
+        monkeypatch.setattr(fp, "_residual_polars_expr", spy)
+        with pytest.raises(GFQLValidationError):
+            self._g().gfql(self.Q % pred, engine="polars")._nodes
+        assert seen == [], f"{pred!r} unexpectedly reached the residual translator"
+
+    @requires_polars
+    @pytest.mark.parametrize("expr", [
+        "(a.name STARTS WITH 'A')", "(a.name ENDS WITH 'e')",
+        "(a.name CONTAINS 'l')", "(a.name =~ '.*l.*')",
+    ])
+    def test_translator_declines_them_and_so_does_the_evaluator(self, expr):
+        """Belt-and-braces: even if such a residual were synthesized by hand, the fast lane
+        declines it and the fallback raises -- no engine answers it natively, so there is
+        no correct answer for the fast lane to guess at."""
+        nodes = _tricky_nodes()
+        assert fp._residual_polars_expr(expr, "a", dict(nodes.schema)) is None
+        with pytest.raises(NotImplementedError):
+            fp._connected_join_apply_node_residuals(
+                _pl_graph(nodes), nodes, "a", [expr], "node_id", engine=Engine.POLARS)
 
 
 class TestFusedTwoStarLane:
@@ -467,17 +723,88 @@ class TestFusedTwoStarLane:
         assert self._rows(fused), f"{fn}: vacuous (empty) comparison"
 
     @requires_polars
-    def test_non_ascii_two_sided_declines_the_lane_but_not_the_answer(self, monkeypatch):
-        """DISCLOSED NARROWING. A non-ASCII two-sided literal is outside the region
-        where the engines provably agree, so the fold DECLINES, the residual stays
-        two-sided, and the fused lane declines with it. That costs speed on an exotic
-        shape and buys back a Python-vs-Rust case-table assumption master was making
-        silently. The ANSWER must be unchanged -- that is what is asserted."""
+    def test_non_ascii_two_sided_stays_unfolded_but_now_serves_the_lane(self, monkeypatch):
+        """DISCLOSED NARROWING, restated for #1806. A non-ASCII two-sided literal is
+        outside the region where the engines provably agree, so the plan-time CONSTANT FOLD
+        still declines and the residual text arrives UNFOLDED -- that invariant is asserted
+        directly, and it is the one that protects the Python-vs-Rust case table.
+
+        What changed: the fused lane no longer declines with it. The pre-#1806 regex pair
+        could not match a two-sided text, and that incidental decline bought nothing --
+        the where_rows fallback it deferred to lowers BOTH sides with the same polars
+        ``to_lowercase`` kernel anyway, so the answer was already the Rust-cased one. The
+        widened translator lowers the same two sides with the same kernel; the assertion
+        that matters (answer == chain fallback) is unchanged and still made."""
         g = self._star_graph()
         q = self.Q_ONE_SIDED.replace("toLower(i.interest) = 'fine dining'",
                                      "toLower(i.interest) = toLower('FINE DINİNG')")
+        seen = self._spy_residual_texts(monkeypatch)
         calls = self._spy_fused(monkeypatch)
-        declined = g.gfql(q, engine="polars")
-        assert not any(calls), "non-ASCII two-sided residual unexpectedly served the fused lane"
+        served = g.gfql(q, engine="polars")
+        assert any("= tolower(" in e for e, _ in seen), \
+            f"constant fold unexpectedly collapsed the two-sided literal: {seen}"
+        assert calls and calls[-1], "two-sided residual no longer serves the fused lane"
         monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
-        assert self._rows(declined) == self._rows(g.gfql(q, engine="polars"))
+        assert self._rows(served) == self._rows(g.gfql(q, engine="polars"))
+
+    # --- #1806 widened vocabulary, END TO END through gfql() -----------------------------
+
+    #: `!=`/`<>`, IS [NOT] NULL, IN, OR, NOT: every one of these was a whole-lane decline
+    #: before #1806 (one untranslatable residual drops the fused plan entirely).
+    WIDENED_PREDICATES = [
+        "i.interest <> 'tennis'",
+        "i.interest != 'tennis'",
+        "i.interest IS NOT NULL",
+        "i.interest IN ['tennis', 'fine dining']",
+        "(i.interest = 'tennis' OR i.interest = 'fine dining')",
+        "NOT (i.interest = 'tennis')",
+        "toUpper(i.interest) <> 'TENNIS'",
+        "i.interest <> 'tennis' AND p.gender IS NOT NULL",
+    ]
+
+    def _widened_query(self, pred):
+        return ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+                "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+                f"WHERE {pred} "
+                "RETURN c.city AS city, count(p) AS n ORDER BY n DESC, city LIMIT 5")
+
+    @requires_polars
+    @pytest.mark.parametrize("pred", WIDENED_PREDICATES)
+    def test_widened_residual_engages_fused_lane_and_matches_the_evaluator(self, pred, monkeypatch):
+        """STRUCTURAL LOCK-IN: `served == 1` is the regression signal (a single
+        untranslatable residual declines the ENTIRE fused lane), and the answer must equal
+        the forced where_rows chain path on the same graph."""
+        g = self._star_graph()
+        q = self._widened_query(pred)
+        calls = self._spy_fused(monkeypatch)
+        fused = g.gfql(q, engine="polars")
+        assert calls.count(True) == 1, (
+            f"{pred}: fused lane served {calls.count(True)} times, expected 1 "
+            "(0 => the widened residual stopped translating)")
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        eager = g.gfql(q, engine="polars")
+        assert self._rows(fused) == self._rows(eager)
+        assert self._rows(fused), f"{pred}: vacuous (empty) comparison"
+
+    @requires_polars
+    @pytest.mark.parametrize("pred", [
+        p for p in WIDENED_PREDICATES if " IN [" not in p
+    ])
+    def test_widened_residual_matches_pandas_oracle(self, pred, monkeypatch):
+        """CROSS-ENGINE: the widened polars fast lane answers what pandas answers.
+
+        ``IN [...]`` is excluded because the PANDAS connected-join route raises
+        ``GFQLTypeError: Unalignable boolean Series`` on an ``x IN [...]`` residual -- a
+        pre-existing pandas-side defect on master, unrelated to and untouched by the polars
+        translator (the polars fast lane and the polars where_rows fallback agree on it, as
+        pinned above)."""
+        g = self._star_graph()
+        gpd = graphistry.nodes(g._nodes.to_pandas(), "node_id").edges(
+            g._edges.to_pandas(), "src", "dst")
+        q = self._widened_query(pred)
+        calls = self._spy_fused(monkeypatch)
+        got = g.gfql(q, engine="polars")._nodes
+        assert calls and calls[-1], f"{pred}: fused lane did not engage"
+        got = (got.to_pandas() if hasattr(got, "to_pandas") else got).to_dict("records")
+        assert got == gpd.gfql(q, engine="pandas")._nodes.to_dict("records")
+        assert got, f"{pred}: vacuous (empty) comparison"
