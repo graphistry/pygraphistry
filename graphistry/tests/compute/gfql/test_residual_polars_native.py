@@ -983,6 +983,66 @@ class TestFusedLaneNanGuardScoping:
             assert not ingested.get_column(c).is_nan().any(), f"ingest left a raw NaN in {c}"
 
 
+class TestNanFreeOperandPredicate:
+    """Direct unit tests for `_operand_is_nan_free_column`, the one place the suppression is
+    decided. The fused lane only ever reaches its `Identifier` arm (its predicates have been
+    rewritten to bare columns by `_bare_column_ast`), so the `PropertyAccessExpr` arm --
+    which is what a future caller opting in on a PREFIXED row table would hit -- is exercised
+    here rather than left as an untested branch that a later change could silently break.
+    """
+
+    @requires_polars
+    def _run(self, node, columns, nan_free):
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+        from graphistry.compute.gfql.lazy.engine.polars.lowering_context import COLUMNS_NAN_FREE
+
+        token = COLUMNS_NAN_FREE.set(nan_free)
+        try:
+            return rp._operand_is_nan_free_column(node, columns)
+        finally:
+            COLUMNS_NAN_FREE.reset(token)
+
+    @requires_polars
+    def test_optin_off_means_never(self):
+        """Conjunct 1: without the opt-in nothing is nan-free, whatever the node is."""
+        from graphistry.compute.gfql.expr_parser import Identifier, PropertyAccessExpr
+
+        assert self._run(Identifier(name="score"), ["score"], False) is False
+        assert self._run(
+            PropertyAccessExpr(value=Identifier(name="a"), property="score"),
+            ["a.score", "a"], False) is False
+
+    @requires_polars
+    def test_bare_identifier_arm(self):
+        from graphistry.compute.gfql.expr_parser import Identifier
+
+        assert self._run(Identifier(name="score"), ["score"], True) is True
+        assert self._run(Identifier(name="absent"), ["score"], True) is False
+
+    @requires_polars
+    def test_property_access_arm(self):
+        """A PREFIXED row table: `a.score` resolves, `b.score` does not, and a property
+        access whose base is not a plain Identifier is not a column read at all."""
+        from graphistry.compute.gfql.expr_parser import Identifier, Literal, PropertyAccessExpr
+
+        cols = ["a.score", "a"]
+        assert self._run(
+            PropertyAccessExpr(value=Identifier(name="a"), property="score"), cols, True) is True
+        assert self._run(
+            PropertyAccessExpr(value=Identifier(name="b"), property="score"), cols, True) is False
+        assert self._run(
+            PropertyAccessExpr(value=Literal(value=1), property="score"), cols, True) is False
+
+    @requires_polars
+    def test_computed_and_missing_nodes_are_never_nan_free(self):
+        from graphistry.compute.gfql.expr_parser import BinaryOp, Identifier, Literal
+
+        computed = BinaryOp(op="/", left=Identifier(name="score"), right=Identifier(name="other"))
+        assert self._run(computed, ["score", "other"], True) is False
+        assert self._run(Literal(value=1.0), ["score"], True) is False
+        assert self._run(None, ["score"], True) is False
+
+
 class TestSingleAliasLoweringMemo:
     """#1832 follow-up: the lowering is memoized, and the key is complete.
 
