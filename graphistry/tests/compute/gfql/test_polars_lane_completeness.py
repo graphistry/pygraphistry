@@ -52,6 +52,13 @@ NOT_POLARS_GATED: Dict[str, str] = {
         "the cross-engine half of that pass lives in test_const_fold_engine_parity.py, which "
         "IS in the lane. The word polars here is a docstring cross-reference"
     ),
+    "graphistry/tests/compute/gfql/cypher/test_compiler_policy.py": (
+        "engine-free: the compile cache's engine key is exercised by passing 'polars'/"
+        "'polars-gpu' as plain STRINGS to _compile_string_query, so no polars frame is ever "
+        "built and no polars runtime is needed. The cross-engine half of that pass lives in "
+        "test_const_fold_engine_parity.py, which IS in the lane -- and is what caught the "
+        "engine-blind key in the first place"
+    ),
     "graphistry/tests/compute/gfql/index/test_index_gpu_edge_match.py": (
         "cudf/GPU-gated (module-level importorskip('cudf') + skipif no GPU), not polars-gated; "
         "belongs to the separate GPU-lane gap, and the polars CPU lane could not run it"
