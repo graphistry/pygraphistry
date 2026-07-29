@@ -982,7 +982,7 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
         # (`categorical.rs: not implemented`), which escapes as a pyo3 PanicException -- not even
         # a polars exception, so nothing on the python side can wrap it. Casting to String makes
         # the aggregate well-defined on every polars version AND matches what pandas returns.
-        col = col.cast(pl.String)
+        col = col.cast(pl.String)  # hygiene-ok: explicit-cast -- pl.Expr.cast is a runtime dtype conversion, not typing.cast
     # pandas aggs skip NaN (skipna); polars skips only NULL and treats NaN as a value (NaN == NaN
     # is True, so self-inequality can't detect it). For FLOAT columns convert in-query NaN -> null
     # first so every agg matches the oracle (pandas sum([nan, 1]) == 1 vs raw polars == nan).
