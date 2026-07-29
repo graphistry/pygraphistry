@@ -411,8 +411,10 @@ def _apply_connected_optional_match(
         else:
             seed_frame = cast(DataFrameT, df_to_engine(
                 seed_src.dropna().drop_duplicates().rename(columns={joined_col: node_col}), concrete_engine))
-        seed_ids = cast(SeriesT, seed_frame[node_col])
-        node_ids = cast(SeriesT, base_nodes[node_col])
+        # Declared, not cast: selecting one column off a frame is a Series on every engine, so
+        # the annotation states that directly instead of re-asserting it at the call site.
+        seed_ids: SeriesT = seed_frame[node_col]
+        node_ids: SeriesT = base_nodes[node_col]
         if is_polars_df(base_nodes):
             return cast(DataFrameT, base_nodes.filter(node_ids.is_in(seed_ids)))
         return cast(DataFrameT, base_nodes[node_ids.isin(seed_ids)].copy())

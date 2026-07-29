@@ -526,6 +526,11 @@ def _two_hop_cached_equal_domain_degree_counts(
     if cache is not None and full_key in cache:
         return cast(Tuple[DataFrameT, DataFrameT], cache[full_key])
 
+    # Declared ONCE so neither arm needs a call-site ``cast``: the polars arm produces
+    # ``pl.DataFrame`` and the pandas/cuDF arm produces ``pd.DataFrame``, and ``DataFrameT`` is
+    # pinned to pandas at checking time (graphistry/compute/typing.py). One localized ignore on
+    # the polars assignment replaces four casts; the values are untouched either way.
+    counts: Tuple[DataFrameT, DataFrameT]
     if engine in POLARS_ENGINES:
         import polars as pl
         # MEMO-MISS lane: ONE lazy plan for both degree arms. Eagerly this materialized the
@@ -543,13 +548,13 @@ def _two_hop_cached_equal_domain_degree_counts(
             filtered_edges.group_by(dst_col).len("__in_count__"),
             filtered_edges.group_by(src_col).len("__out_count__"),
         ])
-        counts = (cast(DataFrameT, in_counts), cast(DataFrameT, out_counts))
+        counts = (in_counts, out_counts)  # type: ignore[assignment]  # polars frames; DataFrameT pins pandas
     else:
         domain_ids = domain_nodes[node_col].drop_duplicates()
         filtered_edges = edge_domain[edge_domain[src_col].isin(domain_ids) & edge_domain[dst_col].isin(domain_ids)]
         counts = (
-            cast(DataFrameT, filtered_edges.groupby(dst_col, sort=False).size().reset_index(name="__in_count__")),
-            cast(DataFrameT, filtered_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__")),
+            filtered_edges.groupby(dst_col, sort=False).size().reset_index(name="__in_count__"),
+            filtered_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__"),
         )
 
     if cache is not None:
@@ -1670,7 +1675,10 @@ def _two_hop_count_fused_polars(
         in_counts
         .join(out_counts, left_on=dst_col, right_on=src_col, how="inner")
         .select(
-            (pl.col(_TWO_HOP_IN_COUNT_COL) * pl.col(_TWO_HOP_OUT_COUNT_COL))
+            # `.cast(pl.Int64)` below is `pl.Expr.cast` -- a polars RUNTIME dtype conversion,
+            # not `typing.cast`. The hygiene guard matches any call named `cast`, so the
+            # suppression rides the line the guard reports (the head of the chained call).
+            (pl.col(_TWO_HOP_IN_COUNT_COL) * pl.col(_TWO_HOP_OUT_COUNT_COL))  # hygiene-ok: explicit-cast -- polars dtype cast
             .sum().fill_null(0).cast(pl.Int64).alias(alias)
         )
     )
@@ -2222,7 +2230,10 @@ def _execute_single_hop_grouped_aggregate_fast_path(
         from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_stringlike
         cat_cols = [c for c, dt in work.schema.items() if is_stringlike(dt) and dt != pl.String]
         if cat_cols:
-            work = work.with_columns([pl.col(c).cast(pl.String) for c in cat_cols])
+            # `pl.Expr.cast` is a polars RUNTIME dtype conversion, not `typing.cast`; bound to a
+            # name so the guard's per-line suppression fits inside the 127-col limit.
+            to_string = [pl.col(c).cast(pl.String) for c in cat_cols]  # hygiene-ok: explicit-cast -- polars dtype cast
+            work = work.with_columns(to_string)
         work_schema = work.schema
         for alias, func, expr_alias in aggregations:
             # Same Cypher sum()/avg() type contract the row-pipeline kernels enforce (see
