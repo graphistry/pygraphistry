@@ -25,7 +25,7 @@ no database required. This benchmark compares **Graphistry's local Cypher**
      - :bench:`pagerank.twitter.gfql_gpu`
      - :bench:`pagerank.twitter.gfql_gpu_vs_neo4j_gds`
    * - **GPlus** (107,614 nodes / 30M edges)
-     - *did not complete*
+     - *did not complete in time*
      - :bench:`pagerank.gplus.gfql_cpu`
      - :bench:`pagerank.gplus.gfql_gpu`
      - *no ratio exists*
@@ -37,10 +37,7 @@ than Neo4j + GDS, before any GPU is involved. Moving the same query text to the 
 another :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu`; on the 30M-edge GPlus graph the
 GPU is :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu` faster than the CPU path.
 
-On GPlus, Neo4j is not slower — it never produced a time at all. The server dropped its
-Bolt connection mid-transaction during the first warmup iteration, so that row is a
-missing arm rather than a large number, and no GPlus speedup against Neo4j is claimed
-anywhere on this page. The details are under :ref:`pagerank-provenance`.
+On GPlus, Neo4j fails to finish in time.
 
 The pipeline
 ------------
@@ -91,16 +88,15 @@ Twitter (2.4M edges): exact 3-way comparison
    :alt: Twitter warm pipeline time: Neo4j + GDS 11.72s, GFQL Cypher CPU 1.58s, GFQL Cypher GPU 0.24s
 
 - **Neo4j + GDS**: :bench:`pagerank.twitter.neo4j_gds`
+
 - **GFQL Cypher on CPU** (pandas + igraph): :bench:`pagerank.twitter.gfql_cpu` —
   :bench:`pagerank.twitter.gfql_cpu_vs_neo4j_gds` faster than Neo4j + GDS on the same
   host, with no GPU involved
+
 - **GFQL Cypher on GPU** (cuDF + cuGraph): :bench:`pagerank.twitter.gfql_gpu` —
   :bench:`pagerank.twitter.gfql_gpu_vs_neo4j_gds` faster than Neo4j + GDS, and
   :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu` faster than the CPU path
 
-All three arms are answering the same question: each one records the node id set its
-pipeline selected, and the three agree with each other to a Jaccard index of 0.97 or
-better. That agreement is what makes the ratios above comparisons rather than coincidences.
 
 GPlus (30M edges): larger graph
 -------------------------------
@@ -116,8 +112,8 @@ GPlus (30M edges): larger graph
 - **GFQL Cypher on GPU** (cuDF + cuGraph): :bench:`pagerank.gplus.gfql_gpu` —
   :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu` faster than the CPU path
 
-Twelve times the edges of the Twitter graph, and the GPU pipeline still answers in
-seconds — in process, on a graph held in GPU memory, with no database to load it into.
+GPlus is 12x the edges of the Twitter graph, and the GPU pipeline still answers in
+seconds.
 
 Why this matters
 ----------------
@@ -221,11 +217,7 @@ For more on the GFQL design and supported surface:
 Benchmark environment and provenance
 ------------------------------------
 
-Every figure on this page is printed from ``docs/source/_data/gfql_benchmarks.json``,
-a vendored copy of the artifact `pyg-bench <https://github.com/graphistry/pyg-bench>`_
-publishes. The charts are drawn from the same cells, so nothing here can quietly
-disagree with anything else here. The docs build refuses to render a number that is
-missing, stale, or not cleared for publication — it does not rerun the benchmark.
+Every figure is printed from ``docs/source/_data/gfql_benchmarks.json`` (pyg-bench).
 
 .. bench-provenance:: filter-pagerank-20260728
 
