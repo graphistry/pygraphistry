@@ -957,3 +957,9 @@ def validate_expr_capabilities(
 
     walk_expr_nodes(node, enter=_enter)
     return errors
+
+
+def clear_expr_parser_caches() -> None:
+    """Empty the row-expression parse caches. Called by ``gfql_clear_caches``; see there for
+    why a process-lifetime cache needs a way to be emptied."""
+    _parse_expr_cached.cache_clear()
