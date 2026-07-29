@@ -10,7 +10,6 @@ no back-edge into gfql_unified (the .chain import is a leaf-ward edge, cycle-fre
 
 from dataclasses import replace
 import pandas as pd
-import re
 from types import MappingProxyType
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, TYPE_CHECKING, Union, cast
 from graphistry.Plottable import Plottable
@@ -93,7 +92,7 @@ from graphistry.compute.gfql.physical_planner import PhysicalPlanner
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
 from graphistry.compute.gfql.search_any import search_any_mask
-from graphistry.compute.typing import DataFrameT, DType, SeriesT, NodeDtypes
+from graphistry.compute.typing import DataFrameT, SeriesT, NodeDtypes
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
@@ -630,114 +629,80 @@ def _connected_join_two_star_split_residuals(
     return residuals, rest
 
 
-# The simple residual shapes the connected-join lowering emits for scalar predicates it
-# cannot push into filter_dict (see #1729): case-folded equality and scalar
-# equality/range on a single aliased column. Anything else falls back to the where_rows
-# chain evaluator. Literals: single-quoted strings (no embedded quotes) or numbers.
-#
-# ONE CANONICAL SHAPE. The lowering constant-folds literal-only sub-expressions
-# (``graphistry/compute/gfql/expr_const_fold.py``), so ``toLower(a.c) = toLower('LIT')``
-# arrives here already reduced to ``(tolower(a.c) = 'lit')``. This matcher therefore
-# learns the case-function-vs-LITERAL form only, and the literal is used AS WRITTEN --
-# the where_rows evaluator does not case-fold a bare literal, so ``toLower(x) = 'MALE'``
-# correctly matches nothing. (Case-folding the RHS here would be a silent wrong answer
-# that every all-lowercase benchmark literal would hide.)
-_RESIDUAL_CASE_FN_EQ = re.compile(
-    r"^\((?P<fn>tolower|lower|toupper|upper)\((?P<alias>\w+)\.(?P<col>\w+)\) = "
-    r"'(?P<lit>[^']*)'\)$"
-)
-_RESIDUAL_SCALAR_CMP = re.compile(
-    r"^\((?P<alias>\w+)\.(?P<col>\w+) (?P<op>=|>=|<=|>|<) "
-    r"(?:'(?P<slit>[^']*)'|(?P<nlit>-?\d+(?:\.\d+)?))\)$"
-)
-
-
 def _residual_polars_expr(
     expr: str, alias: str, schema: NodeDtypes
 ) -> Optional['pl.Expr']:
-    """Translate a simple residual to a native polars expression, or None to fall back.
+    """Translate a single-alias residual to a native polars expression, or None to fall back.
 
     ``expr`` is a *string* by contract: the #1729 connected-join lowering serializes
     residual predicates into ASTCall params as canonical predicate strings (e.g.
-    ``(tolower(a.col) = 'lit')``), not typed AST terms — so string parsing here
-    is the honest interface; a typed term would require a lowering-level refactor.
+    ``(tolower(a.col) = 'lit')``), not typed AST terms — so parsing here is the honest
+    interface; a typed term would require a lowering-level refactor.
 
-    Covered (exactly the #1729 scalar-residual shapes): ``(<case fn>(a.col) = 'lit')``
-    for ``toLower``/``lower``/``toUpper``/``upper``, and ``(a.col <op> literal)`` for
-    ``= >= <= > <``. Semantics match the where_rows evaluator on these shapes: string
-    compares are null-safe (null -> filtered out, since polars comparisons on null yield
-    null which ``filter`` drops, same as the evaluator's null-propagating comparisons);
-    the case functions map to the SAME polars kernels the evaluator uses
-    (``str.to_lowercase`` / ``str.to_uppercase``) so the column side is identical by
-    construction, and the LITERAL side is used verbatim because the evaluator does not
-    case-fold a bare literal. Nothing is case-folded in Python here — the lowering's
-    constant-folding pass has already reduced ``= toLower('LIT')`` to ``= 'lit'`` where
-    every engine provably agrees on that value (see ``expr_const_fold`` and #1802), and
-    where it does not, the two-sided text arrives unfolded and DECLINES below.
-    Float NaN ranking differs between polars and the evaluator, but gfql ingest
-    normalizes NaN->null (``_pl_nan_to_null``) so NaN never reaches this filter through
-    ``gfql()``. Declines (returns None, caller uses the chain fallback) on:
-    any other shape, non-matching alias, a column absent from the schema, an ESCAPED
-    string literal (``\\`` — the renderer escapes ``' \\ \\n`` etc. to ``\\uXXXX`` which the
-    evaluator unescapes; raw comparison would silently mismatch), and dtype-incompatible
-    column/literal pairs (string predicate on non-string column and vice versa — the
-    lowering deliberately keeps those residual so the evaluator can raise its designed
-    parity-or-error NotImplementedError rather than a raw polars ComputeError).
+    PARITY BY CONSTRUCTION (#1806), not by re-derivation. The fallback this lane replaces
+    renames the frame's columns to ``alias.col`` and runs a ``where_rows`` chain, which on
+    a polars frame is ``where_rows_polars`` -> ``lower_expr_str`` -> ``table.filter(...)``.
+    This function calls that SAME parser and SAME ``lower_expr``
+    (``row_pipeline.lower_single_alias_predicate``) with ``alias.col`` rewritten to the bare
+    column the un-renamed frame actually has — a bijection over the same frame — so the
+    expression built here is the expression the fallback would build, and the caller's
+    ``frame.filter(...)`` is the fallback's ``table.filter(...)``. Every guard the row
+    lowering owns therefore applies unchanged and is inherited rather than restated: the
+    numeric-vs-string cross-type decline, the temporal/ISO-literal declines, the int-literal
+    division decline, and the float NaN guard (polars ranks NaN largest; pandas/IEEE/Cypher
+    do not). Nothing is case-folded in Python — the lowering's constant-folding pass has
+    already reduced ``= toLower('LIT')`` to ``= 'lit'`` where every engine provably agrees
+    (``expr_const_fold``, #1802); the bare literal is used verbatim, exactly as the
+    evaluator uses it, so ``toLower(x) = 'MALE'`` correctly matches nothing.
+
+    Covered = whatever the polars row lowering covers for a single alias, which is the whole
+    predicate vocabulary the connected-join WHERE renderer can emit here: the case functions
+    ``toLower``/``lower``/``toUpper``/``upper``; ``= != <> < <= > >=``; ``IS NULL`` /
+    ``IS NOT NULL``; ``IN [literals]``; ``AND`` / ``OR`` / ``NOT``; ``CASE WHEN``;
+    arithmetic; and the lowering's function whitelist (``substring``/``size``/``coalesce``/
+    ``toInteger``/...). Escaped string literals (``'it\\u0027s'``) are no longer a special
+    case: the residual text is parsed by the evaluator's own parser, which unescapes it the
+    same way, so no raw-text comparison can mismatch.
+
+    Declines (returns None; the caller uses the where_rows chain fallback, which then either
+    answers or raises the row op's designed NotImplementedError):
+    - a property access on any alias other than ``alias`` — not a column of this frame, and
+      the fallback's prefixed row table cannot resolve it either;
+    - a bare identifier, an absent column, or a node type the row lowering does not handle
+      (map/subscript/slice/quantifier/comprehension) — see ``_bare_column_ast``. The bare
+      whole-entity identity sentinel is in that set: the fallback resolves it via the row
+      table's ``_NODE_ID`` and this frame has no identity column, so declining costs only
+      speed (the fallback still answers) and cannot change an answer;
+    - anything ``lower_expr`` itself declines, e.g. a string predicate on a non-string column
+      or a numeric literal against a string column, which must stay residual so the designed
+      parity-or-error NotImplementedError is what surfaces, not a raw polars ComputeError.
+
+    NOT reachable, therefore NOT covered: ``STARTS WITH`` / ``ENDS WITH`` / ``CONTAINS`` /
+    ``=~``. ``_pushdown_connected_join_where_filters`` cannot render those to a row filter at
+    all, so the whole comma-pattern query is rejected upstream with a GFQLValidationError and
+    no such residual ever reaches this translator. Teaching this function those shapes would
+    be dead code; the gap is in the connected-join WHERE renderer, not here.
+
+    ``columns_nan_free=True`` (#1832 follow-up) is the ONE guard this lane opts out of, and only
+    for BARE COLUMN operands. Every frame reaching here is a filtered/joined projection of the
+    graph's own ``_nodes``, which ``_coerce_input_formats`` has already run through
+    ``nan_clean._pl_nan_to_null`` on the way into ``gfql()``; column selection, filtering and
+    joining cannot introduce a NaN a column did not already hold, so no float COLUMN read on this
+    lane can yield NaN and its ``is_nan()`` mask is dead weight. That mask is not free: it is a
+    second full pass over the column plus a boolean AND, and it measurably doubled the cost of
+    the two ``p.age`` comparisons on the graph benchmark's q7. The general row-table lowering
+    keeps the mask (the contextvar defaults to guard-ON) because its frames have NOT been through
+    gfql ingest, and a COMPUTED float operand keeps the mask on both lanes because in-query math
+    (``0.0/0.0``, ``sqrt`` of a negative) manufactures NaN that no ingest can have removed. This
+    restores exactly the guard-free set of the pre-#1832 narrow translator, whose docstring gave
+    the same justification, and mirrors ``predicates.filter_expr_by_dict_polars``, which already
+    omits the mask on the same lane for the same reason.
     """
-    import polars as pl
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
+        lower_single_alias_predicate,
+    )
 
-    def _is_string_dtype(dtype: DType) -> bool:
-        return dtype == pl.Utf8 or dtype == pl.String
-
-    def _is_numeric_dtype(dtype: DType) -> bool:
-        return dtype.is_numeric() if hasattr(dtype, "is_numeric") else False
-
-    m = _RESIDUAL_CASE_FN_EQ.match(expr)
-    if m is not None:
-        col_name = m.group("col")
-        case_lit = m.group("lit")
-        if m.group("alias") != alias or col_name not in schema:
-            return None
-        if "\\" in case_lit:
-            return None  # escaped literal: let the evaluator unescape it
-        if not _is_string_dtype(schema[col_name]):
-            return None  # case fn on non-string column: evaluator raises designed NIE
-        col_str = pl.col(col_name).str
-        folded_col = (
-            col_str.to_lowercase()
-            if m.group("fn") in ("tolower", "lower")
-            else col_str.to_uppercase()
-        )
-        return folded_col == case_lit
-    m = _RESIDUAL_SCALAR_CMP.match(expr)
-    if m is not None:
-        col_name = m.group("col")
-        if m.group("alias") != alias or col_name not in schema:
-            return None
-        lit: Any
-        if m.group("slit") is not None:
-            lit = m.group("slit")
-            if "\\" in lit:
-                return None  # escaped literal: let the evaluator unescape it
-            if not _is_string_dtype(schema[col_name]):
-                return None  # string literal vs non-string column: designed NIE path
-        else:
-            raw = m.group("nlit")
-            lit = float(raw) if "." in raw else int(raw)
-            if not _is_numeric_dtype(schema[col_name]):
-                return None  # numeric literal vs non-numeric column: designed NIE path
-        col = pl.col(col_name)
-        op = m.group("op")
-        if op == "=":
-            return col == lit
-        if op == ">=":
-            return col >= lit
-        if op == "<=":
-            return col <= lit
-        if op == ">":
-            return col > lit
-        return col < lit
-    return None
+    return lower_single_alias_predicate(expr, alias, schema, columns_nan_free=True)
 
 
 def _connected_join_apply_node_residuals(
@@ -751,12 +716,16 @@ def _connected_join_apply_node_residuals(
 ) -> DataFrameT:
     """Filter a fast-path node frame by single-alias post-join residual expressions.
 
-    Fast lane (polars): the simple scalar shapes the #1729 lowering emits
-    (``tolower(a.col) = 'lit'`` and the other case functions, ``a.col <op> literal``;
-    the lowering constant-folds ``= toLower('LIT')`` into that one shape) translate
-    directly to native polars filters — no chain dispatch (the where_rows chain costs ~1.7ms/alias,
-    the dominant cost of the residual OLAP fast path). Any expression outside those
-    shapes falls back to the chain evaluator below, so semantics never diverge.
+    Fast lane (polars): the residual is lowered by the SAME native polars row lowering the
+    fallback's ``where_rows`` chain would use (``_residual_polars_expr``), so it becomes one
+    ``frame.filter(expr)`` with no chain dispatch (the where_rows chain costs ~1.7ms/alias,
+    the dominant cost of the residual OLAP fast path). Whatever that lowering declines falls
+    back to the chain below, so semantics never diverge — the fast lane's accept set, its
+    decline set and its answers are the fallback's, by construction.
+
+    ALL-OR-NOTHING per alias: one untranslatable expr sends the WHOLE group to the fallback
+    rather than mixing a native filter with a chain filter, so a group is only ever evaluated
+    by one of the two routes.
 
     Fallback: reuses the row pipeline's ``where_rows`` evaluator (identical semantics to
     the slow path, so toLower/etc. behave exactly as they would post-join) by aliasing

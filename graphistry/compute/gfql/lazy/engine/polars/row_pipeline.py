@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import operator
 import re
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, TypeVar, Union, cast
 
 if TYPE_CHECKING:
@@ -54,7 +55,11 @@ from .varlen_rows import (
 # operands for the NaN guard. Lowering contextvars live in the per-engine `lowering_context`
 # registry (aliased here to keep call sites terse); the whole-entity identity sentinel is the
 # shared cypher-lowering constant, NOT a local literal.
-from .lowering_context import SCHEMA as _SCHEMA, NODE_ID as _NODE_ID
+from .lowering_context import (
+    SCHEMA as _SCHEMA,
+    NODE_ID as _NODE_ID,
+    COLUMNS_NAN_FREE as _COLUMNS_NAN_FREE,
+)
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN as _NODE_ID_TOKEN
 
 # Ops needing the NaN guard: polars treats NaN as the LARGEST value (>/>=/== TRUE), but
@@ -372,14 +377,52 @@ def _is_cross_type(ldt: Optional[pl.DataType], rdt: Optional[pl.DataType]) -> bo
     return (_dtype_is_numeric(ldt) and _dtype_is_stringlike(rdt)) or (_dtype_is_stringlike(ldt) and _dtype_is_numeric(rdt))
 
 
-def _nan_guard(result: pl.Expr, op: str, left: pl.Expr, right: pl.Expr, ldt: Optional[pl.DataType], rdt: Optional[pl.DataType]) -> pl.Expr:
+def _operand_is_nan_free_column(node: Optional[ExprNode], columns: Sequence[str]) -> bool:
+    """True when ``node`` is a DIRECT reference to a column of an ingest-cleaned frame.
+
+    Two conjuncts, both required:
+
+    1. ``COLUMNS_NAN_FREE`` is set — the caller has declared this frame's float columns NaN-free
+       because it came through gfql ingest (``nan_clean._pl_nan_to_null``, applied to ``_nodes``
+       and ``_edges`` in ``_coerce_input_formats``). Default False, so a caller that does not opt
+       in never reaches the second conjunct.
+    2. the operand is a bare column read — an ``Identifier``/``PropertyAccessExpr`` that
+       ``lower_expr`` resolves to ``pl.col(...)`` and nothing else. Its values ARE the ingested
+       column's values, so "the column carries no NaN" transfers to "this operand yields no NaN".
+
+    Anything COMPUTED is excluded on purpose, including function calls and arithmetic: ``n.a/n.b``
+    is NaN at 0.0/0.0 and ``sqrt(n.x)`` is NaN at x<0 even on a perfectly clean column, so
+    in-query float math manufactures NaN that ingest cannot have removed and MUST stay masked.
+    """
+    if node is None or not _COLUMNS_NAN_FREE.get():
+        return False
+    from graphistry.compute.gfql.expr_parser import Identifier, PropertyAccessExpr
+    if isinstance(node, PropertyAccessExpr):
+        return (
+            isinstance(node.value, Identifier)
+            and _resolve_property(node.value.name, node.property, columns) is not None
+        )
+    return isinstance(node, Identifier) and node.name in columns
+
+
+def _nan_guard(
+    result: pl.Expr, op: str, left: pl.Expr, right: pl.Expr,
+    ldt: Optional[pl.DataType], rdt: Optional[pl.DataType],
+    *, left_nan_free: bool = False, right_nan_free: bool = False,
+) -> pl.Expr:
     """Mask a comparison so NaN compares IEEE/pandas/Cypher-style (false; ``!=`` true), not
     polars-style (NaN = largest). ``is_nan()`` applied only to float-OUTPUT operands; no-op
-    for int/string/bool comparisons."""
+    for int/string/bool comparisons.
+
+    ``left_nan_free``/``right_nan_free`` drop that operand's ``is_nan()`` term because the operand
+    provably cannot be NaN — see ``_operand_is_nan_free_column``. They default False (mask ON), so
+    the mask is only ever skipped by a caller that opted in explicitly, and the mask that remains
+    is exactly the mask this function would have built for the operands that can still be NaN.
+    """
     nan_terms = []
-    if _dtype_is_float(ldt):
+    if _dtype_is_float(ldt) and not left_nan_free:
         nan_terms.append(left.is_nan())
-    if _dtype_is_float(rdt):
+    if _dtype_is_float(rdt) and not right_nan_free:
         nan_terms.append(right.is_nan())
     if not nan_terms:
         return result
@@ -562,7 +605,11 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
                 return None
         result = _apply_binop(node.op, left, right)
         if result is not None and node.op in _NAN_GUARD_OPS:
-            result = _nan_guard(result, node.op, left, right, ldt, rdt)
+            result = _nan_guard(
+                result, node.op, left, right, ldt, rdt,
+                left_nan_free=_operand_is_nan_free_column(node.left, columns),
+                right_nan_free=_operand_is_nan_free_column(node.right, columns),
+            )
         return result
     if isinstance(node, UnaryOp):
         operand = lower_expr(node.operand, columns)
@@ -597,6 +644,190 @@ def lower_expr_str(expr: str, columns: Sequence[str]) -> Optional[pl.Expr]:
     except Exception:
         return None
     return lower_expr(node, columns)
+
+
+def _bare_column_ast(node: ExprNode, alias: str) -> Optional[ExprNode]:
+    """Rewrite ``alias.prop`` property access to the BARE column ``prop``; None to decline.
+
+    Used by callers that hold ONE alias's own frame (bare column names) rather than the
+    joined row table (``alias.col`` names). ``alias.col -> col`` is a bijection over that
+    frame's columns, so lowering the rewritten tree against the bare schema builds the SAME
+    polars expression the row table would build against the prefixed schema.
+
+    Declines (returns None):
+    - a property access on any OTHER alias -- that alias's columns are not in this frame, and
+      the row-table route cannot resolve them either (``_resolve_property`` -> None -> NIE);
+    - a BARE ``Identifier`` -- no bare name is a column of the prefixed row table, so the
+      row-table route declines it and accepting it here would invent a resolution. The one
+      exception is the whole-entity identity sentinel ``__gfql_node_id__``, which the
+      row-table route DOES resolve through ``_NODE_ID``; this frame publishes no identity
+      column, so it is declined here too. That decline costs only speed -- the caller falls
+      back and the row-table route answers it -- and never changes an answer;
+    - any node type outside the set ``lower_expr`` itself handles (map/subscript/slice/
+      quantifier/comprehension/wildcard), which ``lower_expr`` declines anyway.
+    """
+    from graphistry.compute.gfql.expr_parser import (
+        BinaryOp, CaseWhen, FunctionCall, Identifier, IsNullOp, ListLiteral, Literal,
+        PropertyAccessExpr, UnaryOp,
+    )
+    if isinstance(node, PropertyAccessExpr):
+        if isinstance(node.value, Identifier) and node.value.name == alias:
+            return Identifier(name=node.property)
+        return None
+    if isinstance(node, Literal):
+        return node
+    if isinstance(node, BinaryOp):
+        left = _bare_column_ast(node.left, alias)
+        right = _bare_column_ast(node.right, alias)
+        if left is None or right is None:
+            return None
+        return BinaryOp(op=node.op, left=left, right=right)
+    if isinstance(node, UnaryOp):
+        operand = _bare_column_ast(node.operand, alias)
+        return None if operand is None else UnaryOp(op=node.op, operand=operand)
+    if isinstance(node, IsNullOp):
+        value = _bare_column_ast(node.value, alias)
+        return None if value is None else IsNullOp(value=value, negated=node.negated)
+    if isinstance(node, CaseWhen):
+        condition = _bare_column_ast(node.condition, alias)
+        when_true = _bare_column_ast(node.when_true, alias)
+        when_false = _bare_column_ast(node.when_false, alias)
+        if condition is None or when_true is None or when_false is None:
+            return None
+        return CaseWhen(condition=condition, when_true=when_true, when_false=when_false)
+    if isinstance(node, ListLiteral):
+        items: List[ExprNode] = []
+        for item in node.items:
+            rewritten_item = _bare_column_ast(item, alias)
+            if rewritten_item is None:
+                return None
+            items.append(rewritten_item)
+        return ListLiteral(items=tuple(items))
+    if isinstance(node, FunctionCall):
+        args: List[ExprNode] = []
+        for arg in node.args:
+            rewritten_arg = _bare_column_ast(arg, alias)
+            if rewritten_arg is None:
+                return None
+            args.append(rewritten_arg)
+        return FunctionCall(name=node.name, args=tuple(args), distinct=node.distinct)
+    return None
+
+
+# Memo for `lower_single_alias_predicate`. Its callers re-lower a handful of predicate STRINGS,
+# fixed per query, once per execution -- and the lowering is NOT cheap (parse, then a
+# schema-width LazyFrame probe per operand in `_expr_output_dtype`). Bounded LRU so a
+# long-lived process running unboundedly many distinct queries cannot grow it without limit.
+#: (expr, alias, columns_nan_free, ((col, dtype-repr), ...)) -- see `_single_alias_cache_key`.
+_SingleAliasKey = Tuple[str, str, bool, Tuple[Tuple[str, str], ...]]
+_SINGLE_ALIAS_CACHE: "OrderedDict[_SingleAliasKey, Optional[pl.Expr]]" = OrderedDict()
+_SINGLE_ALIAS_CACHE_MAX = 512
+
+
+def _single_alias_cache_key(
+    expr: str, alias: str, schema: Mapping[str, "pl.DataType"], columns_nan_free: bool
+) -> _SingleAliasKey:
+    """Every input the lowered expression depends on, in one hashable key.
+
+    COMPLETENESS. ``lower_single_alias_predicate`` is a pure function of exactly four things,
+    and each is in the key:
+
+    - ``expr`` -- the string handed to the parser;
+    - ``alias`` -- the only thing ``_bare_column_ast`` reads besides the parse tree;
+    - ``schema`` -- consumed twice, as the ``_SCHEMA`` dtype map (drives ``_expr_output_dtype``,
+      the cross-type decline, the NaN mask) and as ``list(schema)``, the column-name sequence
+      ``lower_expr`` resolves names against. The key therefore carries BOTH halves of every
+      entry AND their order: ``tuple((name, str(dtype)) ...)`` over ``schema.items()``. Names
+      alone would be a stale-key bug -- the same predicate over the same column names lowers
+      differently when a dtype changes (float gains a NaN mask, string-vs-numeric declines
+      outright). ``str(dtype)`` rather than the dtype OBJECT because polars ``DataType.__eq__``
+      equates a dtype class with its parameterized instances (``Datetime == Datetime('ns')``),
+      which as a dict key could HIT across dtypes that lower differently; the repr is the
+      canonical parameterized form (``Datetime(time_unit='ns', time_zone=None)``,
+      ``Enum(categories=[...])``, ``List(Int64)``) and distinguishes them.
+    - ``columns_nan_free`` -- selects whether column operands get the NaN mask.
+
+    Parser AVAILABILITY is the one input deliberately NOT keyed: it is a property of the
+    process (is the parser backend importable?), not of the arguments, so ``lower_single_alias_
+    predicate`` probes it BEFORE consulting the memo instead. That probe costs ~0.2us, so
+    keeping it outside the cache is free, and it means no cached entry can outlive a parser
+    that has gone away.
+    """
+    return (expr, alias, columns_nan_free, tuple((k, str(v)) for k, v in schema.items()))
+
+
+def lower_single_alias_predicate(
+    expr: str, alias: str, schema: Mapping[str, "pl.DataType"], *, columns_nan_free: bool = False
+) -> Optional[pl.Expr]:
+    """Lower a single-alias predicate STRING against a BARE-column frame schema; None to defer.
+
+    The parity seam for callers that filter one alias's own frame directly instead of routing
+    the predicate through ``where_rows_polars`` on a prefixed row table. Both routes run the
+    SAME parser and the SAME ``lower_expr`` under the SAME ``_SCHEMA`` dtypes, and
+    ``where_rows_polars`` does nothing to the lowered expression but ``table.filter(...)`` --
+    so ``frame.filter(lower_single_alias_predicate(...))`` is value-identical to the where_rows
+    route by construction, including every decline (a decline here is a decline there, i.e. the
+    caller's fallback reaches the row op's designed NotImplementedError rather than guessing).
+
+    ``_NODE_ID`` is pinned to None: this frame has no row-table identity column, so the bare
+    ``__gfql_node_id__`` sentinel must resolve to nothing, exactly as it does on the prefixed
+    row table where the sentinel is not a column either.
+
+    ``columns_nan_free`` (default False = fully guarded) declares this frame's float COLUMNS
+    already NaN-free, which lets a comparison against a bare column skip the IEEE NaN mask; see
+    ``lowering_context.COLUMNS_NAN_FREE`` and ``_operand_is_nan_free_column``. Only a caller
+    filtering a gfql-INGESTED frame may set it; computed float operands stay masked either way.
+
+    MEMOIZED on ``_single_alias_cache_key`` (see there for why that key is complete). The
+    returned ``pl.Expr`` is safe to hand out repeatedly: a polars expression is an immutable
+    plan fragment naming columns symbolically -- ``frame.filter(e)`` builds a new plan and
+    neither mutates ``e`` nor binds it to that frame -- so one expression applies to any frame
+    whose schema matches the key, which is the only frame the key can be reached with.
+    """
+    if _parser() is None:
+        return None  # not keyable (process state, not an argument) -> never memoized
+    key = _single_alias_cache_key(expr, alias, schema, columns_nan_free)
+    if key in _SINGLE_ALIAS_CACHE:
+        try:
+            _SINGLE_ALIAS_CACHE.move_to_end(key)
+        except KeyError:  # pragma: no cover - concurrent eviction; recompute-safe
+            pass
+        else:
+            return _SINGLE_ALIAS_CACHE[key]
+    lowered = _lower_single_alias_predicate_uncached(expr, alias, schema, columns_nan_free)
+    _SINGLE_ALIAS_CACHE[key] = lowered
+    # Eviction races can only DROP an entry (a redundant recompute), never fabricate a hit.
+    while len(_SINGLE_ALIAS_CACHE) > _SINGLE_ALIAS_CACHE_MAX:
+        try:
+            _SINGLE_ALIAS_CACHE.popitem(last=False)
+        except KeyError:  # pragma: no cover - concurrent eviction
+            break
+    return lowered
+
+
+def _lower_single_alias_predicate_uncached(
+    expr: str, alias: str, schema: Mapping[str, "pl.DataType"], columns_nan_free: bool
+) -> Optional[pl.Expr]:
+    """``lower_single_alias_predicate`` without the memo (also the unit-test seam for it)."""
+    parse = _parser()
+    if parse is None:
+        return None
+    try:
+        node = parse(expr)
+    except Exception:
+        return None
+    bare = _bare_column_ast(node, alias)
+    if bare is None:
+        return None
+    schema_token = _SCHEMA.set(dict(schema))
+    node_id_token = _NODE_ID.set(None)
+    nan_free_token = _COLUMNS_NAN_FREE.set(columns_nan_free)
+    try:
+        return lower_expr(bare, list(schema))
+    finally:
+        _SCHEMA.reset(schema_token)
+        _NODE_ID.reset(node_id_token)
+        _COLUMNS_NAN_FREE.reset(nan_free_token)
 
 
 def lower_select_items(items: Sequence[SelectItem], columns: Sequence[str]) -> Optional[List["pl.Expr"]]:
