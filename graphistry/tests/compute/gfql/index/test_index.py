@@ -11,7 +11,8 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.ast import n, e_forward
+from graphistry.compute.ast import n, e_forward, e_reverse
+from graphistry.compute.gfql.index.api import _engine_mismatch_reason
 from graphistry.compute.gfql.index import (
     CreateIndex, DropIndex, ShowIndexes, index_op_from_json, parse_index_ddl,
     get_registry,
@@ -1183,24 +1184,60 @@ def test_forcing_the_whole_column_mask_actually_changes_the_path(typed_graph, en
 
 
 @pytest.mark.parametrize(
+    "index_kinds, edge, expected_kinds",
+    [
+        (("edge_out_adj",), e_forward, "edge_out_adj"),
+        (("edge_in_adj",), e_reverse, "edge_in_adj"),
+    ],
+)
+@pytest.mark.parametrize(
     "resident_engine, requested_engine",
     [("pandas", "polars"), ("polars", "pandas")],
 )
-def test_explain_reports_bidirectional_engine_mismatch(graph, resident_engine, requested_engine):
+def test_explain_reports_bidirectional_engine_mismatch(
+    graph, index_kinds, edge, expected_kinds, resident_engine, requested_engine
+):
     """#1767: a valid foreign-engine index must explain its scan, not fail silently."""
     pytest.importorskip("polars")
-    gi = graph.create_index("edge_out_adj", engine=resident_engine)
+    gi = graph
+    for index_kind in index_kinds:
+        gi = gi.create_index(index_kind, engine=resident_engine)
     shown = gi.show_indexes()
-    assert bool(shown.iloc[0]["valid"]) is True
+    assert all(bool(valid) for valid in shown["valid"].tolist())
 
     report = gi.gfql_explain(
-        [n({"id": 0}), e_forward(hops=1)],
+        [n({"id": 0}), edge(hops=1)],
         index_policy="use",
         engine=requested_engine,
     )
 
     assert report["used_index"] is False, report
     assert report["decision_reason"] == (
-        "resident edge_out_adj index "
+        f"resident {expected_kinds} index "
         f"engine={resident_engine}, requested engine={requested_engine} -> scan"
     ), report
+
+
+@pytest.mark.parametrize(
+    "resident_engine, requested_engine",
+    [("pandas", "polars"), ("polars", "pandas")],
+)
+def test_engine_mismatch_reason_reports_all_undirected_indexes(
+    graph, resident_engine, requested_engine
+):
+    """The undirected diagnostic reports every valid resident foreign-engine index."""
+    from graphistry.Engine import Engine
+
+    pytest.importorskip("polars")
+    gi = graph
+    for index_kind in ("edge_out_adj", "edge_in_adj"):
+        gi = gi.create_index(index_kind, engine=resident_engine)
+    shown = gi.show_indexes()
+    assert all(bool(valid) for valid in shown["valid"].tolist())
+
+    reason = _engine_mismatch_reason(get_registry(gi), "undirected", Engine(requested_engine))
+
+    assert reason == (
+        "resident edge_out_adj, edge_in_adj index "
+        f"engine={resident_engine}, requested engine={requested_engine} -> scan"
+    ), reason
