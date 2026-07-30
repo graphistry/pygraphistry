@@ -8,7 +8,7 @@ from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.Engine import safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
-from .ast import ASTObject, ASTNode, ASTEdge, Direction, from_json as ASTObject_from_json, serialize_binding_ops
+from .ast import ASTObject, ASTNode, ASTEdge, ASTCall, Direction, from_json as ASTObject_from_json, serialize_binding_ops
 from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
 from .chain_fast_paths import _seeded_typed_hop_pandas_cudf
@@ -25,6 +25,7 @@ from graphistry.otel import otel_traced, otel_detail_enabled
 
 if TYPE_CHECKING:
     from graphistry.compute.exceptions import GFQLSchemaError, GFQLValidationError
+    from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
 
 logger = setup_logger(__name__)
 
@@ -556,6 +557,80 @@ def _get_boundary_calls(ops: List[ASTObject]) -> Tuple[List[ASTObject], List[AST
     return (prefix, middle, suffix)
 
 
+
+def _plan_indexed_middle(
+    g: Plottable,
+    prefix: List[ASTObject],
+    middle: List[ASTObject],
+    suffix: List[ASTObject],
+    engine: Union[EngineAbstract, str],
+    policy: Optional[Any],
+    start_nodes: Optional[DataFrameT],
+) -> Optional["IndexedBindingsHandoff"]:
+    """Decide ONCE whether the resident indexes can serve this boundary's middle.
+
+    Returns ``None`` when the indexed path does not apply to this shape at all, a
+    handoff carrying a state when it serves, and a handoff without one when it was
+    tried and declined. The twin of ``_try_indexed_middle_polars`` on the polars
+    chain; keeping both as a single predicate-plus-plan keeps the two boundaries
+    comparable instead of two inline condition chains that drift.
+    """
+    from .gfql.index.handoff import IndexedBindingsHandoff
+
+    if not (middle and suffix) or prefix or start_nodes is not None or policy:
+        return None
+    call = suffix[0]
+    if not isinstance(call, ASTCall) or call.function != "rows":
+        return None
+    if (
+        call.params.get("source") is not None
+        or call.params.get("alias_endpoints") is not None
+        or call.params.get("alias_prefilters")
+        # Serving the bypass SKIPS the canonical traversal, so the suffix runs against the
+        # PRE-traversal graph. That is sound for a bindings table (the path bag already is
+        # the answer) but not for `rows(table="edges")`, which would read the whole edge
+        # table instead of the traversal-narrowed one. Non-default `table` therefore keeps
+        # the scan path, for the same reason `source`/`alias_endpoints` do above. Compared
+        # against "nodes", not None: `rows()` defaults `table` to "nodes" and always emits
+        # it, so an `is None` test would disable the bypass outright — the same trap the
+        # named-middle rewrite's guard documents below.
+        or call.params.get("table", "nodes") != "nodes"
+        or not all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
+    ):
+        return None
+    plan = serialize_binding_ops(middle)
+    # The bypass is only sound when the rows call actually consumes the WHOLE
+    # middle as binding ops: either it already carries them, or the named-middle
+    # rewrite installs exactly them. A rows call with no binding ops over an
+    # UNNAMED middle instead reads the traversal-narrowed node table, which the
+    # bypass would not produce.
+    if not (
+        call.params.get("binding_ops") == plan
+        or (
+            call.params.get("binding_ops") is None
+            and any(op._name is not None for op in middle
+                    if isinstance(op, (ASTNode, ASTEdge)))
+        )
+    ):
+        return None
+
+    engine_concrete = resolve_engine(engine, g)  # type: ignore[arg-type]
+    if engine_concrete not in (Engine.PANDAS, Engine.CUDF):
+        return None
+
+    from .gfql.index.bindings import try_indexed_connected_bindings_state
+
+    state = try_indexed_connected_bindings_state(g, middle, engine=engine_concrete)
+    return IndexedBindingsHandoff(
+        binding_ops=plan,
+        state=state,
+        edge_aliases=tuple(
+            op._name for op in middle
+            if isinstance(op, ASTEdge) and isinstance(op._name, str)
+        ) if state is not None else (),
+    )
+
+
 def _handle_boundary_calls(
     self: Plottable,
     ops: List[ASTObject],
@@ -606,6 +681,11 @@ def _handle_boundary_calls(
     logger.debug('Boundary call pattern detected: prefix=%s, middle=%s, suffix=%s',
                 len(prefix), len(middle), len(suffix))
 
+    # Function-scope import: `gfql.index` transitively imports this module, so a
+    # module-scope import would be a cycle.
+    from .gfql.index.handoff import attach_handoff
+    from .gfql.exec_context import attach_row_exec_context, clear_row_exec_context
+
     g_temp = self
     suffix_base_graph = g_temp
 
@@ -622,24 +702,44 @@ def _handle_boundary_calls(
         )
         suffix_base_graph = g_temp
 
-    if middle:
-        logger.debug('Executing middle operations: %s', middle)
-        g_temp = _chain_impl(
-            g_temp,
-            middle,
-            engine,
-            validate_schema,
-            policy,
-            context,
-            start_nodes
-        )
+    # ONE value carries the whole decision: None = the indexed path does not apply
+    # to this boundary, a handoff WITH state = it serves, a handoff WITHOUT state =
+    # it was tried and declined (which the row materializer must know, so it does
+    # not re-attempt the same plan after the canonical traversal).
+    handoff = _plan_indexed_middle(
+        self, prefix, middle, suffix, engine, policy, start_nodes,
+    )
+    served = handoff is not None and handoff.state is not None
+
+    if served:
+        assert handoff is not None  # narrowed by `served`
+        g_temp = attach_handoff(self, handoff)
+    else:
+        if middle:
+            logger.debug('Executing middle operations: %s', middle)
+            g_temp = _chain_impl(
+                g_temp,
+                middle,
+                engine,
+                validate_schema,
+                policy,
+                context,
+                start_nodes
+            )
+        if handoff is not None:
+            # attach (not mutate): `g_temp` may still be the caller's graph on
+            # paths where nothing rebuilt it, and this is internal plumbing.
+            g_temp = attach_handoff(g_temp, handoff)
 
     if suffix:
         logger.debug('Executing boundary suffix calls: %s', suffix)
-        if start_nodes is not None:
-            setattr(g_temp, "_gfql_start_nodes", start_nodes)
-        setattr(g_temp, "_gfql_rows_base_graph", suffix_base_graph)
-        setattr(g_temp, "_gfql_shortest_path_backend", getattr(g_temp, "_gfql_shortest_path_backend", "auto"))
+        # #1786: per-execution state rides on an INTERNAL COPY. Without prefix/middle
+        # ops (or a handoff) nothing above rebuilt `g_temp`, so it is still the CALLER's
+        # graph -- assigning here left the WITH re-entry seed on the user's object and
+        # the next, unrelated query was answered against it (silent wrong count).
+        g_temp = attach_row_exec_context(
+            g_temp, start_nodes=start_nodes, rows_base_graph=suffix_base_graph
+        )
         if (
             middle
             and any(getattr(op, "_name", None) is not None for op in middle)
@@ -648,9 +748,32 @@ def _handle_boundary_calls(
             and suffix[0].params.get("binding_ops") is None
             and suffix[0].params.get("source") is None
             and suffix[0].params.get("alias_endpoints") is None
+            # A NON-DEFAULT `table` names the table the caller wants. Rewriting that into a
+            # bindings table silently answers a different question — and on an even-length
+            # middle (a path ending on an EDGE, e.g. LDBC IS3's edge lookup) the rewritten
+            # op list is not an alternating node/edge path at all, so it hard-errors. Same
+            # reason `source` and `alias_endpoints` are excluded above.
+            # Tested against `"nodes"` rather than None because `rows()` DEFAULTS table to
+            # "nodes" and always emits it, so `is None` is never true and would disable the
+            # rewrite outright (measured: it breaks the IS6 bindings path). The cost is that
+            # an EXPLICIT `rows(table="nodes")` is indistinguishable from a bare `rows()` at
+            # the params level, so it still rewrites; only a non-default table opts out.
+            and suffix[0].params.get("table", "nodes") == "nodes"
             and all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
         ):
-            suffix = [rows_fn(binding_ops=serialize_binding_ops(middle))] + list(suffix[1:])
+            # ADD binding_ops to the call the caller wrote; do not build a fresh one. The
+            # rewrite's job is to say WHERE the bindings come from, and every other param
+            # on `rows()` is still the caller's — `attach_prop_aliases` (the #1711
+            # projection pushdown) and the advisory `alias_prefilters` both survive into
+            # the binding_ops builder, which is the only place they are read. Rebuilding
+            # threw them away, so merely naming the middle silently attached every alias's
+            # properties. The excluded params above cannot be present here.
+            prev_params = suffix[0].params
+            suffix = [rows_fn(
+                binding_ops=serialize_binding_ops(middle),
+                alias_prefilters=prev_params.get("alias_prefilters"),
+                attach_prop_aliases=prev_params.get("attach_prop_aliases"),
+            )] + list(suffix[1:])
         g_temp = _chain_impl(
             g_temp,
             suffix,
@@ -661,7 +784,9 @@ def _handle_boundary_calls(
             start_nodes
         )
 
-    return g_temp
+    # Each site that attaches the row context also detaches it: the suffix chain has run,
+    # so the context is spent, and a caller who queries THIS result must not inherit it.
+    return clear_row_exec_context(g_temp)
 
 
 def _chain_otel_attrs(
@@ -898,6 +1023,14 @@ def chain(
         # undirected multi-edge); that honest signal propagates to the caller.
         _tgt = ExecutionTarget.GPU if engine_concrete_early == Engine.POLARS_GPU else ExecutionTarget.CPU
         with target_mode(_tgt):
+            if policy:
+                from graphistry.compute.gfql.call.executor import _thread_local as call_thread_local
+                old_policy = getattr(call_thread_local, 'policy', None)
+                try:
+                    call_thread_local.policy = policy
+                    return chain_polars(self, ops, start_nodes=start_nodes)
+                finally:
+                    call_thread_local.policy = old_policy
             return chain_polars(self, ops, start_nodes=start_nodes)
 
     if policy:

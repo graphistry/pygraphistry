@@ -10,7 +10,7 @@ rules as ``=~``."""
 import re
 from typing import List, Optional
 
-from graphistry.compute.typing import DataFrameT, SeriesT
+from graphistry.compute.typing import DataFrameT, DType, SeriesT
 
 # inspector's numeric-term gate (streamgl-viz sortAndFilterRowsByQuery.js)
 _NUMERIC_TERM_RE = re.compile(r"^[0-9.\-]+$")
@@ -20,12 +20,12 @@ def is_numeric_term(term: str) -> bool:
     return bool(_NUMERIC_TERM_RE.match(term))
 
 
-def _is_searchable_string_dtype(dtype: object) -> bool:
+def _is_searchable_string_dtype(dtype: DType) -> bool:
     import pandas.api.types as pat  # cuDF mirrors the pandas dtype API
     return bool(pat.is_string_dtype(dtype)) or bool(pat.is_object_dtype(dtype))
 
 
-def _is_int_dtype(dtype: object) -> bool:
+def _is_int_dtype(dtype: DType) -> bool:
     import pandas.api.types as pat
     return bool(pat.is_integer_dtype(dtype))
 
@@ -93,11 +93,14 @@ def search_any_mask(
         # truncate) and temporal is unverified — decline honestly rather than
         # silently mismatch the pandas oracle (wave-3 W3-1). string/int/bool render
         # identically (bool parity is pinned) and stay native.
-        import pandas.api.types as pat
+        # NB: aliased ``pd_types``, not ``pat`` — ``pat`` is rebound below to the search
+        # PATTERN string, and a module/str double-binding in one scope is one statement
+        # reorder away from ``AttributeError: 'str' object has no attribute ...``.
+        import pandas.api.types as pd_types
         for c in cols:
             dt = df[c].dtype
             if not (_is_searchable_string_dtype(dt) or _is_int_dtype(dt)
-                    or bool(pat.is_bool_dtype(dt))):
+                    or bool(pd_types.is_bool_dtype(dt))):
                 raise NotImplementedError(
                     "cuDF searchAny explicit columns support string/int/bool dtypes "
                     "only (float/temporal stringification diverges from pandas); "

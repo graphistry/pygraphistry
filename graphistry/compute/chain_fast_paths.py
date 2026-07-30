@@ -54,9 +54,11 @@ def _resident_seed_indexes(
     identity via get_valid), else None — callers keep the scan path, so a stale
     or absent index can never change results, only speed."""
     from graphistry.Engine import Engine, is_polars_df
-    from graphistry.compute.gfql.index import get_registry
+    from graphistry.compute.gfql.index import get_index_policy, get_registry
     from graphistry.compute.gfql.index.registry import EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID
     from graphistry.compute.gfql.index.engine_arrays import array_namespace
+    if get_index_policy(g) == "off":
+        return None
     registry = get_registry(g)
     if registry.is_empty():
         return None

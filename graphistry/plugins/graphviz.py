@@ -27,10 +27,30 @@ def g_to_pgv(
     include_positions: bool = False
 ) -> AGraph:
 
-    import pygraphviz as pgv
-
     assert g._nodes is not None
     assert g._edges is not None
+
+    # The id/endpoint BINDINGS are Optional and are not implied by the frames being set:
+    # ``g.nodes(df)`` (no ``node=``) / ``g.edges(df)`` (no source/destination) leave them
+    # None, and ``layout_graphviz``/``render_graphviz`` only ``materialize_nodes()`` when
+    # ``_nodes`` is None -- so an explicitly-bound-but-unlabelled nodes frame reached
+    # ``row[None]`` below and died with a bare ``KeyError: None`` from deep inside the row
+    # loop. Resolve them once, up front, into non-Optional locals.
+    node_col = g._node
+    src_col = g._source
+    dst_col = g._destination
+    if node_col is None:
+        raise ValueError(
+            "graphviz export requires a bound node id column; "
+            "use g.nodes(df, node='id') or g.materialize_nodes()"
+        )
+    if src_col is None or dst_col is None:
+        raise ValueError(
+            "graphviz export requires bound edge endpoint columns; "
+            "use g.edges(df, source='src', destination='dst')"
+        )
+
+    import pygraphviz as pgv
 
     graph = pgv.AGraph(directed=directed, strict=strict)
 
@@ -58,7 +78,7 @@ def g_to_pgv(
         if pos_cols is not None:
             attrs['pos'] = f"{row[pos_cols[0]]},{row[pos_cols[1]]}"
         graph.add_node(
-            row[g._node],
+            row[node_col],
             **attrs
         )
 
@@ -75,8 +95,8 @@ def g_to_pgv(
     edges_pdf = ensure_pandas(g._edges)
     for _, row in edges_pdf.iterrows():
         graph.add_edge(
-            row[g._source],
-            row[g._destination],
+            row[src_col],
+            row[dst_col],
             **{c: row[c] for c in edge_attr_cols if row[c] is not None}
         )
 

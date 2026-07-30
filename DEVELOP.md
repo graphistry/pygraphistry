@@ -129,6 +129,69 @@ python bin/ci_cypher_surface_guard.py --write-baseline
 
 Then commit both code changes and baseline update together.
 
+### Type Hygiene Guard
+
+`bin/lint.sh` (run by the `python-lint-types` matrix on py3.8-3.14) runs
+`bin/ci_type_hygiene_guard.py`, a stdlib-only AST check over `graphistry/`
+(tests excluded, matching `mypy.ini`). It exists to catch the defect classes
+that keep coming back in code review, so a reviewer does not have to.
+
+| Check | What it flags |
+|---|---|
+| `missing-annotations` | a parameter or return without a type annotation (same ground as ruff `ANN001/002/003/201/202/204/205/206`) |
+| `explicit-any` | `Any` anywhere inside an annotation |
+| `explicit-cast` | a `cast(...)` call |
+| `bare-generic` | unsubscripted `list` / `dict` / `List` / `Dict` / ... in an annotation |
+| `plottable-setattr` | `setattr()` onto a parameter annotated as a `Plottable` |
+| `plottable-attr-write` | `param.attr = ...` onto a parameter annotated as a `Plottable` |
+| `vocab-str-param` | a closed-vocabulary parameter (`table`, `kind`, `direction`, `how`, `mode`, `engine`) annotated as plain `str` |
+
+Enforcement is a **per-file count ratchet** against
+`bin/ci_type_hygiene_baseline.json`: a file may not gain findings, and a file
+absent from the baseline must have zero. Existing debt is grandfathered, new and
+moved code is not.
+
+```bash
+./bin/ci_type_hygiene_guard.py             # what CI runs
+./bin/ci_type_hygiene_guard.py --report    # totals per check
+./bin/ci_type_hygiene_guard.py --list plottable-setattr
+./bin/ci_type_hygiene_guard.py --strict    # show files that improved; time to retighten
+```
+
+When a finding is genuinely correct, annotate that line and say why:
+
+```python
+setattr(res, f"_{kind}_dbscan", dbscan)  # hygiene-ok: plottable-setattr -- res is a fresh copy
+```
+
+Do **not** raise a cap with `--update-baseline` to make a new finding go away.
+Lowering caps after fixing debt is the intended use; commit the code change and
+the baseline update together.
+
+#### Conventions behind the checks
+
+- **Never write to a caller's `Plottable`.** Caching by `setattr` keyed on
+  `id()` leaked results across `gfql()` calls and returned stale answers after
+  an in-place frame mutation (issue #1825). Return a new object, or thread a
+  per-execution cache.
+- **Prefer engine-agnostic `SeriesT` / `DataFrameT` plus a localized
+  `# type: ignore`** over `Any` plus call-site `cast()`.
+- **Parameterize generics.** `list[str]` needs `from __future__ import
+  annotations` on py3.8 lanes; `List[str]` works without it. Both satisfy the
+  check -- only the unsubscripted form is flagged.
+- **A fixed vocabulary is a `Literal`, not a `str`.** A column name is legitimately
+  `str`; an engine name, a `table=`/`kind=` of `'nodes'`/`'edges'`, a `how=`, or a
+  `direction=` is not. Reuse an existing alias where one exists (e.g.
+  `GraphEntityKind = Literal['nodes', 'edges']` in
+  `graphistry/models/compute/features.py`) rather than declaring a new one.
+  `vocab-str-param` only knows the six parameter names above -- it is a floor, not
+  a full check; reviewers still own the general case.
+
+Ruff additionally rejects `getattr(x, "const")` / `setattr(x, "const", v)`
+(`B009`/`B010`) outright; today's offenders are grandfathered in
+`pyproject.toml`'s `per-file-ignores` and are retired with
+`ruff check --fix --select B009,B010 <file>`.
+
 ### GPU CI
 
 GPU CI can be manually triggered by core dev team members:

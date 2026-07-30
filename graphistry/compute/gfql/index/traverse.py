@@ -14,12 +14,12 @@ output_min/max_hops, labeling, missing node table.
 """
 from __future__ import annotations
 
-from typing import Any, List, Optional, Tuple, cast
+from typing import Dict, List, Optional, Tuple, cast
 
 from typing_extensions import TypeGuard
 
 from graphistry.Engine import Engine
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Plottable import Plottable
 from .engine_arrays import (
     array_namespace, col_to_array, ids_to_array, take_rows, select_by_ids,
@@ -27,7 +27,33 @@ from .engine_arrays import (
 )
 from .lookup import lookup_edge_rows, lookup_node_rows
 from .registry import EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, AdjacencyIndex, GfqlIndexRegistry, NodeIdIndex
-from .types import ArrayLike, EdgeMatch, HopDirection, SimpleEqualityEdgeMatch
+from .types import (
+    ArrayLike, EdgeMatch, HopDirection, ScalarMatchValue, SimpleEqualityEdgeMatch,
+)
+
+# Cost guard for candidate-row edge_match evaluation. Gathering candidate rows beats one
+# whole-column compare only while the candidates stay a small fraction of the frame; a
+# fixed-point walk that reaches most of the graph inverts that and gathers up to 2E by
+# random access. Once cumulative gathered rows reach E/DIVISOR we build the whole-column
+# mask once and reuse it, bounding total predicate work at ~(1 + 1/DIVISOR)*E. The FLOOR
+# keeps small frames on the candidate-row path, where the whole-column compare is cheap
+# anyway and the switch would only add a branch.
+_EAGER_MASK_SWITCH_DIVISOR = 8
+_EAGER_MASK_SWITCH_FLOOR = 1024
+
+
+def _candidate_edge_mask_enabled() -> bool:
+    """Candidate-row ``edge_match`` evaluation is on by default; set
+    ``GFQL_INDEX_CANDIDATE_EDGE_MASK=0`` to force the whole-column mask on every hop.
+
+    Follows the ``GFQL_LEAN_COMBINE`` precedent: the BOUNDARY is externally switchable so
+    the differential harness can exercise both sides of it and assert they agree, while the
+    numeric thresholds above stay private module constants like ``_LEAN_SHRINK_RATIO`` —
+    they are a cost heuristic, not an interface, and the guard already bounds the bad case.
+    """
+    import os as _os
+
+    return _os.environ.get("GFQL_INDEX_CANDIDATE_EDGE_MASK", "1") != "0"
 
 
 def _indices_for_direction(
@@ -74,16 +100,123 @@ def is_simple_equality_edge_match(
     return True
 
 
-def _build_edge_keep_mask(
-    edges: DataFrameT, edge_match: EdgeMatch, engine: Engine, xp: "object"
-) -> Optional[ArrayLike]:
-    """Boolean array over ORIGINAL edge rows (length E, same indexing as
-    ``AdjacencyIndex.other_values`` / ``row_positions``) selecting rows that satisfy
-    a simple-equality ``edge_match``.
+class _EdgeMatchRowFilter:
+    """Evaluates a simple-equality ``edge_match`` on the CSR-matched edge rows only.
 
-    Built via each frame's native ``col == val`` (so cudf string columns stay on the
-    cudf layer instead of a cupy string compare). Returns ``None`` on ANY unexpected
-    shape or error, so the caller falls back to scan rather than risk a divergence.
+    The mask is read exactly once per hop, as ``rows[keep[rows]]`` — at the handful of
+    positions the adjacency lookup returned. Materializing it over all E edges first
+    therefore put an O(E) predicate scan inside an O(degree) traversal, which is what
+    made the indexed path scale with the graph instead of with the answer. Evaluating
+    ``col == val`` on the gathered candidate rows makes the predicate proportional to
+    the edges the traversal actually visits, so a seeded hop examines O(edges traversed)
+    elements.
+
+    A row is *mostly* returned once per index — frontiers are set-differenced against
+    ``visited`` — but not strictly: ``edge_match`` is only reachable with
+    ``return_as_wave_front=True``, and that mode skips the first-hop ``visited`` seeding
+    below, so seed ids can re-enter a later frontier and their rows be gathered twice.
+    The worst case is a fixed-point undirected walk reaching the whole graph, where the
+    out- and in-indices are filtered separately and the gathered total approaches 2E
+    against the eager form's single sequential pass over E. That regime is a genuine
+    REGRESSION for this form (measured: 1.94×E gathered, 1.2–1.6× slower than the eager
+    mask), which is why the caller keeps a cumulative-gathered counter and falls back to
+    ``full_mask()`` once it crosses a fraction of the frame.
+
+    Column values are compared with each frame's native ``==`` (so cudf string columns
+    stay on the cudf layer rather than becoming a cupy string compare), matching the
+    eager form exactly.
+    """
+
+    __slots__ = ("_series", "_items", "_engine")
+
+    # Typed slots: the per-column edge Series keyed by column name, the validated
+    # (column, scalar) equalities in ``edge_match`` order, and the frame engine.
+    _series: Dict[str, SeriesT]
+    _items: List[Tuple[str, ScalarMatchValue]]
+    _engine: Engine
+
+    def __init__(
+        self,
+        series: Dict[str, SeriesT],
+        items: List[Tuple[str, ScalarMatchValue]],
+        engine: Engine,
+    ) -> None:
+        self._series = series
+        self._items = items
+        self._engine = engine
+
+    def mask_for(self, rows: ArrayLike) -> Optional[ArrayLike]:
+        """Boolean array over ``rows`` (positional, same order), or ``None`` on any
+        unexpected shape/error so the caller falls back to the scan."""
+        try:
+            mask: Optional[ArrayLike] = None
+            for col, val in self._items:
+                sub = _gather_series(self._series[col], rows, self._engine)
+                col_mask: ArrayLike
+                # Null-safe materialization: on null-carrying columns (pandas nullable
+                # Int64/boolean/string, polars nulls — which the NaN->null coercion
+                # makes common) a bare == yields NA cells, and to_numpy() then produces
+                # an OBJECT-dtype array that later explodes at rows[keep] (IndexError:
+                # not int/bool). Null == val filters out on the scan path, so fill
+                # False is parity-exact.
+                if self._engine in (Engine.POLARS, Engine.POLARS_GPU):
+                    col_mask = (sub == val).fill_null(False).to_numpy()
+                elif self._engine == Engine.CUDF:
+                    col_mask = (sub == val).fillna(False).values
+                else:
+                    col_mask = (sub == val).fillna(False).to_numpy(dtype=bool)
+                mask = col_mask if mask is None else mask & col_mask
+            return mask
+        except Exception:  # pragma: no cover - defensive parity guard
+            return None
+
+    def full_mask(self) -> Optional[ArrayLike]:
+        """The eager whole-column mask, length E — the pre-candidate-row form.
+
+        Candidate-row evaluation is a win exactly while the candidates are a small
+        fraction of the frame. A fixed-point walk that reaches most of the graph inverts
+        that: it gathers up to 2E elements (out- and in-indices filtered separately), by
+        random access, versus one sequential compare over E. The caller switches to this
+        once it has gathered enough to know it is in that regime; see
+        ``_EAGER_MASK_SWITCH_DIVISOR``.
+        """
+        try:
+            mask: Optional[ArrayLike] = None
+            for col, val in self._items:
+                col_mask: ArrayLike
+                series = self._series[col]
+                # Same null-safe materialization as mask_for, so the two forms agree
+                # cell for cell — this is the parity-critical property of the switch.
+                if self._engine in (Engine.POLARS, Engine.POLARS_GPU):
+                    col_mask = (series == val).fill_null(False).to_numpy()
+                elif self._engine == Engine.CUDF:
+                    col_mask = (series == val).fillna(False).values
+                else:
+                    col_mask = (series == val).fillna(False).to_numpy(dtype=bool)
+                mask = col_mask if mask is None else mask & col_mask
+            return mask
+        except Exception:  # pragma: no cover - defensive parity guard
+            return None
+
+
+def _gather_series(series: SeriesT, rows: ArrayLike, engine: Engine) -> SeriesT:
+    """Positionally gather ``rows`` out of a single column. O(len(rows))."""
+    if engine in (Engine.POLARS, Engine.POLARS_GPU):
+        import numpy as np
+
+        return series.gather(np.asarray(rows))
+    # pandas / cudf: positional take accepts numpy (pandas) or cupy (cudf) int arrays
+    return series.take(rows)
+
+
+def _build_edge_row_filter(
+    edges: DataFrameT, edge_match: EdgeMatch, engine: Engine
+) -> Optional[_EdgeMatchRowFilter]:
+    """Validate a simple-equality ``edge_match`` against the edge schema and return a
+    per-row evaluator, or ``None`` when the shape isn't covered (caller falls back to
+    the scan rather than risk a divergence).
+
+    All checks here are schema-level (O(1) in E); no predicate is evaluated yet.
     """
     try:
         if not is_simple_equality_edge_match(edge_match):
@@ -92,41 +225,31 @@ def _build_edge_keep_mask(
             _is_numeric_dtype_safe, _is_string_dtype_safe,
         )
         n_edges = int(edges.shape[0])
-        mask: Optional[ArrayLike] = None
+        series: Dict[str, SeriesT] = {}
+        items: List[Tuple[str, ScalarMatchValue]] = []
         for col, val in edge_match.items():
             if col not in edges.columns:
                 return None
+            col_series: SeriesT
             if engine in (Engine.POLARS, Engine.POLARS_GPU):
-                series = edges.get_column(col)
+                col_series = edges.get_column(col)
             else:
-                series = edges[col]
+                col_series = edges[col]
             # Obvious dtype mismatch (numeric col vs str val, string col vs numeric
             # val): the scan raises GFQLSchemaError E302 where a naive == is silently
             # all-False. Decline -> caller falls back to the scan, which raises the
             # SAME error (parity-exact; mirrors filter_by_dict's exact two checks,
             # skipped like the scan on empty frames).
             if n_edges > 0:
-                dt = series.dtype
+                dt = col_series.dtype
                 if _is_numeric_dtype_safe(dt) and isinstance(val, str):
                     return None
                 if (_is_string_dtype_safe(dt)
                         and isinstance(val, (int, float)) and not isinstance(val, bool)):
                     return None
-            # Null-safe materialization: on null-carrying columns (pandas nullable
-            # Int64/boolean/string, polars nulls — which the NaN->null coercion makes
-            # common) a bare == yields NA cells, and to_numpy() then produces an
-            # OBJECT-dtype array that later explodes at rows[edge_keep[rows]]
-            # (IndexError: not int/bool). Null == val filters out on the scan path,
-            # so fill False is parity-exact.
-            if engine in (Engine.POLARS, Engine.POLARS_GPU):
-                col_mask = cast(ArrayLike, (series == val).fill_null(False).to_numpy())
-            elif engine == Engine.CUDF:
-                col_mask = cast(ArrayLike, (series == val).fillna(False).values)
-            else:
-                col_mask = cast(
-                    ArrayLike, (series == val).fillna(False).to_numpy(dtype=bool))
-            mask = col_mask if mask is None else cast(ArrayLike, cast(Any, mask) & cast(Any, col_mask))
-        return mask
+            series[col] = col_series
+            items.append((col, val))
+        return _EdgeMatchRowFilter(series, items, engine)
     except Exception:  # pragma: no cover - defensive parity guard
         return None
 
@@ -165,15 +288,28 @@ def index_seeded_hop(
 
     xp, _backend = array_namespace(engine)
 
-    # Typed-edge (edge_match) support: a boolean mask over ORIGINAL edge rows that
-    # pass the match predicate, applied to the CSR-matched rows each hop. Gated to
-    # simple scalar equality + the wavefront path by the coverability check upstream
-    # (maybe_index_hop); an unsupported shape returns None here => scan (parity-safe).
-    edge_keep: Optional[ArrayLike] = None
+    # Typed-edge (edge_match) support: the match predicate is evaluated on the
+    # CSR-matched rows of each hop, so it costs O(edges visited) rather than O(E).
+    # Gated to simple scalar equality + the wavefront path by the coverability check
+    # upstream (maybe_index_hop); an unsupported shape returns None here => scan
+    # (parity-safe). Schema validation happens now, up front, so an uncovered
+    # edge_match still declines before any traversal work.
+    edge_filter: Optional[_EdgeMatchRowFilter] = None
     if edge_match:
-        edge_keep = _build_edge_keep_mask(edges, edge_match, engine, xp)
-        if edge_keep is None:
+        edge_filter = _build_edge_row_filter(edges, edge_match, engine)
+        if edge_filter is None:
             return None
+    # Cost guard for the candidate-row form (see _EdgeMatchRowFilter.full_mask). Cumulative
+    # gathered rows; once they reach a fraction of the frame we are demonstrably NOT in the
+    # seeded regime, so we pay for the whole-column mask once and reuse it. Bounds total
+    # predicate work at ~(1 + 1/D)*E instead of the unbounded-in-hops gather, while a seeded
+    # hop — which gathers ~degree — never comes close to the threshold and never builds it.
+    gathered_rows = 0
+    eager_keep: Optional[ArrayLike] = None
+    switch_at = (
+        max(_EAGER_MASK_SWITCH_FLOOR, len(edges) // _EAGER_MASK_SWITCH_DIVISOR)
+        if _candidate_edge_mask_enabled() else 0  # 0 => build the whole-column mask up front
+    )
 
     # Do NOT narrow the seed to the index key dtype (a node-id int64 seed cast to
     # an int32 edge-endpoint key wraps large ids → false match). lookup promotes both
@@ -198,11 +334,29 @@ def index_seeded_hop(
         neigh_parts: List[ArrayLike] = []
         for ix in indices:
             rows, matched = lookup_edge_rows(ix, frontier, xp)
-            if edge_keep is not None:
+            if edge_filter is not None:
                 # Keep only CSR-matched rows whose edge passes edge_match. Wavefront-
                 # only (coverability gate), so the `matched`/first-hop `visited`
                 # bookkeeping below — which edge_match does NOT filter — is never read.
-                rows = rows[edge_keep[rows]]
+                # Decide BEFORE gathering this batch, not after: a single hop's batch can
+                # be arbitrarily large, so a post-hoc check would overshoot by up to one
+                # whole batch. Checking the projected total keeps gathered <= switch_at.
+                if (eager_keep is None
+                        and gathered_rows + int(rows.shape[0]) > switch_at):
+                    eager_keep = edge_filter.full_mask()
+                    if eager_keep is None:
+                        return None
+                if eager_keep is not None:
+                    rows = rows[eager_keep[rows]]
+                else:
+                    gathered_rows += int(rows.shape[0])
+                    keep = edge_filter.mask_for(rows)
+                    if keep is None:
+                        # Evaluation failed on this candidate batch: abandon the indexed
+                        # path entirely so the caller re-runs the hop on the scan. Nothing
+                        # observable has been mutated, so this stays parity-safe.
+                        return None
+                    rows = rows[keep]
             edge_rows_parts.append(rows)
             neigh_parts.append(ix.other_values[rows])
             matched_parts.append(matched)

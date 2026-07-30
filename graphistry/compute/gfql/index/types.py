@@ -11,7 +11,7 @@ from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT
 if TYPE_CHECKING:
     from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 
-IndexKind = Literal["edge_out_adj", "edge_in_adj", "node_id"]
+IndexKind = Literal["edge_out_adj", "edge_in_adj", "node_id", "node_prop"]
 AdjacencyIndexKind = Literal["edge_out_adj", "edge_in_adj"]
 IndexBackend = Literal["numpy", "cupy"]
 HopDirection = Literal["forward", "reverse", "undirected"]
@@ -40,10 +40,17 @@ SimpleEqualityEdgeMatch = Mapping[str, ScalarMatchValue]
 
 class IndexTraceStep(TypedDict, total=False):
     op: str
+    operation: str
+    seam: str
     direction: HopDirection
     hops: Optional[int]
+    hop_count: int
     policy: str
     engine: str
+    served: bool
+    reason: str
+    public_seed_scan: bool
+    hop_details: List[Dict[str, Any]]
     frontier_n: int
     path: IndexPath
     decision_reason: str

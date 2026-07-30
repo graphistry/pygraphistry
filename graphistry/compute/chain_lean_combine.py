@@ -91,7 +91,12 @@ def _lean_prefilter_right(left: DataFrameT, right: DataFrameT, key: str, engine:
     """Shrink ``right`` to the keys present in ``left`` before a ``how='left'``
     merge. A left merge discards unmatched ``right`` rows anyway, so this is
     byte-identical (row order = ``left`` order; matched right rows preserved,
-    including any fan-out). Only shrinks when ``left`` is materially smaller.
+    including any fan-out). Shrinks when ``left`` is EMPTY (nothing can match) or
+    materially smaller than ``right``; otherwise the membership pass costs more
+    than the join it would save.
+
+    pandas-only in practice: ``_lean_engine_ok`` is checked first and returns
+    ``right`` unchanged for cuDF / polars / dask, so nothing here is cross-engine.
     """
     if not _lean_combine_enabled() or not _lean_engine_ok(engine):
         return right
@@ -102,6 +107,20 @@ def _lean_prefilter_right(left: DataFrameT, right: DataFrameT, key: str, engine:
         right_len = len(right)
     except Exception:
         return right
-    if left_len == 0 or left_len * _LEAN_SHRINK_RATIO > right_len:
+    if left_len == 0:
+        # No left key can match anything, and a how='left' merge keeps only the right
+        # rows that DO match, so the result is empty whatever `right` holds. Hand back
+        # a zero-row slice -- same columns and dtypes, so the merge still produces the
+        # identical schema -- instead of letting the join materialize the whole frame.
+        # This is the case where shrinking is both maximally profitable and trivially
+        # correct, and it was the one case the gate below declined: an empty
+        # intermediate against a graph-sized side (measured: a 0-row left joined
+        # against 14M edges dominated a 112ms single-node query).
+        # `.iloc` and not `right[0:0]`: bare slicing is LABEL-based on a float index
+        # (pandas routes those through slice_indexer), so `right[0:0]` returns ONE row
+        # there and the optimization silently does nothing. `.iloc` is positional on
+        # every index type.
+        return right.iloc[0:0]
+    if left_len * _LEAN_SHRINK_RATIO > right_len:
         return right
     return right[right[key].isin(left[key])]

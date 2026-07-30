@@ -223,7 +223,22 @@ def hop_polars(
         pairs_lf = _build_hop_pairs(edges_lf, direction, src, dst, node_dtype, FROM, TO, EID)
 
         def _idframe_lf(lf: "pl.LazyFrame", col: str) -> "pl.LazyFrame":
-            return lf.select(pl.col(col).cast(node_dtype).alias(NID)).unique()
+            """Id frame for a SEMI-JOIN KEY side only — deliberately NOT deduplicated.
+
+            Every consumer below (`allowed_source_lf`, `allowed_dest_lf`, `target_final_lf`,
+            `frontier_lf`) is the key side of a `how="semi"` join, and a semi-join emits a
+            row iff >=1 match exists — duplicate keys cannot change the result, and unlike an
+            inner join it cannot multiply rows either. `frontier_lf` is also the LEFT side of
+            one semi-join, whose output then feeds another as the key side; duplicates stay
+            harmless the whole way. So `.unique()` here is a full hash pass over the node-id
+            column bought for nothing: on an unfiltered hop the key side IS the node table,
+            making it O(N) work inside a query whose answer is O(degree). Measured on a
+            3.18M-node table: 65.1 -> 9.0 ms for the cast+key frame, and this path builds two
+            of them per hop.
+
+            Anything that needs a *distinct* id set must apply its own `.unique()`.
+            """
+            return lf.select(pl.col(col).cast(node_dtype).alias(NID))
 
         allowed_source_lf = (
             _idframe_lf(filter_by_dict_polars(nodes if nodes is not None else all_nodes,

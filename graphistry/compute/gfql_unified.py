@@ -1,7 +1,9 @@
 """GFQL unified entrypoint for chains, DAGs, and local string-compiled queries."""
 # ruff: noqa: E501
 
+from collections import OrderedDict
 from dataclasses import replace
+import threading
 import pandas as pd
 from types import MappingProxyType
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
@@ -30,6 +32,7 @@ from graphistry.compute.gfql.same_path_types import (
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.cypher.parser import parse_cypher
+from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
 from graphistry.compute.gfql.cypher.lowering import (
     ConnectedMatchJoinPlan,
     CompiledCypherGraphQuery,
@@ -401,13 +404,19 @@ def _apply_connected_optional_match(
             return None
 
         seed_src = joined_rows[[joined_col]]
+        # each branch builds ``seed_frame`` directly rather than rebinding ``seed_src``: the
+        # polars result would otherwise widen the variable and break the pandas branch below
+        # (``is_polars_df`` is a TypeGuard -- it does not narrow the negative branch back).
         if is_polars_df(seed_src):
-            seed_src = seed_src.drop_nulls().unique().rename({joined_col: node_col})
+            seed_frame = cast(DataFrameT, df_to_engine(
+                seed_src.drop_nulls().unique().rename({joined_col: node_col}), concrete_engine))
         else:
-            seed_src = seed_src.dropna().drop_duplicates().rename(columns={joined_col: node_col})
-        seed_frame = cast(DataFrameT, df_to_engine(seed_src, concrete_engine))
-        seed_ids = cast(SeriesT, seed_frame[node_col])
-        node_ids = cast(SeriesT, base_nodes[node_col])
+            seed_frame = cast(DataFrameT, df_to_engine(
+                seed_src.dropna().drop_duplicates().rename(columns={joined_col: node_col}), concrete_engine))
+        # Declared, not cast: selecting one column off a frame is a Series on every engine, so
+        # the annotation states that directly instead of re-asserting it at the call site.
+        seed_ids: SeriesT = seed_frame[node_col]
+        node_ids: SeriesT = base_nodes[node_col]
         if is_polars_df(base_nodes):
             return cast(DataFrameT, base_nodes.filter(node_ids.is_in(seed_ids)))
         return cast(DataFrameT, base_nodes[node_ids.isin(seed_ids)].copy())
@@ -493,7 +502,9 @@ def _apply_connected_optional_match(
                 opt_only_cols = [c for c in opt_rows_df.columns if c not in joined.columns or c in join_cols]
                 if len(join_cols) == 1:
                     jc = join_cols[0]
-                    opt_rows_df = opt_rows_df.filter(pl.col(jc).is_in(joined[jc]))
+                    # ``joined`` is eager here (this block indexes and ``len()``s it); the
+                    # polars guard narrows to the eager-or-lazy union and cannot say so.
+                    opt_rows_df = opt_rows_df.filter(pl.col(jc).is_in(joined[jc]))  # type: ignore[index,arg-type]
                 else:
                     join_keys = joined.select(join_cols).unique()
                     opt_rows_df = opt_rows_df.join(join_keys, on=join_cols, how="inner")
@@ -1120,9 +1131,14 @@ def _execute_compiled_query_chain_non_union(
             and getattr(_first_op, "function", None) == "rows"
             and getattr(_first_op, "params", {}).get("binding_ops") is not None
         ):
-            setattr(dispatch_graph, "_gfql_start_nodes", start_nodes)
+            # #1786: on the no-seed-rows path `_seeded_dispatch_graph` hands back
+            # `base_graph` ITSELF (the caller's object), so this must land on a copy.
+            dispatch_graph = attach_row_exec_context(dispatch_graph, start_nodes=start_nodes)
 
     result = _chain_dispatch(dispatch_graph, compiled_query.chain, engine, policy, context, start_nodes=start_nodes)
+    # Attach/detach pair (#1786): the chain has run, so the seed is spent and must not
+    # ride out on the result -- a follow-up query on it is about a DIFFERENT graph.
+    result = clear_row_exec_context(result)
     if compiled_query.empty_result_row is not None:
         result = _apply_empty_result_row(
             result,
@@ -1487,8 +1503,26 @@ def detect_query_type(query: Any) -> QueryType:
         return "single"
 
 
-_COMPILED_STRING_QUERY_CACHE_ATTR = "_gfql_compiled_string_query_cache"
 _COMPILED_STRING_QUERY_CACHE_MAX = 128
+
+#: Compiled plans, keyed by everything compilation actually depends on.
+#:
+#: ``compile_cypher_query(parse_cypher(query), params=..., node_dtypes=...)`` takes exactly
+#: those inputs and never sees the graph, so the plan for a given key is the same plan
+#: no matter which ``Plottable`` asked for it. This cache used to hang off the caller's
+#: Plottable by ``setattr``, which partitioned it by something that cannot change the
+#: answer -- so a ONE-SHOT query on a fresh graph recompiled a plan the process was already
+#: holding. Measured on dgx-spark at graph-benchmark 20k, that cost the first query on a
+#: Plottable +1.6 to +2.5 ms (+21% to +52%) versus the second, on q3/q4/q5/q7/q9 alike.
+#:
+#: Bounded LRU rather than clear-on-full so a hot query cannot be evicted by a burst of
+#: cold ones. Values are ``@dataclass(frozen=True)`` chains and plans -- no DataFrame is
+#: reachable from a compiled query, so a process-lifetime cache cannot pin user data.
+_COMPILED_STRING_QUERY_CACHE: "OrderedDict[Tuple[str, str, Tuple[Tuple[str, Any], ...], Optional[Tuple[Tuple[str, str], ...]], str], Any]" = OrderedDict()
+#: Guards the LRU. Plain dict ops are individually atomic under the GIL, but
+#: get-then-move_to_end and insert-then-evict are not, and this cache is now shared across
+#: threads rather than isolated per graph.
+_COMPILED_STRING_QUERY_CACHE_LOCK = threading.Lock()
 
 
 def _compile_cache_value_key(value: Any) -> Optional[Any]:
@@ -1553,21 +1587,29 @@ def _node_dtypes_cache_key(
     return tuple(sorted((str(col), str(dtype)) for col, dtype in node_dtypes.items()))
 
 
-def _compile_string_query_cache(
-    cache_owner: Optional[Plottable],
-) -> Optional[Dict[Tuple[str, str, Tuple[Tuple[str, Any], ...], Optional[Tuple[Tuple[str, str], ...]]], Any]]:
-    if cache_owner is None:
-        return None
+def gfql_clear_caches() -> None:
+    """Empty every PROCESS-LIFETIME GFQL cache.
+
+    GFQL memoizes work that is a pure function of its inputs: compiled plans here, and the
+    parse caches behind ``parse_cypher`` and the row-expression parser. All are bounded, so
+    this is not a leak valve -- it exists because a process-lifetime cache that cannot be
+    emptied is untestable (results become order-dependent) and unbudgetable (a long-lived
+    server cannot reclaim the memory on demand).
+
+    Caches keyed to a specific graph are NOT touched: they live on their ``Plottable`` and
+    die with it.
+    """
+    with _COMPILED_STRING_QUERY_CACHE_LOCK:
+        _COMPILED_STRING_QUERY_CACHE.clear()
+    for cached in (parse_cypher,):
+        clear = getattr(cached, "cache_clear", None)
+        if clear is not None:
+            clear()
     try:
-        cache = getattr(cache_owner, _COMPILED_STRING_QUERY_CACHE_ATTR, None)
-        if cache is None:
-            cache = {}
-            setattr(cache_owner, _COMPILED_STRING_QUERY_CACHE_ATTR, cache)
-        if isinstance(cache, dict):
-            return cache
-    except Exception:
-        return None
-    return None
+        from graphistry.compute.gfql.expr_parser import clear_expr_parser_caches
+    except ImportError:
+        return
+    clear_expr_parser_caches()
 
 
 def _compile_string_query(
@@ -1575,7 +1617,7 @@ def _compile_string_query(
     *,
     language: Optional[Literal["cypher", "gremlin"]],
     params: Optional[Mapping[str, Any]],
-    cache_owner: Optional[Plottable] = None,
+    engine_key: str,
     node_dtypes: Optional[NodeDtypes] = None,
 ) -> Any:
     query_language = language or "cypher"
@@ -1594,16 +1636,24 @@ def _compile_string_query(
     # compile cache (#1731) must therefore key on node_dtypes too, or a plan compiled for one
     # engine would be wrongly reused for another on the same graph.
     node_dtypes_key = _node_dtypes_cache_key(node_dtypes)
-    cache = _compile_string_query_cache(cache_owner) if params_key is not None else None
-    cache_key = (query_language, query, params_key, node_dtypes_key) if params_key is not None else None
-    if cache is not None and cache_key is not None and cache_key in cache:
-        return cache[cache_key]
+    # params that cannot be keyed (unhashable / opaque values) are simply not cached.
+    cache_key = (
+        (query_language, query, params_key, node_dtypes_key, engine_key)
+        if params_key is not None else None)
+    if cache_key is not None:
+        with _COMPILED_STRING_QUERY_CACHE_LOCK:
+            hit = _COMPILED_STRING_QUERY_CACHE.get(cache_key)
+            if hit is not None:
+                _COMPILED_STRING_QUERY_CACHE.move_to_end(cache_key)
+                return hit
 
     compiled = compile_cypher_query(parse_cypher(query), params=params, node_dtypes=node_dtypes)
-    if cache is not None and cache_key is not None:
-        if cache_key not in cache and len(cache) >= _COMPILED_STRING_QUERY_CACHE_MAX:
-            cache.clear()
-        cache[cache_key] = compiled
+    if cache_key is not None:
+        with _COMPILED_STRING_QUERY_CACHE_LOCK:
+            _COMPILED_STRING_QUERY_CACHE[cache_key] = compiled
+            _COMPILED_STRING_QUERY_CACHE.move_to_end(cache_key)
+            while len(_COMPILED_STRING_QUERY_CACHE) > _COMPILED_STRING_QUERY_CACHE_MAX:
+                _COMPILED_STRING_QUERY_CACHE.popitem(last=False)
     return compiled
 
 
@@ -1847,8 +1897,14 @@ def gfql(self: Plottable,
                     e.query_type = policy_context.get('query_type')
                 raise
 
+        # #1786: `shortest_path_backend` is an argument to THIS call, not a property of
+        # the caller's graph, so it may not be written onto `self`. Copy only when the
+        # value actually differs: the default call then keeps `self`'s identity, and the
+        # compiled-query memo cache below is owned by `self` either way.
         dispatch_self = self
-        setattr(dispatch_self, "_gfql_shortest_path_backend", shortest_path_backend)
+        if self._gfql_shortest_path_backend != shortest_path_backend:
+            dispatch_self = self.bind()
+            dispatch_self._gfql_shortest_path_backend = shortest_path_backend
         compiled_query = None
 
         if where_param and isinstance(query, (dict, ASTLet)):
@@ -1904,7 +1960,18 @@ def gfql(self: Plottable,
                     query,
                     language=language,
                     params=params,
-                    cache_owner=dispatch_self,
+                    # The RESOLVED engine, not the requested one: `auto` resolves per graph,
+                    # so keying on the request would let two graphs that resolve differently
+                    # share a plan. node_dtypes does NOT stand in for this -- polars and
+                    # polars-gpu report identical dtypes and compile differently, which the
+                    # old per-Plottable cache hid rather than avoided.
+                    # `engine` is EngineAbstract | str here; resolve_engine's parameter is
+                    # EngineAbstract | Literal[...], so normalize the str arm first. This
+                    # mirrors resolve_engine's own first two lines, so an unknown engine
+                    # name still raises ValueError from the same place it always did.
+                    engine_key=resolve_engine(
+                        EngineAbstract(engine) if isinstance(engine, str) else engine,
+                        self).value,
                     node_dtypes=_node_dtypes_for_pushdown(self, engine),
                 )
             except GFQLValidationError as exc:

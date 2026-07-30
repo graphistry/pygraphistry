@@ -7,7 +7,7 @@ parity vs the pandas chain gates correctness; unsupported shapes raise NotImplem
 (no silent pandas fallback). Deferred: variable-length/multi-hop edge sub-cases, some
 undirected multi-edge combos, node query=.
 """
-from typing import Any, List, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type, cast
 
 from typing_extensions import TypedDict
 
@@ -17,6 +17,11 @@ from graphistry.compute.gfql.call.support import AggSpec
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
+
+if TYPE_CHECKING:
+    import polars as pl
+    from graphistry.compute.gfql.index.bindings import IndexedBindingsState
+    from .dtypes import PolarsFrame, PolarsT
 from .hop_eager import ensure_nodes_polars
 from .dtypes import is_lazy, colnames, endpoint_ids
 from .degrees import get_degrees_polars, get_indegrees_polars, get_outdegrees_polars
@@ -24,9 +29,37 @@ from .predicates import filter_by_dict_polars
 from .reserved_columns import CHAIN_NODE_HOP
 
 
-def _semi(df, ids_df, df_col, id_col):
-    """Rows of df whose df_col is present in ids_df[id_col] (vectorized semi-join)."""
-    return df.join(ids_df.select(id_col).unique(), left_on=df_col, right_on=id_col, how="semi")
+def _polars_error_types() -> Tuple[Type[BaseException], ...]:
+    """The polars exception hierarchy root, as an ``except`` target.
+
+    A tuple (not the class) so the empty tuple is available as the fail-closed answer when an
+    older polars has no ``PolarsError`` base: ``except ()`` matches nothing, which degrades to
+    today's behaviour rather than swallowing something unrelated. Evaluated only while an
+    exception is being matched, so it costs nothing on the success path.
+    """
+    import polars as pl
+    base = getattr(pl.exceptions, "PolarsError", None)
+    if isinstance(base, type) and issubclass(base, BaseException):
+        return (base,)
+    return ()
+
+
+def _semi(df: "PolarsT", ids_df: "PolarsT", df_col: str, id_col: str) -> "PolarsT":
+    """Rows of df whose df_col is present in ids_df[id_col] (vectorized semi-join).
+
+    Both frames share the ``PolarsT`` TypeVar because polars joins do not mix eagerness:
+    ``DataFrame.join`` takes a ``DataFrame`` and ``LazyFrame.join`` takes a ``LazyFrame``, and a
+    mixed pair raises at runtime. Same variable in, same variable out — the semi-join preserves
+    the left frame's eagerness, so an eager caller keeps its ``.height``/``.columns`` and a lazy
+    caller keeps a plan.
+
+    The key frame is NOT deduplicated: a semi-join emits a left row iff at least one
+    matching right row exists, so duplicate keys cannot change which rows come back (and
+    a semi-join never multiplies rows the way an inner join would). Deduplicating first
+    is a whole extra hash pass over the key column for no observable effect — 60.7 -> 8.6 ms
+    on a 3.18M-key build side. See the module note on semi-join key frames.
+    """
+    return df.join(ids_df.select(id_col), left_on=df_col, right_on=id_col, how="semi")
 
 
 def _align_seed_dtype(seed, node_col, ref_nodes):
@@ -209,35 +242,93 @@ def _is_native_multihop(op: ASTObject) -> bool:
 
 class _LazyShim:
     """Track B collect-once shim: carries _nodes/_edges as LazyFrames (+ col names) so the eager
-    combine helpers run lazily over already-materialized hop frames without Plottable rebinds."""
-    __slots__ = ("_nodes", "_edges", "_node", "_source", "_destination", "_edge")
+    combine helpers run lazily over already-materialized hop frames without Plottable rebinds.
 
-    def __init__(self, nodes_lf, edges_lf, node, source, destination, edge):
+    ``edges_empty`` records whether the step's edge frame was empty while it was still eager
+    (tri-state: True/False, or None when unknown). ``.lazy()`` throws that fact away — a
+    LazyFrame has no height without collecting — and the combine's cardinality shortcuts then go
+    dead, which is a graph-sized mistake: an empty relation annihilates a join, but polars cannot
+    know the relation is empty until it has already built the hash table over the OTHER side.
+    Capturing it here costs nothing (the frames are materialized at construction) and this is the
+    only place in the lazy combine where the count is still available."""
+    __slots__ = ("_nodes", "_edges", "_node", "_source", "_destination", "_edge", "edges_empty")
+
+    # Bare annotations only — a class-level VALUE would collide with __slots__ at class
+    # creation. These make the slots statically typed rather than inferred from __init__.
+    # LazyFrame, not the PolarsFrame union: every construction site (`step` and the Track-B
+    # entry) calls `.lazy()` first, which is the whole point of the shim, so the union would
+    # be both less true and unusable — `pl.concat`'s TypeVar rejects a DataFrame|LazyFrame.
+    _nodes: "Optional[pl.LazyFrame]"
+    _edges: "Optional[pl.LazyFrame]"
+    _node: Optional[str]
+    _source: Optional[str]
+    _destination: Optional[str]
+    _edge: Optional[str]
+    edges_empty: Optional[bool]
+
+    def __init__(self, nodes_lf: "Optional[pl.LazyFrame]", edges_lf: "Optional[pl.LazyFrame]",
+                 node: Optional[str], source: Optional[str], destination: Optional[str],
+                 edge: Optional[str], edges_empty: Optional[bool] = None) -> None:
         self._nodes = nodes_lf
         self._edges = edges_lf
         self._node = node
         self._source = source
         self._destination = destination
         self._edge = edge
+        self.edges_empty = edges_empty
 
     @staticmethod
-    def step(p):
+    def step(p: Plottable) -> "_LazyShim":
         nd = p._nodes.lazy() if p._nodes is not None else None
         ed = p._edges.lazy() if p._edges is not None else None
-        return _LazyShim(nd, ed, None, None, None, None)
+        return _LazyShim(nd, ed, None, None, None, None, edges_empty=_known_empty(p._edges))
 
 
-def _combine_edges(g, steps, label_steps, has_multihop=False):
+def _known_empty(frame: "Optional[PolarsFrame]") -> Optional[bool]:
+    """Tri-state emptiness of an already-materialized frame: True/False, or None when unknown
+    (frame absent, or already lazy so the height is not available without collecting)."""
+    if frame is None or is_lazy(frame):
+        return None
+    # No cast: `is_lazy` is a TypeIs, so surviving this guard IS the proof that `frame` is the
+    # eager member of the union and `.height` exists. A cast here would have asserted the same
+    # fact the predicate already establishes, unchecked — and would have had to be repeated at
+    # every other eager-side call site in the engine.
+    return frame.height == 0
+
+
+def _combine_edges(g: "_LazyShim",
+                   steps: List[Tuple[ASTObject, "_LazyShim"]],
+                   label_steps: List[Tuple[ASTObject, "_LazyShim"]],
+                   has_multihop: bool = False) -> "pl.LazyFrame":
+    """The output edge ROWS: the graph's edges restricted to the ids the traversal kept, plus a
+    boolean flag column per named edge step.
+
+    Takes the ``_LazyShim`` duck-type, NOT a ``Plottable``: the Track-B combine runs entirely on
+    already-materialized-then-lazified hop frames, which is exactly what the shim carries (and
+    why its frames are ``LazyFrame``, not the ``PolarsFrame`` union). ``steps`` are the edge
+    steps (recomputed ones when ``has_multihop``); ``label_steps`` are the forward-pass steps
+    used for the endpoint gates and the alias flags."""
     import polars as pl
     src, dst, node_col, edge_id = g._source, g._destination, g._node, g._edge
     assert src is not None and dst is not None and node_col is not None and edge_id is not None
+    all_edges = g._edges
+    assert all_edges is not None  # the shim's edge frame is the thing being combined
 
-    frames = []
+    frames: List["pl.LazyFrame"] = []
     for idx, (op, g_step) in enumerate(steps):
         edges_df = g_step._edges
         if edges_df is None:
             continue
-        if not is_lazy(edges_df) and edges_df.height == 0:
+        # A step with no edges contributes no ids to the union below, so drop it BEFORE the
+        # endpoint gates rather than semi-joining an empty frame against the graph. The gates
+        # are the expensive part and their cost is on the side we do NOT need: polars builds
+        # the hash table on the RIGHT (the node universe / a neighbouring step's node frame)
+        # and only then probes with the empty left, so an unfiltered `prev_nodes = g._nodes`
+        # costs a full O(N) hash build to produce the zero rows we already knew about
+        # (measured: 6.99 ms for one such join at N=2M, and a chain hits one per node step).
+        # Height is read from the pre-lazy fact recorded by _LazyShim.step because `.lazy()`
+        # erases it; `not is_lazy(...)` keeps the direct-eager-frame case working.
+        if g_step.edges_empty is True or (not is_lazy(edges_df) and edges_df.height == 0):
             continue
         if has_multihop or (isinstance(op, ASTEdge) and not op.is_simple_single_hop()):
             # has_multihop: every edge step was already recomputed path-valid (forward re-exec over
@@ -264,11 +355,11 @@ def _combine_edges(g, steps, label_steps, has_multihop=False):
         frames.append(edges_df.select(pl.col(edge_id)))
 
     if not frames:
-        out_ids = g._edges.select(pl.col(edge_id)).limit(0)
+        out_ids = all_edges.select(pl.col(edge_id)).limit(0)
     else:
         out_ids = pl.concat(frames, how="vertical_relaxed").unique(subset=[edge_id])
 
-    out = g._edges.join(out_ids, on=edge_id, how="semi")
+    out = all_edges.join(out_ids, on=edge_id, how="semi")
 
     for op, g_step in label_steps:
         if op._name is not None and isinstance(op, ASTEdge) and g_step._edges is not None and op._name in colnames(g_step._edges):
@@ -277,23 +368,68 @@ def _combine_edges(g, steps, label_steps, has_multihop=False):
     return out
 
 
-def _combine_nodes(g, steps):
+def _combine_node_ids(g: "_LazyShim",
+                      steps: List[Tuple[ASTObject, "_LazyShim"]]) -> "pl.LazyFrame":
+    """One-column frame of the node ids the traversal kept, unioned over the pruned steps.
+
+    IDS ONLY, not the node rows: the caller still has to fold in the surviving edges' endpoints,
+    and materializing the node rows before that fold means scanning the node table TWICE (once
+    here, once for the endpoints the first scan missed). The union is over per-step id columns,
+    so it is proportional to the traversal result, not to the graph.
+
+    Not deduplicated: the single consumer is a ``how="semi"`` key side, where duplicate keys can
+    neither change which rows come back nor multiply them (see the module note on semi-join key
+    frames). The caller's own ``.unique()`` on the materialized node rows is a DIFFERENT dedup
+    (by node id, over rows) and is still required."""
     import polars as pl
     node_col = g._node
     assert node_col is not None
+    all_nodes = g._nodes
+    assert all_nodes is not None
     frames = [
         g_step._nodes.select(pl.col(node_col))
         for _, g_step in steps
         if g_step._nodes is not None and node_col in colnames(g_step._nodes)
     ]
-    if frames:
-        ids = pl.concat(frames, how="vertical_relaxed").unique(subset=[node_col])
-    else:
-        ids = g._nodes.select(pl.col(node_col)).limit(0)
-    return g._nodes.join(ids, on=node_col, how="semi")
+    if not frames:
+        return all_nodes.select(pl.col(node_col)).limit(0)
+    if len(frames) == 1:
+        return frames[0]
+    return pl.concat(frames, how="vertical_relaxed")
 
 
-def _apply_node_names(out, g, steps, auto_hop_col: str = _AUTO_NODE_HOP):
+def _materialize_node_rows(all_nodes: "pl.LazyFrame", step_ids: "pl.LazyFrame",
+                           endpoint_ids_frame: "pl.LazyFrame", node_col: str) -> "pl.LazyFrame":
+    """The output node ROWS: every node the steps kept, plus every endpoint of a surviving edge.
+
+    Union the two ID sides FIRST, then read the node table ONCE. Materializing the step rows and
+    then fetching the endpoint rows the first pass missed reads the whole node frame TWICE for
+    the same answer — two pure O(N) passes for a result that is usually a handful of rows
+    (measured: 0.90 + 0.86 ms at N=2M). Row identity is unchanged: semi-joining the UNION of two
+    key sets selects exactly the rows the two semi-joins selected between them.
+
+    Neither id side is deduplicated — both feed a ``how="semi"`` key side, where duplicates
+    cannot change or multiply the rows that come back. The trailing ``unique`` is a DIFFERENT
+    dedup and is REQUIRED: it is over the node ROWS, and these rows go on to feed ``how="left"``
+    alias joins where a node table carrying the same id twice would multiply every matching row.
+
+    Row ORDER out of here is arbitrary — a polars semi-join does not preserve left-frame order —
+    and the caller restores input-frame order with an explicit sort. ``maintain_order`` is kept
+    verbatim from the pre-refactor call so that WHICH duplicate row survives is decided the same
+    way it was before: A/B over 400 duplicate-id combos gives identical full frames **under the
+    default in-memory collect**. Scoped deliberately — under streaming collect the survivor DOES
+    differ from the pre-refactor call (measured), so it is not a guaranteed property of this
+    helper, only a stable one on the default engine. Anything needing a specific survivor must
+    order explicitly rather than rely on this."""
+    import polars as pl
+    ids = pl.concat([step_ids, endpoint_ids_frame], how="vertical_relaxed")
+    return all_nodes.join(ids, on=node_col, how="semi").unique(
+        subset=[node_col], maintain_order=True)
+
+
+def _apply_node_names(out: "pl.LazyFrame", g: "_LazyShim",
+                      steps: List[Tuple[ASTObject, "_LazyShim"]],
+                      auto_hop_col: str = _AUTO_NODE_HOP) -> "pl.LazyFrame":
     """Tag node aliases on the FINAL node frame (after endpoint materialization). A node carries
     the alias iff it matched the named step in the backward-PRUNED frame (dead-end matches
     excluded) AND, when followed by an edge step, participates in that edge's PRUNED edges.
@@ -302,7 +438,7 @@ def _apply_node_names(out, g, steps, auto_hop_col: str = _AUTO_NODE_HOP):
     import polars as pl
     node_col, src, dst = g._node, g._source, g._destination
     assert node_col is not None and src is not None and dst is not None
-    step_list = list(steps)
+    step_list: List[Tuple[ASTObject, "_LazyShim"]] = list(steps)
     for idx, (op, g_step) in enumerate(step_list):
         if op._name is None or not isinstance(op, ASTNode) or g_step._nodes is None:
             continue
@@ -323,11 +459,24 @@ def _apply_node_names(out, g, steps, auto_hop_col: str = _AUTO_NODE_HOP):
                 if max_hop is not None:
                     in_window = in_window & (hop <= max_hop)
                 named = named.join(
-                    g_step._nodes.filter(in_window).select(pl.col(node_col)).unique(),
+                    g_step._nodes.filter(in_window).select(pl.col(node_col)),
                     on=node_col, how="semi")
         if idx + 1 < len(step_list):
             next_op, next_step = step_list[idx + 1]
-            if isinstance(next_op, ASTEdge) and next_step._edges is not None and (is_lazy(next_step._edges) or next_step._edges.height > 0):
+            # Cardinality guard, restated against a fact that SURVIVES lazification. The old
+            # spelling was `is_lazy(df) or df.height > 0`, and `_apply_node_names` is always
+            # called with lazified steps — so `is_lazy` short-circuited True and the height
+            # test was unreachable. That is the identical silent death this commit fixes one
+            # function above; leaving a second copy of it here is how the bug recurs.
+            # Unlike the edges combine this one is SEMANTIC, not a cost guard: an empty next
+            # edge step must not empty `named` via the gate below.
+            # Plain attribute read, not getattr: `next_step` is a `_LazyShim`, which declares
+            # `edges_empty` in __slots__ with a real `Optional[bool]` annotation, so the
+            # tri-state is part of the type and a typo here is a checker error rather than a
+            # silent None (which would have re-armed the very gate this guard disarms).
+            next_edges_empty = next_step.edges_empty
+            if (isinstance(next_op, ASTEdge) and next_step._edges is not None
+                    and next_edges_empty is not True):
                 e = next_step._edges
                 if next_op.direction == "forward":
                     part = e.select(pl.col(src).alias(node_col))
@@ -335,7 +484,9 @@ def _apply_node_names(out, g, steps, auto_hop_col: str = _AUTO_NODE_HOP):
                     part = e.select(pl.col(dst).alias(node_col))
                 else:
                     part = endpoint_ids(e, src, dst, node_col)
-                named = named.join(part.unique(), on=node_col, how="semi")
+                # `part` is a semi-join key side (dupes cannot change it); `named` above keeps
+                # its .unique() because it feeds a how="left" join, where they WOULD multiply.
+                named = named.join(part, on=node_col, how="semi")
         flag = named.with_columns(pl.lit(True).alias(op._name))
         out = out.join(flag, on=node_col, how="left").with_columns(pl.col(op._name).fill_null(False))
     return out
@@ -367,15 +518,16 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     """
     from graphistry.compute.ast import ASTCall, ASTNode as _ASTNode, ASTEdge as _ASTEdge, rows as rows_fn
     from graphistry.compute.chain import serialize_binding_ops
+    from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
 
     calls = list(calls)
     if not calls:
         return g_cur
 
-    if start_nodes is not None:
-        setattr(g_cur, "_gfql_start_nodes", start_nodes)
-    setattr(g_cur, "_gfql_rows_base_graph", base_graph)
-    setattr(g_cur, "_gfql_shortest_path_backend", getattr(g_cur, "_gfql_shortest_path_backend", "auto"))
+    # #1786: twin of the generic chain -- per-execution state on an INTERNAL COPY.
+    # `g_cur` is the CALLER's graph on the all-calls boundary run, so assigning here
+    # left the WITH re-entry seed behind for the next, unrelated query.
+    g_cur = attach_row_exec_context(g_cur, start_nodes=start_nodes, rows_base_graph=base_graph)
 
     if (
         middle
@@ -385,9 +537,23 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
         and calls[0].params.get("binding_ops") is None
         and calls[0].params.get("source") is None
         and calls[0].params.get("alias_endpoints") is None
+        # See the twin guard in compute/chain.py: a NON-DEFAULT `table` names the table the
+        # caller wants, so the bindings rewrite must not override it. Both surfaces need
+        # the check — this one is the native polars chain, that one the generic chain.
+        # `== "nodes"`, not `is None`: `rows()` defaults table to "nodes" and always emits
+        # it, so an `is None` test disables the rewrite entirely.
+        and calls[0].params.get("table", "nodes") == "nodes"
         and all(isinstance(op, (_ASTNode, _ASTEdge)) for op in middle)
     ):
-        calls = [rows_fn(binding_ops=serialize_binding_ops(middle))] + list(calls[1:])
+        # See the twin in compute/chain.py: ADD binding_ops to the caller's call rather
+        # than building a fresh one, so the params the rewrite has no opinion about
+        # (`attach_prop_aliases`, `alias_prefilters`) reach the binding_ops builder.
+        prev_params = calls[0].params
+        calls = [rows_fn(
+            binding_ops=serialize_binding_ops(middle),
+            alias_prefilters=prev_params.get("alias_prefilters"),
+            attach_prop_aliases=prev_params.get("attach_prop_aliases"),
+        )] + list(calls[1:])
 
     # Per-op NATIVE-OR-DEFER. Ops that don't lower:
     #  - non-native ROW op (correlated-subquery semi_apply/anti_semi_apply/join_apply):
@@ -399,8 +565,41 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     #    is MECHANICAL (is_row_pipeline_call), not curated. (umap/hypergraph never reach here —
     #    the generic chain routes schema-changers straight to execute_call.)
     from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
+    from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
     for op in calls:
-        native = _try_native_row_op(g_cur, op)
+        try:
+            native = _try_native_row_op(g_cur, op)
+        except GFQLTypeError:
+            raise
+        except GFQLValidationError as validation_error:
+            # Same wrapping `execute_call` applies (gfql/call/executor.py): a kernel that
+            # raises a validation error surfaces as GFQLTypeError(E303) with this message
+            # shape. The native attempt runs BEFORE execute_call, so without this the SAME
+            # query carries a different class AND a different `.code` per engine — and this
+            # repo's control flow keys on `.code`. Scoped to GFQLValidationError, the one
+            # divergence actually observed (an E108 from the var-length cycle guard);
+            # other exception classes are left alone rather than blanket-normalized.
+            fn_name = getattr(op, "function", None)
+            raise GFQLTypeError(
+                ErrorCode.E303,
+                f"Error executing '{fn_name}': {validation_error}",
+                field="function",
+                value=fn_name,
+            ) from validation_error
+        except _polars_error_types() as polars_error:
+            # A THIRD-PARTY exception must never be the GFQL surface. On the pandas/cuDF side
+            # `execute_call` already wraps any kernel exception as GFQLTypeError(E303) — the
+            # native polars path runs BEFORE execute_call and so skipped that wrapper entirely,
+            # letting e.g. `polars.exceptions.InvalidOperationError: \`sum\` operation not
+            # supported for dtype \`str\`` reach the caller verbatim. Same code, same message
+            # shape as the pandas surface; the polars text is preserved as the cause.
+            fn_name = getattr(op, "function", None)
+            raise GFQLTypeError(
+                ErrorCode.E303,
+                f"Error executing '{fn_name}': {polars_error}",
+                field="function",
+                value=fn_name,
+            ) from polars_error
         if native is not None:
             g_cur = native
             continue
@@ -417,7 +616,9 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
             f"{getattr(op, 'function', op)!r}; use engine='pandas' for this query "
             f"(no pandas fallback; parity-or-error by design)"
         )
-    return g_cur
+    # Attach/detach pair: the boundary run is done, so the context is spent and must not
+    # ride out on the result the caller sees (see the twin in compute/chain.py).
+    return clear_row_exec_context(g_cur)
 
 
 
@@ -582,10 +783,89 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
             "use engine='pandas' for this chain."
         )
 
-    g_cur = _chain_traversal_polars(self, middle, start_nodes)
+    from graphistry.compute.chain import serialize_binding_ops
+    from graphistry.compute.gfql.index.handoff import (
+        IndexedBindingsHandoff, attach_handoff,
+    )
+
+    indexed_state, indexed_attempted = _try_indexed_middle_polars(self, middle, suffix, start_nodes)
+    if indexed_state is not None:
+        # Skip the canonical traversal: the compact indexed path bag already IS the
+        # binding rows the suffix asks for. Hand it to the unchanged native rows
+        # materializer through an internal graph copy.
+        g_cur = attach_handoff(self, IndexedBindingsHandoff(
+            binding_ops=serialize_binding_ops(middle),
+            state=indexed_state,
+            edge_aliases=tuple(
+                op._name for op in middle
+                if isinstance(op, ASTEdge) and isinstance(op._name, str)
+            ),
+        ))
+    else:
+        g_cur = _chain_traversal_polars(self, middle, start_nodes)
+        if indexed_attempted:
+            # Record the exact declined plan so the rows materializer does not
+            # re-attempt (and re-record) the same decision. Attach, never mutate:
+            # the pandas twin does the same, so neither boundary can write onto a
+            # graph it does not own.
+            g_cur = attach_handoff(g_cur, IndexedBindingsHandoff(
+                binding_ops=serialize_binding_ops(middle),
+            ))
     if suffix:
         g_cur = _run_calls_polars(g_cur, suffix, start_nodes, base_graph=self, middle=middle)
     return g_cur
+
+
+def _try_indexed_middle_polars(
+    g: Plottable,
+    middle: List[ASTObject],
+    suffix: List[ASTObject],
+    start_nodes: Optional[Any],
+) -> Tuple[Optional["IndexedBindingsState"], bool]:
+    """Attempt the indexed fixed-hop path BEFORE the canonical polars traversal.
+
+    Returns ``(state_or_None, attempted)``. The shape gate mirrors the pandas
+    boundary gate and ``_run_calls_polars``' named-middle rewrite: the bypass is
+    only sound when the leading rows call consumes exactly this middle as binding
+    ops. Everything else (prefiltered/seeded/aliased-endpoint rows, unnamed middle
+    without binding ops, non-traversal middle) keeps the canonical path.
+    """
+    from graphistry.compute.ast import ASTCall
+    from graphistry.compute.chain import serialize_binding_ops
+
+    if (
+        not middle
+        or not suffix
+        or start_nodes is not None
+        or not isinstance(suffix[0], ASTCall)
+        or suffix[0].function != "rows"
+        or suffix[0].params.get("source") is not None
+        or suffix[0].params.get("alias_endpoints") is not None
+        or suffix[0].params.get("alias_prefilters")
+        # See the twin guard in chain._plan_indexed_middle: serving the bypass skips the
+        # canonical traversal, so a non-default `table` would read the PRE-traversal edge
+        # table (the whole graph) instead of the narrowed one. "nodes", not None — `rows()`
+        # always emits `table`.
+        or suffix[0].params.get("table", "nodes") != "nodes"
+        or not all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
+    ):
+        return None, False
+    binding_ops = suffix[0].params.get("binding_ops")
+    if not (
+        binding_ops == serialize_binding_ops(middle)
+        or (
+            binding_ops is None
+            and any(op._name is not None for op in middle)
+        )
+    ):
+        return None, False
+
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.bindings import try_indexed_connected_bindings_state
+    from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
+
+    engine = Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else Engine.POLARS
+    return try_indexed_connected_bindings_state(g, middle, engine=engine), True
 
 
 def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plottable:
@@ -733,7 +1013,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                     to_ids = filter_by_dict_polars(gf._nodes, n2.filter_dict).select(pl.col(ncol))
                     edges = edges.join(to_ids, left_on=to_col, right_on=ncol, how="semi")
             endpoints = endpoint_ids(edges, scol, dcol, ncol)
-            nodes = gf._nodes.join(endpoints.unique(), on=ncol, how="semi")
+            nodes = gf._nodes.join(endpoints, on=ncol, how="semi")
             return gf.nodes(nodes, ncol).edges(_restore_edge_dtypes(edges, scol, dcol, restore), scol, dcol)
 
     if start_nodes is not None:
@@ -852,27 +1132,38 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     from graphistry.compute.util import generate_safe_column_name
     from graphistry.compute.gfql.lazy import collect_all
     NORD = generate_safe_column_name("__gfql_norder__", g._nodes, prefix="__gfql_", suffix="__")
-    EORD = generate_safe_column_name("__gfql_eorder__", g._edges, prefix="__gfql_", suffix="__")
-    g_lz = _LazyShim(g._nodes.with_row_index(NORD).lazy(), g._edges.with_row_index(EORD).lazy(),
+    if added_edge_index:
+        # EID was attached above as `with_row_index` over THIS frame in THIS order, so it
+        # already IS the stable edge order. Materializing a second identical 0..n-1 column
+        # over a graph-sized edge frame is pure duplication (measured: `with_row_index`
+        # cost ~34ms/query across the eager calls on a 14M-edge graph). Reuse EID.
+        EORD = EID
+        edges_lz = g._edges.lazy()
+    else:
+        EORD = generate_safe_column_name("__gfql_eorder__", g._edges, prefix="__gfql_", suffix="__")
+        edges_lz = g._edges.with_row_index(EORD).lazy()
+    g_lz = _LazyShim(g._nodes.with_row_index(NORD).lazy(), edges_lz,
                      node_col, src, dst, g._edge)
     steps_lz = [(op, _LazyShim.step(p)) for op, p in steps]
     edge_steps_lz = [(op, _LazyShim.step(p)) for op, p in edge_steps]
     label_lz = [(op, _LazyShim.step(p)) for op, p in label_steps]
 
-    final_nodes = _combine_nodes(g_lz, steps_lz)
+    node_ids = _combine_node_ids(g_lz, steps_lz)
     final_edges = _combine_edges(g_lz, edge_steps_lz, label_lz, has_multihop)
-    # Endpoint (lazy: always compute; maintain_order keeps the semi-join order).
-    endpoints = endpoint_ids(final_edges, src, dst, node_col).unique(subset=[node_col])
-    missing = endpoints.join(final_nodes.select(pl.col(node_col)), on=node_col, how="anti")
-    extra = g_lz._nodes.join(missing, on=node_col, how="semi")
-    final_nodes = pl.concat([final_nodes, extra], how="diagonal_relaxed").unique(
-        subset=[node_col], maintain_order=True)
+    all_nodes_lz = g_lz._nodes
+    assert all_nodes_lz is not None  # constructed from g._nodes two statements above
+    final_nodes = _materialize_node_rows(
+        all_nodes_lz, node_ids, endpoint_ids(final_edges, src, dst, node_col), node_col)
     final_nodes = _apply_node_names(final_nodes, g_lz, steps_lz, auto_hop_col=auto_hop_col)
 
     final_nodes = final_nodes.sort(NORD).drop(NORD)
+    # EORD IS EID whenever we synthesized the id (that is the point of this change), so the
+    # single drop above removes it. There is no `added_edge_index and EID != EORD` case left
+    # to handle: the only branch that sets added_edge_index also sets EORD = EID.
     final_edges = final_edges.sort(EORD).drop(EORD)
-    if added_edge_index:
-        final_edges = final_edges.drop(EID)
-    final_edges, final_nodes = collect_all([final_edges, final_nodes])
-    final_edges = _restore_edge_dtypes(final_edges, src, dst, _endpoint_restore)
-    return self.nodes(final_nodes, node_col).edges(final_edges, src, dst)
+    # Distinct names on the eager side: `final_nodes` is statically a LazyFrame all the way
+    # down this block, and `collect_all` hands back DataFrames — rebinding would be a type
+    # error, and silencing it would cost the lazy/eager distinction the shim exists to keep.
+    final_edges_eager, final_nodes_eager = collect_all([final_edges, final_nodes])
+    final_edges_eager = _restore_edge_dtypes(final_edges_eager, src, dst, _endpoint_restore)
+    return self.nodes(final_nodes_eager, node_col).edges(final_edges_eager, src, dst)

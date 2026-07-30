@@ -200,3 +200,114 @@ def test_lean_path_actually_engages(monkeypatch):
     # both lean paths must fire on a seeded chain (else parity tests are vacuous)
     assert hits["intersect"] >= 1
     assert hits["prefilter"] >= 1
+
+
+# --- empty-left shrink (#1783): both directions --------------------------------------
+# The shrink returns a ZERO-ROW slice of `right` when `left` is empty. That is only sound
+# because the sole call site merges how='left', which discards unmatched right rows anyway.
+# These pin both directions: the empty case must shrink AND stay schema-identical, and the
+# non-empty cases must be untouched by the new branch.
+
+def _wide_right(n_rows: int = 1000) -> pd.DataFrame:
+    rng = np.random.default_rng(5)
+    return pd.DataFrame({
+        "id": np.arange(n_rows, dtype=np.int64),
+        "f": rng.random(n_rows),
+        "s": np.array([f"v{i % 7}" for i in range(n_rows)]),
+        "b": rng.integers(0, 2, n_rows).astype(bool),
+    })
+
+
+def test_empty_left_shrinks_to_zero_rows_preserving_schema():
+    """The optimization itself: nothing survives a left merge from an empty left."""
+    right = _wide_right()
+    left = right.iloc[:0][["id"]]
+    out = _lean_prefilter_right(left, right, "id", Engine.PANDAS)
+
+    assert len(out) == 0, "empty left must not carry the full right frame into the merge"
+    # Schema-identical, or the downstream merge would produce different columns/dtypes.
+    assert list(out.columns) == list(right.columns)
+    assert list(out.dtypes) == list(right.dtypes)
+
+
+def test_empty_left_merge_result_matches_the_unshrunk_merge():
+    """End-to-end equivalence at the call site's actual merge type."""
+    right = _wide_right()
+    left = right.iloc[:0][["id"]]
+    shrunk = _lean_prefilter_right(left, right, "id", Engine.PANDAS)
+
+    got = left.merge(shrunk, on="id", how="left")
+    expected = left.merge(right, on="id", how="left")
+    pd.testing.assert_frame_equal(got, expected)
+
+
+@pytest.mark.parametrize("n_left", [1, 5, 999, 1000])
+def test_non_empty_left_is_unaffected_by_the_empty_branch(n_left):
+    """The other direction: adding the empty-left case must not perturb any non-empty
+    one — neither the shrink-eligible small lefts nor the ones the ratio gate declines."""
+    right = _wide_right()
+    left = right[["id"]].head(n_left)
+    out = _lean_prefilter_right(left, right, "id", Engine.PANDAS)
+
+    got = left.merge(out, on="id", how="left").sort_values("id").reset_index(drop=True)
+    expected = left.merge(right, on="id", how="left").sort_values("id").reset_index(drop=True)
+    pd.testing.assert_frame_equal(got, expected)
+    assert len(got) == n_left
+
+
+def test_empty_left_with_no_matching_keys_is_still_empty():
+    """A NON-empty left whose keys miss entirely must still yield null-filled rows, one
+    per left row — not a zero-row frame.
+
+    Note on what this does and does not pin: it constrains the RESULT, not the branch
+    taken. Shrinking on 'no key overlap' would also be sound under how='left' (both give
+    null-filled rows), so this test deliberately cannot distinguish those two
+    implementations — verified by mutation. What it does catch is the result-level error:
+    dropping the unmatched left rows entirely.
+    """
+    right = _wide_right()
+    left = pd.DataFrame({"id": np.array([10_000, 10_001], dtype=np.int64)})
+    out = _lean_prefilter_right(left, right, "id", Engine.PANDAS)
+
+    got = left.merge(out, on="id", how="left")
+    expected = left.merge(right, on="id", how="left")
+    pd.testing.assert_frame_equal(got, expected)
+    assert len(got) == 2 and got["f"].isna().all()
+
+
+def test_empty_left_shrink_holds_through_the_chain():
+    """The shape the fix exists for: a seed that matches nothing, so the intermediate is
+    empty and the combine would otherwise join it against the whole frame. Lean-on must
+    equal lean-off."""
+    g, _ = _seeded_graph()
+    q = [n({"id": -12345}), e_forward(), n()]
+
+    os.environ['GFQL_LEAN_COMBINE'] = '0'
+    off = g.chain(q, engine='pandas')
+    os.environ['GFQL_LEAN_COMBINE'] = '1'
+    on = g.chain(q, engine='pandas')
+
+    pd.testing.assert_frame_equal(
+        off._nodes.sort_values(list(off._nodes.columns)).reset_index(drop=True),
+        on._nodes.sort_values(list(on._nodes.columns)).reset_index(drop=True),
+    )
+    assert len(on._nodes) == 0
+
+
+def test_empty_left_shrink_works_on_a_float_index():
+    """`right[0:0]` is LABEL-based on a float index — pandas routes those through
+    slice_indexer — so the bare-slice spelling returns ONE row there and the shrink
+    silently does nothing. The result stays correct either way (a 0-row left still yields
+    a 0-row how='left' merge), which is exactly why this needs its own test: the bug is a
+    silent perf no-op, invisible to any assertion about the merge result."""
+    right = _wide_right()
+    right.index = np.arange(len(right), dtype=float)
+    left = right.iloc[:0][["id"]]
+
+    out = _lean_prefilter_right(left, right, "id", Engine.PANDAS)
+    assert len(out) == 0, (
+        f"shrink returned {len(out)} rows on a float index — bare [0:0] label-sliced "
+        "instead of position-sliced, so the optimization did not fire"
+    )
+    pd.testing.assert_frame_equal(
+        left.merge(out, on="id", how="left"), left.merge(right, on="id", how="left"))

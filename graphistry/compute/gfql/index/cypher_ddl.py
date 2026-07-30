@@ -19,7 +19,7 @@ from typing import Optional, Pattern, Tuple, cast
 from .types import IndexKind
 from .wire import CreateIndex, DropIndex, ShowIndexes, IndexOp
 
-_KIND = r"(?P<kind>edge_out_adj|edge_in_adj|node_id)"
+_KIND = r"(?P<kind>edge_out_adj|edge_in_adj|node_id|node_prop)"
 
 _CREATE_PATTERN = (
     r"^\s*CREATE\s+GFQL\s+INDEX\s+(?:(?P<name>[A-Za-z_]\w*)\s+)?FOR\s+" + _KIND
