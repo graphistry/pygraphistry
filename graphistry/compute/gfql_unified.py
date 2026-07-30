@@ -1597,18 +1597,24 @@ def gfql_clear_caches() -> None:
     server cannot reclaim the memory on demand).
 
     Caches keyed to a specific graph are NOT touched: they live on their ``Plottable`` and
-    die with it.
+    die with it. Neither are the process-lifetime *singletons* -- Lark parser objects,
+    compiled regexes, dependency probes -- which are a function of the code, not of any
+    input; see ``clear_cypher_parser_caches`` and
+    ``graphistry/tests/compute/gfql/test_clear_caches_covers_every_cache.py``, which fails
+    if a new memo appears and is neither cleared here nor exempted with a written reason.
+
+    Every clear is UNCONDITIONAL. An earlier version looked its targets up with
+    ``getattr(obj, "cache_clear", None)`` and skipped whatever came back ``None``, so
+    naming the wrong object -- ``parse_cypher``, whose memo actually lives on the
+    ``_parse_cypher_cached`` body it delegates to -- turned the whole call into a silent
+    no-op. A cache-clearing function that cannot fail is indistinguishable from one that
+    does nothing.
     """
     with _COMPILED_STRING_QUERY_CACHE_LOCK:
         _COMPILED_STRING_QUERY_CACHE.clear()
-    for cached in (parse_cypher,):
-        clear = getattr(cached, "cache_clear", None)
-        if clear is not None:
-            clear()
-    try:
-        from graphistry.compute.gfql.expr_parser import clear_expr_parser_caches
-    except ImportError:
-        return
+    from graphistry.compute.gfql.cypher.parser import clear_cypher_parser_caches
+    clear_cypher_parser_caches()
+    from graphistry.compute.gfql.expr_parser import clear_expr_parser_caches
     clear_expr_parser_caches()
 
 

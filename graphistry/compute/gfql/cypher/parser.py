@@ -2192,6 +2192,23 @@ def _parse_cypher_cached(query: str) -> Union[CypherQuery, CypherUnionQuery, Cyp
     return node
 
 
+def clear_cypher_parser_caches() -> None:
+    """Empty the Cypher query->AST memo. Called by ``gfql_clear_caches``.
+
+    Clears ``_parse_cypher_cached`` ONLY. The three ``@lru_cache(maxsize=1)`` Lark parser
+    objects (``_parser_lalr``, ``_pattern_parser``, ``_where_predicate_chain_parser``) are
+    deliberately left alone: they hold the LALR(1) parse tables, which are a pure function
+    of the grammar rather than of any query, are built once per process, and cost far more
+    to rebuild than any query parse. Emptying them would make a "cold" measurement include
+    grammar construction -- a cost no caller can ever pay twice.
+
+    Note ``parse_cypher`` itself carries NO cache and therefore no ``cache_clear``; the memo
+    lives on the ``_parse_cypher_cached`` body it delegates to. Clearing the wrong name here
+    silently did nothing for as long as it went unnoticed.
+    """
+    _parse_cypher_cached.cache_clear()
+
+
 def _validate_graph_bindings(node: Union[CypherQuery, CypherGraphQuery]) -> None:
     """Validate graph binding names: no duplicates, no forward/circular refs."""
     bindings = node.graph_bindings
