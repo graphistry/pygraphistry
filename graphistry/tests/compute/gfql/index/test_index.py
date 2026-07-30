@@ -1180,3 +1180,27 @@ def test_forcing_the_whole_column_mask_actually_changes_the_path(typed_graph, en
     monkeypatch.setenv("GFQL_INDEX_CANDIDATE_EDGE_MASK", "0")
     gi.hop(nodes=seeds, **kwargs)
     assert not seen, "OFF side still gathered candidate rows — the switch does nothing"
+
+
+@pytest.mark.parametrize(
+    "resident_engine, requested_engine",
+    [("pandas", "polars"), ("polars", "pandas")],
+)
+def test_explain_reports_bidirectional_engine_mismatch(graph, resident_engine, requested_engine):
+    """#1767: a valid foreign-engine index must explain its scan, not fail silently."""
+    pytest.importorskip("polars")
+    gi = graph.create_index("edge_out_adj", engine=resident_engine)
+    shown = gi.show_indexes()
+    assert bool(shown.iloc[0]["valid"]) is True
+
+    report = gi.gfql_explain(
+        [n({"id": 0}), e_forward(hops=1)],
+        index_policy="use",
+        engine=requested_engine,
+    )
+
+    assert report["used_index"] is False, report
+    assert report["decision_reason"] == (
+        "resident edge_out_adj index "
+        f"engine={resident_engine}, requested engine={requested_engine} -> scan"
+    ), report

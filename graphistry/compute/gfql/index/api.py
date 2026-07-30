@@ -81,6 +81,38 @@ def _trace_active() -> bool:
     return _get_trace_steps() is not None
 
 
+def _engine_mismatch_reason(
+    registry: GfqlIndexRegistry, direction: HopDirection, engine: Engine
+) -> Optional[str]:
+    """Describe a trace-only adjacency-index engine mismatch, if present.
+
+    Indexes intentionally remain engine-specific: falling back to the scan is the
+    correct execution behavior. This helper makes that otherwise silent decline
+    visible to ``gfql_explain`` without changing planner policy.
+    """
+    needed: Sequence[AdjacencyIndexKind]
+    if direction == "forward":
+        needed = (EDGE_OUT_ADJ,)
+    elif direction == "reverse":
+        needed = (EDGE_IN_ADJ,)
+    else:
+        needed = (EDGE_OUT_ADJ, EDGE_IN_ADJ)
+    mismatches = [
+        (kind, idx)
+        for kind in needed
+        for idx in (registry.get(kind),)
+        if isinstance(idx, AdjacencyIndex) and idx.engine != engine
+    ]
+    if not mismatches:
+        return None
+    kinds = ", ".join(kind for kind, _ in mismatches)
+    engines = ", ".join(sorted({idx.engine.value for _, idx in mismatches}))
+    return (
+        f"resident {kinds} index engine={engines}, requested engine={engine.value} "
+        "-> scan"
+    )
+
+
 def _record_indexed_traversal(
     *,
     seam: str,
@@ -598,7 +630,7 @@ def maybe_index_hop(
             "path": "index" if result is not None else "scan",
             "decision_reason": (
                 "frontier below cost gate -> index" if result is not None
-                else "index path not applicable -> scan"
+                else _engine_mismatch_reason(registry, direction, engine) or "index path not applicable -> scan"
             ),
         }))
     return result
