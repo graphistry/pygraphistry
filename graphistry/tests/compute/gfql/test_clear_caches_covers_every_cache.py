@@ -51,6 +51,11 @@ EXEMPT: Dict[str, str] = {
         "Lark LALR(1) tables for the flat WHERE-chain start rule; same reasoning",
     "_parser":
         "Lark LALR(1) tables for the row-expression grammar; same reasoning",
+    "_ast_builder_class":
+        "returns the row-expression Transformer CLASS, a function of the code; it is cached "
+        "because @dataclass re-execs generated __init__/__eq__ source on every rebuild, which "
+        "was 40% of GFQL compile time. Instances are still created per parse, so nothing "
+        "stateful is shared",
     "_where_rows_expr_parser_fn":
         "binds imported callables and returns None when lark is absent; a resolved import "
         "is not stale state, and re-resolving it cannot change the answer",

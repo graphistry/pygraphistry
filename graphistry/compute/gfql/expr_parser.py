@@ -333,7 +333,32 @@ def _parse_number_token(token: str) -> Union[int, float]:
     return int(token)
 
 
-def _build_transformer() -> _TransformerLike:
+@lru_cache(maxsize=1)
+def _ast_builder_class() -> Callable[[], _TransformerLike]:
+    """Define the row-expression transformer class ONCE per process, and return the class.
+
+    This used to be the body of ``_build_transformer``, which meant the three types below --
+    two ``@dataclass(frozen=True)`` helpers and the Transformer itself -- were re-created on
+    every call. ``@dataclass`` generates ``__init__``/``__eq__``/``__hash__`` as source and
+    ``exec``s it, so each rebuild ran the compiler.
+
+    That was the single largest cost in GFQL query compilation. Profiling q7 of the matched
+    graph-benchmark (31 cold compiles, 0.649 s total) attributed **0.261 s -- 40% of all
+    compile time -- to this function**: 434 calls (one per ``_parse_expr_cached`` miss)
+    producing 868 dataclass creations, 0.120 s of which was ``builtins.exec`` alone. By
+    comparison the whole LALR(1) parse was 0.151 s. Lowering, not parsing, dominates GFQL's
+    compile, and this was most of lowering.
+
+    Returning the CLASS rather than an instance is deliberate: ``_build_transformer`` still
+    constructs a fresh transformer per call, so no state is shared between parses and the
+    change is a pure construction-cost win with no re-entrancy or thread-safety question to
+    argue about. Only the type creation is hoisted, and a type is a function of the code.
+
+    Cached with ``maxsize=1`` rather than defined at module scope because ``Transformer`` comes
+    from ``_lark_imports()``, which is lazy: a module-level class statement would make importing
+    this module require lark, breaking the minimal installs that only touch the non-expression
+    surfaces.
+    """
     _, Transformer, _ = _lark_imports()
 
     def _is_token(value: Any) -> bool:
@@ -709,7 +734,17 @@ def _build_transformer() -> _TransformerLike:
         def is_not_null(self, items: Sequence[Any]) -> IsNullOp:
             return IsNullOp(value=cast(ExprNode, _strip_tokens(items)[0]), negated=True)
 
-    return cast(_TransformerLike, _AstBuilder())
+    return _AstBuilder
+
+
+def _build_transformer() -> _TransformerLike:
+    """A fresh transformer instance, over a class built once per process.
+
+    Instantiation is cheap -- ``_AstBuilder.__init__`` only forwards ``visit_tokens=True`` to
+    Lark and assigns no attributes. Building the class is what was expensive; see
+    ``_ast_builder_class``.
+    """
+    return _ast_builder_class()()
 
 
 def _rebuild_expr_node(
