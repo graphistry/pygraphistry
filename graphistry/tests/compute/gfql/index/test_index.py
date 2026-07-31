@@ -444,6 +444,22 @@ def test_index_max_hops_honored(engine, hop_kw):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+def test_index_bounded_range_min_one_hops_none(engine):
+    """A bounded [1,max] hop is a depth union, not exactly max hops."""
+    from graphistry.compute.gfql.index import index_trace
+
+    edf = pd.DataFrame({"src": [0, 1, 2], "dst": [1, 2, 3]})
+    g = graphistry.edges(edf, "src", "dst").materialize_nodes()
+    seeds = pd.DataFrame({"id": [0]})
+    kwargs = dict(hops=None, min_hops=1, max_hops=2, direction="forward")
+    base = g.hop(nodes=seeds, engine=engine, **kwargs)
+    with index_trace() as steps:
+        idx = _force(g, engine).hop(nodes=seeds, engine=engine, **kwargs)
+    assert _sig(base) == _sig(idx), "range-hop index must equal scan"
+    assert any(step["path"] == "index" for step in steps), steps
+
+
+@pytest.mark.parametrize("engine", ENGINES)
 def test_index_duplicate_node_ids(engine):
     # B2: duplicate node ids corrupted the unique-key node_id index. gfql_index_all
     # must skip node_id (build adjacency only) and stay scan-equal.

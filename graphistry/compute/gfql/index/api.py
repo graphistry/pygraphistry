@@ -420,8 +420,12 @@ def _hop_is_index_coverable(
             return False
     if label_seeds or include_zero_hop_seed:
         return False
-    if not to_fixed_point and (not isinstance(hops, int) or hops < 1):
-        return False
+    effective_hops = max_hops if max_hops is not None else hops
+    if not to_fixed_point:
+        if not isinstance(effective_hops, int) or effective_hops < 1:
+            return False
+        if hops is None and min_hops not in (None, 1):
+            return False
     return True
 
 
