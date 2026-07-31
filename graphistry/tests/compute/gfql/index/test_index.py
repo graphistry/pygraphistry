@@ -230,12 +230,16 @@ def test_index_policy_force_and_explain(graph, engine):
     chain = [n({"id": 0}), e_forward(hops=1)]
     rep_off = graph.gfql_explain(chain, index_policy="off", engine=engine)
     assert rep_off["used_index"] is False
+    assert rep_off["decision_code"] == "policy_off"
+    assert rep_off["decision_reason"] == "policy=off"
     rep_force = graph.gfql_explain(chain, index_policy="force", engine=engine)
     assert rep_force["used_index"] is True
+    assert rep_force["decision_code"] == "index_selected"
     # results identical regardless of policy
     r_scan = graph.gfql(chain, engine=engine)
     r_force = graph.gfql(chain, index_policy="force", engine=engine)
     assert _sig(r_scan) == _sig(r_force)
+    assert rep_force["error"] is None
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -261,6 +265,7 @@ def test_explain_exposes_planner_diagnostics(graph, engine):
     gi = graph.gfql_index_all(engine=engine)
     rep_off = gi.gfql_explain(chain, index_policy="off", engine=engine)
     assert rep_off["used_index"] is False
+    assert rep_off["decision_code"] == "policy_off"
     assert rep_off["decision_reason"] == "policy=off", rep_off
 
 
@@ -506,7 +511,7 @@ def test_index_min_two_bounded_range_scans_pandas(graph):
         indexed = _force(graph, "pandas").hop(nodes=seeds, engine="pandas", **kwargs)
     assert _sig(base) == _sig(indexed)
     assert not any(step["path"] == "index" for step in steps), steps
-    assert any(step["decision_reason"] == "query not index-coverable" for step in steps), steps
+    assert any(step["decision_code"] == "not_index_coverable" for step in steps), steps
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_index_duplicate_node_ids(engine):
@@ -848,7 +853,8 @@ def test_chain_range_with_auto_labels_stays_on_scan(typed_graph):
     assert _sig_typed(base) == _sig_typed(indexed)
     assert rep["used_index"] is False, (engine, rep)
     assert not any(step["path"] == "index" for step in steps), steps
-    assert any(step["decision_reason"] == "query not index-coverable" for step in steps), steps
+    assert rep["decision_code"] == "not_index_coverable", rep
+    assert any(step["decision_code"] == "not_index_coverable" for step in steps), steps
 
 
 def test_rebind_edges_revalidates_after_shallow_augmentation():
