@@ -445,6 +445,70 @@ def test_index_max_hops_honored(engine, hop_kw):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("max_hops", [1, 2, 3])
+def test_index_bounded_range_min_one_hops_none(engine, max_hops):
+    """A bounded [1,max] hop is a depth union, not exactly max hops."""
+    from graphistry.compute.gfql.index import index_trace
+
+    edf = pd.DataFrame({"src": [0, 1, 2], "dst": [1, 2, 3]})
+    g = graphistry.edges(edf, "src", "dst").materialize_nodes()
+    seeds = pd.DataFrame({"id": [0]})
+    kwargs = dict(hops=None, min_hops=1, max_hops=max_hops, direction="forward")
+    base = g.hop(nodes=seeds, engine=engine, **kwargs)
+    with index_trace() as steps:
+        idx = _force(g, engine).hop(nodes=seeds, engine=engine, **kwargs)
+    assert _sig(base) == _sig(idx), "range-hop index must equal scan"
+    assert any(step["path"] == "index" for step in steps), steps
+
+
+def test_index_coverability_bounded_range_boundaries():
+    """Planner declines invalid direct-hop ranges before index traversal."""
+    from graphistry.compute.gfql.index.api import _hop_is_index_coverable
+
+    common = dict(
+        nodes=pd.DataFrame({"id": [0]}),
+        to_fixed_point=False,
+        hops=None,
+        min_hops=1,
+        max_hops=2,
+        output_min_hops=None,
+        output_max_hops=None,
+        label_node_hops=None,
+        label_edge_hops=None,
+        label_seeds=False,
+        edge_match=None,
+        source_node_match=None,
+        destination_node_match=None,
+        source_node_query=None,
+        destination_node_query=None,
+        edge_query=None,
+        include_zero_hop_seed=False,
+        target_wave_front=None,
+        return_as_wave_front=False,
+    )
+    assert not _hop_is_index_coverable(**dict(common, max_hops=0))
+    assert not _hop_is_index_coverable(**dict(common, min_hops=0))
+    assert _hop_is_index_coverable(**dict(common, max_hops=1))
+    assert _hop_is_index_coverable(**dict(common, hops=5, max_hops=2))
+    assert not _hop_is_index_coverable(**dict(common, max_hops=None))
+    assert not _hop_is_index_coverable(**dict(common, min_hops=2))
+    assert not _hop_is_index_coverable(**dict(common, min_hops=3, max_hops=2))
+    assert not _hop_is_index_coverable(**dict(common, nodes=None))
+
+def test_index_min_two_bounded_range_scans_pandas(graph):
+    """Unsupported [2,2] ranges scan without entering the indexed traversal."""
+    from graphistry.compute.gfql.index import index_trace
+
+    seeds = pd.DataFrame({"id": [0, 1]})
+    kwargs = dict(hops=None, min_hops=2, max_hops=2, direction="forward")
+    base = graph.hop(nodes=seeds, engine="pandas", **kwargs)
+    with index_trace() as steps:
+        indexed = _force(graph, "pandas").hop(nodes=seeds, engine="pandas", **kwargs)
+    assert _sig(base) == _sig(indexed)
+    assert not any(step["path"] == "index" for step in steps), steps
+    assert any(step["decision_reason"] == "query not index-coverable" for step in steps), steps
+
+@pytest.mark.parametrize("engine", ENGINES)
 def test_index_duplicate_node_ids(engine):
     # B2: duplicate node ids corrupted the unique-key node_id index. gfql_index_all
     # must skip node_id (build adjacency only) and stay scan-equal.
