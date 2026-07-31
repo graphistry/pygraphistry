@@ -459,6 +459,34 @@ def test_index_bounded_range_min_one_hops_none(engine):
     assert any(step["path"] == "index" for step in steps), steps
 
 
+def test_index_coverability_rejects_invalid_bounded_ranges():
+    """Planner declines invalid direct-hop ranges before index traversal."""
+    from graphistry.compute.gfql.index.api import _hop_is_index_coverable
+
+    common = dict(
+        nodes=pd.DataFrame({"id": [0]}),
+        to_fixed_point=False,
+        hops=None,
+        min_hops=1,
+        max_hops=2,
+        output_min_hops=None,
+        output_max_hops=None,
+        label_node_hops=None,
+        label_edge_hops=None,
+        label_seeds=False,
+        edge_match=None,
+        source_node_match=None,
+        destination_node_match=None,
+        source_node_query=None,
+        destination_node_query=None,
+        edge_query=None,
+        include_zero_hop_seed=False,
+        target_wave_front=None,
+        return_as_wave_front=False,
+    )
+    assert not _hop_is_index_coverable(**dict(common, max_hops=0))
+    assert not _hop_is_index_coverable(**dict(common, min_hops=0))
+
 @pytest.mark.parametrize("engine", ENGINES)
 def test_index_duplicate_node_ids(engine):
     # B2: duplicate node ids corrupted the unique-key node_id index. gfql_index_all
