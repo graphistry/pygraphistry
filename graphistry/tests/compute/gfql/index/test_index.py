@@ -791,6 +791,9 @@ _TYPED_2HOP = [n({"id": 100}), e_forward({"etype": 1}, hops=1), n(),
                e_forward({"etype": 2}, hops=1)]
 _UNTYPED_CHAIN = [n({"id": 100}), e_forward(hops=1)]
 _MEMBER_CHAIN = [n({"id": 100}), e_forward({"etype": [0, 1]}, hops=1)]
+_RANGE_CHAIN = [n({"id": 100}), e_forward(
+    min_hops=1, max_hops=2, output_min_hops=2, output_max_hops=2,
+)]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -830,6 +833,22 @@ def test_chain_membership_edge_match_stays_on_scan(typed_graph, engine):
     gi = typed_graph.gfql_index_all(engine=engine)
     rep = gi.gfql_explain(_MEMBER_CHAIN, index_policy="use", engine=engine)
     assert rep["used_index"] is False, (engine, rep)
+
+
+def test_chain_range_with_auto_labels_stays_on_scan(typed_graph):
+    """A Cypher range needs per-depth records, so it must decline until indexed."""
+    engine = "pandas"
+    from graphistry.compute.gfql.index import index_trace
+
+    gi = typed_graph.gfql_index_all(engine=engine)
+    base = typed_graph.gfql(_RANGE_CHAIN, index_policy="off", engine=engine)
+    with index_trace() as steps:
+        indexed = gi.gfql(_RANGE_CHAIN, index_policy="force", engine=engine)
+    rep = gi.gfql_explain(_RANGE_CHAIN, index_policy="force", engine=engine)
+    assert _sig_typed(base) == _sig_typed(indexed)
+    assert rep["used_index"] is False, (engine, rep)
+    assert not any(step["path"] == "index" for step in steps), steps
+    assert any(step["decision_reason"] == "query not index-coverable" for step in steps), steps
 
 
 def test_rebind_edges_revalidates_after_shallow_augmentation():
