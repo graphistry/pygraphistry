@@ -5,6 +5,7 @@ the scan/join path. Engine-parametrized (pandas/cudf/polars/polars-gpu) with
 importorskip so GPU lanes run only where available.
 """
 import importlib
+from copy import copy
 
 import numpy as np
 import pandas as pd
@@ -12,7 +13,7 @@ import pytest
 
 import graphistry
 from graphistry.compute.ast import n, e_forward, e_reverse
-from graphistry.compute.gfql.index.api import _engine_mismatch_reason
+from graphistry.compute.gfql.index.api import _engine_mismatch_reason, maybe_index_hop
 from graphistry.compute.gfql.index import (
     CreateIndex, DropIndex, ShowIndexes, index_op_from_json, parse_index_ddl,
     get_registry,
@@ -240,6 +241,74 @@ def test_index_policy_force_and_explain(graph, engine):
     r_force = graph.gfql(chain, index_policy="force", engine=engine)
     assert _sig(r_scan) == _sig(r_force)
     assert rep_force["error"] is None
+
+
+def test_maybe_index_hop_reports_no_resident_index(graph):
+    """A direct planner caller gets a named scan decline when no index is resident."""
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index import index_trace
+
+    with index_trace() as steps:
+        result = maybe_index_hop(
+            graph,
+            Engine.PANDAS,
+            nodes=pd.DataFrame({"id": [0]}),
+            hops=1,
+            direction="forward",
+            return_as_wave_front=False,
+            policy="use",
+        )
+
+    assert result is None
+    assert steps[-1]["decision_code"] == "no_resident_index"
+
+
+def test_maybe_index_hop_reports_missing_graph_columns(graph):
+    """A resident index cannot make an unbound graph use a different query path."""
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index import index_trace
+
+    unbound = copy(graph.gfql_index_all(engine="pandas"))
+    unbound._nodes = None
+    with index_trace() as steps:
+        result = maybe_index_hop(
+            unbound,
+            Engine.PANDAS,
+            nodes=pd.DataFrame({"id": [0]}),
+            hops=1,
+            direction="forward",
+            return_as_wave_front=False,
+            policy="use",
+        )
+
+    assert result is None
+    assert steps[-1]["decision_code"] == "missing_graph_columns"
+
+
+def test_maybe_index_hop_reports_auto_build_decline_with_scan_parity(graph):
+    """An unselective auto request declines the build and preserves scan results."""
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index import index_trace
+
+    seeds = graph._nodes.copy()
+    with index_trace() as steps:
+        result = maybe_index_hop(
+            graph,
+            Engine.PANDAS,
+            nodes=seeds,
+            hops=1,
+            direction="forward",
+            return_as_wave_front=False,
+            policy="auto",
+        )
+
+    auto_graph = graph.bind()
+    auto_graph._gfql_index_policy = "auto"
+    auto_result = auto_graph.hop(nodes=seeds, engine="pandas", hops=1)
+    scan_result = graph.hop(nodes=seeds, engine="pandas", hops=1)
+    assert result is None
+    assert steps[-1]["decision_code"] == "index_build_declined"
+    assert _sig(auto_result) == _sig(scan_result)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
