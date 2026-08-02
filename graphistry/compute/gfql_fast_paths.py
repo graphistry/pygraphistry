@@ -2343,6 +2343,152 @@ def _execute_single_hop_grouped_aggregate_fast_path(
     return out
 
 
+def _dense_int_domain_interval(
+    domain_nodes: DataFrameT,
+    node_col: str,
+    *,
+    engine: Engine,
+) -> Optional[Tuple[int, int]]:
+    """``(lo, hi)`` iff the domain's ids are a DENSE integer interval, else None.
+
+    Dense means: integer dtype, no nulls, and ``n_unique == hi - lo + 1`` -- so
+    interval membership (``lo <= x <= hi``) IS set membership. That equivalence is
+    what lets a caller replace a hash semi-join against the id set with an O(1)-space
+    bounds proof (see ``_two_hop_equal_domain_dense_total``). Engine-polymorphic
+    (polars / pandas / cudf); anything unprovable declines with None.
+    """
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        s = domain_nodes.get_column(node_col)  # type: ignore[attr-defined]  # polars frame on this arm
+        if not s.dtype.is_integer() or s.null_count() != 0 or len(s) == 0:
+            return None
+        lo, hi = s.min(), s.max()
+        if s.n_unique() != int(hi) - int(lo) + 1:  # type: ignore[arg-type]  # non-empty int col: min/max are ints
+            return None
+        return int(lo), int(hi)  # type: ignore[arg-type]
+    import numpy as np
+    s_pd = domain_nodes[node_col]
+    dtype = getattr(s_pd, "dtype", None)
+    if not isinstance(dtype, np.dtype) or dtype.kind not in "iu":
+        # Extension int dtypes (pandas Int64) can hold NA; plain numpy int cannot.
+        return None
+    null_count = getattr(s_pd, "null_count", None)  # cudf: null mask rides a numpy dtype
+    if null_count is not None and int(null_count) != 0:
+        return None
+    if len(s_pd) == 0:
+        return None
+    lo, hi = int(s_pd.min()), int(s_pd.max())
+    if int(s_pd.nunique()) != hi - lo + 1:
+        return None
+    return lo, hi
+
+
+def _int_col_bounds_within(
+    frame: DataFrameT,
+    col: str,
+    lo: int,
+    hi: int,
+    *,
+    engine: Engine,
+) -> bool:
+    """True iff ``frame[col]`` is integer, null-free, non-empty and bounded by [lo, hi]."""
+    if engine in POLARS_ENGINES:
+        s = frame.get_column(col)  # type: ignore[attr-defined]  # polars frame on this arm
+        if not s.dtype.is_integer() or s.null_count() != 0 or len(s) == 0:
+            return False
+        return int(s.min()) >= lo and int(s.max()) <= hi  # type: ignore[arg-type]
+    import numpy as np
+    s_pd = frame[col]
+    dtype = getattr(s_pd, "dtype", None)
+    if not isinstance(dtype, np.dtype) or dtype.kind not in "iu":
+        return False
+    null_count = getattr(s_pd, "null_count", None)
+    if null_count is not None and int(null_count) != 0:
+        return False
+    if len(s_pd) == 0:
+        return False
+    return int(s_pd.min()) >= lo and int(s_pd.max()) <= hi
+
+
+def _two_hop_equal_domain_dense_total(
+    domain_nodes: DataFrameT,
+    edge_domain: DataFrameT,
+    *,
+    node_col: str,
+    src_col: str,
+    dst_col: str,
+    engine: Engine,
+) -> Optional[int]:
+    """PROOF-GATED dense-domain kernel for the EQUAL-DOMAIN two-hop count.
+
+    The equal-domain branch of ``_execute_two_hop_count_fast_path`` restricts the
+    rel-filtered edges to domain x domain (two semi-joins on polars, two ``isin``
+    masks on pandas/cuDF) before counting per-node degrees -- and that restriction,
+    not the counting, dominates the lane (profiled on the 20k graph-benchmark q8:
+    ~5.3ms of the ~9.3ms one-shot polars call at 249k edges; the same two group_bys
+    without the semi-joins cost 2.1ms).
+
+    When ``_dense_int_domain_interval`` proves the domain ids form a dense integer
+    interval [lo, hi] and BOTH endpoint columns are integer, null-free and bounded
+    by [lo, hi], every endpoint is in-domain by interval arithmetic: the semi-joins
+    are the identity, and the degree product collapses to two O(E) ``bincount``s
+    plus one O(N) aligned product-sum -- no hash join, no group_by, no count join.
+    Dense type-partitioned integer ids are the idiomatic multi-table graph encoding
+    (offset-based global ids), so the proof is cheap (a handful of O(E) min/max
+    reductions, no allocation) and admission is a data property, not a query hack.
+
+    Returns the exact ``count(*)`` total, or None to DECLINE (any guard fails,
+    including an empty edge frame) so the caller's existing semi-join / memo path
+    answers instead. Value-identical by construction when admitted:
+    ``sum_b indeg(b) * outdeg(b)`` over the SAME filtered edge multiset the
+    semi-join plan would count -- multi-edges and self-loops included, and the
+    inner join on the middle node is subsumed because out-of-domain middles cannot
+    exist under the proof (a zero on either side contributes zero to the sum).
+
+    Engine note: arrays ride the index module's polymorphic helpers
+    (``array_namespace`` / ``col_to_array``) -- numpy host for pandas/polars(-gpu),
+    cupy device for cudf -- the same convention as the CSR index kernels.
+    """
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        if isinstance(domain_nodes, pl.LazyFrame) or isinstance(edge_domain, pl.LazyFrame):
+            return None  # eager lane owns LazyFrame inputs (same rule as the fused lanes)
+    if len(edge_domain) == 0:
+        return None  # existing path already answers openCypher count-over-no-rows 0
+    interval = _dense_int_domain_interval(domain_nodes, node_col, engine=engine)
+    if interval is None:
+        return None
+    lo, hi = interval
+    if not _int_col_bounds_within(edge_domain, src_col, lo, hi, engine=engine):
+        return None
+    if not _int_col_bounds_within(edge_domain, dst_col, lo, hi, engine=engine):
+        return None
+
+    from graphistry.compute.gfql.index.engine_arrays import array_namespace, col_to_array
+
+    xp, _backend = array_namespace(engine)
+    n = hi - lo + 1
+    if n > 4 * len(edge_domain) + 1024:
+        # MEMORY guard, not a tuning knob: the count tables are O(domain), the path
+        # they replace is O(edges). A domain far wider than the edge count (huge node
+        # space, sparse rel) would allocate tables the semi-join path never needs --
+        # decline and let it answer.
+        return None
+    src_arr = col_to_array(edge_domain, src_col, engine)
+    dst_arr = col_to_array(edge_domain, dst_col, engine)
+    if lo != 0:
+        # Shift to [0, n-1] so bincount's table is O(n) regardless of the interval's
+        # absolute position (type-offset partitions sit at large lo; ids may be < 0).
+        src_arr = src_arr - lo
+        dst_arr = dst_arr - lo
+    # bincount emits platform int64 counts; inputs are integer dtype by proof, so no
+    # astype copies here (a copying astype measurably dominated the kernel at 2.5M edges).
+    out_counts = xp.bincount(src_arr, minlength=n)
+    in_counts = xp.bincount(dst_arr, minlength=n)
+    total = (in_counts * out_counts).sum()  # type: ignore[operator]  # ArrayLike protocol omits __mul__; numpy/cupy both support it
+    return int(total)
+
+
 def _execute_two_hop_count_fast_path(
     base_graph: Plottable,
     chain: Chain,
@@ -2395,6 +2541,33 @@ def _execute_two_hop_count_fast_path(
         if first_edge.edge_match == second_edge.edge_match
         else _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], second_edge.edge_match), engine=requested_engine)
     )
+
+    if reuse_single_edge_domain:
+        # Dense-domain proof kernel (all engines): when the equal domain's ids are a
+        # dense integer interval that provably contains every filtered edge endpoint,
+        # the domain semi-joins are the identity and the degree product is two
+        # bincounts. Declines (None) keep the memoized semi-join path below untouched;
+        # when it serves, no cross-call memo is needed -- the kernel is cheaper than a
+        # memo HIT's count-join, so one-shot and warm calls converge.
+        dense_total = _two_hop_equal_domain_dense_total(
+            start_nodes,
+            first_edges,
+            node_col=node_col,
+            src_col=src_col,
+            dst_col=dst_col,
+            engine=requested_engine,
+        )
+        if dense_total is not None:
+            if requested_engine in POLARS_ENGINES:
+                import polars as pl
+                dense_nodes = cast(DataFrameT, pl.DataFrame(
+                    {alias: [dense_total]}, schema={alias: pl.Int64}))
+            else:
+                dense_nodes = df_to_engine(pd.DataFrame({alias: [dense_total]}), requested_engine)
+            out = base_graph.bind()
+            out._nodes = dense_nodes
+            out._edges = df_cons(requested_engine)()
+            return out
 
     fused_total: Optional[DataFrameT] = None
     if requested_engine in POLARS_ENGINES and not reuse_single_edge_domain:
