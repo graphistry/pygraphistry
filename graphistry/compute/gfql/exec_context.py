@@ -48,6 +48,29 @@ def clear_row_exec_context(g: "Plottable") -> "Plottable":
     ``WITH`` query carries the seed, and a follow-up query on that result -- a different
     graph entirely -- is answered against it (the same #1786 defect, one hop removed).
     Returns ``g`` unchanged when there is nothing to strip, so the common path is free.
+
+    WHY ``None`` AND NOT "RESTORE WHAT ``g`` CARRIED ON ENTRY". ``attach`` above INHERITS on
+    the way in (a ``None`` argument keeps what ``g`` already carries), so the asymmetry is
+    real and the save/restore question is a fair one. Three reasons it is settled the other
+    way, each pinned by ``tests/compute/gfql/test_exec_context_scoping.py``:
+
+    * This function is PURE -- it returns ``g.bind()`` and never writes through to the object
+      it was handed, so an outer scope that set the field still has it afterwards. There is no
+      caller state to save. That is what separates this from #1786, which WAS an in-place
+      write onto the caller's own graph; restoring is the fix for a mutation, and there is no
+      mutation here.
+    * The only channel restore would change is the RETURN VALUE, and putting the seed back
+      there IS the second half of #1786. Measured: hand-restoring the seed onto a result
+      changes the answer of the next query run on that result (7 -> 2 -> 1 rows).
+    * No execution frame ever inherits a context it did not set. The cross-segment ``WITH``
+      seed travels as the explicit ``start_nodes`` PARAMETER (``chain_impl(..., start_nodes=)``,
+      ``_compiled_query_reentry_state``), never through this field, so the field's lifetime is
+      exactly ONE boundary-call run. Instrumenting ``attach`` over ``tests/compute`` recorded
+      3907 calls and ZERO inheriting ones. (53 of them DID enter on a graph already carrying a
+      seed -- nested boundary frames -- but each was handed the IDENTICAL ``start_nodes``
+      parameter, so the value is still owned by the frame that sets it.) The test above re-runs
+      that as an assertion, so a future path that starts relying on inheritance reopens this
+      decision loudly.
     """
     if g._gfql_start_nodes is None and g._gfql_rows_base_graph is None:
         return g

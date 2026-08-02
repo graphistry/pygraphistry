@@ -19,3 +19,19 @@ SCHEMA: "contextvars.ContextVar[dict]" = contextvars.ContextVar("gfql_polars_sch
 #: sentinel (``same_path_types.NODE_IDENTITY_COLUMN``) to the real id column. None when unknown, so
 #: the identity sentinel then declines to an honest NIE rather than resolving to a wrong column.
 NODE_ID: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar("gfql_polars_node_id", default=None)
+
+#: Caller's declaration that every FLOAT COLUMN of the frame being lowered is already NaN-free, so
+#: a comparison whose operand is a DIRECT COLUMN REFERENCE may skip the IEEE NaN mask ``_nan_guard``
+#: would otherwise add. Set ONLY by callers filtering a frame that came through gfql ingest, where
+#: ``nan_clean._pl_nan_to_null`` has normalized NaN -> null (the same reasoning
+#: ``predicates.filter_expr_by_dict_polars`` already relies on for the ``filter_by_dict`` lowering).
+#:
+#: DEFAULT False = guard ON: the general row-table lowering runs over frames that have NOT been
+#: through gfql ingest, so any caller that does not explicitly opt in keeps the mask.
+#:
+#: Scope is deliberately COLUMN REFERENCES ONLY. A COMPUTED float operand (``0.0/0.0``,
+#: ``sqrt(n.x)`` with x<0) manufactures NaN inside the query, which no ingest-time normalization
+#: can have removed, so those operands keep the mask even when this is True.
+COLUMNS_NAN_FREE: "contextvars.ContextVar[bool]" = contextvars.ContextVar(
+    "gfql_polars_columns_nan_free", default=False
+)

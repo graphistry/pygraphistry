@@ -10,7 +10,6 @@ no back-edge into gfql_unified (the .chain import is a leaf-ward edge, cycle-fre
 
 from dataclasses import replace
 import pandas as pd
-import re
 from types import MappingProxyType
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, TYPE_CHECKING, Union, cast
 from graphistry.Plottable import Plottable
@@ -40,6 +39,14 @@ from graphistry.compute.gfql.same_path_types import (
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.gfql.agg_types import (
+    GFQL_NUMERIC_ONLY_AGGREGATIONS,
+    numeric_agg_all_null_value,
+    pandas_dtype_is_numeric_for_agg,
+    pandas_non_numeric_agg_dtype,
+    polars_non_numeric_agg_dtype,
+    raise_non_numeric_aggregation,
+)
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.cypher.lowering import (
     ConnectedMatchJoinPlan,
@@ -518,23 +525,35 @@ def _two_hop_cached_equal_domain_degree_counts(
     if cache is not None and full_key in cache:
         return cast(Tuple[DataFrameT, DataFrameT], cache[full_key])
 
+    # Declared ONCE so neither arm needs a call-site ``cast``: the polars arm produces
+    # ``pl.DataFrame`` and the pandas/cuDF arm produces ``pd.DataFrame``, and ``DataFrameT`` is
+    # pinned to pandas at checking time (graphistry/compute/typing.py). One localized ignore on
+    # the polars assignment replaces four casts; the values are untouched either way.
+    counts: Tuple[DataFrameT, DataFrameT]
     if engine in POLARS_ENGINES:
-        domain_ids = domain_nodes.select(node_col).unique()
+        import polars as pl
+        # MEMO-MISS lane: ONE lazy plan for both degree arms. Eagerly this materialized the
+        # whole filtered edge frame (every edge column attached) and grouped it twice; lazily
+        # polars pushes the src/dst projection into the semi-joins and shares the filtered
+        # sub-plan across the two collects. Same algebra, same values -- and the memo HIT
+        # above returns before reaching here, so a warm call is byte-for-byte unaffected.
+        domain_ids = domain_nodes.lazy().select(node_col).unique()
         filtered_edges = (
-            edge_domain
+            edge_domain.lazy()
             .join(domain_ids, left_on=src_col, right_on=node_col, how="semi")
             .join(domain_ids, left_on=dst_col, right_on=node_col, how="semi")
         )
-        counts = (
-            cast(DataFrameT, filtered_edges.group_by(dst_col).len("__in_count__")),
-            cast(DataFrameT, filtered_edges.group_by(src_col).len("__out_count__")),
-        )
+        in_counts, out_counts = pl.collect_all([
+            filtered_edges.group_by(dst_col).len("__in_count__"),
+            filtered_edges.group_by(src_col).len("__out_count__"),
+        ])
+        counts = (in_counts, out_counts)  # type: ignore[assignment]  # polars frames; DataFrameT pins pandas
     else:
         domain_ids = domain_nodes[node_col].drop_duplicates()
         filtered_edges = edge_domain[edge_domain[src_col].isin(domain_ids) & edge_domain[dst_col].isin(domain_ids)]
         counts = (
-            cast(DataFrameT, filtered_edges.groupby(dst_col, sort=False).size().reset_index(name="__in_count__")),
-            cast(DataFrameT, filtered_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__")),
+            filtered_edges.groupby(dst_col, sort=False).size().reset_index(name="__in_count__"),
+            filtered_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__"),
         )
 
     if cache is not None:
@@ -610,94 +629,80 @@ def _connected_join_two_star_split_residuals(
     return residuals, rest
 
 
-# The simple residual shapes the connected-join lowering emits for scalar predicates it
-# cannot push into filter_dict (see #1729): case-insensitive equality and scalar
-# equality/range on a single aliased column. Anything else falls back to the where_rows
-# chain evaluator. Literals: single-quoted strings (no embedded quotes) or numbers.
-_RESIDUAL_TOLOWER_EQ = re.compile(
-    r"^\(tolower\((?P<alias>\w+)\.(?P<col>\w+)\) = tolower\('(?P<lit>[^']*)'\)\)$"
-)
-_RESIDUAL_SCALAR_CMP = re.compile(
-    r"^\((?P<alias>\w+)\.(?P<col>\w+) (?P<op>=|>=|<=|>|<) "
-    r"(?:'(?P<slit>[^']*)'|(?P<nlit>-?\d+(?:\.\d+)?))\)$"
-)
-
-
 def _residual_polars_expr(
-    expr: str, alias: str, schema: Mapping[str, Any]
+    expr: str, alias: str, schema: NodeDtypes
 ) -> Optional['pl.Expr']:
-    """Translate a simple residual to a native polars expression, or None to fall back.
+    """Translate a single-alias residual to a native polars expression, or None to fall back.
 
     ``expr`` is a *string* by contract: the #1729 connected-join lowering serializes
     residual predicates into ASTCall params as canonical predicate strings (e.g.
-    ``(tolower(a.col) = tolower('lit'))``), not typed AST terms — so string parsing here
-    is the honest interface; a typed term would require a lowering-level refactor.
+    ``(tolower(a.col) = 'lit')``), not typed AST terms — so parsing here is the honest
+    interface; a typed term would require a lowering-level refactor.
 
-    Covered (exactly the #1729 scalar-residual shapes): ``(tolower(a.col) = tolower('lit'))``
-    and ``(a.col <op> literal)`` for ``= >= <= > <``. Semantics match the where_rows
-    evaluator on these shapes: string compares are null-safe (null -> filtered out, since
-    polars comparisons on null yield null which ``filter`` drops, same as the evaluator's
-    null-propagating comparisons); toLower equality lowercases the column via polars
-    ``str.to_lowercase()`` and the literal via Python ``str.lower()`` (empirically equal
-    on the ASCII/latin shapes the lowering emits; a divergence would need a Rust-vs-Python
-    Unicode table drift). Float NaN ranking differs between polars and the evaluator, but
-    gfql ingest normalizes NaN->null (``_pl_nan_to_null``) so NaN never reaches this
-    filter through ``gfql()``. Declines (returns None, caller uses the chain fallback) on:
-    any other shape, non-matching alias, a column absent from the schema, an ESCAPED
-    string literal (``\\`` — the renderer escapes ``' \\ \\n`` etc. to ``\\uXXXX`` which the
-    evaluator unescapes; raw comparison would silently mismatch), and dtype-incompatible
-    column/literal pairs (string predicate on non-string column and vice versa — the
-    lowering deliberately keeps those residual so the evaluator can raise its designed
-    parity-or-error NotImplementedError rather than a raw polars ComputeError).
+    PARITY BY CONSTRUCTION (#1806), not by re-derivation. The fallback this lane replaces
+    renames the frame's columns to ``alias.col`` and runs a ``where_rows`` chain, which on
+    a polars frame is ``where_rows_polars`` -> ``lower_expr_str`` -> ``table.filter(...)``.
+    This function calls that SAME parser and SAME ``lower_expr``
+    (``row_pipeline.lower_single_alias_predicate``) with ``alias.col`` rewritten to the bare
+    column the un-renamed frame actually has — a bijection over the same frame — so the
+    expression built here is the expression the fallback would build, and the caller's
+    ``frame.filter(...)`` is the fallback's ``table.filter(...)``. Every guard the row
+    lowering owns therefore applies unchanged and is inherited rather than restated: the
+    numeric-vs-string cross-type decline, the temporal/ISO-literal declines, the int-literal
+    division decline, and the float NaN guard (polars ranks NaN largest; pandas/IEEE/Cypher
+    do not). Nothing is case-folded in Python — the lowering's constant-folding pass has
+    already reduced ``= toLower('LIT')`` to ``= 'lit'`` where every engine provably agrees
+    (``expr_const_fold``, #1802); the bare literal is used verbatim, exactly as the
+    evaluator uses it, so ``toLower(x) = 'MALE'`` correctly matches nothing.
+
+    Covered = whatever the polars row lowering covers for a single alias, which is the whole
+    predicate vocabulary the connected-join WHERE renderer can emit here: the case functions
+    ``toLower``/``lower``/``toUpper``/``upper``; ``= != <> < <= > >=``; ``IS NULL`` /
+    ``IS NOT NULL``; ``IN [literals]``; ``AND`` / ``OR`` / ``NOT``; ``CASE WHEN``;
+    arithmetic; and the lowering's function whitelist (``substring``/``size``/``coalesce``/
+    ``toInteger``/...). Escaped string literals (``'it\\u0027s'``) are no longer a special
+    case: the residual text is parsed by the evaluator's own parser, which unescapes it the
+    same way, so no raw-text comparison can mismatch.
+
+    Declines (returns None; the caller uses the where_rows chain fallback, which then either
+    answers or raises the row op's designed NotImplementedError):
+    - a property access on any alias other than ``alias`` — not a column of this frame, and
+      the fallback's prefixed row table cannot resolve it either;
+    - a bare identifier, an absent column, or a node type the row lowering does not handle
+      (map/subscript/slice/quantifier/comprehension) — see ``_bare_column_ast``. The bare
+      whole-entity identity sentinel is in that set: the fallback resolves it via the row
+      table's ``_NODE_ID`` and this frame has no identity column, so declining costs only
+      speed (the fallback still answers) and cannot change an answer;
+    - anything ``lower_expr`` itself declines, e.g. a string predicate on a non-string column
+      or a numeric literal against a string column, which must stay residual so the designed
+      parity-or-error NotImplementedError is what surfaces, not a raw polars ComputeError.
+
+    NOT reachable, therefore NOT covered: ``STARTS WITH`` / ``ENDS WITH`` / ``CONTAINS`` /
+    ``=~``. ``_pushdown_connected_join_where_filters`` cannot render those to a row filter at
+    all, so the whole comma-pattern query is rejected upstream with a GFQLValidationError and
+    no such residual ever reaches this translator. Teaching this function those shapes would
+    be dead code; the gap is in the connected-join WHERE renderer, not here.
+
+    ``columns_nan_free=True`` (#1832 follow-up) is the ONE guard this lane opts out of, and only
+    for BARE COLUMN operands. Every frame reaching here is a filtered/joined projection of the
+    graph's own ``_nodes``, which ``_coerce_input_formats`` has already run through
+    ``nan_clean._pl_nan_to_null`` on the way into ``gfql()``; column selection, filtering and
+    joining cannot introduce a NaN a column did not already hold, so no float COLUMN read on this
+    lane can yield NaN and its ``is_nan()`` mask is dead weight. That mask is not free: it is a
+    second full pass over the column plus a boolean AND, and it measurably doubled the cost of
+    the two ``p.age`` comparisons on the graph benchmark's q7. The general row-table lowering
+    keeps the mask (the contextvar defaults to guard-ON) because its frames have NOT been through
+    gfql ingest, and a COMPUTED float operand keeps the mask on both lanes because in-query math
+    (``0.0/0.0``, ``sqrt`` of a negative) manufactures NaN that no ingest can have removed. This
+    restores exactly the guard-free set of the pre-#1832 narrow translator, whose docstring gave
+    the same justification, and mirrors ``predicates.filter_expr_by_dict_polars``, which already
+    omits the mask on the same lane for the same reason.
     """
-    import polars as pl
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
+        lower_single_alias_predicate,
+    )
 
-    def _is_string_dtype(dtype: Any) -> bool:
-        return dtype == pl.Utf8 or dtype == pl.String
-
-    def _is_numeric_dtype(dtype: Any) -> bool:
-        return dtype.is_numeric() if hasattr(dtype, "is_numeric") else False
-
-    m = _RESIDUAL_TOLOWER_EQ.match(expr)
-    if m is not None:
-        col_name = m.group("col")
-        tolower_lit = m.group("lit")
-        if m.group("alias") != alias or col_name not in schema:
-            return None
-        if "\\" in tolower_lit:
-            return None  # escaped literal: let the evaluator unescape it
-        if not _is_string_dtype(schema[col_name]):
-            return None  # tolower on non-string column: evaluator raises designed NIE
-        return pl.col(col_name).str.to_lowercase() == tolower_lit.lower()
-    m = _RESIDUAL_SCALAR_CMP.match(expr)
-    if m is not None:
-        col_name = m.group("col")
-        if m.group("alias") != alias or col_name not in schema:
-            return None
-        lit: Any
-        if m.group("slit") is not None:
-            lit = m.group("slit")
-            if "\\" in lit:
-                return None  # escaped literal: let the evaluator unescape it
-            if not _is_string_dtype(schema[col_name]):
-                return None  # string literal vs non-string column: designed NIE path
-        else:
-            raw = m.group("nlit")
-            lit = float(raw) if "." in raw else int(raw)
-            if not _is_numeric_dtype(schema[col_name]):
-                return None  # numeric literal vs non-numeric column: designed NIE path
-        col = pl.col(col_name)
-        op = m.group("op")
-        if op == "=":
-            return col == lit
-        if op == ">=":
-            return col >= lit
-        if op == "<=":
-            return col <= lit
-        if op == ">":
-            return col > lit
-        return col < lit
-    return None
+    return lower_single_alias_predicate(expr, alias, schema, columns_nan_free=True)
 
 
 def _connected_join_apply_node_residuals(
@@ -711,11 +716,16 @@ def _connected_join_apply_node_residuals(
 ) -> DataFrameT:
     """Filter a fast-path node frame by single-alias post-join residual expressions.
 
-    Fast lane (polars): the simple scalar shapes the #1729 lowering emits
-    (``tolower(a.col) = tolower('lit')``, ``a.col <op> literal``) translate directly to
-    native polars filters — no chain dispatch (the where_rows chain costs ~1.7ms/alias,
-    the dominant cost of the residual OLAP fast path). Any expression outside those
-    shapes falls back to the chain evaluator below, so semantics never diverge.
+    Fast lane (polars): the residual is lowered by the SAME native polars row lowering the
+    fallback's ``where_rows`` chain would use (``_residual_polars_expr``), so it becomes one
+    ``frame.filter(expr)`` with no chain dispatch (the where_rows chain costs ~1.7ms/alias,
+    the dominant cost of the residual OLAP fast path). Whatever that lowering declines falls
+    back to the chain below, so semantics never diverge — the fast lane's accept set, its
+    decline set and its answers are the fallback's, by construction.
+
+    ALL-OR-NOTHING per alias: one untranslatable expr sends the WHOLE group to the fallback
+    rather than mixing a native filter with a chain filter, so a group is only ever evaluated
+    by one of the two routes.
 
     Fallback: reuses the row pipeline's ``where_rows`` evaluator (identical semantics to
     the slow path, so toLower/etc. behave exactly as they would post-join) by aliasing
@@ -1546,6 +1556,104 @@ def _two_hop_count_alias(chain: Chain) -> Optional[str]:
     return alias
 
 
+_TWO_HOP_IN_COUNT_COL = "__in_count__"
+_TWO_HOP_OUT_COUNT_COL = "__out_count__"
+
+
+def _two_hop_count_fused_polars(
+    start_nodes: DataFrameT,
+    middle_nodes: DataFrameT,
+    end_nodes: DataFrameT,
+    first_edges: DataFrameT,
+    second_edges: DataFrameT,
+    *,
+    node_col: str,
+    src_col: str,
+    dst_col: str,
+    alias: str,
+) -> Optional[DataFrameT]:
+    """FUSED lazy lane for the DISTINCT-DOMAIN two-hop count:
+    ``MATCH (a)-[]->(b)-[]->(c) RETURN count(*)`` where the three node domains and/or
+    the two edge domains are not all equal.
+
+    The eager twin in ``_execute_two_hop_count_fast_path`` issues one ``collect()``
+    per op, so every intermediate materializes with every edge column attached -- the
+    4-semi-join chain built a 199,939-row wide frame that the degree join immediately
+    reduced to 120,586. Expressing the same five ops (3 id-dedups, 2 semi-join +
+    degree-count arms, 1 degree-product sum) as ONE lazy plan lets polars push the
+    src/dst projection into the semi-joins and collect once.
+
+    NOT a GPU change: like the eager twin (and like the fused two-star lane), this
+    collects on CPU polars for both POLARS and POLARS_GPU.
+
+    Algebra is character-identical to the eager twin -- the same semi-joins, the same
+    ``group_by().len()``, the same ``(in*out).sum().fill_null(0).cast(Int64)`` -- so the
+    value is identical, including openCypher's count-over-no-rows 0 on an empty match.
+    Returns None to DECLINE (non-eager polars input, reserved count-column collision)
+    so the caller falls through to the eager twin rather than answering differently.
+    """
+    import polars as pl
+
+    frames = (start_nodes, middle_nodes, end_nodes, first_edges, second_edges)
+    if not all(isinstance(frame, pl.DataFrame) for frame in frames):
+        # LazyFrame (or a non-polars frame) input: the eager twin owns those. Schema
+        # probes on a LazyFrame warn and cost, and a non-polars frame has no .lazy().
+        return None
+    for edge_frame in (first_edges, second_edges):
+        if _TWO_HOP_IN_COUNT_COL in edge_frame.columns or _TWO_HOP_OUT_COUNT_COL in edge_frame.columns:
+            # DEFENSIVE decline: an edge column already carrying a degree-counter name.
+            # Measured on polars 1.42 both lanes still agree (group_by().len() replaces the
+            # column, and projection pushdown drops it), but whether a name collision
+            # survives projection pushdown is a polars-version-dependent detail and the
+            # eager twin answers this shape correctly -- so hand it back rather than bet.
+            return None
+
+    lf_first: "pl.LazyFrame" = first_edges.lazy()
+    lf_second: "pl.LazyFrame" = lf_first if second_edges is first_edges else second_edges.lazy()
+
+    def ids_of(frame: DataFrameT) -> "pl.LazyFrame":
+        return cast("pl.DataFrame", frame).lazy().select(node_col).unique()
+
+    # Reuse the SAME sub-plan when the caller aliased the frames (equal filter dicts),
+    # so the optimizer sees one node scan instead of three.
+    start_ids = ids_of(start_nodes)
+    middle_ids = start_ids if middle_nodes is start_nodes else ids_of(middle_nodes)
+    end_ids = (
+        start_ids
+        if end_nodes is start_nodes
+        else middle_ids
+        if end_nodes is middle_nodes
+        else ids_of(end_nodes)
+    )
+
+    in_counts = (
+        lf_first
+        .join(start_ids, left_on=src_col, right_on=node_col, how="semi")
+        .join(middle_ids, left_on=dst_col, right_on=node_col, how="semi")
+        .group_by(dst_col)
+        .len(_TWO_HOP_IN_COUNT_COL)
+    )
+    out_counts = (
+        lf_second
+        .join(middle_ids, left_on=src_col, right_on=node_col, how="semi")
+        .join(end_ids, left_on=dst_col, right_on=node_col, how="semi")
+        .group_by(src_col)
+        .len(_TWO_HOP_OUT_COUNT_COL)
+    )
+    total_lf = (
+        in_counts
+        .join(out_counts, left_on=dst_col, right_on=src_col, how="inner")
+        .select(
+            # `.cast(pl.Int64)` below is `pl.Expr.cast` -- a polars RUNTIME dtype conversion,
+            # not `typing.cast`. The hygiene guard matches any call named `cast`, so the
+            # suppression rides the line the guard reports (the head of the chained call).
+            (pl.col(_TWO_HOP_IN_COUNT_COL) * pl.col(_TWO_HOP_OUT_COUNT_COL))  # hygiene-ok: explicit-cast -- polars dtype cast
+            .sum().fill_null(0).cast(pl.Int64).alias(alias)
+        )
+    )
+    return cast(DataFrameT, total_lf.collect())
+
+
 def _two_hop_count_binding_ops(chain: Chain) -> Optional[Tuple[ASTNode, ASTEdge, ASTNode, ASTEdge, ASTNode]]:
     if not chain.chain or not isinstance(chain.chain[0], ASTCall):
         return None
@@ -1570,6 +1678,324 @@ def _property_ref(expr: Any, valid_aliases: Sequence[str]) -> Optional[Tuple[str
     if alias not in valid_aliases or not prop:
         return None
     return alias, prop
+
+
+_GROUPED_AGG_LOOKUP_KEY_FMT = "__gfql_t3_{alias}_id__"
+
+# Thresholds for the low-cardinality pure-count(*) formulation below. Both were fixed
+# from an interleaved crossover sweep (polars 1.35.2, 20 threads, 90 samples/arm/cell)
+# BEFORE the formulation was validated on any query, because a threshold chosen after
+# seeing the verdicts is unfalsifiable.
+#
+#   * ``group_by(maintain_order=True).agg(pl.len())`` carries a FLAT ~2 ms coordination
+#     cost that exists only at LOW group cardinality and vanishes between 32 and 64
+#     groups (int keys, 20,000 rows: 32 groups 2.054 ms -> 48 groups 0.411 -> 64 groups
+#     0.291).
+#   * ``value_counts`` has no such cost but scales WORSE with input rows: at 1,000,000
+#     rows it loses even at 2 groups (4.137 ms -> 8.591 ms).
+#
+# So neither bound alone is sound; the gate needs both. 32 is the largest cardinality
+# whose worst case (group_by p25 vs value_counts p75) still favours value_counts in every
+# measured dtype x row-count cell -- 48 groups already fails at 0.96x on string keys.
+# 100,000 is the largest measured input-row count where that holds for every cardinality
+# <= 32 in both key dtypes -- 150,000 fails at 0.82x on string keys.
+_LOWCARD_COUNT_MAX_GROUPS = 32
+_LOWCARD_COUNT_MAX_INPUT_ROWS = 100_000
+
+
+def _low_cardinality_pure_count_key(
+    group_keys: Sequence[str],
+    agg_specs: Sequence[Tuple[str, str, Optional[str]]],
+) -> Optional[Tuple[str, str]]:
+    """``(group_key, out_alias)`` iff this is a single-key, pure ``count(*)`` aggregate.
+
+    Pure ``count(*)`` is the ONLY aggregate the alternative formulation below can express,
+    and the only one measured value-identical to ``pl.len()``. Anything else -- a second
+    group key, a second aggregate, ``avg``/``sum``/``min``/``max``, or a ``count`` over a
+    named property (which counts NON-NULL values, not rows) -- declines here.
+
+    ``out_alias == group_key`` also declines: both formulations raise polars
+    ``DuplicateError`` on it, and declining keeps the twin's error rather than minting a
+    second one.
+    """
+    if len(group_keys) != 1 or len(agg_specs) != 1:
+        return None
+    out_alias, func, expr_col = agg_specs[0]
+    if func != "count" or expr_col is not None:
+        return None
+    group_key = group_keys[0]
+    if out_alias == group_key:
+        return None
+    return group_key, out_alias
+
+
+def _low_cardinality_pure_count_plan(
+    work_lf: "pl.LazyFrame",
+    *,
+    node_col: str,
+    group_keys: Sequence[str],
+    agg_specs: Sequence[Tuple[str, str, Optional[str]]],
+    needed_by_alias: Mapping[str, Sequence[Tuple[str, str]]],
+    frames_by_alias: Mapping[str, DataFrameT],
+    edge_rows: int,
+) -> Optional["pl.LazyFrame"]:
+    """STRICTLY ADDITIVE alternative for a single-key pure ``count(*)``: emit
+    ``value_counts`` instead of ``group_by(..).agg(pl.len())``. Returns ``None`` on every
+    decline and the caller keeps the existing ``group_by`` formulation, so the blast radius
+    is a decline away from zero.
+
+    The two formulations are VALUE-IDENTICAL wherever this admits -- same key rows, same
+    counts, same ``UInt32`` count dtype, same treatment of null / NaN / empty-input keys --
+    and the caller's gate has already made the following ``sort`` TOTAL over the output
+    rows, so neither formulation's internal row order can reach the answer. They differ
+    only in COST, which is why this is a routing decision and not a semantic one.
+
+    THE BOUNDS ARE STATIC, O(1) IN THE DATA, AND THEY ARE UPPER BOUNDS:
+
+    * **group cardinality <= height of the alias node frame supplying the group key.**
+      The group key column is produced by an inner join that reads ``prop`` out of that one
+      frame, so every group value in the aggregate input is a ``prop`` value of some row of
+      it; distinct values cannot exceed its height. ``height`` is metadata.
+    * **aggregate input rows <= height of the (already filtered) edge frame.** The two
+      semi-joins only remove edge rows. The property inner-join can MULTIPLY them when a
+      node id repeats in the node frame -- the lane deliberately does not dedup, because
+      the eager twin does not -- so the bound only holds once the sole property join is
+      known to be non-multiplying. Hence the two structural conditions below: exactly one
+      alias may carry properties, and its node ids must be unique. That uniqueness check
+      runs on a frame already known to be <= ``_LOWCARD_COUNT_MAX_GROUPS`` rows, so it is
+      bounded work regardless of graph size.
+
+    BOTH BOUNDS ARE LOOSE IN THE SAFE DIRECTION. A loose bound over-estimates, so it can
+    only make this DECLINE a shape the alternative would have served -- it can never route
+    a high-cardinality or high-row aggregate into the wrong formulation, which is the
+    failure that would matter (that formulation is 2.7 ms slower on a ~20,000-group
+    aggregate). The cost of looseness is a forgone speedup: a 7,117-row City frame carrying
+    only 3 distinct countries declines here, because an O(1) height bound cannot see the 3.
+
+    DECLINES: a non-single-key or non-pure-``count(*)`` aggregate; a group key not supplied
+    by exactly one alias; a second alias also contributing property columns (the row bound
+    stops holding); a group-key alias frame taller than ``_LOWCARD_COUNT_MAX_GROUPS``,
+    missing its node-id column, or carrying duplicate node ids; an edge frame taller than
+    ``_LOWCARD_COUNT_MAX_INPUT_ROWS``.
+    """
+    import polars as pl
+
+    keyed = _low_cardinality_pure_count_key(group_keys, agg_specs)
+    if keyed is None:
+        return None
+    group_key, out_alias = keyed
+
+    owners = [
+        alias
+        for alias, props in needed_by_alias.items()
+        if any(out_col == group_key for out_col, _ in props)
+    ]
+    if len(owners) != 1:
+        return None
+    owner = owners[0]
+    if any(alias != owner and props for alias, props in needed_by_alias.items()):
+        return None
+
+    owner_frame = frames_by_alias.get(owner)
+    if owner_frame is None or not isinstance(owner_frame, pl.DataFrame):
+        return None
+    if owner_frame.height > _LOWCARD_COUNT_MAX_GROUPS:
+        return None
+    if node_col not in owner_frame.columns:
+        return None
+    if owner_frame.get_column(node_col).n_unique() != owner_frame.height:
+        return None
+    if edge_rows > _LOWCARD_COUNT_MAX_INPUT_ROWS:
+        return None
+
+    # ``name=`` (polars >= 1.0, and the declared floor is 1.29) keeps the count column out
+    # of a rename, so a group key literally named ``count`` is served rather than crashing.
+    return work_lf.select(pl.col(group_key).value_counts(name=out_alias)).unnest(group_key)
+
+
+def _single_hop_grouped_aggregate_fused_polars(
+    start_nodes: DataFrameT,
+    end_nodes: DataFrameT,
+    edges: DataFrameT,
+    *,
+    node_col: str,
+    src_col: str,
+    dst_col: str,
+    start_alias: str,
+    end_alias: str,
+    needed_by_alias: Mapping[str, Sequence[Tuple[str, str]]],
+    group_keys: Sequence[str],
+    agg_specs: Sequence[Tuple[str, str, Optional[str]]],
+    order_keys: Sequence[Tuple[str, bool]],
+    limit_value: Optional[int],
+) -> Optional[DataFrameT]:
+    """FUSED lazy lane for the single-hop GROUPED AGGREGATE (graph-bench q1/q3/q4 shape):
+    ``MATCH (a {..})-[{..}]->(b {..}) [WHERE ..] RETURN <prop> AS k, <agg> AS v
+    ORDER BY .. [LIMIT n]``.
+
+    The eager twin below issues one ``lazy().collect(_eager=True)`` per op -- two
+    semi-joins, two property inner-joins, a group_by/agg, a sort and a head -- so every
+    intermediate materializes and neither the ``select([src, dst])`` projection nor the
+    ``head()`` can be pushed across an op boundary. Expressing the SAME op sequence as
+    one lazy plan collected once lets polars push the projection into the semi-joins and
+    plan the property joins against it.
+
+    Algebra is character-identical to the eager twin (same ``.unique()`` id frames, same
+    semi-joins, same un-deduplicated property lookups, same
+    ``group_by(maintain_order=True).agg(..)``, same per-key ``nulls_last`` sort, same
+    ``head``), so the value -- including row ORDER and openCypher's null-largest ordering
+    -- is identical.
+
+    ONE aggregate shape has a second, value-identical polars formulation: see
+    :func:`_low_cardinality_pure_count_plan`. It is chosen only when static O(1) bounds
+    prove both the group cardinality and the aggregate input rows are low, and it declines
+    to this ``group_by`` everywhere else.
+
+    NOT a GPU change: like the eager twin and the fused two-star lane, it collects on CPU
+    polars for both POLARS and POLARS_GPU.
+
+    DECLINES (returns None; the caller falls through to the untouched eager twin, so a
+    decline can never answer differently):
+
+    * a non-eager-polars input frame -- LazyFrame schema probes warn and cost, and a
+      non-polars frame has no polars ``.lazy()``;
+    * a needed property column missing from its alias' node frame. The eager twin
+      discovers this mid-chain and returns ``None`` from the whole fast path, so this
+      METADATA-ONLY guard is hoisted BEFORE any plan is built -- otherwise the fused lane
+      would answer a query the fast path is supposed to decline;
+    * source and destination bound to the SAME edge column (the twin's
+      ``select([src, dst])`` cannot name a column twice);
+    * a projected output column that collides with an edge endpoint column or with the
+      internal lookup key;
+    * an aggregate the expression builder cannot translate;
+    * a Categorical/Enum property column -- the twin CASTS those to ``String`` before it
+      groups or aggregates, and this lane does not;
+    * ``sum``/``avg`` over a non-numeric or all-null column -- the twin owns the one cypher
+      aggregate type contract (``gfql/agg_types.py``), and declining keeps that contract from
+      depending on which of the two lanes served the query;
+    * **a result row order that ORDER BY does not fully determine** -- i.e. no ORDER BY,
+      or an ORDER BY that does not mention every group key. When the sort is total over
+      the output rows (group keys are unique per row, so naming them all makes it total),
+      neither ``maintain_order=True`` nor sort stability can affect the answer. When it is
+      NOT total, the twin's row order falls back to group FIRST-APPEARANCE order in the
+      joined frame, which is join-output order -- a property a lazy plan is free to change
+      by reordering or re-siding joins, and one that ``LIMIT`` turns from a cosmetic
+      difference into a different ROW SET. That shape stays with the eager twin.
+    """
+    import polars as pl
+
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_stringlike
+
+    if not isinstance(start_nodes, pl.DataFrame) or not isinstance(end_nodes, pl.DataFrame):
+        return None
+    if not isinstance(edges, pl.DataFrame):
+        return None
+    if src_col == dst_col:
+        return None
+    ordered_keys = {key for key, _ in order_keys}
+    if not ordered_keys or not set(group_keys).issubset(ordered_keys):
+        return None
+
+    lookup_keys = {
+        start_alias: _GROUPED_AGG_LOOKUP_KEY_FMT.format(alias=start_alias),
+        end_alias: _GROUPED_AGG_LOOKUP_KEY_FMT.format(alias=end_alias),
+    }
+    reserved_out_cols = {src_col, dst_col} | set(lookup_keys.values())
+    prop_dtypes: Dict[str, Any] = {}
+    for alias, node_frame in ((start_alias, start_nodes), (end_alias, end_nodes)):
+        for out_col, prop in needed_by_alias.get(alias, ()):
+            if prop not in node_frame.columns:
+                return None
+            if out_col in reserved_out_cols:
+                return None
+            prop_dtype = node_frame.schema[prop]
+            # Categorical/Enum is a STRING column to cypher, and the eager twin CASTS it to
+            # `String` before aggregating or grouping -- both to match the row pipelines and to
+            # dodge the polars 1.35.2 rust panic on a grouped min/max over a Categorical. This
+            # lane does not cast, so it DECLINES rather than answer with a different dtype.
+            if is_stringlike(prop_dtype) and prop_dtype != pl.String:
+                return None
+            prop_dtypes[out_col] = prop_dtype
+
+    agg_exprs: List["pl.Expr"] = []
+    for out_alias, func, expr_col in agg_specs:
+        # ONE cypher type contract for sum()/avg() whichever lane serves the query (see
+        # gfql/agg_types.py). A non-numeric or all-null input is the eager twin's job -- it
+        # raises GFQLTypeError(E302), or substitutes cypher's `0`/`null` for an all-null column
+        # -- so decline instead of letting `.collect()` surface a raw `polars.exceptions.*`.
+        if func in GFQL_NUMERIC_ONLY_AGGREGATIONS and expr_col is not None:
+            agg_dtype = prop_dtypes.get(expr_col)
+            if (
+                agg_dtype is None
+                or agg_dtype == pl.Null
+                or polars_non_numeric_agg_dtype(agg_dtype) is not None
+            ):
+                return None
+        if func == "count" and expr_col is None:
+            agg_exprs.append(pl.len().alias(out_alias))
+        elif expr_col is None:
+            return None
+        elif func == "count":
+            agg_exprs.append(pl.col(expr_col).count().alias(out_alias))
+        elif func == "avg":
+            agg_exprs.append(pl.col(expr_col).mean().alias(out_alias))
+        elif func == "sum":
+            agg_exprs.append(pl.col(expr_col).sum().alias(out_alias))
+        elif func == "min":
+            agg_exprs.append(pl.col(expr_col).min().alias(out_alias))
+        elif func == "max":
+            agg_exprs.append(pl.col(expr_col).max().alias(out_alias))
+        else:
+            return None
+
+    work_lf: "pl.LazyFrame" = (
+        edges.lazy()
+        .join(start_nodes.lazy().select(node_col).unique(), left_on=src_col, right_on=node_col, how="semi")
+        .join(end_nodes.lazy().select(node_col).unique(), left_on=dst_col, right_on=node_col, how="semi")
+        .select([src_col, dst_col])
+    )
+    for alias, node_frame, edge_col in (
+        (start_alias, start_nodes, src_col),
+        (end_alias, end_nodes, dst_col),
+    ):
+        props = needed_by_alias.get(alias, ())
+        if not props:
+            continue
+        lookup_key = lookup_keys[alias]
+        # NOT deduplicated by node id -- the eager twin does not dedup either, so a node
+        # table carrying the same id twice multiplies matched rows on both lanes.
+        lookup_lf = node_frame.lazy().select(
+            [pl.col(node_col).alias(lookup_key)]
+            + [pl.col(prop).alias(out_col) for out_col, prop in props]
+        )
+        work_lf = work_lf.join(lookup_lf, left_on=edge_col, right_on=lookup_key, how="inner")
+
+    # STRICTLY ADDITIVE: a single-key pure count(*) whose group cardinality and input rows
+    # are both statically bounded low takes the value_counts formulation, which skips
+    # polars' partitioned group-by coordination. Every other shape -- and every shape whose
+    # bounds are not provably low -- keeps the group_by below, unchanged.
+    out_lf = _low_cardinality_pure_count_plan(
+        work_lf,
+        node_col=node_col,
+        group_keys=group_keys,
+        agg_specs=agg_specs,
+        needed_by_alias=needed_by_alias,
+        frames_by_alias={start_alias: start_nodes, end_alias: end_nodes},
+        edge_rows=edges.height,
+    )
+    if out_lf is None:
+        out_lf = work_lf.group_by(list(group_keys), maintain_order=True).agg(agg_exprs)
+    # openCypher orders NULL as the largest value (ASC -> nulls last, DESC -> nulls
+    # first); polars defaults nulls-first, so pin nulls_last per key exactly as the twin
+    # does. The gate above guarantees this sort is TOTAL over the output rows.
+    out_lf = out_lf.sort(
+        [key for key, _ in order_keys],
+        descending=[desc for _, desc in order_keys],
+        nulls_last=[not desc for _, desc in order_keys],
+    )
+    if limit_value is not None:
+        out_lf = out_lf.head(limit_value)
+    return cast(DataFrameT, out_lf.collect())
 
 
 def _execute_single_hop_grouped_aggregate_fast_path(
@@ -1710,7 +2136,32 @@ def _execute_single_hop_grouped_aggregate_fast_path(
         if prop is not None:
             needed_by_alias[alias].append((out_col, prop))
 
-    if requested_engine in POLARS_ENGINES:  # pragma: no cover - polars-only, covered by polars lane
+    fused_out: Optional[DataFrameT] = None
+    if requested_engine in POLARS_ENGINES:
+        # ONE lazy plan instead of ~7 eager collects. Declines (-> None) fall through to
+        # the untouched eager twin below, so the blast radius is a decline away from zero.
+        fused_out = _single_hop_grouped_aggregate_fused_polars(
+            start_nodes,
+            end_nodes,
+            edges,
+            node_col=node_col,
+            src_col=src_col,
+            dst_col=dst_col,
+            start_alias=start_alias,
+            end_alias=end_alias,
+            needed_by_alias=needed_by_alias,
+            group_keys=group_keys,
+            agg_specs=[
+                (agg_alias, func, expr_alias if expr_alias is not None and with_items[expr_alias][1] is not None else None)
+                for agg_alias, func, expr_alias in aggregations
+            ],
+            order_keys=order_keys,
+            limit_value=limit_value,
+        )
+
+    if fused_out is not None:
+        out_df = fused_out
+    elif requested_engine in POLARS_ENGINES:  # pragma: no cover - polars-only, covered by polars lane
         import polars as pl
         start_ids = start_nodes.select(node_col).unique()
         end_ids = end_nodes.select(node_col).unique()
@@ -1741,7 +2192,36 @@ def _execute_single_hop_grouped_aggregate_fast_path(
         if work is None:
             return None
         agg_exprs = []
+        # Categorical/Enum is a STRING column to cypher; cast it BEFORE any aggregate, matching
+        # the row pipelines on both engines (and dodging the polars 1.35.2 rust panic on a
+        # grouped min/max over a Categorical). Done on the frame, so `pl.col(...)` below is
+        # already the string column.
+        from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_stringlike
+        cat_cols = [c for c, dt in work.schema.items() if is_stringlike(dt) and dt != pl.String]
+        if cat_cols:
+            # `pl.Expr.cast` is a polars RUNTIME dtype conversion, not `typing.cast`; bound to a
+            # name so the guard's per-line suppression fits inside the 127-col limit.
+            to_string = [pl.col(c).cast(pl.String) for c in cat_cols]  # hygiene-ok: explicit-cast -- polars dtype cast
+            work = work.with_columns(to_string)
+        work_schema = work.schema
         for alias, func, expr_alias in aggregations:
+            # Same Cypher sum()/avg() type contract the row-pipeline kernels enforce (see
+            # gfql/agg_types.py). This fast path reimplements the aggregates, so without the
+            # guard here the exact same query answers differently depending on whether it
+            # matched the fast-path shape.
+            if func in GFQL_NUMERIC_ONLY_AGGREGATIONS and expr_alias is not None:
+                # Dtype first, data second -- see the row-pipeline twin: only a column the schema
+                # already rejects is worth the O(n) null scan.
+                dtype_label = polars_non_numeric_agg_dtype(work_schema.get(expr_alias))
+                if work_schema.get(expr_alias) == pl.Null or (
+                    dtype_label is not None
+                    and work.height > 0
+                    and work[expr_alias].null_count() == work.height
+                ):
+                    agg_exprs.append(pl.lit(numeric_agg_all_null_value(func)).alias(alias))
+                    continue
+                if dtype_label is not None:
+                    raise_non_numeric_aggregation(func, expr_alias, dtype_label, alias)
             if func == "count" and (expr_alias is None or with_items[expr_alias][1] is None):
                 agg_exprs.append(pl.len().alias(alias))
             elif func == "count" and expr_alias is not None:
@@ -1805,6 +2285,18 @@ def _execute_single_hop_grouped_aggregate_fast_path(
             grouped = work.groupby(group_keys, sort=False)
         out_df = grouped.size().reset_index(name="__gfql_group_size__")[group_keys]
         for alias, func, expr_alias in aggregations:
+            # Twin of the polars branch above: one Cypher sum()/avg() type contract, enforced on
+            # whichever engine runs the fast path (see gfql/agg_types.py).
+            if func in GFQL_NUMERIC_ONLY_AGGREGATIONS and expr_alias is not None:
+                if not pandas_dtype_is_numeric_for_agg(work[expr_alias]):
+                    if len(work) > 0 and bool(work[expr_alias].isna().all()):
+                        agg_df = out_df[group_keys].copy()
+                        agg_df[alias] = numeric_agg_all_null_value(func)
+                        out_df = cast(DataFrameT, out_df.merge(agg_df, on=group_keys, how="left", sort=False))
+                        continue
+                    dtype_label = pandas_non_numeric_agg_dtype(work[expr_alias])
+                    if dtype_label is not None:
+                        raise_non_numeric_aggregation(func, expr_alias, dtype_label, alias)
             if func == "count" and (expr_alias is None or with_items[expr_alias][1] is None):
                 agg_df = grouped.size().reset_index(name=alias)
             elif func == "count" and expr_alias is not None:
@@ -1904,7 +2396,27 @@ def _execute_two_hop_count_fast_path(
         else _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], second_edge.edge_match), engine=requested_engine)
     )
 
-    if requested_engine in POLARS_ENGINES:
+    fused_total: Optional[DataFrameT] = None
+    if requested_engine in POLARS_ENGINES and not reuse_single_edge_domain:
+        # Distinct-domain shape: ONE lazy plan instead of five eager collects.
+        # The equal-domain shape is deliberately NOT routed here -- it takes the
+        # cached degree-count branch below, whose counts are memoized on the Plottable
+        # across calls, so fusing it would trade a cache hit for a replan.
+        fused_total = _two_hop_count_fused_polars(
+            start_nodes,
+            middle_nodes,
+            end_nodes,
+            first_edges,
+            second_edges,
+            node_col=node_col,
+            src_col=src_col,
+            dst_col=dst_col,
+            alias=alias,
+        )
+
+    if fused_total is not None:
+        out_nodes = fused_total
+    elif requested_engine in POLARS_ENGINES:
         import polars as pl
         if reuse_single_edge_domain:
             cached_counts = _two_hop_cached_equal_domain_degree_counts(
