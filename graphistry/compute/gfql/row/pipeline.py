@@ -70,6 +70,7 @@ from graphistry.compute.gfql.row.entity_text import (
     is_entity_text_scalar,
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN
+from graphistry.compute.gfql.cache_registry import register_process_singleton
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype, series_sequence_len, series_str_match
 from graphistry.compute.gfql.row.ordering import (
     build_list_sort_columns,
@@ -116,6 +117,9 @@ def _gfql_expr_runtime_parser_bundle() -> Optional[GFQLRuntimeParserBundle]:
         return None
 
 
+register_process_singleton(_gfql_expr_runtime_parser_bundle, "an import-resolution bundle, None on a minimal install; re-resolving cannot change the answer")
+
+
 @lru_cache(maxsize=1)
 def _gfql_cudf_list_sort_requires_host_bridge() -> bool:
     """cuDF 25.02 can segfault in list-sort pivot internals; bridge to pandas there."""
@@ -130,6 +134,9 @@ def _gfql_cudf_list_sort_requires_host_bridge() -> bool:
     major = int(match.group(1))
     minor = int(match.group(2))
     return (major, minor) <= (25, 2)
+
+
+register_process_singleton(_gfql_cudf_list_sort_requires_host_bridge, "probes the installed cuDF version for a segfaulting list-sort; the installed version cannot change inside a process")
 
 
 def _gfql_bridge_cudf_df_to_pandas(work_df: Any) -> Any:
