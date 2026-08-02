@@ -794,10 +794,12 @@ def lower_single_alias_predicate(
     if key in _SINGLE_ALIAS_CACHE:
         try:
             _SINGLE_ALIAS_CACHE.move_to_end(key)
-        except KeyError:  # pragma: no cover - concurrent eviction; recompute-safe
-            pass
-        else:
+            # The read stays INSIDE the try: a concurrent eviction or a registry
+            # clear_all() landing between move_to_end and this lookup must degrade
+            # to a recompute, never surface KeyError to the caller.
             return _SINGLE_ALIAS_CACHE[key]
+        except KeyError:  # concurrent eviction/clear; recompute-safe
+            pass
     lowered = _lower_single_alias_predicate_uncached(expr, alias, schema, columns_nan_free)
     _SINGLE_ALIAS_CACHE[key] = lowered
     # Eviction races can only DROP an entry (a redundant recompute), never fabricate a hit.

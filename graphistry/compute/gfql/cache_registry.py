@@ -17,6 +17,14 @@ registered -- registration is enforced, not optional.
 
 A module that is never imported registers nothing, and that is correct: its
 cache object does not exist, so there is nothing to clear.
+
+Threading: registration runs at import time under the import lock plus this
+module's own lock; ``clear_all`` snapshots under the lock and clears outside it.
+``lru_cache.cache_clear`` is internally locked; dict-style memos must make their
+hit paths recompute-safe against a clear racing a read (see the single-alias
+memo). ``importlib.reload`` of a cache host raises the registered-twice error on
+purpose: the reloaded module would leave a zombie cache this registry can no
+longer reach, and that deserves a loud failure, not a silent overwrite.
 """
 
 from __future__ import annotations
