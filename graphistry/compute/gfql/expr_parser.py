@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from graphistry.compute.gfql.cache_registry import (
+    register_clearable,
+    register_process_singleton,
+)
+
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Protocol, Sequence, Set, Tuple, Type, Union, cast
@@ -309,6 +314,9 @@ def _parser() -> _ParserLike:
     Lark, _, _ = _lark_imports()
     parser = Lark(_GRAMMAR, start="start", parser="lalr", maybe_placeholders=False)
     return cast(_ParserLike, parser)
+
+
+register_process_singleton(_parser, "Lark LALR(1) tables for the row-expression grammar; function of the grammar, built once per process")
 
 
 def _parse_string_token(token: str) -> str:
@@ -737,6 +745,14 @@ def _ast_builder_class() -> Callable[[], _TransformerLike]:
     return _AstBuilder
 
 
+register_process_singleton(
+    _ast_builder_class,
+    "returns the row-expression Transformer CLASS, a function of the code; cached because "
+    "dataclass re-execs generated source on every rebuild (40 percent of GFQL compile time); "
+    "instances are still created per parse, so nothing stateful is shared",
+)
+
+
 def _build_transformer() -> _TransformerLike:
     """A fresh transformer instance, over a class built once per process.
 
@@ -841,6 +857,9 @@ def _parse_expr_cached(expr: str) -> ExprNode:
     if not isinstance(node, _EXPR_NODE_TYPES):
         raise GFQLExprParseError("Invalid GFQL expression AST")
     return cast(ExprNode, node)
+
+
+register_clearable(_parse_expr_cached)
 
 
 def is_expr_node(node: object) -> bool:

@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     PolarsFrameT = TypeVar("PolarsFrameT", "pl.DataFrame", "pl.LazyFrame")
 
 from graphistry.Plottable import Plottable
+from graphistry.compute.gfql.cache_registry import register_clearable_dict
 from graphistry.utils.json import JSONVal
 # Engine-neutral wire-format payload types (ASTCall.params). Shapes are safelist-validated
 # (gfql/call/validation.py) before reaching these helpers, so the runtime isinstance/len
@@ -724,14 +725,7 @@ _SINGLE_ALIAS_CACHE: "OrderedDict[_SingleAliasKey, Optional[pl.Expr]]" = Ordered
 _SINGLE_ALIAS_CACHE_MAX = 512
 
 
-def clear_single_alias_predicate_cache() -> None:
-    """Empty the ``lower_single_alias_predicate`` memo.
-
-    Called by ``gfql_clear_caches``: this memo is keyed by caller input (predicate string,
-    alias, schema), so it grows with traffic and its contents change what a later call
-    costs -- exactly the cache class that clear function promises to empty.
-    """
-    _SINGLE_ALIAS_CACHE.clear()
+register_clearable_dict("_SINGLE_ALIAS_CACHE", _SINGLE_ALIAS_CACHE)
 
 
 def _single_alias_cache_key(

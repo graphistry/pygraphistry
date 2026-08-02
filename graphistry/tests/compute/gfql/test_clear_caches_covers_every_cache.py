@@ -1,76 +1,35 @@
-"""``gfql_clear_caches()`` must account for EVERY process-lifetime GFQL cache.
+"""Every process-lifetime GFQL cache must REGISTER itself in the cache registry.
 
-Not "clear every cache" -- some must survive, and that is the point. The rule is that no
-memo may be *unaccounted for*: each one is either emptied by ``gfql_clear_caches`` or listed
-in ``EXEMPT`` below with a written reason. Adding an ``@lru_cache`` to the GFQL tree and
-saying nothing fails this file.
+The convention (see ``graphistry/compute/gfql/cache_registry.py`` and the GFQL
+contributor guide): a cache setup site registers, adjacent to its definition,
+either a clearable handle (``register_clearable`` / ``register_clearable_dict``
+/ ``register_clearable_callable``) or a process-singleton exemption with a
+written reason. ``gfql_clear_caches`` empties exactly the registered clearables.
 
-Why the enumeration is the test rather than a checklist in a docstring: a stale cache that
-nobody remembers is a *correctness* bug (results become order-dependent, so a test that
-passes alone fails in a suite) and a *measurement* bug. It produced a real published error --
-a "cold-process" benchmark arm was reported as costing 2.3-10.2 ms of query compilation when
-the Cypher AST memo was in fact never being emptied, because the clear targeted
-``parse_cypher`` while the ``lru_cache`` sits on the ``_parse_cypher_cached`` body it
-delegates to. The old ``getattr(obj, "cache_clear", None)`` lookup skipped the miss in
-silence. Nothing failed; the number was simply wrong for days.
+THE LOCK here is completeness: a static AST sweep discovers every
+``@lru_cache``/``@cache`` function and every module-level dict/set binding
+named cache/memo in the GFQL tree, imports their modules, and fails when any
+discovered cache is absent from the registry. Registration is enforced, not
+optional -- adding a memo without registering it fails this file.
 
-STATIC + FUNCTIONAL: the AST scan catches a *new* cache, and the runtime assertions catch a
-clear that stops working.
+Why this exists: a clear that looked its target up BY NAME once turned into a
+silent no-op (``parse_cypher`` vs the ``_parse_cypher_cached`` body holding the
+memo) and published a wrong "cold-process" number for days. Registration hands
+over the bound clear at definition time, so there is no later lookup to miss.
 """
 
 from __future__ import annotations
 
 import ast
+import importlib
 from pathlib import Path
-from typing import Dict, Set
+from typing import Dict
 
 import pytest
 
 GFQL_TREE = Path(__file__).resolve().parents[3] / "compute" / "gfql"
 GFQL_UNIFIED = Path(__file__).resolve().parents[3] / "compute" / "gfql_unified.py"
-
-
-# Emptied by gfql_clear_caches(). These are keyed by CALLER INPUT, so they grow with traffic
-# and their contents change what a later call costs.
-CLEARED: Set[str] = {
-    "_parse_cypher_cached",         # cypher query text -> frozen AST                (maxsize=512)
-    "_parse_expr_cached",           # row-expression text -> ExprNode                (maxsize=1024)
-    "_COMPILED_STRING_QUERY_CACHE",  # (query, engine, params, dtypes) -> plan       (max 128)
-    "_SINGLE_ALIAS_CACHE",          # (expr, alias, schema) -> lowered polars expr   (max 512)
-}
-
-# Deliberately NOT emptied. Every entry is a maxsize=1 singleton that is a pure function of
-# the CODE, not of any input: it cannot grow, and rebuilding it costs strictly more than the
-# work it saves. Emptying these would make a "cold" measurement include one-time process
-# setup that no caller can ever pay twice.
-EXEMPT: Dict[str, str] = {
-    "_parser_lalr":
-        "Lark LALR(1) tables for the whole-query grammar; function of the grammar, built "
-        "once per process, and far dearer than any single parse it serves",
-    "_pattern_parser":
-        "Lark LALR(1) tables for the pattern-fragment start rule; same reasoning",
-    "_where_predicate_chain_parser":
-        "Lark LALR(1) tables for the flat WHERE-chain start rule; same reasoning",
-    "_parser":
-        "Lark LALR(1) tables for the row-expression grammar; same reasoning",
-    "_ast_builder_class":
-        "returns the row-expression Transformer CLASS, a function of the code; it is cached "
-        "because @dataclass re-execs generated __init__/__eq__ source on every rebuild, which "
-        "was 40% of GFQL compile time. Instances are still created per parse, so nothing "
-        "stateful is shared",
-    "_where_rows_expr_parser_fn":
-        "binds imported callables and returns None when lark is absent; a resolved import "
-        "is not stale state, and re-resolving it cannot change the answer",
-    "_gfql_expr_runtime_parser_bundle":
-        "same: an import-resolution bundle, None on a minimal install",
-    "_gfql_cudf_list_sort_requires_host_bridge":
-        "probes the installed cuDF version for a segfaulting list-sort; the installed "
-        "version cannot change inside a process",
-    "_ddl_prefix_re":
-        "a compiled regex over a module-level pattern constant",
-    "_ddl_res":
-        "compiled regexes over module-level pattern constants",
-}
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _lru_cached_functions() -> Dict[str, Path]:
@@ -97,27 +56,24 @@ def _lru_cached_functions() -> Dict[str, Path]:
 def _module_dict_caches() -> Dict[str, Path]:
     """Every MODULE-LEVEL dict/OrderedDict/set binding whose name says cache/memo.
 
-    The decorator scan above cannot see hand-rolled memos -- ``_SINGLE_ALIAS_CACHE`` in the
-    polars row pipeline sat exactly in that blind spot: an ``OrderedDict`` keyed by caller
-    input, invisible to an ``@lru_cache`` scan, and silently absent from
-    ``gfql_clear_caches`` until the 2026-08-01 audit. This scan is name-based (``cache`` or
-    ``memo`` in the binding name, case-insensitive) over top-level assignments only: a memo
-    whose name hides what it is has worse problems than this file can catch.
+    Hand-rolled memos are invisible to the decorator scan -- ``_SINGLE_ALIAS_CACHE``
+    sat exactly in that blind spot until the 2026-08-01 audit. Name-based on
+    purpose: a memo whose name hides what it is has worse problems than this
+    file can catch.
     """
     found: Dict[str, Path] = {}
     files = sorted(GFQL_TREE.rglob("*.py")) + [GFQL_UNIFIED]
     for path in files:
         tree = ast.parse(path.read_text(), filename=str(path))
-        for node in tree.body:  # top-level only: function locals die with the call
+        for node in tree.body:
             targets = []
+            value = None
             if isinstance(node, ast.Assign):
                 targets = [t for t in node.targets if isinstance(t, ast.Name)]
                 value = node.value
             elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
                 targets = [node.target]
                 value = node.value
-            else:
-                continue
             if value is None:
                 continue
             is_container = (
@@ -137,55 +93,71 @@ def _module_dict_caches() -> Dict[str, Path]:
     return found
 
 
-def test_every_gfql_cache_is_either_cleared_or_exempted_with_a_reason() -> None:
-    """THE LOCK. A new memo in the GFQL tree must be classified, in writing, right here."""
-    discovered = _lru_cached_functions()
-    assert discovered, "the AST scan found no caches at all -- the scan itself is broken"
-    dict_caches = _module_dict_caches()
-    assert dict_caches, (
-        "the module-dict scan found nothing, yet _COMPILED_STRING_QUERY_CACHE and "
-        "_SINGLE_ALIAS_CACHE exist -- the scan itself is broken"
-    )
-    discovered = {**discovered, **dict_caches}
+def _import_module(path: Path) -> None:
+    relative = path.relative_to(REPO_ROOT).with_suffix("")
+    importlib.import_module(".".join(relative.parts))
 
-    unaccounted = sorted(set(discovered) - CLEARED - set(EXEMPT))
-    assert not unaccounted, (
-        "these @lru_cache functions are neither cleared by gfql_clear_caches() nor exempted:\n"
-        + "\n".join(f"  {n}  ({discovered[n]})" for n in unaccounted)
-        + "\n\nDecide which it is. If it is keyed by caller input, clear it and add it to "
-        "CLEARED. If it is a process-lifetime singleton that is a function of the code, add "
-        "it to EXEMPT with the reason. Do not leave it silent: an unaccounted cache makes "
-        "results order-dependent and makes 'cold' measurements wrong."
+
+def test_every_discovered_cache_is_registered() -> None:
+    """THE LOCK. A new memo in the GFQL tree must register itself, at its own def site."""
+    discovered = {**_lru_cached_functions(), **_module_dict_caches()}
+    assert discovered, "the AST scans found no caches at all -- the scan itself is broken"
+
+    for path in sorted(set(discovered.values())):
+        _import_module(path)
+
+    from graphistry.compute.gfql.cache_registry import entries
+
+    registered = entries()
+    unregistered = sorted(set(discovered) - set(registered))
+    assert not unregistered, (
+        "these caches are not registered in graphistry/compute/gfql/cache_registry.py:\n"
+        + "\n".join(f"  {n}  ({discovered[n]})" for n in unregistered)
+        + "\n\nRegister each at its definition site: register_clearable(...) when it is "
+        "keyed by caller input, register_process_singleton(..., reason) when it is a "
+        "function of the code alone. An unaccounted cache makes results order-dependent "
+        "and makes 'cold' measurements wrong."
     )
 
-    stale = sorted((CLEARED | set(EXEMPT)) - set(discovered))
+    stale = sorted(set(registered) - set(discovered))
     assert not stale, (
-        f"these names are classified here but no longer exist as caches: {stale}. Delete the "
-        "entries so the lists keep describing the code."
+        f"registered but not discovered by the scans: {stale}. Either the cache moved out "
+        "of the GFQL tree (move or drop its registration) or the scan needs a new pattern."
     )
 
 
-def test_every_exemption_carries_a_real_reason() -> None:
-    """An exemption with an empty or placeholder reason is just a silent cache again."""
-    for name, reason in EXEMPT.items():
-        assert len(reason.split()) >= 6, f"{name}: reason is too thin to be a reason"
-        assert "TODO" not in reason.upper(), f"{name}: TODO is not a justification"
+def test_registry_fails_loud() -> None:
+    """An empty registry, a duplicate handle, or a thin reason must raise, not shrug."""
+    from graphistry.compute.gfql import cache_registry as reg
+
+    original = dict(reg._REGISTRY)
+    try:
+        reg._REGISTRY.clear()
+        with pytest.raises(RuntimeError):
+            reg.clear_all()
+    finally:
+        reg._REGISTRY.update(original)
+
+    with pytest.raises(ValueError, match="too thin"):
+        reg.register_process_singleton(len, "because")
+
+    def probe() -> None:
+        pass
+
+    reg._REGISTRY.pop("probe", None)
+    reg.register_clearable_callable("probe", probe)
+    try:
+        with pytest.raises(ValueError, match="registered twice"):
+            reg.register_clearable_callable("probe", lambda: None)
+    finally:
+        reg._REGISTRY.pop("probe", None)
 
 
 def test_clear_caches_actually_empties_the_cypher_ast_memo() -> None:
-    """THE REGRESSION PIN for the published-number bug.
-
-    ``parse_cypher`` has no ``cache_clear`` of its own -- the memo is on the
-    ``_parse_cypher_cached`` body. Clearing the wrong name used to be a silent no-op.
-    """
+    """THE REGRESSION PIN for the published-number bug."""
     pytest.importorskip("lark")
     from graphistry.compute.gfql.cypher import parser as cypher_parser
     from graphistry.compute.gfql_unified import gfql_clear_caches
-
-    assert not hasattr(cypher_parser.parse_cypher, "cache_clear"), (
-        "parse_cypher grew a cache_clear; the indirection this test guards has changed, so "
-        "re-read gfql_clear_caches() before relaxing anything here"
-    )
 
     cypher_parser.parse_cypher("MATCH (n) RETURN n")
     assert cypher_parser._parse_cypher_cached.cache_info().currsize > 0
@@ -209,48 +181,8 @@ def test_clear_caches_actually_empties_the_row_expression_memo() -> None:
     assert expr_parser._parse_expr_cached.cache_info().currsize == 0
 
 
-def test_clear_caches_leaves_the_lalr_tables_built() -> None:
-    """The exemption is load-bearing, so pin it: rebuilding the LALR tables on every clear
-    would put grammar construction inside any 'cold' number measured through this call."""
-    pytest.importorskip("lark")
-    from graphistry.compute.gfql.cypher import parser as cypher_parser
-    from graphistry.compute.gfql_unified import gfql_clear_caches
-
-    before = cypher_parser._parser_lalr()
-    gfql_clear_caches()
-    assert cypher_parser._parser_lalr() is before, (
-        "the whole-query LALR parser was rebuilt by gfql_clear_caches()"
-    )
-
-
-def test_clear_caches_raises_rather_than_skipping_a_missing_target() -> None:
-    """FAIL LOUD. If a clear target loses its ``cache_clear``, the call must break, not
-    quietly do less than it says."""
-    pytest.importorskip("lark")
-    from graphistry.compute.gfql.cypher import parser as cypher_parser
-    from graphistry.compute.gfql_unified import gfql_clear_caches
-
-    original = cypher_parser._parse_cypher_cached
-
-    class _NoClear:
-        def __call__(self, query: str) -> object:
-            raise AssertionError("not called")
-
-    try:
-        cypher_parser._parse_cypher_cached = _NoClear()  # type: ignore[assignment]
-        with pytest.raises(AttributeError):
-            gfql_clear_caches()
-    finally:
-        cypher_parser._parse_cypher_cached = original  # type: ignore[assignment]
-
-    gfql_clear_caches()  # and it still works once the real target is back
-
-
 def test_clear_caches_actually_empties_the_single_alias_lowering_memo() -> None:
-    """THE 2026-08-01 AUDIT PIN. ``_SINGLE_ALIAS_CACHE`` is an OrderedDict, not an
-    ``@lru_cache``, so the decorator scan never saw it and ``gfql_clear_caches`` never
-    cleared it: a populated lowering memo makes a 'cold' polars row-pipeline measurement
-    warm without any visible failure."""
+    """THE 2026-08-01 AUDIT PIN: the dict-style memo the decorator scan never saw."""
     pytest.importorskip("lark")
     pl = pytest.importorskip("polars")
     from graphistry.compute.gfql.lazy.engine.polars import row_pipeline
@@ -263,6 +195,37 @@ def test_clear_caches_actually_empties_the_single_alias_lowering_memo() -> None:
     )
 
     gfql_clear_caches()
-    assert len(row_pipeline._SINGLE_ALIAS_CACHE) == 0, (
-        "gfql_clear_caches() left the single-alias lowering memo populated"
+    assert len(row_pipeline._SINGLE_ALIAS_CACHE) == 0
+
+
+def test_clear_caches_leaves_the_lalr_tables_built() -> None:
+    """The exemption is load-bearing: rebuilding the LALR tables on every clear would put
+    grammar construction inside any 'cold' number measured through this call."""
+    pytest.importorskip("lark")
+    from graphistry.compute.gfql.cypher import parser as cypher_parser
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    before = cypher_parser._parser_lalr()
+    gfql_clear_caches()
+    assert cypher_parser._parser_lalr() is before, (
+        "the whole-query LALR parser was rebuilt by gfql_clear_caches()"
     )
+
+
+def test_clear_survives_module_attribute_swap() -> None:
+    """Registration binds the real object's clear at definition time, so replacing the
+    module attribute later cannot silently disconnect the clear -- the opposite failure
+    mode of the old name-lookup design."""
+    pytest.importorskip("lark")
+    from graphistry.compute.gfql.cypher import parser as cypher_parser
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    real = cypher_parser._parse_cypher_cached
+    real("MATCH (n) RETURN n")
+    assert real.cache_info().currsize > 0
+    try:
+        cypher_parser._parse_cypher_cached = object()  # type: ignore[assignment]
+        gfql_clear_caches()
+    finally:
+        cypher_parser._parse_cypher_cached = real  # type: ignore[assignment]
+    assert real.cache_info().currsize == 0

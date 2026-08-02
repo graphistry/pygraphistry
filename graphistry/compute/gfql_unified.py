@@ -1525,6 +1525,15 @@ _COMPILED_STRING_QUERY_CACHE: "OrderedDict[Tuple[str, str, Tuple[Tuple[str, Any]
 _COMPILED_STRING_QUERY_CACHE_LOCK = threading.Lock()
 
 
+def _clear_compiled_string_query_cache() -> None:
+    with _COMPILED_STRING_QUERY_CACHE_LOCK:
+        _COMPILED_STRING_QUERY_CACHE.clear()
+
+
+from graphistry.compute.gfql.cache_registry import register_clearable_callable  # noqa: E402
+register_clearable_callable("_COMPILED_STRING_QUERY_CACHE", _clear_compiled_string_query_cache)
+
+
 def _compile_cache_value_key(value: Any) -> Optional[Any]:
     if value is None:
         return ("none",)
@@ -1604,25 +1613,22 @@ def gfql_clear_caches() -> None:
     ``graphistry/tests/compute/gfql/test_clear_caches_covers_every_cache.py``, which fails
     if a new memo appears and is neither cleared here nor exempted with a written reason.
 
-    Every clear is UNCONDITIONAL. An earlier version looked its targets up with
-    ``getattr(obj, "cache_clear", None)`` and skipped whatever came back ``None``, so
-    naming the wrong object -- ``parse_cypher``, whose memo actually lives on the
-    ``_parse_cypher_cached`` body it delegates to -- turned the whole call into a silent
-    no-op. A cache-clearing function that cannot fail is indistinguishable from one that
-    does nothing.
+    Every clear is UNCONDITIONAL and runs through the cache registry
+    (``graphistry/compute/gfql/cache_registry.py``): each cache registers its own bound
+    clear handle at its definition site, so there is no later name lookup to get wrong.
+    An earlier version looked targets up with ``getattr(obj, "cache_clear", None)`` and
+    skipped whatever came back ``None``; naming the wrong object -- ``parse_cypher``,
+    whose memo actually lives on the ``_parse_cypher_cached`` body -- turned the whole
+    call into a silent no-op for days. ``clear_all`` raises when the registry is empty.
     """
-    with _COMPILED_STRING_QUERY_CACHE_LOCK:
-        _COMPILED_STRING_QUERY_CACHE.clear()
-    from graphistry.compute.gfql.cypher.parser import clear_cypher_parser_caches
-    clear_cypher_parser_caches()
-    from graphistry.compute.gfql.expr_parser import clear_expr_parser_caches
-    clear_expr_parser_caches()
-    # Import is safe on polars-free installs: the module's polars imports are all
-    # TYPE_CHECKING-guarded, so the memo exists (empty) even when the engine cannot run.
-    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
-        clear_single_alias_predicate_cache,
-    )
-    clear_single_alias_predicate_cache()
+    # Importing a cache-hosting module is what registers its caches; import the
+    # clearable hosts here so a caller who never touched them still empties them.
+    # All three imports are safe on minimal installs (polars/lark guarded inside).
+    import graphistry.compute.gfql.cypher.parser  # noqa: F401
+    import graphistry.compute.gfql.expr_parser  # noqa: F401
+    import graphistry.compute.gfql.lazy.engine.polars.row_pipeline  # noqa: F401
+    from graphistry.compute.gfql.cache_registry import clear_all
+    clear_all()
 
 
 def _compile_string_query(
