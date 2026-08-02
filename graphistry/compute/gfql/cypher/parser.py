@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from graphistry.compute.gfql.cache_registry import (
+    register_clearable,
+    register_process_singleton,
+)
+
 import ast as pyast
 from dataclasses import dataclass, replace
 from functools import lru_cache
@@ -627,6 +632,9 @@ def _parser_lalr() -> _ParserLike:
     return cast(_ParserLike, parser)
 
 
+register_process_singleton(_parser_lalr, "Lark LALR(1) tables for the whole-query grammar; function of the grammar, built once per process, and far dearer than any single parse it serves")
+
+
 @lru_cache(maxsize=1)
 def _pattern_parser() -> _ParserLike:
     Lark, _, _, _ = _lark_imports()
@@ -640,6 +648,9 @@ def _pattern_parser() -> _ParserLike:
         propagate_positions=True,
     )
     return cast(_ParserLike, parser)
+
+
+register_process_singleton(_pattern_parser, "Lark LALR(1) tables for the pattern-fragment start rule; same reasoning as the whole-query tables")
 
 
 @lru_cache(maxsize=1)
@@ -657,6 +668,9 @@ def _where_predicate_chain_parser() -> _ParserLike:
         propagate_positions=True,
     )
     return cast(_ParserLike, parser)
+
+
+register_process_singleton(_where_predicate_chain_parser, "Lark LALR(1) tables for the flat WHERE-chain start rule; same reasoning as the whole-query tables")
 
 
 def _retarget_span(s: SourceSpan, base: SourceSpan) -> SourceSpan:
@@ -2190,6 +2204,26 @@ def _parse_cypher_cached(query: str) -> Union[CypherQuery, CypherUnionQuery, Cyp
     if isinstance(node, (CypherQuery, CypherGraphQuery)):
         _validate_graph_bindings(node)
     return node
+
+
+register_clearable(_parse_cypher_cached)
+
+
+def clear_cypher_parser_caches() -> None:
+    """Empty the Cypher query->AST memo. Called by ``gfql_clear_caches``.
+
+    Clears ``_parse_cypher_cached`` ONLY. The three ``@lru_cache(maxsize=1)`` Lark parser
+    objects (``_parser_lalr``, ``_pattern_parser``, ``_where_predicate_chain_parser``) are
+    deliberately left alone: they hold the LALR(1) parse tables, which are a pure function
+    of the grammar rather than of any query, are built once per process, and cost far more
+    to rebuild than any query parse. Emptying them would make a "cold" measurement include
+    grammar construction -- a cost no caller can ever pay twice.
+
+    Note ``parse_cypher`` itself carries NO cache and therefore no ``cache_clear``; the memo
+    lives on the ``_parse_cypher_cached`` body it delegates to. Clearing the wrong name here
+    silently did nothing for as long as it went unnoticed.
+    """
+    _parse_cypher_cached.cache_clear()
 
 
 def _validate_graph_bindings(node: Union[CypherQuery, CypherGraphQuery]) -> None:
