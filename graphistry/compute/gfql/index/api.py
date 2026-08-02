@@ -217,13 +217,71 @@ def _check_column(column: Optional[str], expected: str, kind: IndexKind) -> None
         )
 
 
+def _is_eager_polars(df: object) -> bool:
+    """EAGER polars frames only: a LazyFrame passes the module check but no index
+    build or coercion path can gather rows from it — those graphs keep the legacy
+    pandas path (and ``create_index`` then coerces the frames to pandas, so the
+    post-build state stays self-consistent)."""
+    return (
+        df is not None
+        and 'polars' in str(type(df).__module__)
+        and type(df).__name__ == 'DataFrame'
+    )
+
+
+def resolve_index_engine(engine: EngineAbstractType, g: Plottable) -> Engine:
+    """Engine for index build/validation/usability: AUTO keeps resident polars frames polars.
+
+    ``resolve_engine(AUTO)`` maps polars input frames to PANDAS (the legacy
+    input-format policy), which would make ``create_index`` coerce-and-REPLACE the
+    user's polars frames with pandas copies — and then every later polars-engine
+    query pays a full-frame pandas->polars re-conversion, an O(E) tax per call that
+    dwarfs the indexed hop itself. The index layer is engine-polymorphic (numpy
+    sidecar arrays + polars row-gather), so when the caller said AUTO and the
+    resident frames are eager polars, index them in place. Explicit engines are
+    honored unchanged.
+
+    This deliberately mirrors the query-side AUTO routing in ``gfql_unified.gfql``
+    (#1743) — which routes all-polars-frame graphs to the native polars engine — so
+    an AUTO-built polars index is exactly what the AUTO query engine consults. The
+    2026-07 revision of this change shipped WITHOUT that routing underneath and
+    inverted the win into a measured 125-534x default-path cliff (AUTO-built polars
+    index + AUTO(pandas) query = every hop declined to a scan); it is safe only
+    stacked on the routing.
+
+    Two gates are narrower here than #1743's query gate, and both self-heal because
+    ``create_index`` coerces-and-replaces the frames with its resolved engine's, so
+    later AUTO queries route with the post-build frames and the index still serves:
+
+    * **LazyFrame-bearing graphs** keep the legacy pandas path (an index cannot
+      gather rows from a lazy plan); post-build frames are pandas, AUTO queries
+      route pandas, index serves — consistent, just not polars-resident.
+    * **Edges-only graphs (``_nodes is None``)** keep the legacy pandas path:
+      ``create_index('node_id')``'s ``materialize_nodes()`` does not yet produce a
+      polars nodes frame from polars edges (pre-existing gap, also reachable via
+      explicit ``engine='polars'`` on such a graph), so guessing polars here would
+      crash the build instead of preserving anything.
+    """
+    eng = resolve_engine(engine, g)
+    abstract = EngineAbstract(engine) if isinstance(engine, str) else engine
+    if abstract == EngineAbstract.AUTO and eng == Engine.PANDAS:
+        if (
+            g._edges is not None
+            and g._nodes is not None
+            and _is_eager_polars(g._edges)
+            and _is_eager_polars(g._nodes)
+        ):
+            return Engine.POLARS
+    return eng
+
+
 def _is_resident_index_valid(
     g: Plottable,
     kind: IndexKind,
     engine: EngineAbstractType = EngineAbstract.AUTO,
 ) -> bool:
     """True when a resident index still matches the current graph frames."""
-    eng = resolve_engine(engine, g)
+    eng = resolve_index_engine(engine, g)
     registry = get_registry(g)
     if kind in ADJ_KINDS:
         src, dst = g._source, g._destination
@@ -254,7 +312,7 @@ def create_index(
     O(E log E) once, amortized over later seeded queries.
     """
     from dataclasses import replace
-    eng = resolve_engine(engine, g)
+    eng = resolve_index_engine(engine, g)
     # Build over frames already in the target engine so the index arrays land on
     # the right backend (cupy for cudf, numpy otherwise). No-op when already in-engine.
     from graphistry.compute.ComputeMixin import _coerce_input_formats
@@ -346,13 +404,14 @@ def show_indexes(
     engine-specific, so a fresh index built for another engine silently declines to
     a scan at query time (#1767). ``query_engine`` is what ``engine`` resolves to
     for THIS graph (the same resolution a query makes — pass ``engine=`` to preview
-    an explicit choice), ``usable`` is True only when the index is fresh AND
-    engine-matched, and ``reason`` says why not, with the same wording as the
-    ``gfql_explain`` decline diagnostic.
+    an explicit choice; under AUTO this follows the query-side AUTO routing, so an
+    all-polars-frame graph reports ``polars``), ``usable`` is True only when the
+    index is fresh AND engine-matched, and ``reason`` says why not, with the same
+    wording as the ``gfql_explain`` decline diagnostic.
     """
     from .registry import index_nbytes
 
-    query_engine = resolve_engine(engine, g)
+    query_engine = resolve_index_engine(engine, g)
     registry = get_registry(g)
     rows: List[Dict[str, object]] = []
     for kind in registry.kinds():
