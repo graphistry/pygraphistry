@@ -96,8 +96,10 @@ def apply_index_op(g: Any, op: IndexOp, *, engine: Any = "auto") -> Any:
 
     CreateIndex/DropIndex -> new Plottable; ShowIndexes -> pandas DataFrame.
     """
-    from graphistry.Engine import resolve_engine
-    from .api import create_index, drop_index, show_indexes, get_registry, _is_resident_index_valid
+    from .api import (
+        create_index, drop_index, show_indexes, get_registry,
+        _is_resident_index_valid, resolve_index_engine,
+    )
 
     from .registry import NODE_PROP
 
@@ -109,7 +111,7 @@ def apply_index_op(g: Any, op: IndexOp, *, engine: Any = "auto") -> Any:
                 # index for THIS column, and only while it is still valid.
                 if op.column is not None and reg.get_node_prop_valid(
                     op.column, getattr(g, "_nodes", None),
-                    resolve_engine(engine, g),
+                    resolve_index_engine(engine, g),
                 ) is not None:
                     return g
             elif reg.has(op.kind) and _is_resident_index_valid(g, op.kind, engine):
