@@ -437,9 +437,24 @@ analysis = g.gfql([
 | `LIMIT 10` | `limit(10)` | Row cap |
 | `WHERE <row expr>` | `where_rows(expr="...")` | Scalar expression subset |
 | `count(*)` | `group_by(keys=[...], aggregations=[("cnt", "count")])` | Grouped count |
-| `sum(n.val)` | `group_by(..., aggregations=[("total", "sum", "val")])` | Grouped sum |
+| `sum(n.val)` | `group_by(..., aggregations=[("total", "sum", "val")])` | Grouped sum; see [Aggregate input types](#aggregate-input-types) |
 | `collect(n.x)` | `group_by(..., aggregations=[("xs", "collect", "x")])` | Nulls excluded from collection |
 | Named patterns | `rows(source="alias")` | Scope row table to a named match alias |
+
+### Aggregate input types
+
+`sum` and `avg` accept `INTEGER`, `FLOAT` and `DURATION`, matching Cypher — **plus `BOOLEAN`, which
+is a deliberate GFQL extension.** Neo4j rejects it (*"expected Float, Integer or Duration but was
+Boolean"*); GFQL accepts it because summing an indicator column is idiomatic in the dataframe
+surface GFQL also serves, and every engine already agrees on the answer. `sum` over a boolean
+counts the true values; `avg` gives their fraction.
+
+Any other input type **raises**. This is stricter than earlier releases, where a string column
+returned its *concatenation* on pandas and leaked a raw polars error on polars — wrong in two
+different directions.
+
+Empty and all-null inputs follow Cypher rather than SQL: `sum` returns **0**, `avg` returns
+**null**.
 
 ## Key Differences
 

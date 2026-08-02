@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Set
 
 if TYPE_CHECKING:
     import polars as pl
-    from .dtypes import PolarsT
+    from .dtypes import PolarsFrame
 
 
 # Ids of polars frames already verified NaN-free (or produced NaN-free by cleaning).
@@ -43,8 +43,15 @@ def _mark_pl_nan_clean(df: "pl.DataFrame") -> None:
         _PL_NAN_CLEAN_IDS.discard(key)  # can't track lifetime -> don't cache (stay correct)
 
 
-def _pl_nan_to_null(df: "PolarsT") -> "PolarsT":
+def _pl_nan_to_null(df: "PolarsFrame") -> "PolarsFrame":
     """Convert NaN -> null in float columns of a polars frame.
+
+    Takes/returns the ``PolarsFrame`` UNION rather than the constrained ``PolarsT`` TypeVar
+    (which would preserve eager-in -> eager-out): callers behind ``is_polars_df`` hold a frame
+    they only know to be *polars*, and a constrained TypeVar rejects a union argument outright.
+    An ``@overload`` set would recover the per-flavour precision, but it cannot be used here --
+    polars is TYPE_CHECKING-only, so on the polars-less type-lint lane every signature collapses
+    to ``Any -> Any`` and mypy rejects the set as unmatchable.
 
     Matches ``pl.from_pandas(nan_to_null=True)`` (the pandas-input path) so a *native*
     polars / Arrow / cuDF input carrying genuine NaN is treated as MISSING like the pandas

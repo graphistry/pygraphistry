@@ -15,7 +15,19 @@ exclude = [
 # --- Rule selection --------------------------------------------------------
 # Enable the same rule families flake8 checked:
 #   E/W = pycodestyle   F = pyflakes   C90 = mccabe
-select = ["E", "W", "F", "C90"]
+select = [
+    "E", "W", "F", "C90",
+
+    # --- flake8-bugbear, dynamic-attribute subset (issue #1825 family) ---
+    # `getattr(x, "const")` / `setattr(x, "const", v)` hide attribute writes from
+    # every static tool. Banning the constant-name form is free (both are
+    # auto-fixable to plain attribute access) and shrinks the surface that
+    # `bin/ci_type_hygiene_guard.py` has to reason about. Today's offenders are
+    # seeded into `per-file-ignores` below; run `ruff check --fix --select B009,B010`
+    # on a file and delete its line to retire the debt.
+    "B009",    # get-attr-with-constant
+    "B010",    # set-attr-with-constant
+]
 
 # --- Ignored rules ---------------------------------------------------------
 # Carried over from the old flake8 --ignore list.
@@ -73,3 +85,24 @@ ignore = [
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10              # match previous flake8 --max-complexity
+
+# --- Ratchet: today's B009/B010 offenders --------------------------------
+# Seeded from the tree as of the commit that introduced this block. These are
+# grandfathered so the rules can be errors for all new code. Each entry is
+# retired by `ruff check --fix --select B009,B010 <file>` (the fixes are
+# mechanical and behaviour-preserving) and deleting the line.
+[tool.ruff.lint.per-file-ignores]
+"graphistry/compute/chain.py" = ["B009", "B010"]
+"graphistry/compute/gfql/cypher/result_postprocess.py" = ["B009", "B010"]
+"graphistry/compute/gfql/lazy/engine/polars/projection.py" = ["B009", "B010"]
+"graphistry/compute/gfql/row/pipeline.py" = ["B009", "B010"]
+"graphistry/compute/gfql_unified.py" = ["B009", "B010"]
+"graphistry/compute/gfql_validate.py" = ["B009", "B010"]
+"graphistry/compute/validate/validate_schema.py" = ["B009", "B010"]
+"graphistry/tests/compute/gfql/cypher/test_lowering.py" = ["B009", "B010"]
+"graphistry/tests/compute/gfql/index/test_index.py" = ["B009", "B010"]
+"graphistry/tests/compute/gfql/index/test_indexed_bindings.py" = ["B009", "B010"]
+"graphistry/tests/compute/gfql/test_engine_polars_binding_rows.py" = ["B009", "B010"]
+"graphistry/tests/compute/gfql/test_engine_polars_with_match_reentry.py" = ["B009", "B010"]
+"graphistry/tests/compute/gfql/test_ir_compilation.py" = ["B009", "B010"]
+"graphistry/tests/compute/gfql/test_ir_m0b_conformance.py" = ["B009", "B010"]
