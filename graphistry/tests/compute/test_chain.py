@@ -987,8 +987,13 @@ def test_fast_path_named_datetime_categorical_columns_ride_along():
     full = g.gfql(ops, policy=_FAST_NOOP_POLICY)
     _assert_full_frame_value_parity(fast._nodes, full._nodes, ['v'])
     _assert_full_frame_value_parity(fast._edges, full._edges, ['s', 'd'])
-    assert str(fast._nodes['ts'].dtype) == 'datetime64[ns]'
+    # dtype preservation is asserted against the INPUT (and the full path), not a
+    # hardcoded unit: pandas 2.x infers datetime64[ns] here, pandas 3.x datetime64[us]
+    assert fast._nodes['ts'].dtype == nodes['ts'].dtype
+    assert fast._nodes['ts'].dtype == full._nodes['ts'].dtype
+    assert str(fast._nodes['ts'].dtype).startswith('datetime64[')
     assert str(fast._nodes['cat'].dtype) == 'category'
+    assert fast._nodes['cat'].dtype == full._nodes['cat'].dtype
     # categorical seed filter: still served, same answer
     ops2 = [n({'cat': 'a'}, name='x'), e_forward(hops=1), n(name='y')]
     assert _try_chain_fast_path(g, ops2, Engine.PANDAS, None) is not None
