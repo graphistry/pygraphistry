@@ -4,8 +4,8 @@ GFQL Performance: Vectorization and GPU Acceleration
 ====================================================
 
 This page is the **canonical home for GFQL benchmark numbers** — the measured tables live
-here (and, for the resident-index benchmarks, in :doc:`index_adjacency`), while the rest of
-the docs make stable qualitative claims and link back here.
+here, while the rest of the docs make stable qualitative claims and link back here. The
+resident index behind the seeded-lookup numbers is documented in :doc:`index_adjacency`.
 
 Engine speedups at a glance
 ---------------------------
@@ -136,17 +136,8 @@ gathers (PR #1770). Neo4j still wins recent-replies — reported as-is.
 OLAP multi-join
 ~~~~~~~~~~~~~~~
 
-On the graph-benchmark OLAP multi-join queries at 100k-node scale (100,000 persons /
-2.4M ``FOLLOWS``) with ``engine='polars'``, against embedded Kuzu 0.11.3 on the same host
-and in the same session, **q9 runs in 66.6 ms vs 84.1 ms (1.26×)**. Both sides run the same
-canonical query text and return identical values.
-
-The q8 comparison is **withdrawn**, not merely caveated. The figure it rested on was a warm
-cross-call memo hit rather than a one-shot measurement: the two-hop degree counts are cached
-onto the caller's graph object (#1825), so a cold run measures 13.2–14.6 ms at 20k and
-49.7–53.0 ms at 100k against the 2.0/5.1 ms once quoted. Measured one-shot, q8 **loses** to
-embedded Kuzu. The ratio is gone from the published data rather than footnoted, and the
-comparison returns only once a regenerated run (#1827) supports it.
+The OLAP multi-join comparison against an embedded graph database is the q1–q9 board
+below: :ref:`gfql-vs-kuzu-board`.
 
 When not to use GFQL
 ~~~~~~~~~~~~~~~~~~~~
@@ -156,14 +147,292 @@ wins single-table aggregates (2–4×) and seeded property-projection lookups (2
 GFQL's strengths are **traversals, multi-join OLAP, and covered seeded shapes** — route by
 workload, and keep a database as the system-of-record where one fits.
 
+.. _gfql-vs-kuzu-board:
+
+The q1–q9 board: GFQL vs an embedded graph database
+---------------------------------------------------
+
+**GFQL with** ``engine='polars'`` **wins the large majority of these head-to-head cells
+at both scales: across the two boards it beats embedded Kuzu on 11 of the 18 cells, ties
+4, and loses 3, with wins reaching** :bench:`graphbench.100k.q2.polars_vs_kuzu`\ **.**
+The exceptions are a few ties and losses on small, point-lookup-shaped work: q8, a
+single-row two-hop count that Kuzu answers very fast, loses at both scales, and q4's
+loss is weak-flagged and only at 20k — it flips to a win at 100k. The gap otherwise
+runs in GFQL's favor and grows with scale: on eight of the nine queries the Kuzu ÷
+Polars ratio moves further toward GFQL from 20k to 100k, the exception being q5, which
+slips from a narrow win into the tie band. Against Neo4j, this page carries the seeded
+LDBC SNB pairs above — GFQL takes four of the five — and the receipted
+filter → PageRank → filter pipeline against Neo4j + GDS is in
+:doc:`benchmark_filter_pagerank`.
+
+This is the ``prrao87/graph-benchmark`` q1–q9 Cypher suite — degree ranking, grouped
+aggregation, filtered population counts, two-hop path counting — on a synthetic social
+graph, measured at two scales: 20,000 persons and 100,000 persons. GFQL runs the suite on
+``engine='pandas'`` and ``engine='polars'`` against Kuzu embedded on the same host, in
+the same session. Slots run in a position-balanced order so no side benefits from cache
+warmth or host drift; each cell is the median across four slots of 51 timed runs each
+(after 5 warmups); a verdict inside a 10% band is a tie. A verdict is published only
+where GFQL returned the same result rows as Kuzu.
+
+**The 20k board is 5 wins, 2 ties, 2 losses for GFQL-Polars. The 100k board is 6 wins,
+2 ties, 1 loss.** The losses are printed with the same weight as the wins. "Kuzu ÷
+Polars" is the Kuzu median divided by the GFQL-Polars median, so values above 1 mean
+GFQL-Polars is faster.
+
+The 20,000-person board
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Two verdicts on this board (q4, q5) are weak: the per-slot median ranges of the two
+sides overlap.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 8 10 14 15 15 14 24
+
+   * - Query
+     - Result rows
+     - Kuzu
+     - GFQL ``pandas``
+     - GFQL ``polars``
+     - Kuzu ÷ Polars
+     - Verdict
+   * - q1
+     - 3
+     - :bench:`graphbench.20k.q1.kuzu`
+     - :bench:`graphbench.20k.q1.pandas`
+     - :bench:`graphbench.20k.q1.polars`
+     - :bench:`graphbench.20k.q1.polars_vs_kuzu`
+     - WIN
+   * - q2
+     - 1
+     - :bench:`graphbench.20k.q2.kuzu`
+     - :bench:`graphbench.20k.q2.pandas`
+     - :bench:`graphbench.20k.q2.polars`
+     - :bench:`graphbench.20k.q2.polars_vs_kuzu`
+     - WIN
+   * - q3
+     - 5
+     - :bench:`graphbench.20k.q3.kuzu`
+     - :bench:`graphbench.20k.q3.pandas`
+     - :bench:`graphbench.20k.q3.polars`
+     - :bench:`graphbench.20k.q3.polars_vs_kuzu`
+     - TIE
+   * - q4
+     - 2
+     - :bench:`graphbench.20k.q4.kuzu`
+     - :bench:`graphbench.20k.q4.pandas`
+     - :bench:`graphbench.20k.q4.polars`
+     - :bench:`graphbench.20k.q4.polars_vs_kuzu`
+     - LOSE (weak: slot ranges overlap)
+   * - q5
+     - 1
+     - :bench:`graphbench.20k.q5.kuzu`
+     - :bench:`graphbench.20k.q5.pandas`
+     - :bench:`graphbench.20k.q5.polars`
+     - :bench:`graphbench.20k.q5.polars_vs_kuzu`
+     - WIN (weak: slot ranges overlap)
+   * - q6
+     - 5
+     - :bench:`graphbench.20k.q6.kuzu`
+     - :bench:`graphbench.20k.q6.pandas`
+     - :bench:`graphbench.20k.q6.polars`
+     - :bench:`graphbench.20k.q6.polars_vs_kuzu`
+     - WIN
+   * - q7
+     - 1
+     - :bench:`graphbench.20k.q7.kuzu`
+     - :bench:`graphbench.20k.q7.pandas`
+     - :bench:`graphbench.20k.q7.polars`
+     - :bench:`graphbench.20k.q7.polars_vs_kuzu`
+     - TIE
+   * - q8
+     - 1
+     - :bench:`graphbench.20k.q8.kuzu`
+     - :bench:`graphbench.20k.q8.pandas`
+     - :bench:`graphbench.20k.q8.polars`
+     - :bench:`graphbench.20k.q8.polars_vs_kuzu`
+     - LOSE
+   * - q9
+     - 1
+     - :bench:`graphbench.20k.q9.kuzu`
+     - :bench:`graphbench.20k.q9.pandas`
+     - :bench:`graphbench.20k.q9.polars`
+     - :bench:`graphbench.20k.q9.polars_vs_kuzu`
+     - WIN
+
+Read the losses plainly. On q8 (two-hop path count) Kuzu answers in
+:bench:`graphbench.20k.q8.kuzu` against GFQL-Polars' :bench:`graphbench.20k.q8.polars` —
+Kuzu is about three times faster, measured one-shot with no cross-call cache. On q4
+(per-country person counts) Kuzu leads inside overlapping slot ranges, so that verdict is
+weak in Kuzu's favor.
+
+The comparator's own summary table, transcribed verbatim from
+``results/graphbench-board-20k-20260802/compare.txt``::
+
+   q     rows   kuzu ms   pandas ms   polars ms  best GFQL   ratio  verdict
+   ------------------------------------------------------------------------
+   q1       3     15.30       35.18        8.95     polars    1.71  WIN 1.71x
+   q2       1     35.67       37.88       13.06     polars    2.73  WIN 2.73x
+   q3       5      5.68       11.67        5.80     polars    0.98  TIE
+   q4       2      3.35        9.49        3.97     polars    0.84  LOSE 1.19x (WEAK: slot ranges overlap)
+   q5       1      5.39       80.73        4.50     polars    1.20  WIN 1.20x (WEAK: slot ranges overlap)
+   q6       5      8.90       80.44        5.73     polars    1.55  WIN 1.55x
+   q7       1      5.19       19.82        5.68     polars    0.91  TIE
+   q8       1      2.80       19.60        8.24     polars    0.34  LOSE 2.94x
+   q9       1     10.76       28.26        8.32     polars    1.29  WIN 1.29x
+
+The 100,000-person board
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Same suite, same protocol, same session structure, on the 100,000-person graph. No
+verdict on this board is weak: no per-slot median range overlaps between the two sides.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 8 10 14 15 15 14 24
+
+   * - Query
+     - Result rows
+     - Kuzu
+     - GFQL ``pandas``
+     - GFQL ``polars``
+     - Kuzu ÷ Polars
+     - Verdict
+   * - q1
+     - 3
+     - :bench:`graphbench.100k.q1.kuzu`
+     - :bench:`graphbench.100k.q1.pandas`
+     - :bench:`graphbench.100k.q1.polars`
+     - :bench:`graphbench.100k.q1.polars_vs_kuzu`
+     - WIN
+   * - q2
+     - 1
+     - :bench:`graphbench.100k.q2.kuzu`
+     - :bench:`graphbench.100k.q2.pandas`
+     - :bench:`graphbench.100k.q2.polars`
+     - :bench:`graphbench.100k.q2.polars_vs_kuzu`
+     - WIN
+   * - q3
+     - 5
+     - :bench:`graphbench.100k.q3.kuzu`
+     - :bench:`graphbench.100k.q3.pandas`
+     - :bench:`graphbench.100k.q3.polars`
+     - :bench:`graphbench.100k.q3.polars_vs_kuzu`
+     - WIN
+   * - q4
+     - 3
+     - :bench:`graphbench.100k.q4.kuzu`
+     - :bench:`graphbench.100k.q4.pandas`
+     - :bench:`graphbench.100k.q4.polars`
+     - :bench:`graphbench.100k.q4.polars_vs_kuzu`
+     - WIN
+   * - q5
+     - 1
+     - :bench:`graphbench.100k.q5.kuzu`
+     - :bench:`graphbench.100k.q5.pandas`
+     - :bench:`graphbench.100k.q5.polars`
+     - :bench:`graphbench.100k.q5.polars_vs_kuzu`
+     - TIE
+   * - q6
+     - 5
+     - :bench:`graphbench.100k.q6.kuzu`
+     - :bench:`graphbench.100k.q6.pandas`
+     - :bench:`graphbench.100k.q6.polars`
+     - :bench:`graphbench.100k.q6.polars_vs_kuzu`
+     - WIN
+   * - q7
+     - 1
+     - :bench:`graphbench.100k.q7.kuzu`
+     - :bench:`graphbench.100k.q7.pandas`
+     - :bench:`graphbench.100k.q7.polars`
+     - :bench:`graphbench.100k.q7.polars_vs_kuzu`
+     - TIE
+   * - q8
+     - 1
+     - :bench:`graphbench.100k.q8.kuzu`
+     - :bench:`graphbench.100k.q8.pandas`
+     - :bench:`graphbench.100k.q8.polars`
+     - :bench:`graphbench.100k.q8.polars_vs_kuzu`
+     - LOSE
+   * - q9
+     - 1
+     - :bench:`graphbench.100k.q9.kuzu`
+     - :bench:`graphbench.100k.q9.pandas`
+     - :bench:`graphbench.100k.q9.polars`
+     - :bench:`graphbench.100k.q9.polars_vs_kuzu`
+     - WIN
+
+The comparator's own summary table, transcribed verbatim from
+``results/graphbench-board-100k-v2-20260802/compare.txt``::
+
+   q     rows   kuzu ms   pandas ms   polars ms  best GFQL   ratio  verdict
+   ------------------------------------------------------------------------
+   q1       3    153.62      199.30       31.29     polars    4.91  WIN 4.91x
+   q2       1    278.64      209.32       44.33     polars    6.29  WIN 6.29x
+   q3       5     34.23       73.48       13.66     polars    2.51  WIN 2.51x
+   q4       3     13.50       64.41       10.51     polars    1.28  WIN 1.28x
+   q5       1     13.17      412.25       13.68     polars    0.96  TIE
+   q6       5     24.11      410.76       14.84     polars    1.62  WIN 1.62x
+   q7       1      9.59      120.21        9.88     polars    0.97  TIE
+   q8       1     13.62      152.75       33.25     polars    0.41  LOSE 2.44x
+   q9       1     83.71      218.58       36.41     polars    2.30  WIN 2.30x
+
+Reading the two boards together
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**q8 loses at both scales.** Kuzu is faster on the two-hop path count at 20k and at 100k
+— the comparator's own verdicts read ``LOSE 2.94x`` and ``LOSE 2.44x``. That is the one
+query where the embedded database beats GFQL outright, and it stays a loss as the graph
+grows.
+
+**q4 flips.** At 20k it is a weak loss inside overlapping slot ranges; at 100k it is a
+clean win at :bench:`graphbench.100k.q4.polars_vs_kuzu`, with no slot overlap.
+
+**GFQL-Polars beats GFQL-pandas on all nine queries at both scales** — the two GFQL
+columns in each table show it — so ``engine='polars'`` is the GFQL side of every verdict,
+and the pandas-to-Polars gap is wider on the larger graph for every query.
+
+The setup difference is real but not in the timings: the GFQL side queries a dataframe
+that is already in memory — no store to provision, no load step, no index to build before
+the first query runs.
+
+Provenance
+~~~~~~~~~~
+
+.. bench-provenance:: graphbench-board-20k-20260802
+
+.. bench-provenance:: graphbench-board-100k-v2-20260802
+
+.. bench-disclosures::
+
+How a number gets published here
+--------------------------------
+
+Every figure in the boards above is generated, not transcribed by hand:
+
+1. The benchmark harness lives in `graphistry/pyg-bench
+   <https://github.com/graphistry/pyg-bench>`_, which commits its raw per-slot artifacts —
+   timings, result rows, host-load and spike captures, runner-script checksums — alongside
+   the results.
+2. Those committed artifacts become ``docs/source/_data/gfql_benchmarks.json`` here; each
+   median, each ratio, and each cell's publishability derives from the artifacts rather
+   than from anyone's notes.
+3. The docs build resolves every ``:bench:`` reference against that file, and fails if a
+   key is missing, if a run has aged past the freshness policy, or if a page drops a
+   number's provenance or disclosures.
+4. ``docs/test_bench_numbers.py`` re-checks the same contract in the ordinary test lane,
+   so a stale or unpublishable number fails CI even when the docs job does not run.
+
+A figure that cannot be traced to a committed artifact is not published in this board.
+
 .. _gfql-bulk-sweep:
 
 Bulk engine comparison (prior sweep)
 ------------------------------------
 
-The numbers in this section are from an earlier, pre-0.58.0 bulk sweep on SNAP
-**com-LiveJournal** (35M edges) and **com-Orkut** (117M edges) — retained as the
-bulk-workload reference until rerun on a current tag.
+The numbers in this section are from a pre-0.58.0 bulk sweep on SNAP
+**com-LiveJournal** (35M edges) and **com-Orkut** (117M edges) — the bulk-workload
+reference.
 
 Same query, same answers, four engines — warm-median latency on Orkut (3.1M nodes /
 117M edges), measured on a single machine:

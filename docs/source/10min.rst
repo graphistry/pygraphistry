@@ -69,7 +69,7 @@ Loading Data Efficiently
 
 The Python data science ecosystem supports connecting to most databases and file type types
 
-Many users start with CSV, JSON, and SQL database. We often see teams adopt formats like **Parquet** and **Apache Arrow**. Graphistry natively leverages these, so loading data with them can often be 10X+ faster than typical libraries.
+Many users start with CSV, JSON, and SQL database. We often see teams adopt formats like **Parquet** and **Apache Arrow**. Graphistry natively leverages these, so loading data with them is typically much faster than with row-oriented formats.
 
 **Example: Loading Parquet Data**
 
