@@ -11,7 +11,7 @@ from graphistry.utils.json import JSONVal
 from .ast import ASTObject, ASTNode, ASTEdge, ASTCall, Direction, from_json as ASTObject_from_json, serialize_binding_ops
 from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
-from .chain_fast_paths import _seeded_typed_hop_pandas_cudf
+from .chain_fast_paths import _seeded_typed_hop_pandas_cudf, _tag_fast_path_aliases
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql.same_path_types import (
     WhereComparison,
@@ -822,9 +822,11 @@ def _try_chain_fast_path(
 
     Same node/edge sets + VALUES as the full machinery (trackA_golden + hop/chain
     suites); the 1-hop additionally preserves int node dtypes (the full path upcasts
-    int→float via merge). Gated to unnamed/unqueried nodes + a plain single-hop edge;
-    filtered-undirected and seeded chains fall through. polars/dask/spark also fall
-    through (own fast path / lazy semantics)."""
+    int→float via merge — the merge is the artifact, int is the Cypher-conformant type).
+    Gated to unqueried nodes + a plain single-hop edge; NAMED ops are served (the alias
+    flags are reconstructed by `_tag_fast_path_aliases`) except when undirected or when
+    the same alias is reused. filtered-undirected and seeded chains fall through.
+    polars/dask/spark also fall through (own fast path / lazy semantics)."""
     from graphistry.compute.filter_by_dict import filter_by_dict
 
     if engine_concrete not in (Engine.PANDAS, Engine.CUDF):
@@ -852,13 +854,28 @@ def _try_chain_fast_path(
     if len(ops) != 3:
         return None
     n0, e1, n2 = ops
-    if not (isinstance(n0, ASTNode) and n0._name is None and n0.query is None):
+    # Aliases are a PROJECTION concern, not a traversal one: capture them, serve the
+    # traversal on the fast path, and tag the result (_tag_fast_path_aliases). Rejecting
+    # them here sent a NAMED `g.gfql([n(name=..), e(..), n(name=..)])` to the full
+    # two-pass BFS purely because the ops carried names — measured ~25.2 ms before vs
+    # ~2.3 ms after (medians of 5 paired runs), on a 200-node graph where data work is ~0.
+    # SCOPE, measured: this does NOT reach the Cypher `MATCH ... RETURN` surface for the
+    # benchmark shapes. Those are served earlier by `gfql_fast_paths.py` and never consult
+    # this function at all, so do not attribute a Cypher-surface win to this gate.
+    alias_n0, alias_e1, alias_n2 = n0._name, e1._name, n2._name
+    _named = [a for a in (alias_n0, alias_e1, alias_n2) if a is not None]
+    if len(_named) != len(set(_named)):
+        # Duplicate alias reuse is an E201 error, and `combine_steps` is what raises it.
+        # Serving these here would BYPASS that check and silently succeed — decline so the
+        # full path still errors. (Caught by test_polars_duplicate_alias_declines_like_pandas.)
         return None
-    if not (isinstance(n2, ASTNode) and n2._name is None and n2.query is None):
+    if not (isinstance(n0, ASTNode) and n0.query is None):
+        return None
+    if not (isinstance(n2, ASTNode) and n2.query is None):
         return None
     if not (isinstance(e1, ASTEdge) and e1.is_simple_single_hop()
             and e1.source_node_match is None
-            and e1.destination_node_match is None and e1._name is None
+            and e1.destination_node_match is None
             and e1.source_node_query is None and e1.destination_node_query is None
             and e1.edge_query is None and not e1.include_zero_hop_seed
             and not e1.prune_to_endpoints):  # prune keeps only the arrival side -> full path
@@ -868,6 +885,11 @@ def _try_chain_fast_path(
     # below rather than falling through to the full two-pass machinery. source/dest
     # node match + edge_query (richer predicates) still bail above.
     direction = e1.direction
+    if direction == "undirected" and (alias_n0 is not None or alias_n2 is not None):
+        # An undirected edge makes a node reachable as EITHER endpoint, so "which alias
+        # does this node carry" is not derivable from the endpoint columns the way it is
+        # for a directed hop. Decline to the full path rather than guess.
+        return None
     unconstrained = not n0.filter_dict and not n2.filter_dict
     if not unconstrained and direction == "undirected":
         return None  # filtered-undirected (OR of both directions) -> full path
@@ -877,6 +899,33 @@ def _try_chain_fast_path(
     src, dst, node = g._source, g._destination, g._node
     if src is None or dst is None or node is None:
         return None  # no edge/node bindings -> can't fast-path; full path handles it
+    if alias_n0 == node or alias_n2 == node:
+        # A node alias EQUAL TO THE NODE-ID BINDING would make `_tag_fast_path_aliases`
+        # overwrite the id column with the bool flag (destroying the ids) while the full
+        # path raises on the same query ("The column label '<node>' is not unique") —
+        # a wrong-serve found by adversarial parity testing. Decline; never serve.
+        return None
+    if alias_e1 is not None and direction in ("forward", "reverse") \
+            and alias_e1 == (src if direction == "forward" else dst):
+        # An edge alias EQUAL TO THE HOP'S FROM-SIDE BINDING (forward+src / reverse+dst)
+        # made the two lanes return DIFFERENT node sets: the full path's flag overwrite
+        # corrupts its own node reduction, the fast path tags after reducing. TO-side
+        # collisions keep parity (pinned in tests) and stay served. Decline; never serve.
+        return None
+    if (alias_n0 is not None or alias_e1 is not None or alias_n2 is not None) \
+            and direction != "undirected" and g._nodes is not None and g._edges is not None:
+        # DEFER TO THE INDEX when one would ACTUALLY serve. A resident index is
+        # policy-controlled and can beat this scan-based path, and it is what serves named
+        # patterns today, so taking them here would SHADOW it.
+        # `_resident_seed_indexes` is the right question: it returns None unless BOTH
+        # indexes are VALID for these exact frames (fingerprint + identity via get_valid).
+        # A registry-presence / policy check is NOT equivalent — `get_registry` returns a
+        # non-None registry even when nothing is indexed, so that spelling declines on every
+        # query and silently turns this whole optimization into a no-op (measured: the win
+        # went to exactly 0). Re-measure the win, not just the suite, after touching this.
+        from .chain_fast_paths import _resident_seed_indexes
+        if _resident_seed_indexes(g, g._nodes, g._edges, node, src, dst, direction) is not None:
+            return None
     concat = df_concat(engine_concrete)
     if unconstrained:
         # No node filter to reduce by: validate BOTH endpoints against the full
@@ -902,7 +951,8 @@ def _try_chain_fast_path(
         if engine_concrete in (Engine.PANDAS, Engine.CUDF):
             _fast_res = _seeded_typed_hop_pandas_cudf(g, n0, n2, e1, src, dst, node, direction)
             if _fast_res is not None:
-                return _fast_res
+                return _tag_fast_path_aliases(
+                    _fast_res, alias_n0, alias_e1, alias_n2, src, dst, node, direction)
         from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
         edges = g._edges
         if n0.filter_dict:
@@ -935,7 +985,8 @@ def _try_chain_fast_path(
             edges[[dst]].rename(columns={dst: node}),
         ]).drop_duplicates()
         nodes = cand[cand[node].isin(final[node])]
-        return g.nodes(nodes).edges(edges)
+        return _tag_fast_path_aliases(
+            g.nodes(nodes).edges(edges), alias_n0, alias_e1, alias_n2, src, dst, node, direction)
     endpoints = concat([
         edges[[src]].rename(columns={src: node}),
         edges[[dst]].rename(columns={dst: node}),
@@ -943,7 +994,8 @@ def _try_chain_fast_path(
     nodes = g._nodes[g._nodes[node].isin(endpoints[node])]
     # match the full path's merge, which collapses duplicate node-id rows
     nodes = nodes.drop_duplicates(subset=[node])
-    return g.nodes(nodes).edges(edges)
+    return _tag_fast_path_aliases(
+        g.nodes(nodes).edges(edges), alias_n0, alias_e1, alias_n2, src, dst, node, direction)
 
 
 @otel_traced("gfql.chain", attrs_fn=_chain_otel_attrs)
