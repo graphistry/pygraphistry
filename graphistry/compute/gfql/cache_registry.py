@@ -22,7 +22,20 @@ cache object does not exist, so there is nothing to clear.
 from __future__ import annotations
 
 import threading
-from typing import Any, Callable, Dict, MutableMapping, NamedTuple, Optional
+from typing import Callable, Dict, NamedTuple, Optional, Protocol
+
+
+class _SupportsCacheClear(Protocol):
+    """An ``@lru_cache``-decorated function (mypy's wrapper stub carries no __name__,
+    so the name is read with getattr at runtime, where functools always sets it)."""
+
+    def cache_clear(self) -> None: ...
+
+
+class _SupportsClear(Protocol):
+    """A dict-like memo: anything with an argument-free ``clear``."""
+
+    def clear(self) -> None: ...
 
 
 class CacheEntry(NamedTuple):
@@ -43,15 +56,16 @@ def _register(entry: CacheEntry) -> None:
         _REGISTRY[entry.name] = entry
 
 
-def register_clearable(fn: Any, name: Optional[str] = None) -> None:
+def register_clearable(fn: _SupportsCacheClear, name: Optional[str] = None) -> None:
     """Register an ``@lru_cache`` function whose memo gfql_clear_caches must empty."""
-    clear = getattr(fn, "cache_clear", None)
+    clear = getattr(fn, "cache_clear", None)  # runtime check: typing cannot stop a bare fn
     if clear is None:
         raise TypeError(f"{fn!r} has no cache_clear; register the decorated function itself")
-    _register(CacheEntry(name or fn.__name__, clear, None))
+    resolved = name if name is not None else str(getattr(fn, "__name__", repr(fn)))
+    _register(CacheEntry(resolved, clear, None))
 
 
-def register_clearable_dict(name: str, mapping: MutableMapping[Any, Any]) -> None:
+def register_clearable_dict(name: str, mapping: _SupportsClear) -> None:
     """Register a hand-rolled dict/OrderedDict memo for clearing."""
     _register(CacheEntry(name, mapping.clear, None))
 
@@ -61,11 +75,12 @@ def register_clearable_callable(name: str, clear: Callable[[], None]) -> None:
     _register(CacheEntry(name, clear, None))
 
 
-def register_process_singleton(fn: Any, reason: str) -> None:
+def register_process_singleton(fn: _SupportsCacheClear, reason: str) -> None:
     """Exempt a maxsize=1, function-of-the-code cache, with the reason in writing."""
+    fn_name = str(getattr(fn, "__name__", repr(fn)))
     if len(reason.split()) < 6:
-        raise ValueError(f"{fn.__name__}: exemption reason is too thin to be a reason")
-    _register(CacheEntry(fn.__name__, None, reason))
+        raise ValueError(f"{fn_name}: exemption reason is too thin to be a reason")
+    _register(CacheEntry(fn_name, None, reason))
 
 
 def clear_all() -> None:

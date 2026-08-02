@@ -138,8 +138,14 @@ def test_registry_fails_loud() -> None:
     finally:
         reg._REGISTRY.update(original)
 
+    from functools import lru_cache
+
+    @lru_cache(maxsize=1)
+    def thin_probe() -> None:
+        return None
+
     with pytest.raises(ValueError, match="too thin"):
-        reg.register_process_singleton(len, "because")
+        reg.register_process_singleton(thin_probe, "because")
 
     def probe() -> None:
         pass
