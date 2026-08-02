@@ -1590,8 +1590,9 @@ def _node_dtypes_cache_key(
 def gfql_clear_caches() -> None:
     """Empty every PROCESS-LIFETIME GFQL cache.
 
-    GFQL memoizes work that is a pure function of its inputs: compiled plans here, and the
-    parse caches behind ``parse_cypher`` and the row-expression parser. All are bounded, so
+    GFQL memoizes work that is a pure function of its inputs: compiled plans here, the
+    parse caches behind ``parse_cypher`` and the row-expression parser, and the polars
+    single-alias predicate-lowering memo. All are bounded, so
     this is not a leak valve -- it exists because a process-lifetime cache that cannot be
     emptied is untestable (results become order-dependent) and unbudgetable (a long-lived
     server cannot reclaim the memory on demand).
@@ -1616,6 +1617,12 @@ def gfql_clear_caches() -> None:
     clear_cypher_parser_caches()
     from graphistry.compute.gfql.expr_parser import clear_expr_parser_caches
     clear_expr_parser_caches()
+    # Import is safe on polars-free installs: the module's polars imports are all
+    # TYPE_CHECKING-guarded, so the memo exists (empty) even when the engine cannot run.
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
+        clear_single_alias_predicate_cache,
+    )
+    clear_single_alias_predicate_cache()
 
 
 def _compile_string_query(

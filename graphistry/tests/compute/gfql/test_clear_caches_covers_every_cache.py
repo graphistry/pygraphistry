@@ -33,8 +33,10 @@ GFQL_UNIFIED = Path(__file__).resolve().parents[3] / "compute" / "gfql_unified.p
 # Emptied by gfql_clear_caches(). These are keyed by CALLER INPUT, so they grow with traffic
 # and their contents change what a later call costs.
 CLEARED: Set[str] = {
-    "_parse_cypher_cached",   # cypher query text -> frozen AST      (maxsize=512)
-    "_parse_expr_cached",     # row-expression text -> ExprNode      (maxsize=1024)
+    "_parse_cypher_cached",         # cypher query text -> frozen AST                (maxsize=512)
+    "_parse_expr_cached",           # row-expression text -> ExprNode                (maxsize=1024)
+    "_COMPILED_STRING_QUERY_CACHE",  # (query, engine, params, dtypes) -> plan       (max 128)
+    "_SINGLE_ALIAS_CACHE",          # (expr, alias, schema) -> lowered polars expr   (max 512)
 }
 
 # Deliberately NOT emptied. Every entry is a maxsize=1 singleton that is a pure function of
@@ -87,10 +89,59 @@ def _lru_cached_functions() -> Dict[str, Path]:
     return found
 
 
+def _module_dict_caches() -> Dict[str, Path]:
+    """Every MODULE-LEVEL dict/OrderedDict/set binding whose name says cache/memo.
+
+    The decorator scan above cannot see hand-rolled memos -- ``_SINGLE_ALIAS_CACHE`` in the
+    polars row pipeline sat exactly in that blind spot: an ``OrderedDict`` keyed by caller
+    input, invisible to an ``@lru_cache`` scan, and silently absent from
+    ``gfql_clear_caches`` until the 2026-08-01 audit. This scan is name-based (``cache`` or
+    ``memo`` in the binding name, case-insensitive) over top-level assignments only: a memo
+    whose name hides what it is has worse problems than this file can catch.
+    """
+    found: Dict[str, Path] = {}
+    files = sorted(GFQL_TREE.rglob("*.py")) + [GFQL_UNIFIED]
+    for path in files:
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in tree.body:  # top-level only: function locals die with the call
+            targets = []
+            if isinstance(node, ast.Assign):
+                targets = [t for t in node.targets if isinstance(t, ast.Name)]
+                value = node.value
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                targets = [node.target]
+                value = node.value
+            else:
+                continue
+            if value is None:
+                continue
+            is_container = (
+                isinstance(value, (ast.Dict, ast.Set))
+                or (
+                    isinstance(value, ast.Call)
+                    and isinstance(value.func, ast.Name)
+                    and value.func.id in ("dict", "OrderedDict", "WeakValueDictionary", "set")
+                )
+            )
+            if not is_container:
+                continue
+            for target in targets:
+                lowered = target.id.lower()
+                if "cache" in lowered or "memo" in lowered:
+                    found[target.id] = path
+    return found
+
+
 def test_every_gfql_cache_is_either_cleared_or_exempted_with_a_reason() -> None:
     """THE LOCK. A new memo in the GFQL tree must be classified, in writing, right here."""
     discovered = _lru_cached_functions()
     assert discovered, "the AST scan found no caches at all -- the scan itself is broken"
+    dict_caches = _module_dict_caches()
+    assert dict_caches, (
+        "the module-dict scan found nothing, yet _COMPILED_STRING_QUERY_CACHE and "
+        "_SINGLE_ALIAS_CACHE exist -- the scan itself is broken"
+    )
+    discovered = {**discovered, **dict_caches}
 
     unaccounted = sorted(set(discovered) - CLEARED - set(EXEMPT))
     assert not unaccounted, (
@@ -188,3 +239,25 @@ def test_clear_caches_raises_rather_than_skipping_a_missing_target() -> None:
         cypher_parser._parse_cypher_cached = original  # type: ignore[assignment]
 
     gfql_clear_caches()  # and it still works once the real target is back
+
+
+def test_clear_caches_actually_empties_the_single_alias_lowering_memo() -> None:
+    """THE 2026-08-01 AUDIT PIN. ``_SINGLE_ALIAS_CACHE`` is an OrderedDict, not an
+    ``@lru_cache``, so the decorator scan never saw it and ``gfql_clear_caches`` never
+    cleared it: a populated lowering memo makes a 'cold' polars row-pipeline measurement
+    warm without any visible failure."""
+    pytest.importorskip("lark")
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.gfql.lazy.engine.polars import row_pipeline
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    schema = pl.DataFrame({"age": [1]}).schema
+    row_pipeline.lower_single_alias_predicate("age > 30", "n", schema)
+    assert len(row_pipeline._SINGLE_ALIAS_CACHE) > 0, (
+        "the probe call did not populate the memo; fix the probe before trusting this test"
+    )
+
+    gfql_clear_caches()
+    assert len(row_pipeline._SINGLE_ALIAS_CACHE) == 0, (
+        "gfql_clear_caches() left the single-alias lowering memo populated"
+    )
