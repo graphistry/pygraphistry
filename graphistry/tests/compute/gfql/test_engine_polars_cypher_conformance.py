@@ -602,3 +602,65 @@ class TestAutoEngineDoesNotRoutePolarsNative:
         g.gfql(q, policy=pol)
         assert seen.count("precompile") == 1, seen
         assert seen.count("preload") == 1, seen
+
+
+class TestAutoEngineLazyFrames:
+    """LazyFrame is the other member of the PolarsFrame union `is_polars_df` admits, so
+    the AUTO route must take it too — and hand back EAGER polars, same as explicit
+    engine='polars' does."""
+
+    def test_lazyframe_auto_routes_native_and_matches_explicit(self):
+        nodes = pl.DataFrame({"id": [0, 1, 2, 3], "label__Person": [True] * 4}).lazy()
+        edges = pl.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3], "type": ["KNOWS"] * 3}).lazy()
+        g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+        q = "MATCH (a:Person {id: 0})-[:KNOWS]->(b) RETURN b.id AS bid ORDER BY bid"
+        r_auto = g.gfql(q)._nodes
+        r_expl = g.gfql(q, engine="polars")._nodes
+        assert isinstance(r_auto, pl.DataFrame), type(r_auto)  # eager out, not Lazy
+        assert isinstance(r_expl, pl.DataFrame), type(r_expl)
+        from polars.testing import assert_frame_equal
+        assert_frame_equal(r_auto, r_expl)
+        assert r_auto["bid"].to_list() == [1]
+
+
+class TestAutoEngineCudfUntouched:
+    """cuDF frames never enter the polars-AUTO guard (`is_polars_df` is a polars module
+    check), so the legacy AUTO->CUDF resolution is byte-for-byte what it was. Skips
+    without cudf/GPU; runs on GPU lanes."""
+
+    def test_auto_on_cudf_frames_stays_on_legacy_cudf_path(self):
+        cudf = pytest.importorskip("cudf")
+        nodes = cudf.DataFrame({"id": [0, 1, 2, 3], "label__Person": [True] * 4})
+        edges = cudf.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3], "type": ["KNOWS"] * 3})
+        g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+        out = g.gfql("MATCH (a:Person {id: 0})-[:KNOWS]->(b) RETURN b.id AS bid")._nodes
+        assert "cudf" in type(out).__module__, type(out)  # not polars, not pandas
+
+
+class TestAutoEnginePandasOracleParity:
+    """Routed AUTO answers must equal the pandas oracle in VALUE, not just shape: the
+    same query on pandas frames via engine='pandas' is the reference for each routed
+    query shape (filter+traverse, aggregate, WHERE-bearing)."""
+
+    ROUTED_SHAPES = [
+        # filter + traverse (connected join, multi-alias projection)
+        "MATCH (a {kind: 'alpha'})-[]->(b) RETURN a.id AS aid, b.id AS bid ORDER BY aid, bid",
+        # aggregate
+        "MATCH (n) RETURN n.kind AS kind, count(n) AS c ORDER BY kind",
+        # WHERE-bearing (predicate + arithmetic projection)
+        "MATCH (a)-[]->(b) WHERE b.val > 50 AND b.flag "
+        "RETURN b.id AS bid, b.val + b.score AS v ORDER BY bid, v",
+    ]
+
+    @pytest.mark.parametrize("query", ROUTED_SHAPES)
+    def test_auto_polars_matches_pandas_oracle(self, query):
+        g_pl = graphistry.nodes(pl.from_pandas(BASE._nodes), "id").edges(
+            pl.from_pandas(BASE._edges), "s", "d"
+        )
+        got = g_pl.gfql(query)._nodes  # AUTO: routes native polars
+        assert "polars" in type(got).__module__, "shape did not route; oracle test is vacuous"
+        oracle = BASE.gfql(query, engine="pandas")._nodes
+        a = _normalize_nulls(_round_floats(_to_pd(got).reset_index(drop=True)))
+        b = _normalize_nulls(_round_floats(oracle.reset_index(drop=True)))
+        assert list(a.columns) == list(b.columns), (list(a.columns), list(b.columns))
+        pd.testing.assert_frame_equal(a.astype(str), b.astype(str), check_dtype=False)

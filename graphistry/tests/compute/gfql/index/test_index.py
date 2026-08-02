@@ -1399,3 +1399,65 @@ def test_engine_mismatch_reason_reports_all_undirected_indexes(
         "resident edge_out_adj, edge_in_adj index "
         f"engine={resident_engine}, requested engine={requested_engine} -> scan"
     ), reason
+
+
+# ---------------------------------------------------------------------------
+# 1743: engine=auto on polars-frame graphs routes to the native polars engine,
+# so a polars-engine index built explicitly is actually consulted through
+# g.gfql(...) with NO engine argument. Regression pin for the #1767 cliff:
+# before the AUTO route, resolve_engine(AUTO) mapped polars frames to pandas,
+# so the resident polars index was engine-mismatched and every query scanned.
+# ---------------------------------------------------------------------------
+
+def _polars_indexed_graph():
+    pl = pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": np.arange(1, 13, dtype=np.int64),
+        "public": np.arange(100, 112, dtype=np.int64),
+    })
+    edges = pd.DataFrame({
+        "src": [1, 1, 1, 2, 2, 3, 4, 5, 6, 8],
+        "dst": [2, 2, 3, 4, 5, 5, 6, 6, 7, 1],
+        "type": ["A", "A", "A", "B", "B", "B", "C", "C", "D", "REV"],
+    })
+    g = graphistry.nodes(pl.from_pandas(nodes), "id").edges(
+        pl.from_pandas(edges), "src", "dst"
+    )
+    return g.gfql_index_all(engine="polars")
+
+
+def test_auto_engine_gfql_serves_polars_index_1767_cliff():
+    """#1767 cliff pin: polars frames + explicit polars index + gfql with NO engine
+    argument must serve path=index on engine=polars (AUTO routes native, so the
+    resident index is no longer engine-mismatched into a silent scan)."""
+    from graphistry.compute.gfql.index import index_trace
+
+    gi = _polars_indexed_graph()
+    q = ("MATCH (source {public:100})-[:A]->(destination) "
+         "RETURN destination.public AS destination ORDER BY destination")
+    with index_trace() as steps:
+        out = gi.gfql(q)  # no engine argument: default AUTO, default index policy
+    assert "polars" in type(out._nodes).__module__, "AUTO must answer in polars frames"
+    served = [s for s in steps if s.get("served") is True]
+    assert served, ("no index-served step; AUTO fell off the polars route", steps)
+    for s in served:
+        assert s.get("path") == "index", steps
+        assert s.get("engine") == "polars", steps
+    assert out._nodes["destination"].to_list() == [101, 102]
+
+
+def test_auto_engine_hop_residual_still_scans_1767():
+    """Documented residual (#1743 scope boundary, executable): direct g.hop() with no
+    engine on the same polars-frame graph still resolves AUTO to pandas, so the
+    resident polars index declines with an engine mismatch and the hop scans."""
+    from graphistry.compute.gfql.index import index_trace
+
+    gi = _polars_indexed_graph()
+    seeds = pd.DataFrame({"id": [1]})
+    with index_trace() as steps:
+        out = gi.hop(nodes=seeds, hops=1, direction="forward")  # no engine argument
+    assert "pandas" in type(out._nodes).__module__, "hop AUTO still bridges to pandas"
+    assert not any(s.get("path") == "index" for s in steps), steps
+    mismatch = [s for s in steps if s.get("decision_code") == "engine_mismatch"]
+    assert mismatch, ("expected an engine_mismatch decline", steps)
+    assert "requested engine=pandas" in mismatch[-1]["decision_reason"], steps
