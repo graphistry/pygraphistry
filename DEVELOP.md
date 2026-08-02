@@ -168,6 +168,17 @@ Do **not** raise a cap with `--update-baseline` to make a new finding go away.
 Lowering caps after fixing debt is the intended use; commit the code change and
 the baseline update together.
 
+### GFQL Cache Registry
+
+Every process-lifetime cache in `graphistry/compute/gfql/**` registers itself in
+`graphistry/compute/gfql/cache_registry.py`, at its own definition site, as either
+clearable (keyed by caller input; `gfql_clear_caches()` empties it) or an exempt
+process singleton with a written reason. The module docstring is the spec;
+`graphistry/tests/compute/gfql/test_clear_caches_covers_every_cache.py` fails CI on
+any unregistered memo. Never clear a cache by name lookup -- registration hands
+over the bound clear handle precisely because a name-based clear once shipped a
+silent no-op and a wrong published benchmark number.
+
 #### Conventions behind the checks
 
 - **Never write to a caller's `Plottable`.** Caching by `setattr` keyed on
