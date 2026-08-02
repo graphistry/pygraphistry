@@ -42,7 +42,7 @@ def gfql_explain(
 ) -> GfqlExplainReport:
     resolved_policy: IndexPolicy = validate_index_policy(index_policy) or "use"
     eng = resolve_engine(engine, g)
-    resident = show_indexes(g)
+    resident = show_indexes(g, engine=engine)
     with index_trace() as steps:
         try:
             g.gfql(query, engine=engine, index_policy=resolved_policy)

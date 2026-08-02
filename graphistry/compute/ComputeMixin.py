@@ -644,10 +644,16 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index import drop_index as _di
         return _di(self, kind, column=column)
 
-    def show_indexes(self):
-        """Return a pandas DataFrame describing resident GFQL indexes (name, kind, column, valid). Empty if none; ``valid=False`` marks a stale index after a frame rebind."""
+    def show_indexes(self, engine: EngineAbstractType = 'auto'):
+        """Return a pandas DataFrame describing resident GFQL indexes (name, kind, column, valid, usable). Empty if none.
+
+        ``valid=False`` marks a stale index after a frame rebind. ``usable`` further
+        reports whether the index can serve a query under the resolved engine —
+        indexes are engine-specific, so a fresh index built for another engine
+        declines to a scan; ``reason`` explains any decline. Pass ``engine=`` to
+        preview an explicit engine choice (default ``'auto'`` mirrors query resolution)."""
         from graphistry.compute.gfql.index import show_indexes as _si
-        return _si(self)
+        return _si(self, engine=engine)
 
     def gfql_index_edges(self, direction='both', engine='auto'):
         """Convenience: build the edge adjacency index(es) — 'forward', 'reverse', or 'both'. Returns a new Plottable."""

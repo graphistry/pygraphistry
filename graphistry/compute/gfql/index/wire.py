@@ -154,5 +154,5 @@ def apply_index_op(g: Any, op: IndexOp, *, engine: Any = "auto") -> Any:
                 raise ValueError(f"DROP GFQL INDEX: no resident index of kind {kind!r}")
         return drop_index(g, kind, column=op.column)
     if isinstance(op, ShowIndexes):
-        return show_indexes(g)
+        return show_indexes(g, engine=engine)
     raise ValueError(f"Unknown index op: {op!r}")
