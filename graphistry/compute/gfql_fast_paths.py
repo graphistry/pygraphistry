@@ -950,7 +950,8 @@ def _connected_join_two_star_fused_polars(
                     and bool(left_counts_df.select((pl.col("__left_count__") == 1).all()).item())
                 )
             if not emit_zero_row:
-                return cast(DataFrameT, joined.select([]))
+                empty_grouped: DataFrameT = joined.select([])  # type: ignore[assignment]
+                return empty_grouped
             out_df = pl.DataFrame({agg_alias: [0]}).with_columns(pl.col(agg_alias).cast(pl.Int64))
         elif output_group_keys:
             # Reachable only for LIMIT 0 grouped shapes (the lazy tail owns the rest).
@@ -1354,7 +1355,8 @@ def _connected_join_two_star_fast_grouped_count(
         else:
             joined = right_rows.join(left_counts, on=shared_alias, how="inner")
             if len(joined) == 0:
-                return cast(DataFrameT, joined.select([]))
+                empty_grouped: DataFrameT = joined.select([])  # type: ignore[assignment]
+                return empty_grouped
             if output_group_keys:
                 out_df = joined.group_by(output_group_keys, maintain_order=True).agg(pl.col("__left_count__").sum().cast(pl.Int64).alias(agg_alias))
             else:
