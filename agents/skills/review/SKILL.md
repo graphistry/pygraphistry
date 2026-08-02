@@ -197,17 +197,6 @@ GFQL is vectorization-first and pure-functional. The row pipeline runs on pandas
 | `sum(s)` / `max(s)` / etc. on a Series (SUGGESTION) | `s.sum()` / `s.max()` |
 | `df[col][i]` scalar access in a loop | Same vectorization fix; cuDF rejects this |
 
-**Process-lifetime caches** -- every memo in the GFQL tree must register in
-`graphistry/compute/gfql/cache_registry.py`, at its definition site (BLOCKER):
-- Keyed by caller input (query text, schema, expressions)? `register_clearable(...)` /
-  `register_clearable_dict(...)` -- `gfql_clear_caches()` empties it.
-- A maxsize=1 function of the code (parser tables, import probes, compiled regexes)?
-  `register_process_singleton(fn, reason)` with a real written reason.
-- Never clear by name lookup (`getattr(x, "cache_clear", ...)`): that pattern shipped a
-  silent no-op and a wrong published number. Registration hands over the bound clear.
-- The coverage lock `graphistry/tests/compute/gfql/test_clear_caches_covers_every_cache.py`
-  fails on any unregistered cache; see `ai/docs/gfql/caches.md`.
-
 **Mutation** — pygraphistry is pure-functional; flag IMPORTANT (BLOCKER if cell-wise in a loop):
 
 | Pattern | Pure alternative |
