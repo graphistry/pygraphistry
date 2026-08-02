@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     PolarsFrameT = TypeVar("PolarsFrameT", "pl.DataFrame", "pl.LazyFrame")
 
 from graphistry.Plottable import Plottable
+from graphistry.compute.gfql.cache_registry import register_clearable_dict
 from graphistry.utils.json import JSONVal
 # Engine-neutral wire-format payload types (ASTCall.params). Shapes are safelist-validated
 # (gfql/call/validation.py) before reaching these helpers, so the runtime isinstance/len
@@ -724,6 +725,9 @@ _SINGLE_ALIAS_CACHE: "OrderedDict[_SingleAliasKey, Optional[pl.Expr]]" = Ordered
 _SINGLE_ALIAS_CACHE_MAX = 512
 
 
+register_clearable_dict("_SINGLE_ALIAS_CACHE", _SINGLE_ALIAS_CACHE)
+
+
 def _single_alias_cache_key(
     expr: str, alias: str, schema: Mapping[str, "pl.DataType"], columns_nan_free: bool
 ) -> _SingleAliasKey:
@@ -790,10 +794,12 @@ def lower_single_alias_predicate(
     if key in _SINGLE_ALIAS_CACHE:
         try:
             _SINGLE_ALIAS_CACHE.move_to_end(key)
-        except KeyError:  # pragma: no cover - concurrent eviction; recompute-safe
-            pass
-        else:
+            # The read stays INSIDE the try: a concurrent eviction or a registry
+            # clear_all() landing between move_to_end and this lookup must degrade
+            # to a recompute, never surface KeyError to the caller.
             return _SINGLE_ALIAS_CACHE[key]
+        except KeyError:  # concurrent eviction/clear; recompute-safe
+            pass
     lowered = _lower_single_alias_predicate_uncached(expr, alias, schema, columns_nan_free)
     _SINGLE_ALIAS_CACHE[key] = lowered
     # Eviction races can only DROP an entry (a redundant recompute), never fabricate a hit.
