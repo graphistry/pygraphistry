@@ -264,3 +264,58 @@ def test_single_alias_hit_path_survives_clear_during_read() -> None:
         assert str(second) == str(oracle), "race must recompute to the oracle answer"
     finally:
         row_pipeline._SINGLE_ALIAS_CACHE = original  # type: ignore[assignment]
+
+
+def test_concurrent_queries_and_clears_never_corrupt() -> None:
+    """Thread-stress: workers hammer every clearable cache's hot path while a clearer
+    loops gfql_clear_caches(). Deterministic assertions only -- no exceptions escape,
+    and every returned value matches its single-threaded oracle -- so the test cannot
+    flake on timing; more threads simply exercise more interleavings."""
+    pytest.importorskip("lark")
+    pl = pytest.importorskip("polars")
+    import threading
+
+    from graphistry.compute.gfql import expr_parser
+    from graphistry.compute.gfql.cypher import parser as cypher_parser
+    from graphistry.compute.gfql.lazy.engine.polars import row_pipeline
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    schema = pl.DataFrame({"age": [1], "name": [""]}).schema
+    exprs = [f"age > {n}" for n in range(5)]
+    oracles = {
+        e: str(row_pipeline._lower_single_alias_predicate_uncached(e, "n", schema, False))
+        for e in exprs
+    }
+    queries = [f"MATCH (n) WHERE n.age > {n} RETURN n" for n in range(5)]
+
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(6)
+
+    def worker() -> None:
+        try:
+            barrier.wait()
+            for i in range(150):
+                e = exprs[i % len(exprs)]
+                assert expr_parser.parse_expr(e) is not None
+                lowered = row_pipeline.lower_single_alias_predicate(e, "n", schema)
+                assert str(lowered) == oracles[e], f"corrupted value for {e!r}"
+                cypher_parser.parse_cypher(queries[i % len(queries)])
+        except BaseException as error:  # noqa: BLE001 - collect for the main thread
+            errors.append(error)
+
+    def clearer() -> None:
+        try:
+            barrier.wait()
+            for _ in range(150):
+                gfql_clear_caches()
+        except BaseException as error:  # noqa: BLE001
+            errors.append(error)
+
+    threads = [threading.Thread(target=worker) for _ in range(5)]
+    threads.append(threading.Thread(target=clearer))
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=120)
+        assert not thread.is_alive(), "stress thread hung"
+    assert errors == [], f"concurrency corruption: {errors[:3]}"
