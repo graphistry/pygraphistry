@@ -22,6 +22,9 @@ python -m pytest --version
 # fails if any module-level polars-gated test file is absent from it (or listed but gone).
 POLARS_TEST_FILES=(
     graphistry/tests/compute/test_polars.py
+    # cache-coverage lock: its static scans run everywhere, but the functional pin for the
+    # polars single-alias lowering memo can only execute where polars is installed
+    graphistry/tests/compute/gfql/test_clear_caches_covers_every_cache.py
     graphistry/tests/compute/gfql/test_engine_polars_hop.py
     graphistry/tests/compute/gfql/test_engine_polars_chain.py
     graphistry/tests/compute/gfql/test_engine_polars_row_pipeline.py
