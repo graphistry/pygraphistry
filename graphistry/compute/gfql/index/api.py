@@ -8,7 +8,7 @@ stale indexes (treated as absent, never a wrong answer).
 from __future__ import annotations
 
 import copy
-from typing import Dict, List, Literal, Optional, Sequence, cast
+from typing import Dict, List, Literal, Optional, Sequence, Tuple, cast
 
 import pandas as pd
 
@@ -81,6 +81,15 @@ def _trace_active() -> bool:
     return _get_trace_steps() is not None
 
 
+def _engine_mismatch_text(kinds: str, index_engines: str, engine: Engine) -> str:
+    """Single wording for an engine-mismatched index decline, shared by the
+    ``gfql_explain`` trace diagnostic and the ``show_indexes`` ``reason`` column."""
+    return (
+        f"resident {kinds} index engine={index_engines}, "
+        f"requested engine={engine.value} -> scan"
+    )
+
+
 def _engine_mismatch_reason(
     registry: GfqlIndexRegistry, direction: HopDirection, engine: Engine
 ) -> Optional[str]:
@@ -107,10 +116,25 @@ def _engine_mismatch_reason(
         return None
     kinds = ", ".join(kind for kind, _ in mismatches)
     engines = ", ".join(sorted({idx.engine.value for _, idx in mismatches}))
-    return (
-        f"resident {kinds} index engine={engines}, requested engine={engine.value} "
-        "-> scan"
-    )
+    return _engine_mismatch_text(kinds, engines, engine)
+
+
+def _index_usability(
+    kind: IndexKind, index_engine: Engine, valid: bool, query_engine: Engine
+) -> Tuple[bool, Optional[str]]:
+    """Usability of ONE resident index under the resolved query engine.
+
+    ``valid`` (fingerprint freshness) is necessary but not sufficient: indexes are
+    engine-specific, so a fresh index built for another engine still declines to a
+    scan at query time (#1767 disposition). Returns ``(usable, reason)`` where
+    ``reason`` uses the same wording as the ``gfql_explain`` decline diagnostic.
+    """
+    reasons: List[str] = []
+    if index_engine != query_engine:
+        reasons.append(_engine_mismatch_text(kind, index_engine.value, query_engine))
+    if not valid:
+        reasons.append("stale fingerprint (frames rebound since build) -> rebuild")
+    return (not reasons), ("; ".join(reasons) or None)
 
 
 def _record_indexed_traversal(
@@ -308,16 +332,27 @@ def drop_index(
     return _attach(g, registry.without(kind))
 
 
-def show_indexes(g: Plottable) -> pd.DataFrame:
+def show_indexes(
+    g: Plottable, engine: EngineAbstractType = EngineAbstract.AUTO
+) -> pd.DataFrame:
     """Return a pandas DataFrame describing resident indexes (empty if none).
 
     ``valid`` reflects live fingerprint validity against the current frames — a
     stale index (after a ``.edges()``/``.nodes()`` rebind) shows ``valid=False`` and
     is auto-skipped (scan fallback) until rebuilt. ``nbytes`` is the resident
     sidecar-array footprint (the pay-as-you-go memory signal).
+
+    ``valid`` alone is NOT "this index will serve your query": indexes are
+    engine-specific, so a fresh index built for another engine silently declines to
+    a scan at query time (#1767). ``query_engine`` is what ``engine`` resolves to
+    for THIS graph (the same resolution a query makes — pass ``engine=`` to preview
+    an explicit choice), ``usable`` is True only when the index is fresh AND
+    engine-matched, and ``reason`` says why not, with the same wording as the
+    ``gfql_explain`` decline diagnostic.
     """
     from .registry import index_nbytes
 
+    query_engine = resolve_engine(engine, g)
     registry = get_registry(g)
     rows: List[Dict[str, object]] = []
     for kind in registry.kinds():
@@ -333,6 +368,7 @@ def show_indexes(g: Plottable) -> pd.DataFrame:
             valid = g._nodes is not None and registry.get_valid(
                 NODE_ID, g._nodes, (node_idx.key_col,), node_idx.engine) is not None
             n_keys, n_rows = node_idx.n_nodes, 0
+        usable, reason = _index_usability(kind, idx.engine, valid, query_engine)
         rows.append({
             "name": idx.name or index_name(kind, idx.key_col),
             "kind": kind,
@@ -343,9 +379,14 @@ def show_indexes(g: Plottable) -> pd.DataFrame:
             "n_rows": n_rows,
             "nbytes": index_nbytes(idx),
             "valid": valid,
+            "query_engine": query_engine.value,
+            "usable": usable,
+            "reason": reason,
         })
     for column in registry.node_prop_cols():
         prop = registry.node_props[column]
+        prop_valid = registry.get_node_prop_valid(column, g._nodes, prop.engine) is not None
+        usable, reason = _index_usability(NODE_PROP, prop.engine, prop_valid, query_engine)
         rows.append({
             "name": prop.name or index_name(NODE_PROP, column),
             "kind": NODE_PROP,
@@ -355,9 +396,15 @@ def show_indexes(g: Plottable) -> pd.DataFrame:
             "n_keys": prop.n_keys,
             "n_rows": prop.n_nodes,
             "nbytes": index_nbytes(prop),
-            "valid": registry.get_node_prop_valid(column, g._nodes, prop.engine) is not None,
+            "valid": prop_valid,
+            "query_engine": query_engine.value,
+            "usable": usable,
+            "reason": reason,
         })
-    cols = ["name", "kind", "key_col", "engine", "backend", "n_keys", "n_rows", "nbytes", "valid"]
+    cols = [
+        "name", "kind", "key_col", "engine", "backend", "n_keys", "n_rows", "nbytes",
+        "valid", "query_engine", "usable", "reason",
+    ]
     return pd.DataFrame(rows, columns=cols)
 
 
