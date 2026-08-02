@@ -34,7 +34,7 @@ engine is a one-keyword change — no GPU, same results:
    g.gfql(query, engine='polars')   # often much faster on query-heavy workloads, identical results
 
 On the ``prrao87/graph-benchmark`` q1–q9 Cypher suite, Polars beats pandas on all nine
-queries at both graph sizes measured, and by more on the larger one. The per-query numbers
+queries at the graph size measured (a larger lane is re-running). The per-query numbers
 are on the :doc:`performance` page.
 
 Your existing pandas, Polars, or cuDF graph works as-is: the input frames are accepted and
@@ -106,7 +106,7 @@ How the engines compare
 Each engine has a shape it is built for:
 
 - **Polars-CPU is the everyday win.** It beats pandas on all nine queries of the q1–q9
-  Cypher suite at both sizes measured (:doc:`performance`), with **no GPU**, because it
+  Cypher suite at the size measured (:doc:`performance`), with **no GPU**, because it
   builds **one fused lazy plan and collects once** instead of materializing an
   intermediate per operation.
 - **Polars-GPU runs that same fused plan on the GPU.** It pays off once a step carries
@@ -149,10 +149,10 @@ measured comparison, with its lane and its provenance, is on the :doc:`performan
        :doc:`benchmark_filter_pagerank`.
    * - **Kuzu**
      - Yes.
-     - The measured q1–q9 board is against embedded Kuzu 0.11.3; see
-       :ref:`gfql-vs-kuzu-board` for the lane and the per-query numbers. The GFQL side
-       queries a frame that is already in memory — nothing to load, nothing to index
-       first.
+     - The measured q1–q9 board is against embedded Kuzu; see
+       :ref:`gfql-vs-kuzu-board` for the lane, the per-query numbers, and the losses. The
+       GFQL side queries a frame that is already in memory — nothing to load, nothing to
+       index first.
    * - **LadybugDB**
      - Yes.
      - The same dataframe-native path: in-process, GPU-capable, no separate store. Polars
@@ -200,12 +200,12 @@ Decision matrix
      - past small/interactive
      - CPU
      - ``polars``
-     - takes over past small graphs; gap grows with size [F1]
+     - takes over past small graphs [F1]
    * - Bulk 1-hop frontier expansion
      - past small/interactive
      - CPU
      - ``polars``
-     - takes over past small graphs; gap grows with size [F1]
+     - takes over past small graphs [F1]
    * - Heavy multi-hop (2-hop+)
      - large
      - GPU
@@ -232,9 +232,9 @@ Decision matrix
      - ``pandas``/``polars`` + **CSR index**
      - O(degree), not an engine choice [F5]
 
-**[F1] Polars leads on CPU, and by more as the graph grows.** On the q1–q9 Cypher suite it
-beats pandas on all nine queries at both sizes measured, and every per-query speedup is
-larger on the bigger graph (:doc:`performance`).
+**[F1] Polars leads on CPU.** On the q1–q9 Cypher suite it beats pandas on all nine
+queries at the size measured (:doc:`performance`; a larger lane is re-running, and the
+size trend will be published from it, not asserted here).
 Pandas only edges out on a trivially small operation (a bare equality mask),
 where the absolute difference is immaterial. The real small-size floor is **GPU-only** —
 cuDF / Polars-GPU need enough work to amortize kernel launch ([F2]).

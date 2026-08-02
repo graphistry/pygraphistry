@@ -1,161 +1,246 @@
-"""The benchmark-number gate must FAIL on the ways a published figure goes wrong.
+"""Consumer-side re-verification of the benchmark numbers pyg-bench publishes.
 
-These are negative tests on purpose: a gate that has never been shown to reject
-anything is indistinguishable from no gate. Each case here corresponds to a real
-failure this repository has had — a number that outlived its measurement, a
-diagnostic-only cell quoted as a competitor result, a caveat dropped in transit,
-and a figure typed in by hand.
+`docs/source/_data/gfql_benchmarks.json` is a vendored copy of that repository's
+`published/docs-numbers.json`, and `gfql_benchmarks.contract.json` is a vendored copy of
+the contract it promises to satisfy. pyg-bench checks those promises before it publishes;
+this checks them again before we print anything, because a boundary only holds if both
+sides check it.
+
+These run in the ordinary test lane, not only in the docs build, so a number going stale
+or a page referencing a key that no longer exists fails CI rather than a nightly. That is
+why every rule lives in `gfql_bench_data`, which imports nothing but the standard library;
+the docutils half is a renderer. A gate that needs Sphinx to run is a gate that runs in one
+job out of forty.
 """
-
-from __future__ import annotations
 
 import datetime
 import json
 import os
+import re
 import sys
-from typing import Dict, List
 
 import pytest
 
-_DOCS = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(_DOCS, 'source', '_ext'))
-sys.path.insert(0, os.path.join(os.path.dirname(_DOCS), 'bin'))
+DOCS_DIR = os.path.dirname(os.path.abspath(__file__))
+SOURCE_DIR = os.path.join(DOCS_DIR, 'source')
+sys.path.insert(0, os.path.join(SOURCE_DIR, '_ext'))
 
-from gfql_bench_data import (  # noqa: E402
-    BenchDataError,
-    load_bench_data,
-    default_data_path,
-)
+import gfql_bench_charts as charts  # noqa: E402
+import gfql_bench_data as bench  # noqa: E402
 
-import check_bench_numbers as gate  # noqa: E402
+#: ``:bench:`key``` / ``:bench-diag:`key``` as written in the .rst sources.
+BENCH_REF = re.compile(r':(bench|bench-diag):`([^`]+)`')
 
 
-def _write(tmp_path: str, payload: Dict[str, object]) -> str:
-    path = os.path.join(tmp_path, 'bench.json')
-    with open(path, 'w', encoding='utf-8') as handle:
-        json.dump(payload, handle)
-    return path
+@pytest.fixture(scope='module')
+def payload():
+    return bench.load(bench.BENCHMARKS_JSON)
 
 
-def _base_payload() -> Dict[str, object]:
-    return {
-        'schema_version': 1,
-        'generated_by': 'test',
-        'policy': {
-            'max_age_days': 60,
-            'max_compute_commit_drift': 12,
-            'managed_docs': [],
-        },
-        'runs': {
-            'r1': {
-                'measured_at': '2026-07-26',
-                'host': 'dgx-spark',
-                'perf_lock_held': True,
-                'quiet_host': True,
-                'reps': '3 warmups + 7 timed',
-                'pygraphistry_commit': '84be35fb',
-                'pyg_bench_commit': '47f94ba',
-                'runtime': 'rapids 26.02',
-                'dataset': 'graph-benchmark 20k',
-                'artifact': 'results/x',
-                'row_validation': 'rows equal the competitor on every slot',
-            },
-        },
-        'cells': {
-            'a.b.polars': {
-                'run': 'r1', 'workload': 'q1', 'engine': 'polars', 'value': 13.13,
-                'unit': 'ms', 'decimals': 2, 'status': 'ok',
-                'comparison_allowed': True, 'board_quotable': True, 'disclosures': [],
-            },
-        },
-    }
+@pytest.fixture(scope='module')
+def contract():
+    return bench.load(bench.CONTRACT_JSON)
 
 
-def test_the_shipped_source_of_truth_loads() -> None:
-    data = load_bench_data(default_data_path())
-    assert data.runs, 'the shipped source-of-truth must contain at least one run'
-    for cell in data.cells.values():
-        assert cell.run_id in data.runs
+def _rst_sources():
+    for root, _dirs, files in os.walk(SOURCE_DIR):
+        for name in files:
+            if name.endswith('.rst') or name.endswith('.md'):
+                yield os.path.join(root, name)
 
 
-def test_unknown_key_is_refused(tmp_path: object) -> None:
-    data = load_bench_data(_write(str(tmp_path), _base_payload()))
-    with pytest.raises(BenchDataError) as excinfo:
-        data.cell('a.b.polars_new')
-    assert 'must not be published' in str(excinfo.value)
+def _references():
+    """(path, key, is_diagnostic) for every benchmark reference in the docs."""
+    for path in sorted(_rst_sources()):
+        with open(path, encoding='utf-8') as handle:
+            text = handle.read()
+        for role, key in BENCH_REF.findall(text):
+            yield path, key, role == 'bench-diag'
 
 
-def test_a_diagnostic_cell_cannot_claim_to_be_board_quotable(tmp_path: object) -> None:
-    payload = _base_payload()
-    cells: Dict[str, Dict[str, object]] = payload['cells']  # type: ignore[assignment]
-    cells['a.b.polars']['comparison_allowed'] = False
-    with pytest.raises(BenchDataError) as excinfo:
-        load_bench_data(_write(str(tmp_path), payload))
-    assert 'diagnostic-only pairing is never board-quotable' in str(excinfo.value)
+def test_the_vendored_artifact_satisfies_the_vendored_contract(payload, contract):
+    bench.reverify(payload, contract)
 
 
-def test_a_non_ok_status_must_carry_a_disclosure(tmp_path: object) -> None:
-    payload = _base_payload()
-    cells: Dict[str, Dict[str, object]] = payload['cells']  # type: ignore[assignment]
-    cells['a.b.polars']['status'] = 'partial'
-    with pytest.raises(BenchDataError) as excinfo:
-        load_bench_data(_write(str(tmp_path), payload))
-    assert 'must carry at least one disclosure' in str(excinfo.value)
+def test_the_vendored_contract_is_the_one_the_artifact_was_built_against(payload, contract):
+    assert payload['contract_version'] == contract['contract_version']
 
 
-def test_a_run_without_provenance_is_not_loadable(tmp_path: object) -> None:
-    payload = _base_payload()
-    runs: Dict[str, Dict[str, object]] = payload['runs']  # type: ignore[assignment]
-    del runs['r1']['perf_lock_held']
-    with pytest.raises(BenchDataError) as excinfo:
-        load_bench_data(_write(str(tmp_path), payload))
-    assert 'perf_lock_held' in str(excinfo.value)
+def test_no_published_number_is_stale(payload):
+    """The staleness rule is the whole reason this pipeline exists: a number nobody
+    re-measured must fail loudly rather than keep looking authoritative."""
+    max_age = payload['policy']['max_age_days']
+    today = datetime.date.today()
+    overdue = []
+    for run_id, run in sorted(payload['runs'].items()):
+        measured = datetime.datetime.strptime(run['measured_at'], '%Y-%m-%d').date()
+        age = (today - measured).days
+        if age > max_age:
+            overdue.append('{} measured {} days ago (limit {})'.format(run_id, age, max_age))
+    assert not overdue, (
+        'Re-measure in pyg-bench and republish published/docs-numbers.json: '
+        + '; '.join(overdue))
 
 
-def test_freshness_gate_fires_once_a_run_ages_out(tmp_path: object) -> None:
-    data = load_bench_data(_write(str(tmp_path), _base_payload()))
-    fresh = gate.check_freshness(data, datetime.date(2026, 8, 1))
-    assert fresh == []
-    stale = gate.check_freshness(data, datetime.date(2026, 12, 1))
-    assert len(stale) == 1
-    assert 'Re-measure or drop the claim' in stale[0].render()
+def test_every_number_the_docs_reference_is_published(payload):
+    cells = payload['cells']
+    missing = ['{}: {}'.format(os.path.relpath(path, DOCS_DIR), key)
+               for path, key, _ in _references() if key not in cells]
+    assert not missing, 'the docs reference numbers pyg-bench does not publish: ' + '; '.join(missing)
 
 
-def test_hand_typed_literal_is_rejected_in_a_managed_doc(tmp_path: object) -> None:
-    source = os.path.join(str(tmp_path), 'source')
-    os.makedirs(source)
-    with open(os.path.join(source, 'managed.rst'), 'w', encoding='utf-8') as handle:
-        handle.write('Seeded lookups run in 0.124 ms and are 9.4x faster.\n')
-    payload = _base_payload()
-    policy: Dict[str, object] = payload['policy']  # type: ignore[assignment]
-    policy['managed_docs'] = ['managed.rst']
-    data = load_bench_data(_write(str(tmp_path), payload))
-
-    previous = gate.DOCS_SOURCE
-    try:
-        gate.DOCS_SOURCE = source
-        findings: List[gate.Finding] = gate.check_hand_typed_literals(data)
-    finally:
-        gate.DOCS_SOURCE = previous
-    rendered = ' '.join(finding.render() for finding in findings)
-    assert '0.124 ms' in rendered
-    assert '9.4x' in rendered
+def test_every_reference_uses_the_role_its_quotability_allows(payload):
+    cells = payload['cells']
+    wrong = []
+    for path, key, diagnostic in _references():
+        cell = cells.get(key)
+        if cell is None:
+            continue
+        quotable = cell['board_quotable'] is True
+        if quotable and diagnostic:
+            wrong.append('{}: {} is a published result, use :bench:'.format(path, key))
+        if not quotable and not diagnostic:
+            wrong.append('{}: {} is diagnostic-only, use :bench-diag:'.format(path, key))
+    assert not wrong, '; '.join(wrong)
 
 
-def test_allowlisted_literal_is_permitted(tmp_path: object) -> None:
-    source = os.path.join(str(tmp_path), 'source')
-    os.makedirs(source)
-    with open(os.path.join(source, 'managed.rst'), 'w', encoding='utf-8') as handle:
-        handle.write('The graph grows 10x between the two columns.\n')
-    payload = _base_payload()
-    policy: Dict[str, object] = payload['policy']  # type: ignore[assignment]
-    policy['managed_docs'] = ['managed.rst']
-    policy['literal_allowlist'] = {'managed.rst': ['10x']}
-    data = load_bench_data(_write(str(tmp_path), payload))
+def test_a_board_quotable_cell_that_is_not_comparable_is_rejected(payload, contract):
+    broken = json.loads(json.dumps(payload))
+    key = sorted(broken['cells'])[0]
+    broken['cells'][key]['board_quotable'] = True
+    broken['cells'][key]['comparison_allowed'] = False
+    with pytest.raises(bench.BenchDataError) as excinfo:
+        bench.reverify(broken, contract)
+    assert 'not comparison_allowed' in str(excinfo.value)
 
-    previous = gate.DOCS_SOURCE
-    try:
-        gate.DOCS_SOURCE = source
-        assert gate.check_hand_typed_literals(data) == []
-    finally:
-        gate.DOCS_SOURCE = previous
+
+def test_a_run_missing_provenance_is_rejected(payload, contract):
+    broken = json.loads(json.dumps(payload))
+    run_id = sorted(broken['runs'])[0]
+    del broken['runs'][run_id]['host']
+    with pytest.raises(bench.BenchDataError) as excinfo:
+        bench.reverify(broken, contract)
+    assert "missing provenance 'host'" in str(excinfo.value)
+
+
+def test_a_caveated_number_without_its_caveat_is_rejected(payload, contract):
+    broken = json.loads(json.dumps(payload))
+    key = sorted(broken['cells'])[0]
+    broken['cells'][key]['status'] = 'partial'
+    broken['cells'][key]['board_quotable'] = False
+    broken['cells'][key]['comparison_allowed'] = False
+    broken['cells'][key]['disclosures'] = []
+    with pytest.raises(bench.BenchDataError) as excinfo:
+        bench.reverify(broken, contract)
+    assert 'carries no disclosure' in str(excinfo.value)
+
+
+def _use(key, diagnostic=False, today=None):
+    """Reference a benchmark key the way a page does, and report what broke.
+
+    Deliberately does not go through Sphinx: the decision lives in the stdlib-only
+    module precisely so it is checked in every lane, not just the docs build.
+    """
+    state = bench.State(bench.load(bench.BENCHMARKS_JSON), today or datetime.date.today())
+    bench.check_reference(state, key, 'gfql/example', 1, diagnostic)
+    return state.problems
+
+
+def test_a_key_that_is_not_published_fails_the_build(payload):
+    problems = _use('pagerank.twitter.this_was_never_measured')
+    assert problems and 'no published benchmark number' in problems[0]
+
+
+def test_a_published_key_renders_cleanly(payload):
+    assert _use(sorted(payload['cells'])[0]) == []
+
+
+def test_a_number_older_than_the_policy_fails_the_build(payload):
+    """The failure the withdrawn figures needed and did not have."""
+    oldest = min(
+        datetime.datetime.strptime(run['measured_at'], '%Y-%m-%d').date()
+        for run in payload['runs'].values())
+    much_later = oldest + datetime.timedelta(days=payload['policy']['max_age_days'] + 400)
+    problems = _use(sorted(payload['cells'])[0], today=much_later)
+    assert problems and 'max_age_days' in problems[0]
+
+
+def test_a_diagnostic_only_number_cannot_be_printed_as_a_result(payload):
+    diagnostic = [key for key, cell in sorted(payload['cells'].items())
+                  if cell['board_quotable'] is not True]
+    if not diagnostic:
+        pytest.skip('the artifact currently publishes no diagnostic-only cell')
+    problems = _use(diagnostic[0])
+    assert problems and 'not board-quotable' in problems[0]
+    assert _use(diagnostic[0], diagnostic=True) == []
+
+
+def test_an_artifact_from_another_contract_version_is_rejected(payload, contract):
+    broken = json.loads(json.dumps(payload))
+    broken['contract_version'] = int(contract['contract_version']) + 1
+    with pytest.raises(bench.BenchDataError) as excinfo:
+        bench.reverify(broken, contract)
+    assert 'contract_version' in str(excinfo.value)
+
+
+def test_every_chart_matches_the_published_numbers():
+    """A chart is a number too.
+
+    The withdrawn figures outlived their withdrawal on this page because they were
+    baked into an SVG as glyph paths, where no check could see them. The charts are
+    now rendered from the artifact, so this re-renders them and fails on any drift.
+    Regenerate with ``python3 docs/source/_ext/gfql_bench_charts.py --write``.
+    """
+    stale = []
+    for name, svg in charts.rendered().items():
+        path = os.path.join(charts.CHART_DIR, name)
+        if not os.path.exists(path):
+            stale.append('{} is missing'.format(name))
+            continue
+        with open(path, encoding='utf-8') as handle:
+            if handle.read() != svg:
+                stale.append('{} no longer matches the published numbers'.format(name))
+    assert not stale, (
+        'Regenerate: python3 docs/source/_ext/gfql_bench_charts.py --write — '
+        + '; '.join(stale))
+
+
+def test_every_chart_draws_only_published_cells(payload):
+    """The charts obey the same rule the prose does: published cells, or nothing."""
+    referenced = sorted({
+        key
+        for chart in charts.CHARTS.values()
+        for bar in chart.bars
+        for key in (bar.value, bar.ratio)
+        if key is not None})
+    assert referenced, 'the charts reference no benchmark cell at all'
+    missing = [key for key in referenced if key not in payload['cells']]
+    assert not missing, 'charts draw numbers pyg-bench does not publish: ' + '; '.join(missing)
+
+
+def test_a_chart_over_an_unpublished_cell_fails(payload):
+    """The failure the SVGs needed and did not have."""
+    broken = json.loads(json.dumps(payload))
+    name = sorted(charts.CHARTS)[0]
+    drawn = next(bar.value for bar in charts.CHARTS[name].bars if bar.value)
+    del broken['cells'][drawn]
+    with pytest.raises(charts.ChartError) as excinfo:
+        charts.render(name, broken)
+    assert 'does not publish' in str(excinfo.value)
+
+
+def test_the_chart_renderer_stays_importable_without_sphinx():
+    with open(os.path.join(SOURCE_DIR, '_ext', 'gfql_bench_charts.py'), encoding='utf-8') as f:
+        source = f.read()
+    for forbidden in ('docutils', 'sphinx', 'matplotlib'):
+        assert 'import {}'.format(forbidden) not in source
+
+
+def test_the_rules_module_stays_importable_without_sphinx():
+    """CI caught the first draft: the rules lived in the docutils module, so the
+    minimal lane could not import them and the whole gate ran in one job."""
+    with open(os.path.join(SOURCE_DIR, '_ext', 'gfql_bench_data.py'), encoding='utf-8') as f:
+        source = f.read()
+    for forbidden in ('docutils', 'sphinx'):
+        assert 'import {}'.format(forbidden) not in source
+        assert 'from {}'.format(forbidden) not in source

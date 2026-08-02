@@ -100,7 +100,7 @@ API):
    g = g.gfql_index_edges("forward")    # or just one direction: 'forward'|'reverse'|'both'
    g = g.create_index("edge_out_adj")   # or one kind: 'edge_out_adj'|'edge_in_adj'|'node_id'
    g = g.gfql_index_node_props(["id"])  # secondary indexes on node property columns
-   g.show_indexes()                     # pandas DataFrame: kind, engine, n_keys, nbytes, valid
+   g.show_indexes()                     # pandas DataFrame: kind, engine, ..., valid, usable, reason
    g = g.drop_index()                   # drop all (or drop_index("edge_out_adj"))
 
 Unlike ``gfql_index_all()``, an explicit ``create_index("node_id")`` **raises** on
@@ -165,6 +165,12 @@ time). Consequences:
   skipped, never consulted.
 - ``g.show_indexes()`` reports liveness in the ``valid`` column, so you can see at a
   glance whether a rebind knocked an index out.
+- ``valid`` alone is not "this index will serve your query": indexes are also
+  **engine-specific**. The ``usable`` column is True only when the index is fresh AND
+  built for the resolved query engine (shown in ``query_engine``); otherwise ``reason``
+  explains the decline — e.g. a polars-built index on a graph whose default queries
+  resolve to pandas shows ``usable=False`` with an engine-mismatch reason. Pass
+  ``show_indexes(engine=...)`` to preview an explicit engine choice.
 - Rebuild by calling ``gfql_index_all()`` again on the rebound ``g``.
 
 .. doc-test: skip

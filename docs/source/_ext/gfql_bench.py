@@ -1,38 +1,28 @@
-"""Sphinx extension: publish GFQL benchmark numbers from the source-of-truth.
+"""Sphinx extension: pretty-print the benchmark numbers pyg-bench publishes.
 
-Docs never restate a measured number. They *reference* it:
+Measurement, provenance and publishability all live in `graphistry/pyg-bench`, which
+owns the runs. This repository renders them, and nothing else.
 
-.. code-block:: rst
+Docs never restate a measured number, they reference one::
 
-   * - 1-hop from 10K seeds
-     - :bench:`orkut.hop1_10k.pandas`
-     - :bench:`orkut.hop1_10k.polars`
+    * - Twitter, GPU
+      - :bench:`pagerank.twitter.gfql_gpu`
 
-and every page that references a cell must also carry that cell's provenance and
-disclosures:
+and the page that references a cell must also render that cell's provenance and its
+disclosures::
 
-.. code-block:: rst
+    .. bench-provenance:: filter-pagerank-20260728
+    .. bench-disclosures::
 
-   .. bench-provenance:: orkut-4engine-20260703
-   .. bench-disclosures::
-
-Failure modes are build failures, never silent text:
-
-- a key the source-of-truth does not contain       -> build fails
-- a run older than ``policy.max_age_days``         -> build fails
-- a non-board-quotable cell used as a bare number  -> build fails
-- a page that drops a cell's provenance/disclosure -> build fails
-
-``bin/check_bench_numbers.py`` runs the same data checks without Sphinx, plus a
-commit-drift check against the current tree and a hand-typed-literal guard over
-the managed pages, so CI can gate on staleness a pure docs build cannot see.
+Every rule is in ``gfql_bench_data``, which is stdlib-only so the ordinary test lane
+can run it without Sphinx installed. This module is the docutils half: roles,
+directives, and turning a recorded problem into a failed build.
 """
 
 from __future__ import annotations
 
 import datetime
-import os
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 from docutils import nodes
 from docutils.parsers.rst import Directive
@@ -43,305 +33,173 @@ from sphinx.errors import SphinxError
 from sphinx.util import logging as sphinx_logging
 
 from gfql_bench_data import (
-    BenchCell,
-    BenchData,
     BenchDataError,
-    BenchRun,
-    load_bench_data,
+    JSONObject,
+    State,
+    audit_pages,
+    check_reference,
+    format_cell,
+    load_state,
 )
 
 logger = sphinx_logging.getLogger(__name__)
 
 RoleResult = Tuple[List[nodes.Node], List[nodes.system_message]]
 
+_STATE = None  # type: Optional[State]
+
 
 class BenchNumberError(SphinxError):
     category = 'GFQL benchmark number check failed'
 
 
-class _State:
-    """Loaded once per build: the data, the clock, and the problems found."""
-
-    def __init__(self, data: BenchData, today: datetime.date) -> None:
-        self.data = data
-        self.today = today
-        self.problems: List[str] = []
-        #: docname -> benchmark keys referenced by that page, in source order
-        self.refs: Dict[str, List[str]] = {}
-        #: docname -> run ids whose provenance the page renders
-        self.provenance: Dict[str, List[str]] = {}
-        #: docnames carrying a ``bench-disclosures`` block
-        self.disclosed: List[str] = []
-
-    def fail(self, message: str) -> None:
-        self.problems.append(message)
-        logger.warning('[gfql-bench] %s', message)
-
-    def forget(self, docname: str) -> None:
-        self.refs.pop(docname, None)
-        self.provenance.pop(docname, None)
-        if docname in self.disclosed:
-            self.disclosed.remove(docname)
-
-
-_STATE: Optional[_State] = None
-
-
-def _state() -> _State:
+def _state() -> State:
     if _STATE is None:
-        raise BenchNumberError('gfql_bench extension used before builder-inited')
+        raise BenchNumberError('gfql_bench used before builder-inited')
     return _STATE
 
 
-def _bench_role_impl(key: str, rawtext: str, lineno: int, inliner: Inliner, diagnostic: bool) -> RoleResult:
-    state = _state()
-    env: BuildEnvironment = inliner.document.settings.env
-    docname = env.docname
-    state.refs.setdefault(docname, []).append(key)
+def _bench_role(diagnostic: bool):
+    def role(name: str, rawtext: str, key: str, lineno: int, inliner: Inliner,
+             options=None, content=None) -> RoleResult:
+        state = _state()
+        docname = inliner.document.settings.env.docname
+        before = len(state.problems)
+        cell = check_reference(state, key, docname, lineno, diagnostic)
+        for message in state.problems[before:]:
+            logger.warning('[gfql-bench] %s', message)
+        if cell is None:
+            return [nodes.strong(rawtext, '[MISSING BENCHMARK NUMBER: {}]'.format(key))], []
+        text = format_cell(cell)
+        if diagnostic:
+            text = '{} (diagnostic)'.format(text)
+        return [nodes.literal(rawtext, text)], []
 
-    try:
-        cell: Optional[BenchCell] = state.data.cell(key)
-    except BenchDataError as exc:
-        state.fail('{}:{}: {}'.format(docname, lineno, exc))
-        cell = None
-    if cell is None:
-        return [nodes.strong(rawtext, '[MISSING BENCHMARK NUMBER: {}]'.format(key))], []
-
-    if diagnostic and cell.board_quotable:
-        state.fail(
-            '{}:{}: {!r} is board-quotable; use :bench: rather than :bench-diag:'.format(docname, lineno, key)
-        )
-    if not diagnostic and not cell.board_quotable:
-        state.fail(
-            '{}:{}: {!r} is NOT board-quotable (status={}, comparison_allowed={}); it may only be '
-            'published via :bench-diag:, which labels it diagnostic-only'.format(
-                docname, lineno, key, cell.status, cell.comparison_allowed)
-        )
-
-    text = cell.render()
-    rendered: nodes.Node = nodes.strong(rawtext, text) if cell.board_quotable else nodes.Text(text)
-    result: List[nodes.Node] = [rendered]
-    if diagnostic:
-        result.append(nodes.Text(' (diagnostic only — not a board result)'))
-    return result, []
+    return role
 
 
-def bench_role(
-    name: str,
-    rawtext: str,
-    text: str,
-    lineno: int,
-    inliner: Inliner,
-    options: Optional[Dict[str, str]] = None,
-    content: Optional[List[str]] = None,
-) -> RoleResult:
-    return _bench_role_impl(text.strip(), rawtext, lineno, inliner, diagnostic=False)
+class BenchProvenance(Directive):
+    """Render the run record behind the numbers on this page."""
 
-
-def bench_diag_role(
-    name: str,
-    rawtext: str,
-    text: str,
-    lineno: int,
-    inliner: Inliner,
-    options: Optional[Dict[str, str]] = None,
-    content: Optional[List[str]] = None,
-) -> RoleResult:
-    return _bench_role_impl(text.strip(), rawtext, lineno, inliner, diagnostic=True)
-
-
-def _field(label: str, value: str) -> nodes.definition_list_item:
-    item = nodes.definition_list_item()
-    item += nodes.term('', label)
-    definition = nodes.definition()
-    definition += nodes.paragraph('', value)
-    item += definition
-    return item
-
-
-def _provenance_block(run: BenchRun) -> nodes.Element:
-    lock = 'perf lock held for the whole session' if run.perf_lock_held else 'PERF LOCK NOT HELD'
-    quiet = 'quiet host' if run.quiet_host else 'host contention not established'
-    listing = nodes.definition_list()
-    listing += _field('Measured', '{} on {} ({}, {})'.format(
-        run.measured_at.isoformat(), run.host, quiet, lock))
-    listing += _field('pygraphistry', run.pygraphistry_commit)
-    listing += _field('Benchmark harness', 'graphistry/pyg-bench {}'.format(run.pyg_bench_commit))
-    listing += _field('Runtime', run.runtime)
-    listing += _field('Dataset', run.dataset)
-    listing += _field('Protocol', run.reps)
-    listing += _field('Result validation', run.row_validation)
-    if run.competitor is not None:
-        listing += _field('Competitor', '{} {}'.format(
-            run.competitor, run.competitor_version or 'version unrecorded'))
-    listing += _field('Raw artifacts', 'graphistry/pyg-bench {}'.format(run.artifact))
-
-    admonition = nodes.admonition()
-    admonition['classes'] = ['note', 'gfql-bench-provenance']
-    admonition += nodes.title('', 'Provenance: {}'.format(run.run_id))
-    admonition += listing
-    return admonition
-
-
-class BenchProvenanceDirective(Directive):
-    """``.. bench-provenance:: <run_id>`` — render a run's full provenance."""
-
-    has_content = False
     required_arguments = 1
     optional_arguments = 0
+    has_content = False
+
+    FIELDS = [
+        ('measured_at', 'Measured'),
+        ('host', 'Host'),
+        ('reps', 'Repetitions'),
+        ('runtime', 'Runtime'),
+        ('dataset', 'Dataset'),
+        ('pygraphistry_commit', 'PyGraphistry commit'),
+        ('pyg_bench_commit', 'Benchmark commit'),
+        ('artifact', 'Raw artifacts'),
+        ('row_validation', 'Result validation'),
+        ('competitor_version', 'Competitor version'),
+    ]
 
     def run(self) -> List[nodes.Node]:
         state = _state()
-        env: BuildEnvironment = self.state.document.settings.env
-        docname = env.docname
+        docname = self.state.document.settings.env.docname
         run_id = self.arguments[0].strip()
         state.provenance.setdefault(docname, []).append(run_id)
-        run = state.data.runs.get(run_id)
+        run = state.run(run_id)
         if run is None:
-            state.fail('{}: unknown benchmark run {!r}'.format(docname, run_id))
-            return [nodes.strong('', '[UNKNOWN BENCHMARK RUN: {}]'.format(run_id))]
-        return [_provenance_block(run)]
+            message = '{}: no run {!r} in the published artifact'.format(docname, run_id)
+            state.fail(message)
+            logger.warning('[gfql-bench] %s', message)
+            return []
+        return [_admonition('Measurement', _fields(run, self.FIELDS))]
 
 
-class BenchDisclosuresDirective(Directive):
-    """``.. bench-disclosures::`` — render every disclosure this page owes.
+class BenchDisclosures(Directive):
+    """Render every disclosure attached to a number this page prints."""
 
-    The body is generated from the source-of-truth, so a caveat cannot be
-    paraphrased away or silently dropped when a number is refreshed.
-    """
-
-    has_content = False
     required_arguments = 0
     optional_arguments = 0
+    has_content = False
 
     def run(self) -> List[nodes.Node]:
         state = _state()
-        env: BuildEnvironment = self.state.document.settings.env
-        docname = env.docname
-        if docname not in state.disclosed:
-            state.disclosed.append(docname)
-        placeholder = nodes.container()
-        placeholder['classes'] = ['gfql-bench-disclosures-placeholder']
-        return [placeholder]
+        docname = self.state.document.settings.env.docname
+        state.disclosed.append(docname)
 
-
-def _disclosure_lines(state: _State, docname: str) -> List[str]:
-    lines: List[str] = []
-    for key in state.refs.get(docname, []):
-        cell = state.data.cells.get(key)
-        if cell is None:
-            continue
-        for disclosure in cell.disclosures:
-            line = '{}: {}'.format(cell.workload, disclosure)
-            if line not in lines:
-                lines.append(line)
-    return lines
-
-
-def _fill_disclosures(app: Sphinx, doctree: nodes.document, docname: str) -> None:
-    state = _state()
-    for container in list(doctree.findall(nodes.container)):
-        if 'gfql-bench-disclosures-placeholder' not in container['classes']:
-            continue
-        admonition = nodes.admonition()
-        admonition['classes'] = ['important', 'gfql-bench-disclosures']
-        admonition += nodes.title('', 'Disclosures that travel with these numbers')
-        lines = _disclosure_lines(state, docname)
-        if lines:
-            bullet = nodes.bullet_list()
-            for line in lines:
-                item = nodes.list_item()
-                item += nodes.paragraph('', line)
-                bullet += item
-            admonition += bullet
-        else:
-            admonition += nodes.paragraph(
-                '', 'Every number on this page is a clean, row-validated result with no caveat.')
-        container.replace_self(admonition)
-
-
-def _check_consistency(app: Sphinx, env: BuildEnvironment) -> None:
-    state = _state()
-    for docname in sorted(state.refs):
-        keys = state.refs[docname]
-        if not keys:
-            continue
-        needed_runs: List[str] = []
-        needs_disclosure = False
-        for key in keys:
-            cell = state.data.cells.get(key)
+        seen = []  # type: List[str]
+        for key in state.refs.get(docname, []):
+            cell = state.cell(key)
             if cell is None:
                 continue
-            if cell.run_id not in needed_runs:
-                needed_runs.append(cell.run_id)
-            if cell.disclosures:
-                needs_disclosure = True
-        have_runs = state.provenance.get(docname, [])
-        for run_id in needed_runs:
-            if run_id not in have_runs:
-                state.fail('{}: publishes numbers from run {!r} without a '
-                           '`.. bench-provenance:: {}` block'.format(docname, run_id, run_id))
-            run = state.data.runs[run_id]
-            age = run.age_days(state.today)
-            if age > state.data.policy.max_age_days:
-                state.fail('{}: run {!r} was measured {} days ago (policy max {}); '
-                           're-measure it or remove the claim'.format(
-                               docname, run_id, age, state.data.policy.max_age_days))
-        if needs_disclosure and docname not in state.disclosed:
-            state.fail('{}: publishes a number that carries a disclosure but has no '
-                       '`.. bench-disclosures::` block — a bare ratio without its asterisk '
-                       'launders the caveat'.format(docname))
-
-    if state.problems:
-        raise BenchNumberError(
-            'benchmark numbers failed validation ({} problem(s)):\n  - {}'.format(
-                len(state.problems), '\n  - '.join(state.problems)))
+            raw = cell.get('disclosures')
+            if not isinstance(raw, list):
+                continue
+            for item in raw:
+                if isinstance(item, str) and item and item not in seen:
+                    seen.append(item)
+        if not seen:
+            return []
+        bullets = nodes.bullet_list()
+        for item in seen:
+            entry = nodes.list_item()
+            entry += nodes.paragraph(text=item)
+            bullets += entry
+        return [_admonition('About these measurements', bullets)]
 
 
-def _builder_inited(app: Sphinx) -> None:
+def _fields(run: JSONObject, spec: List[Tuple[str, str]]) -> nodes.field_list:
+    field_list = nodes.field_list()
+    for key, label in spec:
+        value = run.get(key)
+        if not isinstance(value, str) or not value:
+            continue
+        field = nodes.field()
+        field += nodes.field_name(text=label)
+        body = nodes.field_body()
+        body += nodes.paragraph(text=value)
+        field += body
+        field_list += field
+    return field_list
+
+
+def _admonition(title: str, content: nodes.Element) -> nodes.Element:
+    container = nodes.admonition()
+    container += nodes.title(text=title)
+    container += content
+    container['classes'].append('note')
+    return container
+
+
+def _on_builder_inited(app: Sphinx) -> None:
     global _STATE
-    configured = str(app.config.gfql_bench_data_path)
-    path: Optional[str] = configured or None
-    if path is not None and not os.path.isabs(path):
-        path = os.path.join(str(app.srcdir), path)
-    data = load_bench_data(path)
-    today_setting = str(app.config.gfql_bench_today)
-    if today_setting:
-        year, month, day = today_setting.split('-')
-        today = datetime.date(int(year), int(month), int(day))
-    else:
-        today = datetime.date.today()
-    _STATE = _State(data, today)
-
-    # Freshness is checked for EVERY run in the file, not just the ones this build
-    # happens to re-read: an incremental build can serve a cached page whose numbers
-    # have aged out, and that page must not be publishable either.
-    stale = data.stale_runs(today)
-    if stale:
-        raise BenchNumberError(
-            'benchmark run(s) past policy.max_age_days={}:\n  - {}'.format(
-                data.policy.max_age_days,
-                '\n  - '.join(
-                    '{} measured {} ({} days ago)'.format(
-                        run.run_id, run.measured_at.isoformat(), age)
-                    for run, age in stale)))
+    try:
+        _STATE = load_state(datetime.date.today())
+    except BenchDataError as exc:
+        raise BenchNumberError(str(exc)) from exc
 
 
-def _purge_doc(app: Sphinx, env: BuildEnvironment, docname: str) -> None:
+def _on_purge(app: Sphinx, env: BuildEnvironment, docname: str) -> None:
     if _STATE is not None:
         _STATE.forget(docname)
 
 
-def setup(app: Sphinx) -> Dict[str, Union[str, bool]]:
-    app.add_config_value('gfql_bench_data_path', '', 'env')
-    app.add_config_value('gfql_bench_today', '', 'env')
-    app.add_role('bench', bench_role)
-    app.add_role('bench-diag', bench_diag_role)
-    app.add_directive('bench-provenance', BenchProvenanceDirective)
-    app.add_directive('bench-disclosures', BenchDisclosuresDirective)
-    app.connect('builder-inited', _builder_inited)
-    app.connect('env-purge-doc', _purge_doc)
-    app.connect('doctree-resolved', _fill_disclosures)
-    app.connect('env-check-consistency', _check_consistency)
-    # Bookkeeping lives in module state, not the pickled env: single-process reads only.
+def _on_build_finished(app: Sphinx, exception: Optional[Exception]) -> None:
+    if exception is not None or _STATE is None:
+        return
+    before = len(_STATE.problems)
+    audit_pages(_STATE)
+    for message in _STATE.problems[before:]:
+        logger.warning('[gfql-bench] %s', message)
+    if _STATE.problems:
+        raise BenchNumberError(
+            'the published benchmark numbers were used incorrectly:\n  {}'.format(
+                '\n  '.join(_STATE.problems)))
+
+
+def setup(app: Sphinx) -> Dict[str, object]:
+    app.add_role('bench', _bench_role(diagnostic=False))
+    app.add_role('bench-diag', _bench_role(diagnostic=True))
+    app.add_directive('bench-provenance', BenchProvenance)
+    app.add_directive('bench-disclosures', BenchDisclosures)
+    app.connect('builder-inited', _on_builder_inited)
+    app.connect('env-purge-doc', _on_purge)
+    app.connect('build-finished', _on_build_finished)
     return {'version': '1', 'parallel_read_safe': False, 'parallel_write_safe': True}

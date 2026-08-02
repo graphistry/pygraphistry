@@ -10,7 +10,10 @@ VALID_INDEX_POLICIES: Tuple[IndexPolicy, ...] = ("off", "use", "auto", "force")
 def validate_index_policy(policy: Optional[str]) -> Optional[IndexPolicy]:
     """Validate a public ``index_policy`` value.
 
-    ``None`` means the caller did not override the default planner behavior.
+    ``None`` means the caller did not override the default planner behavior. "force"
+    is a performance and diagnostic opt-in: it builds missing indexes and bypasses the
+    cost gate for an index-coverable query. It does not require index coverage and never
+    changes query results. A query that the index cannot serve still uses the scan path.
     """
     if policy is None:
         return None

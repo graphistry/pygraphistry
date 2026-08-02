@@ -30,6 +30,13 @@ from graphistry.compute.gfql.row.order_expr import (
     is_order_aggregate_alias_ast,
     order_expr_ast_static_supported,
 )
+from graphistry.compute.gfql.agg_types import (
+    GFQL_NUMERIC_ONLY_AGGREGATIONS,
+    numeric_agg_all_null_value,
+    pandas_dtype_is_numeric_for_agg,
+    pandas_non_numeric_agg_dtype,
+    raise_non_numeric_aggregation,
+)
 from graphistry.compute.gfql.language_defs import (
     GFQL_COMPARISON_BINARY_OP_NAMES,
     GFQL_COMPARISON_BINARY_OPS,
@@ -63,6 +70,7 @@ from graphistry.compute.gfql.row.entity_text import (
     is_entity_text_scalar,
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN
+from graphistry.compute.gfql.cache_registry import register_process_singleton
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype, series_sequence_len, series_str_match
 from graphistry.compute.gfql.row.ordering import (
     build_list_sort_columns,
@@ -109,6 +117,9 @@ def _gfql_expr_runtime_parser_bundle() -> Optional[GFQLRuntimeParserBundle]:
         return None
 
 
+register_process_singleton(_gfql_expr_runtime_parser_bundle, "an import-resolution bundle, None on a minimal install; re-resolving cannot change the answer")
+
+
 @lru_cache(maxsize=1)
 def _gfql_cudf_list_sort_requires_host_bridge() -> bool:
     """cuDF 25.02 can segfault in list-sort pivot internals; bridge to pandas there."""
@@ -123,6 +134,9 @@ def _gfql_cudf_list_sort_requires_host_bridge() -> bool:
     major = int(match.group(1))
     minor = int(match.group(2))
     return (major, minor) <= (25, 2)
+
+
+register_process_singleton(_gfql_cudf_list_sort_requires_host_bridge, "probes the installed cuDF version for a segfaulting list-sort; the installed version cannot change inside a process")
 
 
 def _gfql_bridge_cudf_df_to_pandas(work_df: Any) -> Any:
@@ -5116,6 +5130,14 @@ class RowPipelineMixin:
                         tmp_col = f"{tmp_col}_x"
                     table_df = table_df.assign(**{tmp_col: expr_values})
                     expr_col = tmp_col
+                if "category" in str(table_df[expr_col].dtype).lower():
+                    # A categorical column is a STRING column to cypher (its categories are the
+                    # values), but the host kernels disagree per-aggregate: pandas raises on
+                    # grouped min/max/sum/mean over a categorical, and cuDF additionally raises
+                    # on collect and -- worse -- answers count(DISTINCT) with a CATEGORY LABEL
+                    # instead of a count. Decategorize once, up front, so every aggregate below
+                    # sees the string column cypher says it is.
+                    table_df = table_df.assign(**{expr_col: table_df[expr_col].astype("string")})
                 grouped = _make_grouped(table_df, [expr_col])
                 if func in {"collect", "collect_distinct"}:
                     # collect() ignores null entries; compute collection on
@@ -5153,9 +5175,39 @@ class RowPipelineMixin:
                     method_name = GFQL_GROUPBY_AGG_METHODS.get(func)
                     if method_name is None:
                         raise ValueError(f"unsupported group_by aggregation function: {func!r}")
-                    if (
-                        func in {"min", "max"}
-                        and RowPipelineMixin._gfql_series_object_non_null_str_like(table_df[expr_col])
+                    all_null_numeric = False
+                    if func in GFQL_NUMERIC_ONLY_AGGREGATIONS:
+                        # Cypher restricts sum()/avg() to INTEGER|FLOAT|DURATION -- see
+                        # gfql/agg_types.py for the sources. Without this, pandas answered
+                        # sum(<string column>) with the CONCATENATION ('abac'), a silent wrong
+                        # answer, while avg(<string column>) raised only incidentally (pandas'
+                        # own TypeError, rewrapped as an E201 "parameter error" naming neither
+                        # the column nor the operation).
+                        # DTYPE FIRST, data second: a column the dtype PROVES numeric is served
+                        # with no data inspection at all, so an ordinary numeric aggregate --
+                        # every served one -- pays only a dtype string check here. Anything else
+                        # is already on a slow or erroring path, which is where the O(n)
+                        # all-null question gets asked.
+                        if not pandas_dtype_is_numeric_for_agg(table_df[expr_col]):
+                            all_null_numeric = (
+                                len(table_df) > 0 and bool(table_df[expr_col].isna().all())
+                            )
+                            if not all_null_numeric:
+                                dtype_label = pandas_non_numeric_agg_dtype(table_df[expr_col])
+                                if dtype_label is not None:
+                                    raise_non_numeric_aggregation(func, expr_col, dtype_label, alias)
+                    if all_null_numeric:
+                        # cypher sum(null)==0 / avg(null)==null, substituted rather than computed:
+                        # pandas answers an all-null column 0/NaN when object but ''/NaT/TypeError
+                        # once typed, so the kernel cannot be trusted to produce it.
+                        agg_df = out_df[key_cols].copy()
+                        agg_df[alias] = self._gfql_broadcast_scalar(
+                            agg_df, numeric_agg_all_null_value(func)
+                        )
+                        out_df = out_df.merge(agg_df, on=key_cols, how="left", sort=False)
+                        continue
+                    if func in {"min", "max"} and (
+                        RowPipelineMixin._gfql_series_object_non_null_str_like(table_df[expr_col])
                     ):
                         table_df = table_df.assign(**{expr_col: table_df[expr_col].astype("string")})
                         grouped = _make_grouped(table_df, [expr_col])

@@ -21,6 +21,17 @@ FrameLike = DataFrameT
 
 
 IndexPath = Literal["scan", "index"]
+IndexDecisionCode = Literal[
+    "policy_off",
+    "no_resident_index",
+    "not_index_coverable",
+    "missing_graph_columns",
+    "index_build_declined",
+    "scan_cost",
+    "index_selected",
+    "engine_mismatch",
+    "index_path_unavailable",
+]
 
 
 # One column's constraint in an ``edge_match``/filter dict — exactly the runtime shapes
@@ -54,6 +65,7 @@ class IndexTraceStep(TypedDict, total=False):
     frontier_n: int
     path: IndexPath
     decision_reason: str
+    decision_code: IndexDecisionCode
     n_keys: int
     seed_deg_sum: Optional[int]
     est_result_rows: Optional[int]

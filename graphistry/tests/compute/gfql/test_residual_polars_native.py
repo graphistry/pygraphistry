@@ -1,4 +1,4 @@
-"""#1729/#1755: native polars translation of simple connected-join residuals.
+"""#1729/#1755/#1806: native polars translation of connected-join residuals.
 
 Covers `_residual_polars_expr` (the string→pl.Expr translator) and the fast-lane /
 chain-fallback split in `_connected_join_apply_node_residuals`:
@@ -7,6 +7,13 @@ chain-fallback split in `_connected_join_apply_node_residuals`:
 - negative: unsupported shapes, alias mismatches, and absent columns decline
   (translator returns None); a group with ANY untranslatable expr falls back whole
 - cross-engine: pandas frames never enter the fast lane (chain fallback only)
+
+#1806 widened the translator from two hand-written regex shapes to the full
+single-alias vocabulary by delegating to the SAME `lower_expr` the where_rows
+fallback uses (`row_pipeline.lower_single_alias_predicate`). The differential
+classes below are the gate: for every shape, `frame.filter(translated)` must equal
+the forced chain fallback on the same frame, and every decline must be a shape the
+fallback declines too (so the designed NotImplementedError still surfaces).
 """
 import pandas as pd
 import pytest
@@ -52,14 +59,14 @@ def _canon(df):
 class TestResidualTranslator:
     @requires_polars
     def test_tolower_eq_casefold(self):
-        expr = fp._residual_polars_expr("(tolower(a.name) = tolower('ALICE'))", "a", COLS())
+        expr = fp._residual_polars_expr("(tolower(a.name) = 'alice')", "a", COLS())
         assert expr is not None
         out = _pl_nodes().filter(expr)
         assert sorted(out["node_id"].to_list()) == [1, 2]
 
     @requires_polars
     def test_tolower_eq_null_dropped(self):
-        expr = fp._residual_polars_expr("(tolower(a.name) = tolower('bob'))", "a", COLS())
+        expr = fp._residual_polars_expr("(tolower(a.name) = 'bob')", "a", COLS())
         out = _pl_nodes().filter(expr)
         assert sorted(out["node_id"].to_list()) == [3, 6]  # null name row 4 dropped
 
@@ -99,16 +106,47 @@ class TestResidualTranslator:
 
     @requires_polars
     @pytest.mark.parametrize("bad", [
-        "(a.name <> 'x')",              # unsupported operator
-        "(a.name CONTAINS 'x')",        # unsupported predicate
-        "(tolower(a.name) = 'x')",      # rhs not tolower-wrapped
-        "((a.age = 25) AND (a.age = 30))",  # compound
-        "a.age = 25",                   # missing outer parens
+        # --- string predicates: the row lowering has no native kernel for them, AND the
+        # connected-join WHERE renderer cannot emit them at all (pinned in
+        # TestStringPredicatesAreUnreachable), so covering them here would be dead code
+        "(a.name CONTAINS 'x')",
+        "(a.name STARTS WITH 'x')",
+        "(a.name ENDS WITH 'x')",
+        "(a.name =~ '.*x.*')",
+        # --- another alias's column: not in THIS frame, and the fallback's prefixed row
+        # table cannot resolve it either (-> its designed NotImplementedError)
+        "(tolower(b.name) = 'alice')",  # alias mismatch (checked with alias='a')
+        "(toupper(b.name) = 'ALICE')",  # alias mismatch, other case fn
+        "(upper(zz.name) = 'ALICE')",   # alias mismatch, GQL alias spelling
+        "(tolower(a.name) = b.name)",   # rhs is another alias's column
         "(b.age = 25)",                 # alias mismatch (checked with alias='a')
-        "(a.missing = 25)",             # absent column
+        "((a.age = 25) AND (b.age = 30))",  # one conjunct on a foreign alias
+        "(NOT (b.age = 25))",           # foreign alias under NOT
+        "(b.age IS NULL)",              # foreign alias under IS NULL
+        "(a.name IN ['x', b.name])",    # foreign alias inside the IN list
+        "(CASE WHEN b.age > 1 THEN 1 ELSE 0 END = 1)",  # foreign alias inside CASE
+        "(a.age + b.age = 2)",          # foreign alias inside arithmetic
+        # --- bare identifiers: no bare name is a column of the fallback's prefixed table
+        "(age = 25)",
+        "(__gfql_node_id__ = 1)",
+        "(a.__gfql_node_id__ = 1)",     # sentinel has no column on a bare-name frame
+        # --- absent column / dtype mismatch: must stay residual (designed NIE)
+        "(a.missing = 25)",
+        "(tolower(a.name) = 25)",       # case fn (String) vs number: cross-type
+        # --- unparseable / outside the row lowering's node whitelist
+        "not-an-expression @@",
+        "(a.age = 25) AND",
+        "(a.name[0] = 'A')",            # subscript: lower_expr declines it
     ])
     def test_unsupported_shapes_decline(self, bad):
         assert fp._residual_polars_expr(bad, "a", COLS()) is None
+
+    @requires_polars
+    def test_declines_when_the_row_expr_parser_is_unavailable(self, monkeypatch):
+        """No parser bundle => decline, never a half-translated filter."""
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+        monkeypatch.setattr(rp, "_parser", lambda: None)
+        assert fp._residual_polars_expr("(a.age = 25)", "a", COLS()) is None
 
 
 class TestResidualApplyFastLane:
@@ -117,7 +155,7 @@ class TestResidualApplyFastLane:
         """The fast lane and the where_rows chain fallback agree byte-for-byte."""
         nodes = _pl_nodes()
         g = _pl_graph(nodes)
-        exprs = ["(tolower(a.name) = tolower('Alice'))", "(a.age >= 25)"]
+        exprs = ["(tolower(a.name) = 'alice')", "(a.age >= 25)"]
         fast = fp._connected_join_apply_node_residuals(
             g, nodes, "a", exprs, "node_id", engine=Engine.POLARS)
         # force the fallback by declining every translation
@@ -137,7 +175,7 @@ class TestResidualApplyFastLane:
         """
         nodes = _pl_nodes()
         g = _pl_graph(nodes)
-        exprs = ["(a.age >= 25)", "(tolower(a.name) = tolower('alice'))"]
+        exprs = ["(a.age >= 25)", "(tolower(a.name) = 'alice')"]
         real = fp._residual_polars_expr
         calls = []
 
@@ -171,40 +209,40 @@ class TestResidualApplyFastLane:
             raise AssertionError("fast lane must not engage on pandas frames")
         monkeypatch.setattr(fp, "_residual_polars_expr", boom)
         out = fp._connected_join_apply_node_residuals(
-            g, nodes, "a", ["(tolower(a.name) = tolower('alice'))"], "node_id",
+            g, nodes, "a", ["(tolower(a.name) = 'alice')"], "node_id",
             engine=Engine.PANDAS)
         assert sorted(out["node_id"].tolist()) == [1, 2]
 
 
 class TestResidualDtypeAndEscapeGates:
-    """Review-skill wave (#1763): escaped literals + dtype mismatches must DECLINE
-    so the chain fallback keeps the evaluator's exact semantics (unescaping, or the
-    designed parity-or-error NotImplementedError) instead of raw polars behavior."""
+    """Review-skill wave (#1763): dtype mismatches must DECLINE so the chain fallback
+    keeps the evaluator's designed parity-or-error NotImplementedError instead of raw
+    polars behavior.
 
-    @requires_polars
-    def test_escaped_literal_declines(self):
-        # renderer escapes ' \\ \n etc to \uXXXX text; raw regex compare would mismatch
-        assert fp._residual_polars_expr(
-            "(tolower(a.name) = tolower('It\\u0027s'))", "a", COLS()) is None
-        assert fp._residual_polars_expr(
-            "(a.name = 'C:\\u005Cx')", "a", COLS()) is None
+    #1806 RETIRED the escaped-literal decline: the residual text is now parsed by the
+    evaluator's OWN parser (which unescapes ``\\uXXXX`` exactly as the fallback does)
+    rather than compared as raw regex text, so there is nothing left to mismatch. The
+    replacement is a non-vacuous differential (`TestEscapedLiteralParity`) over rows that
+    really contain a quote and a backslash.
+    """
 
     @requires_polars
     @pytest.mark.parametrize("expr", [
         "(a.age = 'thirty')",           # string literal vs numeric column
-        "(tolower(a.age) = tolower('x'))",  # tolower on numeric column
+        "(tolower(a.age) = 'x')",       # tolower on numeric column
         "(a.name >= 25)",               # numeric literal vs string column
     ])
     def test_dtype_mismatch_declines(self, expr):
         assert fp._residual_polars_expr(expr, "a", COLS()) is None
 
     @requires_polars
-    def test_categorical_column_declines(self):
+    def test_case_fn_on_categorical_declines(self):
+        """`.str` on Categorical raises in polars only, so the row lowering gates
+        toLower/toUpper on a String OUTPUT dtype -- Categorical stays residual."""
         nodes = pl.DataFrame({"node_id": [1], "cat": ["x"]}).with_columns(
             pl.col("cat").cast(pl.Categorical))
         assert fp._residual_polars_expr(
-            "(tolower(a.cat) = tolower('x'))", "a", dict(nodes.schema)) is None
-        assert fp._residual_polars_expr("(a.cat = 'x')", "a", dict(nodes.schema)) is None
+            "(tolower(a.cat) = 'x')", "a", dict(nodes.schema)) is None
 
     @requires_polars
     def test_dtype_mismatch_group_reaches_designed_error(self):
@@ -216,6 +254,245 @@ class TestResidualDtypeAndEscapeGates:
         with pytest.raises(NotImplementedError):
             fp._connected_join_apply_node_residuals(
                 g, nodes, "a", ["(a.name >= 25)"], "node_id", engine=Engine.POLARS)
+
+
+# ---------------------------------------------------------------------------------------
+# #1806: the widened vocabulary.
+#
+# THE GATE IS DIFFERENTIAL, NOT DECLARATIVE. For every shape below the native filter must
+# equal the forced where_rows chain fallback on the SAME frame, and the expected row ids are
+# pinned as well so a differential that both sides get wrong is not mistaken for parity.
+# ---------------------------------------------------------------------------------------
+
+def _tricky_nodes():
+    """Nulls, the empty string, non-ASCII, regex metacharacters, an embedded quote and an
+    embedded backslash -- the values a raw-text/regex translator silently gets wrong."""
+    return pl.DataFrame({
+        "node_id": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        "name": ["Alice", "alice", "BOB", None, "Chloé", "", "a.b*c[d]", "it's", "C:\\x"],
+        "age": [30, 25, None, 40, 35, 0, -5, 7, 8],
+        "flag": [True, False, None, True, False, True, None, False, True],
+    })
+
+
+def _float_nodes():
+    """A FLOAT column (``score``) plus a second float for in-query math, an int and a string --
+    the dtype spread the NaN-mask scoping turns on."""
+    return pl.DataFrame({
+        "node_id": [1, 2, 3, 4],
+        "score": [0.5, 1.5, 2.5, None],
+        # num/other is 0.0/0.0 on row 2 -> a GENUINE in-query NaN, and an ordinary number
+        # elsewhere, so a mask on the computed operand is discriminating rather than vacuous
+        "num": [1.0, 0.0, 3.0, 0.0],
+        "other": [1.0, 0.0, 2.0, 4.0],
+        "label": ["x", "x", "y", "x"],
+    })
+
+
+def _fast_lane_ids_matching_fallback(expr, nodes=None, alias="a"):
+    """Assert the native path is TAKEN for ``expr`` and answers exactly like the fallback.
+
+    Returns the surviving node ids so the caller also pins the ANSWER. Forcing the
+    translator to decline is what makes the right-hand side the pre-#1806 chain evaluator.
+    """
+    nodes = _pl_nodes() if nodes is None else nodes
+    translated = fp._residual_polars_expr(expr, alias, dict(nodes.schema))
+    assert translated is not None, f"{expr!r} declined -- the native path was NOT taken"
+    fast = nodes.filter(translated)
+    real = fp._residual_polars_expr
+    try:
+        fp._residual_polars_expr = lambda *a, **k: None
+        slow = fp._connected_join_apply_node_residuals(
+            _pl_graph(nodes), nodes, alias, [expr], "node_id", engine=Engine.POLARS)
+    finally:
+        fp._residual_polars_expr = real
+    assert _canon(fast).equals(_canon(slow)), f"{expr!r}: fast lane != where_rows fallback"
+    return sorted(fast["node_id"].to_list())
+
+
+class TestWidenedShapesTakeTheNativePath:
+    """(a) POSITIVE: each shape the pre-#1806 regex pair declined now translates, and the
+    native answer is the chain evaluator's answer.
+
+    Null handling is the sharp edge and is pinned per shape: Cypher WHERE is 3-valued, so a
+    NULL operand yields NULL and ``filter`` drops the row for ``!=``/``<>`` just as it does
+    for ``=`` -- the fast lane must NOT keep those rows (pandas' object-dtype ``!=`` on a
+    missing value would).
+    """
+
+    @requires_polars
+    @pytest.mark.parametrize("expr,expected", [
+        ("(a.name != 'BOB')", [1, 2, 5, 6]),          # null name (4) DROPPED, not kept
+        ("(a.name <> 'BOB')", [1, 2, 5, 6]),          # `<>` spelling of the same op
+        ("(a.age != 25)", [1, 4, 5]),                 # null age (3) dropped
+        ("(a.name IS NULL)", [4]),
+        ("(a.name IS NOT NULL)", [1, 2, 3, 5, 6]),
+        ("(a.age IS NULL)", [3]),
+        ("(a.name IN ['BOB', 'alice'])", [2, 3]),
+        ("(a.age IN [25, 30])", [1, 2, 6]),
+        ("((a.name = 'BOB') OR (a.age = 25))", [2, 3, 6]),
+        ("(NOT (a.name = 'BOB'))", [1, 2, 5, 6]),     # NOT null = null -> dropped
+        ("((a.age >= 25) AND (a.age <= 30))", [1, 2, 6]),
+        ("(tolower(a.name) != 'alice')", [3, 5, 6]),
+        ("(toupper(a.name) <> 'BOB')", [1, 2, 5]),
+        # shapes the regex pair rejected purely for LAYOUT, not semantics
+        ("a.age = 25", [2, 6]),                       # no outer parens
+        ("('alice' = tolower(a.name))", [1, 2]),      # reversed operand order
+        ("(substring(a.name, 0, 2) = 'al')", [2]),    # fn on the column side
+        ("(CASE WHEN a.age > 30 THEN 1 ELSE 0 END = 1)", [4, 5]),  # ternary
+        ("(a.age + 1 = 26)", [2, 6]),                 # arithmetic
+    ])
+    def test_shape_translates_and_matches_fallback(self, expr, expected):
+        assert _fast_lane_ids_matching_fallback(expr) == expected
+
+
+class TestEscapedLiteralParity:
+    """The renderer escapes ``'`` and ``\\`` to ``\\uXXXX`` text. The pre-#1806 translator
+    DECLINED any literal containing a backslash because it compared the raw regex capture;
+    the widened one hands the text to the evaluator's own parser, which unescapes it the
+    same way. Rows that really contain a quote and a backslash keep this non-vacuous."""
+
+    @requires_polars
+    @pytest.mark.parametrize("expr,expected", [
+        ("(a.name = 'it\\u0027s')", [8]),
+        ("(a.name != 'it\\u0027s')", [1, 2, 3, 5, 6, 7, 9]),
+        ("(a.name = 'C:\\u005Cx')", [9]),
+        ("(a.name != 'C:\\u005Cx')", [1, 2, 3, 5, 6, 7, 8]),
+        ("(a.name IN ['it\\u0027s', 'C:\\u005Cx'])", [8, 9]),
+        ("(tolower(a.name) = 'it\\u0027s')", [8]),
+    ])
+    def test_escaped_literal_matches_fallback(self, expr, expected):
+        assert _fast_lane_ids_matching_fallback(expr, _tricky_nodes()) == expected
+
+
+class TestLiteralTextSemanticsParity:
+    """(c) DIFFERENTIAL over the values that separate a literal comparison from a regex or
+    a byte comparison: metacharacters, the empty string, non-ASCII, and NULL."""
+
+    @requires_polars
+    @pytest.mark.parametrize("expr,expected", [
+        # `.` `*` `[` are DATA here, never a pattern
+        ("(a.name = 'a.b*c[d]')", [7]),
+        ("(a.name != 'a.b*c[d]')", [1, 2, 3, 5, 6, 8, 9]),
+        ("(a.name IN ['a.b*c[d]'])", [7]),
+        # a metacharacter-only literal must match NOTHING, not everything
+        ("(a.name = '.*')", []),
+        # empty string is a value, not a null
+        ("(a.name = '')", [6]),
+        ("(a.name != '')", [1, 2, 3, 5, 7, 8, 9]),
+        # non-ASCII round-trips through the escape + the case kernels
+        ("(a.name = 'Chlo\\u00e9')", [5]),
+        ("(tolower(a.name) = 'chlo\\u00e9')", [5]),
+        ("(a.name != 'Chlo\\u00e9')", [1, 2, 3, 6, 7, 8, 9]),
+        # 3-valued booleans
+        ("(a.flag IS NULL)", [3, 7]),
+        ("(a.flag IS NOT NULL)", [1, 2, 4, 5, 6, 8, 9]),
+        ("(NOT (a.flag = true))", [2, 5, 8]),
+        ("((a.name IS NULL) OR (a.age > 30))", [4, 5]),
+    ])
+    def test_value_semantics_match_fallback(self, expr, expected):
+        assert _fast_lane_ids_matching_fallback(expr, _tricky_nodes()) == expected
+
+
+class TestWrongDtypeStaysResidual:
+    """(b) NEGATIVE: a dtype-incompatible variant of every widened shape must DECLINE, and
+    the fallback must then raise the row op's designed NotImplementedError. Declining is
+    load-bearing here: translating would hand back a raw polars error (or, for ``IN``, a
+    silently different membership answer) instead of the designed one."""
+
+    @requires_polars
+    @pytest.mark.parametrize("expr", [
+        "(a.name != 25)",              # numeric literal vs String column
+        "(a.age != 'thirty')",         # string literal vs Int column
+        "(a.age IN ['x'])",            # cross-category IN
+        "(toupper(a.age) != 'X')",     # case fn on a non-String column
+    ])
+    def test_declines_and_fallback_raises_designed_error(self, expr):
+        nodes = _tricky_nodes()
+        assert fp._residual_polars_expr(expr, "a", dict(nodes.schema)) is None
+        with pytest.raises(NotImplementedError):
+            fp._connected_join_apply_node_residuals(
+                _pl_graph(nodes), nodes, "a", [expr], "node_id", engine=Engine.POLARS)
+
+
+class TestCategoricalNonStrOpsParity:
+    """A Categorical column is only a problem for ``.str`` kernels. ``=``/``!=``/``IS NULL``/
+    ``IN`` are not, and the where_rows evaluator answers them, so the fast lane must too --
+    the pre-#1806 dtype gate declined them wholesale (correct but needlessly)."""
+
+    @staticmethod
+    def _cat_nodes():
+        return pl.DataFrame({
+            "node_id": [1, 2, 3, 4],
+            "cat": ["Alice", "BOB", None, "bob"],
+        }).with_columns(pl.col("cat").cast(pl.Categorical))
+
+    @requires_polars
+    @pytest.mark.parametrize("expr,expected", [
+        ("(a.cat = 'BOB')", [2]),
+        ("(a.cat != 'BOB')", [1, 4]),
+        ("(a.cat IS NULL)", [3]),
+        ("(a.cat IN ['BOB', 'bob'])", [2, 4]),
+    ])
+    def test_categorical_non_str_ops_match_fallback(self, expr, expected):
+        assert _fast_lane_ids_matching_fallback(expr, self._cat_nodes()) == expected
+
+
+class TestStringPredicatesAreUnreachable:
+    """DECLINE WITH EVIDENCE (contradicting the obvious guess).
+
+    ``STARTS WITH`` / ``ENDS WITH`` / ``CONTAINS`` / ``=~`` are declined not because parity
+    is hard but because NO such residual can reach this translator: on the polars engine
+    ``_pushdown_connected_join_where_filters`` cannot render them to a row filter, so the
+    comma-pattern query is rejected upstream and the translator is never called. Teaching
+    it those shapes would be unreachable code; the gap is in the WHERE renderer.
+    """
+
+    Q = ("MATCH (p {node_type:'Person'})-[]->(i), (p)-[]->(c) WHERE %s "
+         "RETURN count(p) AS n")
+
+    @staticmethod
+    def _g():
+        nodes = pl.DataFrame({
+            "node_id": [1, 2, 3],
+            "node_type": ["Person", "X", "Y"],
+            "s": ["ab", "cd", None],
+        })
+        edges = pl.DataFrame({"src": [1, 1], "dst": [2, 3]})
+        return graphistry.nodes(nodes, "node_id").edges(edges, "src", "dst")
+
+    @requires_polars
+    @pytest.mark.parametrize("pred", [
+        "i.s STARTS WITH 'a'", "i.s ENDS WITH 'b'", "i.s CONTAINS 'b'", "i.s =~ '.*b'",
+    ])
+    def test_no_such_residual_ever_reaches_the_translator(self, pred, monkeypatch):
+        from graphistry.compute.exceptions import GFQLValidationError
+        seen = []
+        real = fp._residual_polars_expr
+
+        def spy(expr, alias, columns):
+            seen.append(expr)
+            return real(expr, alias, columns)
+
+        monkeypatch.setattr(fp, "_residual_polars_expr", spy)
+        with pytest.raises(GFQLValidationError):
+            self._g().gfql(self.Q % pred, engine="polars")._nodes
+        assert seen == [], f"{pred!r} unexpectedly reached the residual translator"
+
+    @requires_polars
+    @pytest.mark.parametrize("expr", [
+        "(a.name STARTS WITH 'A')", "(a.name ENDS WITH 'e')",
+        "(a.name CONTAINS 'l')", "(a.name =~ '.*l.*')",
+    ])
+    def test_translator_declines_them_and_so_does_the_evaluator(self, expr):
+        """Belt-and-braces: even if such a residual were synthesized by hand, the fast lane
+        declines it and the fallback raises -- no engine answers it natively, so there is
+        no correct answer for the fast lane to guess at."""
+        nodes = _tricky_nodes()
+        assert fp._residual_polars_expr(expr, "a", dict(nodes.schema)) is None
+        with pytest.raises(NotImplementedError):
+            fp._connected_join_apply_node_residuals(
+                _pl_graph(nodes), nodes, "a", [expr], "node_id", engine=Engine.POLARS)
 
 
 class TestFusedTwoStarLane:
@@ -348,3 +625,519 @@ class TestFusedTwoStarLane:
         res = g.gfql(q, engine="polars")
         assert not any(calls), "count(*) unexpectedly reached the fused lane"
         assert self._rows(res)  # still answered (general path)
+
+    # --- CONSTANT FOLDING: one canonical residual shape reaches the translator ------
+
+    #: The BOARD's own spelling (benchmarks/graphbench/matched_q1_q9/gb_queries.py,
+    #: md5 6e7ae268a5a41742587fcb87854b6e27): a ONE-SIDED toLower with an already
+    #: lowercase literal. Master declines this and drops the whole fused lane.
+    Q_ONE_SIDED = ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+                   "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+                   "WHERE toLower(i.interest) = 'fine dining' AND p.gender = 'male' "
+                   "RETURN c.city AS city, count(p) AS n ORDER BY n DESC, city LIMIT 5")
+
+    def _spy_residual_texts(self, monkeypatch):
+        """Record the residual STRINGS the translator is asked to handle."""
+        seen = []
+        real = fp._residual_polars_expr
+
+        def spy(expr, alias, columns):
+            out = real(expr, alias, columns)
+            seen.append((expr, out is not None))
+            return out
+
+        monkeypatch.setattr(fp, "_residual_polars_expr", spy)
+        return seen
+
+    @requires_polars
+    def test_two_sided_query_reaches_the_translator_already_folded(self, monkeypatch):
+        """CANONICALIZATION, observed at the fast-path boundary: the user writes the
+        TWO-SIDED form, and what arrives here is the ONE-SIDED text. This is what
+        makes a single matcher shape sufficient."""
+        g = self._star_graph()
+        seen = self._spy_residual_texts(monkeypatch)
+        g.gfql(self.Q, engine="polars")
+        tolower_exprs = [e for e, _ in seen if "tolower" in e]
+        assert tolower_exprs, "no toLower residual reached the translator"
+        assert all(e == "(tolower(i.interest) = 'fine dining')" for e in tolower_exprs), \
+            f"expected the folded one-sided text, got {tolower_exprs}"
+
+    @requires_polars
+    def test_one_sided_residual_engages_fused_lane(self, monkeypatch):
+        """STRUCTURAL LOCK-IN (not a timing gate): a single untranslatable residual
+        declines the ENTIRE fused lane, so `served == 1` is the regression signal.
+        A scaling-ladder gate is the wrong shape here -- the removed cost is a
+        per-op constant, so the residual O(N) term dominates any growth ratio."""
+        g = self._star_graph()
+        calls = self._spy_fused(monkeypatch)
+        g.gfql(self.Q_ONE_SIDED, engine="polars")
+        assert calls.count(True) == 1, (
+            f"fused lane served {calls.count(True)} times, expected 1 "
+            "(0 => the one-sided toLower residual stopped translating)")
+
+    @requires_polars
+    def test_one_sided_fused_matches_eager_chain_path(self, monkeypatch):
+        g = self._star_graph()
+        calls = self._spy_fused(monkeypatch)
+        fused = g.gfql(self.Q_ONE_SIDED, engine="polars")
+        assert calls and calls[-1], "fused lane did not engage (vacuous comparison)"
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        eager = g.gfql(self.Q_ONE_SIDED, engine="polars")
+        assert self._rows(fused) == self._rows(eager)
+        # `Fine Dining` + `fine dining` both fold on the COLUMN side -> persons 1, 2, 4
+        assert self._rows(fused) == [{"city": "London", "n": 2}, {"city": "london", "n": 1}]
+
+    @requires_polars
+    @pytest.mark.parametrize("lit", ["FINE DINING", "Fine Dining", "fine Dining"])
+    def test_one_sided_mixed_case_literal_matches_nothing_end_to_end(self, lit, monkeypatch):
+        """THE TRAP, end to end. A mixed-case ONE-SIDED literal must return the SAME
+        (empty) answer through the fused lane as through the chain evaluator: the
+        evaluator does NOT case-fold a bare literal, and neither may the translator.
+        The two-sided form of the same query returns rows -- pinned below, so this is
+        not a vacuous 'everything is empty' assertion. Every board literal is already
+        lowercase, which is exactly why a wrong rule here would ship green."""
+        g = self._star_graph()
+        q = self.Q_ONE_SIDED.replace("'fine dining'", f"'{lit}'")
+        calls = self._spy_fused(monkeypatch)
+        fused = g.gfql(q, engine="polars")
+        assert calls and calls[-1], "fused lane did not engage"
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        eager = g.gfql(q, engine="polars")
+        assert self._rows(fused) == self._rows(eager) == []
+        # control: folding the literal (two-sided) DOES match -> the empty answer above
+        # is a real semantic difference, not an inert query
+        assert self._rows(g.gfql(q.replace(f"'{lit}'", f"toLower('{lit}')"), engine="polars"))
+
+    @requires_polars
+    def test_one_sided_matches_pandas_oracle(self, monkeypatch):
+        g = self._star_graph()
+        gpd = graphistry.nodes(g._nodes.to_pandas(), "node_id").edges(
+            g._edges.to_pandas(), "src", "dst")
+        calls = self._spy_fused(monkeypatch)
+        got = g.gfql(self.Q_ONE_SIDED, engine="polars")._nodes
+        assert calls and calls[-1], "fused lane did not engage"
+        got = (got.to_pandas() if hasattr(got, "to_pandas") else got).to_dict("records")
+        assert got == gpd.gfql(self.Q_ONE_SIDED, engine="pandas")._nodes.to_dict("records")
+
+    @requires_polars
+    @pytest.mark.parametrize("fn,lit", [
+        ("toUpper", "FINE DINING"), ("upper", "FINE DINING"), ("lower", "fine dining"),
+    ])
+    def test_other_case_functions_engage_and_match_the_evaluator(self, fn, lit, monkeypatch):
+        """The generalization is not toLower-shaped: every case function the row
+        evaluator supports takes the same lane, on the same canonical text."""
+        g = self._star_graph()
+        q = self.Q_ONE_SIDED.replace("toLower(i.interest) = 'fine dining'",
+                                     f"{fn}(i.interest) = '{lit}'")
+        calls = self._spy_fused(monkeypatch)
+        fused = g.gfql(q, engine="polars")
+        assert calls and calls[-1], f"{fn}: fused lane did not engage"
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        assert self._rows(fused) == self._rows(g.gfql(q, engine="polars"))
+        assert self._rows(fused), f"{fn}: vacuous (empty) comparison"
+
+    @requires_polars
+    def test_non_ascii_two_sided_stays_unfolded_but_now_serves_the_lane(self, monkeypatch):
+        """DISCLOSED NARROWING, restated for #1806. A non-ASCII two-sided literal is
+        outside the region where the engines provably agree, so the plan-time CONSTANT FOLD
+        still declines and the residual text arrives UNFOLDED -- that invariant is asserted
+        directly, and it is the one that protects the Python-vs-Rust case table.
+
+        What changed: the fused lane no longer declines with it. The pre-#1806 regex pair
+        could not match a two-sided text, and that incidental decline bought nothing --
+        the where_rows fallback it deferred to lowers BOTH sides with the same polars
+        ``to_lowercase`` kernel anyway, so the answer was already the Rust-cased one. The
+        widened translator lowers the same two sides with the same kernel; the assertion
+        that matters (answer == chain fallback) is unchanged and still made."""
+        g = self._star_graph()
+        q = self.Q_ONE_SIDED.replace("toLower(i.interest) = 'fine dining'",
+                                     "toLower(i.interest) = toLower('FINE DINİNG')")
+        seen = self._spy_residual_texts(monkeypatch)
+        calls = self._spy_fused(monkeypatch)
+        served = g.gfql(q, engine="polars")
+        assert any("= tolower(" in e for e, _ in seen), \
+            f"constant fold unexpectedly collapsed the two-sided literal: {seen}"
+        assert calls and calls[-1], "two-sided residual no longer serves the fused lane"
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        assert self._rows(served) == self._rows(g.gfql(q, engine="polars"))
+
+    # --- #1806 widened vocabulary, END TO END through gfql() -----------------------------
+
+    #: `!=`/`<>`, IS [NOT] NULL, IN, OR, NOT: every one of these was a whole-lane decline
+    #: before #1806 (one untranslatable residual drops the fused plan entirely).
+    WIDENED_PREDICATES = [
+        "i.interest <> 'tennis'",
+        "i.interest != 'tennis'",
+        "i.interest IS NOT NULL",
+        "i.interest IN ['tennis', 'fine dining']",
+        "(i.interest = 'tennis' OR i.interest = 'fine dining')",
+        "NOT (i.interest = 'tennis')",
+        "toUpper(i.interest) <> 'TENNIS'",
+        "i.interest <> 'tennis' AND p.gender IS NOT NULL",
+    ]
+
+    def _widened_query(self, pred):
+        return ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+                "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+                f"WHERE {pred} "
+                "RETURN c.city AS city, count(p) AS n ORDER BY n DESC, city LIMIT 5")
+
+    @requires_polars
+    @pytest.mark.parametrize("pred", WIDENED_PREDICATES)
+    def test_widened_residual_engages_fused_lane_and_matches_the_evaluator(self, pred, monkeypatch):
+        """STRUCTURAL LOCK-IN: `served == 1` is the regression signal (a single
+        untranslatable residual declines the ENTIRE fused lane), and the answer must equal
+        the forced where_rows chain path on the same graph."""
+        g = self._star_graph()
+        q = self._widened_query(pred)
+        calls = self._spy_fused(monkeypatch)
+        fused = g.gfql(q, engine="polars")
+        assert calls.count(True) == 1, (
+            f"{pred}: fused lane served {calls.count(True)} times, expected 1 "
+            "(0 => the widened residual stopped translating)")
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        eager = g.gfql(q, engine="polars")
+        assert self._rows(fused) == self._rows(eager)
+        assert self._rows(fused), f"{pred}: vacuous (empty) comparison"
+
+    @requires_polars
+    @pytest.mark.parametrize("pred", [
+        p for p in WIDENED_PREDICATES if " IN [" not in p
+    ])
+    def test_widened_residual_matches_pandas_oracle(self, pred, monkeypatch):
+        """CROSS-ENGINE: the widened polars fast lane answers what pandas answers.
+
+        ``IN [...]`` is excluded because the PANDAS connected-join route raises
+        ``GFQLTypeError: Unalignable boolean Series`` on an ``x IN [...]`` residual -- a
+        pre-existing pandas-side defect on master, unrelated to and untouched by the polars
+        translator (the polars fast lane and the polars where_rows fallback agree on it, as
+        pinned above)."""
+        g = self._star_graph()
+        gpd = graphistry.nodes(g._nodes.to_pandas(), "node_id").edges(
+            g._edges.to_pandas(), "src", "dst")
+        q = self._widened_query(pred)
+        calls = self._spy_fused(monkeypatch)
+        got = g.gfql(q, engine="polars")._nodes
+        assert calls and calls[-1], f"{pred}: fused lane did not engage"
+        got = (got.to_pandas() if hasattr(got, "to_pandas") else got).to_dict("records")
+        assert got == gpd.gfql(q, engine="pandas")._nodes.to_dict("records")
+        assert got, f"{pred}: vacuous (empty) comparison"
+
+
+class TestFusedLaneNanGuardScoping:
+    """#1832 follow-up: the fused lane skips the IEEE NaN mask for BARE COLUMN operands only.
+
+    Mechanism: the general row lowering wraps every float comparison in
+    ``& col.is_nan().not()`` so NaN compares IEEE-style rather than polars-style
+    (NaN = largest). On the connected-join fused lane that mask is provably dead --
+    gfql ingest ran ``_pl_nan_to_null`` over the frame -- and it measurably doubled the
+    cost of the graph benchmark's two ``p.age`` comparisons. Suppression is opt-in, is
+    scoped to column reads, and must never leak to the general lowering.
+    """
+
+    def _schema(self):
+        return dict(_float_nodes().schema)
+
+    @requires_polars
+    def test_fused_lane_drops_the_mask_for_a_bare_column(self):
+        """The board's own shape: float COLUMN vs int literal, the whole mask goes."""
+        e = fp._residual_polars_expr("(a.score >= 1)", "a", self._schema())
+        assert e is not None
+        assert "is_nan" not in str(e), f"fused lane still carries the NaN mask: {e}"
+
+    @requires_polars
+    def test_only_the_column_side_loses_its_mask(self):
+        """SCOPE pin: a float LITERAL operand is not a column read, so its own is_nan()
+        term is untouched. Only the column term is dropped, and only here."""
+        e = fp._residual_polars_expr("(a.score >= 1.0)", "a", self._schema())
+        assert e is not None
+        assert 'col("score").is_nan()' not in str(e), f"column term survived: {e}"
+        assert "is_nan" in str(e), f"literal term was also dropped (out of scope): {e}"
+
+    @requires_polars
+    def test_column_vs_column_drops_both_terms(self):
+        e = fp._residual_polars_expr("(a.score >= a.other)", "a", self._schema())
+        assert e is not None
+        assert "is_nan" not in str(e), f"a column-vs-column compare kept a mask: {e}"
+
+    @requires_polars
+    def test_general_row_lowering_still_emits_the_mask(self):
+        """The DEFAULT (no opt-in) must stay guarded, for BOTH entry points."""
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        # 1. the same seam without the opt-in
+        e = rp.lower_single_alias_predicate("(a.score >= 1)", "a", self._schema())
+        assert e is not None and 'col("score").is_nan()' in str(e), f"default lost the mask: {e}"
+
+        # 2. the general row-table lowering (`where_rows_polars`'s own path)
+        table = _float_nodes().rename({c: f"a.{c}" for c in _float_nodes().columns})
+        general = rp._lower_with_schema(
+            table, lambda: rp.lower_expr_str("a.score >= 1", list(table.columns))
+        )
+        assert general is not None and "is_nan" in str(general), f"row table lost it: {general}"
+
+    @requires_polars
+    def test_computed_float_operand_keeps_the_mask_even_on_the_fused_lane(self):
+        """In-query math manufactures NaN (0.0/0.0) that ingest cannot have removed."""
+        e = fp._residual_polars_expr("((a.num / a.other) >= 1)", "a", self._schema())
+        assert e is not None
+        assert "is_nan" in str(e), f"computed operand lost its NaN mask: {e}"
+
+    @requires_polars
+    def test_a_computed_nan_is_still_answered_ieee_style_on_the_fused_lane(self):
+        """VALUE proof for the exclusion above: `other` holds a 0.0, so `score/other` is a
+        genuine in-query NaN on row 2. NaN >= 1 must be FALSE (IEEE/pandas), not TRUE
+        (polars NaN = largest)."""
+        nodes = _float_nodes()
+        e = fp._residual_polars_expr("((a.num / a.other) >= 1)", "a", dict(nodes.schema))
+        assert e is not None
+        kept = nodes.filter(e)["node_id"].to_list()
+        assert 2 not in kept, f"the in-query NaN row survived a >= compare: {kept}"
+        pdf = nodes.to_pandas()
+        assert kept == sorted(pdf[(pdf["num"] / pdf["other"]) >= 1]["node_id"].tolist())
+        assert kept, "vacuous (empty) comparison"
+
+    @requires_polars
+    def test_int_and_string_columns_are_unaffected(self):
+        for expr in ("(a.node_id >= 2)", "(a.label = 'x')"):
+            e = fp._residual_polars_expr(expr, "a", self._schema())
+            assert e is not None and "is_nan" not in str(e)
+
+    @requires_polars
+    def test_contextvar_is_restored_after_the_call(self):
+        from graphistry.compute.gfql.lazy.engine.polars.lowering_context import COLUMNS_NAN_FREE
+
+        assert COLUMNS_NAN_FREE.get() is False
+        fp._residual_polars_expr("(a.score >= 1.0)", "a", self._schema())
+        assert COLUMNS_NAN_FREE.get() is False, "opt-in leaked out of the fused lane"
+
+    @requires_polars
+    def test_mask_free_expr_matches_the_masked_one_on_ingested_data(self):
+        """VALUE gate, not just a repr gate: same rows, mask or no mask."""
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        nodes = _float_nodes()
+        for expr in ("(a.score >= 1)", "(a.score < 2)", "(a.score = 1.5)", "(a.score <> 1.5)"):
+            fast = nodes.filter(fp._residual_polars_expr(expr, "a", dict(nodes.schema)))
+            guarded = nodes.filter(
+                rp.lower_single_alias_predicate(expr, "a", dict(nodes.schema)))
+            assert _canon(fast).equals(_canon(guarded)), f"{expr}: mask changed the answer"
+
+    @requires_polars
+    def test_genuine_nan_bypassing_pandas_is_normalized_by_ingest(self):
+        """The suppression's PREMISE, end to end, ON THE LANE THAT USES IT.
+
+        A natively-built polars frame is the only way to carry a real NaN into gfql (the
+        pandas path converts at `from_pandas(nan_to_null=True)`), and `_coerce_input_formats`
+        -> `_pl_nan_to_null` normalizes it to null on the way in. Three assertions, in
+        increasing strength: the residual lane is actually reached; the frame it is handed
+        carries no NaN in any float column; and the answer equals the pandas oracle.
+        """
+        pl2 = pytest.importorskip("polars")
+        ndf = pl2.DataFrame({
+            "node_id": list(range(1, 11)),
+            "node_type": ["Person"] * 4 + ["Interest"] * 3 + ["City"] * 3,
+            "interest": [None] * 4 + ["Fine Dining", "fine dining", "tennis"] + [None] * 3,
+            "city": [None] * 7 + ["London", "london", "Paris"],
+            # float column WITH A GENUINE NaN (rows 2 and 3), built natively -- no pandas hop
+            "score": [1.5, float("nan"), float("nan"), 2.5] + [None] * 6,
+        })
+        assert ndf.get_column("score").is_nan().sum() == 2, "fixture lost its NaN"
+        edf = pl2.DataFrame({
+            "src": [1, 1, 2, 2, 3, 4, 1, 2, 3, 4],
+            "dst": [5, 6, 5, 7, 6, 5, 8, 8, 9, 10],
+            "rel": ["HAS_INTEREST"] * 6 + ["LIVES_IN"] * 4,
+        })
+        q = ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+             "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+             "WHERE toLower(i.interest) = 'fine dining' AND p.score >= 1 "
+             "RETURN c.city AS city, count(p) AS n ORDER BY n DESC, city LIMIT 5")
+
+        seen = []
+        orig = fp._residual_polars_expr
+
+        def spy(expr, alias, schema):
+            seen.append(expr)
+            return orig(expr, alias, schema)
+
+        g = graphistry.nodes(ndf, "node_id").edges(edf, "src", "dst")
+        try:
+            fp._residual_polars_expr = spy
+            got = g.gfql(q, engine="polars")._nodes
+        finally:
+            fp._residual_polars_expr = orig
+        assert any("score" in e for e in seen), f"float residual never translated: {seen}"
+        got = (got.to_pandas() if hasattr(got, "to_pandas") else got).to_dict("records")
+
+        gp = graphistry.nodes(ndf.to_pandas(), "node_id").edges(edf.to_pandas(), "src", "dst")
+        assert got == gp.gfql(q, engine="pandas")._nodes.to_dict("records")
+        assert got, "vacuous (empty) comparison"
+
+        # the load-bearing one: the ingested frame this lane reads has no NaN left, so the
+        # dropped mask had nothing to mask.
+        from graphistry.compute.ComputeMixin import _coerce_input_formats
+        ingested = _coerce_input_formats(g, Engine.POLARS)._nodes
+        floats = [c for c, dt in ingested.schema.items() if dt in (pl.Float32, pl.Float64)]
+        assert floats, "fixture has no float column (vacuous)"
+        for c in floats:
+            assert not ingested.get_column(c).is_nan().any(), f"ingest left a raw NaN in {c}"
+
+
+class TestNanFreeOperandPredicate:
+    """Direct unit tests for `_operand_is_nan_free_column`, the one place the suppression is
+    decided. The fused lane only ever reaches its `Identifier` arm (its predicates have been
+    rewritten to bare columns by `_bare_column_ast`), so the `PropertyAccessExpr` arm --
+    which is what a future caller opting in on a PREFIXED row table would hit -- is exercised
+    here rather than left as an untested branch that a later change could silently break.
+    """
+
+    @requires_polars
+    def _run(self, node, columns, nan_free):
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+        from graphistry.compute.gfql.lazy.engine.polars.lowering_context import COLUMNS_NAN_FREE
+
+        token = COLUMNS_NAN_FREE.set(nan_free)
+        try:
+            return rp._operand_is_nan_free_column(node, columns)
+        finally:
+            COLUMNS_NAN_FREE.reset(token)
+
+    @requires_polars
+    def test_optin_off_means_never(self):
+        """Conjunct 1: without the opt-in nothing is nan-free, whatever the node is."""
+        from graphistry.compute.gfql.expr_parser import Identifier, PropertyAccessExpr
+
+        assert self._run(Identifier(name="score"), ["score"], False) is False
+        assert self._run(
+            PropertyAccessExpr(value=Identifier(name="a"), property="score"),
+            ["a.score", "a"], False) is False
+
+    @requires_polars
+    def test_bare_identifier_arm(self):
+        from graphistry.compute.gfql.expr_parser import Identifier
+
+        assert self._run(Identifier(name="score"), ["score"], True) is True
+        assert self._run(Identifier(name="absent"), ["score"], True) is False
+
+    @requires_polars
+    def test_property_access_arm(self):
+        """A PREFIXED row table: `a.score` resolves, `b.score` does not, and a property
+        access whose base is not a plain Identifier is not a column read at all."""
+        from graphistry.compute.gfql.expr_parser import Identifier, Literal, PropertyAccessExpr
+
+        cols = ["a.score", "a"]
+        assert self._run(
+            PropertyAccessExpr(value=Identifier(name="a"), property="score"), cols, True) is True
+        assert self._run(
+            PropertyAccessExpr(value=Identifier(name="b"), property="score"), cols, True) is False
+        assert self._run(
+            PropertyAccessExpr(value=Literal(value=1), property="score"), cols, True) is False
+
+    @requires_polars
+    def test_computed_and_missing_nodes_are_never_nan_free(self):
+        from graphistry.compute.gfql.expr_parser import BinaryOp, Identifier, Literal
+
+        computed = BinaryOp(op="/", left=Identifier(name="score"), right=Identifier(name="other"))
+        assert self._run(computed, ["score", "other"], True) is False
+        assert self._run(Literal(value=1.0), ["score"], True) is False
+        assert self._run(None, ["score"], True) is False
+
+
+class TestSingleAliasLoweringMemo:
+    """#1832 follow-up: the lowering is memoized, and the key is complete.
+
+    A stale key here is a silent wrong answer, so the negative cases (dtype change, column
+    change, alias change, opt-in change) matter more than the positive one.
+    """
+
+    @requires_polars
+    def test_same_key_returns_the_identical_expr(self):
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        schema = dict(_float_nodes().schema)
+        a = rp.lower_single_alias_predicate("(a.score >= 1.0)", "a", schema)
+        b = rp.lower_single_alias_predicate("(a.score >= 1.0)", "a", dict(schema))
+        assert a is b, "memo did not hit for an identical key"
+
+    @requires_polars
+    def test_a_dtype_change_alone_gives_a_different_expr(self):
+        """Same predicate, same column NAMES, different dtype -> the mask appears/disappears."""
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        float_schema = {"node_id": pl.Int64, "score": pl.Float64}
+        int_schema = {"node_id": pl.Int64, "score": pl.Int64}
+        f = rp.lower_single_alias_predicate("(a.score >= 1)", "a", float_schema)
+        i = rp.lower_single_alias_predicate("(a.score >= 1)", "a", int_schema)
+        assert f is not None and i is not None
+        assert "is_nan" in str(f) and "is_nan" not in str(i), (
+            f"dtype not reflected in the memo key: float={f} int={i}")
+
+    @requires_polars
+    def test_a_column_set_change_gives_a_different_result(self):
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        present = rp.lower_single_alias_predicate(
+            "(a.score >= 1.0)", "a", {"node_id": pl.Int64, "score": pl.Float64})
+        absent = rp.lower_single_alias_predicate(
+            "(a.score >= 1.0)", "a", {"node_id": pl.Int64})
+        assert present is not None
+        assert absent is None, "an absent column must still decline under the memo"
+
+    @requires_polars
+    def test_alias_and_optin_are_both_in_the_key(self):
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        schema = {"node_id": pl.Int64, "score": pl.Float64}
+        assert rp.lower_single_alias_predicate("(a.score >= 1.0)", "b", schema) is None
+        assert rp.lower_single_alias_predicate("(a.score >= 1.0)", "a", schema) is not None
+        guarded = rp.lower_single_alias_predicate("(a.score >= 1)", "a", schema)
+        free = rp.lower_single_alias_predicate(
+            "(a.score >= 1)", "a", schema, columns_nan_free=True)
+        assert "is_nan" in str(guarded) and "is_nan" not in str(free), (
+            "columns_nan_free is missing from the memo key")
+
+    @requires_polars
+    def test_memo_matches_the_uncached_lowering_for_every_board_shape(self):
+        """The memo is a cache, not a behaviour change: identical repr on every shape."""
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        schema = dict(_float_nodes().schema)
+        shapes = [
+            "(a.score >= 1.0)", "(a.score <= 2.0)", "(a.label = 'x')",
+            "(tolower(a.label) = 'x')", "(a.node_id >= 2)", "(a.score IS NULL)",
+            "(a.label IN ['x', 'y'])", "(a.score >= 1.0 AND a.label = 'x')",
+            "(NOT (a.label = 'x'))", "((a.num / a.other) >= 1)",
+            "(a.missing = 1)", "(b.score >= 1.0)",
+        ]
+        for s in shapes:
+            for opt in (False, True):
+                memo = rp.lower_single_alias_predicate(s, "a", schema, columns_nan_free=opt)
+                raw = rp._lower_single_alias_predicate_uncached(s, "a", schema, opt)
+                assert (memo is None) == (raw is None), f"{s} (opt={opt}): decline mismatch"
+                if memo is not None:
+                    assert str(memo) == str(raw), f"{s} (opt={opt}): {memo} != {raw}"
+
+    @requires_polars
+    def test_cache_is_bounded(self):
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        for i in range(rp._SINGLE_ALIAS_CACHE_MAX * 2 + 5):
+            rp.lower_single_alias_predicate(
+                f"(a.score >= {i}.0)", "a", {"node_id": pl.Int64, "score": pl.Float64})
+        assert len(rp._SINGLE_ALIAS_CACHE) <= rp._SINGLE_ALIAS_CACHE_MAX
+
+    @requires_polars
+    def test_a_cached_expr_is_reusable_across_frames(self):
+        """The memo hands the SAME pl.Expr to different frames; polars exprs are immutable
+        plan fragments, so each frame must still get its own answer."""
+        from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+
+        schema = {"node_id": pl.Int64, "score": pl.Float64}
+        f1 = pl.DataFrame({"node_id": [1, 2], "score": [0.5, 2.5]})
+        f2 = pl.DataFrame({"node_id": [3, 4], "score": [5.5, 0.1]})
+        e = rp.lower_single_alias_predicate("(a.score >= 1.0)", "a", schema)
+        assert e is not None
+        assert f1.filter(e)["node_id"].to_list() == [2]
+        assert f2.filter(e)["node_id"].to_list() == [3]
+        assert rp.lower_single_alias_predicate("(a.score >= 1.0)", "a", schema) is e
+        assert f1.filter(e)["node_id"].to_list() == [2], "expr mutated by use"

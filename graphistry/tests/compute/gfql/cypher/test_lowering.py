@@ -60,6 +60,7 @@ from graphistry.compute.gfql.cypher.lowering import (
     _whole_row_group_entity_expr,
     _whole_row_group_key_expr,
 )
+import graphistry.compute.gfql_fast_paths as gfql_fast_paths_module
 from graphistry.compute.gfql_fast_paths import (
     _connected_join_cached_edge_filter,
     _connected_join_cached_singleton_dst_source_counts,
@@ -15913,7 +15914,7 @@ def test_node_dtypes_for_pushdown_fails_closed_on_unreadable_nodes() -> None:
     assert dict(dtypes) == {}
 
 
-def test_node_dtypes_for_pushdown_defers_the_conversion() -> None:
+def test_node_dtypes_for_pushdown_on_polars_defers_the_conversion() -> None:
     # Reading dtypes costs a full engine conversion, and only connected-join pushdown asks --
     # a path most queries never reach. Computing eagerly charged every string query for a
     # frame it discarded. Nothing may convert until a lookup actually happens.
@@ -15944,7 +15945,7 @@ def test_node_dtypes_for_pushdown_defers_the_conversion() -> None:
         filter_by_dict._read_node_dtypes = original
 
 
-def test_node_dtypes_for_pushdown_matches_the_full_conversion() -> None:
+def test_node_dtypes_for_pushdown_on_polars_matches_the_full_conversion() -> None:
     # polars -> pandas is DATA-dependent: an empty probe reports `bool` for a nullable Boolean
     # while the real conversion yields `object`. The gate must report what the executor sees,
     # so compare against the full conversion rather than asserting probe dtypes in isolation.
@@ -17078,6 +17079,375 @@ def test_t5_two_hop_equal_domain_degree_cache_reuses_counts(engine: str) -> None
     assert _to_pandas_df(second._nodes).to_dict(orient="records") == [{"numPaths": 5}]
     assert len(cache) == 1
     assert next(iter(cache.values())) is cached_counts
+
+
+# ---------------------------------------------------------------------------
+# H3 FUSED LAZY LANE -- ``_two_hop_count_fused_polars``.
+#
+# The two-hop-count fast path serves EXACTLY the 4-op cypher shape
+# ``MATCH (a {..})-[{..}]->(b {..})-[{..}]->(d {..}) [WHERE ..] RETURN count(*) AS x``
+# (``_two_hop_count_alias`` pins rows/with_/group_by/select and their params, so no
+# ORDER BY, no LIMIT, no count(a), no count(DISTINCT ..), no second RETURN item -- the
+# ordering/null-ordering guards the H2 grouped-aggregate path needs do not exist here;
+# `test_h3_two_hop_count_fast_path_has_no_order_by_or_limit_surface` PROVES that rather
+# than assuming it).  Inside that shape the fused lazy lane serves the DISTINCT-DOMAIN
+# case; the equal-domain case keeps the cached degree-count branch.
+# ---------------------------------------------------------------------------
+
+_H3_DISTINCT_DOMAIN_QUERY = (
+    "MATCH (a {node_type:'Person'})-[{rel:'FOLLOWS'}]->(b {node_type:'Person'})"
+    "-[{rel:'FOLLOWS'}]->(d {node_type:'Person'}) "
+    "WHERE b.age < 50 AND d.age > 25 RETURN count(*) AS numPaths"
+)
+_H3_EQUAL_DOMAIN_QUERY = (
+    "MATCH (a {node_type:'Person'})-[{rel:'FOLLOWS'}]->(b {node_type:'Person'})"
+    "-[{rel:'FOLLOWS'}]->(d {node_type:'Person'}) "
+    "RETURN count(*) AS numPaths"
+)
+_H3_DISTINCT_EDGE_QUERY = (
+    "MATCH (a {node_type:'Person'})-[{rel:'FOLLOWS'}]->(b {node_type:'Person'})"
+    "-[{rel:'LIKES'}]->(d {node_type:'Person'}) "
+    "RETURN count(*) AS numPaths"
+)
+
+
+def _mk_polars_graph(nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> _CypherTestGraph:
+    pl = pytest.importorskip("polars")
+    return cast(
+        _CypherTestGraph,
+        _CypherTestGraph().nodes(pl.from_pandas(nodes_df), "id").edges(pl.from_pandas(edges_df), "s", "d"),
+    )
+
+
+def _require_polars_gpu() -> None:
+    """polars-gpu needs cudf_polars AND a working device. Skips LOUDLY with the reason so a
+    CPU-only run reports a coverage boundary instead of a silent green (the dgx GPU lane,
+    `--gpus all` + the RAPIDS image, is where this param actually executes)."""
+    pl = pytest.importorskip("polars")
+    pytest.importorskip("cudf_polars")
+    try:
+        pl.DataFrame({"a": [1, 2]}).lazy().filter(pl.col("a") > 0).collect(
+            engine=pl.GPUEngine(raise_on_fail=True)
+        )
+    except Exception as exc:  # pragma: no cover - CPU-only CI
+        pytest.skip(f"cudf_polars installed but the GPU collect probe failed: {exc}")
+
+
+def _mk_h3_graph(engine: str, nodes_df: pd.DataFrame, edges_df: pd.DataFrame) -> _CypherTestGraph:
+    if engine == "cudf":
+        _require_cudf_runtime()
+        return _mk_cudf_graph(nodes_df, edges_df)
+    if engine == "polars-gpu":
+        _require_polars_gpu()
+        return _mk_polars_graph(nodes_df, edges_df)
+    if engine == "polars":
+        return _mk_polars_graph(nodes_df, edges_df)
+    return _mk_graph(nodes_df, edges_df)
+
+
+def _probe_fused_two_hop(monkeypatch: pytest.MonkeyPatch) -> List[bool]:
+    """Record one entry per fused-lane CALL: True=served, False=declined. An empty list means
+    the lane was never reached (the equal-domain and non-polars contract)."""
+    calls: List[bool] = []
+    original = gfql_fast_paths_module._two_hop_count_fused_polars
+
+    def probe(*args: Any, **kwargs: Any) -> Any:
+        result = original(*args, **kwargs)
+        calls.append(result is not None)
+        return result
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_two_hop_count_fused_polars", probe)
+    return calls
+
+
+def _force_eager_two_hop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the eager twin as the oracle arm for the differential."""
+    monkeypatch.setattr(gfql_fast_paths_module, "_two_hop_count_fused_polars", lambda *a, **k: None)
+
+
+def _mk_h3_base_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 3, 4],
+        "node_type": ["Person", "Person", "Person", "Person", "Person"],
+        "age": [20, 30, 60, 40, 10],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 4, 1, 1, 2, 2],
+        "d": [1, 1, 2, 3, 3, 4],
+        "rel": ["FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS"],
+    })
+    return nodes, edges
+
+
+def _mk_h3_messy_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Self-loops, parallel edges, duplicate node rows, null node property. (Null src/dst are
+    covered separately -- a float NaN endpoint column against an int id column is a pre-existing
+    cross-engine dtype divergence, unrelated to this lane.)"""
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 3, 4, 1],
+        "node_type": ["Person", "Person", "Person", "Person", "Person", "Person"],
+        "age": [20, 30, 60, 40, None, 30],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 0, 1, 1, 1, 2, 2, 3, 3],
+        "d": [1, 1, 1, 2, 3, 3, 4, 3, 0],
+        "rel": ["FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "LIKES", "FOLLOWS", "FOLLOWS", "FOLLOWS", "LIKES"],
+    })
+    return nodes, edges
+
+
+def _h3_records(result: Plottable) -> List[Dict[str, Any]]:
+    return cast(List[Dict[str, Any]], _to_pandas_df(result._nodes).to_dict(orient="records"))
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+def test_h3_fused_two_hop_count_serves_distinct_domain_shape(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    nodes, edges = _mk_h3_base_data()
+    oracle = _h3_records(_mk_graph(nodes, edges).gfql(_H3_DISTINCT_DOMAIN_QUERY, engine="pandas"))
+    graph = _mk_h3_graph(engine, nodes, edges)
+
+    calls = _probe_fused_two_hop(monkeypatch)
+    result = graph.gfql(_H3_DISTINCT_DOMAIN_QUERY, engine=engine)
+
+    assert calls == [True], f"fused lane must serve the distinct-domain shape on {engine}"
+    assert _h3_records(result) == oracle == [{"numPaths": 5}]
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+def test_h3_fused_two_hop_count_serves_distinct_edge_domains(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Distinct EDGE matches with identical node filters also leave the equal-domain branch."""
+    nodes, edges = _mk_h3_messy_data()
+    oracle = _h3_records(_mk_graph(nodes, edges).gfql(_H3_DISTINCT_EDGE_QUERY, engine="pandas"))
+    graph = _mk_h3_graph(engine, nodes, edges)
+
+    calls = _probe_fused_two_hop(monkeypatch)
+    result = graph.gfql(_H3_DISTINCT_EDGE_QUERY, engine=engine)
+
+    assert calls == [True]
+    assert _h3_records(result) == oracle
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+def test_h3_fused_two_hop_count_never_reached_by_equal_domain_shape(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """EQUAL-DOMAIN NO-REGRESSION GUARD (structural). The equal-domain shape is served by the
+    memoized degree-count branch; routing it through the fused lane would trade a cross-call
+    cache hit for a replan. Assert the fused lane is not even CALLED."""
+    nodes, edges = _mk_h3_base_data()
+    oracle = _h3_records(_mk_graph(nodes, edges).gfql(_H3_EQUAL_DOMAIN_QUERY, engine="pandas"))
+    graph = _mk_h3_graph(engine, nodes, edges)
+
+    calls = _probe_fused_two_hop(monkeypatch)
+    result = graph.gfql(_H3_EQUAL_DOMAIN_QUERY, engine=engine)
+
+    assert calls == [], "equal-domain shape must keep the cached degree-count branch"
+    assert _h3_records(result) == oracle == [{"numPaths": 7}]
+
+
+_H3_DEGREE_MEMO_ATTR = "_gfql_two_hop_equal_domain_degree_counts_cache"
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+def test_h3_equal_domain_two_hop_count_memo_miss_matches_memo_hit(engine: str) -> None:
+    """The equal-domain degree counts are memoized on the Plottable, so a FIRST call runs a
+    different branch (compute the two degree frames) than every later call on the same frames
+    (read them back). Both branches are pinned here rather than assumed: engagement is asserted
+    via the memo attribute (absent before, one entry after), and the memo-MISS answer, the
+    memo-HIT answer and a never-warmed Plottable's answer must all equal the pandas oracle."""
+    nodes, edges = _mk_h3_base_data()
+    oracle = _h3_records(_mk_graph(nodes, edges).gfql(_H3_EQUAL_DOMAIN_QUERY, engine="pandas"))
+
+    graph = _mk_h3_graph(engine, nodes, edges)
+    assert not getattr(graph, _H3_DEGREE_MEMO_ATTR, None), "memo must start empty"
+    cold = _h3_records(graph.gfql(_H3_EQUAL_DOMAIN_QUERY, engine=engine))
+    assert len(getattr(graph, _H3_DEGREE_MEMO_ATTR, {}) or {}) == 1, "memo lane was not reached"
+    warm = _h3_records(graph.gfql(_H3_EQUAL_DOMAIN_QUERY, engine=engine))
+
+    unwarmed = _mk_h3_graph(engine, nodes, edges)
+    fresh = _h3_records(unwarmed.gfql(_H3_EQUAL_DOMAIN_QUERY, engine=engine))
+
+    assert cold == warm == fresh == oracle == [{"numPaths": 7}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_h3_fused_two_hop_count_never_reached_by_dataframe_engines(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fused lane is polars-only; pandas/cuDF keep their own eager branch."""
+    nodes, edges = _mk_h3_base_data()
+    graph = _mk_h3_graph(engine, nodes, edges)
+
+    calls = _probe_fused_two_hop(monkeypatch)
+    result = graph.gfql(_H3_DISTINCT_DOMAIN_QUERY, engine=engine)
+
+    assert calls == []
+    assert _h3_records(result) == [{"numPaths": 5}]
+
+
+_H3_DIFFERENTIAL_CASES: List[Tuple[str, str, str]] = [
+    ("base_distinct_domain", "base", _H3_DISTINCT_DOMAIN_QUERY),
+    ("base_distinct_edges", "base", _H3_DISTINCT_EDGE_QUERY),
+    ("messy_distinct_domain", "messy", _H3_DISTINCT_DOMAIN_QUERY),
+    ("messy_distinct_edges", "messy", _H3_DISTINCT_EDGE_QUERY),
+    ("messy_start_only_filter", "messy",
+     "MATCH (a {node_type:'Person'})-[{rel:'FOLLOWS'}]->(b)-[{rel:'FOLLOWS'}]->(d) "
+     "WHERE a.age >= 30 RETURN count(*) AS numPaths"),
+    ("messy_end_only_filter", "messy",
+     "MATCH (a)-[{rel:'FOLLOWS'}]->(b)-[{rel:'FOLLOWS'}]->(d) "
+     "WHERE d.age > 25 RETURN count(*) AS numPaths"),
+    ("empty_no_matching_nodes", "empty_nodes", _H3_DISTINCT_DOMAIN_QUERY),
+    ("empty_no_edges", "empty_edges", _H3_DISTINCT_DOMAIN_QUERY),
+    ("string_ids", "string_ids", _H3_DISTINCT_DOMAIN_QUERY),
+]
+
+
+def _mk_h3_case_data(fixture: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    if fixture == "base":
+        return _mk_h3_base_data()
+    if fixture == "messy":
+        return _mk_h3_messy_data()
+    if fixture == "empty_nodes":
+        nodes, edges = _mk_h3_base_data()
+        nodes = nodes.assign(node_type="City")
+        return nodes, edges
+    if fixture == "empty_edges":
+        nodes, edges = _mk_h3_base_data()
+        return nodes, edges.iloc[:0].copy()
+    if fixture == "string_ids":
+        nodes, edges = _mk_h3_base_data()
+        nodes = nodes.assign(id=[f"n{i}" for i in nodes["id"]])
+        edges = edges.assign(s=[f"n{i}" for i in edges["s"]], d=[f"n{i}" for i in edges["d"]])
+        return nodes, edges
+    raise AssertionError(f"unknown fixture {fixture}")
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+@pytest.mark.parametrize("label,fixture,query", _H3_DIFFERENTIAL_CASES, ids=[c[0] for c in _H3_DIFFERENTIAL_CASES])
+def test_h3_fused_two_hop_count_matches_eager_twin_and_pandas(
+    engine: str, label: str, fixture: str, query: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DIFFERENTIAL: fused lane == eager twin == pandas oracle, and the fused lane really ran.
+    Multiplicity (parallel edges, self-loops, duplicate node rows), empty matches and non-numeric
+    ids are all in the corpus -- the degree-product algebra is where a fused rewrite would
+    silently lose or double-count paths."""
+    nodes, edges = _mk_h3_case_data(fixture)
+    oracle = _h3_records(_mk_graph(nodes, edges).gfql(query, engine="pandas"))
+
+    with monkeypatch.context() as eager_ctx:
+        _force_eager_two_hop(eager_ctx)
+        eager = _h3_records(_mk_h3_graph(engine, nodes, edges).gfql(query, engine=engine))
+
+    calls = _probe_fused_two_hop(monkeypatch)
+    fused = _h3_records(_mk_h3_graph(engine, nodes, edges).gfql(query, engine=engine))
+
+    assert calls == [True], f"{label}: fused lane did not serve -- differential is vacuous"
+    assert fused == eager, f"{label}: fused lane diverged from the eager twin"
+    assert fused == oracle, f"{label}: fused lane diverged from the pandas oracle"
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+def test_h3_fused_two_hop_count_empty_match_counts_zero(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """openCypher counts over no rows as 0 -- not an empty frame."""
+    nodes, edges = _mk_h3_base_data()
+    graph = _mk_h3_graph(engine, nodes, edges.iloc[:0].copy())
+
+    calls = _probe_fused_two_hop(monkeypatch)
+    result = graph.gfql(_H3_DISTINCT_DOMAIN_QUERY, engine=engine)
+
+    assert calls == [True]
+    assert _h3_records(result) == [{"numPaths": 0}]
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+def test_h3_fused_two_hop_count_declines_reserved_count_column(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """NEGATIVE: an edge column already named like a degree counter is handed back to the eager
+    twin -- and the ANSWER is still right, so the decline can never hide a wrong result."""
+    nodes, edges = _mk_h3_base_data()
+    edges = edges.assign(__in_count__=1)
+    graph = _mk_h3_graph(engine, nodes, edges)
+
+    calls = _probe_fused_two_hop(monkeypatch)
+    result = graph.gfql(_H3_DISTINCT_DOMAIN_QUERY, engine=engine)
+
+    assert calls == [False], "reserved counter column must DECLINE, not serve"
+    assert _h3_records(result) == [{"numPaths": 5}]
+
+
+def test_h3_fused_two_hop_count_declines_non_eager_polars_frames() -> None:
+    """NEGATIVE (unit): LazyFrame / non-polars inputs are the eager twin's -- schema probes on a
+    LazyFrame warn and cost, and a non-polars frame has no polars ``.lazy()``."""
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.gfql_fast_paths import _two_hop_count_fused_polars
+
+    nodes, edges = _mk_h3_base_data()
+    pl_nodes = pl.from_pandas(nodes)
+    pl_edges = pl.from_pandas(edges)
+
+    served = _two_hop_count_fused_polars(
+        pl_nodes, pl_nodes, pl_nodes, pl_edges, pl_edges,
+        node_col="id", src_col="s", dst_col="d", alias="numPaths",
+    )
+    assert served is not None and served.to_dicts() == [{"numPaths": 7}]
+
+    assert _two_hop_count_fused_polars(
+        pl_nodes.lazy(), pl_nodes, pl_nodes, pl_edges, pl_edges,
+        node_col="id", src_col="s", dst_col="d", alias="numPaths",
+    ) is None
+    assert _two_hop_count_fused_polars(
+        pl_nodes, pl_nodes, pl_nodes, pl_edges.lazy(), pl_edges,
+        node_col="id", src_col="s", dst_col="d", alias="numPaths",
+    ) is None
+    assert _two_hop_count_fused_polars(
+        nodes, nodes, nodes, edges, edges,
+        node_col="id", src_col="s", dst_col="d", alias="numPaths",
+    ) is None
+
+
+@pytest.mark.parametrize("suffix,expect_alias", [
+    ("RETURN count(*) AS numPaths", "numPaths"),
+    ("RETURN count(*) AS numPaths ORDER BY numPaths", None),
+    ("RETURN count(*) AS numPaths LIMIT 1", None),
+    ("RETURN count(*) AS numPaths ORDER BY numPaths DESC LIMIT 1", None),
+    ("RETURN count(a) AS numPaths", None),
+    ("RETURN count(DISTINCT a) AS numPaths", None),
+    ("RETURN count(*) AS numPaths, count(*) AS alsoPaths", None),
+])
+def test_h3_two_hop_count_fast_path_has_no_order_by_or_limit_surface(suffix: str, expect_alias: Optional[str]) -> None:
+    """PROVES (rather than inherits) that this branch carries no ORDER BY / LIMIT / null-ordering
+    semantics: every ordering- or limit-bearing variant fails the shape guard outright, so the
+    fused rewrite has no ordering contract to preserve."""
+    from graphistry.compute.gfql_fast_paths import _two_hop_count_alias
+
+    query = (
+        "MATCH (a {node_type:'Person'})-[{rel:'FOLLOWS'}]->(b {node_type:'Person'})"
+        f"-[{{rel:'FOLLOWS'}}]->(d {{node_type:'Person'}}) {suffix}"
+    )
+    compiled = compile_cypher(query)
+    assert isinstance(compiled, CompiledCypherQuery)
+    assert _two_hop_count_alias(compiled.chain) == expect_alias
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+def test_h3_fused_two_hop_count_handles_degenerate_bindings(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The node key may share a name with an endpoint column, and source/destination may be bound
+    to the SAME column -- both reach the join/group_by naming in the fused plan."""
+    pl = pytest.importorskip("polars")
+    if engine == "polars-gpu":
+        _require_polars_gpu()
+    nodes, edges = _mk_h3_base_data()
+
+    shared = _CypherTestGraph().nodes(pl.from_pandas(nodes.rename(columns={"id": "s"})), "s").edges(
+        pl.from_pandas(edges), "s", "d")
+    shared_oracle = _CypherTestGraph().nodes(nodes.rename(columns={"id": "s"}), "s").edges(edges, "s", "d")
+    calls = _probe_fused_two_hop(monkeypatch)
+    assert _h3_records(shared.gfql(_H3_DISTINCT_DOMAIN_QUERY, engine=engine)) == _h3_records(
+        shared_oracle.gfql(_H3_DISTINCT_DOMAIN_QUERY, engine="pandas"))
+    assert calls == [True]
+
+    self_edges = pd.DataFrame({"x": edges["s"], "rel": edges["rel"]})
+    loop = _CypherTestGraph().nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(self_edges), "x", "x")
+    loop_oracle = _CypherTestGraph().nodes(nodes, "id").edges(self_edges, "x", "x")
+    calls.clear()
+    assert _h3_records(loop.gfql(_H3_DISTINCT_DOMAIN_QUERY, engine=engine)) == _h3_records(
+        loop_oracle.gfql(_H3_DISTINCT_DOMAIN_QUERY, engine="pandas"))
+    assert calls == [True]
 
 
 def test_issue_1413_ic3_entity_membership_positive_same_city_friend_only() -> None:

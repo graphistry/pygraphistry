@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
 """FAIR GFQL-vs-Ladybug: run Ladybug's benchmark ops as GFQL Cypher MATCH...RETURN
-(the row pipeline), NOT dataframe shortcuts. Compares against LadybugDB's PUBLISHED
-5M/20M numbers (their figures, their hardware — a cross-machine comparison; treat
-ratios as indicative). Ladybug best (5M/20M, ms): full_scan 3789, range 7.5,
-point 0.3, count 3.3, out_degree100 59.8, scan_rel_props 15722,
-scan_rel_rowid 14562. Kuzu count 46.
+(the row pipeline), NOT dataframe shortcuts. Op shapes follow
+https://github.com/LadybugDB/kuzu-ladybug-benchmark.
+
+The `LADYBUG` reference column below is a MEASUREMENT, not a literal: LadybugDB 0.18.1,
+embedded, on the same host and in the same session as the GFQL arm, on the same generated
+5M-node / 20M-edge graph, warm medians (2 warmups + 5 timed runs, median across two
+position-balanced slots), timed at Ladybug's FASTEST result-producing scope of the four
+measured (zero-copy Arrow / polars / pandas / row iterator) -- Arrow for every scan,
+the row iterator for the single-row point lookup -- because GFQL returns a materialized
+columnar frame and choosing a slower scope for the competitor is not a comparison. Result values were digest-identical
+across the two engines on every op. Runner, raw JSON and full provenance:
+pyg-bench `benchmarks/ladybug_scan/` and `results/ladybug-scan-20260728/`.
+
+Numbers here are from dgx-spark (GB10); on another box, re-run the pyg-bench lane rather
+than reusing these.
 
 FAIRNESS: each engine is benchmarked on a graph built in ITS OWN NATIVE frame type
 (pandas/polars/cuDF), built ONCE outside the timing loop. An earlier version built the
@@ -49,8 +59,9 @@ OPS = {
     "scan_rel_props": "MATCH (a)-[o]->(b) RETURN a.id, b.id, o.since",
     "scan_rel_rowid": "MATCH (a)-[r]->(b) RETURN a.id, b.id",
 }
-LADYBUG = {"full_scan": 3789, "range": 7.5, "point": 0.3, "count": 3.3,
-           "scan_rel_props": 15722, "scan_rel_rowid": 14562}
+# LadybugDB 0.18.1, dgx-spark, 2026-07-28, Arrow materialization (see module docstring).
+LADYBUG = {"full_scan": 364.28, "range": 7.57, "point": 0.30, "count": 3.08,
+           "scan_rel_props": 1925.61, "scan_rel_rowid": 1449.13}
 
 def _size(res):
     df = getattr(res, "_nodes", None)

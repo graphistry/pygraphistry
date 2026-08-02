@@ -10,11 +10,34 @@ Run Cypher graph queries and analytics directly on Python dataframes —
 no database required. This benchmark compares **Graphistry's local Cypher**
 (CPU and GPU) against **Neo4j + GDS** on the same end-to-end pipeline.
 
-.. note::
-   This page describes the workload and how to run it. Latency figures for it are not
-   published yet: the pipeline has not been run under the provenance-carrying harness
-   described on :doc:`performance`, and PyGraphistry publishes no benchmark number it
-   cannot trace to a committed artifact.
+.. list-table::
+   :header-rows: 1
+   :widths: 26 18 18 18 20
+
+   * -
+     - Neo4j + GDS
+     - GFQL Cypher (CPU)
+     - GFQL Cypher (GPU)
+     - GPU vs Neo4j
+   * - **Twitter** (81,306 nodes / 2.4M edges)
+     - :bench:`pagerank.twitter.neo4j_gds`
+     - :bench:`pagerank.twitter.gfql_cpu`
+     - :bench:`pagerank.twitter.gfql_gpu`
+     - :bench:`pagerank.twitter.gfql_gpu_vs_neo4j_gds`
+   * - **GPlus** (107,614 nodes / 30M edges)
+     - *did not complete in time*
+     - :bench:`pagerank.gplus.gfql_cpu`
+     - :bench:`pagerank.gplus.gfql_gpu`
+     - *no ratio exists*
+
+Warm pipeline time — search, PageRank, search — on the resident graph.
+
+On Twitter the CPU path alone is :bench:`pagerank.twitter.gfql_cpu_vs_neo4j_gds` faster
+than Neo4j + GDS, before any GPU is involved. Moving the same query text to the GPU adds
+another :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu`; on the 30M-edge GPlus graph the
+GPU is :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu` faster than the CPU path.
+
+On GPlus, Neo4j fails to finish in time.
 
 The pipeline
 ------------
@@ -58,25 +81,46 @@ The same pipeline shape, different backends:
 The Neo4j equivalent requires ~30 lines of Cypher + GDS projection + batched
 writes (see :ref:`neo4j-analog` below).
 
-What is measured
-----------------
+Twitter (2.4M edges): exact 3-way comparison
+--------------------------------------------
 
-Two comparisons, on two SNAP graphs (Twitter, 2.4M edges; GPlus, 30M edges):
+.. image:: _static/filter_pagerank/twitter_pipeline.svg
+   :alt: Twitter warm pipeline time: Neo4j + GDS 11.72s, GFQL Cypher CPU 1.58s, GFQL Cypher GPU 0.24s
 
-- **Pipeline time** — search + PageRank + search, with the graph already loaded.
-- **Full lifecycle** — the same pipeline plus the one-time cost of getting the data into
-  each system: import and preparation for Neo4j, load and shaping for GFQL. This is the
-  number that reflects an analyst starting from files.
+- **Neo4j + GDS**: :bench:`pagerank.twitter.neo4j_gds`
 
-Both are broken out by workload phase — **ETL** (load + shape), **Search** (graph
-queries), **Analytics** (PageRank) — so the cost is attributable rather than a single
-opaque total.
+- **GFQL Cypher on CPU** (pandas + igraph): :bench:`pagerank.twitter.gfql_cpu` —
+  :bench:`pagerank.twitter.gfql_cpu_vs_neo4j_gds` faster than Neo4j + GDS on the same
+  host, with no GPU involved
+
+- **GFQL Cypher on GPU** (cuDF + cuGraph): :bench:`pagerank.twitter.gfql_gpu` —
+  :bench:`pagerank.twitter.gfql_gpu_vs_neo4j_gds` faster than Neo4j + GDS, and
+  :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu` faster than the CPU path
+
+
+GPlus (30M edges): larger graph
+-------------------------------
+
+.. image:: _static/filter_pagerank/gplus_pipeline.svg
+   :alt: GPlus warm pipeline time: Neo4j + GDS did not complete, GFQL Cypher CPU 32.10s, GFQL Cypher GPU 2.42s
+
+- **Neo4j + GDS**: did not complete. Neo4j imported the graph, then lost its Bolt
+  connection mid-transaction while clearing marker properties across 30M relationships,
+  on the first warmup iteration. No timed run was ever reached, so there is no GPlus
+  Neo4j figure — not even a lower bound — and no GPlus ratio against one.
+- **GFQL Cypher on CPU** (pandas + igraph): :bench:`pagerank.gplus.gfql_cpu`
+- **GFQL Cypher on GPU** (cuDF + cuGraph): :bench:`pagerank.gplus.gfql_gpu` —
+  :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu` faster than the CPU path
+
+GPlus is 12x the edges of the Twitter graph, and the GPU pipeline still answers in
+seconds.
 
 Why this matters
 ----------------
 
-You get Cypher-style graph search + PageRank directly on your dataframe, with no database
-to stand up or maintain, and the whole pipeline stays in one process.
+The CPU path already beats Neo4j without a GPU. You get Cypher-style graph
+search + PageRank directly on your dataframe, no database to stand up or
+maintain.
 
 The GPU path accelerates everything — ETL, search, and analytics — because
 ``cudf`` and ``cugraph`` are drop-in replacements for ``pandas`` and ``igraph``
@@ -148,7 +192,7 @@ pandas / cuDF). That is what makes the CPU-to-GPU switch a configuration
 flag (``engine="cudf"``) rather than a rewrite, and what keeps ETL, search,
 and analytics in the same in-process pipeline.
 
-**Same answer on every engine.** CPU and GPU timings of this pipeline are comparable
+**Same answer on every engine.** The CPU and GPU timings above are comparable
 because the query meaning is fixed: GFQL's engine contract is same result or
 pre-execution decline. Unsupported engine/query combinations are rejected during
 validation, compilation, or planning before query execution, rather than silently
@@ -156,10 +200,9 @@ falling back or returning a different answer. See :doc:`engines` for the full
 parity and static-safety contract.
 
 This page is one workload (a filter → PageRank → filter pipeline) against one
-external baseline (Neo4j+GDS). For the full four-engine picture — when Polars
+external baseline (Neo4j + GDS). For the full four-engine picture — when Polars
 beats pandas on CPU, when the GPU pulls ahead, and how to choose — see
-:doc:`engines`. For *seeded* lookups, where an index rather than an engine is the
-lever, see :doc:`index_adjacency`.
+:doc:`engines`. For seeded lookups, see :doc:`index_adjacency`.
 
 For more on the GFQL design and supported surface:
 
@@ -169,28 +212,13 @@ For more on the GFQL design and supported surface:
 - :doc:`overview` — GFQL design, features, and GPU acceleration
 - :doc:`about` — 10-minute introduction to GFQL
 
-Methodology
------------
+.. _pagerank-provenance:
 
-- Host: ``dgx-spark``, GPU: ``GB10``, driver ``580.126.09``
-- Container: ``graphistry/test-gpu:latest``
-- Datasets: `SNAP <https://snap.stanford.edu/data/>`_ Twitter (2.4M edges) and GPlus (30M edges)
-- Measurement: warm median of 5 timed runs after 2 warmup iterations
-- Neo4j runs the analog Cypher + GDS pipeline below on the same host
+Benchmark environment and provenance
+------------------------------------
 
-Reproduce
----------
+Every figure is printed from ``docs/source/_data/gfql_benchmarks.json`` (pyg-bench).
 
-These reproducers print and plot; they do not yet emit a provenance-carrying artifact,
-which is why their output is not published here.
+.. bench-provenance:: filter-pagerank-20260728
 
-- ``benchmarks/gfql/filter_pagerank/load_prepare_cpu_gpu.py`` — load + shape the graphs
-- ``benchmarks/gfql/filter_pagerank/filter_pagerank_pipeline_cpu_gpu.py`` — the GFQL CPU/GPU pipeline
-- ``benchmarks/gfql/filter_pagerank/filter_pagerank_pipeline_neo4j.py`` — the Neo4j + GDS analog
-- ``benchmarks/gfql/filter_pagerank/presentation.py`` — chart generation
-
-Notebook version
-----------------
-
-See ``demos/gfql/benchmark_filter_pagerank_cpu_gpu.ipynb`` for a notebook
-version of this writeup.
+.. bench-disclosures::

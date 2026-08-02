@@ -53,6 +53,7 @@ from graphistry.validate import (
     ring_continuous_axis_payload_error,
 )
 from graphistry.compute.gfql.row.prefilter import is_alias_prefilters
+from graphistry.compute.gfql.cache_registry import register_process_singleton
 from graphistry.compute.gfql.row.order_expr import (
     is_order_aggregate_alias_ast,
     order_expr_ast_static_supported,
@@ -90,6 +91,9 @@ def _where_rows_expr_parser_fn() -> Optional[WhereRowsParserBundle]:
         return parse_expr, validate_expr_capabilities, collect_identifiers
     except Exception:
         return None
+
+
+register_process_singleton(_where_rows_expr_parser_fn, "binds imported callables and returns None when lark is absent; a resolved import is not stale state, and re-resolving it cannot change the answer")
 
 
 def _where_rows_expr_parse(expr: str) -> Optional[WhereRowsParsedExpr]:
