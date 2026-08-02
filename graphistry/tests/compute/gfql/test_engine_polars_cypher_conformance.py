@@ -623,18 +623,350 @@ class TestAutoEngineLazyFrames:
         assert r_auto["bid"].to_list() == [1]
 
 
+def _cudf_graph():
+    """Small cudf-frame graph; every AUTO-on-cudf test starts here."""
+    cudf = pytest.importorskip("cudf")
+    nodes = cudf.DataFrame({"id": [0, 1, 2, 3], "label__Person": [True] * 4})
+    edges = cudf.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3], "type": ["KNOWS"] * 3})
+    return cudf, graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+_CUDF_Q = "MATCH (a:Person {id: 0})-[:KNOWS]->(b) RETURN b.id AS bid"
+
+
 class TestAutoEngineCudfUntouched:
     """cuDF frames never enter the polars-AUTO guard (`is_polars_df` is a polars module
-    check), so the legacy AUTO->CUDF resolution is byte-for-byte what it was. Skips
-    without cudf/GPU; runs on GPU lanes."""
+    check). The cuDF arm of AUTO now PREFERS the polars-gpu route when the cudf-polars
+    GPU target is genuinely usable (probe True) — but with the probe False (any box
+    without a working cudf-polars stack, including this one) the legacy AUTO->CUDF
+    resolution is byte-for-byte what it was, INCLUDING the output frame types:
+    cudf frames in must mean cudf frames out. That held before the routing existed
+    (the legacy path never converted) and must keep holding after. Skips without
+    cudf/GPU; runs on GPU lanes."""
 
-    def test_auto_on_cudf_frames_stays_on_legacy_cudf_path(self):
+    def test_auto_on_cudf_frames_stays_on_legacy_cudf_path(self, monkeypatch):
+        cudf, g = _cudf_graph()
+        # pin probe False so this asserts the LEGACY path on GPU lanes too
+        monkeypatch.setattr("graphistry.compute.gfql_unified._polars_gpu_probe", lambda: False)
+        out = g.gfql(_CUDF_Q)
+        # cudf in -> cudf out, on BOTH bound frames — the frame-type contract of the
+        # legacy path, pinned as types, not just "guard bypassed"
+        assert isinstance(out._nodes, cudf.DataFrame), type(out._nodes)
+        assert isinstance(out._edges, cudf.DataFrame), type(out._edges)
+        assert out._nodes["bid"].to_pandas().tolist() == [1]
+
+    def test_explicit_engine_cudf_is_cudf_in_cudf_out(self, monkeypatch):
+        """Explicit engine= always wins: even with the probe forced True and the route
+        armed to explode, engine='cudf' serves on the legacy path, cudf in -> cudf out."""
+        cudf, g = _cudf_graph()
+        monkeypatch.setattr("graphistry.compute.gfql_unified._polars_gpu_probe", lambda: True)
+        monkeypatch.setattr(
+            "graphistry.compute.gfql_unified._auto_cudf_polars_gpu_route",
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError("explicit engine must bypass the route")),
+        )
+        out = g.gfql(_CUDF_Q, engine="cudf")
+        assert isinstance(out._nodes, cudf.DataFrame), type(out._nodes)
+        assert isinstance(out._edges, cudf.DataFrame), type(out._edges)
+        assert out._nodes["bid"].to_pandas().tolist() == [1]
+
+
+class TestPolarsGpuAvailabilityProbe:
+    """lazy.polars_gpu_available: a REAL probe (imports + a genuine GPU collect), cached
+    once per process and registered exempt in the GFQL cache registry. These tests are
+    CPU-runnable anywhere: they pin the graceful-False paths and the memoization by
+    forcing each failure leg, clearing the singleton around every observation."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_probe(self):
+        from graphistry.compute.gfql.lazy import polars_gpu_available
+        polars_gpu_available.cache_clear()
+        yield
+        polars_gpu_available.cache_clear()
+
+    def test_probe_never_raises_and_returns_bool(self):
+        from graphistry.compute.gfql.lazy import polars_gpu_available
+        assert isinstance(polars_gpu_available(), bool)
+
+    def test_probe_false_when_cudf_polars_missing(self, monkeypatch):
+        import importlib.util as ilu
+        from graphistry.compute.gfql.lazy import polars_gpu_available
+        real_find_spec = ilu.find_spec
+        monkeypatch.setattr(
+            ilu, "find_spec",
+            lambda name, *a, **k: None if name == "cudf_polars" else real_find_spec(name, *a, **k),
+        )
+        assert polars_gpu_available() is False
+
+    def test_probe_false_when_cudf_missing(self, monkeypatch):
+        import importlib.util as ilu
+        from graphistry.compute.gfql.lazy import polars_gpu_available
+        real_find_spec = ilu.find_spec
+        monkeypatch.setattr(
+            ilu, "find_spec",
+            lambda name, *a, **k: None if name == "cudf" else real_find_spec(name, *a, **k),
+        )
+        assert polars_gpu_available() is False
+
+    def test_probe_false_when_gpu_collect_fails(self, monkeypatch):
+        """Packages installed but the GPU genuinely unusable (the broken-libnvrtc class:
+        imports succeed, kernels fail) must probe False, not raise."""
+        import importlib.util as ilu
+        from graphistry.compute.gfql import lazy as lazy_mod
+        monkeypatch.setattr(ilu, "find_spec", lambda name, *a, **k: object())  # all "installed"
+        def _boom(target):
+            raise RuntimeError("libnvrtc.so: cannot open shared object file")
+        monkeypatch.setattr(lazy_mod, "_engine_for", _boom)
+        assert lazy_mod.polars_gpu_available() is False
+
+    def test_probe_is_a_process_singleton(self, monkeypatch):
+        """Second call must not re-probe: the availability of the GPU stack is a property
+        of the process environment, probed once (lru_cache maxsize=1)."""
+        import importlib.util as ilu
+        from graphistry.compute.gfql.lazy import polars_gpu_available
+        calls = []
+        real_find_spec = ilu.find_spec
+        def counting_find_spec(name, *a, **k):
+            if name == "cudf":
+                calls.append(name)
+            return None if name == "cudf_polars" else real_find_spec(name, *a, **k)
+        monkeypatch.setattr(ilu, "find_spec", counting_find_spec)
+        assert polars_gpu_available() is False
+        assert polars_gpu_available() is False
+        assert len(calls) == 1, calls
+
+    def test_probe_registered_exempt_in_cache_registry(self):
+        import graphistry.compute.gfql.lazy  # noqa: F401  (registration happens at import)
+        from graphistry.compute.gfql.cache_registry import entries
+        entry = entries()["polars_gpu_available"]
+        assert entry.clear is None, "must be an exempt process singleton, not clearable"
+        assert entry.reason and len(entry.reason.split()) >= 6
+
+
+class TestAutoEngineCudfPolarsGpuGuard:
+    """The guard around the cuDF arm: WHO gets routed. All pins go through the two module
+    seams (`_polars_gpu_probe`, `_auto_cudf_polars_gpu_route`) so they run on CPU boxes;
+    the route's real execution is covered by the CPU seam class below and the DGX class."""
+
+    def test_routed_when_probe_true(self, monkeypatch):
+        _, g = _cudf_graph()
+        sentinel = object()
+        calls = []
+        monkeypatch.setattr("graphistry.compute.gfql_unified._polars_gpu_probe", lambda: True)
+        monkeypatch.setattr(
+            "graphistry.compute.gfql_unified._auto_cudf_polars_gpu_route",
+            lambda *a, **k: (calls.append(a), sentinel)[1],
+        )
+        assert g.gfql(_CUDF_Q) is sentinel
+        assert len(calls) == 1
+
+    def test_edges_only_cudf_graph_is_routed(self, monkeypatch):
         cudf = pytest.importorskip("cudf")
-        nodes = cudf.DataFrame({"id": [0, 1, 2, 3], "label__Person": [True] * 4})
         edges = cudf.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3], "type": ["KNOWS"] * 3})
+        g = graphistry.edges(edges, "s", "d")
+        sentinel = object()
+        monkeypatch.setattr("graphistry.compute.gfql_unified._polars_gpu_probe", lambda: True)
+        monkeypatch.setattr(
+            "graphistry.compute.gfql_unified._auto_cudf_polars_gpu_route",
+            lambda *a, **k: sentinel,
+        )
+        assert g.gfql("MATCH (a)-[:KNOWS]->(b) RETURN b.id AS bid") is sentinel
+
+    def test_not_routed_when_probe_false(self, monkeypatch):
+        cudf, g = _cudf_graph()
+        calls = []
+        monkeypatch.setattr("graphistry.compute.gfql_unified._polars_gpu_probe", lambda: False)
+        monkeypatch.setattr(
+            "graphistry.compute.gfql_unified._auto_cudf_polars_gpu_route",
+            lambda *a, **k: calls.append(a),
+        )
+        out = g.gfql(_CUDF_Q)
+        assert calls == []
+        assert isinstance(out._nodes, cudf.DataFrame)
+
+    def test_policy_bearing_query_not_routed(self, monkeypatch):
+        """policy= present bypasses the route (the native executor's postload/postchain
+        hook gap must not become the default), same as the polars arm."""
+        cudf, g = _cudf_graph()
+        calls = []
+        monkeypatch.setattr("graphistry.compute.gfql_unified._polars_gpu_probe", lambda: True)
+        monkeypatch.setattr(
+            "graphistry.compute.gfql_unified._auto_cudf_polars_gpu_route",
+            lambda *a, **k: calls.append(a),
+        )
+        seen = []
+        out = g.gfql(_CUDF_Q, policy={"preload": lambda ctx: seen.append("preload")})
+        assert calls == []
+        assert seen == ["preload"]
+        assert isinstance(out._nodes, cudf.DataFrame)
+
+    def test_mixed_cudf_pandas_frames_not_routed(self, monkeypatch):
+        pytest.importorskip("cudf")
+        cudf, g_all = _cudf_graph()
+        g = g_all.nodes(pd.DataFrame({"id": [0, 1, 2, 3], "label__Person": [True] * 4}), "id")
+        calls = []
+        monkeypatch.setattr("graphistry.compute.gfql_unified._polars_gpu_probe", lambda: True)
+        monkeypatch.setattr(
+            "graphistry.compute.gfql_unified._auto_cudf_polars_gpu_route",
+            lambda *a, **k: calls.append(a),
+        )
+        try:
+            g.gfql(_CUDF_Q)
+        except Exception:
+            # mixed-frame legacy execution may fail on limited-GPU boxes; the pin here
+            # is only that the polars-gpu route was never consulted for mixed frames
+            pass
+        assert calls == []
+
+    def test_all_polars_frames_win_over_cudf_arm(self, monkeypatch):
+        """Guard ORDER: the all-polars arm fires first; the cudf arm must not even be
+        consulted for a polars-frame graph."""
+        g = graphistry.nodes(
+            pl.DataFrame({"id": [0, 1, 2, 3], "label__Person": [True] * 4}), "id"
+        ).edges(pl.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3], "type": ["KNOWS"] * 3}), "s", "d")
+        monkeypatch.setattr("graphistry.compute.gfql_unified._polars_gpu_probe", lambda: True)
+        monkeypatch.setattr(
+            "graphistry.compute.gfql_unified._auto_cudf_polars_gpu_route",
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError("cudf arm must not fire on polars frames")),
+        )
+        out = g.gfql(_CUDF_Q)
+        assert isinstance(out._nodes, pl.DataFrame)
+
+    def test_nie_from_route_falls_back_to_legacy_cudf_values(self, monkeypatch):
+        """Decline shape: a NotImplementedError out of the route (engine decline, GPU
+        collect failure via _gpu_raise, or the cudf-out boundary) re-serves the query on
+        the legacy CUDF path with identical values."""
+        cudf, g = _cudf_graph()
+        expected = g.gfql(_CUDF_Q)._nodes.to_pandas()  # probe False here: legacy result
+        calls = []
+        monkeypatch.setattr("graphistry.compute.gfql_unified._polars_gpu_probe", lambda: True)
+        def declining_route(*a, **k):
+            calls.append(a)
+            raise NotImplementedError("declined for the test")
+        monkeypatch.setattr(
+            "graphistry.compute.gfql_unified._auto_cudf_polars_gpu_route", declining_route
+        )
+        out = g.gfql(_CUDF_Q)
+        assert len(calls) == 1
+        assert isinstance(out._nodes, cudf.DataFrame)
+        pd.testing.assert_frame_equal(
+            out._nodes.to_pandas().reset_index(drop=True), expected.reset_index(drop=True)
+        )
+
+
+class TestAutoEngineCudfPolarsGpuRouteCpuSeam:
+    """The REAL route body, executable on CPU: `_AUTO_CUDF_ROUTE_ENGINE` swapped to
+    'polars' runs guard -> recursion -> cudf->Arrow->polars coercion -> native engine ->
+    polars->Arrow->cudf result boundary — everything except the GPU collect itself
+    (DGX-deferred). Value tests only where actually executable, per the tiering."""
+
+    def test_cudf_in_cudf_out_values_match_legacy(self, monkeypatch):
+        cudf, g = _cudf_graph()
+        expected = g.gfql(_CUDF_Q)._nodes.to_pandas()  # legacy path (probe False here)
+        monkeypatch.setattr("graphistry.compute.gfql_unified._polars_gpu_probe", lambda: True)
+        monkeypatch.setattr("graphistry.compute.gfql_unified._AUTO_CUDF_ROUTE_ENGINE", "polars")
+        out = g.gfql(_CUDF_Q)
+        assert isinstance(out._nodes, cudf.DataFrame), type(out._nodes)
+        assert isinstance(out._edges, cudf.DataFrame), type(out._edges)
+        pd.testing.assert_frame_equal(
+            out._nodes.to_pandas().reset_index(drop=True),
+            expected.reset_index(drop=True),
+            check_dtype=False,
+        )
+
+    def test_nullable_values_survive_both_arrow_boundaries(self, monkeypatch):
+        """Nulls in a cudf int column must survive cudf->polars->cudf without the pandas
+        detour's float64+NaN upcast."""
+        cudf = pytest.importorskip("cudf")
+        nodes = cudf.DataFrame({"id": [0, 1, 2, 3], "v": [10, None, 30, None]})
+        edges = cudf.DataFrame({"s": [0, 1], "d": [1, 2]})
         g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
-        out = g.gfql("MATCH (a:Person {id: 0})-[:KNOWS]->(b) RETURN b.id AS bid")._nodes
-        assert "cudf" in type(out).__module__, type(out)  # not polars, not pandas
+        monkeypatch.setattr("graphistry.compute.gfql_unified._polars_gpu_probe", lambda: True)
+        monkeypatch.setattr("graphistry.compute.gfql_unified._AUTO_CUDF_ROUTE_ENGINE", "polars")
+        out = g.gfql("MATCH (n) RETURN n.id AS nid, n.v AS v ORDER BY nid")
+        assert isinstance(out._nodes, cudf.DataFrame)
+        got = out._nodes.to_pandas()
+        assert got["nid"].tolist() == [0, 1, 2, 3]
+        vals = got["v"].tolist()
+        assert vals[0] == 10 and vals[2] == 30
+        assert pd.isna(vals[1]) and pd.isna(vals[3])
+        assert "int" in str(out._nodes["v"].dtype).lower(), out._nodes["v"].dtype
+
+    def test_engine_decline_falls_back_to_legacy_through_real_route(self, monkeypatch):
+        """An honest engine NIE (shortestPath has no native polars row op) travels the
+        real route and lands on the legacy CUDF path — cudf out, correct value."""
+        cudf, g = _cudf_graph()
+        q = ("MATCH p = shortestPath((a:Person {id: 0})-[:KNOWS*]-(b:Person {id: 3})) "
+             "RETURN length(p) AS l")
+        monkeypatch.setattr("graphistry.compute.gfql_unified._polars_gpu_probe", lambda: True)
+        monkeypatch.setattr("graphistry.compute.gfql_unified._AUTO_CUDF_ROUTE_ENGINE", "polars")
+        out = g.gfql(q)
+        assert isinstance(out._nodes, cudf.DataFrame), type(out._nodes)
+        assert out._nodes["l"].to_pandas().tolist() == [3]
+
+    def test_route_result_boundary_failure_is_nie(self, monkeypatch):
+        """_route_result_frames_to_cudf wraps conversion failures as NotImplementedError
+        so the guard's decline path catches them (never a leaked raw error)."""
+        pytest.importorskip("cudf")
+        from graphistry.compute import gfql_unified as gu
+        res = graphistry.nodes(pl.DataFrame({"id": [1]}), "id").edges(
+            pl.DataFrame({"s": [1], "d": [1]}), "s", "d"
+        )
+        def _explode(df, engine):
+            raise RuntimeError("no arrow for you")
+        monkeypatch.setattr("graphistry.compute.gfql_unified.df_to_engine", _explode)
+        with pytest.raises(NotImplementedError, match="could not cross back to cudf"):
+            gu._route_result_frames_to_cudf(res)
+
+
+def _polars_gpu_genuinely_available() -> bool:
+    try:
+        from graphistry.compute.gfql.lazy import polars_gpu_available
+        return polars_gpu_available()
+    except Exception:
+        return False
+
+
+class TestAutoEngineCudfPolarsGpuExecutionDGX:
+    """DGX-DEFERRED tier: the real cudf-polars GPU collect. Runs only where the probe is
+    genuinely True (working RAPIDS cudf_polars stack); everywhere else these skip — same
+    convention as test_engine_polars_gpu.py. Owner has explicitly deferred running these
+    (GPU box under a locked benchmark)."""
+
+    pytestmark = pytest.mark.skipif(
+        not _polars_gpu_genuinely_available(),
+        reason="requires a genuinely usable cudf-polars GPU stack (DGX-deferred)",
+    )
+
+    def test_auto_on_cudf_routes_polars_gpu_and_returns_cudf(self, monkeypatch):
+        cudf, g = _cudf_graph()
+        from graphistry.compute import gfql_unified as gu
+        calls = []
+        real_route = gu._auto_cudf_polars_gpu_route
+        def spying_route(*a, **k):
+            calls.append(1)
+            return real_route(*a, **k)
+        monkeypatch.setattr("graphistry.compute.gfql_unified._auto_cudf_polars_gpu_route", spying_route)
+        out = g.gfql(_CUDF_Q)
+        assert calls, "probe True but the route did not engage"
+        assert isinstance(out._nodes, cudf.DataFrame), type(out._nodes)
+        assert isinstance(out._edges, cudf.DataFrame), type(out._edges)
+        assert out._nodes["bid"].to_pandas().tolist() == [1]
+
+    def test_gpu_route_values_match_legacy_cudf_path(self, monkeypatch):
+        cudf, g = _cudf_graph()
+        out_routed = g.gfql(_CUDF_Q)._nodes.to_pandas()
+        monkeypatch.setattr("graphistry.compute.gfql_unified._polars_gpu_probe", lambda: False)
+        out_legacy = g.gfql(_CUDF_Q)._nodes.to_pandas()
+        pd.testing.assert_frame_equal(
+            out_routed.reset_index(drop=True), out_legacy.reset_index(drop=True),
+            check_dtype=False,
+        )
+
+    def test_explicit_polars_gpu_still_returns_polars(self):
+        """Explicit engine='polars-gpu' is NOT the AUTO route: no cudf-out boundary."""
+        _, g = _cudf_graph()
+        out = g.gfql(_CUDF_Q, engine="polars-gpu")
+        assert isinstance(out._nodes, pl.DataFrame), type(out._nodes)
 
 
 class TestAutoEnginePandasOracleParity:
