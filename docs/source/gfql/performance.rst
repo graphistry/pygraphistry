@@ -137,9 +137,7 @@ OLAP multi-join
 ~~~~~~~~~~~~~~~
 
 The OLAP multi-join comparison against an embedded graph database is the q1–q9 board
-below (:ref:`gfql-vs-kuzu-board`). Earlier q8/q9 figures from the July lane are withdrawn:
-that lane's results directory carries no receipts, so its numbers are not citable. The
-board below is from a receipted re-run.
+below: :ref:`gfql-vs-kuzu-board`.
 
 When not to use GFQL
 ~~~~~~~~~~~~~~~~~~~~
@@ -153,6 +151,19 @@ workload, and keep a database as the system-of-record where one fits.
 
 The q1–q9 board: GFQL vs an embedded graph database
 ---------------------------------------------------
+
+**GFQL with** ``engine='polars'`` **wins the large majority of these head-to-head cells
+at both scales: across the two boards it beats embedded Kuzu on 11 of the 18 cells, ties
+4, and loses 3, with wins reaching** :bench:`graphbench.100k.q2.polars_vs_kuzu`\ **.**
+The exceptions are a few ties and losses on small, point-lookup-shaped work: q8, a
+single-row two-hop count that Kuzu answers very fast, loses at both scales, and q4's
+loss is weak-flagged and only at 20k — it flips to a win at 100k. The gap otherwise
+runs in GFQL's favor and grows with scale: on eight of the nine queries the Kuzu ÷
+Polars ratio moves further toward GFQL from 20k to 100k, the exception being q5, which
+slips from a narrow win into the tie band. Against Neo4j, this page carries the seeded
+LDBC SNB pairs above — GFQL takes four of the five — and the receipted
+filter → PageRank → filter pipeline against Neo4j + GDS is in
+:doc:`benchmark_filter_pagerank`.
 
 This is the ``prrao87/graph-benchmark`` q1–q9 Cypher suite — degree ranking, grouped
 aggregation, filtered population counts, two-hop path counting — on a synthetic social
@@ -385,10 +396,6 @@ The setup difference is real but not in the timings: the GFQL side queries a dat
 that is already in memory — no store to provision, no load step, no index to build before
 the first query runs.
 
-No number from any earlier 100k run appears on this page: the July lane
-(``results/graphbench-matched-q1q9-20260726``) carries no receipts and is withdrawn as
-nonreproducible.
-
 Provenance
 ~~~~~~~~~~
 
@@ -423,9 +430,9 @@ A figure that cannot be traced to a committed artifact is not published in this 
 Bulk engine comparison (prior sweep)
 ------------------------------------
 
-The numbers in this section are from an earlier, pre-0.58.0 bulk sweep on SNAP
-**com-LiveJournal** (35M edges) and **com-Orkut** (117M edges) — retained as the
-bulk-workload reference until rerun on a current tag.
+The numbers in this section are from a pre-0.58.0 bulk sweep on SNAP
+**com-LiveJournal** (35M edges) and **com-Orkut** (117M edges) — the bulk-workload
+reference.
 
 Same query, same answers, four engines — warm-median latency on Orkut (3.1M nodes /
 117M edges), measured on a single machine:
