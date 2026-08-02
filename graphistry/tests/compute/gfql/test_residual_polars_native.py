@@ -823,6 +823,141 @@ class TestFusedTwoStarLane:
         assert got == gpd.gfql(q, engine="pandas")._nodes.to_dict("records")
         assert got, f"{pred}: vacuous (empty) comparison"
 
+    # --- MINIMAL-JOIN fused plan: dropped-semi-join proofs, end to end ------------------
+
+    #: The graph-benchmark q7 anatomy verbatim: range filter on the shared alias, an
+    #: equality pushdown on the second leaf, a one-sided toLower residual on the first
+    #: leaf, TWO group keys from the second leaf, ORDER BY count DESC + key ASC, LIMIT 1.
+    Q_Q7_SHAPE = ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+                  "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+                  "WHERE toLower(i.interest) = 'fine dining' "
+                  "AND p.age >= 20 AND p.age <= 40 AND c.country = 'United Kingdom' "
+                  "RETURN c.city AS city, c.country AS country, count(p) AS n "
+                  "ORDER BY n DESC, city ASC LIMIT 1")
+
+    def _q7_shape_graph(self):
+        pl2 = pytest.importorskip("polars")
+        ndf = pl2.DataFrame({
+            "node_id": [1, 2, 3, 4, 5, 6, 7],
+            "node_type": ["Person", "Person", "Person", "Interest", "Interest", "City", "City"],
+            "age": [25, 30, 55, None, None, None, None],
+            "interest": [None, None, None, "Fine Dining", "tennis", None, None],
+            "city": [None, None, None, None, None, "London", "Paris"],
+            "country": [None, None, None, None, None, "United Kingdom", "France"],
+        })
+        edf = pl2.DataFrame({
+            # Fine dining: p1 holds TWO edges (left count 2), p2 and p3 one each --
+            # p3 is OUTSIDE the age domain, so its group EXISTS in the unrestricted
+            # left counts and must be dropped by the final inner join, not by a
+            # pre-restriction. Tennis: p2 (in-domain) once, p3 (out-of-domain)
+            # TWICE -- the boundary-probe discriminator below.
+            "src": [1, 1, 2, 3, 2, 3, 3, 1, 2, 3],
+            "dst": [4, 4, 4, 4, 5, 5, 5, 6, 6, 7],
+            "rel": ["HAS_INTEREST"] * 7 + ["LIVES_IN"] * 3,
+        })
+        return graphistry.nodes(ndf, "node_id").edges(edf, "src", "dst")
+
+    @requires_polars
+    def test_minimal_join_q7_shape_serves_and_matches_both_twins(self, monkeypatch):
+        """Lane pin + value parity for the exact board-cell anatomy. The minimal-join
+        plan drops the left-arm shared semi-join AND the right-arm leaf semi-join
+        (the unique-keyed lookup join subsumes it); the answer must still be the
+        eager twin's and the pandas oracle's, with the out-of-domain shared node
+        (p3) and the un-matched leaf (Paris/tennis) both excluded."""
+        g = self._q7_shape_graph()
+        calls = self._spy_fused(monkeypatch)
+        fused = g.gfql(self.Q_Q7_SHAPE, engine="polars")
+        assert calls and calls[-1], "fused lane did not engage"
+        assert self._rows(fused) == [{"city": "London", "country": "United Kingdom", "n": 3}]
+        gpd = graphistry.nodes(g._nodes.to_pandas(), "node_id").edges(
+            g._edges.to_pandas(), "src", "dst")
+        assert self._rows(fused) == gpd.gfql(self.Q_Q7_SHAPE, engine="pandas")._nodes.to_dict("records")
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        eager = g.gfql(self.Q_Q7_SHAPE, engine="polars")
+        assert self._rows(fused) == self._rows(eager)
+
+    @requires_polars
+    def test_empty_match_boundary_probe_keeps_the_shared_domain_restriction(self, monkeypatch):
+        """THE dropped-semi-join hazard, pinned. The n=0 shortcut probes whether the
+        LEFT counts are all 1 -- and that probe must see the EAGER lane's counts,
+        i.e. WITH the shared-domain restriction the hot plan proved redundant.
+        Here the out-of-domain person (age 55) holds a left count of 2; if the
+        boundary probe ever reads the UNRESTRICTED hot-plan counts, all-==-1 flips
+        false and the answer degrades from the openCypher n=0 row to a 0x0 frame."""
+        g = self._q7_shape_graph()
+        q = ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+             "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+             "WHERE toLower(i.interest) = 'tennis' "
+             "AND p.age >= 20 AND p.age <= 40 AND c.city = 'NoSuchCity' "
+             "RETURN count(p) AS n")
+        # tennis: p2 (in-domain) once -> restricted left counts are all 1 and
+        # non-empty; p3 (age 55, OUT of domain) twice -> the unrestricted counts
+        # are NOT all 1. The two probe readings give different answers, so this
+        # test fails if the boundary ever reads the hot-plan counts.
+        calls = self._spy_fused(monkeypatch)
+        fused = g.gfql(q, engine="polars")
+        assert calls and calls[-1], "fused lane did not engage"
+        assert self._rows(fused) == [{"n": 0}]
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        eager = g.gfql(q, engine="polars")
+        assert self._rows(fused) == self._rows(eager)
+
+    @requires_polars
+    def test_grouped_limit_zero_keeps_columns(self, monkeypatch):
+        """LIMIT 0 must yield the 0-row WITH-columns frame, not the 0x0 empty-match
+        boundary frame -- the lazy grouped tail cannot tell those apart from its
+        own (empty) output, so LIMIT 0 is pinned to the eager tail."""
+        g = self._q7_shape_graph()
+        q = self.Q_Q7_SHAPE.replace("LIMIT 1", "LIMIT 0")
+        calls = self._spy_fused(monkeypatch)
+        fused = g.gfql(q, engine="polars")
+
+        def shape(res):
+            df = res._nodes
+            df = df.to_pandas() if hasattr(df, "to_pandas") else df
+            return (len(df), sorted(map(str, df.columns)))
+
+        assert calls and calls[-1], "fused lane did not engage"
+        assert shape(fused) == (0, ["city", "country", "n"])
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        eager = g.gfql(q, engine="polars")
+        assert shape(fused) == shape(eager)
+
+    @requires_polars
+    def test_grouped_tail_rides_the_single_collect(self, monkeypatch):
+        """STRUCTURAL LOCK-IN of the fused lane's one-collect contract, now including
+        the grouped tail: a served non-empty grouped query must reach polars exactly
+        once (the eager tail's group_by/sort each pay their own engine dispatch --
+        the cost this plan shape removed)."""
+        pl2 = pytest.importorskip("polars")
+        g = self._q7_shape_graph()
+        collects_inside = []
+        orig_fused = fp._connected_join_two_star_fused_polars
+        orig_collect = pl2.LazyFrame.collect
+
+        def counting_fused(*a, **k):
+            count = [0]
+
+            def counting_collect(self_lf, *ca, **ck):
+                count[0] += 1
+                return orig_collect(self_lf, *ca, **ck)
+
+            monkeypatch.setattr(pl2.LazyFrame, "collect", counting_collect)
+            try:
+                out = orig_fused(*a, **k)
+            finally:
+                monkeypatch.setattr(pl2.LazyFrame, "collect", orig_collect)
+            collects_inside.append((count[0], out is not None))
+            return out
+
+        monkeypatch.setattr(fp, "_connected_join_two_star_fused_polars", counting_fused)
+        res = g.gfql(self.Q_Q7_SHAPE, engine="polars")
+        assert self._rows(res) == [{"city": "London", "country": "United Kingdom", "n": 3}]
+        assert collects_inside and collects_inside[-1][1], "fused lane did not serve"
+        assert collects_inside[-1][0] == 1, (
+            f"fused lane issued {collects_inside[-1][0]} collects, expected exactly 1 "
+            "(the grouped tail must ride the hot-path collect)")
+
 
 class TestFusedLaneNanGuardScoping:
     """#1832 follow-up: the fused lane skips the IEEE NaN mask for BARE COLUMN operands only.
