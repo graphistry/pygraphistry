@@ -1525,6 +1525,15 @@ _COMPILED_STRING_QUERY_CACHE: "OrderedDict[Tuple[str, str, Tuple[Tuple[str, Any]
 _COMPILED_STRING_QUERY_CACHE_LOCK = threading.Lock()
 
 
+def _clear_compiled_string_query_cache() -> None:
+    with _COMPILED_STRING_QUERY_CACHE_LOCK:
+        _COMPILED_STRING_QUERY_CACHE.clear()
+
+
+from graphistry.compute.gfql.cache_registry import register_clearable_callable  # noqa: E402
+register_clearable_callable("_COMPILED_STRING_QUERY_CACHE", _clear_compiled_string_query_cache)
+
+
 def _compile_cache_value_key(value: Any) -> Optional[Any]:
     if value is None:
         return ("none",)
@@ -1590,26 +1599,36 @@ def _node_dtypes_cache_key(
 def gfql_clear_caches() -> None:
     """Empty every PROCESS-LIFETIME GFQL cache.
 
-    GFQL memoizes work that is a pure function of its inputs: compiled plans here, and the
-    parse caches behind ``parse_cypher`` and the row-expression parser. All are bounded, so
+    GFQL memoizes work that is a pure function of its inputs: compiled plans here, the
+    parse caches behind ``parse_cypher`` and the row-expression parser, and the polars
+    single-alias predicate-lowering memo. All are bounded, so
     this is not a leak valve -- it exists because a process-lifetime cache that cannot be
     emptied is untestable (results become order-dependent) and unbudgetable (a long-lived
     server cannot reclaim the memory on demand).
 
     Caches keyed to a specific graph are NOT touched: they live on their ``Plottable`` and
-    die with it.
+    die with it. Neither are the process-lifetime *singletons* -- Lark parser objects,
+    compiled regexes, dependency probes -- which are a function of the code, not of any
+    input; see ``clear_cypher_parser_caches`` and
+    ``graphistry/tests/compute/gfql/test_clear_caches_covers_every_cache.py``, which fails
+    if a new memo appears and is neither cleared here nor exempted with a written reason.
+
+    Every clear is UNCONDITIONAL and runs through the cache registry
+    (``graphistry/compute/gfql/cache_registry.py``): each cache registers its own bound
+    clear handle at its definition site, so there is no later name lookup to get wrong.
+    An earlier version looked targets up with ``getattr(obj, "cache_clear", None)`` and
+    skipped whatever came back ``None``; naming the wrong object -- ``parse_cypher``,
+    whose memo actually lives on the ``_parse_cypher_cached`` body -- turned the whole
+    call into a silent no-op for days. ``clear_all`` raises when the registry is empty.
     """
-    with _COMPILED_STRING_QUERY_CACHE_LOCK:
-        _COMPILED_STRING_QUERY_CACHE.clear()
-    for cached in (parse_cypher,):
-        clear = getattr(cached, "cache_clear", None)
-        if clear is not None:
-            clear()
-    try:
-        from graphistry.compute.gfql.expr_parser import clear_expr_parser_caches
-    except ImportError:
-        return
-    clear_expr_parser_caches()
+    # Importing a cache-hosting module is what registers its caches; import the
+    # clearable hosts here so a caller who never touched them still empties them.
+    # All three imports are safe on minimal installs (polars/lark guarded inside).
+    import graphistry.compute.gfql.cypher.parser  # noqa: F401
+    import graphistry.compute.gfql.expr_parser  # noqa: F401
+    import graphistry.compute.gfql.lazy.engine.polars.row_pipeline  # noqa: F401
+    from graphistry.compute.gfql.cache_registry import clear_all
+    clear_all()
 
 
 def _compile_string_query(
