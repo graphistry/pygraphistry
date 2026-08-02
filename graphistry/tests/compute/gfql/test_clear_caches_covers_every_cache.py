@@ -235,3 +235,33 @@ def test_clear_survives_module_attribute_swap() -> None:
     finally:
         cypher_parser._parse_cypher_cached = real  # type: ignore[assignment]
     assert real.cache_info().currsize == 0
+
+
+def test_single_alias_hit_path_survives_clear_during_read() -> None:
+    """A clear (or eviction) landing between the memo's move_to_end and its read must
+    degrade to a recompute, never raise KeyError to the caller. Deterministic interleave:
+    an OrderedDict subclass whose move_to_end empties the cache mid-hit."""
+    pytest.importorskip("lark")
+    pl = pytest.importorskip("polars")
+    from collections import OrderedDict
+
+    from graphistry.compute.gfql.lazy.engine.polars import row_pipeline
+
+    class ClearsOnTouch(OrderedDict):
+        def move_to_end(self, key, last=True):  # type: ignore[override]
+            super().move_to_end(key, last)
+            self.clear()  # simulate registry clear_all() winning the race
+
+    schema = pl.DataFrame({"age": [1]}).schema
+    original = row_pipeline._SINGLE_ALIAS_CACHE
+    try:
+        row_pipeline._SINGLE_ALIAS_CACHE = ClearsOnTouch()  # type: ignore[assignment]
+        first = row_pipeline.lower_single_alias_predicate("age > 30", "n", schema)
+        assert first is not None
+        row_pipeline._SINGLE_ALIAS_CACHE["probe"] = None  # ensure non-empty bookkeeping ok
+        row_pipeline._SINGLE_ALIAS_CACHE.clear()
+        row_pipeline.lower_single_alias_predicate("age > 30", "n", schema)  # populate
+        second = row_pipeline.lower_single_alias_predicate("age > 30", "n", schema)  # hit->cleared
+        assert second is not None, "race must recompute, not fail"
+    finally:
+        row_pipeline._SINGLE_ALIAS_CACHE = original  # type: ignore[assignment]
