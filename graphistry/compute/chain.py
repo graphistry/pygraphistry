@@ -899,6 +899,19 @@ def _try_chain_fast_path(
     src, dst, node = g._source, g._destination, g._node
     if src is None or dst is None or node is None:
         return None  # no edge/node bindings -> can't fast-path; full path handles it
+    if alias_n0 == node or alias_n2 == node:
+        # A node alias EQUAL TO THE NODE-ID BINDING would make `_tag_fast_path_aliases`
+        # overwrite the id column with the bool flag (destroying the ids) while the full
+        # path raises on the same query ("The column label '<node>' is not unique") —
+        # a wrong-serve found by adversarial parity testing. Decline; never serve.
+        return None
+    if alias_e1 is not None and direction in ("forward", "reverse") \
+            and alias_e1 == (src if direction == "forward" else dst):
+        # An edge alias EQUAL TO THE HOP'S FROM-SIDE BINDING (forward+src / reverse+dst)
+        # made the two lanes return DIFFERENT node sets: the full path's flag overwrite
+        # corrupts its own node reduction, the fast path tags after reducing. TO-side
+        # collisions keep parity (pinned in tests) and stay served. Decline; never serve.
+        return None
     if (alias_n0 is not None or alias_e1 is not None or alias_n2 is not None) \
             and direction != "undirected" and g._nodes is not None and g._edges is not None:
         # DEFER TO THE INDEX when one would ACTUALLY serve. A resident index is

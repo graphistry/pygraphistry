@@ -1001,8 +1001,9 @@ def test_fast_path_named_datetime_categorical_columns_ride_along():
 # Alias names that SHADOW a real column WITHOUT breaking parity. Today BOTH lanes
 # overwrite the shadowed column with the flag, identically — that (pre-existing,
 # full-path) contract is what these pin, so a lane can't drift to a different
-# overwrite/raise behavior alone. The FROM-side binding columns are excluded: those
-# DIVERGE today and are pinned as strict xfails below.
+# overwrite/raise behavior alone. The FROM-side binding columns and the node-id
+# binding are excluded here: those wrong-served (diverged) before, are now GATED to
+# decline, and are pinned by the two regression tests below.
 _ALIAS_SHADOW_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
     ("node_alias_shadows_node_data_col", lambda: [n(name='attr'), e_forward(hops=1), n()]),
     ("edge_alias_shadows_edge_data_col", lambda: [n(), e_forward(hops=1, name='w'), n()]),
@@ -1029,22 +1030,22 @@ def test_fast_path_alias_shadowing_column_matches_full_path(label, build):
     _assert_full_frame_value_parity(fast._edges, full._edges, ['w'])
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "BUG (wrong-serve): an EDGE alias that collides with the hop's FROM-side binding "
-    "column (forward + name=src, reverse + name=dst) is SERVED by the fast path but "
-    "the two lanes return DIFFERENT node sets (e.g. fast [0..4] vs full [1..4] on the "
-    "5-node fixture): the full path's overwrite of the from-column corrupts its own "
-    "node reduction, the fast path tags after reducing. TO-side collisions keep "
-    "parity (pinned above). The lanes must agree — the gate should decline an edge "
-    "alias equal to the active from-binding (or both lanes should raise)."))
 @pytest.mark.parametrize("build", [
     lambda: [n(), e_forward(hops=1, name='s'), n()],
     lambda: [n(), e_reverse(hops=1, name='d'), n()],
 ], ids=["fwd_alias_is_src_binding", "rev_alias_is_dst_binding"])
 def test_fast_path_edge_alias_colliding_with_from_binding_matches_full_path(build):
-    """The two lanes must be observationally equivalent: both raise, or both return
-    the same frames."""
+    """REGRESSION (wrong-serve, found by adversarial parity testing, now GATED): an
+    edge alias equal to the hop's FROM-side binding column (forward+name=src,
+    reverse+name=dst) used to be SERVED with a DIFFERENT node set than the full path
+    (fast [0..4] vs full [1..4] on this fixture — the full path's flag overwrite
+    corrupts its own node reduction). The gate now DECLINES it; TO-side collisions
+    keep parity and stay served (pinned above). Both routes must agree: both raise,
+    or both return the same frames."""
+    from graphistry.Engine import Engine
     g = _fast_graph("pandas")
+    assert _try_chain_fast_path(g, build(), Engine.PANDAS, None) is None, \
+        "edge alias == FROM-side binding must DECLINE the fast path"
     try:
         full = g.gfql(build(), policy=_FAST_NOOP_POLICY)
         full_raised = None
@@ -1060,22 +1061,20 @@ def test_fast_path_edge_alias_colliding_with_from_binding_matches_full_path(buil
         _assert_full_frame_value_parity(fast._edges, full._edges, ['w'])
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "BUG (wrong-serve): a node alias that collides with the NODE ID BINDING column "
-    "('v') is SERVED by the fast path, which silently OVERWRITES the id column with "
-    "the bool alias flag — the node ids are destroyed. The full path raises for the "
-    "same query (pandas: \"The column label 'v' is not unique\"). The two lanes must "
-    "agree: the gate should decline (or both should raise). Fix: decline when a node "
-    "alias equals g._node (and audit src/dst equivalents on the edge side)."))
 @pytest.mark.parametrize("build", [
     lambda: [n(name='v'), e_forward(hops=1), n()],
     lambda: [n(), e_forward(hops=1), n(name='v')],
 ], ids=["n0_alias_is_node_binding", "n2_alias_is_node_binding"])
 def test_fast_path_alias_colliding_with_node_id_binding_matches_full_path(build):
-    """The two lanes must be observationally equivalent: both raise, or both return
-    the same frames. Today the served lane returns frames whose 'v' column holds the
-    alias FLAGS instead of the node ids, while the full path raises ValueError."""
+    """REGRESSION (wrong-serve, found by adversarial parity testing, now GATED): a
+    node alias equal to the NODE ID BINDING column ('v') used to be SERVED, silently
+    overwriting the id column with the bool alias flag while the full path raised.
+    The gate now DECLINES it, so the two lanes are observationally equivalent: both
+    raise, or both return the same frames (today: both raise pandas' ValueError)."""
+    from graphistry.Engine import Engine
     g = _fast_graph("pandas")
+    assert _try_chain_fast_path(g, build(), Engine.PANDAS, None) is None, \
+        "node alias == node-id binding must DECLINE the fast path"
     try:
         full = g.gfql(build(), policy=_FAST_NOOP_POLICY)
         full_raised = None
@@ -1168,6 +1167,15 @@ def test_fast_path_gating_returns_none_for_ineligible():
         ("named_source_node_match", [n(name='x'), e_forward(hops=1, source_node_match={'attr': 10}), n(name='y')], None, Engine.PANDAS),
         ("named_prune_endpoints", [n(name='x'), e_forward(hops=1, prune_to_endpoints=True), n(name='y')], None, Engine.PANDAS),
         ("named_seeded", [n(name='x'), e_forward(hops=1), n(name='y')], seed, Engine.PANDAS),
+        # BINDING-COLLISION declines (wrong-serves found by adversarial parity testing):
+        # a node alias equal to the node-id binding would overwrite the id column where
+        # the full path raises; an edge alias equal to the hop's FROM-side binding made
+        # the two lanes return different node sets. TO-side collisions keep parity and
+        # remain served (see test_fast_path_alias_shadowing_column_matches_full_path).
+        ("n0_alias_is_node_binding", [n(name='v'), e_forward(hops=1), n()], None, Engine.PANDAS),
+        ("n2_alias_is_node_binding", [n(), e_forward(hops=1), n(name='v')], None, Engine.PANDAS),
+        ("edge_alias_is_src_binding_fwd", [n(), e_forward(hops=1, name='s'), n()], None, Engine.PANDAS),
+        ("edge_alias_is_dst_binding_rev", [n(), e_reverse(hops=1, name='d'), n()], None, Engine.PANDAS),
         ("non_eager_engine", [n()], None, Engine.DASK),
         ("two_ops", [n(), e_forward(hops=1)], None, Engine.PANDAS),
     ]
