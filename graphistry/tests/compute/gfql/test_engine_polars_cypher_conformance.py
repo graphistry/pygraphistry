@@ -688,13 +688,30 @@ class TestPolarsGpuAvailabilityProbe:
         assert isinstance(polars_gpu_available(), bool)
 
     def test_probe_false_when_cudf_polars_missing(self, monkeypatch):
+        """cudf installed, cudf_polars not: the second spec check must decline. cudf is
+        STUBBED present (not looked up for real) so this leg is actually reached on the
+        CPU lanes where cudf is absent — a real lookup would short-circuit at the cudf
+        check and this test would silently re-pin the cudf-missing leg instead."""
         import importlib.util as ilu
         from graphistry.compute.gfql.lazy import polars_gpu_available
         real_find_spec = ilu.find_spec
-        monkeypatch.setattr(
-            ilu, "find_spec",
-            lambda name, *a, **k: None if name == "cudf_polars" else real_find_spec(name, *a, **k),
-        )
+        def fake_find_spec(name, *a, **k):
+            if name == "cudf":
+                return object()
+            if name == "cudf_polars":
+                return None
+            return real_find_spec(name, *a, **k)
+        monkeypatch.setattr(ilu, "find_spec", fake_find_spec)
+        assert polars_gpu_available() is False
+
+    def test_probe_false_when_spec_lookup_raises(self, monkeypatch):
+        """Broken packaging metadata (find_spec itself raising, e.g. a half-uninstalled
+        wheel) must probe False through the import-block except, never raise."""
+        import importlib.util as ilu
+        from graphistry.compute.gfql.lazy import polars_gpu_available
+        def _broken(name, *a, **k):
+            raise ImportError(f"broken package metadata for {name}")
+        monkeypatch.setattr(ilu, "find_spec", _broken)
         assert polars_gpu_available() is False
 
     def test_probe_false_when_cudf_missing(self, monkeypatch):
@@ -717,6 +734,28 @@ class TestPolarsGpuAvailabilityProbe:
             raise RuntimeError("libnvrtc.so: cannot open shared object file")
         monkeypatch.setattr(lazy_mod, "_engine_for", _boom)
         assert lazy_mod.polars_gpu_available() is False
+
+    def test_probe_false_when_engine_builder_returns_none(self, monkeypatch):
+        """The typing-honesty guard (`_engine_for` -> None) must decline, not collect on
+        a None engine. Unreachable through the real `_engine_for` (GPU target always
+        builds an engine), so it is pinned through the same seam the failure test uses."""
+        import importlib.util as ilu
+        from graphistry.compute.gfql import lazy as lazy_mod
+        monkeypatch.setattr(ilu, "find_spec", lambda name, *a, **k: object())
+        monkeypatch.setattr(lazy_mod, "_engine_for", lambda target: None)
+        assert lazy_mod.polars_gpu_available() is False
+
+    def test_probe_true_when_collect_succeeds(self, monkeypatch):
+        """The success leg, CPU-runnable through the same `_engine_for` seam the failure
+        test uses: hand the probe an engine spec that executes here ('in-memory' — a
+        string polars accepts wherever GPUEngine is accepted), and its REAL collect plus
+        the value check must run and return True. Only the GPU-ness of the engine object
+        is stubbed; the collect itself is genuine."""
+        import importlib.util as ilu
+        from graphistry.compute.gfql import lazy as lazy_mod
+        monkeypatch.setattr(ilu, "find_spec", lambda name, *a, **k: object())
+        monkeypatch.setattr(lazy_mod, "_engine_for", lambda target: "in-memory")
+        assert lazy_mod.polars_gpu_available() is True
 
     def test_probe_is_a_process_singleton(self, monkeypatch):
         """Second call must not re-probe: the availability of the GPU stack is a property
