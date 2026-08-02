@@ -25,7 +25,7 @@ from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
 from .policy import IndexPolicy, validate_index_policy
 from .types import (
     AdjacencyIndexKind, EdgeIndexDirection, HopDirection, IndexKind,
-    IndexTrace, IndexTraceStep,
+    IndexDecisionCode, IndexTrace, IndexTraceStep,
 )
 
 # Private Plottable attachment keys. Keep access behind helpers.
@@ -81,6 +81,38 @@ def _trace_active() -> bool:
     return _get_trace_steps() is not None
 
 
+def _engine_mismatch_reason(
+    registry: GfqlIndexRegistry, direction: HopDirection, engine: Engine
+) -> Optional[str]:
+    """Describe a trace-only adjacency-index engine mismatch, if present.
+
+    Indexes intentionally remain engine-specific: falling back to the scan is the
+    correct execution behavior. This helper makes that otherwise silent decline
+    visible to ``gfql_explain`` without changing planner policy.
+    """
+    needed: Sequence[AdjacencyIndexKind]
+    if direction == "forward":
+        needed = (EDGE_OUT_ADJ,)
+    elif direction == "reverse":
+        needed = (EDGE_IN_ADJ,)
+    else:
+        needed = (EDGE_OUT_ADJ, EDGE_IN_ADJ)
+    mismatches = [
+        (kind, idx)
+        for kind in needed
+        for idx in (registry.get(kind),)
+        if isinstance(idx, AdjacencyIndex) and idx.engine != engine
+    ]
+    if not mismatches:
+        return None
+    kinds = ", ".join(kind for kind, _ in mismatches)
+    engines = ", ".join(sorted({idx.engine.value for _, idx in mismatches}))
+    return (
+        f"resident {kinds} index engine={engines}, requested engine={engine.value} "
+        "-> scan"
+    )
+
+
 def _record_indexed_traversal(
     *,
     seam: str,
@@ -108,6 +140,7 @@ def _record_indexed_traversal(
         "hop_details": [] if hop_details is None else hop_details,
         "path": path,
         "decision_reason": reason,
+        "decision_code": "index_selected" if served else "index_path_unavailable",
     }))
 
 
@@ -420,8 +453,12 @@ def _hop_is_index_coverable(
             return False
     if label_seeds or include_zero_hop_seed:
         return False
-    if not to_fixed_point and (not isinstance(hops, int) or hops < 1):
-        return False
+    effective_hops = max_hops if max_hops is not None else hops
+    if not to_fixed_point:
+        if not isinstance(effective_hops, int) or effective_hops < 1:
+            return False
+        if hops is None and min_hops not in (None, 1):
+            return False
     return True
 
 
@@ -478,6 +515,8 @@ def maybe_index_hop(
     Cost gate: only route to the index when (a) a valid matching index is resident
     (or buildable under auto/force), (b) the query is covered, (c) the frontier is
     not so large that a full scan is cheaper. Correctness is identical either way.
+    "force" bypasses only the cost gate for a covered query. It still falls back to
+    scan when the index cannot serve the query.
     """
     resolved_policy: IndexPolicy = validate_index_policy(policy) or "use"
 
@@ -497,16 +536,18 @@ def maybe_index_hop(
         except (AttributeError, TypeError, ValueError):
             pass
 
-    def _bail(reason: str) -> Optional[Plottable]:
+    def _bail(reason: str, decision_code: IndexDecisionCode) -> Optional[Plottable]:
         if trace:
-            _record(cast(IndexTraceStep, {**diag, "path": "scan", "decision_reason": reason}))
+            _record(cast(IndexTraceStep, {
+                **diag, "path": "scan", "decision_reason": reason, "decision_code": decision_code,
+            }))
         return None
 
     if resolved_policy == "off":
-        return _bail("policy=off")
+        return _bail("policy=off", "policy_off")
     registry = get_registry(g)
     if registry.is_empty() and resolved_policy not in ("auto", "force"):
-        return _bail("no resident index (policy=use)")
+        return _bail("no resident index (policy=use)", "no_resident_index")
 
     min_hops = cast(Optional[int], rest.get("min_hops"))
     max_hops = cast(Optional[int], rest.get("max_hops"))
@@ -539,18 +580,18 @@ def maybe_index_hop(
         target_wave_front=target_wave_front,
         return_as_wave_front=return_as_wave_front,
     ):
-        return _bail("query not index-coverable")
+        return _bail("query not index-coverable", "not_index_coverable")
     assert nodes is not None
 
     node_col = g._node
     src, dst = g._source, g._destination
     if node_col is None or src is None or dst is None or g._edges is None or g._nodes is None:
-        return _bail("graph missing node/edge columns")
+        return _bail("graph missing node/edge columns", "missing_graph_columns")
 
     if resolved_policy in ("auto", "force"):
         registry = _ensure_indexes(g, registry, direction, engine, resolved_policy, nodes, src, dst, node_col)
     if registry.is_empty():
-        return _bail("no index available (build declined)")
+        return _bail("no index available (build declined)", "index_build_declined")
 
     # Cost gate: if the frontier covers a large fraction of distinct sources, the
     # scan path is competitive — fall back (avoids index overhead on bulk-ish hops).
@@ -576,7 +617,7 @@ def maybe_index_hop(
             if idx0.n_keys > 0 and frontier_n >= frac * idx0.n_keys:
                 return _bail(
                     f"frontier {frontier_n} >= {frac}*n_keys "
-                    f"({frac * idx0.n_keys:.0f}) -> scan cheaper"
+                    f"({frac * idx0.n_keys:.0f}) -> scan cheaper", "scan_cost"
                 )
         except (AttributeError, TypeError, ValueError):
             pass
@@ -593,12 +634,20 @@ def maybe_index_hop(
         edge_match=cast(Optional[dict], rest.get("edge_match")),
     )
     if trace:
+        engine_mismatch_reason = (
+            _engine_mismatch_reason(registry, direction, engine) if result is None else None
+        )
         _record(cast(IndexTraceStep, {
             **diag, "hops": eff_hops,
             "path": "index" if result is not None else "scan",
             "decision_reason": (
                 "frontier below cost gate -> index" if result is not None
-                else "index path not applicable -> scan"
+                else engine_mismatch_reason or "index path not applicable -> scan"
+            ),
+            "decision_code": (
+                "index_selected" if result is not None
+                else "engine_mismatch" if engine_mismatch_reason is not None
+                else "index_path_unavailable"
             ),
         }))
     return result

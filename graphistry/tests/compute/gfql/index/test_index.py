@@ -5,13 +5,15 @@ the scan/join path. Engine-parametrized (pandas/cudf/polars/polars-gpu) with
 importorskip so GPU lanes run only where available.
 """
 import importlib
+from copy import copy
 
 import numpy as np
 import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.ast import n, e_forward
+from graphistry.compute.ast import n, e_forward, e_reverse
+from graphistry.compute.gfql.index.api import _engine_mismatch_reason, maybe_index_hop
 from graphistry.compute.gfql.index import (
     CreateIndex, DropIndex, ShowIndexes, index_op_from_json, parse_index_ddl,
     get_registry,
@@ -29,7 +31,13 @@ def _engines():
         import polars  # noqa
         out.append("polars")
         try:
-            import cudf  # noqa
+            # `cudf_polars`, NOT `cudf`: engine='polars-gpu' is the cudf_polars GPU collect
+            # target and raises `ImportError: GFQL engine='polars-gpu' requires the RAPIDS
+            # cudf_polars stack` without it. Gating on `cudf` FABRICATED 20 failures on every
+            # box that has cuDF but not cudf_polars — a real configuration, and the failures
+            # are indistinguishable from product breakage. CI never caught it because its
+            # polars lane installs neither, so the parameter simply did not exist there.
+            import cudf_polars  # noqa
             out.append("polars-gpu")
         except Exception:
             pass
@@ -223,12 +231,84 @@ def test_index_policy_force_and_explain(graph, engine):
     chain = [n({"id": 0}), e_forward(hops=1)]
     rep_off = graph.gfql_explain(chain, index_policy="off", engine=engine)
     assert rep_off["used_index"] is False
+    assert rep_off["decision_code"] == "policy_off"
+    assert rep_off["decision_reason"] == "policy=off"
     rep_force = graph.gfql_explain(chain, index_policy="force", engine=engine)
     assert rep_force["used_index"] is True
+    assert rep_force["decision_code"] == "index_selected"
     # results identical regardless of policy
     r_scan = graph.gfql(chain, engine=engine)
     r_force = graph.gfql(chain, index_policy="force", engine=engine)
     assert _sig(r_scan) == _sig(r_force)
+    assert rep_force["error"] is None
+
+
+def test_maybe_index_hop_reports_no_resident_index(graph):
+    """A direct planner caller gets a named scan decline when no index is resident."""
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index import index_trace
+
+    with index_trace() as steps:
+        result = maybe_index_hop(
+            graph,
+            Engine.PANDAS,
+            nodes=pd.DataFrame({"id": [0]}),
+            hops=1,
+            direction="forward",
+            return_as_wave_front=False,
+            policy="use",
+        )
+
+    assert result is None
+    assert steps[-1]["decision_code"] == "no_resident_index"
+
+
+def test_maybe_index_hop_reports_missing_graph_columns(graph):
+    """A resident index cannot make an unbound graph use a different query path."""
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index import index_trace
+
+    unbound = copy(graph.gfql_index_all(engine="pandas"))
+    unbound._nodes = None
+    with index_trace() as steps:
+        result = maybe_index_hop(
+            unbound,
+            Engine.PANDAS,
+            nodes=pd.DataFrame({"id": [0]}),
+            hops=1,
+            direction="forward",
+            return_as_wave_front=False,
+            policy="use",
+        )
+
+    assert result is None
+    assert steps[-1]["decision_code"] == "missing_graph_columns"
+
+
+def test_maybe_index_hop_reports_auto_build_decline_with_scan_parity(graph):
+    """An unselective auto request declines the build and preserves scan results."""
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index import index_trace
+
+    seeds = graph._nodes.copy()
+    with index_trace() as steps:
+        result = maybe_index_hop(
+            graph,
+            Engine.PANDAS,
+            nodes=seeds,
+            hops=1,
+            direction="forward",
+            return_as_wave_front=False,
+            policy="auto",
+        )
+
+    auto_graph = graph.bind()
+    auto_graph._gfql_index_policy = "auto"
+    auto_result = auto_graph.hop(nodes=seeds, engine="pandas", hops=1)
+    scan_result = graph.hop(nodes=seeds, engine="pandas", hops=1)
+    assert result is None
+    assert steps[-1]["decision_code"] == "index_build_declined"
+    assert _sig(auto_result) == _sig(scan_result)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -254,6 +334,7 @@ def test_explain_exposes_planner_diagnostics(graph, engine):
     gi = graph.gfql_index_all(engine=engine)
     rep_off = gi.gfql_explain(chain, index_policy="off", engine=engine)
     assert rep_off["used_index"] is False
+    assert rep_off["decision_code"] == "policy_off"
     assert rep_off["decision_reason"] == "policy=off", rep_off
 
 
@@ -436,6 +517,70 @@ def test_index_max_hops_honored(engine, hop_kw):
     idx = _force(g, engine).hop(nodes=seeds, engine=engine, **hop_kw)
     assert _sig(base) == _sig(idx), f"max_hops divergence {hop_kw}"
 
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("max_hops", [1, 2, 3])
+def test_index_bounded_range_min_one_hops_none(engine, max_hops):
+    """A bounded [1,max] hop is a depth union, not exactly max hops."""
+    from graphistry.compute.gfql.index import index_trace
+
+    edf = pd.DataFrame({"src": [0, 1, 2], "dst": [1, 2, 3]})
+    g = graphistry.edges(edf, "src", "dst").materialize_nodes()
+    seeds = pd.DataFrame({"id": [0]})
+    kwargs = dict(hops=None, min_hops=1, max_hops=max_hops, direction="forward")
+    base = g.hop(nodes=seeds, engine=engine, **kwargs)
+    with index_trace() as steps:
+        idx = _force(g, engine).hop(nodes=seeds, engine=engine, **kwargs)
+    assert _sig(base) == _sig(idx), "range-hop index must equal scan"
+    assert any(step["path"] == "index" for step in steps), steps
+
+
+def test_index_coverability_bounded_range_boundaries():
+    """Planner declines invalid direct-hop ranges before index traversal."""
+    from graphistry.compute.gfql.index.api import _hop_is_index_coverable
+
+    common = dict(
+        nodes=pd.DataFrame({"id": [0]}),
+        to_fixed_point=False,
+        hops=None,
+        min_hops=1,
+        max_hops=2,
+        output_min_hops=None,
+        output_max_hops=None,
+        label_node_hops=None,
+        label_edge_hops=None,
+        label_seeds=False,
+        edge_match=None,
+        source_node_match=None,
+        destination_node_match=None,
+        source_node_query=None,
+        destination_node_query=None,
+        edge_query=None,
+        include_zero_hop_seed=False,
+        target_wave_front=None,
+        return_as_wave_front=False,
+    )
+    assert not _hop_is_index_coverable(**dict(common, max_hops=0))
+    assert not _hop_is_index_coverable(**dict(common, min_hops=0))
+    assert _hop_is_index_coverable(**dict(common, max_hops=1))
+    assert _hop_is_index_coverable(**dict(common, hops=5, max_hops=2))
+    assert not _hop_is_index_coverable(**dict(common, max_hops=None))
+    assert not _hop_is_index_coverable(**dict(common, min_hops=2))
+    assert not _hop_is_index_coverable(**dict(common, min_hops=3, max_hops=2))
+    assert not _hop_is_index_coverable(**dict(common, nodes=None))
+
+def test_index_min_two_bounded_range_scans_pandas(graph):
+    """Unsupported [2,2] ranges scan without entering the indexed traversal."""
+    from graphistry.compute.gfql.index import index_trace
+
+    seeds = pd.DataFrame({"id": [0, 1]})
+    kwargs = dict(hops=None, min_hops=2, max_hops=2, direction="forward")
+    base = graph.hop(nodes=seeds, engine="pandas", **kwargs)
+    with index_trace() as steps:
+        indexed = _force(graph, "pandas").hop(nodes=seeds, engine="pandas", **kwargs)
+    assert _sig(base) == _sig(indexed)
+    assert not any(step["path"] == "index" for step in steps), steps
+    assert any(step["decision_code"] == "not_index_coverable" for step in steps), steps
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_index_duplicate_node_ids(engine):
@@ -720,6 +865,9 @@ _TYPED_2HOP = [n({"id": 100}), e_forward({"etype": 1}, hops=1), n(),
                e_forward({"etype": 2}, hops=1)]
 _UNTYPED_CHAIN = [n({"id": 100}), e_forward(hops=1)]
 _MEMBER_CHAIN = [n({"id": 100}), e_forward({"etype": [0, 1]}, hops=1)]
+_RANGE_CHAIN = [n({"id": 100}), e_forward(
+    min_hops=1, max_hops=2, output_min_hops=2, output_max_hops=2,
+)]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -759,6 +907,23 @@ def test_chain_membership_edge_match_stays_on_scan(typed_graph, engine):
     gi = typed_graph.gfql_index_all(engine=engine)
     rep = gi.gfql_explain(_MEMBER_CHAIN, index_policy="use", engine=engine)
     assert rep["used_index"] is False, (engine, rep)
+
+
+def test_chain_range_with_auto_labels_stays_on_scan(typed_graph):
+    """A Cypher range needs per-depth records, so it must decline until indexed."""
+    engine = "pandas"
+    from graphistry.compute.gfql.index import index_trace
+
+    gi = typed_graph.gfql_index_all(engine=engine)
+    base = typed_graph.gfql(_RANGE_CHAIN, index_policy="off", engine=engine)
+    with index_trace() as steps:
+        indexed = gi.gfql(_RANGE_CHAIN, index_policy="force", engine=engine)
+    rep = gi.gfql_explain(_RANGE_CHAIN, index_policy="force", engine=engine)
+    assert _sig_typed(base) == _sig_typed(indexed)
+    assert rep["used_index"] is False, (engine, rep)
+    assert not any(step["path"] == "index" for step in steps), steps
+    assert rep["decision_code"] == "not_index_coverable", rep
+    assert any(step["decision_code"] == "not_index_coverable" for step in steps), steps
 
 
 def test_rebind_edges_revalidates_after_shallow_augmentation():
@@ -1174,3 +1339,63 @@ def test_forcing_the_whole_column_mask_actually_changes_the_path(typed_graph, en
     monkeypatch.setenv("GFQL_INDEX_CANDIDATE_EDGE_MASK", "0")
     gi.hop(nodes=seeds, **kwargs)
     assert not seen, "OFF side still gathered candidate rows — the switch does nothing"
+
+
+@pytest.mark.parametrize(
+    "index_kinds, edge, expected_kinds",
+    [
+        (("edge_out_adj",), e_forward, "edge_out_adj"),
+        (("edge_in_adj",), e_reverse, "edge_in_adj"),
+    ],
+)
+@pytest.mark.parametrize(
+    "resident_engine, requested_engine",
+    [("pandas", "polars"), ("polars", "pandas")],
+)
+def test_explain_reports_bidirectional_engine_mismatch(
+    graph, index_kinds, edge, expected_kinds, resident_engine, requested_engine
+):
+    """#1767: a valid foreign-engine index must explain its scan, not fail silently."""
+    pytest.importorskip("polars")
+    gi = graph
+    for index_kind in index_kinds:
+        gi = gi.create_index(index_kind, engine=resident_engine)
+    shown = gi.show_indexes()
+    assert all(bool(valid) for valid in shown["valid"].tolist())
+
+    report = gi.gfql_explain(
+        [n({"id": 0}), edge(hops=1)],
+        index_policy="use",
+        engine=requested_engine,
+    )
+
+    assert report["used_index"] is False, report
+    assert report["decision_reason"] == (
+        f"resident {expected_kinds} index "
+        f"engine={resident_engine}, requested engine={requested_engine} -> scan"
+    ), report
+
+
+@pytest.mark.parametrize(
+    "resident_engine, requested_engine",
+    [("pandas", "polars"), ("polars", "pandas")],
+)
+def test_engine_mismatch_reason_reports_all_undirected_indexes(
+    graph, resident_engine, requested_engine
+):
+    """The undirected diagnostic reports every valid resident foreign-engine index."""
+    from graphistry.Engine import Engine
+
+    pytest.importorskip("polars")
+    gi = graph
+    for index_kind in ("edge_out_adj", "edge_in_adj"):
+        gi = gi.create_index(index_kind, engine=resident_engine)
+    shown = gi.show_indexes()
+    assert all(bool(valid) for valid in shown["valid"].tolist())
+
+    reason = _engine_mismatch_reason(get_registry(gi), "undirected", Engine(requested_engine))
+
+    assert reason == (
+        "resident edge_out_adj, edge_in_adj index "
+        f"engine={resident_engine}, requested engine={requested_engine} -> scan"
+    ), reason

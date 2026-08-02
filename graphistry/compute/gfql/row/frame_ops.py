@@ -224,9 +224,15 @@ def rows(
             raise ValueError(f"rows(source=...) alias column not found: {source!r}")
         if _is_polars(table_df):
             import polars as pl
-            table_df = table_df.filter(pl.col(source).fill_null(False).cast(pl.Boolean))  # type: ignore[arg-type]
-        else:
-            table_df = table_df.loc[_alias_true_mask(table_df, source)]
+            # returns straight out of the guarded branch instead of rebinding ``table_df``:
+            # the polars frame would otherwise widen the variable's type and break the pandas
+            # ``.loc`` branch below (``is_polars_df`` is a TypeGuard, so it does not narrow the
+            # negative branch back to pandas). Same call, same argument, same result.
+            return row_table(ctx, table_df.filter(pl.col(source).fill_null(False).cast(pl.Boolean)))
+        # unreachable for polars (returned above), but the guard on the ``.copy()`` branch
+        # further up leaves the polars arm in this variable's type: TypeGuard narrows only
+        # the positive branch, so ``not _is_polars(...)`` cannot narrow back to pandas.
+        table_df = table_df.loc[_alias_true_mask(table_df, source)]  # type: ignore[union-attr]
 
     return row_table(ctx, table_df)
 
@@ -268,7 +274,7 @@ def count_table(
         import polars as pl
         if source is not None:
             # LazyFrame lacks .columns without a resolve; collect_schema is lazy-safe.
-            cols = table_df.collect_schema().names()  # type: ignore[operator]
+            cols = table_df.collect_schema().names()
             if source not in cols:
                 raise ValueError(
                     f"count_table(source=...) alias column not found: {source!r}"
@@ -276,7 +282,7 @@ def count_table(
             count_expr = pl.col(source).fill_null(False).cast(pl.Boolean).sum()
         else:
             count_expr = pl.len()
-        res = table_df.select(count_expr.alias(alias))  # type: ignore[operator]
+        res = table_df.select(count_expr.alias(alias))
         # eager DataFrame.select -> DataFrame (no collect); LazyFrame.select -> LazyFrame.
         if hasattr(res, "collect"):
             res = res.collect()
