@@ -253,15 +253,14 @@ def test_single_alias_hit_path_survives_clear_during_read() -> None:
             self.clear()  # simulate registry clear_all() winning the race
 
     schema = pl.DataFrame({"age": [1]}).schema
+    oracle = row_pipeline._lower_single_alias_predicate_uncached("age > 30", "n", schema, False)
     original = row_pipeline._SINGLE_ALIAS_CACHE
     try:
         row_pipeline._SINGLE_ALIAS_CACHE = ClearsOnTouch()  # type: ignore[assignment]
-        first = row_pipeline.lower_single_alias_predicate("age > 30", "n", schema)
-        assert first is not None
-        row_pipeline._SINGLE_ALIAS_CACHE["probe"] = None  # ensure non-empty bookkeeping ok
-        row_pipeline._SINGLE_ALIAS_CACHE.clear()
         row_pipeline.lower_single_alias_predicate("age > 30", "n", schema)  # populate
-        second = row_pipeline.lower_single_alias_predicate("age > 30", "n", schema)  # hit->cleared
-        assert second is not None, "race must recompute, not fail"
+        assert len(row_pipeline._SINGLE_ALIAS_CACHE) == 1
+        # hit path: move_to_end fires the mid-read clear; must recompute, not KeyError
+        second = row_pipeline.lower_single_alias_predicate("age > 30", "n", schema)
+        assert str(second) == str(oracle), "race must recompute to the oracle answer"
     finally:
         row_pipeline._SINGLE_ALIAS_CACHE = original  # type: ignore[assignment]
