@@ -811,8 +811,8 @@ def _connected_join_two_star_fused_polars(
     the eager path. Both frames must already be engine-converted polars frames.
 
     MINIMAL-JOIN hot plan: the eager lane's join set carries two restrictions that
-    are provably redundant here, and the fused plan drops them (graph-benchmark q7
-    profile, 20k/100k: the two dead semi-joins plus the eager post-collect tail were
+    are provably redundant here, and the fused plan drops them (profiling showed
+    the two dead semi-joins plus the eager post-collect tail were
     ~30% of the lane):
 
     - the LEFT arm's shared-domain semi-join. ``left_counts`` is a per-``src``
@@ -898,8 +898,8 @@ def _connected_join_two_star_fused_polars(
     joined_lf = right_rows_lf.join(left_counts_lf, on=shared_alias, how="inner")
     # HOT PATH: one collect, INCLUDING the grouped tail when group keys exist.
     # Boundary-only plans (the semi-joined left counts) are collected ONLY on the
-    # empty match (collect_all of both plans measured +2.5ms/query on the 20k
-    # graphbench q5-q7 -- CSE does not absorb the left-arm recompute).
+    # empty match (collecting both plans measurably regresses the lane -- CSE does
+    # not absorb the left-arm recompute; receipts in pyg-bench).
     if output_group_keys and limit_value != 0:
         # Grouped tail INSIDE the single collect. Guarded to LIMIT != 0 so that
         # out_df empty <=> joined empty (a group_by emits >=1 group over >=1 row,
