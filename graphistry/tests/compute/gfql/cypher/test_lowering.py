@@ -73,7 +73,6 @@ from graphistry.compute.gfql_fast_paths import (
     _connected_join_two_star_split_residuals,
     _dense_int_domain_interval,
     _edge_cols_bounds_within,
-    _int_col_bounds_within,
     _two_hop_equal_domain_dense_total,
 )
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
@@ -17636,7 +17635,7 @@ def test_t6b_dtype_matrix_nullable_int64_declines_and_reason_is_pinned() -> None
         nodes_ext, edges, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
     ) is None
     # Seam 2: bounds proof rejects extension endpoint columns.
-    assert _int_col_bounds_within(edges_ext, "s", 0, 3, engine=Engine.PANDAS) is False
+    assert _edge_cols_bounds_within(edges_ext, "s", "d", 0, 3, engine=Engine.PANDAS) is False
     assert _two_hop_equal_domain_dense_total(
         nodes, edges_ext, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
     ) is None
@@ -17654,7 +17653,7 @@ def test_t6b_dtype_matrix_float_ids_decline(engine: str) -> None:
     assert _two_hop_equal_domain_dense_total(
         dom_f, _edom_f, node_col="id", src_col="s", dst_col="d", engine=eng
     ) is None
-    assert _int_col_bounds_within(edom_f2, "s", 0, 3, engine=eng) is False
+    assert _edge_cols_bounds_within(edom_f2, "s", "d", 0, 3, engine=eng) is False
     assert _two_hop_equal_domain_dense_total(
         dom_i, edom_f2, node_col="id", src_col="s", dst_col="d", engine=eng
     ) is None

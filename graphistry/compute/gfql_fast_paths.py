@@ -2394,18 +2394,8 @@ def _dense_int_domain_interval(
     return _dense_interval_indexable(domain_nodes[node_col])
 
 
-def _bounds_within_polars(s: "pl.Series", lo: int, hi: int) -> bool:
-    """Polars arm of ``_int_col_bounds_within`` -- fully typed, no ignores."""
-    if not s.dtype.is_integer() or s.null_count() != 0 or len(s) == 0:
-        return False
-    smin, smax = s.min(), s.max()
-    if not isinstance(smin, int) or not isinstance(smax, int):
-        return False  # narrows Series.min/max's wide Optional; non-empty int col yields ints
-    return smin >= lo and smax <= hi
-
-
 def _bounds_within_indexable(s: SeriesT, lo: int, hi: int) -> bool:
-    """pandas/cudf arm of ``_int_col_bounds_within`` (numpy-dtype series)."""
+    """pandas/cudf arm of ``_edge_cols_bounds_within`` (numpy-dtype series)."""
     import numpy as np
     dtype = s.dtype
     if not isinstance(dtype, np.dtype) or dtype.kind not in "iu":
@@ -2416,6 +2406,42 @@ def _bounds_within_indexable(s: SeriesT, lo: int, hi: int) -> bool:
     if len(s) == 0:
         return False
     return int(s.min()) >= lo and int(s.max()) <= hi
+
+
+def _edge_cols_bounds_polars(
+    frame: "pl.DataFrame",
+    src_col: str,
+    dst_col: str,
+    lo: int,
+    hi: int,
+) -> bool:
+    """Polars arm of ``_edge_cols_bounds_within`` -- fully typed, no ignores.
+
+    Fuses all six reductions (min/max/null_count per column) into ONE ``select`` so
+    the engine computes them in a single parallel pass over the edge frame -- the
+    per-Series chain it replaces cost ~2x at 2.4M edges (two O(E) passes serialized
+    per column).
+    """
+    import polars as pl
+    schema = frame.schema
+    for col in (src_col, dst_col):
+        if not schema[col].is_integer():
+            return False
+    if len(frame) == 0:
+        return False
+    stats = frame.select(
+        pl.col(src_col).min().alias("__smin__"),
+        pl.col(src_col).max().alias("__smax__"),
+        pl.col(src_col).null_count().alias("__snull__"),
+        pl.col(dst_col).min().alias("__dmin__"),
+        pl.col(dst_col).max().alias("__dmax__"),
+        pl.col(dst_col).null_count().alias("__dnull__"),
+    )
+    smin, smax, snull, dmin, dmax, dnull = stats.row(0)
+    if snull != 0 or dnull != 0:
+        return False
+    return (int(smin) >= lo and int(smax) <= hi
+            and int(dmin) >= lo and int(dmax) <= hi)
 
 
 def _edge_cols_bounds_within(
@@ -2429,66 +2455,15 @@ def _edge_cols_bounds_within(
 ) -> bool:
     """True iff BOTH endpoint columns are integer, null-free, non-empty and bounded by [lo, hi].
 
-    Polars fuses all six reductions (min/max/null_count per column) into ONE
-    ``select`` so the engine computes them in a single parallel pass over the edge
-    frame -- the per-Series chain it replaces cost ~2x at 2.4M edges (two O(E)
-    passes serialized per column). pandas/cudf keep per-column reductions: each is
-    already one C/device call and fusing buys nothing there.
+    Engine dispatcher over the typed arms above: polars keeps its fused single-select
+    shape; pandas/cudf keep per-column reductions (each is already one C/device call
+    and fusing buys nothing there).
     """
     if engine in POLARS_ENGINES:
-        import polars as pl
-        schema = frame.schema
-        for col in (src_col, dst_col):
-            if not schema[col].is_integer():
-                return False
-        if len(frame) == 0:
-            return False
-        stats = frame.select(  # type: ignore[union-attr]  # eager frame on this arm (LazyFrame declined upstream)
-            pl.col(src_col).min().alias("__smin__"),
-            pl.col(src_col).max().alias("__smax__"),
-            pl.col(src_col).null_count().alias("__snull__"),
-            pl.col(dst_col).min().alias("__dmin__"),
-            pl.col(dst_col).max().alias("__dmax__"),
-            pl.col(dst_col).null_count().alias("__dnull__"),
-        )
-        smin, smax, snull, dmin, dmax, dnull = stats.row(0)
-        if snull != 0 or dnull != 0:
-            return False
-        return (int(smin) >= lo and int(smax) <= hi
-                and int(dmin) >= lo and int(dmax) <= hi)
-    import numpy as np
-    for col in (src_col, dst_col):
-        s_pd = frame[col]
-        dtype = getattr(s_pd, "dtype", None)
-        if not isinstance(dtype, np.dtype) or dtype.kind not in "iu":
-            return False
-        null_count = getattr(s_pd, "null_count", None)
-        if null_count is not None and int(null_count) != 0:
-            return False
-        if len(s_pd) == 0:
-            return False
-        if int(s_pd.min()) < lo or int(s_pd.max()) > hi:
-            return False
-    return True
-
-
-def _int_col_bounds_within(
-    frame: DataFrameT,
-    col: str,
-    lo: int,
-    hi: int,
-    *,
-    engine: Engine,
-) -> bool:
-    """True iff ``frame[col]`` is integer, null-free, non-empty and bounded by [lo, hi].
-
-    Per-COLUMN counterpart of ``_edge_cols_bounds_within`` (which fuses both endpoint
-    columns into one polars ``select``); kept as the single-column seam the T6B
-    review-sufficiency tests pin directly."""
-    if engine in POLARS_ENGINES:
         pl_frame: "pl.DataFrame" = frame  # type: ignore[assignment]  # engine seam: polars frame rides engine-agnostic DataFrameT
-        return _bounds_within_polars(pl_frame.get_column(col), lo, hi)
-    return _bounds_within_indexable(frame[col], lo, hi)
+        return _edge_cols_bounds_polars(pl_frame, src_col, dst_col, lo, hi)
+    return (_bounds_within_indexable(frame[src_col], lo, hi)
+            and _bounds_within_indexable(frame[dst_col], lo, hi))
 
 
 def _two_hop_equal_domain_dense_total(
