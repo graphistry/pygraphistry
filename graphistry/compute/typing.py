@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import Any, Mapping, Protocol, TYPE_CHECKING, Tuple, TypeVar, Union
+from typing import Any, Mapping, Optional, Protocol, TYPE_CHECKING, Tuple, TypeVar, Union
 
 # TODO stubs for Union[cudf.DataFrame, dask.DataFrame, ..] at checking time
 if TYPE_CHECKING:
@@ -113,6 +113,9 @@ class ArrayNamespace(Protocol):
         ...
 
     def argsort(self, a: ArrayLike) -> ArrayLike:
+        ...
+
+    def bincount(self, a: ArrayLike, weights: "Optional[ArrayLike]" = None, minlength: int = 0) -> ArrayLike:
         ...
 
     def nonzero(self, a: ArrayLike) -> Tuple[ArrayLike, ...]:
