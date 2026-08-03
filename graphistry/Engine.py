@@ -272,6 +272,16 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
         import cudf
         if isinstance(df, cudf.DataFrame):
             return df
+        # polars (host) -> Arrow -> cuDF: the mirror of the cuDF -> Arrow -> polars path
+        # below — one native interchange, not the polars -> pandas -> cudf double-convert.
+        # The pandas detour is lossy in this direction too (polars Int64-with-nulls ->
+        # pandas float64+NaN, Boolean -> object), whereas Arrow preserves dtypes and nulls.
+        if 'polars' in str(type(df).__module__):
+            import polars as pl
+            if isinstance(df, pl.LazyFrame):
+                df = df.collect()
+            if isinstance(df, pl.DataFrame):
+                return cudf.DataFrame.from_arrow(df.to_arrow())
         if not isinstance(df, pd.DataFrame):
             df = df_to_engine(df, Engine.PANDAS)
         return _cudf_from_pandas_best_effort(df, validate=validate, warn=warn)

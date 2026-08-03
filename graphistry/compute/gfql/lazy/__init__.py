@@ -180,7 +180,55 @@ __all__ = [
     "GpuExecutor", "GPU_EXECUTORS", "gpu_executor", "set_gpu_executor",
     "CallMode", "CALL_MODES", "call_mode", "set_call_mode",
     "cpu_streaming", "set_cpu_streaming",
+    "polars_gpu_available",
 ]
+
+
+from functools import lru_cache
+
+from graphistry.compute.gfql.cache_registry import register_process_singleton as _register_process_singleton
+
+
+@lru_cache(maxsize=1)
+def polars_gpu_available() -> bool:
+    """Is the cudf-polars GPU execution target GENUINELY usable in this process?
+
+    A real probe, not a package listing: polars must import, cudf and cudf_polars must be
+    installed, AND a tiny lazy plan must actually collect on the GPU engine built by
+    :func:`_engine_for` (``raise_on_fail=True``, same engine the real collects use). The
+    collect step is what makes it honest — a box with the RAPIDS wheels installed but a
+    broken driver/toolchain (e.g. missing libnvrtc: kernels fail while imports succeed)
+    returns False here instead of failing mid-query. Any exception, from import through
+    collect, means False; this function never raises.
+
+    Used by the ``engine='auto'`` cuDF-frame guard in ``gfql_unified.py`` to decide
+    whether the native lazy polars engine on its GPU target can serve a cudf-frame graph.
+    """
+    import importlib.util
+    try:
+        if importlib.util.find_spec("cudf") is None:
+            return False
+        if importlib.util.find_spec("cudf_polars") is None:
+            return False
+        import polars as pl
+    except Exception:
+        return False
+    try:
+        eng = _engine_for(ExecutionTarget.GPU)
+        if eng is None:  # unreachable (GPU target always builds an engine); keeps typing honest
+            return False
+        out = pl.LazyFrame({"x": [1, 2]}).select(pl.col("x").sum()).collect(engine=eng)
+        return bool(out.item() == 3)
+    except Exception:
+        return False
+
+
+_register_process_singleton(
+    polars_gpu_available,
+    "GPU usability is a property of the installed environment and hardware, not of any "
+    "caller input; one probe per process is correct, and re-probing would add a device "
+    "round trip to every engine=auto call on a cudf-frame graph.",
+)
 
 
 def _engine_for(target: ExecutionTarget) -> "Optional[pl.GPUEngine]":
