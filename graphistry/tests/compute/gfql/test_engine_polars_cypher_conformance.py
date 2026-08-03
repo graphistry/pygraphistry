@@ -688,13 +688,30 @@ class TestPolarsGpuAvailabilityProbe:
         assert isinstance(polars_gpu_available(), bool)
 
     def test_probe_false_when_cudf_polars_missing(self, monkeypatch):
+        """cudf installed, cudf_polars not: the second spec check must decline. cudf is
+        STUBBED present (not looked up for real) so this leg is actually reached on the
+        CPU lanes where cudf is absent — a real lookup would short-circuit at the cudf
+        check and this test would silently re-pin the cudf-missing leg instead."""
         import importlib.util as ilu
         from graphistry.compute.gfql.lazy import polars_gpu_available
         real_find_spec = ilu.find_spec
-        monkeypatch.setattr(
-            ilu, "find_spec",
-            lambda name, *a, **k: None if name == "cudf_polars" else real_find_spec(name, *a, **k),
-        )
+        def fake_find_spec(name, *a, **k):
+            if name == "cudf":
+                return object()
+            if name == "cudf_polars":
+                return None
+            return real_find_spec(name, *a, **k)
+        monkeypatch.setattr(ilu, "find_spec", fake_find_spec)
+        assert polars_gpu_available() is False
+
+    def test_probe_false_when_spec_lookup_raises(self, monkeypatch):
+        """Broken packaging metadata (find_spec itself raising, e.g. a half-uninstalled
+        wheel) must probe False through the import-block except, never raise."""
+        import importlib.util as ilu
+        from graphistry.compute.gfql.lazy import polars_gpu_available
+        def _broken(name, *a, **k):
+            raise ImportError(f"broken package metadata for {name}")
+        monkeypatch.setattr(ilu, "find_spec", _broken)
         assert polars_gpu_available() is False
 
     def test_probe_false_when_cudf_missing(self, monkeypatch):
@@ -717,6 +734,28 @@ class TestPolarsGpuAvailabilityProbe:
             raise RuntimeError("libnvrtc.so: cannot open shared object file")
         monkeypatch.setattr(lazy_mod, "_engine_for", _boom)
         assert lazy_mod.polars_gpu_available() is False
+
+    def test_probe_false_when_engine_builder_returns_none(self, monkeypatch):
+        """The typing-honesty guard (`_engine_for` -> None) must decline, not collect on
+        a None engine. Unreachable through the real `_engine_for` (GPU target always
+        builds an engine), so it is pinned through the same seam the failure test uses."""
+        import importlib.util as ilu
+        from graphistry.compute.gfql import lazy as lazy_mod
+        monkeypatch.setattr(ilu, "find_spec", lambda name, *a, **k: object())
+        monkeypatch.setattr(lazy_mod, "_engine_for", lambda target: None)
+        assert lazy_mod.polars_gpu_available() is False
+
+    def test_probe_true_when_collect_succeeds(self, monkeypatch):
+        """The success leg, CPU-runnable through the same `_engine_for` seam the failure
+        test uses: hand the probe an engine spec that executes here ('in-memory' — a
+        string polars accepts wherever GPUEngine is accepted), and its REAL collect plus
+        the value check must run and return True. Only the GPU-ness of the engine object
+        is stubbed; the collect itself is genuine."""
+        import importlib.util as ilu
+        from graphistry.compute.gfql import lazy as lazy_mod
+        monkeypatch.setattr(ilu, "find_spec", lambda name, *a, **k: object())
+        monkeypatch.setattr(lazy_mod, "_engine_for", lambda target: "in-memory")
+        assert lazy_mod.polars_gpu_available() is True
 
     def test_probe_is_a_process_singleton(self, monkeypatch):
         """Second call must not re-probe: the availability of the GPU stack is a property
@@ -902,6 +941,63 @@ class TestAutoEngineCudfPolarsGpuRouteCpuSeam:
         out = g.gfql(q)
         assert isinstance(out._nodes, cudf.DataFrame), type(out._nodes)
         assert out._nodes["l"].to_pandas().tolist() == [3]
+
+    def test_row_pipeline_predicate_where_declines_to_legacy_cudf(self, monkeypatch):
+        """DGX regression (#1743 full-container run): where_rows filter_dict PREDICATES
+        (gt/lt/...) are not polars-lowerable — the kernel used to reach ``pl.col == GT(...)``
+        and leak a raw polars TypeError, which is NOT NotImplementedError, so the guard's
+        decline-and-fall-back contract broke and the query errored instead of re-serving on
+        legacy cuDF. Pin the whole failing shape through the REAL route: decline -> legacy
+        cudf -> cudf-out with legacy values (mirrors test_row_pipeline_ops.py::
+        test_row_pipeline_cudf_where_unwind_group_by_when_available)."""
+        cudf = pytest.importorskip("cudf")
+        from graphistry.compute.ast import group_by, order_by, rows, unwind, where_rows
+        from graphistry.compute.predicates.numeric import gt
+        nodes = cudf.DataFrame({
+            "id": ["a", "b", "c"],
+            "grp": ["x", "x", "y"],
+            "vals": [[1, 2], [3], [4, 5]],
+            "score": [1, 2, 5],
+        })
+        edges = cudf.DataFrame({"s": ["a"], "d": ["b"]})
+        g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+        monkeypatch.setattr("graphistry.compute.gfql_unified._polars_gpu_probe", lambda: True)
+        monkeypatch.setattr("graphistry.compute.gfql_unified._AUTO_CUDF_ROUTE_ENGINE", "polars")
+        out = g.gfql([
+            rows(),
+            where_rows({"score": gt(1)}),
+            unwind("vals", as_="v"),
+            group_by(["grp"], [("cnt", "count"), ("sum_v", "sum", "v")]),
+            order_by([("grp", "asc")]),
+        ])
+        assert isinstance(out._nodes, cudf.DataFrame), type(out._nodes)
+        assert out._nodes.to_arrow().to_pylist() == [
+            {"grp": "x", "cnt": 1, "sum_v": 3},
+            {"grp": "y", "cnt": 2, "sum_v": 9},
+        ]
+
+    def test_row_pipeline_list_text_order_by_declines_to_legacy_cudf(self, monkeypatch):
+        """DGX regression (#1743 full-container run): order_by over stringified-list text —
+        the legacy row pipeline PARSES ``"[...]"`` columns and sorts with Cypher
+        list-orderability, while a plain polars sort is lexicographic, so the routed result
+        silently DIVERGED in values (order_by host-bridge + nested-map parity failures).
+        The kernel now sniffs list-like sort keys and declines -> legacy cudf serves with
+        legacy values (mirrors test_row_pipeline_ops.py::
+        test_row_pipeline_order_by_stringified_list_column_on_cudf_when_available)."""
+        cudf = pytest.importorskip("cudf")
+        from graphistry.compute.ast import limit, order_by, rows, select
+        nodes = cudf.DataFrame({
+            "id": ["a", "b", "c", "d", "e"],
+            "list": ["[2, -2]", "[1, 2]", "[300, 0]", "[1, -20]", "[2, -2, 100]"],
+        })
+        edges = cudf.DataFrame({"s": ["a"], "d": ["b"]})
+        g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+        monkeypatch.setattr("graphistry.compute.gfql_unified._polars_gpu_probe", lambda: True)
+        monkeypatch.setattr("graphistry.compute.gfql_unified._AUTO_CUDF_ROUTE_ENGINE", "polars")
+        out = g.gfql([rows(), order_by([("list", "asc")]), limit(3), select([("id", "id")])])
+        assert isinstance(out._nodes, cudf.DataFrame), type(out._nodes)
+        # legacy semantic list order ([1,-20] < [1,2] < [2,-2]); lexicographic would be d,b,e
+        assert out._nodes.to_arrow().to_pylist() == [{"id": "d"}, {"id": "b"}, {"id": "a"}]
 
     def test_route_result_boundary_failure_is_nie(self, monkeypatch):
         """_route_result_frames_to_cudf wraps conversion failures as NotImplementedError
