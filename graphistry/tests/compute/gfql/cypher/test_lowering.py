@@ -17332,8 +17332,10 @@ def test_t6_edge_cols_bounds_within_null_mask_declines() -> None:
         def __getitem__(self, col: str) -> Any:
             return _NullMaskedIntSeries()
 
+    # engine=CUDF: the null guard is engine-dispatched now (a numpy-int pandas
+    # series cannot hold NA, so only the cuDF arm reads null_count).
     assert _edge_cols_bounds_within(
-        cast(Any, _NullMaskedFrame()), "s", "d", 0, 3, engine=Engine.PANDAS
+        cast(Any, _NullMaskedFrame()), "s", "d", 0, 3, engine=Engine.CUDF
     ) is False
 
 
