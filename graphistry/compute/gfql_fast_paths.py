@@ -2343,6 +2343,36 @@ def _execute_single_hop_grouped_aggregate_fast_path(
     return out
 
 
+def _dense_interval_polars(s: "pl.Series") -> Optional[Tuple[int, int]]:
+    """Polars arm of ``_dense_int_domain_interval`` -- fully typed, no ignores."""
+    if not s.dtype.is_integer() or s.null_count() != 0 or len(s) == 0:
+        return None
+    lo, hi = s.min(), s.max()
+    if not isinstance(lo, int) or not isinstance(hi, int):
+        return None  # narrows Series.min/max's wide Optional; non-empty int col yields ints
+    if s.n_unique() != hi - lo + 1:
+        return None
+    return lo, hi
+
+
+def _dense_interval_indexable(s: SeriesT) -> Optional[Tuple[int, int]]:
+    """pandas/cudf arm of ``_dense_int_domain_interval`` (numpy-dtype series)."""
+    import numpy as np
+    dtype = s.dtype
+    if not isinstance(dtype, np.dtype) or dtype.kind not in "iu":
+        # Extension int dtypes (pandas Int64) can hold NA; plain numpy int cannot.
+        return None
+    null_count: Optional[int] = getattr(s, "null_count", None)  # cudf-only property: null mask rides a numpy dtype
+    if null_count is not None and int(null_count) != 0:
+        return None
+    if len(s) == 0:
+        return None
+    lo, hi = int(s.min()), int(s.max())
+    if int(s.nunique()) != hi - lo + 1:
+        return None
+    return lo, hi
+
+
 def _dense_int_domain_interval(
     domain_nodes: DataFrameT,
     node_col: str,
@@ -2355,32 +2385,37 @@ def _dense_int_domain_interval(
     interval membership (``lo <= x <= hi``) IS set membership. That equivalence is
     what lets a caller replace a hash semi-join against the id set with an O(1)-space
     bounds proof (see ``_two_hop_equal_domain_dense_total``). Engine-polymorphic
-    (polars / pandas / cudf); anything unprovable declines with None.
+    dispatcher over the typed per-engine helpers above; anything unprovable declines
+    with None.
     """
     if engine in POLARS_ENGINES:
-        import polars as pl
-        s = domain_nodes.get_column(node_col)  # type: ignore[attr-defined]  # polars frame on this arm
-        if not s.dtype.is_integer() or s.null_count() != 0 or len(s) == 0:
-            return None
-        lo, hi = s.min(), s.max()
-        if s.n_unique() != int(hi) - int(lo) + 1:  # type: ignore[arg-type]  # non-empty int col: min/max are ints
-            return None
-        return int(lo), int(hi)  # type: ignore[arg-type]
+        pl_nodes: "pl.DataFrame" = domain_nodes  # type: ignore[assignment]  # engine seam: polars frame rides engine-agnostic DataFrameT
+        return _dense_interval_polars(pl_nodes.get_column(node_col))
+    return _dense_interval_indexable(domain_nodes[node_col])
+
+
+def _bounds_within_polars(s: "pl.Series", lo: int, hi: int) -> bool:
+    """Polars arm of ``_int_col_bounds_within`` -- fully typed, no ignores."""
+    if not s.dtype.is_integer() or s.null_count() != 0 or len(s) == 0:
+        return False
+    smin, smax = s.min(), s.max()
+    if not isinstance(smin, int) or not isinstance(smax, int):
+        return False  # narrows Series.min/max's wide Optional; non-empty int col yields ints
+    return smin >= lo and smax <= hi
+
+
+def _bounds_within_indexable(s: SeriesT, lo: int, hi: int) -> bool:
+    """pandas/cudf arm of ``_int_col_bounds_within`` (numpy-dtype series)."""
     import numpy as np
-    s_pd = domain_nodes[node_col]
-    dtype = getattr(s_pd, "dtype", None)
+    dtype = s.dtype
     if not isinstance(dtype, np.dtype) or dtype.kind not in "iu":
-        # Extension int dtypes (pandas Int64) can hold NA; plain numpy int cannot.
-        return None
-    null_count = getattr(s_pd, "null_count", None)  # cudf: null mask rides a numpy dtype
+        return False
+    null_count: Optional[int] = getattr(s, "null_count", None)  # cudf-only property: null mask rides a numpy dtype
     if null_count is not None and int(null_count) != 0:
-        return None
-    if len(s_pd) == 0:
-        return None
-    lo, hi = int(s_pd.min()), int(s_pd.max())
-    if int(s_pd.nunique()) != hi - lo + 1:
-        return None
-    return lo, hi
+        return False
+    if len(s) == 0:
+        return False
+    return int(s.min()) >= lo and int(s.max()) <= hi
 
 
 def _edge_cols_bounds_within(
@@ -2435,6 +2470,25 @@ def _edge_cols_bounds_within(
         if int(s_pd.min()) < lo or int(s_pd.max()) > hi:
             return False
     return True
+
+
+def _int_col_bounds_within(
+    frame: DataFrameT,
+    col: str,
+    lo: int,
+    hi: int,
+    *,
+    engine: Engine,
+) -> bool:
+    """True iff ``frame[col]`` is integer, null-free, non-empty and bounded by [lo, hi].
+
+    Per-COLUMN counterpart of ``_edge_cols_bounds_within`` (which fuses both endpoint
+    columns into one polars ``select``); kept as the single-column seam the T6B
+    review-sufficiency tests pin directly."""
+    if engine in POLARS_ENGINES:
+        pl_frame: "pl.DataFrame" = frame  # type: ignore[assignment]  # engine seam: polars frame rides engine-agnostic DataFrameT
+        return _bounds_within_polars(pl_frame.get_column(col), lo, hi)
+    return _bounds_within_indexable(frame[col], lo, hi)
 
 
 def _two_hop_equal_domain_dense_total(
