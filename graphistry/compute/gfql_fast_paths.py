@@ -2464,31 +2464,58 @@ def _dense_int_domain_interval(
     return lo, hi
 
 
-def _int_col_bounds_within(
+def _edge_cols_bounds_within(
     frame: DataFrameT,
-    col: str,
+    src_col: str,
+    dst_col: str,
     lo: int,
     hi: int,
     *,
     engine: Engine,
 ) -> bool:
-    """True iff ``frame[col]`` is integer, null-free, non-empty and bounded by [lo, hi]."""
+    """True iff BOTH endpoint columns are integer, null-free, non-empty and bounded by [lo, hi].
+
+    Polars fuses all six reductions (min/max/null_count per column) into ONE
+    ``select`` so the engine computes them in a single parallel pass over the edge
+    frame -- the per-Series chain it replaces cost ~2x at 2.4M edges (two O(E)
+    passes serialized per column). pandas/cudf keep per-column reductions: each is
+    already one C/device call and fusing buys nothing there.
+    """
     if engine in POLARS_ENGINES:
-        s = frame.get_column(col)  # type: ignore[attr-defined]  # polars frame on this arm
-        if not s.dtype.is_integer() or s.null_count() != 0 or len(s) == 0:
+        import polars as pl
+        schema = frame.schema
+        for col in (src_col, dst_col):
+            if not schema[col].is_integer():
+                return False
+        if len(frame) == 0:
             return False
-        return int(s.min()) >= lo and int(s.max()) <= hi  # type: ignore[arg-type]
+        stats = frame.select(  # type: ignore[union-attr]  # eager frame on this arm (LazyFrame declined upstream)
+            pl.col(src_col).min().alias("__smin__"),
+            pl.col(src_col).max().alias("__smax__"),
+            pl.col(src_col).null_count().alias("__snull__"),
+            pl.col(dst_col).min().alias("__dmin__"),
+            pl.col(dst_col).max().alias("__dmax__"),
+            pl.col(dst_col).null_count().alias("__dnull__"),
+        )
+        smin, smax, snull, dmin, dmax, dnull = stats.row(0)
+        if snull != 0 or dnull != 0:
+            return False
+        return (int(smin) >= lo and int(smax) <= hi
+                and int(dmin) >= lo and int(dmax) <= hi)
     import numpy as np
-    s_pd = frame[col]
-    dtype = getattr(s_pd, "dtype", None)
-    if not isinstance(dtype, np.dtype) or dtype.kind not in "iu":
-        return False
-    null_count = getattr(s_pd, "null_count", None)
-    if null_count is not None and int(null_count) != 0:
-        return False
-    if len(s_pd) == 0:
-        return False
-    return int(s_pd.min()) >= lo and int(s_pd.max()) <= hi
+    for col in (src_col, dst_col):
+        s_pd = frame[col]
+        dtype = getattr(s_pd, "dtype", None)
+        if not isinstance(dtype, np.dtype) or dtype.kind not in "iu":
+            return False
+        null_count = getattr(s_pd, "null_count", None)
+        if null_count is not None and int(null_count) != 0:
+            return False
+        if len(s_pd) == 0:
+            return False
+        if int(s_pd.min()) < lo or int(s_pd.max()) > hi:
+            return False
+    return True
 
 
 def _two_hop_equal_domain_dense_total(
@@ -2540,16 +2567,15 @@ def _two_hop_equal_domain_dense_total(
     if interval is None:
         return None
     lo, hi = interval
-    if not _int_col_bounds_within(edge_domain, src_col, lo, hi, engine=engine):
-        return None
-    if not _int_col_bounds_within(edge_domain, dst_col, lo, hi, engine=engine):
+    if not _edge_cols_bounds_within(edge_domain, src_col, dst_col, lo, hi, engine=engine):
         return None
 
     from graphistry.compute.gfql.index.engine_arrays import array_namespace, col_to_array
 
     xp, _backend = array_namespace(engine)
     n = hi - lo + 1
-    if n > 4 * len(edge_domain) + 1024:
+    table_budget = 4 * len(edge_domain) + 1024
+    if n > table_budget:
         # MEMORY guard, not a tuning knob: the count tables are O(domain), the path
         # they replace is O(edges). A domain far wider than the edge count (huge node
         # space, sparse rel) would allocate tables the semi-join path never needs --
@@ -2557,15 +2583,35 @@ def _two_hop_equal_domain_dense_total(
         return None
     src_arr = col_to_array(edge_domain, src_col, engine)
     dst_arr = col_to_array(edge_domain, dst_col, engine)
-    if lo != 0:
-        # Shift to [0, n-1] so bincount's table is O(n) regardless of the interval's
-        # absolute position (type-offset partitions sit at large lo; ids may be < 0).
-        src_arr = src_arr - lo
-        dst_arr = dst_arr - lo
     # bincount emits platform int64 counts; inputs are integer dtype by proof, so no
     # astype copies here (a copying astype measurably dominated the kernel at 2.5M edges).
-    out_counts = xp.bincount(src_arr, minlength=n)
-    in_counts = xp.bincount(dst_arr, minlength=n)
+    if 0 <= lo and hi + 1 <= table_budget:
+        # Shift ELISION: count over the raw arrays with tables of size hi+1. The bounds
+        # proof guarantees no endpoint lands below ``lo``, so both tables stay aligned
+        # and the [0, lo) prefix is provably all-zero -- it contributes nothing to the
+        # product-sum. This skips materializing two shifted E-length arrays, which
+        # dominated the kernel at 2.4M edges (two fresh ~19MB allocations per call,
+        # page-fault bound: 23.6ms -> 6.9ms counting body, local diagnosis). Table
+        # overhead vs the shifted layout is exactly ``lo`` extra int64 slots, and this
+        # lane only serves when hi+1 fits the SAME budget the domain guard enforces.
+        out_counts = xp.bincount(src_arr, minlength=hi + 1)
+        in_counts = xp.bincount(dst_arr, minlength=hi + 1)
+    elif src_arr.dtype == dst_arr.dtype:
+        # Distant (lo large) or negative (lo < 0) interval: bincount needs the shift to
+        # [0, n-1], but route BOTH columns through ONE reused scratch buffer --
+        # allocating two fresh shifted arrays cost ~3x the bincounts themselves at
+        # 2.4M edges (same page-fault anatomy as above).
+        buf = xp.empty(src_arr.shape[0], dtype=src_arr.dtype)
+        xp.subtract(src_arr, lo, out=buf)
+        out_counts = xp.bincount(buf, minlength=n)
+        xp.subtract(dst_arr, lo, out=buf)
+        in_counts = xp.bincount(buf, minlength=n)
+    else:
+        # Mixed endpoint dtypes (e.g. int32 src / int64 dst): keep the plain shift --
+        # a shared buffer would impose a cross-dtype cast policy for a shape that
+        # real edge frames essentially never have.
+        out_counts = xp.bincount(src_arr - lo, minlength=n)
+        in_counts = xp.bincount(dst_arr - lo, minlength=n)
     total = (in_counts * out_counts).sum()  # type: ignore[operator]  # ArrayLike protocol omits __mul__; numpy/cupy both support it
     return int(total)
 
