@@ -11,7 +11,7 @@ no back-edge into gfql_unified (the .chain import is a leaf-ward edge, cycle-fre
 from dataclasses import replace
 import pandas as pd
 from types import MappingProxyType
-from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, TYPE_CHECKING, Union, cast
+from typing import Any, Dict, List, Literal, Mapping, Optional, Protocol, Sequence, Set, Tuple, TYPE_CHECKING, Union, cast
 from graphistry.Plottable import Plottable
 
 if TYPE_CHECKING:
@@ -2355,15 +2355,35 @@ def _dense_interval_polars(s: "pl.Series") -> Optional[Tuple[int, int]]:
     return lo, hi
 
 
-def _dense_interval_indexable(s: SeriesT) -> Optional[Tuple[int, int]]:
+class _NullCountable(Protocol):
+    """cuDF series contract: a null mask can ride a plain numpy dtype."""
+
+    @property
+    def null_count(self) -> int: ...
+
+
+def _indexable_series_has_nulls(s: SeriesT, *, engine: Engine) -> bool:
+    """Null check for numpy-dtype series, dispatched by ENGINE, not by getattr.
+
+    pandas: a series whose dtype passed the ``np.dtype`` + kind-in-"iu" guard cannot
+    hold NA at all (extension Int64 already declined on the dtype check), so the
+    answer is statically False. cuDF: the null mask rides the numpy dtype, so read
+    the typed ``null_count`` property.
+    """
+    if engine is Engine.CUDF:
+        cudf_s: _NullCountable = s  # type: ignore[assignment]  # engine==CUDF => cudf.Series
+        return int(cudf_s.null_count) != 0
+    return False
+
+
+def _dense_interval_indexable(s: SeriesT, *, engine: Engine) -> Optional[Tuple[int, int]]:
     """pandas/cudf arm of ``_dense_int_domain_interval`` (numpy-dtype series)."""
     import numpy as np
     dtype = s.dtype
     if not isinstance(dtype, np.dtype) or dtype.kind not in "iu":
         # Extension int dtypes (pandas Int64) can hold NA; plain numpy int cannot.
         return None
-    null_count: Optional[int] = getattr(s, "null_count", None)  # cudf-only property: null mask rides a numpy dtype
-    if null_count is not None and int(null_count) != 0:
+    if _indexable_series_has_nulls(s, engine=engine):
         return None
     if len(s) == 0:
         return None
@@ -2391,7 +2411,7 @@ def _dense_int_domain_interval(
     if engine in POLARS_ENGINES:
         pl_nodes: "pl.DataFrame" = domain_nodes  # type: ignore[assignment]  # engine seam: polars frame rides engine-agnostic DataFrameT
         return _dense_interval_polars(pl_nodes.get_column(node_col))
-    return _dense_interval_indexable(domain_nodes[node_col])
+    return _dense_interval_indexable(domain_nodes[node_col], engine=engine)
 
 
 def _bounds_within_polars(s: "pl.Series", lo: int, hi: int) -> bool:
@@ -2404,14 +2424,13 @@ def _bounds_within_polars(s: "pl.Series", lo: int, hi: int) -> bool:
     return smin >= lo and smax <= hi
 
 
-def _bounds_within_indexable(s: SeriesT, lo: int, hi: int) -> bool:
+def _bounds_within_indexable(s: SeriesT, lo: int, hi: int, *, engine: Engine) -> bool:
     """pandas/cudf arm of ``_int_col_bounds_within`` (numpy-dtype series)."""
     import numpy as np
     dtype = s.dtype
     if not isinstance(dtype, np.dtype) or dtype.kind not in "iu":
         return False
-    null_count: Optional[int] = getattr(s, "null_count", None)  # cudf-only property: null mask rides a numpy dtype
-    if null_count is not None and int(null_count) != 0:
+    if _indexable_series_has_nulls(s, engine=engine):
         return False
     if len(s) == 0:
         return False
@@ -2430,7 +2449,7 @@ def _int_col_bounds_within(
     if engine in POLARS_ENGINES:
         pl_frame: "pl.DataFrame" = frame  # type: ignore[assignment]  # engine seam: polars frame rides engine-agnostic DataFrameT
         return _bounds_within_polars(pl_frame.get_column(col), lo, hi)
-    return _bounds_within_indexable(frame[col], lo, hi)
+    return _bounds_within_indexable(frame[col], lo, hi, engine=engine)
 
 
 def _two_hop_equal_domain_dense_total(
