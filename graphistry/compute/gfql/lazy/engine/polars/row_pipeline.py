@@ -1048,9 +1048,16 @@ def where_rows_polars(
 
     Cypher 3-valued WHERE keeps only TRUE rows (NULL and FALSE dropped) — polars ``filter``
     plus Kleene ``|``/``&`` match pandas/cypher NULL handling with no special-casing.
-    filter_dict entries are scalar-equality conjuncts.
+    filter_dict entries are scalar-equality conjuncts; PREDICATE values (``gt(1)`` etc. —
+    the legacy path lowers them via ``filter_by_dict``) are not natively lowered here yet
+    and defer (NIE) rather than reach ``pl.lit`` and leak a raw polars ``TypeError``
+    (observed via the AUTO cudf->polars route, where the leak also broke the guard's
+    decline-and-fall-back contract). Native predicate lowering exists for the traversal
+    lane (``predicates.filter_expr_by_dict_polars``); wiring it here is a future upgrade,
+    kept out of this decline-shaped fix.
     """
     import polars as pl
+    from graphistry.compute.predicates.ASTPredicate import ASTPredicate
     table = _active_table(g)
     columns = list(table.columns)
     preds: List[Any] = []
@@ -1058,13 +1065,20 @@ def where_rows_polars(
         for col, val in filter_dict.items():
             if col not in columns or isinstance(val, dict):
                 return None  # missing column / nested-struct value -> defer (NIE)
+            if isinstance(val, ASTPredicate):
+                return None  # predicate object (gt/lt/contains/...) -> defer (NIE)
             if isinstance(val, (list, tuple, set)):
                 # IN: `is_in` on a null cell -> null -> filter drops it, i.e. openCypher 3VL
                 # (`null IN [...]` = null -> excluded), matching the filter_by_dict membership
                 # fix. (Equality below also drops nulls: `null == v` -> null -> dropped.)
                 preds.append(pl.col(col).is_in(list(val)))
             else:
-                preds.append(pl.col(col) == val)
+                try:
+                    preds.append(pl.col(col) == val)
+                except TypeError:
+                    # any other value polars can't lower to a literal -> defer (NIE),
+                    # never a raw third-party error
+                    return None
     if expr is not None:
         if not isinstance(expr, str):
             return None
@@ -1080,13 +1094,65 @@ def where_rows_polars(
     return _rewrap(g, table.filter(combined))
 
 
+def _order_keys_hold_list_like_values(table: "Union[pl.DataFrame, pl.LazyFrame]", exprs: "List[pl.Expr]") -> bool:
+    """Decline sniff for ``order_by_polars``: does any lowered sort key produce values the
+    LEGACY row pipeline sorts with list/element-wise semantics rather than a plain sort?
+
+    Two triggers, mirroring ``row/ordering.py``:
+      1. nested/object output dtype (List/Array/Struct/Object) — legacy applies Cypher
+         list-orderability via ``build_list_sort_columns`` (element-wise keys, null-mask
+         special cases); a native polars ``sort`` on the nested column silently diverges
+         (observed: nullable-bool and empty-nested-list parity cases).
+      2. String output containing list-syntax text (``[...]``/``(...)``, the
+         ``_GFQL_LIST_TEXT_RE`` shape) — legacy either PARSES the whole column
+         (``order_detect_stringified_list_series`` -> semantic list sort) or REJECTS a
+         mixed column (``validate_order_series_vector_safe``); a lexicographic polars sort
+         is wrong in the first case and silently succeeds in the second.
+
+    True -> the caller declines (returns None -> NIE): value-safe everywhere — the AUTO
+    polars/cudf arms fall back to the legacy engine, and explicit polars keeps its
+    parity-or-error contract instead of a silently divergent order. Deliberately a bit
+    BROADER than legacy engagement (e.g. list-text plus nulls, where legacy happens to
+    plain-sort): the decline re-serves those corners on the legacy path with identical
+    values, at worst trading a native sort for a fallback. Any error while resolving the
+    schema or scanning values also declines (conservative)."""
+    import polars as pl
+    from graphistry.compute.gfql.lazy import collect as _lazy_collect
+    from graphistry.compute.gfql.row.ordering import _GFQL_LIST_TEXT_RE
+    aliased = [e.alias(f"__gfql_order_sniff_{i}__") for i, e in enumerate(exprs)]
+    lazy = table.lazy() if isinstance(table, pl.DataFrame) else table
+    try:
+        keyed = lazy.select(aliased)
+        schema = dict(keyed.collect_schema())
+    except Exception:
+        return True
+    if any(isinstance(dt, (pl.List, pl.Array, pl.Struct, pl.Object)) for dt in schema.values()):
+        return True
+    text_cols = [name for name, dt in schema.items() if _dtype_is_stringlike(dt)]
+    if not text_cols:
+        return False
+    try:
+        flags = keyed.select([
+            pl.col(name).cast(pl.String).str.strip_chars()  # hygiene-ok: explicit-cast -- pl.Expr.cast is a runtime dtype conversion (Categorical/Enum -> String for the str scan), not typing.cast
+            .str.contains(_GFQL_LIST_TEXT_RE.pattern).any()
+            for name in text_cols
+        ])
+        row = _lazy_collect(flags).row(0)
+    except Exception:
+        return True
+    return any(bool(v) for v in row if v is not None)
+
+
 def order_by_polars(g: Plottable, keys: Sequence[OrderKey]) -> Optional[Plottable]:
-    """Native polars sort; None if any key isn't lowerable."""
+    """Native polars sort; None if any key isn't lowerable OR holds list-like values whose
+    legacy ordering semantics a plain sort can't reproduce (see the sniff helper)."""
     table = _active_table(g)
     lowered = _lower_with_schema(table, lambda: lower_order_by_keys(keys, list(table.columns)), node_id=g._node)
     if lowered is None:
         return None
     exprs, descending = lowered
+    if _order_keys_hold_list_like_values(table, exprs):
+        return None  # legacy list-orderability semantics -> defer (NIE)
     # openCypher orders NULL as the LARGEST value: ASC -> nulls last, DESC -> nulls FIRST.
     # (Previously hardcoded nulls_last=True, which mis-ordered DESC keys and silently returned
     # the wrong `... DESC LIMIT k` top-k over a column containing NULLs.) `descending` is one
