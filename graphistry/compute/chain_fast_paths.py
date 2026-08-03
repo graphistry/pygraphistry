@@ -4,6 +4,10 @@ Extracted verbatim from chain.py (#1755) to keep that orchestrator readable: the
 typed 1-hop pandas/cuDF reduction and the seeded typed RETURN-destination pandas/cuDF and
 polars reductions. Pure code move, no behavior change. chain.py imports from here (one
 direction); this module imports only leaf modules (no back-edge into chain.py).
+
+New fast-path helpers belong HERE, not in chain.py — that is the direction this module was
+created to establish and it is why `_tag_fast_path_aliases` lives alongside the seeded
+reductions rather than next to `_try_chain_fast_path`.
 """
 # ruff: noqa: E501
 
@@ -16,6 +20,53 @@ from .typing import ArrayLike, ArrayNamespace, DataFrameT, SeriesT
 if TYPE_CHECKING:
     from graphistry.Engine import Engine
     from graphistry.compute.gfql.index.registry import AdjacencyIndex, NodeIdIndex
+
+
+def _tag_fast_path_aliases(
+    res: Plottable,
+    alias_n0: Optional[str], alias_e1: Optional[str], alias_n2: Optional[str],
+    src: str, dst: str, node: str, direction: Direction,
+) -> Plottable:
+    """Attach the alias flag columns the full path's ``combine_steps`` would have merged in.
+
+    The chain fast path's gate used to reject ANY named op, so a named
+    `g.gfql([n(name=..), e(..), n(name=..)])` fell to the full two-pass machinery purely
+    because the ops carried names — measured ~25.2 -> ~2.3 ms (medians of 5 paired runs) on
+    a 200-node graph where data-proportional work is ~0. Naming is a PROJECTION concern,
+    not a traversal one, so it should not change which engine path runs. NOTE the scope: this is the NATIVE chain
+    surface. The Cypher `MATCH ... RETURN` shapes on the graph benchmark are served
+    earlier by `gfql_fast_paths.py` and never reach here (measured, both engines).
+
+    Why deriving the tags from the RETURNED EDGES matches the full path: `combine_steps`
+    tags a node with an alias iff it matched that step in the BACKWARD-PRUNED frame, i.e.
+    iff it still participates in a surviving edge. The edges this function receives are
+    exactly the surviving ones — the fast path has already applied the node filters, the
+    edge_match and the endpoint validation — so ``isin`` over their endpoint columns is the
+    same predicate, computed without the join.
+
+    A seed whose edges all fail the type filter yields an empty edge frame, so it is tagged
+    False rather than True: that is the dead-end case, and it is why the tag keys on the
+    edges rather than on the node filter.
+    """
+    if alias_n0 is None and alias_e1 is None and alias_n2 is None:
+        return res
+    nodes: Optional[DataFrameT] = res._nodes
+    edges: Optional[DataFrameT] = res._edges
+    if nodes is None or edges is None:
+        return res
+    from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
+    node_flags: Dict[str, SeriesT] = {}
+    if alias_n0 is not None:
+        node_flags[alias_n0] = nodes[node].isin(edges[from_col])
+    if alias_n2 is not None:
+        node_flags[alias_n2] = nodes[node].isin(edges[to_col])
+    if node_flags:
+        nodes = nodes.assign(**node_flags)
+    if alias_e1 is not None:
+        edge_flags: Dict[str, bool] = {alias_e1: True}
+        edges = edges.assign(**edge_flags)
+
+    return res.nodes(nodes).edges(edges)
 
 
 def _seeded_scalar_filters(fd: Optional[Dict[str, Any]], df: DataFrameT) -> Optional[Dict[str, Any]]:

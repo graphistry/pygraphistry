@@ -532,7 +532,7 @@ Current supported names include:
    filtering by component membership, not as stable semantic IDs.
 
 .. note::
-   For graphs with millions of edges, consider using ``compute_cugraph`` with a GPU for 10-50x speedup, or :ref:`gfql-remote` if no local GPU is available.
+   For graphs with millions of edges, consider using ``compute_cugraph`` with a GPU, or :ref:`gfql-remote` if no local GPU is available.
 
 get_degrees
 ~~~~~~~~~~~

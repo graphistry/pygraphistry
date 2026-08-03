@@ -6,7 +6,7 @@ ids and comments. Every expected result comes from the same-engine canonical pat
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Sequence, Tuple, Type
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Type
 
 import numpy as np
 import pandas as pd
@@ -14,7 +14,8 @@ import pytest
 
 import graphistry
 from graphistry.Engine import Engine
-from graphistry.compute.ast import ASTEdge, e_forward, e_undirected, n
+from graphistry.Plottable import Plottable
+from graphistry.compute.ast import ASTEdge, ASTObject, e_forward, e_undirected, n
 
 
 ENGINES = ["pandas", "polars", "cudf"]
@@ -148,6 +149,7 @@ def _run(
     if generic:
         import graphistry.compute.gfql.index.bindings as indexed_bindings
         import graphistry.compute.gfql_unified as gfql_unified
+        import graphistry.compute.chain as chain_mod
 
         monkeypatch.setattr(
             indexed_bindings,
@@ -159,6 +161,30 @@ def _run(
             "_execute_seeded_typed_hop_fast_path",
             lambda *args, **kwargs: None,
         )
+        # `generic` enumerates the acceleration seams to disable. The chain fast path now
+        # serves NAMED patterns (it previously rejected any alias, which is why it was
+        # absent here), so it has to be listed — otherwise the comparison stops being
+        # generic-vs-accelerated and becomes accelerated-vs-a-DIFFERENT-accelerated.
+        #
+        # But disable ONLY the NEW capability, not the seam. This path has always served
+        # UNNAMED middles, and `test_unnamed_middle_rows_call_matches_canonical` compares
+        # exactly that shape — blanket-disabling turns that case from fast-vs-fast into
+        # general-vs-fast and it fails for a reason that has nothing to do with what it
+        # tests. Verified: master's product code plus a blanket patch reproduces that
+        # failure on its own.
+        _real_fast_path = chain_mod._try_chain_fast_path
+
+        def _fast_path_without_named(
+            g_in: Plottable,
+            ops: List[ASTObject],
+            engine_concrete: Engine,
+            start_nodes: Optional[pd.DataFrame] = None,
+        ) -> Optional[Plottable]:
+            if any(op._name is not None for op in ops):
+                return None
+            return _real_fast_path(g_in, ops, engine_concrete, start_nodes)
+
+        monkeypatch.setattr(chain_mod, "_try_chain_fast_path", _fast_path_without_named)
     return g.gfql(
         query,
         engine=engine,

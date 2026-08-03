@@ -100,7 +100,7 @@ API):
    g = g.gfql_index_edges("forward")    # or just one direction: 'forward'|'reverse'|'both'
    g = g.create_index("edge_out_adj")   # or one kind: 'edge_out_adj'|'edge_in_adj'|'node_id'
    g = g.gfql_index_node_props(["id"])  # secondary indexes on node property columns
-   g.show_indexes()                     # pandas DataFrame: kind, engine, n_keys, nbytes, valid
+   g.show_indexes()                     # pandas DataFrame: kind, engine, ..., valid, usable, reason
    g = g.drop_index()                   # drop all (or drop_index("edge_out_adj"))
 
 Unlike ``gfql_index_all()``, an explicit ``create_index("node_id")`` **raises** on
@@ -165,6 +165,12 @@ time). Consequences:
   skipped, never consulted.
 - ``g.show_indexes()`` reports liveness in the ``valid`` column, so you can see at a
   glance whether a rebind knocked an index out.
+- ``valid`` alone is not "this index will serve your query": indexes are also
+  **engine-specific**. The ``usable`` column is True only when the index is fresh AND
+  built for the resolved query engine (shown in ``query_engine``); otherwise ``reason``
+  explains the decline — e.g. a polars-built index on a graph whose default queries
+  resolve to pandas shows ``usable=False`` with an engine-mismatch reason. Pass
+  ``show_indexes(engine=...)`` to preview an explicit engine choice.
 - Rebuild by calling ``gfql_index_all()`` again on the rebound ``g``.
 
 .. doc-test: skip
@@ -200,38 +206,24 @@ Engines
 What it costs, what it buys
 ---------------------------
 
-All numbers below: 0.58.0 tag sweep on DGX Spark, warm medians over 30 runs.
+**Build (the "pay" side)**: one-time and ``O(E log E)`` — a sort over the edge frame,
+amortized across every subsequent seeded query. ``index_policy='auto'`` only pays it when
+the planner predicts a selective query will earn it back.
 
-**Build (the "pay" side)**: one-time; on a 30.6M-edge graph the full
-``gfql_index_all()`` build is about 5.7s.
+**Seeded lookup (the "go" side)**: on a covered shape, the seeded lookup drops from the
+general path to the fast path, and again with the index resident, on both CPU engines.
 
-**Seeded lookup (the "go" side)**: a covered-shape seeded Cypher lookup:
+**Flat in graph size**: a direct seeded ``g.hop()`` with the index resident turns the
+``O(E)`` scan into an ``O(degree)`` gather, so its cost tracks the seeds' neighborhood
+rather than the graph.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 40 30 30
-
-   * - Seeded typed lookup
-     - pandas
-     - Polars
-   * - General path (no fast path)
-     - 29.9 ms
-     - 13.8 ms
-   * - Fast path, no index
-     - 2.46 ms
-     - 2.28 ms
-   * - **Fast path + resident index**
-     - **1.74 ms**
-     - **1.59 ms**
-
-**Flat in graph size**: a direct seeded ``g.hop()`` with the index resident holds
-0.159–0.164 ms from 0.25M to 32M edges (pandas) — cost tracks seed degree, not graph
-size.
+Measured figures are published on :doc:`performance` and :doc:`index_adjacency` only, and
+only when they trace to a committed benchmark artifact.
 
 See also
 --------
 
 - :doc:`Seeded Traversal Indexes <index_adjacency>` — the planner (``index_policy``),
-  Cypher DDL / wire protocol forms, and competitive benchmarks vs Kuzu / Neo4j.
+  Cypher DDL / wire protocol forms, and the index cost model.
 - :doc:`engines` — choosing pandas / Polars / cuDF / Polars-GPU.
 - :doc:`performance` — the vectorization + GPU design behind GFQL.

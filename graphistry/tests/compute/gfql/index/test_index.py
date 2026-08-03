@@ -1461,3 +1461,115 @@ def test_auto_engine_hop_residual_still_scans_1767():
     mismatch = [s for s in steps if s.get("decision_code") == "engine_mismatch"]
     assert mismatch, ("expected an engine_mismatch decline", steps)
     assert "requested engine=pandas" in mismatch[-1]["decision_reason"], steps
+class TestShowIndexesEngineUsability:
+    """#1767 disposition: ``show_indexes`` must stop reporting an index as fine when
+    the resolved query engine cannot use it. ``valid`` stays fingerprint-only (BC);
+    ``query_engine``/``usable``/``reason`` add the engine-usability signal, reusing
+    #1838's mismatch-reason wording."""
+
+    def test_matching_engine_reports_usable(self, graph):
+        g = graph.create_index("edge_out_adj", engine="pandas")
+        row = g.show_indexes().iloc[0]
+        assert bool(row["valid"]) is True
+        assert row["query_engine"] == "pandas"
+        assert bool(row["usable"]) is True
+        assert row["reason"] is None
+
+    def test_polars_index_auto_query_not_usable(self, graph):
+        """The disposition's silent cliff: polars-built index, AUTO query resolves
+        pandas -> fingerprint-fresh but engine-unusable, with the explain wording."""
+        pytest.importorskip("polars")
+        gi = graph.create_index("edge_out_adj", engine="polars")
+        row = gi.show_indexes().iloc[0]  # AUTO: polars frames resolve to pandas queries
+        assert bool(row["valid"]) is True  # fingerprint is fresh — that was never the bug
+        assert row["query_engine"] == "pandas"
+        assert bool(row["usable"]) is False
+        assert row["reason"] == (
+            "resident edge_out_adj index engine=polars, requested engine=pandas -> scan"
+        )
+
+    def test_polars_index_explicit_polars_query_usable(self, graph):
+        pytest.importorskip("polars")
+        gi = graph.create_index("edge_out_adj", engine="polars")
+        row = gi.show_indexes(engine="polars").iloc[0]
+        assert bool(row["valid"]) is True
+        assert row["query_engine"] == "polars"
+        assert bool(row["usable"]) is True
+        assert row["reason"] is None
+
+    def test_pandas_index_explicit_polars_query_not_usable(self, graph):
+        g = graph.create_index("edge_out_adj", engine="pandas")
+        row = g.show_indexes(engine="polars").iloc[0]
+        assert bool(row["valid"]) is True
+        assert bool(row["usable"]) is False
+        assert row["reason"] == (
+            "resident edge_out_adj index engine=pandas, requested engine=polars -> scan"
+        )
+
+    def test_stale_index_not_usable_even_when_engine_matches(self, graph):
+        g = graph.create_index("edge_out_adj", engine="pandas")
+        rng = np.random.default_rng(3)
+        g2 = g.edges(
+            pd.DataFrame({"src": rng.integers(0, 2000, 50), "dst": rng.integers(0, 2000, 50)}),
+            "src", "dst",
+        )
+        row = g2.show_indexes().iloc[0]
+        assert bool(row["valid"]) is False
+        assert row["query_engine"] == "pandas"
+        assert bool(row["usable"]) is False
+        assert row["reason"] == "stale fingerprint (frames rebound since build) -> rebuild"
+
+    def test_stale_and_engine_mismatched_reports_both(self, graph):
+        pytest.importorskip("polars")
+        gi = graph.create_index("edge_out_adj", engine="polars")
+        rng = np.random.default_rng(4)
+        g2 = gi.edges(
+            pd.DataFrame({"src": rng.integers(0, 2000, 50), "dst": rng.integers(0, 2000, 50)}),
+            "src", "dst",
+        )
+        row = g2.show_indexes(engine="polars").iloc[0]
+        assert bool(row["valid"]) is False
+        assert bool(row["usable"]) is False
+        assert row["reason"] == "stale fingerprint (frames rebound since build) -> rebuild"
+        row_pd = g2.show_indexes(engine="pandas").iloc[0]
+        assert bool(row_pd["usable"]) is False
+        assert row_pd["reason"] == (
+            "resident edge_out_adj index engine=polars, requested engine=pandas -> scan"
+            "; stale fingerprint (frames rebound since build) -> rebuild"
+        )
+
+    def test_every_kind_carries_per_row_reason(self, graph):
+        pytest.importorskip("polars")
+        gi = graph.gfql_index_all(engine="polars")
+        gi = gi.create_index("node_prop", column="lab", engine="polars")
+        si = gi.show_indexes()  # AUTO -> pandas
+        assert set(si["kind"]) == {"edge_out_adj", "edge_in_adj", "node_id", "node_prop"}
+        assert si["valid"].all()
+        assert not si["usable"].any()
+        for _, row in si.iterrows():
+            assert row["reason"] == (
+                f"resident {row['kind']} index engine=polars, "
+                "requested engine=pandas -> scan"
+            )
+
+    def test_show_indexes_ddl_surface_respects_engine(self, graph):
+        pytest.importorskip("polars")
+        gi = graph.create_index("edge_out_adj", engine="polars")
+        si_auto = gi.gfql("SHOW GFQL INDEXES")
+        assert bool(si_auto.iloc[0]["usable"]) is False
+        si_pl = gi.gfql("SHOW GFQL INDEXES", engine="polars")
+        assert bool(si_pl.iloc[0]["usable"]) is True
+        assert si_pl.iloc[0]["reason"] is None
+
+    def test_cudf_index_pandas_query_not_usable(self, graph):
+        pytest.importorskip("cudf")
+        gi = graph.create_index("edge_out_adj", engine="cudf")
+        row = gi.show_indexes(engine="pandas").iloc[0]
+        assert bool(row["valid"]) is True
+        assert bool(row["usable"]) is False
+        assert row["reason"] == (
+            "resident edge_out_adj index engine=cudf, requested engine=pandas -> scan"
+        )
+        row_auto = gi.show_indexes().iloc[0]  # AUTO on cudf frames resolves cudf
+        assert row_auto["query_engine"] == "cudf"
+        assert bool(row_auto["usable"]) is True
