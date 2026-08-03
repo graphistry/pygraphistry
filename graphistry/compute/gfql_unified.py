@@ -1839,6 +1839,79 @@ def _fire_postcompile_policy(
         raise
 
 
+def _is_cudf_frame(df: Any) -> bool:
+    """Import-light cudf.DataFrame check, matching the legacy AUTO->CUDF resolution's own
+    module test (``resolve_engine``): ``cudf.core.dataframe`` in the type's module. This
+    deliberately excludes dask_cudf (``dask_cudf.core``) and cudf.pandas proxies — only
+    frames the legacy arm would have resolved to Engine.CUDF are candidates for the
+    polars-gpu preference, so the two arms agree on what "a cudf-frame graph" is."""
+    return df is not None and 'cudf.core.dataframe' in type(df).__module__
+
+
+def _polars_gpu_probe() -> bool:
+    """Seam for the AUTO cuDF guard: is the cudf-polars GPU target genuinely usable?
+
+    Thin indirection over the process-singleton probe (``lazy.polars_gpu_available``,
+    registered exempt in the GFQL cache registry) so tests can pin guard behavior by
+    monkeypatching THIS name without touching the cached probe itself."""
+    from graphistry.compute.gfql.lazy import polars_gpu_available
+    return polars_gpu_available()
+
+
+# Engine the AUTO cuDF route pins on its recursion. A module-level seam (not an inline
+# literal) so CPU-only tests can swap in 'polars' and exercise the ENTIRE route —
+# guard -> recursion -> coercion -> result frames back to cudf — everything but the GPU
+# collect itself, which only a GPU lane can genuinely test.
+_AUTO_CUDF_ROUTE_ENGINE: str = Engine.POLARS_GPU.value
+
+
+def _route_result_frames_to_cudf(res: Plottable) -> Plottable:
+    """cudf-frames-in must mean cudf-frames-out: cross the routed result's polars frames
+    back to cuDF via Arrow (``df_to_engine(..., Engine.CUDF)`` — lossless nulls/dtypes,
+    no pandas detour). A conversion failure raises ``NotImplementedError`` so the guard's
+    decline path re-serves the query on the legacy CUDF route instead of leaking polars
+    frames or a raw conversion error."""
+    try:
+        out = res
+        if out._edges is not None and is_polars_df(out._edges):
+            out = out.edges(df_to_engine(out._edges, Engine.CUDF), out._source, out._destination)
+        if out._nodes is not None and is_polars_df(out._nodes):
+            out = out.nodes(df_to_engine(out._nodes, Engine.CUDF), out._node)
+        return out
+    except NotImplementedError:
+        raise
+    except Exception as ex:
+        raise NotImplementedError(
+            "AUTO cudf->polars-gpu route: result frames could not cross back to cudf "
+            f"via Arrow: {type(ex).__name__}: {ex}"
+        ) from ex
+
+
+def _auto_cudf_polars_gpu_route(
+    self: Plottable,
+    query: GFQLQuery,
+    *,
+    output: Optional[str],
+    where: Optional[Sequence[WhereComparison]],
+    language: Optional[Literal["cypher", "gremlin"]],
+    params: Optional[Mapping[str, Any]],
+    validate: bool,
+    shortest_path_backend: str,
+) -> Plottable:
+    """The routed attempt for AUTO on a cudf-frame graph, as ONE seam: recurse with the
+    engine pinned to the lazy polars engine's GPU target (cudf frames cross to polars via
+    Arrow inside chain dispatch's ``_coerce_input_formats``), then cross the result frames
+    back to cuDF. Raises ``NotImplementedError`` — from the engine's honest declines, from
+    GPU-collect failures (``lazy._gpu_raise`` translates those to NIE), or from the
+    cudf-out boundary — and the caller's guard falls back to the legacy CUDF path."""
+    routed = gfql(
+        self, query, engine=_AUTO_CUDF_ROUTE_ENGINE, output=output, policy=None,
+        where=where, language=language, params=params, validate=validate,
+        shortest_path_backend=shortest_path_backend,
+    )
+    return _route_result_frames_to_cudf(routed)
+
+
 @otel_traced("gfql.run", attrs_fn=_gfql_otel_attrs)
 def gfql(self: Plottable,
          query: GFQLQuery,
@@ -1871,6 +1944,67 @@ def gfql(self: Plottable,
     :returns: Resulting Plottable
     :rtype: Plottable
     """
+    # engine inference: resolve_engine(AUTO) maps polars frames to PANDAS (polars predates
+    # Engine.POLARS there), silently bridging polars-frame graphs onto the generic pandas path
+    # and handing pandas frames back. Measured on the matched graph-benchmark q1-q9 lane through
+    # this exact surface (dgx-spark, perf lock, position-balanced over 8 slots): 2.45-11.9x at 20k
+    # and 4.8-37.2x at 100k, values identical. Route AUTO to the native polars engine instead;
+    # an honest NIE (unsupported shape) falls back to the legacy AUTO path -- allowed here
+    # because the user pinned no engine -- at a flat ~0.23 ms, the decline being raised at
+    # planning before any data is touched.
+    #
+    # ``policy is None`` is REQUIRED, not conservatism: the native polars executor does not go
+    # through ``chain_impl``, so it never emits the ``postload``/``postchain`` hooks that path
+    # emits. Routing a policy-carrying query there would silently stop enforcing a DENYING
+    # ``postload`` policy (measured: deny-on-postload blocks under the generic path and does not
+    # under the native one) -- a governance hook that stops firing is worse than a slow query.
+    # The NIE fallback compounds it: re-running the query would fire ``preload``/``precompile``/
+    # ``postcompile`` twice for one user call. Explicit ``engine='polars'`` is unchanged and still
+    # carries the pre-existing hook gap; this guard only refuses to make that gap the default.
+    if (
+        (engine == EngineAbstract.AUTO or engine == EngineAbstract.AUTO.value)
+        and policy is None
+        and is_polars_df(self._edges) and (self._nodes is None or is_polars_df(self._nodes))
+    ):
+        try:
+            return gfql(
+                self, query, engine=Engine.POLARS.value, output=output, policy=policy,
+                where=where, language=language, params=params, validate=validate,
+                shortest_path_backend=shortest_path_backend,
+            )
+        except NotImplementedError:
+            logger.debug('AUTO polars-native attempt declined; falling back to generic path')
+
+    # engine inference, cuDF arm (owner-directed policy addition, 2026-08-02; supersedes the
+    # earlier "AUTO never selects polars-gpu" doctrine for THIS arm only): when every bound
+    # frame is cuDF AND the cudf-polars GPU target is GENUINELY usable (probed once per
+    # process — polars imports, cudf + cudf_polars installed, and a real GPU collect
+    # succeeds; see lazy.polars_gpu_available), prefer the native lazy polars engine on its
+    # GPU execution target over the legacy CUDF path. Both serve cudf->cudf: inputs cross
+    # cudf -> Arrow -> polars in chain dispatch's _coerce_input_formats, results cross back
+    # polars -> Arrow -> cudf in _route_result_frames_to_cudf — lossless nulls/dtypes both
+    # ways, no pandas detour. Decline shape mirrors the polars arm above: any
+    # NotImplementedError (which is also how GPU-collect failures surface, via
+    # lazy._gpu_raise) falls back to the legacy CUDF path with identical values. Explicit
+    # engine= always wins (guard requires AUTO), and ``policy is None`` is REQUIRED for the
+    # same postload/postchain hook-gap reason documented on the polars arm. Guard ORDER:
+    # the all-polars arm above ran first; a graph reaches here only if its frames are not
+    # all-polars, and routes only if they are all-cudf.
+    if (
+        (engine == EngineAbstract.AUTO or engine == EngineAbstract.AUTO.value)
+        and policy is None
+        and _is_cudf_frame(self._edges) and (self._nodes is None or _is_cudf_frame(self._nodes))
+        and _polars_gpu_probe()
+    ):
+        try:
+            return _auto_cudf_polars_gpu_route(
+                self, query, output=output, where=where, language=language,
+                params=params, validate=validate,
+                shortest_path_backend=shortest_path_backend,
+            )
+        except NotImplementedError:
+            logger.debug('AUTO cudf polars-gpu attempt declined; falling back to legacy CUDF path')
+
     context = ExecutionContext()
 
     if policy and context.policy_depth >= 1:
