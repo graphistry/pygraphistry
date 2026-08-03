@@ -1815,8 +1815,8 @@ def _low_cardinality_pure_count_plan(
       The group key column is produced by an inner join that reads ``prop`` out of that one
       frame, so every group value in the aggregate input is a ``prop`` value of some row of
       it; distinct values cannot exceed its height. ``height`` is metadata.
-    * **aggregate input rows <= height of the (already filtered) edge frame.** The two
-      semi-joins only remove edge rows. The property inner-join can MULTIPLY them when a
+    * **aggregate input rows <= height of the (already filtered) edge frame.** A domain
+      semi-join only removes edge rows. The property inner-join can MULTIPLY them when a
       node id repeats in the node frame -- the lane deliberately does not dedup, because
       the eager twin does not -- so the bound only holds once the sole property join is
       known to be non-multiplying. Hence the two structural conditions below: exactly one
@@ -1899,11 +1899,15 @@ def _single_hop_grouped_aggregate_fused_polars(
     one lazy plan collected once lets polars push the projection into the semi-joins and
     plan the property joins against it.
 
-    Algebra is character-identical to the eager twin (same ``.unique()`` id frames, same
-    semi-joins, same un-deduplicated property lookups, same
-    ``group_by(maintain_order=True).agg(..)``, same per-key ``nulls_last`` sort, same
-    ``head``), so the value -- including row ORDER and openCypher's null-largest ordering
-    -- is identical.
+    Algebra is value-identical to the eager twin: same un-deduplicated property lookups,
+    same ``group_by(maintain_order=True).agg(..)``, same per-key ``nulls_last`` sort, same
+    ``head``. The one deliberate divergence is that an endpoint's domain semi-join is
+    emitted ONLY when that alias carries no property columns -- when it does, the property
+    inner-join below hits the same filtered node frame on the same key and subsumes the
+    membership restriction with identical multiplicity (see the work_lf comment), so
+    dropping the semi-join cannot change the row multiset. Row ORDER stays determined
+    because this lane only serves a TOTAL ORDER BY (gate below), and openCypher's
+    null-largest ordering is pinned in the sort.
 
     ONE aggregate shape has a second, value-identical polars formulation: see
     :func:`_low_cardinality_pure_count_plan`. It is chosen only when static O(1) bounds
@@ -2007,12 +2011,28 @@ def _single_hop_grouped_aggregate_fused_polars(
         else:
             return None
 
-    work_lf: "pl.LazyFrame" = (
-        edges.lazy()
-        .join(start_nodes.lazy().select(node_col).unique(), left_on=src_col, right_on=node_col, how="semi")
-        .join(end_nodes.lazy().select(node_col).unique(), left_on=dst_col, right_on=node_col, how="semi")
-        .select([src_col, dst_col])
-    )
+    # An endpoint's domain semi-join is SUBSUMED by that endpoint's property inner-join
+    # below whenever the alias carries properties: both joins hit the SAME filtered node
+    # frame on the SAME key, an inner join keeps exactly the member rows a semi-join
+    # keeps (null endpoint ids match neither), and row MULTIPLICITY is identical too --
+    # a semi-join never multiplies, and the inner join's multiplication on duplicate
+    # node ids happens with or without the semi-join in front of it. So the semi-join is
+    # emitted ONLY for an endpoint with no property join (e.g. the count(*) side of
+    # graph-bench q4), where it is the sole membership restriction. Profiled one-shot on
+    # the 20k graph-benchmark (diagnosis-only, local CPU): the two redundant semi-joins
+    # were 1.7ms of q3's 3.5ms fused collect -- polars 1.42 does not eliminate them.
+    work_lf: "pl.LazyFrame" = edges.lazy()
+    for alias, node_frame, edge_col in (
+        (start_alias, start_nodes, src_col),
+        (end_alias, end_nodes, dst_col),
+    ):
+        if needed_by_alias.get(alias, ()):
+            continue
+        work_lf = work_lf.join(
+            node_frame.lazy().select(node_col).unique(),
+            left_on=edge_col, right_on=node_col, how="semi",
+        )
+    work_lf = work_lf.select([src_col, dst_col])
     for alias, node_frame, edge_col in (
         (start_alias, start_nodes, src_col),
         (end_alias, end_nodes, dst_col),
