@@ -1193,7 +1193,7 @@ jobs:
         cat build/gfql-coverage-audit/gfql-coverage-audit.md >> "$GITHUB_STEP_SUMMARY"
 
     - name: Upload GFQL coverage audit
-      if: ${{ matrix.python-version == '3.12' }}
+      if: ${{ always() && matrix.python-version == '3.12' }}
       uses: actions/upload-artifact@v4
       with:
         name: gfql-coverage-audit-py3.12

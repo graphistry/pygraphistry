@@ -6,9 +6,9 @@ numpy (pandas/polars) and cupy (cudf) arrays.
 """
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Any, Tuple
 
-from .registry import AdjacencyIndex, NodeIdIndex
+from .registry import AdjacencyIndex, NodeIdIndex, NodePropIndex
 from .types import ArrayLike, ArrayNamespace
 
 
@@ -93,3 +93,69 @@ def lookup_node_rows(index: NodeIdIndex, ids: ArrayLike, xp: ArrayNamespace) -> 
     pos_clipped = xp.where(pos < U, pos, U - 1)
     hit = keys[pos_clipped] == f
     return index.row_positions[pos_clipped[hit]]
+
+
+def _csr_hit_positions(keys: ArrayLike, values: ArrayLike, xp: ArrayNamespace) -> ArrayLike:
+    """Group positions in ``keys`` for the ``values`` that are actually present.
+
+    The shared front half of every CSR probe: promote to a common dtype (never
+    narrow — an int64 id cast to int32 keys wraps and false-matches), searchsorted,
+    then verify membership. Returns the matched group positions.
+    """
+    U = int(keys.shape[0])
+    if U == 0 or int(values.shape[0]) == 0:
+        return xp.zeros(0, dtype=xp.int64)
+    if values.dtype != keys.dtype:
+        common = xp.promote_types(values.dtype, keys.dtype)
+        values = values.astype(common)
+        keys = keys.astype(common)
+    pos = xp.searchsorted(keys, values)
+    clipped = xp.where(pos < U, pos, U - 1)
+    return clipped[keys[clipped] == values]
+
+
+def _csr_group_sizes(index: Any, positions: ArrayLike) -> ArrayLike:
+    """Row count of each CSR group named by ``positions``."""
+    return index.group_offsets[positions + 1] - index.group_offsets[positions]
+
+
+def csr_match_count(index: Any, values: ArrayLike, xp: ArrayNamespace) -> int:
+    """How many rows a CSR gather of ``values`` would return — offsets only, no
+    gather. The planner's free selectivity/degree estimate."""
+    positions = _csr_hit_positions(index.keys_sorted, values, xp)
+    if int(positions.shape[0]) == 0:
+        return 0
+    return int(_csr_group_sizes(index, positions).sum())
+
+
+def csr_gather_rows(index: Any, values: ArrayLike, xp: ArrayNamespace) -> ArrayLike:
+    """Row positions of every row whose key is in ``values`` (CSR range expansion)."""
+    positions = _csr_hit_positions(index.keys_sorted, values, xp)
+    empty = index.row_positions[:0]
+    if int(positions.shape[0]) == 0:
+        return empty
+    start = index.group_offsets[positions]
+    counts = _csr_group_sizes(index, positions)
+    total = int(counts.sum())
+    if total == 0:
+        return empty
+    return index.row_positions[_expand_ranges(start, counts, total, xp)]
+
+
+def lookup_prop_rows(index: NodePropIndex, values: ArrayLike, xp: ArrayNamespace) -> ArrayLike:
+    """values -> node row positions of every row holding one of them.
+
+    Order is unspecified here; callers that need frame order sort.
+    """
+    return csr_gather_rows(index, values, xp)
+
+
+def prop_match_count(index: NodePropIndex, values: ArrayLike, xp: ArrayNamespace) -> int:
+    """Rows ``lookup_prop_rows`` would return — the free selectivity estimate."""
+    return csr_match_count(index, values, xp)
+
+
+def lookup_degree(index: AdjacencyIndex, frontier: ArrayLike, xp: ArrayNamespace) -> int:
+    """Total incident-edge count for a frontier — the hop's fanout estimate,
+    computed from CSR offsets before any range expansion."""
+    return csr_match_count(index, frontier, xp)

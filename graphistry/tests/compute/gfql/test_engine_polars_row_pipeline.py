@@ -95,18 +95,44 @@ NATIVE_LOWERED = [
     "MATCH (n) WHERE NOT n.kind = 'beta' RETURN n.kind",
     "MATCH (n) RETURN n.kind, count(n) AS c",
     "MATCH (n) RETURN count(n) AS c",
+    # count(*) / keyless + literal projection (#1707: must NOT collapse to 1)
+    "MATCH (n) RETURN count(*) AS c",
+    "MATCH (n) WHERE n.val > 25 RETURN count(*) AS c",
+    "MATCH (n) RETURN n.kind, count(*) AS c",
+    "MATCH (n) RETURN n.kind, count(*) AS c ORDER BY c DESC",
+    "MATCH (n) RETURN 1 AS one",
     "MATCH (n) RETURN n.kind, sum(n.val) AS s, avg(n.val) AS a",
     "MATCH (n) RETURN n.kind, min(n.val) AS mn, max(n.val) AS mx",
     "MATCH (n) RETURN n.kind, count(n) AS c ORDER BY c DESC",
     "MATCH (n) UNWIND [1, 2] AS x RETURN n.val, x",
     "MATCH (n) UNWIND [1, 2, 3] AS x RETURN x",
+    # multi-entity property projection via native rows(binding_ops) (#1709)
+    "MATCH (n)-[e]->(m) RETURN n.val, m.val",
+    # whole-entity identity aggregation (#1709): count(DISTINCT n) lowers the agg arg to the
+    # bare ``__gfql_node_id__`` identity sentinel, now resolved to the node-id column natively.
+    "MATCH (n) RETURN count(DISTINCT n) AS c",
+    "MATCH (n) WHERE n.val > 25 RETURN count(DISTINCT n) AS c",
+    "MATCH (n) RETURN n.kind, count(DISTINCT n) AS c",
+    "MATCH (n) RETURN n.kind, count(DISTINCT n) AS c ORDER BY c DESC",
+    "MATCH (a)-[e]->(b) RETURN count(DISTINCT b) AS c",
+    # property-arg distinct (already native; guard against regression)
+    "MATCH (n) RETURN n.kind, count(DISTINCT n.val) AS c",
 ]
 
-# NO-CHEATING (plan.md): no native impl yet -> NotImplementedError, never a silent pandas bridge
+# NO-CHEATING (see plan.md): no native impl yet -> NotImplementedError, never a
+# silent pandas bridge. Cross-entity same-path WHERE (DFSamePathExecutor) +
+# multi-entity whole-row result rendering. Multi-entity property projections
+# lowered via rows(binding_ops) are native.
 DEFERRED = [
     "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",   # cross-entity WHERE
-    "MATCH (n)-[e]->(m) RETURN n, m",                       # multi-entity bindings
-    "MATCH (n)-[e]->(m) RETURN n.val, m.val",               # multi-entity bindings
+    "MATCH (n)-[e]->(m) RETURN n, m",                       # whole-row multi-entity render
+    # whole-entity collect: agg arg is the __node_entity__(n) whole-entity token (not the bare
+    # identity sentinel), whose native list-of-entities representation isn't ported yet -> NIE.
+    "MATCH (n) RETURN collect(n) AS xs",
+    # multi-alias binding-table identity aggregation: the bare ``__gfql_node_id__`` sentinel has
+    # no bare node-id column on the connected-pattern binding table (identity lives in the bare
+    # ALIAS column), so it declines honestly rather than resolve to a wrong/absent column.
+    "MATCH (a)-[e]->(b) RETURN b.kind, count(DISTINCT b) AS c, count(b) AS t",
 ]
 
 
@@ -127,6 +153,153 @@ def test_polars_row_pipeline_deferred_raises(query):
     """Not-yet-native ops raise NotImplementedError (never silently bridge)."""
     with pytest.raises(NotImplementedError):
         BASE.gfql(query, engine="polars")
+
+
+# Native polars UNWIND of a CARRIED list column (collect() output / carried binding), the row-
+# pipeline analogue of the IC6 `WITH collect(...) AS xs UNWIND xs AS y` shape. These are literal-
+# seeded (a MATCH-introduced alias before UNWIND-after-WITH is parser-gated for BOTH engines), so
+# the graph is irrelevant; the collect() result is what the UNWIND explodes. Parity gate: pandas.
+COLLECT_UNWIND = [
+    "UNWIND [1, 2, 3] AS x WITH collect(x) AS xs UNWIND xs AS y RETURN y",
+    "UNWIND [3, 1, 2, 1] AS x WITH collect(DISTINCT x) AS xs UNWIND xs AS y RETURN y",
+    "UNWIND [5, 1, 9, 2] AS x WITH collect(x) AS xs UNWIND xs AS y RETURN y ORDER BY y DESC",
+    "UNWIND [1, 2, 3, 4] AS x WITH x % 2 AS k, collect(x) AS xs UNWIND xs AS y RETURN k, y ORDER BY k, y",
+    "UNWIND [1, 2, 3, 4] AS x WITH collect(x) AS xs UNWIND xs AS y RETURN count(y) AS c, sum(y) AS s",
+    "UNWIND [1, 2, 3, 4] AS x WITH x % 2 AS k, collect(x) AS xs UNWIND xs AS y RETURN k, count(y) AS c ORDER BY k",
+    # nested pipeline: collect -> unwind -> collect -> unwind
+    "UNWIND [1, 1, 2, 2, 3] AS x WITH collect(DISTINCT x) AS xs UNWIND xs AS y "
+    "WITH collect(y * 10) AS ys UNWIND ys AS z RETURN z ORDER BY z",
+]
+
+
+@pytest.mark.parametrize("query", COLLECT_UNWIND)
+def test_polars_collect_unwind_parity(query):
+    """collect() -> UNWIND (list-column explode) matches the pandas oracle exactly."""
+    _assert_parity(query, order_sensitive="ORDER BY" in query)
+
+
+@pytest.mark.parametrize("query", COLLECT_UNWIND)
+def test_polars_collect_unwind_is_polars_typed(query):
+    """collect() -> UNWIND stays native (polars-typed, no pandas round-trip)."""
+    assert "polars" in type(BASE.gfql(query, engine="polars")._nodes).__module__
+
+
+def test_polars_unwind_list_column_semantics_unit():
+    """unwind_polars list-column branch == pandas oracle on empty/null/nested cells.
+
+    These cells (empty list, null cell, null WITHIN a list) can't be produced through Cypher
+    collect() — which strips nulls and yields ``[]`` for empty groups — so exercise them by
+    building the list column directly and comparing the native explode to the pandas oracle
+    (``RowPipelineMixin.unwind``)."""
+    import pandas as _pd
+    import polars as _pl
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import unwind_polars
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+
+    rows = {"k": [0, 1, 2, 3, 4], "xs": [[10, 20], [], [30, None, 40], None, [50]]}
+
+    class _Oracle(RowPipelineMixin):
+        def __init__(self, df):
+            self._df = df
+
+        def _gfql_get_active_table(self):
+            return self._df
+
+        def _gfql_row_table(self, df):
+            return df
+
+    oracle = _Oracle(_pd.DataFrame(rows)).unwind("xs", as_="v").reset_index(drop=True)
+
+    g = graphistry.nodes(_pd.DataFrame({"id": [0]}), "id").bind()
+    g._nodes = _pl.DataFrame(rows)
+    native = unwind_polars(g, "xs", "v")
+    assert "polars" in type(native._nodes).__module__
+    got = native._nodes.to_pandas().reset_index(drop=True)
+
+    # empty list + null cell drop out (0 rows); nulls WITHIN a list survive as real elements.
+    assert list(got.columns) == list(oracle.columns)
+    assert len(got) == len(oracle) == 6
+
+    def _canon(df):
+        # normalize NaN/None null representation (polars -> NaN, pandas oracle -> None) so the
+        # comparison is null-representation agnostic; keep the surviving in-list null as a row.
+        # Compare only the meaningful key/exploded columns (the retained ``xs`` list column
+        # carries an in-list null whose NaN/None rendering differs harmlessly per engine).
+        out = df.sort_values(["k", "v"], na_position="last").reset_index(drop=True)[["k", "v"]]
+        out["v"] = [None if pd.isna(x) else int(x) for x in out["v"]]
+        return out
+
+    pd.testing.assert_frame_equal(_canon(got), _canon(oracle), check_dtype=False)
+
+
+def test_polars_unwind_declines_non_list_and_collisions():
+    """Non-list column / name collision / unknown identifier UNWIND declines (None -> NIE),
+    never a wrong-shape explode."""
+    import pandas as _pd
+    import polars as _pl
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import unwind_polars
+
+    g = graphistry.nodes(_pd.DataFrame({"id": [0]}), "id").bind()
+    g._nodes = _pl.DataFrame({"a": [1, 2, 3], "xs": [[1], [2], [3]]})
+    assert unwind_polars(g, "a", "v") is None          # scalar (non-list) column -> decline
+    assert unwind_polars(g, "xs", "a") is None          # as_ collides with existing column
+    assert unwind_polars(g, "nope", "v") is None        # unknown identifier
+    # nested-list literal is still declined (only scalar-literal lists lowered natively)
+    with pytest.raises(NotImplementedError):
+        BASE.gfql("UNWIND [[1, 2], [3, 4]] AS pair UNWIND pair AS z RETURN z", engine="polars")
+
+
+def test_where_rows_polars_declines_predicate_and_unloweable_values():
+    """filter_dict PREDICATE objects (gt/lt/contains/...) and values polars cannot lower to a
+    literal must DECLINE (None -> NIE), never leak a raw polars TypeError from ``pl.lit`` —
+    the #1743 AUTO cudf->polars-gpu regression, where the leaked TypeError also broke the
+    route's NIE-decline-to-legacy contract. Scalar equality and membership still serve."""
+    import pandas as _pd
+    import polars as _pl
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import where_rows_polars
+    from graphistry.compute.predicates.numeric import gt
+
+    g = graphistry.nodes(_pd.DataFrame({"id": [0]}), "id").bind()
+    g._nodes = _pl.DataFrame({"id": [1, 2, 3], "score": [1, 2, 5]})
+    assert where_rows_polars(g, {"score": gt(1)}, None) is None  # predicate -> decline
+
+    class _Unlowerable:
+        pass
+
+    assert where_rows_polars(g, {"score": _Unlowerable()}, None) is None  # TypeError path -> decline
+    # scalar equality / membership still native
+    out_eq = where_rows_polars(g, {"score": 2}, None)
+    assert out_eq is not None and out_eq._nodes["id"].to_list() == [2]
+    out_in = where_rows_polars(g, {"score": [1, 5]}, None)
+    assert out_in is not None and out_in._nodes["id"].to_list() == [1, 3]
+
+
+def test_order_by_polars_declines_list_like_sort_keys():
+    """Sort keys carrying values the LEGACY row pipeline orders with list semantics must
+    DECLINE (None -> NIE): stringified-list text (legacy parses the whole column, or rejects
+    a mixed one — plain lexicographic order silently diverges, the #1743 cudf-route value
+    regression) and real List columns (legacy element-wise list-orderability). Scalar keys
+    keep serving natively."""
+    import pandas as _pd
+    import polars as _pl
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import order_by_polars
+
+    g = graphistry.nodes(_pd.DataFrame({"id": [0]}), "id").bind()
+    # stringified-list text column (all list-shaped)
+    g._nodes = _pl.DataFrame({"id": ["a", "b"], "list": ["[2, -2]", "[1, 2]"]})
+    assert order_by_polars(g, [("list", "asc")]) is None
+    # mixed list-text + plain string (legacy REJECTS; silent success would diverge)
+    g._nodes = _pl.DataFrame({"id": ["a", "b"], "v": ["[1, 2]", "abc"]})
+    assert order_by_polars(g, [("v", "asc")]) is None
+    # real List column
+    g._nodes = _pl.DataFrame({"id": ["a", "b"], "xs": [[1, 2], [3]]})
+    assert order_by_polars(g, [("xs", "asc")]) is None
+    # scalar keys still native (numeric + plain string)
+    g._nodes = _pl.DataFrame({"id": ["a", "b", "c"], "score": [3, 1, 2], "name": ["x", "z", "y"]})
+    out_num = order_by_polars(g, [("score", "asc")])
+    assert out_num is not None and out_num._nodes["id"].to_list() == ["b", "c", "a"]
+    out_str = order_by_polars(g, [("name", "desc")])
+    assert out_str is not None and out_str._nodes["id"].to_list() == ["b", "c", "a"]
 
 
 def test_row_expr_lowering_unit():
@@ -157,6 +330,30 @@ def test_row_expr_lowering_unit():
     assert lower_order_by_keys(["bad-shape"], cols) is None
 
 
+def test_node_identity_sentinel_resolution():
+    """Bare ``__gfql_node_id__`` (whole-entity identity, #1709) resolves ONLY when the graph
+    node-id column is published AND present in the frame; else declines (None -> NIE), never a
+    wrong column. Mirrors pandas ``_gfql_resolve_token`` bare form."""
+    from graphistry.compute.gfql.lazy.engine.polars import row_pipeline as rp
+    cols = ["id", "val", "kind"]
+    # no node-id published -> decline
+    assert rp.lower_expr_str("__gfql_node_id__", cols) is None
+    # published + present -> resolves to that column
+    tok = rp._NODE_ID.set("id")
+    try:
+        expr = rp.lower_expr_str("__gfql_node_id__", cols)
+        assert expr is not None
+        assert expr.meta.root_names() == ["id"]
+    finally:
+        rp._NODE_ID.reset(tok)
+    # published but absent from frame -> decline (never invent a column)
+    tok = rp._NODE_ID.set("node_id_missing")
+    try:
+        assert rp.lower_expr_str("__gfql_node_id__", cols) is None
+    finally:
+        rp._NODE_ID.reset(tok)
+
+
 def test_polars_frame_op_limit_matches_slice():
     """limit/skip operate on a polars active table without index artifacts."""
     g = BASE.gfql("MATCH (n) RETURN n LIMIT 4", engine="polars")
@@ -176,6 +373,30 @@ def test_polars_distinct_preserves_first_order():
     )
 
 
+@pytest.mark.parametrize("query,expected", [
+    ("MATCH (n) RETURN count(*) AS c", 6),                    # keyless count over all rows
+    ("MATCH (n) WHERE n.val > 25 RETURN count(*) AS c", 4),   # filtered count
+])
+def test_polars_count_star_broadcasts_not_collapses(query, expected):
+    """#1707 regression: keyless ``count(*)`` lowers to a synthetic constant group
+    column that must broadcast to the full row count. A collapse to 1 row made the
+    downstream count return a constant ``1`` (silent wrong answer). Assert the
+    absolute value (pandas oracle can't mask it) on the native polars engine."""
+    rpl = BASE.gfql(query, engine="polars")._nodes
+    assert "polars" in type(rpl).__module__
+    assert rpl.height == 1                      # a keyless aggregate is a single row
+    assert rpl["c"].to_list() == [expected]     # ...holding the TRUE count, not 1
+
+
+def test_polars_literal_projection_preserves_cardinality():
+    """#1707 corollary: a bare-literal projection (``RETURN 1``) is a map, not a
+    reduce — it must keep every row, not collapse to one."""
+    rpl = BASE.gfql("MATCH (n) RETURN 1 AS one", engine="polars")._nodes
+    assert "polars" in type(rpl).__module__
+    assert rpl.height == 6                       # one row per matched node
+    assert rpl["one"].to_list() == [1] * 6
+
+
 def test_polars_empty_result_shape():
     """A LIMIT 0 / over-skip empties to 0 rows but keeps the projected schema.
     Whole-entity RETURN n flattens to a.* columns (#1650), matching pandas."""
@@ -183,6 +404,98 @@ def test_polars_empty_result_shape():
     g_pd = BASE.gfql("MATCH (n) RETURN n SKIP 1000", engine="pandas")
     assert g._nodes.height == 0
     assert list(g._nodes.columns) == list(g_pd._nodes.columns)
+
+
+@pytest.mark.parametrize("query,expected", [
+    ("MATCH (n) RETURN count(DISTINCT n) AS c", 6),               # 6 distinct ids
+    ("MATCH (n) WHERE n.val > 25 RETURN count(DISTINCT n) AS c", 4),  # ids with val 30/40/50/60
+])
+def test_polars_count_distinct_entity_absolute(query, expected):
+    """Explicit pin: whole-entity count(DISTINCT n) returns the TRUE distinct-identity count
+    on the native polars engine (pandas oracle can't mask a wrong constant)."""
+    rpl = BASE.gfql(query, engine="polars")._nodes
+    assert "polars" in type(rpl).__module__
+    assert rpl.height == 1
+    assert rpl["c"].to_list() == [expected]
+
+
+def test_polars_count_distinct_entity_grouped_values():
+    """Grouped whole-entity count(DISTINCT n) matches pandas value-for-value and equals the
+    per-group node count (ids unique). BASE kinds: a=3, b=2, c=1."""
+    q = "MATCH (n) RETURN n.kind, count(DISTINCT n) AS c"
+    rpd = _to_pandas(BASE.gfql(q, engine="pandas")._nodes)
+    rpl = _to_pandas(BASE.gfql(q, engine="polars")._nodes)
+    a = rpd.sort_values("n.kind").reset_index(drop=True)
+    b = rpl.sort_values("n.kind").reset_index(drop=True)
+    pd.testing.assert_frame_equal(a, b, check_dtype=False)
+    assert dict(zip(b["n.kind"], b["c"])) == {"a": 3, "b": 2, "c": 1}
+
+
+@pytest.mark.parametrize("seed", list(range(60)))
+def test_polars_identity_aggregation_fuzz_matches_pandas(seed):
+    """Bounded differential fuzz (#1709): random small graphs x whole-entity identity
+    aggregation shapes; native polars MUST equal the pandas oracle value-for-value, or both
+    decline. A silent divergence is the worst outcome, so any polars-ok/pandas-nie or value
+    mismatch fails. Larger sweep lives in scratch (600/600 clean); this pins a deterministic
+    subset into the coverage lane."""
+    import random
+    from .polars_test_utils import graph_sig
+    import numpy as np
+
+    def _norm(sig):
+        def cell(v):
+            if isinstance(v, np.ndarray):
+                return tuple(v.tolist())
+            if isinstance(v, list):
+                return tuple(v)
+            return v
+
+        def frame(f):
+            if f is None:
+                return None
+            c, rows = f
+            return (c, tuple(tuple(cell(v) for v in r) for r in rows))
+        return tuple(frame(f) for f in sig)
+
+    rng = random.Random(seed)
+    n = rng.randint(1, 7)
+    ids = [f"n{i}" for i in range(n)]
+    nodes = pd.DataFrame({
+        "id": pd.Series(ids, dtype="object"),
+        "kind": pd.Series([rng.choice(["A", "B", "C"]) for _ in ids], dtype="object"),
+        "v": pd.Series([rng.choice([1, 2, 3, None]) for _ in ids], dtype="float64"),
+        "grp": pd.Series([rng.choice(["x", "y", None]) for _ in ids], dtype="object"),
+    })
+    ne = rng.randint(0, 8)
+    s = [rng.choice(ids) for _ in range(ne)]
+    d = [rng.choice(ids) for _ in range(ne)]
+    g = graphistry.nodes(nodes, "id").edges(
+        pd.DataFrame({"s": pd.Series(s, dtype="object"), "d": pd.Series(d, dtype="object")}),
+        "s", "d",
+    )
+    queries = [
+        "MATCH (b) RETURN count(DISTINCT b) AS c",
+        "MATCH (b {kind:'A'}) RETURN count(DISTINCT b) AS c",
+        "MATCH (b) RETURN b.kind, count(DISTINCT b) AS c",
+        "MATCH (b) RETURN b.grp, count(DISTINCT b) AS c, count(b) AS t",
+        "MATCH (a)-[]->(b) RETURN count(DISTINCT b) AS c",
+        "MATCH (b) RETURN b.kind, count(DISTINCT b.v) AS c",
+    ]
+    for q in queries:
+        try:
+            base = ("ok", _norm(graph_sig(g.gfql(q, engine="pandas"))))
+        except NotImplementedError:
+            base = ("nie",)
+        try:
+            got = ("ok", _norm(graph_sig(g.gfql(q, engine="polars"))))
+        except NotImplementedError:
+            got = ("nie",)
+        # polars may decline where pandas succeeds (honest NIE); never the reverse, never a
+        # value mismatch.
+        if base[0] == "ok" and got[0] == "ok":
+            assert base[1] == got[1], f"value divergence {q!r} seed={seed}: {base} vs {got}"
+        elif got[0] == "ok":
+            raise AssertionError(f"polars ok but pandas nie for {q!r} seed={seed}")
 
 
 # Direct frame-op coverage: each native polars branch on a real polars-framed graph, independent
@@ -283,15 +596,111 @@ def test_run_calls_polars_empty_and_native():
     assert "polars" in type(out._nodes).__module__
 
 
-def test_run_calls_polars_binding_ops_defers():
-    """Named middle + bare rows() rewrites to rows(binding_ops) — not native, so
-    NotImplementedError (NO pandas bridge; plan.md NO-CHEATING)."""
+def test_select_extend_polars_preserves_and_updates_columns():
+    """Bindings-path pre-aggregation projection keeps the row table while
+    overwriting existing aliases and appending derived columns."""
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import select_extend_polars
+
+    g = _polars_graph()
+    out = select_extend_polars(g, [("k", "v + 10"), ("double_v", "v * 2")])
+
+    assert out is not None
+    assert list(out._nodes.columns) == ["id", "k", "v", "double_v"]
+    assert out._nodes["k"].to_list() == [11, 12, 13, 14]
+    assert out._nodes["double_v"].to_list() == [2, 4, 6, 8]
+    assert select_extend_polars(g, [("bad", "missing.property")]) is None
+
+
+def test_try_native_row_op_handles_whole_row_group_prefixes():
+    """Whole-row grouping (prefixed keys) lowers natively via group_by_polars(key_prefixes=...)
+    instead of deferring; keys expand to their entity columns and results match the oracle."""
+    from graphistry.compute.ast import group_by
+    from graphistry.compute.gfql.lazy.engine.polars.chain import _try_native_row_op
+
+    op = group_by(["k"], [("count", "count", "v")], key_prefixes=["node."])
+    out = _try_native_row_op(_polars_graph(), op)
+    assert out is not None
+    assert sorted(out._nodes.select(["k", "count"]).rows()) == [("a", 2), ("b", 2)]
+
+
+def test_group_by_polars_key_prefix_expands_and_dedups_overlap():
+    """key_prefixes genuinely expands `<prefix>*` columns into the key set AND skips
+    columns already present in keys (no polars DuplicateError; pandas twin:
+    test_row_pipeline_ops key-overlap case)."""
+    import polars as pl
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import group_by_polars
+
+    nodes = pl.DataFrame({
+        "tag.id": [1, 1, 2, 2],
+        "tag.name": ["a", "a", "b", "b"],
+        "v": [10, 20, 30, 40],
+    })
+    g = graphistry.nodes(nodes)
+    # "tag." expands to tag.id (already a key -> deduped) + tag.name (appended)
+    out = group_by_polars(g, ["tag.id"], [("total", "sum", "v")], key_prefixes=["tag."])
+    assert out is not None
+    assert sorted(out._nodes.columns) == ["tag.id", "tag.name", "total"]
+    assert sorted(out._nodes.select(["tag.id", "tag.name", "total"]).rows()) == [
+        (1, "a", 30), (2, "b", 70),
+    ]
+
+
+def test_group_by_polars_malformed_agg_declines_not_crashes():
+    """Runtime defense-in-depth: malformed AggSpec shapes and unsupported agg
+    functions decline to None (caller raises honest NIE), never crash."""
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import group_by_polars
+
+    g = _polars_graph()
+    assert group_by_polars(g, ["k"], ["not-a-spec"]) is None  # non-list/tuple item
+    assert group_by_polars(g, ["k"], [("alias",)]) is None  # wrong arity
+    assert group_by_polars(g, ["k"], [("alias", "stdev", "v")]) is None  # unsupported func
+    assert group_by_polars(g, ["missing"], [("count", "count", "v")]) is None  # bad key
+
+
+def test_polars_rows_binding_ops_undirected_self_loop_multiplicity():
+    """Raw undirected bindings preserve both orientations, including two self-loop paths."""
+    from graphistry.compute.ast import e_undirected, n, rows, serialize_binding_ops
+
+    g = graphistry.nodes(pd.DataFrame({"id": [0, 1]}), "id").edges(
+        pd.DataFrame({"s": [0, 1], "d": [1, 1]}), "s", "d"
+    )
+    binding_ops = serialize_binding_ops([n(name="a"), e_undirected(), n(name="b")])
+    out = g.gfql([rows(binding_ops=binding_ops)], engine="polars")._nodes
+
+    assert sorted(out.select(["a", "b"]).rows()) == [(0, 1), (1, 0), (1, 1), (1, 1)]
+
+
+def test_run_calls_polars_binding_ops_native():
+    """Named middle + bare rows() rewrites to rows(binding_ops) natively for
+    fixed-length connected patterns: returns a polars bindings table."""
     from graphistry.compute.gfql.lazy.engine.polars.chain import _run_calls_polars
     from graphistry.compute.ast import call, n, e_forward
     g = _polars_graph()
     middle = [n(name="a"), e_forward(), n(name="b")]
-    with pytest.raises(NotImplementedError):
-        _run_calls_polars(g, [call("rows", {})], None, g, middle)
+    out = _run_calls_polars(g, [call("rows", {})], None, g, middle)
+    assert "polars" in type(out._nodes).__module__
+    assert {"a", "b"} <= set(out._nodes.columns)
+
+
+def test_run_calls_polars_binding_ops_unbounded_multihop_defers():
+    """Unbounded variable-length binding patterns: DIRECTED fixed point is native
+    (#1709, LDBC IS6); the rest stay outside the subset -> NotImplementedError (NO
+    pandas bridge, see plan.md NO-CHEATING)."""
+    from graphistry.compute.gfql.lazy.engine.polars.chain import _run_calls_polars
+    from graphistry.compute.ast import call, n, e_forward, e_undirected
+    g = _polars_graph()
+    native = _run_calls_polars(
+        g, [call("rows", {})], None, g, [n(name="a"), e_forward(to_fixed_point=True), n(name="b")]
+    )
+    assert "polars" in type(native._nodes).__module__
+    for middle in [
+        # undirected unbounded: multiplicity + backtrack-aware termination unmodeled
+        [n(name="a"), e_undirected(to_fixed_point=True), n(name="b")],
+        # aliased variable-length relationship: pandas rejects it outright
+        [n(name="a"), e_forward(to_fixed_point=True, name="r"), n(name="b")],
+    ]:
+        with pytest.raises(NotImplementedError):
+            _run_calls_polars(g, [call("rows", {})], None, g, middle)
 
 
 def test_frame_ops_polars_rows_empty_table():

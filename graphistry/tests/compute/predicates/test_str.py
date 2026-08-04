@@ -931,3 +931,36 @@ class TestCudfCasefoldOrDecline:
         assert _cudf_casefold_or_decline("[a-c]") == "[a-c]"  # same-case range folds fine
         assert _cudf_casefold_or_decline("[0-9]+") == "[0-9]+"  # non-letter range folds fine
         assert _cudf_casefold_or_decline("e-MAIL") == "e-mail"  # class-free literal hyphen folds fine
+
+
+# --- Regression: string predicates must be VALUE-SAFE on non-string columns. Previously
+# `s.str.contains(...)` etc. raised `AttributeError: Can only use .str accessor with string
+# values!` on a numeric/temporal/bool column. openCypher: a string op over a non-string value is
+# null -> excluded (matching the per-cell behavior on an object column holding non-strings), and
+# must NOT stringify (which would diverge pandas<->cuDF, e.g. wrongly match `5 CONTAINS '5'`). ---
+from graphistry.compute.predicates.str import Contains, Startswith, Endswith, Match, Fullmatch
+
+
+@pytest.mark.parametrize("pred", [
+    Contains("1", regex=False), Startswith("1"), Endswith("1"),
+    Match("1"), Fullmatch("1"),
+])
+@pytest.mark.parametrize("series", [
+    pd.Series([1, 15, 3]),            # int
+    pd.Series([1.0, 15.0, 3.0]),      # float
+    pd.Series([True, False, True]),   # bool
+])
+def test_string_predicate_on_nonstring_column_is_null_not_raise(pred, series):
+    # Must not raise, and must be all-null (excluded), never stringified.
+    result = pred(series)
+    assert len(result) == len(series)
+    assert all(pd.isna(v) for v in result), f"{pred!r} on {series.dtype} -> {list(result)}"
+
+
+def test_string_predicate_on_string_and_mixed_unchanged():
+    # String dtype: normal matching still works.
+    assert list(Contains("a", regex=False)(pd.Series(["abc", "xyz", None]))) == [True, False, None]
+    # Mixed object: non-string cells already become null (unchanged behavior).
+    r = Contains("a", regex=False)(pd.Series(["a1", 2, None], dtype="object"))
+    assert r.iloc[0] == True  # noqa: E712
+    assert pd.isna(r.iloc[1]) and pd.isna(r.iloc[2])

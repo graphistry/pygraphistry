@@ -269,10 +269,14 @@ def hop(self: Plottable,
 
         GFQL_EDGE_INDEX = generate_safe_column_name('edge_index', pre_indexed_edges, prefix='__gfql_', suffix='__')
 
-        edges_indexed = pre_indexed_edges.reset_index(drop=False)
-        pre_indexed_cols = set(pre_indexed_edges.columns)
-        index_col_name = next(col for col in edges_indexed.columns if col not in pre_indexed_cols)
-        edges_indexed = edges_indexed.rename(columns={index_col_name: GFQL_EDGE_INDEX})
+        # Attach the synthetic per-edge id WITHOUT copying edge data (#1670):
+        # reset_index(drop=False) + rename deep-copied + block-consolidated the
+        # whole (post-filter) edge frame (~80ms @2M edges) on every hop — the
+        # traversal hot path. A shallow copy + assigning the index as a column
+        # gives identical id values (used only as a dedup/join key, never
+        # positionally) with no O(E) copy. Mirrors the chain.py edge-index attach.
+        edges_indexed = pre_indexed_edges.copy(deep=False)
+        edges_indexed[GFQL_EDGE_INDEX] = edges_indexed.index
         EDGE_ID = GFQL_EDGE_INDEX
     else:
         edges_indexed = query_if_not_none(edge_query, g2.filter_edges_by_dict(edge_match)._edges)

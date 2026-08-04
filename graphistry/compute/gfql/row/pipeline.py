@@ -5,7 +5,7 @@ import re
 import warnings
 from functools import lru_cache
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Sequence, Tuple, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, NoReturn, Optional, Sequence, Tuple, cast
 from typing_extensions import Literal
 
 import pandas as pd
@@ -20,11 +20,22 @@ from graphistry.Engine import (
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.dataframe_utils import concat_frames
+from graphistry.compute.gfql.call.support import AggSpec
 from graphistry.compute.gfql.row import frame_ops as row_frame_ops
+from graphistry.compute.gfql.row.prefilter import AliasPrefilters
+from graphistry.compute.typing import DataFrameT
+from graphistry.utils.json import JSONVal
 from graphistry.compute.gfql.row.order_expr import (
     extract_temporal_duration_sort_ast,
     is_order_aggregate_alias_ast,
     order_expr_ast_static_supported,
+)
+from graphistry.compute.gfql.agg_types import (
+    GFQL_NUMERIC_ONLY_AGGREGATIONS,
+    numeric_agg_all_null_value,
+    pandas_dtype_is_numeric_for_agg,
+    pandas_non_numeric_agg_dtype,
+    raise_non_numeric_aggregation,
 )
 from graphistry.compute.gfql.language_defs import (
     GFQL_COMPARISON_BINARY_OP_NAMES,
@@ -59,6 +70,7 @@ from graphistry.compute.gfql.row.entity_text import (
     is_entity_text_scalar,
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN
+from graphistry.compute.gfql.cache_registry import register_process_singleton
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype, series_sequence_len, series_str_match
 from graphistry.compute.gfql.row.ordering import (
     build_list_sort_columns,
@@ -77,6 +89,10 @@ from graphistry.compute.gfql.temporal.durations import (
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
+    from graphistry.compute.typing import DataFrameT
+    from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
+    from graphistry.compute.gfql.index.registry import GfqlIndexRegistry
+    from graphistry.compute.ast import ASTObject
     from graphistry.compute.gfql.expr_parser import ExprNode
 
 
@@ -101,6 +117,9 @@ def _gfql_expr_runtime_parser_bundle() -> Optional[GFQLRuntimeParserBundle]:
         return None
 
 
+register_process_singleton(_gfql_expr_runtime_parser_bundle, "an import-resolution bundle, None on a minimal install; re-resolving cannot change the answer")
+
+
 @lru_cache(maxsize=1)
 def _gfql_cudf_list_sort_requires_host_bridge() -> bool:
     """cuDF 25.02 can segfault in list-sort pivot internals; bridge to pandas there."""
@@ -115,6 +134,9 @@ def _gfql_cudf_list_sort_requires_host_bridge() -> bool:
     major = int(match.group(1))
     minor = int(match.group(2))
     return (major, minor) <= (25, 2)
+
+
+register_process_singleton(_gfql_cudf_list_sort_requires_host_bridge, "probes the installed cuDF version for a segfaulting list-sort; the installed version cannot change inside a process")
 
 
 def _gfql_bridge_cudf_df_to_pandas(work_df: Any) -> Any:
@@ -191,10 +213,18 @@ def is_row_pipeline_call(function: str) -> bool:
 
 
 class RowPipelineMixin:
-    _g: Any
-    _gfql_start_nodes: Any
-    _gfql_rows_base_graph: Any
-    _gfql_rows_edge_aliases: Any
+    # Mirrors the GFQL execution-context fields declared on Plottable: this mixin
+    # is also used by `_RowPipelineAdapter`, which is not a PlotterBase, so the
+    # defaults must exist here too for typed access to be total.
+    _gfql_index_policy: str = "use"
+    _gfql_index_registry: Optional["GfqlIndexRegistry"] = None
+    _gfql_indexed_bindings_handoff: Optional["IndexedBindingsHandoff"] = None
+    _gfql_shortest_path_backend: str = "auto"
+
+    _g: Optional["Plottable"] = None
+    _gfql_start_nodes: Optional["DataFrameT"] = None
+    _gfql_rows_base_graph: Optional["Plottable"] = None
+    _gfql_rows_edge_aliases: Optional[Iterable[str]] = None
     _nodes: Any
     _edges: Any
     _node: Any
@@ -230,11 +260,55 @@ class RowPipelineMixin:
         return base_graph
 
     @staticmethod
+    def _gfql_native_shortest_path_cache(base_graph: Any) -> Optional[Dict[Any, Any]]:
+        """Per-graph cache of built igraph/cugraph state, shared across the pairwise
+        shortestPath ops of ONE query execution (each op runs on a fresh row-pipeline
+        adapter, but they all resolve the same persistent ``base_graph``).
+
+        Attached to the persistent base graph, NOT the per-op adapter, and RESET whenever the
+        bound edge-frame identity changes. A functional rebind (``g.edges(...)`` / ``g.nodes(...)``)
+        yields a new base graph with no cache attribute, and an in-place ``base_graph._edges = ...``
+        reassignment flips the edges token below -- so neither returns stale state (the BLOCKER-1
+        rebind class). NOT detected: in-place CONTENT mutation of the same bound edge frame without
+        a rebind (``base_graph._edges.iloc[...] = ...``), a library-wide assumption for bound frames.
+        Returns None when there is no graph to attach to (caching disabled; correctness unaffected --
+        ``_get_or_build_cached_state`` treats a None cache as always-rebuild).
+        """
+        edges = getattr(base_graph, "_edges", None)
+        if edges is None:
+            return None
+        edges_token = id(edges)
+        cache = getattr(base_graph, "_gfql_native_sp_cache", None)
+        if not isinstance(cache, dict) or cache.get("__edges_token__") != edges_token:
+            cache = {"__edges_token__": edges_token}
+            try:
+                base_graph._gfql_native_sp_cache = cache
+            except Exception:
+                return None  # cannot attach (e.g. frozen/slots) -> skip caching
+        return cache
+
+    @staticmethod
     def _gfql_fresh_col_name(columns: Any, prefix: str) -> str:
         col = prefix
         while col in columns:
             col = f"{col}_x"
         return col
+
+    @staticmethod
+    def _gfql_coerce_case_branch_dtypes(a: Any, b: Any) -> "Tuple[Any, Any]":  # pragma: no cover - only reached from the cuDF CASE-mixed-dtype retry above; no cuDF coverage lane (validated on dgx)
+        """Cast two CASE branches to a common dtype for engines (cuDF) whose ``.where`` rejects
+        mismatched dtypes, where pandas coerces. Prefer a numeric common type (covers int / float /
+        null — the shortestPath hops branch); fall back to string; last resort return unchanged so
+        the caller re-raises the original error rather than masking an unexpected failure."""
+        for target in ("float64",):
+            try:
+                return a.astype(target), b.astype(target)
+            except Exception:
+                continue
+        try:
+            return a.astype("str"), b.astype("str")
+        except Exception:
+            return a, b
 
     @staticmethod
     def _gfql_mask_fill(series: Any, mask: Any, value: Any) -> Any:
@@ -1644,7 +1718,17 @@ class RowPipelineMixin:
             cond_mask = self._gfql_bool_mask(table_df, cond_value)
             cond_null = self._gfql_null_mask(table_df, cond_value)
             cond_true = cond_mask & ~cond_null
-            return True, true_value.where(cond_true, false_value)
+            try:
+                return True, true_value.where(cond_true, false_value)
+            except TypeError:  # pragma: no cover - cuDF-only (.where mixed-dtype); no cuDF lane in the coverage gate (validated on dgx)
+                # cuDF rejects `.where` across mismatched branch dtypes ("cudf does not support
+                # mixed types"), where pandas coerces to a common type. This surfaced as a hard
+                # GFQLTypeError for e.g. `CASE WHEN path IS NULL THEN -1 ELSE length(path) END`
+                # over an UNREACHABLE shortestPath (the hops branch is an object/null column while
+                # the other branch is int -1). Unify the two branches to a common dtype and retry so
+                # CASE is engine-consistent (cuDF returns -1 like pandas instead of raising).
+                tv, fv = RowPipelineMixin._gfql_coerce_case_branch_dtypes(true_value, false_value)
+                return True, tv.where(cond_true, fv)
 
         if isinstance(node, QuantifierExpr):
             source_ok, list_value = self._gfql_eval_expr_ast(table_df, node.source)
@@ -2700,7 +2784,7 @@ class RowPipelineMixin:
         # identity column (alias.{node_id_col}).  This lets expressions like
         # count(post) work when the table has post.id, post.name, etc. (#880)
         if "." not in txt and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, txt):
-            edge_aliases = getattr(self, "_gfql_rows_edge_aliases", None)
+            edge_aliases = self._gfql_rows_edge_aliases
             if edge_aliases is not None and txt in edge_aliases:
                 # Relationship aliases should render as entities (parity with
                 # Cypher RETURN <relAlias>) instead of collapsing to id-like
@@ -3426,9 +3510,103 @@ class RowPipelineMixin:
             merged = merged.drop_duplicates(keep="first")
         return merged
 
-    def _gfql_connected_bindings_state(self, ops: Sequence[Any]) -> Tuple[Any, Dict[str, Any]]:
+    def _gfql_apply_alias_prefilter(
+        self,
+        frame: DataFrameT,
+        alias: Optional[str],
+        alias_prefilters: Optional[AliasPrefilters],
+        *,
+        is_edge: bool = False,
+        src_col: Optional[str] = None,
+        dst_col: Optional[str] = None,
+    ) -> DataFrameT:
+        """L4 single-alias predicate pushdown: pre-filter one alias's frame BEFORE the
+        binding join, using residual predicates the Cypher lowering pass peeled off the
+        post-join ``where_rows`` / ``search_any``.
+
+        Parity contract: a single-alias predicate's truth on a binding row depends only
+        on that alias's columns, which the (inner) binding join copies verbatim into the
+        row table. Filtering the alias frame first therefore removes exactly the rows the
+        post-join filter would. We reuse the SAME evaluator (``_gfql_eval_string_expr`` +
+        ``_gfql_bool_mask``) and the SAME ``search_any_mask`` kernel to guarantee
+        byte-identical semantics; only inner-joined (non-optional) aliases are ever
+        pushed (guaranteed by the pass). NULL is dropped (Cypher WHERE keeps only TRUE),
+        matching ``where_rows``.
+        """
+        if not alias or not alias_prefilters or frame is None:
+            return frame
+        specs = alias_prefilters.get(alias)
+        if not specs or len(frame) == 0:
+            return frame
+        reserved = set()
+        if is_edge:
+            if src_col is not None:
+                reserved.add(src_col)
+            if dst_col is not None:
+                reserved.add(dst_col)
+        for spec in specs:
+            kind = spec.get("kind")
+            if kind == "expr":
+                # Rename to alias-qualified columns so the shared evaluator resolves
+                # ``alias.prop`` exactly as it would against the full binding table.
+                view = frame.rename(columns={c: f"{alias}.{c}" for c in frame.columns})
+                value = self._gfql_eval_string_expr(view, spec["text"])
+                mask = self._gfql_bool_mask(view, value)
+                frame = frame.loc[mask]
+            elif kind == "search_any":
+                from graphistry.compute.gfql.search_any import search_any_mask
+                term = spec.get("term")
+                if not isinstance(term, str):
+                    raise GFQLValidationError(
+                        ErrorCode.E108,
+                        "searchAny pushdown requires a string term",
+                        field="term",
+                        value=term,
+                        language="cypher",
+                    )
+                columns = spec.get("columns")
+                if columns is not None and not all(isinstance(col, str) for col in columns):
+                    raise GFQLValidationError(
+                        ErrorCode.E108,
+                        "searchAny pushdown columns= must be a list of strings",
+                        field="columns",
+                        value=columns,
+                        language="cypher",
+                    )
+                # Match the post-join op's searched column set: alias property columns
+                # only (src/dst are join keys, never ``alias.``-prefixed in bindings).
+                search_cols = [
+                    c for c in frame.columns
+                    if isinstance(c, str) and c not in reserved and not c.startswith("__gfql_")
+                ]
+                sub = frame[search_cols]
+                mask = search_any_mask(
+                    sub,
+                    term,
+                    case_sensitive=bool(spec.get("case_sensitive", False)),
+                    regex=bool(spec.get("regex", False)),
+                    columns=columns,
+                )
+                if mask is None:
+                    # columns= referenced an absent column; the pass validates this can't
+                    # happen, but never silently drop rows — bail out of the pushdown.
+                    raise GFQLValidationError(
+                        ErrorCode.E108,
+                        "searchAny pushdown columns= includes a column absent from the alias frame",
+                        field="columns",
+                        value=spec.get("columns"),
+                        language="cypher",
+                    )
+                frame = frame.loc[mask]
+        return frame
+
+    def _gfql_connected_bindings_state(
+        self,
+        ops: Sequence["ASTObject"],
+        alias_prefilters: Optional[AliasPrefilters] = None,
+    ) -> Tuple[DataFrameT, Dict[str, DataFrameT]]:
         from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
-        from graphistry.compute.ast import ASTEdge, ASTNode
+        from graphistry.compute.ast import ASTEdge, ASTNode, serialize_binding_ops
 
         if self._nodes is None or self._edges is None:
             return self._gfql_empty_frame(), {}
@@ -3454,8 +3632,35 @@ class RowPipelineMixin:
 
         base_df = self._nodes if self._nodes is not None else self._edges
         engine = resolve_engine(EngineAbstract.AUTO, base_df)
-        start_nodes = getattr(self, "_gfql_start_nodes", None)
-        first_nodes = ops[0].execute(
+        start_nodes = self._gfql_start_nodes
+        from graphistry.compute.gfql.index.handoff import read_handoff
+
+        handoff = read_handoff(self)
+        binding_ops = serialize_binding_ops(ops)
+        if handoff is not None and handoff.serves(binding_ops, engine) and not alias_prefilters:
+            assert handoff.state is not None  # narrowed by serves()
+            return handoff.state.state, handoff.state.alias_frames
+        previously_declined = handoff is not None and handoff.declined(binding_ops)
+        if (
+            not previously_declined
+            and not RowPipelineMixin._gfql_is_shortest_path_scalar_binding_ops(ops)
+        ):
+            from graphistry.compute.gfql.index import bindings as indexed_bindings
+            indexed_state = indexed_bindings.try_indexed_connected_bindings_state(
+                base_graph,
+                ops,
+                engine=engine,
+                start_nodes=start_nodes,
+                alias_prefilters=alias_prefilters,
+            )
+            if indexed_state is not None:
+                return indexed_state.state, indexed_state.alias_frames
+        first_op = ops[0]
+        if not isinstance(first_op, ASTNode):
+            self._gfql_bindings_error(
+                "Cypher multi-alias row bindings currently require node steps in even positions"
+            )
+        first_nodes = first_op.execute(
             g=base_graph,
             prev_node_wavefront=start_nodes,
             target_wave_front=None,
@@ -3463,9 +3668,14 @@ class RowPipelineMixin:
         )._nodes
         if first_nodes is None or node_id_col not in first_nodes.columns:
             return self._nodes.iloc[0:0].copy(), {}
+        # L4 single-alias predicate pushdown: pre-filter the seed alias frame
+        # BEFORE it becomes the traversal wavefront (shrinks every downstream hop).
+        first_alias = first_op._name
+        first_nodes = self._gfql_apply_alias_prefilter(
+            first_nodes, first_alias, alias_prefilters
+        )
         state_df = first_nodes[[node_id_col]].copy().rename(columns={node_id_col: "__current__"})
-        alias_frames: Dict[str, Any] = {}
-        first_alias = getattr(ops[0], "_name", None)
+        alias_frames: Dict[str, DataFrameT] = {}
         if isinstance(first_alias, str):
             state_df[first_alias] = state_df["__current__"]
             alias_frames[first_alias] = first_nodes
@@ -3492,6 +3702,15 @@ class RowPipelineMixin:
             if sem.is_multihop and edge_alias is not None:
                 self._gfql_bindings_error(
                     "Cypher multi-alias row bindings do not yet support variable-length relationship aliases"
+                )
+            # L4 pushdown: pre-filter this hop's edge frame by the edge alias's
+            # single-alias residual (single-hop only; searchAny/e.prop predicates)
+            # before orientation + join. src/dst are excluded from searchAny to match
+            # the post-join binding table (where they are consumed as join keys).
+            if not sem.is_multihop and isinstance(edge_alias, str) and edges_df_step is not None:
+                edges_df_step = self._gfql_apply_alias_prefilter(
+                    edges_df_step, edge_alias, alias_prefilters,
+                    is_edge=True, src_col=src_col, dst_col=dst_col,
                 )
             if not sem.is_multihop and (edges_df_step is None or len(edges_df_step) == 0):
                 return state_df.iloc[0:0], alias_frames
@@ -3581,8 +3800,13 @@ class RowPipelineMixin:
             )._nodes
             if next_nodes is None or node_id_col not in next_nodes.columns:
                 return state_df.iloc[0:0], alias_frames
+            # L4 pushdown: pre-filter the endpoint alias frame by its single-alias
+            # residual before the isin-restrict, so only satisfying endpoints survive.
+            node_alias = next_node_op._name
+            next_nodes = self._gfql_apply_alias_prefilter(
+                next_nodes, node_alias, alias_prefilters
+            )
             state_df = state_df[state_df["__current__"].isin(next_nodes[node_id_col])].copy()
-            node_alias = getattr(next_node_op, "_name", None)
             if isinstance(node_alias, str):
                 state_df[node_alias] = state_df["__current__"]
                 hop_column = edge_op.label_node_hops
@@ -3606,7 +3830,9 @@ class RowPipelineMixin:
 
     def _gfql_connected_bindings_row_table(
         self,
-        binding_ops: List[Dict[str, Any]],
+        binding_ops: List[Dict[str, JSONVal]],
+        alias_prefilters: Optional[AliasPrefilters] = None,
+        attach_prop_aliases: Optional[List[str]] = None,
     ) -> "Plottable":
         from graphistry.compute.ast import ASTEdge, ASTNode, from_json as ast_from_json
 
@@ -3616,7 +3842,11 @@ class RowPipelineMixin:
         ops = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
         if self._gfql_is_shortest_path_scalar_binding_ops(ops):
             return self._gfql_shortest_path_scalar_bindings_row_table(ops)
-        return self._gfql_connected_bindings_row_table_from_ops(ops)
+        return self._gfql_connected_bindings_row_table_from_ops(
+            ops,
+            alias_prefilters=alias_prefilters,
+            attach_prop_aliases=attach_prop_aliases,
+        )
 
     @staticmethod
     def _gfql_is_shortest_path_scalar_binding_ops(ops: Sequence[Any]) -> bool:
@@ -3639,12 +3869,16 @@ class RowPipelineMixin:
 
     def _gfql_connected_bindings_row_table_from_ops(
         self,
-        ops: Sequence[Any],
+        ops: Sequence["ASTObject"],
+        alias_prefilters: Optional[AliasPrefilters] = None,
+        attach_prop_aliases: Optional[List[str]] = None,
     ) -> "Plottable":
         from graphistry.compute.ast import ASTEdge
 
-        state_df, alias_frames = self._gfql_connected_bindings_state(ops)
-        bindings = self._gfql_connected_bindings_row_frame_from_state(ops, state_df, alias_frames)
+        state_df, alias_frames = self._gfql_connected_bindings_state(ops, alias_prefilters=alias_prefilters)
+        bindings = self._gfql_connected_bindings_row_frame_from_state(
+            ops, state_df, alias_frames, attach_prop_aliases
+        )
         out = self._gfql_row_table(bindings)
         edge_aliases = {
             alias
@@ -3652,15 +3886,85 @@ class RowPipelineMixin:
             for alias in [getattr(op, "_name", None)]
             if isinstance(op, ASTEdge) and isinstance(alias, str)
         }
-        setattr(out, "_gfql_rows_edge_aliases", edge_aliases)
+        out._gfql_rows_edge_aliases = edge_aliases
         return out
+
+    def _gfql_add_missing_binding_columns(
+        self, bindings: DataFrameT, ops: Sequence["ASTObject"]
+    ) -> DataFrameT:
+        """Ensure an EMPTY bindings frame still carries every declared alias column.
+
+        The walk assembles the schema incrementally, so an emptied hop returns a frame that
+        never acquired the columns later steps would have added -- edge-alias columns
+        (``e1.w``) and ``alias.alias`` markers. Node aliases survive via the row-frame merge's
+        empty lookup, but edge aliases have no ``.id`` fallback, so ``count(e1)`` /
+        ``e1.w``-in-WHERE dereferenced a missing column. Declared columns are derivable from
+        ``ops`` + the base edge frame, so add whatever is missing here (0-row only, no effect
+        on non-empty output). See #25/#27.
+        """
+        from graphistry.compute.ast import ASTEdge, ASTNode
+
+        base_graph = self._gfql_base_graph()
+        edges = base_graph._edges if base_graph is not None else None
+        src_col = base_graph._source if base_graph is not None else None
+        dst_col = base_graph._destination if base_graph is not None else None
+        # (column_name, source_series) — carry the source dtype so an edge property like
+        # `e1.w` stays int64 at 0 rows instead of an untyped object column (which would upcast
+        # a sum/avg and escape via UNION ALL). Mirrors the node path's typed empty slice. The
+        # `alias.alias` marker has no source dtype, so None-broadcast is fine for it.
+        missing: List[Tuple[str, Optional[Any]]] = []
+        for op in ops:
+            alias = getattr(op, "_name", None)
+            if not isinstance(alias, str):
+                continue
+            missing.append((f"{alias}.{alias}", None))  # the alias.alias marker
+            if isinstance(op, ASTEdge) and edges is not None:
+                for col in edges.columns:
+                    if col in (src_col, dst_col):
+                        continue
+                    missing.append((f"{alias}.{col}", edges[col]))
+        for col, source in missing:
+            if col not in bindings.columns:
+                if source is not None:
+                    bindings[col] = source.iloc[0:0].reindex(bindings.index)
+                else:
+                    bindings[col] = self._gfql_broadcast_scalar(bindings, None)
+        # Downstream node aliases (every node op after the first) reach the row via a hop
+        # whose unmatched rows introduce NaN, so the non-empty path widens the columns that
+        # cannot hold NaN: numpy int -> float64, numpy bool -> object. The 0-row path sourced
+        # them from the base node frame (int/bool), so match that widening or an emptied
+        # `sum(b.i)`/`max(b.bv)` returns int64/bool where the non-empty run and master give
+        # float64/object -- observable through UNION ALL (#31, Wave 37 Finding 2). Extension
+        # dtypes (`Int64`, `boolean`) hold NA natively and stay put in the non-empty path, so
+        # they must NOT be touched here (widening them re-introduced the divergence -- Wave 37
+        # Finding 1).
+        import pandas as _pd
+
+        node_ops = [op for op in ops if isinstance(op, ASTNode)]
+        for op in node_ops[1:]:
+            alias = getattr(op, "_name", None)
+            if not isinstance(alias, str):
+                continue
+            for col in [c for c in bindings.columns if c == alias or str(c).startswith(f"{alias}.")]:
+                try:
+                    dtype = bindings[col].dtype
+                    if _pd.api.types.is_extension_array_dtype(dtype):
+                        continue
+                    if dtype.kind in ("i", "u"):
+                        bindings[col] = bindings[col].astype("float64")
+                    elif dtype.kind == "b":
+                        bindings[col] = bindings[col].astype("object")
+                except Exception:
+                    continue
+        return bindings
 
     def _gfql_connected_bindings_row_frame_from_state(
         self,
-        ops: Sequence[Any],
-        state_df: Any,
-        alias_frames: Dict[str, Any],
-    ) -> Any:
+        ops: Sequence["ASTObject"],
+        state_df: DataFrameT,
+        alias_frames: Dict[str, DataFrameT],
+        attach_prop_aliases: Optional[List[str]] = None,
+    ) -> DataFrameT:
         from graphistry.compute.ast import ASTNode
 
         node_id = self._node
@@ -3675,20 +3979,28 @@ class RowPipelineMixin:
             if base_nodes is not None and node_id in base_nodes.columns
             else self._gfql_empty_frame(base_nodes, columns=[node_id])
         )
+        # #1711 projection-pushdown: attach_prop_aliases (from the cypher lowering)
+        # names the node aliases whose PROPERTIES are referenced downstream. Aliases
+        # not listed skip the O(N) property left-join — their bare id column (already
+        # in state) is all the query needs (e.g. count(*) references nothing,
+        # count(a) references only the bare column). None = attach all (default).
+        attach_set = None if attach_prop_aliases is None else set(attach_prop_aliases)
 
         bindings = state_df.copy()
         node_aliases = [
-            getattr(op, "_name", None)
+            op._name
             for op in ops
-            if isinstance(op, ASTNode) and isinstance(getattr(op, "_name", None), str)
+            if isinstance(op, ASTNode) and isinstance(op._name, str)
         ]
         for alias in node_aliases:
             alias = str(alias)
+            if alias not in bindings.columns:
+                bindings[alias] = self._gfql_broadcast_scalar(bindings, None)
+            if attach_set is not None and alias not in attach_set:
+                continue  # properties unreferenced — keep only the bare id column
             lookup_source = alias_frames.get(alias)
             if lookup_source is None or node_id not in lookup_source.columns:
                 lookup_source = empty_lookup_source
-            if alias not in bindings.columns:
-                bindings[alias] = self._gfql_broadcast_scalar(bindings, None)
             lookup = self._gfql_node_alias_lookup_frame(lookup_source, node_id, alias)
             bindings = bindings.merge(
                 lookup,
@@ -3707,6 +4019,8 @@ class RowPipelineMixin:
 
         drop_cols = ["__current__"]
         bindings = bindings.drop(columns=[col for col in drop_cols if col in bindings.columns])
+        if len(bindings) == 0:
+            bindings = self._gfql_add_missing_binding_columns(bindings, ops)
         return bindings
 
     def _gfql_shortest_path_scalar_native(
@@ -3779,6 +4093,16 @@ class RowPipelineMixin:
         sources = seed_table[start_alias]
         targets = seed_table[end_alias]
 
+        # Per-execution cache of the built native graph, shared across a query's pairwise
+        # shortestPath ops. cache_key fully captures the edge pattern via the op's canonical
+        # JSON (a partial key could reuse a graph built for a DIFFERENT pattern -> wrong
+        # distances); directedness is folded into the key inside try_native_shortest_path.
+        import json
+        sp_cache = self._gfql_native_shortest_path_cache(base_graph)
+        sp_cache_key = (
+            json.dumps(edge_op.to_json(), sort_keys=True) if sp_cache is not None else None
+        )
+
         native_result = try_native_shortest_path(
             step_pairs, sources, targets,
             min_hops=min_hops,
@@ -3786,6 +4110,8 @@ class RowPipelineMixin:
             directed=not sem.is_undirected,
             engine=engine,
             backend=cast(ShortestPathBackend, backend),
+            cache=sp_cache,
+            cache_key=sp_cache_key,
         )
         if native_result is None:
             return None
@@ -3818,7 +4144,7 @@ class RowPipelineMixin:
             return self._gfql_row_table(self._gfql_empty_frame())
 
         # Try native igraph/cugraph backend first; fall back to BFS
-        sp_backend = getattr(self, "_gfql_shortest_path_backend", "auto")
+        sp_backend = self._gfql_shortest_path_backend
         reachable_hops = self._gfql_shortest_path_scalar_native(
             seed_table, ops, start_alias, end_alias, hop_column, backend=sp_backend
         )
@@ -3869,8 +4195,11 @@ class RowPipelineMixin:
 
     def _gfql_cartesian_node_bindings_row_table(
         self,
-        ops: Sequence[Any],
+        ops: Sequence["ASTObject"],
+        alias_prefilters: Optional[AliasPrefilters] = None,
     ) -> "Plottable":
+        from graphistry.compute.ast import ASTNode
+
         if self._nodes is None:
             return self._gfql_row_table(self._gfql_empty_frame())
 
@@ -3886,12 +4215,16 @@ class RowPipelineMixin:
 
         base_df = self._nodes if self._nodes is not None else self._edges
         engine = resolve_engine(EngineAbstract.AUTO, base_df)
-        start_nodes = getattr(self, "_gfql_start_nodes", None)
+        start_nodes = self._gfql_start_nodes
         join_col = RowPipelineMixin._gfql_fresh_col_name(base_nodes.columns, "__gfql_bindings_join__")
         bindings: Optional[Any] = None
         anonymous_cols: List[str] = []
 
         for idx, node_op in enumerate(ops):
+            if not isinstance(node_op, ASTNode):
+                self._gfql_bindings_error(
+                    "Cypher disconnected row bindings currently require node steps"
+                )
             matched_nodes = node_op.execute(
                 g=base_graph,
                 prev_node_wavefront=start_nodes,
@@ -3901,7 +4234,12 @@ class RowPipelineMixin:
             if matched_nodes is None or node_id not in matched_nodes.columns:
                 return self._gfql_row_table(base_nodes.iloc[0:0].copy())
 
-            alias = getattr(node_op, "_name", None)
+            # L4 pushdown: pre-filter each disconnected-pattern node alias frame.
+            alias = node_op._name
+            matched_nodes = self._gfql_apply_alias_prefilter(
+                matched_nodes, alias, alias_prefilters
+            )
+
             if isinstance(alias, str):
                 frame = self._gfql_node_alias_lookup_frame(matched_nodes, str(node_id), alias)
             else:
@@ -3918,15 +4256,21 @@ class RowPipelineMixin:
 
     def _gfql_binding_ops_row_table(
         self,
-        binding_ops: List[Dict[str, Any]],
+        binding_ops: List[Dict[str, JSONVal]],
+        alias_prefilters: Optional[AliasPrefilters] = None,
+        attach_prop_aliases: Optional[List[str]] = None,
     ) -> "Plottable":
         from graphistry.compute.ast import from_json as ast_from_json
 
         ops = [ast_from_json(op_json, validate=False) for op_json in binding_ops]
         mode = self._gfql_binding_ops_mode(ops)
         if mode == "node_cartesian":
-            return self._gfql_cartesian_node_bindings_row_table(ops)
-        return self._gfql_connected_bindings_row_table(binding_ops)
+            return self._gfql_cartesian_node_bindings_row_table(ops, alias_prefilters=alias_prefilters)
+        return self._gfql_connected_bindings_row_table(
+            binding_ops,
+            alias_prefilters=alias_prefilters,
+            attach_prop_aliases=attach_prop_aliases,
+        )
 
     def _gfql_bindings_row_table(
         self, alias_endpoints: Dict[str, str]
@@ -4585,8 +4929,25 @@ class RowPipelineMixin:
 
         if sort_cols:
             try:
-                effective_sort_cols = sort_cols + [row_order_col]
-                effective_ascending = ascending + [True]
+                # openCypher orders NULL as the LARGEST value: ASC -> nulls last, DESC -> nulls
+                # FIRST. pandas/cuDF sort_values `na_position` is a SINGLE scalar (cannot be
+                # per-key) and cuDF has no stable sort, so use a per-key null-indicator column
+                # sorted in the SAME direction as its key: ind = col.isna(); for an ASC key
+                # (ascending=True) True (null) sorts LAST, for a DESC key (ascending=False) True
+                # sorts FIRST. Matches the OLAP fast-path fix and order_by_polars. (Previously
+                # sort_values defaulted na_position='last' for every key, silently returning the
+                # wrong `... DESC LIMIT k` top-k over a column containing NULLs.)
+                interleaved_cols: List[Any] = []
+                interleaved_ascending: List[bool] = []
+                for _i, (_sc, _asc) in enumerate(zip(sort_cols, ascending)):
+                    _ind_col = RowPipelineMixin._gfql_fresh_col_name(
+                        work_df.columns, f"__gfql_sort_nullrank_{_i}__"
+                    )
+                    work_df = work_df.assign(**{_ind_col: work_df[_sc].isna()})
+                    interleaved_cols.extend([_ind_col, _sc])
+                    interleaved_ascending.extend([_asc, _asc])
+                effective_sort_cols = interleaved_cols + [row_order_col]
+                effective_ascending = interleaved_ascending + [True]
                 out_df = work_df.sort_values(by=effective_sort_cols, ascending=effective_ascending)
             except Exception as exc:
                 raise ValueError(
@@ -4680,7 +5041,7 @@ class RowPipelineMixin:
     def group_by(
         self,
         keys: Sequence[str],
-        aggregations: Sequence[Sequence[Any]],
+        aggregations: Sequence[AggSpec],
         key_prefixes: Optional[Sequence[str]] = None,
     ) -> "Plottable":
         """Vectorized grouped aggregations for row-table pipelines."""
@@ -4769,6 +5130,14 @@ class RowPipelineMixin:
                         tmp_col = f"{tmp_col}_x"
                     table_df = table_df.assign(**{tmp_col: expr_values})
                     expr_col = tmp_col
+                if "category" in str(table_df[expr_col].dtype).lower():
+                    # A categorical column is a STRING column to cypher (its categories are the
+                    # values), but the host kernels disagree per-aggregate: pandas raises on
+                    # grouped min/max/sum/mean over a categorical, and cuDF additionally raises
+                    # on collect and -- worse -- answers count(DISTINCT) with a CATEGORY LABEL
+                    # instead of a count. Decategorize once, up front, so every aggregate below
+                    # sees the string column cypher says it is.
+                    table_df = table_df.assign(**{expr_col: table_df[expr_col].astype("string")})
                 grouped = _make_grouped(table_df, [expr_col])
                 if func in {"collect", "collect_distinct"}:
                     # collect() ignores null entries; compute collection on
@@ -4806,9 +5175,39 @@ class RowPipelineMixin:
                     method_name = GFQL_GROUPBY_AGG_METHODS.get(func)
                     if method_name is None:
                         raise ValueError(f"unsupported group_by aggregation function: {func!r}")
-                    if (
-                        func in {"min", "max"}
-                        and RowPipelineMixin._gfql_series_object_non_null_str_like(table_df[expr_col])
+                    all_null_numeric = False
+                    if func in GFQL_NUMERIC_ONLY_AGGREGATIONS:
+                        # Cypher restricts sum()/avg() to INTEGER|FLOAT|DURATION -- see
+                        # gfql/agg_types.py for the sources. Without this, pandas answered
+                        # sum(<string column>) with the CONCATENATION ('abac'), a silent wrong
+                        # answer, while avg(<string column>) raised only incidentally (pandas'
+                        # own TypeError, rewrapped as an E201 "parameter error" naming neither
+                        # the column nor the operation).
+                        # DTYPE FIRST, data second: a column the dtype PROVES numeric is served
+                        # with no data inspection at all, so an ordinary numeric aggregate --
+                        # every served one -- pays only a dtype string check here. Anything else
+                        # is already on a slow or erroring path, which is where the O(n)
+                        # all-null question gets asked.
+                        if not pandas_dtype_is_numeric_for_agg(table_df[expr_col]):
+                            all_null_numeric = (
+                                len(table_df) > 0 and bool(table_df[expr_col].isna().all())
+                            )
+                            if not all_null_numeric:
+                                dtype_label = pandas_non_numeric_agg_dtype(table_df[expr_col])
+                                if dtype_label is not None:
+                                    raise_non_numeric_aggregation(func, expr_col, dtype_label, alias)
+                    if all_null_numeric:
+                        # cypher sum(null)==0 / avg(null)==null, substituted rather than computed:
+                        # pandas answers an all-null column 0/NaN when object but ''/NaT/TypeError
+                        # once typed, so the kernel cannot be trusted to produce it.
+                        agg_df = out_df[key_cols].copy()
+                        agg_df[alias] = self._gfql_broadcast_scalar(
+                            agg_df, numeric_agg_all_null_value(func)
+                        )
+                        out_df = out_df.merge(agg_df, on=key_cols, how="left", sort=False)
+                        continue
+                    if func in {"min", "max"} and (
+                        RowPipelineMixin._gfql_series_object_non_null_str_like(table_df[expr_col])
                     ):
                         table_df = table_df.assign(**{expr_col: table_df[expr_col].astype("string")})
                         grouped = _make_grouped(table_df, [expr_col])
@@ -4844,10 +5243,13 @@ class _RowPipelineAdapter(RowPipelineMixin):
     """Adapter for row-pipeline calls without requiring global ComputeMixin inheritance."""
 
     def __init__(self, g: "Plottable") -> None:
+        from graphistry.compute.gfql.index.handoff import read_handoff
+
         self._g = g
-        self._gfql_start_nodes = getattr(g, "_gfql_start_nodes", None)
-        self._gfql_rows_base_graph = getattr(g, "_gfql_rows_base_graph", None)
-        self._gfql_rows_edge_aliases = getattr(g, "_gfql_rows_edge_aliases", None)
+        self._gfql_start_nodes = g._gfql_start_nodes
+        self._gfql_rows_base_graph = g._gfql_rows_base_graph
+        self._gfql_rows_edge_aliases = g._gfql_rows_edge_aliases
+        self._gfql_indexed_bindings_handoff = read_handoff(g)
         self._nodes = g._nodes
         self._edges = g._edges
         self._node = g._node
@@ -4856,6 +5258,7 @@ class _RowPipelineAdapter(RowPipelineMixin):
         self._edge = g._edge
 
     def bind(self) -> "Plottable":
+        assert self._g is not None  # set by __init__; kept Optional for the protocol
         return self._g.bind()
 
 

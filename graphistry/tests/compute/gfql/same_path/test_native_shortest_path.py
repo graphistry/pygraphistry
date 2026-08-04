@@ -10,6 +10,8 @@ Structure:
 
 from __future__ import annotations
 
+import sys
+import types
 from typing import cast
 from unittest.mock import patch
 
@@ -17,6 +19,7 @@ import pandas as pd
 import pytest
 
 from graphistry.compute.gfql.same_path.native_shortest_path import (
+    cugraph_shortest_path_distances,
     igraph_shortest_path_distances,
     try_native_shortest_path,
 )
@@ -127,6 +130,21 @@ class TestTryNativeShortestPath:
         assert result is not None
         assert _hops(result, 1, 3) == 2
 
+    def test_reuses_igraph_graph_state_for_same_cache_key(self):
+        sp = _step_pairs([1, 2], [2, 3])
+        cache = {}
+        result1 = try_native_shortest_path(
+            sp, [1], [3], max_hops=None, directed=False, engine=Engine.PANDAS, cache=cache, cache_key=("graph", 1)
+        )
+        result2 = try_native_shortest_path(
+            sp, [2], [3], max_hops=None, directed=False, engine=Engine.PANDAS, cache=cache, cache_key=("graph", 1)
+        )
+        assert result1 is not None
+        assert result2 is not None
+        assert _hops(result1, 1, 3) == 2
+        assert _hops(result2, 2, 3) == 1
+        assert len(cache) == 1
+
     def test_returns_none_on_cudf_without_cugraph(self):
         # cugraph is not installed in test env; must return None gracefully
         sp = _step_pairs([1], [2])
@@ -134,6 +152,112 @@ class TestTryNativeShortestPath:
             sp, [1], [2], max_hops=None, directed=False, engine=Engine.CUDF
         )
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# cugraph graph-cache wiring (CPU-testable via fake cudf/cugraph modules)
+# ---------------------------------------------------------------------------
+
+class _FakeArrow:
+    def __init__(self, values):
+        self._values = list(values)
+
+    def tolist(self):
+        return self._values
+
+
+class _FakeCudfSeries:
+    def __init__(self, values):
+        self._values = list(values)
+
+    def unique(self):
+        return _FakeCudfSeries(dict.fromkeys(self._values))
+
+    def to_arrow(self):
+        return _FakeArrow(self._values)
+
+
+class _FakeCudfDataFrame:
+    def __init__(self, data):
+        self._data = {key: list(values) for key, values in data.items()}
+
+    @property
+    def columns(self):
+        return list(self._data)
+
+    def __getitem__(self, key):
+        return _FakeCudfSeries(self._data[key])
+
+
+class TestCugraphGraphCache:
+    """The graph-build side of the cugraph backend is plain CPU logic; fake
+    cudf/cugraph modules pin the build-once-per-cache-key contract without a GPU.
+    Requests are empty so the BFS loop (real cugraph behavior) never runs."""
+
+    def _fake_modules(self, build_log):
+        cudf_mod = types.ModuleType("cudf")
+        cudf_mod.DataFrame = _FakeCudfDataFrame  # type: ignore[attr-defined]
+        cugraph_mod = types.ModuleType("cugraph")
+
+        class _FakeGraph:
+            def __init__(self, directed=False):
+                self.directed = directed
+
+            def from_cudf_edgelist(self, edges_gdf, source, destination):
+                build_log.append((edges_gdf, source, destination, self.directed))
+
+        cugraph_mod.Graph = _FakeGraph  # type: ignore[attr-defined]
+        return {"cudf": cudf_mod, "cugraph": cugraph_mod}
+
+    def test_same_cache_key_builds_graph_once(self):
+        build_log: list = []
+        sp = _step_pairs([1, 2], [2, 3])
+        cache: dict = {}
+        with patch.dict(sys.modules, self._fake_modules(build_log)):
+            result1 = cugraph_shortest_path_distances(
+                sp, [], [], max_hops=None, directed=True, cache=cache, cache_key="g1"
+            )
+            result2 = cugraph_shortest_path_distances(
+                sp, [], [], max_hops=None, directed=True, cache=cache, cache_key="g1"
+            )
+        assert len(build_log) == 1
+        assert list(cache) == [("cugraph", "g1", True)]
+        # empty request -> empty result frame with the canonical schema
+        assert result1.columns == ["__sp_source__", "__sp_target__", "__sp_hops__"]
+        assert result2.columns == ["__sp_source__", "__sp_target__", "__sp_hops__"]
+
+    def test_graph_built_from_step_pairs_with_directedness(self):
+        build_log: list = []
+        sp = _step_pairs([1, 2], [2, 3])
+        with patch.dict(sys.modules, self._fake_modules(build_log)):
+            cugraph_shortest_path_distances(
+                sp, [], [], max_hops=None, directed=False, cache={}, cache_key="g1"
+            )
+        edges_gdf, source, destination, directed = build_log[0]
+        assert edges_gdf._data == {"src": [1, 2], "dst": [2, 3]}
+        assert (source, destination) == ("src", "dst")
+        assert directed is False
+
+    def test_no_cache_key_builds_graph_every_call(self):
+        build_log: list = []
+        sp = _step_pairs([1], [2])
+        with patch.dict(sys.modules, self._fake_modules(build_log)):
+            cugraph_shortest_path_distances(sp, [], [], max_hops=None, directed=True)
+            cugraph_shortest_path_distances(sp, [], [], max_hops=None, directed=True)
+        assert len(build_log) == 2
+
+    def test_distinct_cache_keys_build_separate_graphs(self):
+        build_log: list = []
+        cache: dict = {}
+        with patch.dict(sys.modules, self._fake_modules(build_log)):
+            cugraph_shortest_path_distances(
+                _step_pairs([1], [2]), [], [], max_hops=None, directed=True, cache=cache, cache_key="g1"
+            )
+            cugraph_shortest_path_distances(
+                _step_pairs([3], [4]), [], [], max_hops=None, directed=True, cache=cache, cache_key="g2"
+            )
+        assert len(build_log) == 2
+        assert set(cache) == {("cugraph", "g1", True), ("cugraph", "g2", True)}
 
 
 # ---------------------------------------------------------------------------
@@ -193,3 +317,50 @@ class TestCypherShortestPathViaIgraph:
             bfs = self._run(g, "p1", "p5")
 
         assert native == bfs
+
+
+class TestNativeShortestPathCacheWiring:
+    """#1705 wiring: the row-pipeline caller actually engages the native-graph cache — the built
+    igraph is shared across executions on the same graph object, and a functional edge rebind
+    (``g.edges(...)``) resets it so distances are never stale (the BLOCKER-1 rebind class)."""
+
+    def _run(self, g, a, b):
+        import graphistry  # noqa: F401 (ensures a real Plottable, not a test subclass)
+        return g.gfql(_SP_QUERY, params={"a": a, "b": b})._nodes["dist"].iloc[0]
+
+    def test_builds_graph_once_across_executions_and_resets_on_rebind(self):
+        pytest.importorskip("igraph")
+        import graphistry
+        import graphistry.compute.gfql.same_path.native_shortest_path as nsp
+
+        nodes = pd.DataFrame({"id": ["p0", "p1", "p2", "p3", "p4"], "label__Person": [True] * 5})
+        edges = pd.DataFrame(
+            {"s": ["p0", "p1", "p2", "p3"], "d": ["p1", "p2", "p3", "p4"], "type": ["KNOWS"] * 4}
+        )
+        g = graphistry.nodes(nodes, "id").edges(edges, "s", "d").bind(edge="type")
+
+        builds = []
+        orig = nsp._build_igraph_shortest_path_state
+
+        def counting_build(step_pairs, *, directed):
+            builds.append(1)
+            return orig(step_pairs, directed=directed)
+
+        with patch.object(nsp, "_build_igraph_shortest_path_state", counting_build):
+            assert self._run(g, "p0", "p4") == 4          # p0-p1-p2-p3-p4
+            assert len(builds) == 1
+            # Same graph object, second execution -> cache HIT, no rebuild.
+            assert self._run(g, "p0", "p4") == 4
+            assert len(builds) == 1
+
+            # Functional edge rebind to a shorter chain: p0->p4 is now unreachable. The rebound
+            # graph is a distinct object with no cache attr, so this must REBUILD (fresh) and
+            # return -1 (path is null), never the stale distance 4.
+            reduced = pd.DataFrame({"s": ["p0", "p1"], "d": ["p1", "p2"], "type": ["KNOWS"] * 2})
+            g2 = g.edges(reduced, "s", "d").bind(edge="type")
+            assert self._run(g2, "p0", "p4") == -1
+            assert len(builds) == 2
+
+            # The original graph still yields the correct cached distance.
+            assert self._run(g, "p0", "p4") == 4
+            assert len(builds) == 2

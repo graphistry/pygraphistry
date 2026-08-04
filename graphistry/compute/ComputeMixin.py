@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Union
 from typing_extensions import Literal
 from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, POLARS_ENGINES, resolve_engine, df_to_engine, df_concat, safe_merge
 from graphistry.Plottable import Plottable
@@ -29,6 +29,7 @@ from .filter_by_dict import (
 )
 
 if TYPE_CHECKING:
+    from graphistry.compute.gfql.index.types import IndexKind
     from graphistry.compute.gfql.index.explain import GfqlExplainReport
     from graphistry.compute.gfql.index.policy import IndexPolicy
     from graphistry.compute.gfql.query_types import GFQLQuery
@@ -106,7 +107,8 @@ def _coerce_input_formats(g: "Plottable", engine: Engine) -> "Plottable":
     # should drop (silent divergence from the pandas oracle, which treats NaN as missing).
     # _pl_nan_to_null is idempotent, so re-running it on a just-converted frame is a no-op.
     if engine in POLARS_ENGINES:
-        from graphistry.Engine import _pl_nan_to_null, is_polars_df
+        from graphistry.Engine import is_polars_df
+        from graphistry.compute.gfql.lazy.engine.polars.nan_clean import _pl_nan_to_null
         if g._edges is not None and is_polars_df(g._edges):
             g = g.edges(_pl_nan_to_null(g._edges), g._source, g._destination)
         if g._nodes is not None and is_polars_df(g._nodes):
@@ -637,15 +639,21 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index import create_index as _ci
         return _ci(self, kind, column=column, name=name, engine=engine)
 
-    def drop_index(self, kind=None):
-        """Drop one resident GFQL index (by kind) or all (kind=None). Idempotent; returns a new Plottable."""
+    def drop_index(self, kind: Optional['IndexKind'] = None, *, column: Optional[str] = None) -> 'Plottable':
+        """Drop one resident GFQL index (by kind, or one property index by column) or all (kind=None). Idempotent; returns a new Plottable."""
         from graphistry.compute.gfql.index import drop_index as _di
-        return _di(self, kind)
+        return _di(self, kind, column=column)
 
-    def show_indexes(self):
-        """Return a pandas DataFrame describing resident GFQL indexes (name, kind, column, valid). Empty if none; ``valid=False`` marks a stale index after a frame rebind."""
+    def show_indexes(self, engine: EngineAbstractType = 'auto'):
+        """Return a pandas DataFrame describing resident GFQL indexes (name, kind, column, valid, usable). Empty if none.
+
+        ``valid=False`` marks a stale index after a frame rebind. ``usable`` further
+        reports whether the index can serve a query under the resolved engine —
+        indexes are engine-specific, so a fresh index built for another engine
+        declines to a scan; ``reason`` explains any decline. Pass ``engine=`` to
+        preview an explicit engine choice (default ``'auto'`` mirrors query resolution)."""
         from graphistry.compute.gfql.index import show_indexes as _si
-        return _si(self)
+        return _si(self, engine=engine)
 
     def gfql_index_edges(self, direction='both', engine='auto'):
         """Convenience: build the edge adjacency index(es) — 'forward', 'reverse', or 'both'. Returns a new Plottable."""
@@ -656,6 +664,15 @@ class ComputeMixin(Plottable):
         """Convenience: build all GFQL physical indexes (both edge adjacencies + node_id). Returns a new Plottable."""
         from graphistry.compute.gfql.index import gfql_index_all as _gia
         return _gia(self, engine=engine)
+
+    def gfql_index_node_props(self, columns: Sequence[str], engine: EngineAbstractType = 'auto') -> 'Plottable':
+        """Convenience: build node PROPERTY indexes for ``columns`` (secondary indexes).
+
+        A seed predicate on a non-key column (``{id: 42}`` when the graph's node id
+        is some other column) otherwise costs a full node scan. Unindexable columns
+        are skipped, keeping the correct scan path. Returns a new Plottable."""
+        from graphistry.compute.gfql.index import gfql_index_node_props as _ginp
+        return _ginp(self, columns, engine=engine)
 
     def filter_nodes_by_dict(self, *args, **kwargs):
         return filter_nodes_by_dict_base(self, *args, **kwargs)

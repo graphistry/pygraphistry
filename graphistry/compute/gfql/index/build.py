@@ -11,7 +11,7 @@ from typing import Optional, Tuple, cast
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT
 from .engine_arrays import array_namespace, col_to_array
-from .registry import AdjacencyIndex, NodeIdIndex, frame_fingerprint
+from .registry import AdjacencyIndex, NodeIdIndex, NodePropIndex, frame_fingerprint
 from .types import AdjacencyIndexKind, ArrayLike, ArrayNamespace
 
 
@@ -98,4 +98,41 @@ def build_node_id_index(
         fingerprint=frame_fingerprint(nodes, (node_col,), engine),
         source_ref=cast(DataFrameT, nodes),
         n_nodes=n_keys,
+    )
+
+
+def build_node_prop_index(
+    nodes: DataFrameT,
+    column: str,
+    engine: Engine,
+) -> Optional[NodePropIndex]:
+    """Sorted property value -> node row positions (CSR), or None when unindexable.
+
+    Duplicates are fine (CSR keeps every row per value) — this is the secondary
+    index, so the caller still applies the remaining predicates to the gathered
+    candidates. Declines (None) for anything whose ordering/equality is not
+    unambiguous under a vectorized ``searchsorted`` on BOTH backends: non-integer
+    dtypes (float NaN ordering, object/string on cupy) and null-bearing columns.
+    Widening that gate later is additive — a decline only means "scan", never a
+    wrong answer.
+    """
+    xp, backend = array_namespace(engine)
+    try:
+        keys = col_to_array(nodes, column, engine)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+    if getattr(getattr(keys, "dtype", None), "kind", None) not in ("i", "u"):
+        return None
+    unique_keys, group_offsets, row_positions = _csr_from_keys(keys, xp)
+    return NodePropIndex(
+        key_col=column,
+        keys_sorted=unique_keys,
+        group_offsets=group_offsets,
+        row_positions=row_positions,
+        backend=backend,
+        engine=engine,
+        fingerprint=frame_fingerprint(nodes, (column,), engine),
+        source_ref=cast(DataFrameT, nodes),
+        n_nodes=int(keys.shape[0]),
+        n_keys=int(unique_keys.shape[0]),
     )

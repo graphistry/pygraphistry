@@ -13,7 +13,7 @@ from graphistry.Engine import EngineAbstractType, resolve_engine
 from graphistry.compute.gfql.query_types import GFQLQuery
 from .api import index_trace, show_indexes
 from .policy import IndexPolicy, validate_index_policy
-from .types import IndexTraceStep
+from .types import IndexDecisionCode, IndexTraceStep
 
 if TYPE_CHECKING:
     from graphistry.compute.ComputeMixin import ComputeMixin
@@ -29,6 +29,7 @@ class GfqlExplainReport(TypedDict):
     est_result_rows: Optional[int]
     chosen_direction: Optional[str]
     decision_reason: Optional[str]
+    decision_code: Optional[IndexDecisionCode]
     error: Optional[str]
 
 
@@ -41,7 +42,7 @@ def gfql_explain(
 ) -> GfqlExplainReport:
     resolved_policy: IndexPolicy = validate_index_policy(index_policy) or "use"
     eng = resolve_engine(engine, g)
-    resident = show_indexes(g)
+    resident = show_indexes(g, engine=engine)
     with index_trace() as steps:
         try:
             g.gfql(query, engine=engine, index_policy=resolved_policy)
@@ -54,6 +55,8 @@ def gfql_explain(
     # of seeds; `est_result_rows` = estimated fanout (Σ seed degree, free from CSR).
     ref = [s for s in steps if s.get("path") == "index"] or list(steps)
     last = ref[-1] if ref else {}
+    if not last and resolved_policy == "off":
+        last = {"decision_reason": "policy=off", "decision_code": "policy_off"}
     resident_names = cast(List[str], resident["name"].tolist() if len(resident) else [])
     return {
         "engine": eng.value,
@@ -65,5 +68,6 @@ def gfql_explain(
         "est_result_rows": cast(Optional[int], last.get("est_result_rows")),
         "chosen_direction": cast(Optional[str], last.get("direction")),
         "decision_reason": cast(Optional[str], last.get("decision_reason")),
+        "decision_code": last.get("decision_code"),
         "error": error,
     }

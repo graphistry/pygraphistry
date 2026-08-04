@@ -96,12 +96,23 @@ def apply_index_op(g: Any, op: IndexOp, *, engine: Any = "auto") -> Any:
 
     CreateIndex/DropIndex -> new Plottable; ShowIndexes -> pandas DataFrame.
     """
+    from graphistry.Engine import resolve_engine
     from .api import create_index, drop_index, show_indexes, get_registry, _is_resident_index_valid
+
+    from .registry import NODE_PROP
 
     if isinstance(op, CreateIndex):
         if not op.replace:
             reg = get_registry(g)
-            if reg.has(op.kind) and _is_resident_index_valid(g, op.kind, engine):
+            if op.kind == NODE_PROP:
+                # Property indexes are keyed by COLUMN, not kind: reuse only the
+                # index for THIS column, and only while it is still valid.
+                if op.column is not None and reg.get_node_prop_valid(
+                    op.column, getattr(g, "_nodes", None),
+                    resolve_engine(engine, g),
+                ) is not None:
+                    return g
+            elif reg.has(op.kind) and _is_resident_index_valid(g, op.kind, engine):
                 return g  # valid resident index reuse
         return create_index(g, op.kind, column=op.column, name=op.name, engine=engine)
     if isinstance(op, DropIndex):
@@ -113,16 +124,35 @@ def apply_index_op(g: Any, op: IndexOp, *, engine: Any = "auto") -> Any:
             reg = get_registry(g)
             kind = next((k for k, ix in reg.indexes.items()
                          if getattr(ix, "name", None) == op.name), None)
+            column = op.column
+            if kind is None:
+                # Property indexes are column-keyed, so resolve names there too.
+                prop_col = next((c for c in reg.node_prop_cols()
+                                 if reg.node_props[c].name == op.name), None)
+                if prop_col is not None:
+                    kind, column = NODE_PROP, prop_col
             if kind is None:
                 if op.missing_ok:
                     return g  # IF EXISTS semantics: dropping a missing index is a no-op
+                resident = sorted(
+                    [getattr(ix, 'name', k) for k, ix in reg.indexes.items()]
+                    + [reg.node_props[c].name or c for c in reg.node_prop_cols()]
+                )
                 raise ValueError(
                     f"DROP GFQL INDEX: no resident index named {op.name!r} "
-                    f"(resident: {sorted(getattr(ix, 'name', k) for k, ix in reg.indexes.items())})"
+                    f"(resident: {resident})"
                 )
-        if kind is not None and not op.missing_ok and not get_registry(g).has(kind):
-            raise ValueError(f"DROP GFQL INDEX: no resident index of kind {kind!r}")
-        return drop_index(g, kind)
+            return drop_index(g, kind, column=column)
+        if kind is not None and not op.missing_ok:
+            reg = get_registry(g)
+            is_resident = (
+                (op.column in reg.node_prop_cols() if op.column is not None
+                 else bool(reg.node_prop_cols()))
+                if kind == NODE_PROP else reg.has(kind)
+            )
+            if not is_resident:
+                raise ValueError(f"DROP GFQL INDEX: no resident index of kind {kind!r}")
+        return drop_index(g, kind, column=op.column)
     if isinstance(op, ShowIndexes):
-        return show_indexes(g)
+        return show_indexes(g, engine=engine)
     raise ValueError(f"Unknown index op: {op!r}")

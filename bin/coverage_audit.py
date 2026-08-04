@@ -614,8 +614,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"Wrote {json_path}")
     if exit_code:
         print(f"pytest failed with exit code {exit_code}", file=sys.stderr)
-    if any(check.status == "fail" for check in baseline_checks):
+    failing_baseline_checks = [check for check in baseline_checks if check.status == "fail"]
+    if failing_baseline_checks:
         print("per-file coverage baseline failed", file=sys.stderr)
+        for check in failing_baseline_checks:
+            actual = "missing" if check.actual_percent is None else f"{check.actual_percent:.2f}%"
+            delta = "n/a" if check.delta_percent is None else f"{check.delta_percent:+.2f}%"
+            print(
+                "  {path}: actual={actual} floor={floor:.2f}% tolerance={tolerance:.2f}% delta={delta} reason={reason}".format(
+                    path=check.path,
+                    actual=actual,
+                    floor=check.min_percent,
+                    tolerance=check.tolerance_percent,
+                    delta=delta,
+                    reason=check.reason,
+                ),
+                file=sys.stderr,
+            )
         return exit_code or 3
     return exit_code
 

@@ -21,9 +21,10 @@ from .types import AdjacencyIndexKind, ArrayLike, IndexBackend, IndexKind
 EDGE_OUT_ADJ: AdjacencyIndexKind = "edge_out_adj"
 EDGE_IN_ADJ: AdjacencyIndexKind = "edge_in_adj"
 NODE_ID: IndexKind = "node_id"
+NODE_PROP: IndexKind = "node_prop"
 
 ADJ_KINDS: Tuple[AdjacencyIndexKind, ...] = (EDGE_OUT_ADJ, EDGE_IN_ADJ)
-ALL_KINDS: Tuple[IndexKind, ...] = (EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID)
+ALL_KINDS: Tuple[IndexKind, ...] = (EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP)
 
 FrameFingerprint = Tuple[int, Tuple[str, ...], str]
 
@@ -82,19 +83,113 @@ class NodeIdIndex:
 
 
 @dataclass(frozen=True)
+class NodePropIndex:
+    """Sorted node PROPERTY value -> node row positions (CSR, duplicates allowed).
+
+    The secondary index: a seed predicate on a non-key column (``{id: 42}`` where
+    the graph's node id is some other column) otherwise costs a full node scan.
+    Unlike :class:`NodeIdIndex` this keeps ALL rows per key in CSR form, so
+    non-unique properties are indexable — the caller applies any residual
+    predicates to the gathered candidates, so results are identical either way.
+    """
+    key_col: str
+    keys_sorted: ArrayLike    # distinct values, ascending (len U)
+    group_offsets: ArrayLike  # CSR offsets into row_positions (len U+1)
+    row_positions: ArrayLike  # node row indices grouped by value (len N)
+    backend: IndexBackend
+    engine: Engine
+    fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
+    source_ref: Optional[DataFrameT] = field(compare=False, default=None)
+    n_nodes: int = 0
+    n_keys: int = 0
+    name: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class GfqlIndexRegistry:
     """Immutable kind -> index map. ``with_index`` / ``without`` return copies."""
     indexes: Dict[IndexKind, Union[AdjacencyIndex, NodeIdIndex]] = field(default_factory=dict)
+    # Property indexes are keyed by COLUMN, not kind: a graph may carry several.
+    node_props: Dict[str, NodePropIndex] = field(default_factory=dict)
 
     def with_index(self, kind: IndexKind, index: Union[AdjacencyIndex, NodeIdIndex]) -> "GfqlIndexRegistry":
         new = dict(self.indexes)
         new[kind] = index
-        return GfqlIndexRegistry(new)
+        return GfqlIndexRegistry(new, dict(self.node_props))
+
+    def with_node_prop(self, column: str, index: "NodePropIndex") -> "GfqlIndexRegistry":
+        props = dict(self.node_props)
+        props[column] = index
+        return GfqlIndexRegistry(dict(self.indexes), props)
+
+    def node_prop_cols(self) -> Tuple[str, ...]:
+        return tuple(sorted(self.node_props.keys()))
+
+    def get_node_prop_valid(
+        self, column: str, df: Optional[DataFrameT], engine: Engine
+    ) -> Optional["NodePropIndex"]:
+        """The property index for ``column``, only while it still matches the live
+        frame + engine (same identity/fingerprint contract as ``get_valid``)."""
+        idx = self.node_props.get(column)
+        if idx is None or df is None or idx.engine != engine:
+            return None
+        if idx.source_ref is not None and idx.source_ref is not df:
+            return None
+        if idx.fingerprint != frame_fingerprint(df, (column,), engine):
+            return None
+        return idx
 
     def without(self, kind: IndexKind) -> "GfqlIndexRegistry":
+        if kind == NODE_PROP:
+            return GfqlIndexRegistry(dict(self.indexes), {})
         new = dict(self.indexes)
         new.pop(kind, None)
-        return GfqlIndexRegistry(new)
+        return GfqlIndexRegistry(new, dict(self.node_props))
+
+    def without_node_prop(self, column: str) -> "GfqlIndexRegistry":
+        props = dict(self.node_props)
+        props.pop(column, None)
+        return GfqlIndexRegistry(dict(self.indexes), props)
+
+    def rebind_edges(self, new_edges: DataFrameT) -> "GfqlIndexRegistry":
+        """Re-point the EDGE adjacency indexes' identity guard at ``new_edges``.
+
+        Caller contract: ``new_edges`` was produced by a transform that preserves
+        the indexed src/dst columns by value (same rows, same order) — e.g. a shallow
+        copy that merely ADDS an unrelated column. The chain executor does exactly
+        this when it attaches its synthetic per-edge id (chain.py), which otherwise
+        breaks the ``source_ref is df`` identity guard and forces a full scan. The
+        CSR arrays stay valid (row positions unchanged); we only swap the strong-ref
+        so ``get_valid`` recognizes the live frame. NODE_ID is left untouched (node
+        materialization may legitimately change node rows).
+
+        ENFORCED (O(1), engine-portable): the swap happens only when ``new_edges``
+        still matches the index's structural fingerprint (row count + bound cols +
+        engine) and actually carries the indexed columns; on any mismatch the edge
+        index is DROPPED (safe miss -> scan path) instead of re-pointed at a frame
+        it wasn't built over. Value-level preservation remains the caller's promise —
+        checking it would be the O(E) scan this path exists to avoid."""
+        new = dict(self.indexes)
+        for kind in (EDGE_OUT_ADJ, EDGE_IN_ADJ):
+            idx = new.get(kind)
+            if idx is None:
+                continue
+            if not isinstance(idx, AdjacencyIndex):  # defensive; also narrows for mypy
+                new.pop(kind, None)
+                continue
+            ok = idx.fingerprint == frame_fingerprint(
+                new_edges, tuple(idx.fingerprint[1]), idx.engine)
+            if ok:
+                try:
+                    colnames = set(new_edges.columns)
+                    ok = idx.key_col in colnames and idx.other_col in colnames
+                except Exception:
+                    ok = False
+            if ok:
+                new[kind] = replace(idx, source_ref=new_edges)
+            else:
+                new.pop(kind, None)
+        return GfqlIndexRegistry(new, dict(self.node_props))
 
     def get(self, kind: IndexKind) -> Optional[Union[AdjacencyIndex, NodeIdIndex]]:
         return self.indexes.get(kind)
@@ -106,7 +201,7 @@ class GfqlIndexRegistry:
         return cast(Tuple[IndexKind, ...], tuple(sorted(self.indexes.keys())))
 
     def is_empty(self) -> bool:
-        return not self.indexes
+        return not self.indexes and not self.node_props
 
     def get_valid(self, kind: IndexKind, df: DataFrameT, cols: Tuple[str, ...], engine: Engine) -> Optional[Union[AdjacencyIndex, NodeIdIndex]]:
         """Return the index for ``kind`` only if its fingerprint still matches the
@@ -126,7 +221,7 @@ class GfqlIndexRegistry:
         return idx
 
 
-def index_nbytes(idx: Union[AdjacencyIndex, NodeIdIndex]) -> int:
+def index_nbytes(idx: Union[AdjacencyIndex, NodeIdIndex, "NodePropIndex"]) -> int:
     """Approximate resident memory of an index's sidecar arrays (bytes)."""
     total = 0
     for attr in ("keys_sorted", "group_offsets", "row_positions", "other_values"):

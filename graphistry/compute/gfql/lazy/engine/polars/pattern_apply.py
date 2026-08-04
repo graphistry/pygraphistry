@@ -26,7 +26,7 @@ def _rows_base_graph(g: Plottable) -> Plottable:
     """The ORIGINAL graph threaded by the boundary lane (`_gfql_rows_base_graph`
     setattr convention, mirrored from the pandas lane at compute/chain.py) — the one
     sanctioned dynamic read, contained here; falls back to the current graph."""
-    base = getattr(g, "_gfql_rows_base_graph", None)
+    base = g._gfql_rows_base_graph
     return base if base is not None else g
 
 
@@ -60,14 +60,14 @@ def rows_binding_ops_polars(g: Plottable, binding_ops: Sequence[Dict[str, JSONVa
     nodes = base_graph._nodes
     if nodes is None or node_id not in nodes.columns:
         return None
-    start_nodes = getattr(g, "_gfql_start_nodes", None)
+    start_nodes = g._gfql_start_nodes
     if start_nodes is not None:
         # start-nodes constrain the scan like the pandas prev_node_wavefront does.
         # Normalize to EAGER: an eager.join(LazyFrame) raises and would silently
         # decline the whole wavefront-constrained case (wave-2 W2-3).
         sn = start_nodes.collect() if isinstance(start_nodes, pl.LazyFrame) else start_nodes
         try:
-            nodes = nodes.join(sn.select(node_id).unique(), on=node_id, how="semi")
+            nodes = nodes.join(sn.select(node_id), on=node_id, how="semi")  # type: ignore[operator]  # polars op on a DataFrameT-typed seed
         except Exception:
             return None
     try:

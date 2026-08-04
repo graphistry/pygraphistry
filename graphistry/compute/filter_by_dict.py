@@ -1,11 +1,11 @@
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Mapping, Optional, Tuple, Union, cast
 import pandas as pd
 from graphistry.Engine import EngineAbstract, df_to_engine, resolve_engine
 from graphistry.util import setup_logger
 
 from graphistry.Plottable import Plottable
 from .predicates.ASTPredicate import ASTPredicate
-from .typing import DataFrameT
+from .typing import DataFrameT, DType, NodeDtypes
 
 
 logger = setup_logger(__name__)
@@ -219,3 +219,119 @@ def filter_edges_by_dict(self: Plottable, filter_dict: Optional[dict] = None, en
     """
     edges2 = filter_by_dict(self._edges, filter_dict, engine)
     return self.edges(edges2)
+
+
+class _LazyNodeDtypes(Mapping[str, DType]):
+    """Node dtypes, materialized on first lookup.
+
+    Reading them costs a full engine conversion, and only connected-join pushdown ever asks --
+    a path most queries never reach. Computing eagerly charged every string query for a frame
+    it then discarded (~65ms per million polars rows). Stay a Mapping so callers are unchanged.
+    """
+
+    def __init__(self, g: Plottable, engine: Union[EngineAbstract, str]) -> None:
+        self._g = g
+        self._engine = engine
+        self._resolved: Optional[NodeDtypes] = None
+
+    def _materialize(self) -> NodeDtypes:
+        if self._resolved is None:
+            self._resolved = _read_node_dtypes(self._g, self._engine)
+        return self._resolved
+
+    def __getitem__(self, key: str) -> DType:
+        return self._materialize()[key]
+
+    def __iter__(self) -> Any:
+        return iter(self._materialize())
+
+    def __len__(self) -> int:
+        return len(self._materialize())
+
+
+def _node_dtypes_for_pushdown(
+    g: Plottable,
+    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
+) -> Optional[NodeDtypes]:
+    """Node dtypes for the pushdown gate, or None when there is no graph to read."""
+    if g._nodes is None:
+        # No graph: the caller falls back to value-type rules, as a bare compile_cypher() does.
+        # Distinct from failing to read a graph we have, which must fail closed.
+        return None
+    return _LazyNodeDtypes(g, engine)
+
+
+def _object_column_holds_non_strings(frame: DataFrameT, column: str, dtype: DType) -> bool:
+    """Whether `column` is an object column whose values `.str` would reject.
+
+    `object` says nothing about contents: pandas stores ordinary strings that way, and also a
+    numeric column that acquired a `None`. String predicates are admitted on dtype alone -- by
+    this gate and by `filter_by_dict` alike -- but `.str` fails on the values, leaking a raw
+    AttributeError. Dropping the column leaves the gate with nothing to look up, so it fails
+    closed and the residual answers.
+
+    Keep only the kinds that stay valid under SUBSETTING. `StringMethods._validate` admits
+    {string, empty, bytes, mixed, mixed-integer}, but it runs on the frame it is handed -- and
+    the frame we inspect is the source, while the pushed filter runs on the join's candidate
+    subset. `string` and `empty` survive that (a subset of strings is string or empty), but
+    `mixed`/`mixed-integer` do not: drop the strings and they collapse to integer/floating/
+    boolean, which `.str` rejects. `bytes` is excluded separately -- it passes `_validate` yet
+    `str.contains` forbids it.
+
+    Mirroring a rule is not enough when we evaluate it against a different frame than the
+    executor does, so admit only what no subset can invalidate.
+    """
+    import pandas as _pd
+
+    try:
+        is_object = bool(_pd.api.types.is_object_dtype(dtype))
+    except Exception:
+        return False
+    if not is_object:
+        return False
+    try:
+        inferred = _pd.api.types.infer_dtype(frame[column], skipna=True)
+    except Exception:
+        # It IS an object column and we cannot read its values, so we cannot tell whether
+        # `.str` would reject them. Omit it and let the residual answer, matching
+        # `_read_node_dtypes`, which returns {} for a schema it cannot read.
+        return True
+    return inferred not in {"string", "empty"}
+
+
+def _read_node_dtypes(
+    g: Plottable,
+    engine: Union[EngineAbstract, str] = EngineAbstract.AUTO,
+) -> NodeDtypes:
+    """Column dtypes the executor will filter on, for the pushdown gate.
+
+    A pushed filter is schema-validated against the real column while the row residual
+    evaluates leniently, so the planner needs dtypes to avoid turning a correct empty result
+    into a type error. An unreadable schema yields an empty mapping, which fails every column
+    lookup and so falls back to the residual.
+    """
+    nodes = g._nodes
+    if nodes is None:
+        return {}
+    try:
+        # Classify the frame the EXECUTOR will filter, not the one the caller handed in.
+        # `filter_by_dict` validates post-materialization dtypes, so judging the pre-conversion
+        # frame lets the two disagree (polars Decimal reads numeric here, object there).
+        #
+        # Convert the whole frame, not an empty probe: polars -> pandas is DATA-dependent, so
+        # `head(0)` reports a different class than the real conversion for a nullable Boolean
+        # (`bool` empty, `object` with a null in it). Identity for pandas; for other engines
+        # this costs a real conversion, which is why the caller defers it until a pushdown
+        # decision actually needs it.
+        probe = df_to_engine(nodes, resolve_engine(cast(Any, engine), nodes), warn=False)
+        # zip rather than `.items()`: pandas/cuDF expose a column-indexed Series, polars a list.
+        dtypes = {str(col): dtype for col, dtype in zip(list(probe.columns), list(probe.dtypes))}
+        return {
+            col: dtype
+            for col, dtype in dtypes.items()
+            if not _object_column_holds_non_strings(probe, col, dtype)
+        }
+    except Exception:
+        # We have a graph but could not read its schema, so we know nothing about any column.
+        # An empty mapping fails every column lookup, which fails closed to the residual.
+        return {}

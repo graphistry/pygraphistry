@@ -8,7 +8,7 @@ stale indexes (treated as absent, never a wrong answer).
 from __future__ import annotations
 
 import copy
-from typing import Dict, List, Literal, Optional, cast
+from typing import Dict, List, Literal, Optional, Sequence, Tuple, cast
 
 import pandas as pd
 
@@ -17,20 +17,31 @@ from graphistry.compute.typing import DataFrameT
 from graphistry.Plottable import Plottable
 from .registry import (
     AdjacencyIndex, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
-    EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, ADJ_KINDS, ALL_KINDS,
+    EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, ADJ_KINDS, ALL_KINDS,
 )
-from .build import build_adjacency_index, build_node_id_index
+from .build import build_adjacency_index, build_node_id_index, build_node_prop_index
 from .traverse import index_seeded_hop
 from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
 from .policy import IndexPolicy, validate_index_policy
 from .types import (
     AdjacencyIndexKind, EdgeIndexDirection, HopDirection, IndexKind,
-    IndexTrace, IndexTraceStep,
+    IndexDecisionCode, IndexTrace, IndexTraceStep,
 )
 
 # Private Plottable attachment keys. Keep access behind helpers.
 POLICY_ATTR = "_gfql_index_policy"
 REGISTRY_ATTR = "_gfql_index_registry"
+
+
+class GfqlIndexUnsupportedError(ValueError):
+    """The DATA cannot support this index (duplicate node ids, an unindexable
+    property dtype). Distinct from a caller mistake — a missing column, an unknown
+    kind, unbound edges — which stays a plain ``ValueError`` and must propagate.
+
+    Subclasses ``ValueError`` so existing ``except ValueError`` callers keep
+    working; the convenience builders catch only THIS type, so a real failure is
+    never silently skipped.
+    """
 
 # --- lightweight, thread-local index decision trace (for gfql_explain) -------
 import threading as _threading
@@ -70,22 +81,125 @@ def _trace_active() -> bool:
     return _get_trace_steps() is not None
 
 
+def _engine_mismatch_text(kinds: str, index_engines: str, engine: Engine) -> str:
+    """Single wording for an engine-mismatched index decline, shared by the
+    ``gfql_explain`` trace diagnostic and the ``show_indexes`` ``reason`` column."""
+    return (
+        f"resident {kinds} index engine={index_engines}, "
+        f"requested engine={engine.value} -> scan"
+    )
+
+
+def _engine_mismatch_reason(
+    registry: GfqlIndexRegistry, direction: HopDirection, engine: Engine
+) -> Optional[str]:
+    """Describe a trace-only adjacency-index engine mismatch, if present.
+
+    Indexes intentionally remain engine-specific: falling back to the scan is the
+    correct execution behavior. This helper makes that otherwise silent decline
+    visible to ``gfql_explain`` without changing planner policy.
+    """
+    needed: Sequence[AdjacencyIndexKind]
+    if direction == "forward":
+        needed = (EDGE_OUT_ADJ,)
+    elif direction == "reverse":
+        needed = (EDGE_IN_ADJ,)
+    else:
+        needed = (EDGE_OUT_ADJ, EDGE_IN_ADJ)
+    mismatches = [
+        (kind, idx)
+        for kind in needed
+        for idx in (registry.get(kind),)
+        if isinstance(idx, AdjacencyIndex) and idx.engine != engine
+    ]
+    if not mismatches:
+        return None
+    kinds = ", ".join(kind for kind, _ in mismatches)
+    engines = ", ".join(sorted({idx.engine.value for _, idx in mismatches}))
+    return _engine_mismatch_text(kinds, engines, engine)
+
+
+def _index_usability(
+    kind: IndexKind, index_engine: Engine, valid: bool, query_engine: Engine
+) -> Tuple[bool, Optional[str]]:
+    """Usability of ONE resident index under the resolved query engine.
+
+    ``valid`` (fingerprint freshness) is necessary but not sufficient: indexes are
+    engine-specific, so a fresh index built for another engine still declines to a
+    scan at query time (#1767 disposition). Returns ``(usable, reason)`` where
+    ``reason`` uses the same wording as the ``gfql_explain`` decline diagnostic.
+    """
+    reasons: List[str] = []
+    if index_engine != query_engine:
+        reasons.append(_engine_mismatch_text(kind, index_engine.value, query_engine))
+    if not valid:
+        reasons.append("stale fingerprint (frames rebound since build) -> rebuild")
+    return (not reasons), ("; ".join(reasons) or None)
+
+
+def _record_indexed_traversal(
+    *,
+    seam: str,
+    engine: Engine,
+    served: bool,
+    reason: str,
+    hop_count: int,
+    public_seed_scan: bool,
+    hop_details: Optional[List[Dict[str, object]]] = None,
+) -> None:
+    """Record one backward-compatible indexed traversal decision when tracing."""
+    if not _trace_active():
+        return
+    path = "index" if served else "scan"
+    _record(cast(IndexTraceStep, {
+        "op": "indexed_traversal",
+        "operation": "indexed_traversal",
+        "seam": seam,
+        "engine": engine.value,
+        "served": served,
+        "reason": reason,
+        "hops": hop_count,
+        "hop_count": hop_count,
+        "public_seed_scan": public_seed_scan,
+        "hop_details": [] if hop_details is None else hop_details,
+        "path": path,
+        "decision_reason": reason,
+        "decision_code": "index_selected" if served else "index_path_unavailable",
+    }))
+
+
 # Back-compat for existing private tests while helpers live in cost.py.
 _seed_id_array = seed_id_array
 _seed_deg_sum = seed_deg_sum
 
 def get_registry(g: Plottable) -> GfqlIndexRegistry:
-    return cast(GfqlIndexRegistry, getattr(g, REGISTRY_ATTR, EMPTY_REGISTRY))
+    registry = g._gfql_index_registry
+    return registry if registry is not None else EMPTY_REGISTRY
 
 
 def get_index_policy(g: Plottable) -> IndexPolicy:
-    return cast(IndexPolicy, getattr(g, POLICY_ATTR, "use"))
+    return g._gfql_index_policy
+
+
+def with_index_policy(g: Plottable, policy: IndexPolicy) -> Plottable:
+    """A copy of ``g`` carrying ``policy`` (never mutates ``g``)."""
+    out = g.bind()
+    out._gfql_index_policy = policy
+    return out
 
 
 def _attach(g: Plottable, registry: GfqlIndexRegistry) -> Plottable:
     res = copy.copy(g)
-    setattr(res, REGISTRY_ATTR, registry)
+    res._gfql_index_registry = registry
     return res
+
+
+def set_registry(g: Plottable, registry: GfqlIndexRegistry) -> Plottable:
+    """Attach ``registry`` to a copy of ``g`` (public wrapper over ``_attach``).
+
+    Used by the chain executor to re-point the resident index at an edge frame it
+    augmented in place (see ``GfqlIndexRegistry.rebind_edges``)."""
+    return _attach(g, registry)
 
 
 def index_name(kind: IndexKind, column: Optional[str]) -> str:
@@ -169,7 +283,7 @@ def create_index(
         _check_column(column, node_col, kind)
         node_idx = build_node_id_index(g2._nodes, node_col, eng)
         if node_idx is None:
-            raise ValueError(
+            raise GfqlIndexUnsupportedError(
                 f"Cannot build a {NODE_ID!r} index: node id column {node_col!r} has "
                 f"duplicate values (a node-id index requires unique ids). Seeded "
                 f"traversal still works via the un-indexed node materialization path."
@@ -178,27 +292,67 @@ def create_index(
         registry = registry.with_index(NODE_ID, node_idx)
         return _attach(g2, registry)
 
+    if kind == NODE_PROP:
+        if not column:
+            raise ValueError(
+                f"A {NODE_PROP!r} index indexes one node PROPERTY column; pass "
+                f"column='<name>'."
+            )
+        g2 = g.materialize_nodes() if g._nodes is None else g
+        assert g2._nodes is not None
+        if column not in g2._nodes.columns:
+            raise ValueError(
+                f"Cannot build a {NODE_PROP!r} index: node column {column!r} not found."
+            )
+        prop_idx = build_node_prop_index(g2._nodes, column, eng)
+        if prop_idx is None:
+            raise GfqlIndexUnsupportedError(
+                f"Cannot build a {NODE_PROP!r} index on {column!r}: only integer "
+                f"columns without nulls are indexable today. Seeded queries still "
+                f"work via the un-indexed scan path."
+            )
+        prop_idx = replace(prop_idx, name=name or index_name(kind, column))
+        registry = registry.with_node_prop(column, prop_idx)
+        return _attach(g2, registry)
+
     raise ValueError(f"Unknown GFQL index kind: {kind!r}. Expected one of {ALL_KINDS}.")
 
 
-def drop_index(g: Plottable, kind: Optional[IndexKind] = None) -> Plottable:
-    """Drop one index (by kind) or all indexes (kind=None). Idempotent."""
+def drop_index(
+    g: Plottable, kind: Optional[IndexKind] = None, *, column: Optional[str] = None
+) -> Plottable:
+    """Drop one index (by kind, or one property index by column) or all (kind=None).
+
+    Idempotent."""
     registry = get_registry(g)
     if kind is None:
         return _attach(g, EMPTY_REGISTRY)
+    if kind == NODE_PROP and column is not None:
+        return _attach(g, registry.without_node_prop(column))
     return _attach(g, registry.without(kind))
 
 
-def show_indexes(g: Plottable) -> pd.DataFrame:
+def show_indexes(
+    g: Plottable, engine: EngineAbstractType = EngineAbstract.AUTO
+) -> pd.DataFrame:
     """Return a pandas DataFrame describing resident indexes (empty if none).
 
     ``valid`` reflects live fingerprint validity against the current frames — a
     stale index (after a ``.edges()``/``.nodes()`` rebind) shows ``valid=False`` and
     is auto-skipped (scan fallback) until rebuilt. ``nbytes`` is the resident
     sidecar-array footprint (the pay-as-you-go memory signal).
+
+    ``valid`` alone is NOT "this index will serve your query": indexes are
+    engine-specific, so a fresh index built for another engine silently declines to
+    a scan at query time (#1767). ``query_engine`` is what ``engine`` resolves to
+    for THIS graph (the same resolution a query makes — pass ``engine=`` to preview
+    an explicit choice), ``usable`` is True only when the index is fresh AND
+    engine-matched, and ``reason`` says why not, with the same wording as the
+    ``gfql_explain`` decline diagnostic.
     """
     from .registry import index_nbytes
 
+    query_engine = resolve_engine(engine, g)
     registry = get_registry(g)
     rows: List[Dict[str, object]] = []
     for kind in registry.kinds():
@@ -214,6 +368,7 @@ def show_indexes(g: Plottable) -> pd.DataFrame:
             valid = g._nodes is not None and registry.get_valid(
                 NODE_ID, g._nodes, (node_idx.key_col,), node_idx.engine) is not None
             n_keys, n_rows = node_idx.n_nodes, 0
+        usable, reason = _index_usability(kind, idx.engine, valid, query_engine)
         rows.append({
             "name": idx.name or index_name(kind, idx.key_col),
             "kind": kind,
@@ -224,8 +379,32 @@ def show_indexes(g: Plottable) -> pd.DataFrame:
             "n_rows": n_rows,
             "nbytes": index_nbytes(idx),
             "valid": valid,
+            "query_engine": query_engine.value,
+            "usable": usable,
+            "reason": reason,
         })
-    cols = ["name", "kind", "key_col", "engine", "backend", "n_keys", "n_rows", "nbytes", "valid"]
+    for column in registry.node_prop_cols():
+        prop = registry.node_props[column]
+        prop_valid = registry.get_node_prop_valid(column, g._nodes, prop.engine) is not None
+        usable, reason = _index_usability(NODE_PROP, prop.engine, prop_valid, query_engine)
+        rows.append({
+            "name": prop.name or index_name(NODE_PROP, column),
+            "kind": NODE_PROP,
+            "key_col": column,
+            "engine": prop.engine.value,
+            "backend": prop.backend,
+            "n_keys": prop.n_keys,
+            "n_rows": prop.n_nodes,
+            "nbytes": index_nbytes(prop),
+            "valid": prop_valid,
+            "query_engine": query_engine.value,
+            "usable": usable,
+            "reason": reason,
+        })
+    cols = [
+        "name", "kind", "key_col", "engine", "backend", "n_keys", "n_rows", "nbytes",
+        "valid", "query_engine", "usable", "reason",
+    ]
     return pd.DataFrame(rows, columns=cols)
 
 
@@ -236,6 +415,23 @@ def gfql_index_edges(g: Plottable, direction: EdgeIndexDirection = "both",
         g = create_index(g, EDGE_OUT_ADJ, engine=engine)
     if direction in ("reverse", "both"):
         g = create_index(g, EDGE_IN_ADJ, engine=engine)
+    return g
+
+
+def gfql_index_node_props(g: Plottable, columns: Sequence[str],
+                          engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
+    """Convenience: build node property indexes for ``columns`` (skips unindexable).
+
+    Skipping mirrors ``gfql_index_all``'s node_id behaviour — a column whose dtype
+    this index cannot serve keeps the correct scan path. ONLY that case is skipped:
+    a missing column, an unknown kind, or any unexpected failure propagates.
+    ``create_index(NODE_PROP, column=...)`` still raises for everything, since the
+    caller asked for that column specifically."""
+    for column in columns:
+        try:
+            g = create_index(g, NODE_PROP, column=column, engine=engine)
+        except GfqlIndexUnsupportedError:
+            continue  # dtype this index cannot serve -> keep the correct scan path
     return g
 
 
@@ -251,7 +447,7 @@ def gfql_index_all(g: Plottable,
     g = gfql_index_edges(g, "both", engine=engine)
     try:
         g = create_index(g, NODE_ID, engine=engine)
-    except ValueError:
+    except GfqlIndexUnsupportedError:
         pass  # non-unique node ids -> skip the node_id accelerator (adjacency still built)
     return g
 
@@ -279,20 +475,37 @@ def _hop_is_index_coverable(
     edge_query: Optional[str],
     include_zero_hop_seed: bool,
     target_wave_front: Optional[DataFrameT],
+    return_as_wave_front: bool = False,
 ) -> bool:
     if nodes is None:
         return False
     if any(x is not None for x in (
         min_hops if (min_hops is not None and min_hops > 1) else None,
         output_min_hops, output_max_hops, label_node_hops, label_edge_hops,
-        edge_match, source_node_match, destination_node_match,
+        source_node_match, destination_node_match,
         source_node_query, destination_node_query, edge_query, target_wave_front,
     )):
         return False
+    # Typed-edge edge_match: coverable only as a simple scalar-equality filter on the
+    # wavefront (chain/Cypher) path, where index_seeded_hop applies it per-hop parity-
+    # exact with the scan's filter_edges_by_dict. Predicate/membership forms and the
+    # direct-hop (non-wavefront) path stay on scan.
+    if edge_match is not None:
+        from .traverse import is_simple_equality_edge_match
+        if not (
+            return_as_wave_front
+            and isinstance(edge_match, dict)
+            and is_simple_equality_edge_match(edge_match)
+        ):
+            return False
     if label_seeds or include_zero_hop_seed:
         return False
-    if not to_fixed_point and (not isinstance(hops, int) or hops < 1):
-        return False
+    effective_hops = max_hops if max_hops is not None else hops
+    if not to_fixed_point:
+        if not isinstance(effective_hops, int) or effective_hops < 1:
+            return False
+        if hops is None and min_hops not in (None, 1):
+            return False
     return True
 
 
@@ -349,6 +562,8 @@ def maybe_index_hop(
     Cost gate: only route to the index when (a) a valid matching index is resident
     (or buildable under auto/force), (b) the query is covered, (c) the frontier is
     not so large that a full scan is cheaper. Correctness is identical either way.
+    "force" bypasses only the cost gate for a covered query. It still falls back to
+    scan when the index cannot serve the query.
     """
     resolved_policy: IndexPolicy = validate_index_policy(policy) or "use"
 
@@ -368,16 +583,18 @@ def maybe_index_hop(
         except (AttributeError, TypeError, ValueError):
             pass
 
-    def _bail(reason: str) -> Optional[Plottable]:
+    def _bail(reason: str, decision_code: IndexDecisionCode) -> Optional[Plottable]:
         if trace:
-            _record(cast(IndexTraceStep, {**diag, "path": "scan", "decision_reason": reason}))
+            _record(cast(IndexTraceStep, {
+                **diag, "path": "scan", "decision_reason": reason, "decision_code": decision_code,
+            }))
         return None
 
     if resolved_policy == "off":
-        return _bail("policy=off")
+        return _bail("policy=off", "policy_off")
     registry = get_registry(g)
     if registry.is_empty() and resolved_policy not in ("auto", "force"):
-        return _bail("no resident index (policy=use)")
+        return _bail("no resident index (policy=use)", "no_resident_index")
 
     min_hops = cast(Optional[int], rest.get("min_hops"))
     max_hops = cast(Optional[int], rest.get("max_hops"))
@@ -408,19 +625,20 @@ def maybe_index_hop(
         edge_query=edge_query,
         include_zero_hop_seed=include_zero_hop_seed,
         target_wave_front=target_wave_front,
+        return_as_wave_front=return_as_wave_front,
     ):
-        return _bail("query not index-coverable")
+        return _bail("query not index-coverable", "not_index_coverable")
     assert nodes is not None
 
     node_col = g._node
     src, dst = g._source, g._destination
     if node_col is None or src is None or dst is None or g._edges is None or g._nodes is None:
-        return _bail("graph missing node/edge columns")
+        return _bail("graph missing node/edge columns", "missing_graph_columns")
 
     if resolved_policy in ("auto", "force"):
         registry = _ensure_indexes(g, registry, direction, engine, resolved_policy, nodes, src, dst, node_col)
     if registry.is_empty():
-        return _bail("no index available (build declined)")
+        return _bail("no index available (build declined)", "index_build_declined")
 
     # Cost gate: if the frontier covers a large fraction of distinct sources, the
     # scan path is competitive — fall back (avoids index overhead on bulk-ish hops).
@@ -446,7 +664,7 @@ def maybe_index_hop(
             if idx0.n_keys > 0 and frontier_n >= frac * idx0.n_keys:
                 return _bail(
                     f"frontier {frontier_n} >= {frac}*n_keys "
-                    f"({frac * idx0.n_keys:.0f}) -> scan cheaper"
+                    f"({frac * idx0.n_keys:.0f}) -> scan cheaper", "scan_cost"
                 )
         except (AttributeError, TypeError, ValueError):
             pass
@@ -460,14 +678,23 @@ def maybe_index_hop(
         g, registry, nodes=nodes, node_col=node_col, src=src, dst=dst, engine=engine,
         hops=eff_hops, to_fixed_point=to_fixed_point, direction=direction,
         return_as_wave_front=return_as_wave_front,
+        edge_match=cast(Optional[dict], rest.get("edge_match")),
     )
     if trace:
+        engine_mismatch_reason = (
+            _engine_mismatch_reason(registry, direction, engine) if result is None else None
+        )
         _record(cast(IndexTraceStep, {
             **diag, "hops": eff_hops,
             "path": "index" if result is not None else "scan",
             "decision_reason": (
                 "frontier below cost gate -> index" if result is not None
-                else "index path not applicable -> scan"
+                else engine_mismatch_reason or "index path not applicable -> scan"
+            ),
+            "decision_code": (
+                "index_selected" if result is not None
+                else "engine_mismatch" if engine_mismatch_reason is not None
+                else "index_path_unavailable"
             ),
         }))
     return result

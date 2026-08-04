@@ -12,6 +12,8 @@ or None (not-a-DDL -> normal query path).
 """
 from __future__ import annotations
 
+from graphistry.compute.gfql.cache_registry import register_process_singleton
+
 from functools import lru_cache
 import re
 from typing import Optional, Pattern, Tuple, cast
@@ -19,7 +21,7 @@ from typing import Optional, Pattern, Tuple, cast
 from .types import IndexKind
 from .wire import CreateIndex, DropIndex, ShowIndexes, IndexOp
 
-_KIND = r"(?P<kind>edge_out_adj|edge_in_adj|node_id)"
+_KIND = r"(?P<kind>edge_out_adj|edge_in_adj|node_id|node_prop)"
 
 _CREATE_PATTERN = (
     r"^\s*CREATE\s+GFQL\s+INDEX\s+(?:(?P<name>[A-Za-z_]\w*)\s+)?FOR\s+" + _KIND
@@ -41,6 +43,9 @@ def _ddl_prefix_re() -> Pattern[str]:
     return re.compile(_DDL_PREFIX_PATTERN, re.IGNORECASE)
 
 
+register_process_singleton(_ddl_prefix_re, "a compiled regex over a module-level pattern constant; function of the code alone")
+
+
 @lru_cache(maxsize=1)
 def _ddl_res() -> Tuple[Pattern[str], Pattern[str], Pattern[str], Pattern[str]]:
     return (
@@ -49,6 +54,9 @@ def _ddl_res() -> Tuple[Pattern[str], Pattern[str], Pattern[str], Pattern[str]]:
         re.compile(_DROP_FOR_PATTERN, re.IGNORECASE),
         re.compile(_DROP_NAME_PATTERN, re.IGNORECASE),
     )
+
+
+register_process_singleton(_ddl_res, "compiled regexes over module-level pattern constants; function of the code alone")
 
 
 def looks_like_index_ddl(query: str) -> bool:

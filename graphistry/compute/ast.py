@@ -7,6 +7,9 @@ from typing_extensions import Literal
 
 if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
+    # TYPE_CHECKING only: graphistry.compute.gfql.call.__init__ pulls in executor/validation
+    # at import time — a module-level import here would be circular.
+    from graphistry.compute.gfql.call.support import AggSpec
 
 from graphistry.Engine import Engine, EngineAbstract
 from graphistry.compute.dataframe_utils import dbg_df
@@ -18,6 +21,7 @@ from graphistry.compute.gfql.call.validation import validate_call_params
 from graphistry.compute.gfql.identifiers import validate_column_references
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal, is_json_serializable
+from graphistry.compute.gfql.row.prefilter import AliasPrefilters
 from .predicates.ASTPredicate import ASTPredicate
 from .predicates.from_json import from_json as predicates_from_json
 
@@ -1573,7 +1577,9 @@ def rows(
     table: str = "nodes",
     source: Optional[str] = None,
     alias_endpoints: Optional[Dict[str, str]] = None,
-    binding_ops: Optional[List[Dict[str, Any]]] = None,
+    binding_ops: Optional[List[Dict[str, JSONVal]]] = None,
+    alias_prefilters: Optional[AliasPrefilters] = None,
+    attach_prop_aliases: Optional[List[str]] = None,
 ) -> ASTCall:
     """Create a row-source operation for GFQL row pipelines.
 
@@ -1597,18 +1603,22 @@ def rows(
         params["alias_endpoints"] = alias_endpoints
     if binding_ops is not None:
         params["binding_ops"] = binding_ops
+    if alias_prefilters:
+        params["alias_prefilters"] = alias_prefilters
+    if attach_prop_aliases is not None:
+        params["attach_prop_aliases"] = list(attach_prop_aliases)
     return ASTCall("rows", params)
 
 
-def serialize_binding_ops(ops: Sequence[ASTObject]) -> List[Dict[str, Any]]:
+def serialize_binding_ops(ops: Sequence[ASTObject]) -> List[Dict[str, JSONVal]]:
     """Serialize node/edge bindings for ``rows(binding_ops=...)``."""
-    binding_ops: List[Dict[str, Any]] = []
+    binding_ops: List[Dict[str, JSONVal]] = []
     for op in ops:
         if not isinstance(op, (ASTNode, ASTEdge)):
             raise ValueError(
                 "Connected bindings-row lowering expects only ASTNode/ASTEdge ops"
             )
-        binding_ops.append(cast(Dict[str, Any], op.to_json(validate=False)))
+        binding_ops.append(op.to_json(validate=False))
     return binding_ops
 
 
@@ -1802,7 +1812,7 @@ def count_table(
 
 def group_by(
     keys: Iterable[str],
-    aggregations: Iterable[Sequence[Any]],
+    aggregations: Iterable["AggSpec"],
     key_prefixes: Optional[Iterable[str]] = None,
 ) -> ASTCall:
     """Create grouped aggregation operation for row pipelines.
