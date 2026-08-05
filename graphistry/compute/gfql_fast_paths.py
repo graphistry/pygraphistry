@@ -803,13 +803,18 @@ def _connected_join_two_star_fused_polars(
     select_items: Optional[List[Tuple[str, str]]],
 ) -> Optional[DataFrameT]:
     """FUSED lazy lane (#1755 lane-1): the whole two-star grouped-count as ONE lazy
-    plan, collected once at the join (the eager path pays a fixed collect cost per
-    op; ~27 collects/exec dominated q5-q7 profiles). Value-identical to the eager
-    lane -- same filters/semi-joins/aggregation, and the empty-match boundary
-    reproduces the eager all-left-counts==1 shortcut's single n=0 row (openCypher
-    count over no rows). Returns None to decline (untranslatable residual, missing
-    group property) so the caller falls through to the eager path. Both frames must
-    already be engine-converted polars frames.
+    plan, collected once. Value-identical to the eager lane, including the
+    empty-match boundary (openCypher n=0 single-row vs 0x0 frame). Returns None to
+    decline (untranslatable residual, missing group property) so the caller falls
+    through to the eager path. Both frames must already be engine-converted polars
+    frames.
+
+    Minimal-join plan: two provably redundant restrictions are dropped -- the
+    left arm's shared-domain semi-join (subsumed by the final inner join on the
+    shared key) and the right arm's second-leaf semi-join when the unique-keyed
+    group-property lookup subsumes it. The subsumption proofs, plan shapes, and
+    boundary parity are pinned in test_residual_polars_native.py (plan-shape pins
+    + both-sides differential); measured effects live in pyg-bench receipts.
     """
     import polars as pl
     from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_expr_by_dict_polars
@@ -851,64 +856,81 @@ def _connected_join_two_star_fused_polars(
     fe2 = filter_expr_by_dict_polars(edges, second_edge_match)
     first_edges_lf = lf_edges.filter(fe1) if fe1 is not None else lf_edges
     second_edges_lf = lf_edges.filter(fe2) if fe2 is not None else lf_edges
-    left_counts_lf = (
-        first_edges_lf
-        .join(shared_ids_lf, left_on=src_col, right_on=node_col, how="semi")
-        .join(first_leaf_ids_lf, left_on=dst_col, right_on=node_col, how="semi")
-        .group_by(src_col)
-        .len("__left_count__")
-        .rename({src_col: shared_alias})
-    )
-    right_base_lf = (
-        second_edges_lf
-        .join(shared_ids_lf, left_on=src_col, right_on=node_col, how="semi")
-        .join(second_leaf_ids_lf, left_on=dst_col, right_on=node_col, how="semi")
-    )
+    # Left arm: no shared-domain semi-join -- subsumed by the final inner join on the shared key (pinned).
+    left_arm_lf = first_edges_lf.join(first_leaf_ids_lf, left_on=dst_col, right_on=node_col, how="semi")
+    left_counts_lf = left_arm_lf.group_by(src_col).len("__left_count__").rename({src_col: shared_alias})
+    right_base_lf = second_edges_lf.join(shared_ids_lf, left_on=src_col, right_on=node_col, how="semi")
     if group_prop_refs:
         fused_lookup_key = "__gfql_fast_second_leaf_id__"
         lookup_lf = second_leaf_lf.select(
             [pl.col(node_col).alias(fused_lookup_key)]
             + [pl.col(prop).alias(out_col) for out_col, prop in group_prop_refs]
         ).unique(subset=[fused_lookup_key])
+        # Unique-keyed inner lookup subsumes the second-leaf semi-join (pinned).
         right_base_lf = right_base_lf.join(lookup_lf, left_on=dst_col, right_on=fused_lookup_key, how="inner")
+    else:
+        right_base_lf = right_base_lf.join(second_leaf_ids_lf, left_on=dst_col, right_on=node_col, how="semi")
     right_rows_lf = right_base_lf.select(
         [pl.col(src_col).alias(shared_alias)] + [pl.col(key) for key in output_group_keys]
     )
     joined_lf = right_rows_lf.join(left_counts_lf, on=shared_alias, how="inner")
-    # HOT PATH: one collect. left_counts is collected ONLY on the empty-match
-    # boundary below (collect_all of both plans measured +2.5ms/query on the
-    # 20k graphbench q5-q7 -- CSE does not absorb the left-arm recompute).
-    joined = joined_lf.collect()
-    if len(joined) == 0:
-        # Eager-lane parity on the empty match: the eager all-left-counts==1
-        # shortcut counts matched rows with pl.len(), emitting a single n=0 row
-        # when the first arm is live but nothing joins (the openCypher-correct
-        # count over zero rows). Every other empty shape returns the 0x0 frame,
-        # exactly like the eager generic branch.
-        left_counts_df = left_counts_lf.collect()
-        if (
-            not output_group_keys
-            and len(left_counts_df) > 0
-            and bool(left_counts_df.select((pl.col("__left_count__") == 1).all()).item())
-        ):
-            out_df = pl.DataFrame({agg_alias: [0]}).with_columns(pl.col(agg_alias).cast(pl.Int64))
-        else:
-            return cast(DataFrameT, joined.select([]))
-    elif output_group_keys:
-        out_df = joined.group_by(output_group_keys, maintain_order=True).agg(
+    # One collect on the hot path; boundary-only plans collect only on the empty match (receipts in pyg-bench).
+    if output_group_keys and limit_value != 0:
+        # LIMIT != 0 keeps out_df empty <=> joined empty; LIMIT 0 takes the eager tail (pinned).
+        out_lf = joined_lf.group_by(output_group_keys, maintain_order=True).agg(
             pl.col("__left_count__").sum().cast(pl.Int64).alias(agg_alias))
+        if order_keys:
+            out_lf = out_lf.sort(
+                [key for key, _ in order_keys],
+                descending=[desc for _, desc in order_keys],
+                nulls_last=[not desc for _, desc in order_keys],
+            )
+        if limit_value is not None:
+            out_lf = out_lf.head(limit_value)
+        if select_items is not None:
+            out_lf = out_lf.select([pl.col(s_col).alias(d_col) for s_col, d_col in select_items])
+        out_df = out_lf.collect()
+        if len(out_df) == 0:
+            # 0x0 frame, matching the eager generic branch (pinned).
+            out_df = out_df.select([])
     else:
-        out_df = joined.select(pl.col("__left_count__").sum().cast(pl.Int64).alias(agg_alias))
-    if order_keys:
-        out_df = out_df.sort(
-            [key for key, _ in order_keys],
-            descending=[desc for _, desc in order_keys],
-            nulls_last=[not desc for _, desc in order_keys],
-        )
-    if limit_value is not None:
-        out_df = out_df.head(limit_value)
-    if select_items is not None:
-        out_df = out_df.select([pl.col(s_col).alias(d_col) for s_col, d_col in select_items])
+        joined = joined_lf.collect()
+        if len(joined) == 0:
+            # Empty-match parity probe: eager-lane left counts (WITH the shared-domain
+            # restriction) decide n=0 single-row vs 0x0 frame (pinned).
+            emit_zero_row = False
+            if not output_group_keys:
+                left_counts_df = (
+                    left_arm_lf
+                    .join(shared_ids_lf, left_on=src_col, right_on=node_col, how="semi")
+                    .group_by(src_col)
+                    .len("__left_count__")
+                    .collect()
+                )
+                emit_zero_row = (
+                    len(left_counts_df) > 0
+                    and bool(left_counts_df.select((pl.col("__left_count__") == 1).all()).item())
+                )
+            if not emit_zero_row:
+                empty_grouped: DataFrameT = joined.select([])  # type: ignore[assignment]
+                return empty_grouped
+            out_df = pl.DataFrame({agg_alias: [0]}).with_columns(pl.col(agg_alias).cast(pl.Int64))
+        elif output_group_keys:
+            # Reachable only for LIMIT 0 grouped shapes (the lazy tail owns the rest).
+            out_df = joined.group_by(output_group_keys, maintain_order=True).agg(
+                pl.col("__left_count__").sum().cast(pl.Int64).alias(agg_alias))
+        else:
+            out_df = joined.select(pl.col("__left_count__").sum().cast(pl.Int64).alias(agg_alias))
+        if order_keys:
+            out_df = out_df.sort(
+                [key for key, _ in order_keys],
+                descending=[desc for _, desc in order_keys],
+                nulls_last=[not desc for _, desc in order_keys],
+            )
+        if limit_value is not None:
+            out_df = out_df.head(limit_value)
+        if select_items is not None:
+            out_df = out_df.select([pl.col(s_col).alias(d_col) for s_col, d_col in select_items])
     return cast(DataFrameT, out_df)
 
 
@@ -1295,7 +1317,8 @@ def _connected_join_two_star_fast_grouped_count(
         else:
             joined = right_rows.join(left_counts, on=shared_alias, how="inner")
             if len(joined) == 0:
-                return cast(DataFrameT, joined.select([]))
+                empty_grouped: DataFrameT = joined.select([])  # type: ignore[assignment]
+                return empty_grouped
             if output_group_keys:
                 out_df = joined.group_by(output_group_keys, maintain_order=True).agg(pl.col("__left_count__").sum().cast(pl.Int64).alias(agg_alias))
             else:
