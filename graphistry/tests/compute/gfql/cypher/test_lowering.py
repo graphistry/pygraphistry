@@ -72,7 +72,7 @@ from graphistry.compute.gfql_fast_paths import (
     _filter_nodes_for_fast_count,
     _connected_join_two_star_split_residuals,
     _dense_int_domain_interval,
-    _int_col_bounds_within,
+    _edge_cols_bounds_within,
     _two_hop_equal_domain_dense_total,
 )
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
@@ -17276,6 +17276,197 @@ def test_t6_dense_total_declines_null_endpoints_polars() -> None:
     ) is None
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_declines_non_integer_edge_cols(engine: str) -> None:
+    # Float endpoints are not provable (fused polars proof's dtype gate; numpy-kind
+    # gate on pandas/cudf) even over a dense integer domain.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    dom_pd = pd.DataFrame({"id": [0, 1, 2]})
+    edges_pd = pd.DataFrame({"s": [0.0, 1.0], "d": [1, 2]})
+    if engine == "polars":
+        import polars as pl
+        assert _two_hop_equal_domain_dense_total(
+            pl.from_pandas(dom_pd), pl.from_pandas(edges_pd),
+            node_col="id", src_col="s", dst_col="d", engine=Engine.POLARS,
+        ) is None
+    else:
+        assert _two_hop_equal_domain_dense_total(
+            dom_pd, edges_pd, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
+        ) is None
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_edge_cols_bounds_within_empty_frame_declines(engine: str) -> None:
+    # The kernel declines empty edge frames before the bounds proof, so the helper's
+    # own empty guard (it must stay safe standalone) is pinned directly.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    empty_pd = pd.DataFrame({"s": pd.Series([], dtype="int64"),
+                             "d": pd.Series([], dtype="int64")})
+    if engine == "polars":
+        import polars as pl
+        assert _edge_cols_bounds_within(
+            pl.from_pandas(empty_pd), "s", "d", 0, 3, engine=Engine.POLARS
+        ) is False
+    else:
+        assert _edge_cols_bounds_within(
+            empty_pd, "s", "d", 0, 3, engine=Engine.PANDAS
+        ) is False
+
+
+def test_t6_edge_cols_bounds_within_null_mask_declines() -> None:
+    # cudf rides the pandas/cudf arm with a plain numpy dtype PLUS a ``null_count``
+    # attribute (the null mask is separate). Emulate that series shape CPU-side so the
+    # null-mask decline is pinned without a GPU.
+    import numpy as np
+
+    class _NullMaskedIntSeries:
+        dtype = np.dtype("int64")
+        null_count = 1
+
+        def __len__(self) -> int:
+            return 3
+
+    class _NullMaskedFrame:
+        def __getitem__(self, col: str) -> Any:
+            return _NullMaskedIntSeries()
+
+    # engine=CUDF: the null guard is engine-dispatched now (a numpy-int pandas
+    # series cannot hold NA, so only the cuDF arm reads null_count).
+    assert _edge_cols_bounds_within(
+        cast(Any, _NullMaskedFrame()), "s", "d", 0, 3, engine=Engine.CUDF
+    ) is False
+
+
+class _T6ArrayNamespaceSpy:
+    """Records the kernel's array calls so tests can PIN which counting lane ran
+    (shift elision vs single-scratch-buffer shift vs plain shift), not just the value."""
+
+    def __init__(self, xp: Any) -> None:
+        self._xp = xp
+        self.calls: List[Tuple[Any, ...]] = []
+
+    def bincount(self, a: Any, minlength: int = 0) -> Any:
+        self.calls.append(("bincount", int(minlength)))
+        return self._xp.bincount(a, minlength=minlength)
+
+    def empty(self, shape: Any, dtype: Any = None) -> Any:
+        self.calls.append(("empty",))
+        return self._xp.empty(shape, dtype=dtype)
+
+    def subtract(self, a: Any, b: Any, out: Any = None) -> Any:
+        self.calls.append(("subtract", out is not None))
+        return self._xp.subtract(a, b, out=out)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._xp, name)
+
+
+def _t6_spy_dense_total(
+    monkeypatch: Any, engine: str, nodes_pd: pd.DataFrame, edges_pd: pd.DataFrame
+) -> Tuple[Optional[int], "_T6ArrayNamespaceSpy"]:
+    import numpy as np
+    from graphistry.compute.gfql.index import engine_arrays as engine_arrays_module
+
+    spy = _T6ArrayNamespaceSpy(np)
+    monkeypatch.setattr(
+        engine_arrays_module, "array_namespace", lambda _engine: (spy, "numpy")
+    )
+    if engine == "polars":
+        import polars as pl
+        total = _two_hop_equal_domain_dense_total(
+            pl.from_pandas(nodes_pd), pl.from_pandas(edges_pd),
+            node_col="id", src_col="s", dst_col="d", engine=Engine.POLARS,
+        )
+    else:
+        total = _two_hop_equal_domain_dense_total(
+            nodes_pd, edges_pd, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
+        )
+    return total, spy
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_shift_elision_lane_counts_raw_arrays(
+    engine: str, monkeypatch: Any
+) -> None:
+    # Non-zero but non-negative lo with hi+1 inside the table budget: the kernel must
+    # count the RAW arrays with tables of size hi+1 -- no shifted E-length arrays, no
+    # scratch buffer. (That shift materialization dominated the kernel at 2.4M edges:
+    # its elision is the round-2 lever, so the lane itself is pinned, not just values.)
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({"id": [10, 11, 12, 13], "node_type": ["Person"] * 4})
+    edges = pd.DataFrame({"s": [10, 10, 11, 11, 11, 12], "d": [11, 11, 12, 12, 13, 13]})
+    total, spy = _t6_spy_dense_total(monkeypatch, engine, nodes, edges)
+    assert total == 8  # T2 multiplicity topology shifted to ids 10..13
+    assert [c for c in spy.calls if c[0] in ("empty", "subtract")] == []
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 14), ("bincount", 14)]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_distant_interval_single_scratch_buffer(
+    engine: str, monkeypatch: Any
+) -> None:
+    # Interval far from 0 (hi+1 over the table budget, n well within it): the shift is
+    # required, and BOTH columns must route through ONE reused scratch buffer.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    base = 10**7
+    nodes = pd.DataFrame({"id": [base, base + 1, base + 2]})
+    edges = pd.DataFrame({"s": [base, base + 1], "d": [base + 1, base + 2]})
+    total, spy = _t6_spy_dense_total(monkeypatch, engine, nodes, edges)
+    assert total == 1  # single length-2 path through base+1
+    assert [c for c in spy.calls if c[0] == "empty"] == [("empty",)]
+    assert [c for c in spy.calls if c[0] == "subtract"] == [("subtract", True), ("subtract", True)]
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 3), ("bincount", 3)]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_mixed_endpoint_dtypes_keep_plain_shift(
+    engine: str, monkeypatch: Any
+) -> None:
+    # Mixed src/dst dtypes on the shift path: no shared scratch buffer (it would
+    # impose a cross-dtype cast policy) -- plain shifted bincounts, same value.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    base = 10**7
+    nodes = pd.DataFrame({"id": [base, base + 1, base + 2]})
+    edges = pd.DataFrame({
+        "s": pd.Series([base, base + 1], dtype="int32"),
+        "d": pd.Series([base + 1, base + 2], dtype="int64"),
+    })
+    total, spy = _t6_spy_dense_total(monkeypatch, engine, nodes, edges)
+    assert total == 1
+    assert [c for c in spy.calls if c[0] in ("empty", "subtract")] == []
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 3), ("bincount", 3)]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_table_budget_boundary_lanes(engine: str, monkeypatch: Any) -> None:
+    # The unshifted lane serves iff hi+1 fits the SAME budget the domain guard uses
+    # (4*E + 1024). Pin both sides of that boundary at E=2 (budget=1032): hi+1 == 1032
+    # counts raw with tables of 1032; hi+1 == 1033 shifts through the scratch buffer
+    # with tables of n. Values stay correct on both sides -- the lane is an internal
+    # layout choice, never a semantics change.
+    if engine == "polars":
+        pytest.importorskip("polars")
+
+    at_budget_nodes = pd.DataFrame({"id": [1028, 1029, 1030, 1031]})
+    at_budget_edges = pd.DataFrame({"s": [1028, 1029], "d": [1029, 1030]})
+    total, spy = _t6_spy_dense_total(monkeypatch, engine, at_budget_nodes, at_budget_edges)
+    assert total == 1
+    assert [c for c in spy.calls if c[0] in ("empty", "subtract")] == []
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 1032), ("bincount", 1032)]
+
+    over_budget_nodes = pd.DataFrame({"id": [1029, 1030, 1031, 1032]})
+    over_budget_edges = pd.DataFrame({"s": [1029, 1030], "d": [1030, 1031]})
+    total2, spy2 = _t6_spy_dense_total(monkeypatch, engine, over_budget_nodes, over_budget_edges)
+    assert total2 == 1
+    assert [c for c in spy2.calls if c[0] == "empty"] == [("empty",)]
+    assert [c for c in spy2.calls if c[0] == "bincount"] == [("bincount", 4), ("bincount", 4)]
+
+
 def test_t6_decline_keeps_memo_path_reachable() -> None:
     # The T5 memo graph has an out-of-domain FOLLOWS endpoint (a City), so the
     # dense kernel must DECLINE there and the memo must populate exactly as before
@@ -17446,7 +17637,7 @@ def test_t6b_dtype_matrix_nullable_int64_declines_and_reason_is_pinned() -> None
         nodes_ext, edges, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
     ) is None
     # Seam 2: bounds proof rejects extension endpoint columns.
-    assert _int_col_bounds_within(edges_ext, "s", 0, 3, engine=Engine.PANDAS) is False
+    assert _edge_cols_bounds_within(edges_ext, "s", "d", 0, 3, engine=Engine.PANDAS) is False
     assert _two_hop_equal_domain_dense_total(
         nodes, edges_ext, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
     ) is None
@@ -17464,7 +17655,7 @@ def test_t6b_dtype_matrix_float_ids_decline(engine: str) -> None:
     assert _two_hop_equal_domain_dense_total(
         dom_f, _edom_f, node_col="id", src_col="s", dst_col="d", engine=eng
     ) is None
-    assert _int_col_bounds_within(edom_f2, "s", 0, 3, engine=eng) is False
+    assert _edge_cols_bounds_within(edom_f2, "s", "d", 0, 3, engine=eng) is False
     assert _two_hop_equal_domain_dense_total(
         dom_i, edom_f2, node_col="id", src_col="s", dst_col="d", engine=eng
     ) is None
