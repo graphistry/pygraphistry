@@ -71,6 +71,9 @@ from graphistry.compute.gfql_fast_paths import (
     _execute_two_hop_count_fast_path,
     _filter_nodes_for_fast_count,
     _connected_join_two_star_split_residuals,
+    _dense_int_domain_interval,
+    _edge_cols_bounds_within,
+    _two_hop_equal_domain_dense_total,
 )
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, SemanticTable
@@ -15998,7 +16001,7 @@ def test_connected_join_polars_nullable_columns_match_master(predicate: str, exp
     query = f"MATCH (p)-[]->(x), (p)-[]->(y) WHERE {predicate} RETURN count(p) AS n"
 
     out = g.gfql(query)._nodes
-    records = out.to_dict(orient="records") if hasattr(out, "to_dict") else out.to_dicts()
+    records = out.to_dicts() if hasattr(out, "to_dicts") else out.to_dict(orient="records")
     assert records == expected
 
 
@@ -16028,7 +16031,7 @@ def test_arrow_table_nodes_match_master_results() -> None:
     def run(predicate: str) -> Any:
         query = f"MATCH (p)-[]->(x), (p)-[]->(y) WHERE {predicate} RETURN count(p) AS n"
         out = g.gfql(query)._nodes
-        return out.to_dict(orient="records") if hasattr(out, "to_dict") else out.to_dicts()
+        return out.to_dicts() if hasattr(out, "to_dicts") else out.to_dict(orient="records")
 
     assert run("p.name = 5") == []
     assert run("p.name = 'ann'") == [{"n": 4}]
@@ -16085,7 +16088,7 @@ def test_connected_join_polars_decimal_matches_master(predicate: str, expected: 
     query = f"MATCH (p)-->(a), (p)-->(b) WHERE {predicate} RETURN count(p) AS n"
 
     result = g.gfql(query)._nodes
-    records = result.to_dict(orient="records") if hasattr(result, "to_dict") else result.to_dicts()
+    records = result.to_dicts() if hasattr(result, "to_dicts") else result.to_dict(orient="records")
     assert records == expected
 
 
@@ -16100,7 +16103,7 @@ def test_connected_join_polars_backed_graph_matches_pandas_results() -> None:
 
     g_polars = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
     result = g_polars.gfql(query)._nodes
-    records = result.to_dict(orient="records") if hasattr(result, "to_dict") else result.to_dicts()
+    records = result.to_dicts() if hasattr(result, "to_dicts") else result.to_dict(orient="records")
     assert records == []
 
 
@@ -17082,6 +17085,705 @@ def test_t5_two_hop_equal_domain_degree_cache_reuses_counts(engine: str) -> None
 
 
 # ---------------------------------------------------------------------------
+# T6 DENSE-DOMAIN KERNEL -- ``_two_hop_equal_domain_dense_total``.
+#
+# The equal-domain two-hop count's dominant cost is the domain x domain edge
+# restriction (semi-joins / isin), not the counting. When the domain ids are a
+# provably dense integer interval containing every filtered edge endpoint, the
+# restriction is the identity and the degree product collapses to two bincounts.
+# These tests pin: the lane SERVES (memoized semi-join path never runs and no
+# cross-call memo is written), value parity with the semi-join path it replaces,
+# the shift path for offset / negative interval positions, and every DECLINE
+# guard (out-of-domain endpoint, gapped ids, non-integer ids, nulls, empty edges,
+# domain far wider than the edge count).
+# ---------------------------------------------------------------------------
+
+_T6_DENSE_Q8_QUERY = (
+    "MATCH (a {node_type:'Person'})-[{rel:'FOLLOWS'}]->(b {node_type:'Person'})"
+    "-[{rel:'FOLLOWS'}]->(d {node_type:'Person'}) "
+    "RETURN count(*) AS numPaths"
+)
+
+
+def _t6_dense_frames() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    # All-Person dense ids 0..3; every FOLLOWS endpoint in-domain; multi-edges kept
+    # (same topology as the T2 multiplicity pin: expected numPaths == 8).
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 3],
+        "node_type": ["Person", "Person", "Person", "Person"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 0, 1, 1, 1, 2],
+        "d": [1, 1, 2, 2, 3, 3],
+        "rel": ["FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS"],
+    })
+    return nodes, edges
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_domain_kernel_serves_equal_domain_count_and_skips_memo(
+    engine: str, monkeypatch: Any
+) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_graph(*_t6_dense_frames())
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+
+    # LANE PIN: when the dense kernel serves, the memoized degree-count path is
+    # never entered -- prove it by making that path explode.
+    def _boom(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("dense kernel must serve this shape; memo path was entered")
+
+    monkeypatch.setattr(
+        gfql_fast_paths_module, "_two_hop_cached_equal_domain_degree_counts", _boom
+    )
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
+    # No cross-call memo is written when the kernel serves (one-shot == warm).
+    assert getattr(graph, "_gfql_two_hop_equal_domain_degree_counts_cache", None) is None
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_domain_kernel_value_parity_with_semi_join_path(
+    engine: str, monkeypatch: Any
+) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes, edges = _t6_dense_frames()
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+
+    served = _execute_two_hop_count_fast_path(
+        _mk_graph(nodes, edges), compiled.chain, engine=engine
+    )
+    # Force the DECLINE branch so the pre-existing semi-join/memo path answers the
+    # SAME graph, then compare values -- parity by measurement, not by argument.
+    monkeypatch.setattr(
+        gfql_fast_paths_module,
+        "_two_hop_equal_domain_dense_total",
+        lambda *a, **k: None,
+    )
+    declined = _execute_two_hop_count_fast_path(
+        _mk_graph(nodes, edges), compiled.chain, engine=engine
+    )
+    assert served is not None and declined is not None
+    assert (
+        _to_pandas_df(served._nodes).to_dict(orient="records")
+        == _to_pandas_df(declined._nodes).to_dict(orient="records")
+        == [{"numPaths": 8}]
+    )
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_domain_kernel_offset_and_negative_intervals(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    # Offset interval (type-partitioned ids: Persons at 10..13 above a City block)
+    # exercises the lo != 0 shift; expected count pinned by the T2 topology (8).
+    nodes = pd.DataFrame({
+        "id": [0, 1, 10, 11, 12, 13],
+        "node_type": ["City", "City", "Person", "Person", "Person", "Person"],
+    })
+    edges = pd.DataFrame({
+        "s": [10, 10, 11, 11, 11, 12],
+        "d": [11, 11, 12, 12, 13, 13],
+        "rel": ["FOLLOWS"] * 6,
+    })
+    result = _mk_graph(nodes, edges).gfql(_T6_DENSE_Q8_QUERY, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
+
+    # Negative-lo interval through the helper directly (bincount input must be
+    # shifted to non-negative; a wrong shift would raise or miscount).
+    neg_nodes = pd.DataFrame({"id": [-2, -1, 0, 1], "node_type": ["Person"] * 4})
+    neg_edges = pd.DataFrame({"s": [-2, -2, -1], "d": [-1, -1, 0], "rel": ["FOLLOWS"] * 3})
+    if engine == "polars":
+        import polars as pl
+        dom: Any = pl.from_pandas(neg_nodes)
+        edom: Any = pl.from_pandas(neg_edges)
+        eng = Engine.POLARS
+    else:
+        dom, edom = neg_nodes, neg_edges
+        eng = Engine.PANDAS
+    total = _two_hop_equal_domain_dense_total(
+        dom, edom, node_col="id", src_col="s", dst_col="d", engine=eng
+    )
+    # indeg(-1) = 2, outdeg(-1) = 1 -> 2 paths; every other middle contributes 0.
+    assert total == 2
+
+
+def test_t6_dense_int_domain_interval_accepts_and_declines() -> None:
+    def interval_of(ids: Any) -> Any:
+        return _dense_int_domain_interval(
+            pd.DataFrame({"id": ids}), "id", engine=Engine.PANDAS
+        )
+
+    assert interval_of([0, 1, 2, 3]) == (0, 3)
+    assert interval_of([5, 8, 6, 7]) == (5, 8)
+    assert interval_of([-2, -1, 0, 1]) == (-2, 1)
+    # Duplicate node rows over a dense id SET are still dense (set semantics).
+    assert interval_of([0, 1, 1, 2]) == (0, 2)
+    assert interval_of([0, 1, 3]) is None       # gapped: interval != set
+    assert interval_of(["a", "b"]) is None      # non-integer ids
+    assert interval_of([]) is None              # empty domain
+    assert interval_of([0.0, 1.0, 2.0]) is None  # float ids: not provable
+    # pandas nullable Int64 (may hold NA behind an int kind) declines.
+    assert _dense_int_domain_interval(
+        pd.DataFrame({"id": pd.array([0, 1, 2], dtype="Int64")}), "id", engine=Engine.PANDAS
+    ) is None
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_decline_pins(engine: str) -> None:
+    if engine == "polars":
+        pytest.importorskip("polars")
+    eng = Engine.POLARS if engine == "polars" else Engine.PANDAS
+
+    def run(nodes_pd: pd.DataFrame, edges_pd: pd.DataFrame) -> Any:
+        if engine == "polars":
+            import polars as pl
+            return _two_hop_equal_domain_dense_total(
+                pl.from_pandas(nodes_pd), pl.from_pandas(edges_pd),
+                node_col="id", src_col="s", dst_col="d", engine=eng,
+            )
+        return _two_hop_equal_domain_dense_total(
+            nodes_pd, edges_pd, node_col="id", src_col="s", dst_col="d", engine=eng
+        )
+
+    dense_dom = pd.DataFrame({"id": [0, 1, 2]})
+    in_edges = pd.DataFrame({"s": [0, 1], "d": [1, 2]})
+
+    # Serves the clean shape (control for the decline pins below).
+    assert run(dense_dom, in_edges) == 1
+    # Out-of-domain endpoint: interval containment fails on either side.
+    assert run(dense_dom, pd.DataFrame({"s": [0, 3], "d": [1, 2]})) is None
+    assert run(dense_dom, pd.DataFrame({"s": [0, 1], "d": [1, 9]})) is None
+    # Gapped domain ids: not an interval.
+    assert run(pd.DataFrame({"id": [0, 1, 3]}), in_edges) is None
+    # Empty edges: existing path owns the count-over-no-rows 0.
+    assert run(dense_dom, pd.DataFrame({"s": pd.Series([], dtype="int64"),
+                                        "d": pd.Series([], dtype="int64")})) is None
+    # MEMORY guard: domain far wider than the edge count declines.
+    assert run(pd.DataFrame({"id": range(100_000)}),
+               pd.DataFrame({"s": [0], "d": [1]})) is None
+
+
+def test_t6_dense_total_declines_null_endpoints_polars() -> None:
+    pl = pytest.importorskip("polars")
+    dom = pl.DataFrame({"id": [0, 1, 2]})
+    edges_null = pl.DataFrame({"s": [0, None], "d": [1, 2]})
+    assert _two_hop_equal_domain_dense_total(
+        dom, edges_null, node_col="id", src_col="s", dst_col="d", engine=Engine.POLARS
+    ) is None
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_declines_non_integer_edge_cols(engine: str) -> None:
+    # Float endpoints are not provable (fused polars proof's dtype gate; numpy-kind
+    # gate on pandas/cudf) even over a dense integer domain.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    dom_pd = pd.DataFrame({"id": [0, 1, 2]})
+    edges_pd = pd.DataFrame({"s": [0.0, 1.0], "d": [1, 2]})
+    if engine == "polars":
+        import polars as pl
+        assert _two_hop_equal_domain_dense_total(
+            pl.from_pandas(dom_pd), pl.from_pandas(edges_pd),
+            node_col="id", src_col="s", dst_col="d", engine=Engine.POLARS,
+        ) is None
+    else:
+        assert _two_hop_equal_domain_dense_total(
+            dom_pd, edges_pd, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
+        ) is None
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_edge_cols_bounds_within_empty_frame_declines(engine: str) -> None:
+    # The kernel declines empty edge frames before the bounds proof, so the helper's
+    # own empty guard (it must stay safe standalone) is pinned directly.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    empty_pd = pd.DataFrame({"s": pd.Series([], dtype="int64"),
+                             "d": pd.Series([], dtype="int64")})
+    if engine == "polars":
+        import polars as pl
+        assert _edge_cols_bounds_within(
+            pl.from_pandas(empty_pd), "s", "d", 0, 3, engine=Engine.POLARS
+        ) is False
+    else:
+        assert _edge_cols_bounds_within(
+            empty_pd, "s", "d", 0, 3, engine=Engine.PANDAS
+        ) is False
+
+
+def test_t6_edge_cols_bounds_within_null_mask_declines() -> None:
+    # cudf rides the pandas/cudf arm with a plain numpy dtype PLUS a ``null_count``
+    # attribute (the null mask is separate). Emulate that series shape CPU-side so the
+    # null-mask decline is pinned without a GPU.
+    import numpy as np
+
+    class _NullMaskedIntSeries:
+        dtype = np.dtype("int64")
+        null_count = 1
+
+        def __len__(self) -> int:
+            return 3
+
+    class _NullMaskedFrame:
+        def __getitem__(self, col: str) -> Any:
+            return _NullMaskedIntSeries()
+
+    # engine=CUDF: the null guard is engine-dispatched now (a numpy-int pandas
+    # series cannot hold NA, so only the cuDF arm reads null_count).
+    assert _edge_cols_bounds_within(
+        cast(Any, _NullMaskedFrame()), "s", "d", 0, 3, engine=Engine.CUDF
+    ) is False
+
+
+class _T6ArrayNamespaceSpy:
+    """Records the kernel's array calls so tests can PIN which counting lane ran
+    (shift elision vs single-scratch-buffer shift vs plain shift), not just the value."""
+
+    def __init__(self, xp: Any) -> None:
+        self._xp = xp
+        self.calls: List[Tuple[Any, ...]] = []
+
+    def bincount(self, a: Any, minlength: int = 0) -> Any:
+        self.calls.append(("bincount", int(minlength)))
+        return self._xp.bincount(a, minlength=minlength)
+
+    def empty(self, shape: Any, dtype: Any = None) -> Any:
+        self.calls.append(("empty",))
+        return self._xp.empty(shape, dtype=dtype)
+
+    def subtract(self, a: Any, b: Any, out: Any = None) -> Any:
+        self.calls.append(("subtract", out is not None))
+        return self._xp.subtract(a, b, out=out)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._xp, name)
+
+
+def _t6_spy_dense_total(
+    monkeypatch: Any, engine: str, nodes_pd: pd.DataFrame, edges_pd: pd.DataFrame
+) -> Tuple[Optional[int], "_T6ArrayNamespaceSpy"]:
+    import numpy as np
+    from graphistry.compute.gfql.index import engine_arrays as engine_arrays_module
+
+    spy = _T6ArrayNamespaceSpy(np)
+    monkeypatch.setattr(
+        engine_arrays_module, "array_namespace", lambda _engine: (spy, "numpy")
+    )
+    if engine == "polars":
+        import polars as pl
+        total = _two_hop_equal_domain_dense_total(
+            pl.from_pandas(nodes_pd), pl.from_pandas(edges_pd),
+            node_col="id", src_col="s", dst_col="d", engine=Engine.POLARS,
+        )
+    else:
+        total = _two_hop_equal_domain_dense_total(
+            nodes_pd, edges_pd, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
+        )
+    return total, spy
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_shift_elision_lane_counts_raw_arrays(
+    engine: str, monkeypatch: Any
+) -> None:
+    # Non-zero but non-negative lo with hi+1 inside the table budget: the kernel must
+    # count the RAW arrays with tables of size hi+1 -- no shifted E-length arrays, no
+    # scratch buffer. (That shift materialization dominated the kernel at 2.4M edges:
+    # its elision is the round-2 lever, so the lane itself is pinned, not just values.)
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({"id": [10, 11, 12, 13], "node_type": ["Person"] * 4})
+    edges = pd.DataFrame({"s": [10, 10, 11, 11, 11, 12], "d": [11, 11, 12, 12, 13, 13]})
+    total, spy = _t6_spy_dense_total(monkeypatch, engine, nodes, edges)
+    assert total == 8  # T2 multiplicity topology shifted to ids 10..13
+    assert [c for c in spy.calls if c[0] in ("empty", "subtract")] == []
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 14), ("bincount", 14)]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_distant_interval_single_scratch_buffer(
+    engine: str, monkeypatch: Any
+) -> None:
+    # Interval far from 0 (hi+1 over the table budget, n well within it): the shift is
+    # required, and BOTH columns must route through ONE reused scratch buffer.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    base = 10**7
+    nodes = pd.DataFrame({"id": [base, base + 1, base + 2]})
+    edges = pd.DataFrame({"s": [base, base + 1], "d": [base + 1, base + 2]})
+    total, spy = _t6_spy_dense_total(monkeypatch, engine, nodes, edges)
+    assert total == 1  # single length-2 path through base+1
+    assert [c for c in spy.calls if c[0] == "empty"] == [("empty",)]
+    assert [c for c in spy.calls if c[0] == "subtract"] == [("subtract", True), ("subtract", True)]
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 3), ("bincount", 3)]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_mixed_endpoint_dtypes_keep_plain_shift(
+    engine: str, monkeypatch: Any
+) -> None:
+    # Mixed src/dst dtypes on the shift path: no shared scratch buffer (it would
+    # impose a cross-dtype cast policy) -- plain shifted bincounts, same value.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    base = 10**7
+    nodes = pd.DataFrame({"id": [base, base + 1, base + 2]})
+    edges = pd.DataFrame({
+        "s": pd.Series([base, base + 1], dtype="int32"),
+        "d": pd.Series([base + 1, base + 2], dtype="int64"),
+    })
+    total, spy = _t6_spy_dense_total(monkeypatch, engine, nodes, edges)
+    assert total == 1
+    assert [c for c in spy.calls if c[0] in ("empty", "subtract")] == []
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 3), ("bincount", 3)]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_table_budget_boundary_lanes(engine: str, monkeypatch: Any) -> None:
+    # The unshifted lane serves iff hi+1 fits the SAME budget the domain guard uses
+    # (4*E + 1024). Pin both sides of that boundary at E=2 (budget=1032): hi+1 == 1032
+    # counts raw with tables of 1032; hi+1 == 1033 shifts through the scratch buffer
+    # with tables of n. Values stay correct on both sides -- the lane is an internal
+    # layout choice, never a semantics change.
+    if engine == "polars":
+        pytest.importorskip("polars")
+
+    at_budget_nodes = pd.DataFrame({"id": [1028, 1029, 1030, 1031]})
+    at_budget_edges = pd.DataFrame({"s": [1028, 1029], "d": [1029, 1030]})
+    total, spy = _t6_spy_dense_total(monkeypatch, engine, at_budget_nodes, at_budget_edges)
+    assert total == 1
+    assert [c for c in spy.calls if c[0] in ("empty", "subtract")] == []
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 1032), ("bincount", 1032)]
+
+    over_budget_nodes = pd.DataFrame({"id": [1029, 1030, 1031, 1032]})
+    over_budget_edges = pd.DataFrame({"s": [1029, 1030], "d": [1030, 1031]})
+    total2, spy2 = _t6_spy_dense_total(monkeypatch, engine, over_budget_nodes, over_budget_edges)
+    assert total2 == 1
+    assert [c for c in spy2.calls if c[0] == "empty"] == [("empty",)]
+    assert [c for c in spy2.calls if c[0] == "bincount"] == [("bincount", 4), ("bincount", 4)]
+
+
+def test_t6_decline_keeps_memo_path_reachable() -> None:
+    # The T5 memo graph has an out-of-domain FOLLOWS endpoint (a City), so the
+    # dense kernel must DECLINE there and the memo must populate exactly as before
+    # (T5 pins the reuse; this pins the reachability under the new seam).
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 3],
+        "node_type": ["Person", "Person", "Person", "City"],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 0, 1, 1, 2, 2, 3],
+        "d": [1, 1, 2, 3, 0, 3, 0],
+        "rel": ["FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "LIKES", "FOLLOWS"],
+    })
+    graph = _mk_graph(nodes, edges)
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine="pandas")
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 5}]
+    assert isinstance(
+        getattr(graph, "_gfql_two_hop_equal_domain_degree_counts_cache", None), dict
+    )
+
+
+# ---------------------------------------------------------------------------
+# T6B DENSE-DOMAIN KERNEL -- review-sufficiency suite (PR #1844 review).
+#
+# The T6 block pins the lane seams; this block pins the kernel against an
+# INDEPENDENT reference -- a pandas merge-join two-hop count, not the kernel's
+# own decline fallback -- across engines, id dtypes, multiplicity shapes
+# (self-loops + duplicate edges), the table-budget boundary, the large-lo
+# shift path, and seeded random graphs. Everything is deterministic (fixed
+# seeds); cudf lanes skip where no GPU runtime is available.
+# ---------------------------------------------------------------------------
+
+
+def _t6b_two_hop_oracle(nodes_pd: pd.DataFrame, edges_pd: pd.DataFrame) -> int:
+    """Independent two-hop count(*) reference: domain-restrict the FOLLOWS edges to
+    Person x Person, then self merge-join on the middle node. Multiplicative over
+    duplicate edges and self-loops by construction (every edge ROW joins)."""
+    dom = set(nodes_pd.loc[nodes_pd["node_type"] == "Person", "id"].tolist())
+    e = edges_pd[edges_pd["rel"] == "FOLLOWS"]
+    e = e[e["s"].isin(dom) & e["d"].isin(dom)][["s", "d"]]
+    joined = e.merge(e, left_on="d", right_on="s", suffixes=("_ab", "_bd"))
+    return int(len(joined))
+
+
+def _t6b_require_cudf_kernel_runtime() -> None:
+    """GPU gate for the dense-kernel cudf lanes: beyond ``_require_cudf_runtime``,
+    the kernel's cupy ``bincount`` needs a working NVRTC (JIT) -- probe the exact
+    primitive so a cudf-ok / JIT-broken host (e.g. CPU-only CI) SKIPS, not fails."""
+    _require_cudf_runtime()
+    cupy = pytest.importorskip("cupy")
+    try:
+        _ = cupy.bincount(cupy.asarray([0, 1, 1], dtype="int64"), minlength=2)
+    except Exception as exc:  # pragma: no cover - environment-dependent
+        pytest.skip(f"cupy runtime unavailable for bincount: {exc}")
+
+
+def _t6b_graph_for(engine: str, nodes_pd: pd.DataFrame, edges_pd: pd.DataFrame) -> _CypherTestGraph:
+    if engine == "cudf":
+        _t6b_require_cudf_kernel_runtime()
+        return _mk_cudf_graph(nodes_pd, edges_pd)
+    if engine == "polars":
+        pytest.importorskip("polars")
+    return _mk_graph(nodes_pd, edges_pd)
+
+
+def _t6b_selfloop_multi_frames() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    # Duplicate edges (0->1 twice), self-loops (1->1 twice, 2->2 once), and a cycle
+    # closer (2->0). indeg = {0: 1, 1: 4, 2: 2}; outdeg = {0: 2, 1: 3, 2: 2};
+    # sum indeg*outdeg = 1*2 + 4*3 + 2*2 = 18.
+    nodes = pd.DataFrame({"id": [0, 1, 2], "node_type": ["Person"] * 3})
+    edges = pd.DataFrame({
+        "s": [0, 0, 1, 1, 1, 2, 2],
+        "d": [1, 1, 1, 1, 2, 2, 0],
+        "rel": ["FOLLOWS"] * 7,
+    })
+    return nodes, edges
+
+
+def _t6b_helper_frames(engine: str, nodes_pd: pd.DataFrame, edges_pd: pd.DataFrame) -> Tuple[Any, Any, Engine]:
+    """(domain_nodes, edge_domain, Engine) in the requested engine's frame type."""
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        return pl.from_pandas(nodes_pd), pl.from_pandas(edges_pd), Engine.POLARS
+    if engine == "cudf":
+        _t6b_require_cudf_kernel_runtime()
+        cudf = _require_cudf_runtime()
+        return cudf.from_pandas(nodes_pd), cudf.from_pandas(edges_pd), Engine.CUDF
+    return nodes_pd, edges_pd, Engine.PANDAS
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize("fixture", ["dense", "selfloop_multi"])
+def test_t6b_engine_matrix_kernel_vs_forced_decline_parity(
+    engine: str, fixture: str, monkeypatch: Any
+) -> None:
+    # (a) + (c): kernel-served vs forced-decline value parity per engine, and both
+    # equal the independent merge-join oracle -- including multiplicative counting
+    # over self-loops and duplicate edges.
+    nodes, edges = _t6_dense_frames() if fixture == "dense" else _t6b_selfloop_multi_frames()
+    expected = _t6b_two_hop_oracle(nodes, edges)
+    assert expected == {"dense": 8, "selfloop_multi": 18}[fixture]  # oracle self-pin
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+
+    kernel_returns: List[Any] = []
+    real_kernel = gfql_fast_paths_module._two_hop_equal_domain_dense_total
+
+    def _spy(*args: Any, **kwargs: Any) -> Any:
+        result = real_kernel(*args, **kwargs)
+        kernel_returns.append(result)
+        return result
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_two_hop_equal_domain_dense_total", _spy)
+    served = _execute_two_hop_count_fast_path(
+        _t6b_graph_for(engine, nodes, edges), compiled.chain, engine=engine
+    )
+    # The kernel must actually have SERVED the count (not the semi-join fallback).
+    assert kernel_returns and kernel_returns[-1] == expected
+
+    monkeypatch.setattr(
+        gfql_fast_paths_module, "_two_hop_equal_domain_dense_total", lambda *a, **k: None
+    )
+    declined = _execute_two_hop_count_fast_path(
+        _t6b_graph_for(engine, nodes, edges), compiled.chain, engine=engine
+    )
+    assert served is not None and declined is not None
+    assert (
+        _to_pandas_df(served._nodes).to_dict(orient="records")
+        == _to_pandas_df(declined._nodes).to_dict(orient="records")
+        == [{"numPaths": expected}]
+    )
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("dtype", ["int8", "int16", "int32", "int64", "uint32"])
+def test_t6b_dtype_matrix_all_int_widths_serve_identical_counts(
+    engine: str, dtype: str
+) -> None:
+    # (b): every plain integer width serves with the identical count.
+    nodes, edges = _t6_dense_frames()
+    nodes = nodes.assign(id=nodes["id"].astype(dtype))
+    edges = edges.assign(s=edges["s"].astype(dtype), d=edges["d"].astype(dtype))
+    dom, edom, eng = _t6b_helper_frames(engine, nodes, edges)
+    total = _two_hop_equal_domain_dense_total(
+        dom, edom, node_col="id", src_col="s", dst_col="d", engine=eng
+    )
+    assert total == 8
+
+
+def test_t6b_dtype_matrix_nullable_int64_declines_and_reason_is_pinned() -> None:
+    # (b): pandas extension Int64 (nullable) DECLINES on the pandas engine even when
+    # every value is present -- the proof only trusts plain numpy int dtypes (an
+    # extension int can hold NA behind an int kind). Pin the decline REASON at each
+    # seam: the interval proof rejects an Int64 domain, the bounds proof rejects an
+    # Int64 endpoint column, and each rejection alone forces the kernel to decline.
+    nodes, edges = _t6_dense_frames()
+    nodes_ext = nodes.assign(id=nodes["id"].astype("Int64"))
+    edges_ext = edges.assign(s=edges["s"].astype("Int64"), d=edges["d"].astype("Int64"))
+
+    # Control: the plain-int64 twin serves (so the declines below are dtype-caused).
+    assert _two_hop_equal_domain_dense_total(
+        nodes, edges, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
+    ) == 8
+    # Seam 1: interval proof rejects the extension domain.
+    assert _dense_int_domain_interval(nodes_ext, "id", engine=Engine.PANDAS) is None
+    assert _two_hop_equal_domain_dense_total(
+        nodes_ext, edges, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
+    ) is None
+    # Seam 2: bounds proof rejects extension endpoint columns.
+    assert _edge_cols_bounds_within(edges_ext, "s", "d", 0, 3, engine=Engine.PANDAS) is False
+    assert _two_hop_equal_domain_dense_total(
+        nodes, edges_ext, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
+    ) is None
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6b_dtype_matrix_float_ids_decline(engine: str) -> None:
+    # (b): float ids decline on BOTH seams (domain proof and endpoint bounds proof).
+    nodes, edges = _t6_dense_frames()
+    nodes_f = nodes.assign(id=nodes["id"].astype("float64"))
+    edges_f = edges.assign(s=edges["s"].astype("float64"), d=edges["d"].astype("float64"))
+    dom_f, _edom_f, eng = _t6b_helper_frames(engine, nodes_f, edges_f)
+    dom_i, edom_f2, _ = _t6b_helper_frames(engine, nodes, edges_f)
+    assert _dense_int_domain_interval(dom_f, "id", engine=eng) is None
+    assert _two_hop_equal_domain_dense_total(
+        dom_f, _edom_f, node_col="id", src_col="s", dst_col="d", engine=eng
+    ) is None
+    assert _edge_cols_bounds_within(edom_f2, "s", "d", 0, 3, engine=eng) is False
+    assert _two_hop_equal_domain_dense_total(
+        dom_i, edom_f2, node_col="id", src_col="s", dst_col="d", engine=eng
+    ) is None
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6b_table_budget_boundary_exact(engine: str) -> None:
+    # (d): the memory guard declines iff n > 4E + 1024. With E=2 the threshold is
+    # n = 1032: serve at 1031 and exactly 1032, decline at 1033.
+    import numpy as np
+    edges = pd.DataFrame({"s": [0, 1], "d": [1, 0], "rel": ["FOLLOWS"] * 2})
+
+    def run(n: int) -> Any:
+        nodes = pd.DataFrame({"id": np.arange(n), "node_type": ["Person"] * n})
+        dom, edom, eng = _t6b_helper_frames(engine, nodes, edges)
+        return _two_hop_equal_domain_dense_total(
+            dom, edom, node_col="id", src_col="s", dst_col="d", engine=eng
+        )
+
+    # 0->1->0 and 1->0->1: sum indeg*outdeg = 1*1 + 1*1 = 2.
+    assert run(1031) == 2
+    assert run(1032) == 2  # n == 4E + 1024 exactly: NOT over budget
+    assert run(1033) is None  # one past the budget: decline
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6b_large_lo_small_width_interval_serves_via_shift(
+    engine: str, monkeypatch: Any
+) -> None:
+    # (d): hi is huge but hi-lo+1 is tiny -- the round-1 lo-shift path must engage
+    # (an unshifted bincount would try to allocate O(hi) and be wrong to attempt).
+    # Pinned valuewise here; the shift-ELISION seam this stresses lives in the
+    # stacked round-2 branch (perf/gfql-q8-bincount-r2).
+    lo = 2 ** 40
+    nodes = pd.DataFrame({
+        "id": [lo + 0, lo + 1, lo + 2, lo + 3],
+        "node_type": ["Person"] * 4,
+    })
+    edges = pd.DataFrame({
+        "s": [lo + 0, lo + 0, lo + 1, lo + 1, lo + 1, lo + 2],
+        "d": [lo + 1, lo + 1, lo + 2, lo + 2, lo + 3, lo + 3],
+        "rel": ["FOLLOWS"] * 6,
+    })
+    # Helper-level value pin.
+    dom, edom, eng = _t6b_helper_frames(engine, nodes, edges)
+    assert _two_hop_equal_domain_dense_total(
+        dom, edom, node_col="id", src_col="s", dst_col="d", engine=eng
+    ) == 8
+    # Full-path pin: the kernel serves (spy proves it) and the value survives.
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+    kernel_returns: List[Any] = []
+    real_kernel = gfql_fast_paths_module._two_hop_equal_domain_dense_total
+
+    def _spy(*args: Any, **kwargs: Any) -> Any:
+        result = real_kernel(*args, **kwargs)
+        kernel_returns.append(result)
+        return result
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_two_hop_equal_domain_dense_total", _spy)
+    result = _execute_two_hop_count_fast_path(
+        _t6b_graph_for(engine, nodes, edges), compiled.chain, engine=engine
+    )
+    assert result is not None
+    assert kernel_returns and kernel_returns[-1] == 8
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize(
+    "id_class", ["dense_from_0", "dense_from_offset", "gapped", "shuffled_rows"]
+)
+def test_t6b_seeded_differential_vs_merge_join_oracle(
+    engine: str, id_class: str, monkeypatch: Any
+) -> None:
+    # (e): 10 seeded random graphs per (id-class, engine) cell. The served/declined
+    # verdict is recorded via a kernel spy and must match the class (dense classes
+    # serve, gapped declines); the RESULT must always equal the independent
+    # merge-join oracle -- served or declined alike.
+    import numpy as np
+    if engine == "polars":
+        pytest.importorskip("polars")
+
+    kernel_returns: List[Any] = []
+    real_kernel = gfql_fast_paths_module._two_hop_equal_domain_dense_total
+
+    def _spy(*args: Any, **kwargs: Any) -> Any:
+        result = real_kernel(*args, **kwargs)
+        kernel_returns.append(result)
+        return result
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_two_hop_equal_domain_dense_total", _spy)
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+
+    for seed in range(10):
+        rng = np.random.default_rng(seed)
+        n = int(rng.integers(4, 24))
+        m = int(rng.integers(1, 60))
+        base = int(rng.integers(1, 10_000)) if id_class == "dense_from_offset" else 0
+        ids = np.arange(base, base + n)
+        if id_class == "gapped":
+            ids = np.delete(ids, int(rng.integers(1, n - 1)))  # interior hole
+        node_ids = rng.permutation(ids) if id_class == "shuffled_rows" else ids
+        nodes = pd.DataFrame({"id": node_ids, "node_type": ["Person"] * len(node_ids)})
+        # Endpoints drawn from the FULL interval, so gapped graphs may reference the
+        # hole -- the decline path must still filter those edges out correctly.
+        edges = pd.DataFrame({
+            "s": rng.integers(base, base + n, size=m),
+            "d": rng.integers(base, base + n, size=m),
+            "rel": ["FOLLOWS"] * m,
+        })
+        expected = _t6b_two_hop_oracle(nodes, edges)
+
+        kernel_returns.clear()
+        result = _execute_two_hop_count_fast_path(
+            _t6b_graph_for(engine, nodes, edges), compiled.chain, engine=engine
+        )
+        assert result is not None, f"seed={seed}"
+        served = bool(kernel_returns) and kernel_returns[-1] is not None
+        if id_class == "gapped":
+            assert not served, f"seed={seed}: gapped ids must decline the dense proof"
+        else:
+            assert served, f"seed={seed}: dense ids must serve via the kernel"
+        assert _to_pandas_df(result._nodes).to_dict(orient="records") == [
+            {"numPaths": expected}
+        ], f"seed={seed} id_class={id_class}"
+
+
+# ---------------------------------------------------------------------------
 # H3 FUSED LAZY LANE -- ``_two_hop_count_fused_polars``.
 #
 # The two-hop-count fast path serves EXACTLY the 4-op cypher shape
@@ -17252,8 +17954,14 @@ def test_h3_equal_domain_two_hop_count_memo_miss_matches_memo_hit(engine: str) -
     different branch (compute the two degree frames) than every later call on the same frames
     (read them back). Both branches are pinned here rather than assumed: engagement is asserted
     via the memo attribute (absent before, one entry after), and the memo-MISS answer, the
-    memo-HIT answer and a never-warmed Plottable's answer must all equal the pandas oracle."""
+    memo-HIT answer and a never-warmed Plottable's answer must all equal the pandas oracle.
+
+    The base graph's Person ids are relabeled with a GAP (4 -> 6) so the T6 dense-domain
+    kernel provably declines (interval != id set) and the memoized degree-count lane -- the
+    lane this test pins -- is actually the one that answers. Same topology, same count."""
     nodes, edges = _mk_h3_base_data()
+    nodes = nodes.assign(id=nodes["id"].replace(4, 6))
+    edges = edges.assign(s=edges["s"].replace(4, 6), d=edges["d"].replace(4, 6))
     oracle = _h3_records(_mk_graph(nodes, edges).gfql(_H3_EQUAL_DOMAIN_QUERY, engine="pandas"))
 
     graph = _mk_h3_graph(engine, nodes, edges)

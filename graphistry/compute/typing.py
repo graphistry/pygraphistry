@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import Any, Mapping, Protocol, TYPE_CHECKING, Tuple, TypeVar, Union
+from typing import Any, Mapping, Optional, Protocol, TYPE_CHECKING, Tuple, TypeVar, Union
 
 # TODO stubs for Union[cudf.DataFrame, dask.DataFrame, ..] at checking time
 if TYPE_CHECKING:
@@ -112,7 +112,16 @@ class ArrayNamespace(Protocol):
     def ones(self, shape: Any, dtype: Any = ...) -> ArrayLike:
         ...
 
+    def empty(self, shape: Any, dtype: Any = ...) -> ArrayLike:  # hygiene-ok: explicit-any -- numpy/cupy shape+dtype args, same shape as zeros/ones above
+        ...
+
+    def subtract(self, a: Any, b: Any, out: "Optional[ArrayLike]" = None) -> ArrayLike:  # hygiene-ok: explicit-any -- ufunc accepts array|scalar operands (numpy/cupy)
+        ...
+
     def argsort(self, a: ArrayLike) -> ArrayLike:
+        ...
+
+    def bincount(self, a: ArrayLike, weights: "Optional[ArrayLike]" = None, minlength: int = 0) -> ArrayLike:
         ...
 
     def nonzero(self, a: ArrayLike) -> Tuple[ArrayLike, ...]:

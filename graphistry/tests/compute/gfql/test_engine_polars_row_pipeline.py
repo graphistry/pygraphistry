@@ -249,6 +249,59 @@ def test_polars_unwind_declines_non_list_and_collisions():
         BASE.gfql("UNWIND [[1, 2], [3, 4]] AS pair UNWIND pair AS z RETURN z", engine="polars")
 
 
+def test_where_rows_polars_declines_predicate_and_unloweable_values():
+    """filter_dict PREDICATE objects (gt/lt/contains/...) and values polars cannot lower to a
+    literal must DECLINE (None -> NIE), never leak a raw polars TypeError from ``pl.lit`` —
+    the #1743 AUTO cudf->polars-gpu regression, where the leaked TypeError also broke the
+    route's NIE-decline-to-legacy contract. Scalar equality and membership still serve."""
+    import pandas as _pd
+    import polars as _pl
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import where_rows_polars
+    from graphistry.compute.predicates.numeric import gt
+
+    g = graphistry.nodes(_pd.DataFrame({"id": [0]}), "id").bind()
+    g._nodes = _pl.DataFrame({"id": [1, 2, 3], "score": [1, 2, 5]})
+    assert where_rows_polars(g, {"score": gt(1)}, None) is None  # predicate -> decline
+
+    class _Unlowerable:
+        pass
+
+    assert where_rows_polars(g, {"score": _Unlowerable()}, None) is None  # TypeError path -> decline
+    # scalar equality / membership still native
+    out_eq = where_rows_polars(g, {"score": 2}, None)
+    assert out_eq is not None and out_eq._nodes["id"].to_list() == [2]
+    out_in = where_rows_polars(g, {"score": [1, 5]}, None)
+    assert out_in is not None and out_in._nodes["id"].to_list() == [1, 3]
+
+
+def test_order_by_polars_declines_list_like_sort_keys():
+    """Sort keys carrying values the LEGACY row pipeline orders with list semantics must
+    DECLINE (None -> NIE): stringified-list text (legacy parses the whole column, or rejects
+    a mixed one — plain lexicographic order silently diverges, the #1743 cudf-route value
+    regression) and real List columns (legacy element-wise list-orderability). Scalar keys
+    keep serving natively."""
+    import pandas as _pd
+    import polars as _pl
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import order_by_polars
+
+    g = graphistry.nodes(_pd.DataFrame({"id": [0]}), "id").bind()
+    # stringified-list text column (all list-shaped)
+    g._nodes = _pl.DataFrame({"id": ["a", "b"], "list": ["[2, -2]", "[1, 2]"]})
+    assert order_by_polars(g, [("list", "asc")]) is None
+    # mixed list-text + plain string (legacy REJECTS; silent success would diverge)
+    g._nodes = _pl.DataFrame({"id": ["a", "b"], "v": ["[1, 2]", "abc"]})
+    assert order_by_polars(g, [("v", "asc")]) is None
+    # real List column
+    g._nodes = _pl.DataFrame({"id": ["a", "b"], "xs": [[1, 2], [3]]})
+    assert order_by_polars(g, [("xs", "asc")]) is None
+    # scalar keys still native (numeric + plain string)
+    g._nodes = _pl.DataFrame({"id": ["a", "b", "c"], "score": [3, 1, 2], "name": ["x", "z", "y"]})
+    out_num = order_by_polars(g, [("score", "asc")])
+    assert out_num is not None and out_num._nodes["id"].to_list() == ["b", "c", "a"]
+    out_str = order_by_polars(g, [("name", "desc")])
+    assert out_str is not None and out_str._nodes["id"].to_list() == ["b", "c", "a"]
+
+
 def test_row_expr_lowering_unit():
     """lower_expr_str / lower_select_items / lower_order_by_keys edge cases."""
     from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
