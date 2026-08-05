@@ -2549,8 +2549,9 @@ def _two_hop_equal_domain_dense_total(
     When ``_dense_int_domain_interval`` proves the domain ids form a dense integer
     interval [lo, hi] and BOTH endpoint columns are integer, null-free and bounded
     by [lo, hi], every endpoint is in-domain by interval arithmetic: the semi-joins
-    are the identity, and the degree product collapses to two O(E) ``bincount``s
-    plus one O(N) aligned product-sum -- no hash join, no group_by, no count join.
+    are the identity, and the degree product collapses to one O(E) ``bincount``
+    plus one O(E) gather-sum (``sum_b indeg(b)*outdeg(b) == sum_e indeg(src(e))``;
+    oracle-pinned in test_lowering.py).
     Dense type-partitioned integer ids are the idiomatic multi-table graph encoding
     (offset-based global ids), so the proof is cheap (a handful of O(E) min/max
     reductions, no allocation) and admission is a data property, not a query hack.
@@ -2596,33 +2597,20 @@ def _two_hop_equal_domain_dense_total(
     # bincount emits platform int64 counts; inputs are integer dtype by proof, so no
     # astype copies here (a copying astype measurably dominated the kernel at 2.5M edges).
     if 0 <= lo and hi + 1 <= table_budget:
-        # Shift ELISION: count over the raw arrays with tables of size hi+1. The bounds
-        # proof guarantees no endpoint lands below ``lo``, so both tables stay aligned
-        # and the [0, lo) prefix is provably all-zero -- it contributes nothing to the
-        # product-sum. This skips materializing two shifted E-length arrays, which
-        # dominated the kernel at 2.4M edges (two fresh ~19MB allocations per call,
-        # page-fault bound: 23.6ms -> 6.9ms counting body, local diagnosis). Table
-        # overhead vs the shifted layout is exactly ``lo`` extra int64 slots, and this
-        # lane only serves when hi+1 fits the SAME budget the domain guard enforces.
-        out_counts = xp.bincount(src_arr, minlength=hi + 1)
+        # Shift elision: raw arrays, table of hi+1; bounds proof keeps [0, lo) all-zero (pinned).
         in_counts = xp.bincount(dst_arr, minlength=hi + 1)
+        total = in_counts[src_arr].sum()  # type: ignore[index]  # ArrayLike protocol omits array-index gather; numpy/cupy both support it
     elif src_arr.dtype == dst_arr.dtype:
-        # Distant (lo large) or negative (lo < 0) interval: bincount needs the shift to
-        # [0, n-1], but route BOTH columns through ONE reused scratch buffer --
-        # allocating two fresh shifted arrays cost ~3x the bincounts themselves at
-        # 2.4M edges (same page-fault anatomy as above).
+        # Shifted lane through ONE scratch buffer; gather runs strictly after the bincount (pinned).
         buf = xp.empty(src_arr.shape[0], dtype=src_arr.dtype)
-        xp.subtract(src_arr, lo, out=buf)
-        out_counts = xp.bincount(buf, minlength=n)
         xp.subtract(dst_arr, lo, out=buf)
         in_counts = xp.bincount(buf, minlength=n)
+        xp.subtract(src_arr, lo, out=buf)
+        total = in_counts[buf].sum()  # type: ignore[index]  # ArrayLike protocol omits array-index gather; numpy/cupy both support it
     else:
-        # Mixed endpoint dtypes (e.g. int32 src / int64 dst): keep the plain shift --
-        # a shared buffer would impose a cross-dtype cast policy for a shape that
-        # real edge frames essentially never have.
-        out_counts = xp.bincount(src_arr - lo, minlength=n)
+        # Mixed endpoint dtypes: plain shift, no cross-dtype scratch buffer (pinned).
         in_counts = xp.bincount(dst_arr - lo, minlength=n)
-    total = (in_counts * out_counts).sum()  # type: ignore[operator]  # ArrayLike protocol omits __mul__; numpy/cupy both support it
+        total = in_counts[src_arr - lo].sum()  # type: ignore[index]  # ArrayLike protocol omits array-index gather; numpy/cupy both support it
     return int(total)
 
 
