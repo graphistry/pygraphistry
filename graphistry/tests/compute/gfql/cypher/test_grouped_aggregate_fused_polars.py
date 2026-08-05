@@ -832,3 +832,48 @@ def test_grouped_aggregate_fused_polars_benchmark_shapes_match_the_eager_twin(
             eager = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
         fused = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
         assert fused == eager, f"{graph_name}/{label}: fused diverged from the eager twin"
+
+
+# ------------------------------------------------ subsumed domain semi-joins (q3/q4 cells)
+
+@pytest.mark.parametrize("label,query,expected_semis", [
+    # both endpoints carry property joins -> both domain semi-joins are subsumed
+    ("avg_both_props", Q_AVG, 0),
+    # count(*): the start alias carries no properties, so its semi-join is the SOLE
+    # membership restriction and must survive
+    ("count_star_start_semi", Q_COUNT_STAR, 1),
+    # mirror image: only the START alias carries properties, the end semi-join survives
+    ("group_start_prop_end_semi", Q_GROUP_START_PROP, 1),
+])
+def test_grouped_aggregate_fused_polars_emits_semi_join_only_without_property_join(
+    label: str, query: str, expected_semis: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PLAN-SHAPE PIN for the subsumption rule: an endpoint's domain semi-join is emitted
+    ONLY when that alias carries no property inner-join (the inner join against the same
+    filtered node frame on the same key keeps exactly the member rows, at identical
+    multiplicity, so the semi-join in front of it was pure cost -- 1.7ms of the 20k
+    graph-benchmark q3 fused collect). Value identity is what the differential matrix
+    above pins; THIS test pins that the redundant joins are actually gone, which no value
+    assertion can see."""
+    pl = _require_polars()
+    nodes, edges = _base_data()
+    oracle = _records(_graph("pandas", nodes, edges).gfql(query, engine="pandas"))
+    graph = _graph("polars", nodes, edges)
+
+    semi_calls: List[int] = [0]
+    original_join = pl.LazyFrame.join
+
+    def counting_join(self: Any, *args: Any, **kwargs: Any) -> Any:
+        if kwargs.get("how") == "semi" or (len(args) >= 4 and args[3] == "semi"):
+            semi_calls[0] += 1
+        return original_join(self, *args, **kwargs)
+
+    calls = _probe_fused(monkeypatch)
+    monkeypatch.setattr(pl.LazyFrame, "join", counting_join)
+    result = _records(graph.gfql(query, engine="polars"))
+
+    assert calls == [True], f"{label}: fused lane must serve, or the count is vacuous"
+    assert result == oracle, f"{label}: answer diverged from the pandas oracle"
+    assert semi_calls[0] == expected_semis, (
+        f"{label}: expected {expected_semis} domain semi-join(s) in the fused plan, "
+        f"saw {semi_calls[0]}")
