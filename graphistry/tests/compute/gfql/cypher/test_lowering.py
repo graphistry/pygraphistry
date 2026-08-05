@@ -17391,9 +17391,12 @@ def test_t6_dense_total_shift_elision_lane_counts_raw_arrays(
     engine: str, monkeypatch: Any
 ) -> None:
     # Non-zero but non-negative lo with hi+1 inside the table budget: the kernel must
-    # count the RAW arrays with tables of size hi+1 -- no shifted E-length arrays, no
+    # count the RAW arrays with a table of size hi+1 -- no shifted E-length arrays, no
     # scratch buffer. (That shift materialization dominated the kernel at 2.4M edges:
     # its elision is the round-2 lever, so the lane itself is pinned, not just values.)
+    # Round 3 elides the SECOND bincount too (out-degrees): the product-sum equals a
+    # gather-sum of in-degrees at each edge's src, so exactly ONE bincount remains --
+    # the gather rides the plain counts array, outside the spied namespace.
     if engine == "polars":
         pytest.importorskip("polars")
     nodes = pd.DataFrame({"id": [10, 11, 12, 13], "node_type": ["Person"] * 4})
@@ -17401,7 +17404,7 @@ def test_t6_dense_total_shift_elision_lane_counts_raw_arrays(
     total, spy = _t6_spy_dense_total(monkeypatch, engine, nodes, edges)
     assert total == 8  # T2 multiplicity topology shifted to ids 10..13
     assert [c for c in spy.calls if c[0] in ("empty", "subtract")] == []
-    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 14), ("bincount", 14)]
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 14)]
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
@@ -17409,7 +17412,9 @@ def test_t6_dense_total_distant_interval_single_scratch_buffer(
     engine: str, monkeypatch: Any
 ) -> None:
     # Interval far from 0 (hi+1 over the table budget, n well within it): the shift is
-    # required, and BOTH columns must route through ONE reused scratch buffer.
+    # required, and BOTH columns must route through ONE reused scratch buffer -- dst
+    # shifted first for the single bincount, then src shifted into the SAME buffer for
+    # the gather-sum (safe because the gather runs strictly after the bincount).
     if engine == "polars":
         pytest.importorskip("polars")
     base = 10**7
@@ -17419,7 +17424,7 @@ def test_t6_dense_total_distant_interval_single_scratch_buffer(
     assert total == 1  # single length-2 path through base+1
     assert [c for c in spy.calls if c[0] == "empty"] == [("empty",)]
     assert [c for c in spy.calls if c[0] == "subtract"] == [("subtract", True), ("subtract", True)]
-    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 3), ("bincount", 3)]
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 3)]
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
@@ -17427,7 +17432,8 @@ def test_t6_dense_total_mixed_endpoint_dtypes_keep_plain_shift(
     engine: str, monkeypatch: Any
 ) -> None:
     # Mixed src/dst dtypes on the shift path: no shared scratch buffer (it would
-    # impose a cross-dtype cast policy) -- plain shifted bincounts, same value.
+    # impose a cross-dtype cast policy) -- plain shifted single bincount plus a
+    # plain shifted gather, same value.
     if engine == "polars":
         pytest.importorskip("polars")
     base = 10**7
@@ -17439,15 +17445,15 @@ def test_t6_dense_total_mixed_endpoint_dtypes_keep_plain_shift(
     total, spy = _t6_spy_dense_total(monkeypatch, engine, nodes, edges)
     assert total == 1
     assert [c for c in spy.calls if c[0] in ("empty", "subtract")] == []
-    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 3), ("bincount", 3)]
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 3)]
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
 def test_t6_dense_total_table_budget_boundary_lanes(engine: str, monkeypatch: Any) -> None:
     # The unshifted lane serves iff hi+1 fits the SAME budget the domain guard uses
     # (4*E + 1024). Pin both sides of that boundary at E=2 (budget=1032): hi+1 == 1032
-    # counts raw with tables of 1032; hi+1 == 1033 shifts through the scratch buffer
-    # with tables of n. Values stay correct on both sides -- the lane is an internal
+    # counts raw with a table of 1032; hi+1 == 1033 shifts through the scratch buffer
+    # with a table of n. Values stay correct on both sides -- the lane is an internal
     # layout choice, never a semantics change.
     if engine == "polars":
         pytest.importorskip("polars")
@@ -17457,14 +17463,40 @@ def test_t6_dense_total_table_budget_boundary_lanes(engine: str, monkeypatch: An
     total, spy = _t6_spy_dense_total(monkeypatch, engine, at_budget_nodes, at_budget_edges)
     assert total == 1
     assert [c for c in spy.calls if c[0] in ("empty", "subtract")] == []
-    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 1032), ("bincount", 1032)]
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 1032)]
 
     over_budget_nodes = pd.DataFrame({"id": [1029, 1030, 1031, 1032]})
     over_budget_edges = pd.DataFrame({"s": [1029, 1030], "d": [1030, 1031]})
     total2, spy2 = _t6_spy_dense_total(monkeypatch, engine, over_budget_nodes, over_budget_edges)
     assert total2 == 1
     assert [c for c in spy2.calls if c[0] == "empty"] == [("empty",)]
-    assert [c for c in spy2.calls if c[0] == "bincount"] == [("bincount", 4), ("bincount", 4)]
+    assert [c for c in spy2.calls if c[0] == "bincount"] == [("bincount", 4)]
+
+
+def test_t6_dense_gather_elision_matches_degree_oracle() -> None:
+    # Round-3 algebra pin: the gather-sum form must equal the O(paths) oracle
+    # (sum over middle nodes of indeg*outdeg) on a duplicate-heavy random graph
+    # -- multi-edges and self-loops included -- for both the raw (lo == 0) and
+    # shifted (lo far from 0) lanes.
+    import numpy as np
+    from graphistry.compute import gfql_fast_paths as fp
+
+    rng = np.random.default_rng(11)
+    n_nodes, n_edges = 500, 20000
+    for base in (0, 10**7):
+        nodes = pd.DataFrame({"id": np.arange(n_nodes) + base})
+        edges = pd.DataFrame({
+            "s": rng.integers(0, n_nodes, size=n_edges) + base,
+            "d": rng.integers(0, n_nodes, size=n_edges) + base,
+        })
+        indeg = edges.groupby("d").size().reindex(
+            np.arange(n_nodes) + base, fill_value=0)
+        outdeg = edges.groupby("s").size().reindex(
+            np.arange(n_nodes) + base, fill_value=0)
+        oracle = int((indeg * outdeg).sum())
+        total = fp._two_hop_equal_domain_dense_total(
+            nodes, edges, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS)
+        assert total == oracle
 
 
 def test_t6_decline_keeps_memo_path_reachable() -> None:
