@@ -17499,6 +17499,54 @@ def test_t6_dense_gather_elision_matches_degree_oracle() -> None:
         assert total == oracle
 
 
+def test_t6_dense_threaded_helpers_match_plain_numpy(monkeypatch: Any) -> None:
+    # Round-3 host-threading: with the threshold forced to 0 the chunked
+    # bincount/gather helpers must agree exactly with plain numpy on
+    # duplicate-heavy data and on lengths that do NOT divide evenly by the
+    # worker count (chunk-boundary correctness). On hosts with <4 cores the
+    # helpers legitimately stay single-threaded -- equality must hold either way.
+    import numpy as np
+    from graphistry.compute import gfql_fast_paths as fp
+
+    monkeypatch.setattr(fp, "_DENSE_COUNT_THREAD_MIN_EDGES", 0)
+    rng = np.random.default_rng(7)
+    for length in (1, 3, 5, 1001, 4096, 10007):
+        dst = rng.integers(0, 50, size=length)
+        src = rng.integers(0, 50, size=length)
+        counts = fp._dense_in_counts(dst, 50, xp=np, backend="numpy")
+        assert np.array_equal(counts, np.bincount(dst, minlength=50))
+        assert (fp._dense_gather_total(counts, src, backend="numpy")
+                == int(np.bincount(dst, minlength=50)[src].sum()))
+
+
+def test_t6_dense_threaded_kernel_value_identical_above_threshold(monkeypatch: Any) -> None:
+    # End-to-end negative/positive control at kernel level: force the threaded
+    # lane on (threshold 0) and off (threshold huge) over the SAME dense-domain
+    # graph -- the kernel total must be identical, and must equal the O(paths)
+    # oracle (sum over middle nodes of indeg*outdeg).
+    import numpy as np
+    from graphistry.compute import gfql_fast_paths as fp
+
+    rng = np.random.default_rng(11)
+    n_nodes, n_edges = 500, 20000
+    nodes = pd.DataFrame({"id": np.arange(n_nodes)})
+    edges = pd.DataFrame({
+        "s": rng.integers(0, n_nodes, size=n_edges),
+        "d": rng.integers(0, n_nodes, size=n_edges),
+    })
+    indeg = edges.groupby("d").size().reindex(range(n_nodes), fill_value=0)
+    outdeg = edges.groupby("s").size().reindex(range(n_nodes), fill_value=0)
+    oracle = int((indeg * outdeg).sum())
+
+    monkeypatch.setattr(fp, "_DENSE_COUNT_THREAD_MIN_EDGES", 10**12)
+    plain = fp._two_hop_equal_domain_dense_total(
+        nodes, edges, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS)
+    monkeypatch.setattr(fp, "_DENSE_COUNT_THREAD_MIN_EDGES", 0)
+    threaded = fp._two_hop_equal_domain_dense_total(
+        nodes, edges, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS)
+    assert plain == threaded == oracle
+
+
 def test_t6_decline_keeps_memo_path_reachable() -> None:
     # The T5 memo graph has an out-of-domain FOLLOWS endpoint (a City), so the
     # dense kernel must DECLINE there and the memo must populate exactly as before

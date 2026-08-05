@@ -8,6 +8,9 @@ no back-edge into gfql_unified (the .chain import is a leaf-ward edge, cycle-fre
 """
 # ruff: noqa: E501
 
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import pandas as pd
 from types import MappingProxyType
@@ -2485,6 +2488,66 @@ def _edge_cols_bounds_within(
             and _bounds_within_indexable(frame[dst_col], lo, hi, engine=engine))
 
 
+_DENSE_COUNT_THREAD_MIN_EDGES = 1_000_000
+_DENSE_COUNT_THREAD_WORKERS = 4
+
+_dense_count_host_pool_singleton: Optional["ThreadPoolExecutor"] = None
+_dense_count_host_pool_lock = threading.Lock()
+
+
+def _dense_count_host_pool() -> "ThreadPoolExecutor":
+    """Process-lifetime host thread pool for the dense-count kernel's O(E) passes.
+
+    Holds NO query-derived state (it is compute capacity, like polars' own thread
+    pool), so it sits deliberately outside ``gfql_clear_caches()``'s registry:
+    clearing it could not change any answer or any cache-honesty arm.
+    """
+    global _dense_count_host_pool_singleton
+    with _dense_count_host_pool_lock:
+        if _dense_count_host_pool_singleton is None:
+            _dense_count_host_pool_singleton = ThreadPoolExecutor(
+                max_workers=_DENSE_COUNT_THREAD_WORKERS,
+                thread_name_prefix="gfql-dense-count",
+            )
+        return _dense_count_host_pool_singleton
+
+
+def _dense_chunk_bounds(n: int, k: int) -> List[Tuple[int, int]]:
+    return [(i * n // k, (i + 1) * n // k) for i in range(k)]
+
+
+def _dense_in_counts(arr: Any, minlength: int, *, xp: Any, backend: str) -> Any:
+    """``bincount(arr, minlength)``, host-threaded on numpy once the pass is big
+    enough to be memory-bound (numpy's bincount releases the GIL; cupy's is
+    already device-parallel). Partial tables are O(domain) each and merge cheap.
+    """
+    if (backend == "numpy" and arr.shape[0] >= _DENSE_COUNT_THREAD_MIN_EDGES
+            and (os.cpu_count() or 1) >= _DENSE_COUNT_THREAD_WORKERS):
+        pool = _dense_count_host_pool()
+        bounds = _dense_chunk_bounds(arr.shape[0], _DENSE_COUNT_THREAD_WORKERS)
+        parts = list(pool.map(
+            lambda ab: xp.bincount(arr[ab[0]:ab[1]], minlength=minlength), bounds))
+        counts = parts[0]
+        for p in parts[1:]:
+            counts += p
+        return counts
+    return xp.bincount(arr, minlength=minlength)
+
+
+def _dense_gather_total(counts: Any, idx: Any, *, backend: str) -> int:
+    """``int(counts[idx].sum())``, host-threaded on numpy at the same threshold
+    (integer fancy-gather + sum also release the GIL; per-chunk partial sums are
+    plain Python ints so no overflow surface beyond numpy's own int64 sums).
+    """
+    if (backend == "numpy" and idx.shape[0] >= _DENSE_COUNT_THREAD_MIN_EDGES
+            and (os.cpu_count() or 1) >= _DENSE_COUNT_THREAD_WORKERS):
+        pool = _dense_count_host_pool()
+        bounds = _dense_chunk_bounds(idx.shape[0], _DENSE_COUNT_THREAD_WORKERS)
+        return sum(pool.map(
+            lambda ab: int(counts[idx[ab[0]:ab[1]]].sum()), bounds))
+    return int(counts[idx].sum())
+
+
 def _two_hop_equal_domain_dense_total(
     domain_nodes: DataFrameT,
     edge_domain: DataFrameT,
@@ -2525,7 +2588,9 @@ def _two_hop_equal_domain_dense_total(
 
     Engine note: arrays ride the index module's polymorphic helpers
     (``array_namespace`` / ``col_to_array``) -- numpy host for pandas/polars(-gpu),
-    cupy device for cudf -- the same convention as the CSR index kernels.
+    cupy device for cudf -- the same convention as the CSR index kernels. On the
+    numpy backend both O(E) passes go through the chunked host-threaded helpers
+    above once E crosses ``_DENSE_COUNT_THREAD_MIN_EDGES``.
     """
     if engine in POLARS_ENGINES:
         import polars as pl
@@ -2542,7 +2607,7 @@ def _two_hop_equal_domain_dense_total(
 
     from graphistry.compute.gfql.index.engine_arrays import array_namespace, col_to_array
 
-    xp, _backend = array_namespace(engine)
+    xp, backend = array_namespace(engine)
     n = hi - lo + 1
     table_budget = 4 * len(edge_domain) + 1024
     if n > table_budget:
@@ -2558,13 +2623,13 @@ def _two_hop_equal_domain_dense_total(
     if 0 <= lo and hi + 1 <= table_budget:
         # Shift ELISION: count over the raw arrays with a table of size hi+1. The bounds
         # proof guarantees no endpoint lands below ``lo``, so the [0, lo) prefix is
-        # provably all-zero and gathers of it contribute nothing. This skips
+        # provably all-zero and out-of-domain slots gather zeros. This skips
         # materializing shifted E-length arrays, which dominated the kernel at 2.4M
         # edges (fresh ~19MB allocations per call, page-fault bound). Table overhead
         # vs the shifted layout is exactly ``lo`` extra int64 slots, and this lane
         # only serves when hi+1 fits the SAME budget the domain guard enforces.
-        in_counts = xp.bincount(dst_arr, minlength=hi + 1)
-        total = in_counts[src_arr].sum()  # type: ignore[index]  # ArrayLike protocol omits array-index gather; numpy/cupy both support it
+        in_counts = _dense_in_counts(dst_arr, hi + 1, xp=xp, backend=backend)
+        total = _dense_gather_total(in_counts, src_arr, backend=backend)
     elif src_arr.dtype == dst_arr.dtype:
         # Distant (lo large) or negative (lo < 0) interval: bincount and gather need
         # the shift to [0, n-1], but route BOTH columns through ONE reused scratch
@@ -2573,15 +2638,15 @@ def _two_hop_equal_domain_dense_total(
         # strictly after the bincount, so the sequential buffer reuse is safe.
         buf = xp.empty(src_arr.shape[0], dtype=src_arr.dtype)
         xp.subtract(dst_arr, lo, out=buf)
-        in_counts = xp.bincount(buf, minlength=n)
+        in_counts = _dense_in_counts(buf, n, xp=xp, backend=backend)
         xp.subtract(src_arr, lo, out=buf)
-        total = in_counts[buf].sum()  # type: ignore[index]  # ArrayLike protocol omits array-index gather; numpy/cupy both support it
+        total = _dense_gather_total(in_counts, buf, backend=backend)
     else:
         # Mixed endpoint dtypes (e.g. int32 src / int64 dst): keep the plain shift --
         # a shared buffer would impose a cross-dtype cast policy for a shape that
         # real edge frames essentially never have.
-        in_counts = xp.bincount(dst_arr - lo, minlength=n)
-        total = in_counts[src_arr - lo].sum()  # type: ignore[index]  # ArrayLike protocol omits array-index gather; numpy/cupy both support it
+        in_counts = _dense_in_counts(dst_arr - lo, n, xp=xp, backend=backend)
+        total = _dense_gather_total(in_counts, src_arr - lo, backend=backend)
     return int(total)
 
 
