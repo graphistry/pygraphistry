@@ -36,7 +36,9 @@ Recommended paths:
 
 - New to GFQL: :doc:`overview` -> :doc:`quick` -> :doc:`where` -> :doc:`return`
 - Running Cypher syntax in GFQL: :doc:`cypher` -> :doc:`quick` -> :doc:`return` -> :doc:`spec/cypher_mapping`
-- Performance path (intro -> GPU -> remote GPU): :doc:`about` -> :doc:`performance` -> :doc:`remote`
+- Faster on CPU (no GPU): :doc:`engines` -> :doc:`performance` (one keyword, ``engine='polars'``, faster than pandas on all nine queries of the q1-q9 Cypher suite)
+- Performance path (intro -> engine choice -> GPU -> remote GPU): :doc:`about` -> :doc:`engines` -> :doc:`performance` -> :doc:`remote`
+- Fast seeded lookups (start from known nodes, like a DB index): :doc:`indexing` (build once with ``gfql_index_all()``, reused automatically) -> :doc:`index_adjacency` (O(degree) instead of O(E), so cost tracks the seeds, not the graph)
 - Translating existing Cypher to native GFQL: :doc:`spec/cypher_mapping`
 - Building agents/integrations: :doc:`spec/language` + :doc:`spec/python_embedding` + :doc:`spec/wire_protocol`
 
@@ -50,8 +52,12 @@ See also:
    about
    overview
    remote
+   Choosing an Engine <engines>
+   Pay-As-You-Go Resident Indexing <indexing>
+   Seeded Traversal Indexes <index_adjacency>
    GFQL CPU & GPU Acceleration <performance>
    End-to-End Benchmark <benchmark_filter_pagerank>
+   vs Spark GraphFrames <benchmark_graphframes>
    translate
    combo
    quick

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from typing import List, cast
+from typing import Any, List, cast
 
 import pandas as pd
 import pytest
 
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.policy import CompileSummary, PolicyContext, PolicyException
+from graphistry.compute import gfql_unified as gfql_unified_module
 from graphistry.tests.test_compute import CGFull
 
 
@@ -194,3 +195,133 @@ def test_precompile_policy_can_deny_before_invalid_query_compiles() -> None:
     assert calls == ["precompile"]
     assert exc_info.value.phase == "precompile"
     assert exc_info.value.query_type == "chain"
+
+
+def test_compiled_string_query_cache_reuses_identical_query_across_graphs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A compiled plan is shared by every graph it is valid for, not just the one that built it.
+
+    ``compile_cypher_query(parse_cypher(query), params=..., node_dtypes=...)`` never sees the
+    graph, so two graphs agreeing on (language, query, params, node dtypes, resolved engine)
+    must get the same plan. This cache used to hang off the caller's ``Plottable``, which
+    partitioned it by something that cannot change the answer -- so every ONE-SHOT query
+    recompiled a plan the process was already holding. Measured on dgx-spark at
+    graph-benchmark 20k, that cost the first query on a Plottable +1.6 to +2.5 ms.
+    """
+    # _compile_string_query parses+compiles via parse_cypher/compile_cypher_query (a compile
+    # runs parse_cypher exactly once per cache MISS), so count compiles by spying parse_cypher.
+    gfql_unified_module.gfql_clear_caches()
+    compile_calls: List[str] = []
+    original_parse = gfql_unified_module.parse_cypher
+
+    def spy_parse(query: str, *args: Any, **kwargs: Any) -> Any:
+        compile_calls.append(query)
+        return original_parse(query, *args, **kwargs)
+
+    monkeypatch.setattr(gfql_unified_module, "parse_cypher", spy_parse)
+    graph = _mk_graph()
+    query = "UNWIND [1, 2, 3] AS x RETURN x ORDER BY x"
+
+    first = graph.gfql(query)
+    second = graph.gfql(query)
+    third = _mk_graph().gfql(query)
+
+    for result in (first, second, third):
+        assert result._nodes[["x"]].to_dict(orient="records") == [{"x": 1}, {"x": 2}, {"x": 3}]
+    # ONE compile total: the second call hits, and so does the FRESH graph.
+    assert compile_calls == [query]
+
+
+def test_compiled_string_query_cache_keys_include_the_resolved_engine(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """node_dtypes cannot stand in for the engine, so the engine is keyed explicitly.
+
+    polars and polars-gpu report IDENTICAL node dtypes. While the cache was per-Plottable an
+    engine-blind key was masked rather than avoided; once plans are shared process-wide it
+    hands a polars-gpu query a plan compiled for polars. VERIFIED TO FAIL without
+    ``engine_key``: 16 cases in test_const_fold_engine_parity.py fail on the polars-gpu arm.
+
+    Driven at ``_compile_string_query`` directly so it needs no GPU: same query, same dtypes,
+    only the engine differs.
+    """
+    gfql_unified_module.gfql_clear_caches()
+    compile_calls: List[str] = []
+    original_parse = gfql_unified_module.parse_cypher
+
+    def spy_parse(query: str, *args: Any, **kwargs: Any) -> Any:
+        compile_calls.append(query)
+        return original_parse(query, *args, **kwargs)
+
+    monkeypatch.setattr(gfql_unified_module, "parse_cypher", spy_parse)
+    query = "UNWIND [1, 2, 3] AS x RETURN x ORDER BY x"
+    dtypes = {"id": "int64"}
+
+    for engine_key in ("polars", "polars-gpu", "polars"):
+        gfql_unified_module._compile_string_query(
+            query, language="cypher", params=None,
+            engine_key=engine_key, node_dtypes=dtypes)
+
+    # polars compiles, polars-gpu compiles (different plan), polars again HITS.
+    assert compile_calls == [query, query]
+
+
+def test_gfql_clear_caches_actually_empties_the_compile_cache() -> None:
+    """A process-lifetime cache that cannot be emptied is untestable and unbudgetable."""
+    graph = _mk_graph()
+    query = "UNWIND [1, 2, 3] AS x RETURN x ORDER BY x"
+    graph.gfql(query)
+    assert gfql_unified_module._COMPILED_STRING_QUERY_CACHE, "nothing was cached to clear"
+
+    gfql_unified_module.gfql_clear_caches()
+
+    assert not gfql_unified_module._COMPILED_STRING_QUERY_CACHE
+    # ...and the graph still answers correctly from a cold cache.
+    again = graph.gfql(query)
+    assert again._nodes[["x"]].to_dict(orient="records") == [{"x": 1}, {"x": 2}, {"x": 3}]
+
+
+def test_compiled_string_query_cache_keys_include_params(monkeypatch: pytest.MonkeyPatch) -> None:
+    compile_params: List[Any] = []
+    original_compile = gfql_unified_module.compile_cypher_query
+
+    def spy_compile(parsed: Any, *args: Any, **kwargs: Any) -> Any:
+        compile_params.append(kwargs.get("params"))
+        return original_compile(parsed, *args, **kwargs)
+
+    monkeypatch.setattr(gfql_unified_module, "compile_cypher_query", spy_compile)
+    graph = _mk_graph()
+    query = "RETURN $value AS value"
+
+    one = graph.gfql(query, params={"value": 1})
+    two = graph.gfql(query, params={"value": 2})
+    one_again = graph.gfql(query, params={"value": 1})
+
+    assert one._nodes.to_dict(orient="records") == [{"value": 1}]
+    assert two._nodes.to_dict(orient="records") == [{"value": 2}]
+    assert one_again._nodes.to_dict(orient="records") == [{"value": 1}]
+    assert compile_params == [{"value": 1}, {"value": 2}]
+
+
+def test_compiled_string_query_cache_hit_still_fires_compile_policies(monkeypatch: pytest.MonkeyPatch) -> None:
+    compile_calls: List[str] = []
+    policy_calls: List[str] = []
+    original_parse = gfql_unified_module.parse_cypher
+
+    def spy_compile(query: str, *args: Any, **kwargs: Any) -> Any:
+        compile_calls.append(query)
+        return original_parse(query, *args, **kwargs)
+
+    def observe(ctx: PolicyContext) -> None:
+        policy_calls.append(cast(str, ctx["phase"]))
+        if ctx["phase"] == "postcompile":
+            assert ctx["success"] is True
+            assert isinstance(ctx["compile"], CompileSummary)
+
+    monkeypatch.setattr(gfql_unified_module, "parse_cypher", spy_compile)
+    graph = _mk_graph()
+    query = "RETURN 1 AS value"
+
+    graph.gfql(query, policy={"precompile": observe, "postcompile": observe})
+    graph.gfql(query, policy={"precompile": observe, "postcompile": observe})
+
+    assert compile_calls == [query]
+    assert policy_calls == ["precompile", "postcompile", "precompile", "postcompile"]

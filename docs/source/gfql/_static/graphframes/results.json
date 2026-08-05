@@ -1,0 +1,198 @@
+{
+  "lj": {
+    "n_edges": 34681189,
+    "n_nodes": 3997962,
+    "tasks": {
+      "filter": {
+        "gfql-polars": {
+          "cold_load_ms": 2362.8,
+          "iters": 5,
+          "median_ms": 2.1,
+          "result_size": 403561,
+          "warmups": 2
+        },
+        "gfql-polars-gpu": {
+          "cold_load_ms": 2290.0,
+          "iters": 5,
+          "median_ms": 2.4,
+          "result_size": 403561,
+          "warmups": 2
+        },
+        "graphframes": {
+          "cold_load_ms": 10255.6,
+          "iters": 5,
+          "median_ms": 90.4,
+          "result_size": 403561,
+          "warmups": 2
+        }
+      },
+      "hop1": {
+        "gfql-polars": {
+          "cold_load_ms": 2362.8,
+          "iters": 5,
+          "median_ms": 236.8,
+          "result_size": 119877,
+          "warmups": 2
+        },
+        "gfql-polars-gpu": {
+          "cold_load_ms": 2290.0,
+          "iters": 5,
+          "median_ms": 191.4,
+          "result_size": 119877,
+          "warmups": 2
+        },
+        "graphframes": {
+          "cold_load_ms": 10255.6,
+          "iters": 5,
+          "median_ms": 1421.7,
+          "result_size": 119877,
+          "warmups": 2
+        }
+      },
+      "hop2": {
+        "gfql-polars": {
+          "cold_load_ms": 2362.8,
+          "iters": 5,
+          "median_ms": 1669.3,
+          "result_size": 1378430,
+          "warmups": 2
+        },
+        "gfql-polars-gpu": {
+          "cold_load_ms": 2290.0,
+          "iters": 5,
+          "median_ms": 1542.1,
+          "result_size": 1378430,
+          "warmups": 2
+        },
+        "graphframes": {
+          "cold_load_ms": 10255.6,
+          "iters": 5,
+          "median_ms": 3583.3,
+          "result_size": 1378430,
+          "warmups": 2
+        }
+      },
+      "pagerank": {
+        "gfql-polars": {
+          "cold_load_ms": 2362.8,
+          "iters": 5,
+          "median_ms": 49307.6,
+          "result_size": 3997962,
+          "warmups": 2
+        },
+        "gfql-polars-gpu": {
+          "cold_load_ms": 2783.1,
+          "iters": 3,
+          "median_ms": 1110.9,
+          "result_size": 3997962,
+          "warmups": 1
+        },
+        "graphframes": {
+          "cold_load_ms": 10255.6,
+          "iters": 5,
+          "median_ms": 16336.0,
+          "result_size": 3997962,
+          "warmups": 2
+        }
+      }
+    }
+  },
+  "orkut": {
+    "n_edges": 117185083,
+    "n_nodes": 3072441,
+    "tasks": {
+      "filter": {
+        "gfql-polars": {
+          "cold_load_ms": 5145.3,
+          "iters": 5,
+          "median_ms": 1.7,
+          "result_size": 308666,
+          "warmups": 2
+        },
+        "gfql-polars-gpu": {
+          "cold_load_ms": 4916.8,
+          "iters": 5,
+          "median_ms": 2.0,
+          "result_size": 308666,
+          "warmups": 2
+        },
+        "graphframes": {
+          "cold_load_ms": 14725.6,
+          "iters": 5,
+          "median_ms": 70.6,
+          "result_size": 308666,
+          "warmups": 2
+        }
+      },
+      "hop1": {
+        "gfql-polars": {
+          "cold_load_ms": 5145.3,
+          "iters": 5,
+          "median_ms": 562.9,
+          "result_size": 434973,
+          "warmups": 2
+        },
+        "gfql-polars-gpu": {
+          "cold_load_ms": 4916.8,
+          "iters": 5,
+          "median_ms": 442.0,
+          "result_size": 434973,
+          "warmups": 2
+        },
+        "graphframes": {
+          "cold_load_ms": 14725.6,
+          "iters": 5,
+          "median_ms": 3826.6,
+          "result_size": 434973,
+          "warmups": 2
+        }
+      },
+      "hop2": {
+        "gfql-polars": {
+          "cold_load_ms": 5145.3,
+          "iters": 5,
+          "median_ms": 9439.8,
+          "result_size": 1991366,
+          "warmups": 2
+        },
+        "gfql-polars-gpu": {
+          "cold_load_ms": 4916.8,
+          "iters": 5,
+          "median_ms": 8860.2,
+          "result_size": 1991366,
+          "warmups": 2
+        },
+        "graphframes": {
+          "cold_load_ms": 14725.6,
+          "iters": 5,
+          "median_ms": 11582.9,
+          "result_size": 1991366,
+          "warmups": 2
+        }
+      },
+      "pagerank": {
+        "gfql-polars": {
+          "cold_load_ms": 5145.3,
+          "iters": 5,
+          "median_ms": 160097.1,
+          "result_size": 3072441,
+          "warmups": 2
+        },
+        "gfql-polars-gpu": {
+          "cold_load_ms": 4916.8,
+          "iters": 5,
+          "median_ms": 3502.8,
+          "result_size": 3072441,
+          "warmups": 2
+        },
+        "graphframes": {
+          "cold_load_ms": 14725.6,
+          "iters": 5,
+          "median_ms": 36826.0,
+          "result_size": 3072441,
+          "warmups": 2
+        }
+      }
+    }
+  }
+}

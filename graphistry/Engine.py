@@ -3,11 +3,24 @@ import warnings
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-from typing import Any, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Sequence, Union
 from typing_extensions import Literal
 from enum import Enum
 
 from graphistry.models.types import ValidationParam
+
+if TYPE_CHECKING:
+    # Frame aliases (pandas types for mypy; ``Any`` at runtime). Imported under TYPE_CHECKING
+    # and referenced via string annotations below so Engine.py — imported very early — never
+    # triggers ``graphistry.compute`` package init at runtime (would be circular).
+    from graphistry.compute.typing import DataFrameT, PolarsFrame, PolarsSeriesT, SeriesT
+    # TypeGuard, NOT TypeIs (PEP 742). TypeIs additionally narrows the negative branch, and to
+    # do that soundly it REQUIRES the narrowed type to be consistent with the declared input
+    # type. ``is_polars_df`` is called on values declared ``DataFrameT``/``SeriesT`` (i.e.
+    # pandas), and a polars frame is not a subtype of a pandas one, so TypeIs is rejected here
+    # — it typechecks only where the declared type already contains the narrowed one (as in
+    # ``polars/dtypes.py:is_lazy``, whose input is already ``PolarsFrame``).
+    from typing_extensions import TypeGuard
 
 
 class Engine(Enum):
@@ -190,13 +203,20 @@ def _cudf_from_pandas_best_effort(df: pd.DataFrame, *, validate: Optional[Valida
         return out_gdf
 
 
-def is_polars_df(df: Any) -> bool:
+def is_polars_df(df: object) -> "TypeGuard[PolarsFrame]":
     """True if ``df`` is a polars DataFrame or LazyFrame.
 
     Import-light module-name check (polars is an optional dependency, so we avoid importing
     it just to ``isinstance``). ``type(df).__module__`` starts with ``polars.`` for both
     ``pl.DataFrame`` and ``pl.LazyFrame``. Single source of truth — the gfql engine had this
-    reimplemented in 5 places."""
+    reimplemented in 5 places.
+
+    Declared ``TypeGuard[PolarsFrame]`` rather than ``bool`` so the polars branch of an
+    engine-dispatching helper actually narrows: callers pass a value declared ``DataFrameT``
+    (pandas at checking time) and the guard is what proves the polars API is available inside
+    the branch, with no ``cast`` at the call site. ``object`` (not ``Any``) as the parameter
+    type is deliberate — it is the widest input a predicate can accept while still checking
+    its own body."""
     return df is not None and "polars" in type(df).__module__
 
 
@@ -205,21 +225,6 @@ def active_frames_are_polars(g: Any) -> bool:
     if g._nodes is not None:
         return is_polars_df(g._nodes)
     return is_polars_df(g._edges)
-
-
-def _pl_nan_to_null(df):
-    """Convert NaN -> null in float columns of a polars frame.
-
-    Matches ``pl.from_pandas(nan_to_null=True)`` (the pandas-input path) so a *native*
-    polars / Arrow / cuDF input carrying genuine NaN is treated as MISSING like the pandas
-    oracle (which skipna/dropna's NaN). Without this, ``engine='polars'`` on a frame with a
-    real NaN keeps rows a filter/aggregation should drop (silent divergence from pandas).
-    No-op when there are no float columns."""
-    import polars as pl
-    float_cols = [c for c, dt in df.schema.items() if dt in (pl.Float32, pl.Float64)]
-    if not float_cols:
-        return df
-    return df.with_columns([pl.col(c).fill_nan(None) for c in float_cols])
 
 
 def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = None, warn: bool = True):
@@ -267,6 +272,16 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
         import cudf
         if isinstance(df, cudf.DataFrame):
             return df
+        # polars (host) -> Arrow -> cuDF: the mirror of the cuDF -> Arrow -> polars path
+        # below — one native interchange, not the polars -> pandas -> cudf double-convert.
+        # The pandas detour is lossy in this direction too (polars Int64-with-nulls ->
+        # pandas float64+NaN, Boolean -> object), whereas Arrow preserves dtypes and nulls.
+        if 'polars' in str(type(df).__module__):
+            import polars as pl
+            if isinstance(df, pl.LazyFrame):
+                df = df.collect()
+            if isinstance(df, pl.DataFrame):
+                return cudf.DataFrame.from_arrow(df.to_arrow())
         if not isinstance(df, pd.DataFrame):
             df = df_to_engine(df, Engine.PANDAS)
         return _cudf_from_pandas_best_effort(df, validate=validate, warn=warn)
@@ -279,6 +294,9 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
         return dd.from_pandas(df, npartitions=1)
     elif engine in POLARS_ENGINES:
         import polars as pl
+        # polars-engine-specific NaN->null coercion lives with the polars engine; local
+        # import (lazy/... never imports Engine at module load -> no cycle)
+        from graphistry.compute.gfql.lazy.engine.polars.nan_clean import _pl_nan_to_null
         if isinstance(df, pl.DataFrame):
             return _pl_nan_to_null(df)
         if isinstance(df, pl.LazyFrame):
@@ -293,7 +311,10 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
             with target_mode(_tgt):
                 return _pl_nan_to_null(_lazy_collect(df))
         if isinstance(df, pa.Table):
-            return _pl_nan_to_null(pl.from_arrow(df))
+            # ``pl.from_arrow`` is declared ``DataFrame | Series`` because polars cannot
+            # overload it on the pyarrow input type (see polars/convert/general.py); a
+            # ``pa.Table`` in always yields a DataFrame, so the Series arm is unreachable here.
+            return _pl_nan_to_null(pl.from_arrow(df))  # type: ignore[arg-type]
         pl_validate: ValidationParam = 'strict' if validate is None else validate
         if isinstance(df, pd.DataFrame):
             return _pl_from_pandas(df, validate=pl_validate, warn=warn)
@@ -306,7 +327,8 @@ def df_to_engine(df, engine: Engine, *, validate: Optional[ValidationParam] = No
         if 'cudf' in str(type(df).__module__):
             import cudf
             if isinstance(df, cudf.DataFrame):
-                return _pl_nan_to_null(pl.from_arrow(df.to_arrow()))
+                # see the pa.Table branch above for the from_arrow union
+                return _pl_nan_to_null(pl.from_arrow(df.to_arrow()))  # type: ignore[arg-type]
         # dask/spark and anything else: route through pandas
         return _pl_from_pandas(df_to_engine(df, Engine.PANDAS), validate=pl_validate, warn=warn)
     raise ValueError(f'Only engines pandas/cudf/dask/polars supported, got: {engine}')
@@ -862,3 +884,117 @@ def safe_merge(
         raise ValueError("Must specify either 'on' or both 'left_on' and 'right_on'")
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Engine-agnostic series / frame primitives (pandas / cuDF / polars dispatch).
+#
+# Pure per-row/per-column dispatch helpers with no domain knowledge — the polars
+# branches genuinely RETURN polars objects, which cannot be the pandas frame aliases
+# the engine-agnostic signature promises, so the localized ``# type: ignore`` lives
+# here at the dispatch point and callers get a clean ``SeriesT`` / ``DataFrameT``
+# contract with no ``cast()``.
+# Since ``is_polars_df`` / ``is_polars_series`` became TypeGuards the polars branch is
+# now genuinely CHECKED against the polars API (the ignores below are scoped to the
+# return/argument mismatch alone, no longer blanket ``attr-defined``).
+# Annotations are strings so the TYPE_CHECKING-only alias import stays runtime-free.
+# ---------------------------------------------------------------------------
+
+
+def is_polars_series(s: object) -> "TypeGuard[PolarsSeriesT]":
+    """True if ``s`` is a polars Series. Same import-light module check as ``is_polars_df``
+    (``polars.series.series``), split out only so the SERIES call sites narrow to
+    ``pl.Series`` instead of to a frame -- the frame guard would wrongly promise
+    ``.height`` / ``.columns`` on a value that is a column."""
+    return s is not None and "polars" in type(s).__module__
+
+
+def is_series_like(s: object) -> bool:
+    """True for a pandas/cuDF Series (``.dropna``) or a polars Series (module check).
+
+    Some engine-agnostic callers accept an ``ids`` Series that is pandas under
+    ``engine='pandas'`` and polars under ``engine='polars'``; both are valid."""
+    return hasattr(s, "dropna") or is_polars_series(s)
+
+
+def series_not_null_mask(s: "SeriesT") -> "SeriesT":
+    """Non-null boolean mask, engine-aware (polars ``is_not_null`` vs pandas ``notna``)."""
+    if is_polars_series(s):
+        return s.is_not_null()  # type: ignore[return-value]  # polars Series, not the pandas alias
+    return s.notna()
+
+
+def series_filter(s: "SeriesT", mask: "SeriesT") -> "SeriesT":
+    """Filter a Series by a boolean mask, engine-aware, dropping the old index (pandas)."""
+    if is_polars_series(s):
+        return s.filter(mask)  # type: ignore[return-value]  # polars Series, not the pandas alias
+    return s[mask].reset_index(drop=True)
+
+
+def frame_filter(df: "DataFrameT", mask: "SeriesT") -> "DataFrameT":
+    """Filter a DataFrame's rows by a boolean mask, engine-aware, dropping the old index."""
+    if is_polars_df(df):
+        return df.filter(mask)  # type: ignore[return-value]  # polars frame, not the pandas alias
+    return df.loc[mask].reset_index(drop=True)
+
+
+def ordered_left_join(left: "DataFrameT", right: "DataFrameT", *, on: str) -> "DataFrameT":
+    """Left join preserving ``left`` row order, engine-aware. Polars ``.merge`` does not exist;
+    ``safe_merge`` (pandas/cuDF ``.merge``) cannot run on polars frames, so branch to
+    ``.join(..., maintain_order='left')`` which pins the left-row ordering the caller needs.
+
+    ``right`` may arrive on a different engine than ``left`` (e.g. natively-projected polars
+    ``left`` against a still-pandas base table), so align ``right`` onto ``left``'s engine
+    before the polars join."""
+    if is_polars_df(left):
+        if not is_polars_df(right):
+            right = df_to_engine(right, Engine.POLARS)
+        return left.join(right, on=on, how="left", maintain_order="left")  # type: ignore[arg-type,return-value]
+    return safe_merge(left, right, on=on, how="left")
+
+
+def row_as_mapping(rows: "DataFrameT", row_index: int) -> Mapping[str, Any]:
+    """One frame row as a col->scalar mapping, engine-aware (``row[col]`` works for
+    both the pandas Series and the polars named-row dict)."""
+    if is_polars_df(rows):
+        # ``.row()`` is eager-only; the guard cannot rule out a LazyFrame, and callers of
+        # this helper are always past collection.
+        return rows.row(row_index, named=True)  # type: ignore[union-attr]
+    return rows.iloc[row_index]  # type: ignore[return-value]  # pandas Series is a str->scalar mapping
+
+
+def assign_constant_columns(df: "DataFrameT", values: Dict[str, Any]) -> "DataFrameT":
+    """Broadcast scalar ``values`` as constant columns, engine-aware."""
+    if not values:
+        return df
+    if is_polars_df(df):
+        import polars as pl
+        return df.with_columns([pl.lit(v).alias(k) for k, v in values.items()])  # type: ignore[return-value]
+    return df.assign(**values)
+
+
+def drop_columns(df: "DataFrameT", cols: Sequence[str]) -> "DataFrameT":
+    """Drop columns by name, engine-aware (polars ``drop(list)`` vs pandas ``drop(columns=)``)."""
+    if is_polars_df(df):
+        return df.drop(list(cols))  # type: ignore[return-value]
+    return df.drop(columns=list(cols))
+
+
+def series_to_pylist(values: "SeriesT") -> List[Any]:
+    """Series -> python list, engine-aware, with defensive arrow/pandas fallbacks."""
+    if hasattr(values, "to_arrow"):
+        try:
+            return list(values.to_arrow().to_pylist())
+        except Exception:
+            pass
+    if hasattr(values, "to_pandas"):
+        try:
+            return list(values.to_pandas().tolist())
+        except Exception:
+            pass
+    if hasattr(values, "tolist"):
+        try:
+            return list(values.tolist())
+        except Exception:
+            pass
+    return list(values)

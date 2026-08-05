@@ -1,6 +1,11 @@
 GPU
 ==========================
 
+GFQL has two NVIDIA GPU engines: ``engine='cudf'`` (RAPIDS, eager) and
+``engine='polars-gpu'`` (the fused lazy Polars plan on GPU). See
+:doc:`Choosing a GFQL Engine </gfql/engines>` for which to use and how they compare to the
+CPU ``pandas`` / ``polars`` engines.
+
 .. toctree::
    :maxdepth: 2
    :caption: GPU compute with Nvidia RAPIDS

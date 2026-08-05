@@ -1,0 +1,102 @@
+{
+  "contract_version": 1,
+  "title": "pyg-bench published docs numbers",
+  "summary": [
+    "The boundary between this repository and the pygraphistry docs. pyg-bench MEASURES and",
+    "PUBLISHES; pygraphistry pretty-prints. Everything a consumer is allowed to assume about",
+    "published/docs-numbers.json is written down here, checked on the producer side before the",
+    "artifact is written, and re-verified independently on the consumer side before it renders.",
+    "Two independent implementations of these rules is the point: a shared library would fail",
+    "the same way on both sides of the boundary."
+  ],
+  "artifact_path": "published/docs-numbers.json",
+  "top_level_required": [
+    "contract_version",
+    "schema_version",
+    "generated_by",
+    "generated_at",
+    "policy",
+    "runs",
+    "cells"
+  ],
+  "policy_required": ["max_age_days", "managed_docs"],
+  "run_required": [
+    "measured_at",
+    "host",
+    "perf_lock_held",
+    "quiet_host",
+    "reps",
+    "pygraphistry_commit",
+    "pyg_bench_commit",
+    "runtime",
+    "dataset",
+    "artifact",
+    "row_validation"
+  ],
+  "cell_required": [
+    "run",
+    "workload",
+    "engine",
+    "value",
+    "unit",
+    "decimals",
+    "status",
+    "comparison_allowed",
+    "board_quotable",
+    "disclosures"
+  ],
+  "cell_status": ["ok", "partial", "adapter_workaround", "result_mismatch"],
+  "cell_unit": ["ms", "s", "x"],
+  "key_pattern": "^[a-z0-9][a-z0-9_]*(\\.[a-z0-9][a-z0-9_]*)+$",
+  "date_pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+  "max_decimals": 4,
+  "invariants": [
+    {
+      "id": "cell_names_a_known_run",
+      "rule": "every cell.run must be a key of runs",
+      "why": "a number whose provenance record is absent is an unprovenanced number"
+    },
+    {
+      "id": "quotable_implies_comparable",
+      "rule": "board_quotable implies comparison_allowed",
+      "why": "a diagnostic-only figure must never reach a board"
+    },
+    {
+      "id": "quotable_implies_ok",
+      "rule": "board_quotable implies status == 'ok'",
+      "why": "partial / adapter_workaround / result_mismatch cells are not results"
+    },
+    {
+      "id": "caveat_travels_with_the_number",
+      "rule": "status != 'ok' or comparison_allowed is false implies disclosures is non-empty",
+      "why": "a bare ratio without its asterisk launders the caveat"
+    },
+    {
+      "id": "ratios_are_comparisons",
+      "rule": "unit 'x' implies comparison_allowed",
+      "why": "a ratio between two numbers that were never established as comparable is not a speedup"
+    },
+    {
+      "id": "value_is_rounded_as_published",
+      "rule": "value == round(value, decimals), value is finite and >= 0, 0 <= decimals <= max_decimals",
+      "why": "the consumer prints value verbatim; rounding must not happen at render time"
+    },
+    {
+      "id": "engine_is_named",
+      "rule": "cell.engine is a non-empty string",
+      "why": "pandas and polars are not interchangeable and the reader must be told which one ran"
+    },
+    {
+      "id": "measurement_is_dated",
+      "rule": "run.measured_at matches date_pattern",
+      "why": "staleness is checked against the MEASUREMENT date, not the export date"
+    }
+  ],
+  "consumer_obligations": [
+    "Refuse to render a key the artifact does not contain — a missing number is a build failure, never blank text.",
+    "Refuse to render a cell whose run.measured_at is older than policy.max_age_days.",
+    "Refuse to render a non-board_quotable cell as a bare number; it may appear only through a role that labels it diagnostic-only.",
+    "Render every referenced cell's disclosures and its run's provenance on the same page.",
+    "Re-verify every invariant above before rendering, with an implementation that does not import this repository."
+  ]
+}

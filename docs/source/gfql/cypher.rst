@@ -92,6 +92,18 @@ state instead of a row table:
     subgraph._nodes
     subgraph._edges
 
+Use ``WHERE`` inside ``GRAPH { }`` to reduce the graph passed to the next
+stage while staying graph-shaped in ``_nodes`` and ``_edges``. Today this path is
+strict: GFQL supports filters it can apply to one node or one edge table without
+building joined rows, such as ``seed.degree >= 10``, ``reach.weight > 5``,
+``seed.score > 0.25 OR seed.score IS NULL``, and ``searchAny(seed, 'alice')``.
+
+Predicates that require joined match rows, such as ``WHERE (a)-[:R]->()``,
+``EXISTS { ... }``, or conditions spanning multiple aliases, are rejected for
+now instead of triggering hidden materialization. Future support should make
+that eager boundary explicit, for example through an inspectable plan or warning
+mode, and then project the rows back to graph state.
+
 Use ``GRAPH g = GRAPH { ... }`` to bind a named graph, then ``USE g`` to
 query it:
 

@@ -59,7 +59,8 @@ from .predicates.str import (
     notnull, NotNull,
 )
 from .gfql.same_path_types import col, compare
-from .typing import DataFrameT
+from .gfql.query_types import GFQLQuery
+from .typing import ArrayLike, ArrayNamespace, DataFrameT
 
 __all__ = [
     # Core classes
@@ -100,5 +101,5 @@ __all__ = [
     # WHERE helpers
     'col', 'compare',
     # Types
-    'DataFrameT'
+    'ArrayLike', 'ArrayNamespace', 'DataFrameT', 'GFQLQuery'
 ]

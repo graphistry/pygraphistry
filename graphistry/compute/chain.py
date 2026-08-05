@@ -8,9 +8,10 @@ from graphistry.compute.ASTSerializable import ASTSerializable
 from graphistry.Engine import safe_merge
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
-from .ast import ASTObject, ASTNode, ASTEdge, from_json as ASTObject_from_json, serialize_binding_ops
-from .typing import DataFrameT
+from .ast import ASTObject, ASTNode, ASTEdge, ASTCall, Direction, from_json as ASTObject_from_json, serialize_binding_ops
+from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
+from .chain_fast_paths import _seeded_typed_hop_pandas_cudf, _tag_fast_path_aliases
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql.same_path_types import (
     WhereComparison,
@@ -24,6 +25,7 @@ from graphistry.otel import otel_traced, otel_detail_enabled
 
 if TYPE_CHECKING:
     from graphistry.compute.exceptions import GFQLSchemaError, GFQLValidationError
+    from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
 
 logger = setup_logger(__name__)
 
@@ -35,6 +37,12 @@ def _filter_edges_by_endpoint(
         return edges_df
     # isin() is set-membership, so the dropped .unique() is redundant (byte-identical).
     return edges_df[edges_df[edge_col].isin(nodes_df[node_id])]
+
+
+from .chain_lean_combine import (
+    _lean_combine_enabled, _is_unique_ids, _lean_engine_ok,
+    _lean_intersect_full, _lean_prefilter_right,
+)
 
 
 class Chain(ASTSerializable):
@@ -413,7 +421,12 @@ def combine_steps(
                 out_df = out_df[~has_na | has_tag]
 
     g_df = getattr(g, df_fld)
-    out_df = safe_merge(out_df, g_df, on=id, how='left', engine=engine)
+    # slice 5 (#1755): a seeded result attaches the full node/edge frame via a
+    # how='left' merge whose big side (g_df) is scanned in full even for a 1-row
+    # out_df. Pre-shrink g_df to the ids actually present (unmatched rows are
+    # dropped by how='left' regardless) so the join runs small-vs-small.
+    g_df_join = _lean_prefilter_right(out_df, g_df, id, engine) if id in out_df.columns else g_df
+    out_df = safe_merge(out_df, g_df_join, on=id, how='left', engine=engine)
 
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug('COMBINED[%s] >> %s', kind, dbg_df(out_df))
@@ -544,6 +557,80 @@ def _get_boundary_calls(ops: List[ASTObject]) -> Tuple[List[ASTObject], List[AST
     return (prefix, middle, suffix)
 
 
+
+def _plan_indexed_middle(
+    g: Plottable,
+    prefix: List[ASTObject],
+    middle: List[ASTObject],
+    suffix: List[ASTObject],
+    engine: Union[EngineAbstract, str],
+    policy: Optional[Any],
+    start_nodes: Optional[DataFrameT],
+) -> Optional["IndexedBindingsHandoff"]:
+    """Decide ONCE whether the resident indexes can serve this boundary's middle.
+
+    Returns ``None`` when the indexed path does not apply to this shape at all, a
+    handoff carrying a state when it serves, and a handoff without one when it was
+    tried and declined. The twin of ``_try_indexed_middle_polars`` on the polars
+    chain; keeping both as a single predicate-plus-plan keeps the two boundaries
+    comparable instead of two inline condition chains that drift.
+    """
+    from .gfql.index.handoff import IndexedBindingsHandoff
+
+    if not (middle and suffix) or prefix or start_nodes is not None or policy:
+        return None
+    call = suffix[0]
+    if not isinstance(call, ASTCall) or call.function != "rows":
+        return None
+    if (
+        call.params.get("source") is not None
+        or call.params.get("alias_endpoints") is not None
+        or call.params.get("alias_prefilters")
+        # Serving the bypass SKIPS the canonical traversal, so the suffix runs against the
+        # PRE-traversal graph. That is sound for a bindings table (the path bag already is
+        # the answer) but not for `rows(table="edges")`, which would read the whole edge
+        # table instead of the traversal-narrowed one. Non-default `table` therefore keeps
+        # the scan path, for the same reason `source`/`alias_endpoints` do above. Compared
+        # against "nodes", not None: `rows()` defaults `table` to "nodes" and always emits
+        # it, so an `is None` test would disable the bypass outright — the same trap the
+        # named-middle rewrite's guard documents below.
+        or call.params.get("table", "nodes") != "nodes"
+        or not all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
+    ):
+        return None
+    plan = serialize_binding_ops(middle)
+    # The bypass is only sound when the rows call actually consumes the WHOLE
+    # middle as binding ops: either it already carries them, or the named-middle
+    # rewrite installs exactly them. A rows call with no binding ops over an
+    # UNNAMED middle instead reads the traversal-narrowed node table, which the
+    # bypass would not produce.
+    if not (
+        call.params.get("binding_ops") == plan
+        or (
+            call.params.get("binding_ops") is None
+            and any(op._name is not None for op in middle
+                    if isinstance(op, (ASTNode, ASTEdge)))
+        )
+    ):
+        return None
+
+    engine_concrete = resolve_engine(engine, g)  # type: ignore[arg-type]
+    if engine_concrete not in (Engine.PANDAS, Engine.CUDF):
+        return None
+
+    from .gfql.index.bindings import try_indexed_connected_bindings_state
+
+    state = try_indexed_connected_bindings_state(g, middle, engine=engine_concrete)
+    return IndexedBindingsHandoff(
+        binding_ops=plan,
+        state=state,
+        edge_aliases=tuple(
+            op._name for op in middle
+            if isinstance(op, ASTEdge) and isinstance(op._name, str)
+        ) if state is not None else (),
+    )
+
+
 def _handle_boundary_calls(
     self: Plottable,
     ops: List[ASTObject],
@@ -594,6 +681,11 @@ def _handle_boundary_calls(
     logger.debug('Boundary call pattern detected: prefix=%s, middle=%s, suffix=%s',
                 len(prefix), len(middle), len(suffix))
 
+    # Function-scope import: `gfql.index` transitively imports this module, so a
+    # module-scope import would be a cycle.
+    from .gfql.index.handoff import attach_handoff
+    from .gfql.exec_context import attach_row_exec_context, clear_row_exec_context
+
     g_temp = self
     suffix_base_graph = g_temp
 
@@ -610,24 +702,44 @@ def _handle_boundary_calls(
         )
         suffix_base_graph = g_temp
 
-    if middle:
-        logger.debug('Executing middle operations: %s', middle)
-        g_temp = _chain_impl(
-            g_temp,
-            middle,
-            engine,
-            validate_schema,
-            policy,
-            context,
-            start_nodes
-        )
+    # ONE value carries the whole decision: None = the indexed path does not apply
+    # to this boundary, a handoff WITH state = it serves, a handoff WITHOUT state =
+    # it was tried and declined (which the row materializer must know, so it does
+    # not re-attempt the same plan after the canonical traversal).
+    handoff = _plan_indexed_middle(
+        self, prefix, middle, suffix, engine, policy, start_nodes,
+    )
+    served = handoff is not None and handoff.state is not None
+
+    if served:
+        assert handoff is not None  # narrowed by `served`
+        g_temp = attach_handoff(self, handoff)
+    else:
+        if middle:
+            logger.debug('Executing middle operations: %s', middle)
+            g_temp = _chain_impl(
+                g_temp,
+                middle,
+                engine,
+                validate_schema,
+                policy,
+                context,
+                start_nodes
+            )
+        if handoff is not None:
+            # attach (not mutate): `g_temp` may still be the caller's graph on
+            # paths where nothing rebuilt it, and this is internal plumbing.
+            g_temp = attach_handoff(g_temp, handoff)
 
     if suffix:
         logger.debug('Executing boundary suffix calls: %s', suffix)
-        if start_nodes is not None:
-            setattr(g_temp, "_gfql_start_nodes", start_nodes)
-        setattr(g_temp, "_gfql_rows_base_graph", suffix_base_graph)
-        setattr(g_temp, "_gfql_shortest_path_backend", getattr(g_temp, "_gfql_shortest_path_backend", "auto"))
+        # #1786: per-execution state rides on an INTERNAL COPY. Without prefix/middle
+        # ops (or a handoff) nothing above rebuilt `g_temp`, so it is still the CALLER's
+        # graph -- assigning here left the WITH re-entry seed on the user's object and
+        # the next, unrelated query was answered against it (silent wrong count).
+        g_temp = attach_row_exec_context(
+            g_temp, start_nodes=start_nodes, rows_base_graph=suffix_base_graph
+        )
         if (
             middle
             and any(getattr(op, "_name", None) is not None for op in middle)
@@ -636,9 +748,32 @@ def _handle_boundary_calls(
             and suffix[0].params.get("binding_ops") is None
             and suffix[0].params.get("source") is None
             and suffix[0].params.get("alias_endpoints") is None
+            # A NON-DEFAULT `table` names the table the caller wants. Rewriting that into a
+            # bindings table silently answers a different question — and on an even-length
+            # middle (a path ending on an EDGE, e.g. LDBC IS3's edge lookup) the rewritten
+            # op list is not an alternating node/edge path at all, so it hard-errors. Same
+            # reason `source` and `alias_endpoints` are excluded above.
+            # Tested against `"nodes"` rather than None because `rows()` DEFAULTS table to
+            # "nodes" and always emits it, so `is None` is never true and would disable the
+            # rewrite outright (measured: it breaks the IS6 bindings path). The cost is that
+            # an EXPLICIT `rows(table="nodes")` is indistinguishable from a bare `rows()` at
+            # the params level, so it still rewrites; only a non-default table opts out.
+            and suffix[0].params.get("table", "nodes") == "nodes"
             and all(isinstance(op, (ASTNode, ASTEdge)) for op in middle)
         ):
-            suffix = [rows_fn(binding_ops=serialize_binding_ops(middle))] + list(suffix[1:])
+            # ADD binding_ops to the call the caller wrote; do not build a fresh one. The
+            # rewrite's job is to say WHERE the bindings come from, and every other param
+            # on `rows()` is still the caller's — `attach_prop_aliases` (the #1711
+            # projection pushdown) and the advisory `alias_prefilters` both survive into
+            # the binding_ops builder, which is the only place they are read. Rebuilding
+            # threw them away, so merely naming the middle silently attached every alias's
+            # properties. The excluded params above cannot be present here.
+            prev_params = suffix[0].params
+            suffix = [rows_fn(
+                binding_ops=serialize_binding_ops(middle),
+                alias_prefilters=prev_params.get("alias_prefilters"),
+                attach_prop_aliases=prev_params.get("attach_prop_aliases"),
+            )] + list(suffix[1:])
         g_temp = _chain_impl(
             g_temp,
             suffix,
@@ -649,7 +784,9 @@ def _handle_boundary_calls(
             start_nodes
         )
 
-    return g_temp
+    # Each site that attaches the row context also detaches it: the suffix chain has run,
+    # so the context is spent, and a caller who queries THIS result must not inherit it.
+    return clear_row_exec_context(g_temp)
 
 
 def _chain_otel_attrs(
@@ -685,9 +822,11 @@ def _try_chain_fast_path(
 
     Same node/edge sets + VALUES as the full machinery (trackA_golden + hop/chain
     suites); the 1-hop additionally preserves int node dtypes (the full path upcasts
-    int→float via merge). Gated to unnamed/unqueried nodes + a plain single-hop edge;
-    filtered-undirected and seeded chains fall through. polars/dask/spark also fall
-    through (own fast path / lazy semantics)."""
+    int→float via merge — the merge is the artifact, int is the Cypher-conformant type).
+    Gated to unqueried nodes + a plain single-hop edge; NAMED ops are served (the alias
+    flags are reconstructed by `_tag_fast_path_aliases`) except when undirected or when
+    the same alias is reused. filtered-undirected and seeded chains fall through.
+    polars/dask/spark also fall through (own fast path / lazy semantics)."""
     from graphistry.compute.filter_by_dict import filter_by_dict
 
     if engine_concrete not in (Engine.PANDAS, Engine.CUDF):
@@ -715,18 +854,42 @@ def _try_chain_fast_path(
     if len(ops) != 3:
         return None
     n0, e1, n2 = ops
-    if not (isinstance(n0, ASTNode) and n0._name is None and n0.query is None):
+    # Aliases are a PROJECTION concern, not a traversal one: capture them, serve the
+    # traversal on the fast path, and tag the result (_tag_fast_path_aliases). Rejecting
+    # them here sent a NAMED `g.gfql([n(name=..), e(..), n(name=..)])` to the full
+    # two-pass BFS purely because the ops carried names — measured ~25.2 ms before vs
+    # ~2.3 ms after (medians of 5 paired runs), on a 200-node graph where data work is ~0.
+    # SCOPE, measured: this does NOT reach the Cypher `MATCH ... RETURN` surface for the
+    # benchmark shapes. Those are served earlier by `gfql_fast_paths.py` and never consult
+    # this function at all, so do not attribute a Cypher-surface win to this gate.
+    alias_n0, alias_e1, alias_n2 = n0._name, e1._name, n2._name
+    _named = [a for a in (alias_n0, alias_e1, alias_n2) if a is not None]
+    if len(_named) != len(set(_named)):
+        # Duplicate alias reuse is an E201 error, and `combine_steps` is what raises it.
+        # Serving these here would BYPASS that check and silently succeed — decline so the
+        # full path still errors. (Caught by test_polars_duplicate_alias_declines_like_pandas.)
         return None
-    if not (isinstance(n2, ASTNode) and n2._name is None and n2.query is None):
+    if not (isinstance(n0, ASTNode) and n0.query is None):
+        return None
+    if not (isinstance(n2, ASTNode) and n2.query is None):
         return None
     if not (isinstance(e1, ASTEdge) and e1.is_simple_single_hop()
-            and e1.edge_match is None and e1.source_node_match is None
-            and e1.destination_node_match is None and e1._name is None
+            and e1.source_node_match is None
+            and e1.destination_node_match is None
             and e1.source_node_query is None and e1.destination_node_query is None
             and e1.edge_query is None and not e1.include_zero_hop_seed
             and not e1.prune_to_endpoints):  # prune keeps only the arrival side -> full path
         return None
+    # #1755 lever-3: a typed edge (edge_match, e.g. -[:HAS_CREATOR]->) is a plain
+    # equality/predicate filter on the edge frame — apply it in the fast-path body
+    # below rather than falling through to the full two-pass machinery. source/dest
+    # node match + edge_query (richer predicates) still bail above.
     direction = e1.direction
+    if direction == "undirected" and (alias_n0 is not None or alias_n2 is not None):
+        # An undirected edge makes a node reachable as EITHER endpoint, so "which alias
+        # does this node carry" is not derivable from the endpoint columns the way it is
+        # for a directed hop. Decline to the full path rather than guess.
+        return None
     unconstrained = not n0.filter_dict and not n2.filter_dict
     if not unconstrained and direction == "undirected":
         return None  # filtered-undirected (OR of both directions) -> full path
@@ -734,20 +897,96 @@ def _try_chain_fast_path(
     if g._nodes is None or g._edges is None:
         return None
     src, dst, node = g._source, g._destination, g._node
-    # Keep only edges with BOTH endpoints in the node table (the full path drops
-    # dangling edges via its joins). dropna so a NaN node id can't validate a NaN
-    # endpoint — .isin treats NaN as matchable but the BFS joins never match NaN<->NaN.
-    node_ids = g._nodes[node].dropna()
-    edges = g._edges[g._edges[src].isin(node_ids) & g._edges[dst].isin(node_ids)]
-    if not unconstrained:
-        from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
-        if n0.filter_dict:
-            ids = filter_by_dict(g._nodes, n0.filter_dict, engine_abs)[node]
-            edges = edges[edges[from_col].isin(ids)]
-        if n2.filter_dict:
-            ids = filter_by_dict(g._nodes, n2.filter_dict, engine_abs)[node]
-            edges = edges[edges[to_col].isin(ids)]
+    if src is None or dst is None or node is None:
+        return None  # no edge/node bindings -> can't fast-path; full path handles it
+    if alias_n0 == node or alias_n2 == node:
+        # A node alias EQUAL TO THE NODE-ID BINDING would make `_tag_fast_path_aliases`
+        # overwrite the id column with the bool flag (destroying the ids) while the full
+        # path raises on the same query ("The column label '<node>' is not unique") —
+        # a wrong-serve found by adversarial parity testing. Decline; never serve.
+        return None
+    if alias_e1 is not None and direction in ("forward", "reverse") \
+            and alias_e1 == (src if direction == "forward" else dst):
+        # An edge alias EQUAL TO THE HOP'S FROM-SIDE BINDING (forward+src / reverse+dst)
+        # made the two lanes return DIFFERENT node sets: the full path's flag overwrite
+        # corrupts its own node reduction, the fast path tags after reducing. TO-side
+        # collisions keep parity (pinned in tests) and stay served. Decline; never serve.
+        return None
+    if (alias_n0 is not None or alias_e1 is not None or alias_n2 is not None) \
+            and direction != "undirected" and g._nodes is not None and g._edges is not None:
+        # DEFER TO THE INDEX when one would ACTUALLY serve. A resident index is
+        # policy-controlled and can beat this scan-based path, and it is what serves named
+        # patterns today, so taking them here would SHADOW it.
+        # `_resident_seed_indexes` is the right question: it returns None unless BOTH
+        # indexes are VALID for these exact frames (fingerprint + identity via get_valid).
+        # A registry-presence / policy check is NOT equivalent — `get_registry` returns a
+        # non-None registry even when nothing is indexed, so that spelling declines on every
+        # query and silently turns this whole optimization into a no-op (measured: the win
+        # went to exactly 0). Re-measure the win, not just the suite, after touching this.
+        from .chain_fast_paths import _resident_seed_indexes
+        if _resident_seed_indexes(g, g._nodes, g._edges, node, src, dst, direction) is not None:
+            return None
     concat = df_concat(engine_concrete)
+    if unconstrained:
+        # No node filter to reduce by: validate BOTH endpoints against the full
+        # node table (the full path drops dangling edges via its joins). dropna so
+        # a NaN node id can't validate a NaN endpoint — .isin treats NaN as
+        # matchable but the BFS joins never match NaN<->NaN.
+        node_ids = g._nodes[node].dropna()
+        edges = g._edges[g._edges[src].isin(node_ids) & g._edges[dst].isin(node_ids)]
+        if e1.edge_match:
+            # typed edge (e.g. -[:HAS_CREATOR]->) — same edge-frame filter the full
+            # hop applies, so the result set is identical.
+            edges = filter_by_dict(edges, e1.edge_match, engine_abs)
+    else:
+        # #1755 lever-3 seed-first: a seeded 1-hop must be O(result), not O(E).
+        # Reduce edges by the selective node filter(s) BEFORE the typed-edge scan
+        # and endpoint validation, so the expensive object/isin passes run on the
+        # tiny frontier, not all edges. The from-side ids come from the node table
+        # (so that endpoint is validated); the node gather below validates the to
+        # side and drops any edge dangling off the node table.
+        # pandas + cuDF: a scalar-filtered seeded typed hop collapses to a few
+        # DataFrame filters (sub-ms); falls back to the general branch below for
+        # predicates / undirected / missing columns (and non-pandas/cuDF engines).
+        if engine_concrete in (Engine.PANDAS, Engine.CUDF):
+            _fast_res = _seeded_typed_hop_pandas_cudf(g, n0, n2, e1, src, dst, node, direction)
+            if _fast_res is not None:
+                return _tag_fast_path_aliases(
+                    _fast_res, alias_n0, alias_e1, alias_n2, src, dst, node, direction)
+        from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
+        edges = g._edges
+        if n0.filter_dict:
+            from_ids = filter_by_dict(g._nodes, n0.filter_dict, engine_abs)[node]
+            edges = edges[edges[from_col].isin(from_ids)]
+        if e1.edge_match:
+            edges = filter_by_dict(edges, e1.edge_match, engine_abs)
+        if n2.filter_dict:
+            # Apply the destination filter to the SMALL set of gathered dst nodes,
+            # not the full node table — an O(N) object/type scan on all nodes is
+            # exactly the tax we're removing. Gather the frontier's dst nodes
+            # (small isin key), filter those, then drop edges to the losers.
+            to_present = edges[to_col].dropna().unique()
+            to_nodes = filter_by_dict(
+                g._nodes[g._nodes[node].isin(to_present)], n2.filter_dict, engine_abs)
+            edges = edges[edges[to_col].isin(to_nodes[node])]
+        # Validate endpoints + build result nodes on the reduced edge set (small
+        # isin key -> small hashtable; no O(E)-values scan). Engine-agnostic
+        # (pandas + cuDF): gather candidate endpoint nodes, drop edges dangling off
+        # the node table, then keep only nodes still referenced by a surviving edge.
+        ep = concat([
+            edges[[src]].rename(columns={src: node}),
+            edges[[dst]].rename(columns={dst: node}),
+        ]).drop_duplicates()
+        cand = g._nodes[g._nodes[node].isin(ep[node])].drop_duplicates(subset=[node])
+        valid = cand[node].dropna()
+        edges = edges[edges[src].isin(valid) & edges[dst].isin(valid)]
+        final = concat([
+            edges[[src]].rename(columns={src: node}),
+            edges[[dst]].rename(columns={dst: node}),
+        ]).drop_duplicates()
+        nodes = cand[cand[node].isin(final[node])]
+        return _tag_fast_path_aliases(
+            g.nodes(nodes).edges(edges), alias_n0, alias_e1, alias_n2, src, dst, node, direction)
     endpoints = concat([
         edges[[src]].rename(columns={src: node}),
         edges[[dst]].rename(columns={dst: node}),
@@ -755,7 +994,8 @@ def _try_chain_fast_path(
     nodes = g._nodes[g._nodes[node].isin(endpoints[node])]
     # match the full path's merge, which collapses duplicate node-id rows
     nodes = nodes.drop_duplicates(subset=[node])
-    return g.nodes(nodes).edges(edges)
+    return _tag_fast_path_aliases(
+        g.nodes(nodes).edges(edges), alias_n0, alias_e1, alias_n2, src, dst, node, direction)
 
 
 @otel_traced("gfql.chain", attrs_fn=_chain_otel_attrs)
@@ -835,6 +1075,14 @@ def chain(
         # undirected multi-edge); that honest signal propagates to the caller.
         _tgt = ExecutionTarget.GPU if engine_concrete_early == Engine.POLARS_GPU else ExecutionTarget.CPU
         with target_mode(_tgt):
+            if policy:
+                from graphistry.compute.gfql.call.executor import _thread_local as call_thread_local
+                old_policy = getattr(call_thread_local, 'policy', None)
+                try:
+                    call_thread_local.policy = policy
+                    return chain_polars(self, ops, start_nodes=start_nodes)
+                finally:
+                    call_thread_local.policy = old_policy
             return chain_polars(self, ops, start_nodes=start_nodes)
 
     if policy:
@@ -953,11 +1201,26 @@ def _chain_impl(
             GFQL_EDGE_INDEX = generate_safe_column_name('edge_index', g._edges, prefix='__gfql_', suffix='__')
 
             added_edge_index = True
-            indexed_edges_df = g._edges.reset_index(drop=False)
-            original_cols = set(g._edges.columns)
-            index_col_name = next(col for col in indexed_edges_df.columns if col not in original_cols)
-            indexed_edges_df = indexed_edges_df.rename(columns={index_col_name: GFQL_EDGE_INDEX})
+            # Attach the synthetic per-edge id WITHOUT copying edge data (#1670):
+            # the previous reset_index(drop=False) + rename deep-copied AND
+            # block-consolidated the whole edge frame (~70ms @2M edges) on every
+            # chain call — even node-only queries. A shallow copy + assigning the
+            # index as a column yields the identical id values (the frame's index)
+            # with no O(E) data copy. The column is internal-only — dropped on
+            # every exit path (see added_edge_index consumers below) — so only
+            # uniqueness matters.
+            indexed_edges_df = g._edges.copy(deep=False)
+            indexed_edges_df[GFQL_EDGE_INDEX] = indexed_edges_df.index
             g = g.edges(indexed_edges_df, edge=GFQL_EDGE_INDEX)
+            # The shallow copy above only ADDS the synthetic id column; the indexed
+            # src/dst columns are preserved by value. Re-point any resident #1658
+            # adjacency index at the new edge frame so the seeded fast path still
+            # engages through gfql()/Cypher chains (else the identity guard misses and
+            # every chain hop falls back to the O(E) scan).
+            from graphistry.compute.gfql.index import get_registry, set_registry
+            _reg = get_registry(g)
+            if not _reg.is_empty():
+                g = set_registry(g, _reg.rebind_edges(indexed_edges_df))
         else:
             added_edge_index = False
 
@@ -1035,7 +1298,12 @@ def _chain_impl(
                     prev_orig_step = g_stack[-(len(g_stack_reverse) + 2)]
                 prev_wavefront_nodes = prev_loop_step._nodes
                 if g._node is not None and prev_wavefront_nodes is not None and g._nodes is not None:
-                    prev_wavefront_nodes = safe_merge(
+                    # slice 5 (#1755): re-attach full node columns to the reverse
+                    # wavefront. The inner merge scans all of g._nodes; when the
+                    # wavefront is tiny (seeded chain), the byte-identical result
+                    # is an isin membership filter (see _lean_intersect_full).
+                    _lean = _lean_intersect_full(g._nodes, prev_wavefront_nodes[[g._node]], g._node, engine_concrete)
+                    prev_wavefront_nodes = _lean if _lean is not None else safe_merge(
                         g._nodes,
                         prev_wavefront_nodes[[g._node]],
                         on=g._node,
@@ -1044,7 +1312,8 @@ def _chain_impl(
                     )
                 target_wave_front_nodes = prev_orig_step._nodes if prev_orig_step is not None else None
                 if g._node is not None and target_wave_front_nodes is not None and g._nodes is not None:
-                    target_wave_front_nodes = safe_merge(
+                    _lean = _lean_intersect_full(g._nodes, target_wave_front_nodes[[g._node]], g._node, engine_concrete)
+                    target_wave_front_nodes = _lean if _lean is not None else safe_merge(
                         g._nodes,
                         target_wave_front_nodes[[g._node]],
                         on=g._node,

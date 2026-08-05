@@ -52,6 +52,8 @@ from graphistry.validate import (
     ring_categorical_axis_payload_error,
     ring_continuous_axis_payload_error,
 )
+from graphistry.compute.gfql.row.prefilter import is_alias_prefilters
+from graphistry.compute.gfql.cache_registry import register_process_singleton
 from graphistry.compute.gfql.row.order_expr import (
     is_order_aggregate_alias_ast,
     order_expr_ast_static_supported,
@@ -89,6 +91,9 @@ def _where_rows_expr_parser_fn() -> Optional[WhereRowsParserBundle]:
         return parse_expr, validate_expr_capabilities, collect_identifiers
     except Exception:
         return None
+
+
+register_process_singleton(_where_rows_expr_parser_fn, "binds imported callables and returns None when lark is absent; a resolved import is not stale state, and re-resolving it cannot change the answer")
 
 
 def _where_rows_expr_parse(expr: str) -> Optional[WhereRowsParsedExpr]:
@@ -359,12 +364,14 @@ def _semi_apply_mark_added_node_cols(params: Dict[str, object]) -> Set[str]:
 
 SAFELIST_V1: Dict[str, Dict[str, Any]] = {
     'rows': _safelist_entry(
-        {'table', 'source', 'alias_endpoints', 'binding_ops'},
+        {'table', 'source', 'alias_endpoints', 'binding_ops', 'alias_prefilters', 'attach_prop_aliases'},
         param_validators={
             'table': lambda v: v in ['nodes', 'edges'],
             'source': is_string_or_none,
             'alias_endpoints': lambda v: isinstance(v, dict),
             'binding_ops': is_list_of_dicts,
+            'alias_prefilters': is_alias_prefilters,
+            'attach_prop_aliases': lambda v: isinstance(v, list) and all(isinstance(x, str) for x in v),
         },
         description='Set active row table from nodes/edges, optionally filtered by source alias',
         schema_effects=_schema_effects(

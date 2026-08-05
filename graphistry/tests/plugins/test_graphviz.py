@@ -156,3 +156,28 @@ class Test_graphviz():
 
         svg_bytes = render_graphviz(tree_g, "dot", format="svg", max_nodes=100, max_edges=200)
         assert b'<svg' in svg_bytes
+
+
+class Test_graphviz_bindings:
+    """#1791: the id/endpoint bindings are Optional and are NOT implied by the frames
+    being set. Before the fix these reached ``row[None]`` and raised a bare
+    ``KeyError: None`` from inside the row loop. No pygraphviz needed: the bindings are
+    validated before the optional backend import."""
+
+    def test_unbound_node_column_raises_value_error(self) -> None:
+        # .nodes(df) with no node= leaves _node None while _nodes is set, so
+        # layout_graphviz/render_graphviz do NOT materialize_nodes() over it
+        g = graphistry.edges(
+            pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd'
+        ).nodes(pd.DataFrame({'id': ['a', 'b']}))
+        assert g._node is None
+        with pytest.raises(ValueError, match='bound node id column'):
+            g_to_pgv(g)
+
+    def test_unbound_edge_endpoints_raise_value_error(self) -> None:
+        g = graphistry.edges(
+            pd.DataFrame({'s': ['a'], 'd': ['b']})
+        ).nodes(pd.DataFrame({'id': ['a', 'b']}), 'id')
+        assert g._source is None and g._destination is None
+        with pytest.raises(ValueError, match='bound edge endpoint columns'):
+            g_to_pgv(g)

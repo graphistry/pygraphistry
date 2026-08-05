@@ -10,16 +10,22 @@ from __future__ import annotations
 
 import operator
 import re
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar, Union
 
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
-from graphistry.compute.predicates.str import Fullmatch, Match
+from graphistry.compute.predicates.str import Contains, Endswith, Fullmatch, Match, Startswith
 from graphistry.compute.filter_by_dict import resolve_filter_column
 from .dtypes import is_numeric as _dtype_numeric, is_stringlike as _dtype_stringlike
 
 if TYPE_CHECKING:
     import datetime
     import polars as pl
+
+    # These helpers are frame-polymorphic: the eager (viz/crossfilter) lane hands them
+    # DataFrames, the lazy chain/bindings lane hands them LazyFrames, and both take the
+    # SAME `.filter(expr)` path. A constrained TypeVar says exactly that and keeps the
+    # caller's flavour on the way out (a plain union would not).
+    PolarsFrameT = TypeVar("PolarsFrameT", "pl.DataFrame", "pl.LazyFrame")
 
 # Comparison-predicate RHS: genuinely dynamic (Cypher properties are dynamically typed) — a
 # python scalar or a GFQL/py temporal matched structurally by type(val).__name__
@@ -282,7 +288,7 @@ def _is_membership(value: Any) -> bool:
     return isinstance(value, (list, tuple, set, frozenset))
 
 
-def _is_cross_type_predicate(df: "pl.DataFrame", col: str, pred: ASTPredicate) -> bool:
+def _is_cross_type_predicate(df: "Union[pl.DataFrame, pl.LazyFrame]", col: str, pred: ASTPredicate) -> bool:
     """True iff the predicate compares a numeric column to a string value (or vice versa):
     polars raises `cannot compare string with numeric type` (an uncatchable Rust panic when
     nested); pandas/cypher return a value/null. Recurses into AllOf (fold of x>a AND x<b) and
@@ -307,12 +313,24 @@ def _is_cross_type_predicate(df: "pl.DataFrame", col: str, pred: ASTPredicate) -
     return _mismatch(val)
 
 
-def filter_by_dict_polars(df: "pl.DataFrame", filter_dict: "Optional[Dict[str, Any]]") -> "pl.DataFrame":
+def filter_by_dict_polars(df: "PolarsFrameT", filter_dict: "Optional[Dict[str, Any]]") -> "PolarsFrameT":
     """Return rows of polars ``df`` matching all entries in ``filter_dict`` via one filter."""
+    combined = filter_expr_by_dict_polars(df, filter_dict)
+    if combined is None:
+        return df
+    return df.filter(combined)
+
+
+def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_dict: "Optional[Dict[str, Any]]") -> "Optional[pl.Expr]":
+    """Build the combined boolean ``pl.Expr`` filter_by_dict_polars would apply, or None
+    for an empty/absent filter dict. ``df`` supplies the schema for column/dtype
+    resolution only — callers may apply the expr to a LazyFrame over the same schema
+    (the fused connected-join lane), with identical semantics incl. the same typed
+    error/NIE contract for unsupported shapes."""
     import polars as pl
 
     if not filter_dict:
-        return df
+        return None
 
     exprs: "List[pl.Expr]" = []
     for col, val in filter_dict.items():
@@ -325,6 +343,23 @@ def filter_by_dict_polars(df: "pl.DataFrame", filter_dict: "Optional[Dict[str, A
                     f"comparison on column {resolved_col!r}; use engine='pandas' for this "
                     f"query (no pandas fallback; parity-or-error by design)"
                 )
+            # String predicate on a non-`String` column: pandas/cuDF raise a clean
+            # GFQLSchemaError (E302) at schema validation, but polars would build `.str.<op>` and
+            # raise an OPAQUE `InvalidOperationError` ("expected String type, got: cat") at collect
+            # on a Categorical/Enum/numeric column. Raise the SAME clean, typed error so all three
+            # engines agree (categorical is treated as non-string here, exactly as filter_by_dict).
+            if isinstance(resolved_val, (Contains, Startswith, Endswith, Match)):
+                _col_dtype = df.schema.get(resolved_col)
+                if _col_dtype is not None and _col_dtype != pl.String:
+                    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+                    raise GFQLSchemaError(
+                        ErrorCode.E302,
+                        f'Type mismatch: string predicate used on non-string column "{resolved_col}"',
+                        field=col,
+                        value=f"{resolved_val.__class__.__name__}(...)",
+                        column_type=str(_col_dtype),
+                        suggestion='Use numeric predicates like gt() or lt() for numeric columns',
+                    )
             expr = predicate_to_expr(resolved_col, resolved_val, df.schema.get(resolved_col))
             if expr is None:
                 # decline (NIE): no native lowering for this predicate; no pandas bridge.
@@ -356,8 +391,8 @@ def filter_by_dict_polars(df: "pl.DataFrame", filter_dict: "Optional[Dict[str, A
             exprs.append(pl.col(resolved_col) == resolved_val)
 
     if not exprs:
-        return df
+        return None
     combined = exprs[0]
     for e in exprs[1:]:
         combined = combined & e
-    return df.filter(combined)
+    return combined

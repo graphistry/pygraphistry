@@ -686,3 +686,4 @@ class TestChainCoercion(NoAuthTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

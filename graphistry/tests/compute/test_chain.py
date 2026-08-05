@@ -1,9 +1,12 @@
 import os
+from typing import Callable, List, Sequence, Tuple
+
 import pandas as pd
 import pytest
 
-from graphistry.compute.ast import ASTEdgeUndirected, ASTNode, ASTEdge, n, e, e_undirected, e_forward, e_reverse
+from graphistry.compute.ast import ASTEdgeUndirected, ASTNode, ASTEdge, ASTObject, n, e, e_undirected, e_forward, e_reverse
 from graphistry.compute.chain import Chain, _try_chain_fast_path
+from graphistry.compute.typing import DataFrameT
 from graphistry.compute.predicates.is_in import IsIn, is_in
 from graphistry.compute.predicates.numeric import gt
 from graphistry.tests.test_compute import CGFull
@@ -664,7 +667,7 @@ def _setsig(r):
 
 
 # shapes that ARE accelerated by the fast path
-_FAST_SHAPES = [
+_FAST_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
     ("node_only", lambda: [n()]),
     ("node_filter", lambda: [n({'attr': 20})]),
     ("node_pred", lambda: [n({'attr': is_in([10, 30])})]),
@@ -675,14 +678,32 @@ _FAST_SHAPES = [
     ("hop_fwd_dst_filter", lambda: [n(), e_forward(hops=1), n({'attr': 40})]),
     ("hop_fwd_both_filter", lambda: [n({'attr': 10}), e_forward(hops=1), n({'attr': 30})]),
     ("hop_rev_dst_filter", lambda: [n(), e_reverse(hops=1), n({'attr': 10})]),
+    # #1755 lever-3: typed edges (edge_match) are now a fast shape — a plain edge
+    # filter applied on the (seed-reduced) frontier, not a fall-through.
+    ("edge_match_unconstrained", lambda: [n(), e_forward(hops=1, edge_match={'w': 5}), n()]),
+    ("edge_match_seeded", lambda: [n({'attr': 10}), e_forward(hops=1, edge_match={'w': 5}), n()]),
+    ("edge_match_dst_filter", lambda: [n(), e_forward(hops=1, edge_match={'w': 5}), n({'attr': 30})]),
+    # DELIBERATE RULE CHANGE: naming an op is a PROJECTION concern, not a traversal one,
+    # so it no longer decides which engine path runs. `_tag_fast_path_aliases` reconstructs
+    # the alias flag columns `combine_steps` would have merged in, so these are now FAST
+    # shapes. (Was `("named_node", ...)` under _BYPASS_SHAPES: that entry encoded the old
+    # "any alias -> decline" gate, not a semantic guarantee.)
+    ("named_src", lambda: [n(name='x'), e_forward(hops=1), n()]),
+    ("named_dst", lambda: [n(), e_forward(hops=1), n(name='y')]),
+    ("named_edge", lambda: [n(), e_forward(hops=1, name='r'), n()]),
+    ("named_all_fwd", lambda: [n(name='x'), e_forward(hops=1, name='r'), n(name='y')]),
+    ("named_all_rev", lambda: [n(name='x'), e_reverse(hops=1, name='r'), n(name='y')]),
+    ("named_filtered", lambda: [n({'attr': 10}, name='x'), e_forward(hops=1), n(name='y')]),
 ]
 
 # shapes that BYPASS the fast path (still must be correct via the full path)
-_BYPASS_SHAPES = [
+_BYPASS_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
     ("hops_2", lambda: [n(), e_forward(hops=2), n()]),
     ("filtered_undirected", lambda: [n({'attr': 10}), e_undirected(hops=1), n({'attr': 30})]),
-    ("edge_match", lambda: [n(), e_forward(hops=1, edge_match={'w': 5}), n()]),
-    ("named_node", lambda: [n(name='x'), e_forward(hops=1), n()]),
+    # Named + undirected STAYS a bypass: an undirected edge makes a node reachable as
+    # EITHER endpoint, so "which alias does this node carry" is not derivable from the
+    # endpoint columns the way it is for a directed hop.
+    ("named_undirected", lambda: [n(name='x'), e_undirected(hops=1), n(name='y')]),
     # prune_to_endpoints: fast path returns both endpoints; full path keeps only the
     # arrival side. Must bypass the fast path (regression guard for the prune gate).
     ("prune_endpoints_fwd", lambda: [n(), e_forward(hops=1, prune_to_endpoints=True), n()]),
@@ -712,6 +733,366 @@ def test_fast_path_differential_parity_vs_full_path(engine, label, build):
         eng = Engine.PANDAS
         assert _try_chain_fast_path(g, build(), eng, None) is None, \
             f"{label}: bypass shape must decline the fast path"
+
+
+# Named shapes whose ALIAS FLAG COLUMNS (not merely node/edge sets) must match the full
+# path. `_setsig` above compares ids only, so it cannot see a wrong alias tag.
+_NAMED_ALIAS_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
+    ("src_only", lambda: [n(name='x'), e_forward(hops=1), n()]),
+    ("dst_only", lambda: [n(), e_forward(hops=1), n(name='y')]),
+    ("edge_only", lambda: [n(), e_forward(hops=1, name='r'), n()]),
+    ("all_forward", lambda: [n(name='x'), e_forward(hops=1, name='r'), n(name='y')]),
+    ("all_reverse", lambda: [n(name='x'), e_reverse(hops=1, name='r'), n(name='y')]),
+    ("src_filtered", lambda: [n({'attr': 10}, name='x'), e_forward(hops=1, name='r'), n(name='y')]),
+    ("dst_filtered", lambda: [n(name='x'), e_forward(hops=1, name='r'), n({'attr': 30}, name='y')]),
+    ("edge_match", lambda: [n(name='x'), e_forward(hops=1, edge_match={'w': 5}, name='r'), n(name='y')]),
+    # DEAD END: attr==50 is node 4, which has no outgoing edge. The tag keys on the
+    # SURVIVING EDGES, so the alias must come back False/empty rather than True.
+    ("dead_end_seed", lambda: [n({'attr': 50}, name='x'), e_forward(hops=1, name='r'), n(name='y')]),
+]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("label,build", _NAMED_ALIAS_SHAPES,
+                         ids=[s[0] for s in _NAMED_ALIAS_SHAPES])
+def test_fast_path_named_alias_columns_match_full_path(engine, label, build):
+    """The capability this fast-path extension actually adds: when the traversal is
+    served without the BFS, the alias flag columns `combine_steps` would have merged in
+    are RECONSTRUCTED from the surviving edges, and must be identical to the full path's
+    — column set, per-row values and all. Serve-asserted so a gate regression that
+    declines everything fails here instead of passing vacuously."""
+    from graphistry.compute.chain import _try_chain_fast_path
+    from graphistry.Engine import Engine
+    g = _fast_graph(engine)
+    if engine == "pandas":
+        assert _try_chain_fast_path(g, build(), Engine.PANDAS, None) is not None, \
+            f"{label}: named shape must be SERVED by the fast path"
+    fast = g.gfql(build())
+    full = g.gfql(build(), policy=_FAST_NOOP_POLICY)
+
+    def flags(df: DataFrameT, key_cols: Sequence[str]) -> pd.DataFrame:
+        # cuDF frames satisfy DataFrameT structurally but only they carry .to_pandas()
+        pdf = pd.DataFrame(df.to_pandas() if "cudf" in type(df).__module__ else df)  # type: ignore[attr-defined]
+        alias_cols = sorted(set(pdf.columns) & {'x', 'y', 'r'})
+        cols = list(key_cols) + alias_cols
+        out = pdf[cols].sort_values(cols).reset_index(drop=True)
+        # bool vs object is the same merge artifact as int64 vs float64 (see
+        # test_fast_path_preserves_int_node_dtypes); this test pins the alias VALUES,
+        # and the dtype rule is pinned separately.
+        for c in alias_cols:
+            out[c] = out[c].astype(bool)
+        return out
+
+    pd.testing.assert_frame_equal(flags(fast._nodes, ['v']), flags(full._nodes, ['v']))
+    pd.testing.assert_frame_equal(flags(fast._edges, ['s', 'd']), flags(full._edges, ['s', 'd']))
+
+
+def _norm_all_cols(df: DataFrameT, key_cols: Sequence[str]) -> pd.DataFrame:
+    """Full-frame canonicalization: ALL columns, sorted column order, key-sorted rows."""
+    # cuDF frames satisfy DataFrameT structurally but only they carry .to_pandas()
+    pdf = pd.DataFrame(df.to_pandas() if "cudf" in type(df).__module__ else df)  # type: ignore[attr-defined]
+    cols = sorted(pdf.columns)
+    return pdf[cols].sort_values(list(key_cols)).reset_index(drop=True)
+
+
+def _assert_full_frame_value_parity(fast: DataFrameT, full: DataFrameT,
+                                    key_cols: Sequence[str]) -> None:
+    """Same columns, same per-row VALUES on every column. Dtype is deliberately NOT
+    compared: the served lane keeps the Cypher-conformant int64/bool where the full
+    path's merges upcast to float64/object (pinned separately)."""
+    f, u = _norm_all_cols(fast, key_cols), _norm_all_cols(full, key_cols)
+    assert list(f.columns) == list(u.columns), f"column sets differ: {list(f.columns)} vs {list(u.columns)}"
+    assert len(f) == len(u), f"row counts differ: {len(f)} vs {len(u)}"
+    for c in f.columns:
+        pd.testing.assert_series_equal(
+            f[c], u[c], check_names=False, check_dtype=False, check_categorical=False)
+
+
+# Named served shapes for FULL-FRAME parity. `_setsig` compares id sets and the flags
+# test compares alias columns, so before this NO test compared the carried DATA columns
+# ('attr', 'w') of a named served result against the full path.
+_NAMED_VALUE_PARITY_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
+    ("all_forward", lambda: [n(name='x'), e_forward(hops=1, name='r'), n(name='y')]),
+    ("all_reverse", lambda: [n(name='x'), e_reverse(hops=1, name='r'), n(name='y')]),
+    ("seed_filtered", lambda: [n({'attr': 10}, name='x'), e_forward(hops=1, name='r'), n(name='y')]),
+    ("edge_match", lambda: [n(name='x'), e_forward(hops=1, edge_match={'w': 5}, name='r'), n(name='y')]),
+]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("label,build", _NAMED_VALUE_PARITY_SHAPES,
+                         ids=[s[0] for s in _NAMED_VALUE_PARITY_SHAPES])
+def test_fast_path_named_full_frame_value_parity(engine, label, build):
+    """POSITIVE, whole-frame: a named served result must carry the same VALUES as the
+    full path on EVERY column — ids, data columns, and alias flags — not just the id
+    sets and flag columns the other tests pin. Also pins the served lane's documented
+    dtype promises: data ints stay int64 and alias flags are real bools."""
+    from graphistry.compute.chain import _try_chain_fast_path
+    from graphistry.Engine import Engine
+    g = _fast_graph(engine)
+    if engine == "pandas":
+        assert _try_chain_fast_path(g, build(), Engine.PANDAS, None) is not None, \
+            f"{label}: named shape must be SERVED by the fast path"
+    fast = g.gfql(build())
+    full = g.gfql(build(), policy=_FAST_NOOP_POLICY)
+    _assert_full_frame_value_parity(fast._nodes, full._nodes, ['v'])
+    _assert_full_frame_value_parity(fast._edges, full._edges, ['s', 'd'])
+    # served-lane dtype promises (the full path upcasts via merge; pinned in
+    # test_fast_path_preserves_int_node_dtypes and the CHANGELOG dtype note)
+    fn = _norm_all_cols(fast._nodes, ['v'])
+    assert fn['attr'].dtype.kind == 'i', "served lane must keep int node attrs int"
+    for c in set(fn.columns) & {'x', 'y'}:
+        assert fn[c].dtype == bool, f"served alias flag {c} must be bool, got {fn[c].dtype}"
+    fe = _norm_all_cols(fast._edges, ['s', 'd'])
+    for c in set(fe.columns) & {'r'}:
+        assert fe[c].dtype == bool, f"served alias flag {c} must be bool, got {fe[c].dtype}"
+
+
+# Named shapes whose CORRECT answer is EMPTY. The serve gate cannot see result
+# cardinality, so these all engage the fast path — and an empty answer must come back
+# as the right empty SHAPE (alias columns present, zero rows), not a throw and not a
+# missing-column frame.
+_NAMED_EMPTY_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
+    # seed filter matches no node at all (distinct from dead_end_seed, which matches
+    # a node that has no surviving edge)
+    ("zero_seed", lambda: [n({'attr': 999}, name='x'), e_forward(hops=1, name='r'), n(name='y')]),
+    ("zero_dst", lambda: [n(name='x'), e_forward(hops=1, name='r'), n({'attr': 999}, name='y')]),
+    ("zero_edge_match", lambda: [n(name='x'), e_forward(hops=1, edge_match={'w': 999}, name='r'), n(name='y')]),
+]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("label,build", _NAMED_EMPTY_SHAPES,
+                         ids=[s[0] for s in _NAMED_EMPTY_SHAPES])
+def test_fast_path_named_empty_result_matches_full_path(engine, label, build):
+    """POSITIVE boundary: named patterns matching ZERO rows are still served, and the
+    empty result must be shape-identical to the full path — same columns INCLUDING the
+    alias flag columns, zero rows, no exception."""
+    from graphistry.compute.chain import _try_chain_fast_path
+    from graphistry.Engine import Engine
+    g = _fast_graph(engine)
+    if engine == "pandas":
+        assert _try_chain_fast_path(g, build(), Engine.PANDAS, None) is not None, \
+            f"{label}: empty-result named shape must still be SERVED"
+    fast = g.gfql(build())
+    full = g.gfql(build(), policy=_FAST_NOOP_POLICY)
+    fn, un = _norm_all_cols(fast._nodes, ['v']), _norm_all_cols(full._nodes, ['v'])
+    fe, ue = _norm_all_cols(fast._edges, ['s', 'd']), _norm_all_cols(full._edges, ['s', 'd'])
+    assert len(fn) == 0 and len(fe) == 0, f"{label}: expected empty result"
+    assert list(fn.columns) == list(un.columns), "empty nodes must keep alias columns"
+    assert list(fe.columns) == list(ue.columns), "empty edges must keep alias columns"
+    assert {'x', 'y'} <= set(fn.columns) and 'r' in fe.columns
+    assert len(un) == 0 and len(ue) == 0
+
+
+def test_fast_path_named_zero_edge_graph_matches_full_path():
+    """POSITIVE boundary: a graph with an EMPTY edge table. The named pattern is served,
+    and both lanes must agree on the all-empty answer with alias columns present."""
+    from graphistry.compute.chain import _try_chain_fast_path
+    from graphistry.Engine import Engine
+    nodes = pd.DataFrame({'v': [0, 1], 'attr': [10, 20]})
+    edges = pd.DataFrame({'s': pd.Series([], dtype='int64'),
+                          'd': pd.Series([], dtype='int64'),
+                          'w': pd.Series([], dtype='int64')})
+    g = CGFull().nodes(nodes, 'v').edges(edges, 's', 'd')
+    ops = [n(name='x'), e_forward(hops=1, name='r'), n(name='y')]
+    assert _try_chain_fast_path(g, ops, Engine.PANDAS, None) is not None
+    fast = g.gfql(ops)
+    full = g.gfql(ops, policy=_FAST_NOOP_POLICY)
+    for res in (fast, full):
+        assert res._nodes.shape[0] == 0 and res._edges.shape[0] == 0
+    assert {'x', 'y'} <= set(fast._nodes.columns) and 'r' in fast._edges.columns
+    assert list(sorted(fast._nodes.columns)) == list(sorted(full._nodes.columns))
+    assert list(sorted(fast._edges.columns)) == list(sorted(full._edges.columns))
+
+
+@pytest.mark.parametrize("route", ["fast_default", "full_policy"])
+def test_fast_path_duplicate_alias_still_raises_e201(route):
+    """NEGATIVE, end-to-end: duplicate NODE alias reuse must still RAISE E201 through
+    the public API. The gate-level decline (asserted in
+    test_fast_path_gating_returns_none_for_ineligible) exists precisely so
+    `combine_steps` stays in charge of this error; if the decline ever regressed, alias
+    reuse would silently SUCCEED on the served lane — this pins the user-visible raise
+    on both routes so that regression cannot land quietly."""
+    from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+    g = _fast_graph("pandas")
+    kwargs = {} if route == "fast_default" else {"policy": _FAST_NOOP_POLICY}
+    with pytest.raises(GFQLValidationError) as exc_info:
+        g.gfql([n(name='x'), e_forward(hops=1), n(name='x')], **kwargs)
+    assert exc_info.value.code == ErrorCode.E201
+    assert "'x'" in str(exc_info.value)
+
+
+def test_fast_path_cross_type_alias_share_declines_and_matches():
+    """NEGATIVE boundary pinning a subtlety found while testing: a NODE alias and an
+    EDGE alias sharing one name is NOT an E201 — `combine_steps` checks duplicates
+    per frame (node pass vs edge pass), and the two flag columns land on different
+    frames. The gate still declines it conservatively (duplicate_alias_edge in the
+    ineligible list), which is safe exactly because the full path serves it — so pin
+    that the two routes AGREE: no raise, same values, the flag on both frames."""
+    g = _fast_graph("pandas")
+    ops = lambda: [n(name='r'), e_forward(hops=1, name='r'), n()]  # noqa: E731
+    default_route = g.gfql(ops())
+    policy_route = g.gfql(ops(), policy=_FAST_NOOP_POLICY)
+    for res in (default_route, policy_route):
+        assert 'r' in res._nodes.columns and 'r' in res._edges.columns
+    _assert_full_frame_value_parity(default_route._nodes, policy_route._nodes, ['v'])
+    _assert_full_frame_value_parity(default_route._edges, policy_route._edges, ['s', 'd'])
+
+
+def test_fast_path_named_defers_to_valid_resident_index():
+    """NEGATIVE (deliberate decline): when BOTH resident indexes validly cover the
+    directed hop, a NAMED pattern must DECLINE the chain fast path so the index path
+    (which the gate would shadow) serves it — and the answer must not change. The gate
+    keys on index VALIDITY, so an index that does NOT cover the shape (reverse hop with
+    only the out-adjacency built) must NOT cause a decline, and unnamed patterns are
+    not deferred at all."""
+    from graphistry.compute.chain import _try_chain_fast_path
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.api import create_index
+    g = _fast_graph("pandas")
+    gi = create_index(create_index(g, 'edge_out_adj'), 'node_id')
+    named = [n(name='x'), e_forward(hops=1), n(name='y')]
+    assert _try_chain_fast_path(gi, named, Engine.PANDAS, None) is None, \
+        "named + valid covering index must defer (decline) to the index path"
+    assert _try_chain_fast_path(gi, [n(), e_forward(hops=1), n()], Engine.PANDAS, None) is not None, \
+        "unnamed is not deferred: the index deferral is scoped to named patterns"
+    assert _try_chain_fast_path(gi, [n(name='x'), e_reverse(hops=1), n(name='y')], Engine.PANDAS, None) is not None, \
+        "reverse hop is NOT covered by edge_out_adj alone, so no deferral"
+    # deferral must be a routing decision only — values identical to the full path
+    deferred = gi.gfql(named)
+    full = g.gfql(named, policy=_FAST_NOOP_POLICY)
+    assert _setsig(deferred) == _setsig(full)
+    _assert_full_frame_value_parity(deferred._nodes, full._nodes, ['v'])
+    _assert_full_frame_value_parity(deferred._edges, full._edges, ['s', 'd'])
+
+
+def test_fast_path_named_datetime_categorical_columns_ride_along():
+    """POSITIVE dtype edge: datetime64 and categorical NODE columns must ride through
+    the served named lane unchanged — same values as the full path, dtypes preserved
+    (the served lane never merges, so it must not degrade either dtype) — and a seed
+    FILTER over the categorical column must both stay served and agree on values."""
+    from graphistry.compute.chain import _try_chain_fast_path
+    from graphistry.Engine import Engine
+    nodes = pd.DataFrame({
+        'v': [0, 1, 2, 3, 4],
+        'ts': pd.to_datetime(['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05']),
+        'cat': pd.Categorical(['a', 'b', 'a', 'c', 'b']),
+    })
+    edges = pd.DataFrame({'s': [0, 1, 2, 3, 0], 'd': [1, 2, 3, 4, 2], 'w': [5, 6, 7, 8, 9]})
+    g = CGFull().nodes(nodes, 'v').edges(edges, 's', 'd')
+    ops = [n(name='x'), e_forward(hops=1, name='r'), n(name='y')]
+    assert _try_chain_fast_path(g, ops, Engine.PANDAS, None) is not None
+    fast = g.gfql(ops)
+    full = g.gfql(ops, policy=_FAST_NOOP_POLICY)
+    _assert_full_frame_value_parity(fast._nodes, full._nodes, ['v'])
+    _assert_full_frame_value_parity(fast._edges, full._edges, ['s', 'd'])
+    # dtype preservation is asserted against the INPUT (and the full path), not a
+    # hardcoded unit: pandas 2.x infers datetime64[ns] here, pandas 3.x datetime64[us]
+    assert fast._nodes['ts'].dtype == nodes['ts'].dtype
+    assert fast._nodes['ts'].dtype == full._nodes['ts'].dtype
+    assert str(fast._nodes['ts'].dtype).startswith('datetime64[')
+    assert str(fast._nodes['cat'].dtype) == 'category'
+    assert fast._nodes['cat'].dtype == full._nodes['cat'].dtype
+    # categorical seed filter: still served, same answer
+    ops2 = [n({'cat': 'a'}, name='x'), e_forward(hops=1), n(name='y')]
+    assert _try_chain_fast_path(g, ops2, Engine.PANDAS, None) is not None
+    f2 = g.gfql(ops2)
+    u2 = g.gfql(ops2, policy=_FAST_NOOP_POLICY)
+    _assert_full_frame_value_parity(f2._nodes, u2._nodes, ['v'])
+    _assert_full_frame_value_parity(f2._edges, u2._edges, ['s', 'd'])
+
+
+# Alias names that SHADOW a real column WITHOUT breaking parity. Today BOTH lanes
+# overwrite the shadowed column with the flag, identically — that (pre-existing,
+# full-path) contract is what these pin, so a lane can't drift to a different
+# overwrite/raise behavior alone. The FROM-side binding columns and the node-id
+# binding are excluded here: those wrong-served (diverged) before, are now GATED to
+# decline, and are pinned by the two regression tests below.
+_ALIAS_SHADOW_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
+    ("node_alias_shadows_node_data_col", lambda: [n(name='attr'), e_forward(hops=1), n()]),
+    ("edge_alias_shadows_edge_data_col", lambda: [n(), e_forward(hops=1, name='w'), n()]),
+    # TO-side binding columns keep parity (the from-side ones do not, see xfail below)
+    ("edge_alias_shadows_dst_binding_fwd", lambda: [n(), e_forward(hops=1, name='d'), n()]),
+    ("edge_alias_shadows_src_binding_rev", lambda: [n(), e_reverse(hops=1, name='s'), n()]),
+    # cross-frame names are NOT collisions: nodes have no 'w', edges have no 'v'
+    ("node_alias_named_like_edge_col", lambda: [n(name='w'), e_forward(hops=1), n()]),
+    ("edge_alias_named_like_node_id", lambda: [n(), e_forward(hops=1, name='v'), n()]),
+]
+
+
+@pytest.mark.parametrize("label,build", _ALIAS_SHADOW_SHAPES,
+                         ids=[s[0] for s in _ALIAS_SHADOW_SHAPES])
+def test_fast_path_alias_shadowing_column_matches_full_path(label, build):
+    """NEGATIVE-ish boundary: alias names that collide with existing data/binding
+    columns must behave IDENTICALLY on both lanes (today: same silent overwrite the
+    full path has always done; cross-frame same-name cases are no-ops). Edge key
+    columns may themselves be overwritten here, so edges are keyed on 'w' (unique)."""
+    g = _fast_graph("pandas")
+    fast = g.gfql(build())
+    full = g.gfql(build(), policy=_FAST_NOOP_POLICY)
+    _assert_full_frame_value_parity(fast._nodes, full._nodes, ['v'])
+    _assert_full_frame_value_parity(fast._edges, full._edges, ['w'])
+
+
+@pytest.mark.parametrize("build", [
+    lambda: [n(), e_forward(hops=1, name='s'), n()],
+    lambda: [n(), e_reverse(hops=1, name='d'), n()],
+], ids=["fwd_alias_is_src_binding", "rev_alias_is_dst_binding"])
+def test_fast_path_edge_alias_colliding_with_from_binding_matches_full_path(build):
+    """REGRESSION (wrong-serve, found by adversarial parity testing, now GATED): an
+    edge alias equal to the hop's FROM-side binding column (forward+name=src,
+    reverse+name=dst) used to be SERVED with a DIFFERENT node set than the full path
+    (fast [0..4] vs full [1..4] on this fixture — the full path's flag overwrite
+    corrupts its own node reduction). The gate now DECLINES it; TO-side collisions
+    keep parity and stay served (pinned above). Both routes must agree: both raise,
+    or both return the same frames."""
+    from graphistry.Engine import Engine
+    g = _fast_graph("pandas")
+    assert _try_chain_fast_path(g, build(), Engine.PANDAS, None) is None, \
+        "edge alias == FROM-side binding must DECLINE the fast path"
+    try:
+        full = g.gfql(build(), policy=_FAST_NOOP_POLICY)
+        full_raised = None
+    except Exception as ex:  # noqa: BLE001 — parity contract, not error-type contract
+        full, full_raised = None, type(ex)
+    if full_raised is not None:
+        with pytest.raises(full_raised):
+            g.gfql(build())
+    else:
+        fast = g.gfql(build())
+        assert full is not None
+        _assert_full_frame_value_parity(fast._nodes, full._nodes, ['v'])
+        _assert_full_frame_value_parity(fast._edges, full._edges, ['w'])
+
+
+@pytest.mark.parametrize("build", [
+    lambda: [n(name='v'), e_forward(hops=1), n()],
+    lambda: [n(), e_forward(hops=1), n(name='v')],
+], ids=["n0_alias_is_node_binding", "n2_alias_is_node_binding"])
+def test_fast_path_alias_colliding_with_node_id_binding_matches_full_path(build):
+    """REGRESSION (wrong-serve, found by adversarial parity testing, now GATED): a
+    node alias equal to the NODE ID BINDING column ('v') used to be SERVED, silently
+    overwriting the id column with the bool alias flag while the full path raised.
+    The gate now DECLINES it, so the two lanes are observationally equivalent: both
+    raise, or both return the same frames (today: both raise pandas' ValueError)."""
+    from graphistry.Engine import Engine
+    g = _fast_graph("pandas")
+    assert _try_chain_fast_path(g, build(), Engine.PANDAS, None) is None, \
+        "node alias == node-id binding must DECLINE the fast path"
+    try:
+        full = g.gfql(build(), policy=_FAST_NOOP_POLICY)
+        full_raised = None
+    except Exception as ex:  # noqa: BLE001 — parity contract, not error-type contract
+        full, full_raised = None, type(ex)
+    if full_raised is not None:
+        with pytest.raises(full_raised):
+            g.gfql(build())
+    else:
+        fast = g.gfql(build())
+        assert full is not None
+        _assert_full_frame_value_parity(fast._nodes, full._nodes, ['v'])
+        _assert_full_frame_value_parity(fast._edges, full._edges, ['s', 'd'])
 
 
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
@@ -751,6 +1132,19 @@ def test_fast_path_gating_returns_none_for_ineligible():
         [n({'attr': 20})],
         [n(), e_forward(hops=1), n()],
         [n(), e_reverse(hops=1), n()],
+        # #1755 lever-3: typed edges are now accepted (edge filter on the frontier)
+        [n(), e_forward(hops=1, edge_match={'w': 5}), n()],
+        [n({'attr': 10}), e_forward(hops=1, edge_match={'w': 5}), n()],
+        # DELIBERATE RULE CHANGE (was asserted INELIGIBLE as "named_node"): an alias is a
+        # PROJECTION concern, so it no longer gates the traversal path. The old assertion
+        # encoded the gate itself, not a semantic the fast path could not meet — the alias
+        # flag columns are reconstructible from the surviving edges
+        # (`_tag_fast_path_aliases`), which is exactly what `combine_steps` computes.
+        [n(name='x'), e_forward(hops=1), n()],
+        [n(), e_forward(hops=1), n(name='y')],
+        [n(), e_forward(hops=1, name='r'), n()],
+        [n(name='x'), e_forward(hops=1, name='r'), n(name='y')],
+        [n(name='x'), e_reverse(hops=1, name='r'), n(name='y')],
     ]
     for ops in eligible:
         assert _try_chain_fast_path(g, ops, Engine.PANDAS, None) is not None, f"should accept {ops}"
@@ -758,11 +1152,35 @@ def test_fast_path_gating_returns_none_for_ineligible():
     ineligible = [
         ("hops_2", [n(), e_forward(hops=2), n()], None, Engine.PANDAS),
         ("filtered_undirected", [n({'attr': 10}), e_undirected(hops=1), n({'attr': 30})], None, Engine.PANDAS),
-        ("edge_match", [n(), e_forward(hops=1, edge_match={'w': 5}), n()], None, Engine.PANDAS),
-        ("named_node", [n(name='x'), e_forward(hops=1), n()], None, Engine.PANDAS),
+        # NEW declines that come with serving aliases. Undirected: a node is reachable as
+        # EITHER endpoint, so alias identity is not derivable from the endpoint columns.
+        ("named_undirected", [n(name='x'), e_undirected(hops=1), n(name='y')], None, Engine.PANDAS),
+        ("named_undirected_edge", [n(), e_undirected(hops=1, name='r'), n(name='y')], None, Engine.PANDAS),
+        # Duplicate alias reuse is E201, and `combine_steps` is what raises it; serving
+        # here would BYPASS the check and let alias reuse silently succeed.
+        ("duplicate_alias_nodes", [n(name='x'), e_forward(hops=1), n(name='x')], None, Engine.PANDAS),
+        ("duplicate_alias_edge", [n(name='r'), e_forward(hops=1, name='r'), n()], None, Engine.PANDAS),
         ("node_query", [n(query='attr > 5'), e_forward(hops=1), n()], None, Engine.PANDAS),
         ("prune_endpoints", [n(), e_forward(hops=1, prune_to_endpoints=True), n()], None, Engine.PANDAS),
         ("seeded", [n()], seed, Engine.PANDAS),
+        # MIXED supported + unsupported: an alias is now a served concern, but it must
+        # never FLIP an otherwise-ineligible shape to served — the unsupported piece
+        # (multi-hop, queries, richer predicates, prune, seeds) still declines the whole op list.
+        ("named_hops_2", [n(name='x'), e_forward(hops=2), n(name='y')], None, Engine.PANDAS),
+        ("named_node_query", [n(query='attr > 5', name='x'), e_forward(hops=1), n(name='y')], None, Engine.PANDAS),
+        ("named_edge_query", [n(name='x'), e_forward(hops=1, edge_query='w > 5'), n(name='y')], None, Engine.PANDAS),
+        ("named_source_node_match", [n(name='x'), e_forward(hops=1, source_node_match={'attr': 10}), n(name='y')], None, Engine.PANDAS),
+        ("named_prune_endpoints", [n(name='x'), e_forward(hops=1, prune_to_endpoints=True), n(name='y')], None, Engine.PANDAS),
+        ("named_seeded", [n(name='x'), e_forward(hops=1), n(name='y')], seed, Engine.PANDAS),
+        # BINDING-COLLISION declines (wrong-serves found by adversarial parity testing):
+        # a node alias equal to the node-id binding would overwrite the id column where
+        # the full path raises; an edge alias equal to the hop's FROM-side binding made
+        # the two lanes return different node sets. TO-side collisions keep parity and
+        # remain served (see test_fast_path_alias_shadowing_column_matches_full_path).
+        ("n0_alias_is_node_binding", [n(name='v'), e_forward(hops=1), n()], None, Engine.PANDAS),
+        ("n2_alias_is_node_binding", [n(), e_forward(hops=1), n(name='v')], None, Engine.PANDAS),
+        ("edge_alias_is_src_binding_fwd", [n(), e_forward(hops=1, name='s'), n()], None, Engine.PANDAS),
+        ("edge_alias_is_dst_binding_rev", [n(), e_reverse(hops=1, name='d'), n()], None, Engine.PANDAS),
         ("non_eager_engine", [n()], None, Engine.DASK),
         ("two_ops", [n(), e_forward(hops=1)], None, Engine.PANDAS),
     ]

@@ -2,9 +2,24 @@
 # ruff: noqa: E501
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, cast
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union, cast
 
-from graphistry.Engine import EngineAbstract, df_concat, df_cons, resolve_engine, safe_merge
+from graphistry.Engine import (
+    EngineAbstract,
+    assign_constant_columns,
+    df_concat,
+    df_cons,
+    drop_columns,
+    frame_filter,
+    is_series_like,
+    ordered_left_join,
+    resolve_engine,
+    row_as_mapping,
+    safe_merge,
+    series_filter,
+    series_not_null_mask,
+    series_to_pylist,
+)
 from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
 from graphistry.compute.gfql.cypher.reentry.naming import _reentry_hidden_column_name
@@ -21,30 +36,6 @@ REENTRY_DUPLICATE_CARRIED_ROWS_REASON = "duplicate_carried_node_rows"
 
 
 from graphistry.Engine import is_polars_df as _is_polars_df
-
-
-def _reentry_row(prefix_rows: Any, row_index: int) -> Any:
-    """One prefix row as a col->scalar mapping, engine-aware (``row[col]`` works for
-    both the pandas Series and the polars named-row dict)."""
-    if _is_polars_df(prefix_rows):
-        return prefix_rows.row(row_index, named=True)
-    return prefix_rows.iloc[row_index]
-
-
-def _assign_constant_columns(df: Any, values: Dict[str, Any]) -> Any:
-    """Broadcast scalar ``values`` as constant columns, engine-aware."""
-    if not values:
-        return df
-    if _is_polars_df(df):
-        import polars as pl
-        return df.with_columns([pl.lit(v).alias(k) for k, v in values.items()])
-    return df.assign(**values)
-
-
-def _drop_columns(df: Any, cols: Sequence[str]) -> Any:
-    if _is_polars_df(df):
-        return df.drop(list(cols))
-    return df.drop(columns=list(cols))
 
 
 def _bind_reentry_graph(graph: Plottable, node_rows: Optional[DataFrameT], *, empty_edges: bool = False) -> Plottable:
@@ -183,20 +174,12 @@ def _optional_reentry_key(record: Dict[str, Any], columns: Tuple[str, ...]) -> T
 
 
 def _records_for_columns(df: DataFrameT, columns: Tuple[str, ...]) -> List[Dict[str, Any]]:
-    values_by_column = {column: _series_to_pylist(cast(SeriesT, df[column])) for column in columns}
+    values_by_column = {column: series_to_pylist(cast(SeriesT, df[column])) for column in columns}
     row_count = len(df)
     return [
         {column: values_by_column[column][row_index] for column in columns}
         for row_index in range(row_count)
     ]
-
-
-def _series_to_pylist(values: SeriesT) -> List[Any]:
-    if hasattr(values, "to_arrow"):
-        return cast(List[Any], values.to_arrow().to_pylist())
-    if hasattr(values, "tolist"):
-        return cast(List[Any], values.tolist())
-    return list(values)
 
 
 def _optional_reentry_key_value(value: Any) -> Any:
@@ -274,7 +257,7 @@ def compiled_query_reentry_state(
         )
     ids = meta["ids"]
     id_column = meta["id_column"]
-    if not hasattr(ids, "dropna"):
+    if not is_series_like(ids):
         raise reentry_validation_error(
             "Cypher MATCH after WITH could not recover carried node identities from the prefix stage",
             value=output_name,
@@ -305,6 +288,17 @@ def compiled_query_reentry_state(
             "Cypher MATCH after WITH could not recover carried row columns from the prefix stage",
             value=output_name,
             suggestion=REENTRY_SCALAR_SUGGESTION,
+        )
+    if _is_polars_df(carried_ids) or _is_polars_df(aligned_prefix_rows) or _is_polars_df(base_nodes):
+        # Whole-row re-entry that ALSO carries scalar WITH columns (e.g. `WITH a, a.val AS av
+        # MATCH (a)-...`) threads hidden ``__cypher_reentry_*`` payload columns through the
+        # binding pipeline; that carry path is pandas-only so far. The seed-only whole-row case
+        # (no carried scalars) returned above. Decline honestly rather than run the pandas-only
+        # payload merge on polars frames (parity-or-NIE; no silent bridge).
+        raise NotImplementedError(
+            "polars engine does not yet natively support Cypher WITH -> MATCH re-entry that carries "
+            "scalar WITH columns into the trailing MATCH; use engine='pandas' for this query "
+            "(no pandas fallback; parity-or-error by design)"
         )
     duplicate_mask = carried_ids.duplicated()
     if bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False:
@@ -397,10 +391,10 @@ def compiled_query_scalar_reentry_state(
             value=missing_column,
             suggestion="Project the scalar column explicitly before MATCH re-entry.",
         )
-    row = _reentry_row(prefix_rows, row_index)
+    row = row_as_mapping(prefix_rows, row_index)
     node_rows = cast(
         DataFrameT,
-        _assign_constant_columns(
+        assign_constant_columns(
             base_nodes,
             {
                 _reentry_hidden_column_name(output_name): row[output_name]
@@ -420,7 +414,7 @@ def freeform_broadcast_row_to_nodes(
     row_index: int,
 ) -> Plottable:
     """Broadcast one free-form prefix row's hidden carries onto the base nodes."""
-    row = _reentry_row(prefix_rows, row_index)
+    row = row_as_mapping(prefix_rows, row_index)
     broadcast_values: Dict[str, Any] = {
         _reentry_hidden_column_name(col): row[col]
         for col in plan.scalar_columns
@@ -435,11 +429,11 @@ def freeform_broadcast_row_to_nodes(
     if broadcast_values:
         existing_hidden = [c for c in base_nodes.columns if isinstance(c, str) and c.startswith("__cypher_reentry_")]
         node_rows = (
-            cast(DataFrameT, _drop_columns(base_nodes, existing_hidden))
+            cast(DataFrameT, drop_columns(base_nodes, existing_hidden))
             if existing_hidden
             else base_nodes
         )
-        node_rows = cast(DataFrameT, _assign_constant_columns(node_rows, broadcast_values))
+        node_rows = cast(DataFrameT, assign_constant_columns(node_rows, broadcast_values))
     else:
         node_rows = cast(DataFrameT, base_nodes)
 
@@ -488,18 +482,18 @@ def aligned_reentry_rows(
             value=output_name,
             suggestion="Retry with a direct whole-row carry through WITH or inspect intermediate row-shaping before MATCH re-entry.",
         )
-    if not hasattr(ids, "notna"):
+    if not is_series_like(ids):
         raise reentry_validation_error(
             "Cypher MATCH after WITH could not align carried node identities from the prefix stage",
             value=output_name,
             suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
         )
 
-    non_null_mask = cast(SeriesT, ids.notna())
-    carried_ids = cast(SeriesT, ids[non_null_mask].reset_index(drop=True))
+    non_null_mask = series_not_null_mask(ids)
+    carried_ids = series_filter(ids, non_null_mask)
     if prefix_rows is None:
         return carried_ids, None
-    return carried_ids, cast(DataFrameT, prefix_rows.loc[non_null_mask].reset_index(drop=True))
+    return carried_ids, frame_filter(prefix_rows, non_null_mask)
 
 
 def reentry_carry_payload(
@@ -533,4 +527,4 @@ def ordered_reentry_start_nodes(
     id_column: str,
 ) -> DataFrameT:
     # MATCH re-entry must preserve the WITH row order, not the base node-table order.
-    return cast(DataFrameT, safe_merge(carried_node_ids, node_rows, on=id_column, how="left"))
+    return ordered_left_join(carried_node_ids, node_rows, on=id_column)
