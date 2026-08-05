@@ -17499,6 +17499,59 @@ def test_t6_dense_gather_elision_matches_degree_oracle() -> None:
         assert total == oracle
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_count_path_projection_widths_and_value(engine: str, monkeypatch: Any) -> None:
+    # Round-4 both-sides pin: the polars count path projects its filters to the id
+    # columns (the filters themselves reference projected-away decoy columns
+    # node_type/rel); pandas keeps full width. Same count either side.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_graph(*_t6_dense_frames())
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+
+    seen: Dict[str, List[str]] = {}
+    real = gfql_fast_paths_module._two_hop_equal_domain_dense_total
+
+    def spy(domain_nodes: Any, edge_domain: Any, **kw: Any) -> Any:
+        seen["node_cols"] = list(domain_nodes.columns)
+        seen["edge_cols"] = list(edge_domain.columns)
+        return real(domain_nodes, edge_domain, **kw)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_two_hop_equal_domain_dense_total", spy)
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
+    if engine == "polars":
+        assert seen["node_cols"] == ["id"]
+        assert seen["edge_cols"] == ["s", "d"]
+    else:
+        assert "node_type" in seen["node_cols"]  # full width preserved off-polars
+        assert "rel" in seen["edge_cols"]
+
+
+def test_t6_count_path_narrow_filter_error_parity_polars() -> None:
+    # Round-4 negative pin: the narrow (projected) filter lane raises the SAME
+    # typed error as the full-width lane -- E302 for a string predicate on a
+    # non-string column -- and its rows match full-width filter + select.
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.exceptions import GFQLSchemaError
+    from graphistry.compute.predicates.str import Contains
+
+    edges = pl.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0], "rel": [10, 20, 10]})
+    graph = _mk_graph(*_t6_dense_frames())
+    with pytest.raises(GFQLSchemaError):
+        gfql_fast_paths_module._connected_join_cached_edge_filter(
+            graph, cast(Any, edges), {"rel": Contains("F")},
+            engine=Engine.POLARS, project=["s", "d"])
+
+    narrow = gfql_fast_paths_module._connected_join_cached_edge_filter(
+        graph, cast(Any, edges), {"rel": 10}, engine=Engine.POLARS, project=["s", "d"])
+    full = gfql_fast_paths_module._connected_join_cached_edge_filter(
+        graph, cast(Any, edges), {"rel": 10}, engine=Engine.POLARS)
+    assert narrow.columns == ["s", "d"]
+    assert narrow.to_dicts() == full.select(["s", "d"]).to_dicts()
+
+
 def test_t6_decline_keeps_memo_path_reachable() -> None:
     # The T5 memo graph has an out-of-domain FOLLOWS endpoint (a City), so the
     # dense kernel must DECLINE there and the memo must populate exactly as before
