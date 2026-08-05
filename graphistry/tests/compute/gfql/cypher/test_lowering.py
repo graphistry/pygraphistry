@@ -18149,9 +18149,11 @@ def test_h3_fused_two_hop_count_empty_match_counts_zero(engine: str, monkeypatch
 
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
-def test_h3_fused_two_hop_count_declines_reserved_count_column(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """NEGATIVE: an edge column already named like a degree counter is handed back to the eager
-    twin -- and the ANSWER is still right, so the decline can never hide a wrong result."""
+def test_h3_fused_two_hop_count_serves_projected_away_reserved_column(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A PAYLOAD edge column named like a degree counter no longer forces a decline:
+    the round-4 projection drops it before the fused lane looks, and a [src,dst]
+    frame structurally cannot collide with the internal counter names. The answer
+    must be identical to the eager twin's."""
     nodes, edges = _mk_h3_base_data()
     edges = edges.assign(__in_count__=1)
     graph = _mk_h3_graph(engine, nodes, edges)
@@ -18159,7 +18161,30 @@ def test_h3_fused_two_hop_count_declines_reserved_count_column(engine: str, monk
     calls = _probe_fused_two_hop(monkeypatch)
     result = graph.gfql(_H3_DISTINCT_DOMAIN_QUERY, engine=engine)
 
-    assert calls == [False], "reserved counter column must DECLINE, not serve"
+    assert calls == [True], "projected-away reserved column must not decline"
+    assert _h3_records(result) == [{"numPaths": 5}]
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+def test_h3_fused_two_hop_count_still_declines_reserved_endpoint_binding(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """NEGATIVE (the guard's remaining reachable side): when the SRC binding itself
+    is named like a degree counter, projection keeps it, the collision is real, and
+    the fused lane must still decline to the eager twin -- with the same answer."""
+    pl = pytest.importorskip("polars")
+    if engine == "polars-gpu":
+        _require_polars_gpu()
+    nodes, edges = _mk_h3_base_data()
+    edges = edges.rename(columns={"s": "__in_count__"})
+    graph = cast(
+        _CypherTestGraph,
+        _CypherTestGraph().nodes(pl.from_pandas(nodes), "id")
+        .edges(pl.from_pandas(edges), "__in_count__", "d"),
+    )
+
+    calls = _probe_fused_two_hop(monkeypatch)
+    result = graph.gfql(_H3_DISTINCT_DOMAIN_QUERY, engine=engine)
+
+    assert calls == [False], "reserved endpoint binding must DECLINE, not serve"
     assert _h3_records(result) == [{"numPaths": 5}]
 
 
