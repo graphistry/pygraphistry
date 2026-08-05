@@ -823,6 +823,534 @@ class TestFusedTwoStarLane:
         assert got == gpd.gfql(q, engine="pandas")._nodes.to_dict("records")
         assert got, f"{pred}: vacuous (empty) comparison"
 
+    # --- MINIMAL-JOIN fused plan: dropped-semi-join proofs, end to end ------------------
+
+    #: The graph-benchmark q7 anatomy verbatim: range filter on the shared alias, an
+    #: equality pushdown on the second leaf, a one-sided toLower residual on the first
+    #: leaf, TWO group keys from the second leaf, ORDER BY count DESC + key ASC, LIMIT 1.
+    Q_Q7_SHAPE = ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+                  "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+                  "WHERE toLower(i.interest) = 'fine dining' "
+                  "AND p.age >= 20 AND p.age <= 40 AND c.country = 'United Kingdom' "
+                  "RETURN c.city AS city, c.country AS country, count(p) AS n "
+                  "ORDER BY n DESC, city ASC LIMIT 1")
+
+    def _q7_shape_graph(self):
+        pl2 = pytest.importorskip("polars")
+        ndf = pl2.DataFrame({
+            "node_id": [1, 2, 3, 4, 5, 6, 7],
+            "node_type": ["Person", "Person", "Person", "Interest", "Interest", "City", "City"],
+            "age": [25, 30, 55, None, None, None, None],
+            "interest": [None, None, None, "Fine Dining", "tennis", None, None],
+            "city": [None, None, None, None, None, "London", "Paris"],
+            "country": [None, None, None, None, None, "United Kingdom", "France"],
+        })
+        edf = pl2.DataFrame({
+            # Fine dining: p1 holds TWO edges (left count 2), p2 and p3 one each --
+            # p3 is OUTSIDE the age domain, so its group EXISTS in the unrestricted
+            # left counts and must be dropped by the final inner join, not by a
+            # pre-restriction. Tennis: p2 (in-domain) once, p3 (out-of-domain)
+            # TWICE -- the boundary-probe discriminator below.
+            "src": [1, 1, 2, 3, 2, 3, 3, 1, 2, 3],
+            "dst": [4, 4, 4, 4, 5, 5, 5, 6, 6, 7],
+            "rel": ["HAS_INTEREST"] * 7 + ["LIVES_IN"] * 3,
+        })
+        return graphistry.nodes(ndf, "node_id").edges(edf, "src", "dst")
+
+    @requires_polars
+    def test_minimal_join_q7_shape_serves_and_matches_both_twins(self, monkeypatch):
+        """Lane pin + value parity for the exact board-cell anatomy. The minimal-join
+        plan drops the left-arm shared semi-join AND the right-arm leaf semi-join
+        (the unique-keyed lookup join subsumes it); the answer must still be the
+        eager twin's and the pandas oracle's, with the out-of-domain shared node
+        (p3) and the un-matched leaf (Paris/tennis) both excluded."""
+        g = self._q7_shape_graph()
+        calls = self._spy_fused(monkeypatch)
+        fused = g.gfql(self.Q_Q7_SHAPE, engine="polars")
+        assert calls and calls[-1], "fused lane did not engage"
+        assert self._rows(fused) == [{"city": "London", "country": "United Kingdom", "n": 3}]
+        gpd = graphistry.nodes(g._nodes.to_pandas(), "node_id").edges(
+            g._edges.to_pandas(), "src", "dst")
+        assert self._rows(fused) == gpd.gfql(self.Q_Q7_SHAPE, engine="pandas")._nodes.to_dict("records")
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        eager = g.gfql(self.Q_Q7_SHAPE, engine="polars")
+        assert self._rows(fused) == self._rows(eager)
+
+    @requires_polars
+    def test_empty_match_boundary_probe_keeps_the_shared_domain_restriction(self, monkeypatch):
+        """THE dropped-semi-join hazard, pinned. The n=0 shortcut probes whether the
+        LEFT counts are all 1 -- and that probe must see the EAGER lane's counts,
+        i.e. WITH the shared-domain restriction the hot plan proved redundant.
+        Here the out-of-domain person (age 55) holds a left count of 2; if the
+        boundary probe ever reads the UNRESTRICTED hot-plan counts, all-==-1 flips
+        false and the answer degrades from the openCypher n=0 row to a 0x0 frame."""
+        g = self._q7_shape_graph()
+        q = ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+             "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+             "WHERE toLower(i.interest) = 'tennis' "
+             "AND p.age >= 20 AND p.age <= 40 AND c.city = 'NoSuchCity' "
+             "RETURN count(p) AS n")
+        # tennis: p2 (in-domain) once -> restricted left counts are all 1 and
+        # non-empty; p3 (age 55, OUT of domain) twice -> the unrestricted counts
+        # are NOT all 1. The two probe readings give different answers, so this
+        # test fails if the boundary ever reads the hot-plan counts.
+        calls = self._spy_fused(monkeypatch)
+        fused = g.gfql(q, engine="polars")
+        assert calls and calls[-1], "fused lane did not engage"
+        assert self._rows(fused) == [{"n": 0}]
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        eager = g.gfql(q, engine="polars")
+        assert self._rows(fused) == self._rows(eager)
+
+    @requires_polars
+    def test_grouped_limit_zero_keeps_columns(self, monkeypatch):
+        """LIMIT 0 must yield the 0-row WITH-columns frame, not the 0x0 empty-match
+        boundary frame -- the lazy grouped tail cannot tell those apart from its
+        own (empty) output, so LIMIT 0 is pinned to the eager tail."""
+        g = self._q7_shape_graph()
+        q = self.Q_Q7_SHAPE.replace("LIMIT 1", "LIMIT 0")
+        calls = self._spy_fused(monkeypatch)
+        fused = g.gfql(q, engine="polars")
+
+        def shape(res):
+            df = res._nodes
+            df = df.to_pandas() if hasattr(df, "to_pandas") else df
+            return (len(df), sorted(map(str, df.columns)))
+
+        assert calls and calls[-1], "fused lane did not engage"
+        assert shape(fused) == (0, ["city", "country", "n"])
+        monkeypatch.setattr(fp, "_residual_polars_expr", lambda *a, **k: None)
+        eager = g.gfql(q, engine="polars")
+        assert shape(fused) == shape(eager)
+
+    @requires_polars
+    def test_grouped_tail_rides_the_single_collect(self, monkeypatch):
+        """STRUCTURAL LOCK-IN of the fused lane's one-collect contract, now including
+        the grouped tail: a served non-empty grouped query must reach polars exactly
+        once (the eager tail's group_by/sort each pay their own engine dispatch --
+        the cost this plan shape removed)."""
+        pl2 = pytest.importorskip("polars")
+        g = self._q7_shape_graph()
+        collects_inside = []
+        orig_fused = fp._connected_join_two_star_fused_polars
+        orig_collect = pl2.LazyFrame.collect
+
+        def counting_fused(*a, **k):
+            count = [0]
+
+            def counting_collect(self_lf, *ca, **ck):
+                count[0] += 1
+                return orig_collect(self_lf, *ca, **ck)
+
+            monkeypatch.setattr(pl2.LazyFrame, "collect", counting_collect)
+            try:
+                out = orig_fused(*a, **k)
+            finally:
+                monkeypatch.setattr(pl2.LazyFrame, "collect", orig_collect)
+            collects_inside.append((count[0], out is not None))
+            return out
+
+        monkeypatch.setattr(fp, "_connected_join_two_star_fused_polars", counting_fused)
+        res = g.gfql(self.Q_Q7_SHAPE, engine="polars")
+        assert self._rows(res) == [{"city": "London", "country": "United Kingdom", "n": 3}]
+        assert collects_inside and collects_inside[-1][1], "fused lane did not serve"
+        assert collects_inside[-1][0] == 1, (
+            f"fused lane issued {collects_inside[-1][0]} collects, expected exactly 1 "
+            "(the grouped tail must ride the hot-path collect)")
+
+
+# ---------------------------------------------------------------------------------------
+# #1846 minimal-join: BOTH SIDES of every algebraic removal, pinned.
+#
+# The fused plan drops (a) the left-arm shared-domain semi-join and (b) the right-arm
+# second-leaf semi-join, and (c) folds the grouped tail into the single collect -- each
+# under a proof-carrying guard. The tests below pin the SERVED side (the removal really
+# happens, and the answer is still the eager twin's / the pandas oracle's) AND the KEPT
+# side (the guard branch that must NOT take the removal still emits the old op).
+# Plan shapes are observed by instrumenting polars INSIDE the fused helper only, so a
+# later refactor cannot silently swap which branch a query takes.
+# ---------------------------------------------------------------------------------------
+
+_LOOKUP_KEY = "__gfql_fast_second_leaf_id__"
+
+
+def _run_with_fused_plan_spies(g, q):
+    """Run ``q`` on the polars engine with the fused helper instrumented.
+
+    Returns ``(nodes, served, joins, eager_group_bys, collects)`` where ``joins`` is the
+    list of ``(how, left_on, right_on, on)`` for every LAZY join built inside the fused
+    helper, ``eager_group_bys`` the DataFrame-level (eager) group_by calls, and
+    ``collects`` the number of LazyFrame.collect calls it issued. Instrumentation is
+    scoped to the helper's dynamic extent and restored unconditionally.
+    """
+    pl2 = pl
+    joins: list = []
+    eager_group_bys: list = []
+    served: list = []
+    collect_count = [0]
+    orig_fused = fp._connected_join_two_star_fused_polars
+    orig_join = pl2.LazyFrame.join
+    orig_gb = pl2.DataFrame.group_by
+    orig_collect = pl2.LazyFrame.collect
+
+    def spy_join(self, other, *a, **k):
+        joins.append((k.get("how", "inner"), k.get("left_on"), k.get("right_on"), k.get("on")))
+        return orig_join(self, other, *a, **k)
+
+    def spy_gb(self, *a, **k):
+        eager_group_bys.append((a, k))
+        return orig_gb(self, *a, **k)
+
+    def spy_collect(self, *a, **k):
+        collect_count[0] += 1
+        return orig_collect(self, *a, **k)
+
+    def spy_fused(*a, **k):
+        pl2.LazyFrame.join = spy_join
+        pl2.DataFrame.group_by = spy_gb
+        pl2.LazyFrame.collect = spy_collect
+        try:
+            out = orig_fused(*a, **k)
+        finally:
+            pl2.LazyFrame.join = orig_join
+            pl2.DataFrame.group_by = orig_gb
+            pl2.LazyFrame.collect = orig_collect
+        served.append(out is not None)
+        return out
+
+    fp._connected_join_two_star_fused_polars = spy_fused
+    try:
+        nodes = g.gfql(q, engine="polars")._nodes
+    finally:
+        fp._connected_join_two_star_fused_polars = orig_fused
+    return nodes, served, joins, eager_group_bys, collect_count[0]
+
+
+def _eager_twin_nodes(g, q):
+    """The forced-decline eager twin: the fused helper declines, everything else is live
+    (residual fast lane included), so this is exactly the plan the removals rewrote."""
+    orig = fp._connected_join_two_star_fused_polars
+    fp._connected_join_two_star_fused_polars = lambda *a, **k: None
+    try:
+        return g.gfql(q, engine="polars")._nodes
+    finally:
+        fp._connected_join_two_star_fused_polars = orig
+
+
+def _to_records(df):
+    pdf = df.to_pandas() if hasattr(df, "to_pandas") else df
+    return pdf.to_dict("records")
+
+
+def _col_names(df):
+    return [str(c) for c in df.columns]
+
+
+class TestMinimalJoinBothSides:
+    """Served-side AND kept-side pins for each of the three #1846 removals."""
+
+    #: the q7 anatomy (grouped, group properties) -- removal (b)'s SERVED side
+    Q_GROUPED = TestFusedTwoStarLane.Q_Q7_SHAPE
+
+    #: same match, ungrouped count -- NO group properties, removal (b)'s KEPT side
+    Q_UNGROUPED = ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+                   "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+                   "WHERE toLower(i.interest) = 'fine dining' "
+                   "AND p.age >= 20 AND p.age <= 40 "
+                   "RETURN count(p) AS n")
+
+    #: live first arm (restricted counts all 1), empty join -- the n=0 probe branch
+    Q_N0_PROBE = ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+                  "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+                  "WHERE toLower(i.interest) = 'tennis' "
+                  "AND p.age >= 20 AND p.age <= 40 AND c.city = 'NoSuchCity' "
+                  "RETURN count(p) AS n")
+
+    def _graph(self):
+        return TestFusedTwoStarLane._q7_shape_graph(TestFusedTwoStarLane())
+
+    @staticmethod
+    def _semis(joins):
+        return [(left, right) for how, left, right, _ in joins if how == "semi"]
+
+    @staticmethod
+    def _lookup_inners(joins):
+        return [j for j in joins if j[0] == "inner" and j[2] == _LOOKUP_KEY]
+
+    # --- (b) KEPT side: without group properties the second-leaf semi STAYS -----------
+
+    @requires_polars
+    def test_without_group_properties_the_second_leaf_semi_is_emitted(self):
+        """PLAN pin: the ungrouped count has no group-property lookup join, so nothing
+        subsumes the second-leaf semi-join and the fused plan must still emit it --
+        semis are EXACTLY (first-leaf dst, shared-domain src, second-leaf dst), no
+        lookup join, and no probe rebuild (the shared-domain semi appears once; the
+        n=0 boundary would add a second). Value parity vs the eager twin and the
+        pandas oracle. (Raw collect counts are not asserted on this branch: polars
+        implements eager DataFrame ops via internal collects, so only the join shape
+        is a stable signal here.)"""
+        g = self._graph()
+        nodes, served, joins, eager_gbs, _collects = _run_with_fused_plan_spies(g, self.Q_UNGROUPED)
+        assert served == [True], "fused lane did not serve"
+        assert self._semis(joins) == [("dst", "node_id"), ("src", "node_id"), ("dst", "node_id")], (
+            f"expected the second-leaf semi to be EMITTED without group properties: {joins}")
+        assert self._lookup_inners(joins) == [], (
+            f"no group properties, yet a lookup join appeared: {joins}")
+        assert eager_gbs == []
+        assert _to_records(nodes) == [{"n": 3}]
+        assert _to_records(nodes) == _to_records(_eager_twin_nodes(g, self.Q_UNGROUPED))
+        gpd = graphistry.nodes(g._nodes.to_pandas(), "node_id").edges(
+            g._edges.to_pandas(), "src", "dst")
+        assert _to_records(nodes) == gpd.gfql(self.Q_UNGROUPED, engine="pandas")._nodes.to_dict("records")
+
+    # --- (b) SERVED side: the lookup join subsumes the semi, explicitly --------------
+
+    @requires_polars
+    def test_with_group_properties_the_lookup_join_subsumes_the_second_leaf_semi(self):
+        """PLAN pin for what the existing anatomy test asserts only by value: with group
+        properties the second-leaf semi is NOT emitted (exactly two semis remain:
+        first-leaf dst + shared-domain src) and exactly one unique-keyed lookup INNER
+        join replaces it."""
+        g = self._graph()
+        nodes, served, joins, eager_gbs, collects = _run_with_fused_plan_spies(g, self.Q_GROUPED)
+        assert served == [True], "fused lane did not serve"
+        assert self._semis(joins) == [("dst", "node_id"), ("src", "node_id")], (
+            f"the second-leaf semi must be SUBSUMED under group properties: {joins}")
+        assert len(self._lookup_inners(joins)) == 1, f"expected one lookup join: {joins}"
+        assert _to_records(nodes) == [{"city": "London", "country": "United Kingdom", "n": 3}]
+        assert _to_records(nodes) == _to_records(_eager_twin_nodes(g, self.Q_GROUPED))
+
+    # --- (a) SERVED side: populated match, out-of-domain multiplicity ----------------
+
+    @requires_polars
+    def test_populated_match_out_of_domain_counts_stay_correct_ungrouped(self):
+        """The dropped left-arm semi, OBSERVABLE on a populated match: the fixture's
+        unrestricted per-src counts carry an out-of-domain group (p3, age 55) that the
+        restricted counts do not -- asserted directly so the discriminator cannot rot.
+        The fused answer must still be 3 (p1's 2 + p2's 1): a plan that let the dropped
+        semi widen the final join would answer 4 (p3's Paris row joins its count of 1).
+        Complements the existing grouped anatomy pin with the ungrouped served side."""
+        g = self._graph()
+        ndf, edf = g._nodes, g._edges
+        fine_ids = ndf.filter(
+            pl.col("interest").str.to_lowercase() == "fine dining")["node_id"].to_list()
+        first_arm = edf.filter(
+            (pl.col("rel") == "HAS_INTEREST") & pl.col("dst").is_in(fine_ids))
+        unrestricted = dict(
+            first_arm.group_by("src").len().rows())
+        in_domain = set(ndf.filter(
+            (pl.col("node_type") == "Person")
+            & (pl.col("age") >= 20) & (pl.col("age") <= 40))["node_id"].to_list())
+        restricted = {k: v for k, v in unrestricted.items() if k in in_domain}
+        assert set(unrestricted) != set(restricted), (
+            "fixture no longer discriminates: every first-arm src is in-domain, so the "
+            "dropped shared-domain semi is unobservable here")
+        nodes, served, _joins, _gbs, _collects = _run_with_fused_plan_spies(g, self.Q_UNGROUPED)
+        assert served == [True], "fused lane did not serve"
+        assert _to_records(nodes) == [{"n": 3}]
+        assert _to_records(nodes) == _to_records(_eager_twin_nodes(g, self.Q_UNGROUPED))
+        gpd = graphistry.nodes(ndf.to_pandas(), "node_id").edges(
+            edf.to_pandas(), "src", "dst")
+        assert _to_records(nodes) == gpd.gfql(self.Q_UNGROUPED, engine="pandas")._nodes.to_dict("records")
+
+    # --- (a) KEPT side: the n=0 probe REBUILDS the shared-domain semi ----------------
+
+    @requires_polars
+    def test_empty_match_probe_rebuilds_the_shared_domain_semi(self):
+        """PLAN pin for the boundary branch the value-level probe test already guards:
+        on the empty-match n=0 probe the fused helper must emit the shared-domain
+        semi a SECOND time (the probe's restricted-count rebuild) -- the hot plan's
+        unrestricted counts alone would flip the all-==-1 probe. Its populated twin
+        above pins the served side: exactly ONE src-side semi, no rebuild."""
+        g = self._graph()
+        nodes, served, joins, _gbs, _collects = _run_with_fused_plan_spies(g, self.Q_N0_PROBE)
+        assert served == [True], "fused lane did not serve"
+        shared_semis = [s for s in self._semis(joins) if s == ("src", "node_id")]
+        assert len(shared_semis) == 2, (
+            f"the n=0 probe must REBUILD the shared-domain semi (expected 2 src-side "
+            f"semis, hot plan + probe): {joins}")
+        assert _to_records(nodes) == [{"n": 0}]
+        assert _to_records(nodes) == _to_records(_eager_twin_nodes(g, self.Q_N0_PROBE))
+
+    # --- (c) SERVED side: grouped-with-results tail is lazy (no eager group_by) ------
+
+    @requires_polars
+    def test_grouped_with_results_has_no_eager_group_by(self):
+        """The one-collect pin's structural complement: when the grouped tail rides the
+        single collect, NO eager DataFrame.group_by may run inside the helper."""
+        g = self._graph()
+        nodes, served, _joins, eager_gbs, collects = _run_with_fused_plan_spies(g, self.Q_GROUPED)
+        assert served == [True], "fused lane did not serve"
+        assert eager_gbs == [], f"grouped tail fell off the lazy plan: {eager_gbs}"
+        assert collects == 1, f"expected the single fused collect, saw {collects}"
+        assert _to_records(nodes) == [{"city": "London", "country": "United Kingdom", "n": 3}]
+
+    # --- (c) KEPT side: grouped LIMIT 0 takes the eager tail --------------------------
+
+    @requires_polars
+    def test_grouped_limit_zero_takes_the_eager_tail(self):
+        """The LIMIT 0 guard branch must still run the EAGER grouped tail (that is what
+        preserves the 0-row WITH-columns contract): exactly one eager group_by on the
+        group keys, maintain_order preserved -- plus the value contract vs the twin."""
+        g = self._graph()
+        q = self.Q_GROUPED.replace("LIMIT 1", "LIMIT 0")
+        nodes, served, _joins, eager_gbs, _collects = _run_with_fused_plan_spies(g, q)
+        assert served == [True], "fused lane did not serve"
+        assert len(eager_gbs) == 1, f"LIMIT 0 must keep the eager grouped tail: {eager_gbs}"
+        gb_args, gb_kwargs = eager_gbs[0]
+        assert gb_args == (["city", "country"],)
+        assert gb_kwargs.get("maintain_order") is True
+        assert len(nodes) == 0 and sorted(_col_names(nodes)) == ["city", "country", "n"]
+        eager = _eager_twin_nodes(g, q)
+        assert len(eager) == 0 and sorted(_col_names(eager)) == sorted(_col_names(nodes))
+
+    # --- (c) ungrouped shapes: unchanged behavior -------------------------------------
+
+    @requires_polars
+    @pytest.mark.parametrize("suffix", [" LIMIT 0", " LIMIT 2"])
+    def test_ungrouped_limit_shapes_never_reach_the_fused_lane(self, suffix):
+        """Ungrouped count + LIMIT declines the two-star fast path BEFORE either lane
+        (unchanged by #1846): the fused helper is never called, and the answer is
+        byte-identical to the forced-decline twin and the pandas oracle."""
+        g = self._graph()
+        q = self.Q_UNGROUPED + suffix
+        nodes, served, joins, _gbs, _collects = _run_with_fused_plan_spies(g, q)
+        assert served == [] and joins == [], f"ungrouped{suffix} unexpectedly reached the fused lane"
+        eager = _eager_twin_nodes(g, q)
+        assert nodes.equals(eager) and dict(nodes.schema) == dict(eager.schema)
+        gpd = graphistry.nodes(g._nodes.to_pandas(), "node_id").edges(
+            g._edges.to_pandas(), "src", "dst")
+        oracle = gpd.gfql(q, engine="pandas")._nodes
+        assert _col_names(nodes) == _col_names(oracle)
+        assert _to_records(nodes) == oracle.to_dict("records")
+
+
+class TestMinimalJoinDifferential:
+    """Seeded differential across the three #1846 boundary axes.
+
+    ~8 seeded graphs x (group properties yes/no) x (empty/populated match) x
+    (LIMIT 0/None/positive): the fused lane, the forced-decline eager twin, and the
+    pandas oracle must agree byte-for-byte -- fused vs eager as full polars frame
+    equality (schema included), vs pandas as column-order + record equality (the
+    established cross-engine comparison in this file). Every seeded graph carries a
+    deterministic core that keeps the populated combos non-empty and keeps an
+    out-of-domain shared node in the first arm, so the dropped shared-domain semi
+    stays observable on every seed.
+    """
+
+    LIMITS = ["", " LIMIT 0", " LIMIT 2"]
+
+    @staticmethod
+    def _seeded_graph(seed):
+        import numpy as np
+        pl2 = pytest.importorskip("polars")
+        rng = np.random.default_rng(seed)
+        # deterministic core: p1/p2 in the age domain (counts 2 and 1 on 'fine dining'),
+        # p3 OUT of domain but present in the first arm; two cities, one unmatched
+        node_ids = [1, 2, 3, 4, 5, 6, 7]
+        node_types = ["Person", "Person", "Person", "Interest", "Interest", "City", "City"]
+        ages: list = [25, 30, 55, None, None, None, None]
+        interests: list = [None, None, None, "Fine Dining", "tennis", None, None]
+        cities: list = [None, None, None, None, None, "London", "Paris"]
+        countries: list = [None, None, None, None, None, "United Kingdom", "France"]
+        srcs = [1, 1, 2, 3, 2, 3, 3]
+        dsts = [4, 4, 4, 4, 5, 5, 5]
+        rels = ["HAS_INTEREST"] * 7
+        srcs += [1, 2, 3]
+        dsts += [6, 6, 7]
+        rels += ["LIVES_IN"] * 3
+        # seeded noise: extra persons/interests/cities and multi-edges
+        interest_pool = ["fine dining", "Fine Dining", "chess", "tennis"]
+        n_interest = int(rng.integers(1, 4))
+        extra_interests = list(range(200, 200 + n_interest))
+        for j, nid in enumerate(extra_interests):
+            node_ids.append(nid)
+            node_types.append("Interest")
+            ages.append(None)
+            interests.append(interest_pool[int(rng.integers(0, len(interest_pool)))])
+            cities.append(None)
+            countries.append(None)
+        n_city = int(rng.integers(1, 4))
+        extra_cities = list(range(300, 300 + n_city))
+        for k, nid in enumerate(extra_cities):
+            node_ids.append(nid)
+            node_types.append("City")
+            ages.append(None)
+            interests.append(None)
+            cities.append(f"city_{seed}_{k}")
+            countries.append("United Kingdom" if rng.integers(0, 2) else "France")
+        n_person = int(rng.integers(3, 7))
+        all_interests = [4, 5] + extra_interests
+        all_cities = [6, 7] + extra_cities
+        for i in range(n_person):
+            nid = 100 + i
+            node_ids.append(nid)
+            node_types.append("Person")
+            ages.append(int(rng.integers(15, 65)))
+            interests.append(None)
+            cities.append(None)
+            countries.append(None)
+            for _ in range(int(rng.integers(1, 4))):
+                target = all_interests[int(rng.integers(0, len(all_interests)))]
+                for _dup in range(int(rng.integers(1, 3))):
+                    srcs.append(nid)
+                    dsts.append(target)
+                    rels.append("HAS_INTEREST")
+            srcs.append(nid)
+            dsts.append(all_cities[int(rng.integers(0, len(all_cities)))])
+            rels.append("LIVES_IN")
+        ndf = pl2.DataFrame({
+            "node_id": node_ids, "node_type": node_types, "age": ages,
+            "interest": interests, "city": cities, "country": countries,
+        })
+        edf = pl2.DataFrame({"src": srcs, "dst": dsts, "rel": rels})
+        return graphistry.nodes(ndf, "node_id").edges(edf, "src", "dst")
+
+    @staticmethod
+    def _query(grouped, literal, limit_suffix):
+        ret = ("c.city AS city, count(p) AS n ORDER BY n DESC, city ASC" if grouped
+               else "count(p) AS n")
+        return ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+                "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+                f"WHERE toLower(i.interest) = '{literal}' "
+                "AND p.age >= 20 AND p.age <= 40 "
+                f"RETURN {ret}{limit_suffix}")
+
+    @requires_polars
+    @pytest.mark.parametrize("seed", range(8))
+    def test_fused_eager_and_pandas_agree_on_every_boundary_combo(self, seed):
+        g = self._seeded_graph(seed)
+        gpd = graphistry.nodes(g._nodes.to_pandas(), "node_id").edges(
+            g._edges.to_pandas(), "src", "dst")
+        populated_nonempty = 0
+        for grouped in (True, False):
+            for literal, populated in (("fine dining", True), ("no such interest", False)):
+                for limit_suffix in self.LIMITS:
+                    q = self._query(grouped, literal, limit_suffix)
+                    label = f"seed={seed} grouped={grouped} lit={literal!r} lim={limit_suffix!r}"
+                    fused, served, _joins, _gbs, _collects = _run_with_fused_plan_spies(g, q)
+                    # ungrouped + LIMIT declines the two-star fast path upstream of the
+                    # lane; every other combo must be SERVED by the fused helper
+                    if grouped or limit_suffix == "":
+                        assert served == [True], f"{label}: fused lane did not serve"
+                    else:
+                        assert served == [], f"{label}: unexpectedly reached the fused lane"
+                    eager = _eager_twin_nodes(g, q)
+                    assert dict(fused.schema) == dict(eager.schema), (
+                        f"{label}: schema drift fused={fused.schema} eager={eager.schema}")
+                    assert fused.equals(eager), (
+                        f"{label}: fused != eager twin\nfused:\n{fused}\neager:\n{eager}")
+                    oracle = gpd.gfql(q, engine="pandas")._nodes
+                    assert _col_names(fused) == _col_names(oracle), (
+                        f"{label}: column drift vs pandas oracle")
+                    assert _to_records(fused) == oracle.to_dict("records"), (
+                        f"{label}: fused != pandas oracle")
+                    if populated and limit_suffix != " LIMIT 0" and len(fused) > 0:
+                        populated_nonempty += 1
+        # non-vacuity: the deterministic core guarantees populated combos return rows
+        assert populated_nonempty >= 4, (
+            f"seed={seed}: populated combos unexpectedly empty (vacuous differential)")
+
 
 class TestFusedLaneNanGuardScoping:
     """#1832 follow-up: the fused lane skips the IEEE NaN mask for BARE COLUMN operands only.
