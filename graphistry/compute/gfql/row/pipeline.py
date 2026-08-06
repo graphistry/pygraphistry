@@ -112,9 +112,8 @@ def _unary_ufunc_on_series(np_fn: "np.ufunc", s: SeriesT) -> SeriesT:
     identical values (cudf nulls ride NaN and are re-nulled on return), host cost.
     """
     if s.__class__.__module__.startswith("cudf"):
-        from graphistry.utils.lazy_import import lazy_cupy_import
-        ok, _reason, _cp = lazy_cupy_import()
-        if not ok:
+        from graphistry.utils.lazy_import import cudf_runtime_caps
+        if not cudf_runtime_caps().has_cupy_compute:
             import cudf
             return cudf.Series(np_fn(s.to_pandas().to_numpy()), index=s.index)  # type: ignore[return-value]  # engine seam: cudf rides SeriesT
     return np_fn(s)
