@@ -193,6 +193,50 @@ def _connected_join_simple_filter_cache_key(filter_dict: Optional[dict]) -> Opti
     return tuple(sorted(items))
 
 
+def _filter_project(
+    frame: DataFrameT,
+    match: Optional[Dict[str, Any]],
+    project: Optional[Sequence[str]],
+    *,
+    engine: Engine,
+) -> DataFrameT:
+    """filter_by_dict with an optional column projection, on every engine.
+
+    WHEN to project is a STATIC plan property, not a cost decision: a caller
+    passes ``project`` iff its plan provably reads only those columns (e.g. a
+    count-shaped fast path reads only node id and edge endpoint columns). That
+    admission rule is sufficient because both arms are monotone — projection is
+    never more expensive than the plain filter:
+
+    - polars: the SAME validated expr (built against the full schema) runs as
+      one lazy filter+select, so the engine gathers only the requested columns.
+    - pandas/cudf: the boolean mask is built without materializing anything
+      (``filter_mask_by_dict`` — same column resolution, same typed errors),
+      then ``.loc[mask, project]`` gathers only the requested columns: identical
+      mask work, strictly fewer gathered columns than the full filter.
+
+    The filter may reference projected-away columns in every arm.
+    ``project=None`` is byte-identical to the plain filter. Contract with
+    columns: exactly ``project``, post-filter.
+    """
+    if engine in POLARS_ENGINES:
+        from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_expr_by_dict_polars
+        expr = filter_expr_by_dict_polars(frame, match)
+        if project is None:
+            return cast(DataFrameT, frame.filter(expr) if expr is not None else frame)
+        lf = frame.lazy()  # engine seam: polars frame rides DataFrameT
+        if expr is not None:
+            lf = lf.filter(expr)
+        return cast(DataFrameT, lf.select(list(project)).collect())
+    if project is None:
+        return filter_by_dict(frame, match, engine=EngineAbstract(engine.value))
+    if not match:
+        return cast(DataFrameT, frame[list(project)])
+    from graphistry.compute.filter_by_dict import filter_mask_by_dict
+    mask = filter_mask_by_dict(frame, match)
+    return cast(DataFrameT, frame.loc[mask, list(project)])
+
+
 def _connected_join_cached_node_filter(
     base_graph: Plottable,
     nodes_obj: DataFrameT,
@@ -200,30 +244,23 @@ def _connected_join_cached_node_filter(
     *,
     engine: Engine,
     cache_store: Optional[Dict[str, Any]] = None,
+    project: Optional[Sequence[str]] = None,
 ) -> DataFrameT:
     cache_key = _connected_join_simple_filter_cache_key(node_match)
     if cache_key is None:
-        nodes = df_to_engine(nodes_obj, engine)
-        if engine in POLARS_ENGINES:
-            from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
-            return cast(DataFrameT, filter_by_dict_polars(nodes, node_match))
-        return filter_by_dict(nodes, node_match, engine=EngineAbstract(engine.value))
+        return _filter_project(df_to_engine(nodes_obj, engine), node_match, project, engine=engine)
 
     cache_attr = "_gfql_connected_join_node_filter_cache"
     # Per-execution cache only (threaded via cache_store); NEVER setattr onto the caller's
     # Plottable -- that leaked results across gfql() calls keyed by id(), returning stale
     # answers after an in-place edge/node mutation (BLOCKER 1). None => no caching.
     cache = cache_store.setdefault(cache_attr, {}) if cache_store is not None else None
-    full_key = (id(nodes_obj), engine.value, cache_key)
+    proj_key = tuple(project) if project is not None else None
+    full_key = (id(nodes_obj), engine.value, cache_key, proj_key)
     if cache is not None and full_key in cache:
         return cast(DataFrameT, cache[full_key])
 
-    nodes = df_to_engine(nodes_obj, engine)
-    if engine in POLARS_ENGINES:
-        from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
-        filtered = cast(DataFrameT, filter_by_dict_polars(nodes, node_match))
-    else:
-        filtered = filter_by_dict(nodes, node_match, engine=EngineAbstract(engine.value))
+    filtered = _filter_project(df_to_engine(nodes_obj, engine), node_match, project, engine=engine)
     if cache is not None:
         cache[full_key] = filtered
     return cast(DataFrameT, filtered)
@@ -276,30 +313,23 @@ def _connected_join_cached_edge_filter(
     *,
     engine: Engine,
     cache_store: Optional[Dict[str, Any]] = None,
+    project: Optional[Sequence[str]] = None,
 ) -> DataFrameT:
     cache_key = _connected_join_simple_filter_cache_key(edge_match)
     if cache_key is None:
-        edges = df_to_engine(edges_obj, engine)
-        if engine in POLARS_ENGINES:
-            from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
-            return cast(DataFrameT, filter_by_dict_polars(edges, edge_match))
-        return filter_by_dict(edges, edge_match, engine=EngineAbstract(engine.value))
+        return _filter_project(df_to_engine(edges_obj, engine), edge_match, project, engine=engine)
 
     cache_attr = "_gfql_connected_join_edge_filter_cache"
     # Per-execution cache only (threaded via cache_store); NEVER setattr onto the caller's
     # Plottable -- that leaked results across gfql() calls keyed by id(), returning stale
     # answers after an in-place edge/node mutation (BLOCKER 1). None => no caching.
     cache = cache_store.setdefault(cache_attr, {}) if cache_store is not None else None
-    full_key = (id(edges_obj), engine.value, cache_key)
+    proj_key = tuple(project) if project is not None else None
+    full_key = (id(edges_obj), engine.value, cache_key, proj_key)
     if cache is not None and full_key in cache:
         return cast(DataFrameT, cache[full_key])
 
-    edges = df_to_engine(edges_obj, engine)
-    if engine in POLARS_ENGINES:
-        from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
-        filtered = cast(DataFrameT, filter_by_dict_polars(edges, edge_match))
-    else:
-        filtered = filter_by_dict(edges, edge_match, engine=EngineAbstract(engine.value))
+    filtered = _filter_project(df_to_engine(edges_obj, engine), edge_match, project, engine=engine)
     if cache is not None:
         cache[full_key] = filtered
     return cast(DataFrameT, filtered)
@@ -547,7 +577,7 @@ def _two_hop_cached_equal_domain_degree_counts(
             filtered_edges.group_by(dst_col).len("__in_count__"),
             filtered_edges.group_by(src_col).len("__out_count__"),
         ])
-        counts = (in_counts, out_counts)  # type: ignore[assignment]  # polars frames; DataFrameT pins pandas
+        counts = (in_counts, out_counts)  # polars frames; DataFrameT pins pandas
     else:
         domain_ids = domain_nodes[node_col].drop_duplicates()
         filtered_edges = edge_domain[edge_domain[src_col].isin(domain_ids) & edge_domain[dst_col].isin(domain_ids)]
@@ -912,7 +942,7 @@ def _connected_join_two_star_fused_polars(
                     and bool(left_counts_df.select((pl.col("__left_count__") == 1).all()).item())
                 )
             if not emit_zero_row:
-                empty_grouped: DataFrameT = joined.select([])  # type: ignore[assignment]
+                empty_grouped: DataFrameT = joined.select([])
                 return empty_grouped
             out_df = pl.DataFrame({agg_alias: [0]}).with_columns(pl.col(agg_alias).cast(pl.Int64))
         elif output_group_keys:
@@ -1317,7 +1347,7 @@ def _connected_join_two_star_fast_grouped_count(
         else:
             joined = right_rows.join(left_counts, on=shared_alias, how="inner")
             if len(joined) == 0:
-                empty_grouped: DataFrameT = joined.select([])  # type: ignore[assignment]
+                empty_grouped: DataFrameT = joined.select([])
                 return empty_grouped
             if output_group_keys:
                 out_df = joined.group_by(output_group_keys, maintain_order=True).agg(pl.col("__left_count__").sum().cast(pl.Int64).alias(agg_alias))
@@ -1552,7 +1582,7 @@ def _filter_nodes_for_fast_count(nodes: DataFrameT, filter_dict: Optional[dict],
     if engine in POLARS_ENGINES:
         from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
         # engine-neutral DataFrameT that IS a polars frame on this branch (see gate above)
-        return cast(DataFrameT, filter_by_dict_polars(nodes, filter_dict))  # type: ignore[type-var]
+        return cast(DataFrameT, filter_by_dict_polars(nodes, filter_dict))
     return filter_by_dict(nodes, filter_dict, engine=EngineAbstract(engine.value))
 
 
@@ -2155,16 +2185,14 @@ def _execute_single_hop_grouped_aggregate_fast_path(
         limit_value = raw_limit
 
     requested_engine = resolve_engine(cast(Any, engine), base_graph)
-    nodes_obj = getattr(base_graph, "_nodes", None)
-    edges_obj = getattr(base_graph, "_edges", None)
-    node_col = getattr(base_graph, "_node", None)
-    src_col = getattr(base_graph, "_source", None)
-    dst_col = getattr(base_graph, "_destination", None)
-    if nodes_obj is None or edges_obj is None or node_col is None or src_col is None or dst_col is None:
+    nodes_obj = base_graph._nodes
+    edges_obj = base_graph._edges
+    if (nodes_obj is None or edges_obj is None or base_graph._node is None
+            or base_graph._source is None or base_graph._destination is None):
         return None
-    node_col = str(node_col)
-    src_col = str(src_col)
-    dst_col = str(dst_col)
+    node_col: str = base_graph._node
+    src_col: str = base_graph._source
+    dst_col: str = base_graph._destination
     if node_col not in nodes_obj.columns or src_col not in edges_obj.columns or dst_col not in edges_obj.columns:
         return None
 
@@ -2414,7 +2442,7 @@ def _indexable_series_has_nulls(s: SeriesT, *, engine: Engine) -> bool:
     the typed ``null_count`` property.
     """
     if engine is Engine.CUDF:
-        cudf_s: _NullCountable = s  # type: ignore[assignment]  # engine==CUDF => cudf.Series
+        cudf_s: _NullCountable = s  # engine==CUDF => cudf.Series
         return int(cudf_s.null_count) != 0
     return False
 
@@ -2452,7 +2480,7 @@ def _dense_int_domain_interval(
     with None.
     """
     if engine in POLARS_ENGINES:
-        pl_nodes: "pl.DataFrame" = domain_nodes  # type: ignore[assignment]  # engine seam: polars frame rides engine-agnostic DataFrameT
+        pl_nodes: "pl.DataFrame" = domain_nodes  # engine seam: polars frame rides engine-agnostic DataFrameT
         return _dense_interval_polars(pl_nodes.get_column(node_col))
     return _dense_interval_indexable(domain_nodes[node_col], engine=engine)
 
@@ -2522,7 +2550,7 @@ def _edge_cols_bounds_within(
     and fusing buys nothing there).
     """
     if engine in POLARS_ENGINES:
-        pl_frame: "pl.DataFrame" = frame  # type: ignore[assignment]  # engine seam: polars frame rides engine-agnostic DataFrameT
+        pl_frame: "pl.DataFrame" = frame  # engine seam: polars frame rides engine-agnostic DataFrameT
         return _edge_cols_bounds_polars(pl_frame, src_col, dst_col, lo, hi)
     return (_bounds_within_indexable(frame[src_col], lo, hi, engine=engine)
             and _bounds_within_indexable(frame[dst_col], lo, hi, engine=engine))
@@ -2599,18 +2627,18 @@ def _two_hop_equal_domain_dense_total(
     if 0 <= lo and hi + 1 <= table_budget:
         # Shift elision: raw arrays, table of hi+1; bounds proof keeps [0, lo) all-zero (pinned).
         in_counts = xp.bincount(dst_arr, minlength=hi + 1)
-        total = in_counts[src_arr].sum()  # type: ignore[index]  # ArrayLike protocol omits array-index gather; numpy/cupy both support it
+        total = in_counts[src_arr].sum()
     elif src_arr.dtype == dst_arr.dtype:
         # Shifted lane through ONE scratch buffer; gather runs strictly after the bincount (pinned).
         buf = xp.empty(src_arr.shape[0], dtype=src_arr.dtype)
         xp.subtract(dst_arr, lo, out=buf)
         in_counts = xp.bincount(buf, minlength=n)
         xp.subtract(src_arr, lo, out=buf)
-        total = in_counts[buf].sum()  # type: ignore[index]  # ArrayLike protocol omits array-index gather; numpy/cupy both support it
+        total = in_counts[buf].sum()
     else:
         # Mixed endpoint dtypes: plain shift, no cross-dtype scratch buffer (pinned).
         in_counts = xp.bincount(dst_arr - lo, minlength=n)
-        total = in_counts[src_arr - lo].sum()  # type: ignore[index]  # ArrayLike protocol omits array-index gather; numpy/cupy both support it
+        total = in_counts[src_arr - lo].sum()
     return int(total)
 
 
@@ -2629,34 +2657,35 @@ def _execute_two_hop_count_fast_path(
     start_op, first_edge, middle_op, second_edge, end_op = ops
 
     requested_engine = resolve_engine(cast(Any, engine), base_graph)
-    nodes_obj = getattr(base_graph, "_nodes", None)
-    edges_obj = getattr(base_graph, "_edges", None)
-    node_col = getattr(base_graph, "_node", None)
-    src_col = getattr(base_graph, "_source", None)
-    dst_col = getattr(base_graph, "_destination", None)
-    if nodes_obj is None or edges_obj is None or node_col is None or src_col is None or dst_col is None:
+    nodes_obj = base_graph._nodes
+    edges_obj = base_graph._edges
+    if (nodes_obj is None or edges_obj is None or base_graph._node is None
+            or base_graph._source is None or base_graph._destination is None):
         return None
-    node_col = str(node_col)
-    src_col = str(src_col)
-    dst_col = str(dst_col)
+    node_col: str = base_graph._node
+    src_col: str = base_graph._source
+    dst_col: str = base_graph._destination
     if node_col not in nodes_obj.columns or src_col not in edges_obj.columns or dst_col not in edges_obj.columns:
         return None
 
     nodes = cast(DataFrameT, nodes_obj)
-    start_nodes = _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], start_op.filter_dict), engine=requested_engine)
+    # Count shape reads only these columns (see _filter_project; pinned per engine).
+    node_proj = [node_col]
+    edge_proj = list(dict.fromkeys([src_col, dst_col]))
+    start_nodes = _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], start_op.filter_dict), engine=requested_engine, project=node_proj)
     middle_nodes = (
         start_nodes
         if middle_op.filter_dict == start_op.filter_dict
-        else _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], middle_op.filter_dict), engine=requested_engine)
+        else _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], middle_op.filter_dict), engine=requested_engine, project=node_proj)
     )
     end_nodes = (
         middle_nodes
         if end_op.filter_dict == middle_op.filter_dict
         else start_nodes
         if end_op.filter_dict == start_op.filter_dict
-        else _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], end_op.filter_dict), engine=requested_engine)
+        else _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], end_op.filter_dict), engine=requested_engine, project=node_proj)
     )
-    first_edges = _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], first_edge.edge_match), engine=requested_engine)
+    first_edges = _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], first_edge.edge_match), engine=requested_engine, project=edge_proj)
     reuse_single_edge_domain = (
         start_op.filter_dict == middle_op.filter_dict == end_op.filter_dict
         and first_edge.edge_match == second_edge.edge_match
@@ -2664,7 +2693,7 @@ def _execute_two_hop_count_fast_path(
     second_edges = (
         first_edges
         if first_edge.edge_match == second_edge.edge_match
-        else _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], second_edge.edge_match), engine=requested_engine)
+        else _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], second_edge.edge_match), engine=requested_engine, project=edge_proj)
     )
 
     if reuse_single_edge_domain:
