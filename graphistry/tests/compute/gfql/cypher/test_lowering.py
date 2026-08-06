@@ -17654,6 +17654,92 @@ def test_t6_count_path_narrow_filter_error_parity_polars() -> None:
     assert narrow.to_dicts() == full.select(["s", "d"]).to_dicts()
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_t6_col_stats_facts_build_and_invalidate(engine: str) -> None:
+    # gfql_index_col_stats builds verified facts for the bound id columns; a
+    # frame REBIND (even to an equal-valued copy) must invalidate them (identity
+    # guard) so a stale fact can never prove anything about a new frame.
+    nodes_pd, edges_pd = _t6_dense_frames()
+    graph = _mk_h3_graph(engine, nodes_pd, edges_pd)
+    eng = {"pandas": Engine.PANDAS, "polars": Engine.POLARS, "cudf": Engine.CUDF}[engine]
+    g2 = graph.gfql_index_col_stats(engine=engine)
+    reg = g2._gfql_index_registry
+    assert sorted(reg.col_stats.keys()) == [("edges", "d"), ("edges", "s"), ("nodes", "id")]
+    fact = reg.get_col_stats_valid("edges", "s", g2._edges, eng)
+    assert fact is not None
+    assert (fact.min_val, fact.max_val, fact.null_count, fact.is_integer) == (0, 2, 0, True)
+    rebound = g2.edges(g2._edges, "s", "d")  # new Plottable, same frame object -> still valid
+    assert reg.get_col_stats_valid("edges", "s", rebound._edges, eng) is not None
+    import copy as _copy
+    other = _copy.copy(g2._edges)  # equal values, different object -> identity miss
+    assert reg.get_col_stats_valid("edges", "s", other, eng) is None
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("with_facts", [True, False])
+def test_t6_col_stats_skip_bounds_scan_both_sides(
+    engine: str, with_facts: bool, monkeypatch: Any
+) -> None:
+    # Both sides of the fact gate: with valid facts the O(E) endpoint-bounds scan
+    # must NOT run; without them it MUST. Same count either way.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_h3_graph(engine, *_t6_dense_frames())
+    if with_facts:
+        graph = graph.gfql_index_col_stats(engine=engine)
+
+    calls: List[str] = []
+    real = gfql_fast_paths_module._edge_cols_bounds_within
+
+    def spy(*args: Any, **kw: Any) -> Any:
+        calls.append("scan")
+        return real(*args, **kw)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_within", spy)
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
+    assert calls == ([] if with_facts else ["scan"])
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_col_stats_conservative_miss_falls_back_to_scan(
+    engine: str, monkeypatch: Any
+) -> None:
+    # A fact that CANNOT prove containment (full-frame endpoint outside the
+    # domain interval, carried by a row the rel filter drops) must fall back to
+    # the subset scan -- which proves the filtered subset IS contained -- and the
+    # kernel must SERVE with the right count. Facts insufficient != decline.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes_pd, edges_pd = _t6_dense_frames()
+    extra = pd.DataFrame({"s": [0], "d": [99], "rel": ["OTHER"]})
+    edges_wide = pd.concat([edges_pd, extra], ignore_index=True)
+    graph = _mk_h3_graph(engine, nodes_pd, edges_wide).gfql_index_col_stats(engine=engine)
+
+    calls: List[str] = []
+    real = gfql_fast_paths_module._edge_cols_bounds_within
+
+    def spy(*args: Any, **kw: Any) -> Any:
+        calls.append("scan")
+        return real(*args, **kw)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_within", spy)
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
+    assert calls == ["scan"], "insufficient facts must scan, not skip and not decline"
+
+
+def test_t6_col_stats_index_all_includes_facts() -> None:
+    graph = _mk_graph(*_t6_dense_frames())
+    g2 = graph.gfql_index_all()
+    assert ("edges", "s") in g2._gfql_index_registry.col_stats
+    assert ("nodes", "id") in g2._gfql_index_registry.col_stats
+
+
 def test_t6_decline_keeps_memo_path_reachable() -> None:
     # The T5 memo graph has an out-of-domain FOLLOWS endpoint (a City), so the
     # dense kernel must DECLINE there and the memo must populate exactly as before

@@ -435,6 +435,34 @@ def gfql_index_node_props(g: Plottable, columns: Sequence[str],
     return g
 
 
+def gfql_index_col_stats(g: Plottable,
+                         engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
+    """Verified column-stat facts (min/max/null count) for the bound id columns:
+    the node id binding and the edge src/dst bindings. Integer columns only in
+    v1; a column that can't be fact-ed is skipped (consumers scan as before).
+    Facts ride the same identity+fingerprint validity contract as the physical
+    indexes, and consumers use them conservatively (see ColStatsFact) -- e.g.
+    the dense two-hop count kernel skips its O(E) endpoint-bounds scan when the
+    full-frame facts already prove containment."""
+    from .build import build_col_stats_fact
+    eng = resolve_engine(engine, g)
+    from graphistry.compute.ComputeMixin import _coerce_input_formats
+    g = _coerce_input_formats(g, eng)
+    registry = get_registry(g)
+    if g._nodes is not None and g._node is not None:
+        fact = build_col_stats_fact(g._nodes, g._node, "nodes", eng)
+        if fact is not None:
+            registry = registry.with_col_stats(fact)
+    if g._edges is not None:
+        for col in (g._source, g._destination):
+            if col is None:
+                continue
+            fact = build_col_stats_fact(g._edges, col, "edges", eng)
+            if fact is not None:
+                registry = registry.with_col_stats(fact)
+    return _attach(g, registry)
+
+
 def gfql_index_all(g: Plottable,
                    engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
     """Convenience: build out+in adjacency + (when ids are unique) node_id indexes.
@@ -449,7 +477,7 @@ def gfql_index_all(g: Plottable,
         g = create_index(g, NODE_ID, engine=engine)
     except GfqlIndexUnsupportedError:
         pass  # non-unique node ids -> skip the node_id accelerator (adjacency still built)
-    return g
+    return gfql_index_col_stats(g, engine=engine)
 
 
 # ---- planner entry ---------------------------------------------------------

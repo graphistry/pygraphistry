@@ -11,7 +11,7 @@ from typing import Optional, Tuple, cast
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT
 from .engine_arrays import array_namespace, col_to_array
-from .registry import AdjacencyIndex, NodeIdIndex, NodePropIndex, frame_fingerprint
+from .registry import AdjacencyIndex, ColStatsFact, ColStatsRole, NodeIdIndex, NodePropIndex, frame_fingerprint
 from .types import AdjacencyIndexKind, ArrayLike, ArrayNamespace
 
 
@@ -135,4 +135,50 @@ def build_node_prop_index(
         source_ref=cast(DataFrameT, nodes),
         n_nodes=int(keys.shape[0]),
         n_keys=int(unique_keys.shape[0]),
+    )
+
+
+def build_col_stats_fact(
+    frame: DataFrameT,
+    column: str,
+    role: "ColStatsRole",
+    engine: Engine,
+) -> Optional[ColStatsFact]:
+    """Verified min/max/null-count fact for one column of the bound frame, or None
+    when the column is absent or the reductions fail. Integer-only for v1 (the
+    dense-count proofs it serves admit only integer id columns); widening later is
+    additive -- a decline only means "scan", never a wrong answer.
+    """
+    from graphistry.Engine import POLARS_ENGINES
+    try:
+        if engine in POLARS_ENGINES:
+            s = frame.get_column(column)  # type: ignore[union-attr]  # engine seam: polars frame rides DataFrameT
+            if not s.dtype.is_integer():
+                return None
+            null_count = int(s.null_count())
+            if int(s.len()) == 0:
+                return None
+            mn = s.min()
+            mx = s.max()
+        else:
+            s = frame[column]
+            if getattr(s.dtype, "kind", None) not in ("i", "u"):
+                return None
+            null_count = int(s.isna().sum())
+            if int(s.shape[0]) == 0:
+                return None
+            mn = s.min()
+            mx = s.max()
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+    return ColStatsFact(
+        role=role,
+        column=column,
+        min_val=None if mn is None else int(mn),
+        max_val=None if mx is None else int(mx),
+        null_count=null_count,
+        is_integer=True,
+        engine=engine,
+        fingerprint=frame_fingerprint(frame, (column,), engine),
+        source_ref=frame,
     )

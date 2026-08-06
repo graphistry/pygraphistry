@@ -665,6 +665,13 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index import gfql_index_all as _gia
         return _gia(self, engine=engine)
 
+    def gfql_index_col_stats(self, engine: EngineAbstractType = 'auto') -> 'Plottable':
+        """Convenience: build verified column-stat facts for the bound id columns
+        (node id, edge src/dst) — consumed conservatively by count fast paths.
+        Returns a new Plottable."""
+        from graphistry.compute.gfql.index import gfql_index_col_stats as _gics
+        return _gics(self, engine=engine)
+
     def gfql_index_node_props(self, columns: Sequence[str], engine: EngineAbstractType = 'auto') -> 'Plottable':
         """Convenience: build node PROPERTY indexes for ``columns`` (secondary indexes).
 
