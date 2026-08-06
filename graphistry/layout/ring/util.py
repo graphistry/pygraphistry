@@ -33,8 +33,9 @@ def polar_to_xy(g: Plottable, r: Any, angle: Any, engine_concrete: Engine) -> Tu
     """
     if engine_concrete == Engine.CUDF:
         import cudf
-        from graphistry.utils.lazy_import import lazy_cupy_import
-        cupy_ok, _cupy_reason, cp = lazy_cupy_import()
+        from graphistry.utils.lazy_import import cudf_runtime_caps
+        _caps = cudf_runtime_caps()
+        cupy_ok, cp = _caps.has_cupy_compute, _caps.cupy
         if not isinstance(angle, cudf.Series):
             if isinstance(angle, pd.Series):
                 angle = cudf.Series(angle)

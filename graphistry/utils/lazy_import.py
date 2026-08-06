@@ -57,6 +57,35 @@ def lazy_cupy_import() -> Tuple[bool, Any, Optional[Any]]:  # hygiene-ok: explic
     return ok, reason, (cupy if ok else None)
 
 
+class CudfRuntimeCaps:
+    """One-stop capability answer for the cudf stack (see cudf_runtime_caps)."""
+    __slots__ = ("has_cudf", "cudf_reason", "cudf", "has_cupy_compute", "cupy_reason", "cupy")
+
+    def __init__(self, has_cudf: bool, cudf_reason: Any, cudf: Optional[Any],  # hygiene-ok: explicit-any -- reasons are exn-or-str; cudf/cupy modules untyped
+                 has_cupy_compute: bool, cupy_reason: Any, cupy: Optional[Any]) -> None:  # hygiene-ok: explicit-any -- reasons are exn-or-str; cudf/cupy modules untyped
+        self.has_cudf = has_cudf
+        self.cudf_reason = cudf_reason
+        self.cudf = cudf
+        self.has_cupy_compute = has_cupy_compute
+        self.cupy_reason = cupy_reason
+        self.cupy = cupy
+
+
+def cudf_runtime_caps() -> CudfRuntimeCaps:
+    """The question typical cudf-path code should ask, answered once.
+
+    ``has_cudf``: the dataframe engine is importable (precompiled libcudf ops --
+    construct/filter/merge/groupby -- run even on NVRTC-less CUDA installs).
+    ``has_cupy_compute``: the cupy ARRAY sidecar can actually compute (kernel
+    JIT works); False on NVRTC-less installs, where consumers holding a host
+    fallback should take it. Encapsulates the cudf-vs-cupy split so call sites
+    do not juggle two gates; ``lazy_cupy_import`` remains the low-level probe.
+    """
+    has_cudf, cudf_reason, cudf = lazy_cudf_import()
+    has_cupy, cupy_reason, cupy = lazy_cupy_import()
+    return CudfRuntimeCaps(has_cudf, cudf_reason, cudf, has_cupy, cupy_reason, cupy)
+
+
 def lazy_cuml_import():
     try:
         warnings.filterwarnings("ignore")

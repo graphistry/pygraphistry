@@ -80,8 +80,9 @@ def mercator_layout(self: 'Plottable', scale_for_graphistry: bool = True) -> 'Pl
 
     use_cupy = False
     if is_not_pandas:
-        from graphistry.utils.lazy_import import lazy_cupy_import
-        use_cupy, _cupy_reason, cp = lazy_cupy_import()
+        from graphistry.utils.lazy_import import cudf_runtime_caps
+        _caps = cudf_runtime_caps()
+        use_cupy, _cupy_reason, cp = _caps.has_cupy_compute, _caps.cupy_reason, _caps.cupy
         if not use_cupy:
             # Import alone does not prove usability: an NVRTC-less CUDA install imports
             # cupy but fails every compute op, which except-ImportError cannot catch.
