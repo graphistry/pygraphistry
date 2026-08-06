@@ -5,7 +5,7 @@ from graphistry.util import setup_logger
 
 from graphistry.Plottable import Plottable
 from .predicates.ASTPredicate import ASTPredicate
-from .typing import DataFrameT, DType, NodeDtypes
+from .typing import DataFrameT, DType, NodeDtypes, SeriesT
 
 
 logger = setup_logger(__name__)
@@ -119,6 +119,17 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
     df = df_to_engine(df, engine_concrete)
     logger.debug('filter_by_dict engine: %s => %s', engine, engine_concrete)
 
+    hits = filter_mask_by_dict(df, filter_dict)
+    return df[hits]
+
+
+def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any]) -> SeriesT:  # hygiene-ok: explicit-any -- filter values are heterogeneous by contract (scalars, lists, ASTPredicate)
+    """Boolean row mask ``filter_by_dict`` would apply to an already engine-native
+    ``df`` — same column resolution, same typed validation errors, same 3VL
+    membership semantics. Exposed so callers that read only a column subset can
+    gather it directly (``df.loc[mask, cols]``) without materializing the
+    full-width filtered frame.
+    """
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 
     predicates: Dict[str, Tuple[str, ASTPredicate]] = {}
@@ -202,7 +213,7 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
     if predicates:
         for resolved_col, op in predicates.values():
             hits = hits & op(df[resolved_col])
-    return df[hits]
+    return hits
 
 
 def filter_nodes_by_dict(self: Plottable, filter_dict: Optional[dict] = None, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:

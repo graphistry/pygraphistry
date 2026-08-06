@@ -202,18 +202,20 @@ def _filter_project(
 ) -> DataFrameT:
     """filter_by_dict with an optional column projection, on every engine.
 
-    A caller that knows which columns its plan reads (e.g. a count-shaped fast
-    path reads only node id and edge endpoint columns) passes them as
-    ``project``; the filter then never materializes a full-width frame. The
-    filter itself may reference projected-away columns, and its typed
-    error/NIE contract is unchanged:
+    WHEN to project is a STATIC plan property, not a cost decision: a caller
+    passes ``project`` iff its plan provably reads only those columns (e.g. a
+    count-shaped fast path reads only node id and edge endpoint columns). That
+    admission rule is sufficient because both arms are monotone — projection is
+    never more expensive than the plain filter:
 
     - polars: the SAME validated expr (built against the full schema) runs as
       one lazy filter+select, so the engine gathers only the requested columns.
-    - pandas/cudf: the frame is pre-narrowed to ``project`` plus the match
-      keys that exist on it (missing keys stay missing, so filter_by_dict
-      raises its usual typed error), filtered, then cut to ``project``.
+    - pandas/cudf: the boolean mask is built without materializing anything
+      (``filter_mask_by_dict`` — same column resolution, same typed errors),
+      then ``.loc[mask, project]`` gathers only the requested columns: identical
+      mask work, strictly fewer gathered columns than the full filter.
 
+    The filter may reference projected-away columns in every arm.
     ``project=None`` is byte-identical to the plain filter. Contract with
     columns: exactly ``project``, post-filter.
     """
@@ -228,10 +230,11 @@ def _filter_project(
         return cast(DataFrameT, lf.select(list(project)).collect())
     if project is None:
         return filter_by_dict(frame, match, engine=EngineAbstract(engine.value))
-    cols = list(dict.fromkeys(
-        list(project) + [c for c in (match or {}) if c in frame.columns]))
-    filtered = filter_by_dict(frame[cols], match, engine=EngineAbstract(engine.value))
-    return cast(DataFrameT, filtered[list(project)])
+    if not match:
+        return cast(DataFrameT, frame[list(project)])
+    from graphistry.compute.filter_by_dict import filter_mask_by_dict
+    mask = filter_mask_by_dict(frame, match)
+    return cast(DataFrameT, frame.loc[mask, list(project)])
 
 
 def _connected_join_cached_node_filter(
