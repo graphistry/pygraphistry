@@ -17499,15 +17499,13 @@ def test_t6_dense_gather_elision_matches_degree_oracle() -> None:
         assert total == oracle
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 def test_t6_count_path_projection_widths_and_value(engine: str, monkeypatch: Any) -> None:
-    # Round-4 both-sides pin: the polars count path projects its filters to the id
-    # columns (the filters themselves reference projected-away decoy columns
-    # node_type/rel); pandas keeps full width. Same count either side.
-    if engine == "polars":
-        pytest.importorskip("polars")
-    graph = _mk_graph(*_t6_dense_frames())
-    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+    # Round-4 pin, every engine: the count path's filters project to the id
+    # columns while the filters themselves reference projected-away decoy
+    # columns (node_type/rel). Value identical to the unprojected path.
+    nodes_pd, edges_pd = _t6_dense_frames()
+    graph = _mk_h3_graph(engine, nodes_pd, edges_pd)
 
     seen: Dict[str, List[str]] = {}
     real = gfql_fast_paths_module._two_hop_equal_domain_dense_total
@@ -17518,15 +17516,119 @@ def test_t6_count_path_projection_widths_and_value(engine: str, monkeypatch: Any
         return real(domain_nodes, edge_domain, **kw)
 
     monkeypatch.setattr(gfql_fast_paths_module, "_two_hop_equal_domain_dense_total", spy)
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
     result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
     assert result is not None
     assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
-    if engine == "polars":
-        assert seen["node_cols"] == ["id"]
-        assert seen["edge_cols"] == ["s", "d"]
+    assert seen["node_cols"] == ["id"]
+    assert seen["edge_cols"] == ["s", "d"]
+
+
+_T6_PROJ_MATRIX_FILTERS: List[Any] = [
+    None,
+    {},
+    {"rel": "FOLLOWS"},
+    {"rel": "FOLLOWS", "w": 1},
+    "gt_pred",       # numeric predicate on a decoy column
+    "missing_col",   # typed error parity
+    "str_on_num",    # E302 parity: string predicate on numeric column
+]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize("case", range(len(_T6_PROJ_MATRIX_FILTERS)))
+def test_t6_filter_project_differential_matrix(engine: str, case: int) -> None:
+    # DIFFERENTIAL, every engine x filter shape: the projected filter must return
+    # exactly the unprojected filter's rows cut to the projected columns, and must
+    # raise the SAME exception type on every error path. Decoy columns present so
+    # projection is observable; filters reference projected-away columns.
+    from graphistry.compute.predicates.numeric import gt
+    from graphistry.compute.predicates.str import Contains
+
+    edges_pd = pd.DataFrame({
+        "s": [0, 1, 2, 3], "d": [1, 2, 3, 0],
+        "rel": ["FOLLOWS", "FOLLOWS", "OTHER", "FOLLOWS"],
+        "w": [1, 2, 1, 3],
+    })
+    graph = _mk_h3_graph(engine, pd.DataFrame({"id": [0, 1, 2, 3]}), edges_pd)
+    frame = graph._edges
+    eng = {"pandas": Engine.PANDAS, "polars": Engine.POLARS, "cudf": Engine.CUDF}[engine]
+
+    spec = _T6_PROJ_MATRIX_FILTERS[case]
+    match: Any
+    if spec == "gt_pred":
+        match = {"w": gt(1)}
+    elif spec == "missing_col":
+        match = {"nope": 1}
+    elif spec == "str_on_num":
+        match = {"w": Contains("x")}
     else:
-        assert "node_type" in seen["node_cols"]  # full width preserved off-polars
-        assert "rel" in seen["edge_cols"]
+        match = spec
+
+    def run(project: Any) -> Any:
+        return gfql_fast_paths_module._filter_project(frame, match, project, engine=eng)
+
+    if spec in ("missing_col", "str_on_num"):
+        narrow_exc: Any = None
+        full_exc: Any = None
+        try:
+            run(["s", "d"])
+        except Exception as e:  # noqa: BLE001
+            narrow_exc = e
+        try:
+            run(None)
+        except Exception as e:  # noqa: BLE001
+            full_exc = e
+        assert narrow_exc is not None and full_exc is not None, "both arms must raise"
+        assert type(narrow_exc) is type(full_exc)
+        return
+
+    narrow = _to_pandas_df(run(["s", "d"])).reset_index(drop=True)
+    full = _to_pandas_df(run(None))[["s", "d"]].reset_index(drop=True)
+    assert list(narrow.columns) == ["s", "d"]
+    pd.testing.assert_frame_equal(narrow, full)
+
+
+def test_t6_cached_filter_projection_keys_do_not_collide() -> None:
+    # The per-execution cache must key full-width and projected results apart:
+    # same match, different projection, one cache_store.
+    edges = pd.DataFrame({"s": [0, 1], "d": [1, 0], "rel": ["F", "F"], "w": [1, 2]})
+    graph = _mk_graph(pd.DataFrame({"id": [0, 1]}), edges)
+    store: Dict[str, Any] = {}
+    full = gfql_fast_paths_module._connected_join_cached_edge_filter(
+        graph, cast(Any, edges), {"rel": "F"}, engine=Engine.PANDAS, cache_store=store)
+    narrow = gfql_fast_paths_module._connected_join_cached_edge_filter(
+        graph, cast(Any, edges), {"rel": "F"}, engine=Engine.PANDAS, cache_store=store,
+        project=["s", "d"])
+    assert list(full.columns) == ["s", "d", "rel", "w"]
+    assert list(narrow.columns) == ["s", "d"]
+    assert len(store["_gfql_connected_join_edge_filter_cache"]) == 2
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize("shape", ["payload_reserved_col", "reserved_src_binding"])
+def test_t6_count_path_reserved_names_value_correct_all_engines(engine: str, shape: str) -> None:
+    # Reserved degree-counter names must never produce a wrong count, on any
+    # engine: as a PAYLOAD column (projected away by round 4) and as the SRC
+    # BINDING itself (survives projection; whichever path serves must agree
+    # with the degree-product oracle).
+    nodes_pd, edges_pd = _t6_dense_frames()
+    oracle = 8
+    if shape == "payload_reserved_col":
+        edges_pd = edges_pd.assign(__in_count__=1, __out_count__=2)
+        graph = _mk_h3_graph(engine, nodes_pd, edges_pd)
+    else:
+        edges_pd = edges_pd.rename(columns={"s": "__in_count__"})
+        if engine == "pandas":
+            graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes_pd, "id").edges(edges_pd, "__in_count__", "d"))
+        elif engine == "cudf":
+            cudf = pytest.importorskip("cudf")
+            graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "__in_count__", "d"))
+        else:
+            pl = pytest.importorskip("polars")
+            graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(pl.from_pandas(nodes_pd), "id").edges(pl.from_pandas(edges_pd), "__in_count__", "d"))
+    result = graph.gfql(_T6_DENSE_Q8_QUERY, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": oracle}]
 
 
 def test_t6_count_path_narrow_filter_error_parity_polars() -> None:
