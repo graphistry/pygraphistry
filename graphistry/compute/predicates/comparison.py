@@ -64,13 +64,21 @@ class ComparisonPredicate(ASTPredicate):
         elif isinstance(temporal_val, DateValue):
             # Extract date from datetime series if needed
             if hasattr(s, 'dt'):
-                return s.dt.date
+                if hasattr(s.dt, 'date'):
+                    return s.dt.date
+                # cudf 26.02 removed Series.dt.date: day-truncated datetimes compare
+                # exactly like dates against a midnight Timestamp (paired below).
+                return s.dt.floor('D')
             return s
 
         elif isinstance(temporal_val, TimeValue):
             # Extract time from datetime series if needed
             if hasattr(s, 'dt'):
-                return s.dt.time
+                if hasattr(s.dt, 'time'):
+                    return s.dt.time
+                # cudf 26.02 removed Series.dt.time: time-of-day timedeltas compare
+                # exactly like times against a Timedelta scalar (paired below).
+                return s - s.dt.floor('D')
             return s
 
         raise TypeError(f"Unknown temporal value type: {type(temporal_val)}")
@@ -98,6 +106,17 @@ class ComparisonPredicate(ASTPredicate):
             and comparison_val.tzinfo is not None
         ):
             comparison_val = comparison_val.tz_localize(None)
+        # Pair the scalar with the dtype the truncation produced (cudf 26.02 lanes):
+        # day-truncated datetime64 pairs with a midnight Timestamp; time-of-day
+        # timedelta64 pairs with a Timedelta. dtype-driven, so engine-agnostic.
+        dtype_txt = str(getattr(prepared_s, 'dtype', '')).lower()
+        if isinstance(temporal_val, DateValue) and dtype_txt.startswith('datetime64'):
+            comparison_val = pd.Timestamp(comparison_val)
+        elif (isinstance(temporal_val, TimeValue) and dtype_txt.startswith('timedelta64')
+                and isinstance(comparison_val, time)):
+            comparison_val = pd.Timedelta(
+                hours=comparison_val.hour, minutes=comparison_val.minute,
+                seconds=comparison_val.second, microseconds=comparison_val.microsecond)
         return prepared_s, comparison_val
 
     def _safe_scalar_compare(

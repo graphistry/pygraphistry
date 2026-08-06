@@ -23,7 +23,8 @@ from graphistry.compute.dataframe_utils import concat_frames
 from graphistry.compute.gfql.call.support import AggSpec
 from graphistry.compute.gfql.row import frame_ops as row_frame_ops
 from graphistry.compute.gfql.row.prefilter import AliasPrefilters
-from graphistry.compute.typing import DataFrameT
+import numpy as np
+from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.utils.json import JSONVal
 from graphistry.compute.gfql.row.order_expr import (
     extract_temporal_duration_sort_ast,
@@ -89,7 +90,6 @@ from graphistry.compute.gfql.temporal.durations import (
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
-    from graphistry.compute.typing import DataFrameT
     from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
     from graphistry.compute.gfql.index.registry import GfqlIndexRegistry
     from graphistry.compute.ast import ASTObject
@@ -100,6 +100,25 @@ GFQLParseExprFn = Callable[[str], "ExprNode"]
 GFQLValidateExprFn = Callable[["ExprNode"], List[str]]
 GFQLRuntimeParserBundle = Tuple[GFQLParseExprFn, GFQLValidateExprFn, ModuleType]
 _GFQL_MISSING_BOOL_OPERAND = object()
+
+
+def _unary_ufunc_on_series(np_fn: "np.ufunc", s: SeriesT) -> SeriesT:
+    """A numpy unary ufunc over a Series, safe on every runtime.
+
+    numpy ufuncs on cudf Series dispatch into cupy elementwise kernels, which
+    NVRTC-compiles at first use -- on an NVRTC-less CUDA install that raises
+    deep inside kernel assembly (cudf's own precompiled ops are fine; see
+    lazy_cupy_import). When cupy cannot compute, round-trip through host numpy:
+    identical values (cudf nulls ride NaN and are re-nulled on return), host cost.
+    """
+    if s.__class__.__module__.startswith("cudf"):
+        from graphistry.utils.lazy_import import lazy_cupy_import
+        ok, _reason, _cp = lazy_cupy_import()
+        if not ok:
+            import cudf
+            return cudf.Series(np_fn(s.to_pandas().to_numpy()), index=s.index)  # type: ignore[return-value]  # engine seam: cudf rides SeriesT
+    return np_fn(s)
+
 
 
 @lru_cache(maxsize=1)
@@ -1443,11 +1462,11 @@ class RowPipelineMixin:
                 if hasattr(inner, "astype"):
                     null_mask = self._gfql_null_mask(table_df, inner)
                     f = inner.astype(float)
-                    if hasattr(f, "ceil" if use_ceil else "floor"):  # cuDF native
+                    if hasattr(f, "ceil" if use_ceil else "floor"):  # legacy cuDF native (removed in 26.02)
                         out = f.ceil() if use_ceil else f.floor()
-                    else:  # pandas: no Series.floor/ceil method
+                    else:
                         import numpy as np
-                        out = np.ceil(f) if use_ceil else np.floor(f)
+                        out = _unary_ufunc_on_series(np.ceil if use_ceil else np.floor, f)
                     return True, out.where(~null_mask, pd.NA)
                 if is_null_scalar(inner):
                     return True, None
@@ -1483,10 +1502,10 @@ class RowPipelineMixin:
                     f = inner.astype(float)
 
                     def _floor_series(s: Any) -> Any:
-                        if hasattr(s, "floor"):  # cuDF native
+                        if hasattr(s, "floor"):  # legacy cuDF native (removed in 26.02)
                             return s.floor()
                         import numpy as np
-                        return np.floor(s)
+                        return _unary_ufunc_on_series(np.floor, s)
 
                     import numpy as np
                     with np.errstate(over="ignore", invalid="ignore"):
