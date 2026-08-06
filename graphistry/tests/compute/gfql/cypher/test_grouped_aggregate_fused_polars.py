@@ -879,7 +879,7 @@ def test_grouped_aggregate_fused_polars_emits_semi_join_only_without_property_jo
         f"saw {semi_calls[0]}")
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "polars-gpu", "cudf"])
 def test_grouped_aggregate_projection_narrows_filters_on_every_engine(
     engine: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -922,7 +922,7 @@ def test_grouped_aggregate_projection_narrows_filters_on_every_engine(
     assert widths["nodes"] == ["id"]  # start alias references no props in this query
 
 
-@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "polars-gpu", "cudf"])
 def test_grouped_aggregate_projection_keeps_missing_prop_decline(
     engine: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -944,3 +944,23 @@ def test_grouped_aggregate_projection_keeps_missing_prop_decline(
     except Exception as exc:  # noqa: BLE001
         result = type(exc)
     assert result == oracle
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "polars-gpu", "cudf"])
+@pytest.mark.parametrize("label,query", _SERVED_SHAPES, ids=[s[0] for s in _SERVED_SHAPES])
+def test_grouped_aggregate_projection_differential_all_shapes_all_engines(
+    engine: str, label: str, query: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CROSS-PLATFORM value differential for the projection change: every served
+    shape, on every engine, with decoy columns present, must answer exactly what
+    the projection-free eager twin answers on the SAME engine."""
+    nodes, edges = _base_data()
+    nodes = nodes.assign(decoy_n="x")
+    edges = edges.assign(decoy_e=1.5)
+
+    with monkeypatch.context() as eager_ctx:
+        _force_eager(eager_ctx)
+        oracle = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+
+    result = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+    assert result == oracle, f"{label}: projection changed the answer on {engine}"
