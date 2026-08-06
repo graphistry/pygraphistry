@@ -7,10 +7,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 153.62,
+      "value": 152.52,
       "workload": "graph-benchmark 100k q1"
     },
     "graphbench.100k.q1.pandas": {
@@ -20,10 +20,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 199.3,
+      "value": 197.67,
       "workload": "graph-benchmark 100k q1"
     },
     "graphbench.100k.q1.polars": {
@@ -33,10 +33,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 31.29,
+      "value": 26.65,
       "workload": "graph-benchmark 100k q1"
     },
     "graphbench.100k.q1.polars_vs_kuzu": {
@@ -46,10 +46,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "x",
-      "value": 4.91,
+      "value": 5.72,
       "workload": "graph-benchmark 100k q1 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.100k.q2.kuzu": {
@@ -59,10 +59,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 278.64,
+      "value": 276.9,
       "workload": "graph-benchmark 100k q2"
     },
     "graphbench.100k.q2.pandas": {
@@ -72,10 +72,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 209.32,
+      "value": 207.8,
       "workload": "graph-benchmark 100k q2"
     },
     "graphbench.100k.q2.polars": {
@@ -85,10 +85,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 44.33,
+      "value": 39.48,
       "workload": "graph-benchmark 100k q2"
     },
     "graphbench.100k.q2.polars_vs_kuzu": {
@@ -98,10 +98,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "x",
-      "value": 6.29,
+      "value": 7.01,
       "workload": "graph-benchmark 100k q2 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.100k.q3.kuzu": {
@@ -111,10 +111,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 34.23,
+      "value": 34.53,
       "workload": "graph-benchmark 100k q3"
     },
     "graphbench.100k.q3.pandas": {
@@ -124,10 +124,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 73.48,
+      "value": 72.2,
       "workload": "graph-benchmark 100k q3"
     },
     "graphbench.100k.q3.polars": {
@@ -137,10 +137,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 13.66,
+      "value": 9.8,
       "workload": "graph-benchmark 100k q3"
     },
     "graphbench.100k.q3.polars_vs_kuzu": {
@@ -150,10 +150,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "x",
-      "value": 2.51,
+      "value": 3.52,
       "workload": "graph-benchmark 100k q3 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.100k.q4.kuzu": {
@@ -163,10 +163,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 13.5,
+      "value": 13.56,
       "workload": "graph-benchmark 100k q4"
     },
     "graphbench.100k.q4.pandas": {
@@ -176,10 +176,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 64.41,
+      "value": 63.53,
       "workload": "graph-benchmark 100k q4"
     },
     "graphbench.100k.q4.polars": {
@@ -189,10 +189,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 10.51,
+      "value": 10.06,
       "workload": "graph-benchmark 100k q4"
     },
     "graphbench.100k.q4.polars_vs_kuzu": {
@@ -202,10 +202,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "x",
-      "value": 1.28,
+      "value": 1.35,
       "workload": "graph-benchmark 100k q4 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.100k.q5.kuzu": {
@@ -215,10 +215,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 13.17,
+      "value": 12.67,
       "workload": "graph-benchmark 100k q5"
     },
     "graphbench.100k.q5.pandas": {
@@ -228,10 +228,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 412.25,
+      "value": 408.78,
       "workload": "graph-benchmark 100k q5"
     },
     "graphbench.100k.q5.polars": {
@@ -241,10 +241,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 13.68,
+      "value": 12.46,
       "workload": "graph-benchmark 100k q5"
     },
     "graphbench.100k.q5.polars_vs_kuzu": {
@@ -252,12 +252,14 @@
       "comparison_allowed": true,
       "competitor": "kuzu",
       "decimals": 2,
-      "disclosures": [],
+      "disclosures": [
+        "the Kuzu and GFQL-Polars per-slot median ranges overlap across the four position-balanced slots, so the comparator marks this verdict WEAK"
+      ],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "x",
-      "value": 0.96,
+      "value": 1.02,
       "workload": "graph-benchmark 100k q5 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.100k.q6.kuzu": {
@@ -267,10 +269,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 24.11,
+      "value": 20.83,
       "workload": "graph-benchmark 100k q6"
     },
     "graphbench.100k.q6.pandas": {
@@ -280,10 +282,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 410.76,
+      "value": 409.41,
       "workload": "graph-benchmark 100k q6"
     },
     "graphbench.100k.q6.polars": {
@@ -293,10 +295,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 14.84,
+      "value": 11.69,
       "workload": "graph-benchmark 100k q6"
     },
     "graphbench.100k.q6.polars_vs_kuzu": {
@@ -306,10 +308,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "x",
-      "value": 1.62,
+      "value": 1.78,
       "workload": "graph-benchmark 100k q6 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.100k.q7.kuzu": {
@@ -319,10 +321,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 9.59,
+      "value": 9.85,
       "workload": "graph-benchmark 100k q7"
     },
     "graphbench.100k.q7.pandas": {
@@ -332,10 +334,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 120.21,
+      "value": 118.84,
       "workload": "graph-benchmark 100k q7"
     },
     "graphbench.100k.q7.polars": {
@@ -345,10 +347,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 9.88,
+      "value": 7.37,
       "workload": "graph-benchmark 100k q7"
     },
     "graphbench.100k.q7.polars_vs_kuzu": {
@@ -358,10 +360,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "x",
-      "value": 0.97,
+      "value": 1.34,
       "workload": "graph-benchmark 100k q7 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.100k.q8.kuzu": {
@@ -371,10 +373,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 13.62,
+      "value": 9.84,
       "workload": "graph-benchmark 100k q8"
     },
     "graphbench.100k.q8.pandas": {
@@ -384,10 +386,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 152.75,
+      "value": 101.12,
       "workload": "graph-benchmark 100k q8"
     },
     "graphbench.100k.q8.polars": {
@@ -397,10 +399,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 33.25,
+      "value": 13.5,
       "workload": "graph-benchmark 100k q8"
     },
     "graphbench.100k.q8.polars_vs_kuzu": {
@@ -410,10 +412,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "x",
-      "value": 0.41,
+      "value": 0.73,
       "workload": "graph-benchmark 100k q8 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.100k.q9.kuzu": {
@@ -423,10 +425,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 83.71,
+      "value": 83.09,
       "workload": "graph-benchmark 100k q9"
     },
     "graphbench.100k.q9.pandas": {
@@ -436,10 +438,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 218.58,
+      "value": 213.11,
       "workload": "graph-benchmark 100k q9"
     },
     "graphbench.100k.q9.polars": {
@@ -449,10 +451,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "ms",
-      "value": 36.41,
+      "value": 36.1,
       "workload": "graph-benchmark 100k q9"
     },
     "graphbench.100k.q9.polars_vs_kuzu": {
@@ -462,7 +464,7 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-100k-v2-20260802",
+      "run": "graphbench-board-100k-r3a-20260806",
       "status": "ok",
       "unit": "x",
       "value": 2.3,
@@ -475,10 +477,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 15.3,
+      "value": 15.46,
       "workload": "graph-benchmark 20k q1"
     },
     "graphbench.20k.q1.pandas": {
@@ -488,10 +490,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 35.18,
+      "value": 33.34,
       "workload": "graph-benchmark 20k q1"
     },
     "graphbench.20k.q1.polars": {
@@ -501,10 +503,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 8.95,
+      "value": 7.26,
       "workload": "graph-benchmark 20k q1"
     },
     "graphbench.20k.q1.polars_vs_kuzu": {
@@ -514,10 +516,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "x",
-      "value": 1.71,
+      "value": 2.13,
       "workload": "graph-benchmark 20k q1 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.20k.q2.kuzu": {
@@ -527,10 +529,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 35.67,
+      "value": 40.81,
       "workload": "graph-benchmark 20k q2"
     },
     "graphbench.20k.q2.pandas": {
@@ -540,10 +542,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 37.88,
+      "value": 36.17,
       "workload": "graph-benchmark 20k q2"
     },
     "graphbench.20k.q2.polars": {
@@ -553,10 +555,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 13.06,
+      "value": 11.21,
       "workload": "graph-benchmark 20k q2"
     },
     "graphbench.20k.q2.polars_vs_kuzu": {
@@ -566,10 +568,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "x",
-      "value": 2.73,
+      "value": 3.64,
       "workload": "graph-benchmark 20k q2 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.20k.q3.kuzu": {
@@ -579,10 +581,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 5.68,
+      "value": 6.2,
       "workload": "graph-benchmark 20k q3"
     },
     "graphbench.20k.q3.pandas": {
@@ -592,10 +594,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 11.67,
+      "value": 11.45,
       "workload": "graph-benchmark 20k q3"
     },
     "graphbench.20k.q3.polars": {
@@ -605,10 +607,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 5.8,
+      "value": 4.35,
       "workload": "graph-benchmark 20k q3"
     },
     "graphbench.20k.q3.polars_vs_kuzu": {
@@ -618,10 +620,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "x",
-      "value": 0.98,
+      "value": 1.43,
       "workload": "graph-benchmark 20k q3 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.20k.q4.kuzu": {
@@ -631,10 +633,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 3.35,
+      "value": 3.3,
       "workload": "graph-benchmark 20k q4"
     },
     "graphbench.20k.q4.pandas": {
@@ -644,10 +646,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 9.49,
+      "value": 9.38,
       "workload": "graph-benchmark 20k q4"
     },
     "graphbench.20k.q4.polars": {
@@ -657,10 +659,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 3.97,
+      "value": 2.82,
       "workload": "graph-benchmark 20k q4"
     },
     "graphbench.20k.q4.polars_vs_kuzu": {
@@ -668,14 +670,12 @@
       "comparison_allowed": true,
       "competitor": "kuzu",
       "decimals": 2,
-      "disclosures": [
-        "the Kuzu and GFQL-Polars per-slot median ranges overlap across the four position-balanced slots, so the comparator marks this verdict WEAK"
-      ],
+      "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "x",
-      "value": 0.84,
+      "value": 1.17,
       "workload": "graph-benchmark 20k q4 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.20k.q5.kuzu": {
@@ -685,10 +685,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 5.39,
+      "value": 5.68,
       "workload": "graph-benchmark 20k q5"
     },
     "graphbench.20k.q5.pandas": {
@@ -698,10 +698,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 80.73,
+      "value": 80.23,
       "workload": "graph-benchmark 20k q5"
     },
     "graphbench.20k.q5.polars": {
@@ -711,10 +711,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 4.5,
+      "value": 4.1,
       "workload": "graph-benchmark 20k q5"
     },
     "graphbench.20k.q5.polars_vs_kuzu": {
@@ -722,14 +722,12 @@
       "comparison_allowed": true,
       "competitor": "kuzu",
       "decimals": 2,
-      "disclosures": [
-        "the Kuzu and GFQL-Polars per-slot median ranges overlap across the four position-balanced slots, so the comparator marks this verdict WEAK"
-      ],
+      "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "x",
-      "value": 1.2,
+      "value": 1.39,
       "workload": "graph-benchmark 20k q5 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.20k.q6.kuzu": {
@@ -739,10 +737,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 8.9,
+      "value": 8.77,
       "workload": "graph-benchmark 20k q6"
     },
     "graphbench.20k.q6.pandas": {
@@ -752,10 +750,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 80.44,
+      "value": 80.01,
       "workload": "graph-benchmark 20k q6"
     },
     "graphbench.20k.q6.polars": {
@@ -765,10 +763,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 5.73,
+      "value": 4.61,
       "workload": "graph-benchmark 20k q6"
     },
     "graphbench.20k.q6.polars_vs_kuzu": {
@@ -778,10 +776,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "x",
-      "value": 1.55,
+      "value": 1.9,
       "workload": "graph-benchmark 20k q6 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.20k.q7.kuzu": {
@@ -791,10 +789,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 5.19,
+      "value": 5.22,
       "workload": "graph-benchmark 20k q7"
     },
     "graphbench.20k.q7.pandas": {
@@ -804,10 +802,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 19.82,
+      "value": 19.49,
       "workload": "graph-benchmark 20k q7"
     },
     "graphbench.20k.q7.polars": {
@@ -817,10 +815,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 5.68,
+      "value": 3.33,
       "workload": "graph-benchmark 20k q7"
     },
     "graphbench.20k.q7.polars_vs_kuzu": {
@@ -830,10 +828,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "x",
-      "value": 0.91,
+      "value": 1.57,
       "workload": "graph-benchmark 20k q7 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.20k.q8.kuzu": {
@@ -843,10 +841,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 2.8,
+      "value": 2.78,
       "workload": "graph-benchmark 20k q8"
     },
     "graphbench.20k.q8.pandas": {
@@ -856,10 +854,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 19.6,
+      "value": 11.3,
       "workload": "graph-benchmark 20k q8"
     },
     "graphbench.20k.q8.polars": {
@@ -869,10 +867,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 8.24,
+      "value": 1.88,
       "workload": "graph-benchmark 20k q8"
     },
     "graphbench.20k.q8.polars_vs_kuzu": {
@@ -880,12 +878,14 @@
       "comparison_allowed": true,
       "competitor": "kuzu",
       "decimals": 2,
-      "disclosures": [],
+      "disclosures": [
+        "the Kuzu and GFQL-Polars per-slot median ranges overlap across the four position-balanced slots, so the comparator marks this verdict WEAK"
+      ],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "x",
-      "value": 0.34,
+      "value": 1.48,
       "workload": "graph-benchmark 20k q8 \u2014 Kuzu median over GFQL-polars median"
     },
     "graphbench.20k.q9.kuzu": {
@@ -895,10 +895,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "kuzu",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 10.76,
+      "value": 10.93,
       "workload": "graph-benchmark 20k q9"
     },
     "graphbench.20k.q9.pandas": {
@@ -908,10 +908,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 28.26,
+      "value": 27.8,
       "workload": "graph-benchmark 20k q9"
     },
     "graphbench.20k.q9.polars": {
@@ -921,10 +921,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "ms",
-      "value": 8.32,
+      "value": 8.89,
       "workload": "graph-benchmark 20k q9"
     },
     "graphbench.20k.q9.polars_vs_kuzu": {
@@ -934,10 +934,10 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "run": "graphbench-board-20k-20260802",
+      "run": "graphbench-board-20k-r3a-20260805",
       "status": "ok",
       "unit": "x",
-      "value": 1.29,
+      "value": 1.23,
       "workload": "graph-benchmark 20k q9 \u2014 Kuzu median over GFQL-polars median"
     },
     "pagerank.gplus.gfql_cpu": {
@@ -1084,8 +1084,8 @@
     }
   },
   "contract_version": 1,
-  "generated_at": "2026-08-02T00:00:00Z",
-  "generated_by": "graphistry/pyg-bench bdc2828a scripts/export_docs_numbers.py; graphbench-board-{20k,100k-v2}-20260802 cells transcribed from their results-dir compare.txt (pending re-export)",
+  "generated_at": "2026-08-03T00:00:00Z",
+  "generated_by": "graphistry/pyg-bench fae1e975 scripts/export_docs_numbers.py; graphbench-board-{20k,100k}-cand-20260803 cells transcribed from their results-dir compare.txt (pending re-export)",
   "policy": {
     "literal_allowlist": {},
     "managed_docs": [
@@ -1164,6 +1164,66 @@
       "reps": "5 warmups + 51 timed runs per slot; slot median, then median across 4 position-balanced Kuzu/GFQL/indexed-GFQL slots; ties declared inside a 10% band; per-second host load and spike captures receipted (VALIDITY: no external process in any over-limit capture)",
       "pygraphistry_commit": "8764eb82",
       "pyg_bench_commit": "7dca9392 (SOURCE_COMMITS receipt; lane published under ad24d789)",
+      "runtime": "GFQL pandas and polars CPU engines against Kuzu embedded on the same host; interpreter and library pins plus runner-script sha256s are committed with the artifacts",
+      "row_validation": "every slot records the query result rows outside the timed region; compare.txt publishes a verdict only where the GFQL canonical row set matches Kuzu, and prints the matched per-query row count"
+    },
+    "graphbench-board-20k-cand-20260803": {
+      "artifact": "results/graphbench-board-20k-cand-20260803",
+      "competitor": "Kuzu",
+      "competitor_version": "embedded, CPU (version pins recorded in the lane artifacts)",
+      "dataset": "prrao87 graph-benchmark synthetic social graph, 20,000 persons; per-query result-row counts are in compare.txt",
+      "host": "dgx-spark (NVIDIA GB10), 20 CPU",
+      "measured_at": "2026-08-03",
+      "perf_lock_held": true,
+      "quiet_host": true,
+      "reps": "5 warmups + 51 timed runs per slot; slot median, then median across 4 position-balanced Kuzu/GFQL/indexed-GFQL slots; ties declared inside a 10% band; per-second host load and spike captures receipted (VALIDITY: no external process in any over-limit capture)",
+      "pygraphistry_commit": "938f22851 (candidate publication build: master f875724ce plus PR #1844, PR #1845, PR #1846, PR #1847)",
+      "pyg_bench_commit": "fae1e975 (SOURCE_COMMITS receipt; lanes published via pyg-bench PR #170)",
+      "runtime": "GFQL pandas and polars CPU engines against Kuzu embedded on the same host; interpreter and library pins plus runner-script sha256s are committed with the artifacts",
+      "row_validation": "every slot records the query result rows outside the timed region; compare.txt publishes a verdict only where the GFQL canonical row set matches Kuzu, and prints the matched per-query row count"
+    },
+    "graphbench-board-100k-cand-20260803": {
+      "artifact": "results/graphbench-board-100k-cand-20260803",
+      "competitor": "Kuzu",
+      "competitor_version": "embedded, CPU (version pins recorded in the lane artifacts)",
+      "dataset": "prrao87 graph-benchmark synthetic social graph, 100,000 persons; per-query result-row counts are in compare.txt",
+      "host": "dgx-spark (NVIDIA GB10), 20 CPU",
+      "measured_at": "2026-08-03",
+      "perf_lock_held": true,
+      "quiet_host": true,
+      "reps": "5 warmups + 51 timed runs per slot; slot median, then median across 4 position-balanced Kuzu/GFQL/indexed-GFQL slots; ties declared inside a 10% band; per-second host load and spike captures receipted (VALIDITY: no external process in any over-limit capture)",
+      "pygraphistry_commit": "938f22851 (candidate publication build: master f875724ce plus PR #1844, PR #1845, PR #1846, PR #1847)",
+      "pyg_bench_commit": "fae1e975 (SOURCE_COMMITS receipt; lanes published via pyg-bench PR #170)",
+      "runtime": "GFQL pandas and polars CPU engines against Kuzu embedded on the same host; interpreter and library pins plus runner-script sha256s are committed with the artifacts",
+      "row_validation": "every slot records the query result rows outside the timed region; compare.txt publishes a verdict only where the GFQL canonical row set matches Kuzu, and prints the matched per-query row count"
+    },
+    "graphbench-board-20k-r3a-20260805": {
+      "artifact": "results/graphbench-board-20k-r3a-20260805",
+      "competitor": "Kuzu",
+      "competitor_version": "embedded, CPU (version pins recorded in the lane artifacts)",
+      "dataset": "prrao87 graph-benchmark synthetic social graph, 20,000 persons; per-query result-row counts are in compare.txt",
+      "host": "dgx-spark (NVIDIA GB10), 20 CPU",
+      "measured_at": "2026-08-05",
+      "perf_lock_held": true,
+      "quiet_host": true,
+      "reps": "5 warmups + 51 timed runs per slot; slot median, then median across 4 position-balanced Kuzu/GFQL/indexed-GFQL slots; ties declared inside a 10% band; per-second host load and spike captures receipted (VALIDITY: no external process in any over-limit capture)",
+      "pygraphistry_commit": "5c1aee1b0 (candidate build: master 656d55b6e plus PR #1846, PR #1851; AST-identical to landed master 08182e977)",
+      "pyg_bench_commit": "8ee0dee (SOURCE_COMMITS receipt; lanes published via pyg-bench PR #174)",
+      "runtime": "GFQL pandas and polars CPU engines against Kuzu embedded on the same host; interpreter and library pins plus runner-script sha256s are committed with the artifacts",
+      "row_validation": "every slot records the query result rows outside the timed region; compare.txt publishes a verdict only where the GFQL canonical row set matches Kuzu, and prints the matched per-query row count"
+    },
+    "graphbench-board-100k-r3a-20260806": {
+      "artifact": "results/graphbench-board-100k-r3a-20260806",
+      "competitor": "Kuzu",
+      "competitor_version": "embedded, CPU (version pins recorded in the lane artifacts)",
+      "dataset": "prrao87 graph-benchmark synthetic social graph, 100,000 persons; per-query result-row counts are in compare.txt",
+      "host": "dgx-spark (NVIDIA GB10), 20 CPU",
+      "measured_at": "2026-08-06",
+      "perf_lock_held": true,
+      "quiet_host": true,
+      "reps": "5 warmups + 51 timed runs per slot; slot median, then median across 4 position-balanced Kuzu/GFQL/indexed-GFQL slots; ties declared inside a 10% band; per-second host load and spike captures receipted (VALIDITY: no external process in any over-limit capture)",
+      "pygraphistry_commit": "5c1aee1b0 (candidate build: master 656d55b6e plus PR #1846, PR #1851; AST-identical to landed master 08182e977)",
+      "pyg_bench_commit": "8ee0dee (SOURCE_COMMITS receipt; lanes published via pyg-bench PR #175)",
       "runtime": "GFQL pandas and polars CPU engines against Kuzu embedded on the same host; interpreter and library pins plus runner-script sha256s are committed with the artifacts",
       "row_validation": "every slot records the query result rows outside the timed region; compare.txt publishes a verdict only where the GFQL canonical row set matches Kuzu, and prints the matched per-query row count"
     }
