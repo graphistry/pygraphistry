@@ -877,3 +877,70 @@ def test_grouped_aggregate_fused_polars_emits_semi_join_only_without_property_jo
     assert semi_calls[0] == expected_semis, (
         f"{label}: expected {expected_semis} domain semi-join(s) in the fused plan, "
         f"saw {semi_calls[0]}")
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_grouped_aggregate_projection_narrows_filters_on_every_engine(
+    engine: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The grouped-aggregate path declares its plan's columns (ids + referenced
+    props), so the filters return narrow frames on EVERY engine -- decoy columns
+    must never reach the plan -- with values identical to the eager twin."""
+    from graphistry.compute import gfql_fast_paths as fp
+
+    nodes, edges = _base_data()
+    nodes = nodes.assign(decoy_n="x")
+    edges = edges.assign(decoy_e=1.5)
+    query = ("MATCH (p {kind:'P'})-[{rel:'L'}]->(c {kind:'C'}) "
+             "RETURN c.city AS city, count(*) AS n ORDER BY city ASC")
+
+    with monkeypatch.context() as eager_ctx:
+        _force_eager(eager_ctx)
+        oracle = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+
+    widths: Dict[str, List[str]] = {}
+    real_nf = fp._connected_join_cached_node_filter
+    real_ef = fp._connected_join_cached_edge_filter
+
+    def spy_nf(*args: Any, **kw: Any) -> Any:
+        out = real_nf(*args, **kw)
+        widths.setdefault("nodes", list(out.columns))
+        return out
+
+    def spy_ef(*args: Any, **kw: Any) -> Any:
+        out = real_ef(*args, **kw)
+        widths.setdefault("edges", list(out.columns))
+        return out
+
+    monkeypatch.setattr(fp, "_connected_join_cached_node_filter", spy_nf)
+    monkeypatch.setattr(fp, "_connected_join_cached_edge_filter", spy_ef)
+    result = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+
+    assert result == oracle
+    assert "decoy_n" not in widths["nodes"] and "decoy_e" not in widths["edges"]
+    assert widths["edges"] == ["s", "d"]
+    assert widths["nodes"] == ["id"]  # start alias references no props in this query
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_grouped_aggregate_projection_keeps_missing_prop_decline(
+    engine: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A referenced prop MISSING from the node frame must still decline to the
+    generic path with the same answer -- projection may not turn the decline into
+    a select error."""
+    nodes, edges = _base_data()
+    nodes = nodes.drop(columns=["city"])
+    query = ("MATCH (p {kind:'P'})-[{rel:'L'}]->(c {kind:'C'}) "
+             "RETURN c.city AS city, count(*) AS n ORDER BY city ASC")
+    with monkeypatch.context() as eager_ctx:
+        _force_eager(eager_ctx)
+        try:
+            oracle: Any = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+        except Exception as exc:  # noqa: BLE001
+            oracle = type(exc)
+    try:
+        result: Any = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+    except Exception as exc:  # noqa: BLE001
+        result = type(exc)
+    assert result == oracle

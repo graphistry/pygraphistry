@@ -2197,15 +2197,24 @@ def _execute_single_hop_grouped_aggregate_fast_path(
         return None
 
     nodes = cast(DataFrameT, nodes_obj)
-    start_nodes = _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], start_op.filter_dict), engine=requested_engine)
-    end_nodes = _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], end_op.filter_dict), engine=requested_engine)
-    edges = _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], edge_op.edge_match), engine=requested_engine)
-
     needed_by_alias: Dict[str, List[Tuple[str, str]]] = {start_alias: [], end_alias: []}
     for out_col, ref in with_items.items():
         alias, prop = ref
         if prop is not None:
             needed_by_alias[alias].append((out_col, prop))
+
+    # This plan reads only ids + the referenced props (see _filter_project; pinned).
+    # A referenced prop MISSING from the frame stays excluded so the existing
+    # missing-prop decline still fires downstream.
+    node_cols = set(nodes.columns)
+    start_proj = list(dict.fromkeys(
+        [node_col] + [prop for _, prop in needed_by_alias[start_alias] if prop in node_cols]))
+    end_proj = list(dict.fromkeys(
+        [node_col] + [prop for _, prop in needed_by_alias[end_alias] if prop in node_cols]))
+    edge_proj = list(dict.fromkeys([src_col, dst_col]))
+    start_nodes = _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], start_op.filter_dict), engine=requested_engine, project=start_proj)
+    end_nodes = _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], end_op.filter_dict), engine=requested_engine, project=end_proj)
+    edges = _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], edge_op.edge_match), engine=requested_engine, project=edge_proj)
 
     fused_out: Optional[DataFrameT] = None
     if requested_engine in POLARS_ENGINES:
