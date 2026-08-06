@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional, Tuple
 import warnings
 from graphistry .util import setup_logger
 logger = setup_logger(__name__)
@@ -24,6 +24,38 @@ def lazy_cudf_import():
     except Exception as e:
         logger.warn("Unexpected exn during lazy import", exc_info=e)
         return False, e, None
+
+_CUPY_COMPUTE_OK = None
+
+
+def lazy_cupy_import() -> Tuple[bool, Any, Optional[Any]]:  # hygiene-ok: explicit-any -- reason is exn-or-str; cupy module untyped
+    """(available, reason, cupy) -- available ONLY when cupy can actually COMPUTE.
+
+    cupy imports fine on a host whose CUDA install lacks NVRTC (``libnvrtc.so``),
+    but then essentially EVERY compute op -- elementwise arithmetic, comparisons,
+    astype, sort/search/bincount -- raises ``RuntimeError`` at first use (only
+    allocation and a few cub-backed reductions survive). An ``except ImportError``
+    guard cannot catch that, so callers holding a CPU fallback must gate on THIS
+    probe (one tiny elementwise op, cached per process), not on importability.
+    """
+    global _CUPY_COMPUTE_OK
+    try:
+        warnings.filterwarnings("ignore")
+        import cupy  # type: ignore
+    except ModuleNotFoundError as e:
+        return False, e, None
+    except Exception as e:
+        logger.warn("Unexpected exn during lazy cupy import", exc_info=e)
+        return False, e, None
+    if _CUPY_COMPUTE_OK is None:
+        try:
+            (cupy.arange(2) + 1).sum()
+            _CUPY_COMPUTE_OK = (True, "ok")
+        except Exception as e:  # RuntimeError on NVRTC-less CUDA installs
+            _CUPY_COMPUTE_OK = (False, str(e))
+    ok, reason = _CUPY_COMPUTE_OK
+    return ok, reason, (cupy if ok else None)
+
 
 def lazy_cuml_import():
     try:

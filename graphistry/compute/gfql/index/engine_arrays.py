@@ -19,44 +19,22 @@ from graphistry.compute.typing import DataFrameT
 from .types import ArrayLike, ArrayNamespace, IndexBackend
 
 
-_CUPY_JIT_OK: Optional[bool] = None
-
-
-def _cupy_jit_available(cp: "ArrayNamespace") -> bool:
-    """Once per process: probe a JIT-compiled cupy op. cudf can import and run its
-    precompiled libcudf ops on a host whose CUDA install lacks NVRTC (no
-    ``libnvrtc.so``), while cupy's kernel compiler -- which our bincount /
-    searchsorted kernels need -- raises at first use. Probing here turns that
-    late crash into a clean host fallback (numpy arrays: correct, host-side)."""
-    global _CUPY_JIT_OK
-    if _CUPY_JIT_OK is None:
-        try:
-            cp.bincount(cp.zeros(1, dtype="int64"))
-            _CUPY_JIT_OK = True
-        except Exception:
-            _CUPY_JIT_OK = False
-    return _CUPY_JIT_OK
-
-
 def array_namespace(engine: Engine) -> Tuple[ArrayNamespace, IndexBackend]:
     """Return (array module, backend tag) for an engine.
 
     cudf indexes keep their arrays on-device (cupy); everything else uses numpy
     host arrays. The frontier of a seeded query is tiny, so host-side
     searchsorted is cheap even when the frame itself is on GPU (polars-gpu).
-    A cudf runtime whose cupy cannot JIT (missing NVRTC) falls back to numpy
-    host arrays -- graceful decline, never a crash (see _cupy_jit_available).
+    A cudf runtime whose cupy cannot COMPUTE (e.g. missing NVRTC) falls back to
+    numpy host arrays -- graceful decline, never a crash (see lazy_cupy_import).
     """
     import numpy as np
 
     if engine == Engine.CUDF:
-        try:
-            import cupy as cp  # type: ignore
-
-            if _cupy_jit_available(cp):
-                return cast(ArrayNamespace, cp), "cupy"
-        except Exception:  # pragma: no cover - cupy always present with cudf
-            pass
+        from graphistry.utils.lazy_import import lazy_cupy_import
+        ok, _reason, cp = lazy_cupy_import()
+        if ok:
+            return cast(ArrayNamespace, cp), "cupy"
     return cast(ArrayNamespace, np), "numpy"
 
 
@@ -65,13 +43,9 @@ def col_to_array(df: DataFrameT, col: str, engine: Engine) -> ArrayLike:
     if engine in (Engine.POLARS, Engine.POLARS_GPU):
         return cast(ArrayLike, df.get_column(col).to_numpy())
     if engine == Engine.CUDF:
-        use_cupy = False
-        try:
-            import cupy as cp  # type: ignore
-            use_cupy = _cupy_jit_available(cp)
-        except Exception:
-            pass
-        # On-device cupy when the JIT works; numpy host fallback when NVRTC is absent.
+        from graphistry.utils.lazy_import import lazy_cupy_import
+        use_cupy, _reason, _cp = lazy_cupy_import()
+        # On-device cupy when it can compute; numpy host fallback when it cannot.
         return cast(ArrayLike, df[col].values if use_cupy else df[col].to_numpy())
     return cast(ArrayLike, df[col].to_numpy())
 

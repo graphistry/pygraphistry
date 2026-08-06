@@ -1576,39 +1576,31 @@ class TestShowIndexesEngineUsability:
 
 
 class TestCupyNvrtcDecline:
-    """A cudf runtime whose cupy cannot JIT (missing NVRTC) must fall back to
-    numpy host arrays -- graceful decline, never a crash, identical values."""
+    """A cupy that cannot COMPUTE (e.g. NVRTC-less CUDA) must yield numpy host
+    fallbacks across the library gate -- graceful decline, never a crash."""
 
     def test_forced_fallback_backend_and_arrays(self, monkeypatch):
         cudf = pytest.importorskip("cudf")
         import numpy as np
         from graphistry.Engine import Engine
+        from graphistry.utils import lazy_import as li
         from graphistry.compute.gfql.index import engine_arrays as ea
 
-        monkeypatch.setattr(ea, "_CUPY_JIT_OK", False)
+        monkeypatch.setattr(li, "_CUPY_COMPUTE_OK", (False, "forced for test"))
         xp, backend = ea.array_namespace(Engine.CUDF)
         assert backend == "numpy" and xp is np
         arr = ea.col_to_array(cudf.DataFrame({"s": [1, 2, 3]}), "s", Engine.CUDF)
         assert isinstance(arr, np.ndarray)
         assert int(np.bincount(arr, minlength=4).sum()) == 3
 
-    def test_probe_is_cached_per_process(self, monkeypatch):
-        pytest.importorskip("cudf")
-        from graphistry.compute.gfql.index import engine_arrays as ea
+    def test_gate_probe_is_cached_per_process(self, monkeypatch):
+        pytest.importorskip("cupy")
+        from graphistry.utils import lazy_import as li
 
-        calls = []
-
-        class _FakeCp:
-            @staticmethod
-            def zeros(n, dtype=None):
-                return object()
-
-            @staticmethod
-            def bincount(arr, minlength=0):
-                calls.append("probe")
-                raise RuntimeError("CuPy failed to load libnvrtc.so.12")
-
-        monkeypatch.setattr(ea, "_CUPY_JIT_OK", None)
-        assert ea._cupy_jit_available(_FakeCp) is False
-        assert ea._cupy_jit_available(_FakeCp) is False
-        assert calls == ["probe"], "probe must run once per process"
+        monkeypatch.setattr(li, "_CUPY_COMPUTE_OK", None)
+        ok1, reason1, _ = li.lazy_cupy_import()
+        cached = li._CUPY_COMPUTE_OK
+        assert cached is not None, "first call must run and cache the probe"
+        ok2, reason2, _ = li.lazy_cupy_import()
+        assert (ok1, str(reason1)) == (ok2, str(reason2))
+        assert li._CUPY_COMPUTE_OK is cached, "second call must reuse the cached probe"

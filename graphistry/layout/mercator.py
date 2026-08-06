@@ -80,13 +80,17 @@ def mercator_layout(self: 'Plottable', scale_for_graphistry: bool = True) -> 'Pl
 
     use_cupy = False
     if is_not_pandas:
-        try:
-            import cupy as cp
-            use_cupy = True
-        except ImportError:
-            logger.warning("cuDF DataFrame detected but cupy is not available. Falling back to NumPy (CPU). Install cupy for GPU-accelerated computation.")
+        from graphistry.utils.lazy_import import lazy_cupy_import
+        use_cupy, _cupy_reason, cp = lazy_cupy_import()
+        if not use_cupy:
+            # Import alone does not prove usability: an NVRTC-less CUDA install imports
+            # cupy but fails every compute op, which except-ImportError cannot catch.
+            logger.warning(
+                "cuDF DataFrame detected but cupy is unusable (%s). Falling back to "
+                "NumPy (CPU).", _cupy_reason)
 
     if use_cupy:
+        assert cp is not None  # gate contract: use_cupy implies a usable module
         lat_deg = g._nodes[lat_col]
         lon_deg = g._nodes[lon_col]
 
