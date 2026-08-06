@@ -17733,6 +17733,36 @@ def test_t6_col_stats_conservative_miss_falls_back_to_scan(
     assert calls == ["scan"], "insufficient facts must scan, not skip and not decline"
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("filtered", [False, True])
+def test_t6_col_stats_interval_hint_only_for_unfiltered_domain(
+    engine: str, filtered: bool, monkeypatch: Any
+) -> None:
+    # The node-side interval fact is EXACT-FRAME only: an unfiltered domain (== the
+    # bound node frame) may skip the interval scan; any filtered domain must scan
+    # (a fact about the full frame cannot prove a subset is dense). Count identical.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes_pd, edges_pd = _t6_dense_frames()
+    graph = _mk_h3_graph(engine, nodes_pd, edges_pd).gfql_index_col_stats(engine=engine)
+
+    calls: List[str] = []
+    real = gfql_fast_paths_module._dense_int_domain_interval
+
+    def spy(*args: Any, **kw: Any) -> Any:
+        calls.append("interval-scan")
+        return real(*args, **kw)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_dense_int_domain_interval", spy)
+    query = (_T6_DENSE_Q8_QUERY if filtered
+             else "MATCH (a)-[{rel:'FOLLOWS'}]->(b)-[{rel:'FOLLOWS'}]->(d) RETURN count(*) AS numPaths")
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
+    assert calls == (["interval-scan"] if filtered else [])
+
+
 def test_t6_col_stats_index_all_includes_facts() -> None:
     graph = _mk_graph(*_t6_dense_frames())
     g2 = graph.gfql_index_all()

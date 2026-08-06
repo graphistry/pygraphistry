@@ -123,6 +123,7 @@ class ColStatsFact:
     null_count: int
     is_integer: bool
     engine: Engine
+    n_unique: Optional[int] = None  # computed for the nodes role only (interval proofs)
     fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
     source_ref: Optional[DataFrameT] = field(compare=False, default=None)
 

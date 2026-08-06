@@ -171,6 +171,12 @@ def build_col_stats_fact(
             mx = s.max()
     except (AttributeError, KeyError, TypeError, ValueError):
         return None
+    n_unique: Optional[int] = None
+    if role == "nodes":
+        try:
+            n_unique = int(s.n_unique()) if hasattr(s, "n_unique") else int(s.nunique())
+        except (AttributeError, TypeError, ValueError):
+            n_unique = None
     return ColStatsFact(
         role=role,
         column=column,
@@ -179,6 +185,7 @@ def build_col_stats_fact(
         null_count=null_count,
         is_integer=True,
         engine=engine,
+        n_unique=n_unique,
         fingerprint=frame_fingerprint(frame, (column,), engine),
         source_ref=frame,
     )

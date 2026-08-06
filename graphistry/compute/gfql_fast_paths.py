@@ -2585,6 +2585,7 @@ def _two_hop_equal_domain_dense_total(
     dst_col: str,
     engine: Engine,
     edge_endpoint_facts: Optional[Tuple["ColStatsFact", "ColStatsFact"]] = None,
+    domain_interval_hint: Optional[Tuple[int, int]] = None,
 ) -> Optional[int]:
     """PROOF-GATED dense-domain kernel for the EQUAL-DOMAIN two-hop count.
 
@@ -2623,7 +2624,9 @@ def _two_hop_equal_domain_dense_total(
             return None  # eager lane owns LazyFrame inputs (same rule as the fused lanes)
     if len(edge_domain) == 0:
         return None  # existing path already answers openCypher count-over-no-rows 0
-    interval = _dense_int_domain_interval(domain_nodes, node_col, engine=engine)
+    # Caller-verified hint (facts on the EXACT domain frame) elides the interval scan.
+    interval = domain_interval_hint if domain_interval_hint is not None else \
+        _dense_int_domain_interval(domain_nodes, node_col, engine=engine)
     if interval is None:
         return None
     lo, hi = interval
@@ -2730,6 +2733,16 @@ def _execute_two_hop_count_fast_path(
         _reg = get_registry(base_graph)
         _src_fact = _reg.get_col_stats_valid("edges", src_col, edges_obj, requested_engine)
         _dst_fact = _reg.get_col_stats_valid("edges", dst_col, edges_obj, requested_engine)
+        _interval_hint: Optional[Tuple[int, int]] = None
+        if not start_op.filter_dict:
+            # Unfiltered domain == the bound node frame, so a fact on THAT frame is exact.
+            _node_fact = _reg.get_col_stats_valid("nodes", node_col, nodes_obj, requested_engine)
+            if (_node_fact is not None and _node_fact.is_integer
+                    and _node_fact.null_count == 0
+                    and _node_fact.min_val is not None and _node_fact.max_val is not None
+                    and _node_fact.n_unique is not None
+                    and _node_fact.n_unique == _node_fact.max_val - _node_fact.min_val + 1):
+                _interval_hint = (int(_node_fact.min_val), int(_node_fact.max_val))
         dense_total = _two_hop_equal_domain_dense_total(
             start_nodes,
             first_edges,
@@ -2740,6 +2753,7 @@ def _execute_two_hop_count_fast_path(
             edge_endpoint_facts=(
                 (_src_fact, _dst_fact)
                 if _src_fact is not None and _dst_fact is not None else None),
+            domain_interval_hint=_interval_hint,
         )
         if dense_total is not None:
             if requested_engine in POLARS_ENGINES:
