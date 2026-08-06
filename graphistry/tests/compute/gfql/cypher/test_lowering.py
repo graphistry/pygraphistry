@@ -17763,6 +17763,111 @@ def test_t6_col_stats_interval_hint_only_for_unfiltered_domain(
     assert calls == (["interval-scan"] if filtered else [])
 
 
+def test_t6_col_stats_builder_declines_by_precondition_and_raises_on_real_errors(monkeypatch: Any) -> None:
+    # Type-safety contract: declines (None) come ONLY from explicit preconditions
+    # -- absent column, non-integer dtype, empty frame -- and a real error inside
+    # the reductions PROPAGATES (no blanket except may swallow it).
+    import numpy as np
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.build import build_col_stats_fact
+
+    ok = pd.DataFrame({"s": [1, 2, 3]})
+    assert build_col_stats_fact(ok, "nope", "edges", Engine.PANDAS) is None
+    assert build_col_stats_fact(pd.DataFrame({"s": ["a"]}), "s", "edges", Engine.PANDAS) is None
+    assert build_col_stats_fact(pd.DataFrame({"s": pd.Series([], dtype="int64")}), "s", "edges", Engine.PANDAS) is None
+
+    def _boom(self: Any, *a: Any, **kw: Any) -> Any:
+        raise RuntimeError("backend exploded")
+
+    monkeypatch.setattr(pd.Series, "min", _boom)
+    with pytest.raises(RuntimeError, match="backend exploded"):
+        build_col_stats_fact(pd.DataFrame({"s": np.array([1, 2, 3], dtype="int64")}), "s", "edges", Engine.PANDAS)
+
+
+def test_t6_col_stats_null_bearing_int_fact_exists_but_routes_to_scan(monkeypatch: Any) -> None:
+    # BOTH SIDES of the null gate: a nullable-int column with nulls still gets a
+    # fact (null_count recorded, min/max omitted -- no int(NA) games), and the
+    # kernel must treat it as insufficient: scan runs, count right.
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.build import build_col_stats_fact
+
+    nodes_pd, edges_pd = _t6_dense_frames()
+    edges_null = edges_pd.copy()
+    edges_null["s"] = edges_null["s"].astype("Int64")
+    fact = build_col_stats_fact(edges_null, "s", "edges", Engine.PANDAS)
+    assert fact is not None and fact.null_count == 0 and fact.min_val == 0
+
+    edges_null.loc[0, "s"] = pd.NA
+    fact_null = build_col_stats_fact(edges_null, "s", "edges", Engine.PANDAS)
+    assert fact_null is not None
+    assert fact_null.null_count == 1
+    assert fact_null.min_val is None and fact_null.max_val is None
+    assert not gfql_fast_paths_module._facts_prove_bounds((fact_null, fact_null), 0, 3)
+
+
+def test_t6_facts_prove_bounds_exact_boundary_matrix() -> None:
+    # The under-approximation's exact edges: boundary-equal values prove; one past
+    # either end, a null, a missing bound, or a non-integer fact must all return
+    # False (cost a scan, never an answer).
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.registry import ColStatsFact
+
+    def fact(**kw: Any) -> ColStatsFact:
+        base = dict(role="edges", column="s", min_val=0, max_val=3, null_count=0,
+                    is_integer=True, engine=Engine.PANDAS)
+        base.update(kw)
+        return ColStatsFact(**base)  # type: ignore[arg-type]
+
+    prove = gfql_fast_paths_module._facts_prove_bounds
+    good = fact()
+    assert prove((good, good), 0, 3) is True          # exactly on both boundaries
+    assert prove((fact(min_val=1, max_val=2), good), 0, 3) is True
+    assert prove((fact(min_val=-1), good), 0, 3) is False   # one below lo
+    assert prove((good, fact(max_val=4)), 0, 3) is False    # one above hi
+    assert prove((fact(null_count=1), good), 0, 3) is False
+    assert prove((fact(min_val=None), good), 0, 3) is False
+    assert prove((fact(is_integer=False), good), 0, 3) is False
+    assert prove(None, 0, 3) is False
+
+
+def test_t6_col_stats_explicit_request_raises_default_skips() -> None:
+    # Targeting contract: binding defaults skip unfactable columns silently; an
+    # EXPLICITLY named column that is absent or non-integer raises by name.
+    nodes = pd.DataFrame({"id": [0, 1], "name": ["a", "b"]})
+    edges = pd.DataFrame({"s": [0], "d": [1]})
+    g = _mk_graph(nodes, edges)
+    g2 = g.gfql_index_col_stats()  # defaults fine
+    assert ("nodes", "id") in g2._gfql_index_registry.col_stats
+    with pytest.raises(ValueError, match="'name'"):
+        g.gfql_index_col_stats(node_columns=["name"])  # explicit non-integer
+    with pytest.raises(ValueError, match="'ghost'"):
+        g.gfql_index_col_stats(edge_columns=["ghost"])  # explicit absent
+
+
+def test_t6_col_stats_interval_hint_refused_on_gapped_ids(monkeypatch: Any) -> None:
+    # n_unique mismatch (gapped ids): the hint must be refused and the interval
+    # scan must run -- which itself declines the dense lane; answer still right
+    # via the fallback path.
+    nodes_pd = pd.DataFrame({"id": [0, 1, 3]})  # gap at 2
+    edges_pd = pd.DataFrame({"s": [0, 1], "d": [1, 3], "rel": ["F", "F"]})
+    graph = _mk_graph(nodes_pd, edges_pd).gfql_index_col_stats()
+
+    calls: List[str] = []
+    real = gfql_fast_paths_module._dense_int_domain_interval
+
+    def spy(*args: Any, **kw: Any) -> Any:
+        calls.append("interval-scan")
+        return real(*args, **kw)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_dense_int_domain_interval", spy)
+    query = "MATCH (a)-[{rel:'F'}]->(b)-[{rel:'F'}]->(d) RETURN count(*) AS numPaths"
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine="pandas")
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 1}]
+    assert calls == ["interval-scan"], "gapped ids must refuse the hint and scan"
+
+
 def test_t6_col_stats_index_all_includes_facts() -> None:
     graph = _mk_graph(*_t6_dense_frames())
     g2 = graph.gfql_index_all()

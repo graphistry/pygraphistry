@@ -2562,10 +2562,15 @@ def _facts_prove_bounds(
     lo: int,
     hi: int,
 ) -> bool:
-    """True iff VERIFIED full-frame endpoint facts already prove the bounds proof's
-    claim for any row subset: integer, null-free, and within [lo, hi]. Conservative:
-    full-frame bounds contain every subset's bounds, and zero nulls on the frame
-    means zero nulls on any subset. False means "run the scan", never "decline"."""
+    """True iff VERIFIED full-frame endpoint facts prove the bounds claim for any
+    row subset: integer, null-free, and within [lo, hi].
+
+    APPROXIMATION DIRECTION -- this is an UNDER-approximation of provability:
+    True is always sound (full-frame bounds contain every subset's bounds; zero
+    nulls on the frame means zero nulls on any subset), while False may be
+    over-cautious (the subset can satisfy the claim even when the full frame
+    does not). A False therefore costs at most the O(E) scan it would have
+    skipped; it can never change an answer, and it never declines."""
     if facts is None:
         return False
     for fact in facts:
@@ -2735,7 +2740,10 @@ def _execute_two_hop_count_fast_path(
         _dst_fact = _reg.get_col_stats_valid("edges", dst_col, edges_obj, requested_engine)
         _interval_hint: Optional[Tuple[int, int]] = None
         if not start_op.filter_dict:
-            # Unfiltered domain == the bound node frame, so a fact on THAT frame is exact.
+            # Unfiltered domain == the bound node frame, so a fact on THAT frame is
+            # EXACT here (no approximation); any missing/insufficient fact just means
+            # the interval scan runs -- same under-approximation direction as
+            # _facts_prove_bounds: a miss can cost a scan, never an answer.
             _node_fact = _reg.get_col_stats_valid("nodes", node_col, nodes_obj, requested_engine)
             if (_node_fact is not None and _node_fact.is_integer
                     and _node_fact.null_count == 0

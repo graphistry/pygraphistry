@@ -6,7 +6,7 @@ is never reordered.
 """
 from __future__ import annotations
 
-from typing import Optional, Tuple, cast
+from typing import Any, Optional, Tuple, cast
 
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT
@@ -144,44 +144,52 @@ def build_col_stats_fact(
     role: "ColStatsRole",
     engine: Engine,
 ) -> Optional[ColStatsFact]:
-    """Verified min/max/null-count fact for one column of the bound frame, or None
-    when the column is absent or the reductions fail. Integer-only for v1 (the
-    dense-count proofs it serves admit only integer id columns); widening later is
-    additive -- a decline only means "scan", never a wrong answer.
+    """Verified min/max/null-count fact for one column of the bound frame.
+
+    Declines (None) are decided by EXPLICIT preconditions -- column absent,
+    non-integer dtype (v1), empty frame -- never by swallowing exceptions: an
+    error raised by the reductions themselves is a real bug and PROPAGATES.
+    A null-bearing integer column still gets a fact (null_count recorded,
+    min/max omitted); consumers require null_count == 0 before trusting bounds,
+    so such a fact can only ever route to the scan. Widening the dtype gate
+    later is additive -- a decline only means "scan", never a wrong answer.
     """
     from graphistry.Engine import POLARS_ENGINES
-    try:
-        if engine in POLARS_ENGINES:
-            s = frame.get_column(column)  # type: ignore[union-attr]  # engine seam: polars frame rides DataFrameT
-            if not s.dtype.is_integer():
-                return None
-            null_count = int(s.null_count())
-            if int(s.len()) == 0:
-                return None
-            mn = s.min()
-            mx = s.max()
-        else:
-            s = frame[column]
-            if getattr(s.dtype, "kind", None) not in ("i", "u"):
-                return None
-            null_count = int(s.isna().sum())
-            if int(s.shape[0]) == 0:
-                return None
-            mn = s.min()
-            mx = s.max()
-    except (AttributeError, KeyError, TypeError, ValueError):
-        return None
     n_unique: Optional[int] = None
-    if role == "nodes":
-        try:
-            n_unique = int(s.n_unique()) if hasattr(s, "n_unique") else int(s.nunique())
-        except (AttributeError, TypeError, ValueError):
-            n_unique = None
+    if engine in POLARS_ENGINES:
+        pl_frame: Any = frame  # engine seam: polars frame rides DataFrameT
+        if column not in pl_frame.columns:
+            return None
+        s = pl_frame.get_column(column)
+        if not s.dtype.is_integer():
+            return None
+        if int(s.len()) == 0:
+            return None
+        null_count = int(s.null_count())
+        mn, mx = ((None, None) if null_count
+                  else (int(s.min()), int(s.max())))
+        if role == "nodes":
+            n_unique = int(s.n_unique())
+    else:
+        if column not in frame.columns:
+            return None
+        ser = frame[column]
+        # numpy/cudf dtypes carry ``kind``; exotic backend dtypes (e.g. decimals)
+        # may not -- absent kind is a non-integer decline, not an error.
+        if getattr(ser.dtype, "kind", None) not in ("i", "u"):
+            return None
+        if int(ser.shape[0]) == 0:
+            return None
+        null_count = int(ser.isna().sum())
+        mn, mx = ((None, None) if null_count
+                  else (int(ser.min()), int(ser.max())))
+        if role == "nodes":
+            n_unique = int(ser.nunique())
     return ColStatsFact(
         role=role,
         column=column,
-        min_val=None if mn is None else int(mn),
-        max_val=None if mx is None else int(mx),
+        min_val=mn,
+        max_val=mx,
         null_count=null_count,
         is_integer=True,
         engine=engine,
