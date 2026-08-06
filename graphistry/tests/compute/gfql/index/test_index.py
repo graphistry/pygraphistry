@@ -1573,3 +1573,42 @@ class TestShowIndexesEngineUsability:
         row_auto = gi.show_indexes().iloc[0]  # AUTO on cudf frames resolves cudf
         assert row_auto["query_engine"] == "cudf"
         assert bool(row_auto["usable"]) is True
+
+
+class TestCupyNvrtcDecline:
+    """A cudf runtime whose cupy cannot JIT (missing NVRTC) must fall back to
+    numpy host arrays -- graceful decline, never a crash, identical values."""
+
+    def test_forced_fallback_backend_and_arrays(self, monkeypatch):
+        cudf = pytest.importorskip("cudf")
+        import numpy as np
+        from graphistry.Engine import Engine
+        from graphistry.compute.gfql.index import engine_arrays as ea
+
+        monkeypatch.setattr(ea, "_CUPY_JIT_OK", False)
+        xp, backend = ea.array_namespace(Engine.CUDF)
+        assert backend == "numpy" and xp is np
+        arr = ea.col_to_array(cudf.DataFrame({"s": [1, 2, 3]}), "s", Engine.CUDF)
+        assert isinstance(arr, np.ndarray)
+        assert int(np.bincount(arr, minlength=4).sum()) == 3
+
+    def test_probe_is_cached_per_process(self, monkeypatch):
+        pytest.importorskip("cudf")
+        from graphistry.compute.gfql.index import engine_arrays as ea
+
+        calls = []
+
+        class _FakeCp:
+            @staticmethod
+            def zeros(n, dtype=None):
+                return object()
+
+            @staticmethod
+            def bincount(arr, minlength=0):
+                calls.append("probe")
+                raise RuntimeError("CuPy failed to load libnvrtc.so.12")
+
+        monkeypatch.setattr(ea, "_CUPY_JIT_OK", None)
+        assert ea._cupy_jit_available(_FakeCp) is False
+        assert ea._cupy_jit_available(_FakeCp) is False
+        assert calls == ["probe"], "probe must run once per process"
