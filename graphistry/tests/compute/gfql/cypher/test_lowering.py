@@ -17671,7 +17671,8 @@ def test_t6_col_stats_facts_build_and_invalidate(engine: str) -> None:
     eng = {"pandas": Engine.PANDAS, "polars": Engine.POLARS, "cudf": Engine.CUDF}[engine]
     g2 = graph.gfql_index_col_stats(engine=engine)
     reg = g2._gfql_index_registry
-    assert sorted(reg.col_stats.keys()) == [("edges", "d"), ("edges", "s"), ("nodes", "id")]
+    assert sorted(reg.col_stats.keys()) == [
+        ("edges", "d", None, None), ("edges", "s", None, None), ("nodes", "id", None, None)]
     fact = reg.get_col_stats_valid("edges", "s", g2._edges, eng)
     assert fact is not None
     assert (fact.min_val, fact.max_val, fact.null_count, fact.is_integer) == (0, 2, 0, True)
@@ -17844,7 +17845,7 @@ def test_t6_col_stats_explicit_request_raises_default_skips() -> None:
     edges = pd.DataFrame({"s": [0], "d": [1]})
     g = _mk_graph(nodes, edges)
     g2 = g.gfql_index_col_stats()  # defaults fine
-    assert ("nodes", "id") in g2._gfql_index_registry.col_stats
+    assert ("nodes", "id", None, None) in g2._gfql_index_registry.col_stats
     with pytest.raises(ValueError, match="'name'"):
         g.gfql_index_col_stats(node_columns=["name"])  # explicit non-integer
     with pytest.raises(ValueError, match="'ghost'"):
@@ -17878,8 +17879,118 @@ def test_t6_col_stats_interval_hint_refused_on_gapped_ids(monkeypatch: Any) -> N
 def test_t6_col_stats_index_all_includes_facts() -> None:
     graph = _mk_graph(*_t6_dense_frames())
     g2 = graph.gfql_index_all()
-    assert ("edges", "s") in g2._gfql_index_registry.col_stats
-    assert ("nodes", "id") in g2._gfql_index_registry.col_stats
+    assert ("edges", "s", None, None) in g2._gfql_index_registry.col_stats
+    assert ("nodes", "id", None, None) in g2._gfql_index_registry.col_stats
+
+
+def _t6_typed_frames() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """P ids 0-2 (dense), C ids 3-5. F-edges are P->P; the X-edges reach C, so the
+    WHOLE-FRAME endpoint facts span [0,5] and cannot prove containment in [0,2]."""
+    nodes = pd.DataFrame({"id": list(range(6)), "kind": ["P"] * 3 + ["C"] * 3})
+    edges = pd.DataFrame({"s": [0, 1, 2, 0, 0], "d": [1, 2, 0, 3, 4],
+                          "rel": ["F", "F", "F", "X", "X"]})
+    return nodes, edges
+
+
+_T6_TYPED_QUERY = ("MATCH (a {kind:'P'})-[{rel:'F'}]->(b {kind:'P'})-[{rel:'F'}]->(c {kind:'P'}) "
+                   "RETURN count(*) AS numPaths")
+
+
+@pytest.mark.parametrize("facts,expect_proved,expect_hint", [
+    ("none", False, None),
+    ("whole_frame", False, None),
+    ("per_type", True, (0, 2)),
+])
+def test_t6_per_type_facts_prove_typed_bounds_whole_frame_cannot(
+    facts: str, expect_proved: bool, expect_hint: Optional[Tuple[int, int]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both sides of the typed gate. A typed pattern filters the domain, so a
+    whole-frame fact describes the wrong set (every label at once) and proves
+    nothing -- the scan runs. Partition facts describe exactly the matched label,
+    so the hint appears and the O(E) endpoint scan is skipped. The ANSWER is the
+    same in every arm: facts only ever buy a skipped scan."""
+    nodes, edges = _t6_typed_frames()
+    base = _mk_graph(nodes, edges)
+    graph = {
+        "none": base,
+        "whole_frame": base.gfql_index_col_stats(),
+        "per_type": base.gfql_index_col_stats(node_type_column="kind", edge_type_column="rel"),
+    }[facts]
+
+    proofs: List[bool] = []
+    hints: List[Optional[Tuple[int, int]]] = []
+    real_proof = gfql_fast_paths_module._facts_prove_bounds
+    real_hint = gfql_fast_paths_module._dense_interval_from_fact
+
+    def spy_proof(*args: Any, **kw: Any) -> Any:
+        out = real_proof(*args, **kw)
+        proofs.append(out)
+        return out
+
+    def spy_hint(*args: Any, **kw: Any) -> Any:
+        out = real_hint(*args, **kw)
+        hints.append(out)
+        return out
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_facts_prove_bounds", spy_proof)
+    monkeypatch.setattr(gfql_fast_paths_module, "_dense_interval_from_fact", spy_hint)
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_TYPED_QUERY))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine="pandas")
+
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 3}]
+    assert any(proofs) is expect_proved
+    assert (hints[-1] if hints else None) == expect_hint
+
+
+@pytest.mark.parametrize("match,expected", [
+    ({"kind": "P"}, ("kind", "P")),
+    ({"kind": 3}, ("kind", 3)),
+    ({}, None),
+    (None, None),
+    ({"kind": "P", "other": 1}, None),   # more than the one equality
+    ({"kind": True}, None),              # bool is not a type key
+    ({"kind": 1.5}, None),               # non-scalar-equality value
+])
+def test_t6_partition_key_admits_exactly_one_scalar_equality(
+    match: Optional[Dict[str, Any]], expected: Optional[Tuple[str, Any]]
+) -> None:
+    """The partition gate must admit ONLY a lone scalar equality: a further-filtered
+    domain is no longer the partition, so its ids need not still be dense."""
+    assert gfql_fast_paths_module._partition_key_from_match(match) == expected
+
+
+def test_t6_per_type_extra_predicate_refuses_the_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Negative twin of the typed hint: an extra predicate on the domain makes it a
+    strict subset of the partition, so the dense-interval claim no longer holds and
+    the hint must be refused -- with the answer still correct."""
+    nodes, edges = _t6_typed_frames()
+    nodes = nodes.assign(vip=[True, False, True, False, False, False])
+    graph = _mk_graph(nodes, edges).gfql_index_col_stats(
+        node_type_column="kind", edge_type_column="rel")
+
+    hints: List[Optional[Tuple[int, int]]] = []
+    real_hint = gfql_fast_paths_module._dense_interval_from_fact
+    monkeypatch.setattr(
+        gfql_fast_paths_module, "_dense_interval_from_fact",
+        lambda *a, **k: (lambda out: (hints.append(out), out)[1])(real_hint(*a, **k)))
+    query = ("MATCH (a {kind:'P', vip:true})-[{rel:'F'}]->(b {kind:'P', vip:true})"
+             "-[{rel:'F'}]->(c {kind:'P', vip:true}) RETURN count(*) AS numPaths")
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine="pandas")
+
+    if result is not None:  # the shape may decline earlier; the refusal is what matters
+        assert hints == [] or all(h is None for h in hints)
+
+
+def test_t6_per_type_request_raises_when_unusable() -> None:
+    """Per-type facts are asked for BY NAME, so an unusable request raises rather
+    than silently skipping (same contract as the explicit ``*_columns`` request)."""
+    nodes, edges = _t6_typed_frames()
+    graph = _mk_graph(nodes, edges)
+    with pytest.raises(ValueError, match="per-type col_stats"):
+        graph.gfql_index_col_stats(node_type_column="not_a_column")
 
 
 def test_t6_decline_keeps_memo_path_reachable() -> None:

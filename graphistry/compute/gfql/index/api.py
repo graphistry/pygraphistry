@@ -438,6 +438,8 @@ def gfql_index_node_props(g: Plottable, columns: Sequence[str],
 def gfql_index_col_stats(g: Plottable,
                          node_columns: Optional[Sequence[str]] = None,
                          edge_columns: Optional[Sequence[str]] = None,
+                         node_type_column: Optional[str] = None,
+                         edge_type_column: Optional[str] = None,
                          engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
     """Verified column-stat facts (min/max/null count) -- EAGER and TARGETED.
 
@@ -453,8 +455,14 @@ def gfql_index_col_stats(g: Plottable,
     deliberately out of scope -- that is the typed-ontology re-verification
     policy question; eager build here keeps fact cost a declared setup step,
     matching how the benchmark harness discloses index builds.
+
+    ``node_type_column`` / ``edge_type_column`` additionally build PER-TYPE facts
+    over the bindings, one grouped pass each. Whole-frame facts prove nothing on a
+    typed graph -- the id interval spans every label -- so these are what let a
+    typed pattern reach the dense kernel. Like ``*_columns`` they were asked for
+    by name, so an unusable request raises rather than skipping.
     """
-    from .build import build_col_stats_fact
+    from .build import _MAX_COL_STATS_PARTITIONS, build_col_stats_fact, build_col_stats_facts_by_type
     eng = resolve_engine(engine, g)
     from graphistry.compute.ComputeMixin import _coerce_input_formats
     g = _coerce_input_formats(g, eng)
@@ -484,6 +492,28 @@ def gfql_index_col_stats(g: Plottable,
                     f"Cannot build a col_stats fact on {role} column {col!r}: absent, "
                     f"empty, or non-integer (v1 facts integer columns only)")
             registry = registry.with_col_stats(fact)
+    part_targets: List[Tuple[Optional[str], Optional[DataFrameT], ColStatsRole, Tuple[Optional[str], ...]]] = [
+        (node_type_column, g._nodes, "nodes", (g._node,)),
+        (edge_type_column, g._edges, "edges", (g._source, g._destination)),
+    ]
+    for type_column, frame, role, binding_cols in part_targets:
+        if type_column is None:
+            continue
+        if frame is None:
+            raise ValueError(
+                f"col_stats requested per {role} type column {type_column!r} but no {role} frame is bound")
+        for col in binding_cols:
+            if col is None:
+                continue
+            partition_facts = build_col_stats_facts_by_type(frame, col, role, type_column, eng)
+            if not partition_facts:
+                raise ValueError(
+                    f"Cannot build per-type col_stats facts on {role} column {col!r} by "
+                    f"{type_column!r}: a column is absent, the frame is empty, the values are "
+                    f"non-integer or null-bearing, the type keys are float/null, or there are "
+                    f"more than {_MAX_COL_STATS_PARTITIONS} distinct types")
+            for fact in partition_facts:
+                registry = registry.with_col_stats(fact)
     return _attach(g, registry)
 
 
