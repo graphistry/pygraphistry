@@ -16,6 +16,7 @@ from graphistry.Plottable import Plottable
 
 if TYPE_CHECKING:
     import polars as pl
+    from graphistry.compute.gfql.index.registry import ColStatsFact
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
@@ -2579,6 +2580,30 @@ def _edge_cols_bounds_within(
             and _bounds_within_indexable(frame[dst_col], lo, hi, engine=engine))
 
 
+def _facts_prove_bounds(
+    facts: Optional[Tuple["ColStatsFact", "ColStatsFact"]],
+    lo: int,
+    hi: int,
+) -> bool:
+    """True iff VERIFIED full-frame endpoint facts prove the bounds claim for any
+    row subset: integer, null-free, and within [lo, hi].
+
+    APPROXIMATION DIRECTION -- this is an UNDER-approximation of provability:
+    True is always sound (full-frame bounds contain every subset's bounds; zero
+    nulls on the frame means zero nulls on any subset), while False may be
+    over-cautious (the subset can satisfy the claim even when the full frame
+    does not). A False therefore costs at most the O(E) scan it would have
+    skipped; it can never change an answer, and it never declines."""
+    if facts is None:
+        return False
+    for fact in facts:
+        if (not fact.is_integer or fact.null_count != 0
+                or fact.min_val is None or fact.max_val is None
+                or fact.min_val < lo or fact.max_val > hi):
+            return False
+    return True
+
+
 def _two_hop_equal_domain_dense_total(
     domain_nodes: DataFrameT,
     edge_domain: DataFrameT,
@@ -2587,6 +2612,8 @@ def _two_hop_equal_domain_dense_total(
     src_col: str,
     dst_col: str,
     engine: Engine,
+    edge_endpoint_facts: Optional[Tuple["ColStatsFact", "ColStatsFact"]] = None,
+    domain_interval_hint: Optional[Tuple[int, int]] = None,
 ) -> Optional[int]:
     """PROOF-GATED dense-domain kernel for the EQUAL-DOMAIN two-hop count.
 
@@ -2625,12 +2652,16 @@ def _two_hop_equal_domain_dense_total(
             return None  # eager lane owns LazyFrame inputs (same rule as the fused lanes)
     if len(edge_domain) == 0:
         return None  # existing path already answers openCypher count-over-no-rows 0
-    interval = _dense_int_domain_interval(domain_nodes, node_col, engine=engine)
+    # Caller-verified hint (facts on the EXACT domain frame) elides the interval scan.
+    interval = domain_interval_hint if domain_interval_hint is not None else \
+        _dense_int_domain_interval(domain_nodes, node_col, engine=engine)
     if interval is None:
         return None
     lo, hi = interval
-    if not _edge_cols_bounds_within(edge_domain, src_col, dst_col, lo, hi, engine=engine):
-        return None
+    if not _facts_prove_bounds(edge_endpoint_facts, lo, hi):
+        # Fact miss or insufficient: fall back to the O(E) scan -- never decline on facts.
+        if not _edge_cols_bounds_within(edge_domain, src_col, dst_col, lo, hi, engine=engine):
+            return None
 
     from graphistry.compute.gfql.index.engine_arrays import array_namespace, col_to_array
 
@@ -2726,6 +2757,23 @@ def _execute_two_hop_count_fast_path(
         # bincounts. Declines (None) keep the memoized semi-join path below untouched;
         # when it serves, no cross-call memo is needed -- the kernel is cheaper than a
         # memo HIT's count-join, so one-shot and warm calls converge.
+        from graphistry.compute.gfql.index.api import get_registry
+        _reg = get_registry(base_graph)
+        _src_fact = _reg.get_col_stats_valid("edges", src_col, edges_obj, requested_engine)
+        _dst_fact = _reg.get_col_stats_valid("edges", dst_col, edges_obj, requested_engine)
+        _interval_hint: Optional[Tuple[int, int]] = None
+        if not start_op.filter_dict:
+            # Unfiltered domain == the bound node frame, so a fact on THAT frame is
+            # EXACT here (no approximation); any missing/insufficient fact just means
+            # the interval scan runs -- same under-approximation direction as
+            # _facts_prove_bounds: a miss can cost a scan, never an answer.
+            _node_fact = _reg.get_col_stats_valid("nodes", node_col, nodes_obj, requested_engine)
+            if (_node_fact is not None and _node_fact.is_integer
+                    and _node_fact.null_count == 0
+                    and _node_fact.min_val is not None and _node_fact.max_val is not None
+                    and _node_fact.n_unique is not None
+                    and _node_fact.n_unique == _node_fact.max_val - _node_fact.min_val + 1):
+                _interval_hint = (int(_node_fact.min_val), int(_node_fact.max_val))
         dense_total = _two_hop_equal_domain_dense_total(
             start_nodes,
             first_edges,
@@ -2733,6 +2781,10 @@ def _execute_two_hop_count_fast_path(
             src_col=src_col,
             dst_col=dst_col,
             engine=requested_engine,
+            edge_endpoint_facts=(
+                (_src_fact, _dst_fact)
+                if _src_fact is not None and _dst_fact is not None else None),
+            domain_interval_hint=_interval_hint,
         )
         if dense_total is not None:
             if requested_engine in POLARS_ENGINES:

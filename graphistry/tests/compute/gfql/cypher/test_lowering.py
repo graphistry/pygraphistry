@@ -17661,6 +17661,227 @@ def test_t6_count_path_narrow_filter_error_parity_polars(monkeypatch: Any) -> No
     assert narrow.to_dicts() == full.select(["s", "d"]).to_dicts()
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_t6_col_stats_facts_build_and_invalidate(engine: str) -> None:
+    # gfql_index_col_stats builds verified facts for the bound id columns; a
+    # frame REBIND (even to an equal-valued copy) must invalidate them (identity
+    # guard) so a stale fact can never prove anything about a new frame.
+    nodes_pd, edges_pd = _t6_dense_frames()
+    graph = _mk_h3_graph(engine, nodes_pd, edges_pd)
+    eng = {"pandas": Engine.PANDAS, "polars": Engine.POLARS, "cudf": Engine.CUDF}[engine]
+    g2 = graph.gfql_index_col_stats(engine=engine)
+    reg = g2._gfql_index_registry
+    assert sorted(reg.col_stats.keys()) == [("edges", "d"), ("edges", "s"), ("nodes", "id")]
+    fact = reg.get_col_stats_valid("edges", "s", g2._edges, eng)
+    assert fact is not None
+    assert (fact.min_val, fact.max_val, fact.null_count, fact.is_integer) == (0, 2, 0, True)
+    rebound = g2.edges(g2._edges, "s", "d")  # new Plottable, same frame object -> still valid
+    assert reg.get_col_stats_valid("edges", "s", rebound._edges, eng) is not None
+    import copy as _copy
+    other = _copy.copy(g2._edges)  # equal values, different object -> identity miss
+    assert reg.get_col_stats_valid("edges", "s", other, eng) is None
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("with_facts", [True, False])
+def test_t6_col_stats_skip_bounds_scan_both_sides(
+    engine: str, with_facts: bool, monkeypatch: Any
+) -> None:
+    # Both sides of the fact gate: with valid facts the O(E) endpoint-bounds scan
+    # must NOT run; without them it MUST. Same count either way.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_h3_graph(engine, *_t6_dense_frames())
+    if with_facts:
+        graph = graph.gfql_index_col_stats(engine=engine)
+
+    calls: List[str] = []
+    real = gfql_fast_paths_module._edge_cols_bounds_within
+
+    def spy(*args: Any, **kw: Any) -> Any:
+        calls.append("scan")
+        return real(*args, **kw)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_within", spy)
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
+    assert calls == ([] if with_facts else ["scan"])
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_col_stats_conservative_miss_falls_back_to_scan(
+    engine: str, monkeypatch: Any
+) -> None:
+    # A fact that CANNOT prove containment (full-frame endpoint outside the
+    # domain interval, carried by a row the rel filter drops) must fall back to
+    # the subset scan -- which proves the filtered subset IS contained -- and the
+    # kernel must SERVE with the right count. Facts insufficient != decline.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes_pd, edges_pd = _t6_dense_frames()
+    extra = pd.DataFrame({"s": [0], "d": [99], "rel": ["OTHER"]})
+    edges_wide = pd.concat([edges_pd, extra], ignore_index=True)
+    graph = _mk_h3_graph(engine, nodes_pd, edges_wide).gfql_index_col_stats(engine=engine)
+
+    calls: List[str] = []
+    real = gfql_fast_paths_module._edge_cols_bounds_within
+
+    def spy(*args: Any, **kw: Any) -> Any:
+        calls.append("scan")
+        return real(*args, **kw)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_within", spy)
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
+    assert calls == ["scan"], "insufficient facts must scan, not skip and not decline"
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("filtered", [False, True])
+def test_t6_col_stats_interval_hint_only_for_unfiltered_domain(
+    engine: str, filtered: bool, monkeypatch: Any
+) -> None:
+    # The node-side interval fact is EXACT-FRAME only: an unfiltered domain (== the
+    # bound node frame) may skip the interval scan; any filtered domain must scan
+    # (a fact about the full frame cannot prove a subset is dense). Count identical.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes_pd, edges_pd = _t6_dense_frames()
+    graph = _mk_h3_graph(engine, nodes_pd, edges_pd).gfql_index_col_stats(engine=engine)
+
+    calls: List[str] = []
+    real = gfql_fast_paths_module._dense_int_domain_interval
+
+    def spy(*args: Any, **kw: Any) -> Any:
+        calls.append("interval-scan")
+        return real(*args, **kw)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_dense_int_domain_interval", spy)
+    query = (_T6_DENSE_Q8_QUERY if filtered
+             else "MATCH (a)-[{rel:'FOLLOWS'}]->(b)-[{rel:'FOLLOWS'}]->(d) RETURN count(*) AS numPaths")
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
+    assert calls == (["interval-scan"] if filtered else [])
+
+
+def test_t6_col_stats_builder_declines_by_precondition_and_raises_on_real_errors(monkeypatch: Any) -> None:
+    # Type-safety contract: declines (None) come ONLY from explicit preconditions
+    # -- absent column, non-integer dtype, empty frame -- and a real error inside
+    # the reductions PROPAGATES (no blanket except may swallow it).
+    import numpy as np
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.build import build_col_stats_fact
+
+    ok = pd.DataFrame({"s": [1, 2, 3]})
+    assert build_col_stats_fact(ok, "nope", "edges", Engine.PANDAS) is None
+    assert build_col_stats_fact(pd.DataFrame({"s": ["a"]}), "s", "edges", Engine.PANDAS) is None
+    assert build_col_stats_fact(pd.DataFrame({"s": pd.Series([], dtype="int64")}), "s", "edges", Engine.PANDAS) is None
+
+    def _boom(self: Any, *a: Any, **kw: Any) -> Any:
+        raise RuntimeError("backend exploded")
+
+    monkeypatch.setattr(pd.Series, "min", _boom)
+    with pytest.raises(RuntimeError, match="backend exploded"):
+        build_col_stats_fact(pd.DataFrame({"s": np.array([1, 2, 3], dtype="int64")}), "s", "edges", Engine.PANDAS)
+
+
+def test_t6_col_stats_null_bearing_int_fact_exists_but_routes_to_scan(monkeypatch: Any) -> None:
+    # BOTH SIDES of the null gate: a nullable-int column with nulls still gets a
+    # fact (null_count recorded, min/max omitted -- no int(NA) games), and the
+    # kernel must treat it as insufficient: scan runs, count right.
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.build import build_col_stats_fact
+
+    nodes_pd, edges_pd = _t6_dense_frames()
+    edges_null = edges_pd.copy()
+    edges_null["s"] = edges_null["s"].astype("Int64")
+    fact = build_col_stats_fact(edges_null, "s", "edges", Engine.PANDAS)
+    assert fact is not None and fact.null_count == 0 and fact.min_val == 0
+
+    edges_null.loc[0, "s"] = pd.NA
+    fact_null = build_col_stats_fact(edges_null, "s", "edges", Engine.PANDAS)
+    assert fact_null is not None
+    assert fact_null.null_count == 1
+    assert fact_null.min_val is None and fact_null.max_val is None
+    assert not gfql_fast_paths_module._facts_prove_bounds((fact_null, fact_null), 0, 3)
+
+
+def test_t6_facts_prove_bounds_exact_boundary_matrix() -> None:
+    # The under-approximation's exact edges: boundary-equal values prove; one past
+    # either end, a null, a missing bound, or a non-integer fact must all return
+    # False (cost a scan, never an answer).
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.registry import ColStatsFact
+
+    def fact(**kw: Any) -> ColStatsFact:
+        base = dict(role="edges", column="s", min_val=0, max_val=3, null_count=0,
+                    is_integer=True, engine=Engine.PANDAS)
+        base.update(kw)
+        return ColStatsFact(**base)  # type: ignore[arg-type]
+
+    prove = gfql_fast_paths_module._facts_prove_bounds
+    good = fact()
+    assert prove((good, good), 0, 3) is True          # exactly on both boundaries
+    assert prove((fact(min_val=1, max_val=2), good), 0, 3) is True
+    assert prove((fact(min_val=-1), good), 0, 3) is False   # one below lo
+    assert prove((good, fact(max_val=4)), 0, 3) is False    # one above hi
+    assert prove((fact(null_count=1), good), 0, 3) is False
+    assert prove((fact(min_val=None), good), 0, 3) is False
+    assert prove((fact(is_integer=False), good), 0, 3) is False
+    assert prove(None, 0, 3) is False
+
+
+def test_t6_col_stats_explicit_request_raises_default_skips() -> None:
+    # Targeting contract: binding defaults skip unfactable columns silently; an
+    # EXPLICITLY named column that is absent or non-integer raises by name.
+    nodes = pd.DataFrame({"id": [0, 1], "name": ["a", "b"]})
+    edges = pd.DataFrame({"s": [0], "d": [1]})
+    g = _mk_graph(nodes, edges)
+    g2 = g.gfql_index_col_stats()  # defaults fine
+    assert ("nodes", "id") in g2._gfql_index_registry.col_stats
+    with pytest.raises(ValueError, match="'name'"):
+        g.gfql_index_col_stats(node_columns=["name"])  # explicit non-integer
+    with pytest.raises(ValueError, match="'ghost'"):
+        g.gfql_index_col_stats(edge_columns=["ghost"])  # explicit absent
+
+
+def test_t6_col_stats_interval_hint_refused_on_gapped_ids(monkeypatch: Any) -> None:
+    # n_unique mismatch (gapped ids): the hint must be refused and the interval
+    # scan must run -- which itself declines the dense lane; answer still right
+    # via the fallback path.
+    nodes_pd = pd.DataFrame({"id": [0, 1, 3]})  # gap at 2
+    edges_pd = pd.DataFrame({"s": [0, 1], "d": [1, 3], "rel": ["F", "F"]})
+    graph = _mk_graph(nodes_pd, edges_pd).gfql_index_col_stats()
+
+    calls: List[str] = []
+    real = gfql_fast_paths_module._dense_int_domain_interval
+
+    def spy(*args: Any, **kw: Any) -> Any:
+        calls.append("interval-scan")
+        return real(*args, **kw)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_dense_int_domain_interval", spy)
+    query = "MATCH (a)-[{rel:'F'}]->(b)-[{rel:'F'}]->(d) RETURN count(*) AS numPaths"
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine="pandas")
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 1}]
+    assert calls == ["interval-scan"], "gapped ids must refuse the hint and scan"
+
+
+def test_t6_col_stats_index_all_includes_facts() -> None:
+    graph = _mk_graph(*_t6_dense_frames())
+    g2 = graph.gfql_index_all()
+    assert ("edges", "s") in g2._gfql_index_registry.col_stats
+    assert ("nodes", "id") in g2._gfql_index_registry.col_stats
+
+
 def test_t6_decline_keeps_memo_path_reachable() -> None:
     # The T5 memo graph has an out-of-domain FOLLOWS endpoint (a City), so the
     # dense kernel must DECLINE there and the memo must populate exactly as before

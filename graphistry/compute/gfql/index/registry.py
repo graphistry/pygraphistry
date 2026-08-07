@@ -11,7 +11,7 @@ answer).
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, Optional, Tuple, Union, cast
+from typing import Any, Dict, Literal, Optional, Tuple, Union, cast
 
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT
@@ -105,22 +105,69 @@ class NodePropIndex:
     name: Optional[str] = None
 
 
+ColStatsRole = Literal["nodes", "edges"]
+
+
+@dataclass(frozen=True)
+class ColStatsFact:
+    """VERIFIED per-column facts over the exact bound frame (min/max/null count,
+    integer-dtype flag). Same identity+fingerprint validity contract as the
+    indexes; consumers must use facts CONSERVATIVELY: a fact can prove a
+    property of any row subset that upper-bounds it (subset bounds lie within
+    full-frame bounds; zero nulls on the frame means zero nulls on any subset),
+    and an insufficient fact means fall back to the scan -- never decline."""
+    role: ColStatsRole
+    column: str
+    min_val: Optional[Union[int, float]]
+    max_val: Optional[Union[int, float]]
+    null_count: int
+    is_integer: bool
+    engine: Engine
+    n_unique: Optional[int] = None  # computed for the nodes role only (interval proofs)
+    fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
+    source_ref: Optional[DataFrameT] = field(compare=False, default=None)
+
+
 @dataclass(frozen=True)
 class GfqlIndexRegistry:
     """Immutable kind -> index map. ``with_index`` / ``without`` return copies."""
     indexes: Dict[IndexKind, Union[AdjacencyIndex, NodeIdIndex]] = field(default_factory=dict)
     # Property indexes are keyed by COLUMN, not kind: a graph may carry several.
     node_props: Dict[str, NodePropIndex] = field(default_factory=dict)
+    # Column-stat facts keyed by (role, column); see ColStatsFact.
+    col_stats: Dict[Tuple[str, str], ColStatsFact] = field(default_factory=dict)
 
     def with_index(self, kind: IndexKind, index: Union[AdjacencyIndex, NodeIdIndex]) -> "GfqlIndexRegistry":
         new = dict(self.indexes)
         new[kind] = index
-        return GfqlIndexRegistry(new, dict(self.node_props))
+        return replace(self, indexes=new)
 
     def with_node_prop(self, column: str, index: "NodePropIndex") -> "GfqlIndexRegistry":
         props = dict(self.node_props)
         props[column] = index
-        return GfqlIndexRegistry(dict(self.indexes), props)
+        return replace(self, node_props=props)
+
+    def with_col_stats(self, fact: ColStatsFact) -> "GfqlIndexRegistry":
+        stats = dict(self.col_stats)
+        stats[(fact.role, fact.column)] = fact
+        return replace(self, col_stats=stats)
+
+    def get_col_stats_valid(
+        self, role: ColStatsRole, column: str, df: Optional[DataFrameT], engine: Engine
+    ) -> Optional[ColStatsFact]:
+        """The fact for (role, column), only while it still matches the live frame +
+        engine (same identity/fingerprint contract as ``get_valid``)."""
+        fact = self.col_stats.get((role, column))
+        if fact is None or df is None or fact.engine != engine:
+            return None
+        if fact.source_ref is not None and fact.source_ref is not df:
+            return None
+        if fact.fingerprint != frame_fingerprint(df, (column,), engine):
+            return None
+        return fact
+
+    def without_col_stats(self) -> "GfqlIndexRegistry":
+        return replace(self, col_stats={})
 
     def node_prop_cols(self) -> Tuple[str, ...]:
         return tuple(sorted(self.node_props.keys()))
@@ -141,15 +188,15 @@ class GfqlIndexRegistry:
 
     def without(self, kind: IndexKind) -> "GfqlIndexRegistry":
         if kind == NODE_PROP:
-            return GfqlIndexRegistry(dict(self.indexes), {})
+            return replace(self, node_props={})
         new = dict(self.indexes)
         new.pop(kind, None)
-        return GfqlIndexRegistry(new, dict(self.node_props))
+        return replace(self, indexes=new)
 
     def without_node_prop(self, column: str) -> "GfqlIndexRegistry":
         props = dict(self.node_props)
         props.pop(column, None)
-        return GfqlIndexRegistry(dict(self.indexes), props)
+        return replace(self, node_props=props)
 
     def rebind_edges(self, new_edges: DataFrameT) -> "GfqlIndexRegistry":
         """Re-point the EDGE adjacency indexes' identity guard at ``new_edges``.
@@ -189,7 +236,7 @@ class GfqlIndexRegistry:
                 new[kind] = replace(idx, source_ref=new_edges)
             else:
                 new.pop(kind, None)
-        return GfqlIndexRegistry(new, dict(self.node_props))
+        return replace(self, indexes=new)
 
     def get(self, kind: IndexKind) -> Optional[Union[AdjacencyIndex, NodeIdIndex]]:
         return self.indexes.get(kind)
@@ -201,7 +248,7 @@ class GfqlIndexRegistry:
         return cast(Tuple[IndexKind, ...], tuple(sorted(self.indexes.keys())))
 
     def is_empty(self) -> bool:
-        return not self.indexes and not self.node_props
+        return not self.indexes and not self.node_props and not self.col_stats
 
     def get_valid(self, kind: IndexKind, df: DataFrameT, cols: Tuple[str, ...], engine: Engine) -> Optional[Union[AdjacencyIndex, NodeIdIndex]]:
         """Return the index for ``kind`` only if its fingerprint still matches the

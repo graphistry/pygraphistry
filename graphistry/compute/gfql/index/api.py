@@ -16,7 +16,7 @@ from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, resolv
 from graphistry.compute.typing import DataFrameT
 from graphistry.Plottable import Plottable
 from .registry import (
-    AdjacencyIndex, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
+    AdjacencyIndex, ColStatsRole, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
     EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, ADJ_KINDS, ALL_KINDS,
 )
 from .build import build_adjacency_index, build_node_id_index, build_node_prop_index
@@ -435,6 +435,58 @@ def gfql_index_node_props(g: Plottable, columns: Sequence[str],
     return g
 
 
+def gfql_index_col_stats(g: Plottable,
+                         node_columns: Optional[Sequence[str]] = None,
+                         edge_columns: Optional[Sequence[str]] = None,
+                         engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
+    """Verified column-stat facts (min/max/null count) -- EAGER and TARGETED.
+
+    Default target is the plan-relevant minimum: the node id binding and the edge
+    src/dst bindings (what the count fast paths consult). Pass ``node_columns`` /
+    ``edge_columns`` to fact additional columns: an EXPLICITLY requested column
+    that is absent or unfactable (non-integer in v1) raises -- you asked for it
+    by name -- while the binding defaults skip silently (convenience, consumers
+    scan as before). Facts ride the same identity+fingerprint validity contract
+    as the physical indexes, and consumers use them as UNDER-approximations of
+    provability (see ColStatsFact): a missing/insufficient fact costs a scan,
+    never an answer. Laziness (plan-driven fact building at query time) is
+    deliberately out of scope -- that is the typed-ontology re-verification
+    policy question; eager build here keeps fact cost a declared setup step,
+    matching how the benchmark harness discloses index builds.
+    """
+    from .build import build_col_stats_fact
+    eng = resolve_engine(engine, g)
+    from graphistry.compute.ComputeMixin import _coerce_input_formats
+    g = _coerce_input_formats(g, eng)
+    registry = get_registry(g)
+    if g._nodes is not None and g._node is not None:
+        fact = build_col_stats_fact(g._nodes, g._node, "nodes", eng)
+        if fact is not None:
+            registry = registry.with_col_stats(fact)
+    if g._edges is not None:
+        for col in (g._source, g._destination):
+            if col is None:
+                continue
+            fact = build_col_stats_fact(g._edges, col, "edges", eng)
+            if fact is not None:
+                registry = registry.with_col_stats(fact)
+    targets: List[Tuple[Optional[Sequence[str]], Optional[DataFrameT], ColStatsRole]] = [
+        (node_columns, g._nodes, "nodes"),
+        (edge_columns, g._edges, "edges"),
+    ]
+    for requested, frame, role in targets:
+        for col in (requested or ()):
+            if frame is None:
+                raise ValueError(f"col_stats requested for {role} column {col!r} but no {role} frame is bound")
+            fact = build_col_stats_fact(frame, col, role, eng)
+            if fact is None:
+                raise ValueError(
+                    f"Cannot build a col_stats fact on {role} column {col!r}: absent, "
+                    f"empty, or non-integer (v1 facts integer columns only)")
+            registry = registry.with_col_stats(fact)
+    return _attach(g, registry)
+
+
 def gfql_index_all(g: Plottable,
                    engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
     """Convenience: build out+in adjacency + (when ids are unique) node_id indexes.
@@ -449,7 +501,7 @@ def gfql_index_all(g: Plottable,
         g = create_index(g, NODE_ID, engine=engine)
     except GfqlIndexUnsupportedError:
         pass  # non-unique node ids -> skip the node_id accelerator (adjacency still built)
-    return g
+    return gfql_index_col_stats(g, engine=engine)
 
 
 # ---- planner entry ---------------------------------------------------------
