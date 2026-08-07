@@ -194,6 +194,9 @@ def _connected_join_simple_filter_cache_key(filter_dict: Optional[dict]) -> Opti
     return tuple(sorted(items))
 
 
+_PROJECT_LAZY_MIN_ROWS = 1_000_000  # below this the lazy plan's fixed cost outweighs narrow-gather savings
+
+
 def _filter_project(
     frame: DataFrameT,
     match: Optional[Dict[str, Any]],
@@ -207,7 +210,9 @@ def _filter_project(
     passes ``project`` iff its plan provably reads only those columns (e.g. a
     count-shaped fast path reads only node id and edge endpoint columns). That
     admission rule is sufficient because both arms are monotone — projection is
-    never more expensive than the plain filter:
+    never more expensive than the plain filter (on polars this REQUIRES the
+    small-frame eager gate below: the lazy plan carries a fixed per-call cost
+    that a small frame cannot amortize — receipted q8@20k floor trip):
 
     - polars: the SAME validated expr (built against the full schema) runs as
       one lazy filter+select, so the engine gathers only the requested columns.
@@ -218,12 +223,21 @@ def _filter_project(
 
     The filter may reference projected-away columns in every arm.
     ``project=None`` is byte-identical to the plain filter. Contract with
-    columns: exactly ``project``, post-filter.
+    columns: AT LEAST ``project`` post-filter -- and exactly ``project`` once the
+    frame is large enough that narrowing pays (the polars small-frame arm skips
+    narrowing entirely; pandas/cudf mask+loc is narrow at every size).
     """
     if engine in POLARS_ENGINES:
         from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_expr_by_dict_polars
         expr = filter_expr_by_dict_polars(frame, match)
         if project is None:
+            return cast(DataFrameT, frame.filter(expr) if expr is not None else frame)
+        if len(frame) < _PROJECT_LAZY_MIN_ROWS:
+            # Small frame: EVERY extra polars op carries fixed overhead that small
+            # frames cannot amortize (receipted twice: the lazy plan tripped the
+            # q8@20k floor, and even eager+select re-tripped it), so skip narrowing
+            # entirely -- byte-identical to the pre-projection path. Contract here
+            # is AT LEAST the projected columns; consumers must tolerate extras.
             return cast(DataFrameT, frame.filter(expr) if expr is not None else frame)
         lf = frame.lazy()  # engine seam: polars frame rides DataFrameT
         if expr is not None:
