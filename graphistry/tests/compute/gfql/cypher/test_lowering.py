@@ -17516,12 +17516,17 @@ def test_t6_count_path_projection_widths_and_value(engine: str, monkeypatch: Any
         return real(domain_nodes, edge_domain, **kw)
 
     monkeypatch.setattr(gfql_fast_paths_module, "_two_hop_equal_domain_dense_total", spy)
+    monkeypatch.setattr(gfql_fast_paths_module, "_PROJECT_LAZY_MIN_ROWS", 0)  # force narrowing on the tiny fixture
     compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
     result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
     assert result is not None
     assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
-    assert seen["node_cols"] == ["id"]
-    assert seen["edge_cols"] == ["s", "d"]
+    if engine == "polars":
+        assert seen["node_cols"] == ["id"]
+        assert seen["edge_cols"] == ["s", "d"]
+    else:
+        assert seen["node_cols"] == ["id"]  # pandas/cudf mask+loc narrows at every size
+        assert seen["edge_cols"] == ["s", "d"]
 
 
 _T6_PROJ_MATRIX_FILTERS: List[Any] = [
@@ -17537,7 +17542,7 @@ _T6_PROJ_MATRIX_FILTERS: List[Any] = [
 
 @pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 @pytest.mark.parametrize("case", range(len(_T6_PROJ_MATRIX_FILTERS)))
-def test_t6_filter_project_differential_matrix(engine: str, case: int) -> None:
+def test_t6_filter_project_differential_matrix(engine: str, case: int, monkeypatch: Any) -> None:
     # DIFFERENTIAL, every engine x filter shape: the projected filter must return
     # exactly the unprojected filter's rows cut to the projected columns, and must
     # raise the SAME exception type on every error path. Decoy columns present so
@@ -17554,6 +17559,7 @@ def test_t6_filter_project_differential_matrix(engine: str, case: int) -> None:
     frame = graph._edges
     eng = {"pandas": Engine.PANDAS, "polars": Engine.POLARS, "cudf": Engine.CUDF}[engine]
 
+    monkeypatch.setattr(gfql_fast_paths_module, "_PROJECT_LAZY_MIN_ROWS", 0)  # force narrowing on the tiny fixture
     spec = _T6_PROJ_MATRIX_FILTERS[case]
     match: Any
     if spec == "gt_pred":
@@ -17631,7 +17637,7 @@ def test_t6_count_path_reserved_names_value_correct_all_engines(engine: str, sha
     assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": oracle}]
 
 
-def test_t6_count_path_narrow_filter_error_parity_polars() -> None:
+def test_t6_count_path_narrow_filter_error_parity_polars(monkeypatch: Any) -> None:
     # Round-4 negative pin: the narrow (projected) filter lane raises the SAME
     # typed error as the full-width lane -- E302 for a string predicate on a
     # non-string column -- and its rows match full-width filter + select.
@@ -17639,6 +17645,7 @@ def test_t6_count_path_narrow_filter_error_parity_polars() -> None:
     from graphistry.compute.exceptions import GFQLSchemaError
     from graphistry.compute.predicates.str import Contains
 
+    monkeypatch.setattr(gfql_fast_paths_module, "_PROJECT_LAZY_MIN_ROWS", 0)  # force narrowing on the tiny fixture
     edges = pl.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0], "rel": [10, 20, 10]})
     graph = _mk_graph(*_t6_dense_frames())
     with pytest.raises(GFQLSchemaError):
@@ -18260,6 +18267,7 @@ def test_h3_fused_two_hop_count_serves_projected_away_reserved_column(engine: st
     edges = edges.assign(__in_count__=1)
     graph = _mk_h3_graph(engine, nodes, edges)
 
+    monkeypatch.setattr(gfql_fast_paths_module, "_PROJECT_LAZY_MIN_ROWS", 0)  # narrowing engages above threshold; forced here
     calls = _probe_fused_two_hop(monkeypatch)
     result = graph.gfql(_H3_DISTINCT_DOMAIN_QUERY, engine=engine)
 
