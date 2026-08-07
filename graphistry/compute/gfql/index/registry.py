@@ -124,6 +124,12 @@ class ColStatsFact:
     is_integer: bool
     engine: Engine
     n_unique: Optional[int] = None  # computed for the nodes role only (interval proofs)
+    # Per-type partition facts: (type_column, type_value) restricts the fact to the
+    # rows where type_column == type_value; None/None = whole frame. A partition
+    # fact upper-bounds any FURTHER-filtered subset of that partition, same
+    # conservative direction as whole-frame facts.
+    type_column: Optional[str] = None
+    type_value: Optional[Union[str, int]] = None
     fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
     source_ref: Optional[DataFrameT] = field(compare=False, default=None)
 
@@ -134,8 +140,9 @@ class GfqlIndexRegistry:
     indexes: Dict[IndexKind, Union[AdjacencyIndex, NodeIdIndex]] = field(default_factory=dict)
     # Property indexes are keyed by COLUMN, not kind: a graph may carry several.
     node_props: Dict[str, NodePropIndex] = field(default_factory=dict)
-    # Column-stat facts keyed by (role, column); see ColStatsFact.
-    col_stats: Dict[Tuple[str, str], ColStatsFact] = field(default_factory=dict)
+    # Column-stat facts keyed by (role, column, type_column, type_value); the
+    # whole-frame fact uses (role, column, None, None). See ColStatsFact.
+    col_stats: Dict[Tuple[str, str, Optional[str], Optional[Union[str, int]]], ColStatsFact] = field(default_factory=dict)
 
     def with_index(self, kind: IndexKind, index: Union[AdjacencyIndex, NodeIdIndex]) -> "GfqlIndexRegistry":
         new = dict(self.indexes)
@@ -149,15 +156,16 @@ class GfqlIndexRegistry:
 
     def with_col_stats(self, fact: ColStatsFact) -> "GfqlIndexRegistry":
         stats = dict(self.col_stats)
-        stats[(fact.role, fact.column)] = fact
+        stats[(fact.role, fact.column, fact.type_column, fact.type_value)] = fact
         return replace(self, col_stats=stats)
 
     def get_col_stats_valid(
-        self, role: ColStatsRole, column: str, df: Optional[DataFrameT], engine: Engine
+        self, role: ColStatsRole, column: str, df: Optional[DataFrameT], engine: Engine,
+        type_column: Optional[str] = None, type_value: Optional[Union[str, int]] = None,
     ) -> Optional[ColStatsFact]:
-        """The fact for (role, column), only while it still matches the live frame +
-        engine (same identity/fingerprint contract as ``get_valid``)."""
-        fact = self.col_stats.get((role, column))
+        """The fact for (role, column[, type partition]), only while it still matches
+        the live frame + engine (same identity/fingerprint contract as ``get_valid``)."""
+        fact = self.col_stats.get((role, column, type_column, type_value))
         if fact is None or df is None or fact.engine != engine:
             return None
         if fact.source_ref is not None and fact.source_ref is not df:
