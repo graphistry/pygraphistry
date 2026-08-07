@@ -17542,7 +17542,7 @@ _T6_PROJ_MATRIX_FILTERS: List[Any] = [
 
 @pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 @pytest.mark.parametrize("case", range(len(_T6_PROJ_MATRIX_FILTERS)))
-def test_t6_filter_project_differential_matrix(engine: str, case: int) -> None:
+def test_t6_filter_project_differential_matrix(engine: str, case: int, monkeypatch: Any) -> None:
     # DIFFERENTIAL, every engine x filter shape: the projected filter must return
     # exactly the unprojected filter's rows cut to the projected columns, and must
     # raise the SAME exception type on every error path. Decoy columns present so
@@ -17559,6 +17559,7 @@ def test_t6_filter_project_differential_matrix(engine: str, case: int) -> None:
     frame = graph._edges
     eng = {"pandas": Engine.PANDAS, "polars": Engine.POLARS, "cudf": Engine.CUDF}[engine]
 
+    monkeypatch.setattr(gfql_fast_paths_module, "_PROJECT_LAZY_MIN_ROWS", 0)  # force narrowing on the tiny fixture
     spec = _T6_PROJ_MATRIX_FILTERS[case]
     match: Any
     if spec == "gt_pred":
