@@ -129,7 +129,7 @@ class ColStatsFact:
     # fact upper-bounds any FURTHER-filtered subset of that partition, same
     # conservative direction as whole-frame facts.
     type_column: Optional[str] = None
-    type_value: Optional[Union[str, int]] = None
+    type_value: Optional[Union[bool, str, int]] = None  # bool: the label__X form
     fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
     source_ref: Optional[DataFrameT] = field(compare=False, default=None)
 
@@ -142,7 +142,7 @@ class GfqlIndexRegistry:
     node_props: Dict[str, NodePropIndex] = field(default_factory=dict)
     # Column-stat facts keyed by (role, column, type_column, type_value); the
     # whole-frame fact uses (role, column, None, None). See ColStatsFact.
-    col_stats: Dict[Tuple[str, str, Optional[str], Optional[Union[str, int]]], ColStatsFact] = field(default_factory=dict)
+    col_stats: Dict[Tuple[str, str, Optional[str], Optional[Union[bool, str, int]]], ColStatsFact] = field(default_factory=dict)
 
     def with_index(self, kind: IndexKind, index: Union[AdjacencyIndex, NodeIdIndex]) -> "GfqlIndexRegistry":
         new = dict(self.indexes)
@@ -161,7 +161,7 @@ class GfqlIndexRegistry:
 
     def get_col_stats_valid(
         self, role: ColStatsRole, column: str, df: Optional[DataFrameT], engine: Engine,
-        type_column: Optional[str] = None, type_value: Optional[Union[str, int]] = None,
+        type_column: Optional[str] = None, type_value: Optional[Union[bool, str, int]] = None,
     ) -> Optional[ColStatsFact]:
         """The fact for (role, column[, type partition]), only while it still matches
         the live frame + engine (same identity/fingerprint contract as ``get_valid``).

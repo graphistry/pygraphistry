@@ -2604,20 +2604,26 @@ def _facts_prove_bounds(
     return True
 
 
-def _partition_key_from_match(match: Optional[Dict[str, Any]]) -> Optional[Tuple[str, Union[str, int]]]:
+def _partition_key_from_match(match: Optional[Dict[str, Any]]) -> Optional[Tuple[str, Union[bool, str, int]]]:
     """The single scalar equality a match expresses, iff that is ALL it expresses.
 
     A partition fact keyed ``(type_column, type_value)`` describes exactly the
-    rows matching one scalar equality, which is what a typed pattern
-    (``(a:Person)-[:KNOWS]->``) lowers to. Requiring the match to be exactly that
-    equality keeps the DOMAIN claim exact: a further-filtered domain is no longer
-    the partition, so its ids need not stay dense. Endpoint bound claims would
-    tolerate extra predicates (a partition fact upper-bounds any subset of it),
-    but one shared rule keeps the gate obvious."""
+    rows matching one scalar equality. BOTH forms a typed pattern lowers to are
+    scalar equalities, and both must be admitted: ``(a:Person)`` becomes the
+    BOOLEAN ``{"label__Person": True}`` and ``-[:KNOWS]->`` becomes the string
+    ``{"type": "KNOWS"}``. Rejecting bools here silently confined the whole
+    typed path to explicit property maps (``{kind: 'P'}``) and excluded idiomatic
+    Cypher labels, which is the more common form.
+
+    Requiring the match to be exactly ONE equality keeps the DOMAIN claim exact:
+    a further-filtered domain is no longer the partition, so its ids need not
+    stay dense. Endpoint bound claims would tolerate extra predicates (a
+    partition fact upper-bounds any subset of it), but one shared rule keeps the
+    gate obvious."""
     if not match or len(match) != 1:
         return None
     (column, value), = match.items()
-    if isinstance(value, bool) or not isinstance(value, (str, int)):
+    if not isinstance(value, (bool, str, int)):
         return None
     return column, value
 

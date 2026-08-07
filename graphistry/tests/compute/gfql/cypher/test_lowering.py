@@ -17952,7 +17952,7 @@ def test_t6_per_type_facts_prove_typed_bounds_whole_frame_cannot(
     ({}, None),
     (None, None),
     ({"kind": "P", "other": 1}, None),   # more than the one equality
-    ({"kind": True}, None),              # bool is not a type key
+    ({"kind": True}, ("kind", True)),    # the label__X form is a real type key
     ({"kind": 1.5}, None),               # non-scalar-equality value
 ])
 def test_t6_partition_key_admits_exactly_one_scalar_equality(
@@ -17984,6 +17984,51 @@ def test_t6_per_type_extra_predicate_refuses_the_hint(monkeypatch: pytest.Monkey
 
     if result is not None:  # the shape may decline earlier; the refusal is what matters
         assert hints == [] or all(h is None for h in hints)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_t6_per_type_facts_engage_for_cypher_label_syntax(
+    engine: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Idiomatic Cypher labels must reach the typed path, not just property maps.
+
+    ``(a:Person)`` lowers to the BOOLEAN ``{"label__Person": True}`` and
+    ``-[:FOLLOWS]->`` to ``{"type": "FOLLOWS"}``. An earlier gate rejected bools,
+    which silently confined per-type facts to explicit property maps and excluded
+    the more common label form -- with no test noticing, because the other typed
+    fixtures all use property maps."""
+    nodes = pd.DataFrame({"id": list(range(6)),
+                          "label__Person": [True] * 3 + [False] * 3,
+                          "label__City": [False] * 3 + [True] * 3})
+    edges = pd.DataFrame({"s": [0, 1, 2, 0, 0], "d": [1, 2, 0, 3, 4],
+                          "type": ["FOLLOWS", "FOLLOWS", "FOLLOWS", "LIVES_IN", "LIVES_IN"]})
+    graph = _mk_h3_graph(engine, nodes, edges).gfql_index_col_stats(
+        node_type_column="label__Person", edge_type_column="type", engine=engine)
+
+    hints: List[Optional[Tuple[int, int]]] = []
+    real_hint = gfql_fast_paths_module._dense_interval_from_fact
+    monkeypatch.setattr(
+        gfql_fast_paths_module, "_dense_interval_from_fact",
+        lambda *a, **k: (lambda out: (hints.append(out), out)[1])(real_hint(*a, **k)))
+    query = ("MATCH (a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(c:Person) "
+             "RETURN count(*) AS numPaths")
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 3}]
+    assert hints[-1] == (0, 2), "the boolean label partition must yield the dense hint"
+
+
+def test_t6_partition_key_admits_the_boolean_label_form() -> None:
+    """Unit twin of the above: both lowered typed forms are admitted, and the
+    one-equality rule still rejects a label combined with anything else."""
+    assert gfql_fast_paths_module._partition_key_from_match(
+        {"label__Person": True}) == ("label__Person", True)
+    assert gfql_fast_paths_module._partition_key_from_match(
+        {"type": "FOLLOWS"}) == ("type", "FOLLOWS")
+    assert gfql_fast_paths_module._partition_key_from_match(
+        {"label__Person": True, "age": 30}) is None
 
 
 def test_t6_per_type_request_raises_when_unusable() -> None:

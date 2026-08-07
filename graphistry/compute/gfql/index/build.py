@@ -202,7 +202,7 @@ def build_col_stats_fact(
 _MAX_COL_STATS_PARTITIONS = 256
 
 
-def _column_to_pylist(series: SeriesT) -> List[Union[str, int]]:
+def _column_to_pylist(series: SeriesT) -> List[Union[bool, str, int]]:
     """Host-side values of a pandas/cudf column. cudf goes via arrow, not
     ``to_pandas()``, which segfaults on string columns in some RAPIDS builds."""
     to_arrow = getattr(series, "to_arrow", None)
@@ -238,7 +238,7 @@ def build_col_stats_facts_by_type(
     from graphistry.Engine import POLARS_ENGINES
     fingerprint = frame_fingerprint(frame, tuple(sorted({column, type_column})), engine)
 
-    def fact(type_value: Union[str, int], mn: int, mx: int, n_unique: Optional[int]) -> ColStatsFact:
+    def fact(type_value: Union[bool, str, int], mn: int, mx: int, n_unique: Optional[int]) -> ColStatsFact:
         return ColStatsFact(
             role=role, column=column, min_val=mn, max_val=mx,
             null_count=0, is_integer=True, engine=engine,
