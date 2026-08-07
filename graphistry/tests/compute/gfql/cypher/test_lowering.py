@@ -18031,6 +18031,38 @@ def test_t6_partition_key_admits_the_boolean_label_form() -> None:
         {"label__Person": True, "age": 30}) is None
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_per_type_declines_list_valued_type_column(engine: str) -> None:
+    """A LIST-valued type column must DECLINE on every engine, identically.
+
+    GFQL rewrites an absent ``label__X`` into a membership test on a ``labels``
+    list column (``resolve_filter_column``), so a list type column is reachable.
+    It is not equality-addressable -- a query never yields a list-valued
+    partition key -- and the engines disagree natively: pandas raises
+    ``unhashable type: 'list'`` on the groupby while polars groups by list and
+    builds unusable facts. Both must decline by explicit precondition instead."""
+    from graphistry.compute.gfql.index.build import build_col_stats_facts_by_type
+
+    nodes = pd.DataFrame({"id": [0, 1, 2],
+                          "labels": [["Person"], ["Person", "Employee"], ["City"]]})
+    frame = _mk_h3_graph(engine, nodes, pd.DataFrame({"s": [0], "d": [1]}))._nodes
+    eng = Engine.POLARS if engine == "polars" else Engine.PANDAS
+    assert build_col_stats_facts_by_type(frame, "id", "nodes", "labels", eng) == []
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_per_type_scalar_type_column_still_builds(engine: str) -> None:
+    """Positive twin: the list decline must not have caught ordinary string keys."""
+    from graphistry.compute.gfql.index.build import build_col_stats_facts_by_type
+
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3], "kind": ["P", "P", "C", "C"]})
+    frame = _mk_h3_graph(engine, nodes, pd.DataFrame({"s": [0], "d": [1]}))._nodes
+    eng = Engine.POLARS if engine == "polars" else Engine.PANDAS
+    facts = build_col_stats_facts_by_type(frame, "id", "nodes", "kind", eng)
+    assert sorted((f.type_value, f.min_val, f.max_val) for f in facts) == [
+        ("C", 2, 3), ("P", 0, 1)]
+
+
 def test_t6_per_type_request_raises_when_unusable() -> None:
     """Per-type facts are asked for BY NAME, so an unusable request raises rather
     than silently skipping (same contract as the explicit ``*_columns`` request)."""

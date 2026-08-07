@@ -209,6 +209,31 @@ def _column_to_pylist(series: SeriesT) -> List[Union[bool, str, int]]:
     return list(to_arrow().to_pylist()) if to_arrow is not None else list(series.tolist())
 
 
+def _type_column_is_scalar(frame: DataFrameT, type_column: str, engine: Engine) -> bool:
+    """True iff the type column holds SCALARS we can key a partition on.
+
+    List/struct-valued type columns (GFQL's ``labels`` list convention, which
+    ``resolve_filter_column`` rewrites ``label__X`` into) are not equality-
+    addressable: a query never produces a list-valued partition key, so a fact
+    built on one could never be consulted. pandas raises ``unhashable type`` on
+    such a groupby while polars happily groups by list -- so this is an EXPLICIT
+    precondition on both engines rather than an engine-dependent accident.
+    """
+    from graphistry.Engine import POLARS_ENGINES
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        dtype: Any = frame.get_column(type_column).dtype  # engine seam
+        return not isinstance(dtype, (pl.List, pl.Array, pl.Struct, pl.Object))
+    series = frame[type_column]
+    if getattr(series.dtype, "kind", None) not in ("O", "S", "U"):
+        return True  # numeric/bool/categorical dtypes are scalar by construction
+    non_null = series.dropna()
+    if int(non_null.shape[0]) == 0:
+        return True
+    sample = _column_to_pylist(non_null.head(1))
+    return not isinstance(sample[0], (list, tuple, set, dict, bytearray))
+
+
 def build_col_stats_facts_by_type(
     frame: DataFrameT,
     column: str,
@@ -256,6 +281,8 @@ def build_col_stats_facts_by_type(
         values = pl_frame.get_column(column)
         if not values.dtype.is_integer() or int(values.null_count()) > 0:
             return []
+        if not _type_column_is_scalar(frame, type_column, engine):
+            return []
         types = pl_frame.get_column(type_column)
         if types.dtype.is_float() or int(types.null_count()) > 0:
             return []
@@ -273,6 +300,8 @@ def build_col_stats_facts_by_type(
         return []
     values_ser = frame[column]
     if getattr(values_ser.dtype, "kind", None) not in ("i", "u") or int(values_ser.isna().sum()) > 0:
+        return []
+    if not _type_column_is_scalar(frame, type_column, engine):
         return []
     types_ser = frame[type_column]
     if getattr(types_ser.dtype, "kind", None) == "f" or int(types_ser.isna().sum()) > 0:
