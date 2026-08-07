@@ -222,7 +222,9 @@ def _filter_project(
 
     The filter may reference projected-away columns in every arm.
     ``project=None`` is byte-identical to the plain filter. Contract with
-    columns: exactly ``project``, post-filter.
+    columns: AT LEAST ``project`` post-filter -- and exactly ``project`` once the
+    frame is large enough that narrowing pays (the polars small-frame arm skips
+    narrowing entirely; pandas/cudf mask+loc is narrow at every size).
     """
     if engine in POLARS_ENGINES:
         from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_expr_by_dict_polars
@@ -230,11 +232,12 @@ def _filter_project(
         if project is None:
             return cast(DataFrameT, frame.filter(expr) if expr is not None else frame)
         if len(frame) < _PROJECT_LAZY_MIN_ROWS:
-            # Small frame: the lazy plan's fixed per-call overhead exceeds what
-            # projection saves (receipted: q8@20k floor trip), so filter eagerly and
-            # cut columns (a cheap buffer-share). Output contract identical.
-            filtered = frame.filter(expr) if expr is not None else frame
-            return cast(DataFrameT, filtered.select(list(project)))
+            # Small frame: EVERY extra polars op carries fixed overhead that small
+            # frames cannot amortize (receipted twice: the lazy plan tripped the
+            # q8@20k floor, and even eager+select re-tripped it), so skip narrowing
+            # entirely -- byte-identical to the pre-projection path. Contract here
+            # is AT LEAST the projected columns; consumers must tolerate extras.
+            return cast(DataFrameT, frame.filter(expr) if expr is not None else frame)
         lf = frame.lazy()  # engine seam: polars frame rides DataFrameT
         if expr is not None:
             lf = lf.filter(expr)
