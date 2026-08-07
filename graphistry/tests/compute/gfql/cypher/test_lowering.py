@@ -17896,6 +17896,7 @@ _T6_TYPED_QUERY = ("MATCH (a {kind:'P'})-[{rel:'F'}]->(b {kind:'P'})-[{rel:'F'}]
                    "RETURN count(*) AS numPaths")
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 @pytest.mark.parametrize("facts,expect_proved,expect_hint", [
     ("none", False, None),
     ("whole_frame", False, None),
@@ -17903,7 +17904,7 @@ _T6_TYPED_QUERY = ("MATCH (a {kind:'P'})-[{rel:'F'}]->(b {kind:'P'})-[{rel:'F'}]
 ])
 def test_t6_per_type_facts_prove_typed_bounds_whole_frame_cannot(
     facts: str, expect_proved: bool, expect_hint: Optional[Tuple[int, int]],
-    monkeypatch: pytest.MonkeyPatch,
+    engine: str, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Both sides of the typed gate. A typed pattern filters the domain, so a
     whole-frame fact describes the wrong set (every label at once) and proves
@@ -17911,11 +17912,12 @@ def test_t6_per_type_facts_prove_typed_bounds_whole_frame_cannot(
     so the hint appears and the O(E) endpoint scan is skipped. The ANSWER is the
     same in every arm: facts only ever buy a skipped scan."""
     nodes, edges = _t6_typed_frames()
-    base = _mk_graph(nodes, edges)
+    base = _mk_h3_graph(engine, nodes, edges)
     graph = {
         "none": base,
-        "whole_frame": base.gfql_index_col_stats(),
-        "per_type": base.gfql_index_col_stats(node_type_column="kind", edge_type_column="rel"),
+        "whole_frame": base.gfql_index_col_stats(engine=engine),
+        "per_type": base.gfql_index_col_stats(
+            node_type_column="kind", edge_type_column="rel", engine=engine),
     }[facts]
 
     proofs: List[bool] = []
@@ -17936,7 +17938,7 @@ def test_t6_per_type_facts_prove_typed_bounds_whole_frame_cannot(
     monkeypatch.setattr(gfql_fast_paths_module, "_facts_prove_bounds", spy_proof)
     monkeypatch.setattr(gfql_fast_paths_module, "_dense_interval_from_fact", spy_hint)
     compiled = cast(CompiledCypherQuery, compile_cypher(_T6_TYPED_QUERY))
-    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine="pandas")
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
 
     assert result is not None
     assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 3}]
