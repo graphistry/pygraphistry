@@ -164,13 +164,17 @@ class GfqlIndexRegistry:
         type_column: Optional[str] = None, type_value: Optional[Union[str, int]] = None,
     ) -> Optional[ColStatsFact]:
         """The fact for (role, column[, type partition]), only while it still matches
-        the live frame + engine (same identity/fingerprint contract as ``get_valid``)."""
+        the live frame + engine (same identity/fingerprint contract as ``get_valid``).
+
+        A partition fact's validity depends on the type column too -- editing it
+        re-partitions the frame -- so its fingerprint spans both columns."""
         fact = self.col_stats.get((role, column, type_column, type_value))
         if fact is None or df is None or fact.engine != engine:
             return None
         if fact.source_ref is not None and fact.source_ref is not df:
             return None
-        if fact.fingerprint != frame_fingerprint(df, (column,), engine):
+        cols = (column,) if type_column is None else tuple(sorted({column, type_column}))
+        if fact.fingerprint != frame_fingerprint(df, cols, engine):
             return None
         return fact
 
