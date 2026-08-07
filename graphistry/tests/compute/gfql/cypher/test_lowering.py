@@ -18063,6 +18063,62 @@ def test_t6_per_type_scalar_type_column_still_builds(engine: str) -> None:
         ("C", 2, 3), ("P", 0, 1)]
 
 
+def _t6_label_frames() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    nodes = pd.DataFrame({"id": list(range(6)),
+                          "label__Person": [True] * 3 + [False] * 3,
+                          "label__City": [False] * 3 + [True] * 3})
+    edges = pd.DataFrame({"s": [0, 1, 2, 0, 0], "d": [1, 2, 0, 3, 4],
+                          "type": ["FOLLOWS"] * 3 + ["LIVES_IN"] * 2})
+    return nodes, edges
+
+
+def _t6_schema() -> Any:
+    from graphistry.schema import EdgeType, GraphSchema, NodeType
+    return GraphSchema(
+        node_types=[NodeType("Person"), NodeType("City")],
+        edge_types=[EdgeType("FOLLOWS", source="Person", destination="Person"),
+                    EdgeType("LIVES_IN", source="Person", destination="City")])
+
+
+def test_t6_declared_schema_builds_partition_facts_and_engages() -> None:
+    """A DECLARED schema names its own type partitions, so using it is not a
+    guess. Binding one must build the label__X / type partitions and let a typed
+    query reach the dense hint -- with no type column named by the caller."""
+    nodes, edges = _t6_label_frames()
+    graph = _mk_graph(nodes, edges).bind(schema=_t6_schema()).gfql_index_col_stats()
+
+    keys = {k for k in graph._gfql_index_registry.col_stats if k[2] is not None}
+    assert ("nodes", "id", "label__Person", True) in keys
+    assert ("edges", "s", "type", "FOLLOWS") in keys
+
+    query = ("MATCH (a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(c:Person) "
+             "RETURN count(*) AS numPaths")
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine="pandas")
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 3}]
+
+
+def test_t6_no_schema_builds_no_partition_facts() -> None:
+    """Negative twin: without a declared schema NOTHING is inferred, so callers
+    who never opted in pay no extra build. Zero behavior change is the point."""
+    nodes, edges = _t6_label_frames()
+    graph = _mk_graph(nodes, edges).gfql_index_col_stats()
+    assert [k for k in graph._gfql_index_registry.col_stats if k[2] is not None] == []
+
+
+def test_t6_schema_skips_labels_absent_from_the_frame() -> None:
+    """A schema declares a contract for the whole graph; a frame legitimately
+    carries only part of it. Absent derived candidates SKIP (unlike a column
+    named by the caller, which raises)."""
+    from graphistry.schema import GraphSchema, NodeType
+    nodes, edges = _t6_label_frames()
+    schema = GraphSchema(node_types=[NodeType("Person"), NodeType("Ghost")])
+    graph = _mk_graph(nodes, edges).bind(schema=schema).gfql_index_col_stats()
+    keys = {k[2] for k in graph._gfql_index_registry.col_stats if k[2] is not None}
+    assert "label__Person" in keys and "label__Ghost" not in keys
+
+
 def test_t6_per_type_request_raises_when_unusable() -> None:
     """Per-type facts are asked for BY NAME, so an unusable request raises rather
     than silently skipping (same contract as the explicit ``*_columns`` request)."""

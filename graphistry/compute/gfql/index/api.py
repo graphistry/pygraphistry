@@ -8,7 +8,7 @@ stale indexes (treated as absent, never a wrong answer).
 from __future__ import annotations
 
 import copy
-from typing import Dict, List, Literal, Optional, Sequence, Tuple, cast
+from typing import Dict, List, Literal, Optional, Sequence, Set, Tuple, cast
 
 import pandas as pd
 
@@ -435,6 +435,43 @@ def gfql_index_node_props(g: Plottable, columns: Sequence[str],
     return g
 
 
+def _schema_node_type_columns(g: Plottable) -> Tuple[str, ...]:
+    """Node type columns a DECLARED schema names, restricted to ones the frame has.
+
+    ``NodeType.labels`` maps to GFQL's ``label__<Label>`` convention (schema.py),
+    which is the same column the Cypher lowering emits for ``(a:Label)``. Absent
+    candidates are skipped, not raised: the schema declares a contract for the
+    whole graph, and a frame legitimately carries only some of it.
+    """
+    schema = getattr(g, "_gfql_schema", None)
+    if schema is None or g._nodes is None:
+        return ()
+    present = set(g._nodes.columns)
+    out = [f"label__{label}"
+           for node_type in getattr(schema, "node_types", ())
+           for label in getattr(node_type, "labels", ())]
+    return tuple(sorted({c for c in out if c in present}))
+
+
+def _schema_edge_type_columns(g: Plottable) -> Tuple[str, ...]:
+    """Edge type columns a DECLARED schema names, restricted to ones the frame has.
+
+    The two conventions currently DISAGREE for edges: ``schema.py`` declares
+    ``label__<Name>`` booleans while the Cypher lowering emits ``type ==
+    '<Name>'``. Until that is reconciled, offer BOTH candidates and keep whichever
+    the frame actually carries -- a fact on a column no query names is wasted
+    build time, never a wrong answer, so covering both is the safe direction.
+    """
+    schema = getattr(g, "_gfql_schema", None)
+    if schema is None or g._edges is None:
+        return ()
+    present = set(g._edges.columns)
+    candidates = {f"label__{getattr(et, 'name', '')}" for et in getattr(schema, "edge_types", ())}
+    if getattr(schema, "edge_types", ()):
+        candidates.add("type")
+    return tuple(sorted({c for c in candidates if c in present}))
+
+
 def gfql_index_col_stats(g: Plottable,
                          node_columns: Optional[Sequence[str]] = None,
                          edge_columns: Optional[Sequence[str]] = None,
@@ -492,6 +529,7 @@ def gfql_index_col_stats(g: Plottable,
                     f"Cannot build a col_stats fact on {role} column {col!r}: absent, "
                     f"empty, or non-integer (v1 facts integer columns only)")
             registry = registry.with_col_stats(fact)
+    _requested_partitions: Set[Tuple[str, str]] = set()
     part_targets: List[Tuple[Optional[str], Optional[DataFrameT], ColStatsRole, Tuple[Optional[str], ...]]] = [
         (node_type_column, g._nodes, "nodes", (g._node,)),
         (edge_type_column, g._edges, "edges", (g._source, g._destination)),
@@ -499,6 +537,8 @@ def gfql_index_col_stats(g: Plottable,
     for type_column, frame, role, binding_cols in part_targets:
         if type_column is None:
             continue
+        if frame is not None:
+            _requested_partitions.add((role, type_column))
         if frame is None:
             raise ValueError(
                 f"col_stats requested per {role} type column {type_column!r} but no {role} frame is bound")
@@ -514,6 +554,26 @@ def gfql_index_col_stats(g: Plottable,
                     f"more than {_MAX_COL_STATS_PARTITIONS} distinct types")
             for fact in partition_facts:
                 registry = registry.with_col_stats(fact)
+
+    # A DECLARED schema names its own type partitions, so using it is not a
+    # guess -- unlike sniffing column names. Derived candidates SKIP when
+    # unusable (they were not asked for by name, unlike the params above), and
+    # an explicit param for the same role wins.
+    derived_targets: List[Tuple[ColStatsRole, Optional[DataFrameT], Tuple[Optional[str], ...], Tuple[str, ...]]] = [
+        ("nodes", g._nodes, (g._node,), _schema_node_type_columns(g)),
+        ("edges", g._edges, (g._source, g._destination), _schema_edge_type_columns(g)),
+    ]
+    for role, frame, binding_cols, candidates in derived_targets:
+        if frame is None:
+            continue
+        for type_column in candidates:
+            if (role, type_column) in _requested_partitions:
+                continue
+            for col in binding_cols:
+                if col is None:
+                    continue
+                for fact in build_col_stats_facts_by_type(frame, col, role, type_column, eng):
+                    registry = registry.with_col_stats(fact)
     return _attach(g, registry)
 
 
