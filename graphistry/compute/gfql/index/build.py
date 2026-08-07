@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, List, Optional, Tuple, Union, cast
 
 from graphistry.Engine import Engine
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, SeriesT
 from .engine_arrays import array_namespace, col_to_array
 from .registry import AdjacencyIndex, ColStatsFact, ColStatsRole, NodeIdIndex, NodePropIndex, frame_fingerprint
 from .types import AdjacencyIndexKind, ArrayLike, ArrayNamespace
@@ -202,7 +202,7 @@ def build_col_stats_fact(
 _MAX_COL_STATS_PARTITIONS = 256
 
 
-def _column_to_pylist(series: Any) -> List[Any]:
+def _column_to_pylist(series: SeriesT) -> List[Union[str, int]]:
     """Host-side values of a pandas/cudf column. cudf goes via arrow, not
     ``to_pandas()``, which segfaults on string columns in some RAPIDS builds."""
     to_arrow = getattr(series, "to_arrow", None)

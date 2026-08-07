@@ -2792,7 +2792,7 @@ def _execute_two_hop_count_fast_path(
         # Partition facts restore both claims per label, keyed by the single
         # equality the typed pattern lowers to. Whole-frame facts stay the
         # fallback; a miss anywhere costs the scan, never an answer.
-        _edge_part = _partition_key_from_match(cast(Optional[dict], first_edge.edge_match))
+        _edge_part = _partition_key_from_match(first_edge.edge_match)
         _src_fact = _dst_fact = None
         if _edge_part is not None:
             _src_fact = _reg.get_col_stats_valid("edges", src_col, edges_obj, requested_engine, *_edge_part)
@@ -2801,7 +2801,7 @@ def _execute_two_hop_count_fast_path(
             _src_fact = _reg.get_col_stats_valid("edges", src_col, edges_obj, requested_engine)
             _dst_fact = _reg.get_col_stats_valid("edges", dst_col, edges_obj, requested_engine)
         _interval_hint: Optional[Tuple[int, int]] = None
-        _node_part = _partition_key_from_match(cast(Optional[dict], start_op.filter_dict))
+        _node_part = _partition_key_from_match(start_op.filter_dict)
         if not start_op.filter_dict:
             # Unfiltered domain == the bound node frame, so a fact on THAT frame is
             # EXACT here (no approximation); any missing/insufficient fact just means
