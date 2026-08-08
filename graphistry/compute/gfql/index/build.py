@@ -6,7 +6,7 @@ is never reordered.
 """
 from __future__ import annotations
 
-from typing import Any, List, Optional, Tuple, Union, cast
+from typing import Any, List, Optional, Sequence, Tuple, Union, cast
 
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT, SeriesT
@@ -259,12 +259,12 @@ def _type_column_is_scalar(frame: DataFrameT, type_column: str, engine: Engine) 
 
 def build_col_stats_facts_by_type(
     frame: DataFrameT,
-    column: str,
+    columns: Sequence[str],
     role: "ColStatsRole",
     type_column: str,
     engine: Engine,
 ) -> List[ColStatsFact]:
-    """One fact per value of ``type_column``, from a SINGLE grouped pass.
+    """One fact per (column, type value), from a SINGLE grouped pass over ALL columns.
 
     Multi-type graphs defeat whole-frame facts: an interval over every node id
     says nothing about the ids of one label, so bound proofs that a homogeneous
@@ -272,38 +272,53 @@ def build_col_stats_facts_by_type(
     partition fact upper-bounds any further-filtered subset of that partition --
     the same conservative direction as the whole-frame fact.
 
-    Declines (empty list) are decided by EXPLICIT preconditions -- either column
-    absent, non-integer value dtype (v1), a null-bearing value column, a
-    float/null-bearing type column (NaN group keys are not equality-addressable),
+    ``columns`` is a SEQUENCE because the edge role needs facts on both endpoint
+    bindings: aggregating them together is ONE pass over the edge frame instead
+    of one per endpoint, measured as half the edge-side build cost.
+
+    Declines (empty list) are decided by EXPLICIT preconditions -- a column
+    absent, a non-integer or null-bearing value column, a float/null/list-valued
+    type column (neither NaN nor list group keys are equality-addressable), an
     empty frame, or more than ``_MAX_COL_STATS_PARTITIONS`` distinct types --
     never by swallowing exceptions: an error raised by the aggregation itself is
-    a real bug and PROPAGATES. Widening a gate later is additive; a decline only
-    means "scan". Null-bearing value columns are declined rather than recorded
-    with ``null_count > 0`` (as the whole-frame builder does) because consumers
-    require zero nulls before trusting bounds, so such partition facts could only
-    ever route to the scan they were built to avoid.
+    a real bug and PROPAGATES. The decline is ALL-OR-NOTHING across ``columns``,
+    so a caller cannot receive a partial answer and mistake it for a complete
+    one. Null-bearing value columns are declined rather than recorded with
+    ``null_count > 0`` (as the whole-frame builder does) because consumers require
+    zero nulls before trusting bounds, so such facts could only ever route to the
+    scan they were built to avoid.
     """
     from graphistry.Engine import POLARS_ENGINES
-    fingerprint = frame_fingerprint(frame, tuple(sorted({column, type_column})), engine)
+    cols = list(dict.fromkeys(columns))  # de-dup, preserve caller order
+    if not cols:
+        return []
+    # Fingerprint PER COLUMN, even though the aggregation is shared: validity is
+    # checked per fact by get_col_stats_valid, which recomputes it over exactly
+    # {column, type_column}. Spanning every aggregated column here would make
+    # each fact look stale on lookup -- caught by the engagement pins.
+    fingerprints = {c: frame_fingerprint(frame, tuple(sorted({c, type_column})), engine)
+                    for c in cols}
+    want_unique = role == "nodes"
 
-    def fact(type_value: PartitionValue, mn: int, mx: int, n_unique: Optional[int]) -> ColStatsFact:
+    def fact(column: str, type_value: PartitionValue, mn: int, mx: int,
+             n_unique: Optional[int]) -> ColStatsFact:
         return ColStatsFact(
             role=role, column=column, min_val=mn, max_val=mx,
             null_count=0, is_integer=True, engine=engine,
             n_unique=n_unique, type_column=type_column, type_value=type_value,
-            fingerprint=fingerprint, source_ref=frame,
+            fingerprint=fingerprints[column], source_ref=frame,
         )
 
-    want_unique = role == "nodes"
     facts: List[ColStatsFact] = []
     if engine in POLARS_ENGINES:
         import polars as pl
         pl_frame: Any = frame  # engine seam: polars frame rides DataFrameT
-        if column not in pl_frame.columns or type_column not in pl_frame.columns:
+        if type_column not in pl_frame.columns or any(c not in pl_frame.columns for c in cols):
             return []
-        values = pl_frame.get_column(column)
-        if not values.dtype.is_integer() or int(values.null_count()) > 0:
-            return []
+        for c in cols:
+            values = pl_frame.get_column(c)
+            if not values.dtype.is_integer() or int(values.null_count()) > 0:
+                return []
         if not _type_column_is_scalar(frame, type_column, engine):
             return []
         types = pl_frame.get_column(type_column)
@@ -311,19 +326,23 @@ def build_col_stats_facts_by_type(
             return []
         if int(pl_frame.height) == 0 or int(types.n_unique()) > _MAX_COL_STATS_PARTITIONS:
             return []
-        aggs = [pl.col(column).min().alias("_mn"), pl.col(column).max().alias("_mx")]
-        if want_unique:
-            aggs.append(pl.col(column).n_unique().alias("_nuniq"))
+        aggs = []
+        for c in cols:
+            aggs += [pl.col(c).min().alias(f"{c}__mn"), pl.col(c).max().alias(f"{c}__mx")]
+            if want_unique:
+                aggs.append(pl.col(c).n_unique().alias(f"{c}__nu"))
         for row in pl_frame.group_by(type_column).agg(aggs).iter_rows(named=True):
-            facts.append(fact(row[type_column], int(row["_mn"]), int(row["_mx"]),
-                              int(row["_nuniq"]) if want_unique else None))
+            for c in cols:
+                facts.append(fact(c, row[type_column], int(row[f"{c}__mn"]), int(row[f"{c}__mx"]),
+                                  int(row[f"{c}__nu"]) if want_unique else None))
         return facts
 
-    if column not in frame.columns or type_column not in frame.columns:
+    if type_column not in frame.columns or any(c not in frame.columns for c in cols):
         return []
-    values_ser = frame[column]
-    if _dtype_kind(values_ser) not in ("i", "u") or int(values_ser.isna().sum()) > 0:
-        return []
+    for c in cols:
+        values_ser = frame[c]
+        if _dtype_kind(values_ser) not in ("i", "u") or int(values_ser.isna().sum()) > 0:
+            return []
     if not _type_column_is_scalar(frame, type_column, engine):
         return []
     types_ser = frame[type_column]
@@ -332,9 +351,14 @@ def build_col_stats_facts_by_type(
     if int(frame.shape[0]) == 0 or int(types_ser.nunique()) > _MAX_COL_STATS_PARTITIONS:
         return []
     names = ["min", "max"] + (["nunique"] if want_unique else [])
-    grouped = frame.groupby(type_column, sort=False)[column].agg(names).reset_index()
-    cols = {name: _column_to_pylist(grouped[name], engine) for name in [type_column] + names}
-    for i, type_value in enumerate(cols[type_column]):
-        facts.append(fact(type_value, int(cols["min"][i]), int(cols["max"][i]),
-                          int(cols["nunique"][i]) if want_unique else None))
+    # ONE grouped pass over every value column. MultiIndex agg columns are
+    # flattened to "<col>__<agg>" so the read-back is engine-uniform (cudf too).
+    grouped = frame.groupby(type_column, sort=False)[cols].agg(names).reset_index()
+    grouped.columns = [type_column if (c[0] == type_column or not c[1]) else f"{c[0]}__{c[1]}"
+                       for c in grouped.columns.to_flat_index()]
+    read = {name: _column_to_pylist(grouped[name], engine) for name in grouped.columns}
+    for i, type_value in enumerate(read[type_column]):
+        for c in cols:
+            facts.append(fact(c, type_value, int(read[f"{c}__min"][i]), int(read[f"{c}__max"][i]),
+                              int(read[f"{c}__nunique"][i]) if want_unique else None))
     return facts

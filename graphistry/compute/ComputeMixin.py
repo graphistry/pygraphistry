@@ -660,25 +660,32 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index import gfql_index_edges as _gie
         return _gie(self, direction, engine=engine)
 
-    def gfql_index_all(self, engine='auto'):
-        """Convenience: build all GFQL physical indexes (both edge adjacencies + node_id). Returns a new Plottable."""
+    def gfql_index_all(self, col_stats_by_type: bool = False, engine='auto'):
+        """Convenience: build all GFQL physical indexes (both edge adjacencies + node_id). Returns a new Plottable.
+
+        ``col_stats_by_type=True`` also builds per-type column-stat facts for the
+        types a bound schema declares. Off by default: it adds ~39% to index build
+        and only typed count shapes can spend it (~40 such queries to break even)."""
         from graphistry.compute.gfql.index import gfql_index_all as _gia
-        return _gia(self, engine=engine)
+        return _gia(self, col_stats_by_type=col_stats_by_type, engine=engine)
 
     def gfql_index_col_stats(self, node_columns: Optional[Sequence[str]] = None,
                              edge_columns: Optional[Sequence[str]] = None,
                              node_type_column: Optional[str] = None,
                              edge_type_column: Optional[str] = None,
+                             col_stats_by_type: bool = False,
                              engine: EngineAbstractType = 'auto') -> 'Plottable':
         """Convenience: build verified column-stat facts — the bound id columns by
         default, plus any explicitly named columns (which raise if unfactable).
         Naming a type column additionally builds PER-TYPE facts over the bindings,
-        which is what lets a typed pattern reach the bound proofs at all.
+        which is what lets a typed pattern reach the bound proofs at all;
+        ``col_stats_by_type=True`` does the same from a bound schema (opt-in: it
+        adds ~39% to index build, so only worth it for typed query workloads).
         Consumed as under-approximations by count fast paths. Returns a new Plottable."""
         from graphistry.compute.gfql.index import gfql_index_col_stats as _gics
         return _gics(self, node_columns=node_columns, edge_columns=edge_columns,
                      node_type_column=node_type_column, edge_type_column=edge_type_column,
-                     engine=engine)
+                     col_stats_by_type=col_stats_by_type, engine=engine)
 
     def gfql_index_node_props(self, columns: Sequence[str], engine: EngineAbstractType = 'auto') -> 'Plottable':
         """Convenience: build node PROPERTY indexes for ``columns`` (secondary indexes).
