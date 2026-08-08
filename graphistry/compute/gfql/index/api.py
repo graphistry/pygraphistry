@@ -571,8 +571,9 @@ def gfql_index_col_stats(g: Plottable,
     derived_targets: List[Tuple[ColStatsRole, Optional[DataFrameT], Tuple[Optional[str], ...], Tuple[str, ...]]] = [
         ("nodes", g._nodes, (g._node,), _schema_node_type_columns(g)),
         ("edges", g._edges, (g._source, g._destination), _schema_edge_type_columns(g)),
-    ]
-    for role, frame, binding_cols, candidates in (derived_targets if col_stats_by_type else []):
+    ] if col_stats_by_type else []
+    derived_facts = 0
+    for role, frame, binding_cols, candidates in derived_targets:
         if frame is None:
             continue
         for type_column in candidates:
@@ -581,6 +582,19 @@ def gfql_index_col_stats(g: Plottable,
             present = [c for c in binding_cols if c is not None]
             for fact in build_col_stats_facts_by_type(frame, present, role, type_column, eng):
                 registry = registry.with_col_stats(fact)
+                derived_facts += 1
+    if col_stats_by_type and not derived_facts and not _requested_partitions:
+        # col_stats_by_type is an EXPLICIT request, so satisfying none of it
+        # raises rather than no-oping -- the same contract as naming a type
+        # column by hand. Partial coverage (a declared label the frame does not
+        # carry) still skips: a schema is a contract for the whole graph.
+        raise ValueError(
+            "col_stats_by_type=True but no per-type facts could be built: "
+            + ("no schema is bound -- call bind(schema=GraphSchema(...)) or name the "
+               "columns with node_type_column=/edge_type_column="
+               if getattr(g, "_gfql_schema", None) is None else
+               "the bound schema declares no node label or edge type column that the "
+               "bound frames carry, or the id/endpoint columns are unfactable"))
     return _attach(g, registry)
 
 

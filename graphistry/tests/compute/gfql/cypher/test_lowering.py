@@ -18196,6 +18196,25 @@ def test_t6_schema_partition_facts_are_opt_in() -> None:
                 if k[2] is None]) == 3
 
 
+def test_t6_col_stats_by_type_raises_when_it_can_satisfy_nothing() -> None:
+    """``col_stats_by_type=True`` is an EXPLICIT request, so satisfying none of it
+    raises rather than no-oping -- the same contract as naming a type column by
+    hand. The two reasons are distinguished, because the fixes differ."""
+    from graphistry.schema import GraphSchema, NodeType
+    nodes, edges = _t6_label_frames()
+    base = _mk_graph(nodes, edges)
+
+    with pytest.raises(ValueError, match="no schema is bound"):
+        base.gfql_index_col_stats(col_stats_by_type=True)
+    with pytest.raises(ValueError, match="declares no node label or edge type column"):
+        base.bind(schema=GraphSchema(node_types=[NodeType("Ghost")])).gfql_index_col_stats(
+            col_stats_by_type=True)
+
+    # and the flag OFF stays a silent no-op, which is the default path
+    assert [k for k in base.gfql_index_col_stats()._gfql_index_registry.col_stats
+            if k[2] is not None] == []
+
+
 def test_t6_per_type_request_raises_when_unusable() -> None:
     """Per-type facts are asked for BY NAME, so an unusable request raises rather
     than silently skipping (same contract as the explicit ``*_columns`` request)."""
