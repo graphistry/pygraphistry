@@ -33,18 +33,23 @@ def polar_to_xy(g: Plottable, r: Any, angle: Any, engine_concrete: Engine) -> Tu
     """
     if engine_concrete == Engine.CUDF:
         import cudf
-        import cupy as cp
+        from graphistry.utils.lazy_import import cudf_runtime_caps
+        _caps = cudf_runtime_caps()
+        cupy_ok, cp = _caps.has_cupy_compute, _caps.cupy
         if not isinstance(angle, cudf.Series):
             if isinstance(angle, pd.Series):
                 angle = cudf.Series(angle)
             else:
                 raise ValueError(f'Expected cudf or pd dataframe, received {type(g._nodes)}')
-        if _cudf_version_at_most(cudf, 25, 2):
+        # numpy host path both for old-cudf trig gaps AND a cupy that cannot compute
+        # (e.g. NVRTC-less CUDA install; import alone does not prove usability).
+        if _cudf_version_at_most(cudf, 25, 2) or not cupy_ok:
             angle_np = _series_to_numpy(angle)
             r_np = _series_to_numpy(r)
             x = cudf.Series(r_np * np.cos(angle_np))
             y = cudf.Series(r_np * np.sin(angle_np))
         else:
+            assert cp is not None  # gate contract: cupy_ok implies a usable module
             angle_cp = angle.to_cupy()
             r_cp = r.to_cupy()
             x = cudf.Series(r_cp * cp.cos(angle_cp))

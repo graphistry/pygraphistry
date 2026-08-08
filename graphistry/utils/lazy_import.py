@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional, Tuple
 import warnings
 from graphistry .util import setup_logger
 logger = setup_logger(__name__)
@@ -24,6 +24,67 @@ def lazy_cudf_import():
     except Exception as e:
         logger.warn("Unexpected exn during lazy import", exc_info=e)
         return False, e, None
+
+_CUPY_COMPUTE_OK = None
+
+
+def lazy_cupy_import() -> Tuple[bool, Any, Optional[Any]]:  # hygiene-ok: explicit-any -- reason is exn-or-str; cupy module untyped
+    """(available, reason, cupy) -- available ONLY when cupy can actually COMPUTE.
+
+    cupy imports fine on a host whose CUDA install lacks NVRTC (``libnvrtc.so``),
+    but then essentially EVERY compute op -- elementwise arithmetic, comparisons,
+    astype, sort/search/bincount -- raises ``RuntimeError`` at first use (only
+    allocation and a few cub-backed reductions survive). An ``except ImportError``
+    guard cannot catch that, so callers holding a CPU fallback must gate on THIS
+    probe (one tiny elementwise op, cached per process), not on importability.
+    """
+    global _CUPY_COMPUTE_OK
+    try:
+        warnings.filterwarnings("ignore")
+        import cupy  # type: ignore
+    except ModuleNotFoundError as e:
+        return False, e, None
+    except Exception as e:
+        logger.warn("Unexpected exn during lazy cupy import", exc_info=e)
+        return False, e, None
+    if _CUPY_COMPUTE_OK is None:
+        try:
+            (cupy.arange(2) + 1).sum()
+            _CUPY_COMPUTE_OK = (True, "ok")
+        except Exception as e:  # RuntimeError on NVRTC-less CUDA installs
+            _CUPY_COMPUTE_OK = (False, str(e))
+    ok, reason = _CUPY_COMPUTE_OK
+    return ok, reason, (cupy if ok else None)
+
+
+class CudfRuntimeCaps:
+    """One-stop capability answer for the cudf stack (see cudf_runtime_caps)."""
+    __slots__ = ("has_cudf", "cudf_reason", "cudf", "has_cupy_compute", "cupy_reason", "cupy")
+
+    def __init__(self, has_cudf: bool, cudf_reason: Any, cudf: Optional[Any],  # hygiene-ok: explicit-any -- reasons are exn-or-str; cudf/cupy modules untyped
+                 has_cupy_compute: bool, cupy_reason: Any, cupy: Optional[Any]) -> None:  # hygiene-ok: explicit-any -- reasons are exn-or-str; cudf/cupy modules untyped
+        self.has_cudf = has_cudf
+        self.cudf_reason = cudf_reason
+        self.cudf = cudf
+        self.has_cupy_compute = has_cupy_compute
+        self.cupy_reason = cupy_reason
+        self.cupy = cupy
+
+
+def cudf_runtime_caps() -> CudfRuntimeCaps:
+    """The question typical cudf-path code should ask, answered once.
+
+    ``has_cudf``: the dataframe engine is importable (precompiled libcudf ops --
+    construct/filter/merge/groupby -- run even on NVRTC-less CUDA installs).
+    ``has_cupy_compute``: the cupy ARRAY sidecar can actually compute (kernel
+    JIT works); False on NVRTC-less installs, where consumers holding a host
+    fallback should take it. Encapsulates the cudf-vs-cupy split so call sites
+    do not juggle two gates; ``lazy_cupy_import`` remains the low-level probe.
+    """
+    has_cudf, cudf_reason, cudf = lazy_cudf_import()
+    has_cupy, cupy_reason, cupy = lazy_cupy_import()
+    return CudfRuntimeCaps(has_cudf, cudf_reason, cudf, has_cupy, cupy_reason, cupy)
+
 
 def lazy_cuml_import():
     try:

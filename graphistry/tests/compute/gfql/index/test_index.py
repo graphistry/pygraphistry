@@ -1573,3 +1573,34 @@ class TestShowIndexesEngineUsability:
         row_auto = gi.show_indexes().iloc[0]  # AUTO on cudf frames resolves cudf
         assert row_auto["query_engine"] == "cudf"
         assert bool(row_auto["usable"]) is True
+
+
+class TestCupyNvrtcDecline:
+    """A cupy that cannot COMPUTE (e.g. NVRTC-less CUDA) must yield numpy host
+    fallbacks across the library gate -- graceful decline, never a crash."""
+
+    def test_forced_fallback_backend_and_arrays(self, monkeypatch):
+        cudf = pytest.importorskip("cudf")
+        import numpy as np
+        from graphistry.Engine import Engine
+        from graphistry.utils import lazy_import as li
+        from graphistry.compute.gfql.index import engine_arrays as ea
+
+        monkeypatch.setattr(li, "_CUPY_COMPUTE_OK", (False, "forced for test"))
+        xp, backend = ea.array_namespace(Engine.CUDF)
+        assert backend == "numpy" and xp is np
+        arr = ea.col_to_array(cudf.DataFrame({"s": [1, 2, 3]}), "s", Engine.CUDF)
+        assert isinstance(arr, np.ndarray)
+        assert int(np.bincount(arr, minlength=4).sum()) == 3
+
+    def test_gate_probe_is_cached_per_process(self, monkeypatch):
+        pytest.importorskip("cupy")
+        from graphistry.utils import lazy_import as li
+
+        monkeypatch.setattr(li, "_CUPY_COMPUTE_OK", None)
+        ok1, reason1, _ = li.lazy_cupy_import()
+        cached = li._CUPY_COMPUTE_OK
+        assert cached is not None, "first call must run and cache the probe"
+        ok2, reason2, _ = li.lazy_cupy_import()
+        assert (ok1, str(reason1)) == (ok2, str(reason2))
+        assert li._CUPY_COMPUTE_OK is cached, "second call must reuse the cached probe"

@@ -12,7 +12,7 @@ Vectorization-first: no per-element Python work, no ``.to_list()`` ping-pong.
 """
 from __future__ import annotations
 
-from typing import Any, Tuple, cast
+from typing import Any, Optional, Tuple, cast
 
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT
@@ -25,16 +25,16 @@ def array_namespace(engine: Engine) -> Tuple[ArrayNamespace, IndexBackend]:
     cudf indexes keep their arrays on-device (cupy); everything else uses numpy
     host arrays. The frontier of a seeded query is tiny, so host-side
     searchsorted is cheap even when the frame itself is on GPU (polars-gpu).
+    A cudf runtime whose cupy cannot COMPUTE (e.g. missing NVRTC) falls back to
+    numpy host arrays -- graceful decline, never a crash (see lazy_cupy_import).
     """
     import numpy as np
 
     if engine == Engine.CUDF:
-        try:
-            import cupy as cp  # type: ignore
-
-            return cast(ArrayNamespace, cp), "cupy"
-        except Exception:  # pragma: no cover - cupy always present with cudf
-            return cast(ArrayNamespace, np), "numpy"
+        from graphistry.utils.lazy_import import cudf_runtime_caps
+        caps = cudf_runtime_caps()
+        if caps.has_cupy_compute:
+            return cast(ArrayNamespace, caps.cupy), "cupy"
     return cast(ArrayNamespace, np), "numpy"
 
 
@@ -43,8 +43,10 @@ def col_to_array(df: DataFrameT, col: str, engine: Engine) -> ArrayLike:
     if engine in (Engine.POLARS, Engine.POLARS_GPU):
         return cast(ArrayLike, df.get_column(col).to_numpy())
     if engine == Engine.CUDF:
-        # cudf Series -> cupy array (stays on device)
-        return cast(ArrayLike, df[col].values)
+        from graphistry.utils.lazy_import import cudf_runtime_caps
+        use_cupy = cudf_runtime_caps().has_cupy_compute
+        # On-device cupy when it can compute; numpy host fallback when it cannot.
+        return cast(ArrayLike, df[col].values if use_cupy else df[col].to_numpy())
     return cast(ArrayLike, df[col].to_numpy())
 
 
