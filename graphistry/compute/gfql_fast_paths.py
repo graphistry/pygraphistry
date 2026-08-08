@@ -16,7 +16,7 @@ from graphistry.Plottable import Plottable
 
 if TYPE_CHECKING:
     import polars as pl
-    from graphistry.compute.gfql.index.registry import ColStatsFact
+    from graphistry.compute.gfql.index.registry import ColStatsFact, PartitionValue
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
@@ -2604,7 +2604,9 @@ def _facts_prove_bounds(
     return True
 
 
-def _partition_key_from_match(match: Optional[Dict[str, Any]]) -> Optional[Tuple[str, Union[bool, str, int]]]:
+def _partition_key_from_match(
+    match: Optional[Dict[str, Any]],  # hygiene-ok: explicit-any -- filter values are heterogeneous by contract (scalars, lists, ASTPredicate)
+) -> Optional[Tuple[str, "PartitionValue"]]:
     """The single scalar equality a match expresses, iff that is ALL it expresses.
 
     A partition fact keyed ``(type_column, type_value)`` describes exactly the

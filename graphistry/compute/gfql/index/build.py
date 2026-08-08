@@ -11,7 +11,10 @@ from typing import Any, List, Optional, Tuple, Union, cast
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT, SeriesT
 from .engine_arrays import array_namespace, col_to_array
-from .registry import AdjacencyIndex, ColStatsFact, ColStatsRole, NodeIdIndex, NodePropIndex, frame_fingerprint
+from .registry import (
+    AdjacencyIndex, ColStatsFact, ColStatsRole, NodeIdIndex, NodePropIndex, PartitionValue,
+    frame_fingerprint,
+)
 from .types import AdjacencyIndexKind, ArrayLike, ArrayNamespace
 
 
@@ -202,7 +205,7 @@ def build_col_stats_fact(
 _MAX_COL_STATS_PARTITIONS = 256
 
 
-def _column_to_pylist(series: SeriesT) -> List[Union[bool, str, int]]:
+def _column_to_pylist(series: SeriesT) -> List[PartitionValue]:
     """Host-side values of a pandas/cudf column. cudf goes via arrow, not
     ``to_pandas()``, which segfaults on string columns in some RAPIDS builds."""
     to_arrow = getattr(series, "to_arrow", None)
@@ -263,7 +266,7 @@ def build_col_stats_facts_by_type(
     from graphistry.Engine import POLARS_ENGINES
     fingerprint = frame_fingerprint(frame, tuple(sorted({column, type_column})), engine)
 
-    def fact(type_value: Union[bool, str, int], mn: int, mx: int, n_unique: Optional[int]) -> ColStatsFact:
+    def fact(type_value: PartitionValue, mn: int, mx: int, n_unique: Optional[int]) -> ColStatsFact:
         return ColStatsFact(
             role=role, column=column, min_val=mn, max_val=mx,
             null_count=0, is_integer=True, engine=engine,

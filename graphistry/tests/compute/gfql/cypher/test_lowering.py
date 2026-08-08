@@ -18119,6 +18119,28 @@ def test_t6_schema_skips_labels_absent_from_the_frame() -> None:
     assert "label__Person" in keys and "label__Ghost" not in keys
 
 
+def test_t6_partition_value_bool_int_key_identity_is_deliberate() -> None:
+    """``PartitionValue`` admits bool without a separate union member, because
+    Python types bool as a subtype of int. The consequence is load-bearing and
+    pinned here rather than left accidental: ``True == 1`` and they hash alike,
+    so a bool-keyed and an int-keyed partition of the SAME column are the SAME
+    registry key. Unreachable in practice (a column is bool- or int-dtyped, not
+    both) and harmless where reachable (``flag == 1`` on a bool column does
+    select the True rows) -- but it must not change silently."""
+    from graphistry.compute.gfql.index.registry import ColStatsFact, GfqlIndexRegistry
+
+    frame = pd.DataFrame({"id": [0, 1], "flag": [True, False]})
+    fact = ColStatsFact(role="nodes", column="id", min_val=0, max_val=0, null_count=0,
+                        is_integer=True, engine=Engine.PANDAS, n_unique=1,
+                        type_column="flag", type_value=True,
+                        fingerprint=(-1, (), ""), source_ref=None)
+    registry = GfqlIndexRegistry().with_col_stats(fact)
+    assert ("nodes", "id", "flag", True) in registry.col_stats
+    assert ("nodes", "id", "flag", 1) in registry.col_stats  # same key by identity
+    assert len(registry.col_stats) == 1
+    assert frame is not None  # frame kept for shape documentation only
+
+
 def test_t6_per_type_request_raises_when_unusable() -> None:
     """Per-type facts are asked for BY NAME, so an unusable request raises rather
     than silently skipping (same contract as the explicit ``*_columns`` request)."""

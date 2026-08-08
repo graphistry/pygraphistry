@@ -107,6 +107,18 @@ class NodePropIndex:
 
 ColStatsRole = Literal["nodes", "edges"]
 
+#: The value side of a type partition: the groupby key that the single scalar
+#: equality of a typed pattern names -- a relationship type or label name
+#: (``str``), a numeric type code (``int``), or a ``label__X`` flag (``bool``).
+#: ``bool`` needs no separate member: Python types it as a subtype of ``int``.
+#: It is admitted DELIBERATELY, since ``(a:Person)`` lowers to
+#: ``{"label__Person": True}``. One consequence is load-bearing: ``True == 1``
+#: and they hash alike, so a bool-keyed and an int-keyed partition of the SAME
+#: column are the same registry key. That is unreachable in practice (a column
+#: is bool-dtyped or int-dtyped, not both) and harmless where it is reachable
+#: (a query asking ``flag == 1`` of a bool column does select the True rows).
+PartitionValue = Union[str, int]
+
 
 @dataclass(frozen=True)
 class ColStatsFact:
@@ -129,7 +141,7 @@ class ColStatsFact:
     # fact upper-bounds any FURTHER-filtered subset of that partition, same
     # conservative direction as whole-frame facts.
     type_column: Optional[str] = None
-    type_value: Optional[Union[bool, str, int]] = None  # bool: the label__X form
+    type_value: Optional[PartitionValue] = None
     fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
     source_ref: Optional[DataFrameT] = field(compare=False, default=None)
 
@@ -142,7 +154,7 @@ class GfqlIndexRegistry:
     node_props: Dict[str, NodePropIndex] = field(default_factory=dict)
     # Column-stat facts keyed by (role, column, type_column, type_value); the
     # whole-frame fact uses (role, column, None, None). See ColStatsFact.
-    col_stats: Dict[Tuple[str, str, Optional[str], Optional[Union[bool, str, int]]], ColStatsFact] = field(default_factory=dict)
+    col_stats: Dict[Tuple[str, str, Optional[str], Optional[PartitionValue]], ColStatsFact] = field(default_factory=dict)
 
     def with_index(self, kind: IndexKind, index: Union[AdjacencyIndex, NodeIdIndex]) -> "GfqlIndexRegistry":
         new = dict(self.indexes)
@@ -161,7 +173,7 @@ class GfqlIndexRegistry:
 
     def get_col_stats_valid(
         self, role: ColStatsRole, column: str, df: Optional[DataFrameT], engine: Engine,
-        type_column: Optional[str] = None, type_value: Optional[Union[bool, str, int]] = None,
+        type_column: Optional[str] = None, type_value: Optional[PartitionValue] = None,
     ) -> Optional[ColStatsFact]:
         """The fact for (role, column[, type partition]), only while it still matches
         the live frame + engine (same identity/fingerprint contract as ``get_valid``).
