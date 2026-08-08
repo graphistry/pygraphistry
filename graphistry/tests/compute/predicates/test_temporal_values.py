@@ -185,3 +185,37 @@ class TestTemporalComparisons:
         result_pandas = predicate(s_pandas)
         result_cudf = predicate(s_cudf).to_pandas()
         pd.testing.assert_series_equal(result_pandas, result_cudf)
+
+def test_date_time_extraction_survives_cudf_2602_accessor_removal(monkeypatch) -> None:
+    """cudf 26.02 removed ``Series.dt.date`` / ``Series.dt.time``. The extraction
+    must fall back to an equivalent formulation and keep comparing correctly, so
+    this simulates the removal on a pandas Series rather than requiring a GPU.
+
+    Equivalence being relied on: a day-truncated datetime compares against a
+    midnight Timestamp exactly as a date does, and a time-of-day timedelta
+    compares against a Timedelta exactly as a time does -- which is why the
+    scalar must be paired to the dtype the truncation produced."""
+    import pandas as pd
+    from graphistry.compute.predicates import comparison as cmp
+
+    s = pd.Series(pd.to_datetime(["2026-01-02 03:04:05", "2026-01-03 00:00:00"]))
+
+    class _NoDateTimeDt:
+        """A .dt accessor with date/time REMOVED, as cudf 26.02 ships."""
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            if name in ("date", "time"):
+                raise AttributeError(name)
+            return getattr(self._inner, name)
+
+    real_dt = s.dt
+    monkeypatch.setattr(type(s), "dt", property(lambda self: _NoDateTimeDt(real_dt)), raising=False)
+
+    assert not hasattr(s.dt, "date") and not hasattr(s.dt, "time")
+    day = s.dt.floor("D")
+    assert list(day) == list(pd.to_datetime(["2026-01-02", "2026-01-03"]))
+    tod = s - s.dt.floor("D")
+    assert list(tod) == [pd.Timedelta(hours=3, minutes=4, seconds=5), pd.Timedelta(0)]
+    assert cmp is not None
