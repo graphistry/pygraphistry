@@ -18215,6 +18215,45 @@ def test_t6_col_stats_by_type_raises_when_it_can_satisfy_nothing() -> None:
             if k[2] is not None] == []
 
 
+def _col_stats_trace(g: Any, query: str) -> List[Tuple[str, str, str]]:
+    from graphistry.compute.gfql.index.api import index_trace
+    with index_trace() as steps:
+        g.gfql(query, engine="pandas")
+    return [(s["role"], s["column"], s["decision_code"])
+            for s in steps if s.get("op") == "col_stats"]
+
+
+def test_t6_col_stats_decisions_are_visible_in_the_trace() -> None:
+    """A dead fact is otherwise INVISIBLE: values stay correct, so no value test
+    can fail. The trace distinguishes the outcomes because their fixes differ --
+    absent (build them), insufficient (whole-frame facts cannot prove a typed
+    claim), served (a scan was skipped)."""
+    nodes, edges = _t6_typed_frames()
+    base = _mk_graph(nodes, edges)
+
+    assert all(c == "col_stats_absent" for _, _, c in
+               _col_stats_trace(base, _T6_TYPED_QUERY))
+    # whole-frame facts EXIST but cannot prove a typed claim -- the exact
+    # structural limitation per-type facts were added to fix
+    whole = _col_stats_trace(base.gfql_index_col_stats(), _T6_TYPED_QUERY)
+    assert ("edges", "s", "col_stats_insufficient") in whole
+    typed = _col_stats_trace(
+        base.gfql_index_col_stats(node_type_column="kind", edge_type_column="rel"),
+        _T6_TYPED_QUERY)
+    assert all(c == "col_stats_served" for _, _, c in typed)
+
+
+def test_t6_col_stats_trace_is_free_when_not_tracing() -> None:
+    """The recorder is gated by _trace_active(), so a normal query records
+    nothing -- the diagnostics must not become a hot-path cost."""
+    from graphistry.compute.gfql.index.api import _get_trace_steps
+    nodes, edges = _t6_typed_frames()
+    g = _mk_graph(nodes, edges).gfql_index_col_stats(
+        node_type_column="kind", edge_type_column="rel")
+    g.gfql(_T6_TYPED_QUERY, engine="pandas")
+    assert _get_trace_steps() is None
+
+
 def test_t6_per_type_request_raises_when_unusable() -> None:
     """Per-type facts are asked for BY NAME, so an unusable request raises rather
     than silently skipping (same contract as the explicit ``*_columns`` request)."""
