@@ -18225,22 +18225,36 @@ def _col_stats_trace(g: Any, query: str) -> List[Tuple[str, str, str]]:
 
 def test_t6_col_stats_decisions_are_visible_in_the_trace() -> None:
     """A dead fact is otherwise INVISIBLE: values stay correct, so no value test
-    can fail. The trace distinguishes the outcomes because their fixes differ --
-    absent (build them), insufficient (whole-frame facts cannot prove a typed
-    claim), served (a scan was skipped)."""
+    can fail. The trace distinguishes outcomes because their fixes differ."""
+    from graphistry.tests.compute.gfql.engagement import assert_col_stats
+
     nodes, edges = _t6_typed_frames()
     base = _mk_graph(nodes, edges)
 
-    assert all(c == "col_stats_absent" for _, _, c in
-               _col_stats_trace(base, _T6_TYPED_QUERY))
+    assert_col_stats(base, _T6_TYPED_QUERY, served=False,
+                     outcomes={"nodes.id": "absent", "edges.s": "absent"})
     # whole-frame facts EXIST but cannot prove a typed claim -- the exact
     # structural limitation per-type facts were added to fix
-    whole = _col_stats_trace(base.gfql_index_col_stats(), _T6_TYPED_QUERY)
-    assert ("edges", "s", "col_stats_insufficient") in whole
-    typed = _col_stats_trace(
+    assert_col_stats(base.gfql_index_col_stats(), _T6_TYPED_QUERY, served=False,
+                     outcomes={"edges.s": "insufficient", "edges.d": "insufficient"})
+    assert_col_stats(
         base.gfql_index_col_stats(node_type_column="kind", edge_type_column="rel"),
-        _T6_TYPED_QUERY)
-    assert all(c == "col_stats_served" for _, _, c in typed)
+        _T6_TYPED_QUERY, served=True,
+        outcomes={"nodes.id": "served", "edges.s": "served"})
+
+
+def test_t6_assert_col_stats_helper_fails_loudly() -> None:
+    """The helper must FAIL when the optimization did not fire -- an engagement
+    pin that cannot fail is worse than none, which is the whole failure mode
+    this surface exists to close."""
+    from graphistry.tests.compute.gfql.engagement import assert_col_stats
+
+    nodes, edges = _t6_typed_frames()
+    base = _mk_graph(nodes, edges)
+    with pytest.raises(AssertionError, match="expected every fact consult to be served"):
+        assert_col_stats(base, _T6_TYPED_QUERY, served=True)
+    with pytest.raises(AssertionError, match="expected col_stats_served"):
+        assert_col_stats(base, _T6_TYPED_QUERY, outcomes={"nodes.id": "served"})
 
 
 def test_t6_col_stats_trace_is_free_when_not_tracing() -> None:
