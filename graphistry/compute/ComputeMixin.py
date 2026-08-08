@@ -664,8 +664,8 @@ class ComputeMixin(Plottable):
         """Convenience: build all GFQL physical indexes (both edge adjacencies + node_id). Returns a new Plottable.
 
         ``col_stats_by_type=True`` also builds per-type column-stat facts for the
-        types a bound schema declares. Off by default: it adds ~39% to index build
-        and only typed count shapes can spend it (~40 such queries to break even)."""
+        types a bound schema declares. Off by default: it costs a grouped pass per
+        type column and only typed count shapes can spend it."""
         from graphistry.compute.gfql.index import gfql_index_all as _gia
         return _gia(self, col_stats_by_type=col_stats_by_type, engine=engine)
 
@@ -680,7 +680,7 @@ class ComputeMixin(Plottable):
         Naming a type column additionally builds PER-TYPE facts over the bindings,
         which is what lets a typed pattern reach the bound proofs at all;
         ``col_stats_by_type=True`` does the same from a bound schema (opt-in: it
-        adds ~39% to index build, so only worth it for typed query workloads).
+        costs a grouped pass per type column, so it suits typed query workloads).
         Consumed as under-approximations by count fast paths. Returns a new Plottable."""
         from graphistry.compute.gfql.index import gfql_index_col_stats as _gics
         return _gics(self, node_columns=node_columns, edge_columns=edge_columns,

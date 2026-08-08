@@ -274,7 +274,7 @@ def build_col_stats_facts_by_type(
 
     ``columns`` is a SEQUENCE because the edge role needs facts on both endpoint
     bindings: aggregating them together is ONE pass over the edge frame instead
-    of one per endpoint, measured as half the edge-side build cost.
+    of one per endpoint.
 
     Declines (empty list) are decided by EXPLICIT preconditions -- a column
     absent, a non-integer or null-bearing value column, a float/null/list-valued

@@ -495,12 +495,12 @@ def gfql_index_col_stats(g: Plottable,
     matching how the benchmark harness discloses index builds.
 
     ``col_stats_by_type`` additionally builds per-type facts for the types a BOUND
-    SCHEMA declares. It defaults False because those facts are NOT free: measured
-    on a 420k-node / 2.8M-edge graph they add ~104ms to a ~262ms
-    ``gfql_index_all`` (+39%), while only typed count shapes can spend them --
-    roughly 40 such queries before the build pays for itself. Turn it on for a
-    long-lived resident graph serving typed queries; leave it off for one-shot
-    work. Explicit ``*_type_column`` requests are unaffected by this flag.
+    SCHEMA declares. It defaults False because those facts cost a grouped pass per
+    type column at build time -- and one pass PER LABEL under the ``label__X``
+    convention -- while only typed count shapes can spend them. Turn it on for a
+    long-lived resident graph serving typed queries, where the build amortizes;
+    leave it off for one-shot work. Explicit ``*_type_column`` requests are
+    unaffected by this flag. (Build/query costs are receipted in pyg-bench.)
 
     ``node_type_column`` / ``edge_type_column`` additionally build PER-TYPE facts
     over the bindings, one grouped pass each. Whole-frame facts prove nothing on a
@@ -564,7 +564,7 @@ def gfql_index_col_stats(g: Plottable,
 
     # A DECLARED schema names its own type partitions, so using it is not a
     # guess -- unlike sniffing column names. It is still OPT-IN because per-type
-    # facts are NOT free (see col_stats_by_type in the docstring: ~+39% build).
+    # facts are NOT free (a grouped pass per type column; see col_stats_by_type).
     # Derived candidates SKIP when
     # unusable (they were not asked for by name, unlike the params above), and
     # an explicit param for the same role wins.
