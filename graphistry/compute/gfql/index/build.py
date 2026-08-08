@@ -124,7 +124,7 @@ def build_node_prop_index(
         keys = col_to_array(nodes, column, engine)
     except (AttributeError, KeyError, TypeError, ValueError):
         return None
-    if getattr(getattr(keys, "dtype", None), "kind", None) not in ("i", "u"):
+    if str(keys.dtype.kind) not in ("i", "u"):  # numpy/cupy arrays always carry dtype.kind
         return None
     unique_keys, group_offsets, row_positions = _csr_from_keys(keys, xp)
     return NodePropIndex(
@@ -177,9 +177,7 @@ def build_col_stats_fact(
         if column not in frame.columns:
             return None
         ser = frame[column]
-        # numpy/cudf dtypes carry ``kind``; exotic backend dtypes (e.g. decimals)
-        # may not -- absent kind is a non-integer decline, not an error.
-        if getattr(ser.dtype, "kind", None) not in ("i", "u"):
+        if _dtype_kind(ser) not in ("i", "u"):
             return None
         if int(ser.shape[0]) == 0:
             return None
@@ -205,11 +203,33 @@ def build_col_stats_fact(
 _MAX_COL_STATS_PARTITIONS = 256
 
 
-def _column_to_pylist(series: SeriesT) -> List[PartitionValue]:
-    """Host-side values of a pandas/cudf column. cudf goes via arrow, not
-    ``to_pandas()``, which segfaults on string columns in some RAPIDS builds."""
-    to_arrow = getattr(series, "to_arrow", None)
-    return list(to_arrow().to_pylist()) if to_arrow is not None else list(series.tolist())
+def _dtype_kind(series: SeriesT) -> str:
+    """The numpy-style dtype kind letter: 'i'/'u' integer, 'f' float, 'b' bool,
+    'M' datetime, 'O' object and every extension dtype.
+
+    Always present: ``pandas.api.extensions.ExtensionDtype`` DEFINES ``kind``, so
+    every pandas and cudf dtype has one (measured: ArrowDtype, Interval, Period,
+    Sparse, Categorical, DatetimeTZ, and cudf's ListDtype/StructDtype/
+    Decimal128Dtype all report a kind). No default is needed.
+
+    pandas' ``is_integer_dtype`` and friends are NOT a substitute here: they
+    RAISE ``TypeError`` on cudf ``ListDtype`` (measured), which is precisely the
+    exotic dtype this module must DECLINE cleanly rather than crash on.
+    """
+    return str(series.dtype.kind)  # type: ignore[union-attr]  # engine seam: every backend dtype has .kind
+
+
+def _column_to_pylist(series: SeriesT, engine: Engine) -> List[PartitionValue]:
+    """Host-side values of a pandas/cudf column, dispatched on the ENGINE.
+
+    cudf crosses to the host via arrow rather than ``to_pandas()``, which
+    segfaults on string columns in some RAPIDS builds. The engine is already
+    known at every call site, so this dispatches on it instead of probing the
+    object for a ``to_arrow`` attribute.
+    """
+    if engine == Engine.CUDF:
+        return list(series.to_arrow().to_pylist())  # type: ignore[union-attr]  # engine seam: cudf only
+    return list(series.tolist())  # type: ignore[union-attr]  # engine seam: pandas only
 
 
 def _type_column_is_scalar(frame: DataFrameT, type_column: str, engine: Engine) -> bool:
@@ -228,12 +248,12 @@ def _type_column_is_scalar(frame: DataFrameT, type_column: str, engine: Engine) 
         dtype: Any = frame.get_column(type_column).dtype  # engine seam
         return not isinstance(dtype, (pl.List, pl.Array, pl.Struct, pl.Object))
     series = frame[type_column]
-    if getattr(series.dtype, "kind", None) not in ("O", "S", "U"):
-        return True  # numeric/bool/categorical dtypes are scalar by construction
+    if _dtype_kind(series) not in ("O", "S", "U"):
+        return True  # numeric/bool/datetime dtypes are scalar by construction
     non_null = series.dropna()
     if int(non_null.shape[0]) == 0:
         return True
-    sample = _column_to_pylist(non_null.head(1))
+    sample = _column_to_pylist(non_null.head(1), engine)
     return not isinstance(sample[0], (list, tuple, set, dict, bytearray))
 
 
@@ -302,18 +322,18 @@ def build_col_stats_facts_by_type(
     if column not in frame.columns or type_column not in frame.columns:
         return []
     values_ser = frame[column]
-    if getattr(values_ser.dtype, "kind", None) not in ("i", "u") or int(values_ser.isna().sum()) > 0:
+    if _dtype_kind(values_ser) not in ("i", "u") or int(values_ser.isna().sum()) > 0:
         return []
     if not _type_column_is_scalar(frame, type_column, engine):
         return []
     types_ser = frame[type_column]
-    if getattr(types_ser.dtype, "kind", None) == "f" or int(types_ser.isna().sum()) > 0:
+    if _dtype_kind(types_ser) == "f" or int(types_ser.isna().sum()) > 0:
         return []
     if int(frame.shape[0]) == 0 or int(types_ser.nunique()) > _MAX_COL_STATS_PARTITIONS:
         return []
     names = ["min", "max"] + (["nunique"] if want_unique else [])
     grouped = frame.groupby(type_column, sort=False)[column].agg(names).reset_index()
-    cols = {name: _column_to_pylist(grouped[name]) for name in [type_column] + names}
+    cols = {name: _column_to_pylist(grouped[name], engine) for name in [type_column] + names}
     for i, type_value in enumerate(cols[type_column]):
         facts.append(fact(type_value, int(cols["min"][i]), int(cols["max"][i]),
                           int(cols["nunique"][i]) if want_unique else None))
