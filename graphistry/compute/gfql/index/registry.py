@@ -107,6 +107,18 @@ class NodePropIndex:
 
 ColStatsRole = Literal["nodes", "edges"]
 
+#: The value side of a type partition: the groupby key that the single scalar
+#: equality of a typed pattern names -- a relationship type or label name
+#: (``str``), a numeric type code (``int``), or a ``label__X`` flag (``bool``).
+#: ``bool`` needs no separate member: Python types it as a subtype of ``int``.
+#: It is admitted DELIBERATELY, since ``(a:Person)`` lowers to
+#: ``{"label__Person": True}``. One consequence is load-bearing: ``True == 1``
+#: and they hash alike, so a bool-keyed and an int-keyed partition of the SAME
+#: column are the same registry key. That is unreachable in practice (a column
+#: is bool-dtyped or int-dtyped, not both) and harmless where it is reachable
+#: (a query asking ``flag == 1`` of a bool column does select the True rows).
+PartitionValue = Union[str, int]
+
 
 @dataclass(frozen=True)
 class ColStatsFact:
@@ -124,6 +136,12 @@ class ColStatsFact:
     is_integer: bool
     engine: Engine
     n_unique: Optional[int] = None  # computed for the nodes role only (interval proofs)
+    # Per-type partition facts: (type_column, type_value) restricts the fact to the
+    # rows where type_column == type_value; None/None = whole frame. A partition
+    # fact upper-bounds any FURTHER-filtered subset of that partition, same
+    # conservative direction as whole-frame facts.
+    type_column: Optional[str] = None
+    type_value: Optional[PartitionValue] = None
     fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
     source_ref: Optional[DataFrameT] = field(compare=False, default=None)
 
@@ -134,8 +152,9 @@ class GfqlIndexRegistry:
     indexes: Dict[IndexKind, Union[AdjacencyIndex, NodeIdIndex]] = field(default_factory=dict)
     # Property indexes are keyed by COLUMN, not kind: a graph may carry several.
     node_props: Dict[str, NodePropIndex] = field(default_factory=dict)
-    # Column-stat facts keyed by (role, column); see ColStatsFact.
-    col_stats: Dict[Tuple[str, str], ColStatsFact] = field(default_factory=dict)
+    # Column-stat facts keyed by (role, column, type_column, type_value); the
+    # whole-frame fact uses (role, column, None, None). See ColStatsFact.
+    col_stats: Dict[Tuple[str, str, Optional[str], Optional[PartitionValue]], ColStatsFact] = field(default_factory=dict)
 
     def with_index(self, kind: IndexKind, index: Union[AdjacencyIndex, NodeIdIndex]) -> "GfqlIndexRegistry":
         new = dict(self.indexes)
@@ -149,20 +168,25 @@ class GfqlIndexRegistry:
 
     def with_col_stats(self, fact: ColStatsFact) -> "GfqlIndexRegistry":
         stats = dict(self.col_stats)
-        stats[(fact.role, fact.column)] = fact
+        stats[(fact.role, fact.column, fact.type_column, fact.type_value)] = fact
         return replace(self, col_stats=stats)
 
     def get_col_stats_valid(
-        self, role: ColStatsRole, column: str, df: Optional[DataFrameT], engine: Engine
+        self, role: ColStatsRole, column: str, df: Optional[DataFrameT], engine: Engine,
+        type_column: Optional[str] = None, type_value: Optional[PartitionValue] = None,
     ) -> Optional[ColStatsFact]:
-        """The fact for (role, column), only while it still matches the live frame +
-        engine (same identity/fingerprint contract as ``get_valid``)."""
-        fact = self.col_stats.get((role, column))
+        """The fact for (role, column[, type partition]), only while it still matches
+        the live frame + engine (same identity/fingerprint contract as ``get_valid``).
+
+        A partition fact's validity depends on the type column too -- editing it
+        re-partitions the frame -- so its fingerprint spans both columns."""
+        fact = self.col_stats.get((role, column, type_column, type_value))
         if fact is None or df is None or fact.engine != engine:
             return None
         if fact.source_ref is not None and fact.source_ref is not df:
             return None
-        if fact.fingerprint != frame_fingerprint(df, (column,), engine):
+        cols = (column,) if type_column is None else tuple(sorted({column, type_column}))
+        if fact.fingerprint != frame_fingerprint(df, cols, engine):
             return None
         return fact
 

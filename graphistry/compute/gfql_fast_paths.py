@@ -16,7 +16,7 @@ from graphistry.Plottable import Plottable
 
 if TYPE_CHECKING:
     import polars as pl
-    from graphistry.compute.gfql.index.registry import ColStatsFact
+    from graphistry.compute.gfql.index.registry import ColStatsFact, PartitionValue
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
@@ -2604,6 +2604,41 @@ def _facts_prove_bounds(
     return True
 
 
+def _partition_key_from_match(
+    match: Optional[Dict[str, Any]],  # hygiene-ok: explicit-any -- filter values are heterogeneous by contract (scalars, lists, ASTPredicate)
+) -> Optional[Tuple[str, "PartitionValue"]]:
+    """The single scalar equality a match expresses, iff that is ALL it expresses.
+
+    A partition fact keyed ``(type_column, type_value)`` describes exactly the
+    rows matching one scalar equality. BOTH forms a typed pattern lowers to are
+    scalar equalities, and both must be admitted: ``(a:Person)`` becomes the
+    BOOLEAN ``{"label__Person": True}`` and ``-[:KNOWS]->`` becomes the string
+    ``{"type": "KNOWS"}``. Rejecting bools here silently confined the whole
+    typed path to explicit property maps (``{kind: 'P'}``) and excluded idiomatic
+    Cypher labels, which is the more common form.
+
+    Requiring the match to be exactly ONE equality keeps the DOMAIN claim exact:
+    a further-filtered domain is no longer the partition, so its ids need not
+    stay dense. Endpoint bound claims would tolerate extra predicates (a
+    partition fact upper-bounds any subset of it), but one shared rule keeps the
+    gate obvious."""
+    if not match or len(match) != 1:
+        return None
+    (column, value), = match.items()
+    if not isinstance(value, (bool, str, int)):
+        return None
+    return column, value
+
+
+def _dense_interval_from_fact(fact: Optional["ColStatsFact"]) -> Optional[Tuple[int, int]]:
+    """The [min, max] interval iff the fact proves the ids fill it densely."""
+    if (fact is None or not fact.is_integer or fact.null_count != 0
+            or fact.min_val is None or fact.max_val is None or fact.n_unique is None
+            or fact.n_unique != fact.max_val - fact.min_val + 1):
+        return None
+    return int(fact.min_val), int(fact.max_val)
+
+
 def _two_hop_equal_domain_dense_total(
     domain_nodes: DataFrameT,
     edge_domain: DataFrameT,
@@ -2759,21 +2794,33 @@ def _execute_two_hop_count_fast_path(
         # memo HIT's count-join, so one-shot and warm calls converge.
         from graphistry.compute.gfql.index.api import get_registry
         _reg = get_registry(base_graph)
-        _src_fact = _reg.get_col_stats_valid("edges", src_col, edges_obj, requested_engine)
-        _dst_fact = _reg.get_col_stats_valid("edges", dst_col, edges_obj, requested_engine)
+        # Whole-frame facts describe every type at once, so on a TYPED graph they
+        # can prove nothing about one label's rows: the endpoint interval spans
+        # all node types and the domain is a strict subset of the node frame.
+        # Partition facts restore both claims per label, keyed by the single
+        # equality the typed pattern lowers to. Whole-frame facts stay the
+        # fallback; a miss anywhere costs the scan, never an answer.
+        _edge_part = _partition_key_from_match(first_edge.edge_match)
+        _src_fact = _dst_fact = None
+        if _edge_part is not None:
+            _src_fact = _reg.get_col_stats_valid("edges", src_col, edges_obj, requested_engine, *_edge_part)
+            _dst_fact = _reg.get_col_stats_valid("edges", dst_col, edges_obj, requested_engine, *_edge_part)
+        if _src_fact is None or _dst_fact is None:
+            _src_fact = _reg.get_col_stats_valid("edges", src_col, edges_obj, requested_engine)
+            _dst_fact = _reg.get_col_stats_valid("edges", dst_col, edges_obj, requested_engine)
         _interval_hint: Optional[Tuple[int, int]] = None
+        _node_part = _partition_key_from_match(start_op.filter_dict)
         if not start_op.filter_dict:
             # Unfiltered domain == the bound node frame, so a fact on THAT frame is
             # EXACT here (no approximation); any missing/insufficient fact just means
             # the interval scan runs -- same under-approximation direction as
             # _facts_prove_bounds: a miss can cost a scan, never an answer.
-            _node_fact = _reg.get_col_stats_valid("nodes", node_col, nodes_obj, requested_engine)
-            if (_node_fact is not None and _node_fact.is_integer
-                    and _node_fact.null_count == 0
-                    and _node_fact.min_val is not None and _node_fact.max_val is not None
-                    and _node_fact.n_unique is not None
-                    and _node_fact.n_unique == _node_fact.max_val - _node_fact.min_val + 1):
-                _interval_hint = (int(_node_fact.min_val), int(_node_fact.max_val))
+            _interval_hint = _dense_interval_from_fact(
+                _reg.get_col_stats_valid("nodes", node_col, nodes_obj, requested_engine))
+        elif _node_part is not None:
+            # Domain == exactly one partition, so its fact is EXACT here too.
+            _interval_hint = _dense_interval_from_fact(
+                _reg.get_col_stats_valid("nodes", node_col, nodes_obj, requested_engine, *_node_part))
         dense_total = _two_hop_equal_domain_dense_total(
             start_nodes,
             first_edges,

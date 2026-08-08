@@ -667,12 +667,18 @@ class ComputeMixin(Plottable):
 
     def gfql_index_col_stats(self, node_columns: Optional[Sequence[str]] = None,
                              edge_columns: Optional[Sequence[str]] = None,
+                             node_type_column: Optional[str] = None,
+                             edge_type_column: Optional[str] = None,
                              engine: EngineAbstractType = 'auto') -> 'Plottable':
         """Convenience: build verified column-stat facts — the bound id columns by
         default, plus any explicitly named columns (which raise if unfactable).
+        Naming a type column additionally builds PER-TYPE facts over the bindings,
+        which is what lets a typed pattern reach the bound proofs at all.
         Consumed as under-approximations by count fast paths. Returns a new Plottable."""
         from graphistry.compute.gfql.index import gfql_index_col_stats as _gics
-        return _gics(self, node_columns=node_columns, edge_columns=edge_columns, engine=engine)
+        return _gics(self, node_columns=node_columns, edge_columns=edge_columns,
+                     node_type_column=node_type_column, edge_type_column=edge_type_column,
+                     engine=engine)
 
     def gfql_index_node_props(self, columns: Sequence[str], engine: EngineAbstractType = 'auto') -> 'Plottable':
         """Convenience: build node PROPERTY indexes for ``columns`` (secondary indexes).
