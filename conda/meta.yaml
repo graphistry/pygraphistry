@@ -1,0 +1,83 @@
+package:
+  name: graphistry
+  version: {{ GIT_DESCRIBE_TAG }}
+
+source:
+  git_rev: {{ GIT_DESCRIBE_TAG }}
+  git_url: https://github.com/graphistry/pygraphistry
+
+requirements:
+  host:
+    - python
+    - setuptools
+  run:
+    - graphistry.graphistry-core
+    - graphistry.graphistry-umap
+    - graphistry.graphistry-ai
+
+test:
+  requires:
+    - flake8
+    - mock
+    - mypy
+    - pytest
+    - pandas-stubs
+    - types-requests
+
+outputs:
+  - name: graphistry.graphistry-core
+    requirements:
+      - packaging>=20.1
+      - typing-extensions
+      - numpy
+      - pandas>=0.17.0
+      - protobuf>=2.6.0
+      - pyarrow>=0.15.0
+      - requests
+    description: test desc
+  - name: graphistry.graphistry-umap
+    requirements:
+      - umap-learn
+      - dirty_cat==0.2.0
+      - scikit-learn>=1.0
+  - name: graphistry.graphistry-ai
+    requirements:
+      - scikit-learn>=1.0
+      - scipy
+      - umap-learn
+      - dirty_cat==0.2.0
+      - dgl
+      - pytorch
+      - sentence-transformers
+      
+      
+about:
+  home: https://www.graphistry.com/
+  license: BSD3
+  license_file: ../LICENSE.txt
+  summary: Graphistry Visual Graph Analytics library for Python
+  description: |
+    Graphistry is a visual graph analytics library for extracting, transforming, 
+    displaying, and sharing big graphs with end-to-end GPU acceleration.
+
+    You can install the whole package via:
+
+    `conda install -c pygraphistry_dev graphistry`
+
+    Just the core package via:
+
+    `conda install -c pygraphistry_dev graphistry.graphistry-core`
+
+    Or other parts of the package via:
+
+    `conda install -c pygraphistry_dev graphistry.graphistry-ai`
+    
+    `conda install -c pygraphistry_dev graphistry.graphistry-umap`
+  doc_url: https://hub.graphistry.com/docs
+  dev_url: https://github.com/graphistry/pygraphistry
+
+extra:
+  author: The Graphistry Team
+  author_email: pygraphistry@graphistry.com
+
+
