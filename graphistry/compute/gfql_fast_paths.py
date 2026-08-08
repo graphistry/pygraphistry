@@ -16,6 +16,7 @@ from graphistry.Plottable import Plottable
 
 if TYPE_CHECKING:
     import polars as pl
+    from graphistry.compute.gfql.index.api import ColStatsOutcome
     from graphistry.compute.gfql.index.registry import ColStatsFact, PartitionValue
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
 from graphistry.util import setup_logger
@@ -2792,8 +2793,26 @@ def _execute_two_hop_count_fast_path(
         # bincounts. Declines (None) keep the memoized semi-join path below untouched;
         # when it serves, no cross-call memo is needed -- the kernel is cheaper than a
         # memo HIT's count-join, so one-shot and warm calls converge.
-        from graphistry.compute.gfql.index.api import get_registry
+        from graphistry.compute.gfql.index.api import get_registry, record_col_stats_decision
         _reg = get_registry(base_graph)
+
+        def _note(role: str, column: str, part: Optional[Tuple[str, "PartitionValue"]],
+                  fact: Optional["ColStatsFact"], used: bool,
+                  why: "ColStatsOutcome") -> None:
+            """Make the fact consult visible to gfql_explain. A dead fact is
+            otherwise invisible -- values stay correct, so nothing fails."""
+            outcome: "ColStatsOutcome" = (
+                "served" if used else ("absent" if fact is None else why))
+            record_col_stats_decision(
+                role=role, column=column,
+                type_column=part[0] if part else None,
+                type_value=part[1] if part else None,
+                outcome=outcome,
+                reason=("fact proved the claim; scan skipped" if used else
+                        "no fact for this key (never built, or built on another column)"
+                        if fact is None else
+                        "fact is live but cannot prove what the plan needs"),
+            )
         # Whole-frame facts describe every type at once, so on a TYPED graph they
         # can prove nothing about one label's rows: the endpoint interval spans
         # all node types and the domain is a strict subset of the node frame.
@@ -2821,6 +2840,17 @@ def _execute_two_hop_count_fast_path(
             # Domain == exactly one partition, so its fact is EXACT here too.
             _interval_hint = _dense_interval_from_fact(
                 _reg.get_col_stats_valid("nodes", node_col, nodes_obj, requested_engine, *_node_part))
+        _hint_fact = _reg.get_col_stats_valid(
+            "nodes", node_col, nodes_obj, requested_engine,
+            *(_node_part if _node_part else (None, None)))
+        _note("nodes", node_col, _node_part, _hint_fact,
+              _interval_hint is not None, "insufficient")
+        for _c, _f in (("src", _src_fact), ("dst", _dst_fact)):
+            _note("edges", src_col if _c == "src" else dst_col, _edge_part, _f,
+                  _f is not None and _facts_prove_bounds(
+                      (_src_fact, _dst_fact) if _src_fact is not None and _dst_fact is not None else None,
+                      *(_interval_hint if _interval_hint is not None else (1, 0))),
+                  "insufficient")
         dense_total = _two_hop_equal_domain_dense_total(
             start_nodes,
             first_edges,

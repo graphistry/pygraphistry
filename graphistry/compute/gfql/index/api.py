@@ -168,6 +168,51 @@ def _record_indexed_traversal(
     }))
 
 
+ColStatsOutcome = Literal["served", "absent", "stale", "insufficient"]
+
+
+def record_col_stats_decision(
+    *,
+    role: str,
+    column: str,
+    type_column: Optional[str],
+    type_value: Optional[object],
+    outcome: "ColStatsOutcome",
+    reason: str,
+) -> None:
+    """Record ONE column-stat fact consult, for ``gfql_explain``.
+
+    Facts are a pure accelerator: a miss falls back to the scan and the answer is
+    unchanged. That makes a dead fact INVISIBLE -- you pay the build and get
+    nothing, with every value test still green. This is the surface that makes it
+    visible, and it distinguishes the cases that need different fixes:
+
+    - ``absent``       no fact for this key (never built, or built for another column)
+    - ``stale``        a fact exists but the frame was rebound since it was built
+    - ``insufficient`` the fact is live but cannot prove what the plan needs
+    - ``served``       the fact was used and a scan was skipped
+
+    Costs nothing outside ``index_trace()`` / ``gfql_explain`` -- the guard is the
+    same ``_trace_active()`` gate the adjacency decisions use.
+    """
+    if not _trace_active():
+        return
+    step: IndexTraceStep = {
+        "op": "col_stats",
+        "operation": "col_stats",
+        "role": role,
+        "column": column,
+        "type_column": type_column,
+        "type_value": type_value,
+        "served": outcome == "served",
+        "reason": reason,
+        "path": "facts" if outcome == "served" else "scan",
+        "decision_reason": reason,
+        "decision_code": f"col_stats_{outcome}",
+    }
+    _record(step)
+
+
 # Back-compat for existing private tests while helpers live in cost.py.
 _seed_id_array = seed_id_array
 _seed_deg_sum = seed_deg_sum
