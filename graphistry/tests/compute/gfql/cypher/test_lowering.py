@@ -18047,7 +18047,7 @@ def test_t6_per_type_declines_list_valued_type_column(engine: str) -> None:
                           "labels": [["Person"], ["Person", "Employee"], ["City"]]})
     frame = _mk_h3_graph(engine, nodes, pd.DataFrame({"s": [0], "d": [1]}))._nodes
     eng = Engine.POLARS if engine == "polars" else Engine.PANDAS
-    assert build_col_stats_facts_by_type(frame, "id", "nodes", "labels", eng) == []
+    assert build_col_stats_facts_by_type(frame, ["id"], "nodes", "labels", eng) == []
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
@@ -18058,7 +18058,7 @@ def test_t6_per_type_scalar_type_column_still_builds(engine: str) -> None:
     nodes = pd.DataFrame({"id": [0, 1, 2, 3], "kind": ["P", "P", "C", "C"]})
     frame = _mk_h3_graph(engine, nodes, pd.DataFrame({"s": [0], "d": [1]}))._nodes
     eng = Engine.POLARS if engine == "polars" else Engine.PANDAS
-    facts = build_col_stats_facts_by_type(frame, "id", "nodes", "kind", eng)
+    facts = build_col_stats_facts_by_type(frame, ["id"], "nodes", "kind", eng)
     assert sorted((f.type_value, f.min_val, f.max_val) for f in facts) == [
         ("C", 2, 3), ("P", 0, 1)]
 
@@ -18085,7 +18085,8 @@ def test_t6_declared_schema_builds_partition_facts_and_engages() -> None:
     guess. Binding one must build the label__X / type partitions and let a typed
     query reach the dense hint -- with no type column named by the caller."""
     nodes, edges = _t6_label_frames()
-    graph = _mk_graph(nodes, edges).bind(schema=_t6_schema()).gfql_index_col_stats()
+    graph = _mk_graph(nodes, edges).bind(schema=_t6_schema()).gfql_index_col_stats(
+        col_stats_by_type=True)
 
     keys = {k for k in graph._gfql_index_registry.col_stats if k[2] is not None}
     assert ("nodes", "id", "label__Person", True) in keys
@@ -18114,7 +18115,8 @@ def test_t6_schema_skips_labels_absent_from_the_frame() -> None:
     from graphistry.schema import GraphSchema, NodeType
     nodes, edges = _t6_label_frames()
     schema = GraphSchema(node_types=[NodeType("Person"), NodeType("Ghost")])
-    graph = _mk_graph(nodes, edges).bind(schema=schema).gfql_index_col_stats()
+    graph = _mk_graph(nodes, edges).bind(schema=schema).gfql_index_col_stats(
+        col_stats_by_type=True)
     keys = {k[2] for k in graph._gfql_index_registry.col_stats if k[2] is not None}
     assert "label__Person" in keys and "label__Ghost" not in keys
 
@@ -18139,6 +18141,78 @@ def test_t6_partition_value_bool_int_key_identity_is_deliberate() -> None:
     assert ("nodes", "id", "flag", 1) in registry.col_stats  # same key by identity
     assert len(registry.col_stats) == 1
     assert frame is not None  # frame kept for shape documentation only
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_per_type_multi_column_single_pass_matches_per_column(engine: str) -> None:
+    """The edge role aggregates BOTH endpoints in one grouped pass. That must give
+    exactly what two separate single-column passes gave -- the optimization is a
+    cost change, never a value change."""
+    from graphistry.compute.gfql.index.build import build_col_stats_facts_by_type
+
+    edges = pd.DataFrame({"s": [0, 1, 2, 0], "d": [1, 2, 0, 3],
+                          "rel": ["F", "F", "F", "X"]})
+    frame = _mk_h3_graph(engine, pd.DataFrame({"id": [0, 1, 2, 3]}), edges)._edges
+    eng = Engine.POLARS if engine == "polars" else Engine.PANDAS
+
+    together = build_col_stats_facts_by_type(frame, ["s", "d"], "edges", "rel", eng)
+    apart = (build_col_stats_facts_by_type(frame, ["s"], "edges", "rel", eng)
+             + build_col_stats_facts_by_type(frame, ["d"], "edges", "rel", eng))
+    key = lambda f: (f.column, str(f.type_value), f.min_val, f.max_val)  # noqa: E731
+    assert sorted(map(key, together)) == sorted(map(key, apart))
+    assert len(together) == 4  # 2 columns x 2 relationship types
+
+
+def test_t6_per_type_multi_column_decline_is_all_or_nothing() -> None:
+    """If ANY requested column is unusable the whole request declines, so a
+    caller can never receive a partial answer and read it as complete."""
+    from graphistry.compute.gfql.index.build import build_col_stats_facts_by_type
+
+    edges = pd.DataFrame({"s": [0, 1], "d": [1.5, 2.5], "rel": ["F", "F"]})  # d is float
+    assert build_col_stats_facts_by_type(edges, ["s", "d"], "edges", "rel", Engine.PANDAS) == []
+    assert len(build_col_stats_facts_by_type(edges, ["s"], "edges", "rel", Engine.PANDAS)) == 1
+
+
+def test_t6_schema_partition_facts_are_opt_in() -> None:
+    """Per-type facts from a declared schema are NOT free (~+30% index build), so
+    a bound schema alone must not trigger them -- the caller opts in. Explicit
+    type-column requests are unaffected by the flag."""
+    from graphistry.schema import EdgeType, GraphSchema, NodeType
+    nodes, edges = _t6_label_frames()
+    schema = GraphSchema(node_types=[NodeType("Person")],
+                         edge_types=[EdgeType("FOLLOWS", source="Person", destination="Person")])
+    base = _mk_graph(nodes, edges).bind(schema=schema)
+
+    def partitions(g: Any) -> int:
+        return len([k for k in g._gfql_index_registry.col_stats if k[2] is not None])
+
+    assert partitions(base.gfql_index_col_stats()) == 0                       # default off
+    assert partitions(base.gfql_index_all()) == 0                             # default off
+    assert partitions(base.gfql_index_col_stats(col_stats_by_type=True)) > 0  # opted in
+    assert partitions(base.gfql_index_all(col_stats_by_type=True)) > 0        # opted in
+    assert partitions(base.gfql_index_col_stats(node_type_column="label__Person")) > 0
+    # whole-frame facts are unaffected in every case
+    assert len([k for k in base.gfql_index_col_stats()._gfql_index_registry.col_stats
+                if k[2] is None]) == 3
+
+
+def test_t6_col_stats_by_type_raises_when_it_can_satisfy_nothing() -> None:
+    """``col_stats_by_type=True`` is an EXPLICIT request, so satisfying none of it
+    raises rather than no-oping -- the same contract as naming a type column by
+    hand. The two reasons are distinguished, because the fixes differ."""
+    from graphistry.schema import GraphSchema, NodeType
+    nodes, edges = _t6_label_frames()
+    base = _mk_graph(nodes, edges)
+
+    with pytest.raises(ValueError, match="no schema is bound"):
+        base.gfql_index_col_stats(col_stats_by_type=True)
+    with pytest.raises(ValueError, match="declares no node label or edge type column"):
+        base.bind(schema=GraphSchema(node_types=[NodeType("Ghost")])).gfql_index_col_stats(
+            col_stats_by_type=True)
+
+    # and the flag OFF stays a silent no-op, which is the default path
+    assert [k for k in base.gfql_index_col_stats()._gfql_index_registry.col_stats
+            if k[2] is not None] == []
 
 
 def test_t6_per_type_request_raises_when_unusable() -> None:
