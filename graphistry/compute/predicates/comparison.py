@@ -62,17 +62,18 @@ class ComparisonPredicate(ASTPredicate):
             return s
 
         elif isinstance(temporal_val, DateValue):
-            # Day-truncate rather than call .dt.date, which cudf 26.02 removed. The
-            # truncation is available on every engine and every version, so there is
-            # no capability branch and no minimum-cudf assumption; the scalar is
+            # Day-truncate rather than call .dt.date, which cudf 26.02 raises
+            # NotImplementedError from -- so hasattr does NOT screen it (hasattr only
+            # swallows AttributeError) and a capability branch would crash, not fall
+            # back. The truncation works on every engine and version; the scalar is
             # paired to the datetime64 it produces (see _prepare_temporal_comparison).
             if hasattr(s, 'dt'):
                 return s.dt.floor('D')
             return s
 
         elif isinstance(temporal_val, TimeValue):
-            # Time-of-day as a timedelta rather than .dt.time, which cudf 26.02
-            # removed. Same reasoning as the date lane above.
+            # Time-of-day as a timedelta rather than .dt.time, which raises the same
+            # way on cudf 26.02. Same reasoning as the date lane above.
             if hasattr(s, 'dt'):
                 return s - s.dt.floor('D')
             return s
