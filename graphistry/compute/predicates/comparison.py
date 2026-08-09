@@ -62,22 +62,18 @@ class ComparisonPredicate(ASTPredicate):
             return s
 
         elif isinstance(temporal_val, DateValue):
-            # Extract date from datetime series if needed
+            # Day-truncate rather than call .dt.date, which cudf 26.02 removed. The
+            # truncation is available on every engine and every version, so there is
+            # no capability branch and no minimum-cudf assumption; the scalar is
+            # paired to the datetime64 it produces (see _prepare_temporal_comparison).
             if hasattr(s, 'dt'):
-                if hasattr(s.dt, 'date'):
-                    return s.dt.date
-                # cudf 26.02 removed Series.dt.date: day-truncated datetimes compare
-                # exactly like dates against a midnight Timestamp (paired below).
                 return s.dt.floor('D')
             return s
 
         elif isinstance(temporal_val, TimeValue):
-            # Extract time from datetime series if needed
+            # Time-of-day as a timedelta rather than .dt.time, which cudf 26.02
+            # removed. Same reasoning as the date lane above.
             if hasattr(s, 'dt'):
-                if hasattr(s.dt, 'time'):
-                    return s.dt.time
-                # cudf 26.02 removed Series.dt.time: time-of-day timedeltas compare
-                # exactly like times against a Timedelta scalar (paired below).
                 return s - s.dt.floor('D')
             return s
 

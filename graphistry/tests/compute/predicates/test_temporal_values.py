@@ -186,50 +186,35 @@ class TestTemporalComparisons:
         result_cudf = predicate(s_cudf).to_pandas()
         pd.testing.assert_series_equal(result_pandas, result_cudf)
 
-def test_date_time_extraction_survives_cudf_2602_accessor_removal(monkeypatch) -> None:
-    """cudf 26.02 removed ``Series.dt.date`` / ``Series.dt.time``, which the
-    temporal comparison called unguarded. This drives the REAL predicate with
-    those accessors hidden, so the fallback and the scalar pairing both execute.
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_date_time_comparison_is_engine_identical(engine: str) -> None:
+    """Date/time comparisons must agree across engines and cudf versions.
 
-    Simulated on pandas rather than requiring a GPU. The equivalence relied on:
-    a day-truncated datetime compares against a midnight Timestamp exactly as a
-    date does, and a time-of-day timedelta against a Timedelta exactly as a time
-    does -- which is why the scalar must be paired to the truncated dtype."""
-    import pandas as pd
-    from graphistry.compute.predicates.comparison import GT
+    ``Series.dt.date`` / ``.dt.time`` do not exist on cudf 26.02, so the predicate
+    day-truncates instead -- one formulation available on every engine and every
+    version, which is why there is no capability branch and no minimum-cudf
+    assumption to encode in the types. This pins that the substitute is an
+    EQUIVALENCE, not merely something that does not raise: the same comparisons,
+    including the boundary equalities where date-vs-datetime64 semantics could
+    diverge, must give identical answers on each engine.
+    """
+    from graphistry.compute.predicates.comparison import EQ, GT
     from graphistry.compute.ast_temporal import DateValue, TimeValue
 
-    s = pd.Series(pd.to_datetime(
-        ["2026-01-01 03:00:00", "2026-01-05 09:30:00", "2026-01-10 21:45:00"]))
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        make = cudf.Series
+    else:
+        make = pd.Series
 
-    class _NoDateTime:
-        """A .dt accessor with date/time REMOVED, as cudf 26.02 ships."""
-        def __init__(self, inner: object) -> None:
-            self._inner = inner
+    stamps = ["2026-01-01 03:00:00", "2026-01-05 09:30:00", "2026-01-10 21:45:00"]
+    s = make(pd.to_datetime(stamps))
 
-        def __getattr__(self, name: str) -> object:
-            if name in ("date", "time"):
-                raise AttributeError(name)
-            return getattr(self._inner, name)
+    def as_list(mask: object) -> list:
+        return [bool(x) for x in (mask.to_pandas() if hasattr(mask, "to_pandas") else mask)]
 
-    # pd.Series.dt is a CachedAccessor, not a plain property -- wrap the value it
-    # produces per-instance rather than trying to re-bind the descriptor.
-    from pandas.core.indexes.accessors import CombinedDatetimelikeProperties
-    monkeypatch.setattr(pd.Series, "dt",
-                        property(lambda self: _NoDateTime(
-                            CombinedDatetimelikeProperties(self))),
-                        raising=False)
-    assert not hasattr(s.dt, "date"), "fixture must actually hide the accessor"
-
-    # DATE lane: day-truncated datetimes vs a midnight Timestamp
-    date_mask = GT(DateValue(value="2026-01-03"))(s)
-    assert list(date_mask) == [False, True, True]
-
-    # TIME lane: time-of-day timedeltas vs a Timedelta
-    time_mask = GT(TimeValue(value="08:00:00"))(s)
-    assert list(time_mask) == [False, True, True]
-
-    # and the un-hidden path still agrees, so the fallback is equivalent
-    monkeypatch.undo()
-    assert list(GT(DateValue(value="2026-01-03"))(s)) == [False, True, True]
-    assert list(GT(TimeValue(value="08:00:00"))(s)) == [False, True, True]
+    assert as_list(GT(DateValue(value="2026-01-03"))(s)) == [False, True, True]
+    assert as_list(GT(TimeValue(value="08:00:00"))(s)) == [False, True, True]
+    # boundary equality: where .dt.date (object) and floor('D') (datetime64) could differ
+    assert as_list(EQ(DateValue(value="2026-01-05"))(s)) == [False, True, False]
+    assert as_list(EQ(TimeValue(value="09:30:00"))(s)) == [False, True, False]
