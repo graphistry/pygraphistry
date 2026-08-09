@@ -170,6 +170,16 @@ def _record_indexed_traversal(
 
 ColStatsOutcome = Literal["served", "absent", "stale", "insufficient"]
 
+# Explicit mapping instead of an f-string plus a cast: mypy then checks that every
+# outcome has a real decision code, so adding one to either side without the other
+# is a type error rather than a string that silently never matches.
+_COL_STATS_CODE: Dict[ColStatsOutcome, IndexDecisionCode] = {
+    "served": "col_stats_served",
+    "absent": "col_stats_absent",
+    "stale": "col_stats_stale",
+    "insufficient": "col_stats_insufficient",
+}
+
 
 def record_col_stats_decision(
     *,
@@ -208,7 +218,7 @@ def record_col_stats_decision(
         "reason": reason,
         "path": "facts" if outcome == "served" else "scan",
         "decision_reason": reason,
-        "decision_code": f"col_stats_{outcome}",
+        "decision_code": _COL_STATS_CODE[outcome],
     }
     _record(step)
 
