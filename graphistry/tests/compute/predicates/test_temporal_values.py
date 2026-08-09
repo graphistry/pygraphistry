@@ -187,35 +187,49 @@ class TestTemporalComparisons:
         pd.testing.assert_series_equal(result_pandas, result_cudf)
 
 def test_date_time_extraction_survives_cudf_2602_accessor_removal(monkeypatch) -> None:
-    """cudf 26.02 removed ``Series.dt.date`` / ``Series.dt.time``. The extraction
-    must fall back to an equivalent formulation and keep comparing correctly, so
-    this simulates the removal on a pandas Series rather than requiring a GPU.
+    """cudf 26.02 removed ``Series.dt.date`` / ``Series.dt.time``, which the
+    temporal comparison called unguarded. This drives the REAL predicate with
+    those accessors hidden, so the fallback and the scalar pairing both execute.
 
-    Equivalence being relied on: a day-truncated datetime compares against a
-    midnight Timestamp exactly as a date does, and a time-of-day timedelta
-    compares against a Timedelta exactly as a time does -- which is why the
-    scalar must be paired to the dtype the truncation produced."""
+    Simulated on pandas rather than requiring a GPU. The equivalence relied on:
+    a day-truncated datetime compares against a midnight Timestamp exactly as a
+    date does, and a time-of-day timedelta against a Timedelta exactly as a time
+    does -- which is why the scalar must be paired to the truncated dtype."""
     import pandas as pd
-    from graphistry.compute.predicates import comparison as cmp
+    from graphistry.compute.predicates.comparison import GT
+    from graphistry.compute.ast_temporal import DateValue, TimeValue
 
-    s = pd.Series(pd.to_datetime(["2026-01-02 03:04:05", "2026-01-03 00:00:00"]))
+    s = pd.Series(pd.to_datetime(
+        ["2026-01-01 03:00:00", "2026-01-05 09:30:00", "2026-01-10 21:45:00"]))
 
-    class _NoDateTimeDt:
+    class _NoDateTime:
         """A .dt accessor with date/time REMOVED, as cudf 26.02 ships."""
-        def __init__(self, inner):
+        def __init__(self, inner: object) -> None:
             self._inner = inner
 
-        def __getattr__(self, name):
+        def __getattr__(self, name: str) -> object:
             if name in ("date", "time"):
                 raise AttributeError(name)
             return getattr(self._inner, name)
 
-    real_dt = s.dt
-    monkeypatch.setattr(type(s), "dt", property(lambda self: _NoDateTimeDt(real_dt)), raising=False)
+    # pd.Series.dt is a CachedAccessor, not a plain property -- wrap the value it
+    # produces per-instance rather than trying to re-bind the descriptor.
+    from pandas.core.indexes.accessors import CombinedDatetimelikeProperties
+    monkeypatch.setattr(pd.Series, "dt",
+                        property(lambda self: _NoDateTime(
+                            CombinedDatetimelikeProperties(self))),
+                        raising=False)
+    assert not hasattr(s.dt, "date"), "fixture must actually hide the accessor"
 
-    assert not hasattr(s.dt, "date") and not hasattr(s.dt, "time")
-    day = s.dt.floor("D")
-    assert list(day) == list(pd.to_datetime(["2026-01-02", "2026-01-03"]))
-    tod = s - s.dt.floor("D")
-    assert list(tod) == [pd.Timedelta(hours=3, minutes=4, seconds=5), pd.Timedelta(0)]
-    assert cmp is not None
+    # DATE lane: day-truncated datetimes vs a midnight Timestamp
+    date_mask = GT(DateValue(value="2026-01-03"))(s)
+    assert list(date_mask) == [False, True, True]
+
+    # TIME lane: time-of-day timedeltas vs a Timedelta
+    time_mask = GT(TimeValue(value="08:00:00"))(s)
+    assert list(time_mask) == [False, True, True]
+
+    # and the un-hidden path still agrees, so the fallback is equivalent
+    monkeypatch.undo()
+    assert list(GT(DateValue(value="2026-01-03"))(s)) == [False, True, True]
+    assert list(GT(TimeValue(value="08:00:00"))(s)) == [False, True, True]
