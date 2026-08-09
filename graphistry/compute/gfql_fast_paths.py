@@ -1750,23 +1750,11 @@ def _property_ref(expr: Any, valid_aliases: Sequence[str]) -> Optional[Tuple[str
 
 _GROUPED_AGG_LOOKUP_KEY_FMT = "__gfql_t3_{alias}_id__"
 
-# Thresholds for the low-cardinality pure-count(*) formulation below. Both were fixed
-# from an interleaved crossover sweep (polars 1.35.2, 20 threads, 90 samples/arm/cell)
-# BEFORE the formulation was validated on any query, because a threshold chosen after
-# seeing the verdicts is unfalsifiable.
-#
-#   * ``group_by(maintain_order=True).agg(pl.len())`` carries a FLAT ~2 ms coordination
-#     cost that exists only at LOW group cardinality and vanishes between 32 and 64
-#     groups (int keys, 20,000 rows: 32 groups 2.054 ms -> 48 groups 0.411 -> 64 groups
-#     0.291).
-#   * ``value_counts`` has no such cost but scales WORSE with input rows: at 1,000,000
-#     rows it loses even at 2 groups (4.137 ms -> 8.591 ms).
-#
-# So neither bound alone is sound; the gate needs both. 32 is the largest cardinality
-# whose worst case (group_by p25 vs value_counts p75) still favours value_counts in every
-# measured dtype x row-count cell -- 48 groups already fails at 0.96x on string keys.
-# 100,000 is the largest measured input-row count where that holds for every cardinality
-# <= 32 in both key dtypes -- 150,000 fails at 0.82x on string keys.
+# Both bounds are needed: group_by has a flat coordination cost only at low group
+# cardinality, value_counts has none but scales worse with input rows, so neither
+# bound alone is sound. Fixed from a crossover sweep BEFORE the formulation was
+# validated on any query -- a threshold chosen after seeing verdicts is
+# unfalsifiable. Sweep and crossover points: pyg-bench.
 _LOWCARD_COUNT_MAX_GROUPS = 32
 _LOWCARD_COUNT_MAX_INPUT_ROWS = 100_000
 
