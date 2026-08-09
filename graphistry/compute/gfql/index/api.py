@@ -477,6 +477,7 @@ def gfql_index_col_stats(g: Plottable,
                          edge_columns: Optional[Sequence[str]] = None,
                          node_type_column: Optional[str] = None,
                          edge_type_column: Optional[str] = None,
+                         col_stats_by_type: bool = False,
                          engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
     """Verified column-stat facts (min/max/null count) -- EAGER and TARGETED.
 
@@ -492,6 +493,14 @@ def gfql_index_col_stats(g: Plottable,
     deliberately out of scope -- that is the typed-ontology re-verification
     policy question; eager build here keeps fact cost a declared setup step,
     matching how the benchmark harness discloses index builds.
+
+    ``col_stats_by_type`` additionally builds per-type facts for the types a BOUND
+    SCHEMA declares. It defaults False because those facts cost a grouped pass per
+    type column at build time -- and one pass PER LABEL under the ``label__X``
+    convention -- while only typed count shapes can spend them. Turn it on for a
+    long-lived resident graph serving typed queries, where the build amortizes;
+    leave it off for one-shot work. Explicit ``*_type_column`` requests are
+    unaffected by this flag. (Build/query costs are receipted in pyg-bench.)
 
     ``node_type_column`` / ``edge_type_column`` additionally build PER-TYPE facts
     over the bindings, one grouped pass each. Whole-frame facts prove nothing on a
@@ -542,42 +551,55 @@ def gfql_index_col_stats(g: Plottable,
         if frame is None:
             raise ValueError(
                 f"col_stats requested per {role} type column {type_column!r} but no {role} frame is bound")
-        for col in binding_cols:
-            if col is None:
-                continue
-            partition_facts = build_col_stats_facts_by_type(frame, col, role, type_column, eng)
-            if not partition_facts:
-                raise ValueError(
-                    f"Cannot build per-type col_stats facts on {role} column {col!r} by "
-                    f"{type_column!r}: a column is absent, the frame is empty, the values are "
-                    f"non-integer or null-bearing, the type keys are float/null, or there are "
-                    f"more than {_MAX_COL_STATS_PARTITIONS} distinct types")
-            for fact in partition_facts:
-                registry = registry.with_col_stats(fact)
+        present = [c for c in binding_cols if c is not None]
+        partition_facts = build_col_stats_facts_by_type(frame, present, role, type_column, eng)
+        if present and not partition_facts:
+            raise ValueError(
+                f"Cannot build per-type col_stats facts on {role} columns {present!r} by "
+                f"{type_column!r}: a column is absent, the frame is empty, the values are "
+                f"non-integer or null-bearing, the type keys are float/null/list-valued, or "
+                f"there are more than {_MAX_COL_STATS_PARTITIONS} distinct types")
+        for fact in partition_facts:
+            registry = registry.with_col_stats(fact)
 
     # A DECLARED schema names its own type partitions, so using it is not a
-    # guess -- unlike sniffing column names. Derived candidates SKIP when
+    # guess -- unlike sniffing column names. It is still OPT-IN because per-type
+    # facts are NOT free (a grouped pass per type column; see col_stats_by_type).
+    # Derived candidates SKIP when
     # unusable (they were not asked for by name, unlike the params above), and
     # an explicit param for the same role wins.
     derived_targets: List[Tuple[ColStatsRole, Optional[DataFrameT], Tuple[Optional[str], ...], Tuple[str, ...]]] = [
         ("nodes", g._nodes, (g._node,), _schema_node_type_columns(g)),
         ("edges", g._edges, (g._source, g._destination), _schema_edge_type_columns(g)),
-    ]
+    ] if col_stats_by_type else []
+    derived_facts = 0
     for role, frame, binding_cols, candidates in derived_targets:
         if frame is None:
             continue
         for type_column in candidates:
             if (role, type_column) in _requested_partitions:
                 continue
-            for col in binding_cols:
-                if col is None:
-                    continue
-                for fact in build_col_stats_facts_by_type(frame, col, role, type_column, eng):
-                    registry = registry.with_col_stats(fact)
+            present = [c for c in binding_cols if c is not None]
+            for fact in build_col_stats_facts_by_type(frame, present, role, type_column, eng):
+                registry = registry.with_col_stats(fact)
+                derived_facts += 1
+    if col_stats_by_type and not derived_facts and not _requested_partitions:
+        # col_stats_by_type is an EXPLICIT request, so satisfying none of it
+        # raises rather than no-oping -- the same contract as naming a type
+        # column by hand. Partial coverage (a declared label the frame does not
+        # carry) still skips: a schema is a contract for the whole graph.
+        raise ValueError(
+            "col_stats_by_type=True but no per-type facts could be built: "
+            + ("no schema is bound -- call bind(schema=GraphSchema(...)) or name the "
+               "columns with node_type_column=/edge_type_column="
+               if getattr(g, "_gfql_schema", None) is None else
+               "the bound schema declares no node label or edge type column that the "
+               "bound frames carry, or the id/endpoint columns are unfactable"))
     return _attach(g, registry)
 
 
 def gfql_index_all(g: Plottable,
+                   col_stats_by_type: bool = False,
                    engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
     """Convenience: build out+in adjacency + (when ids are unique) node_id indexes.
 
@@ -591,7 +613,7 @@ def gfql_index_all(g: Plottable,
         g = create_index(g, NODE_ID, engine=engine)
     except GfqlIndexUnsupportedError:
         pass  # non-unique node ids -> skip the node_id accelerator (adjacency still built)
-    return gfql_index_col_stats(g, engine=engine)
+    return gfql_index_col_stats(g, col_stats_by_type=col_stats_by_type, engine=engine)
 
 
 # ---- planner entry ---------------------------------------------------------
