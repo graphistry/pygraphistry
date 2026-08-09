@@ -20,7 +20,7 @@ EdgeIndexDirection = Literal["forward", "reverse", "both"]
 FrameLike = DataFrameT
 
 
-IndexPath = Literal["scan", "index"]
+IndexPath = Literal["scan", "index", "facts"]  # "facts": a column-stat fact answered it
 IndexDecisionCode = Literal[
     "policy_off",
     "no_resident_index",
@@ -31,6 +31,13 @@ IndexDecisionCode = Literal[
     "index_selected",
     "engine_mismatch",
     "index_path_unavailable",
+    # column-stat fact consults (see record_col_stats_decision); the cases are
+    # separated because their fixes differ -- build them / rebuild after a
+    # rebind / the fact cannot prove what the plan needs / a scan was skipped.
+    "col_stats_absent",
+    "col_stats_stale",
+    "col_stats_insufficient",
+    "col_stats_served",
 ]
 
 
@@ -70,6 +77,11 @@ class IndexTraceStep(TypedDict, total=False):
     seed_deg_sum: Optional[int]
     est_result_rows: Optional[int]
     threshold_frac: float
+    # column-stat fact consults
+    role: str
+    column: str
+    type_column: Optional[str]
+    type_value: Optional[object]
 
 
 IndexTrace = List[IndexTraceStep]
