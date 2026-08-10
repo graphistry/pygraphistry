@@ -680,69 +680,19 @@ def _residual_polars_expr(
 ) -> Optional['pl.Expr']:
     """Translate a single-alias residual to a native polars expression, or None to fall back.
 
-    ``expr`` is a *string* by contract: the #1729 connected-join lowering serializes
-    residual predicates into ASTCall params as canonical predicate strings (e.g.
-    ``(tolower(a.col) = 'lit')``), not typed AST terms — so parsing here is the honest
-    interface; a typed term would require a lowering-level refactor.
+    Behaviour -- coverage, declines, and parity with the ``where_rows`` fallback --
+    is specified by ``test_residual_polars_native.py``, not restated here.
 
-    PARITY BY CONSTRUCTION (#1806), not by re-derivation. The fallback this lane replaces
-    renames the frame's columns to ``alias.col`` and runs a ``where_rows`` chain, which on
-    a polars frame is ``where_rows_polars`` -> ``lower_expr_str`` -> ``table.filter(...)``.
-    This function calls that SAME parser and SAME ``lower_expr``
-    (``row_pipeline.lower_single_alias_predicate``) with ``alias.col`` rewritten to the bare
-    column the un-renamed frame actually has — a bijection over the same frame — so the
-    expression built here is the expression the fallback would build, and the caller's
-    ``frame.filter(...)`` is the fallback's ``table.filter(...)``. Every guard the row
-    lowering owns therefore applies unchanged and is inherited rather than restated: the
-    numeric-vs-string cross-type decline, the temporal/ISO-literal declines, the int-literal
-    division decline, and the float NaN guard (polars ranks NaN largest; pandas/IEEE/Cypher
-    do not). Nothing is case-folded in Python — the lowering's constant-folding pass has
-    already reduced ``= toLower('LIT')`` to ``= 'lit'`` where every engine provably agrees
-    (``expr_const_fold``, #1802); the bare literal is used verbatim, exactly as the
-    evaluator uses it, so ``toLower(x) = 'MALE'`` correctly matches nothing.
+    Two things that file cannot express:
 
-    Covered = whatever the polars row lowering covers for a single alias, which is the whole
-    predicate vocabulary the connected-join WHERE renderer can emit here: the case functions
-    ``toLower``/``lower``/``toUpper``/``upper``; ``= != <> < <= > >=``; ``IS NULL`` /
-    ``IS NOT NULL``; ``IN [literals]``; ``AND`` / ``OR`` / ``NOT``; ``CASE WHEN``;
-    arithmetic; and the lowering's function whitelist (``substring``/``size``/``coalesce``/
-    ``toInteger``/...). Escaped string literals (``'it\\u0027s'``) are no longer a special
-    case: the residual text is parsed by the evaluator's own parser, which unescapes it the
-    same way, so no raw-text comparison can mismatch.
-
-    Declines (returns None; the caller uses the where_rows chain fallback, which then either
-    answers or raises the row op's designed NotImplementedError):
-    - a property access on any alias other than ``alias`` — not a column of this frame, and
-      the fallback's prefixed row table cannot resolve it either;
-    - a bare identifier, an absent column, or a node type the row lowering does not handle
-      (map/subscript/slice/quantifier/comprehension) — see ``_bare_column_ast``. The bare
-      whole-entity identity sentinel is in that set: the fallback resolves it via the row
-      table's ``_NODE_ID`` and this frame has no identity column, so declining costs only
-      speed (the fallback still answers) and cannot change an answer;
-    - anything ``lower_expr`` itself declines, e.g. a string predicate on a non-string column
-      or a numeric literal against a string column, which must stay residual so the designed
-      parity-or-error NotImplementedError is what surfaces, not a raw polars ComputeError.
-
-    NOT reachable, therefore NOT covered: ``STARTS WITH`` / ``ENDS WITH`` / ``CONTAINS`` /
-    ``=~``. ``_pushdown_connected_join_where_filters`` cannot render those to a row filter at
-    all, so the whole comma-pattern query is rejected upstream with a GFQLValidationError and
-    no such residual ever reaches this translator. Teaching this function those shapes would
-    be dead code; the gap is in the connected-join WHERE renderer, not here.
-
-    ``columns_nan_free=True`` (#1832 follow-up) is the ONE guard this lane opts out of, and only
-    for BARE COLUMN operands. Every frame reaching here is a filtered/joined projection of the
-    graph's own ``_nodes``, which ``_coerce_input_formats`` has already run through
-    ``nan_clean._pl_nan_to_null`` on the way into ``gfql()``; column selection, filtering and
-    joining cannot introduce a NaN a column did not already hold, so no float COLUMN read on this
-    lane can yield NaN and its ``is_nan()`` mask is dead weight. That mask is not free: it is a
-    second full pass over the column plus a boolean AND, and it measurably doubled the cost of
-    the two ``p.age`` comparisons on the graph benchmark's q7. The general row-table lowering
-    keeps the mask (the contextvar defaults to guard-ON) because its frames have NOT been through
-    gfql ingest, and a COMPUTED float operand keeps the mask on both lanes because in-query math
-    (``0.0/0.0``, ``sqrt`` of a negative) manufactures NaN that no ingest can have removed. This
-    restores exactly the guard-free set of the pre-#1832 narrow translator, whose docstring gave
-    the same justification, and mirrors ``predicates.filter_expr_by_dict_polars``, which already
-    omits the mask on the same lane for the same reason.
+    * Guards are INHERITED, not reimplemented. This calls the same parser and same
+      ``lower_expr`` as the fallback over a bijection of the same frame, so adding a
+      guard here would duplicate one that already applies. Tests would still pass.
+    * ``columns_nan_free=True`` (#1832) skips the NaN mask for BARE COLUMN operands
+      only: frames here are projections of ``_nodes``, which ingest ran through
+      ``nan_clean._pl_nan_to_null``, and projection cannot introduce NaN. A COMPUTED
+      float operand keeps the mask, because in-query math manufactures NaN no ingest
+      removed. Get this wrong and answers are silently incorrect on NaN.
     """
     from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
         lower_single_alias_predicate,
