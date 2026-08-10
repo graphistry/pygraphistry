@@ -680,30 +680,19 @@ def _residual_polars_expr(
 ) -> Optional['pl.Expr']:
     """Translate a single-alias residual to a native polars expression, or None to fall back.
 
-    ``expr`` is a string by contract: the #1729 connected-join lowering serializes
-    residuals to canonical predicate text, not typed AST terms, so parsing here is the
-    honest interface until that lowering is refactored.
+    Behaviour -- coverage, declines, and parity with the ``where_rows`` fallback --
+    is specified by ``test_residual_polars_native.py``, not restated here.
 
-    PARITY BY CONSTRUCTION (#1806). This calls the SAME parser and SAME ``lower_expr``
-    as the ``where_rows`` fallback it replaces, with ``alias.col`` rewritten to the bare
-    column the un-renamed frame holds -- a bijection over the same frame. So every guard
-    the row lowering owns is INHERITED, not restated here, and must not be duplicated:
-    cross-type declines, temporal/ISO literals, int-literal division, the float NaN
-    ordering guard. Coverage and declines are therefore whatever that lowering does;
-    ``test_lowering.py`` enumerates them.
+    Two things that file cannot express:
 
-    NOT reachable: ``STARTS WITH`` / ``ENDS WITH`` / ``CONTAINS`` / ``=~``.
-    ``_pushdown_connected_join_where_filters`` cannot render those, so the query is
-    rejected upstream and no such residual arrives. Teaching them here would be dead
-    code -- the gap is in that renderer.
-
-    ``columns_nan_free=True`` (#1832) is the one inherited guard this lane opts out of,
-    and only for BARE COLUMN operands: every frame here is a projection of ``_nodes``,
-    which ingest already ran through ``nan_clean._pl_nan_to_null``, and selection /
-    filtering / joining cannot introduce a NaN the column did not hold -- so the
-    ``is_nan()`` mask is provably dead weight. A COMPUTED float operand keeps the mask
-    on both lanes, because in-query math manufactures NaN no ingest can have removed,
-    and the general row-table lowering keeps it because its frames never saw ingest.
+    * Guards are INHERITED, not reimplemented. This calls the same parser and same
+      ``lower_expr`` as the fallback over a bijection of the same frame, so adding a
+      guard here would duplicate one that already applies. Tests would still pass.
+    * ``columns_nan_free=True`` (#1832) skips the NaN mask for BARE COLUMN operands
+      only: frames here are projections of ``_nodes``, which ingest ran through
+      ``nan_clean._pl_nan_to_null``, and projection cannot introduce NaN. A COMPUTED
+      float operand keeps the mask, because in-query math manufactures NaN no ingest
+      removed. Get this wrong and answers are silently incorrect on NaN.
     """
     from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
         lower_single_alias_predicate,
