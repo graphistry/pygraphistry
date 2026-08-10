@@ -73,10 +73,9 @@ GpuExecutor = Literal["in-memory", "streaming"]
 def cpu_streaming() -> bool:
     """Does the CPU polars collect use the STREAMING executor? (default off)
 
-    Streaming is faster + more stable on big traversal joins (isolated 80M-edge 2-hop semijoin
-    1669→1040 ms, ~1.6×; end-to-end chain dilutes to ~1.04–1.11× since forward/backward/combine
-    overhead is unaffected), parity-identical. Opt-in because small/interactive sizes REGRESS
-    (~0.86× at 100K) from streaming overhead.
+    Streaming is faster + more stable on big traversal joins, parity-identical; the
+    end-to-end chain dilutes the gain, since forward/backward/combine overhead is
+    unaffected. Opt-in because small/interactive sizes REGRESS from streaming overhead.
     Resolution: :func:`set_cpu_streaming` override > ``$GFQL_POLARS_CPU_STREAMING`` (``"1"``) > ``False``.
     """
     if _cpu_streaming_override is not None:

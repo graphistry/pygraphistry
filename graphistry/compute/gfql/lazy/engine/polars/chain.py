@@ -56,8 +56,8 @@ def _semi(df: "PolarsT", ids_df: "PolarsT", df_col: str, id_col: str) -> "Polars
     The key frame is NOT deduplicated: a semi-join emits a left row iff at least one
     matching right row exists, so duplicate keys cannot change which rows come back (and
     a semi-join never multiplies rows the way an inner join would). Deduplicating first
-    is a whole extra hash pass over the key column for no observable effect — 60.7 -> 8.6 ms
-    on a 3.18M-key build side. See the module note on semi-join key frames.
+    is a whole extra hash pass over the key column for no observable effect, and at
+    multi-million-key scale that pass dominates. See the module note on semi-join key frames.
     """
     return df.join(ids_df.select(id_col), left_on=df_col, right_on=id_col, how="semi")
 
@@ -325,7 +325,7 @@ def _combine_edges(g: "_LazyShim",
         # the hash table on the RIGHT (the node universe / a neighbouring step's node frame)
         # and only then probes with the empty left, so an unfiltered `prev_nodes = g._nodes`
         # costs a full O(N) hash build to produce the zero rows we already knew about
-        # (measured: 6.99 ms for one such join at N=2M, and a chain hits one per node step).
+        # -- and a chain hits one such join per node step, so the cost compounds.
         # Height is read from the pre-lazy fact recorded by _LazyShim.step because `.lazy()`
         # erases it; `not is_lazy(...)` keeps the direct-eager-frame case working.
         if g_step.edges_empty is True or (not is_lazy(edges_df) and edges_df.height == 0):
@@ -881,7 +881,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
 
     # Node-only fast path: single MATCH (n) — the dominant tabular/viz/crossfilter shape.
     # Result is just the filtered node table + empty edges, so skip forward/backward/combine +
-    # collect_all (~2.5 ms fixed cost at small sizes — the interactive crossfilter regime).
+    # collect_all, whose fixed cost dominates at the small sizes this shape runs at.
     # Byte-identical: the one-node-step combine yields filtered g._nodes in order + empty edges
     # + the alias flag on every matched node.
     if len(ops) == 1 and isinstance(ops[0], ASTNode) and ops[0].query is None:

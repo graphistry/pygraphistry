@@ -1512,8 +1512,8 @@ _COMPILED_STRING_QUERY_CACHE_MAX = 128
 #: no matter which ``Plottable`` asked for it. This cache used to hang off the caller's
 #: Plottable by ``setattr``, which partitioned it by something that cannot change the
 #: answer -- so a ONE-SHOT query on a fresh graph recompiled a plan the process was already
-#: holding. Measured on dgx-spark at graph-benchmark 20k, that cost the first query on a
-#: Plottable +1.6 to +2.5 ms (+21% to +52%) versus the second, on q3/q4/q5/q7/q9 alike.
+#: holding, so the FIRST query on a Plottable paid a recompile the second did not --
+#: measurably, across every benchmarked query shape.
 #:
 #: Bounded LRU rather than clear-on-full so a hot query cannot be evicted by a burst of
 #: cold ones. Values are ``@dataclass(frozen=True)`` chains and plans -- no DataFrame is
