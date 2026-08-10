@@ -6,10 +6,11 @@ keys cannot change the result. That argument previously lived only in a docstrin
 these pin it, so the missing dedup is a verified property rather than a claim.
 Its cost side is a benchmark, and belongs in pyg-bench.
 """
-import polars as pl
 import pytest
 
-from graphistry.compute.gfql.lazy.engine.polars.chain import _semi
+pl = pytest.importorskip("polars")  # gfql-core lane has no polars; collection must not fail
+
+from graphistry.compute.gfql.lazy.engine.polars.chain import _semi  # noqa: E402
 
 
 def _left() -> pl.DataFrame:
