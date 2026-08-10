@@ -53,11 +53,8 @@ def _semi(df: "PolarsT", ids_df: "PolarsT", df_col: str, id_col: str) -> "Polars
     the left frame's eagerness, so an eager caller keeps its ``.height``/``.columns`` and a lazy
     caller keeps a plan.
 
-    The key frame is NOT deduplicated: a semi-join emits a left row iff at least one
-    matching right row exists, so duplicate keys cannot change which rows come back (and
-    a semi-join never multiplies rows the way an inner join would). Deduplicating first
-    is a whole extra hash pass over the key column for no observable effect, and at
-    multi-million-key scale that pass dominates. See the module note on semi-join key frames.
+    The key frame is deliberately NOT deduplicated; ``test_semi_join_key_frame.py``
+    pins why that is safe.
     """
     return df.join(ids_df.select(id_col), left_on=df_col, right_on=id_col, how="semi")
 
