@@ -733,29 +733,15 @@ def _single_alias_cache_key(
 ) -> _SingleAliasKey:
     """Every input the lowered expression depends on, in one hashable key.
 
-    COMPLETENESS. ``lower_single_alias_predicate`` is a pure function of exactly four things,
-    and each is in the key:
+    A missing input serves a stale expression, i.e. a silent wrong answer, so
+    completeness is pinned in ``test_single_alias_cache_key.py`` -- including the
+    non-obvious one: the key holds ``str(dtype)``, not the dtype OBJECT, because
+    polars equates a dtype class with its parameterized instances
+    (``Datetime == Datetime('ns')``) and they would collide as dict keys.
 
-    - ``expr`` -- the string handed to the parser;
-    - ``alias`` -- the only thing ``_bare_column_ast`` reads besides the parse tree;
-    - ``schema`` -- consumed twice, as the ``_SCHEMA`` dtype map (drives ``_expr_output_dtype``,
-      the cross-type decline, the NaN mask) and as ``list(schema)``, the column-name sequence
-      ``lower_expr`` resolves names against. The key therefore carries BOTH halves of every
-      entry AND their order: ``tuple((name, str(dtype)) ...)`` over ``schema.items()``. Names
-      alone would be a stale-key bug -- the same predicate over the same column names lowers
-      differently when a dtype changes (float gains a NaN mask, string-vs-numeric declines
-      outright). ``str(dtype)`` rather than the dtype OBJECT because polars ``DataType.__eq__``
-      equates a dtype class with its parameterized instances (``Datetime == Datetime('ns')``),
-      which as a dict key could HIT across dtypes that lower differently; the repr is the
-      canonical parameterized form (``Datetime(time_unit='ns', time_zone=None)``,
-      ``Enum(categories=[...])``, ``List(Int64)``) and distinguishes them.
-    - ``columns_nan_free`` -- selects whether column operands get the NaN mask.
-
-    Parser AVAILABILITY is the one input deliberately NOT keyed: it is a property of the
-    process (is the parser backend importable?), not of the arguments, so ``lower_single_alias_
-    predicate`` probes it BEFORE consulting the memo instead. That probe costs ~0.2us, so
-    keeping it outside the cache is free, and it means no cached entry can outlive a parser
-    that has gone away.
+    Parser AVAILABILITY is deliberately NOT keyed: it is a property of the process,
+    not of the arguments, so the caller probes it BEFORE consulting the memo -- which
+    also means no cached entry can outlive a parser that has gone away.
     """
     return (expr, alias, columns_nan_free, tuple((k, str(v)) for k, v in schema.items()))
 
@@ -1095,27 +1081,18 @@ def where_rows_polars(
 
 
 def _order_keys_hold_list_like_values(table: "Union[pl.DataFrame, pl.LazyFrame]", exprs: "List[pl.Expr]") -> bool:
-    """Decline sniff for ``order_by_polars``: does any lowered sort key produce values the
-    LEGACY row pipeline sorts with list/element-wise semantics rather than a plain sort?
+    """Decline sniff for ``order_by_polars``: would a native polars sort diverge from
+    the legacy pipeline's Cypher list-orderability semantics?
 
-    Two triggers, mirroring ``row/ordering.py``:
-      1. nested/object output dtype (List/Array/Struct/Object) — legacy applies Cypher
-         list-orderability via ``build_list_sort_columns`` (element-wise keys, null-mask
-         special cases); a native polars ``sort`` on the nested column silently diverges
-         (observed: nullable-bool and empty-nested-list parity cases).
-      2. String output containing list-syntax text (``[...]``/``(...)``, the
-         ``_GFQL_LIST_TEXT_RE`` shape) — legacy either PARSES the whole column
-         (``order_detect_stringified_list_series`` -> semantic list sort) or REJECTS a
-         mixed column (``validate_order_series_vector_safe``); a lexicographic polars sort
-         is wrong in the first case and silently succeeds in the second.
+    The triggers -- nested/object dtypes, and strings carrying list-syntax text -- and
+    their parity consequences are pinned in ``test_engine_polars_row_pipeline.py`` and
+    ``test_row_pipeline_ops.py``.
 
-    True -> the caller declines (returns None -> NIE): value-safe everywhere — the AUTO
-    polars/cudf arms fall back to the legacy engine, and explicit polars keeps its
-    parity-or-error contract instead of a silently divergent order. Deliberately a bit
-    BROADER than legacy engagement (e.g. list-text plus nulls, where legacy happens to
-    plain-sort): the decline re-serves those corners on the legacy path with identical
-    values, at worst trading a native sort for a fallback. Any error while resolving the
-    schema or scanning values also declines (conservative)."""
+    Deliberately BROADER than legacy engagement; do not tighten it to match. Over-
+    declining re-serves those corners on the legacy path with IDENTICAL values, trading
+    a native sort for a fallback; under-declining returns a silently wrong ORDER. Errors
+    while resolving the schema also decline, for the same reason.
+    """
     import polars as pl
     from graphistry.compute.gfql.lazy import collect as _lazy_collect
     from graphistry.compute.gfql.row.ordering import _GFQL_LIST_TEXT_RE
