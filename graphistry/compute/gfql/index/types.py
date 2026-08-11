@@ -28,10 +28,8 @@ FastPathName = Literal[
     "single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop",
 ]
 
-#: What the executor actually holds at the fast-path seam: post-parse but NOT yet
-#: narrowed to a Literal, so it is an EngineAbstract or the raw string a caller
-#: passed. Named rather than inlined so the widening is deliberate and one place;
-#: the recorder normalizes it to the wire value every trace step uses.
+#: What the executor holds at the fast-path seam: post-parse but NOT yet narrowed
+#: to a Literal. Named so the widening is deliberate and in one place.
 TraceEngine = Union[EngineAbstract, str]
 
 #: Outcome of one column-stat fact consult; each needs a different fix.

@@ -156,8 +156,6 @@ def _record_indexed_traversal(
         "op": "indexed_traversal",
         "operation": "indexed_traversal",
         "seam": seam,
-        # Both enum spellings reach here; normalize to the wire value ("polars"),
-        # which is what every other trace step records and what callers assert on.
         "engine": engine.value if isinstance(engine, (Engine, EngineAbstract)) else str(engine),
         "served": served,
         "reason": reason,
@@ -205,11 +203,7 @@ def record_fast_path_decision(
         "op": "fast_path",
         "operation": "fast_path",
         "seam": path,
-        # Engagement is a PER-ENGINE property -- a path can serve on one engine and
-        # decline on another -- so the engine belongs in the record, as it already
-        # does for adjacency decisions.
-        # Both enum spellings reach here; normalize to the wire value ("polars"),
-        # which is what every other trace step records and what callers assert on.
+        # Engagement is per-engine: a path can serve on one and decline on another.
         "engine": engine.value if isinstance(engine, (Engine, EngineAbstract)) else str(engine),
         "served": served,
         "reason": reason,
