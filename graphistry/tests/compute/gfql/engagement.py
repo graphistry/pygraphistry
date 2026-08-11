@@ -69,3 +69,27 @@ def assert_col_stats(
         assert got == {f"col_stats_{expected}"}, (
             f"{key}: expected col_stats_{expected}, got {sorted(got)}")
     return decisions
+
+
+def fast_path_decisions(g: Any, query: str, *, engine: str = "pandas") -> Dict[str, bool]:
+    """``{fast path name: served}`` for one query. A path absent from the map was
+    never consulted (an earlier path short-circuited), which is different from
+    consulted-and-declined -- so absence is not silently read as False."""
+    with index_trace() as steps:
+        g.gfql(query, engine=engine)
+    return {s["seam"]: bool(s["served"]) for s in steps if s.get("op") == "fast_path"}
+
+
+def assert_fast_path(g: Any, query: str, path: str, *, served: bool,
+                     engine: str = "pandas") -> None:
+    """Assert a named fast path served (or declined) for ``query``.
+
+    This is the assertion a VALUE test structurally cannot make: every fast path
+    falls back, so a dead one still returns the right answer.
+    """
+    seen = fast_path_decisions(g, query, engine=engine)
+    assert path in seen, (
+        f"{path!r} was never consulted for this query; consulted: {sorted(seen)}. "
+        "An earlier fast path may have short-circuited.")
+    assert seen[path] is served, (
+        f"{path!r}: expected served={served}, got {seen[path]} (all: {seen})")

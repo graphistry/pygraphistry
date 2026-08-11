@@ -181,6 +181,34 @@ _COL_STATS_CODE: Dict[ColStatsOutcome, IndexDecisionCode] = {
 }
 
 
+def record_fast_path_decision(*, path: str, served: bool, reason: str) -> None:
+    """Record whether a named fast path SERVED or declined, for ``gfql_explain``.
+
+    Fast paths are contracted "same answer, faster": every one falls back, so a
+    DEAD one is invisible -- the query is still correct and every value test still
+    passes. Measured ratio in test_lowering.py when this was added: 665 value
+    assertions vs 42 engagement ones. This is the surface that makes engagement
+    assertable against a public API instead of by monkeypatching private callees,
+    which fails open when another module imported the name directly.
+
+    Free outside ``index_trace()`` / ``gfql_explain`` -- same ``_trace_active()``
+    gate the adjacency and col-stats decisions use.
+    """
+    if not _trace_active():
+        return
+    step: IndexTraceStep = {
+        "op": "fast_path",
+        "operation": "fast_path",
+        "seam": path,
+        "served": served,
+        "reason": reason,
+        "path": "index" if served else "scan",
+        "decision_reason": reason,
+        "decision_code": "index_selected" if served else "index_path_unavailable",
+    }
+    _record(step)
+
+
 def record_col_stats_decision(
     *,
     role: str,
