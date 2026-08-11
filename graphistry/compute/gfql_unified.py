@@ -1027,13 +1027,13 @@ def _execute_compiled_query_via_physical_plan(
         from graphistry.compute.gfql.index.api import record_fast_path_decision
         fast_grouped = _execute_single_hop_grouped_aggregate_fast_path(base_graph, compiled_query.chain, engine=engine)
         record_fast_path_decision(
-            path="single_hop_grouped_aggregate", served=fast_grouped is not None,
+            path="single_hop_grouped_aggregate", engine=engine, served=fast_grouped is not None,
             reason="served" if fast_grouped is not None else "declined; caller falls back")
         if fast_grouped is not None:
             return fast_grouped
         fast_count = _execute_two_hop_count_fast_path(base_graph, compiled_query.chain, engine=engine)
         record_fast_path_decision(
-            path="two_hop_count", served=fast_count is not None,
+            path="two_hop_count", engine=engine, served=fast_count is not None,
             reason="served" if fast_count is not None else "declined; caller falls back")
         if fast_count is not None:
             return fast_count
@@ -1041,7 +1041,7 @@ def _execute_compiled_query_via_physical_plan(
             base_graph, compiled_query, physical_plan,
             engine=engine, policy=policy, context=context, start_nodes=start_nodes)
         record_fast_path_decision(
-            path="seeded_typed_hop", served=fast_hop is not None,
+            path="seeded_typed_hop", engine=engine, served=fast_hop is not None,
             reason="served" if fast_hop is not None else "declined; caller falls back")
         if fast_hop is not None:
             return fast_hop

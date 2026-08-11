@@ -155,7 +155,9 @@ def _record_indexed_traversal(
         "op": "indexed_traversal",
         "operation": "indexed_traversal",
         "seam": seam,
-        "engine": engine.value,
+        # Both enum spellings reach here; normalize to the wire value ("polars"),
+        # which is what every other trace step records and what callers assert on.
+        "engine": engine.value if isinstance(engine, (Engine, EngineAbstract)) else str(engine),
         "served": served,
         "reason": reason,
         "hops": hop_count,
@@ -182,7 +184,7 @@ _COL_STATS_CODE: Dict[ColStatsOutcome, IndexDecisionCode] = {
 
 
 def record_fast_path_decision(
-    *, path: FastPathName, served: bool, reason: str
+    *, path: FastPathName, served: bool, reason: str, engine: EngineAbstractType
 ) -> None:
     """Record whether a named fast path SERVED or declined, for ``gfql_explain``.
 
@@ -202,6 +204,12 @@ def record_fast_path_decision(
         "op": "fast_path",
         "operation": "fast_path",
         "seam": path,
+        # Engagement is a PER-ENGINE property -- a path can serve on one engine and
+        # decline on another -- so the engine belongs in the record, as it already
+        # does for adjacency decisions.
+        # Both enum spellings reach here; normalize to the wire value ("polars"),
+        # which is what every other trace step records and what callers assert on.
+        "engine": engine.value if isinstance(engine, (Engine, EngineAbstract)) else str(engine),
         "served": served,
         "reason": reason,
         "path": "index" if served else "scan",
