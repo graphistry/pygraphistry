@@ -26,6 +26,7 @@ from .policy import IndexPolicy, validate_index_policy
 from .types import (
     AdjacencyIndexKind, EdgeIndexDirection, HopDirection, IndexKind,
     ColStatsOutcomeName, FastPathName, IndexDecisionCode, IndexTrace, IndexTraceStep,
+    TraceEngine,
 )
 
 # Private Plottable attachment keys. Keep access behind helpers.
@@ -155,7 +156,7 @@ def _record_indexed_traversal(
         "op": "indexed_traversal",
         "operation": "indexed_traversal",
         "seam": seam,
-        "engine": engine.value,
+        "engine": engine.value if isinstance(engine, (Engine, EngineAbstract)) else str(engine),
         "served": served,
         "reason": reason,
         "hops": hop_count,
@@ -182,7 +183,7 @@ _COL_STATS_CODE: Dict[ColStatsOutcome, IndexDecisionCode] = {
 
 
 def record_fast_path_decision(
-    *, path: FastPathName, served: bool, reason: str
+    *, path: FastPathName, served: bool, reason: str, engine: TraceEngine
 ) -> None:
     """Record whether a named fast path SERVED or declined, for ``gfql_explain``.
 
@@ -202,6 +203,8 @@ def record_fast_path_decision(
         "op": "fast_path",
         "operation": "fast_path",
         "seam": path,
+        # Engagement is per-engine: a path can serve on one and decline on another.
+        "engine": engine.value if isinstance(engine, (Engine, EngineAbstract)) else str(engine),
         "served": served,
         "reason": reason,
         "path": "index" if served else "scan",
