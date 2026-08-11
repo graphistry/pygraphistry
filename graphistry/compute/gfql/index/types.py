@@ -23,7 +23,9 @@ FrameLike = DataFrameT
 #: The fast paths that report engagement. Closed by construction -- a new path
 #: must be added here, which is what stops a typo silently recording a decision
 #: nobody can assert on.
-FastPathName = Literal["single_hop_grouped_aggregate", "two_hop_count"]
+FastPathName = Literal[
+    "single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop",
+]
 
 #: Outcome of one column-stat fact consult; each needs a different fix.
 ColStatsOutcomeName = Literal["served", "absent", "stale", "insufficient"]

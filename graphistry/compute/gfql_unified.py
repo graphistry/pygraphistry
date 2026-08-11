@@ -1040,6 +1040,9 @@ def _execute_compiled_query_via_physical_plan(
         fast_hop = _execute_seeded_typed_hop_fast_path(
             base_graph, compiled_query, physical_plan,
             engine=engine, policy=policy, context=context, start_nodes=start_nodes)
+        record_fast_path_decision(
+            path="seeded_typed_hop", served=fast_hop is not None,
+            reason="served" if fast_hop is not None else "declined; caller falls back")
         if fast_hop is not None:
             return fast_hop
         return _execute_compiled_query_chain_non_union(

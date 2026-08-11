@@ -52,10 +52,15 @@ def test_grouped_aggregate_fast_path_engages(engine: str) -> None:
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_a_shape_neither_path_serves_declines_both(engine: str) -> None:
-    """The negative side: both consulted, both decline, answer still correct."""
+    """The negative side: EVERY path consulted, all decline, answer still correct.
+
+    Asserted as an exact dict rather than a subset so that instrumenting a new
+    fast path forces this control to be revisited -- a negative control that
+    silently ignores a new path stops being a control."""
     g = _graph(engine)
     seen = fast_path_decisions(g, Q_PLAIN, engine=engine)
-    assert seen == {"single_hop_grouped_aggregate": False, "two_hop_count": False}
+    assert seen == {"single_hop_grouped_aggregate": False, "two_hop_count": False,
+                    "seeded_typed_hop": False}
     assert len(g.gfql(Q_PLAIN, engine=engine)._nodes) == 3  # distinct a.id, not edge count
 
 
@@ -82,3 +87,24 @@ def test_unknown_fast_path_name_is_reported_not_silently_missing() -> None:
     consulted', which would look exactly like a correctly-declining path."""
     with pytest.raises(AssertionError, match="never consulted"):
         assert_fast_path(_graph(), Q_TWO_HOP, "two_hop_cont", served=True)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_seeded_typed_hop_fast_path_engages(engine: str) -> None:
+    """The third path. It is consulted LAST, so its pin doubles as evidence the
+    two ahead of it declined rather than short-circuited -- all three appear."""
+    nodes = pd.DataFrame({"id": list(range(8)), "kind": ["P"] * 4 + ["C"] * 4})
+    edges = pd.DataFrame({"s": [0, 1, 2, 3], "d": [1, 2, 3, 4], "rel": ["F"] * 4})
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    elif engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    q = "MATCH (a {id:0})-[{rel:'F'}]->(b) RETURN b.id AS x ORDER BY x ASC"
+
+    seen = fast_path_decisions(g, q, engine=engine)
+    assert seen.get("seeded_typed_hop") is True
+    assert seen.get("single_hop_grouped_aggregate") is False
+    assert seen.get("two_hop_count") is False
