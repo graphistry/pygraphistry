@@ -26,6 +26,7 @@ from .policy import IndexPolicy, validate_index_policy
 from .types import (
     AdjacencyIndexKind, EdgeIndexDirection, HopDirection, IndexKind,
     ColStatsOutcomeName, FastPathName, IndexDecisionCode, IndexTrace, IndexTraceStep,
+    TraceEngine,
 )
 
 # Private Plottable attachment keys. Keep access behind helpers.
@@ -184,7 +185,7 @@ _COL_STATS_CODE: Dict[ColStatsOutcome, IndexDecisionCode] = {
 
 
 def record_fast_path_decision(
-    *, path: FastPathName, served: bool, reason: str, engine: EngineAbstractType
+    *, path: FastPathName, served: bool, reason: str, engine: TraceEngine
 ) -> None:
     """Record whether a named fast path SERVED or declined, for ``gfql_explain``.
 

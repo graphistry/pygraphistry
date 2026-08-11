@@ -1,6 +1,7 @@
 """Shared internal types for GFQL physical indexes."""
 from __future__ import annotations
 
+from graphistry.Engine import EngineAbstract
 from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Literal, Mapping, Optional, Set, Tuple, TypedDict, Union
 
 import numpy as np
@@ -26,6 +27,12 @@ FrameLike = DataFrameT
 FastPathName = Literal[
     "single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop",
 ]
+
+#: What the executor actually holds at the fast-path seam: post-parse but NOT yet
+#: narrowed to a Literal, so it is an EngineAbstract or the raw string a caller
+#: passed. Named rather than inlined so the widening is deliberate and one place;
+#: the recorder normalizes it to the wire value every trace step uses.
+TraceEngine = Union[EngineAbstract, str]
 
 #: Outcome of one column-stat fact consult; each needs a different fix.
 ColStatsOutcomeName = Literal["served", "absent", "stale", "insufficient"]
