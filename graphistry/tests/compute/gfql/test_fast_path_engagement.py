@@ -19,28 +19,44 @@ Q_GROUPED = ("MATCH (p {kind:'P'})-[{rel:'L'}]->(c {kind:'C'}) "
 Q_PLAIN = "MATCH (a)-[]->(b) RETURN a.id AS x ORDER BY x ASC"
 
 
-def _graph():
+def _graph(engine: str = "pandas"):
     nodes = pd.DataFrame({"id": list(range(6)), "kind": ["P"] * 3 + ["C"] * 3,
                           "city": ["LA", "NY", "SF"] * 2})
     edges = pd.DataFrame({"s": [0, 1, 2, 0, 0], "d": [1, 2, 0, 3, 4],
                           "rel": ["F", "F", "F", "L", "L"]})
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        nodes, edges = pl.from_pandas(nodes), pl.from_pandas(edges)
+    elif engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
     return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
 
 
-def test_two_hop_count_fast_path_engages() -> None:
-    assert_fast_path(_graph(), Q_TWO_HOP, "two_hop_count", served=True)
+ENGINES = ["pandas", "polars", "cudf"]
 
 
-def test_grouped_aggregate_fast_path_engages() -> None:
-    assert_fast_path(_graph(), Q_GROUPED, "single_hop_grouped_aggregate", served=True)
+@pytest.mark.parametrize("engine", ENGINES)
+def test_two_hop_count_fast_path_engages(engine: str) -> None:
+    """Engagement is per-ENGINE: a path that serves on pandas can silently decline
+    on polars or cuDF and no value test would notice, because both answer."""
+    assert_fast_path(_graph(engine), Q_TWO_HOP, "two_hop_count",
+                     served=True, engine=engine)
 
 
-def test_a_shape_neither_path_serves_declines_both() -> None:
+@pytest.mark.parametrize("engine", ENGINES)
+def test_grouped_aggregate_fast_path_engages(engine: str) -> None:
+    assert_fast_path(_graph(engine), Q_GROUPED, "single_hop_grouped_aggregate",
+                     served=True, engine=engine)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_a_shape_neither_path_serves_declines_both(engine: str) -> None:
     """The negative side: both consulted, both decline, answer still correct."""
-    g = _graph()
-    seen = fast_path_decisions(g, Q_PLAIN)
+    g = _graph(engine)
+    seen = fast_path_decisions(g, Q_PLAIN, engine=engine)
     assert seen == {"single_hop_grouped_aggregate": False, "two_hop_count": False}
-    assert len(g.gfql(Q_PLAIN, engine="pandas")._nodes) == 3  # distinct a.id, not edge count
+    assert len(g.gfql(Q_PLAIN, engine=engine)._nodes) == 3  # distinct a.id, not edge count
 
 
 def test_short_circuit_is_distinguishable_from_decline() -> None:
