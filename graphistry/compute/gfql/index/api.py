@@ -25,7 +25,7 @@ from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
 from .policy import IndexPolicy, validate_index_policy
 from .types import (
     AdjacencyIndexKind, EdgeIndexDirection, HopDirection, IndexKind,
-    IndexDecisionCode, IndexTrace, IndexTraceStep,
+    ColStatsOutcomeName, FastPathName, IndexDecisionCode, IndexTrace, IndexTraceStep,
 )
 
 # Private Plottable attachment keys. Keep access behind helpers.
@@ -168,7 +168,7 @@ def _record_indexed_traversal(
     }))
 
 
-ColStatsOutcome = Literal["served", "absent", "stale", "insufficient"]
+ColStatsOutcome = ColStatsOutcomeName  # single definition, in types.py
 
 # Explicit mapping instead of an f-string plus a cast: mypy then checks that every
 # outcome has a real decision code, so adding one to either side without the other
@@ -181,7 +181,9 @@ _COL_STATS_CODE: Dict[ColStatsOutcome, IndexDecisionCode] = {
 }
 
 
-def record_fast_path_decision(*, path: str, served: bool, reason: str) -> None:
+def record_fast_path_decision(
+    *, path: FastPathName, served: bool, reason: str
+) -> None:
     """Record whether a named fast path SERVED or declined, for ``gfql_explain``.
 
     Fast paths are contracted "same answer, faster": every one falls back, so a

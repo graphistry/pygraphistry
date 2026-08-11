@@ -58,3 +58,11 @@ def test_assert_fast_path_fails_when_the_path_did_not_fire() -> None:
         assert_fast_path(_graph(), Q_PLAIN, "two_hop_count", served=True)
     with pytest.raises(AssertionError, match="never consulted"):
         assert_fast_path(_graph(), Q_GROUPED, "two_hop_count", served=True)
+
+
+def test_unknown_fast_path_name_is_reported_not_silently_missing() -> None:
+    """``FastPathName`` is a Literal so a typo is a TYPE error at author time; at
+    RUNTIME an unknown name must still fail loudly rather than read as 'not
+    consulted', which would look exactly like a correctly-declining path."""
+    with pytest.raises(AssertionError, match="never consulted"):
+        assert_fast_path(_graph(), Q_TWO_HOP, "two_hop_cont", served=True)  # type: ignore[arg-type]
