@@ -1021,10 +1021,20 @@ def _execute_compiled_query_via_physical_plan(
         )
 
     if physical_plan.route in ("same_path", "row_pipeline"):
+        # Record served/declined at the CALL SITE rather than inside each fast path:
+        # this is where the decision is consumed, it is one place instead of N return
+        # paths, and it cannot be bypassed the way patching a directly-imported name is.
+        from graphistry.compute.gfql.index.api import record_fast_path_decision
         fast_grouped = _execute_single_hop_grouped_aggregate_fast_path(base_graph, compiled_query.chain, engine=engine)
+        record_fast_path_decision(
+            path="single_hop_grouped_aggregate", served=fast_grouped is not None,
+            reason="served" if fast_grouped is not None else "declined; caller falls back")
         if fast_grouped is not None:
             return fast_grouped
         fast_count = _execute_two_hop_count_fast_path(base_graph, compiled_query.chain, engine=engine)
+        record_fast_path_decision(
+            path="two_hop_count", served=fast_count is not None,
+            reason="served" if fast_count is not None else "declined; caller falls back")
         if fast_count is not None:
             return fast_count
         fast_hop = _execute_seeded_typed_hop_fast_path(

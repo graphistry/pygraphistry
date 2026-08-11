@@ -18,12 +18,17 @@ path. That false negative has already been produced once here. These helpers
 read the public ``gfql_explain`` trace instead, so they observe the decision
 where it is made and survive refactors of the private names.
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
+from graphistry.Engine import EngineAbstractType
+from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.index.api import index_trace
+from graphistry.compute.gfql.index.types import ColStatsOutcomeName, FastPathName
 
 
-def col_stats_decisions(g: Any, query: str, *, engine: str = "pandas") -> List[Dict[str, Any]]:
+def col_stats_decisions(
+    g: Plottable, query: str, *, engine: EngineAbstractType = "pandas"
+) -> List[Dict[str, Any]]:  # hygiene-ok: explicit-any -- a trace step is a heterogeneous TypedDict by contract
     """Every column-stat fact decision made while running ``query`` on ``g``."""
     with index_trace() as steps:
         g.gfql(query, engine=engine)
@@ -31,13 +36,13 @@ def col_stats_decisions(g: Any, query: str, *, engine: str = "pandas") -> List[D
 
 
 def assert_col_stats(
-    g: Any,
+    g: Plottable,
     query: str,
     *,
-    engine: str = "pandas",
+    engine: EngineAbstractType = "pandas",
     served: Optional[bool] = None,
-    outcomes: Optional[Dict[str, str]] = None,
-) -> List[Dict[str, Any]]:
+    outcomes: Optional[Dict[str, ColStatsOutcomeName]] = None,
+) -> List[Dict[str, Any]]:  # hygiene-ok: explicit-any -- a trace step is a heterogeneous TypedDict by contract
     """Assert how the column-stat facts were USED, and return the decisions.
 
     ``served=True`` requires every decision to have skipped a scan; ``False``
@@ -69,3 +74,32 @@ def assert_col_stats(
         assert got == {f"col_stats_{expected}"}, (
             f"{key}: expected col_stats_{expected}, got {sorted(got)}")
     return decisions
+
+
+def fast_path_decisions(
+    g: Plottable, query: str, *, engine: EngineAbstractType = "pandas"
+) -> Dict[FastPathName, bool]:
+    """``{fast path name: served}`` for one query. A path absent from the map was
+    never consulted (an earlier path short-circuited), which is different from
+    consulted-and-declined -- so absence is not silently read as False."""
+    with index_trace() as steps:
+        g.gfql(query, engine=engine)
+    return {cast(FastPathName, s["seam"]): bool(s["served"])
+            for s in steps if s.get("op") == "fast_path"}
+
+
+def assert_fast_path(
+    g: Plottable, query: str, path: FastPathName, *, served: bool,
+    engine: EngineAbstractType = "pandas",
+) -> None:
+    """Assert a named fast path served (or declined) for ``query``.
+
+    This is the assertion a VALUE test structurally cannot make: every fast path
+    falls back, so a dead one still returns the right answer.
+    """
+    seen = fast_path_decisions(g, query, engine=engine)
+    assert path in seen, (
+        f"{path!r} was never consulted for this query; consulted: {sorted(seen)}. "
+        "An earlier fast path may have short-circuited.")
+    assert seen[path] is served, (
+        f"{path!r}: expected served={served}, got {seen[path]} (all: {seen})")
