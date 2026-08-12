@@ -12,7 +12,7 @@ from typing import Dict, List, Literal, Optional, Sequence, Set, Tuple, cast
 
 import pandas as pd
 
-from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, resolve_engine
+from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, POLARS_ENGINES, resolve_engine
 from graphistry.compute.typing import DataFrameT
 from graphistry.Plottable import Plottable
 from .registry import (
@@ -594,7 +594,13 @@ def _add_degree_facts(
         if tv in seen:
             continue
         seen.add(tv)
-        sub = edges[edges[type_column] == tv]
+        # polars rejects boolean-mask __getitem__, so pick the filter per engine
+        # rather than assuming the pandas surface.
+        if eng in POLARS_ENGINES:
+            import polars as pl
+            sub = edges.filter(pl.col(type_column) == tv)  # type: ignore[union-attr]  # engine seam
+        else:
+            sub = edges[edges[type_column] == tv]
         d = build_degree_fact(sub, g._source, g._destination, lo, hi, eng,
                               type_column=type_column, type_value=tv)
         if d is not None:

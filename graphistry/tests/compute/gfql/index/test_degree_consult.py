@@ -21,15 +21,28 @@ Q = ("MATCH (a {kind:'P'})-[{rel:'F'}]->(b {kind:'P'})"
      "-[{rel:'F'}]->(c {kind:'P'}) RETURN count(*) AS n")
 
 
-def _graph(n_p=3, n_c=3):
+ENGINES = ["pandas", "polars", "cudf"]
+
+
+def _to(df, engine):
+    if engine == "polars":
+        pl = pytest.importorskip("polars")
+        return pl.from_pandas(df)
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        return cudf.from_pandas(df)
+    return df
+
+
+def _graph(n_p=3, n_c=3, engine="pandas"):
     nodes = pd.DataFrame({"id": list(range(n_p + n_c)),
                           "kind": ["P"] * n_p + ["C"] * n_c})
     edges = pd.DataFrame({"s": [0, 1, 2, 0, 0], "d": [1, 2, 0, n_p, n_p + 1],
                           "rel": ["F", "F", "F", "X", "X"]})
-    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    return graphistry.nodes(_to(nodes, engine), "id").edges(_to(edges, engine), "s", "d")
 
 
-def _run(g, query=Q):
+def _run(g, query=Q, engine="pandas"):
     """(value, degree_fact_was_used)."""
     used = []
     real = fp._two_hop_equal_domain_dense_total
@@ -40,19 +53,23 @@ def _run(g, query=Q):
 
     fp._two_hop_equal_domain_dense_total = spy
     try:
-        return g.gfql(query, engine="pandas")._nodes.iloc[0, 0], any(used)
+        out = g.gfql(query, engine=engine)._nodes
+        val = out.to_pandas().iloc[0, 0] if hasattr(out, "to_pandas") else out.iloc[0, 0]
+        return val, any(used)
     finally:
         fp._two_hop_equal_domain_dense_total = real
 
 
-def test_degree_fact_is_built_and_actually_used() -> None:
+@pytest.mark.parametrize("engine", ENGINES)
+def test_degree_fact_is_built_and_actually_used(engine: str) -> None:
     """Engagement, not just correctness: a built-but-unused fact returns the same
     answer, so only this assertion can tell the difference."""
-    base = _graph()
-    oracle, _ = _run(base)
-    g = base.gfql_index_col_stats(node_type_column="kind", edge_type_column="rel")
+    base = _graph(engine=engine)
+    oracle, _ = _run(base, engine=engine)
+    g = base.gfql_index_col_stats(node_type_column="kind", edge_type_column="rel",
+                                  engine=engine)
     assert [k for k in get_registry(g).degrees], "no degree facts built"
-    value, used = _run(g)
+    value, used = _run(g, engine=engine)
     assert used, "degree fact built but never consulted -- silently dead"
     assert value == oracle
 
@@ -70,15 +87,17 @@ def test_identity_anchors_to_the_bound_frame_not_the_partition() -> None:
     assert fact.source_ref is g._edges
 
 
+@pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("n_p,n_c", [(3, 3), (5, 1), (2, 8), (7, 2)])
-def test_slice_is_exact_across_domain_shapes(n_p: int, n_c: int) -> None:
+def test_slice_is_exact_across_domain_shapes(n_p: int, n_c: int, engine: str) -> None:
     """The slice picks [lo, hi] out of arrays built over the whole node space. An
     off-by-one at either end silently counts the wrong nodes, so vary where the
     P-domain sits relative to the full range."""
-    base = _graph(n_p, n_c)
-    oracle, _ = _run(base)
-    g = base.gfql_index_col_stats(node_type_column="kind", edge_type_column="rel")
-    value, used = _run(g)
+    base = _graph(n_p, n_c, engine=engine)
+    oracle, _ = _run(base, engine=engine)
+    g = base.gfql_index_col_stats(node_type_column="kind", edge_type_column="rel",
+                                  engine=engine)
+    value, used = _run(g, engine=engine)
     assert used
     assert value == oracle
 
