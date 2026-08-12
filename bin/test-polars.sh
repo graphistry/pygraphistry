@@ -49,6 +49,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
     graphistry/tests/compute/gfql/test_seeded_typed_hop_fastpath.py
     graphistry/tests/compute/gfql/test_residual_polars_native.py
+    graphistry/tests/compute/gfql/index/test_auto_engine_agreement.py
     graphistry/tests/compute/gfql/index/test_degree_consult.py
     graphistry/tests/compute/gfql/test_single_alias_cache_key.py
     graphistry/tests/compute/gfql/test_semi_join_key_frame.py
