@@ -157,14 +157,38 @@ def test_differential_vs_the_scan_on_random_typed_graphs(seed: int) -> None:
     assert value == oracle
 
 
-def test_interleaved_ids_currently_build_no_facts_and_stay_correct() -> None:
-    """The real-board failure mode, now representable: interleaved ids mean the
-    whole node space is dense but per-label ids are scattered... or gapped
-    entirely. Today's builder must DECLINE (never miscount) and the answer must
-    come from the scan. When positional degrees land, this test flips to
-    asserting engagement -- that flip is the acceptance test for A1."""
+def test_interleaved_ids_build_facts_but_kernel_declines_upstream() -> None:
+    """The real-board layout after any shuffle/join. Three-part contract:
+    facts BUILD (span-based, gaps are harmless zeros), the kernel does NOT
+    consult them (its own dense-DOMAIN proof fails on scattered ids and it
+    declines before the fact matters), and the answer is correct via the scan.
+    If a future change makes scattered domains provable, the used-assertion
+    flips -- deliberately, not silently."""
     base = _graph(4, 3, interleave=True)
     oracle, _ = _run(base)
     g = base.gfql_index_col_stats(node_type_column="kind", edge_type_column="rel")
+    assert [k for k in get_registry(g).degrees], "span-based build must not refuse gaps"
     value, used = _run(g)
-    assert value == oracle  # correctness regardless
+    assert value == oracle
+    assert not used, "dense-domain proof cannot pass on scattered ids"
+
+
+def test_a_fact_covering_a_narrower_span_is_refused() -> None:
+    """NEGATIVE side of the consult's span check: a fact whose arrays do not
+    cover the requested domain must be IGNORED, because slicing outside its
+    range would miscount -- a wrong answer, not a slow one."""
+    import graphistry.compute.gfql_fast_paths as fpm
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.build import build_degree_fact
+
+    edges = pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0]})
+    narrow = build_degree_fact(edges, "s", "d", 0, 2, Engine.PANDAS)
+    assert narrow is not None
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3]})
+    wider = fpm._two_hop_equal_domain_dense_total(
+        nodes, edges, node_col="id", src_col="s", dst_col="d",
+        engine=Engine.PANDAS, domain_interval_hint=(0, 3), degree_fact=narrow)
+    honest = fpm._two_hop_equal_domain_dense_total(
+        nodes, edges, node_col="id", src_col="s", dst_col="d",
+        engine=Engine.PANDAS, domain_interval_hint=(0, 3))
+    assert wider == honest, "narrow fact must be refused, not sliced out of range"
