@@ -12,11 +12,11 @@ from typing import Dict, List, Literal, Optional, Sequence, Set, Tuple, cast
 
 import pandas as pd
 
-from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, resolve_engine
+from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, POLARS_ENGINES, resolve_engine
 from graphistry.compute.typing import DataFrameT
 from graphistry.Plottable import Plottable
 from .registry import (
-    AdjacencyIndex, ColStatsRole, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
+    AdjacencyIndex, ColStatsFact, ColStatsRole, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
     EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, ADJ_KINDS, ALL_KINDS,
 )
 from .build import build_adjacency_index, build_node_id_index, build_node_prop_index
@@ -560,6 +560,62 @@ def _schema_edge_type_columns(g: Plottable) -> Tuple[str, ...]:
     return tuple(sorted({c for c in candidates if c in present}))
 
 
+def _add_degree_facts(
+    registry: GfqlIndexRegistry,
+    edges: DataFrameT,
+    g: Plottable,
+    type_column: str,
+    partition_facts: Sequence[ColStatsFact],
+    eng: Engine,
+) -> GfqlIndexRegistry:
+    """Degree facts for each type partition whose node ids form a DENSE interval.
+
+    Only where that interval is provable: the arrays are indexed by ``id - lo``, so
+    a gapped or unbounded domain has no valid indexing and we build nothing rather
+    than build something the kernel could misread.
+    """
+    from .build import build_degree_fact, build_col_stats_fact
+    if g._nodes is None or g._node is None or not g._source or not g._destination:
+        return registry
+    # The node-label <-> relationship-type pairing is QUERY-dependent (which label
+    # sits at the ends of which rel), so it cannot be resolved at index time. Build
+    # degrees over the WHOLE dense node interval instead and let the consult slice:
+    # sound because the kernel's bounds proof already establishes every endpoint of
+    # the filtered edges lies inside the domain interval it asks for.
+    whole = build_col_stats_fact(g._nodes, g._node, "nodes", eng)
+    if (whole is None or whole.n_unique is None or whole.min_val is None
+            or whole.max_val is None
+            or whole.n_unique != whole.max_val - whole.min_val + 1):
+        return registry  # gapped node space: no valid id - lo indexing
+    lo, hi = int(whole.min_val), int(whole.max_val)
+    seen: set = set()
+    for pf in partition_facts:
+        tv = pf.type_value
+        if tv in seen:
+            continue
+        seen.add(tv)
+        # polars rejects boolean-mask __getitem__, so pick the filter per engine
+        # rather than assuming the pandas surface.
+        if eng in POLARS_ENGINES:
+            import polars as pl
+            sub = edges.filter(pl.col(type_column) == tv)  # type: ignore[union-attr]  # engine seam
+        else:
+            sub = edges[edges[type_column] == tv]
+        d = build_degree_fact(sub, g._source, g._destination, lo, hi, eng,
+                              type_column=type_column, type_value=tv)
+        if d is not None:
+            # Counted over the PARTITION, but it describes a partition OF the bound
+            # edge frame -- so it must be validated against that frame, which is what
+            # the consult holds. Anchoring identity to the transient subset would make
+            # every lookup miss.
+            from dataclasses import replace as _replace
+            from .registry import frame_fingerprint as _fp
+            cols = tuple(sorted({g._source, g._destination, type_column}))
+            registry = registry.with_degrees(_replace(
+                d, source_ref=edges, fingerprint=_fp(edges, cols, eng)))
+    return registry
+
+
 def gfql_index_col_stats(g: Plottable,
                          node_columns: Optional[Sequence[str]] = None,
                          edge_columns: Optional[Sequence[str]] = None,
@@ -649,6 +705,8 @@ def gfql_index_col_stats(g: Plottable,
                 f"there are more than {_MAX_COL_STATS_PARTITIONS} distinct types")
         for fact in partition_facts:
             registry = registry.with_col_stats(fact)
+        if role == "edges" and g._source and g._destination:
+            registry = _add_degree_facts(registry, frame, g, type_column, partition_facts, eng)
 
     # A DECLARED schema names its own type partitions, so using it is not a
     # guess -- unlike sniffing column names. It is still OPT-IN because per-type

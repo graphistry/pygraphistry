@@ -17,7 +17,7 @@ from graphistry.Plottable import Plottable
 if TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.gfql.index.api import ColStatsOutcome
-    from graphistry.compute.gfql.index.registry import ColStatsFact, PartitionValue
+    from graphistry.compute.gfql.index.registry import ColStatsFact, DegreeFact, PartitionValue
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
@@ -2588,6 +2588,7 @@ def _two_hop_equal_domain_dense_total(
     engine: Engine,
     edge_endpoint_facts: Optional[Tuple["ColStatsFact", "ColStatsFact"]] = None,
     domain_interval_hint: Optional[Tuple[int, int]] = None,
+    degree_fact: Optional["DegreeFact"] = None,
 ) -> Optional[int]:
     """PROOF-GATED dense-domain kernel for the EQUAL-DOMAIN two-hop count.
 
@@ -2648,6 +2649,16 @@ def _two_hop_equal_domain_dense_total(
         # space, sparse rel) would allocate tables the semi-join path never needs --
         # decline and let it answer.
         return None
+    if degree_fact is not None and degree_fact.lo <= lo and degree_fact.hi >= hi:
+        # Precomputed degrees answer the SAME degree product with no per-query pass
+        # over the edges: sum_e indeg(src(e)) == sum_v indeg(v)*outdeg(v). O(N) instead
+        # of an O(E) bincount plus gather. The interval must match exactly -- the arrays
+        # are indexed by id - lo, so a different interval indexes the wrong slots.
+        # Slice to the domain the caller proved. Endpoints outside [lo, hi] cannot
+        # exist here -- that is exactly what _facts_prove_bounds established -- so the
+        # slice loses no edge, and nodes outside the domain must not be counted.
+        a, b = lo - degree_fact.lo, hi - degree_fact.lo + 1
+        return int(xp.dot(degree_fact.indeg[a:b], degree_fact.outdeg[a:b]))
     src_arr = col_to_array(edge_domain, src_col, engine)
     dst_arr = col_to_array(edge_domain, dst_col, engine)
     # bincount emits platform int64 counts; inputs are integer dtype by proof, so no
@@ -2789,6 +2800,14 @@ def _execute_two_hop_count_fast_path(
                       (_src_fact, _dst_fact) if _src_fact is not None and _dst_fact is not None else None,
                       *(_interval_hint if _interval_hint is not None else (1, 0))),
                   "insufficient")
+        # A degree fact answers without touching the edges at all, but ONLY for the
+        # exact interval it was built over -- it is keyed by the same partition as
+        # the endpoint facts, so a typed pattern gets typed degrees.
+        _deg = None
+        if _interval_hint is not None:
+            _deg = _reg.get_degree_valid(
+                src_col, dst_col, edges_obj, requested_engine,
+                *(_edge_part if _edge_part else (None, None)))
         dense_total = _two_hop_equal_domain_dense_total(
             start_nodes,
             first_edges,
@@ -2800,6 +2819,7 @@ def _execute_two_hop_count_fast_path(
                 (_src_fact, _dst_fact)
                 if _src_fact is not None and _dst_fact is not None else None),
             domain_interval_hint=_interval_hint,
+            degree_fact=_deg,
         )
         if dense_total is not None:
             if requested_engine in POLARS_ENGINES:
