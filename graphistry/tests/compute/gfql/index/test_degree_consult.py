@@ -192,3 +192,53 @@ def test_a_fact_covering_a_narrower_span_is_refused() -> None:
         nodes, edges, node_col="id", src_col="s", dst_col="d",
         engine=Engine.PANDAS, domain_interval_hint=(0, 3))
     assert wider == honest, "narrow fact must be refused, not sliced out of range"
+
+
+Q_FILTERED = ("MATCH (a {kind:'P'})-[{rel:'F'}]->(b {kind:'P'})"
+              "-[{rel:'F'}]->(c {kind:'P'}) "
+              "WHERE b.age < 30 AND c.age > 20 RETURN count(*) AS n")
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_endpoint_filters_decline_dense_but_the_fused_count_serves(engine: str) -> None:
+    """The q9 shape: same typed two-hop count as q8 plus WHERE filters on the
+    endpoints. The precomputed degree product counts ALL paths through each
+    midpoint, so consulting it here would be a wrong answer, not a slow one --
+    the dense kernel must not even be called. The query still belongs to the
+    two_hop_count fast path (its fused arm applies the filters), so the decline
+    must not cascade into a full scan.
+
+    The fixture's filtered count differs from its unfiltered count, so a kernel
+    that ignored the filters would also fail the value gate.
+    """
+    from graphistry.tests.compute.gfql.engagement import assert_fast_path
+
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3],
+                          "kind": ["P"] * 4,
+                          "age": [25, 35, 25, 45]})
+    edges = pd.DataFrame({"s": [0, 1, 2, 0], "d": [1, 2, 3, 2],
+                          "rel": ["F"] * 4})
+    base = graphistry.nodes(_to(nodes, engine), "id").edges(_to(edges, engine), "s", "d")
+    unfiltered, _ = _run(base, engine=engine)
+    oracle, _ = _run(base, Q_FILTERED, engine=engine)
+    assert 0 < oracle < unfiltered, "fixture cannot distinguish a filter-ignoring kernel"
+
+    g = base.gfql_index_col_stats(node_type_column="kind", edge_type_column="rel",
+                                  engine=engine)
+    assert [k for k in get_registry(g).degrees], "no degree facts built"
+
+    called = []
+    real = fp._two_hop_equal_domain_dense_total
+
+    def spy(*a, **k):
+        called.append(True)
+        return real(*a, **k)
+
+    fp._two_hop_equal_domain_dense_total = spy
+    try:
+        value, _ = _run(g, Q_FILTERED, engine=engine)
+    finally:
+        fp._two_hop_equal_domain_dense_total = real
+    assert not called, "dense kernel consulted under endpoint filters -- wrong-answer risk"
+    assert value == oracle
+    assert_fast_path(g, Q_FILTERED, "two_hop_count", served=True, engine=engine)
