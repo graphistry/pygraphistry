@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import Any, Mapping, Optional, Protocol, TYPE_CHECKING, Tuple, TypeVar, Union
+from typing import Any, Mapping, Optional, Protocol, TYPE_CHECKING, Tuple, SupportsInt, TypeVar, Union
 
 # TODO stubs for Union[cudf.DataFrame, dask.DataFrame, ..] at checking time
 if TYPE_CHECKING:
@@ -56,6 +56,12 @@ class ArrayLike(Protocol):
     nbytes: int
 
     def __getitem__(self, key: Any) -> "ArrayLike":
+        ...
+
+    def min(self) -> SupportsInt:
+        ...
+
+    def max(self) -> SupportsInt:
         ...
 
     def __setitem__(self, key: Any, value: Any) -> None:

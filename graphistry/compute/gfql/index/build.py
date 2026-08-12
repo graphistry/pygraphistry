@@ -12,8 +12,8 @@ from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT, SeriesT
 from .engine_arrays import array_namespace, col_to_array
 from .registry import (
-    AdjacencyIndex, ColStatsFact, ColStatsRole, NodeIdIndex, NodePropIndex, PartitionValue,
-    frame_fingerprint,
+    AdjacencyIndex, ColStatsFact, ColStatsRole, DegreeFact, NodeIdIndex, NodePropIndex,
+    PartitionValue, frame_fingerprint,
 )
 from .types import AdjacencyIndexKind, ArrayLike, ArrayNamespace
 
@@ -202,6 +202,10 @@ def build_col_stats_fact(
 
 _MAX_COL_STATS_PARTITIONS = 256
 
+#: Degree arrays are dense over [lo, hi], so a pathological interval would allocate
+#: far more than the graph needs; decline rather than allocate.
+_MAX_DEGREE_SPAN = 50_000_000
+
 
 def _dtype_kind(series: SeriesT) -> str:
     """The numpy-style dtype kind letter: 'i'/'u' integer, 'f' float, 'b' bool,
@@ -362,3 +366,49 @@ def build_col_stats_facts_by_type(
             facts.append(fact(c, type_value, int(read[f"{c}__min"][i]), int(read[f"{c}__max"][i]),
                               int(read[f"{c}__nunique"][i]) if want_unique else None))
     return facts
+
+
+def build_degree_fact(
+    edges: DataFrameT,
+    src_col: str,
+    dst_col: str,
+    lo: int,
+    hi: int,
+    engine: Engine,
+    type_column: Optional[str] = None,
+    type_value: Optional[PartitionValue] = None,
+) -> Optional[DegreeFact]:
+    """In/out degree over ``edges``, indexed by node id - ``lo`` across [lo, hi].
+
+    Lets the two-hop count kernel answer with ``dot(indeg, outdeg)`` -- O(N) --
+    instead of an O(E) bincount plus gather. The arrays cover exactly the dense
+    interval the kernel already proves, so ids outside it are not representable;
+    that is why the interval is a parameter rather than derived here.
+
+    Declines (None) by explicit precondition -- absent column, non-integer or
+    null-bearing endpoints, an endpoint outside [lo, hi], or an interval wider
+    than ``_MAX_DEGREE_SPAN``. An endpoint outside the interval is a DECLINE and
+    not a clamp: clamping would silently miscount.
+    """
+    xp, backend = array_namespace(engine)
+    for col in (src_col, dst_col):
+        if col not in edges.columns:
+            return None
+    if hi < lo or (hi - lo + 1) > _MAX_DEGREE_SPAN:
+        return None
+    src = col_to_array(edges, src_col, engine)
+    dst = col_to_array(edges, dst_col, engine)
+    for arr in (src, dst):
+        if str(getattr(arr.dtype, "kind", "")) not in ("i", "u"):
+            return None
+        if int(arr.shape[0]) and (int(arr.min()) < lo or int(arr.max()) > hi):
+            return None  # outside the proved interval: decline, never clamp
+    n = hi - lo + 1
+    indeg = xp.bincount(dst - lo, minlength=n)
+    outdeg = xp.bincount(src - lo, minlength=n)
+    cols = tuple(sorted({src_col, dst_col} | ({type_column} if type_column else set())))
+    return DegreeFact(
+        src_col=src_col, dst_col=dst_col, indeg=indeg, outdeg=outdeg, lo=lo, hi=hi,
+        backend=backend, engine=engine, type_column=type_column, type_value=type_value,
+        fingerprint=frame_fingerprint(edges, cols, engine), source_ref=edges,
+    )

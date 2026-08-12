@@ -147,6 +147,39 @@ class ColStatsFact:
 
 
 @dataclass(frozen=True)
+class DegreeFact:
+    """Precomputed in/out degree over the exact bound edge frame, optionally
+    restricted to one relationship type.
+
+    Why this exists: the two-hop count kernel spends its time in an O(E)
+    ``bincount`` + gather over every edge. With degrees precomputed the same
+    answer is ``dot(indeg, outdeg)`` -- O(N). Measured at board scale (2.4M edges,
+    107k nodes) that is 6.76ms of query work versus 0.046ms.
+
+    STALENESS IS A WRONG ANSWER HERE, which is new. A stale min/max fact costs a
+    scan; a stale DEGREE fact returns a confidently incorrect count. So the
+    identity+fingerprint contract is not an optimization guard on this type -- it
+    is the correctness guard, and ``get_degree_valid`` refuses on any mismatch.
+
+    ``indeg``/``outdeg`` are indexed by node id MINUS ``lo``, so the arrays cover
+    the dense interval [lo, hi] the kernel already proves; ids outside it cannot
+    be represented, which is why a fact is only built for a dense domain.
+    """
+    src_col: str
+    dst_col: str
+    indeg: ArrayLike
+    outdeg: ArrayLike
+    lo: int
+    hi: int
+    backend: IndexBackend
+    engine: Engine
+    type_column: Optional[str] = None
+    type_value: Optional[PartitionValue] = None
+    fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
+    source_ref: Optional[DataFrameT] = field(compare=False, default=None)
+
+
+@dataclass(frozen=True)
 class GfqlIndexRegistry:
     """Immutable kind -> index map. ``with_index`` / ``without`` return copies."""
     indexes: Dict[IndexKind, Union[AdjacencyIndex, NodeIdIndex]] = field(default_factory=dict)
@@ -155,6 +188,8 @@ class GfqlIndexRegistry:
     # Column-stat facts keyed by (role, column, type_column, type_value); the
     # whole-frame fact uses (role, column, None, None). See ColStatsFact.
     col_stats: Dict[Tuple[str, str, Optional[str], Optional[PartitionValue]], ColStatsFact] = field(default_factory=dict)
+    # Degree facts keyed by (src, dst, type_column, type_value); see DegreeFact.
+    degrees: Dict[Tuple[str, str, Optional[str], Optional[PartitionValue]], DegreeFact] = field(default_factory=dict)
 
     def with_index(self, kind: IndexKind, index: Union[AdjacencyIndex, NodeIdIndex]) -> "GfqlIndexRegistry":
         new = dict(self.indexes)
@@ -165,6 +200,33 @@ class GfqlIndexRegistry:
         props = dict(self.node_props)
         props[column] = index
         return replace(self, node_props=props)
+
+    def with_degrees(self, fact: DegreeFact) -> "GfqlIndexRegistry":
+        d = dict(self.degrees)
+        d[(fact.src_col, fact.dst_col, fact.type_column, fact.type_value)] = fact
+        return replace(self, degrees=d)
+
+    def get_degree_valid(
+        self, src_col: str, dst_col: str, df: Optional[DataFrameT], engine: Engine,
+        type_column: Optional[str] = None, type_value: Optional[PartitionValue] = None,
+    ) -> Optional["DegreeFact"]:
+        """The degree fact, only while it still matches the live frame + engine.
+
+        Unlike the col-stat facts, a miss here is not merely a lost optimization
+        and a stale hit is not merely slow -- it is a wrong count. Every guard is
+        therefore refusal, never best-effort."""
+        fact = self.degrees.get((src_col, dst_col, type_column, type_value))
+        if fact is None or df is None or fact.engine != engine:
+            return None
+        if fact.source_ref is not None and fact.source_ref is not df:
+            return None
+        cols = tuple(sorted({src_col, dst_col} | ({type_column} if type_column else set())))
+        if fact.fingerprint != frame_fingerprint(df, cols, engine):
+            return None
+        return fact
+
+    def without_degrees(self) -> "GfqlIndexRegistry":
+        return replace(self, degrees={})
 
     def with_col_stats(self, fact: ColStatsFact) -> "GfqlIndexRegistry":
         stats = dict(self.col_stats)
