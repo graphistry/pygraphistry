@@ -1974,6 +1974,18 @@ def gfql(self: Plottable,
     # The NIE fallback compounds it: re-running the query would fire ``preload``/``precompile``/
     # ``postcompile`` twice for one user call. Explicit ``engine='polars'`` is unchanged and still
     # carries the pre-existing hook gap; this guard only refuses to make that gap the default.
+    # TRANSITIONAL, not a contract: with a POLICY attached, AUTO serves via pandas
+    # because the polars route has a known postload/postchain hook gap -- hooks are
+    # the governance surface and must fire exactly once on whatever engine serves.
+    # Delete this guard when the polars hook gap is fixed; the pin asserts the
+    # hook CONTRACT, not this mechanism, so removing it will not fight the tests.
+    if (
+        (engine == EngineAbstract.AUTO or engine == EngineAbstract.AUTO.value)
+        and policy is not None
+        and is_polars_df(self._edges) and (self._nodes is None or is_polars_df(self._nodes))
+    ):
+        engine = Engine.PANDAS.value
+
     if (
         (engine == EngineAbstract.AUTO or engine == EngineAbstract.AUTO.value)
         and policy is None

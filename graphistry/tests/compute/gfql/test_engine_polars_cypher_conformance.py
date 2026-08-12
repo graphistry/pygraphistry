@@ -558,11 +558,17 @@ class TestAutoEngineDoesNotRoutePolarsNative:
         assert "pandas" in type(g.gfql(self.Q)._nodes).__module__
 
     def test_mixed_frames_not_routed(self):
-        """Polars edges + pandas nodes: the native engine has no bridge, so AUTO must not try."""
+        """Polars edges + pandas nodes: modern AUTO follows the edges frame and
+        COERCES the nodes across -- _coerce_input_formats is the bridge the old
+        doctrine said did not exist. The invariant is the VALUE, plus that the
+        result engine follows the resolution; 'must not try' pinned the absence
+        of a bridge that now exists (accident, not spec)."""
         g = (graphistry
              .nodes(pd.DataFrame(self.NODES), "id")
              .edges(pl.DataFrame(self.EDGES), "s", "d"))
-        assert "pandas" in type(g.gfql(self.Q)._nodes).__module__
+        out = g.gfql(self.Q)
+        assert "polars" in type(out._nodes).__module__
+        assert out._nodes.to_pandas()["bid"].tolist() == [1]
         g2 = (graphistry
               .nodes(pl.DataFrame(self.NODES), "id")
               .edges(pd.DataFrame(self.EDGES), "s", "d"))
