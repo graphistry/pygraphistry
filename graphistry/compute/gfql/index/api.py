@@ -705,7 +705,7 @@ def gfql_index_col_stats(g: Plottable,
     by name, so an unusable request raises rather than skipping.
     """
     from .build import _MAX_COL_STATS_PARTITIONS, build_col_stats_fact, build_col_stats_facts_by_type
-    eng = resolve_engine(engine, g)
+    eng = resolve_index_engine(engine, g)  # AUTO keeps polars frames (#1843)
     from graphistry.compute.ComputeMixin import _coerce_input_formats
     g = _coerce_input_formats(g, eng)
     registry = get_registry(g)
