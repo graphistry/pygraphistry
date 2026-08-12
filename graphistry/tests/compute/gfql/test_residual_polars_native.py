@@ -438,35 +438,37 @@ class TestCategoricalNonStrOpsParity:
         assert _fast_lane_ids_matching_fallback(expr, self._cat_nodes()) == expected
 
 
-class TestStringPredicatesAreUnreachable:
-    """DECLINE WITH EVIDENCE (contradicting the obvious guess).
+class TestStringPredicatesPushDownNotResidual:
+    """``STARTS WITH`` / ``ENDS WITH`` / ``CONTAINS`` / ``=~`` are answered by the WHERE
+    pushdown renderer on polars (dtype classifiers are polars-first), never by this
+    residual translator -- so the translator's decline of these shapes is dead-on-arrival
+    code guarding a path nothing routes to. The contract is pandas-oracle parity plus
+    residual-translator silence, both asserted end to end.
 
-    ``STARTS WITH`` / ``ENDS WITH`` / ``CONTAINS`` / ``=~`` are declined not because parity
-    is hard but because NO such residual can reach this translator: on the polars engine
-    ``_pushdown_connected_join_where_filters`` cannot render them to a row filter, so the
-    comma-pattern query is rejected upstream and the translator is never called. Teaching
-    it those shapes would be unreachable code; the gap is in the WHERE renderer.
+    Until the polars-first classifiers, ``_pushdown_connected_join_where_filters`` could
+    not render these and the whole query raised upstream -- an accident of the broken
+    dtype classification, not a spec.
     """
 
     Q = ("MATCH (p {node_type:'Person'})-[]->(i), (p)-[]->(c) WHERE %s "
          "RETURN count(p) AS n")
 
     @staticmethod
-    def _g():
+    def _frames():
         nodes = pl.DataFrame({
             "node_id": [1, 2, 3],
             "node_type": ["Person", "X", "Y"],
-            "s": ["ab", "cd", None],
+            "s": ["xx", "ab", "bc"],
         })
         edges = pl.DataFrame({"src": [1, 1], "dst": [2, 3]})
-        return graphistry.nodes(nodes, "node_id").edges(edges, "src", "dst")
+        return nodes, edges
 
     @requires_polars
     @pytest.mark.parametrize("pred", [
         "i.s STARTS WITH 'a'", "i.s ENDS WITH 'b'", "i.s CONTAINS 'b'", "i.s =~ '.*b'",
     ])
-    def test_no_such_residual_ever_reaches_the_translator(self, pred, monkeypatch):
-        from graphistry.compute.exceptions import GFQLValidationError
+    def test_rendered_by_pushdown_matching_pandas(self, pred, monkeypatch):
+        nodes, edges = self._frames()
         seen = []
         real = fp._residual_polars_expr
 
@@ -475,9 +477,16 @@ class TestStringPredicatesAreUnreachable:
             return real(expr, alias, columns)
 
         monkeypatch.setattr(fp, "_residual_polars_expr", spy)
-        with pytest.raises(GFQLValidationError):
-            self._g().gfql(self.Q % pred, engine="polars")._nodes
+        g = graphistry.nodes(nodes, "node_id").edges(edges, "src", "dst")
+        got = g.gfql(self.Q % pred, engine="polars")._nodes
+        got = (got.to_pandas() if hasattr(got, "to_pandas") else got).to_dict("records")
         assert seen == [], f"{pred!r} unexpectedly reached the residual translator"
+
+        gp = graphistry.nodes(nodes.to_pandas(), "node_id").edges(
+            edges.to_pandas(), "src", "dst")
+        expected = gp.gfql(self.Q % pred, engine="pandas")._nodes.to_dict("records")
+        assert got == expected
+        assert got and got[0]["n"] > 0, "vacuous (empty-match) parity"
 
     @requires_polars
     @pytest.mark.parametrize("expr", [
@@ -1460,6 +1469,10 @@ class TestFusedLaneNanGuardScoping:
         -> `_pl_nan_to_null` normalizes it to null on the way in. Three assertions, in
         increasing strength: the residual lane is actually reached; the frame it is handed
         carries no NaN in any float column; and the answer equals the pandas oracle.
+
+        The float predicate is `abs(...)`-wrapped because a bare comparison is rendered by
+        the WHERE pushdown (polars-first dtype classifiers) and would never reach the
+        residual lane this test exists to exercise.
         """
         pl2 = pytest.importorskip("polars")
         ndf = pl2.DataFrame({
@@ -1478,7 +1491,7 @@ class TestFusedLaneNanGuardScoping:
         })
         q = ("MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
              "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
-             "WHERE toLower(i.interest) = 'fine dining' AND p.score >= 1 "
+             "WHERE toLower(i.interest) = 'fine dining' AND abs(p.score) >= 1 "
              "RETURN c.city AS city, count(p) AS n ORDER BY n DESC, city LIMIT 5")
 
         seen = []
