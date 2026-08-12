@@ -27,7 +27,19 @@ def _dtype_text(dtype: Any) -> str:
         return ""
 
 
+def _is_polars_dtype(dtype: DType) -> bool:
+    return 'polars' in str(type(dtype).__module__)
+
+
 def _is_numeric_dtype_safe(dtype: Any) -> bool:
+    # polars dtypes FIRST: pandas' is_numeric_dtype returns a confident False for
+    # them (no exception, so the fallback never runs) -- a wrong answer, not a
+    # decline. Same failure shape as guards that only catch AttributeError.
+    if _is_polars_dtype(dtype):
+        try:
+            return bool(dtype.is_numeric())
+        except Exception:
+            return any(t in str(dtype).lower() for t in ("int", "float", "decimal"))
     try:
         return bool(pd.api.types.is_numeric_dtype(dtype))
     except Exception:
@@ -39,6 +51,8 @@ def _is_numeric_dtype_safe(dtype: Any) -> bool:
 
 
 def _is_string_dtype_safe(dtype: Any) -> bool:
+    if _is_polars_dtype(dtype):
+        return str(dtype) in ("String", "Utf8", "Categorical", "Enum")
     try:
         return bool(pd.api.types.is_string_dtype(dtype))
     except Exception:
