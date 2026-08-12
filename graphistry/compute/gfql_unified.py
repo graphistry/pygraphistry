@@ -1986,7 +1986,16 @@ def gfql(self: Plottable,
                 shortest_path_backend=shortest_path_backend,
             )
         except NotImplementedError:
-            logger.debug('AUTO polars-native attempt declined; falling back to generic path')
+            # Fall back to PANDAS explicitly. Under modern resolve_engine the
+            # generic path would re-resolve these polars frames to POLARS and
+            # re-raise the same NIE -- the legacy mapping's accidental
+            # polars->pandas fallback is now stated, because AUTO must ANSWER.
+            logger.debug('AUTO polars-native attempt declined; serving via pandas')
+            return gfql(
+                self, query, engine=Engine.PANDAS.value, output=output, policy=policy,
+                where=where, language=language, params=params, validate=validate,
+                shortest_path_backend=shortest_path_backend,
+            )
 
     # engine inference, cuDF arm (owner-directed policy addition, 2026-08-02; supersedes the
     # earlier "AUTO never selects polars-gpu" doctrine for THIS arm only): when every bound
