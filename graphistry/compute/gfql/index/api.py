@@ -12,7 +12,7 @@ from typing import Dict, List, Literal, Optional, Sequence, Set, Tuple, cast
 
 import pandas as pd
 
-from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, POLARS_ENGINES, resolve_engine
+from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, POLARS_ENGINES, is_polars_df, resolve_engine
 from graphistry.compute.typing import DataFrameT
 from graphistry.Plottable import Plottable
 from .registry import (
@@ -305,61 +305,37 @@ def _check_column(column: Optional[str], expected: str, kind: IndexKind) -> None
         )
 
 
-def _is_eager_polars(df: object) -> bool:
-    """EAGER polars frames only: a LazyFrame passes the module check but no index
-    build or coercion path can gather rows from it — those graphs keep the legacy
-    pandas path (and ``create_index`` then coerces the frames to pandas, so the
-    post-build state stays self-consistent)."""
-    return (
-        df is not None
-        and 'polars' in str(type(df).__module__)
-        and type(df).__name__ == 'DataFrame'
-    )
+def _is_eager_polars(df: Optional[DataFrameT]) -> bool:
+    """EAGER polars only: ``is_polars_df`` admits LazyFrames, and an index build
+    cannot gather rows from a lazy plan."""
+    return df is not None and is_polars_df(df) and type(df).__name__ == "DataFrame"
 
 
 def resolve_index_engine(engine: EngineAbstractType, g: Plottable) -> Engine:
-    """Engine for index build/validation/usability: AUTO keeps resident polars frames polars.
+    """Engine for index build/validation/usability: AUTO keeps eager-polars frames polars.
 
-    ``resolve_engine(AUTO)`` maps polars input frames to PANDAS (the legacy
-    input-format policy), which would make ``create_index`` coerce-and-REPLACE the
-    user's polars frames with pandas copies — and then every later polars-engine
-    query pays a full-frame pandas->polars re-conversion, an O(E) tax per call that
-    dwarfs the indexed hop itself. The index layer is engine-polymorphic (numpy
-    sidecar arrays + polars row-gather), so when the caller said AUTO and the
-    resident frames are eager polars, index them in place. Explicit engines are
-    honored unchanged.
+    Plain ``resolve_engine(AUTO)`` maps polars frames to PANDAS, which makes
+    ``create_index`` coerce-and-REPLACE the user's frames -- then every polars
+    query pays an O(E) re-conversion per call. HISTORY THAT MUST NOT BE LOST:
+    preserving frames WITHOUT the matching query-side AUTO routing (#1849) was a
+    measured 125-534x default-path cliff (#1767, retracted) -- an AUTO-built
+    polars index met AUTO(pandas) queries and every hop declined to the scan.
+    This resolver is safe only because that routing now exists underneath.
 
-    This deliberately mirrors the query-side AUTO routing in ``gfql_unified.gfql``
-    (#1743) — which routes all-polars-frame graphs to the native polars engine — so
-    an AUTO-built polars index is exactly what the AUTO query engine consults. The
-    2026-07 revision of this change shipped WITHOUT that routing underneath and
-    inverted the win into a measured 125-534x default-path cliff (AUTO-built polars
-    index + AUTO(pandas) query = every hop declined to a scan); it is safe only
-    stacked on the routing.
-
-    Two gates are narrower here than #1743's query gate, and both self-heal because
-    ``create_index`` coerces-and-replaces the frames with its resolved engine's, so
-    later AUTO queries route with the post-build frames and the index still serves:
-
-    * **LazyFrame-bearing graphs** keep the legacy pandas path (an index cannot
-      gather rows from a lazy plan); post-build frames are pandas, AUTO queries
-      route pandas, index serves — consistent, just not polars-resident.
-    * **Edges-only graphs (``_nodes is None``)** keep the legacy pandas path:
-      ``create_index('node_id')``'s ``materialize_nodes()`` does not yet produce a
-      polars nodes frame from polars edges (pre-existing gap, also reachable via
-      explicit ``engine='polars'`` on such a graph), so guessing polars here would
-      crash the build instead of preserving anything.
+    The gate is deliberately NARROWER than the query-side gate (LazyFrame and
+    edges-only graphs keep the legacy pandas path) and both declines self-heal
+    because ``create_index`` coerces the frames it indexes. The gates and the
+    inversion itself are pinned in ``TestIndexAutoPreservesPolarsFrames``.
     """
     eng = resolve_engine(engine, g)
     abstract = EngineAbstract(engine) if isinstance(engine, str) else engine
-    if abstract == EngineAbstract.AUTO and eng == Engine.PANDAS:
-        if (
-            g._edges is not None
-            and g._nodes is not None
-            and _is_eager_polars(g._edges)
-            and _is_eager_polars(g._nodes)
-        ):
-            return Engine.POLARS
+    if abstract != EngineAbstract.AUTO:
+        return eng  # explicit engines are honored unchanged
+    # Derive from the FRAMES, mirroring the query-side AUTO gate, narrowed to
+    # what an index build can serve (both frames present and eager). Never
+    # overrides a cudf/dask resolution -- only the legacy polars->pandas mapping.
+    if _is_eager_polars(g._edges) and _is_eager_polars(g._nodes):
+        return Engine.POLARS
     return eng
 
 
