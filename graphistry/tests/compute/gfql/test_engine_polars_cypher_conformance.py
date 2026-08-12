@@ -544,10 +544,10 @@ class TestAutoEngineRoutesPolarsNative:
             assert "polars" in type(g.gfql(q, engine=eng)._nodes).__module__
 
 
-class TestAutoEngineDoesNotRoutePolarsNative:
-    """The negative half: what must NOT be diverted. A routing change is only as safe as the
-    set of inputs it refuses, so each of these pins a case where the pre-change path must
-    still be taken byte-for-byte."""
+class TestAutoEngineRoutingBoundaries:
+    """Where AUTO's polars routing starts and stops: pandas-frame graphs stay
+    pandas, explicit engines are honored, mixed frames follow the edges frame,
+    and a policy-carrying query keeps the hook-emitting path."""
 
     NODES = {"id": [0, 1, 2, 3], "label__Person": [True] * 4}
     EDGES = {"s": [0, 1, 2], "d": [1, 2, 3], "type": ["KNOWS"] * 3}
@@ -557,12 +557,11 @@ class TestAutoEngineDoesNotRoutePolarsNative:
         g = graphistry.nodes(pd.DataFrame(self.NODES), "id").edges(pd.DataFrame(self.EDGES), "s", "d")
         assert "pandas" in type(g.gfql(self.Q)._nodes).__module__
 
-    def test_mixed_frames_not_routed(self):
-        """Polars edges + pandas nodes: modern AUTO follows the edges frame and
-        COERCES the nodes across -- _coerce_input_formats is the bridge the old
-        doctrine said did not exist. The invariant is the VALUE, plus that the
-        result engine follows the resolution; 'must not try' pinned the absence
-        of a bridge that now exists (accident, not spec)."""
+    def test_mixed_frames_follow_the_edges_frame(self):
+        """Modern AUTO resolves mixed frames by the edges frame and coerces the
+        nodes across. The invariant is the VALUE plus result-engine-follows-
+        resolution ('must not try' pinned the absence of a bridge that now
+        exists -- accident, not spec)."""
         g = (graphistry
              .nodes(pd.DataFrame(self.NODES), "id")
              .edges(pl.DataFrame(self.EDGES), "s", "d"))
@@ -597,6 +596,27 @@ class TestAutoEngineDoesNotRoutePolarsNative:
         pol = {h: (lambda ctx, h=h: seen.append(h)) for h in ("preload", "postload", "precompile")}
         g.gfql(self.Q, policy=pol)
         assert "postload" in seen, "postload must still fire under AUTO on a polars graph"
+
+    def test_policy_guard_covers_every_polars_resolution(self):
+        """The guard's predicate must be resolve_engine itself: MIXED frames
+        (polars edges + pandas nodes) also resolve to polars under AUTO, and a
+        frame-shape guard once let them bypass a DENYING postload policy --
+        governance silently off is the worst failure mode this surface has."""
+        from graphistry.compute.gfql.policy import PolicyException
+
+        def deny(ctx):
+            raise PolicyException(phase="postload", reason="denied by test")
+
+        mixed = (graphistry
+                 .nodes(pd.DataFrame(self.NODES), "id")
+                 .edges(pl.DataFrame(self.EDGES), "s", "d"))
+        with pytest.raises(PolicyException):
+            mixed.gfql(self.Q, policy={"postload": deny})
+
+        edges_only = graphistry.edges(pl.DataFrame(self.EDGES), "s", "d")
+        with pytest.raises(PolicyException):
+            edges_only.gfql("MATCH (a)-[:KNOWS]->(b) RETURN b LIMIT 1",
+                            policy={"postload": deny})
 
     def test_policy_hooks_fire_once_on_nie_shape(self):
         """A retry-on-NIE route would fire the compile/load hooks twice for one user call."""

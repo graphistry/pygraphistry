@@ -5,7 +5,7 @@ import numpy as np
 from graphistry.Engine import (
     Engine,
     EngineAbstract,
-    resolve_engine,
+    resolve_input_engine,
     df_cons,
     s_arange, s_cos, s_floor, s_full, s_isna, s_pi,
     s_series, s_sin, s_sqrt, s_to_arr
@@ -123,7 +123,7 @@ def circle_layout(
     """
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
-    engine_concrete = resolve_engine(engine, self)
+    engine_concrete = resolve_input_engine(engine, self)
 
     # Import necessary functions based on the engine
     arange = s_arange(engine_concrete)

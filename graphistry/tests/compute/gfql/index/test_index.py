@@ -1446,10 +1446,13 @@ def test_auto_engine_gfql_serves_polars_index_1767_cliff():
     assert out._nodes["destination"].to_list() == [101, 102]
 
 
-def test_auto_engine_hop_residual_still_scans_1767():
-    """Documented residual (#1743 scope boundary, executable): direct g.hop() with no
-    engine on the same polars-frame graph still resolves AUTO to pandas, so the
-    resident polars index declines with an engine mismatch and the hop scans."""
+def test_auto_engine_hop_agreed_gates_never_mismatch_1767():
+    """Direct g.hop() with no engine on a polars-frame indexed graph: modern AUTO
+    serves natively in polars (bridge-to-pandas was the 1767-era accident), and
+    with build/query gates agreed the engine_mismatch decline CANNOT occur --
+    every trace decision is an honest cost/coverage code on the agreed engine.
+    Whether the index serves or scans on any given fixture is the cost gate's
+    call, deliberately not pinned here."""
     from graphistry.compute.gfql.index import index_trace
 
     gi = _polars_indexed_graph()
@@ -1457,12 +1460,7 @@ def test_auto_engine_hop_residual_still_scans_1767():
     with index_trace() as steps:
         out = gi.hop(nodes=seeds, hops=1, direction="forward")  # no engine argument
     assert "polars" in type(out._nodes).__module__, (
-        "modern AUTO serves hop natively on polars frames; the old bridge-to-pandas "
-        "was the 1767-era accident, not the spec")
-    assert not any(s.get("path") == "index" for s in steps), steps
-    # Under agreed AUTO gates the old engine_mismatch scenario CANNOT occur --
-    # index and query both resolve polars -- so the decline must be an honest
-    # cost/coverage code on the AGREED engine, never a mismatch.
+        "modern AUTO serves hop natively on polars frames")
     assert steps, "expected trace decisions"
     for st in steps:
         assert st.get("decision_code") != "engine_mismatch", steps
@@ -1613,16 +1611,12 @@ class TestIndexAutoPreservesPolarsFrames:
     """Rework of #1767, stacked on #1743's AUTO routing.
 
     ``gfql_index_all(engine='auto')`` on a polars graph must index in place, NOT
-    coerce-and-replace the frames with pandas. Regression pin for the C3 "polars
-    hop is O(E)" mystery: resolve_engine(AUTO) maps polars->PANDAS, so create_index
-    used to swap the frames to pandas, and every later hop(engine='polars') paid a
-    full-frame pandas->polars conversion per call (~220ms at 4M edges vs a ~1ms
-    indexed hop) while the pandas-engine index could never fingerprint-match.
-
-    The 2026-07 revision of this change was retracted because #1743's routing was
-    NOT underneath it: AUTO queries still resolved pandas, so the AUTO-built polars
-    index was engine-mismatched at query time and the DEFAULT path regressed
-    125-534x to the scan floor (measured in the #1767 thread).
+    coerce-and-replace the frames with pandas: the legacy AUTO mapping made
+    create_index swap the frames, so every later polars hop paid a full-frame
+    conversion per call while the pandas-engine index could never
+    fingerprint-match. A 2026-07 revision was retracted because the query-side
+    AUTO routing was not underneath it, regressing the default path to the scan
+    floor (#1767 thread; magnitudes receipted in pyg-bench).
     ``test_inversion_auto_index_auto_gfql_serves_polars_index`` pins that exact
     scenario inverted into the win."""
 
@@ -1645,14 +1639,23 @@ class TestIndexAutoPreservesPolarsFrames:
         assert set(idx["engine"]) == {Engine.POLARS.value}
         assert idx["valid"].all()
 
+    def test_col_stats_auto_keeps_polars_frames_too(self):
+        """gfql_index_col_stats is its own public entry point onto the same AUTO
+        gate; when it used plain resolve_engine it silently un-preserved the
+        frames as the LAST step of gfql_index_all."""
+        g = self._pl_graph()
+        gi = g.gfql_index_col_stats()  # AUTO, no engine argument
+        assert "polars" in type(gi._nodes).__module__
+        assert gi._edges is g._edges
+
     def test_inversion_auto_index_auto_gfql_serves_polars_index(self):
         """THE INVERSION PIN. The exact scenario the retracted #1767 regressed
-        125-534x: ``gfql_index_all()`` with NO engine + ``g.gfql(<index-served
-        query>)`` with NO engine. Old world: AUTO built a polars index, AUTO query
-        resolved pandas, ``get_valid`` declined on engine AND frame identity, every
-        hop paid the O(E) scan floor. With #1743's routing underneath, the same two
-        default-spelling calls stay on the resident polars index: path=index,
-        engine=polars, per ``index_trace()``."""
+        to the scan floor: ``gfql_index_all()`` with NO engine + ``g.gfql(<index-
+        served query>)`` with NO engine. Old world: AUTO built a polars index,
+        AUTO query resolved pandas, ``get_valid`` declined on engine AND frame
+        identity, every hop paid the O(E) scan. With #1743's routing underneath,
+        the same two default-spelling calls stay on the resident polars index:
+        path=index, engine=polars, per ``index_trace()``."""
         pl = pytest.importorskip("polars")
         from graphistry.compute.gfql.index import index_trace
 

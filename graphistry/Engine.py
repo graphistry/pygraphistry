@@ -129,9 +129,8 @@ def resolve_engine(
             try:
                 import polars as pl
                 if isinstance(g_or_df, (pl.DataFrame, pl.LazyFrame)):
-                    # Modern semantics: polars frames are a COMPUTE ENGINE under AUTO,
-                    # not an input format. Surfaces that still treat polars as input
-                    # (layouts, plotting) call resolve_input_engine instead.
+                    # Polars is a compute engine under AUTO; input-format surfaces
+                    # use resolve_input_engine.
                     return Engine.POLARS
             except ImportError:
                 pass
