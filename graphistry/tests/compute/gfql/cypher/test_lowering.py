@@ -15974,14 +15974,20 @@ def test_node_dtypes_for_pushdown_on_polars_matches_the_full_conversion() -> Non
         if str(column) not in reported:
             continue
         assert _connected_join_dtype_classes(reported[str(column)]) == _connected_join_dtype_classes(dtype)
-    # `flag` is polars Boolean with a null -> pandas object holding bools -> omitted.
-    assert "flag" not in reported
+    # Modern AUTO: the executor filters polars natively, so `flag` stays polars
+    # Boolean -- a real classifiable dtype -- and is REPORTED. Its old omission was
+    # an artifact of the legacy pandas conversion (nullable Boolean -> object):
+    # an accident, not the spec. The invariant is planner/executor agreement.
+    assert "flag" in reported and str(reported["flag"]) == "Boolean"
     assert {"id", "age", "name"} <= set(reported)
     # The empty probe would have called the nullable bool numeric, which is why it cannot be
     # used: the real conversion yields object-holding-bools, which is omitted instead.
     empty = df_to_engine(nodes.head(0), resolve_engine("auto", nodes), warn=False)
     empty_dtypes = dict(zip([str(name) for name in empty.columns], list(empty.dtypes)))
-    assert _connected_join_dtype_classes(empty_dtypes["flag"]) == (True, False)
+    # Modern AUTO: the probe stays POLARS, so the legacy head(0)-vs-real
+    # divergence this demonstrated cannot occur -- both sides see polars
+    # Boolean, classifying (False, False), failing closed identically.
+    assert _connected_join_dtype_classes(empty_dtypes["flag"]) == (False, False)
 
 
 @pytest.mark.parametrize(
