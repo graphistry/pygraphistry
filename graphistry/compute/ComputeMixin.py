@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Union
 from typing_extensions import Literal
-from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, POLARS_ENGINES, resolve_engine, df_to_engine, df_concat, safe_merge
+from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, POLARS_ENGINES, resolve_engine, resolve_input_engine, df_to_engine, df_concat, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
@@ -214,7 +214,7 @@ class ComputeMixin(Plottable):
         # to that engine. This ensures GPU mode is preserved: polars/arrow/spark/dask are
         # converted to cuDF (not pandas) when engine='cudf'. The old pattern
         # (ensure_local_engine_match then _coerce_to_pandas) was wrong for cross-engine scenarios.
-        engine_concrete = resolve_engine(engine, g)
+        engine_concrete = resolve_input_engine(engine, g)
         g = _coerce_input_formats(g, engine_concrete)
 
         if reuse:
@@ -259,7 +259,7 @@ class ComputeMixin(Plottable):
 
     def _single_direction_degree(self, key_col: str, col: str) -> "Plottable":
         """Shared body for get_indegrees / get_outdegrees: groupby one direction, merge into nodes."""
-        engine_concrete = resolve_engine(EngineAbstract.AUTO, self)
+        engine_concrete = resolve_input_engine(EngineAbstract.AUTO, self)
         g = _coerce_input_formats(self, engine_concrete)
         g_nodes = g.materialize_nodes(engine=engine_concrete.value)
         node_id = g_nodes._node
@@ -311,7 +311,7 @@ class ComputeMixin(Plottable):
                 g2 = g.get_degrees()
                 print(g2._nodes)  # pd.DataFrame with 'id', 'degree', 'degree_in', 'degree_out'
         """
-        engine_concrete = resolve_engine(EngineAbstract.AUTO, self)
+        engine_concrete = resolve_input_engine(EngineAbstract.AUTO, self)
         g = _coerce_input_formats(self, engine_concrete)
         g_nodes = g.materialize_nodes(engine=engine_concrete.value)
         node_id = g_nodes._node
@@ -511,7 +511,7 @@ class ComputeMixin(Plottable):
             g2 = g2.drop_nodes(roots[g2._node])
         nodes_df0 = nodes_with_levels[0]
         if len(nodes_with_levels) > 1:
-            engine = resolve_engine(EngineAbstract.AUTO, nodes_df0)
+            engine = resolve_input_engine(EngineAbstract.AUTO, nodes_df0)
             concat_fn = df_concat(engine)
             nodes_df = concat_fn([nodes_df0] + nodes_with_levels[1:])
         else:

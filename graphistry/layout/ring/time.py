@@ -3,7 +3,7 @@ from typing_extensions import Literal  # 3.7
 import numpy as np
 import pandas as pd
 from functools import lru_cache
-from graphistry.Engine import EngineAbstract, EngineAbstractType, resolve_engine
+from graphistry.Engine import EngineAbstract, EngineAbstractType, resolve_input_engine
 from graphistry.Plottable import Plottable
 from .util import polar_to_xy
 
@@ -335,7 +335,7 @@ def time_ring(
     
     g = g.nodes(g._nodes.reset_index(drop=True))
 
-    engine_concrete = resolve_engine(engine, g._nodes)
+    engine_concrete = resolve_input_engine(engine, g._nodes)
 
     if time_col is not None and not isinstance(time_col, str):
         raise ValueError('time_col should be a string or None')

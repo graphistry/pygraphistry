@@ -4,7 +4,7 @@
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from typing_extensions import Literal
-from .Engine import Engine, EngineAbstractType, DataframeLike, DataframeLocalLike, resolve_engine, df_to_engine
+from .Engine import Engine, EngineAbstractType, DataframeLike, DataframeLocalLike, resolve_input_engine, df_to_engine
 import numpy as np, pandas as pd, pyarrow as pa, sys
 from .util import setup_logger
 logger = setup_logger(__name__)
@@ -814,7 +814,7 @@ def hypergraph(
     engine_resolved : Engine
     if not isinstance(engine, Engine):
         # Use raw_events to detect engine type since g may be a class (PyGraphistry) not a Plottable
-        engine_resolved = resolve_engine(engine, raw_events)
+        engine_resolved = resolve_input_engine(engine, raw_events)  # hypergraph computes in pandas/cudf; polars is input
     else:
         engine_resolved = engine
     # Coerce input-format types (Arrow, Spark, Polars, dask) to the resolved engine's native type
