@@ -196,9 +196,16 @@ class TestInputSurfacesAcceptPolarsUnderAuto:
 
     @polars_only
     def test_dbscan_engine_resolution(self):
+        """The regression was a bare AssertionError from the engine check; a
+        lane with no dbscan backend installed raises the documented dependency
+        ValueError instead, which is equally acceptable here."""
         from graphistry.compute.cluster import resolve_dbscan_engine
-        eng = resolve_dbscan_engine("auto", self._polars_graph())
-        assert eng in ("sklearn", "cuml")
+        try:
+            eng = resolve_dbscan_engine("auto", self._polars_graph())
+        except ValueError as e:
+            assert "cuml" in str(e) or "sklearn" in str(e), e
+        else:
+            assert eng in ("sklearn", "cuml")
 
     @polars_only
     def test_remote_surfaces_resolve_to_supported_engine(self):
