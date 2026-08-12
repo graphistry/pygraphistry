@@ -1465,6 +1465,8 @@ def test_auto_engine_hop_agreed_gates_never_mismatch_1767():
     for st in steps:
         assert st.get("decision_code") != "engine_mismatch", steps
         assert st.get("engine") == "polars", steps
+
+
 class TestShowIndexesEngineUsability:
     """#1767 disposition: ``show_indexes`` must stop reporting an index as fine when
     the resolved query engine cannot use it. ``valid`` stays fingerprint-only (BC);
@@ -1647,6 +1649,17 @@ class TestIndexAutoPreservesPolarsFrames:
         gi = g.gfql_index_col_stats()  # AUTO, no engine argument
         assert "polars" in type(gi._nodes).__module__
         assert gi._edges is g._edges
+
+    def test_col_stats_auto_narrows_lazy_frames(self):
+        """The discriminating arm: plain resolve_engine resolves LazyFrame
+        graphs to POLARS, and a col-stats build cannot gather rows from a lazy
+        plan -- it crashes. The index gate must narrow instead, so the same call
+        ANSWERS (any engine, no raise)."""
+        pl = pytest.importorskip("polars")
+        g = self._pl_graph()
+        gl = graphistry.nodes(g._nodes.lazy(), "id").edges(g._edges.lazy(), "src", "dst")
+        gi = gl.gfql_index_col_stats()  # AUTO on lazy frames must not crash
+        assert gi is not None
 
     def test_inversion_auto_index_auto_gfql_serves_polars_index(self):
         """THE INVERSION PIN. The exact scenario the retracted #1767 regressed

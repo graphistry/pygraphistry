@@ -618,6 +618,11 @@ class TestAutoEngineRoutingBoundaries:
             edges_only.gfql("MATCH (a)-[:KNOWS]->(b) RETURN b LIMIT 1",
                             policy={"postload": deny})
 
+        nodes_only = graphistry.nodes(pl.DataFrame(self.NODES), "id")
+        with pytest.raises(PolicyException):
+            nodes_only.gfql("MATCH (a:Person) RETURN a.id LIMIT 1",
+                            policy={"postload": deny})
+
     def test_policy_hooks_fire_once_on_nie_shape(self):
         """A retry-on-NIE route would fire the compile/load hooks twice for one user call."""
         g = graphistry.nodes(pl.DataFrame(self.NODES), "id").edges(pl.DataFrame(self.EDGES), "s", "d")
