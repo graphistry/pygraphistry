@@ -1655,7 +1655,7 @@ class TestIndexAutoPreservesPolarsFrames:
         graphs to POLARS, and a col-stats build cannot gather rows from a lazy
         plan -- it crashes. The index gate must narrow instead, so the same call
         ANSWERS (any engine, no raise)."""
-        pl = pytest.importorskip("polars")
+        pytest.importorskip("polars")
         g = self._pl_graph()
         gl = graphistry.nodes(g._nodes.lazy(), "id").edges(g._edges.lazy(), "src", "dst")
         gi = gl.gfql_index_col_stats()  # AUTO on lazy frames must not crash
