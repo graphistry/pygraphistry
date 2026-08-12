@@ -112,6 +112,9 @@ class ArrayNamespace(Protocol):
 
     int64: Any
 
+    def dot(self, a: ArrayLike, b: ArrayLike) -> SupportsInt:
+        ...
+
     def zeros(self, shape: Any, dtype: Any = ...) -> ArrayLike:
         ...
 
