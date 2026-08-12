@@ -46,8 +46,10 @@ def _graph(n_p=3, n_c=3, engine="pandas", interleave=False):
                           "kind": ["P"] * n_p + ["C"] * n_c})
     p_ids = [ids[i] for i in range(min(3, n_p))]
     c_ids = [ids[n_p + i] for i in range(min(2, n_c))]
-    while len(p_ids) < 3: p_ids.append(p_ids[0])
-    while len(c_ids) < 2: c_ids.append(c_ids[0])
+    while len(p_ids) < 3:
+        p_ids.append(p_ids[0])
+    while len(c_ids) < 2:
+        c_ids.append(c_ids[0])
     edges = pd.DataFrame({"s": [p_ids[0], p_ids[1], p_ids[2], p_ids[0], p_ids[0]],
                           "d": [p_ids[1], p_ids[2], p_ids[0], c_ids[0], c_ids[1]],
                           "rel": ["F", "F", "F", "X", "X"]})

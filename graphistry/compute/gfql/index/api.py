@@ -16,7 +16,7 @@ from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, POLARS
 from graphistry.compute.typing import DataFrameT
 from graphistry.Plottable import Plottable
 from .registry import (
-    AdjacencyIndex, ColStatsFact, ColStatsRole, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
+    AdjacencyIndex, ColStatsFact, PartitionValue, ColStatsRole, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
     EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, ADJ_KINDS, ALL_KINDS,
 )
 from .build import build_adjacency_index, build_node_id_index, build_node_prop_index
@@ -583,7 +583,7 @@ def _add_degree_facts(
     # only the span is bounded (memory). The kernel separately proves its DOMAIN
     # dense before consulting; demanding density here was strictly more
     # restrictive than the kernel it serves, and built nothing on real data.
-    by_tv: Dict[object, Dict[str, ColStatsFact]] = {}
+    by_tv: Dict[Optional[PartitionValue], Dict[str, ColStatsFact]] = {}
     for pf in partition_facts:
         by_tv.setdefault(pf.type_value, {})[pf.column] = pf
     for tv, cols in by_tv.items():
