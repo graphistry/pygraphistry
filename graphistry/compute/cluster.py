@@ -7,7 +7,7 @@ import pandas as pd
 import logging
 import warnings
 
-from graphistry.Engine import Engine, resolve_engine
+from graphistry.Engine import Engine, resolve_input_engine
 from graphistry.models.compute.dbscan import (
     DBSCANEngine, DBSCANEngineAbstract,
     dbscan_engine_values
@@ -44,7 +44,7 @@ def resolve_dbscan_engine(
         return "sklearn"
     if engine == "auto":
 
-        preferred_engine = None if g_or_df is None else resolve_engine('auto', g_or_df)
+        preferred_engine = None if g_or_df is None else resolve_input_engine('auto', g_or_df)
         if preferred_engine in [Engine.DASK, Engine.DASK_CUDF]:
             raise ValueError('dask not supported for DBSCAN clustering, .compute() values first')
         assert preferred_engine in [None, Engine.PANDAS, Engine.CUDF]

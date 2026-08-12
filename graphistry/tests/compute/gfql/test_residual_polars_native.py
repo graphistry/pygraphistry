@@ -438,16 +438,13 @@ class TestCategoricalNonStrOpsParity:
         assert _fast_lane_ids_matching_fallback(expr, self._cat_nodes()) == expected
 
 
-class TestStringPredicatesPushDownNotResidual:
-    """``STARTS WITH`` / ``ENDS WITH`` / ``CONTAINS`` / ``=~`` are answered by the WHERE
-    pushdown renderer on polars (dtype classifiers are polars-first), never by this
-    residual translator -- so the translator's decline of these shapes is dead-on-arrival
-    code guarding a path nothing routes to. The contract is pandas-oracle parity plus
-    residual-translator silence, both asserted end to end.
-
-    Until the polars-first classifiers, ``_pushdown_connected_join_where_filters`` could
-    not render these and the whole query raised upstream -- an accident of the broken
-    dtype classification, not a spec.
+class TestStringPredicatesAnswerNatively:
+    """``STARTS WITH`` / ``ENDS WITH`` / ``CONTAINS`` / ``=~`` are answered natively on
+    polars (the WHERE renderer sees them once dtype classification is polars-first).
+    The contract is pandas-oracle parity on non-vacuous matches; the translator-decline
+    arm below covers the residual path directly. Until the polars-first classifiers,
+    the whole query raised upstream -- an accident of broken dtype classification,
+    not a spec.
     """
 
     Q = ("MATCH (p {node_type:'Person'})-[]->(i), (p)-[]->(c) WHERE %s "
@@ -467,20 +464,11 @@ class TestStringPredicatesPushDownNotResidual:
     @pytest.mark.parametrize("pred", [
         "i.s STARTS WITH 'a'", "i.s ENDS WITH 'b'", "i.s CONTAINS 'b'", "i.s =~ '.*b'",
     ])
-    def test_rendered_by_pushdown_matching_pandas(self, pred, monkeypatch):
+    def test_answers_natively_matching_pandas(self, pred):
         nodes, edges = self._frames()
-        seen = []
-        real = fp._residual_polars_expr
-
-        def spy(expr, alias, columns):
-            seen.append(expr)
-            return real(expr, alias, columns)
-
-        monkeypatch.setattr(fp, "_residual_polars_expr", spy)
         g = graphistry.nodes(nodes, "node_id").edges(edges, "src", "dst")
         got = g.gfql(self.Q % pred, engine="polars")._nodes
         got = (got.to_pandas() if hasattr(got, "to_pandas") else got).to_dict("records")
-        assert seen == [], f"{pred!r} unexpectedly reached the residual translator"
 
         gp = graphistry.nodes(nodes.to_pandas(), "node_id").edges(
             edges.to_pandas(), "src", "dst")

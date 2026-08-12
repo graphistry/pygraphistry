@@ -32,9 +32,8 @@ def _is_polars_dtype(dtype: DType) -> bool:
 
 
 def _is_numeric_dtype_safe(dtype: Any) -> bool:
-    # polars dtypes FIRST: pandas' is_numeric_dtype returns a confident False for
-    # them (no exception, so the fallback never runs) -- a wrong answer, not a
-    # decline. Same failure shape as guards that only catch AttributeError.
+    # polars first: pandas' is_numeric_dtype returns a confident False for polars
+    # dtypes (no exception, so a fallback never runs).
     if _is_polars_dtype(dtype):
         try:
             return bool(dtype.is_numeric())
@@ -52,7 +51,11 @@ def _is_numeric_dtype_safe(dtype: Any) -> bool:
 
 def _is_string_dtype_safe(dtype: Any) -> bool:
     if _is_polars_dtype(dtype):
-        return str(dtype) in ("String", "Utf8", "Categorical", "Enum")
+        # Type name, not str(dtype): parameterized dtypes render their args
+        # (str(pl.Enum([...])) == "Enum(categories=[...])"), so a repr whitelist
+        # silently misses them.
+        name = dtype.__name__ if isinstance(dtype, type) else type(dtype).__name__
+        return name in ("String", "Utf8", "Categorical", "Enum")
     try:
         return bool(pd.api.types.is_string_dtype(dtype))
     except Exception:

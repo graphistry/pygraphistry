@@ -312,31 +312,18 @@ def _is_eager_polars(df: Optional[DataFrameT]) -> bool:
 
 
 def resolve_index_engine(engine: EngineAbstractType, g: Plottable) -> Engine:
-    """Engine for index build/validation/usability: AUTO keeps eager-polars frames polars.
-
-    Plain ``resolve_engine(AUTO)`` maps polars frames to PANDAS, which makes
-    ``create_index`` coerce-and-REPLACE the user's frames -- then every polars
-    query pays an O(E) re-conversion per call. HISTORY THAT MUST NOT BE LOST:
-    preserving frames WITHOUT the matching query-side AUTO routing (#1849) was a
-    measured 125-534x default-path cliff (#1767, retracted) -- an AUTO-built
-    polars index met AUTO(pandas) queries and every hop declined to the scan.
-    This resolver is safe only because that routing now exists underneath.
-
-    The gate is deliberately NARROWER than the query-side gate (LazyFrame and
-    edges-only graphs keep the legacy pandas path) and both declines self-heal
-    because ``create_index`` coerces the frames it indexes. The gates and the
-    inversion itself are pinned in ``TestIndexAutoPreservesPolarsFrames``.
+    """Engine for index build/validation/usability: NARROWS modern AUTO to what
+    an index build can serve -- both frames present and EAGER polars; anything
+    else polars-resolved downgrades to pandas (an index cannot gather rows from
+    a lazy plan). Declines self-heal: ``create_index`` coerces the frames it
+    indexes, so later AUTO queries route with the post-build frames and the
+    build/query gates agree (pinned in ``test_auto_engine_agreement``; the
+    mismatch failure mode is #1767, receipted in pyg-bench).
     """
     eng = resolve_engine(engine, g)
     abstract = EngineAbstract(engine) if isinstance(engine, str) else engine
     if abstract != EngineAbstract.AUTO:
-        return eng  # explicit engines are honored unchanged
-    # NARROW modern AUTO to what an index build can serve: both frames present
-    # and EAGER polars. Anything else polars-resolved (lazy, mixed, one-sided)
-    # downgrades to pandas -- an index cannot gather rows from a lazy plan, and
-    # create_index coerces the frames it indexes, so later AUTO queries route
-    # with the post-build frames and the gates stay in AGREEMENT (the self-heal
-    # pinned in test_auto_engine_agreement). cudf/dask resolutions untouched.
+        return eng
     if eng == Engine.POLARS and not (
         _is_eager_polars(g._edges) and _is_eager_polars(g._nodes)
     ):

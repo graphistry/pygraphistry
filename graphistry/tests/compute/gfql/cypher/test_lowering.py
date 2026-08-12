@@ -16066,6 +16066,26 @@ def test_connected_join_dtype_classes_defers_to_the_live_validator() -> None:
         )
 
 
+def test_polars_dtype_classification_both_sides() -> None:
+    """Positive AND negative, polars-first: pandas' classifiers return a
+    confident False for polars dtypes, and a repr whitelist misses
+    parameterized dtypes (str(pl.Enum([...])) renders its categories)."""
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe
+
+    stringy = [pl.String(), pl.Utf8, pl.Categorical(), pl.Enum(["a", "b"])]
+    numericy = [pl.Int64(), pl.Float64(), pl.UInt32(), pl.Decimal(10, 2)]
+    neither = [pl.Boolean(), pl.Date(), pl.List(pl.Int64())]
+    for dt in stringy:
+        assert _is_string_dtype_safe(dt), dt
+        assert not _is_numeric_dtype_safe(dt), dt
+    for dt in numericy:
+        assert _is_numeric_dtype_safe(dt), dt
+        assert not _is_string_dtype_safe(dt), dt
+    for dt in neither:
+        assert not _is_string_dtype_safe(dt), dt
+
+
 @pytest.mark.parametrize(
     "predicate,expected",
     [

@@ -8,7 +8,7 @@ import ast
 import pandas as pd
 import requests
 
-from graphistry.Engine import Engine, EngineAbstractType, resolve_engine
+from graphistry.Engine import Engine, EngineAbstractType, resolve_input_engine
 from graphistry.Plottable import Plottable
 from graphistry.models.compute.chain_remote import FormatType, OutputTypeAll, OutputTypeDf
 from graphistry.otel import inject_trace_headers
@@ -126,7 +126,7 @@ def python_remote_generic(
     assert format in ["json", "csv", "parquet"], f"format should be 'json', 'csv', or 'parquet', got: {format}"
 
     # Resolve engine: auto -> pandas/cudf based on graph DataFrame type
-    engine_resolved = resolve_engine(engine, self)
+    engine_resolved = resolve_input_engine(engine, self)
     if engine_resolved not in [Engine.PANDAS, Engine.CUDF]:
         raise ValueError(f"Remote Python execution only supports 'pandas' or 'cudf' engines (or 'auto' which resolves to one of them). "
                        f"Got engine='{engine}' which resolved to '{engine_resolved.value}'. "
