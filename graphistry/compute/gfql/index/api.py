@@ -331,11 +331,16 @@ def resolve_index_engine(engine: EngineAbstractType, g: Plottable) -> Engine:
     abstract = EngineAbstract(engine) if isinstance(engine, str) else engine
     if abstract != EngineAbstract.AUTO:
         return eng  # explicit engines are honored unchanged
-    # Derive from the FRAMES, mirroring the query-side AUTO gate, narrowed to
-    # what an index build can serve (both frames present and eager). Never
-    # overrides a cudf/dask resolution -- only the legacy polars->pandas mapping.
-    if _is_eager_polars(g._edges) and _is_eager_polars(g._nodes):
-        return Engine.POLARS
+    # NARROW modern AUTO to what an index build can serve: both frames present
+    # and EAGER polars. Anything else polars-resolved (lazy, mixed, one-sided)
+    # downgrades to pandas -- an index cannot gather rows from a lazy plan, and
+    # create_index coerces the frames it indexes, so later AUTO queries route
+    # with the post-build frames and the gates stay in AGREEMENT (the self-heal
+    # pinned in test_auto_engine_agreement). cudf/dask resolutions untouched.
+    if eng == Engine.POLARS and not (
+        _is_eager_polars(g._edges) and _is_eager_polars(g._nodes)
+    ):
+        return Engine.PANDAS
     return eng
 
 
