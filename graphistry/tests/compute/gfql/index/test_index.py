@@ -1456,11 +1456,17 @@ def test_auto_engine_hop_residual_still_scans_1767():
     seeds = pd.DataFrame({"id": [1]})
     with index_trace() as steps:
         out = gi.hop(nodes=seeds, hops=1, direction="forward")  # no engine argument
-    assert "pandas" in type(out._nodes).__module__, "hop AUTO still bridges to pandas"
+    assert "polars" in type(out._nodes).__module__, (
+        "modern AUTO serves hop natively on polars frames; the old bridge-to-pandas "
+        "was the 1767-era accident, not the spec")
     assert not any(s.get("path") == "index" for s in steps), steps
-    mismatch = [s for s in steps if s.get("decision_code") == "engine_mismatch"]
-    assert mismatch, ("expected an engine_mismatch decline", steps)
-    assert "requested engine=pandas" in mismatch[-1]["decision_reason"], steps
+    # Under agreed AUTO gates the old engine_mismatch scenario CANNOT occur --
+    # index and query both resolve polars -- so the decline must be an honest
+    # cost/coverage code on the AGREED engine, never a mismatch.
+    assert steps, "expected trace decisions"
+    for st in steps:
+        assert st.get("decision_code") != "engine_mismatch", steps
+        assert st.get("engine") == "polars", steps
 class TestShowIndexesEngineUsability:
     """#1767 disposition: ``show_indexes`` must stop reporting an index as fine when
     the resolved query engine cannot use it. ``valid`` stays fingerprint-only (BC);
