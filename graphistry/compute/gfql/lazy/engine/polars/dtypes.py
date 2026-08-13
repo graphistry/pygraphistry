@@ -15,39 +15,41 @@ if TYPE_CHECKING:
     # point for `is_lazy` — every eager-side caller sits in the `else`. TYPE_CHECKING-only so
     # no runtime typing_extensions>=4.10 floor is introduced (this module is `from __future__
     # import annotations`, so the annotation is never evaluated).
-    from typing_extensions import TypeIs
+    from typing_extensions import TypeGuard, TypeIs
     # `PolarsFrame` / `PolarsT` were defined here first; they now live in the canonical
     # engine-typing module (graphistry.compute.typing) and are re-exported so this module's
     # existing importers keep working off ONE definition.
-    from graphistry.compute.typing import PolarsFrame, PolarsT
+    from graphistry.compute.typing import PolarsDType, PolarsFrame, PolarsT
 
 
-def is_polars_dtype(dt: object) -> bool:
+def is_polars_dtype(dt: object) -> "TypeGuard[PolarsDType]":
     """True if ``dt`` is a polars dtype (class or instance -- the metaclass puts
     both under the polars module). Import-light module sniff, mirroring
-    ``Engine.is_polars_df`` for frames: the gate callers run BEFORE the typed
-    predicates below, whose signatures assume polars input."""
+    ``Engine.is_polars_df`` for frames, and declared ``TypeGuard`` for the same
+    reason: callers hold a dtype typed ``Any``/``object`` (pandas' ``DType``
+    alias is ``Any``), and the guard is what proves the polars dtype API is
+    available in the branch it opens."""
     return "polars" in str(type(dt).__module__)
 
 
-def is_int(dt: "Optional[pl.DataType]") -> bool:
+def is_int(dt: "Optional[PolarsDType]") -> bool:
     """Signed/unsigned integer dtype (not bool, not float)."""
     import polars as pl
     return dt in (pl.Int8, pl.Int16, pl.Int32, pl.Int64,
                   pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64)
 
 
-def is_float(dt: "Optional[pl.DataType]") -> bool:
+def is_float(dt: "Optional[PolarsDType]") -> bool:
     import polars as pl
     return dt in (pl.Float32, pl.Float64)
 
 
-def is_numeric(dt: "Optional[pl.DataType]") -> bool:
+def is_numeric(dt: "Optional[PolarsDType]") -> bool:
     """Integer or float — the operand types polars arithmetic/comparison accepts."""
     return is_int(dt) or is_float(dt)
 
 
-def is_stringlike(dt: "Optional[pl.DataType]") -> bool:
+def is_stringlike(dt: "Optional[PolarsDType]") -> bool:
     """String / Categorical / Enum — all compare/order like strings and all raise vs a
     numeric operand in polars (so all must trip the cross-type guard)."""
     import polars as pl
