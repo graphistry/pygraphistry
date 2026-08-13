@@ -82,14 +82,36 @@ def test_gfql_validate_treats_all_strings_as_cypher():
 
 
 def test_gfql_validate_does_not_execute_query_operators(monkeypatch):
+    """Patch EVERY binding of chain, not just the module attribute: execution
+    resolves via names frozen at import in gfql_unified and ComputeMixin, so a
+    single-module patch fails open (verified with the positive control below --
+    an actually-executing gfql() must trip the patched chain)."""
+    import graphistry.compute.chain as chain_mod
+    import graphistry.compute.gfql_unified as gfql_unified_mod
+
     g = _mk_graph()
+    calls = []
 
     def _should_not_run(*args, **kwargs):
+        calls.append(1)
         raise AssertionError("execution path should not be called by gfql_validate")
 
-    monkeypatch.setattr("graphistry.compute.chain.chain", _should_not_run)
+    # chain_impl is the execution seam _chain_dispatch actually calls; patch its
+    # defining module AND gfql_unified's frozen import binding.
+    for mod in (chain_mod, gfql_unified_mod):
+        if hasattr(mod, "chain_impl"):
+            monkeypatch.setattr(mod, "chain_impl", _should_not_run)
+
+    # POSITIVE CONTROL: a real execution must trip the patch, or this negative
+    # test is vacuous (measured: the single-module patch never fired).
+    with pytest.raises(AssertionError, match="should not be called"):
+        g.gfql([n({"name": "Alice"})])
+    assert calls, "positive control did not reach the patched chain -- spy is fail-open"
+
+    calls.clear()
     report = g.gfql_validate([n({"name": "Alice"})])
     assert report["ok"] is True
+    assert not calls, "gfql_validate executed the query operators"
 
 
 def test_gfql_validate_let_success():

@@ -555,8 +555,10 @@ def _two_hop_equal_domain_degree_counts(
     PURE -- no memo. A cross-call memo here was #1825: setattr onto the caller's
     Plottable keyed by id(), which returns a STALE answer after an in-place frame
     mutation (the BLOCKER-1 pattern this file forbids). Cross-call reuse belongs
-    in the fingerprint-validated index layer (gfql_index_all's degree facts),
-    which invalidates on mutation and is faster than the memo was.
+    in the DECLARED index layer (gfql_index_all's degree facts), whose
+    identity+fingerprint contract invalidates on rebind and reshape; in-place
+    CONTENT edits under a declared index are the documented immutability
+    assumption, not something any fingerprint detects.
     """
     counts: Tuple[DataFrameT, DataFrameT]
     if engine in POLARS_ENGINES:

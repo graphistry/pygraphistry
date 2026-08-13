@@ -774,7 +774,13 @@ def gfql_index_all(g: Plottable,
     unique it can't be built (a unique-key CSR can't reproduce the scan's all-rows-
     per-id semantics), so this convenience SKIPS it rather than raising — seeded
     traversal stays correct via the un-indexed node materialization path. (Explicit
-    ``create_index(NODE_ID)`` still raises, since the caller asked for it specifically.)"""
+    ``create_index(NODE_ID)`` still raises, since the caller asked for it specifically.)
+
+    Frame-immutability assumption (like any database index): a DECLARED index
+    describes the frames as bound at build time. Rebinding or reshaping the
+    frames invalidates it (identity+fingerprint); in-place CONTENT edits of the
+    same bound frame are undefined behavior -- rebuild after mutating (#1881).
+    """
     g = gfql_index_edges(g, "both", engine=engine)
     try:
         g = create_index(g, NODE_ID, engine=engine)
