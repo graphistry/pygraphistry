@@ -540,49 +540,28 @@ def _connected_join_cached_second_arm_group_rows(  # pragma: no cover - polars-o
     return cast(DataFrameT, right_rows)
 
 
-def _two_hop_cached_equal_domain_degree_counts(
-    base_graph: Plottable,
-    nodes_obj: DataFrameT,
-    edges_obj: DataFrameT,
+def _two_hop_equal_domain_degree_counts(
     domain_nodes: DataFrameT,
     edge_domain: DataFrameT,
     *,
-    node_match: Optional[dict],
-    edge_match: Optional[dict],
     node_col: str,
     src_col: str,
     dst_col: str,
     engine: Engine,
-) -> Optional[Tuple[DataFrameT, DataFrameT]]:
-    node_key = _connected_join_simple_filter_cache_key(node_match)
-    edge_key = _connected_join_simple_filter_cache_key(edge_match)
-    if node_key is None or edge_key is None:
-        return None
+) -> Tuple[DataFrameT, DataFrameT]:
+    """In/out degree frames over the equal-domain filtered edges, per engine.
 
-    cache_attr = "_gfql_two_hop_equal_domain_degree_counts_cache"
-    cache = getattr(base_graph, cache_attr, None)
-    if not isinstance(cache, dict):
-        cache = {}
-        try:
-            setattr(base_graph, cache_attr, cache)
-        except Exception:
-            cache = None
-    full_key = (id(nodes_obj), id(edges_obj), engine.value, node_col, src_col, dst_col, node_key, edge_key)
-    if cache is not None and full_key in cache:
-        return cast(Tuple[DataFrameT, DataFrameT], cache[full_key])
-
-    # Declared ONCE so neither arm needs a call-site ``cast``: the polars arm produces
-    # ``pl.DataFrame`` and the pandas/cuDF arm produces ``pd.DataFrame``, and ``DataFrameT`` is
-    # pinned to pandas at checking time (graphistry/compute/typing.py). One localized ignore on
-    # the polars assignment replaces four casts; the values are untouched either way.
+    PURE -- no memo. A cross-call memo here was #1825: setattr onto the caller's
+    Plottable keyed by id(), which returns a STALE answer after an in-place frame
+    mutation (the BLOCKER-1 pattern this file forbids). Cross-call reuse belongs
+    in the fingerprint-validated index layer (gfql_index_all's degree facts),
+    which invalidates on mutation and is faster than the memo was.
+    """
     counts: Tuple[DataFrameT, DataFrameT]
     if engine in POLARS_ENGINES:
         import polars as pl
-        # MEMO-MISS lane: ONE lazy plan for both degree arms. Eagerly this materialized the
-        # whole filtered edge frame (every edge column attached) and grouped it twice; lazily
-        # polars pushes the src/dst projection into the semi-joins and shares the filtered
-        # sub-plan across the two collects. Same algebra, same values -- and the memo HIT
-        # above returns before reaching here, so a warm call is byte-for-byte unaffected.
+        # ONE lazy plan for both degree arms: polars pushes the src/dst projection
+        # into the semi-joins and shares the filtered sub-plan across the collects.
         domain_ids = domain_nodes.lazy().select(node_col).unique()
         filtered_edges = (
             edge_domain.lazy()
@@ -593,7 +572,7 @@ def _two_hop_cached_equal_domain_degree_counts(
             filtered_edges.group_by(dst_col).len("__in_count__"),
             filtered_edges.group_by(src_col).len("__out_count__"),
         ])
-        counts = (in_counts, out_counts)  # polars frames; DataFrameT pins pandas
+        counts = (in_counts, out_counts)  # type: ignore[assignment]  # polars frames; DataFrameT pins pandas
     else:
         domain_ids = domain_nodes[node_col].drop_duplicates()
         filtered_edges = edge_domain[edge_domain[src_col].isin(domain_ids) & edge_domain[dst_col].isin(domain_ids)]
@@ -601,9 +580,6 @@ def _two_hop_cached_equal_domain_degree_counts(
             filtered_edges.groupby(dst_col, sort=False).size().reset_index(name="__in_count__"),
             filtered_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__"),
         )
-
-    if cache is not None:
-        cache[full_key] = counts
     return counts
 
 
@@ -2856,30 +2832,14 @@ def _execute_two_hop_count_fast_path(
     elif requested_engine in POLARS_ENGINES:
         import polars as pl
         if reuse_single_edge_domain:
-            cached_counts = _two_hop_cached_equal_domain_degree_counts(
-                base_graph,
-                nodes,
-                cast(DataFrameT, edges_obj),
+            in_counts, out_counts = _two_hop_equal_domain_degree_counts(
                 start_nodes,
                 first_edges,
-                node_match=cast(Optional[dict], start_op.filter_dict),
-                edge_match=cast(Optional[dict], first_edge.edge_match),
                 node_col=node_col,
                 src_col=src_col,
                 dst_col=dst_col,
                 engine=requested_engine,
             )
-            if cached_counts is None:
-                domain_ids = start_nodes.select(node_col).unique()
-                domain_edges = (
-                    first_edges
-                    .join(domain_ids, left_on=src_col, right_on=node_col, how="semi")
-                    .join(domain_ids, left_on=dst_col, right_on=node_col, how="semi")
-                )
-                in_counts = domain_edges.group_by(dst_col).len("__in_count__")
-                out_counts = domain_edges.group_by(src_col).len("__out_count__")
-            else:
-                in_counts, out_counts = cached_counts
         else:
             start_ids = start_nodes.select(node_col).unique()
             middle_ids = middle_nodes.select(node_col).unique()
@@ -2906,26 +2866,14 @@ def _execute_two_hop_count_fast_path(
         out_nodes = cast(DataFrameT, total_df)
     else:
         if reuse_single_edge_domain:
-            cached_counts = _two_hop_cached_equal_domain_degree_counts(
-                base_graph,
-                nodes,
-                cast(DataFrameT, edges_obj),
+            in_counts, out_counts = _two_hop_equal_domain_degree_counts(
                 start_nodes,
                 first_edges,
-                node_match=cast(Optional[dict], start_op.filter_dict),
-                edge_match=cast(Optional[dict], first_edge.edge_match),
                 node_col=node_col,
                 src_col=src_col,
                 dst_col=dst_col,
                 engine=requested_engine,
             )
-            if cached_counts is None:
-                domain_ids = start_nodes[node_col].drop_duplicates()
-                domain_edges = first_edges[first_edges[src_col].isin(domain_ids) & first_edges[dst_col].isin(domain_ids)]
-                in_counts = domain_edges.groupby(dst_col, sort=False).size().reset_index(name="__in_count__")
-                out_counts = domain_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__")
-            else:
-                in_counts, out_counts = cached_counts
         else:
             start_ids = start_nodes[node_col].drop_duplicates()
             middle_ids = middle_nodes[node_col].drop_duplicates()
