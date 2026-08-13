@@ -69,3 +69,30 @@ def test_1739_has_label_aggregate_on_duplicate_ids_converges():
     narrowed = [{"tagName": "t4", "c": 1}]
     assert out_pd == narrowed
     assert out_pl == narrowed
+
+
+@polars_only
+@pytest.mark.xfail(strict=True, reason="#1824: fast paths serve CPU work under engine='polars-gpu'")
+def test_1824_polars_gpu_fast_path_serve_is_gpu_or_decline():
+    """#1824: the fast paths run before the chain route establishes the GPU
+    execution target, and their eager arms (dense kernel, eager twins) never
+    collect -- so engine='polars-gpu' serves CPU work labeled as GPU. On a
+    GPU-less box this query must NOT be answered by a fast path: the honest
+    outcomes are a decline (chain route raises its install error) or a
+    GPU-executed serve. dgx measured 86 polars-gpu tests green only via the
+    mislabel, so the fix (per-arm GPU-or-decline) is next-cycle scoped; the
+    collect routing + NIE-decline plumbing already landed with this pin.
+    """
+    from graphistry.tests.compute.gfql.engagement import fast_path_decisions
+
+    nodes = pl.DataFrame({"id": [0, 1, 2], "kind": ["P"] * 3})
+    edges = pl.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0], "rel": ["F"] * 3})
+    g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    q = ("MATCH (a {kind:'P'})-[{rel:'F'}]->(b {kind:'P'})-[{rel:'F'}]->(c {kind:'P'}) "
+         "RETURN count(*) AS n")
+    try:
+        decisions = fast_path_decisions(g, q, engine="polars-gpu")
+    except (NotImplementedError, ImportError):
+        return  # honest: GPU stack absent and nothing served on CPU
+    assert not any(decisions.values()), (
+        f"fast path served CPU work under polars-gpu: {decisions}")
