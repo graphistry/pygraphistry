@@ -47,7 +47,8 @@ def _serving_engine_base_graph(base_graph: Plottable, engine: Union[EngineAbstra
     whose own suggestion is ``engine='pandas'``. Lazy polars inputs are collected too (#1740
     class: this route bypasses the chain-entry eagerness normalization)."""
     from graphistry.compute.ComputeMixin import _coerce_input_formats
-    g = _coerce_input_formats(base_graph, resolve_engine(cast(Any, engine), base_graph))
+    abstract = EngineAbstract(engine) if isinstance(engine, str) else engine
+    g = _coerce_input_formats(base_graph, resolve_engine(abstract, base_graph))
     if g._nodes is not None and _is_polars_df(g._nodes):
         from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
         if is_lazy(g._nodes):
