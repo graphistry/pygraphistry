@@ -78,6 +78,7 @@ POLARS_TEST_FILES=(
     # engine-agnostic frame/series primitives (graphistry/Engine.py) — the polars branches of
     # these dispatch helpers are only measured when this lane covers graphistry (see cov widen below)
     graphistry/tests/test_engine_frame_helpers.py
+    graphistry/tests/test_public_apis_do_not_mutate_inputs.py
 )
 
 # PARALLELISM. The py3.12 cell of this lane is the coverage cell and has repeatedly run out
