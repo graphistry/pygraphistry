@@ -102,7 +102,10 @@ def is_string_dtype_safe(dtype: object) -> bool:
         return bool(pd.api.types.is_string_dtype(dtype))
     except Exception:
         dtype_txt = dtype_text(dtype)
-        return dtype_txt == "object" or "string" in dtype_txt or dtype_txt.endswith("[python]")
+        # "str" exact: pandas 3-era default string dtype reprs as "str" (not
+        # "object"/"string[...]"); exact match so "struct" stays non-string.
+        return (dtype_txt in ("object", "str") or "string" in dtype_txt
+                or dtype_txt.endswith("[python]"))
 
 
 # --- frame-shape helpers (lazy/eager agnostic), shared by chain orchestration + degree
