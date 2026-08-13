@@ -308,7 +308,8 @@ def _check_column(column: Optional[str], expected: str, kind: IndexKind) -> None
 def _is_eager_polars(df: Optional[DataFrameT]) -> bool:
     """EAGER polars only: ``is_polars_df`` admits LazyFrames, and an index build
     cannot gather rows from a lazy plan."""
-    return df is not None and is_polars_df(df) and type(df).__name__ == "DataFrame"
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
+    return df is not None and is_polars_df(df) and not is_lazy(df)
 
 
 def resolve_index_engine(engine: EngineAbstractType, g: Plottable) -> Engine:
