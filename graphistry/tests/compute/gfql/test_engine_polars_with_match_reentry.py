@@ -325,3 +325,79 @@ def test_with_match_reentry_differential_fuzz():
         agree += 1
     # Guard: the sweep must actually exercise the native re-entry path, not just declines.
     assert checked > 20, f"fuzz did not exercise enough native shapes (checked={checked})"
+
+
+# ---------------------------------------------------------------------------
+# Serving-engine matrix on polars-typed base frames (eager AND lazy)
+# ---------------------------------------------------------------------------
+
+def _polars_base(lazy):
+    npl, epl = pl.from_pandas(NODES), pl.from_pandas(EDGES)
+    return graphistry.nodes(npl.lazy() if lazy else npl, "id").edges(
+        epl.lazy() if lazy else epl, "s", "d")
+
+
+def _assert_same_answers(query, expected_nodes, actual_nodes):
+    a = _to_pandas(expected_nodes).reset_index(drop=True)
+    b = _to_pandas(actual_nodes).reset_index(drop=True)
+    assert list(a.columns) == list(b.columns), (
+        f"columns differ for {query!r}: {list(a.columns)} vs {list(b.columns)}"
+    )
+    assert len(a) == len(b), f"row count differs for {query!r}: {len(a)} vs {len(b)}"
+    if len(a):
+        pd.testing.assert_frame_equal(_norm(a), _norm(b), check_dtype=False)
+
+
+class TestReentryPolarsFramesServingEngineMatrix:
+    """WITH..MATCH re-entry on polars-typed base frames across serving engines: the re-entry
+    executor must serve the graph on the REQUESTED engine, whatever frame type (or eagerness)
+    the user bound. Oracle: the same query on pandas frames with engine='pandas'."""
+
+    SEED_ONLY = [
+        "MATCH (p {id:0})-[:KNOWS]-(friend) WITH DISTINCT friend "
+        "MATCH (friend)-[:HAS_CREATOR]-(post) RETURN post.id AS pid",
+        "MATCH (a {kind:'person'}) WITH a MATCH (a)-[]->(b) RETURN b.id AS bid",
+        "MATCH (a) WITH a MATCH (a)-[:KNOWS]->(b) RETURN a.id AS aid, b.id AS bid",
+    ]
+    # Whole-row carry + scalar WITH columns into the trailing MATCH: the payload merge is
+    # pandas-only (parity-or-NIE), so explicit engine='polars' declines while pandas/auto answer.
+    SCALAR_CARRY = [
+        "MATCH (a {kind:'person'}) WITH a, a.val AS av MATCH (a)-[]->(b) RETURN av, b.id AS bid",
+        "MATCH (a) WITH a, a.val AS av MATCH (a)-[:KNOWS]->(b) RETURN av, b.kind AS bk",
+    ]
+
+    @pytest.mark.parametrize("query", SEED_ONLY)
+    @pytest.mark.parametrize("engine", ["pandas", "polars", "auto"])
+    @pytest.mark.parametrize("lazy", [False, True])
+    def test_seed_only_matches_pandas_oracle(self, query, engine, lazy):
+        oracle = BASE.gfql(query, engine="pandas")._nodes
+        got = _polars_base(lazy).gfql(query, engine=engine)._nodes
+        _assert_same_answers(query, oracle, got)
+
+    @pytest.mark.parametrize("query", SCALAR_CARRY)
+    @pytest.mark.parametrize("engine", ["pandas", "auto"])
+    @pytest.mark.parametrize("lazy", [False, True])
+    def test_scalar_carry_answers_match_pandas_oracle(self, query, engine, lazy):
+        oracle = BASE.gfql(query, engine="pandas")._nodes
+        got = _polars_base(lazy).gfql(query, engine=engine)._nodes
+        _assert_same_answers(query, oracle, got)
+
+    @pytest.mark.parametrize("query", SCALAR_CARRY)
+    @pytest.mark.parametrize("lazy", [False, True])
+    def test_scalar_carry_polars_engine_declines_and_its_suggestion_works(self, query, lazy):
+        g = _polars_base(lazy)
+        with pytest.raises(NotImplementedError, match="engine='pandas'"):
+            g.gfql(query, engine="polars")
+        oracle = BASE.gfql(query, engine="pandas")._nodes
+        _assert_same_answers(query, oracle, g.gfql(query, engine="pandas")._nodes)
+
+    def test_carry_reentry_polars_frames_pandas_engine_returns_values(self):
+        # Exact release-blocker repro: previously raised the NIE whose own message
+        # suggested the engine='pandas' already being used.
+        g = graphistry.nodes(pl.DataFrame({"id": [0, 1], "v": [10, 20]}), "id").edges(
+            pl.DataFrame({"s": [0], "d": [1]}), "s", "d")
+        out = g.gfql(
+            "MATCH (a) WITH a, a.v AS av MATCH (a)-[]->(b) RETURN av, b.id AS bid",
+            engine="pandas",
+        )._nodes
+        assert _to_pandas(out).to_dict("records") == [{"av": 10, "bid": 1}]

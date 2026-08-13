@@ -319,3 +319,56 @@ class TestHopLabelsDifferential:
         # pandas redirected the label to a non-clobbering name and kept the user's "_h" strings.
         assert "_h_1" in exp.columns and "_h_1" in act.columns
         assert set(act["_h"].to_list()) <= {"u0", "u1", "u2", "u3", "u4"}
+
+
+class TestHopLazyInputEagernessMatrix:
+    """Direct ``g.hop(engine='polars')`` on LazyFrame inputs (#1740 class): the chain entry
+    normalizes eagerness but this route bypasses chain_polars, so the hop entry must too.
+    Values equal the pandas oracle on the same graph."""
+
+    CASES = [
+        dict(hops=2, direction="forward"),
+        dict(to_fixed_point=True, direction="forward"),
+        dict(hops=2, direction="undirected"),
+    ]
+
+    def _oracle(self, case):
+        base_pd = graphistry.edges(GRAPHS["branch"], "s", "d").materialize_nodes()
+        return base_pd.hop(nodes=pd.DataFrame({base_pd._node: ["a"]}), engine="pandas", **case)
+
+    def _polars_graph(self, nodes_lazy, edges_lazy):
+        base_pd = graphistry.edges(GRAPHS["branch"], "s", "d").materialize_nodes()
+        npl = pl.from_pandas(base_pd._nodes)
+        epl = pl.from_pandas(GRAPHS["branch"])
+        return graphistry.nodes(npl.lazy() if nodes_lazy else npl, base_pd._node).edges(
+            epl.lazy() if edges_lazy else epl, "s", "d")
+
+    @pytest.mark.parametrize("case", CASES)
+    @pytest.mark.parametrize("nodes_lazy", [False, True])
+    @pytest.mark.parametrize("edges_lazy", [False, True])
+    def test_lazy_eagerness_matrix_matches_pandas(self, case, nodes_lazy, edges_lazy):
+        oracle = self._oracle(case)
+        got = self._polars_graph(nodes_lazy, edges_lazy).hop(
+            nodes=pd.DataFrame({"id": ["a"]}), engine="polars", **case)
+        assert "polars" in type(got._nodes).__module__
+        assert not isinstance(got._nodes, pl.LazyFrame)
+        assert not isinstance(got._edges, pl.LazyFrame)
+        assert _node_set(oracle) == _node_set(got), f"node mismatch {case}"
+        assert _edge_set(oracle) == _edge_set(got), f"edge mismatch {case}"
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_lazy_seed_parameter_matches_pandas(self, case):
+        got = self._polars_graph(nodes_lazy=True, edges_lazy=True).hop(
+            nodes=pl.DataFrame({"id": ["a"]}).lazy(), engine="polars", **case)
+        oracle = self._oracle(case)
+        assert _node_set(oracle) == _node_set(got), f"node mismatch {case}"
+        assert _edge_set(oracle) == _edge_set(got), f"edge mismatch {case}"
+
+    @pytest.mark.parametrize("case", CASES)
+    def test_edges_only_lazy_graph_matches_pandas(self, case):
+        # No node table: ensure_nodes_polars must synthesize an EAGER one from lazy edges.
+        oracle = self._oracle(case)
+        got = graphistry.edges(pl.from_pandas(GRAPHS["branch"]).lazy(), "s", "d").hop(
+            nodes=pd.DataFrame({"id": ["a"]}), engine="polars", **case)
+        assert _node_set(oracle) == _node_set(got), f"node mismatch {case}"
+        assert _edge_set(oracle) == _edge_set(got), f"edge mismatch {case}"
