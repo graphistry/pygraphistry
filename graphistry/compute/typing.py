@@ -30,6 +30,10 @@ if TYPE_CHECKING:
 
     #: Either polars frame flavour. Use for a parameter that accepts eager *or* lazy.
     PolarsFrame = Union["pl.DataFrame", "pl.LazyFrame"]
+    #: A polars dtype in either circulating form: schema values are INSTANCES
+    #: (``pl.String()``, ``pl.Enum([...])``) but the bare classes (``pl.Utf8``,
+    #: ``pl.Int64``) flow through user code and compare equal via the metaclass.
+    PolarsDType = Union["pl.DataType", "type[pl.DataType]"]
 
     #: Eager-in -> eager-out / lazy-in -> lazy-out. CONSTRAINED (not bound) on purpose: a
     #: ``PolarsFrame`` return would lose the flavour and type-error at every call site that
