@@ -6,7 +6,7 @@ from dataclasses import replace
 import threading
 import pandas as pd
 from types import MappingProxyType
-from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, is_polars_df, resolve_engine, series_to_pylist
 from graphistry.util import setup_logger
@@ -1025,24 +1025,43 @@ def _execute_compiled_query_via_physical_plan(
         # this is where the decision is consumed, it is one place instead of N return
         # paths, and it cannot be bypassed the way patching a directly-imported name is.
         from graphistry.compute.gfql.index.api import record_fast_path_decision
-        fast_grouped = _execute_single_hop_grouped_aggregate_fast_path(base_graph, compiled_query.chain, engine=engine)
-        record_fast_path_decision(
-            path="single_hop_grouped_aggregate", engine=engine, served=fast_grouped is not None,
-            reason="served" if fast_grouped is not None else "declined; caller falls back")
+        from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
+        # Fast paths run BEFORE the chain route, which is where the execution
+        # target used to be established -- so engine='polars-gpu' silently
+        # collected fast-path plans on CPU (#1824). Set the target here; a plan
+        # the GPU cannot execute raises NIE inside the fast path, recorded as a
+        # DECLINE so the chain route (with its own GPU-or-error contract) answers.
+        _resolved_for_target = resolve_engine(cast(Any, engine), base_graph)
+        _fp_target = (ExecutionTarget.GPU if _resolved_for_target == Engine.POLARS_GPU
+                      else ExecutionTarget.CPU)
+
+        def _try_fast(path_name: str, run: Callable[[], Optional[Plottable]]) -> Optional[Plottable]:
+            try:
+                with target_mode(_fp_target):
+                    out = run()
+                reason = "served" if out is not None else "declined; caller falls back"
+            except NotImplementedError:
+                out = None
+                reason = "declined; plan not GPU-executable, chain route answers"
+            record_fast_path_decision(
+                path=path_name, engine=engine, served=out is not None, reason=reason)
+            return out
+
+        fast_grouped = _try_fast(
+            "single_hop_grouped_aggregate",
+            lambda: _execute_single_hop_grouped_aggregate_fast_path(base_graph, compiled_query.chain, engine=engine))
         if fast_grouped is not None:
             return fast_grouped
-        fast_count = _execute_two_hop_count_fast_path(base_graph, compiled_query.chain, engine=engine)
-        record_fast_path_decision(
-            path="two_hop_count", engine=engine, served=fast_count is not None,
-            reason="served" if fast_count is not None else "declined; caller falls back")
+        fast_count = _try_fast(
+            "two_hop_count",
+            lambda: _execute_two_hop_count_fast_path(base_graph, compiled_query.chain, engine=engine))
         if fast_count is not None:
             return fast_count
-        fast_hop = _execute_seeded_typed_hop_fast_path(
-            base_graph, compiled_query, physical_plan,
-            engine=engine, policy=policy, context=context, start_nodes=start_nodes)
-        record_fast_path_decision(
-            path="seeded_typed_hop", engine=engine, served=fast_hop is not None,
-            reason="served" if fast_hop is not None else "declined; caller falls back")
+        fast_hop = _try_fast(
+            "seeded_typed_hop",
+            lambda: _execute_seeded_typed_hop_fast_path(
+                base_graph, compiled_query, physical_plan,
+                engine=engine, policy=policy, context=context, start_nodes=start_nodes))
         if fast_hop is not None:
             return fast_hop
         return _execute_compiled_query_chain_non_union(
