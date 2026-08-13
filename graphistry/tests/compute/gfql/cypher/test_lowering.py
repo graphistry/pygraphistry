@@ -16134,9 +16134,18 @@ def test_dtype_classifier_fallback_arms(monkeypatch: Any) -> None:
 
     assert is_numeric_dtype_safe(_KindDtype())          # kind arm
     assert is_numeric_dtype_safe(pd.Series([1.0]).dtype)  # text arm ("float")
-    assert is_string_dtype_safe(pd.Series(["a"]).dtype)   # text arm ("object")
+    # default string dtype text arm: "object" on classic pandas, "str" on the
+    # pandas-3-era default -- both must classify string
+    assert is_string_dtype_safe(pd.Series(["a"], dtype="object").dtype)
+    assert is_string_dtype_safe(pd.Series(["a"]).dtype)
     assert is_string_dtype_safe(pd.StringDtype())         # text arm ("string")
     assert not is_string_dtype_safe(pd.Series([1]).dtype)
+
+    class _Structish:
+        def __str__(self) -> str:
+            return "struct<a: int64>"
+
+    assert not is_string_dtype_safe(_Structish())  # "str" is exact, not prefix
 
 
 @pytest.mark.parametrize(
