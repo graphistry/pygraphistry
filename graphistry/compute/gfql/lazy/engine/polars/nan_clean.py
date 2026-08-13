@@ -45,7 +45,7 @@ def _mark_pl_nan_clean(df: "pl.DataFrame") -> None:
 
 
 from graphistry.compute.gfql.cache_registry import register_clearable_dict as _register_clearable
-_register_clearable("polars_nan_clean_verdict_cache", _PL_NAN_CLEAN_CACHE_IDS)
+_register_clearable("_PL_NAN_CLEAN_CACHE_IDS", _PL_NAN_CLEAN_CACHE_IDS)
 
 
 def _pl_nan_to_null(df: "PolarsFrame") -> "PolarsFrame":
