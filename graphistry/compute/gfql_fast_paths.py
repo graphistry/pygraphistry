@@ -95,6 +95,7 @@ from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
 from graphistry.compute.gfql.search_any import search_any_mask
 from graphistry.compute.typing import DataFrameT, SeriesT, NodeDtypes
+from graphistry.compute.gfql.lazy import collect as _lazy_collect, collect_all as _lazy_collect_all
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
@@ -243,7 +244,7 @@ def _filter_project(
         lf = frame.lazy()  # engine seam: polars frame rides DataFrameT
         if expr is not None:
             lf = lf.filter(expr)
-        return cast(DataFrameT, lf.select(list(project)).collect())
+        return cast(DataFrameT, _lazy_collect(lf.select(list(project))))
     if project is None:
         return filter_by_dict(frame, match, engine=EngineAbstract(engine.value))
     if not match:
@@ -568,7 +569,7 @@ def _two_hop_equal_domain_degree_counts(
             .join(domain_ids, left_on=src_col, right_on=node_col, how="semi")
             .join(domain_ids, left_on=dst_col, right_on=node_col, how="semi")
         )
-        in_counts, out_counts = pl.collect_all([
+        in_counts, out_counts = _lazy_collect_all([
             filtered_edges.group_by(dst_col).len("__in_count__"),
             filtered_edges.group_by(src_col).len("__out_count__"),
         ])
@@ -861,12 +862,12 @@ def _connected_join_two_star_fused_polars(
             out_lf = out_lf.head(limit_value)
         if select_items is not None:
             out_lf = out_lf.select([pl.col(s_col).alias(d_col) for s_col, d_col in select_items])
-        out_df = out_lf.collect()
+        out_df = _lazy_collect(out_lf)
         if len(out_df) == 0:
             # 0x0 frame, matching the eager generic branch (pinned).
             out_df = out_df.select([])
     else:
-        joined = joined_lf.collect()
+        joined = _lazy_collect(joined_lf)
         if len(joined) == 0:
             # Empty-match parity probe: eager-lane left counts (WITH the shared-domain
             # restriction) decide n=0 single-row vs 0x0 frame (pinned).
@@ -877,7 +878,7 @@ def _connected_join_two_star_fused_polars(
                     .join(shared_ids_lf, left_on=src_col, right_on=node_col, how="semi")
                     .group_by(src_col)
                     .len("__left_count__")
-                    .collect()
+                    .pipe(_lazy_collect)
                 )
                 emit_zero_row = (
                     len(left_counts_df) > 0
@@ -1578,8 +1579,9 @@ def _two_hop_count_fused_polars(
     degree-count arms, 1 degree-product sum) as ONE lazy plan lets polars push the
     src/dst projection into the semi-joins and collect once.
 
-    NOT a GPU change: like the eager twin (and like the fused two-star lane), this
-    collects on CPU polars for both POLARS and POLARS_GPU.
+    Collects on the ACTIVE execution target (#1824): CPU for POLARS, the
+    GPU-or-error engine for POLARS_GPU -- a non-GPU-executable plan raises NIE,
+    which the dispatch records as a decline and the chain route answers.
 
     Algebra is character-identical to the eager twin -- the same semi-joins, the same
     ``group_by().len()``, the same ``(in*out).sum().fill_null(0).cast(Int64)`` -- so the
@@ -1646,7 +1648,7 @@ def _two_hop_count_fused_polars(
             .sum().fill_null(0).cast(pl.Int64).alias(alias)
         )
     )
-    return cast(DataFrameT, total_lf.collect())
+    return cast(DataFrameT, _lazy_collect(total_lf))
 
 
 def _two_hop_count_binding_ops(chain: Chain) -> Optional[Tuple[ASTNode, ASTEdge, ASTNode, ASTEdge, ASTNode]]:
@@ -1838,8 +1840,9 @@ def _single_hop_grouped_aggregate_fused_polars(
     prove both the group cardinality and the aggregate input rows are low, and it declines
     to this ``group_by`` everywhere else.
 
-    NOT a GPU change: like the eager twin and the fused two-star lane, it collects on CPU
-    polars for both POLARS and POLARS_GPU.
+    Collects on the ACTIVE execution target (#1824): CPU for POLARS, the GPU-or-error
+    engine for POLARS_GPU (NIE on a non-GPU-executable plan; dispatch declines to the
+    chain route).
 
     DECLINES (returns None; the caller falls through to the untouched eager twin, so a
     decline can never answer differently):
@@ -1998,7 +2001,7 @@ def _single_hop_grouped_aggregate_fused_polars(
     )
     if limit_value is not None:
         out_lf = out_lf.head(limit_value)
-    return cast(DataFrameT, out_lf.collect())
+    return cast(DataFrameT, _lazy_collect(out_lf))
 
 
 def _execute_single_hop_grouped_aggregate_fast_path(

@@ -108,3 +108,28 @@ def test_seeded_typed_hop_fast_path_engages(engine: str) -> None:
     assert seen.get("seeded_typed_hop") is True
     assert seen.get("single_hop_grouped_aggregate") is False
     assert seen.get("two_hop_count") is False
+
+
+def test_fast_paths_have_no_bare_collect():
+    """#1824: a bare LazyFrame.collect() in a fast path runs on CPU regardless of
+    the requested engine, silently mislabeling CPU work as polars-gpu. Every
+    collect must go through the target-honoring lazy.collect/collect_all."""
+    import re
+    from pathlib import Path
+    import graphistry.compute.gfql_fast_paths as fp
+
+    src = Path(fp.__file__).read_text()
+    code = [l for l in src.splitlines() if not l.lstrip().startswith("#")]
+    offenders = [l.strip() for l in code
+                 if re.search(r"\.collect\(\)", l) or re.search(r"\bpl\.collect_all\(", l)]
+    assert not offenders, f"bare collects bypass the execution target: {offenders}"
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_fast_paths_serve_identically_under_cpu_target_context(engine: str) -> None:
+    """The #1824 target threading must be a no-op on CPU engines: same answers,
+    same engagement, with the dispatch now setting an explicit CPU target."""
+    assert_fast_path(_graph(engine), Q_TWO_HOP, "two_hop_count",
+                     served=True, engine=engine)
+    assert_fast_path(_graph(engine), Q_GROUPED, "single_hop_grouped_aggregate",
+                     served=True, engine=engine)
