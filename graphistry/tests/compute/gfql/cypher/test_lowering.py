@@ -16086,6 +16086,59 @@ def test_polars_dtype_classification_both_sides() -> None:
         assert not _is_string_dtype_safe(dt), dt
 
 
+def test_dtype_classifier_fallback_arms(monkeypatch: Any) -> None:
+    """The classifiers' FALLBACK contracts: a polars-module dtype without the
+    dtype API falls to the substring arm; a pandas classifier that raises falls
+    to kind/text arms; an object whose str() raises classifies as nothing --
+    never an exception out of a classifier."""
+    import pandas as pd
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import (
+        dtype_text, is_numeric_dtype_safe, is_string_dtype_safe,
+    )
+
+    class _FakePolarsDtype:  # no is_numeric() -> except arm -> substring fallback
+        pass
+    _FakePolarsDtype.__module__ = "polars.datatypes.fake"
+
+    class _Int64ish(_FakePolarsDtype):
+        def __str__(self) -> str:
+            return "Int64"
+    _Int64ish.__module__ = "polars.datatypes.fake"
+
+    class _Weird(_FakePolarsDtype):
+        def __str__(self) -> str:
+            return "Weird"
+    _Weird.__module__ = "polars.datatypes.fake"
+
+    assert is_numeric_dtype_safe(_Int64ish())
+    assert not is_numeric_dtype_safe(_Weird())
+
+    class _RaisesOnStr:
+        def __str__(self) -> str:
+            raise RuntimeError("no repr")
+
+    assert dtype_text(_RaisesOnStr()) == ""
+    assert not is_string_dtype_safe(_RaisesOnStr())
+
+    def _boom(_dt: Any) -> bool:
+        raise TypeError("classifier unavailable")
+
+    monkeypatch.setattr(pd.api.types, "is_numeric_dtype", _boom)
+    monkeypatch.setattr(pd.api.types, "is_string_dtype", _boom)
+
+    class _KindDtype:
+        kind = "i"
+
+        def __str__(self) -> str:
+            return "int64"
+
+    assert is_numeric_dtype_safe(_KindDtype())          # kind arm
+    assert is_numeric_dtype_safe(pd.Series([1.0]).dtype)  # text arm ("float")
+    assert is_string_dtype_safe(pd.Series(["a"]).dtype)   # text arm ("object")
+    assert is_string_dtype_safe(pd.StringDtype())         # text arm ("string")
+    assert not is_string_dtype_safe(pd.Series([1]).dtype)
+
+
 @pytest.mark.parametrize(
     "predicate,expected",
     [
