@@ -17136,15 +17136,18 @@ def test_t2_two_hop_count_fast_path_empty_count_returns_zero() -> None:
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
-def test_t5_two_hop_count_fresh_after_inplace_mutation_1825(engine: str) -> None:
-    """#1825: a cross-call memo setattr'd onto the caller's Plottable keyed by
-    id() returned a STALE count after an in-place frame mutation -- the
-    BLOCKER-1 pattern. STRING ids on purpose: dense-integer-id graphs are served
-    by the dense-domain kernel before ever reaching the degree-counts path, so
-    an int-id fixture cannot catch the regression (a false "fixed").
+def test_t5_two_hop_count_recovers_via_clear_caches_after_mutation_1825(engine: str) -> None:
+    """#1825 under the bound-frame immutability contract: in-place mutation is
+    UB, and the SUPPORTED recovery recipe (gfql_clear_caches) must restore a
+    fresh answer -- which the old memo made impossible (setattr'd onto the
+    caller keyed by id(): unregistered, unflushable, the BLOCKER-1 pattern this
+    file forbids). STRING ids on purpose: dense-integer-id graphs are served by
+    the dense kernel before the degree-counts path, so an int-id fixture cannot
+    catch a regression here (a false "fixed").
 
-    No setattr side channel may appear on the caller either -- cross-call reuse
-    belongs to the fingerprint-validated index layer (degree facts)."""
+    Per-caller setattr channels stay forbidden (they evade clear_caches);
+    cross-call reuse belongs to REGISTERED caches or the fingerprint-validated
+    index layer."""
     if engine == "polars":
         pytest.importorskip("polars")
     nodes = pd.DataFrame({
@@ -17168,11 +17171,13 @@ def test_t5_two_hop_count_fresh_after_inplace_mutation_1825(engine: str) -> None
     assert first is not None
     assert _to_pandas_df(first._nodes).to_dict(orient="records") == [{"numPaths": 2}]
 
-    edges.loc[1, "rel"] = "BLOCKS"  # in-place: n1->n2 is no longer FOLLOWS
+    edges.loc[1, "rel"] = "BLOCKS"  # in-place mutation: contract violation...
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+    gfql_clear_caches()  # ...and the supported recovery recipe
     second = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
     assert second is not None
     assert _to_pandas_df(second._nodes).to_dict(orient="records") == [{"numPaths": 1}], (
-        "stale count after in-place mutation -- a cross-call memo is back")
+        "stale count after mutation + gfql_clear_caches -- an UNREGISTERED memo is back")
     assert getattr(graph, "_gfql_two_hop_equal_domain_degree_counts_cache", None) is None
 
 
