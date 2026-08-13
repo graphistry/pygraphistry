@@ -208,11 +208,11 @@ def hop_polars(
         return df.select(pl.col(col).cast(node_dtype).alias(NID)).unique()
 
     # --- SINGLE BOUNDED HOP (the dominant case — every chain edge): ONE lazy plan, ONE
-    # collect_all on the active target (GPU: edge table read/transferred once — the 2.84x
+    # collect_all on the active target (GPU: edge table read/transferred once -- the
     # collect-once path, formerly the separate hop.py twin). Placed BEFORE the eager gate
     # construction: the seed/gate/target id-frame .unique()s must stay INSIDE the lazy plan
-    # (eagerly materializing them over chain wavefronts cost +5-14% at 1M-10M edges — A/B
-    # measured, twice). Multi-hop/min_hops/to_fixed_point use the eager loop below: the
+    # (eagerly materializing them over chain wavefronts measurably regressed large-edge
+    # runs -- A/B twice). Multi-hop/min_hops/to_fixed_point use the eager loop below: the
     # early-break + revisit bookkeeping need per-hop materialization, and for hops>=2 an
     # unrolled lazy plan recomputes the big edge-join per hop (polars CSE doesn't dedup it).
     if (not to_fixed_point and resolved_max_hops == 1
@@ -232,9 +232,8 @@ def hop_polars(
             one semi-join, whose output then feeds another as the key side; duplicates stay
             harmless the whole way. So `.unique()` here is a full hash pass over the node-id
             column bought for nothing: on an unfiltered hop the key side IS the node table,
-            making it O(N) work inside a query whose answer is O(degree). Measured on a
-            3.18M-node table: 65.1 -> 9.0 ms for the cast+key frame, and this path builds two
-            of them per hop.
+            making it O(N) work inside a query whose answer is O(degree) -- and this path
+            builds two such frames per hop.
 
             Anything that needs a *distinct* id set must apply its own `.unique()`.
             """

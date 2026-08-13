@@ -1,6 +1,6 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, df_concat, df_cons, resolve_input_engine
 from graphistry.Plottable import Plottable
 from graphistry.layout.circle import circle_layout
 # Approximate Graphistry server settings
@@ -95,7 +95,7 @@ def fa2_layout(
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
 
-    engine_concrete = resolve_engine(engine, g)
+    engine_concrete = resolve_input_engine(engine, g)
 
     concat = df_concat(engine_concrete)
 

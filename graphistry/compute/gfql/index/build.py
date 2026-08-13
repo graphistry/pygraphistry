@@ -6,12 +6,15 @@ is never reordered.
 """
 from __future__ import annotations
 
-from typing import Optional, Tuple, cast
+from typing import Any, List, Optional, Sequence, Tuple, Union, cast
 
 from graphistry.Engine import Engine
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, SeriesT
 from .engine_arrays import array_namespace, col_to_array
-from .registry import AdjacencyIndex, NodeIdIndex, NodePropIndex, frame_fingerprint
+from .registry import (
+    AdjacencyIndex, ColStatsFact, ColStatsRole, DegreeFact, NodeIdIndex, NodePropIndex,
+    PartitionValue, frame_fingerprint,
+)
 from .types import AdjacencyIndexKind, ArrayLike, ArrayNamespace
 
 
@@ -121,7 +124,7 @@ def build_node_prop_index(
         keys = col_to_array(nodes, column, engine)
     except (AttributeError, KeyError, TypeError, ValueError):
         return None
-    if getattr(getattr(keys, "dtype", None), "kind", None) not in ("i", "u"):
+    if str(keys.dtype.kind) not in ("i", "u"):  # numpy/cupy arrays always carry dtype.kind
         return None
     unique_keys, group_offsets, row_positions = _csr_from_keys(keys, xp)
     return NodePropIndex(
@@ -135,4 +138,277 @@ def build_node_prop_index(
         source_ref=cast(DataFrameT, nodes),
         n_nodes=int(keys.shape[0]),
         n_keys=int(unique_keys.shape[0]),
+    )
+
+
+def build_col_stats_fact(
+    frame: DataFrameT,
+    column: str,
+    role: "ColStatsRole",
+    engine: Engine,
+) -> Optional[ColStatsFact]:
+    """Verified min/max/null-count fact for one column of the bound frame.
+
+    Declines (None) are decided by EXPLICIT preconditions -- column absent,
+    non-integer dtype (v1), empty frame -- never by swallowing exceptions: an
+    error raised by the reductions themselves is a real bug and PROPAGATES.
+    A null-bearing integer column still gets a fact (null_count recorded,
+    min/max omitted); consumers require null_count == 0 before trusting bounds,
+    so such a fact can only ever route to the scan. Widening the dtype gate
+    later is additive -- a decline only means "scan", never a wrong answer.
+    """
+    from graphistry.Engine import POLARS_ENGINES
+    n_unique: Optional[int] = None
+    if engine in POLARS_ENGINES:
+        pl_frame: Any = frame  # engine seam: polars frame rides DataFrameT
+        if column not in pl_frame.columns:
+            return None
+        s = pl_frame.get_column(column)
+        if not s.dtype.is_integer():
+            return None
+        if int(s.len()) == 0:
+            return None
+        null_count = int(s.null_count())
+        mn, mx = ((None, None) if null_count
+                  else (int(s.min()), int(s.max())))
+        if role == "nodes":
+            n_unique = int(s.n_unique())
+    else:
+        if column not in frame.columns:
+            return None
+        ser = frame[column]
+        if _dtype_kind(ser) not in ("i", "u"):
+            return None
+        if int(ser.shape[0]) == 0:
+            return None
+        null_count = int(ser.isna().sum())
+        mn, mx = ((None, None) if null_count
+                  else (int(ser.min()), int(ser.max())))
+        if role == "nodes":
+            n_unique = int(ser.nunique())
+    return ColStatsFact(
+        role=role,
+        column=column,
+        min_val=mn,
+        max_val=mx,
+        null_count=null_count,
+        is_integer=True,
+        engine=engine,
+        n_unique=n_unique,
+        fingerprint=frame_fingerprint(frame, (column,), engine),
+        source_ref=frame,
+    )
+
+
+_MAX_COL_STATS_PARTITIONS = 256
+
+#: Degree arrays are dense over [lo, hi], so a pathological interval would allocate
+#: far more than the graph needs; decline rather than allocate.
+_MAX_DEGREE_SPAN = 50_000_000
+
+
+def _dtype_kind(series: SeriesT) -> str:
+    """The numpy-style dtype kind letter: 'i'/'u' integer, 'f' float, 'b' bool,
+    'M' datetime, 'O' object and every extension dtype.
+
+    Always present: ``pandas.api.extensions.ExtensionDtype`` DEFINES ``kind``, so
+    every pandas and cudf dtype has one (measured: ArrowDtype, Interval, Period,
+    Sparse, Categorical, DatetimeTZ, and cudf's ListDtype/StructDtype/
+    Decimal128Dtype all report a kind). No default is needed.
+
+    pandas' ``is_integer_dtype`` and friends are NOT a substitute here: they
+    RAISE ``TypeError`` on cudf ``ListDtype`` (measured), which is precisely the
+    exotic dtype this module must DECLINE cleanly rather than crash on.
+    """
+    return str(series.dtype.kind)  # type: ignore[union-attr]  # engine seam: every backend dtype has .kind
+
+
+def _column_to_pylist(series: SeriesT, engine: Engine) -> List[PartitionValue]:
+    """Host-side values of a pandas/cudf column, dispatched on the ENGINE.
+
+    cudf crosses to the host via arrow rather than ``to_pandas()``, which
+    segfaults on string columns in some RAPIDS builds. The engine is already
+    known at every call site, so this dispatches on it instead of probing the
+    object for a ``to_arrow`` attribute.
+    """
+    if engine == Engine.CUDF:
+        return list(series.to_arrow().to_pylist())  # type: ignore[union-attr]  # engine seam: cudf only
+    return list(series.tolist())  # type: ignore[union-attr]  # engine seam: pandas only
+
+
+def _type_column_is_scalar(frame: DataFrameT, type_column: str, engine: Engine) -> bool:
+    """True iff the type column holds SCALARS we can key a partition on.
+
+    List/struct-valued type columns (GFQL's ``labels`` list convention, which
+    ``resolve_filter_column`` rewrites ``label__X`` into) are not equality-
+    addressable: a query never produces a list-valued partition key, so a fact
+    built on one could never be consulted. pandas raises ``unhashable type`` on
+    such a groupby while polars happily groups by list -- so this is an EXPLICIT
+    precondition on both engines rather than an engine-dependent accident.
+    """
+    from graphistry.Engine import POLARS_ENGINES
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        dtype: Any = frame.get_column(type_column).dtype  # engine seam
+        return not isinstance(dtype, (pl.List, pl.Array, pl.Struct, pl.Object))
+    series = frame[type_column]
+    if _dtype_kind(series) not in ("O", "S", "U"):
+        return True  # numeric/bool/datetime dtypes are scalar by construction
+    non_null = series.dropna()
+    if int(non_null.shape[0]) == 0:
+        return True
+    sample = _column_to_pylist(non_null.head(1), engine)
+    return not isinstance(sample[0], (list, tuple, set, dict, bytearray))
+
+
+def build_col_stats_facts_by_type(
+    frame: DataFrameT,
+    columns: Sequence[str],
+    role: "ColStatsRole",
+    type_column: str,
+    engine: Engine,
+) -> List[ColStatsFact]:
+    """One fact per (column, type value), from a SINGLE grouped pass over ALL columns.
+
+    Multi-type graphs defeat whole-frame facts: an interval over every node id
+    says nothing about the ids of one label, so bound proofs that a homogeneous
+    graph passes fail outright. Partition facts restore them per label, and a
+    partition fact upper-bounds any further-filtered subset of that partition --
+    the same conservative direction as the whole-frame fact.
+
+    ``columns`` is a SEQUENCE because the edge role needs facts on both endpoint
+    bindings: aggregating them together is ONE pass over the edge frame instead
+    of one per endpoint.
+
+    Declines (empty list) are decided by EXPLICIT preconditions -- a column
+    absent, a non-integer or null-bearing value column, a float/null/list-valued
+    type column (neither NaN nor list group keys are equality-addressable), an
+    empty frame, or more than ``_MAX_COL_STATS_PARTITIONS`` distinct types --
+    never by swallowing exceptions: an error raised by the aggregation itself is
+    a real bug and PROPAGATES. The decline is ALL-OR-NOTHING across ``columns``,
+    so a caller cannot receive a partial answer and mistake it for a complete
+    one. Null-bearing value columns are declined rather than recorded with
+    ``null_count > 0`` (as the whole-frame builder does) because consumers require
+    zero nulls before trusting bounds, so such facts could only ever route to the
+    scan they were built to avoid.
+    """
+    from graphistry.Engine import POLARS_ENGINES
+    cols = list(dict.fromkeys(columns))  # de-dup, preserve caller order
+    if not cols:
+        return []
+    # Fingerprint PER COLUMN, even though the aggregation is shared: validity is
+    # checked per fact by get_col_stats_valid, which recomputes it over exactly
+    # {column, type_column}. Spanning every aggregated column here would make
+    # each fact look stale on lookup -- caught by the engagement pins.
+    fingerprints = {c: frame_fingerprint(frame, tuple(sorted({c, type_column})), engine)
+                    for c in cols}
+    want_unique = role == "nodes"
+
+    def fact(column: str, type_value: PartitionValue, mn: int, mx: int,
+             n_unique: Optional[int]) -> ColStatsFact:
+        return ColStatsFact(
+            role=role, column=column, min_val=mn, max_val=mx,
+            null_count=0, is_integer=True, engine=engine,
+            n_unique=n_unique, type_column=type_column, type_value=type_value,
+            fingerprint=fingerprints[column], source_ref=frame,
+        )
+
+    facts: List[ColStatsFact] = []
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        pl_frame: Any = frame  # engine seam: polars frame rides DataFrameT
+        if type_column not in pl_frame.columns or any(c not in pl_frame.columns for c in cols):
+            return []
+        for c in cols:
+            values = pl_frame.get_column(c)
+            if not values.dtype.is_integer() or int(values.null_count()) > 0:
+                return []
+        if not _type_column_is_scalar(frame, type_column, engine):
+            return []
+        types = pl_frame.get_column(type_column)
+        if types.dtype.is_float() or int(types.null_count()) > 0:
+            return []
+        if int(pl_frame.height) == 0 or int(types.n_unique()) > _MAX_COL_STATS_PARTITIONS:
+            return []
+        aggs = []
+        for c in cols:
+            aggs += [pl.col(c).min().alias(f"{c}__mn"), pl.col(c).max().alias(f"{c}__mx")]
+            if want_unique:
+                aggs.append(pl.col(c).n_unique().alias(f"{c}__nu"))
+        for row in pl_frame.group_by(type_column).agg(aggs).iter_rows(named=True):
+            for c in cols:
+                facts.append(fact(c, row[type_column], int(row[f"{c}__mn"]), int(row[f"{c}__mx"]),
+                                  int(row[f"{c}__nu"]) if want_unique else None))
+        return facts
+
+    if type_column not in frame.columns or any(c not in frame.columns for c in cols):
+        return []
+    for c in cols:
+        values_ser = frame[c]
+        if _dtype_kind(values_ser) not in ("i", "u") or int(values_ser.isna().sum()) > 0:
+            return []
+    if not _type_column_is_scalar(frame, type_column, engine):
+        return []
+    types_ser = frame[type_column]
+    if _dtype_kind(types_ser) == "f" or int(types_ser.isna().sum()) > 0:
+        return []
+    if int(frame.shape[0]) == 0 or int(types_ser.nunique()) > _MAX_COL_STATS_PARTITIONS:
+        return []
+    names = ["min", "max"] + (["nunique"] if want_unique else [])
+    # ONE grouped pass over every value column. MultiIndex agg columns are
+    # flattened to "<col>__<agg>" so the read-back is engine-uniform (cudf too).
+    grouped = frame.groupby(type_column, sort=False)[cols].agg(names).reset_index()
+    grouped.columns = [type_column if (c[0] == type_column or not c[1]) else f"{c[0]}__{c[1]}"
+                       for c in grouped.columns.to_flat_index()]
+    read = {name: _column_to_pylist(grouped[name], engine) for name in grouped.columns}
+    for i, type_value in enumerate(read[type_column]):
+        for c in cols:
+            facts.append(fact(c, type_value, int(read[f"{c}__min"][i]), int(read[f"{c}__max"][i]),
+                              int(read[f"{c}__nunique"][i]) if want_unique else None))
+    return facts
+
+
+def build_degree_fact(
+    edges: DataFrameT,
+    src_col: str,
+    dst_col: str,
+    lo: int,
+    hi: int,
+    engine: Engine,
+    type_column: Optional[str] = None,
+    type_value: Optional[PartitionValue] = None,
+) -> Optional[DegreeFact]:
+    """In/out degree over ``edges``, indexed by node id - ``lo`` across [lo, hi].
+
+    Lets the two-hop count kernel answer with ``dot(indeg, outdeg)`` -- O(N) --
+    instead of an O(E) bincount plus gather. The arrays cover exactly the dense
+    interval the kernel already proves, so ids outside it are not representable;
+    that is why the interval is a parameter rather than derived here.
+
+    Declines (None) by explicit precondition -- absent column, non-integer or
+    null-bearing endpoints, an endpoint outside [lo, hi], or an interval wider
+    than ``_MAX_DEGREE_SPAN``. An endpoint outside the interval is a DECLINE and
+    not a clamp: clamping would silently miscount.
+    """
+    xp, backend = array_namespace(engine)
+    for col in (src_col, dst_col):
+        if col not in edges.columns:
+            return None
+    if hi < lo or (hi - lo + 1) > _MAX_DEGREE_SPAN:
+        return None
+    src = col_to_array(edges, src_col, engine)
+    dst = col_to_array(edges, dst_col, engine)
+    for arr in (src, dst):
+        if str(getattr(arr.dtype, "kind", "")) not in ("i", "u"):
+            return None
+        if int(arr.shape[0]) and (int(arr.min()) < lo or int(arr.max()) > hi):
+            return None  # outside the proved interval: decline, never clamp
+    n = hi - lo + 1
+    indeg = xp.bincount(dst - lo, minlength=n)
+    outdeg = xp.bincount(src - lo, minlength=n)
+    cols = tuple(sorted({src_col, dst_col} | ({type_column} if type_column else set())))
+    return DegreeFact(
+        src_col=src_col, dst_col=dst_col, indeg=indeg, outdeg=outdeg, lo=lo, hi=hi,
+        backend=backend, engine=engine, type_column=type_column, type_value=type_value,
+        fingerprint=frame_fingerprint(edges, cols, engine), source_ref=edges,
     )

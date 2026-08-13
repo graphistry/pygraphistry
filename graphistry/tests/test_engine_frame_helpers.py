@@ -179,3 +179,55 @@ def test_drop_columns_polars() -> None:
 @polars_only
 def test_series_to_pylist_polars_to_arrow() -> None:
     assert series_to_pylist(pl.Series([1, 2, 3])) == [1, 2, 3]
+
+
+class TestInputSurfacesAcceptPolarsUnderAuto:
+    """Every surface that COMPUTES in pandas/cudf resolves polars-frame graphs
+    under AUTO via resolve_input_engine (polars is an input format there, not a
+    compute engine). Before the migration these raised -- resolve_engine(AUTO)
+    now returns POLARS, which these surfaces cannot execute."""
+
+    @staticmethod
+    def _polars_graph():
+        import graphistry
+        nodes = pl.DataFrame({"id": [0, 1, 2], "x": [1.0, 2.0, 3.0]})
+        edges = pl.DataFrame({"s": [0, 1], "d": [1, 2]})
+        return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+    @polars_only
+    def test_dbscan_engine_resolution(self):
+        """The regression was a bare AssertionError from the engine check; a
+        lane with no dbscan backend installed raises the documented dependency
+        ValueError instead, which is equally acceptable here."""
+        from graphistry.compute.cluster import resolve_dbscan_engine
+        try:
+            eng = resolve_dbscan_engine("auto", self._polars_graph())
+        except ValueError as e:
+            assert "cuml" in str(e) or "sklearn" in str(e), e
+        else:
+            assert eng in ("sklearn", "cuml")
+
+    @polars_only
+    def test_remote_surfaces_resolve_to_supported_engine(self):
+        from graphistry.Engine import Engine, resolve_input_engine
+        g = self._polars_graph()
+        assert resolve_input_engine("auto", g) in (Engine.PANDAS, Engine.CUDF)
+
+    @polars_only
+    @pytest.mark.parametrize("surface", ["circle", "fa2", "chain_remote", "python_remote", "cluster"])
+    def test_pandas_computing_surfaces_use_input_resolver(self, surface):
+        """The convention itself, pinned per module: a pandas-computing surface
+        must not call resolve_engine (modern AUTO) -- migrating one to native
+        polars means deliberately flipping it back and deleting its row here."""
+        import importlib
+        mod = importlib.import_module({
+            "circle": "graphistry.layout.circle",
+            "fa2": "graphistry.layout.fa2",
+            "chain_remote": "graphistry.compute.chain_remote",
+            "python_remote": "graphistry.compute.python_remote",
+            "cluster": "graphistry.compute.cluster",
+        }[surface])
+        import inspect
+        src = inspect.getsource(mod)
+        assert "resolve_input_engine" in src
+        assert "resolve_engine(" not in src.replace("resolve_input_engine(", "")

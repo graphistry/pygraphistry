@@ -57,6 +57,22 @@ DataframeLike = Any  # pdf, cudf, ddf, dgdf
 DataframeLocalLike = Any  # pdf, cudf
 GraphistryLke = Any
 
+def resolve_input_engine(engine: EngineAbstractType, g_or_df: Any = None) -> Engine:
+    """Legacy INPUT-FORMAT resolution: AUTO maps polars frames to PANDAS.
+
+    For surfaces that consume dataframes as input and compute in pandas/cudf
+    (layouts, plotting, featurization). Compute surfaces (GFQL) use
+    ``resolve_engine``, where polars is a first-class engine under AUTO.
+    Migrating a surface to native polars = switching its call site back to
+    ``resolve_engine``.
+    """
+    eng = resolve_engine(engine, g_or_df)
+    abstract = EngineAbstract(engine) if isinstance(engine, str) else engine
+    if eng == Engine.POLARS and abstract == EngineAbstract.AUTO:
+        return Engine.PANDAS
+    return eng
+
+
 def resolve_engine(
     engine: EngineAbstractType,
     g_or_df: Optional[Any] = None,
@@ -113,7 +129,9 @@ def resolve_engine(
             try:
                 import polars as pl
                 if isinstance(g_or_df, (pl.DataFrame, pl.LazyFrame)):
-                    return Engine.PANDAS
+                    # Polars is a compute engine under AUTO; input-format surfaces
+                    # use resolve_input_engine.
+                    return Engine.POLARS
             except ImportError:
                 pass
 

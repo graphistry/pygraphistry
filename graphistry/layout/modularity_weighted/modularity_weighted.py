@@ -1,7 +1,7 @@
 from typing import Any, Dict, Literal, Optional
 import pandas as pd
 
-from graphistry.Engine import Engine, EngineAbstract, resolve_engine
+from graphistry.Engine import Engine, EngineAbstract, resolve_input_engine
 from graphistry.Plottable import Plottable
 
 
@@ -70,7 +70,7 @@ def modularity_weighted_layout(
     assert g._edges is not None, 'Expected edges to be set'
     if community_col is None:
         g = g.materialize_nodes()
-        engine_concrete = resolve_engine(engine, g)
+        engine_concrete = resolve_input_engine(engine, g)
         if community_alg is None:
             if engine_concrete == Engine.PANDAS:
                 community_alg = 'community_multilevel'

@@ -72,7 +72,7 @@ from graphistry.compute.gfql_fast_paths import (
     _filter_nodes_for_fast_count,
     _connected_join_two_star_split_residuals,
     _dense_int_domain_interval,
-    _int_col_bounds_within,
+    _edge_cols_bounds_within,
     _two_hop_equal_domain_dense_total,
 )
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
@@ -15974,14 +15974,20 @@ def test_node_dtypes_for_pushdown_on_polars_matches_the_full_conversion() -> Non
         if str(column) not in reported:
             continue
         assert _connected_join_dtype_classes(reported[str(column)]) == _connected_join_dtype_classes(dtype)
-    # `flag` is polars Boolean with a null -> pandas object holding bools -> omitted.
-    assert "flag" not in reported
+    # Modern AUTO: the executor filters polars natively, so `flag` stays polars
+    # Boolean -- a real classifiable dtype -- and is REPORTED. Its old omission was
+    # an artifact of the legacy pandas conversion (nullable Boolean -> object):
+    # an accident, not the spec. The invariant is planner/executor agreement.
+    assert "flag" in reported and str(reported["flag"]) == "Boolean"
     assert {"id", "age", "name"} <= set(reported)
     # The empty probe would have called the nullable bool numeric, which is why it cannot be
     # used: the real conversion yields object-holding-bools, which is omitted instead.
     empty = df_to_engine(nodes.head(0), resolve_engine("auto", nodes), warn=False)
     empty_dtypes = dict(zip([str(name) for name in empty.columns], list(empty.dtypes)))
-    assert _connected_join_dtype_classes(empty_dtypes["flag"]) == (True, False)
+    # Modern AUTO: the probe stays POLARS, so the legacy head(0)-vs-real
+    # divergence this demonstrated cannot occur -- both sides see polars
+    # Boolean, classifying (False, False), failing closed identically.
+    assert _connected_join_dtype_classes(empty_dtypes["flag"]) == (False, False)
 
 
 @pytest.mark.parametrize(
@@ -16058,6 +16064,88 @@ def test_connected_join_dtype_classes_defers_to_the_live_validator() -> None:
             bool(_is_numeric_dtype_safe(dtype)),
             bool(_is_string_dtype_safe(dtype)),
         )
+
+
+def test_polars_dtype_classification_both_sides() -> None:
+    """Positive AND negative, polars-first: pandas' classifiers return a
+    confident False for polars dtypes, and a repr whitelist misses
+    parameterized dtypes (str(pl.Enum([...])) renders its categories)."""
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe
+
+    stringy = [pl.String(), pl.Utf8, pl.Categorical(), pl.Enum(["a", "b"])]
+    numericy = [pl.Int64(), pl.Float64(), pl.UInt32(), pl.Decimal(10, 2)]
+    neither = [pl.Boolean(), pl.Date(), pl.List(pl.Int64())]
+    for dt in stringy:
+        assert _is_string_dtype_safe(dt), dt
+        assert not _is_numeric_dtype_safe(dt), dt
+    for dt in numericy:
+        assert _is_numeric_dtype_safe(dt), dt
+        assert not _is_string_dtype_safe(dt), dt
+    for dt in neither:
+        assert not _is_string_dtype_safe(dt), dt
+
+
+def test_polars_dtype_classifier_fallback_arms(monkeypatch: Any) -> None:
+    """The classifiers' FALLBACK contracts: a polars-module dtype without the
+    dtype API falls to the substring arm; a pandas classifier that raises falls
+    to kind/text arms; an object whose str() raises classifies as nothing --
+    never an exception out of a classifier."""
+    import pandas as pd
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import (
+        dtype_text, is_numeric_dtype_safe, is_string_dtype_safe,
+    )
+
+    class _FakePolarsDtype:  # no is_numeric() -> except arm -> substring fallback
+        pass
+    _FakePolarsDtype.__module__ = "polars.datatypes.fake"
+
+    class _Int64ish(_FakePolarsDtype):
+        def __str__(self) -> str:
+            return "Int64"
+    _Int64ish.__module__ = "polars.datatypes.fake"
+
+    class _Weird(_FakePolarsDtype):
+        def __str__(self) -> str:
+            return "Weird"
+    _Weird.__module__ = "polars.datatypes.fake"
+
+    assert is_numeric_dtype_safe(_Int64ish())
+    assert not is_numeric_dtype_safe(_Weird())
+
+    class _RaisesOnStr:
+        def __str__(self) -> str:
+            raise RuntimeError("no repr")
+
+    assert dtype_text(_RaisesOnStr()) == ""
+    assert not is_string_dtype_safe(_RaisesOnStr())
+
+    def _boom(_dt: Any) -> bool:
+        raise TypeError("classifier unavailable")
+
+    monkeypatch.setattr(pd.api.types, "is_numeric_dtype", _boom)
+    monkeypatch.setattr(pd.api.types, "is_string_dtype", _boom)
+
+    class _KindDtype:
+        kind = "i"
+
+        def __str__(self) -> str:
+            return "int64"
+
+    assert is_numeric_dtype_safe(_KindDtype())          # kind arm
+    assert is_numeric_dtype_safe(pd.Series([1.0]).dtype)  # text arm ("float")
+    # default string dtype text arm: "object" on classic pandas, "str" on the
+    # pandas-3-era default -- both must classify string
+    assert is_string_dtype_safe(pd.Series(["a"], dtype="object").dtype)
+    assert is_string_dtype_safe(pd.Series(["a"]).dtype)
+    assert is_string_dtype_safe(pd.StringDtype())         # text arm ("string")
+    assert not is_string_dtype_safe(pd.Series([1]).dtype)
+
+    class _Structish:
+        def __str__(self) -> str:
+            return "struct<a: int64>"
+
+    assert not is_string_dtype_safe(_Structish())  # "str" is exact, not prefix
 
 
 @pytest.mark.parametrize(
@@ -17276,6 +17364,1007 @@ def test_t6_dense_total_declines_null_endpoints_polars() -> None:
     ) is None
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_declines_non_integer_edge_cols(engine: str) -> None:
+    # Float endpoints are not provable (fused polars proof's dtype gate; numpy-kind
+    # gate on pandas/cudf) even over a dense integer domain.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    dom_pd = pd.DataFrame({"id": [0, 1, 2]})
+    edges_pd = pd.DataFrame({"s": [0.0, 1.0], "d": [1, 2]})
+    if engine == "polars":
+        import polars as pl
+        assert _two_hop_equal_domain_dense_total(
+            pl.from_pandas(dom_pd), pl.from_pandas(edges_pd),
+            node_col="id", src_col="s", dst_col="d", engine=Engine.POLARS,
+        ) is None
+    else:
+        assert _two_hop_equal_domain_dense_total(
+            dom_pd, edges_pd, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
+        ) is None
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_edge_cols_bounds_within_empty_frame_declines(engine: str) -> None:
+    # The kernel declines empty edge frames before the bounds proof, so the helper's
+    # own empty guard (it must stay safe standalone) is pinned directly.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    empty_pd = pd.DataFrame({"s": pd.Series([], dtype="int64"),
+                             "d": pd.Series([], dtype="int64")})
+    if engine == "polars":
+        import polars as pl
+        assert _edge_cols_bounds_within(
+            pl.from_pandas(empty_pd), "s", "d", 0, 3, engine=Engine.POLARS
+        ) is False
+    else:
+        assert _edge_cols_bounds_within(
+            empty_pd, "s", "d", 0, 3, engine=Engine.PANDAS
+        ) is False
+
+
+def test_t6_edge_cols_bounds_within_null_mask_declines() -> None:
+    # cudf rides the pandas/cudf arm with a plain numpy dtype PLUS a ``null_count``
+    # attribute (the null mask is separate). Emulate that series shape CPU-side so the
+    # null-mask decline is pinned without a GPU.
+    import numpy as np
+
+    class _NullMaskedIntSeries:
+        dtype = np.dtype("int64")
+        null_count = 1
+
+        def __len__(self) -> int:
+            return 3
+
+    class _NullMaskedFrame:
+        def __getitem__(self, col: str) -> Any:
+            return _NullMaskedIntSeries()
+
+    # engine=CUDF: the null guard is engine-dispatched now (a numpy-int pandas
+    # series cannot hold NA, so only the cuDF arm reads null_count).
+    assert _edge_cols_bounds_within(
+        cast(Any, _NullMaskedFrame()), "s", "d", 0, 3, engine=Engine.CUDF
+    ) is False
+
+
+class _T6ArrayNamespaceSpy:
+    """Records the kernel's array calls so tests can PIN which counting lane ran
+    (shift elision vs single-scratch-buffer shift vs plain shift), not just the value."""
+
+    def __init__(self, xp: Any) -> None:
+        self._xp = xp
+        self.calls: List[Tuple[Any, ...]] = []
+
+    def bincount(self, a: Any, minlength: int = 0) -> Any:
+        self.calls.append(("bincount", int(minlength)))
+        return self._xp.bincount(a, minlength=minlength)
+
+    def empty(self, shape: Any, dtype: Any = None) -> Any:
+        self.calls.append(("empty",))
+        return self._xp.empty(shape, dtype=dtype)
+
+    def subtract(self, a: Any, b: Any, out: Any = None) -> Any:
+        self.calls.append(("subtract", out is not None))
+        return self._xp.subtract(a, b, out=out)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._xp, name)
+
+
+def _t6_spy_dense_total(
+    monkeypatch: Any, engine: str, nodes_pd: pd.DataFrame, edges_pd: pd.DataFrame
+) -> Tuple[Optional[int], "_T6ArrayNamespaceSpy"]:
+    import numpy as np
+    from graphistry.compute.gfql.index import engine_arrays as engine_arrays_module
+
+    spy = _T6ArrayNamespaceSpy(np)
+    monkeypatch.setattr(
+        engine_arrays_module, "array_namespace", lambda _engine: (spy, "numpy")
+    )
+    if engine == "polars":
+        import polars as pl
+        total = _two_hop_equal_domain_dense_total(
+            pl.from_pandas(nodes_pd), pl.from_pandas(edges_pd),
+            node_col="id", src_col="s", dst_col="d", engine=Engine.POLARS,
+        )
+    else:
+        total = _two_hop_equal_domain_dense_total(
+            nodes_pd, edges_pd, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
+        )
+    return total, spy
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_shift_elision_lane_counts_raw_arrays(
+    engine: str, monkeypatch: Any
+) -> None:
+    # Non-zero but non-negative lo with hi+1 inside the table budget: the kernel must
+    # count the RAW arrays with a table of size hi+1 -- no shifted E-length arrays, no
+    # scratch buffer. (That shift materialization dominated the kernel at 2.4M edges:
+    # its elision is the round-2 lever, so the lane itself is pinned, not just values.)
+    # Round 3 elides the SECOND bincount too (out-degrees): the product-sum equals a
+    # gather-sum of in-degrees at each edge's src, so exactly ONE bincount remains --
+    # the gather rides the plain counts array, outside the spied namespace.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({"id": [10, 11, 12, 13], "node_type": ["Person"] * 4})
+    edges = pd.DataFrame({"s": [10, 10, 11, 11, 11, 12], "d": [11, 11, 12, 12, 13, 13]})
+    total, spy = _t6_spy_dense_total(monkeypatch, engine, nodes, edges)
+    assert total == 8  # T2 multiplicity topology shifted to ids 10..13
+    assert [c for c in spy.calls if c[0] in ("empty", "subtract")] == []
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 14)]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_distant_interval_single_scratch_buffer(
+    engine: str, monkeypatch: Any
+) -> None:
+    # Interval far from 0 (hi+1 over the table budget, n well within it): the shift is
+    # required, and BOTH columns must route through ONE reused scratch buffer -- dst
+    # shifted first for the single bincount, then src shifted into the SAME buffer for
+    # the gather-sum (safe because the gather runs strictly after the bincount).
+    if engine == "polars":
+        pytest.importorskip("polars")
+    base = 10**7
+    nodes = pd.DataFrame({"id": [base, base + 1, base + 2]})
+    edges = pd.DataFrame({"s": [base, base + 1], "d": [base + 1, base + 2]})
+    total, spy = _t6_spy_dense_total(monkeypatch, engine, nodes, edges)
+    assert total == 1  # single length-2 path through base+1
+    assert [c for c in spy.calls if c[0] == "empty"] == [("empty",)]
+    assert [c for c in spy.calls if c[0] == "subtract"] == [("subtract", True), ("subtract", True)]
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 3)]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_mixed_endpoint_dtypes_keep_plain_shift(
+    engine: str, monkeypatch: Any
+) -> None:
+    # Mixed src/dst dtypes on the shift path: no shared scratch buffer (it would
+    # impose a cross-dtype cast policy) -- plain shifted single bincount plus a
+    # plain shifted gather, same value.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    base = 10**7
+    nodes = pd.DataFrame({"id": [base, base + 1, base + 2]})
+    edges = pd.DataFrame({
+        "s": pd.Series([base, base + 1], dtype="int32"),
+        "d": pd.Series([base + 1, base + 2], dtype="int64"),
+    })
+    total, spy = _t6_spy_dense_total(monkeypatch, engine, nodes, edges)
+    assert total == 1
+    assert [c for c in spy.calls if c[0] in ("empty", "subtract")] == []
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 3)]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_dense_total_table_budget_boundary_lanes(engine: str, monkeypatch: Any) -> None:
+    # The unshifted lane serves iff hi+1 fits the SAME budget the domain guard uses
+    # (4*E + 1024). Pin both sides of that boundary at E=2 (budget=1032): hi+1 == 1032
+    # counts raw with a table of 1032; hi+1 == 1033 shifts through the scratch buffer
+    # with a table of n. Values stay correct on both sides -- the lane is an internal
+    # layout choice, never a semantics change.
+    if engine == "polars":
+        pytest.importorskip("polars")
+
+    at_budget_nodes = pd.DataFrame({"id": [1028, 1029, 1030, 1031]})
+    at_budget_edges = pd.DataFrame({"s": [1028, 1029], "d": [1029, 1030]})
+    total, spy = _t6_spy_dense_total(monkeypatch, engine, at_budget_nodes, at_budget_edges)
+    assert total == 1
+    assert [c for c in spy.calls if c[0] in ("empty", "subtract")] == []
+    assert [c for c in spy.calls if c[0] == "bincount"] == [("bincount", 1032)]
+
+    over_budget_nodes = pd.DataFrame({"id": [1029, 1030, 1031, 1032]})
+    over_budget_edges = pd.DataFrame({"s": [1029, 1030], "d": [1030, 1031]})
+    total2, spy2 = _t6_spy_dense_total(monkeypatch, engine, over_budget_nodes, over_budget_edges)
+    assert total2 == 1
+    assert [c for c in spy2.calls if c[0] == "empty"] == [("empty",)]
+    assert [c for c in spy2.calls if c[0] == "bincount"] == [("bincount", 4)]
+
+
+def test_t6_dense_gather_elision_matches_degree_oracle() -> None:
+    # Round-3 algebra pin: the gather-sum form must equal the O(paths) oracle
+    # (sum over middle nodes of indeg*outdeg) on a duplicate-heavy random graph
+    # -- multi-edges and self-loops included -- for both the raw (lo == 0) and
+    # shifted (lo far from 0) lanes.
+    import numpy as np
+    from graphistry.compute import gfql_fast_paths as fp
+
+    rng = np.random.default_rng(11)
+    n_nodes, n_edges = 500, 20000
+    for base in (0, 10**7):
+        nodes = pd.DataFrame({"id": np.arange(n_nodes) + base})
+        edges = pd.DataFrame({
+            "s": rng.integers(0, n_nodes, size=n_edges) + base,
+            "d": rng.integers(0, n_nodes, size=n_edges) + base,
+        })
+        indeg = edges.groupby("d").size().reindex(
+            np.arange(n_nodes) + base, fill_value=0)
+        outdeg = edges.groupby("s").size().reindex(
+            np.arange(n_nodes) + base, fill_value=0)
+        oracle = int((indeg * outdeg).sum())
+        total = fp._two_hop_equal_domain_dense_total(
+            nodes, edges, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS)
+        assert total == oracle
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_t6_count_path_projection_widths_and_value(engine: str, monkeypatch: Any) -> None:
+    # Round-4 pin, every engine: the count path's filters project to the id
+    # columns while the filters themselves reference projected-away decoy
+    # columns (node_type/rel). Value identical to the unprojected path.
+    nodes_pd, edges_pd = _t6_dense_frames()
+    graph = _mk_h3_graph(engine, nodes_pd, edges_pd)
+
+    seen: Dict[str, List[str]] = {}
+    real = gfql_fast_paths_module._two_hop_equal_domain_dense_total
+
+    def spy(domain_nodes: Any, edge_domain: Any, **kw: Any) -> Any:
+        seen["node_cols"] = list(domain_nodes.columns)
+        seen["edge_cols"] = list(edge_domain.columns)
+        return real(domain_nodes, edge_domain, **kw)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_two_hop_equal_domain_dense_total", spy)
+    monkeypatch.setattr(gfql_fast_paths_module, "_PROJECT_LAZY_MIN_ROWS", 0)  # force narrowing on the tiny fixture
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
+    if engine == "polars":
+        assert seen["node_cols"] == ["id"]
+        assert seen["edge_cols"] == ["s", "d"]
+    else:
+        assert seen["node_cols"] == ["id"]  # pandas/cudf mask+loc narrows at every size
+        assert seen["edge_cols"] == ["s", "d"]
+
+
+_T6_PROJ_MATRIX_FILTERS: List[Any] = [
+    None,
+    {},
+    {"rel": "FOLLOWS"},
+    {"rel": "FOLLOWS", "w": 1},
+    "gt_pred",       # numeric predicate on a decoy column
+    "missing_col",   # typed error parity
+    "str_on_num",    # E302 parity: string predicate on numeric column
+]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize("case", range(len(_T6_PROJ_MATRIX_FILTERS)))
+def test_t6_filter_project_differential_matrix(engine: str, case: int, monkeypatch: Any) -> None:
+    # DIFFERENTIAL, every engine x filter shape: the projected filter must return
+    # exactly the unprojected filter's rows cut to the projected columns, and must
+    # raise the SAME exception type on every error path. Decoy columns present so
+    # projection is observable; filters reference projected-away columns.
+    from graphistry.compute.predicates.numeric import gt
+    from graphistry.compute.predicates.str import Contains
+
+    edges_pd = pd.DataFrame({
+        "s": [0, 1, 2, 3], "d": [1, 2, 3, 0],
+        "rel": ["FOLLOWS", "FOLLOWS", "OTHER", "FOLLOWS"],
+        "w": [1, 2, 1, 3],
+    })
+    graph = _mk_h3_graph(engine, pd.DataFrame({"id": [0, 1, 2, 3]}), edges_pd)
+    frame = graph._edges
+    eng = {"pandas": Engine.PANDAS, "polars": Engine.POLARS, "cudf": Engine.CUDF}[engine]
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_PROJECT_LAZY_MIN_ROWS", 0)  # force narrowing on the tiny fixture
+    spec = _T6_PROJ_MATRIX_FILTERS[case]
+    match: Any
+    if spec == "gt_pred":
+        match = {"w": gt(1)}
+    elif spec == "missing_col":
+        match = {"nope": 1}
+    elif spec == "str_on_num":
+        match = {"w": Contains("x")}
+    else:
+        match = spec
+
+    def run(project: Any) -> Any:
+        return gfql_fast_paths_module._filter_project(frame, match, project, engine=eng)
+
+    if spec in ("missing_col", "str_on_num"):
+        narrow_exc: Any = None
+        full_exc: Any = None
+        try:
+            run(["s", "d"])
+        except Exception as e:  # noqa: BLE001
+            narrow_exc = e
+        try:
+            run(None)
+        except Exception as e:  # noqa: BLE001
+            full_exc = e
+        assert narrow_exc is not None and full_exc is not None, "both arms must raise"
+        assert type(narrow_exc) is type(full_exc)
+        return
+
+    narrow = _to_pandas_df(run(["s", "d"])).reset_index(drop=True)
+    full = _to_pandas_df(run(None))[["s", "d"]].reset_index(drop=True)
+    assert list(narrow.columns) == ["s", "d"]
+    pd.testing.assert_frame_equal(narrow, full)
+
+
+def test_t6_cached_filter_projection_keys_do_not_collide() -> None:
+    # The per-execution cache must key full-width and projected results apart:
+    # same match, different projection, one cache_store.
+    edges = pd.DataFrame({"s": [0, 1], "d": [1, 0], "rel": ["F", "F"], "w": [1, 2]})
+    graph = _mk_graph(pd.DataFrame({"id": [0, 1]}), edges)
+    store: Dict[str, Any] = {}
+    full = gfql_fast_paths_module._connected_join_cached_edge_filter(
+        graph, cast(Any, edges), {"rel": "F"}, engine=Engine.PANDAS, cache_store=store)
+    narrow = gfql_fast_paths_module._connected_join_cached_edge_filter(
+        graph, cast(Any, edges), {"rel": "F"}, engine=Engine.PANDAS, cache_store=store,
+        project=["s", "d"])
+    assert list(full.columns) == ["s", "d", "rel", "w"]
+    assert list(narrow.columns) == ["s", "d"]
+    assert len(store["_gfql_connected_join_edge_filter_cache"]) == 2
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize("shape", ["payload_reserved_col", "reserved_src_binding"])
+def test_t6_count_path_reserved_names_value_correct_all_engines(engine: str, shape: str) -> None:
+    # Reserved degree-counter names must never produce a wrong count, on any
+    # engine: as a PAYLOAD column (projected away by round 4) and as the SRC
+    # BINDING itself (survives projection; whichever path serves must agree
+    # with the degree-product oracle).
+    nodes_pd, edges_pd = _t6_dense_frames()
+    oracle = 8
+    if shape == "payload_reserved_col":
+        edges_pd = edges_pd.assign(__in_count__=1, __out_count__=2)
+        graph = _mk_h3_graph(engine, nodes_pd, edges_pd)
+    else:
+        edges_pd = edges_pd.rename(columns={"s": "__in_count__"})
+        if engine == "pandas":
+            graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(nodes_pd, "id").edges(edges_pd, "__in_count__", "d"))
+        elif engine == "cudf":
+            cudf = pytest.importorskip("cudf")
+            graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(cudf.from_pandas(nodes_pd), "id").edges(cudf.from_pandas(edges_pd), "__in_count__", "d"))
+        else:
+            pl = pytest.importorskip("polars")
+            graph = cast(_CypherTestGraph, _CypherTestGraph().nodes(pl.from_pandas(nodes_pd), "id").edges(pl.from_pandas(edges_pd), "__in_count__", "d"))
+    result = graph.gfql(_T6_DENSE_Q8_QUERY, engine=engine)
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": oracle}]
+
+
+def test_t6_count_path_narrow_filter_error_parity_polars(monkeypatch: Any) -> None:
+    # Round-4 negative pin: the narrow (projected) filter lane raises the SAME
+    # typed error as the full-width lane -- E302 for a string predicate on a
+    # non-string column -- and its rows match full-width filter + select.
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.exceptions import GFQLSchemaError
+    from graphistry.compute.predicates.str import Contains
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_PROJECT_LAZY_MIN_ROWS", 0)  # force narrowing on the tiny fixture
+    edges = pl.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0], "rel": [10, 20, 10]})
+    graph = _mk_graph(*_t6_dense_frames())
+    with pytest.raises(GFQLSchemaError):
+        gfql_fast_paths_module._connected_join_cached_edge_filter(
+            graph, cast(Any, edges), {"rel": Contains("F")},
+            engine=Engine.POLARS, project=["s", "d"])
+
+    narrow = gfql_fast_paths_module._connected_join_cached_edge_filter(
+        graph, cast(Any, edges), {"rel": 10}, engine=Engine.POLARS, project=["s", "d"])
+    full = gfql_fast_paths_module._connected_join_cached_edge_filter(
+        graph, cast(Any, edges), {"rel": 10}, engine=Engine.POLARS)
+    assert narrow.columns == ["s", "d"]
+    assert narrow.to_dicts() == full.select(["s", "d"]).to_dicts()
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_t6_col_stats_facts_build_and_invalidate(engine: str) -> None:
+    # gfql_index_col_stats builds verified facts for the bound id columns; a
+    # frame REBIND (even to an equal-valued copy) must invalidate them (identity
+    # guard) so a stale fact can never prove anything about a new frame.
+    nodes_pd, edges_pd = _t6_dense_frames()
+    graph = _mk_h3_graph(engine, nodes_pd, edges_pd)
+    eng = {"pandas": Engine.PANDAS, "polars": Engine.POLARS, "cudf": Engine.CUDF}[engine]
+    g2 = graph.gfql_index_col_stats(engine=engine)
+    reg = g2._gfql_index_registry
+    assert sorted(reg.col_stats.keys()) == [
+        ("edges", "d", None, None), ("edges", "s", None, None), ("nodes", "id", None, None)]
+    fact = reg.get_col_stats_valid("edges", "s", g2._edges, eng)
+    assert fact is not None
+    assert (fact.min_val, fact.max_val, fact.null_count, fact.is_integer) == (0, 2, 0, True)
+    rebound = g2.edges(g2._edges, "s", "d")  # new Plottable, same frame object -> still valid
+    assert reg.get_col_stats_valid("edges", "s", rebound._edges, eng) is not None
+    import copy as _copy
+    other = _copy.copy(g2._edges)  # equal values, different object -> identity miss
+    assert reg.get_col_stats_valid("edges", "s", other, eng) is None
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("with_facts", [True, False])
+def test_t6_col_stats_skip_bounds_scan_both_sides(
+    engine: str, with_facts: bool, monkeypatch: Any
+) -> None:
+    # Both sides of the fact gate: with valid facts the O(E) endpoint-bounds scan
+    # must NOT run; without them it MUST. Same count either way.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    graph = _mk_h3_graph(engine, *_t6_dense_frames())
+    if with_facts:
+        graph = graph.gfql_index_col_stats(engine=engine)
+
+    calls: List[str] = []
+    real = gfql_fast_paths_module._edge_cols_bounds_within
+
+    def spy(*args: Any, **kw: Any) -> Any:
+        calls.append("scan")
+        return real(*args, **kw)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_within", spy)
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
+    assert calls == ([] if with_facts else ["scan"])
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_col_stats_conservative_miss_falls_back_to_scan(
+    engine: str, monkeypatch: Any
+) -> None:
+    # A fact that CANNOT prove containment (full-frame endpoint outside the
+    # domain interval, carried by a row the rel filter drops) must fall back to
+    # the subset scan -- which proves the filtered subset IS contained -- and the
+    # kernel must SERVE with the right count. Facts insufficient != decline.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes_pd, edges_pd = _t6_dense_frames()
+    extra = pd.DataFrame({"s": [0], "d": [99], "rel": ["OTHER"]})
+    edges_wide = pd.concat([edges_pd, extra], ignore_index=True)
+    graph = _mk_h3_graph(engine, nodes_pd, edges_wide).gfql_index_col_stats(engine=engine)
+
+    calls: List[str] = []
+    real = gfql_fast_paths_module._edge_cols_bounds_within
+
+    def spy(*args: Any, **kw: Any) -> Any:
+        calls.append("scan")
+        return real(*args, **kw)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_within", spy)
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
+    assert calls == ["scan"], "insufficient facts must scan, not skip and not decline"
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("filtered", [False, True])
+def test_t6_col_stats_interval_hint_only_for_unfiltered_domain(
+    engine: str, filtered: bool, monkeypatch: Any
+) -> None:
+    # The node-side interval fact is EXACT-FRAME only: an unfiltered domain (== the
+    # bound node frame) may skip the interval scan; any filtered domain must scan
+    # (a fact about the full frame cannot prove a subset is dense). Count identical.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes_pd, edges_pd = _t6_dense_frames()
+    graph = _mk_h3_graph(engine, nodes_pd, edges_pd).gfql_index_col_stats(engine=engine)
+
+    calls: List[str] = []
+    real = gfql_fast_paths_module._dense_int_domain_interval
+
+    def spy(*args: Any, **kw: Any) -> Any:
+        calls.append("interval-scan")
+        return real(*args, **kw)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_dense_int_domain_interval", spy)
+    query = (_T6_DENSE_Q8_QUERY if filtered
+             else "MATCH (a)-[{rel:'FOLLOWS'}]->(b)-[{rel:'FOLLOWS'}]->(d) RETURN count(*) AS numPaths")
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 8}]
+    assert calls == (["interval-scan"] if filtered else [])
+
+
+def test_t6_col_stats_builder_declines_by_precondition_and_raises_on_real_errors(monkeypatch: Any) -> None:
+    # Type-safety contract: declines (None) come ONLY from explicit preconditions
+    # -- absent column, non-integer dtype, empty frame -- and a real error inside
+    # the reductions PROPAGATES (no blanket except may swallow it).
+    import numpy as np
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.build import build_col_stats_fact
+
+    ok = pd.DataFrame({"s": [1, 2, 3]})
+    assert build_col_stats_fact(ok, "nope", "edges", Engine.PANDAS) is None
+    assert build_col_stats_fact(pd.DataFrame({"s": ["a"]}), "s", "edges", Engine.PANDAS) is None
+    assert build_col_stats_fact(pd.DataFrame({"s": pd.Series([], dtype="int64")}), "s", "edges", Engine.PANDAS) is None
+
+    def _boom(self: Any, *a: Any, **kw: Any) -> Any:
+        raise RuntimeError("backend exploded")
+
+    monkeypatch.setattr(pd.Series, "min", _boom)
+    with pytest.raises(RuntimeError, match="backend exploded"):
+        build_col_stats_fact(pd.DataFrame({"s": np.array([1, 2, 3], dtype="int64")}), "s", "edges", Engine.PANDAS)
+
+
+def test_t6_col_stats_null_bearing_int_fact_exists_but_routes_to_scan(monkeypatch: Any) -> None:
+    # BOTH SIDES of the null gate: a nullable-int column with nulls still gets a
+    # fact (null_count recorded, min/max omitted -- no int(NA) games), and the
+    # kernel must treat it as insufficient: scan runs, count right.
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.build import build_col_stats_fact
+
+    nodes_pd, edges_pd = _t6_dense_frames()
+    edges_null = edges_pd.copy()
+    edges_null["s"] = edges_null["s"].astype("Int64")
+    fact = build_col_stats_fact(edges_null, "s", "edges", Engine.PANDAS)
+    assert fact is not None and fact.null_count == 0 and fact.min_val == 0
+
+    edges_null.loc[0, "s"] = pd.NA
+    fact_null = build_col_stats_fact(edges_null, "s", "edges", Engine.PANDAS)
+    assert fact_null is not None
+    assert fact_null.null_count == 1
+    assert fact_null.min_val is None and fact_null.max_val is None
+    assert not gfql_fast_paths_module._facts_prove_bounds((fact_null, fact_null), 0, 3)
+
+
+def test_t6_facts_prove_bounds_exact_boundary_matrix() -> None:
+    # The under-approximation's exact edges: boundary-equal values prove; one past
+    # either end, a null, a missing bound, or a non-integer fact must all return
+    # False (cost a scan, never an answer).
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.registry import ColStatsFact
+
+    def fact(**kw: Any) -> ColStatsFact:
+        base = dict(role="edges", column="s", min_val=0, max_val=3, null_count=0,
+                    is_integer=True, engine=Engine.PANDAS)
+        base.update(kw)
+        return ColStatsFact(**base)  # type: ignore[arg-type]
+
+    prove = gfql_fast_paths_module._facts_prove_bounds
+    good = fact()
+    assert prove((good, good), 0, 3) is True          # exactly on both boundaries
+    assert prove((fact(min_val=1, max_val=2), good), 0, 3) is True
+    assert prove((fact(min_val=-1), good), 0, 3) is False   # one below lo
+    assert prove((good, fact(max_val=4)), 0, 3) is False    # one above hi
+    assert prove((fact(null_count=1), good), 0, 3) is False
+    assert prove((fact(min_val=None), good), 0, 3) is False
+    assert prove((fact(is_integer=False), good), 0, 3) is False
+    assert prove(None, 0, 3) is False
+
+
+def test_t6_col_stats_explicit_request_raises_default_skips() -> None:
+    # Targeting contract: binding defaults skip unfactable columns silently; an
+    # EXPLICITLY named column that is absent or non-integer raises by name.
+    nodes = pd.DataFrame({"id": [0, 1], "name": ["a", "b"]})
+    edges = pd.DataFrame({"s": [0], "d": [1]})
+    g = _mk_graph(nodes, edges)
+    g2 = g.gfql_index_col_stats()  # defaults fine
+    assert ("nodes", "id", None, None) in g2._gfql_index_registry.col_stats
+    with pytest.raises(ValueError, match="'name'"):
+        g.gfql_index_col_stats(node_columns=["name"])  # explicit non-integer
+    with pytest.raises(ValueError, match="'ghost'"):
+        g.gfql_index_col_stats(edge_columns=["ghost"])  # explicit absent
+
+
+def test_t6_col_stats_interval_hint_refused_on_gapped_ids(monkeypatch: Any) -> None:
+    # n_unique mismatch (gapped ids): the hint must be refused and the interval
+    # scan must run -- which itself declines the dense lane; answer still right
+    # via the fallback path.
+    nodes_pd = pd.DataFrame({"id": [0, 1, 3]})  # gap at 2
+    edges_pd = pd.DataFrame({"s": [0, 1], "d": [1, 3], "rel": ["F", "F"]})
+    graph = _mk_graph(nodes_pd, edges_pd).gfql_index_col_stats()
+
+    calls: List[str] = []
+    real = gfql_fast_paths_module._dense_int_domain_interval
+
+    def spy(*args: Any, **kw: Any) -> Any:
+        calls.append("interval-scan")
+        return real(*args, **kw)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_dense_int_domain_interval", spy)
+    query = "MATCH (a)-[{rel:'F'}]->(b)-[{rel:'F'}]->(d) RETURN count(*) AS numPaths"
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine="pandas")
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 1}]
+    assert calls == ["interval-scan"], "gapped ids must refuse the hint and scan"
+
+
+def test_t6_col_stats_index_all_includes_facts() -> None:
+    graph = _mk_graph(*_t6_dense_frames())
+    g2 = graph.gfql_index_all()
+    assert ("edges", "s", None, None) in g2._gfql_index_registry.col_stats
+    assert ("nodes", "id", None, None) in g2._gfql_index_registry.col_stats
+
+
+def _t6_typed_frames() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """P ids 0-2 (dense), C ids 3-5. F-edges are P->P; the X-edges reach C, so the
+    WHOLE-FRAME endpoint facts span [0,5] and cannot prove containment in [0,2]."""
+    nodes = pd.DataFrame({"id": list(range(6)), "kind": ["P"] * 3 + ["C"] * 3})
+    edges = pd.DataFrame({"s": [0, 1, 2, 0, 0], "d": [1, 2, 0, 3, 4],
+                          "rel": ["F", "F", "F", "X", "X"]})
+    return nodes, edges
+
+
+_T6_TYPED_QUERY = ("MATCH (a {kind:'P'})-[{rel:'F'}]->(b {kind:'P'})-[{rel:'F'}]->(c {kind:'P'}) "
+                   "RETURN count(*) AS numPaths")
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+@pytest.mark.parametrize("facts,expect_proved,expect_hint", [
+    ("none", False, None),
+    ("whole_frame", False, None),
+    ("per_type", True, (0, 2)),
+])
+def test_t6_per_type_facts_prove_typed_bounds_whole_frame_cannot(
+    facts: str, expect_proved: bool, expect_hint: Optional[Tuple[int, int]],
+    engine: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both sides of the typed gate. A typed pattern filters the domain, so a
+    whole-frame fact describes the wrong set (every label at once) and proves
+    nothing -- the scan runs. Partition facts describe exactly the matched label,
+    so the hint appears and the O(E) endpoint scan is skipped. The ANSWER is the
+    same in every arm: facts only ever buy a skipped scan."""
+    nodes, edges = _t6_typed_frames()
+    base = _mk_h3_graph(engine, nodes, edges)
+    graph = {
+        "none": base,
+        "whole_frame": base.gfql_index_col_stats(engine=engine),
+        "per_type": base.gfql_index_col_stats(
+            node_type_column="kind", edge_type_column="rel", engine=engine),
+    }[facts]
+
+    proofs: List[bool] = []
+    hints: List[Optional[Tuple[int, int]]] = []
+    real_proof = gfql_fast_paths_module._facts_prove_bounds
+    real_hint = gfql_fast_paths_module._dense_interval_from_fact
+
+    def spy_proof(*args: Any, **kw: Any) -> Any:
+        out = real_proof(*args, **kw)
+        proofs.append(out)
+        return out
+
+    def spy_hint(*args: Any, **kw: Any) -> Any:
+        out = real_hint(*args, **kw)
+        hints.append(out)
+        return out
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_facts_prove_bounds", spy_proof)
+    monkeypatch.setattr(gfql_fast_paths_module, "_dense_interval_from_fact", spy_hint)
+    compiled = cast(CompiledCypherQuery, compile_cypher(_T6_TYPED_QUERY))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 3}]
+    assert any(proofs) is expect_proved
+    assert (hints[-1] if hints else None) == expect_hint
+
+
+@pytest.mark.parametrize("match,expected", [
+    ({"kind": "P"}, ("kind", "P")),
+    ({"kind": 3}, ("kind", 3)),
+    ({}, None),
+    (None, None),
+    ({"kind": "P", "other": 1}, None),   # more than the one equality
+    ({"kind": True}, ("kind", True)),    # the label__X form is a real type key
+    ({"kind": 1.5}, None),               # non-scalar-equality value
+])
+def test_t6_partition_key_admits_exactly_one_scalar_equality(
+    match: Optional[Dict[str, Any]], expected: Optional[Tuple[str, Any]]
+) -> None:
+    """The partition gate must admit ONLY a lone scalar equality: a further-filtered
+    domain is no longer the partition, so its ids need not still be dense."""
+    assert gfql_fast_paths_module._partition_key_from_match(match) == expected
+
+
+def test_t6_per_type_extra_predicate_refuses_the_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Negative twin of the typed hint: an extra predicate on the domain makes it a
+    strict subset of the partition, so the dense-interval claim no longer holds and
+    the hint must be refused -- with the answer still correct."""
+    nodes, edges = _t6_typed_frames()
+    nodes = nodes.assign(vip=[True, False, True, False, False, False])
+    graph = _mk_graph(nodes, edges).gfql_index_col_stats(
+        node_type_column="kind", edge_type_column="rel")
+
+    hints: List[Optional[Tuple[int, int]]] = []
+    real_hint = gfql_fast_paths_module._dense_interval_from_fact
+    monkeypatch.setattr(
+        gfql_fast_paths_module, "_dense_interval_from_fact",
+        lambda *a, **k: (lambda out: (hints.append(out), out)[1])(real_hint(*a, **k)))
+    query = ("MATCH (a {kind:'P', vip:true})-[{rel:'F'}]->(b {kind:'P', vip:true})"
+             "-[{rel:'F'}]->(c {kind:'P', vip:true}) RETURN count(*) AS numPaths")
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine="pandas")
+
+    if result is not None:  # the shape may decline earlier; the refusal is what matters
+        assert hints == [] or all(h is None for h in hints)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
+def test_t6_per_type_facts_engage_for_cypher_label_syntax(
+    engine: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Idiomatic Cypher labels must reach the typed path, not just property maps.
+
+    ``(a:Person)`` lowers to the BOOLEAN ``{"label__Person": True}`` and
+    ``-[:FOLLOWS]->`` to ``{"type": "FOLLOWS"}``. An earlier gate rejected bools,
+    which silently confined per-type facts to explicit property maps and excluded
+    the more common label form -- with no test noticing, because the other typed
+    fixtures all use property maps."""
+    nodes = pd.DataFrame({"id": list(range(6)),
+                          "label__Person": [True] * 3 + [False] * 3,
+                          "label__City": [False] * 3 + [True] * 3})
+    edges = pd.DataFrame({"s": [0, 1, 2, 0, 0], "d": [1, 2, 0, 3, 4],
+                          "type": ["FOLLOWS", "FOLLOWS", "FOLLOWS", "LIVES_IN", "LIVES_IN"]})
+    graph = _mk_h3_graph(engine, nodes, edges).gfql_index_col_stats(
+        node_type_column="label__Person", edge_type_column="type", engine=engine)
+
+    hints: List[Optional[Tuple[int, int]]] = []
+    real_hint = gfql_fast_paths_module._dense_interval_from_fact
+    monkeypatch.setattr(
+        gfql_fast_paths_module, "_dense_interval_from_fact",
+        lambda *a, **k: (lambda out: (hints.append(out), out)[1])(real_hint(*a, **k)))
+    query = ("MATCH (a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(c:Person) "
+             "RETURN count(*) AS numPaths")
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
+
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 3}]
+    assert hints[-1] == (0, 2), "the boolean label partition must yield the dense hint"
+
+
+def test_t6_partition_key_admits_the_boolean_label_form() -> None:
+    """Unit twin of the above: both lowered typed forms are admitted, and the
+    one-equality rule still rejects a label combined with anything else."""
+    assert gfql_fast_paths_module._partition_key_from_match(
+        {"label__Person": True}) == ("label__Person", True)
+    assert gfql_fast_paths_module._partition_key_from_match(
+        {"type": "FOLLOWS"}) == ("type", "FOLLOWS")
+    assert gfql_fast_paths_module._partition_key_from_match(
+        {"label__Person": True, "age": 30}) is None
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_per_type_declines_list_valued_type_column(engine: str) -> None:
+    """A LIST-valued type column must DECLINE on every engine, identically.
+
+    GFQL rewrites an absent ``label__X`` into a membership test on a ``labels``
+    list column (``resolve_filter_column``), so a list type column is reachable.
+    It is not equality-addressable -- a query never yields a list-valued
+    partition key -- and the engines disagree natively: pandas raises
+    ``unhashable type: 'list'`` on the groupby while polars groups by list and
+    builds unusable facts. Both must decline by explicit precondition instead."""
+    from graphistry.compute.gfql.index.build import build_col_stats_facts_by_type
+
+    nodes = pd.DataFrame({"id": [0, 1, 2],
+                          "labels": [["Person"], ["Person", "Employee"], ["City"]]})
+    frame = _mk_h3_graph(engine, nodes, pd.DataFrame({"s": [0], "d": [1]}))._nodes
+    eng = Engine.POLARS if engine == "polars" else Engine.PANDAS
+    assert build_col_stats_facts_by_type(frame, ["id"], "nodes", "labels", eng) == []
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_per_type_scalar_type_column_still_builds(engine: str) -> None:
+    """Positive twin: the list decline must not have caught ordinary string keys."""
+    from graphistry.compute.gfql.index.build import build_col_stats_facts_by_type
+
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3], "kind": ["P", "P", "C", "C"]})
+    frame = _mk_h3_graph(engine, nodes, pd.DataFrame({"s": [0], "d": [1]}))._nodes
+    eng = Engine.POLARS if engine == "polars" else Engine.PANDAS
+    facts = build_col_stats_facts_by_type(frame, ["id"], "nodes", "kind", eng)
+    assert sorted((f.type_value, f.min_val, f.max_val) for f in facts) == [
+        ("C", 2, 3), ("P", 0, 1)]
+
+
+def _t6_label_frames() -> Tuple[pd.DataFrame, pd.DataFrame]:
+    nodes = pd.DataFrame({"id": list(range(6)),
+                          "label__Person": [True] * 3 + [False] * 3,
+                          "label__City": [False] * 3 + [True] * 3})
+    edges = pd.DataFrame({"s": [0, 1, 2, 0, 0], "d": [1, 2, 0, 3, 4],
+                          "type": ["FOLLOWS"] * 3 + ["LIVES_IN"] * 2})
+    return nodes, edges
+
+
+def _t6_schema() -> Any:
+    from graphistry.schema import EdgeType, GraphSchema, NodeType
+    return GraphSchema(
+        node_types=[NodeType("Person"), NodeType("City")],
+        edge_types=[EdgeType("FOLLOWS", source="Person", destination="Person"),
+                    EdgeType("LIVES_IN", source="Person", destination="City")])
+
+
+def test_t6_declared_schema_builds_partition_facts_and_engages() -> None:
+    """A DECLARED schema names its own type partitions, so using it is not a
+    guess. Binding one must build the label__X / type partitions and let a typed
+    query reach the dense hint -- with no type column named by the caller."""
+    nodes, edges = _t6_label_frames()
+    graph = _mk_graph(nodes, edges).bind(schema=_t6_schema()).gfql_index_col_stats(
+        col_stats_by_type=True)
+
+    keys = {k for k in graph._gfql_index_registry.col_stats if k[2] is not None}
+    assert ("nodes", "id", "label__Person", True) in keys
+    assert ("edges", "s", "type", "FOLLOWS") in keys
+
+    query = ("MATCH (a:Person)-[:FOLLOWS]->(b:Person)-[:FOLLOWS]->(c:Person) "
+             "RETURN count(*) AS numPaths")
+    compiled = cast(CompiledCypherQuery, compile_cypher(query))
+    result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine="pandas")
+    assert result is not None
+    assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 3}]
+
+
+def test_t6_no_schema_builds_no_partition_facts() -> None:
+    """Negative twin: without a declared schema NOTHING is inferred, so callers
+    who never opted in pay no extra build. Zero behavior change is the point."""
+    nodes, edges = _t6_label_frames()
+    graph = _mk_graph(nodes, edges).gfql_index_col_stats()
+    assert [k for k in graph._gfql_index_registry.col_stats if k[2] is not None] == []
+
+
+def test_t6_schema_skips_labels_absent_from_the_frame() -> None:
+    """A schema declares a contract for the whole graph; a frame legitimately
+    carries only part of it. Absent derived candidates SKIP (unlike a column
+    named by the caller, which raises)."""
+    from graphistry.schema import GraphSchema, NodeType
+    nodes, edges = _t6_label_frames()
+    schema = GraphSchema(node_types=[NodeType("Person"), NodeType("Ghost")])
+    graph = _mk_graph(nodes, edges).bind(schema=schema).gfql_index_col_stats(
+        col_stats_by_type=True)
+    keys = {k[2] for k in graph._gfql_index_registry.col_stats if k[2] is not None}
+    assert "label__Person" in keys and "label__Ghost" not in keys
+
+
+def test_t6_partition_value_bool_int_key_identity_is_deliberate() -> None:
+    """``PartitionValue`` admits bool without a separate union member, because
+    Python types bool as a subtype of int. The consequence is load-bearing and
+    pinned here rather than left accidental: ``True == 1`` and they hash alike,
+    so a bool-keyed and an int-keyed partition of the SAME column are the SAME
+    registry key. Unreachable in practice (a column is bool- or int-dtyped, not
+    both) and harmless where reachable (``flag == 1`` on a bool column does
+    select the True rows) -- but it must not change silently."""
+    from graphistry.compute.gfql.index.registry import ColStatsFact, GfqlIndexRegistry
+
+    frame = pd.DataFrame({"id": [0, 1], "flag": [True, False]})
+    fact = ColStatsFact(role="nodes", column="id", min_val=0, max_val=0, null_count=0,
+                        is_integer=True, engine=Engine.PANDAS, n_unique=1,
+                        type_column="flag", type_value=True,
+                        fingerprint=(-1, (), ""), source_ref=None)
+    registry = GfqlIndexRegistry().with_col_stats(fact)
+    assert ("nodes", "id", "flag", True) in registry.col_stats
+    assert ("nodes", "id", "flag", 1) in registry.col_stats  # same key by identity
+    assert len(registry.col_stats) == 1
+    assert frame is not None  # frame kept for shape documentation only
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_per_type_multi_column_single_pass_matches_per_column(engine: str) -> None:
+    """The edge role aggregates BOTH endpoints in one grouped pass. That must give
+    exactly what two separate single-column passes gave -- the optimization is a
+    cost change, never a value change."""
+    from graphistry.compute.gfql.index.build import build_col_stats_facts_by_type
+
+    edges = pd.DataFrame({"s": [0, 1, 2, 0], "d": [1, 2, 0, 3],
+                          "rel": ["F", "F", "F", "X"]})
+    frame = _mk_h3_graph(engine, pd.DataFrame({"id": [0, 1, 2, 3]}), edges)._edges
+    eng = Engine.POLARS if engine == "polars" else Engine.PANDAS
+
+    together = build_col_stats_facts_by_type(frame, ["s", "d"], "edges", "rel", eng)
+    apart = (build_col_stats_facts_by_type(frame, ["s"], "edges", "rel", eng)
+             + build_col_stats_facts_by_type(frame, ["d"], "edges", "rel", eng))
+    key = lambda f: (f.column, str(f.type_value), f.min_val, f.max_val)  # noqa: E731
+    assert sorted(map(key, together)) == sorted(map(key, apart))
+    assert len(together) == 4  # 2 columns x 2 relationship types
+
+
+def test_t6_per_type_multi_column_decline_is_all_or_nothing() -> None:
+    """If ANY requested column is unusable the whole request declines, so a
+    caller can never receive a partial answer and read it as complete."""
+    from graphistry.compute.gfql.index.build import build_col_stats_facts_by_type
+
+    edges = pd.DataFrame({"s": [0, 1], "d": [1.5, 2.5], "rel": ["F", "F"]})  # d is float
+    assert build_col_stats_facts_by_type(edges, ["s", "d"], "edges", "rel", Engine.PANDAS) == []
+    assert len(build_col_stats_facts_by_type(edges, ["s"], "edges", "rel", Engine.PANDAS)) == 1
+
+
+def test_t6_schema_partition_facts_are_opt_in() -> None:
+    """Per-type facts from a declared schema are NOT free (~+30% index build), so
+    a bound schema alone must not trigger them -- the caller opts in. Explicit
+    type-column requests are unaffected by the flag."""
+    from graphistry.schema import EdgeType, GraphSchema, NodeType
+    nodes, edges = _t6_label_frames()
+    schema = GraphSchema(node_types=[NodeType("Person")],
+                         edge_types=[EdgeType("FOLLOWS", source="Person", destination="Person")])
+    base = _mk_graph(nodes, edges).bind(schema=schema)
+
+    def partitions(g: Any) -> int:
+        return len([k for k in g._gfql_index_registry.col_stats if k[2] is not None])
+
+    assert partitions(base.gfql_index_col_stats()) == 0                       # default off
+    assert partitions(base.gfql_index_all()) == 0                             # default off
+    assert partitions(base.gfql_index_col_stats(col_stats_by_type=True)) > 0  # opted in
+    assert partitions(base.gfql_index_all(col_stats_by_type=True)) > 0        # opted in
+    assert partitions(base.gfql_index_col_stats(node_type_column="label__Person")) > 0
+    # whole-frame facts are unaffected in every case
+    assert len([k for k in base.gfql_index_col_stats()._gfql_index_registry.col_stats
+                if k[2] is None]) == 3
+
+
+def test_t6_col_stats_by_type_raises_when_it_can_satisfy_nothing() -> None:
+    """``col_stats_by_type=True`` is an EXPLICIT request, so satisfying none of it
+    raises rather than no-oping -- the same contract as naming a type column by
+    hand. The two reasons are distinguished, because the fixes differ."""
+    from graphistry.schema import GraphSchema, NodeType
+    nodes, edges = _t6_label_frames()
+    base = _mk_graph(nodes, edges)
+
+    with pytest.raises(ValueError, match="no schema is bound"):
+        base.gfql_index_col_stats(col_stats_by_type=True)
+    with pytest.raises(ValueError, match="declares no node label or edge type column"):
+        base.bind(schema=GraphSchema(node_types=[NodeType("Ghost")])).gfql_index_col_stats(
+            col_stats_by_type=True)
+
+    # and the flag OFF stays a silent no-op, which is the default path
+    assert [k for k in base.gfql_index_col_stats()._gfql_index_registry.col_stats
+            if k[2] is not None] == []
+
+
+def _col_stats_trace(g: Any, query: str) -> List[Tuple[str, str, str]]:
+    from graphistry.compute.gfql.index.api import index_trace
+    with index_trace() as steps:
+        g.gfql(query, engine="pandas")
+    return [(s["role"], s["column"], s["decision_code"])
+            for s in steps if s.get("op") == "col_stats"]
+
+
+def test_t6_col_stats_decisions_are_visible_in_the_trace() -> None:
+    """A dead fact is otherwise INVISIBLE: values stay correct, so no value test
+    can fail. The trace distinguishes outcomes because their fixes differ."""
+    from graphistry.tests.compute.gfql.engagement import assert_col_stats
+
+    nodes, edges = _t6_typed_frames()
+    base = _mk_graph(nodes, edges)
+
+    assert_col_stats(base, _T6_TYPED_QUERY, served=False,
+                     outcomes={"nodes.id": "absent", "edges.s": "absent"})
+    # whole-frame facts EXIST but cannot prove a typed claim -- the exact
+    # structural limitation per-type facts were added to fix
+    assert_col_stats(base.gfql_index_col_stats(), _T6_TYPED_QUERY, served=False,
+                     outcomes={"edges.s": "insufficient", "edges.d": "insufficient"})
+    assert_col_stats(
+        base.gfql_index_col_stats(node_type_column="kind", edge_type_column="rel"),
+        _T6_TYPED_QUERY, served=True,
+        outcomes={"nodes.id": "served", "edges.s": "served"})
+
+
+def test_t6_assert_col_stats_helper_fails_loudly() -> None:
+    """The helper must FAIL when the optimization did not fire -- an engagement
+    pin that cannot fail is worse than none, which is the whole failure mode
+    this surface exists to close."""
+    from graphistry.tests.compute.gfql.engagement import assert_col_stats
+
+    nodes, edges = _t6_typed_frames()
+    base = _mk_graph(nodes, edges)
+    with pytest.raises(AssertionError, match="expected every fact consult to be served"):
+        assert_col_stats(base, _T6_TYPED_QUERY, served=True)
+    with pytest.raises(AssertionError, match="expected col_stats_served"):
+        assert_col_stats(base, _T6_TYPED_QUERY, outcomes={"nodes.id": "served"})
+
+
+def test_t6_col_stats_trace_is_free_when_not_tracing() -> None:
+    """The recorder is gated by _trace_active(), so a normal query records
+    nothing -- the diagnostics must not become a hot-path cost."""
+    from graphistry.compute.gfql.index.api import _get_trace_steps
+    nodes, edges = _t6_typed_frames()
+    g = _mk_graph(nodes, edges).gfql_index_col_stats(
+        node_type_column="kind", edge_type_column="rel")
+    g.gfql(_T6_TYPED_QUERY, engine="pandas")
+    assert _get_trace_steps() is None
+
+
+def test_t6_per_type_request_raises_when_unusable() -> None:
+    """Per-type facts are asked for BY NAME, so an unusable request raises rather
+    than silently skipping (same contract as the explicit ``*_columns`` request)."""
+    nodes, edges = _t6_typed_frames()
+    graph = _mk_graph(nodes, edges)
+    with pytest.raises(ValueError, match="per-type col_stats"):
+        graph.gfql_index_col_stats(node_type_column="not_a_column")
+
+
 def test_t6_decline_keeps_memo_path_reachable() -> None:
     # The T5 memo graph has an out-of-domain FOLLOWS endpoint (a City), so the
     # dense kernel must DECLINE there and the memo must populate exactly as before
@@ -17446,7 +18535,7 @@ def test_t6b_dtype_matrix_nullable_int64_declines_and_reason_is_pinned() -> None
         nodes_ext, edges, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
     ) is None
     # Seam 2: bounds proof rejects extension endpoint columns.
-    assert _int_col_bounds_within(edges_ext, "s", 0, 3, engine=Engine.PANDAS) is False
+    assert _edge_cols_bounds_within(edges_ext, "s", "d", 0, 3, engine=Engine.PANDAS) is False
     assert _two_hop_equal_domain_dense_total(
         nodes, edges_ext, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
     ) is None
@@ -17464,7 +18553,7 @@ def test_t6b_dtype_matrix_float_ids_decline(engine: str) -> None:
     assert _two_hop_equal_domain_dense_total(
         dom_f, _edom_f, node_col="id", src_col="s", dst_col="d", engine=eng
     ) is None
-    assert _int_col_bounds_within(edom_f2, "s", 0, 3, engine=eng) is False
+    assert _edge_cols_bounds_within(edom_f2, "s", "d", 0, 3, engine=eng) is False
     assert _two_hop_equal_domain_dense_total(
         dom_i, edom_f2, node_col="id", src_col="s", dst_col="d", engine=eng
     ) is None
@@ -17873,17 +18962,43 @@ def test_h3_fused_two_hop_count_empty_match_counts_zero(engine: str, monkeypatch
 
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
-def test_h3_fused_two_hop_count_declines_reserved_count_column(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """NEGATIVE: an edge column already named like a degree counter is handed back to the eager
-    twin -- and the ANSWER is still right, so the decline can never hide a wrong result."""
+def test_h3_fused_two_hop_count_serves_projected_away_reserved_column(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A PAYLOAD edge column named like a degree counter no longer forces a decline:
+    the round-4 projection drops it before the fused lane looks, and a [src,dst]
+    frame structurally cannot collide with the internal counter names. The answer
+    must be identical to the eager twin's."""
     nodes, edges = _mk_h3_base_data()
     edges = edges.assign(__in_count__=1)
     graph = _mk_h3_graph(engine, nodes, edges)
 
+    monkeypatch.setattr(gfql_fast_paths_module, "_PROJECT_LAZY_MIN_ROWS", 0)  # narrowing engages above threshold; forced here
     calls = _probe_fused_two_hop(monkeypatch)
     result = graph.gfql(_H3_DISTINCT_DOMAIN_QUERY, engine=engine)
 
-    assert calls == [False], "reserved counter column must DECLINE, not serve"
+    assert calls == [True], "projected-away reserved column must not decline"
+    assert _h3_records(result) == [{"numPaths": 5}]
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+def test_h3_fused_two_hop_count_still_declines_reserved_endpoint_binding(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """NEGATIVE (the guard's remaining reachable side): when the SRC binding itself
+    is named like a degree counter, projection keeps it, the collision is real, and
+    the fused lane must still decline to the eager twin -- with the same answer."""
+    pl = pytest.importorskip("polars")
+    if engine == "polars-gpu":
+        _require_polars_gpu()
+    nodes, edges = _mk_h3_base_data()
+    edges = edges.rename(columns={"s": "__in_count__"})
+    graph = cast(
+        _CypherTestGraph,
+        _CypherTestGraph().nodes(pl.from_pandas(nodes), "id")
+        .edges(pl.from_pandas(edges), "__in_count__", "d"),
+    )
+
+    calls = _probe_fused_two_hop(monkeypatch)
+    result = graph.gfql(_H3_DISTINCT_DOMAIN_QUERY, engine=engine)
+
+    assert calls == [False], "reserved endpoint binding must DECLINE, not serve"
     assert _h3_records(result) == [{"numPaths": 5}]
 
 

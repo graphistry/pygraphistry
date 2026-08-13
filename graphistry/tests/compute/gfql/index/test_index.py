@@ -1446,21 +1446,27 @@ def test_auto_engine_gfql_serves_polars_index_1767_cliff():
     assert out._nodes["destination"].to_list() == [101, 102]
 
 
-def test_auto_engine_hop_residual_still_scans_1767():
-    """Documented residual (#1743 scope boundary, executable): direct g.hop() with no
-    engine on the same polars-frame graph still resolves AUTO to pandas, so the
-    resident polars index declines with an engine mismatch and the hop scans."""
+def test_auto_engine_hop_agreed_gates_never_mismatch_1767():
+    """Direct g.hop() with no engine on a polars-frame indexed graph: modern AUTO
+    serves natively in polars (bridge-to-pandas was the 1767-era accident), and
+    with build/query gates agreed the engine_mismatch decline CANNOT occur --
+    every trace decision is an honest cost/coverage code on the agreed engine.
+    Whether the index serves or scans on any given fixture is the cost gate's
+    call, deliberately not pinned here."""
     from graphistry.compute.gfql.index import index_trace
 
     gi = _polars_indexed_graph()
     seeds = pd.DataFrame({"id": [1]})
     with index_trace() as steps:
         out = gi.hop(nodes=seeds, hops=1, direction="forward")  # no engine argument
-    assert "pandas" in type(out._nodes).__module__, "hop AUTO still bridges to pandas"
-    assert not any(s.get("path") == "index" for s in steps), steps
-    mismatch = [s for s in steps if s.get("decision_code") == "engine_mismatch"]
-    assert mismatch, ("expected an engine_mismatch decline", steps)
-    assert "requested engine=pandas" in mismatch[-1]["decision_reason"], steps
+    assert "polars" in type(out._nodes).__module__, (
+        "modern AUTO serves hop natively on polars frames")
+    assert steps, "expected trace decisions"
+    for st in steps:
+        assert st.get("decision_code") != "engine_mismatch", steps
+        assert st.get("engine") == "polars", steps
+
+
 class TestShowIndexesEngineUsability:
     """#1767 disposition: ``show_indexes`` must stop reporting an index as fine when
     the resolved query engine cannot use it. ``valid`` stays fingerprint-only (BC);
@@ -1475,16 +1481,27 @@ class TestShowIndexesEngineUsability:
         assert bool(row["usable"]) is True
         assert row["reason"] is None
 
-    def test_polars_index_auto_query_not_usable(self, graph):
-        """The disposition's silent cliff: polars-built index, AUTO query resolves
-        pandas -> fingerprint-fresh but engine-unusable, with the explain wording."""
+    def test_polars_index_auto_query_usable_the_1841_flip(self, graph):
+        """THE #1841 FLIP: this exact cell pinned ``usable=False`` on master ("polars
+        index, AUTO resolves pandas -> engine-unusable"). With #1743's AUTO routing
+        underneath (all-polars-frame graphs run the native polars engine) and the
+        index layer's matching AUTO resolution, the truthful answer for an AUTO
+        query against a polars index on polars frames is now: it SERVES."""
         pytest.importorskip("polars")
         gi = graph.create_index("edge_out_adj", engine="polars")
-        row = gi.show_indexes().iloc[0]  # AUTO: polars frames resolve to pandas queries
-        assert bool(row["valid"]) is True  # fingerprint is fresh — that was never the bug
-        assert row["query_engine"] == "pandas"
-        assert bool(row["usable"]) is False
-        assert row["reason"] == (
+        row = gi.show_indexes().iloc[0]  # AUTO: polars frames now resolve polars
+        assert bool(row["valid"]) is True
+        assert row["query_engine"] == "polars"
+        assert bool(row["usable"]) is True
+        assert row["reason"] is None
+        # The mismatch diagnostic itself is alive and unchanged: previewing an
+        # explicit pandas query against the same polars index still says not-usable,
+        # with the #1838 wording.
+        row_pd = gi.show_indexes(engine="pandas").iloc[0]
+        assert bool(row_pd["valid"]) is True
+        assert row_pd["query_engine"] == "pandas"
+        assert bool(row_pd["usable"]) is False
+        assert row_pd["reason"] == (
             "resident edge_out_adj index engine=polars, requested engine=pandas -> scan"
         )
 
@@ -1542,7 +1559,16 @@ class TestShowIndexesEngineUsability:
         pytest.importorskip("polars")
         gi = graph.gfql_index_all(engine="polars")
         gi = gi.create_index("node_prop", column="lab", engine="polars")
-        si = gi.show_indexes()  # AUTO -> pandas
+        # AUTO now resolves polars on the coerced-polars frames (#1743 alignment):
+        # every kind is usable with no reason.
+        si_auto = gi.show_indexes()
+        assert set(si_auto["kind"]) == {"edge_out_adj", "edge_in_adj", "node_id", "node_prop"}
+        assert si_auto["valid"].all()
+        assert si_auto["usable"].all()
+        assert si_auto["reason"].isna().all()
+        # The per-row mismatch reason still fires per kind under an explicit
+        # mismatched engine preview.
+        si = gi.show_indexes(engine="pandas")
         assert set(si["kind"]) == {"edge_out_adj", "edge_in_adj", "node_id", "node_prop"}
         assert si["valid"].all()
         assert not si["usable"].any()
@@ -1555,11 +1581,19 @@ class TestShowIndexesEngineUsability:
     def test_show_indexes_ddl_surface_respects_engine(self, graph):
         pytest.importorskip("polars")
         gi = graph.create_index("edge_out_adj", engine="polars")
+        # AUTO through the DDL surface also reports the routed truth now (#1743
+        # alignment): this asserted usable=False before the index-AUTO rework.
         si_auto = gi.gfql("SHOW GFQL INDEXES")
-        assert bool(si_auto.iloc[0]["usable"]) is False
+        assert si_auto.iloc[0]["query_engine"] == "polars"
+        assert bool(si_auto.iloc[0]["usable"]) is True
         si_pl = gi.gfql("SHOW GFQL INDEXES", engine="polars")
         assert bool(si_pl.iloc[0]["usable"]) is True
         assert si_pl.iloc[0]["reason"] is None
+        si_pd = gi.gfql("SHOW GFQL INDEXES", engine="pandas")
+        assert bool(si_pd.iloc[0]["usable"]) is False
+        assert si_pd.iloc[0]["reason"] == (
+            "resident edge_out_adj index engine=polars, requested engine=pandas -> scan"
+        )
 
     def test_cudf_index_pandas_query_not_usable(self, graph):
         pytest.importorskip("cudf")
@@ -1573,3 +1607,229 @@ class TestShowIndexesEngineUsability:
         row_auto = gi.show_indexes().iloc[0]  # AUTO on cudf frames resolves cudf
         assert row_auto["query_engine"] == "cudf"
         assert bool(row_auto["usable"]) is True
+
+
+class TestIndexAutoPreservesPolarsFrames:
+    """Rework of #1767, stacked on #1743's AUTO routing.
+
+    ``gfql_index_all(engine='auto')`` on a polars graph must index in place, NOT
+    coerce-and-replace the frames with pandas: the legacy AUTO mapping made
+    create_index swap the frames, so every later polars hop paid a full-frame
+    conversion per call while the pandas-engine index could never
+    fingerprint-match. A 2026-07 revision was retracted because the query-side
+    AUTO routing was not underneath it, regressing the default path to the scan
+    floor (#1767 thread; magnitudes receipted in pyg-bench).
+    ``test_inversion_auto_index_auto_gfql_serves_polars_index`` pins that exact
+    scenario inverted into the win."""
+
+    def _pl_graph(self):
+        pl = pytest.importorskip("polars")
+        ndf = pl.DataFrame({"id": [0, 1, 2, 3], "type": ["a", "b", "a", "b"]})
+        edf = pl.DataFrame({"src": [0, 1, 2], "dst": [1, 2, 3]})
+        return graphistry.nodes(ndf, "id").edges(edf, "src", "dst")
+
+    def test_auto_keeps_polars_frames_and_polars_index(self):
+        from graphistry.Engine import Engine
+        g = self._pl_graph()
+        gi = g.gfql_index_all()  # AUTO
+        assert "polars" in type(gi._nodes).__module__
+        assert "polars" in type(gi._edges).__module__
+        # frames indexed in place: identity preserved so get_valid's `is` check holds
+        assert gi._edges is g._edges
+        from graphistry.compute.gfql.index import show_indexes
+        idx = show_indexes(gi)
+        assert set(idx["engine"]) == {Engine.POLARS.value}
+        assert idx["valid"].all()
+
+    def test_col_stats_auto_keeps_polars_frames_too(self):
+        """gfql_index_col_stats is its own public entry point onto the same AUTO
+        gate; when it used plain resolve_engine it silently un-preserved the
+        frames as the LAST step of gfql_index_all."""
+        g = self._pl_graph()
+        gi = g.gfql_index_col_stats()  # AUTO, no engine argument
+        assert "polars" in type(gi._nodes).__module__
+        assert gi._edges is g._edges
+
+    def test_col_stats_auto_narrows_lazy_frames(self):
+        """The discriminating arm: plain resolve_engine resolves LazyFrame
+        graphs to POLARS, and a col-stats build cannot gather rows from a lazy
+        plan -- it crashes. The index gate must narrow instead, so the same call
+        ANSWERS (any engine, no raise)."""
+        pytest.importorskip("polars")
+        g = self._pl_graph()
+        gl = graphistry.nodes(g._nodes.lazy(), "id").edges(g._edges.lazy(), "src", "dst")
+        gi = gl.gfql_index_col_stats()  # AUTO on lazy frames must not crash
+        assert gi is not None
+
+    def test_inversion_auto_index_auto_gfql_serves_polars_index(self):
+        """THE INVERSION PIN. The exact scenario the retracted #1767 regressed
+        to the scan floor: ``gfql_index_all()`` with NO engine + ``g.gfql(<index-
+        served query>)`` with NO engine. Old world: AUTO built a polars index,
+        AUTO query resolved pandas, ``get_valid`` declined on engine AND frame
+        identity, every hop paid the O(E) scan. With #1743's routing underneath,
+        the same two default-spelling calls stay on the resident polars index:
+        path=index, engine=polars, per ``index_trace()``."""
+        pl = pytest.importorskip("polars")
+        from graphistry.compute.gfql.index import index_trace
+
+        nodes = pd.DataFrame({
+            "id": np.arange(1, 13, dtype=np.int64),
+            "public": np.arange(100, 112, dtype=np.int64),
+        })
+        edges = pd.DataFrame({
+            "src": [1, 1, 1, 2, 2, 3, 4, 5, 6, 8],
+            "dst": [2, 2, 3, 4, 5, 5, 6, 6, 7, 1],
+            "type": ["A", "A", "A", "B", "B", "B", "C", "C", "D", "REV"],
+        })
+        g = graphistry.nodes(pl.from_pandas(nodes), "id").edges(
+            pl.from_pandas(edges), "src", "dst"
+        )
+        gi = g.gfql_index_all()  # NO engine argument: AUTO
+        q = ("MATCH (source {public:100})-[:A]->(destination) "
+             "RETURN destination.public AS destination ORDER BY destination")
+        with index_trace() as steps:
+            out = gi.gfql(q)  # NO engine argument: AUTO
+        assert "polars" in type(out._nodes).__module__, "AUTO must answer in polars frames"
+        served = [s for s in steps if s.get("served") is True]
+        assert served, ("no index-served step; the AUTO index/AUTO query pair "
+                        "fell back to the scan — the retracted-#1767 cliff", steps)
+        for s in served:
+            assert s.get("path") == "index", steps
+            assert s.get("engine") == "polars", steps
+        assert out._nodes["destination"].to_list() == [101, 102]
+        # value parity vs BOTH explicit-engine spellings of the same query
+        gi_pl = g.gfql_index_all(engine="polars")
+        out_pl = gi_pl.gfql(q, engine="polars")
+        assert out._nodes["destination"].to_list() == out_pl._nodes["destination"].to_list()
+        g_pd = graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+        gi_pd = g_pd.gfql_index_all(engine="pandas")
+        out_pd = gi_pd.gfql(q, engine="pandas")
+        assert out._nodes["destination"].to_list() == out_pd._nodes["destination"].tolist()
+
+    def test_auto_built_index_reports_usable_under_auto(self):
+        """The #1841 flip on the ALL-DEFAULT spelling: an AUTO-built index on a
+        polars graph reports usable=True under AUTO resolution (it used to be the
+        not-usable combination show_indexes was taught to call out)."""
+        pytest.importorskip("polars")
+        from graphistry.compute.gfql.index import show_indexes
+        gi = self._pl_graph().gfql_index_all()  # AUTO build
+        si = show_indexes(gi)  # AUTO resolution
+        assert len(si) > 0
+        assert set(si["query_engine"]) == {"polars"}
+        assert si["valid"].all()
+        assert si["usable"].all()
+        assert si["reason"].isna().all()
+
+    def test_auto_polars_hop_engages_index(self, monkeypatch):
+        # big enough that one seed passes the frontier-fraction cost gate
+        pl = pytest.importorskip("polars")
+        import graphistry.compute.gfql.index.api as index_api
+        rng = np.random.default_rng(0)
+        n_nodes, m = 2000, 12000
+        ndf = pl.DataFrame({"id": np.arange(n_nodes)})
+        edf = pl.DataFrame({"src": rng.integers(0, n_nodes, m), "dst": rng.integers(0, n_nodes, m)})
+        g = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all()
+        hits = []
+        orig = index_api.index_seeded_hop
+
+        def spy(*a, **k):
+            out = orig(*a, **k)
+            hits.append(out is not None)  # None = scan fallback; only a real serve counts
+            return out
+        monkeypatch.setattr(index_api, "index_seeded_hop", spy)
+        r = g.hop(nodes=pl.DataFrame({"id": [7]}), hops=1, direction="forward", engine="polars")
+        assert any(hits), "resident polars index did not SERVE the polars hop (call alone is not service)"
+        # parity vs the pandas indexed oracle on the same data
+        gp = graphistry.nodes(ndf.to_pandas(), "id").edges(edf.to_pandas(), "src", "dst").gfql_index_all()
+        rp = gp.hop(nodes=pd.DataFrame({"id": [7]}), hops=1, direction="forward", engine="pandas")
+        assert sorted(r._nodes.get_column("id").to_list()) == sorted(rp._nodes["id"].tolist())
+
+    def test_explicit_engine_still_coerces(self):
+        g = self._pl_graph()
+        gi = g.gfql_index_all(engine="pandas")
+        assert isinstance(gi._edges, pd.DataFrame)
+        from graphistry.compute.gfql.index import show_indexes
+        assert set(show_indexes(gi)["engine"]) == {"pandas"}
+
+    def test_edges_only_polars_keeps_legacy_pandas_path(self):
+        # nodes=None stays legacy: create_index('node_id')'s materialize_nodes()
+        # cannot yet produce polars nodes from polars edges (pre-existing gap), so
+        # AUTO must not guess polars into a crash. Post-build frames are pandas, so
+        # later AUTO queries route pandas and the index still serves (consistent).
+        pl = pytest.importorskip("polars")
+        g = graphistry.edges(
+            pl.DataFrame({"src": [0, 1, 2], "dst": [1, 2, 3]}), "src", "dst"
+        )
+        gi = g.gfql_index_all()
+        assert isinstance(gi._nodes, pd.DataFrame)
+        assert isinstance(gi._edges, pd.DataFrame)
+        from graphistry.compute.gfql.index import show_indexes
+        assert set(show_indexes(gi)["engine"]) == {"pandas"}
+
+    def test_nodes_only_polars_keeps_legacy_pandas_path(self):
+        pl = pytest.importorskip("polars")
+        gi = (
+            graphistry.nodes(pl.DataFrame({"id": [0, 1, 2]}), "id")
+            .create_index("node_id")
+        )
+        assert isinstance(gi._nodes, pd.DataFrame)
+        from graphistry.compute.gfql.index import show_indexes
+        assert set(show_indexes(gi)["engine"]) == {"pandas"}
+
+    def test_lazyframe_auto_keeps_legacy_pandas_path(self):
+        # M1 pin: LazyFrame frames under AUTO must coerce to pandas like master
+        # (the eager-polars-only gate), never crash in a polars index build.
+        pl = pytest.importorskip("polars")
+        g = graphistry.nodes(pl.LazyFrame({"id": [0, 1, 2]}), "id").edges(
+            pl.LazyFrame({"src": [0, 1], "dst": [1, 2]}), "src", "dst")
+        gi = g.gfql_index_all()
+        from graphistry.compute.gfql.index import show_indexes
+        assert set(show_indexes(gi)["engine"]) == {"pandas"}
+
+    def test_pandas_auto_stays_pandas(self):
+        ndf = pd.DataFrame({"id": [0, 1, 2]})
+        edf = pd.DataFrame({"src": [0, 1], "dst": [1, 2]})
+        gi = (
+            graphistry.nodes(ndf, "id")
+            .edges(edf, "src", "dst")
+            .gfql_index_all()
+        )
+        assert isinstance(gi._nodes, pd.DataFrame)
+        assert isinstance(gi._edges, pd.DataFrame)
+        from graphistry.compute.gfql.index import show_indexes
+        si = show_indexes(gi)
+        assert set(si["engine"]) == {"pandas"}
+        assert si["usable"].all()  # pandas graphs: AUTO unchanged, still served
+
+    def test_cudf_auto_stays_cudf(self):
+        cudf = pytest.importorskip("cudf")
+        ndf = cudf.DataFrame({"id": [0, 1, 2]})
+        edf = cudf.DataFrame({"src": [0, 1], "dst": [1, 2]})
+        gi = (
+            graphistry.nodes(ndf, "id")
+            .edges(edf, "src", "dst")
+            .gfql_index_all()
+        )
+        assert isinstance(gi._nodes, cudf.DataFrame)
+        assert isinstance(gi._edges, cudf.DataFrame)
+        from graphistry.compute.gfql.index import show_indexes
+        assert set(show_indexes(gi)["engine"]) == {"cudf"}
+
+    @pytest.mark.parametrize("polars_side", ["nodes", "edges"])
+    def test_mixed_eager_frames_keep_legacy_pandas_path(self, polars_side):
+        pl = pytest.importorskip("polars")
+        if polars_side == "nodes":
+            ndf = pl.DataFrame({"id": [0, 1, 2]})
+            edf = pd.DataFrame({"src": [0, 1], "dst": [1, 2]})
+        else:
+            ndf = pd.DataFrame({"id": [0, 1, 2]})
+            edf = pl.DataFrame({"src": [0, 1], "dst": [1, 2]})
+        gi = (
+            graphistry.nodes(ndf, "id")
+            .edges(edf, "src", "dst")
+            .gfql_index_all()
+        )
+        assert isinstance(gi._nodes, pd.DataFrame)
+        assert isinstance(gi._edges, pd.DataFrame)
+        from graphistry.compute.gfql.index import show_indexes
+        assert set(show_indexes(gi)["engine"]) == {"pandas"}

@@ -8,15 +8,15 @@ stale indexes (treated as absent, never a wrong answer).
 from __future__ import annotations
 
 import copy
-from typing import Dict, List, Literal, Optional, Sequence, Tuple, cast
+from typing import Dict, List, Literal, Optional, Sequence, Set, Tuple, cast
 
 import pandas as pd
 
-from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, resolve_engine
+from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, POLARS_ENGINES, is_polars_df, resolve_engine
 from graphistry.compute.typing import DataFrameT
 from graphistry.Plottable import Plottable
 from .registry import (
-    AdjacencyIndex, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
+    AdjacencyIndex, ColStatsFact, PartitionValue, ColStatsRole, GfqlIndexRegistry, EMPTY_REGISTRY, NodeIdIndex,
     EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID, NODE_PROP, ADJ_KINDS, ALL_KINDS,
 )
 from .build import build_adjacency_index, build_node_id_index, build_node_prop_index
@@ -25,7 +25,8 @@ from .cost import cost_gate_frac, seed_deg_sum, seed_id_array
 from .policy import IndexPolicy, validate_index_policy
 from .types import (
     AdjacencyIndexKind, EdgeIndexDirection, HopDirection, IndexKind,
-    IndexDecisionCode, IndexTrace, IndexTraceStep,
+    ColStatsOutcomeName, FastPathName, IndexDecisionCode, IndexTrace, IndexTraceStep,
+    TraceEngine,
 )
 
 # Private Plottable attachment keys. Keep access behind helpers.
@@ -155,7 +156,7 @@ def _record_indexed_traversal(
         "op": "indexed_traversal",
         "operation": "indexed_traversal",
         "seam": seam,
-        "engine": engine.value,
+        "engine": engine.value if isinstance(engine, (Engine, EngineAbstract)) else str(engine),
         "served": served,
         "reason": reason,
         "hops": hop_count,
@@ -166,6 +167,93 @@ def _record_indexed_traversal(
         "decision_reason": reason,
         "decision_code": "index_selected" if served else "index_path_unavailable",
     }))
+
+
+ColStatsOutcome = ColStatsOutcomeName  # single definition, in types.py
+
+# Explicit mapping instead of an f-string plus a cast: mypy then checks that every
+# outcome has a real decision code, so adding one to either side without the other
+# is a type error rather than a string that silently never matches.
+_COL_STATS_CODE: Dict[ColStatsOutcome, IndexDecisionCode] = {
+    "served": "col_stats_served",
+    "absent": "col_stats_absent",
+    "stale": "col_stats_stale",
+    "insufficient": "col_stats_insufficient",
+}
+
+
+def record_fast_path_decision(
+    *, path: FastPathName, served: bool, reason: str, engine: TraceEngine
+) -> None:
+    """Record whether a named fast path SERVED or declined, for ``gfql_explain``.
+
+    Fast paths are contracted "same answer, faster": every one falls back, so a
+    DEAD one is invisible -- the query is still correct and every value test still
+    passes. Measured ratio in test_lowering.py when this was added: 665 value
+    assertions vs 42 engagement ones. This is the surface that makes engagement
+    assertable against a public API instead of by monkeypatching private callees,
+    which fails open when another module imported the name directly.
+
+    Free outside ``index_trace()`` / ``gfql_explain`` -- same ``_trace_active()``
+    gate the adjacency and col-stats decisions use.
+    """
+    if not _trace_active():
+        return
+    step: IndexTraceStep = {
+        "op": "fast_path",
+        "operation": "fast_path",
+        "seam": path,
+        # Engagement is per-engine: a path can serve on one and decline on another.
+        "engine": engine.value if isinstance(engine, (Engine, EngineAbstract)) else str(engine),
+        "served": served,
+        "reason": reason,
+        "path": "index" if served else "scan",
+        "decision_reason": reason,
+        "decision_code": "index_selected" if served else "index_path_unavailable",
+    }
+    _record(step)
+
+
+def record_col_stats_decision(
+    *,
+    role: str,
+    column: str,
+    type_column: Optional[str],
+    type_value: Optional[object],
+    outcome: "ColStatsOutcome",
+    reason: str,
+) -> None:
+    """Record ONE column-stat fact consult, for ``gfql_explain``.
+
+    Facts are a pure accelerator: a miss falls back to the scan and the answer is
+    unchanged. That makes a dead fact INVISIBLE -- you pay the build and get
+    nothing, with every value test still green. This is the surface that makes it
+    visible, and it distinguishes the cases that need different fixes:
+
+    - ``absent``       no fact for this key (never built, or built for another column)
+    - ``stale``        a fact exists but the frame was rebound since it was built
+    - ``insufficient`` the fact is live but cannot prove what the plan needs
+    - ``served``       the fact was used and a scan was skipped
+
+    Costs nothing outside ``index_trace()`` / ``gfql_explain`` -- the guard is the
+    same ``_trace_active()`` gate the adjacency decisions use.
+    """
+    if not _trace_active():
+        return
+    step: IndexTraceStep = {
+        "op": "col_stats",
+        "operation": "col_stats",
+        "role": role,
+        "column": column,
+        "type_column": type_column,
+        "type_value": type_value,
+        "served": outcome == "served",
+        "reason": reason,
+        "path": "facts" if outcome == "served" else "scan",
+        "decision_reason": reason,
+        "decision_code": _COL_STATS_CODE[outcome],
+    }
+    _record(step)
 
 
 # Back-compat for existing private tests while helpers live in cost.py.
@@ -217,13 +305,40 @@ def _check_column(column: Optional[str], expected: str, kind: IndexKind) -> None
         )
 
 
+def _is_eager_polars(df: Optional[DataFrameT]) -> bool:
+    """EAGER polars only: ``is_polars_df`` admits LazyFrames, and an index build
+    cannot gather rows from a lazy plan."""
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
+    return df is not None and is_polars_df(df) and not is_lazy(df)
+
+
+def resolve_index_engine(engine: EngineAbstractType, g: Plottable) -> Engine:
+    """Engine for index build/validation/usability: NARROWS modern AUTO to what
+    an index build can serve -- both frames present and EAGER polars; anything
+    else polars-resolved downgrades to pandas (an index cannot gather rows from
+    a lazy plan). Declines self-heal: ``create_index`` coerces the frames it
+    indexes, so later AUTO queries route with the post-build frames and the
+    build/query gates agree (pinned in ``test_auto_engine_agreement``; the
+    mismatch failure mode is #1767, receipted in pyg-bench).
+    """
+    eng = resolve_engine(engine, g)
+    abstract = EngineAbstract(engine) if isinstance(engine, str) else engine
+    if abstract != EngineAbstract.AUTO:
+        return eng
+    if eng == Engine.POLARS and not (
+        _is_eager_polars(g._edges) and _is_eager_polars(g._nodes)
+    ):
+        return Engine.PANDAS
+    return eng
+
+
 def _is_resident_index_valid(
     g: Plottable,
     kind: IndexKind,
     engine: EngineAbstractType = EngineAbstract.AUTO,
 ) -> bool:
     """True when a resident index still matches the current graph frames."""
-    eng = resolve_engine(engine, g)
+    eng = resolve_index_engine(engine, g)
     registry = get_registry(g)
     if kind in ADJ_KINDS:
         src, dst = g._source, g._destination
@@ -254,7 +369,7 @@ def create_index(
     O(E log E) once, amortized over later seeded queries.
     """
     from dataclasses import replace
-    eng = resolve_engine(engine, g)
+    eng = resolve_index_engine(engine, g)
     # Build over frames already in the target engine so the index arrays land on
     # the right backend (cupy for cudf, numpy otherwise). No-op when already in-engine.
     from graphistry.compute.ComputeMixin import _coerce_input_formats
@@ -346,13 +461,14 @@ def show_indexes(
     engine-specific, so a fresh index built for another engine silently declines to
     a scan at query time (#1767). ``query_engine`` is what ``engine`` resolves to
     for THIS graph (the same resolution a query makes — pass ``engine=`` to preview
-    an explicit choice), ``usable`` is True only when the index is fresh AND
-    engine-matched, and ``reason`` says why not, with the same wording as the
-    ``gfql_explain`` decline diagnostic.
+    an explicit choice; under AUTO this follows the query-side AUTO routing, so an
+    all-polars-frame graph reports ``polars``), ``usable`` is True only when the
+    index is fresh AND engine-matched, and ``reason`` says why not, with the same
+    wording as the ``gfql_explain`` decline diagnostic.
     """
     from .registry import index_nbytes
 
-    query_engine = resolve_engine(engine, g)
+    query_engine = resolve_index_engine(engine, g)
     registry = get_registry(g)
     rows: List[Dict[str, object]] = []
     for kind in registry.kinds():
@@ -435,7 +551,222 @@ def gfql_index_node_props(g: Plottable, columns: Sequence[str],
     return g
 
 
+def _schema_node_type_columns(g: Plottable) -> Tuple[str, ...]:
+    """Node type columns a DECLARED schema names, restricted to ones the frame has.
+
+    ``NodeType.labels`` maps to GFQL's ``label__<Label>`` convention (schema.py),
+    which is the same column the Cypher lowering emits for ``(a:Label)``. Absent
+    candidates are skipped, not raised: the schema declares a contract for the
+    whole graph, and a frame legitimately carries only some of it.
+    """
+    schema = getattr(g, "_gfql_schema", None)
+    if schema is None or g._nodes is None:
+        return ()
+    present = set(g._nodes.columns)
+    out = [f"label__{label}"
+           for node_type in getattr(schema, "node_types", ())
+           for label in getattr(node_type, "labels", ())]
+    return tuple(sorted({c for c in out if c in present}))
+
+
+def _schema_edge_type_columns(g: Plottable) -> Tuple[str, ...]:
+    """Edge type columns a DECLARED schema names, restricted to ones the frame has.
+
+    The two conventions currently DISAGREE for edges: ``schema.py`` declares
+    ``label__<Name>`` booleans while the Cypher lowering emits ``type ==
+    '<Name>'``. Until that is reconciled, offer BOTH candidates and keep whichever
+    the frame actually carries -- a fact on a column no query names is wasted
+    build time, never a wrong answer, so covering both is the safe direction.
+    """
+    schema = getattr(g, "_gfql_schema", None)
+    if schema is None or g._edges is None:
+        return ()
+    present = set(g._edges.columns)
+    candidates = {f"label__{getattr(et, 'name', '')}" for et in getattr(schema, "edge_types", ())}
+    if getattr(schema, "edge_types", ()):
+        candidates.add("type")
+    return tuple(sorted({c for c in candidates if c in present}))
+
+
+def _add_degree_facts(
+    registry: GfqlIndexRegistry,
+    edges: DataFrameT,
+    g: Plottable,
+    type_column: str,
+    partition_facts: Sequence[ColStatsFact],
+    eng: Engine,
+) -> GfqlIndexRegistry:
+    """Degree facts for each type partition whose node ids form a DENSE interval.
+
+    Only where that interval is provable: the arrays are indexed by ``id - lo``, so
+    a gapped or unbounded domain has no valid indexing and we build nothing rather
+    than build something the kernel could misread.
+    """
+    from .build import build_degree_fact
+    if g._nodes is None or g._node is None or not g._source or not g._destination:
+        return registry
+    # Degrees are built over each edge partition's OWN endpoint span, not the node
+    # space. Density is NOT required for the arrays -- ids absent from the span
+    # contribute zero to the dot -- so gapped or interleaved node ids are fine;
+    # only the span is bounded (memory). The kernel separately proves its DOMAIN
+    # dense before consulting; demanding density here was strictly more
+    # restrictive than the kernel it serves, and built nothing on real data.
+    by_tv: Dict[Optional[PartitionValue], Dict[str, ColStatsFact]] = {}
+    for pf in partition_facts:
+        by_tv.setdefault(pf.type_value, {})[pf.column] = pf
+    for tv, cols in by_tv.items():
+        sf, df_ = cols.get(g._source), cols.get(g._destination)
+        if (sf is None or df_ is None or sf.min_val is None or sf.max_val is None
+                or df_.min_val is None or df_.max_val is None):
+            continue
+        lo = int(min(sf.min_val, df_.min_val))
+        hi = int(max(sf.max_val, df_.max_val))
+        if eng in POLARS_ENGINES:
+            import polars as pl
+            sub = edges.filter(pl.col(type_column) == tv)  # type: ignore[union-attr]  # engine seam
+        else:
+            sub = edges[edges[type_column] == tv]
+        d = build_degree_fact(sub, g._source, g._destination, lo, hi, eng,
+                              type_column=type_column, type_value=tv)
+        if d is not None:
+            from dataclasses import replace as _replace
+            from .registry import frame_fingerprint as _fp
+            cols_fp = tuple(sorted({g._source, g._destination, type_column}))
+            registry = registry.with_degrees(_replace(
+                d, source_ref=edges, fingerprint=_fp(edges, cols_fp, eng)))
+    return registry
+
+
+def gfql_index_col_stats(g: Plottable,
+                         node_columns: Optional[Sequence[str]] = None,
+                         edge_columns: Optional[Sequence[str]] = None,
+                         node_type_column: Optional[str] = None,
+                         edge_type_column: Optional[str] = None,
+                         col_stats_by_type: bool = False,
+                         engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
+    """Verified column-stat facts (min/max/null count) -- EAGER and TARGETED.
+
+    Default target is the plan-relevant minimum: the node id binding and the edge
+    src/dst bindings (what the count fast paths consult). Pass ``node_columns`` /
+    ``edge_columns`` to fact additional columns: an EXPLICITLY requested column
+    that is absent or unfactable (non-integer in v1) raises -- you asked for it
+    by name -- while the binding defaults skip silently (convenience, consumers
+    scan as before). Facts ride the same identity+fingerprint validity contract
+    as the physical indexes, and consumers use them as UNDER-approximations of
+    provability (see ColStatsFact): a missing/insufficient fact costs a scan,
+    never an answer. Laziness (plan-driven fact building at query time) is
+    deliberately out of scope -- that is the typed-ontology re-verification
+    policy question; eager build here keeps fact cost a declared setup step,
+    matching how the benchmark harness discloses index builds.
+
+    ``col_stats_by_type`` additionally builds per-type facts for the types a BOUND
+    SCHEMA declares. It defaults False because those facts cost a grouped pass per
+    type column at build time -- and one pass PER LABEL under the ``label__X``
+    convention -- while only typed count shapes can spend them. Turn it on for a
+    long-lived resident graph serving typed queries, where the build amortizes;
+    leave it off for one-shot work. Explicit ``*_type_column`` requests are
+    unaffected by this flag. (Build/query costs are receipted in pyg-bench.)
+
+    ``node_type_column`` / ``edge_type_column`` additionally build PER-TYPE facts
+    over the bindings, one grouped pass each. Whole-frame facts prove nothing on a
+    typed graph -- the id interval spans every label -- so these are what let a
+    typed pattern reach the dense kernel. Like ``*_columns`` they were asked for
+    by name, so an unusable request raises rather than skipping.
+    """
+    from .build import _MAX_COL_STATS_PARTITIONS, build_col_stats_fact, build_col_stats_facts_by_type
+    eng = resolve_index_engine(engine, g)  # AUTO keeps polars frames (#1843)
+    from graphistry.compute.ComputeMixin import _coerce_input_formats
+    g = _coerce_input_formats(g, eng)
+    registry = get_registry(g)
+    if g._nodes is not None and g._node is not None:
+        fact = build_col_stats_fact(g._nodes, g._node, "nodes", eng)
+        if fact is not None:
+            registry = registry.with_col_stats(fact)
+    if g._edges is not None:
+        for col in (g._source, g._destination):
+            if col is None:
+                continue
+            fact = build_col_stats_fact(g._edges, col, "edges", eng)
+            if fact is not None:
+                registry = registry.with_col_stats(fact)
+    targets: List[Tuple[Optional[Sequence[str]], Optional[DataFrameT], ColStatsRole]] = [
+        (node_columns, g._nodes, "nodes"),
+        (edge_columns, g._edges, "edges"),
+    ]
+    for requested, frame, role in targets:
+        for col in (requested or ()):
+            if frame is None:
+                raise ValueError(f"col_stats requested for {role} column {col!r} but no {role} frame is bound")
+            fact = build_col_stats_fact(frame, col, role, eng)
+            if fact is None:
+                raise ValueError(
+                    f"Cannot build a col_stats fact on {role} column {col!r}: absent, "
+                    f"empty, or non-integer (v1 facts integer columns only)")
+            registry = registry.with_col_stats(fact)
+    _requested_partitions: Set[Tuple[str, str]] = set()
+    part_targets: List[Tuple[Optional[str], Optional[DataFrameT], ColStatsRole, Tuple[Optional[str], ...]]] = [
+        (node_type_column, g._nodes, "nodes", (g._node,)),
+        (edge_type_column, g._edges, "edges", (g._source, g._destination)),
+    ]
+    for type_column, frame, role, binding_cols in part_targets:
+        if type_column is None:
+            continue
+        if frame is not None:
+            _requested_partitions.add((role, type_column))
+        if frame is None:
+            raise ValueError(
+                f"col_stats requested per {role} type column {type_column!r} but no {role} frame is bound")
+        present = [c for c in binding_cols if c is not None]
+        partition_facts = build_col_stats_facts_by_type(frame, present, role, type_column, eng)
+        if present and not partition_facts:
+            raise ValueError(
+                f"Cannot build per-type col_stats facts on {role} columns {present!r} by "
+                f"{type_column!r}: a column is absent, the frame is empty, the values are "
+                f"non-integer or null-bearing, the type keys are float/null/list-valued, or "
+                f"there are more than {_MAX_COL_STATS_PARTITIONS} distinct types")
+        for fact in partition_facts:
+            registry = registry.with_col_stats(fact)
+        if role == "edges" and g._source and g._destination:
+            registry = _add_degree_facts(registry, frame, g, type_column, partition_facts, eng)
+
+    # A DECLARED schema names its own type partitions, so using it is not a
+    # guess -- unlike sniffing column names. It is still OPT-IN because per-type
+    # facts are NOT free (a grouped pass per type column; see col_stats_by_type).
+    # Derived candidates SKIP when
+    # unusable (they were not asked for by name, unlike the params above), and
+    # an explicit param for the same role wins.
+    derived_targets: List[Tuple[ColStatsRole, Optional[DataFrameT], Tuple[Optional[str], ...], Tuple[str, ...]]] = [
+        ("nodes", g._nodes, (g._node,), _schema_node_type_columns(g)),
+        ("edges", g._edges, (g._source, g._destination), _schema_edge_type_columns(g)),
+    ] if col_stats_by_type else []
+    derived_facts = 0
+    for role, frame, binding_cols, candidates in derived_targets:
+        if frame is None:
+            continue
+        for type_column in candidates:
+            if (role, type_column) in _requested_partitions:
+                continue
+            present = [c for c in binding_cols if c is not None]
+            for fact in build_col_stats_facts_by_type(frame, present, role, type_column, eng):
+                registry = registry.with_col_stats(fact)
+                derived_facts += 1
+    if col_stats_by_type and not derived_facts and not _requested_partitions:
+        # col_stats_by_type is an EXPLICIT request, so satisfying none of it
+        # raises rather than no-oping -- the same contract as naming a type
+        # column by hand. Partial coverage (a declared label the frame does not
+        # carry) still skips: a schema is a contract for the whole graph.
+        raise ValueError(
+            "col_stats_by_type=True but no per-type facts could be built: "
+            + ("no schema is bound -- call bind(schema=GraphSchema(...)) or name the "
+               "columns with node_type_column=/edge_type_column="
+               if getattr(g, "_gfql_schema", None) is None else
+               "the bound schema declares no node label or edge type column that the "
+               "bound frames carry, or the id/endpoint columns are unfactable"))
+    return _attach(g, registry)
+
+
 def gfql_index_all(g: Plottable,
+                   col_stats_by_type: bool = False,
                    engine: EngineAbstractType = EngineAbstract.AUTO) -> Plottable:
     """Convenience: build out+in adjacency + (when ids are unique) node_id indexes.
 
@@ -449,7 +780,7 @@ def gfql_index_all(g: Plottable,
         g = create_index(g, NODE_ID, engine=engine)
     except GfqlIndexUnsupportedError:
         pass  # non-unique node ids -> skip the node_id accelerator (adjacency still built)
-    return g
+    return gfql_index_col_stats(g, col_stats_by_type=col_stats_by_type, engine=engine)
 
 
 # ---- planner entry ---------------------------------------------------------

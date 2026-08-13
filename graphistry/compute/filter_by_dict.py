@@ -1,14 +1,32 @@
 from typing import Any, Dict, Mapping, Optional, Tuple, Union, cast
 import pandas as pd
+
 from graphistry.Engine import EngineAbstract, df_to_engine, resolve_engine
 from graphistry.util import setup_logger
 
 from graphistry.Plottable import Plottable
 from .predicates.ASTPredicate import ASTPredicate
-from .typing import DataFrameT, DType, NodeDtypes
+from .typing import DataFrameT, DType, NodeDtypes, SeriesT
 
 
 logger = setup_logger(__name__)
+# Single source in the dtype-contract module; deferred imports because the polars
+# package __init__ transitively imports this module (import cycle).
+
+def _dtype_text(dtype: Any) -> str:
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import dtype_text
+    return dtype_text(dtype)
+
+
+def _is_numeric_dtype_safe(dtype: Any) -> bool:
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_numeric_dtype_safe
+    return is_numeric_dtype_safe(dtype)
+
+
+def _is_string_dtype_safe(dtype: Any) -> bool:
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_string_dtype_safe
+    return is_string_dtype_safe(dtype)
+
 
 
 def _is_membership_filter_value(value: Any) -> bool:
@@ -18,32 +36,6 @@ def _is_membership_filter_value(value: Any) -> bool:
 def _looks_like_edge_dataframe(df: DataFrameT) -> bool:
     cols = {str(col) for col in df.columns}
     return {"s", "d"} <= cols or {"src", "dst"} <= cols or "edge_id" in cols
-
-
-def _dtype_text(dtype: Any) -> str:
-    try:
-        return str(dtype).lower()
-    except Exception:
-        return ""
-
-
-def _is_numeric_dtype_safe(dtype: Any) -> bool:
-    try:
-        return bool(pd.api.types.is_numeric_dtype(dtype))
-    except Exception:
-        kind = getattr(dtype, "kind", None)
-        if isinstance(kind, str) and kind in {"b", "i", "u", "f", "c"}:
-            return True
-        dtype_txt = _dtype_text(dtype)
-        return any(token in dtype_txt for token in ("bool", "int", "float", "double", "decimal"))
-
-
-def _is_string_dtype_safe(dtype: Any) -> bool:
-    try:
-        return bool(pd.api.types.is_string_dtype(dtype))
-    except Exception:
-        dtype_txt = _dtype_text(dtype)
-        return dtype_txt == "object" or "string" in dtype_txt or dtype_txt.endswith("[python]")
 
 
 def _normalize_labels_cell(value: Any) -> Tuple[Any, ...]:
@@ -119,6 +111,17 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
     df = df_to_engine(df, engine_concrete)
     logger.debug('filter_by_dict engine: %s => %s', engine, engine_concrete)
 
+    hits = filter_mask_by_dict(df, filter_dict)
+    return df[hits]
+
+
+def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any]) -> SeriesT:  # hygiene-ok: explicit-any -- filter values are heterogeneous by contract (scalars, lists, ASTPredicate)
+    """Boolean row mask ``filter_by_dict`` would apply to an already engine-native
+    ``df`` — same column resolution, same typed validation errors, same 3VL
+    membership semantics. Exposed so callers that read only a column subset can
+    gather it directly (``df.loc[mask, cols]``) without materializing the
+    full-width filtered frame.
+    """
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 
     predicates: Dict[str, Tuple[str, ASTPredicate]] = {}
@@ -202,7 +205,7 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
     if predicates:
         for resolved_col, op in predicates.values():
             hits = hits & op(df[resolved_col])
-    return df[hits]
+    return hits
 
 
 def filter_nodes_by_dict(self: Plottable, filter_dict: Optional[dict] = None, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> Plottable:

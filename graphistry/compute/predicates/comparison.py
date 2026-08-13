@@ -62,15 +62,20 @@ class ComparisonPredicate(ASTPredicate):
             return s
 
         elif isinstance(temporal_val, DateValue):
-            # Extract date from datetime series if needed
+            # Day-truncate rather than call .dt.date, which cudf 26.02 raises
+            # NotImplementedError from -- so hasattr does NOT screen it (hasattr only
+            # swallows AttributeError) and a capability branch would crash, not fall
+            # back. The truncation works on every engine and version; the scalar is
+            # paired to the datetime64 it produces (see _prepare_temporal_comparison).
             if hasattr(s, 'dt'):
-                return s.dt.date
+                return s.dt.floor('D')
             return s
 
         elif isinstance(temporal_val, TimeValue):
-            # Extract time from datetime series if needed
+            # Time-of-day as a timedelta rather than .dt.time, which raises the same
+            # way on cudf 26.02. Same reasoning as the date lane above.
             if hasattr(s, 'dt'):
-                return s.dt.time
+                return s - s.dt.floor('D')
             return s
 
         raise TypeError(f"Unknown temporal value type: {type(temporal_val)}")
@@ -98,6 +103,17 @@ class ComparisonPredicate(ASTPredicate):
             and comparison_val.tzinfo is not None
         ):
             comparison_val = comparison_val.tz_localize(None)
+        # Pair the scalar with the dtype the truncation produced (cudf 26.02 lanes):
+        # day-truncated datetime64 pairs with a midnight Timestamp; time-of-day
+        # timedelta64 pairs with a Timedelta. dtype-driven, so engine-agnostic.
+        dtype_txt = str(getattr(prepared_s, 'dtype', '')).lower()
+        if isinstance(temporal_val, DateValue) and dtype_txt.startswith('datetime64'):
+            comparison_val = pd.Timestamp(comparison_val)
+        elif (isinstance(temporal_val, TimeValue) and dtype_txt.startswith('timedelta64')
+                and isinstance(comparison_val, time)):
+            comparison_val = pd.Timedelta(
+                hours=comparison_val.hour, minutes=comparison_val.minute,
+                seconds=comparison_val.second, microseconds=comparison_val.microsecond)
         return prepared_s, comparison_val
 
     def _safe_scalar_compare(

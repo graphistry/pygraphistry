@@ -2,7 +2,7 @@ from typing import Any, Callable, Dict, Optional, Union
 import numpy as np, pandas as pd
 from timeit import default_timer as timer
 
-from graphistry.Engine import Engine, df_concat, df_to_pdf, df_cons
+from graphistry.Engine import Engine, df_concat, df_cons
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 
@@ -196,10 +196,10 @@ def partitioned_layout(
         'min': 1
     }).max(axis=1)
 
-    # Vectorized normalize: merge per-partition stats once, no per-row dict lookups
-    node_stats_pdf = df_to_pdf(node_stats, engine)
+    # Vectorized normalize: merge per-partition stats once, no per-row dict lookups.
+    # Stats stay in-engine: cudf's merge rejects a pandas right operand.
     combined_with_stats = combined_nodes.merge(
-        node_stats_pdf[['x_min', 'dx', 'y_min', 'dy']],
+        node_stats[['x_min', 'dx', 'y_min', 'dy']],
         left_on=partition_key,
         right_index=True,
         how='left',

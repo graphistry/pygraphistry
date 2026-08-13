@@ -11,7 +11,7 @@ answer).
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, Optional, Tuple, Union, cast
+from typing import Any, Dict, Literal, Optional, Tuple, Union, cast
 
 from graphistry.Engine import Engine
 from graphistry.compute.typing import DataFrameT
@@ -105,22 +105,155 @@ class NodePropIndex:
     name: Optional[str] = None
 
 
+ColStatsRole = Literal["nodes", "edges"]
+
+#: The value side of a type partition: the groupby key that the single scalar
+#: equality of a typed pattern names -- a relationship type or label name
+#: (``str``), a numeric type code (``int``), or a ``label__X`` flag (``bool``).
+#: ``bool`` needs no separate member: Python types it as a subtype of ``int``.
+#: It is admitted DELIBERATELY, since ``(a:Person)`` lowers to
+#: ``{"label__Person": True}``. One consequence is load-bearing: ``True == 1``
+#: and they hash alike, so a bool-keyed and an int-keyed partition of the SAME
+#: column are the same registry key. That is unreachable in practice (a column
+#: is bool-dtyped or int-dtyped, not both) and harmless where it is reachable
+#: (a query asking ``flag == 1`` of a bool column does select the True rows).
+PartitionValue = Union[str, int]
+
+
+@dataclass(frozen=True)
+class ColStatsFact:
+    """VERIFIED per-column facts over the exact bound frame (min/max/null count,
+    integer-dtype flag). Same identity+fingerprint validity contract as the
+    indexes; consumers must use facts CONSERVATIVELY: a fact can prove a
+    property of any row subset that upper-bounds it (subset bounds lie within
+    full-frame bounds; zero nulls on the frame means zero nulls on any subset),
+    and an insufficient fact means fall back to the scan -- never decline."""
+    role: ColStatsRole
+    column: str
+    min_val: Optional[Union[int, float]]
+    max_val: Optional[Union[int, float]]
+    null_count: int
+    is_integer: bool
+    engine: Engine
+    n_unique: Optional[int] = None  # computed for the nodes role only (interval proofs)
+    # Per-type partition facts: (type_column, type_value) restricts the fact to the
+    # rows where type_column == type_value; None/None = whole frame. A partition
+    # fact upper-bounds any FURTHER-filtered subset of that partition, same
+    # conservative direction as whole-frame facts.
+    type_column: Optional[str] = None
+    type_value: Optional[PartitionValue] = None
+    fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
+    source_ref: Optional[DataFrameT] = field(compare=False, default=None)
+
+
+@dataclass(frozen=True)
+class DegreeFact:
+    """Precomputed in/out degree over the exact bound edge frame, optionally
+    restricted to one relationship type.
+
+    Why this exists: the two-hop count kernel spends its time in an O(E)
+    ``bincount`` + gather over every edge. With degrees precomputed the same
+    answer is ``dot(indeg, outdeg)`` -- O(N). Measured at board scale (2.4M edges,
+    107k nodes) that is 6.76ms of query work versus 0.046ms.
+
+    STALENESS IS A WRONG ANSWER HERE, which is new. A stale min/max fact costs a
+    scan; a stale DEGREE fact returns a confidently incorrect count. So the
+    identity+fingerprint contract is not an optimization guard on this type -- it
+    is the correctness guard, and ``get_degree_valid`` refuses on any mismatch.
+
+    ``indeg``/``outdeg`` are indexed by node id MINUS ``lo``, so the arrays cover
+    the dense interval [lo, hi] the kernel already proves; ids outside it cannot
+    be represented, which is why a fact is only built for a dense domain.
+    """
+    src_col: str
+    dst_col: str
+    indeg: ArrayLike
+    outdeg: ArrayLike
+    lo: int
+    hi: int
+    backend: IndexBackend
+    engine: Engine
+    type_column: Optional[str] = None
+    type_value: Optional[PartitionValue] = None
+    fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
+    source_ref: Optional[DataFrameT] = field(compare=False, default=None)
+
+
 @dataclass(frozen=True)
 class GfqlIndexRegistry:
     """Immutable kind -> index map. ``with_index`` / ``without`` return copies."""
     indexes: Dict[IndexKind, Union[AdjacencyIndex, NodeIdIndex]] = field(default_factory=dict)
     # Property indexes are keyed by COLUMN, not kind: a graph may carry several.
     node_props: Dict[str, NodePropIndex] = field(default_factory=dict)
+    # Column-stat facts keyed by (role, column, type_column, type_value); the
+    # whole-frame fact uses (role, column, None, None). See ColStatsFact.
+    col_stats: Dict[Tuple[str, str, Optional[str], Optional[PartitionValue]], ColStatsFact] = field(default_factory=dict)
+    # Degree facts keyed by (src, dst, type_column, type_value); see DegreeFact.
+    degrees: Dict[Tuple[str, str, Optional[str], Optional[PartitionValue]], DegreeFact] = field(default_factory=dict)
 
     def with_index(self, kind: IndexKind, index: Union[AdjacencyIndex, NodeIdIndex]) -> "GfqlIndexRegistry":
         new = dict(self.indexes)
         new[kind] = index
-        return GfqlIndexRegistry(new, dict(self.node_props))
+        return replace(self, indexes=new)
 
     def with_node_prop(self, column: str, index: "NodePropIndex") -> "GfqlIndexRegistry":
         props = dict(self.node_props)
         props[column] = index
-        return GfqlIndexRegistry(dict(self.indexes), props)
+        return replace(self, node_props=props)
+
+    def with_degrees(self, fact: DegreeFact) -> "GfqlIndexRegistry":
+        d = dict(self.degrees)
+        d[(fact.src_col, fact.dst_col, fact.type_column, fact.type_value)] = fact
+        return replace(self, degrees=d)
+
+    def get_degree_valid(
+        self, src_col: str, dst_col: str, df: Optional[DataFrameT], engine: Engine,
+        type_column: Optional[str] = None, type_value: Optional[PartitionValue] = None,
+    ) -> Optional["DegreeFact"]:
+        """The degree fact, only while it still matches the live frame + engine.
+
+        Unlike the col-stat facts, a miss here is not merely a lost optimization
+        and a stale hit is not merely slow -- it is a wrong count. Every guard is
+        therefore refusal, never best-effort."""
+        fact = self.degrees.get((src_col, dst_col, type_column, type_value))
+        if fact is None or df is None or fact.engine != engine:
+            return None
+        if fact.source_ref is not None and fact.source_ref is not df:
+            return None
+        cols = tuple(sorted({src_col, dst_col} | ({type_column} if type_column else set())))
+        if fact.fingerprint != frame_fingerprint(df, cols, engine):
+            return None
+        return fact
+
+    def without_degrees(self) -> "GfqlIndexRegistry":
+        return replace(self, degrees={})
+
+    def with_col_stats(self, fact: ColStatsFact) -> "GfqlIndexRegistry":
+        stats = dict(self.col_stats)
+        stats[(fact.role, fact.column, fact.type_column, fact.type_value)] = fact
+        return replace(self, col_stats=stats)
+
+    def get_col_stats_valid(
+        self, role: ColStatsRole, column: str, df: Optional[DataFrameT], engine: Engine,
+        type_column: Optional[str] = None, type_value: Optional[PartitionValue] = None,
+    ) -> Optional[ColStatsFact]:
+        """The fact for (role, column[, type partition]), only while it still matches
+        the live frame + engine (same identity/fingerprint contract as ``get_valid``).
+
+        A partition fact's validity depends on the type column too -- editing it
+        re-partitions the frame -- so its fingerprint spans both columns."""
+        fact = self.col_stats.get((role, column, type_column, type_value))
+        if fact is None or df is None or fact.engine != engine:
+            return None
+        if fact.source_ref is not None and fact.source_ref is not df:
+            return None
+        cols = (column,) if type_column is None else tuple(sorted({column, type_column}))
+        if fact.fingerprint != frame_fingerprint(df, cols, engine):
+            return None
+        return fact
+
+    def without_col_stats(self) -> "GfqlIndexRegistry":
+        return replace(self, col_stats={})
 
     def node_prop_cols(self) -> Tuple[str, ...]:
         return tuple(sorted(self.node_props.keys()))
@@ -141,15 +274,15 @@ class GfqlIndexRegistry:
 
     def without(self, kind: IndexKind) -> "GfqlIndexRegistry":
         if kind == NODE_PROP:
-            return GfqlIndexRegistry(dict(self.indexes), {})
+            return replace(self, node_props={})
         new = dict(self.indexes)
         new.pop(kind, None)
-        return GfqlIndexRegistry(new, dict(self.node_props))
+        return replace(self, indexes=new)
 
     def without_node_prop(self, column: str) -> "GfqlIndexRegistry":
         props = dict(self.node_props)
         props.pop(column, None)
-        return GfqlIndexRegistry(dict(self.indexes), props)
+        return replace(self, node_props=props)
 
     def rebind_edges(self, new_edges: DataFrameT) -> "GfqlIndexRegistry":
         """Re-point the EDGE adjacency indexes' identity guard at ``new_edges``.
@@ -189,7 +322,7 @@ class GfqlIndexRegistry:
                 new[kind] = replace(idx, source_ref=new_edges)
             else:
                 new.pop(kind, None)
-        return GfqlIndexRegistry(new, dict(self.node_props))
+        return replace(self, indexes=new)
 
     def get(self, kind: IndexKind) -> Optional[Union[AdjacencyIndex, NodeIdIndex]]:
         return self.indexes.get(kind)
@@ -201,7 +334,7 @@ class GfqlIndexRegistry:
         return cast(Tuple[IndexKind, ...], tuple(sorted(self.indexes.keys())))
 
     def is_empty(self) -> bool:
-        return not self.indexes and not self.node_props
+        return not self.indexes and not self.node_props and not self.col_stats
 
     def get_valid(self, kind: IndexKind, df: DataFrameT, cols: Tuple[str, ...], engine: Engine) -> Optional[Union[AdjacencyIndex, NodeIdIndex]]:
         """Return the index for ``kind`` only if its fingerprint still matches the

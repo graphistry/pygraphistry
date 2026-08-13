@@ -1,111 +1,20 @@
 """Plan-time constant folding for GFQL row expressions.
 
-WHAT THIS IS FOR
-================
-The Cypher lowering serializes every row predicate it cannot push into
-``filter_dict`` back to canonical predicate *text* (``_row_expr_arg``), and both the
-row evaluators and the connected-join fast-path residual translator consume that
-text.  Without folding, ``toLower(i.interest) = toLower('Fine Dining')`` and
-``toLower(i.interest) = 'fine dining'`` are two different spellings of the same
-predicate, and every consumer has to learn both.  Folding the literal-only
-sub-expression at plan time collapses the first into the second, so downstream
-matchers need ONE canonical shape and every other foldable function is handled
-without its own case.
+Collapses the literal-only part of a predicate so downstream matchers see ONE
+canonical shape: ``toLower(i.x) = toLower('Fine Dining')`` becomes
+``toLower(i.x) = 'fine dining'``.
 
-THE FOLDABILITY CRITERION
-=========================
-A ``FunctionCall`` node folds to a ``Literal`` if and only if all four hold:
+Which calls fold, and every decline, is specified by ``test_expr_const_fold.py``
+(49 tests, grouped by criterion: TestAsciiGate, TestArgumentClosure,
+TestNullAndBooleanPolicy, TestTotality).
 
-(P) PURE AND DETERMINISTIC.  Its value is a total function of its arguments: no
-    clock, no RNG, no locale, no timezone, no environment, no filesystem or
-    network, no graph context, no dependence on the row set.  ``rand()``,
-    ``randomUUID()``, ``timestamp()``, ``now()``, ``date()`` and friends fail here
-    permanently.  (None of those are on GFQL's Cypher surface today — see
-    ``test_expr_const_fold.py::TestClassification`` — but the criterion is stated
-    so that adding one does not accidentally make it foldable.)
-
-(A) ARGUMENT-CLOSED.  Every argument is already a ``Literal`` node.  Folding runs
-    bottom-up, so a nested call that folds first satisfies this for its parent:
-    ``toLower(substring('ABCDEF', 0, 3))`` -> ``toLower('ABC')`` -> ``'abc'``.
-    A ``ListLiteral`` / ``MapLiteral`` is deliberately NOT a ``Literal``: this pass
-    synthesizes scalar literals only.
-
-(E) ENGINE-INVARIANT ON THESE ARGUMENT VALUES.  The Python-computed result must be
-    provably identical to what EVERY supported engine would compute for the same
-    literal expression — provable from the argument values themselves, not from a
-    spot check on a sample.
-
-    THIS IS NOT A FORMALITY.  Issue #1802: pandas>=3 defaults to an Arrow-backed
-    ``str`` dtype whose ``utf8_lower``/``utf8_upper`` are SIMPLE per-codepoint case
-    mappings, while polars' (and Python's) are FULL mappings, so
-    ``toUpper(n.name) = 'STRASSE'`` already answers ``[9]`` on pandas and ``[8, 9]``
-    on polars against the same data.  Folding a case function with the wrong
-    semantics silently changes answers on exactly the shapes this pass targets.
-    The region where every implementation provably agrees — Python's ``str``, Rust's
-    ``str`` (polars), Arrow's ``utf8_*`` kernels (pandas>=3), libcudf, and Java's
-    ``String.toLowerCase`` (the Cypher reference) — is the ASCII block, where case
-    mapping is a fixed 26-character bijection defined by the Unicode standard's
-    invariant range and is independent of every implementation's Unicode table
-    version.  So: **string folds require ASCII arguments, and decline otherwise.**
-    Declining costs a slower query; folding outside the provable region costs a
-    wrong answer.
-
-(T) TOTAL ON THESE ARGUMENTS.  Evaluation must neither raise nor land in a region
-    where implementations are known to disagree.  Out-of-range ``substring`` is the
-    worked example: ``substring('abc', 99)`` is ``''`` in Python, an error in Neo4j,
-    and clamped in polars, so it DECLINES rather than picking one.  Any exception
-    raised by a folder is caught by the driver and turned into a decline, so a fold
-    can never convert a runtime error into a plan-time crash — the node is left
-    exactly as it was and the runtime produces exactly what it produced before.
-
-Anything failing any of the four is left untouched.  A decline is always safe: the
-expression text is unchanged, so every downstream consumer behaves as it did.
-
-NULL POLICY
-===========
-This pass never synthesizes a ``null`` literal and never folds a call whose
-arguments include ``null``.  Substituting ``null`` for a call changes which branch
-of the evaluators' three-valued logic runs downstream, and null handling has been
-this area's most frequent source of silent wrong answers.  ``toLower(null)`` is
-therefore left for the runtime, which already answers it.
-
-Booleans are excluded from the integer folds (``isinstance(True, int)`` is ``True``
-in Python, and ``substring('abc', True)`` is not ``substring('abc', 1)`` in Cypher).
-
-WHY THE DECLINE LISTS BELOW LOOK THE WAY THEY DO
-================================================
-A decline is cheap to write and expensive to check, so an unchecked one drifts into a
-guess.  **Every declined function is therefore filed under the MECHANISM that stops it,
-and every mechanism carries a witness a test executes** — a concrete expression where
-the mechanism is observable.  Three mechanisms have witnesses:
-
-* :data:`DENIED_AGGREGATE` — the value depends on the ROW SET, so the SAME
-  argument-closed call answers differently on two different row sets.  ``count(1)`` is
-  ``1`` over one row and ``5`` over five; substituting a literal would be wrong.  This
-  is the only group whose members would otherwise sail through every guard the driver
-  has (argument-closed, ``int`` result), so it is the only genuinely load-bearing
-  deny-list here.
-* :data:`DENIED_NOT_ARGUMENT_CLOSED` — in the shape the lowering actually emits, the
-  call is not argument-closed, so the driver's per-argument ``isinstance(arg, Literal)``
-  check declines it.  The witness is the parsed node itself.
-* :data:`DENIED_RESULT_TYPE` — the engine's own scalar result for the literal-only call
-  is a type the driver's contract guard rejects (``float``, ``bool``, ``list``).  A
-  PERFECT folder could not fold these; the witness is the engine's value.
-
-Two groups have NO witness, and say so rather than dressing a preference up as a
-correctness claim:
-
-* :data:`DENIED_BY_POLICY` — a fold here would be value-identical to what the engine
-  already computes.  Nothing but the name lookup declines them.  Adding one would be a
-  PERF decision (the gain on literal-only arithmetic is nil), never a correctness one.
-* :data:`DENIED_UNVERIFIED` — a divergence is *claimed* but has not been reproduced on
-  any engine reachable from CI.  Left declined, labelled honestly.
-
-Notably ``head``/``tail``/``reverse`` are NOT in any of those: on GFQL's surface they
-are STRING operations (``row/dispatch.py``), ``head('abc')`` is argument-closed and
-answers ``'a'``, and no witness against folding them exists — so they fold, under the
-same ASCII gate as the other string folds.  Their list overloads parse to a
-``ListLiteral`` argument, which the per-call argument guard already declines.
+The one thing those tests cannot tell you is WHY the ASCII gate exists, and it is
+not a formality (#1802): pandas>=3 defaults to an Arrow-backed ``str`` whose
+``utf8_lower``/``utf8_upper`` are SIMPLE per-codepoint case mappings, while polars'
+and Python's are FULL mappings. Folding a non-ASCII literal in Python would bake
+in the FULL mapping and silently disagree with the engine that evaluates the
+column side. Hence: fold only where every engine provably agrees. Widening the
+gate requires proving that agreement, not sampling it.
 """
 from __future__ import annotations
 

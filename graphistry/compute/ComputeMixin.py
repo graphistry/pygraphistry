@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Union
 from typing_extensions import Literal
-from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, POLARS_ENGINES, resolve_engine, df_to_engine, df_concat, safe_merge
+from graphistry.Engine import Engine, EngineAbstract, EngineAbstractType, POLARS_ENGINES, resolve_input_engine, df_to_engine, df_concat, safe_merge
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from graphistry.utils.json import JSONVal
@@ -214,7 +214,7 @@ class ComputeMixin(Plottable):
         # to that engine. This ensures GPU mode is preserved: polars/arrow/spark/dask are
         # converted to cuDF (not pandas) when engine='cudf'. The old pattern
         # (ensure_local_engine_match then _coerce_to_pandas) was wrong for cross-engine scenarios.
-        engine_concrete = resolve_engine(engine, g)
+        engine_concrete = resolve_input_engine(engine, g)
         g = _coerce_input_formats(g, engine_concrete)
 
         if reuse:
@@ -259,7 +259,7 @@ class ComputeMixin(Plottable):
 
     def _single_direction_degree(self, key_col: str, col: str) -> "Plottable":
         """Shared body for get_indegrees / get_outdegrees: groupby one direction, merge into nodes."""
-        engine_concrete = resolve_engine(EngineAbstract.AUTO, self)
+        engine_concrete = resolve_input_engine(EngineAbstract.AUTO, self)
         g = _coerce_input_formats(self, engine_concrete)
         g_nodes = g.materialize_nodes(engine=engine_concrete.value)
         node_id = g_nodes._node
@@ -311,7 +311,7 @@ class ComputeMixin(Plottable):
                 g2 = g.get_degrees()
                 print(g2._nodes)  # pd.DataFrame with 'id', 'degree', 'degree_in', 'degree_out'
         """
-        engine_concrete = resolve_engine(EngineAbstract.AUTO, self)
+        engine_concrete = resolve_input_engine(EngineAbstract.AUTO, self)
         g = _coerce_input_formats(self, engine_concrete)
         g_nodes = g.materialize_nodes(engine=engine_concrete.value)
         node_id = g_nodes._node
@@ -511,7 +511,7 @@ class ComputeMixin(Plottable):
             g2 = g2.drop_nodes(roots[g2._node])
         nodes_df0 = nodes_with_levels[0]
         if len(nodes_with_levels) > 1:
-            engine = resolve_engine(EngineAbstract.AUTO, nodes_df0)
+            engine = resolve_input_engine(EngineAbstract.AUTO, nodes_df0)
             concat_fn = df_concat(engine)
             nodes_df = concat_fn([nodes_df0] + nodes_with_levels[1:])
         else:
@@ -660,10 +660,32 @@ class ComputeMixin(Plottable):
         from graphistry.compute.gfql.index import gfql_index_edges as _gie
         return _gie(self, direction, engine=engine)
 
-    def gfql_index_all(self, engine='auto'):
-        """Convenience: build all GFQL physical indexes (both edge adjacencies + node_id). Returns a new Plottable."""
+    def gfql_index_all(self, col_stats_by_type: bool = False, engine='auto'):
+        """Convenience: build all GFQL physical indexes (both edge adjacencies + node_id). Returns a new Plottable.
+
+        ``col_stats_by_type=True`` also builds per-type column-stat facts for the
+        types a bound schema declares. Off by default: it costs a grouped pass per
+        type column and only typed count shapes can spend it."""
         from graphistry.compute.gfql.index import gfql_index_all as _gia
-        return _gia(self, engine=engine)
+        return _gia(self, col_stats_by_type=col_stats_by_type, engine=engine)
+
+    def gfql_index_col_stats(self, node_columns: Optional[Sequence[str]] = None,
+                             edge_columns: Optional[Sequence[str]] = None,
+                             node_type_column: Optional[str] = None,
+                             edge_type_column: Optional[str] = None,
+                             col_stats_by_type: bool = False,
+                             engine: EngineAbstractType = 'auto') -> 'Plottable':
+        """Convenience: build verified column-stat facts — the bound id columns by
+        default, plus any explicitly named columns (which raise if unfactable).
+        Naming a type column additionally builds PER-TYPE facts over the bindings,
+        which is what lets a typed pattern reach the bound proofs at all;
+        ``col_stats_by_type=True`` does the same from a bound schema (opt-in: it
+        costs a grouped pass per type column, so it suits typed query workloads).
+        Consumed as under-approximations by count fast paths. Returns a new Plottable."""
+        from graphistry.compute.gfql.index import gfql_index_col_stats as _gics
+        return _gics(self, node_columns=node_columns, edge_columns=edge_columns,
+                     node_type_column=node_type_column, edge_type_column=edge_type_column,
+                     col_stats_by_type=col_stats_by_type, engine=engine)
 
     def gfql_index_node_props(self, columns: Sequence[str], engine: EngineAbstractType = 'auto') -> 'Plottable':
         """Convenience: build node PROPERTY indexes for ``columns`` (secondary indexes).

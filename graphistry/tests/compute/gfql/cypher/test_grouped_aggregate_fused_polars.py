@@ -340,6 +340,16 @@ def _force_eager(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda *a, **k: None)
 
 
+def _force_narrowing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Defeat the polars small-frame gate so the projection actually narrows.
+
+    Test frames are tiny, and on polars ``_filter_project`` skips narrowing below
+    ``_PROJECT_LAZY_MIN_ROWS`` (the lazy plan's fixed cost tripped the receipted
+    q8@20k floor). The contract is AT LEAST the projected columns, exactly them
+    only when large -- so width pins must force the large-frame arm."""
+    monkeypatch.setattr(gfql_fast_paths_module, "_PROJECT_LAZY_MIN_ROWS", 0)
+
+
 def _probe_fast_path(monkeypatch: pytest.MonkeyPatch) -> List[bool]:
     """One entry per FAST PATH call: True=served, False=declined."""
     calls: List[bool] = []
@@ -877,3 +887,128 @@ def test_grouped_aggregate_fused_polars_emits_semi_join_only_without_property_jo
     assert semi_calls[0] == expected_semis, (
         f"{label}: expected {expected_semis} domain semi-join(s) in the fused plan, "
         f"saw {semi_calls[0]}")
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "polars-gpu", "cudf"])
+def test_grouped_aggregate_projection_narrows_filters_on_every_engine(
+    engine: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The grouped-aggregate path declares its plan's columns (ids + referenced
+    props), so the filters return narrow frames on EVERY engine -- decoy columns
+    must never reach the plan -- with values identical to the eager twin."""
+    from graphistry.compute import gfql_fast_paths as fp
+
+    nodes, edges = _base_data()
+    nodes = nodes.assign(decoy_n="x")
+    edges = edges.assign(decoy_e=1.5)
+    query = ("MATCH (p {kind:'P'})-[{rel:'L'}]->(c {kind:'C'}) "
+             "RETURN c.city AS city, count(*) AS n ORDER BY city ASC")
+
+    with monkeypatch.context() as eager_ctx:
+        _force_eager(eager_ctx)
+        oracle = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+
+    widths: Dict[str, List[str]] = {}
+    real_nf = fp._connected_join_cached_node_filter
+    real_ef = fp._connected_join_cached_edge_filter
+
+    def spy_nf(*args: Any, **kw: Any) -> Any:
+        out = real_nf(*args, **kw)
+        widths.setdefault("nodes", list(out.columns))
+        return out
+
+    def spy_ef(*args: Any, **kw: Any) -> Any:
+        out = real_ef(*args, **kw)
+        widths.setdefault("edges", list(out.columns))
+        return out
+
+    monkeypatch.setattr(fp, "_connected_join_cached_node_filter", spy_nf)
+    monkeypatch.setattr(fp, "_connected_join_cached_edge_filter", spy_ef)
+    _force_narrowing(monkeypatch)
+    result = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+
+    assert result == oracle
+    assert "decoy_n" not in widths["nodes"] and "decoy_e" not in widths["edges"]
+    assert widths["edges"] == ["s", "d"]
+    assert widths["nodes"] == ["id"]  # start alias references no props in this query
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "polars-gpu", "cudf"])
+def test_grouped_aggregate_projection_small_frame_keeps_columns_and_value(
+    engine: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Negative twin of the width pin: under the DEFAULT threshold these frames
+    are small, so polars skips narrowing and the filters carry the decoy columns
+    through. That is the contract (AT LEAST the projected columns) and it must
+    not change the answer; the eager arms narrow regardless."""
+    from graphistry.compute import gfql_fast_paths as fp
+
+    nodes, edges = _base_data()
+    nodes = nodes.assign(decoy_n="x")
+    edges = edges.assign(decoy_e=1.5)
+    query = ("MATCH (p {kind:'P'})-[{rel:'L'}]->(c {kind:'C'}) "
+             "RETURN c.city AS city, count(*) AS n ORDER BY city ASC")
+
+    with monkeypatch.context() as eager_ctx:
+        _force_eager(eager_ctx)
+        oracle = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+
+    widths: Dict[str, List[str]] = {}
+    real_ef = fp._connected_join_cached_edge_filter
+
+    def spy_ef(*args: Any, **kw: Any) -> Any:
+        out = real_ef(*args, **kw)
+        widths.setdefault("edges", list(out.columns))
+        return out
+
+    monkeypatch.setattr(fp, "_connected_join_cached_edge_filter", spy_ef)
+    assert _records(_graph(engine, nodes, edges).gfql(query, engine=engine)) == oracle
+    assert set(widths["edges"]) >= {"s", "d"}
+    if engine.startswith("polars"):
+        assert "decoy_e" in widths["edges"]  # gate skipped narrowing
+    else:
+        assert widths["edges"] == ["s", "d"]  # no gate off the polars lazy path
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "polars-gpu", "cudf"])
+def test_grouped_aggregate_projection_keeps_missing_prop_decline(
+    engine: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A referenced prop MISSING from the node frame must still decline to the
+    generic path with the same answer -- projection may not turn the decline into
+    a select error."""
+    nodes, edges = _base_data()
+    nodes = nodes.drop(columns=["city"])
+    query = ("MATCH (p {kind:'P'})-[{rel:'L'}]->(c {kind:'C'}) "
+             "RETURN c.city AS city, count(*) AS n ORDER BY city ASC")
+    with monkeypatch.context() as eager_ctx:
+        _force_eager(eager_ctx)
+        try:
+            oracle: Any = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+        except Exception as exc:  # noqa: BLE001
+            oracle = type(exc)
+    try:
+        result: Any = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+    except Exception as exc:  # noqa: BLE001
+        result = type(exc)
+    assert result == oracle
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars", "polars-gpu", "cudf"])
+@pytest.mark.parametrize("label,query", _SERVED_SHAPES, ids=[s[0] for s in _SERVED_SHAPES])
+def test_grouped_aggregate_projection_differential_all_shapes_all_engines(
+    engine: str, label: str, query: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CROSS-PLATFORM value differential for the projection change: every served
+    shape, on every engine, with decoy columns present, must answer exactly what
+    the projection-free eager twin answers on the SAME engine."""
+    nodes, edges = _base_data()
+    nodes = nodes.assign(decoy_n="x")
+    edges = edges.assign(decoy_e=1.5)
+
+    with monkeypatch.context() as eager_ctx:
+        _force_eager(eager_ctx)
+        oracle = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+
+    result = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
+    assert result == oracle, f"{label}: projection changed the answer on {engine}"

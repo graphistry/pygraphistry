@@ -15,31 +15,41 @@ if TYPE_CHECKING:
     # point for `is_lazy` — every eager-side caller sits in the `else`. TYPE_CHECKING-only so
     # no runtime typing_extensions>=4.10 floor is introduced (this module is `from __future__
     # import annotations`, so the annotation is never evaluated).
-    from typing_extensions import TypeIs
+    from typing_extensions import TypeGuard, TypeIs
     # `PolarsFrame` / `PolarsT` were defined here first; they now live in the canonical
     # engine-typing module (graphistry.compute.typing) and are re-exported so this module's
     # existing importers keep working off ONE definition.
-    from graphistry.compute.typing import PolarsFrame, PolarsT
+    from graphistry.compute.typing import PolarsDType, PolarsFrame, PolarsT
 
 
-def is_int(dt: "Optional[pl.DataType]") -> bool:
+def is_polars_dtype(dt: object) -> "TypeGuard[PolarsDType]":
+    """True if ``dt`` is a polars dtype (class or instance -- the metaclass puts
+    both under the polars module). Import-light module sniff, mirroring
+    ``Engine.is_polars_df`` for frames, and declared ``TypeGuard`` for the same
+    reason: callers hold a dtype typed ``Any``/``object`` (pandas' ``DType``
+    alias is ``Any``), and the guard is what proves the polars dtype API is
+    available in the branch it opens."""
+    return "polars" in str(type(dt).__module__)
+
+
+def is_int(dt: "Optional[PolarsDType]") -> bool:
     """Signed/unsigned integer dtype (not bool, not float)."""
     import polars as pl
     return dt in (pl.Int8, pl.Int16, pl.Int32, pl.Int64,
                   pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64)
 
 
-def is_float(dt: "Optional[pl.DataType]") -> bool:
+def is_float(dt: "Optional[PolarsDType]") -> bool:
     import polars as pl
     return dt in (pl.Float32, pl.Float64)
 
 
-def is_numeric(dt: "Optional[pl.DataType]") -> bool:
+def is_numeric(dt: "Optional[PolarsDType]") -> bool:
     """Integer or float — the operand types polars arithmetic/comparison accepts."""
     return is_int(dt) or is_float(dt)
 
 
-def is_stringlike(dt: "Optional[pl.DataType]") -> bool:
+def is_stringlike(dt: "Optional[PolarsDType]") -> bool:
     """String / Categorical / Enum — all compare/order like strings and all raise vs a
     numeric operand in polars (so all must trip the cross-type guard)."""
     import polars as pl
@@ -50,6 +60,52 @@ def is_stringlike(dt: "Optional[pl.DataType]") -> bool:
         if t is not None and (dt == t or isinstance(dt, t)):
             return True
     return False
+
+
+# --- cross-ENGINE dtype classification (pandas/numpy/arrow/polars), the pushdown
+# planner's contract. Lives with the polars vocabulary because the polars arm is
+# the one that made single-sourcing load-bearing: pandas' classifiers return a
+# confident False for polars dtypes, so per-site fallbacks silently diverged. ---
+
+def dtype_text(dtype: object) -> str:
+    try:
+        return str(dtype).lower()
+    except Exception:
+        return ""
+
+
+def is_numeric_dtype_safe(dtype: object) -> bool:
+    # polars first: pandas' is_numeric_dtype returns a confident False for polars
+    # dtypes (no exception, so a fallback never runs). Polars' own is_numeric(),
+    # not is_numeric above: Decimal is in scope for this planner.
+    import pandas as pd
+    if is_polars_dtype(dtype):
+        try:
+            return bool(dtype.is_numeric())  # type: ignore[union-attr]  # class-form calls raise -> except arm
+        except Exception:
+            return any(t in str(dtype).lower() for t in ("int", "float", "decimal"))
+    try:
+        return bool(pd.api.types.is_numeric_dtype(dtype))
+    except Exception:
+        kind = getattr(dtype, "kind", None)
+        if isinstance(kind, str) and kind in {"b", "i", "u", "f", "c"}:
+            return True
+        dtype_txt = dtype_text(dtype)
+        return any(token in dtype_txt for token in ("bool", "int", "float", "double", "decimal"))
+
+
+def is_string_dtype_safe(dtype: object) -> bool:
+    import pandas as pd
+    if is_polars_dtype(dtype):
+        return is_stringlike(dtype)
+    try:
+        return bool(pd.api.types.is_string_dtype(dtype))
+    except Exception:
+        dtype_txt = dtype_text(dtype)
+        # "str" exact: pandas 3-era default string dtype reprs as "str" (not
+        # "object"/"string[...]"); exact match so "struct" stays non-string.
+        return (dtype_txt in ("object", "str") or "string" in dtype_txt
+                or dtype_txt.endswith("[python]"))
 
 
 # --- frame-shape helpers (lazy/eager agnostic), shared by chain orchestration + degree

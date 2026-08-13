@@ -1021,15 +1021,28 @@ def _execute_compiled_query_via_physical_plan(
         )
 
     if physical_plan.route in ("same_path", "row_pipeline"):
+        # Record served/declined at the CALL SITE rather than inside each fast path:
+        # this is where the decision is consumed, it is one place instead of N return
+        # paths, and it cannot be bypassed the way patching a directly-imported name is.
+        from graphistry.compute.gfql.index.api import record_fast_path_decision
         fast_grouped = _execute_single_hop_grouped_aggregate_fast_path(base_graph, compiled_query.chain, engine=engine)
+        record_fast_path_decision(
+            path="single_hop_grouped_aggregate", engine=engine, served=fast_grouped is not None,
+            reason="served" if fast_grouped is not None else "declined; caller falls back")
         if fast_grouped is not None:
             return fast_grouped
         fast_count = _execute_two_hop_count_fast_path(base_graph, compiled_query.chain, engine=engine)
+        record_fast_path_decision(
+            path="two_hop_count", engine=engine, served=fast_count is not None,
+            reason="served" if fast_count is not None else "declined; caller falls back")
         if fast_count is not None:
             return fast_count
         fast_hop = _execute_seeded_typed_hop_fast_path(
             base_graph, compiled_query, physical_plan,
             engine=engine, policy=policy, context=context, start_nodes=start_nodes)
+        record_fast_path_decision(
+            path="seeded_typed_hop", engine=engine, served=fast_hop is not None,
+            reason="served" if fast_hop is not None else "declined; caller falls back")
         if fast_hop is not None:
             return fast_hop
         return _execute_compiled_query_chain_non_union(
@@ -1512,8 +1525,8 @@ _COMPILED_STRING_QUERY_CACHE_MAX = 128
 #: no matter which ``Plottable`` asked for it. This cache used to hang off the caller's
 #: Plottable by ``setattr``, which partitioned it by something that cannot change the
 #: answer -- so a ONE-SHOT query on a fresh graph recompiled a plan the process was already
-#: holding. Measured on dgx-spark at graph-benchmark 20k, that cost the first query on a
-#: Plottable +1.6 to +2.5 ms (+21% to +52%) versus the second, on q3/q4/q5/q7/q9 alike.
+#: holding, so the FIRST query on a Plottable paid a recompile the second did not --
+#: measurably, across every benchmarked query shape.
 #:
 #: Bounded LRU rather than clear-on-full so a hot query cannot be evicted by a burst of
 #: cold ones. Values are ``@dataclass(frozen=True)`` chains and plans -- no DataFrame is
@@ -1944,23 +1957,21 @@ def gfql(self: Plottable,
     :returns: Resulting Plottable
     :rtype: Plottable
     """
-    # engine inference: resolve_engine(AUTO) maps polars frames to PANDAS (polars predates
-    # Engine.POLARS there), silently bridging polars-frame graphs onto the generic pandas path
-    # and handing pandas frames back. Measured on the matched graph-benchmark q1-q9 lane through
-    # this exact surface (dgx-spark, perf lock, position-balanced over 8 slots): 2.45-11.9x at 20k
-    # and 4.8-37.2x at 100k, values identical. Route AUTO to the native polars engine instead;
-    # an honest NIE (unsupported shape) falls back to the legacy AUTO path -- allowed here
-    # because the user pinned no engine -- at a flat ~0.23 ms, the decline being raised at
-    # planning before any data is touched.
-    #
-    # ``policy is None`` is REQUIRED, not conservatism: the native polars executor does not go
-    # through ``chain_impl``, so it never emits the ``postload``/``postchain`` hooks that path
-    # emits. Routing a policy-carrying query there would silently stop enforcing a DENYING
-    # ``postload`` policy (measured: deny-on-postload blocks under the generic path and does not
-    # under the native one) -- a governance hook that stops firing is worse than a slow query.
-    # The NIE fallback compounds it: re-running the query would fire ``preload``/``precompile``/
-    # ``postcompile`` twice for one user call. Explicit ``engine='polars'`` is unchanged and still
-    # carries the pre-existing hook gap; this guard only refuses to make that gap the default.
+    # TRANSITIONAL guard, not a contract: with a POLICY attached, AUTO serves via
+    # pandas until the polars route emits the postload/postchain hooks -- hooks
+    # are the governance surface and must fire exactly once on whatever engine
+    # serves. The predicate is resolve_engine itself, so EVERY graph AUTO would
+    # route to polars (all-polars AND mixed frames) is guarded -- a frame-shape
+    # check here once let mixed frames bypass a denying policy. Delete this
+    # guard when the hook gap closes; tests pin the hook contract.
+    # (Native-vs-generic magnitudes: pyg-bench, matched q1-q9.)
+    if (
+        (engine == EngineAbstract.AUTO or engine == EngineAbstract.AUTO.value)
+        and policy is not None
+        and resolve_engine(EngineAbstract.AUTO, self) == Engine.POLARS
+    ):
+        engine = Engine.PANDAS.value
+
     if (
         (engine == EngineAbstract.AUTO or engine == EngineAbstract.AUTO.value)
         and policy is None
@@ -1973,7 +1984,14 @@ def gfql(self: Plottable,
                 shortest_path_backend=shortest_path_backend,
             )
         except NotImplementedError:
-            logger.debug('AUTO polars-native attempt declined; falling back to generic path')
+            # AUTO must answer: pandas explicitly, since the generic path would
+            # re-resolve these frames to POLARS and re-raise the same NIE.
+            logger.debug('AUTO polars-native attempt declined; serving via pandas')
+            return gfql(
+                self, query, engine=Engine.PANDAS.value, output=output, policy=policy,
+                where=where, language=language, params=params, validate=validate,
+                shortest_path_backend=shortest_path_backend,
+            )
 
     # engine inference, cuDF arm (owner-directed policy addition, 2026-08-02; supersedes the
     # earlier "AUTO never selects polars-gpu" doctrine for THIS arm only): when every bound
