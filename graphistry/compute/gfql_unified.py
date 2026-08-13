@@ -1027,20 +1027,27 @@ def _execute_compiled_query_via_physical_plan(
         from graphistry.compute.gfql.index.api import record_fast_path_decision
         from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
         # Fast paths run BEFORE the chain route, which is where the execution
-        # target used to be established -- so engine='polars-gpu' silently
-        # collected fast-path plans on CPU (#1824). Set the target here; a plan
-        # the GPU cannot execute raises NIE inside the fast path, recorded as a
-        # DECLINE so the chain route (with its own GPU-or-error contract) answers.
-        _resolved_for_target = resolve_engine(cast(Any, engine), base_graph)
-        _fp_target = (ExecutionTarget.GPU if _resolved_for_target == Engine.POLARS_GPU
-                      else ExecutionTarget.CPU)
+        # target is established -- so engine='polars-gpu' serves fast-path work
+        # on CPU (#1824: eager arms never collect, and dgx measured 86 polars-gpu
+        # tests green only via that mislabel). The target stays CPU here until
+        # the fast paths are made GPU-or-decline arm by arm (#1824, next cycle);
+        # the collect routing + NIE-decline plumbing below is already in place
+        # and is a no-op on the CPU target. Flip to ExecutionTarget.GPU on
+        # POLARS_GPU resolutions only together with the per-arm decline work.
+        _fp_target = ExecutionTarget.CPU
 
-        def _try_fast(path_name: str, run: Callable[[], Optional[Plottable]]) -> Optional[Plottable]:
+        _FastPathName = Literal["single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop"]
+
+        def _try_fast(path_name: _FastPathName, run: Callable[[], Optional[Plottable]]) -> Optional[Plottable]:
             try:
                 with target_mode(_fp_target):
                     out = run()
                 reason = "served" if out is not None else "declined; caller falls back"
             except NotImplementedError:
+                # ONLY the GPU target's plan-not-executable NIE is a decline; on
+                # CPU an NIE is a real error and must surface, not be swallowed.
+                if _fp_target != ExecutionTarget.GPU:
+                    raise
                 out = None
                 reason = "declined; plan not GPU-executable, chain route answers"
             record_fast_path_decision(
