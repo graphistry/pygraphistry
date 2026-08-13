@@ -22,6 +22,14 @@ if TYPE_CHECKING:
     from graphistry.compute.typing import PolarsFrame, PolarsT
 
 
+def is_polars_dtype(dt: object) -> bool:
+    """True if ``dt`` is a polars dtype (class or instance -- the metaclass puts
+    both under the polars module). Import-light module sniff, mirroring
+    ``Engine.is_polars_df`` for frames: the gate callers run BEFORE the typed
+    predicates below, whose signatures assume polars input."""
+    return "polars" in str(type(dt).__module__)
+
+
 def is_int(dt: "Optional[pl.DataType]") -> bool:
     """Signed/unsigned integer dtype (not bool, not float)."""
     import polars as pl

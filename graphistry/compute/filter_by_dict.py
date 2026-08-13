@@ -27,14 +27,12 @@ def _dtype_text(dtype: Any) -> str:
         return ""
 
 
-def _is_polars_dtype(dtype: DType) -> bool:
-    return 'polars' in str(type(dtype).__module__)
-
-
 def _is_numeric_dtype_safe(dtype: Any) -> bool:
     # polars first: pandas' is_numeric_dtype returns a confident False for polars
-    # dtypes (no exception, so a fallback never runs).
-    if _is_polars_dtype(dtype):
+    # dtypes (no exception, so a fallback never runs). Polars' own is_numeric(),
+    # not dtypes.is_numeric: Decimal is in scope for this planner.
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_polars_dtype
+    if is_polars_dtype(dtype):
         try:
             return bool(dtype.is_numeric())
         except Exception:
@@ -50,12 +48,9 @@ def _is_numeric_dtype_safe(dtype: Any) -> bool:
 
 
 def _is_string_dtype_safe(dtype: Any) -> bool:
-    if _is_polars_dtype(dtype):
-        # Type name, not str(dtype): parameterized dtypes render their args
-        # (str(pl.Enum([...])) == "Enum(categories=[...])"), so a repr whitelist
-        # silently misses them.
-        name = dtype.__name__ if isinstance(dtype, type) else type(dtype).__name__
-        return name in ("String", "Utf8", "Categorical", "Enum")
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_polars_dtype, is_stringlike
+    if is_polars_dtype(dtype):
+        return is_stringlike(dtype)
     try:
         return bool(pd.api.types.is_string_dtype(dtype))
     except Exception:
