@@ -640,6 +640,25 @@ class TestAutoEngineLazyFrames:
     the AUTO route must take it too — and hand back EAGER polars, same as explicit
     engine='polars' does."""
 
+    @pytest.mark.parametrize("nodes_lazy", [False, True])
+    @pytest.mark.parametrize("edges_lazy", [False, True])
+    def test_undirected_single_hop_any_eagerness_mix(self, nodes_lazy, edges_lazy):
+        """#1740: polars joins do not mix eagerness, and the undirected backward
+        threading semi-joins the user's node frame against a hop output — lazy
+        nodes crashed with TypeError. Every eagerness combination must answer
+        with pandas parity."""
+        nodes = pl.DataFrame({"id": [0, 1, 2], "node_type": ["P"] * 3})
+        edges = pl.DataFrame({"s": [0, 1], "d": [1, 2], "rel": ["F"] * 2})
+        q = "MATCH (a {id: 0})-[]-(b) RETURN b.id AS x ORDER BY x"
+        oracle = (graphistry.nodes(nodes.to_pandas(), "id")
+                  .edges(edges.to_pandas(), "s", "d")
+                  .gfql(q, engine="pandas")._nodes.to_dict("records"))
+        g = graphistry.nodes(nodes.lazy() if nodes_lazy else nodes, "id").edges(
+            edges.lazy() if edges_lazy else edges, "s", "d")
+        out = g.gfql(q, engine="polars")._nodes
+        assert isinstance(out, pl.DataFrame), type(out)  # eager out
+        assert out.to_pandas().to_dict("records") == oracle
+
     def test_lazyframe_auto_routes_native_and_matches_explicit(self):
         nodes = pl.DataFrame({"id": [0, 1, 2, 3], "label__Person": [True] * 4}).lazy()
         edges = pl.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3], "type": ["KNOWS"] * 3}).lazy()

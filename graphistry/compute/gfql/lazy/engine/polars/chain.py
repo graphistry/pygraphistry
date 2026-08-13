@@ -1084,7 +1084,14 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         if (isinstance(op, ASTEdge) and op.direction == "undirected"
                 and op.is_simple_single_hop() and rev._edges is not None):
             _both = endpoint_ids(rev._edges, src, dst, node_col).unique(subset=[node_col])
-            rev = rev.nodes(g._nodes.join(_both, on=node_col, how="semi"), node_col)
+            # polars joins do not mix eagerness, and g._nodes may be the user's
+            # LazyFrame while the hop output is eager (#1740).
+            _g_nodes = g._nodes
+            if is_lazy(_g_nodes) and not is_lazy(_both):
+                _both = _both.lazy()
+            elif not is_lazy(_g_nodes) and is_lazy(_both):
+                _both = _both.collect()
+            rev = rev.nodes(_g_nodes.join(_both, on=node_col, how="semi"), node_col)
         g_rev.append(rev)
 
     steps: List[Tuple[ASTObject, Plottable]] = list(zip(ops, list(reversed(g_rev))))
