@@ -9,11 +9,22 @@ module; its setup/gates/epilogue sections are now shared inside ``hop_polars``.
 from typing import Any, Optional
 
 from graphistry.Plottable import Plottable
+from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
 from graphistry.compute.gfql.lazy.engine.polars.hop_eager import hop_polars
 
 
 def hop_lazy_or_eager(self: Plottable, nodes: Optional[Any] = None, hops: Optional[int] = 1, **kwargs: Any) -> Plottable:
     """Run the polars hop: lazy collect-once for a single bounded hop, eager loop otherwise."""
+    # Normalize input eagerness ONCE, mirroring the chain_polars entry (#1740): LazyFrame is
+    # an accepted INPUT format, but the BFS loop mixes user frames with eager wavefronts and
+    # polars joins do not mix eagerness. Direct .hop() reaches here without passing through
+    # chain_polars, so the chain-entry normalization alone leaves this route crashing.
+    if self._nodes is not None and is_lazy(self._nodes):
+        self = self.nodes(self._nodes.collect(), self._node)
+    if self._edges is not None and is_lazy(self._edges):
+        self = self.edges(self._edges.collect(), self._source, self._destination)
+    if nodes is not None and is_lazy(nodes):
+        nodes = nodes.collect()
     # GFQL physical index fast path (pay-as-you-go). chain_polars reaches the
     # polars hop here without passing through compute/hop.py, so the index hook
     # lives here too to cover polars gfql() chains (not just direct .hop()).
