@@ -724,6 +724,16 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
     from graphistry.compute.ast import ASTCall
     from graphistry.compute.chain import Chain, _get_boundary_calls
 
+    # Normalize input eagerness ONCE: LazyFrame is an accepted INPUT format, but
+    # the traversal mixes user frames with eager wavefronts at many joins, and
+    # polars joins do not mix eagerness (#1740 -- fixing seams one by one left
+    # the varlen and multi-hop undirected shapes crashing). The chain re-lazifies
+    # internally where plans benefit; results are eager either way.
+    if self._nodes is not None and is_lazy(self._nodes):
+        self = self.nodes(self._nodes.collect(), self._node)
+    if self._edges is not None and is_lazy(self._edges):
+        self = self.edges(self._edges.collect(), self._source, self._destination)
+
     if isinstance(ops, Chain):
         ops = ops.chain
     ops = list(ops)
@@ -1084,14 +1094,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         if (isinstance(op, ASTEdge) and op.direction == "undirected"
                 and op.is_simple_single_hop() and rev._edges is not None):
             _both = endpoint_ids(rev._edges, src, dst, node_col).unique(subset=[node_col])
-            # polars joins do not mix eagerness, and g._nodes may be the user's
-            # LazyFrame while the hop output is eager (#1740).
-            _g_nodes = g._nodes
-            if is_lazy(_g_nodes) and not is_lazy(_both):
-                _both = _both.lazy()
-            elif not is_lazy(_g_nodes) and is_lazy(_both):
-                _both = _both.collect()
-            rev = rev.nodes(_g_nodes.join(_both, on=node_col, how="semi"), node_col)
+            rev = rev.nodes(g._nodes.join(_both, on=node_col, how="semi"), node_col)
         g_rev.append(rev)
 
     steps: List[Tuple[ASTObject, Plottable]] = list(zip(ops, list(reversed(g_rev))))
