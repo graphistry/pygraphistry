@@ -12,7 +12,7 @@ from typing import Dict, List, Literal, Optional, Sequence, Set, Tuple, cast
 
 import pandas as pd
 
-from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, POLARS_ENGINES, resolve_engine
+from graphistry.Engine import EngineAbstract, Engine, EngineAbstractType, POLARS_ENGINES, is_polars_df, resolve_engine
 from graphistry.compute.typing import DataFrameT
 from graphistry.Plottable import Plottable
 from .registry import (
@@ -305,13 +305,40 @@ def _check_column(column: Optional[str], expected: str, kind: IndexKind) -> None
         )
 
 
+def _is_eager_polars(df: Optional[DataFrameT]) -> bool:
+    """EAGER polars only: ``is_polars_df`` admits LazyFrames, and an index build
+    cannot gather rows from a lazy plan."""
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
+    return df is not None and is_polars_df(df) and not is_lazy(df)
+
+
+def resolve_index_engine(engine: EngineAbstractType, g: Plottable) -> Engine:
+    """Engine for index build/validation/usability: NARROWS modern AUTO to what
+    an index build can serve -- both frames present and EAGER polars; anything
+    else polars-resolved downgrades to pandas (an index cannot gather rows from
+    a lazy plan). Declines self-heal: ``create_index`` coerces the frames it
+    indexes, so later AUTO queries route with the post-build frames and the
+    build/query gates agree (pinned in ``test_auto_engine_agreement``; the
+    mismatch failure mode is #1767, receipted in pyg-bench).
+    """
+    eng = resolve_engine(engine, g)
+    abstract = EngineAbstract(engine) if isinstance(engine, str) else engine
+    if abstract != EngineAbstract.AUTO:
+        return eng
+    if eng == Engine.POLARS and not (
+        _is_eager_polars(g._edges) and _is_eager_polars(g._nodes)
+    ):
+        return Engine.PANDAS
+    return eng
+
+
 def _is_resident_index_valid(
     g: Plottable,
     kind: IndexKind,
     engine: EngineAbstractType = EngineAbstract.AUTO,
 ) -> bool:
     """True when a resident index still matches the current graph frames."""
-    eng = resolve_engine(engine, g)
+    eng = resolve_index_engine(engine, g)
     registry = get_registry(g)
     if kind in ADJ_KINDS:
         src, dst = g._source, g._destination
@@ -342,7 +369,7 @@ def create_index(
     O(E log E) once, amortized over later seeded queries.
     """
     from dataclasses import replace
-    eng = resolve_engine(engine, g)
+    eng = resolve_index_engine(engine, g)
     # Build over frames already in the target engine so the index arrays land on
     # the right backend (cupy for cudf, numpy otherwise). No-op when already in-engine.
     from graphistry.compute.ComputeMixin import _coerce_input_formats
@@ -434,13 +461,14 @@ def show_indexes(
     engine-specific, so a fresh index built for another engine silently declines to
     a scan at query time (#1767). ``query_engine`` is what ``engine`` resolves to
     for THIS graph (the same resolution a query makes — pass ``engine=`` to preview
-    an explicit choice), ``usable`` is True only when the index is fresh AND
-    engine-matched, and ``reason`` says why not, with the same wording as the
-    ``gfql_explain`` decline diagnostic.
+    an explicit choice; under AUTO this follows the query-side AUTO routing, so an
+    all-polars-frame graph reports ``polars``), ``usable`` is True only when the
+    index is fresh AND engine-matched, and ``reason`` says why not, with the same
+    wording as the ``gfql_explain`` decline diagnostic.
     """
     from .registry import index_nbytes
 
-    query_engine = resolve_engine(engine, g)
+    query_engine = resolve_index_engine(engine, g)
     registry = get_registry(g)
     rows: List[Dict[str, object]] = []
     for kind in registry.kinds():
@@ -646,7 +674,7 @@ def gfql_index_col_stats(g: Plottable,
     by name, so an unusable request raises rather than skipping.
     """
     from .build import _MAX_COL_STATS_PARTITIONS, build_col_stats_fact, build_col_stats_facts_by_type
-    eng = resolve_engine(engine, g)
+    eng = resolve_index_engine(engine, g)  # AUTO keeps polars frames (#1843)
     from graphistry.compute.ComputeMixin import _coerce_input_formats
     g = _coerce_input_formats(g, eng)
     registry = get_registry(g)

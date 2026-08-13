@@ -9,7 +9,7 @@ import uuid
 import warnings
 import zipfile
 
-from graphistry.Engine import Engine, EngineAbstractType, resolve_engine
+from graphistry.Engine import Engine, EngineAbstractType, resolve_input_engine
 from graphistry.Plottable import Plottable
 from graphistry.client_session import DatasetInfo
 from graphistry.compute.ast import ASTLet, ASTObject
@@ -141,7 +141,7 @@ def chain_remote_generic(
         raise ValueError(f"Unknown output_type, expected one of {output_types_graph}, got: {output_type}")
 
     # Resolve engine: auto -> pandas/cudf based on graph DataFrame type
-    engine_resolved = resolve_engine(engine, self)
+    engine_resolved = resolve_input_engine(engine, self)
     if engine_resolved not in [Engine.PANDAS, Engine.CUDF]:
         raise ValueError(f"Remote GFQL only supports 'pandas' or 'cudf' engines (or 'auto' which resolves to one of them). "
                        f"Got engine='{engine}' which resolved to '{engine_resolved.value}'. "

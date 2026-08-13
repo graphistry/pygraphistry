@@ -15974,14 +15974,20 @@ def test_node_dtypes_for_pushdown_on_polars_matches_the_full_conversion() -> Non
         if str(column) not in reported:
             continue
         assert _connected_join_dtype_classes(reported[str(column)]) == _connected_join_dtype_classes(dtype)
-    # `flag` is polars Boolean with a null -> pandas object holding bools -> omitted.
-    assert "flag" not in reported
+    # Modern AUTO: the executor filters polars natively, so `flag` stays polars
+    # Boolean -- a real classifiable dtype -- and is REPORTED. Its old omission was
+    # an artifact of the legacy pandas conversion (nullable Boolean -> object):
+    # an accident, not the spec. The invariant is planner/executor agreement.
+    assert "flag" in reported and str(reported["flag"]) == "Boolean"
     assert {"id", "age", "name"} <= set(reported)
     # The empty probe would have called the nullable bool numeric, which is why it cannot be
     # used: the real conversion yields object-holding-bools, which is omitted instead.
     empty = df_to_engine(nodes.head(0), resolve_engine("auto", nodes), warn=False)
     empty_dtypes = dict(zip([str(name) for name in empty.columns], list(empty.dtypes)))
-    assert _connected_join_dtype_classes(empty_dtypes["flag"]) == (True, False)
+    # Modern AUTO: the probe stays POLARS, so the legacy head(0)-vs-real
+    # divergence this demonstrated cannot occur -- both sides see polars
+    # Boolean, classifying (False, False), failing closed identically.
+    assert _connected_join_dtype_classes(empty_dtypes["flag"]) == (False, False)
 
 
 @pytest.mark.parametrize(
@@ -16058,6 +16064,88 @@ def test_connected_join_dtype_classes_defers_to_the_live_validator() -> None:
             bool(_is_numeric_dtype_safe(dtype)),
             bool(_is_string_dtype_safe(dtype)),
         )
+
+
+def test_polars_dtype_classification_both_sides() -> None:
+    """Positive AND negative, polars-first: pandas' classifiers return a
+    confident False for polars dtypes, and a repr whitelist misses
+    parameterized dtypes (str(pl.Enum([...])) renders its categories)."""
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe
+
+    stringy = [pl.String(), pl.Utf8, pl.Categorical(), pl.Enum(["a", "b"])]
+    numericy = [pl.Int64(), pl.Float64(), pl.UInt32(), pl.Decimal(10, 2)]
+    neither = [pl.Boolean(), pl.Date(), pl.List(pl.Int64())]
+    for dt in stringy:
+        assert _is_string_dtype_safe(dt), dt
+        assert not _is_numeric_dtype_safe(dt), dt
+    for dt in numericy:
+        assert _is_numeric_dtype_safe(dt), dt
+        assert not _is_string_dtype_safe(dt), dt
+    for dt in neither:
+        assert not _is_string_dtype_safe(dt), dt
+
+
+def test_polars_dtype_classifier_fallback_arms(monkeypatch: Any) -> None:
+    """The classifiers' FALLBACK contracts: a polars-module dtype without the
+    dtype API falls to the substring arm; a pandas classifier that raises falls
+    to kind/text arms; an object whose str() raises classifies as nothing --
+    never an exception out of a classifier."""
+    import pandas as pd
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import (
+        dtype_text, is_numeric_dtype_safe, is_string_dtype_safe,
+    )
+
+    class _FakePolarsDtype:  # no is_numeric() -> except arm -> substring fallback
+        pass
+    _FakePolarsDtype.__module__ = "polars.datatypes.fake"
+
+    class _Int64ish(_FakePolarsDtype):
+        def __str__(self) -> str:
+            return "Int64"
+    _Int64ish.__module__ = "polars.datatypes.fake"
+
+    class _Weird(_FakePolarsDtype):
+        def __str__(self) -> str:
+            return "Weird"
+    _Weird.__module__ = "polars.datatypes.fake"
+
+    assert is_numeric_dtype_safe(_Int64ish())
+    assert not is_numeric_dtype_safe(_Weird())
+
+    class _RaisesOnStr:
+        def __str__(self) -> str:
+            raise RuntimeError("no repr")
+
+    assert dtype_text(_RaisesOnStr()) == ""
+    assert not is_string_dtype_safe(_RaisesOnStr())
+
+    def _boom(_dt: Any) -> bool:
+        raise TypeError("classifier unavailable")
+
+    monkeypatch.setattr(pd.api.types, "is_numeric_dtype", _boom)
+    monkeypatch.setattr(pd.api.types, "is_string_dtype", _boom)
+
+    class _KindDtype:
+        kind = "i"
+
+        def __str__(self) -> str:
+            return "int64"
+
+    assert is_numeric_dtype_safe(_KindDtype())          # kind arm
+    assert is_numeric_dtype_safe(pd.Series([1.0]).dtype)  # text arm ("float")
+    # default string dtype text arm: "object" on classic pandas, "str" on the
+    # pandas-3-era default -- both must classify string
+    assert is_string_dtype_safe(pd.Series(["a"], dtype="object").dtype)
+    assert is_string_dtype_safe(pd.Series(["a"]).dtype)
+    assert is_string_dtype_safe(pd.StringDtype())         # text arm ("string")
+    assert not is_string_dtype_safe(pd.Series([1]).dtype)
+
+    class _Structish:
+        def __str__(self) -> str:
+            return "struct<a: int64>"
+
+    assert not is_string_dtype_safe(_Structish())  # "str" is exact, not prefix
 
 
 @pytest.mark.parametrize(

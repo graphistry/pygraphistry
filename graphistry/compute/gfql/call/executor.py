@@ -104,10 +104,8 @@ def _bridge_graph_for_offengine_call(g: Plottable, function: str, engine: Engine
             "Use engine='pandas', or set call_mode='auto' (the default) to run it off-engine."
         )
     compute_engine = _compute_engine_for_offengine_call(engine, function)
-    # Convert the frames EXPLICITLY via df_to_engine — not ensure_engine_match, whose
-    # resolve_engine(AUTO, ...) detection classifies a polars frame as PANDAS (polars isn't a
-    # resolve_engine target), so it would treat the polars input as "already pandas" and no-op.
-    # df_to_engine is a genuine no-op when the frame is already compute_engine's type.
+    # df_to_engine, not ensure_engine_match: the conversion must key on the frame's
+    # actual type (no-op only when it already matches compute_engine).
     from graphistry.Engine import df_to_engine
     bridged = g
     if g._nodes is not None:
