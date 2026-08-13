@@ -1,5 +1,6 @@
 from typing import Any, Dict, Mapping, Optional, Tuple, Union, cast
 import pandas as pd
+
 from graphistry.Engine import EngineAbstract, df_to_engine, resolve_engine
 from graphistry.util import setup_logger
 
@@ -9,6 +10,23 @@ from .typing import DataFrameT, DType, NodeDtypes, SeriesT
 
 
 logger = setup_logger(__name__)
+# Single source in the dtype-contract module; deferred imports because the polars
+# package __init__ transitively imports this module (import cycle).
+
+def _dtype_text(dtype: Any) -> str:
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import dtype_text
+    return dtype_text(dtype)
+
+
+def _is_numeric_dtype_safe(dtype: Any) -> bool:
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_numeric_dtype_safe
+    return is_numeric_dtype_safe(dtype)
+
+
+def _is_string_dtype_safe(dtype: Any) -> bool:
+    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_string_dtype_safe
+    return is_string_dtype_safe(dtype)
+
 
 
 def _is_membership_filter_value(value: Any) -> bool:
@@ -18,44 +36,6 @@ def _is_membership_filter_value(value: Any) -> bool:
 def _looks_like_edge_dataframe(df: DataFrameT) -> bool:
     cols = {str(col) for col in df.columns}
     return {"s", "d"} <= cols or {"src", "dst"} <= cols or "edge_id" in cols
-
-
-def _dtype_text(dtype: Any) -> str:
-    try:
-        return str(dtype).lower()
-    except Exception:
-        return ""
-
-
-def _is_numeric_dtype_safe(dtype: Any) -> bool:
-    # polars first: pandas' is_numeric_dtype returns a confident False for polars
-    # dtypes (no exception, so a fallback never runs). Polars' own is_numeric(),
-    # not dtypes.is_numeric: Decimal is in scope for this planner.
-    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_polars_dtype
-    if is_polars_dtype(dtype):
-        try:
-            return bool(dtype.is_numeric())
-        except Exception:
-            return any(t in str(dtype).lower() for t in ("int", "float", "decimal"))
-    try:
-        return bool(pd.api.types.is_numeric_dtype(dtype))
-    except Exception:
-        kind = getattr(dtype, "kind", None)
-        if isinstance(kind, str) and kind in {"b", "i", "u", "f", "c"}:
-            return True
-        dtype_txt = _dtype_text(dtype)
-        return any(token in dtype_txt for token in ("bool", "int", "float", "double", "decimal"))
-
-
-def _is_string_dtype_safe(dtype: Any) -> bool:
-    from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_polars_dtype, is_stringlike
-    if is_polars_dtype(dtype):
-        return is_stringlike(dtype)
-    try:
-        return bool(pd.api.types.is_string_dtype(dtype))
-    except Exception:
-        dtype_txt = _dtype_text(dtype)
-        return dtype_txt == "object" or "string" in dtype_txt or dtype_txt.endswith("[python]")
 
 
 def _normalize_labels_cell(value: Any) -> Tuple[Any, ...]:

@@ -62,6 +62,49 @@ def is_stringlike(dt: "Optional[PolarsDType]") -> bool:
     return False
 
 
+# --- cross-ENGINE dtype classification (pandas/numpy/arrow/polars), the pushdown
+# planner's contract. Lives with the polars vocabulary because the polars arm is
+# the one that made single-sourcing load-bearing: pandas' classifiers return a
+# confident False for polars dtypes, so per-site fallbacks silently diverged. ---
+
+def dtype_text(dtype: object) -> str:
+    try:
+        return str(dtype).lower()
+    except Exception:
+        return ""
+
+
+def is_numeric_dtype_safe(dtype: object) -> bool:
+    # polars first: pandas' is_numeric_dtype returns a confident False for polars
+    # dtypes (no exception, so a fallback never runs). Polars' own is_numeric(),
+    # not is_numeric above: Decimal is in scope for this planner.
+    import pandas as pd
+    if is_polars_dtype(dtype):
+        try:
+            return bool(dtype.is_numeric())
+        except Exception:
+            return any(t in str(dtype).lower() for t in ("int", "float", "decimal"))
+    try:
+        return bool(pd.api.types.is_numeric_dtype(dtype))
+    except Exception:
+        kind = getattr(dtype, "kind", None)
+        if isinstance(kind, str) and kind in {"b", "i", "u", "f", "c"}:
+            return True
+        dtype_txt = dtype_text(dtype)
+        return any(token in dtype_txt for token in ("bool", "int", "float", "double", "decimal"))
+
+
+def is_string_dtype_safe(dtype: object) -> bool:
+    import pandas as pd
+    if is_polars_dtype(dtype):
+        return is_stringlike(dtype)
+    try:
+        return bool(pd.api.types.is_string_dtype(dtype))
+    except Exception:
+        dtype_txt = dtype_text(dtype)
+        return dtype_txt == "object" or "string" in dtype_txt or dtype_txt.endswith("[python]")
+
+
 # --- frame-shape helpers (lazy/eager agnostic), shared by chain orchestration + degree
 # helpers so frame introspection is uniform across DataFrame-vs-LazyFrame ------------
 
