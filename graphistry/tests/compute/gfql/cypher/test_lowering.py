@@ -16086,7 +16086,7 @@ def test_polars_dtype_classification_both_sides() -> None:
         assert not _is_string_dtype_safe(dt), dt
 
 
-def test_dtype_classifier_fallback_arms(monkeypatch: Any) -> None:
+def test_polars_dtype_classifier_fallback_arms(monkeypatch: Any) -> None:
     """The classifiers' FALLBACK contracts: a polars-module dtype without the
     dtype API falls to the substring arm; a pandas classifier that raises falls
     to kind/text arms; an object whose str() raises classifies as nothing --
