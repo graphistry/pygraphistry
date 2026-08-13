@@ -81,7 +81,7 @@ def is_numeric_dtype_safe(dtype: object) -> bool:
     import pandas as pd
     if is_polars_dtype(dtype):
         try:
-            return bool(dtype.is_numeric())
+            return bool(dtype.is_numeric())  # type: ignore[union-attr]  # class-form calls raise -> except arm
         except Exception:
             return any(t in str(dtype).lower() for t in ("int", "float", "decimal"))
     try:
