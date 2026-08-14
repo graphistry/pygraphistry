@@ -2628,7 +2628,7 @@ def _forces_relationship_multiplicity_projection_bindings(
             dest_alias = pattern[2].variable
             seed_target = alias_targets.get(seed_alias) if seed_alias is not None else None
             seed_filter = getattr(seed_target, "filter_dict", None)
-            has_selective_seed = bool(seed_filter) and any(
+            has_selective_seed = seed_filter is not None and any(
                 not str(key).startswith("label__") for key in seed_filter
             )
             if has_selective_seed and dest_alias is not None and referenced_aliases <= {dest_alias}:
