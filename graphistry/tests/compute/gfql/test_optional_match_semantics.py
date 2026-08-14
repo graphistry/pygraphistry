@@ -461,6 +461,7 @@ def _run_labeled(query: str, engine: str) -> pd.DataFrame:
         "s": ["s", "s", "a", "b"],
         "d": ["a", "b", "c", "b"],
         "edge_id": ["rel_1", "rel_2", "rel_3", "rel_4"],
+        "type": ["REL", "REL", "REL", "LOOP"],
     })
     if engine == "polars":
         g = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
@@ -500,3 +501,30 @@ def test_directed_arm_where_whole_row_matched_and_no_edge_null(engine):
     _assert_rows(
         _run_labeled("MATCH (n:Single) OPTIONAL MATCH (n)<-[r]-(m) WHERE m.num = 42 RETURN m", engine),
         [{"m": None}])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_optional_self_loop_arm_projects_edge(engine):
+    """TCK match7-24 twin (the other #1894-rework regression): a repeated node
+    alias in the optional arm must not route into the connected-OM path's
+    duplicate-alias decline. b's LOOP self-edge is the only (a)-[r]-(a) match.
+    polars: parity-or-NIE (self-loop lowers to a same-path WHERE it declines)."""
+    q = "MATCH (a:B) OPTIONAL MATCH (a)-[r]-(a) RETURN r"
+    expected = [{"r": "[:LOOP]"}]
+    if engine == "polars":
+        try:
+            out = _run_labeled(q, "polars")
+        except NotImplementedError:
+            return
+        _assert_rows(out, expected)
+    else:
+        _assert_rows(_run_labeled(q, engine), expected)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_optional_varlen_arm_bound_endpoints_projects_bound_alias(engine):
+    """TCK match7-13 twin: RETURN of a base-bound alias under a var-length
+    optional arm is arm-independent in value; the row guard serves it. The
+    only s-[*]->c path is s->a->c, so exactly one row with x = c."""
+    q = "MATCH (a:Single), (x:C) OPTIONAL MATCH (a)-[*]->(x) RETURN x"
+    _assert_rows(_run_labeled(q, engine), [{"x": "(:C)"}])

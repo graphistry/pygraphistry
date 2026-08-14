@@ -2705,6 +2705,44 @@ def _return_references_optional_only_alias(
     return False
 
 
+def _return_references_only_bound_aliases(
+    query: CypherQuery,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[Mapping[str, Any]] = None,
+    bound_nullable_aliases: Optional[AbstractSet[str]] = None,
+) -> bool:
+    """True when every RETURN item references only non-optional-bound aliases:
+    projected values are optional-arm-independent, so the row guard alone can
+    serve the projection (TCK match7-13)."""
+    if not any(clause.optional for clause in query.matches) or not any(not clause.optional for clause in query.matches):
+        return False
+    bound_aliases = {
+        alias
+        for clause in query.matches
+        if not clause.optional
+        for alias in _match_clause_aliases_raw(clause)
+    }
+    if bound_nullable_aliases:
+        bound_aliases -= set(bound_nullable_aliases)
+    if not bound_aliases:
+        return False
+    for item in query.return_.items:
+        if item.expression.text == "*":
+            return False
+        referenced = _expr_match_aliases(
+            item.expression.text,
+            alias_targets=alias_targets,
+            params=params,
+            field=query.return_.kind,
+            line=item.span.line,
+            column=item.span.column,
+        )
+        if not referenced or not referenced <= bound_aliases:
+            return False
+    return True
+
+
 def _where_uses_optional_only_label_predicate(
     query: CypherQuery,
     *,
@@ -7654,6 +7692,17 @@ def _is_connected_optional_match_query(query: CypherQuery) -> bool:
                     or (el.to_fixed_point if hasattr(el, "to_fixed_point") else False)
                 ):
                     return False
+    # Reject repeated node aliases within a clause (e.g. self-loop
+    # ``OPTIONAL MATCH (a)-[r]-(a)``) — per-clause ``_alias_target`` cannot
+    # represent them; the general lowering serves these (TCK match7-24).
+    for m in query.matches:
+        seen_nodes: Set[str] = set()
+        for pat in m.patterns:
+            for el in pat:
+                if isinstance(el, NodePattern) and el.variable is not None:
+                    if el.variable in seen_nodes:
+                        return False
+                    seen_nodes.add(el.variable)
     return True
 
 
@@ -9342,6 +9391,18 @@ def compile_cypher_query(
                         line=query.return_.span.line,
                         column=query.return_.span.column,
                     )
+            elif optional_null_fill is None and _return_references_only_bound_aliases(
+                query,
+                alias_targets=alias_targets,
+                params=params,
+                bound_nullable_aliases=bound_context.nullable_aliases,
+            ):
+                # Bound-alias-only projections are arm-independent in value;
+                # the row guard serves them and declines on lost multiplicity.
+                optional_projection_row_guard = _projection._optional_projection_row_guard_plan(
+                    query,
+                    params=params,
+                )
             # Honest residual gate: shapes with an optional clause that the
             # connected optional-match left-join lowering declined (e.g.
             # variable-length optional arms) and that no null-extension
