@@ -1020,7 +1020,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             n_from, n_to = (n0, n2) if e1.direction != "reverse" else (n2, n0)
             all_ids = gf._nodes.select(pl.col(ncol))
 
-            def _gate_ids(node_op):
+            def _gate_ids(node_op: ASTNode) -> "Optional[PolarsFrame]":
                 if node_op.filter_dict:
                     return filter_by_dict_polars(gf._nodes, node_op.filter_dict).select(pl.col(ncol))
                 return all_ids if node_bound else None
