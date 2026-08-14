@@ -175,20 +175,10 @@ def apply_optional_reentry_null_fill(
         return _bind_reentry_graph(result, df_ctor(fill_rows))
 
     fill_df = df_ctor(fill_rows)
-    # All-NA object columns in the fill frame trigger the pandas concat
-    # dtype-inference FutureWarning; pre-align them to the result's dtypes
-    # where losslessly possible (no behavior change -- the future concat
-    # behavior keeps the result dtype, which is exactly this).
-    if hasattr(fill_df, "isna") and hasattr(result_df, "dtypes"):
-        coerced = {}
-        for col in fill_df.columns:
-            if col in result_df.columns and bool(fill_df[col].isna().all()):
-                try:
-                    coerced[col] = fill_df[col].astype(result_df[col].dtype)
-                except (TypeError, ValueError):
-                    pass
-        if coerced:
-            fill_df = fill_df.assign(**coerced)
+    # NOTE: do NOT pre-align all-NA fill columns to result dtypes to silence
+    # the pandas concat FutureWarning -- casting to pandas-3 string dtypes
+    # turns the null-extension's None into NaN (user-visible representation
+    # regression caught by CI on py3.13/3.14 lanes). The warning is cosmetic.
     return _bind_reentry_graph(
         result,
         concat([result_df, fill_df], ignore_index=True, sort=False),
