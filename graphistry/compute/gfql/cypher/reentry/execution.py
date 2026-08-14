@@ -85,7 +85,7 @@ def reentry_validation_error(
         value=value,
         suggestion=suggestion,
         language="cypher",
-        **extra_context,
+        **extra_context,  # type: ignore[arg-type]
     )
 
 
