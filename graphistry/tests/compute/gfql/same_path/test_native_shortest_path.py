@@ -264,9 +264,11 @@ class TestCugraphGraphCache:
 # Integration: Cypher shortestPath via igraph backend
 # ---------------------------------------------------------------------------
 
+# OPTIONAL MATCH spelling: plain-MATCH shortestPath drops unreachable rows
+# (openCypher; #1903), so the -1 sentinel needs the null-extending clause.
 _SP_QUERY = (
-    "MATCH (a:Person {id: $a}), (b:Person {id: $b}), "
-    "path = shortestPath((a)-[:KNOWS*]-(b)) "
+    "MATCH (a:Person {id: $a}), (b:Person {id: $b}) "
+    "OPTIONAL MATCH path = shortestPath((a)-[:KNOWS*]-(b)) "
     "RETURN CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS dist"
 )
 
