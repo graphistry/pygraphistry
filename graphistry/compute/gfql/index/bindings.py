@@ -232,7 +232,26 @@ def _orient_edges(
         reverse = one(dst, src, 1)
         if engine == Engine.POLARS:
             reverse = reverse.select(forward.columns)  # type: ignore[operator]
-        return cast(DataFrameT, df_concat(engine)([forward, reverse], ignore_index=True))
+        combined = cast(DataFrameT, df_concat(engine)([forward, reverse], ignore_index=True))
+        # openCypher trail semantics (#1903 A-1): a self-loop's two undirected
+        # orientations are the SAME binding -- dedupe the flip twin on the
+        # per-edge ordinal, mirroring the standard builder.
+        if _EDGE_ORD in combined.columns:
+            if engine == Engine.POLARS:
+                combined = cast(  # hygiene-ok: explicit-cast -- DataFrameT narrowing, module-wide idiom
+                    DataFrameT,
+                    combined.unique(  # type: ignore[operator]
+                        subset=[_FROM, _TO, _EDGE_ORD], keep="first", maintain_order=True
+                    ),
+                )
+            else:
+                combined = cast(  # hygiene-ok: explicit-cast -- DataFrameT narrowing, module-wide idiom
+                    DataFrameT,
+                    combined.drop_duplicates(
+                        subset=[_FROM, _TO, _EDGE_ORD], keep="first", ignore_index=True
+                    ),
+                )
+        return combined
     if direction == "reverse":
         return one(dst, src, 0)
     return one(src, dst, 0)

@@ -400,7 +400,9 @@ class RowPipelineMixin:
         return bool(equals)
 
     def _gfql_eval_comparison_op(
-        self, table_df: Any, left: Any, right: Any, op: str
+        self, table_df: Any, left: Any, right: Any, op: str,
+        left_null_mask_override: Optional[Any] = None,  # hygiene-ok: explicit-any -- scalar-or-Series mask, evaluator-wide idiom
+        right_null_mask_override: Optional[Any] = None,  # hygiene-ok: explicit-any -- scalar-or-Series mask, evaluator-wide idiom
     ) -> Optional[Any]:
         cmp_fn = GFQL_COMPARISON_BINARY_OPS.get(op)
         if cmp_fn is None:
@@ -465,8 +467,19 @@ class RowPipelineMixin:
                     self._gfql_broadcast_scalar(table_df, False).astype(bool), pd.NA
                 )
 
-        left_null_mask = self._gfql_null_mask(table_df, left)
-        right_null_mask = self._gfql_null_mask(table_df, right)
+        # Overrides carry the expression's INPUT null mask (#1903 addendum B-1):
+        # Cypher propagates null through arithmetic, but a COMPUTED NaN (x % 0.0)
+        # is a value -- IEEE-compare it (NaN > 1 is false) instead of nulling.
+        left_null_mask = (
+            left_null_mask_override
+            if left_null_mask_override is not None
+            else self._gfql_null_mask(table_df, left)
+        )
+        right_null_mask = (
+            right_null_mask_override
+            if right_null_mask_override is not None
+            else self._gfql_null_mask(table_df, right)
+        )
         if isinstance(left, float) and math.isnan(left):
             left_null_mask = self._gfql_broadcast_scalar(table_df, False).astype(bool)
         if isinstance(right, float) and math.isnan(right):
@@ -518,7 +531,7 @@ class RowPipelineMixin:
                 f"Cypher integer '{op}' by zero",
                 field="expression",
                 value=op,
-                suggestion="Guard the divisor (e.g. CASE WHEN d = 0 THEN null ELSE x / d END) or use a float divisor for IEEE semantics.",
+                suggestion="Guard the divisor (engine='pandas': CASE WHEN d = 0 THEN null ELSE x / d END; the CASE guard is not yet native on polars) or use a float divisor for IEEE semantics.",
             )
 
     @staticmethod
@@ -1157,7 +1170,33 @@ class RowPipelineMixin:
                     return False, None
                 return True, bool_out
 
-            cmp_out = RowPipelineMixin._gfql_eval_comparison_op(self, table_df, left, right, op)
+            def _arith_input_null_mask(operand_node: Any) -> Optional[Any]:  # hygiene-ok: explicit-any -- AST node + scalar-or-Series mask
+                """Input-null mask of an ARITHMETIC subtree (None -> caller falls
+                back to isna-of-result). Distinguishes genuine null inputs from
+                computed NaN so `n.f % 0.0 > 1` is false, not null (#1903 B-1)."""
+                if isinstance(operand_node, BinaryOp) and str(operand_node.op).lower() in {"+", "-", "*", "/", "%"}:
+                    left_mask = _arith_input_null_mask(operand_node.left)
+                    right_mask = _arith_input_null_mask(operand_node.right)
+                    if left_mask is None or right_mask is None:
+                        return None
+                    return left_mask | right_mask
+                if isinstance(operand_node, UnaryOp) and str(operand_node.op) in {"+", "-"}:
+                    return _arith_input_null_mask(operand_node.operand)
+                ok_operand, operand_value = self._gfql_eval_expr_ast(table_df, operand_node)
+                if not ok_operand:
+                    return None
+                return self._gfql_null_mask(table_df, operand_value)
+
+            def _is_arith_node(operand_node: Any) -> bool:  # hygiene-ok: explicit-any -- AST node union
+                return isinstance(operand_node, BinaryOp) and str(operand_node.op).lower() in {"+", "-", "*", "/", "%"}
+
+            left_mask_override = _arith_input_null_mask(node.left) if _is_arith_node(node.left) else None
+            right_mask_override = _arith_input_null_mask(node.right) if _is_arith_node(node.right) else None
+            cmp_out = RowPipelineMixin._gfql_eval_comparison_op(
+                self, table_df, left, right, op,
+                left_null_mask_override=left_mask_override,
+                right_null_mask_override=right_mask_override,
+            )
             if cmp_out is not None:
                 return True, cmp_out
 
@@ -3543,13 +3582,23 @@ class RowPipelineMixin:
         to_fixed_point: bool,
         avoid_immediate_backtrack: bool = False,
         hop_column: Optional[str] = None,
-    ) -> Any:
+        trail_cols: Optional[List[str]] = None,
+    ) -> Tuple[Any, List[str]]:
         reachable: List[Any] = []
         current = state_df.copy()
         prev_col = "__gfql_prev__"
         shortest_path_mode = bool(
             hop_column is not None and str(hop_column).startswith("__cypher_shortest_path_hops__")
         )
+        # openCypher trail semantics (#1903): step_pairs carries a stable edge
+        # identity outside shortestPath mode; each expansion hop filters the
+        # new edge against every edge already bound on the path (this segment's
+        # AND prior pattern elements'), then records it.
+        trail_tracking = (
+            not shortest_path_mode and "__gfql_edge_ident__" in getattr(step_pairs, "columns", [])
+        )
+        outer_trail_cols = list(trail_cols or [])
+        segment_trail_cols: List[str] = []
 
         def _state_key_cols(frame: Any) -> List[str]:
             excluded = {prev_col}
@@ -3575,6 +3624,18 @@ class RowPipelineMixin:
             if len(current) == 0:
                 exhausted = True
                 break
+            if trail_tracking:
+                for used_col in outer_trail_cols + segment_trail_cols:
+                    if len(current) == 0:
+                        break
+                    keep = current["__gfql_edge_ident__"].ne(current[used_col]) | current[used_col].isna()
+                    current = current[keep]
+                if len(current) == 0:
+                    exhausted = True
+                    break
+                hop_trail_col = f"__gfql_trail_{len(outer_trail_cols) + len(segment_trail_cols)}__"
+                current = current.rename(columns={"__gfql_edge_ident__": hop_trail_col})
+                segment_trail_cols.append(hop_trail_col)
             if avoid_immediate_backtrack:
                 prev_missing = current[prev_col].isna()
                 backtrack_mask = prev_missing | current["__to__"].ne(current[prev_col]).fillna(False)
@@ -3622,12 +3683,24 @@ class RowPipelineMixin:
             self._gfql_bindings_error(
                 "Cypher multi-alias row bindings currently require terminating variable-length segments"
             )
+        if segment_trail_cols:
+            # rows that stopped before the deepest hop lack the later trail
+            # columns; pad BEFORE concat (float NaN, numeric-widening-safe) so
+            # cuDF's stricter schema alignment keeps every hop's rows.
+            reachable = [
+                frame.assign(**{
+                    col: float("nan")
+                    for col in segment_trail_cols
+                    if col not in frame.columns
+                })
+                for frame in reachable
+            ]
         merged = concat_frames(reachable)
         if merged is None:
-            return state_df.iloc[0:0]
+            return state_df.iloc[0:0], segment_trail_cols
         if shortest_path_mode and len(merged) > 0:
             merged = merged.drop_duplicates(keep="first")
-        return merged
+        return merged, segment_trail_cols
 
     def _gfql_apply_alias_prefilter(
         self,
@@ -3807,6 +3880,19 @@ class RowPipelineMixin:
             state_df[first_alias] = state_df["__current__"]
             alias_frames[first_alias] = first_nodes
 
+        # openCypher trail semantics (#1903): a relationship may bind at most
+        # once per path, across every element of the pattern. The base edge
+        # frame carries a stable positional identity (per-hop frames reset
+        # their index, so the index cannot serve); each hop filters its edge
+        # against every prior one via __gfql_trail_* columns. (shortestPath
+        # mode skips this: BFS never reuses an edge on a shortest route.)
+        trail_cols: List[str] = []
+        base_edges_frame = base_graph._edges
+        if base_edges_frame is not None and "__gfql_edge_ident__" not in base_edges_frame.columns:
+            base_graph = base_graph.edges(
+                base_edges_frame.assign(__gfql_edge_ident__=range(len(base_edges_frame)))
+            )
+
         for edge_idx in range(1, len(ops), 2):
             edge_op = ops[edge_idx]
             if not isinstance(edge_op, ASTEdge):
@@ -3847,13 +3933,19 @@ class RowPipelineMixin:
                 rename_map = {
                     col: f"{edge_alias}.{col}"
                     for col in edges_df_step.columns
-                    if col not in {src_col, dst_col}
+                    if col not in {src_col, dst_col, "__gfql_edge_ident__"}
                 }
+            hop_column = getattr(edge_op, "label_node_hops", None)
+            shortest_path_mode = bool(
+                hop_column is not None and str(hop_column).startswith("__cypher_shortest_path_hops__")
+            )
             if edges_df_step is None or len(edges_df_step) == 0:
                 oriented = self._gfql_empty_frame(
                     edges_df_step if edges_df_step is not None else state_df,
                     columns=["__from__", "__to__"],
                 )
+                if "__gfql_edge_ident__" not in oriented.columns:
+                    oriented["__gfql_edge_ident__"] = self._gfql_broadcast_scalar(oriented, None)
             else:
                 oriented = sem.orient_edges(
                     edges_df_step,
@@ -3861,27 +3953,49 @@ class RowPipelineMixin:
                     dst_col,
                     dedupe=False,
                 ).rename(columns=rename_map)
+                if not shortest_path_mode and "__gfql_edge_ident__" in oriented.columns:
+                    # A self-loop's two undirected orientations are the SAME
+                    # binding: dedupe the flip twin (#1903 / addendum A-1).
+                    oriented = oriented.drop_duplicates(
+                        subset=["__from__", "__to__", "__gfql_edge_ident__"], keep="first"
+                    )
 
             if sem.is_multihop:
-                step_pairs = oriented[["__from__", "__to__"]]
+                step_cols = ["__from__", "__to__"] + (
+                    ["__gfql_edge_ident__"]
+                    if not shortest_path_mode and "__gfql_edge_ident__" in oriented.columns
+                    else []
+                )
+                step_pairs = oriented[step_cols].drop_duplicates(keep="first")
                 min_hops = edge_op.min_hops if edge_op.min_hops is not None else (
                     edge_op.hops if edge_op.hops is not None else 1
                 )
                 max_hops = edge_op.max_hops if edge_op.max_hops is not None else (
                     edge_op.hops if edge_op.hops is not None else None
                 )
-                state_df = self._gfql_multihop_binding_rows(
+                state_df, segment_trail_cols = self._gfql_multihop_binding_rows(
                     state_df,
                     step_pairs,
                     min_hops=min_hops,
                     max_hops=max_hops,
                     to_fixed_point=bool(edge_op.to_fixed_point),
-                    avoid_immediate_backtrack=sem.is_undirected,
+                    avoid_immediate_backtrack=sem.is_undirected and shortest_path_mode,
                     hop_column=edge_op.label_node_hops,
+                    trail_cols=trail_cols,
                 )
+                trail_cols = trail_cols + segment_trail_cols
             else:
                 state_df = state_df.merge(oriented, left_on="__current__", right_on="__from__", how="inner")
                 state_df = state_df.drop(columns=["__current__", "__from__"]).rename(columns={"__to__": "__current__"})
+                if not shortest_path_mode and "__gfql_edge_ident__" in state_df.columns:
+                    for trail_col in trail_cols:
+                        if len(state_df) == 0:
+                            break
+                        keep = state_df["__gfql_edge_ident__"].ne(state_df[trail_col]) | state_df[trail_col].isna()
+                        state_df = state_df[keep]
+                    new_trail_col = f"__gfql_trail_{len(trail_cols)}__"
+                    state_df = state_df.rename(columns={"__gfql_edge_ident__": new_trail_col})
+                    trail_cols = trail_cols + [new_trail_col]
 
             if len(state_df) == 0:
                 return state_df, alias_frames
@@ -3953,6 +4067,8 @@ class RowPipelineMixin:
                     )
                 alias_frames[node_alias] = next_nodes
 
+        if trail_cols:
+            state_df = state_df.drop(columns=[c for c in trail_cols if c in state_df.columns])
         return state_df, alias_frames
 
     def _gfql_connected_bindings_row_table(

@@ -102,14 +102,18 @@ def _seeded(id_: str, query: str, oracle: int) -> Shape:
 # --- the contract, as data -----------------------------------------------------------------
 
 #: Shapes the polars engines must DECLINE and the pandas-API engines must ANSWER correctly.
+#: Oracle literals recomputed under openCypher TRAIL semantics (#1903, independent
+#: brute-force enumerator): a relationship binds once per path, so the old walk
+#: reconstruction's doubled undirected orientations and reused edges are gone.
+#: (dir-min3-* keep 0: hop-window eccentricity pruning still under-reports the one
+#: 3-trail on the pandas lane -- pre-existing, out of #1903's scope.)
 DECLINED_BY_POLARS: List[Shape] = [
     _bounded("dir-min3-exact", "MATCH (a)-[*3..3]->(b) RETURN count(*) AS c", 0),
     _bounded("dir-min3-window", "MATCH (a)-[*3..4]->(b) RETURN count(*) AS c", 0),
-    _seeded("dir-min2-seeded", "MATCH (a {kind:'a'})-[*2..3]->(b) RETURN count(*) AS c", 32),
-    _undir("undir-degenerate-window", "MATCH (a)-[*1..1]-(b) RETURN count(*) AS c", 36),
-    _undir("undir-degenerate-exact", "MATCH (a)-[*1]-(b) RETURN count(*) AS c", 36),
-    _seeded("undir-seeded", "MATCH (a {kind:'a'})-[*1..2]-(b) RETURN count(*) AS c", 38),
-    _seeded("undir-non-first-segment", "MATCH (a)-[]->(b)-[*1..2]-(c) RETURN count(*) AS c", 316),
+    # seeded directed min>=2: pandas' per-seed hop window under-reports
+    # data-dependently (fuzz: 1 vs trail 2), so polars stays declined; the 28
+    # here happens to be trail-exact on THIS fixture.
+    _seeded("dir-min2-seeded", "MATCH (a {kind:'a'})-[*2..3]->(b) RETURN count(*) AS c", 28),
 ]
 
 #: Neighbours of every declined shape, on BOTH sides of each gate boundary. These are what
@@ -117,13 +121,18 @@ DECLINED_BY_POLARS: List[Shape] = [
 #: length" would fail every one of them.
 SERVED_EVERYWHERE: List[Shape] = [
     _bounded("dir-min1", "MATCH (a)-[*1..2]->(b) RETURN count(*) AS c", 12),
+    # migrated from DECLINED_BY_POLARS by the #1903 trail rework (gate shrink):
+    _undir("undir-degenerate-window", "MATCH (a)-[*1..1]-(b) RETURN count(*) AS c", 18),
+    _undir("undir-degenerate-exact", "MATCH (a)-[*1]-(b) RETURN count(*) AS c", 18),
+    _seeded("undir-seeded", "MATCH (a {kind:'a'})-[*1..2]-(b) RETURN count(*) AS c", 38),
+    _seeded("undir-non-first-segment", "MATCH (a)-[]->(b)-[*1..2]-(c) RETURN count(*) AS c", 134),
     _bounded("dir-min2-unseeded", "MATCH (a)-[*2..3]->(b) RETURN count(*) AS c", 6),
     _undir("undir-plain-edge", "MATCH (a)-[]-(b) RETURN count(*) AS c", 18),
-    _undir("undir-min1-max2", "MATCH (a)-[*1..2]-(b) RETURN count(*) AS c", 212),
-    _undir("undir-min1-max3", "MATCH (a)-[*1..3]-(b) RETURN count(*) AS c", 948),
+    _undir("undir-min1-max2", "MATCH (a)-[*1..2]-(b) RETURN count(*) AS c", 74),
+    _undir("undir-min1-max3", "MATCH (a)-[*1..3]-(b) RETURN count(*) AS c", 226),
     _undir("dir-degenerate-window", "MATCH (a)-[*1..1]->(b) RETURN count(*) AS c", 9),
     _seeded("dir-seeded-min1", "MATCH (a {kind:'a'})-[*1..2]->(b) RETURN count(*) AS c", 19),
-    _seeded("dir-non-first-segment", "MATCH (a)-[]->(b)-[*2..3]->(c) RETURN count(*) AS c", 80),
+    _seeded("dir-non-first-segment", "MATCH (a)-[]->(b)-[*2..3]->(c) RETURN count(*) AS c", 36),
 ]
 
 
@@ -240,14 +249,12 @@ def test_degenerate_window_is_not_the_same_query_as_a_plain_edge(engine: str) ->
     plain = _count(_graph(engine, UNDIR_NODES, UNDIR_EDGES),
                    "MATCH (a)-[]-(b) RETURN count(*) AS c", engine)
     assert plain == 18, "the plain undirected edge is served by every engine, unchanged"
-    if engine in POLARS_API_ENGINES:
-        with pytest.raises(NotImplementedError):
-            _count(_graph(engine, UNDIR_NODES, UNDIR_EDGES),
-                   "MATCH (a)-[*1..1]-(b) RETURN count(*) AS c", engine)
-    else:
-        degenerate = _count(_graph(engine, UNDIR_NODES, UNDIR_EDGES),
-                            "MATCH (a)-[*1..1]-(b) RETURN count(*) AS c", engine)
-        assert degenerate == 36 != plain
+    # openCypher trail semantics (#1903): a one-edge window IS the plain edge on
+    # EVERY engine now -- the old 36-vs-18 gap was the walk doubling this test
+    # was built to quarantine, and the polars decline that quarantined it is gone.
+    degenerate = _count(_graph(engine, UNDIR_NODES, UNDIR_EDGES),
+                        "MATCH (a)-[*1..1]-(b) RETURN count(*) AS c", engine)
+    assert degenerate == 18 == plain
 
 
 @pytest.mark.parametrize("engine", PANDAS_API_ENGINES)
@@ -276,7 +283,7 @@ def test_directed_min_hops_2_declines_only_when_the_segment_is_seeded(engine: st
     """
     _require(engine)
     g = _graph(engine, SEEDED_NODES, SEEDED_EDGES)
-    assert _count(g, "MATCH (a)-[*2..3]->(b) RETURN count(*) AS c", engine) == 50
+    assert _count(g, "MATCH (a)-[*2..3]->(b) RETURN count(*) AS c", engine) == 39  # trail oracle (#1903)
     with pytest.raises(NotImplementedError):
         _count(g, "MATCH (a {kind:'a'})-[*2..3]->(b) RETURN count(*) AS c", engine)
 
@@ -291,8 +298,8 @@ def test_undirected_seed_declines_while_its_directed_twin_is_served(engine: str)
     _require(engine)
     g = _graph(engine, SEEDED_NODES, SEEDED_EDGES)
     assert _count(g, "MATCH (a {kind:'a'})-[*1..2]->(b) RETURN count(*) AS c", engine) == 19
-    with pytest.raises(NotImplementedError):
-        _count(g, "MATCH (a {kind:'a'})-[*1..2]-(b) RETURN count(*) AS c", engine)
+    # #1903 gate shrink: seeded undirected serves with pandas parity (trail).
+    assert _count(g, "MATCH (a {kind:'a'})-[*1..2]-(b) RETURN count(*) AS c", engine) == 38
 
 
 @pytest.mark.parametrize("engine", POLARS_API_ENGINES)
@@ -302,9 +309,9 @@ def test_undirected_non_first_segment_declines_while_its_directed_twin_is_served
     """A non-first segment starts from less than the full node set, exactly like a seed."""
     _require(engine)
     g = _graph(engine, SEEDED_NODES, SEEDED_EDGES)
-    assert _count(g, "MATCH (a)-[]->(b)-[*1..2]->(c) RETURN count(*) AS c", engine) == 50
-    with pytest.raises(NotImplementedError):
-        _count(g, "MATCH (a)-[]->(b)-[*1..2]-(c) RETURN count(*) AS c", engine)
+    assert _count(g, "MATCH (a)-[]->(b)-[*1..2]->(c) RETURN count(*) AS c", engine) == 39  # trail oracle (#1903): the first edge cannot rebind
+    # #1903 gate shrink: the undirected non-first segment serves with parity.
+    assert _count(g, "MATCH (a)-[]->(b)-[*1..2]-(c) RETURN count(*) AS c", engine) == 134
 
 
 @pytest.mark.parametrize("engine", POLARS_API_ENGINES)
@@ -421,7 +428,7 @@ def test_seeded_undirected_degenerate_window_agrees_with_the_oracle(engine: str)
     g = _graph(engine, CUDF_DIVERGENCE_NODES, CUDF_DIVERGENCE_EDGES)
     query = "MATCH (a {kind:'a'})-[*1..1]-(b) RETURN count(*) AS c"
     if engine in POLARS_API_ENGINES:
-        with pytest.raises(NotImplementedError):
-            _count(g, query, engine)
+        # #1903 gate shrink: polars serves this shape now, trail-exact.
+        assert _count(g, query, engine) == 5
         return
-    assert _count(g, query, engine) == 9
+    assert _count(g, query, engine) == 5  # trail oracle (#1903): self-loops bind once

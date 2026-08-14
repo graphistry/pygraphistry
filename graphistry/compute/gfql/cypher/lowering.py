@@ -2582,10 +2582,13 @@ def _forces_relationship_multiplicity_projection_bindings(
         for pattern in clause.patterns:
             for element in pattern:
                 if isinstance(element, RelationshipPattern) and (
-                    element.min_hops is not None
-                    or element.max_hops is not None
-                    or getattr(element, "to_fixed_point", False)
+                    getattr(element, "to_fixed_point", False)
+                    and element.direction == "undirected"
                 ):
+                    # undirected unbounded fixed point: the binding-rows builder
+                    # cannot reconstruct its multiplicity (#1787 gate); keep the
+                    # source-table lane rather than trade one wrongness for a
+                    # decline (#1903 residual).
                     return False
     texts = [item.expression.text for item in items]
     if order_by is not None:
@@ -2615,13 +2618,21 @@ def _forces_relationship_multiplicity_projection_bindings(
     # (the benchmark-critical 2.5ms lever, #1755) pattern-matches the
     # rows(table, source) compiled shape for a single [seed-node, single-hop
     # edge, node] pattern projecting only destination props -- leave those
-    # shapes on it (its seeded reduction is value-correct there).
+    # shapes on it. KNOWN ENVELOPE (#1903 addendum A-2, strict-xfail pinned in
+    # test_path_trail_semantics.py): this lane projects the destination NODE
+    # SET, so parallel edges from a seed and cross-seed duplicate destinations
+    # collapse ([1,2] where the openCypher bag is [1,1,2]) and the count(*)
+    # twin diverges; the same envelope applies to the non-fast-path fallback
+    # of this compiled shape.
     if len(query.matches) == 1 and len(query.matches[0].patterns) == 1:
         pattern = query.matches[0].patterns[0]
         if (
             len(pattern) == 3
             and isinstance(pattern[0], NodePattern)
             and isinstance(pattern[1], RelationshipPattern)
+            and pattern[1].min_hops is None
+            and pattern[1].max_hops is None
+            and not getattr(pattern[1], "to_fixed_point", False)
             and isinstance(pattern[2], NodePattern)
         ):
             seed_alias = pattern[0].variable
@@ -4340,6 +4351,36 @@ def _lift_search_any_from_row_where(
     return new_text, calls
 
 
+def _append_shortest_path_plain_match_filter(
+    row_steps: List[ASTObject],
+    *,
+    query: CypherQuery,
+    params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- Cypher params mapping, module-wide idiom
+    binding_rows_active: bool,
+) -> None:
+    """openCypher: a PLAIN-MATCH shortestPath with no path drops the row; only
+    OPTIONAL MATCH null-extends. The SP binding runtime left-joins (per-pair
+    null hops), so plain MATCH filters null-hop rows out here (#1903 item 6)."""
+    if not binding_rows_active or not _query_has_shortest_path_patterns(query):
+        return
+    if any(clause.optional for clause in query.matches):
+        return
+    for spec in _shortest_path_alias_specs(query).values():
+        if spec.end_alias is None:
+            continue
+        expr_text = f"{spec.end_alias}.{spec.hop_column} IS NOT NULL"
+        row_steps.append(
+            where_rows(
+                expr=_row_expr_arg(
+                    ExpressionText(text=expr_text, span=query.return_.span),
+                    params=params,
+                    alias_targets={},
+                    field="where",
+                )
+            )
+        )
+
+
 def _append_match_row_where(
     row_steps: List[ASTObject],
     *,
@@ -4464,6 +4505,12 @@ def _lower_projection_chain(
         active_alias=plan.source_alias,
         allowed_match_aliases=(allowed_match_aliases | pre_scope_binding_row_aliases) or None,
         params=params,
+    )
+    _append_shortest_path_plain_match_filter(
+        row_steps,
+        query=query,
+        params=params,
+        binding_rows_active=bool(binding_row_aliases),
     )
 
     if not plan.whole_row_output_names:
@@ -4654,6 +4701,12 @@ def _build_initial_row_scope(
         active_alias=active_match_alias,
         allowed_match_aliases=binding_row_aliases or None,
         params=params,
+    )
+    _append_shortest_path_plain_match_filter(
+        row_steps,
+        query=query,
+        params=params,
+        binding_rows_active=bool(binding_row_aliases),
     )
 
     unwind_aliases: Set[str] = set()
@@ -7080,6 +7133,12 @@ def _lower_general_row_projection(
         allowed_match_aliases=binding_row_aliases or None,
         params=params,
     )
+    _append_shortest_path_plain_match_filter(
+        row_steps,
+        query=query,
+        params=params,
+        binding_rows_active=bool(binding_row_aliases),
+    )
 
     unwind_aliases: Set[str] = set()
     for unwind_clause in query.unwinds:
@@ -7485,7 +7544,14 @@ def _lower_general_row_projection(
         if query.return_.distinct:
             row_steps.append(distinct())
 
-    if empty_result_row is None and binding_row_aliases and _query_has_shortest_path_patterns(query):
+    if (
+        empty_result_row is None
+        and binding_row_aliases
+        and _query_has_shortest_path_patterns(query)
+        and any(clause.optional for clause in query.matches)
+    ):
+        # openCypher: only OPTIONAL MATCH null-extends an unreachable
+        # shortestPath; a plain MATCH emits NO row (#1903 item 6).
         from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter
 
         shortest_specs = _shortest_path_alias_specs(query)
@@ -9448,7 +9514,14 @@ def compile_cypher_query(
             row_steps.extend(stage_steps)
 
         empty_result_row: Optional[Dict[str, Any]] = None
-        if binding_row_aliases and _query_has_shortest_path_patterns(query) and result_projection is None:
+        if (
+            binding_row_aliases
+            and _query_has_shortest_path_patterns(query)
+            and result_projection is None
+            and any(clause.optional for clause in query.matches)
+        ):
+            # openCypher: unreachable shortestPath null-extends only under
+            # OPTIONAL MATCH; plain MATCH drops the row (#1903 item 6).
             empty_result_row = _shortest_path_empty_result_row_for_row_steps(
                 row_steps=row_steps,
                 specs=_shortest_path_alias_specs(query),

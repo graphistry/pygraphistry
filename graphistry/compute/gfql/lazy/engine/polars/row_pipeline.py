@@ -1692,41 +1692,28 @@ def binding_rows_polars(
                     )
                     if _resolved_min != 1:
                         return None
-            # #1787, same root-cause family as the unbounded shapes #1781 declined: pandas'
-            # step_pairs come from the var-length `edge_op.execute` hop, whose hop-window
-            # pruning -- and, when seeded, its per-seed BFS -- changes an edge multiplicity
-            # this raw-edge rebuild cannot reproduce. Declining is a DELIBERATE divergence
-            # from master, which served these: parity-or-NIE means a loud error, never a
-            # different number. Shrink the gate again once the multiplicity is reconstructible.
-            # WHICH shapes, why each boundary sits where it does, and the counts that prove
-            # each one are executable rather than prose -- every claim that used to be written
-            # out here is now a named test in:
-            #   graphistry/tests/compute/gfql/test_varlen_bounded_engine_parity_1787.py
-            #
-            # Keyed on an EXPLICIT window, NOT on `sem.is_multihop`: `-[*1..1]-` resolves to
-            # min == max == 1, is therefore not multihop, and pandas still routes it here.
+            # #1787 gate, SHRUNK by the #1903 trail rework: both engines now expand
+            # bounded var-length as trails (edge binds once per path), so the
+            # undirected degenerate/seeded/non-first shapes serve with pandas
+            # parity (pinned in test_varlen_bounded_engine_parity_1787.py). The
+            # residual is DIRECTED min_hops constraints, where pandas'
+            # `max_reached_hop` (compute/hop.py) is a dedup-by-node BFS
+            # eccentricity, not a longest-trail length: min>=3 always, and
+            # min>=2 under a seed (fuzz: pandas 1 vs trail 2), under-report on
+            # the pandas lane -- serving there would be a right-vs-wrong engine
+            # divergence. Decline until the pandas hop window is trail-exact.
             if op.min_hops is not None or op.max_hops is not None:
-                _vl_max = op.max_hops if op.max_hops is not None else op.hops
                 _vl_min = op.min_hops if op.min_hops is not None else (
                     op.hops if op.hops is not None else 1
                 )
-                # a seed is anything that starts the segment from less than the whole node
-                # set: a filtered start alias, or a re-entry / `WITH` seed frame
                 _prev_op = ops[idx - 1] if idx >= 1 else None
                 _seeded_start = start_nodes is not None or (
                     isinstance(_prev_op, ASTNode) and bool(_prev_op.filter_dict)
                 )
-                if _vl_max is not None:
-                    if op.direction == "undirected":
-                        if _vl_max == 1:  # the degenerate window `-[*1..1]-` / `-[*1]-`
-                            return None
-                        if _seeded_start or idx > 1:  # doubled-pair expansion over-counts
-                            return None
-                    # `max_reached_hop` (compute/hop.py) is a dedup-by-node BFS eccentricity,
-                    # not a longest-walk length, so pandas prunes where this rebuild expands
-                    # a different edge multiset
-                    elif _vl_min >= 3 or (_vl_min >= 2 and _seeded_start):
-                        return None
+                if op.direction != "undirected" and (
+                    _vl_min >= 3 or (_vl_min >= 2 and _seeded_start)
+                ):
+                    return None
             if op.direction not in ("forward", "reverse", "undirected"):
                 return None
             if any(
@@ -1782,6 +1769,11 @@ def binding_rows_polars(
                     _endpoint_casts.append(pl.col(_endpoint).cast(_node_dtype))
         if _endpoint_casts:
             edges_lf = edges_lf.with_columns(_endpoint_casts)
+        # openCypher trail semantics (#1903): stable per-edge identity for the
+        # at-most-once-per-path relationship constraint (pandas twin:
+        # _gfql_connected_bindings_state's __gfql_edge_ident__).
+        edges_lf = edges_lf.with_row_index("__gfql_edge_ident__")
+        trail_cols_pl: List[str] = []
         first_op = ops[0]
         if not isinstance(first_op, ASTNode):
             return None
@@ -1813,17 +1805,24 @@ def binding_rows_polars(
                 payload_renames = {
                     col: f"{edge_alias}.{col}"
                     for col in _names(edges_f)
-                    if col not in (src, dst)
+                    if col not in (src, dst, "__gfql_edge_ident__")
                 }
             else:
                 # Unaliased edge payload is unaddressable downstream; carrying it
                 # unprefixed (as pandas does) only risks column collisions.
-                edges_f = edges_f.select([src, dst])
+                edges_f = edges_f.select([src, dst, "__gfql_edge_ident__"])
                 payload_renames = {}
             if sem.is_undirected:
                 fwd = edges_f.rename({src: "__from__", dst: "__to__"})
                 rev = edges_f.rename({dst: "__from__", src: "__to__"})
                 oriented = pl.concat([fwd, rev.select(_names(fwd))], how="vertical")
+                # A self-loop's two undirected orientations are the SAME binding:
+                # dedupe the flip twin (#1903 / addendum A-1).
+                oriented = oriented.unique(
+                    subset=["__from__", "__to__", "__gfql_edge_ident__"],
+                    keep="first",
+                    maintain_order=True,
+                )
             else:
                 join_col, result_col = (dst, src) if edge_op.direction == "reverse" else (src, dst)
                 oriented = edges_f.rename({join_col: "__from__", result_col: "__to__"})
@@ -1869,7 +1868,7 @@ def binding_rows_polars(
                     # above to to_fixed_point=True and a directed edge. Termination is
                     # data-dependent, so unlike the bounded branch this one cannot stay
                     # fully lazy — it collects one frontier per hop.
-                    state = _directed_fixed_point_binding_rows_polars(
+                    state, _fp_trail_cols = _directed_fixed_point_binding_rows_polars(
                         state,
                         oriented.select(["__from__", "__to__"]),
                         state_cols,
@@ -1877,67 +1876,65 @@ def binding_rows_polars(
                     )
                 elif sem.is_undirected:
                     # Bounded UNDIRECTED var-length, min_hops == 1 (gated above): the
-                    # LDBC IC11/IC6 `-[*1..k]-` shape. Mirror the pandas oracle
-                    # (`_gfql_multihop_binding_rows`, avoid_immediate_backtrack=True)
-                    # EXACTLY, including its edge multiplicity: pandas' `step_pairs`
-                    # come from the undirected var-length hop + `orient_edges`, which
-                    # emits each NON-loop edge as (u,v)x2 AND (v,u)x2, and each
-                    # SELF-loop as (u,u)x2 (loops are not double-counted). Reconstruct
-                    # that here: `exec_rows` = both directions of non-loops + one row
-                    # per self-loop; the final `pairs` doubles `exec_rows`
-                    # (fuzz-verified vs pandas over random graphs incl. self-loops,
-                    # parallel + antiparallel edges). A `__prev__` column (seeded null)
-                    # carries the just-left node so each hop can drop immediate
-                    # backtracks (`__to__ == __prev__`), matching pandas' Kleene mask
-                    # (null prev -> kept).
+                    # LDBC IC11/IC6 `-[*1..k]-` shape. openCypher TRAIL semantics
+                    # (#1903, matches the pandas twin): each undirected edge
+                    # contributes ONE row per orientation (a self-loop just one), and
+                    # a relationship binds at most once per path -- so an immediate
+                    # backtrack over the SAME edge is filtered while a return trip
+                    # over a PARALLEL edge is legal.
                     max_hops = int(max_hops_value)
                     normal = edges_f.filter(pl.col(src) != pl.col(dst))
                     loops = edges_f.filter(pl.col(src) == pl.col(dst))
-                    fwd = normal.select([pl.col(src).alias("__from__"), pl.col(dst).alias("__to__")])
-                    rev = normal.select([pl.col(dst).alias("__from__"), pl.col(src).alias("__to__")])
-                    loop = loops.select([pl.col(src).alias("__from__"), pl.col(dst).alias("__to__")])
-                    exec_rows = pl.concat([fwd, rev, loop], how="vertical")
-                    pairs = pl.concat([exec_rows, exec_rows], how="vertical")
-                    prev_col = "__prev__"
+                    ident = pl.col("__gfql_edge_ident__")
+                    fwd = normal.select([pl.col(src).alias("__from__"), pl.col(dst).alias("__to__"), ident])
+                    rev = normal.select([pl.col(dst).alias("__from__"), pl.col(src).alias("__to__"), ident])
+                    loop = loops.select([pl.col(src).alias("__from__"), pl.col(dst).alias("__to__"), ident])
+                    pairs = pl.concat([fwd, rev, loop], how="vertical")
                     reachable = [state.select(state_cols)] if min_hops == 0 else []
-                    # Seed the backtrack marker with the SAME dtype as __current__ so a
-                    # non-Int64 node id (e.g. string ids) compares/concats cleanly.
-                    current = state.with_columns(
-                        pl.lit(None).cast(state.collect_schema()["__current__"]).alias(prev_col)
-                    )
+                    current = state
+                    _und_trail_cols: List[str] = []
                     for _hop in range(1, max_hops + 1):
                         joined = current.join(
                             pairs, left_on="__current__", right_on="__from__", how="inner"
                         )
-                        joined = joined.filter(
-                            pl.col(prev_col).is_null() | (pl.col("__to__") != pl.col(prev_col))
-                        )
-                        # new prev = the node we are leaving (old __current__); new
-                        # __current__ = __to__. Set prev BEFORE dropping __current__.
-                        joined = (
-                            joined.with_columns(pl.col("__current__").alias(prev_col))
-                            .drop("__current__")
-                            .rename({"__to__": "__current__"})
-                        )
-                        current = joined.select(state_cols + [prev_col])
+                        for _used in trail_cols_pl + _und_trail_cols:
+                            joined = joined.filter(
+                                (pl.col("__gfql_edge_ident__") != pl.col(_used)) | pl.col(_used).is_null()
+                            )
+                        _hop_trail = f"__gfql_trail_{len(trail_cols_pl) + len(_und_trail_cols)}__"
+                        joined = joined.rename({"__gfql_edge_ident__": _hop_trail})
+                        _und_trail_cols.append(_hop_trail)
+                        joined = joined.drop("__current__").rename({"__to__": "__current__"})
+                        current = joined.select(state_cols + _und_trail_cols)
                         if _hop >= min_hops:
-                            reachable.append(current.select(state_cols))
-                    state = pl.concat(reachable, how="vertical") if reachable else state.limit(0)
+                            reachable.append(current)
+                    state = pl.concat(reachable, how="diagonal") if reachable else state.limit(0)
+                    trail_cols_pl = trail_cols_pl + _und_trail_cols
                 else:
-                    # Bounded directed var-length (`-[*1..k]->`, graph-bench q3).
-                    state = _directed_varlen_reachable_polars(
+                    # Bounded directed var-length (`-[*1..k]->`, graph-bench q3),
+                    # trail-tracked (#1903).
+                    state, _seg_trail_cols = _directed_varlen_reachable_polars(
                         state,
-                        oriented.select(["__from__", "__to__"]),
+                        oriented.select(["__from__", "__to__", "__gfql_edge_ident__"]),
                         state_cols,
                         min_hops=min_hops,
                         max_hops=int(max_hops_value),
+                        trail_cols_in=trail_cols_pl,
                     )
+                    trail_cols_pl = trail_cols_pl + _seg_trail_cols
             else:
                 state = (
                     state.join(oriented, left_on="__current__", right_on="__from__", how="inner")
                     .drop("__current__")
                     .rename({"__to__": "__current__"})
                 )
+                for _used in trail_cols_pl:
+                    state = state.filter(
+                        (pl.col("__gfql_edge_ident__") != pl.col(_used)) | pl.col(_used).is_null()
+                    )
+                _new_trail = f"__gfql_trail_{len(trail_cols_pl)}__"
+                state = state.rename({"__gfql_edge_ident__": _new_trail})
+                trail_cols_pl = trail_cols_pl + [_new_trail]
 
             state = state.join(
                 next_node_ids,
@@ -1978,6 +1975,10 @@ def binding_rows_polars(
                 alias_frames[next_alias] = next_nodes
                 node_aliases.append(next_alias)
 
+        if trail_cols_pl:
+            _present = [c for c in trail_cols_pl if c in _names(state)]
+            if _present:
+                state = state.drop(_present)
         # The finisher's frame type is a constrained TypeVar so `state.join(lookup)`
         # type-checks. The GENERIC builder above mixes eager and lazy frames across
         # its (pre-existing) branches, so inference cannot pick one here; the
