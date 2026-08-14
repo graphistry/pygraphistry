@@ -341,7 +341,9 @@ def hop(self: Plottable,
     if source_node_match is not None or source_node_query is not None:
         source_base_nodes = g2._nodes
         if seeds_provided and not to_fixed_point and resolved_max_hops == 1:
-            source_base_nodes = starting_nodes
+            # #1892 F-01: source filters read the node TABLE at every hops value; at
+            # single hop only seeds can be sources, so semi-join seeds first for cost.
+            source_base_nodes = g2._nodes[g2._nodes[node_col].isin(starting_nodes[node_col])]
         allowed_source_ids = _build_allowed_ids(source_base_nodes, source_node_match, source_node_query)
 
     allowed_dest_ids = _build_allowed_ids(base_target_nodes, destination_node_match, destination_node_query)
@@ -1145,8 +1147,18 @@ def hop(self: Plottable,
     ):
         wavefront_seed_ids_df = cast(DataFrameT, column_frame(starting_nodes, node_col).drop_duplicates())
         if direction == 'undirected' and to_fixed_point:
+            # NOTE: both helpers are O(E) python itertuples walks; vectorize if this arm gets hot.
             keep_seed_ids = _undirected_component_seed_keep_ids(final_edges, wavefront_seed_ids_df)
             keep_seed_ids |= _undirected_cycle_nodes(final_edges)
+            # #1892 F-02: the topology-only heuristics ignore source/dest filter pruning;
+            # keep only seeds the traversal re-encountered so tfp == saturated bounded.
+            if keep_seed_ids:
+                if matches_nodes is None or len(matches_nodes) == 0:
+                    keep_seed_ids = set()
+                else:
+                    reached_vals = column_values(matches_nodes, node_col)
+                    reached_pdf = reached_vals.to_pandas() if hasattr(reached_vals, "to_pandas") else reached_vals
+                    keep_seed_ids &= set(reached_pdf.tolist())
             seed_mask = g_out._nodes[node_col].isin(column_values(wavefront_seed_ids_df, node_col))
             if keep_seed_ids:
                 keep_mask = g_out._nodes[node_col].isin(list(keep_seed_ids))

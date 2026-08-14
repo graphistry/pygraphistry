@@ -239,11 +239,16 @@ def hop_polars(
             """
             return lf.select(pl.col(col).cast(node_dtype).alias(NID))
 
-        allowed_source_lf = (
-            _idframe_lf(filter_by_dict_polars(nodes if nodes is not None else all_nodes,
-                                              source_node_match).lazy(), node_col)
-            if source_node_match is not None else None
-        )
+        # #1892 F-01: source filters read the node TABLE at every hops value; the seed
+        # semi-join keeps the single-hop small-frame cost (frontier IS the seed set).
+        allowed_source_lf = None
+        if source_node_match is not None:
+            _src_base = all_nodes
+            if nodes is not None:
+                _src_base = all_nodes.join(
+                    _idframe(nodes, node_col).rename({NID: node_col}), on=node_col, how="semi")
+            allowed_source_lf = _idframe_lf(
+                filter_by_dict_polars(_src_base, source_node_match).lazy(), node_col)
         allowed_dest_lf = (
             _idframe_lf(filter_by_dict_polars(all_nodes, destination_node_match).lazy(), node_col)
             if destination_node_match is not None else None
@@ -276,10 +281,15 @@ def hop_polars(
         out_edges_c, out_nodes_c = collect_all([out_edges_lf, out_nodes_lf])
         return g.nodes(out_nodes_c, node_col).edges(out_edges_c, src, dst)
 
-    allowed_source = (
-        _idframe(filter_by_dict_polars(nodes if (nodes is not None and not to_fixed_point and resolved_max_hops == 1) else all_nodes, source_node_match), node_col)
-        if source_node_match is not None else None
-    )
+    # #1892 F-01: source-filter domain is the node TABLE regardless of hops; at a seeded
+    # single hop, semi-join seeds first to keep the old small-frame filter cost.
+    allowed_source = None
+    if source_node_match is not None:
+        _src_base = all_nodes
+        if nodes is not None and not to_fixed_point and resolved_max_hops == 1:
+            _src_base = all_nodes.join(
+                _idframe(nodes, node_col).rename({NID: node_col}), on=node_col, how="semi")
+        allowed_source = _idframe(filter_by_dict_polars(_src_base, source_node_match), node_col)
     allowed_dest = (
         _idframe(filter_by_dict_polars(all_nodes, destination_node_match), node_col)
         if destination_node_match is not None else None
