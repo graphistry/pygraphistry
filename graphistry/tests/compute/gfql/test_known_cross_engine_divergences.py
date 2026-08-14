@@ -21,13 +21,12 @@ polars_only = pytest.mark.skipif(not _HAS_POLARS, reason="polars not installed")
 
 
 @polars_only
-@pytest.mark.xfail(strict=True, reason="#1808: pandas endpoint gate is asymmetric")
 def test_1808_dangling_destination_pandas_matches_polars():
-    """#1808: an edge whose DESTINATION id has no node row is matched by
-    pandas/cuDF and dropped by polars (a dangling SOURCE is dropped by all).
-    polars is the Cypher-correct side -- `(a)-[]->(b)` binds b to a NODE.
-    Flipping this xfail = making the pandas/cuDF endpoint gate symmetric and
-    re-baselining parity fixtures that encoded the old count."""
+    """#1808 (fixed by #1888 endpoint closure): an edge whose DESTINATION id has
+    no node row was matched by pandas/cuDF and dropped by polars (a dangling
+    SOURCE was dropped by all). polars was the Cypher-correct side --
+    `(a)-[]->(b)` binds b to a NODE. The pandas/cuDF endpoint gate is now
+    symmetric: both dangling sides are dropped on every engine."""
     nodes = pd.DataFrame({"id": [0, 1, 2]})
     edges = pd.DataFrame({"s": [0, 1], "d": [1, 9]})  # 1 -> 9 dangles
     q = "MATCH (a)-[]->(b) RETURN count(*) AS c"
@@ -99,12 +98,11 @@ def test_1824_polars_gpu_fast_path_serve_is_gpu_or_decline():
 
 
 @polars_only
-@pytest.mark.xfail(strict=True, reason="#1888: no endpoint-closure contract; polars chain fast path skips the node semi-join")
 def test_1888_unconstrained_chain_respects_endpoint_closure():
-    """#1888 F-01: with nodes bound, a pattern edge must match only if BOTH
+    """#1888 F-01 (fixed): with nodes bound, a pattern edge matches only if BOTH
     endpoints resolve to node rows (the converged contract). The polars
-    unconstrained chain fast path returns edges whose endpoints do not exist,
-    and attaching a policy flips the value."""
+    unconstrained chain fast path now applies the node-universe semi-join on
+    both endpoints, so attaching a policy no longer flips the value."""
     from graphistry.compute.ast import n, e_forward
 
     nodes = pd.DataFrame({"id": [0, 1]})
@@ -116,20 +114,84 @@ def test_1888_unconstrained_chain_respects_endpoint_closure():
 
 
 @polars_only
-@pytest.mark.xfail(strict=True, reason="#1888: polars entity projection and count(*) disagree on dangling edges")
 def test_1888_projection_and_count_agree_on_dangling():
-    """#1888 F-02: within ONE engine, the entity projection (RETURN a, b) and
-    count(*) of the same pattern must agree. On dangling-dst graphs polars
-    projects 2 rows but counts 1 (projection and aggregate lower through
-    different pipelines with separate endpoint gates)."""
+    """#1888 F-02 (fixed): within ONE engine, the projection and count(*) of the
+    same pattern must agree; with endpoint closure both serve the closed answer.
+    The projection is pinned via property columns (`RETURN a.v, b.v`) -- the
+    whole-entity multi-alias form (`RETURN a, b`) is an honest NIE on the polars
+    projector (separate gap, not an endpoint-gate divergence). Pinned on BOTH
+    engines: #1808's pandas asymmetry made pandas project the dangling row."""
     nodes = pd.DataFrame({"id": [0, 1], "v": [10, 20]})
     edges = pd.DataFrame({"s": [0, 1], "d": [1, 2]})
+    g_pd = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
     g_pl = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
-    rows = g_pl.gfql("MATCH (a)-[r]->(b) RETURN a, b", engine="polars")._nodes
-    n_rows = len(rows.to_pandas() if hasattr(rows, "to_pandas") else rows)
-    cnt = g_pl.gfql("MATCH (a)-[]->(b) RETURN count(*) AS c", engine="polars")._nodes
+    for engine, g in [("pandas", g_pd), ("polars", g_pl)]:
+        rows = g.gfql("MATCH (a)-[r]->(b) RETURN a.v AS av, b.v AS bv", engine=engine)._nodes
+        n_rows = len(rows.to_pandas() if hasattr(rows, "to_pandas") else rows)
+        cnt = g.gfql("MATCH (a)-[]->(b) RETURN count(*) AS c", engine=engine)._nodes
+        c = int((cnt.to_pandas() if hasattr(cnt, "to_pandas") else cnt)["c"].iloc[0])
+        assert n_rows == c == 1, f"{engine}: projection {n_rows} vs count {c} (closed answer: 1)"
+
+
+# --- #1888 endpoint-closure invariant pins -------------------------------------------------
+# THE CONTRACT (one rule, all surfaces/engines/policy states): when a node table is
+# bound, a pattern edge matches only if BOTH endpoints resolve to node rows.
+# Fixture (findings round-002 agent-01): nodes id=[0,1]; edges 0->1 valid, 1->2
+# dangling-destination, 5->6 both-endpoints-missing. Closed answer everywhere: 1 edge.
+
+_1888_NODES = pd.DataFrame({"id": [0, 1], "v": [10, 20]})
+_1888_EDGES = pd.DataFrame({"s": [0, 1, 5], "d": [1, 2, 6]})
+_1888_POLICY = {"preload": (lambda ctx: None)}  # disables fast paths / flips serving lane
+
+
+def _1888_g(engine):
+    if engine == "polars":
+        return graphistry.nodes(pl.from_pandas(_1888_NODES), "id").edges(
+            pl.from_pandas(_1888_EDGES), "s", "d")
+    return graphistry.nodes(_1888_NODES, "id").edges(_1888_EDGES, "s", "d")
+
+
+def _height(df):
+    return len(df.to_pandas() if hasattr(df, "to_pandas") else df)
+
+
+@pytest.mark.parametrize("engine", ["pandas", pytest.param("polars", marks=polars_only)])
+def test_1888_chain_closed_answer_policy_invariant(engine):
+    """Chain surface: 1 edge, endpoints ⊆ node table, policy on/off identical."""
+    from graphistry.compute.ast import n, e_forward
+
+    g = _1888_g(engine)
+    ops = [n(), e_forward(), n()]
+    out = g.gfql(ops, engine=engine)
+    out_policy = g.gfql(ops, engine=engine, policy=_1888_POLICY)
+    assert _height(out._edges) == 1
+    assert _height(out_policy._edges) == 1
+    nodes_df = out._nodes.to_pandas() if hasattr(out._nodes, "to_pandas") else out._nodes
+    assert set(nodes_df["id"]) <= {0, 1}
+
+
+@pytest.mark.parametrize("engine", ["pandas", pytest.param("polars", marks=polars_only)])
+def test_1888_cypher_rows_and_count_closed_answer(engine):
+    """Cypher surface: property projection rows == count(*) == 1 on the closed answer."""
+    g = _1888_g(engine)
+    rows = g.gfql("MATCH (a)-[r]->(b) RETURN a.v AS av, b.v AS bv", engine=engine)._nodes
+    cnt = g.gfql("MATCH (a)-[]->(b) RETURN count(*) AS c", engine=engine)._nodes
     c = int((cnt.to_pandas() if hasattr(cnt, "to_pandas") else cnt)["c"].iloc[0])
-    assert n_rows == c, f"entity projection {n_rows} vs count {c}"
+    assert _height(rows) == 1
+    assert c == 1
+
+
+@pytest.mark.parametrize("engine", ["pandas", pytest.param("polars", marks=polars_only)])
+def test_1888_hop_closed_answer_no_phantom_nodes(engine):
+    """Hop surface (F-03): 1 edge, node set == the real node rows reached — no
+    synthesized NaN-attribute phantom rows, no int64 -> float64 upcast."""
+    g = _1888_g(engine)
+    out = g.hop()
+    assert _height(out._edges) == 1
+    nodes_df = out._nodes.to_pandas() if hasattr(out._nodes, "to_pandas") else out._nodes
+    assert sorted(nodes_df["id"].tolist()) == [0, 1]
+    assert not nodes_df["v"].isna().any()
+    assert str(nodes_df["v"].dtype) == "int64"
 
 
 def test_optional_match_aggregate_keeps_unmatched_seeds_polars_and_pandas():

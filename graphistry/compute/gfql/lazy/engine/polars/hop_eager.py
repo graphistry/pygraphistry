@@ -202,6 +202,23 @@ def hop_polars(
 
     FROM, TO, NID, EID, edges_idx, synth_eid, node_dtype = _hop_setup_columns(
         edges, all_nodes, node_col, g._edge)
+
+    # #1888 endpoint closure: with a node table BOUND, an edge can match only if BOTH
+    # endpoints resolve to node rows (Cypher: `(a)-[]->(b)` binds nodes at both ends).
+    # One O(E) pass, parity with the pandas hop's symmetric gate. Nodes synthesized
+    # from edges (self._nodes is None) are vacuously closed — skip.
+    if self._nodes is not None:
+        _closure_ids = all_nodes.get_column(node_col)
+        if target_wave_front is not None and node_col in target_wave_front.columns:
+            # Mirror pandas' base_target_nodes universe (node table ∪ target_wave_front).
+            _closure_ids = pl.concat(
+                [_closure_ids, target_wave_front.get_column(node_col).cast(_closure_ids.dtype)]
+            )
+        edges_idx = edges_idx.filter(
+            pl.col(src).cast(node_dtype).is_in(_closure_ids)
+            & pl.col(dst).cast(node_dtype).is_in(_closure_ids)
+        )
+
     pairs = _build_hop_pairs(edges_idx, direction, src, dst, node_dtype, FROM, TO, EID)
 
     def _idframe(df: "pl.DataFrame", col: str) -> "pl.DataFrame":

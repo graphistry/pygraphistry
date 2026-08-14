@@ -327,6 +327,17 @@ def hop(self: Plottable,
         # Allow intermediate hops to traverse graph nodes while constraining final targets.
         base_target_nodes = concat([target_wave_front, g2._nodes], ignore_index=True, sort=False).drop_duplicates(subset=[node_col])
 
+    # #1888 endpoint closure: with a node table BOUND, an edge can match only if BOTH
+    # endpoints resolve to node rows (Cypher: `(a)-[]->(b)` binds nodes at both ends) —
+    # symmetric source/destination gate (#1808 asymmetry fix). Nodes synthesized from
+    # edges (self._nodes is None) are vacuously closed, so skip the O(E) pass there.
+    if self._nodes is not None:
+        _closure_ids = base_target_nodes[node_col]
+        edges_indexed = edges_indexed[
+            edges_indexed[source_col].isin(_closure_ids)
+            & edges_indexed[destination_col].isin(_closure_ids)
+        ]
+
     def _build_allowed_ids(
         base_nodes: DataFrameT,
         match_dict: Optional[dict],
@@ -984,7 +995,12 @@ def hop(self: Plottable,
 
         g_out = g_out.nodes(final_nodes)
 
-    # Ensure all edge endpoints are present in nodes.
+    # Ensure all edge endpoints are present in nodes. Only MISSING endpoints are
+    # appended (#1888): with endpoint closure the edge frame cannot reference an id
+    # outside a bound node table, so for the common case this is empty and the old
+    # unconditional concat — which synthesized NaN-attribute rows and upcast attr
+    # dtypes (e.g. int64 -> float64) even when nothing was missing — never runs.
+    # Wavefront-mode outputs whose node frame omits an endpoint side still backfill.
     if g_out._edges is not None and len(g_out._edges) > 0 and g_out._nodes is not None:
         endpoints = concat(
             [
@@ -994,15 +1010,20 @@ def hop(self: Plottable,
             ignore_index=True,
             sort=False,
         ).drop_duplicates(subset=[g_out._node])
-        if track_node_hops and node_hop_records is not None and node_hop_col is not None:
-            endpoints = safe_merge(
-                endpoints,
-                node_hop_records[[g_out._node, node_hop_col]].drop_duplicates(subset=[g_out._node]),
-                on=g_out._node,
-                how='left'
-            )
-        endpoints = align_shared_column_dtypes(g_out._nodes, endpoints)
-        g_out = g_out.nodes(safe_row_concat([g_out._nodes, endpoints], ignore_index=True, sort=False).drop_duplicates(subset=[g_out._node]))
+        endpoints = endpoints[~endpoints[g_out._node].isin(g_out._nodes[g_out._node])]
+        if len(endpoints) > 0:
+            if track_node_hops and node_hop_records is not None and node_hop_col is not None:
+                endpoints = safe_merge(
+                    endpoints,
+                    node_hop_records[[g_out._node, node_hop_col]].drop_duplicates(subset=[g_out._node]),
+                    on=g_out._node,
+                    how='left'
+                )
+            endpoints = align_shared_column_dtypes(g_out._nodes, endpoints)
+            g_out = g_out.nodes(safe_row_concat([g_out._nodes, endpoints], ignore_index=True, sort=False).drop_duplicates(subset=[g_out._node]))
+        else:
+            # Preserve the block's historical node-table dedup side effect.
+            g_out = g_out.nodes(g_out._nodes.drop_duplicates(subset=[g_out._node]))
 
     if track_node_hops and node_hop_records is not None and node_hop_col is not None and g_out._nodes is not None:
         hop_map = (
