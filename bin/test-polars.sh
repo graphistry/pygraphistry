@@ -47,6 +47,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_polars_nan_clean.py
     graphistry/tests/compute/gfql/test_optional_match_polars_frames.py
     graphistry/tests/compute/gfql/test_optional_match_semantics.py
+    graphistry/tests/compute/gfql/test_hop_semantics_pins.py
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
     graphistry/tests/compute/gfql/test_seeded_typed_hop_fastpath.py
     graphistry/tests/compute/gfql/test_residual_polars_native.py
