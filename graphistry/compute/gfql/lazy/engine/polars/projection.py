@@ -5,8 +5,9 @@ rendering doesn't depress the pandas gfql coverage audit. Parity-or-NIE: no pand
 differential parity vs pandas is the release gate. The #1650 default (``structured=True``)
 FLATTENS whole-entity ``RETURN n`` to ``{output}.{field}`` columns natively for ANY dtype
 (float/temporal/nested just become columns, no rendering). Legacy display-string rendering
-(``structured=False``) is native only for single-entity int/string/bool nodes; float/temporal/
-nested entity text, labels, multi-entity, edges, and exotic expressions raise NotImplementedError.
+(``structured=False``) is native only for single-entity int/string/bool nodes (boolean
+``label__*`` flags included); float/temporal/nested entity text, multi-entity, edges, and
+exotic expressions raise NotImplementedError.
 """
 from __future__ import annotations
 
@@ -61,18 +62,19 @@ def _native_scalar_text_expr(col: str, dtype: Any) -> Optional[Any]:
 
 
 def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Optional[Any]:
-    """Native ``({prop: val, ...})`` node entity text for the single-entity int/string/bool
-    no-labels case; None → caller raises. ``pl.concat_str(..., ignore_nulls=True)`` joins only
-    non-null property segments with ", ", exactly matching the pandas renderer's null-omission."""
+    """Native ``(:Label {prop: val, ...})`` node entity text for the single-entity
+    int/string/bool case, boolean ``label__*`` flags included; None → caller raises.
+    ``pl.concat_str(..., ignore_nulls=True)`` joins only non-null property segments with
+    ", ", exactly matching the pandas renderer's null-omission."""
     import polars as pl
 
     cols = list(rows_df.columns)
     if alias not in cols:
         return None
-    # single-entity only (no prefixed alias columns), no label rendering
+    # single-entity only (no prefixed alias columns), no node-type rendering
     if any(str(c).startswith(f"{alias}.") for c in cols):
         return None
-    if "type" in cols or any(str(c).startswith("label__") for c in cols):
+    if "type" in cols:
         return None
     from .dtypes import is_int
     schema = rows_df.schema
@@ -87,6 +89,21 @@ def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Opt
         and not str(c).startswith("__") and not str(c).startswith("label__")
         and (str(c) not in internal or (include_id and str(c) == "id"))
     ]
+    # mirror _node_label_text: ":Name" per true boolean label__Name flag, column order
+    label_cols = [
+        str(c) for c in cols
+        if str(c).startswith("label__")
+        and str(c).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
+    ]
+    if any(schema[c] != pl.Boolean for c in label_cols):
+        return None  # non-boolean label flags -> defer (NIE)
+    labels = (
+        pl.concat_str([
+            pl.when(pl.col(c).fill_null(False)).then(pl.lit(":" + str(c).split("label__", 1)[1])).otherwise(pl.lit(""))
+            for c in label_cols
+        ], separator="")
+        if label_cols else pl.lit("")
+    )
     segments = []
     for col in prop_cols:
         val = _native_scalar_text_expr(col, schema[col])
@@ -94,11 +111,13 @@ def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Opt
             return None
         segments.append(pl.when(pl.col(col).is_null()).then(None).otherwise(pl.lit(f"{col}: ") + val))
     if not segments:
-        rendered = pl.lit("()")
+        rendered = pl.lit("(") + labels + pl.lit(")")
     else:
         props = pl.concat_str(segments, separator=", ", ignore_nulls=True)
         has_props = props.str.len_chars() > 0
-        rendered = pl.lit("(") + pl.when(has_props).then(pl.lit("{") + props + pl.lit("}")).otherwise(pl.lit("")) + pl.lit(")")
+        label_sep = pl.when(has_props & (labels.str.len_chars() > 0)).then(pl.lit(" ")).otherwise(pl.lit(""))
+        prop_suffix = pl.when(has_props).then(label_sep + pl.lit("{") + props + pl.lit("}")).otherwise(pl.lit(""))
+        rendered = pl.lit("(") + labels + prop_suffix + pl.lit(")")
     # Nullify absent (OPTIONAL-MATCH miss) rows — alias marker is null there and an absent
     # entity must render null, not "()" (mirrors pandas _nullify_missing_alias_rows); a real
     # property-less node keeps "()".
@@ -222,9 +241,9 @@ def apply_result_projection_polars(
 
     ``structured=True`` (#1650 default): flatten whole-entity returns to ``{output}.{field}``
     columns (any dtype, near-free). ``structured=False``: legacy Cypher display string, native
-    for int/string/bool single-entity nodes. Multi-entity bindings, edge entity-text, and (text
-    mode) float/temporal/nested/label columns are not yet native → raise rather than secretly
-    run the pandas renderer.
+    for int/string/bool single-entity nodes with boolean ``label__*`` flags. Multi-entity
+    bindings, edge entity-text, and (text mode) float/temporal/nested columns are not yet
+    native → raise rather than secretly run the pandas renderer.
     """
     rows_df = result._nodes
     native = _try_native_projection(result, rows_df, projection, structured)
@@ -232,7 +251,7 @@ def apply_result_projection_polars(
         return native
     raise NotImplementedError(
         "polars engine does not yet natively render this cypher result projection "
-        "(whole-entity RETURN over float/temporal/nested/label/multi-entity columns); "
+        "(whole-entity RETURN over float/temporal/nested/multi-entity columns); "
         "use engine='pandas' for this query "
         "(no pandas fallback; parity-or-error by design)"
     )

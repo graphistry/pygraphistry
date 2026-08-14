@@ -435,3 +435,68 @@ def test_optional_match_varlen_arm_residual_gate_is_honest():
         # bob's only outgoing path is bob-H->t1(-X->t3); carol reaches only the
         # null-named person -- unmatched/null-extended seeds must be present
         assert any(r.get("n") == "carol" or r.get("v") is None for r in recs), recs
+
+
+# ===========================================================================
+# E. #1891-regression twins: undirected arm + arm WHERE + whole-row RETURN
+# ===========================================================================
+# The cudf-only test_string_cypher_formats_optional_match_projection_on_cudf
+# was the single pin for this shape -- that lane-skew let the #1891 residual
+# gate silently decline it on every engine. Pandas/polars twins pin it here.
+# Fixture (mirrors the cudf test): s(:Single), a(:A num=42), b(:B num=46),
+# c(:C); edges s->a, s->b, a->c, b->b.
+
+
+def _run_labeled(query: str, engine: str) -> pd.DataFrame:
+    nodes = pd.DataFrame({
+        "id": ["s", "a", "b", "c"],
+        "labels": [["Single"], ["A"], ["B"], ["C"]],
+        "label__Single": [True, False, False, False],
+        "label__A": [False, True, False, False],
+        "label__B": [False, False, True, False],
+        "label__C": [False, False, False, True],
+        "num": pd.Series([pd.NA, 42, 46, pd.NA], dtype="Int64"),
+    })
+    edges = pd.DataFrame({
+        "s": ["s", "s", "a", "b"],
+        "d": ["a", "b", "c", "b"],
+        "edge_id": ["rel_1", "rel_2", "rel_3", "rel_4"],
+    })
+    if engine == "polars":
+        g = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
+    else:
+        g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    out = g.gfql(query, engine=engine)._nodes
+    if hasattr(out, "to_pandas"):
+        out = out.to_pandas()
+    return out.reset_index(drop=True)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_undirected_arm_where_whole_row_projects_matched_entity(engine):
+    """The regressed repro: undirected (s)-[r]-(m) reaches a (s->a) and b
+    (s->b); WHERE m.num = 42 keeps only a -> exactly one row, m = a."""
+    q = ("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m.num = 42 "
+         "RETURN m")
+    _assert_rows(_run_labeled(q, engine), [{"m": "(:A {num: 42})"}])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_undirected_arm_where_fails_null_extends_not_drops(engine):
+    """WHERE belongs to the optional pattern: no neighbor of s has num=999,
+    so the seed row survives with m = null -- never zero rows."""
+    q = ("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m.num = 999 "
+         "RETURN m")
+    _assert_rows(_run_labeled(q, engine), [{"m": None}])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_directed_arm_where_whole_row_matched_and_no_edge_null(engine):
+    """Directed sanity: (s)-[r]->(m) still reaches a (matched); (s)<-[r]-(m)
+    has no incoming edge at all -> the no-edge arm null-extends too."""
+    _assert_rows(
+        _run_labeled("MATCH (n:Single) OPTIONAL MATCH (n)-[r]->(m) WHERE m.num = 42 RETURN m", engine),
+        [{"m": "(:A {num: 42})"}])
+    _assert_rows(
+        _run_labeled("MATCH (n:Single) OPTIONAL MATCH (n)<-[r]-(m) WHERE m.num = 42 RETURN m", engine),
+        [{"m": None}])

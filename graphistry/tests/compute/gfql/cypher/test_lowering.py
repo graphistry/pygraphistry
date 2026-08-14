@@ -11,7 +11,7 @@ from graphistry.Engine import Engine
 
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdge, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
 from graphistry.compute.chain import Chain
-from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
 from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, col, compare
 from graphistry.compute.gfql.cypher import (
@@ -6118,7 +6118,12 @@ def test_string_cypher_failfast_rejects_with_stage_unsound_relationship_multipli
 @pytest.mark.parametrize(
     "query",
     [
-        "MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:NonExistent RETURN r",
+        # optional-arm WHERE + mixed seed/optional whole rows: served when the
+        # arm matches, but the unmatched case (num=999) cannot null-extend the
+        # multi-alias whole-row projection -- honest decline (#1891 regression
+        # fix serves the optional-only projection twin, see
+        # test_optional_match_semantics.py section E)
+        "MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m.num = 999 RETURN n, m",
         "MATCH (a:A), (c:C) OPTIONAL MATCH (a)-->(b)-->(c) RETURN b",
     ],
 )
@@ -6147,6 +6152,39 @@ def test_string_cypher_failfast_rejects_optional_match_null_extension_shapes_wit
         graph.gfql(query)
 
     assert exc_info.value.code == ErrorCode.E108
+
+
+def test_string_cypher_optional_arm_label_where_serves_edge_projection() -> None:
+    """#1891 regression fix: an optional-arm label WHERE null-extends instead
+    of gating -- matched arm projects the edge, unmatched arm keeps the seed
+    row with r = null, and a missing label follows the standard
+    column-not-found contract (same as plain MATCH)."""
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s", "a", "b", "c"],
+                "label__Single": [True, False, False, False],
+                "label__A": [False, True, False, False],
+                "label__B": [False, False, True, False],
+                "label__C": [False, False, False, True],
+                "num": [None, 42, 46, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s", "s", "a", "b"],
+                "d": ["a", "b", "c", "b"],
+                "type": ["REL", "REL", "REL", "LOOP"],
+            }
+        ),
+    )
+
+    matched = graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:A RETURN r")
+    assert matched._nodes.to_dict("records") == [{"r": "[:REL]"}]
+    unmatched = graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:Single RETURN r")
+    assert unmatched._nodes.to_dict("records") == [{"r": None}]
+    with pytest.raises(GFQLSchemaError):
+        graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:NonExistent RETURN r")
 
 
 def test_string_cypher_failfast_rejects_graph_backed_unwind_after_with_as_validation_error() -> None:
