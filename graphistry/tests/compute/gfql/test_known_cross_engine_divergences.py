@@ -96,3 +96,37 @@ def test_1824_polars_gpu_fast_path_serve_is_gpu_or_decline():
         return  # honest: GPU stack absent and nothing served on CPU
     assert not any(decisions.values()), (
         f"fast path served CPU work under polars-gpu: {decisions}")
+
+
+@polars_only
+@pytest.mark.xfail(strict=True, reason="#1888: no endpoint-closure contract; polars chain fast path skips the node semi-join")
+def test_1888_unconstrained_chain_respects_endpoint_closure():
+    """#1888 F-01: with nodes bound, a pattern edge must match only if BOTH
+    endpoints resolve to node rows (the converged contract). The polars
+    unconstrained chain fast path returns edges whose endpoints do not exist,
+    and attaching a policy flips the value."""
+    from graphistry.compute.ast import n, e_forward
+
+    nodes = pd.DataFrame({"id": [0, 1]})
+    edges = pd.DataFrame({"s": [0, 1, 5], "d": [1, 2, 6]})
+    g_pl = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
+    out = g_pl.gfql([n(), e_forward(), n()], engine="polars")._edges
+    n_edges = len(out.to_pandas() if hasattr(out, "to_pandas") else out)
+    assert n_edges == 1, f"dangling edges matched: {n_edges} (contract: endpoint closure)"
+
+
+@polars_only
+@pytest.mark.xfail(strict=True, reason="#1888: polars entity projection and count(*) disagree on dangling edges")
+def test_1888_projection_and_count_agree_on_dangling():
+    """#1888 F-02: within ONE engine, the entity projection (RETURN a, b) and
+    count(*) of the same pattern must agree. On dangling-dst graphs polars
+    projects 2 rows but counts 1 (projection and aggregate lower through
+    different pipelines with separate endpoint gates)."""
+    nodes = pd.DataFrame({"id": [0, 1], "v": [10, 20]})
+    edges = pd.DataFrame({"s": [0, 1], "d": [1, 2]})
+    g_pl = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
+    rows = g_pl.gfql("MATCH (a)-[r]->(b) RETURN a, b", engine="polars")._nodes
+    n_rows = len(rows.to_pandas() if hasattr(rows, "to_pandas") else rows)
+    cnt = g_pl.gfql("MATCH (a)-[]->(b) RETURN count(*) AS c", engine="polars")._nodes
+    c = int((cnt.to_pandas() if hasattr(cnt, "to_pandas") else cnt)["c"].iloc[0])
+    assert n_rows == c, f"entity projection {n_rows} vs count {c}"
