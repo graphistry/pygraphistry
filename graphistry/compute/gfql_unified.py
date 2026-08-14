@@ -2028,7 +2028,7 @@ def gfql(self: Plottable,
          policy: Optional[Dict[str, PolicyFunction]] = None,
          where: Optional[Sequence[WhereComparison]] = None,
          language: Optional[Literal["cypher", "gremlin"]] = None,
-         params: Optional[Mapping[str, Any]] = None,
+         params: Optional[Mapping[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher query parameters are arbitrary user scalars
          validate: bool = False,
          shortest_path_backend: str = "auto") -> Plottable:
     """
