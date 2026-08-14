@@ -1481,6 +1481,18 @@ def binding_rows_polars(
     node_id = base_graph._node
     src = base_graph._source
     dst = base_graph._destination
+    if (nodes is None or node_id is None) and edges is not None:
+        # Edges-only graph: materialize nodes (the node-set path did this
+        # implicitly through the hop executor); keep the frame on polars.
+        try:
+            base_graph = base_graph.materialize_nodes()
+        except Exception:
+            return None
+        nodes = base_graph._nodes
+        node_id = base_graph._node
+        from graphistry.Engine import Engine as _MatEngine, df_to_engine as _mat_to_engine, is_polars_df as _mat_is_polars
+        if nodes is not None and not _mat_is_polars(nodes):
+            nodes = _mat_to_engine(nodes, _MatEngine.POLARS)
     if nodes is None or edges is None or node_id is None or src is None or dst is None:
         return None
     seed_ids_lf: Optional[Any] = None  # LazyFrame; Any avoids the union-typed seed_nodes.join mismatch
@@ -1701,6 +1713,32 @@ def binding_rows_polars(
         # NIE → use engine='pandas'/'polars'), never a silent CPU fallback.
         nodes_lf = nodes.lazy()
         edges_lf = edges.lazy()
+        # int-vs-float endpoint dtype mismatch (e.g. a null endpoint promoted the
+        # column) SchemaErrors the join chain; align endpoints to the node-id
+        # dtype when lossless, mirroring the chain traversal's join-key fix.
+        # Output dtypes are untouched (alias columns come from the node frames).
+        _node_dtype = nodes_lf.collect_schema().get(node_id)
+        _edge_schema = edges_lf.collect_schema()
+        _endpoint_casts = []
+        for _endpoint in {src, dst}:
+            _e_dtype = _edge_schema.get(_endpoint)
+            if _e_dtype is None or _node_dtype is None or _e_dtype == _node_dtype:
+                continue
+            if _dtype_is_int(_e_dtype) and _dtype_is_float(_node_dtype):
+                _endpoint_casts.append(pl.col(_endpoint).cast(_node_dtype))
+            elif _dtype_is_float(_e_dtype) and _dtype_is_int(_node_dtype):
+                _nonintegral = bool(
+                    edges_lf.select(
+                        (
+                            pl.col(_endpoint).is_not_null()
+                            & (pl.col(_endpoint) != pl.col(_endpoint).round(0))
+                        ).any()
+                    ).collect().item()
+                )
+                if not _nonintegral:
+                    _endpoint_casts.append(pl.col(_endpoint).cast(_node_dtype))
+        if _endpoint_casts:
+            edges_lf = edges_lf.with_columns(_endpoint_casts)
         first_op = ops[0]
         if not isinstance(first_op, ASTNode):
             return None

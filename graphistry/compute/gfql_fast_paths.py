@@ -2289,9 +2289,13 @@ def _execute_single_hop_grouped_aggregate_fast_path(
                     prop_cols.append(prop)
             lookup_key = f"__gfql_t3_{alias}_id__"
             lookup = node_df[[node_col] + prop_cols].drop_duplicates(subset=[node_col]).copy()
-            for out_col, prop in props:
-                lookup[out_col] = lookup[prop]
+            # Rename the join key FIRST: an output column named like the node-id
+            # column (`a.id AS id`) must survive as an output, not be clobbered
+            # into the key (#1899 KeyError) -- and an output named `id` sourced
+            # from another prop must not corrupt the key either.
             lookup = lookup.rename(columns={node_col: lookup_key})
+            for out_col, prop in props:
+                lookup[out_col] = lookup[lookup_key if prop == node_col else prop]
             return cast(DataFrameT, work_df.merge(lookup, left_on=edge_col, right_on=lookup_key, how="inner"))
 
         work = cast(DataFrameT, work)
