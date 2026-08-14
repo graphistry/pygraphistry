@@ -73,10 +73,10 @@ def _bind_reentry_graph(graph: Plottable, node_rows: Optional[DataFrameT], *, em
 def reentry_validation_error(
     message: str,
     *,
-    value: Any,
+    value: object,
     suggestion: str,
     field: str = "with",
-    **extra_context: Any,
+    **extra_context: object,
 ) -> GFQLValidationError:
     return GFQLValidationError(
         ErrorCode.E108,

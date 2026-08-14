@@ -115,7 +115,7 @@
       "graphistry/compute/gfql/cypher/procedures/networkx.py": 20,
       "graphistry/compute/gfql/cypher/projection_planning.py": 9,
       "graphistry/compute/gfql/cypher/reentry/compiletime.py": 2,
-      "graphistry/compute/gfql/cypher/reentry/execution.py": 10,
+      "graphistry/compute/gfql/cypher/reentry/execution.py": 9,
       "graphistry/compute/gfql/cypher/reentry/scope.py": 2,
       "graphistry/compute/gfql/cypher/result_postprocess.py": 1,
       "graphistry/compute/gfql/cypher/shortest_path_guards.py": 1,
@@ -152,7 +152,7 @@
       "graphistry/compute/gfql/series_str_compat.py": 11,
       "graphistry/compute/gfql/temporal_text.py": 1,
       "graphistry/compute/gfql/validate.py": 5,
-      "graphistry/compute/gfql_fast_paths.py": 23,
+      "graphistry/compute/gfql_fast_paths.py": 21,
       "graphistry/compute/gfql_unified.py": 21,
       "graphistry/compute/gfql_validate.py": 10,
       "graphistry/compute/hop.py": 4,
@@ -224,7 +224,7 @@
       "graphistry/compute/gfql/cypher/reentry/lowering_support.py": 1,
       "graphistry/compute/gfql/cypher/result_postprocess.py": 34,
       "graphistry/compute/gfql/cypher/shortest_path_aliases.py": 1,
-      "graphistry/compute/gfql/expr_parser.py": 48,
+      "graphistry/compute/gfql/expr_parser.py": 47,
       "graphistry/compute/gfql/frontends/cypher/binder.py": 9,
       "graphistry/compute/gfql/index/api.py": 21,
       "graphistry/compute/gfql/index/bindings.py": 12,
@@ -259,7 +259,7 @@
       "graphistry/compute/gfql/temporal/folding.py": 6,
       "graphistry/compute/gfql/temporal/truncation.py": 2,
       "graphistry/compute/gfql/temporal/values.py": 10,
-      "graphistry/compute/gfql_fast_paths.py": 133,
+      "graphistry/compute/gfql_fast_paths.py": 126,
       "graphistry/compute/gfql_unified.py": 42,
       "graphistry/compute/gfql_validate.py": 26,
       "graphistry/compute/hop.py": 7,
@@ -304,7 +304,7 @@
       "graphistry/compute/gfql/lazy/engine/polars/row_pipeline.py": 1,
       "graphistry/compute/gfql/same_path_types.py": 1,
       "graphistry/compute/gfql/validate.py": 4,
-      "graphistry/compute/gfql_fast_paths.py": 22,
+      "graphistry/compute/gfql_fast_paths.py": 20,
       "graphistry/compute/gfql_unified.py": 1,
       "graphistry/compute/hop.py": 6,
       "graphistry/compute/predicates/comparison.py": 2,
@@ -335,9 +335,7 @@
       "graphistry/validate/validate_encodings.py": 9
     },
     "plottable-setattr": {
-      "graphistry/compute/cluster.py": 1,
-      "graphistry/compute/gfql_fast_paths.py": 1,
-      "graphistry/compute/gfql_unified.py": 1
+      "graphistry/compute/cluster.py": 1
     },
     "plottable-attr-write": {
       "graphistry/compute/chain_remote.py": 2,
