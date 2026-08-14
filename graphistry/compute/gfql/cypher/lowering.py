@@ -3957,7 +3957,7 @@ def _lower_order_by_clause(
                         "ORDER BY expressions must reference the active RETURN/WITH source alias",
                         field="order_by",
                         value=item.expression.text,
-                        suggestion=f"Use columns from alias '{plan.source_alias}' only in this phase.",
+                        suggestion=f"Use columns from alias '{plan.source_alias}' only in this phase, or project the property as an output alias and order by that (e.g. RETURN {item.expression.text} AS sort_key ... ORDER BY sort_key), which sorts with openCypher null placement.",
                         line=item.span.line,
                         column=item.span.column,
                         language="cypher",
@@ -3993,7 +3993,7 @@ def _lower_order_by_clause(
                     "ORDER BY expressions must reference the active RETURN/WITH source alias",
                     field="order_by",
                     value=item.expression.text,
-                    suggestion=f"Use columns from alias '{plan.source_alias}' only in this phase.",
+                    suggestion=f"Use columns from alias '{plan.source_alias}' only in this phase, or project the property as an output alias and order by that (e.g. RETURN {item.expression.text} AS sort_key ... ORDER BY sort_key), which sorts with openCypher null placement.",
                     line=item.span.line,
                     column=item.span.column,
                     language="cypher",
@@ -8590,12 +8590,17 @@ def _compile_connected_optional_match(
     *,
     params: Optional[Mapping[str, Any]] = None,
     semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
+    post_join_row_filter: Optional[ExpressionText] = None,
 ) -> Optional[CompiledCypherQuery]:
     """Compile a MATCH + N OPTIONAL MATCH query.
 
     Lowers each clause independently, builds one arm per OPTIONAL MATCH for
     chained left-outer-joins at runtime, and delegates RETURN / ORDER BY /
     SKIP / LIMIT to the standard row pipeline.
+
+    ``post_join_row_filter`` (#1896 flattened ``WITH ... WHERE``) filters the
+    left-joined binding ROWS before projection/aggregation -- openCypher
+    post-OPTIONAL-MATCH WITH..WHERE semantics.
 
     Returns None to DEFER to the general lowering for sub-shapes it serves
     better (post-aggregate expressions; the 2-match single-node-seed
@@ -8811,6 +8816,18 @@ def _compile_connected_optional_match(
                 )
             )
         _append_page_ops(post_join_ops, query=query, params=params)
+    if post_join_row_filter is not None:
+        post_join_ops = [
+            where_rows(
+                expr=_row_expr_arg(
+                    post_join_row_filter,
+                    params=params,
+                    alias_targets={},
+                    field="where",
+                )
+            ),
+            *post_join_ops,
+        ]
     query_graph = QueryGraph(
         components=[
             _connected_component_from_pattern(
@@ -9139,6 +9156,38 @@ def compile_cypher_query(
         )
         if compiled_connected_optional is not None:
             return _attach_graph_context(compiled_connected_optional)
+    if query.with_stages and any(m.optional for m in query.matches):
+        # #1896: terminal WITH over OPTIONAL MATCH -- the row-column pipeline
+        # cannot represent binding rows; flatten onto the connected left-join
+        # lowering (stage WHERE becomes a post-join row filter).
+        from graphistry.compute.gfql.cypher.reentry.flatten import (
+            flatten_terminal_with_over_optional,
+        )
+
+        flattened_terminal = flatten_terminal_with_over_optional(query)
+        if flattened_terminal is not None:
+            flattened_query, stage_row_filter = flattened_terminal
+            if _is_connected_optional_match_query(flattened_query):
+                compiled_flattened = _compile_connected_optional_match(
+                    flattened_query,
+                    params=params,
+                    semantic_entity_kinds=bound_context.entity_kinds,
+                    post_join_row_filter=stage_row_filter,
+                )
+                if compiled_flattened is not None:
+                    return _attach_graph_context(compiled_flattened)
+            if stage_row_filter is None:
+                # Connected lowering deferred (e.g. whole-row projection);
+                # the flattened query has no WITH stage, so the general
+                # paths (null-fill / typed gates) serve or decline it.
+                return compile_cypher_query(flattened_query, params=params)
+        raise _unsupported(
+            "Cypher WITH pipelines after OPTIONAL MATCH are only supported for pure bare-alias carries (optionally with WHERE) or a terminal WITH passed through unchanged by RETURN; other stage shapes would drop or corrupt null-extended rows in the local compiler",
+            field="with",
+            value=[item.expression.text for item in query.with_stages[0].clause.items],
+            line=query.with_stages[0].span.line,
+            column=query.with_stages[0].span.column,
+        )
 
     merged_match = _merged_match_clause(query)
     lowered = (

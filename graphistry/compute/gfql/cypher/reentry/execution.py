@@ -97,8 +97,14 @@ def apply_optional_reentry_null_fill(
     empty_result_row: Optional[Dict[str, Any]] = None,
     reentry_plan: Optional[ReentryPlan] = None,
     aggregate_fill_values: Optional[Mapping[str, Any]] = None,
+    carried_output_map: Optional[Mapping[str, str]] = None,
 ) -> Plottable:
-    """Null-fill result rows for prefix rows that the optional reentry didn't match."""
+    """Null-fill result rows for prefix rows that the optional reentry didn't match.
+
+    ``carried_output_map`` maps result output columns to prefix-frame columns
+    for outputs sourced from the carried alias (#1896): a dict enables the
+    identity anti-join fill; None marks carried-alias outputs the fill cannot
+    reproduce (typed decline instead of anonymous rows)."""
     prefix_df = prefix_result._nodes
     result_df = result._nodes
 
@@ -133,12 +139,36 @@ def apply_optional_reentry_null_fill(
         null_row=null_row,
         reentry_plan=reentry_plan,
     )
+    if fill_rows is None and carried_output_map:
+        # #1896: never synthesize ANONYMOUS null rows by count arithmetic --
+        # anti-join unmatched prefix rows so the null-extension keeps its
+        # carried seed identity, or decline typed below.
+        fill_rows = _optional_reentry_identity_null_rows(
+            prefix_df=prefix_df,
+            result_df=result_df,
+            null_row=null_row,
+            carried_output_map=carried_output_map,
+        )
     if fill_rows is None:
-        if result_rows >= prefix_rows:
-            return result
-        missing_count = prefix_rows - result_rows
-        fill_rows = [dict(null_row) for _ in range(missing_count)]
-    elif not fill_rows:
+        if prefix_rows == 1 and result_rows > 0:
+            return result  # the single prefix row matched; nothing to fill
+        if carried_output_map is None:
+            raise reentry_validation_error(
+                "Cypher OPTIONAL MATCH after WITH cannot null-extend unmatched carried rows: the projection derives outputs from the carried alias in a form the null-extension cannot reproduce",
+                value=sorted(null_row),
+                suggestion="Project carried-alias values as bare properties (e.g. RETURN p.id AS pid), or use MATCH instead of OPTIONAL MATCH.",
+                field="optional_reentry",
+            )
+        if result_rows == 0:
+            fill_rows = [dict(null_row) for _ in range(prefix_rows)]
+        else:
+            raise reentry_validation_error(
+                "Cypher OPTIONAL MATCH after WITH cannot null-extend unmatched carried rows for this projection: no uniquely-identifying carried-alias columns are projected, so unmatched rows cannot be told apart from matched ones",
+                value=sorted(null_row),
+                suggestion="Project an identity property of the carried alias (e.g. RETURN p.id AS pid, ...) or use MATCH instead of OPTIONAL MATCH.",
+                field="optional_reentry",
+            )
+    if not fill_rows:
         return result
 
     if result_df is None or len(result_df) == 0:
@@ -150,6 +180,48 @@ def apply_optional_reentry_null_fill(
         concat([result_df, fill_df], ignore_index=True, sort=False),
         empty_edges=True,
     )
+
+
+def _optional_reentry_identity_null_rows(
+    *,
+    prefix_df: DataFrameT,
+    result_df: Optional[DataFrameT],
+    null_row: Dict[str, Any],  # hygiene-ok: explicit-any -- heterogeneous Cypher fill values, mirrors _optional_reentry_carried_null_rows
+    carried_output_map: Mapping[str, str],
+) -> Optional[List[Dict[str, Any]]]:  # hygiene-ok: explicit-any -- heterogeneous Cypher fill values, mirrors _optional_reentry_carried_null_rows
+    """Anti-join fill rows for unmatched prefix rows, keyed on carried-alias outputs.
+
+    Returns None when no projected output can identify prefix rows (or keys
+    are ambiguous while some rows matched) -- the caller declines typed."""
+    prefix_columns = {str(col) for col in prefix_df.columns}
+    result_columns = {str(col) for col in result_df.columns} if result_df is not None else set(null_row)
+    pairs = [
+        (out, src)
+        for out, src in carried_output_map.items()
+        if src in prefix_columns and out in result_columns
+    ]
+    if not pairs:
+        return None
+    src_cols = tuple(src for _, src in pairs)
+    prefix_records = _records_for_columns(prefix_df, src_cols)
+    fill_from = [dict(null_row) for _ in prefix_records]
+    for row, record in zip(fill_from, prefix_records):
+        for out, src in pairs:
+            row[out] = record[src]
+    if result_df is None or len(result_df) == 0:
+        return fill_from
+    prefix_keys = [_optional_reentry_key(record, src_cols) for record in prefix_records]
+    if len(set(prefix_keys)) != len(prefix_keys):
+        return None
+    matched_keys = {
+        _optional_reentry_key(record, tuple(out for out, _ in pairs))
+        for record in _records_for_columns(result_df, tuple(out for out, _ in pairs))
+    }
+    return [
+        row
+        for row, key in zip(fill_from, prefix_keys)
+        if key not in matched_keys
+    ]
 
 
 def _optional_reentry_carried_null_rows(

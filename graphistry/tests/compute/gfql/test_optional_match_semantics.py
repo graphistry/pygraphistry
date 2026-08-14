@@ -404,14 +404,12 @@ def test_optional_match_gate_messages_describe_the_query():
     out = _run("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'H'}]->(x) "
                "RETURN p.name AS n, count(x) AS c", "pandas")
     _assert_rows(out, [{"n": "bob", "c": 1}, {"n": None, "c": 0}])
-    # canonical anti-join: still a typed decline, but it must not suggest a
-    # semantics-changing rewrite and must not claim the aggregate placement
-    # is wrong
-    with pytest.raises(GFQLValidationError) as anti_err:
-        _run("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'L'}]->(x) "
-             "WITH p, x WHERE x IS NULL RETURN p.name AS n", "pandas")
-    assert "Use MATCH instead of OPTIONAL MATCH" not in str(anti_err.value)
-    assert "must be top-level" not in str(anti_err.value)
+    # canonical anti-join: served since #1896 (WITH..WHERE is a binding-row
+    # filter; `x IS NULL` keeps exactly the unmatched rows) -- pin the
+    # hand-computed answer: bob and the null-named person have no L edge.
+    anti = _run("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'L'}]->(x) "
+                "WITH p, x WHERE x IS NULL RETURN p.name AS n", "pandas")
+    _assert_rows(anti, [{"n": "bob"}, {"n": None}])
 
 
 def test_optional_match_varlen_arm_residual_gate_is_honest():
@@ -573,3 +571,176 @@ def test_optional_varlen_arm_bound_endpoints_projects_bound_alias(engine):
     is s->a->c, so exactly one row with x = c."""
     q = "MATCH (a:Single), (x:C) OPTIONAL MATCH (a)-[*]->(x) RETURN x"
     _assert_rows(_labeled_flat_pd(_run_labeled(q, engine)), [{"x": "(:C)"}])
+
+
+# ===========================================================================
+# F. #1896 OM -> WITH pipeline row semantics (post-fix adversarial re-probe)
+# ===========================================================================
+# Fixture G1 (issue #1896): a1-a4:P v=1..4, b1:C v=10, b2:C v=20, z; edges
+# a1-KNOWS->b1, a1-KNOWS->b2, a2-LIKES->b1, b1-KNOWS->a3. Every expected value
+# is HAND-COMPUTED openCypher; a WITH after OPTIONAL MATCH operates on binding
+# ROWS (matched rows keep their optional bindings; null-extended rows carry
+# their seed identity, never anonymous nulls).
+
+
+def _run_1896(query: str, engine: str) -> pd.DataFrame:
+    nodes = pd.DataFrame({
+        "id": ["a1", "a2", "a3", "a4", "b1", "b2", "z"],
+        "label__P": [True, True, True, True, False, False, False],
+        "label__C": [False, False, False, False, True, True, False],
+        "v": [1, 2, 3, 4, 10, 20, 99],
+        "name": ["a1", "a2", "a3", "a4", "b1", "b2", "z"],
+    })
+    edges = pd.DataFrame({
+        "s": ["a1", "a1", "a2", "b1"],
+        "d": ["b1", "b2", "b1", "a3"],
+        "eid": ["e1", "e2", "e3", "e4"],
+        "type": ["KNOWS", "KNOWS", "LIKES", "KNOWS"],
+        "w": [5, 6, 7, 8],
+    })
+    if engine == "polars":
+        g = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
+    else:
+        g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    out = g.gfql(query, engine=engine)._nodes
+    if hasattr(out, "to_pandas"):
+        out = out.to_pandas()
+    return out.reset_index(drop=True)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_with_where_seed_predicate_filters_rows_keeps_bindings(engine):
+    """Finding 1 (CRITICAL): a seed-only WITH..WHERE filters binding ROWS --
+    matched rows keep their b (multiplicity preserved), never nulled (pandas
+    bug) or fabricated as seed ids (polars bug)."""
+    q = ("MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a, b WHERE a.v <= 2 "
+         "RETURN a.id AS aid, b.id AS bid")
+    _assert_rows(_run_1896(q, engine), [
+        {"aid": "a1", "bid": "b1"}, {"aid": "a1", "bid": "b2"},
+        {"aid": "a2", "bid": "b1"},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_with_carry_no_where_preserves_null_extension(engine):
+    """Finding 1 corollary: a pure WITH a, b carry is a row no-op -- all five
+    binding rows survive, unmatched seeds null-extended."""
+    q = ("MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a, b "
+         "RETURN a.id AS aid, b.id AS bid")
+    _assert_rows(_run_1896(q, engine), [
+        {"aid": "a1", "bid": "b1"}, {"aid": "a1", "bid": "b2"},
+        {"aid": "a2", "bid": "b1"}, {"aid": "a3", "bid": None},
+        {"aid": "a4", "bid": None},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_with_where_optional_predicate_filters_null_rows(engine):
+    """A WITH..WHERE over the OPTIONAL alias operates on rows too: null rows
+    fail `b.v >= 20` (openCypher null comparison) and drop; only (a1,b2)
+    survives. Previously a typed decline; now served."""
+    q = ("MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a, b WHERE b.v >= 20 "
+         "RETURN a.id AS aid, b.id AS bid")
+    _assert_rows(_run_1896(q, engine), [{"aid": "a1", "bid": "b2"}])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_single_alias_carry_where_preserves_multiplicity(engine):
+    """Finding 1 sibling: WITH a WHERE ... RETURN a.id keeps one row PER
+    binding row -- a1 appears twice (two arm matches), never deduplicated."""
+    q = "MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a WHERE a.v <= 2 RETURN a.id AS aid"
+    _assert_rows(_run_1896(q, engine), [{"aid": "a1"}, {"aid": "a1"}, {"aid": "a2"}])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_with_stage_aggregate_keeps_zero_count_groups(engine):
+    """Finding 2: WITH-stage aggregate must match the direct RETURN aggregate:
+    unmatched seeds keep their group with count(b)=0; count(*) sees the
+    null-extended row itself (=1)."""
+    q = ("MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a.id AS aid, count(b) AS cnt "
+         "RETURN aid, cnt")
+    _assert_rows(_run_1896(q, engine), [
+        {"aid": "a1", "cnt": 2}, {"aid": "a2", "cnt": 1},
+        {"aid": "a3", "cnt": 0}, {"aid": "a4", "cnt": 0},
+    ])
+    q_star = ("MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a.id AS aid, count(*) AS cnt "
+              "RETURN aid, cnt")
+    _assert_rows(_run_1896(q_star, engine), [
+        {"aid": "a1", "cnt": 2}, {"aid": "a2", "cnt": 1},
+        {"aid": "a3", "cnt": 1}, {"aid": "a4", "cnt": 1},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_with_property_stage_keeps_rows(engine):
+    """Finding 2 sibling: a property-projection WITH stage is row-preserving:
+    av carries one value per binding row incl. null-extended seeds."""
+    q = "MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a.v AS av RETURN av"
+    _assert_rows(_run_1896(q, engine),
+                 [{"av": 1}, {"av": 1}, {"av": 2}, {"av": 3}, {"av": 4}])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_rename_carry_null_extension_keeps_seed_identity(engine):
+    """Finding 3: `WITH a AS p` reentry null-fill must anti-join unmatched
+    seeds -- a2 (LIKES only), a3, a4 each get a row with THEIR pid, never
+    anonymous all-null rows (and never a wrong count of them)."""
+    q = ("MATCH (a:P) WITH a AS p OPTIONAL MATCH (p)-[:KNOWS]->(b) "
+         "RETURN p.id AS pid, b.id AS bid")
+    _assert_rows(_run_1896(q, engine), [
+        {"pid": "a1", "bid": "b1"}, {"pid": "a1", "bid": "b2"},
+        {"pid": "a2", "bid": None}, {"pid": "a3", "bid": None},
+        {"pid": "a4", "bid": None},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_limit_carry_null_extension_not_shortcircuited(engine):
+    """Finding 4: with LIMIT 2 carrying {a1, a2}, a1's two matches must not
+    mask a2's missing null row (the old result_rows >= prefix_rows
+    short-circuit); LIMIT 10 keeps every unmatched seed identified."""
+    q2 = ("MATCH (a:P) WITH a LIMIT 2 OPTIONAL MATCH (a)-[:KNOWS]->(b) "
+          "RETURN a.id AS aid, b.id AS bid")
+    _assert_rows(_run_1896(q2, engine), [
+        {"aid": "a1", "bid": "b1"}, {"aid": "a1", "bid": "b2"},
+        {"aid": "a2", "bid": None},
+    ])
+    q10 = ("MATCH (a:P) WITH a LIMIT 10 OPTIONAL MATCH (a)-[:KNOWS]->(b) "
+           "RETURN a.id AS aid, b.id AS bid")
+    _assert_rows(_run_1896(q10, engine), [
+        {"aid": "a1", "bid": "b1"}, {"aid": "a1", "bid": "b2"},
+        {"aid": "a2", "bid": None}, {"aid": "a3", "bid": None},
+        {"aid": "a4", "bid": None},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_no_identity_projection_declines_not_anonymous(engine):
+    """Negative control: when no carried-alias column is projected, unmatched
+    seeds cannot be identified -- typed decline, never anonymous null rows or
+    a silently short row set."""
+    q = ("MATCH (a:P) WITH a AS p OPTIONAL MATCH (p)-[:KNOWS]->(b) "
+         "RETURN b.id AS bid")
+    with pytest.raises(GFQLValidationError):
+        _run_1896(q, engine)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_nonflattenable_with_stage_declines_not_silent(engine):
+    """Negative control: a WITH stage the flatten cannot serve (rename of a
+    carried alias inside the stage) declines typed instead of riding the
+    row-column pipeline into silent-wrong."""
+    q = ("MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a AS x, b AS y "
+         "RETURN x.id AS xid, y.id AS yid")
+    with pytest.raises(GFQLValidationError):
+        _run_1896(q, engine)
+
+
+def test_1896_orderby_property_decline_hints_output_alias():
+    """Finding 5: the ORDER BY optional-alias-property decline must hint the
+    output-alias spelling that works (ORDER BY bv sorts with openCypher null
+    placement)."""
+    q = "MATCH (a:P) OPTIONAL MATCH (a)-->(b) RETURN a.id AS aid, b.v AS bv ORDER BY b.v"
+    with pytest.raises(GFQLValidationError) as exc:
+        _run_1896(q, "pandas")
+    assert "output alias" in str(exc.value) or "AS sort_key" in str(exc.value)

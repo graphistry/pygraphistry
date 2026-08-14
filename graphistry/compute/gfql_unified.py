@@ -3,6 +3,7 @@
 
 from collections import OrderedDict
 from dataclasses import replace
+import re
 import threading
 import pandas as pd
 from types import MappingProxyType
@@ -1467,9 +1468,63 @@ def _execute_compiled_query_with_reentry(
             empty_result_row=compiled_query.empty_result_row,
             reentry_plan=compiled_query.reentry_plan,
             aggregate_fill_values=_optional_reentry_aggregate_fill_values(compiled_query),
+            carried_output_map=_optional_reentry_carried_output_map(compiled_query),
         )
 
     return result
+
+
+def _optional_reentry_carried_output_map(
+    compiled_query: CompiledCypherQuery,
+) -> Optional[Dict[str, str]]:
+    """Map result output columns to prefix-frame columns for carried-alias outputs (#1896).
+
+    Bare ``{carried_alias}.{prop}`` projection sources ARE the prefix frame's
+    column names, so the null-fill can anti-join and reproduce them. Returns
+    None when an output derives from the carried alias in any other form
+    (whole-row / expression) -- unmatched-row values would be wrong, so the
+    fill must decline typed. Aggregate (grouped) suffixes keep their own fill
+    path and yield an empty map here.
+    """
+    plan = compiled_query.reentry_plan
+    if plan is None:
+        return {}
+    alias_names = {plan.reentry_alias_name} | {a.output_name for a in plan.aliases}
+    scalar_cols = set(plan.scalar_columns)
+    items: Optional[List[Any]] = None
+    grouped = False
+    ops = list(compiled_query.chain.chain) if compiled_query.chain is not None else []
+    for op in ops:
+        function = getattr(op, "function", None)
+        op_params = getattr(op, "params", None) or {}
+        if function in ("select", "return_", "with_") and op_params.get("items"):
+            items = list(op_params["items"])
+            grouped = False
+        elif function == "group_by":
+            grouped = True
+    if items is None or grouped:
+        return {}
+    out: Dict[str, str] = {}
+    for item in items:
+        if not (isinstance(item, (list, tuple)) and len(item) == 2 and isinstance(item[0], str)):
+            continue
+        name, src = item
+        if not isinstance(src, str):
+            continue
+        tokens = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", src))
+        if not tokens & alias_names and not tokens & scalar_cols:
+            continue
+        parts = src.split(".")
+        marker = re.fullmatch(r"__cypher_reentry_(\w+)__", parts[1]) if len(parts) == 2 else None
+        if src in scalar_cols:
+            out[name] = src  # (possibly renamed) carried WITH scalar
+        elif len(parts) == 2 and parts[0] in alias_names and marker is not None and marker.group(1) in scalar_cols:
+            out[name] = marker.group(1)  # scalar read back through its reentry marker
+        elif len(parts) == 2 and parts[0] in alias_names and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", parts[1]):
+            out[name] = src
+        else:
+            return None
+    return out
 
 
 def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery) -> Dict[str, Any]:
