@@ -228,8 +228,27 @@ class _ScalarTemporalComparison(_StringAllowingComparisonMixin, ComparisonPredic
     op: ClassVar[Any]
     safe_scalar_compare: ClassVar[bool] = True
 
+    @staticmethod
+    def _series_is_boolean(s: SeriesT) -> bool:
+        dtype = getattr(s, "dtype", None)
+        try:
+            if pd.api.types.is_bool_dtype(dtype):
+                return True
+            if isinstance(s, pd.Series) and pd.api.types.is_object_dtype(dtype):
+                non_null = s.dropna()
+                return len(non_null) > 0 and bool(non_null.map(lambda v: isinstance(v, bool)).all())
+        except Exception:
+            return False
+        return False
+
     def __call__(self, s: SeriesT) -> SeriesT:
         if isinstance(self.val, (int, float, str)):
+            # Cypher: ordering a BOOLEAN against a NUMBER is incomparable ->
+            # null (never satisfies the predicate) -- the bool-vs-int twin of
+            # the mixed-type null semantics in _safe_scalar_compare (#1900).
+            val_is_bool = isinstance(self.val, bool)
+            if not val_is_bool and isinstance(self.val, (int, float)) and self._series_is_boolean(s):
+                return cast(SeriesT, s.notna() & False)  # hygiene-ok: explicit-cast -- SeriesT narrowing, module-wide idiom
             return (
                 self._safe_scalar_compare(s, type(self).op)
                 if self.safe_scalar_compare

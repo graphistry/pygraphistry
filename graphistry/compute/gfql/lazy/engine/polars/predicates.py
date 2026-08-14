@@ -104,6 +104,17 @@ def _cmp_expr(
     # and filter_by_dict runs on INGESTED columns (no in-query float math — that's the WHERE
     # path). Only a natively-built polars frame with raw NaN diverges; documented, not guarded,
     # to keep the lowering simple. (Mirrors the documented integer 0/0 column-compare residual.)
+    # Cypher: ORDERING a Boolean column against a number is incomparable -> null
+    # (never satisfies) -- the bool-vs-int twin of the numeric-vs-string decline,
+    # mirroring the pandas predicate guard (#1900). Equality stays served.
+    if (
+        op in (operator.gt, operator.lt, operator.ge, operator.le)
+        and not isinstance(val, bool)
+        and isinstance(val, (int, float))
+    ):
+        import polars as pl
+        if dtype == pl.Boolean:
+            return pl.lit(False)
     if op in _CMP_OPS:
         return op(col_expr, val)
     return None

@@ -87,7 +87,7 @@ def _parser():
 # anything subtler returns None upstream.
 _BINOP_FNS: Dict[str, Callable[[Any, Any], Any]] = {
     "+": operator.add, "-": operator.sub, "*": operator.mul, "/": operator.truediv,
-    "%": operator.mod,  # polars mod is floored, like pandas (NOTE: no negative-operand % conformance case yet)
+    "%": operator.mod,  # non-numeric fallback only: numeric % is conformed to TRUNCATED semantics in lower_expr (#1900)
     "=": operator.eq, "==": operator.eq, "<>": operator.ne, "!=": operator.ne,
     "<": operator.lt, ">": operator.gt, "<=": operator.le, ">=": operator.ge,
 }
@@ -131,19 +131,17 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
     import polars as pl  # function-local: polars is an optional dependency
     name = node.name.lower()
     if name == "__cypher_case_eq__" and len(node.args) == 2:
-        # Simple-CASE equality marker (`CASE x WHEN v`). Cypher/pandas semantics:
-        # null matches null (NOT 3-valued suppressed). Lower ONLY the null-literal
-        # forms (`CASE x WHEN null` = the LDBC IS7 shape) as the other side's
-        # null-mask, exactly like the pandas evaluator; the general form carries
-        # pandas' bool/numeric cross-dtype rules — decline it rather than diverge.
+        # Simple-CASE equality marker (`CASE x WHEN v`). openCypher simple CASE
+        # uses '=': null NEVER matches (conformed #1900 -- `CASE x WHEN null`
+        # matches no row and falls to ELSE, mirroring the pandas evaluator);
+        # the general form carries pandas' bool/numeric cross-dtype rules --
+        # decline it rather than diverge.
         from graphistry.compute.gfql.expr_parser import Literal as _Lit
         a_node, b_node = node.args
-        if isinstance(b_node, _Lit) and b_node.value is None:
-            a = lower_expr(a_node, columns)
-            return None if a is None else a.is_null()
-        if isinstance(a_node, _Lit) and a_node.value is None:
-            b = lower_expr(b_node, columns)
-            return None if b is None else b.is_null()
+        if (isinstance(b_node, _Lit) and b_node.value is None) or (
+            isinstance(a_node, _Lit) and a_node.value is None
+        ):
+            return pl.lit(False)
         return None
     args: List[pl.Expr] = []
     for arg in node.args:
@@ -317,6 +315,24 @@ def _is_int_literal(node: ExprNode) -> bool:
     cypher 5/2 == 2 (truncating) vs polars 2.5; column / int is Float on both, so it matches."""
     from graphistry.compute.gfql.expr_parser import Literal
     return isinstance(node, Literal) and isinstance(node.value, int) and not isinstance(node.value, bool)
+
+
+def _nonzero_int_literal(node: ExprNode) -> bool:
+    """True iff the node is a NONZERO integer literal (unary +/- admitted).
+
+    Gates the native int `/` and `%` lowering (#1900): openCypher mandates an
+    ERROR for an integer zero divisor, but polars `// 0` silently yields null,
+    so only a provably nonzero literal divisor may run natively -- anything
+    else declines to the pandas lane's typed error."""
+    from graphistry.compute.gfql.expr_parser import Literal, UnaryOp as _UnaryOp
+    if isinstance(node, _UnaryOp) and node.op in ("+", "-"):
+        node = node.operand
+    return (
+        isinstance(node, Literal)
+        and isinstance(node.value, int)
+        and not isinstance(node.value, bool)
+        and node.value != 0
+    )
 
 
 def _is_iso_duration_literal(node: ExprNode) -> bool:
@@ -582,11 +598,6 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             or (_is_iso_temporal_literal(node.right) and _is_temporal_column_ref(node.left, columns))
         ):
             return None
-        # decline (NIE): int-literal division — Cypher folds 5/2 to 2 (truncating; x/0 errors) vs
-        # polars true division 2.5, silently wrong inside a non-monotonic op (e.g. ORDER BY
-        # n.val % (10/4) sorts differently); pandas folds it. Column / int is Float on both, so kept.
-        if node.op == "/" and _is_int_literal(node.left) and _is_int_literal(node.right):
-            return None
         left = lower_expr(node.left, columns)
         right = lower_expr(node.right, columns)
         if left is None or right is None:
@@ -604,6 +615,38 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             # engines; only % diverges.
             if node.op == "%" and (ldt == pl.Boolean or rdt == pl.Boolean):
                 return None
+            # openCypher: ordering a BOOLEAN against a NUMBER is incomparable -> null
+            # (rows drop in WHERE); boolean-vs-boolean ordering stays served (#1900).
+            if node.op in _ORDER_OPS and ldt is not None and rdt is not None and (
+                (ldt == pl.Boolean and _dtype_is_numeric(rdt) and rdt != pl.Boolean)
+                or (rdt == pl.Boolean and _dtype_is_numeric(ldt) and ldt != pl.Boolean)
+            ):
+                return pl.lit(None, dtype=pl.Boolean)
+            # openCypher numeric tower (#1900): `%` is TRUNCATED (sign of the
+            # dividend, -7 % 3 = -1), int `/` truncates toward zero, and an
+            # integer zero divisor is an ERROR -- polars `// 0` yields null, so
+            # int `/` and int `%` run natively only with a provably nonzero
+            # literal divisor; other divisors decline to pandas' typed error.
+            if (
+                node.op in ("/", "%")
+                and ldt is not None and rdt is not None
+                and _dtype_is_numeric(ldt) and _dtype_is_numeric(rdt)
+                and ldt != pl.Boolean and rdt != pl.Boolean
+            ):
+                both_int = _dtype_is_int(ldt) and _dtype_is_int(rdt)
+                if node.op == "/" and both_int:
+                    if not _nonzero_int_literal(node.right):
+                        return None
+                    return (left.abs() // right.abs()) * left.sign() * right.sign()
+                if node.op == "%":
+                    if both_int:
+                        if not _nonzero_int_literal(node.right):
+                            return None
+                        quotient = (left.abs() // right.abs()) * left.sign() * right.sign()
+                        return left - quotient * right
+                    true_q = left / right
+                    quotient = pl.when(true_q >= 0).then(true_q.floor()).otherwise(true_q.ceil())
+                    return left - quotient * right
         result = _apply_binop(node.op, left, right)
         if result is not None and node.op in _NAN_GUARD_OPS:
             result = _nan_guard(
