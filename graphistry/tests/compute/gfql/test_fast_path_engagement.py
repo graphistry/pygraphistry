@@ -61,7 +61,14 @@ def test_a_shape_neither_path_serves_declines_both(engine: str) -> None:
     seen = fast_path_decisions(g, Q_PLAIN, engine=engine)
     assert seen == {"single_hop_grouped_aggregate": False, "two_hop_count": False,
                     "seeded_typed_hop": False}
-    assert len(g.gfql(Q_PLAIN, engine=engine)._nodes) == 3  # distinct a.id, not edge count
+    # openCypher bag semantics (#1899): one row per pattern match. Edges are
+    # (0->1),(1->2),(2->0),(0->3),(0->4), so a.id is [0,0,0,1,2] -- 5 rows.
+    # The old `== 3` asserted the deduplicated node set, i.e. the #1899
+    # multiplicity-collapse bug this suite's fallback now no longer has.
+    out = g.gfql(Q_PLAIN, engine=engine)._nodes
+    if hasattr(out, "to_pandas"):
+        out = out.to_pandas()
+    assert [int(v) for v in out["x"]] == [0, 0, 0, 1, 2]
 
 
 def test_short_circuit_is_distinguishable_from_decline() -> None:

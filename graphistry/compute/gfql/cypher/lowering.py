@@ -2591,6 +2591,7 @@ def _forces_relationship_multiplicity_projection_bindings(
     if order_by is not None:
         texts.extend(order_item.expression.text for order_item in order_by.items)
     saw_node_prop_ref = False
+    referenced_aliases: Set[str] = set()
     for text in texts:
         stripped = text.strip()
         if stripped == "*" or stripped in alias_targets:
@@ -2606,8 +2607,33 @@ def _forces_relationship_multiplicity_projection_bindings(
             return False
         if not isinstance(alias_targets[bare.group(1)], ASTNode):
             return False
+        referenced_aliases.add(bare.group(1))
         saw_node_prop_ref = True
-    return saw_node_prop_ref
+    if not saw_node_prop_ref:
+        return False
+    # Fast-path precedence (#1899 follow-up): the seeded typed-hop fast path
+    # (the benchmark-critical 2.5ms lever, #1755) pattern-matches the
+    # rows(table, source) compiled shape for a single [seed-node, single-hop
+    # edge, node] pattern projecting only destination props -- leave those
+    # shapes on it (its seeded reduction is value-correct there).
+    if len(query.matches) == 1 and len(query.matches[0].patterns) == 1:
+        pattern = query.matches[0].patterns[0]
+        if (
+            len(pattern) == 3
+            and isinstance(pattern[0], NodePattern)
+            and isinstance(pattern[1], RelationshipPattern)
+            and isinstance(pattern[2], NodePattern)
+        ):
+            seed_alias = pattern[0].variable
+            dest_alias = pattern[2].variable
+            seed_target = alias_targets.get(seed_alias) if seed_alias is not None else None
+            seed_filter = getattr(seed_target, "filter_dict", None)
+            has_selective_seed = bool(seed_filter) and any(
+                not str(key).startswith("label__") for key in seed_filter
+            )
+            if has_selective_seed and dest_alias is not None and referenced_aliases <= {dest_alias}:
+                return False
+    return True
 
 
 def _is_pure_count_star_shortcircuit(
