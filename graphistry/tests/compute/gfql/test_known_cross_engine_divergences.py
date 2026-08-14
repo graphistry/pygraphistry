@@ -130,3 +130,43 @@ def test_1888_projection_and_count_agree_on_dangling():
     cnt = g_pl.gfql("MATCH (a)-[]->(b) RETURN count(*) AS c", engine="polars")._nodes
     c = int((cnt.to_pandas() if hasattr(cnt, "to_pandas") else cnt)["c"].iloc[0])
     assert n_rows == c, f"entity projection {n_rows} vs count {c}"
+
+
+@pytest.mark.xfail(strict=True, reason="round-002 BUG-1: OPTIONAL MATCH + aggregate bypasses the seed gate into inner-join semantics")
+def test_optional_match_aggregate_keeps_unmatched_seeds_polars_and_pandas():
+    """Cypher: OPTIONAL MATCH keeps unmatched rows with NULLs, so
+    `RETURN p.name, count(x)` must include zero-count seeds. The aggregate
+    projection bypasses the validator gate and inner-joins instead -- BOTH
+    engines agree on the wrong answer, so parity suites cannot see it."""
+    nodes = pd.DataFrame({"id": [0, 1], "name": ["alice", "bob"], "t": ["P", "P"]})
+    edges = pd.DataFrame({"s": [0], "d": [1]})
+    q = ("MATCH (p {t:'P'}) OPTIONAL MATCH (p)-[]->(x) "
+         "RETURN p.name AS name, count(x) AS c ORDER BY name")
+    out = (graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+           .gfql(q, engine="pandas")._nodes.to_dict("records"))
+    assert out == [{"name": "alice", "c": 1}, {"name": "bob", "c": 0}], out
+
+
+@pytest.mark.xfail(strict=True, reason="round-002 BUG-3: WITH-carried scalar KeyErrors when projected NEXT TO an aggregate")
+def test_with_carried_scalar_projects_next_to_aggregate():
+    """The carry survives filtering (WHERE q.score > s answers) and plain
+    projection, but RETURN s, count(q) loses the column and dies with a raw
+    KeyError on pandas -- the projection rebuild after aggregation drops the
+    carried scalar."""
+    nodes = pd.DataFrame({"id": [0, 1], "kind": ["person", "person"], "score": [5, 9]})
+    edges = pd.DataFrame({"s": [0], "d": [1], "t": ["KNOWS"]})
+    q = ("MATCH (p {kind:'person'}) WITH p, p.score AS s "
+         "MATCH (p)-[{t:'KNOWS'}]->(q) RETURN s, count(q) AS c")
+    out = (graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+           .gfql(q, engine="pandas")._nodes.to_dict("records"))
+    assert out == [{"s": 5, "c": 1}], out
+
+
+@pytest.mark.xfail(strict=True, reason="round-002 BUG-4: ungrouped sum over an empty match is NULL; openCypher says 0")
+def test_sum_over_empty_match_is_zero():
+    nodes = pd.DataFrame({"id": [0], "v": [1], "t": ["A"]})
+    edges = pd.DataFrame({"s": [], "d": []})
+    q = "MATCH (a {t:'ZZZ'}) RETURN sum(a.v) AS s"
+    out = (graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+           .gfql(q, engine="pandas")._nodes.to_dict("records"))
+    assert out == [{"s": 0}], out

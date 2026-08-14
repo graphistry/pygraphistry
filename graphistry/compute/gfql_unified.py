@@ -2011,10 +2011,16 @@ def gfql(self: Plottable,
             )
         except NotImplementedError:
             # AUTO must answer: pandas explicitly, since the generic path would
-            # re-resolve these frames to POLARS and re-raise the same NIE.
+            # re-resolve these frames to POLARS and re-raise the same NIE. The
+            # frames must be COERCED first -- the pandas executors are
+            # pandas-idiom, and handing them polars frames crashed 7/7 same-path
+            # projection shapes on the default route (round-002 agent-03 BUG-2;
+            # #1885 was one corner of it).
             logger.debug('AUTO polars-native attempt declined; serving via pandas')
+            from graphistry.compute.ComputeMixin import _coerce_input_formats
             return gfql(
-                self, query, engine=Engine.PANDAS.value, output=output, policy=policy,
+                _coerce_input_formats(self, Engine.PANDAS), query,
+                engine=Engine.PANDAS.value, output=output, policy=policy,
                 where=where, language=language, params=params, validate=validate,
                 shortest_path_backend=shortest_path_backend,
             )

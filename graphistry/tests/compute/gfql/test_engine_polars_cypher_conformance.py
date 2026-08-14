@@ -1147,3 +1147,30 @@ class TestAutoEnginePandasOracleParity:
         b = _normalize_nulls(_round_floats(oracle.reset_index(drop=True)))
         assert list(a.columns) == list(b.columns), (list(a.columns), list(b.columns))
         pd.testing.assert_frame_equal(a.astype(str), b.astype(str), check_dtype=False)
+
+
+class TestAutoFallbackCoercesFrames:
+    """Round-002 BUG-2 (#1885's route): when native polars declines and AUTO
+    falls back to pandas, the frames must be coerced first -- the pandas
+    executors are pandas-idiom, and uncoerced polars frames crashed 7/7
+    same-path projection shapes on the DEFAULT route."""
+
+    SHAPES = [
+        "MATCH (p)-[]->(q) WHERE q.score > p.score RETURN p.name AS pn, q.name AS qn",
+        "MATCH (p)-[]->(q) WHERE q.score > p.score RETURN p, q",
+        "MATCH (p)-[r]->(q) WHERE q.score > p.score RETURN p.name AS pn ORDER BY pn",
+    ]
+
+    @pytest.mark.parametrize("shape_i", [0, 1, 2])
+    @pytest.mark.parametrize("lazy", [False, True])
+    def test_same_path_projection_answers_on_default_engine(self, shape_i, lazy):
+        nodes = pl.DataFrame({"id": [0, 1, 2], "name": ["a", "b", "c"], "score": [1, 2, 3]})
+        edges = pl.DataFrame({"s": [0, 1], "d": [1, 2]})
+        q = self.SHAPES[shape_i]
+        oracle = (graphistry.nodes(nodes.to_pandas(), "id")
+                  .edges(edges.to_pandas(), "s", "d").gfql(q, engine="pandas")._nodes.to_dict("records"))
+        g = graphistry.nodes(nodes.lazy() if lazy else nodes, "id").edges(
+            edges.lazy() if lazy else edges, "s", "d")
+        out = g.gfql(q)._nodes  # DEFAULT engine
+        out = (out.to_pandas() if hasattr(out, "to_pandas") else out).to_dict("records")
+        assert out == oracle
