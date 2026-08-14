@@ -442,12 +442,19 @@ def test_optional_match_varlen_arm_residual_gate_is_honest():
 # ===========================================================================
 # The cudf-only test_string_cypher_formats_optional_match_projection_on_cudf
 # was the single pin for this shape -- that lane-skew let the #1891 residual
-# gate silently decline it on every engine. Pandas/polars twins pin it here.
-# Fixture (mirrors the cudf test): s(:Single), a(:A num=42), b(:B num=46),
-# c(:C); edges s->a, s->b, a->c, b->b.
+# gate silently decline it on every engine, and later let the null-fill path
+# serve a bare pre-rendered text column instead of the #1650 flattened
+# {alias}.{field} contract. Pandas/polars twins pin BOTH the rendered value
+# and the column contract here. Fixture (mirrors the cudf test): s(:Single),
+# a(:A num=42), b(:B num=46), c(:C); edges s->a, s->b, a->c, b->b(LOOP).
+
+_LABELED_M_FLAT_COLUMNS = [
+    "m.id", "m.num",
+    "m.label__Single", "m.label__A", "m.label__B", "m.label__C",
+]
 
 
-def _run_labeled(query: str, engine: str) -> pd.DataFrame:
+def _run_labeled(query: str, engine: str):
     nodes = pd.DataFrame({
         "id": ["s", "a", "b", "c"],
         "labels": [["Single"], ["A"], ["B"], ["C"]],
@@ -467,64 +474,102 @@ def _run_labeled(query: str, engine: str) -> pd.DataFrame:
         g = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
     else:
         g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
-    out = g.gfql(query, engine=engine)._nodes
+    return g.gfql(query, engine=engine)
+
+
+def _labeled_flat_pd(result) -> pd.DataFrame:
+    out = result._nodes
     if hasattr(out, "to_pandas"):
         out = out.to_pandas()
     return out.reset_index(drop=True)
 
 
+def _rendered_whole_entity(result, alias: str, table: str = "nodes"):
+    """#1650 column-contract check + text rendering for a whole-entity RETURN.
+
+    Asserts the output is identity-keyed flattened ``{alias}.{field}`` columns
+    (never a bare pre-rendered ``{alias}`` text column), then renders the
+    display text the pre-#1650 oracles encode. Returns (records, flat_df)."""
+    from types import SimpleNamespace
+    from graphistry.compute.gfql.cypher.result_postprocess import render_entity_text
+
+    df = _labeled_flat_pd(result)
+    prefix = f"{alias}."
+    flat_cols = [c for c in df.columns if str(c).startswith(prefix)]
+    assert flat_cols, f"#1650 violation: no flattened {prefix}* columns, got {list(df.columns)}"
+    assert alias not in df.columns, f"#1650 violation: bare pre-rendered {alias!r} text column"
+    rendered = render_entity_text(SimpleNamespace(_nodes=df), alias, table=table)  # type: ignore[arg-type]
+    records = [{alias: (None if pd.isna(v) else v)} for v in rendered.tolist()]
+    return records, df[flat_cols]
+
+
 @pytest.mark.parametrize("engine", ENGINES)
 def test_undirected_arm_where_whole_row_projects_matched_entity(engine):
     """The regressed repro: undirected (s)-[r]-(m) reaches a (s->a) and b
-    (s->b); WHERE m.num = 42 keeps only a -> exactly one row, m = a."""
+    (s->b); WHERE m.num = 42 keeps only a -> exactly one row, m = a. Columns
+    must be the same #1650 flattened set (same order) as the non-optional
+    whole-entity path."""
     q = ("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m.num = 42 "
          "RETURN m")
-    _assert_rows(_run_labeled(q, engine), [{"m": "(:A {num: 42})"}])
+    result = _run_labeled(q, engine)
+    records, flat = _rendered_whole_entity(result, "m")
+    assert records == [{"m": "(:A {num: 42})"}]
+    assert list(flat.columns) == _LABELED_M_FLAT_COLUMNS
+    plain = _labeled_flat_pd(_run_labeled("MATCH (m) WHERE m.num = 42 RETURN m", engine))
+    assert list(flat.columns) == list(plain.columns)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_undirected_arm_where_fails_null_extends_not_drops(engine):
     """WHERE belongs to the optional pattern: no neighbor of s has num=999,
-    so the seed row survives with m = null -- never zero rows."""
+    so the seed row survives with m = null -- never zero rows. The null
+    extension must be all-null across every flattened m.* column."""
     q = ("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m.num = 999 "
          "RETURN m")
-    _assert_rows(_run_labeled(q, engine), [{"m": None}])
+    records, flat = _rendered_whole_entity(_run_labeled(q, engine), "m")
+    assert records == [{"m": None}]
+    assert list(flat.columns) == _LABELED_M_FLAT_COLUMNS
+    assert flat.isna().all().all(), f"null-extension row not all-null: {flat.to_dict('records')}"
 
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_directed_arm_where_whole_row_matched_and_no_edge_null(engine):
     """Directed sanity: (s)-[r]->(m) still reaches a (matched); (s)<-[r]-(m)
     has no incoming edge at all -> the no-edge arm null-extends too."""
-    _assert_rows(
-        _run_labeled("MATCH (n:Single) OPTIONAL MATCH (n)-[r]->(m) WHERE m.num = 42 RETURN m", engine),
-        [{"m": "(:A {num: 42})"}])
-    _assert_rows(
-        _run_labeled("MATCH (n:Single) OPTIONAL MATCH (n)<-[r]-(m) WHERE m.num = 42 RETURN m", engine),
-        [{"m": None}])
+    records, flat = _rendered_whole_entity(
+        _run_labeled("MATCH (n:Single) OPTIONAL MATCH (n)-[r]->(m) WHERE m.num = 42 RETURN m", engine), "m")
+    assert records == [{"m": "(:A {num: 42})"}]
+    assert list(flat.columns) == _LABELED_M_FLAT_COLUMNS
+    records, flat = _rendered_whole_entity(
+        _run_labeled("MATCH (n:Single) OPTIONAL MATCH (n)<-[r]-(m) WHERE m.num = 42 RETURN m", engine), "m")
+    assert records == [{"m": None}]
+    assert flat.isna().all().all()
 
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_optional_self_loop_arm_projects_edge(engine):
     """TCK match7-24 twin (the other #1894-rework regression): a repeated node
     alias in the optional arm must not route into the connected-OM path's
-    duplicate-alias decline. b's LOOP self-edge is the only (a)-[r]-(a) match.
+    duplicate-alias decline. b's LOOP self-edge is the only (a)-[r]-(a) match;
+    the edge whole-row flattens to r.* columns (#1650).
     polars: parity-or-NIE (self-loop lowers to a same-path WHERE it declines)."""
     q = "MATCH (a:B) OPTIONAL MATCH (a)-[r]-(a) RETURN r"
-    expected = [{"r": "[:LOOP]"}]
     if engine == "polars":
         try:
-            out = _run_labeled(q, "polars")
+            result = _run_labeled(q, "polars")
         except NotImplementedError:
             return
-        _assert_rows(out, expected)
     else:
-        _assert_rows(_run_labeled(q, engine), expected)
+        result = _run_labeled(q, engine)
+    records, _flat = _rendered_whole_entity(result, "r", table="edges")
+    assert records == [{"r": "[:LOOP]"}]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_optional_varlen_arm_bound_endpoints_projects_bound_alias(engine):
     """TCK match7-13 twin: RETURN of a base-bound alias under a var-length
-    optional arm is arm-independent in value; the row guard serves it. The
-    only s-[*]->c path is s->a->c, so exactly one row with x = c."""
+    optional arm is arm-independent in value; the row guard serves it (guard
+    output keeps the legacy single-column text form). The only s-[*]->c path
+    is s->a->c, so exactly one row with x = c."""
     q = "MATCH (a:Single), (x:C) OPTIONAL MATCH (a)-[*]->(x) RETURN x"
-    _assert_rows(_run_labeled(q, engine), [{"x": "(:C)"}])
+    _assert_rows(_labeled_flat_pd(_run_labeled(q, engine)), [{"x": "(:C)"}])

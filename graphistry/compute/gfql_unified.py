@@ -207,7 +207,10 @@ def _apply_optional_null_fill(
     concrete_engine = resolve_engine(cast(Any, engine), result)
     df_ctor = df_cons(concrete_engine)
     concat = df_concat(concrete_engine)
-    fill_df = df_ctor({key: [value] for key, value in null_row.items()})
+    # Fill rows span the projected frame's columns (#1650 flattened form:
+    # a whole-entity miss is all-null across its {alias}.{field} columns).
+    fill_columns = list(rows_df.columns) if rows_df is not None else list(null_row.keys())
+    fill_df = df_ctor({col: [null_row.get(col)] for col in fill_columns})
     segments = []
     matched_idx = 0
     for base_id in base_ids:
@@ -1207,12 +1210,10 @@ def _execute_compiled_query_chain_non_union(
             empty_result_row=compiled_query.empty_result_row,
         )
     if compiled_query.result_projection is not None:
-        # OPTIONAL null-fill / row-guard still consumes a single-column entity value,
-        # so those keep the legacy text form; plain terminal RETURN flattens (#1650).
-        structured_projection = (
-            compiled_query.optional_projection_row_guard is None
-            and compiled_query.optional_null_fill is None
-        )
+        # OPTIONAL row-guard still consumes a single-column entity value, so it
+        # keeps the legacy text form; null-fill and plain terminal RETURN emit
+        # the #1650 flattened columns (fill rows null-extend across them).
+        structured_projection = compiled_query.optional_projection_row_guard is None
         result = apply_result_projection(
             result, compiled_query.result_projection, structured=structured_projection
         )

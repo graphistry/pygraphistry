@@ -6180,9 +6180,9 @@ def test_string_cypher_optional_arm_label_where_serves_edge_projection() -> None
     )
 
     matched = graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:A RETURN r")
-    assert matched._nodes.to_dict("records") == [{"r": "[:REL]"}]
+    assert entity_text_records(matched, {"r": "edges"}) == [{"r": "[:REL]"}]
     unmatched = graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:Single RETURN r")
-    assert unmatched._nodes.to_dict("records") == [{"r": None}]
+    assert entity_text_records(unmatched, {"r": "edges"}) == [{"r": None}]
     with pytest.raises(GFQLSchemaError):
         graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:NonExistent RETURN r")
 
@@ -7953,9 +7953,13 @@ def test_string_cypher_supports_bound_optional_match_whole_row_with_scalar_proje
 
     result = graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:T]->(b) RETURN b, b.id + '!' AS label")
 
-    # OPTIONAL-MATCH null-fill path still renders whole entities as text (the
-    # structured #1650 flip is gated off for reentry; unification is a follow-up).
+    # Null-fill emits the #1650 flattened whole-entity columns; the unmatched
+    # seed's null-extension row is null across them and the scalar projection.
     assert result._nodes.to_dict(orient="records") == [
+        {"b.id": "b", "label": "b!"},
+        {"b.id": None, "label": None},
+    ]
+    assert entity_text_records(result, {"b": "nodes"}) == [
         {"b": "()", "label": "b!"},
         {"b": None, "label": None},
     ]
