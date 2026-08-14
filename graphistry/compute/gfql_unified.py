@@ -152,11 +152,9 @@ def _apply_optional_null_fill(
 
     rows_df = result._nodes
     actual_rows = 0 if rows_df is None else len(rows_df)
-    # The null-fill alignment machinery below (matched-id meta, .iloc row slicing,
-    # per-segment concat) is not yet native on polars: the polars OPTIONAL MATCH
-    # does not populate the matched-seed `_cypher_entity_projection_meta["ids"]`
-    # this path needs. Decline honestly (NO-CHEATING) rather than raising a
-    # misleading "unsupported-cypher-query" validation error — pandas handles it.
+    # polars serves this natively only when its projector recorded the matched-seed
+    # `_cypher_entity_projection_meta["ids"]`; otherwise decline honestly
+    # (NO-CHEATING) rather than raise a misleading validation error.
     if resolve_engine(cast(Any, engine), result) in POLARS_ENGINES:
         meta = getattr(alignment_result, "_cypher_entity_projection_meta", None)
         if not isinstance(meta, dict) or alignment_output_name not in meta or "ids" not in meta[alignment_output_name]:
@@ -172,7 +170,7 @@ def _apply_optional_null_fill(
         message="Cypher OPTIONAL MATCH null-row alignment could not recover matched seed identities",
         suggestion="Use a simpler OPTIONAL MATCH projection shape in the local compiler.",
     )["ids"]
-    if not hasattr(matched_ids, "tolist"):
+    if not (hasattr(matched_ids, "tolist") or hasattr(matched_ids, "to_list")):
         raise GFQLValidationError(
             ErrorCode.E108,
             "Cypher OPTIONAL MATCH null-row alignment could not recover matched seed identities",
@@ -226,7 +224,11 @@ def _apply_optional_null_fill(
                     suggestion="Retry with a simpler OPTIONAL MATCH projection shape in the local compiler.",
                     language="cypher",
                 )
-            segments.append(rows_df.iloc[group_start:matched_idx])
+            segments.append(
+                rows_df.iloc[group_start:matched_idx]
+                if hasattr(rows_df, "iloc")
+                else rows_df.slice(group_start, matched_idx - group_start)
+            )
         else:
             segments.append(fill_df)
     if matched_idx != len(matched_id_list):
