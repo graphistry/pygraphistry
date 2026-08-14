@@ -2709,7 +2709,7 @@ def _return_references_only_bound_aliases(
     query: CypherQuery,
     *,
     alias_targets: Mapping[str, ASTObject],
-    params: Optional[Mapping[str, Any]] = None,
+    params: Optional[Mapping[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher query parameters are arbitrary user scalars
     bound_nullable_aliases: Optional[AbstractSet[str]] = None,
 ) -> bool:
     """True when every RETURN item references only non-optional-bound aliases:
