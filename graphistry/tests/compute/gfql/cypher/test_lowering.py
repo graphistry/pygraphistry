@@ -4195,9 +4195,13 @@ def test_string_cypher_failfast_optional_match_collect_null_whole_row_return_bou
 
     with pytest.raises(GFQLValidationError) as exc_info:
         graph.gfql("MATCH (n) OPTIONAL MATCH (n)-[:NOT_EXIST]->(x) RETURN n, collect(x)")
+    # #1891: the connected optional-match lowering now owns this boundary --
+    # a whole-row alias next to an aggregate is a typed decline (serving it
+    # would drop the entity column).
     assert exc_info.value.code == ErrorCode.E108
     assert exc_info.value.context["field"] == "return"
-    assert exc_info.value.context["value"] == "x"
+    assert exc_info.value.context["value"] == ["n", "collect(x)"]
+    assert "whole-row alias projections alongside aggregates" in exc_info.value.message
 
 
 def test_string_cypher_failfast_optional_match_collect_null_whole_row_with_boundary() -> None:
@@ -4789,11 +4793,13 @@ def test_string_cypher_executes_cross_alias_or_on_two_hop_fanout_topology() -> N
     "WHERE b.x = 1",  # simple WHERE
     "WHERE b.x = 1 OR b IS NULL",  # WHERE with OR (the Earley-admitted shape)
 ])
-def test_string_cypher_rejects_optional_match_seed_only_projection(where_clause: str) -> None:
-    # The existing OPTIONAL-MATCH-projection validator gates this shape
-    # regardless of whether/how WHERE is structured.  Locks that the OR
-    # variant doesn't slip past the validator into a silent wrong-rows
-    # path — the gate fires identically across all three WHERE shapes.
+def test_string_cypher_optional_match_seed_projection_null_extends(where_clause: str) -> None:
+    # #1891: the single-node-seed shape is now served by the connected
+    # optional-match left-join lowering (it used to be a typed gate).
+    # openCypher: a1 matches b1 (b1.x = 1 satisfies every WHERE variant);
+    # a2 has no match and MUST be kept null-extended — identically across
+    # all three WHERE shapes (WHERE inside OPTIONAL filters matches, never
+    # drops rows).
     graph = _mk_graph(
         pd.DataFrame({
             "id":       ["a1", "a2", "b1"],
@@ -4804,15 +4810,21 @@ def test_string_cypher_rejects_optional_match_seed_only_projection(where_clause:
         pd.DataFrame({"s": ["a1"], "d": ["b1"]}),
     )
 
-    # Pin the specific substring of the seed-only-projection validator
-    # so the test cannot accidentally pass on a different OPTIONAL-MATCH
-    # error site (the lowering layer has 6+ distinct error messages
-    # mentioning "OPTIONAL MATCH" — they're not interchangeable).
-    with pytest.raises(GFQLValidationError, match="seed alias are not yet supported"):
-        graph.gfql(
-            f"MATCH (a:A) OPTIONAL MATCH (a)-->(b:B) {where_clause} "
-            "RETURN a.id AS a_id, b.id AS b_id"
-        )
+    result = graph.gfql(
+        f"MATCH (a:A) OPTIONAL MATCH (a)-->(b:B) {where_clause} "
+        "RETURN a.id AS a_id, b.id AS b_id"
+    )
+    rows = sorted(
+        (
+            {k: (None if pd.isna(v) else v) for k, v in row.items()}
+            for row in result._nodes.to_dict(orient="records")
+        ),
+        key=lambda row: str(row["a_id"]),
+    )
+    assert rows == [
+        {"a_id": "a1", "b_id": "b1"},
+        {"a_id": "a2", "b_id": None},
+    ]
 
 
 def test_string_cypher_executes_mixed_type_or_with_null_safe_semantics() -> None:
@@ -7927,8 +7939,16 @@ def test_string_cypher_supports_bound_optional_match_mixed_null_and_non_null_row
 
     result = graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:T]->() RETURN type(r) AS tr")
 
+    # #1891: the connected left-join lowering surfaces the unmatched row's
+    # null as NaN (pandas join fill), where the old null-fill path built a
+    # literal None -- normalize; the contract is null-vs-'T', not the
+    # engine's null spelling.
+    rows = [
+        {k: (None if pd.isna(v) else v) for k, v in row.items()}
+        for row in result._nodes.to_dict(orient="records")
+    ]
     assert sorted(
-        result._nodes.to_dict(orient="records"),
+        rows,
         key=lambda row: (row["tr"] is None, str(row["tr"])),
     ) == [
         {"tr": "T"},
@@ -7944,24 +7964,30 @@ def test_string_cypher_preserves_bound_optional_match_row_order_for_optional_ali
 
     result = graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:T]->() RETURN type(r) AS tr")
 
-    assert result._nodes.to_dict(orient="records") == [
+    # NaN-vs-None normalization: see the mixed-rows test above (#1891).
+    assert [
+        {k: (None if pd.isna(v) else v) for k, v in row.items()}
+        for row in result._nodes.to_dict(orient="records")
+    ] == [
         {"tr": None},
         {"tr": "T"},
         {"tr": None},
     ]
 
 
-def test_string_cypher_rejects_bound_optional_match_seed_only_projection() -> None:
+def test_string_cypher_bound_optional_match_seed_only_projection_keeps_all_seeds() -> None:
+    # #1891: formerly a typed gate ("bound seed alias"); the connected
+    # left-join lowering now serves it -- every seed keeps exactly one row
+    # (b's arm matches, a's and c's are null-extended, which a seed-only
+    # projection cannot show but must not drop).
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c"]}),
         pd.DataFrame({"s": ["b"], "d": ["c"], "type": ["T"]}),
     )
 
-    with pytest.raises(GFQLValidationError) as exc_info:
-        graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:T]->() RETURN a.id AS id")
+    result = graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:T]->() RETURN a.id AS id")
 
-    assert exc_info.value.code == ErrorCode.E108
-    assert "bound seed alias" in exc_info.value.message
+    assert sorted(result._nodes["id"].tolist()) == ["a", "b", "c"]
 
 
 def test_string_cypher_supports_label_expression_on_null_with_reserved_keyword_labels() -> None:

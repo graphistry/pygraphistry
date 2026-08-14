@@ -96,6 +96,7 @@ def apply_optional_reentry_null_fill(
     engine: Union[EngineAbstract, str],
     empty_result_row: Optional[Dict[str, Any]] = None,
     reentry_plan: Optional[ReentryPlan] = None,
+    aggregate_fill_values: Optional[Mapping[str, Any]] = None,
 ) -> Plottable:
     """Null-fill result rows for prefix rows that the optional reentry didn't match."""
     prefix_df = prefix_result._nodes
@@ -119,6 +120,12 @@ def apply_optional_reentry_null_fill(
         null_row = {col: None for col in result_df.columns}
     else:
         null_row = {}
+    # Aggregate outputs over an unmatched optional arm take their Cypher
+    # empty-group value (count -> 0, sum -> 0, collect -> []), not NULL.
+    if aggregate_fill_values:
+        for col, value in aggregate_fill_values.items():
+            if col in null_row:
+                null_row[col] = value
 
     fill_rows = _optional_reentry_carried_null_rows(
         prefix_df=prefix_df,

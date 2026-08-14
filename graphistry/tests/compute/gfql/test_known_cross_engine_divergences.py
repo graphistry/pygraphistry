@@ -132,12 +132,12 @@ def test_1888_projection_and_count_agree_on_dangling():
     assert n_rows == c, f"entity projection {n_rows} vs count {c}"
 
 
-@pytest.mark.xfail(strict=True, reason="round-002 BUG-1: OPTIONAL MATCH + aggregate bypasses the seed gate into inner-join semantics")
 def test_optional_match_aggregate_keeps_unmatched_seeds_polars_and_pandas():
     """Cypher: OPTIONAL MATCH keeps unmatched rows with NULLs, so
-    `RETURN p.name, count(x)` must include zero-count seeds. The aggregate
-    projection bypasses the validator gate and inner-joins instead -- BOTH
-    engines agree on the wrong answer, so parity suites cannot see it."""
+    `RETURN p.name, count(x)` must include zero-count seeds. Fixed by routing
+    the single-node-seed shape onto the connected optional-match left-join
+    lowering (#1891); formerly the aggregate projection bypassed the
+    validator gate and inner-joined on BOTH engines."""
     nodes = pd.DataFrame({"id": [0, 1], "name": ["alice", "bob"], "t": ["P", "P"]})
     edges = pd.DataFrame({"s": [0], "d": [1]})
     q = ("MATCH (p {t:'P'}) OPTIONAL MATCH (p)-[]->(x) "
@@ -147,12 +147,13 @@ def test_optional_match_aggregate_keeps_unmatched_seeds_polars_and_pandas():
     assert out == [{"name": "alice", "c": 1}, {"name": "bob", "c": 0}], out
 
 
-@pytest.mark.xfail(strict=True, reason="round-002 BUG-3: WITH-carried scalar KeyErrors when projected NEXT TO an aggregate")
 def test_with_carried_scalar_projects_next_to_aggregate():
     """The carry survives filtering (WHERE q.score > s answers) and plain
-    projection, but RETURN s, count(q) loses the column and dies with a raw
-    KeyError on pandas -- the projection rebuild after aggregation drops the
-    carried scalar."""
+    projection; RETURN s, count(q) used to die with a raw KeyError on pandas
+    (round-002 BUG-3) because the grouped-aggregate fast path let the carried
+    output name collide with the edge source column ('s') and suffixed it
+    away. The fast path now declines on that collision and the row pipeline
+    serves it."""
     nodes = pd.DataFrame({"id": [0, 1], "kind": ["person", "person"], "score": [5, 9]})
     edges = pd.DataFrame({"s": [0], "d": [1], "t": ["KNOWS"]})
     q = ("MATCH (p {kind:'person'}) WITH p, p.score AS s "

@@ -7640,16 +7640,6 @@ def _is_connected_optional_match_query(query: CypherQuery) -> bool:
     if query.with_stages or query.unwinds or query.call is not None or query.row_sequence:
         return False
     first = query.matches[0]
-    has_relationship = any(
-        isinstance(el, RelationshipPattern)
-        for pat in first.patterns
-        for el in pat
-    )
-    # For single-node first MATCH, only take this path when there are 3+
-    # matches (multiple optionals) because projection_planning already handles
-    # the 2-match single-node optional-null-fill path.
-    if not has_relationship and len(query.matches) == 2:
-        return False
     # Reject comma-separated base MATCH patterns (e.g., (a:A), (b:B)) — the
     # binding_ops mechanism requires a single connected path.
     if len(first.patterns) > 1:
@@ -8551,12 +8541,16 @@ def _compile_connected_optional_match(
     *,
     params: Optional[Mapping[str, Any]] = None,
     semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
-) -> CompiledCypherQuery:
+) -> Optional[CompiledCypherQuery]:
     """Compile a MATCH + N OPTIONAL MATCH query.
 
     Lowers each clause independently, builds one arm per OPTIONAL MATCH for
     chained left-outer-joins at runtime, and delegates RETURN / ORDER BY /
     SKIP / LIMIT to the standard row pipeline.
+
+    Returns None to DEFER to the general lowering for sub-shapes it serves
+    better (post-aggregate expressions; the 2-match single-node-seed
+    whole-row null-fill path).
     """
     from graphistry.compute.gfql.cypher import projection_planning as _projection
 
@@ -8668,29 +8662,106 @@ def _compile_connected_optional_match(
     except GFQLValidationError:
         active = next(iter(combined_alias_targets)) if combined_alias_targets else None
 
-    plan = _projection._build_projection_plan(
-        query.return_,
-        alias_targets=combined_alias_targets,
-        active_alias=active,
-        params=params,
-        semantic_entity_kinds=semantic_entity_kinds,
-    )
-
-    post_join_ops: List[ASTObject] = []
-    if not plan.whole_row_output_names:
-        post_join_ops.append(return_(plan.projection_items))
-    if query.return_.distinct:
-        post_join_ops.append(distinct())
-    if query.order_by is not None:
-        post_join_ops.append(
-            _lower_order_by_clause(
-                query.order_by,
-                plan=plan,
-                alias_targets=combined_alias_targets,
-                params=params,
+    item_aggregate_specs = [
+        _aggregate_spec(item, params=params, alias_targets=combined_alias_targets)
+        for item in query.return_.items
+    ]
+    return_aggregate_specs = [spec for spec in item_aggregate_specs if spec is not None]
+    if any(
+        spec is None
+        and _post_aggregate_expr_plan(item, params=params, alias_targets=combined_alias_targets) is not None
+        for item, spec in zip(query.return_.items, item_aggregate_specs)
+    ):
+        # Post-aggregate expressions (e.g. size([x IN collect(r) ...])) are
+        # served by the general lowering (issue #1367 empty-row synthesis);
+        # the joined-rows aggregate stage cannot lower them. Defer. (Plain
+        # aggregates also parse as post-aggregate exprs, hence the spec-None
+        # qualifier.)
+        return None
+    has_aggregates = bool(return_aggregate_specs)
+    if has_aggregates:
+        # Sub-shapes the joined-rows aggregate stage would answer WRONG stay
+        # typed declines: a whole-row alias next to an aggregate would drop
+        # the entity column, and DISTINCT over a whole alias counts the
+        # null-extension marker of unmatched rows as a value.
+        if any(item.expression.text in combined_alias_targets for item in query.return_.items):
+            raise _unsupported(
+                "Cypher whole-row alias projections alongside aggregates are not yet supported for MATCH ... OPTIONAL MATCH in the local compiler",
+                field=query.return_.kind,
+                value=[item.expression.text for item in query.return_.items],
+                line=query.return_.span.line,
+                column=query.return_.span.column,
             )
+        if any(
+            spec.distinct and spec.expr_text is not None and spec.expr_text in combined_alias_targets
+            for spec in return_aggregate_specs
+        ):
+            raise _unsupported(
+                "Cypher DISTINCT aggregates over whole node/edge aliases are not yet supported for MATCH ... OPTIONAL MATCH in the local compiler",
+                field=query.return_.kind,
+                value=[item.expression.text for item in query.return_.items],
+                line=query.return_.span.line,
+                column=query.return_.span.column,
+            )
+        # Aggregate RETURN over the left-joined bindings rows: reuse the
+        # bindings-row aggregate stage lowering (group_by keeps null keys, so
+        # unmatched seeds keep their group row; count/sum skip the nulls the
+        # left join introduced -- openCypher OPTIONAL MATCH aggregation).
+        final_stage = ProjectionStage(
+            clause=query.return_,
+            where=None,
+            order_by=query.order_by,
+            skip=query.skip,
+            limit=query.limit,
+            span=query.return_.span,
         )
-    _append_page_ops(post_join_ops, query=query, params=params)
+        agg_scope = _StageScope(
+            mode="match_alias",
+            alias_targets=dict(combined_alias_targets),
+            active_alias=active,
+            row_columns=set(),
+            projected_columns={},
+            seed_rows=False,
+            relationship_count=0,
+            allowed_match_aliases=set(combined_alias_targets),
+        )
+        post_join_ops, _agg_scope, _agg_projection = _lower_match_alias_stage(
+            final_stage,
+            scope=agg_scope,
+            params=params,
+            final_stage=True,
+            semantic_entity_kinds=semantic_entity_kinds,
+        )
+    else:
+        plan = _projection._build_projection_plan(
+            query.return_,
+            alias_targets=combined_alias_targets,
+            active_alias=active,
+            params=params,
+            semantic_entity_kinds=semantic_entity_kinds,
+        )
+        if plan.whole_row_output_names and len(query.matches) == 2 and _single_node_seed_alias(query.matches[0]) is not None:
+            # Whole-row projections from the 2-match single-node-seed shape
+            # are served by the general path's optional null-fill machinery
+            # (typed entity rendering + row alignment); the raw joined frame
+            # here would leak binding columns. Defer.
+            return None
+
+        post_join_ops = []
+        if not plan.whole_row_output_names:
+            post_join_ops.append(return_(plan.projection_items))
+        if query.return_.distinct:
+            post_join_ops.append(distinct())
+        if query.order_by is not None:
+            post_join_ops.append(
+                _lower_order_by_clause(
+                    query.order_by,
+                    plan=plan,
+                    alias_targets=combined_alias_targets,
+                    params=params,
+                )
+            )
+        _append_page_ops(post_join_ops, query=query, params=params)
     query_graph = QueryGraph(
         components=[
             _connected_component_from_pattern(
@@ -8968,6 +9039,24 @@ def compile_cypher_query(
             # ``reentry_matches=()``, so the recursive call cannot re-enter
             # this branch — recursion terminates after one step.
             return compile_cypher_query(flattened, params=params)
+        # #1891: a pure-carry WITH before OPTIONAL MATCH is a scope-preserving
+        # no-op; flatten it onto the connected optional-match left-join
+        # lowering (which null-extends correctly) instead of the reentry row
+        # assembly (which loses carried seed properties for unmatched rows).
+        # Only flatten when the result actually takes that lowering.
+        from graphistry.compute.gfql.cypher.reentry.flatten import (
+            flatten_pure_carry_optional_reentry,
+        )
+
+        flattened_optional = flatten_pure_carry_optional_reentry(query)
+        if (
+            flattened_optional is not None
+            and _is_connected_optional_match_query(flattened_optional)
+            and not _query_has_shortest_path_patterns(flattened_optional)
+        ):
+            # Flattened query has ``reentry_matches=()`` — recursion
+            # terminates after one step.
+            return compile_cypher_query(flattened_optional, params=params)
         from graphistry.compute.gfql.cypher.reentry import compiletime as _reentry_compiletime
 
         return _attach_graph_context(_reentry_compiletime._compile_bounded_reentry_query(query, params=params))
@@ -8994,13 +9083,13 @@ def compile_cypher_query(
             )
         )
     if _is_connected_optional_match_query(query):
-        return _attach_graph_context(
-            _compile_connected_optional_match(
-                query,
-                params=params,
-                semantic_entity_kinds=bound_context.entity_kinds,
-            )
+        compiled_connected_optional = _compile_connected_optional_match(
+            query,
+            params=params,
+            semantic_entity_kinds=bound_context.entity_kinds,
         )
+        if compiled_connected_optional is not None:
+            return _attach_graph_context(compiled_connected_optional)
 
     merged_match = _merged_match_clause(query)
     lowered = (
@@ -9125,11 +9214,49 @@ def compile_cypher_query(
             duplicated_aliases=duplicated_aliases,
             params=params,
         )
-        has_aggregates = any(
-            _aggregate_spec(item, params=params, alias_targets=alias_targets) is not None
-            or _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets) is not None
+        item_aggregate_specs = [
+            _aggregate_spec(item, params=params, alias_targets=alias_targets)
             for item in query.return_.items
+        ]
+        item_post_aggregate_plans = [
+            _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets)
+            for item in query.return_.items
+        ]
+        has_aggregates = any(spec is not None for spec in item_aggregate_specs) or any(
+            plan_entry is not None for plan_entry in item_post_aggregate_plans
         )
+        # Shapes the connected optional-match left-join lowering declined or
+        # deferred (e.g. variable-length optional arms, grouped post-aggregate
+        # expressions) land here, where the aggregate lowering has no
+        # null-extension: it inner-joins before aggregating. That is WRONG
+        # exactly when unmatched seeds must still contribute -- grouped
+        # shapes (their group rows vanish) and count(*) (the null-extended
+        # row itself counts). Ungrouped null-skipping aggregates are
+        # inner-join-safe (nulls contribute nothing), so they stay served
+        # (issue #1367 empty-row synthesis). Decline the wrong ones honestly.
+        if has_aggregates and any(m.optional for m in query.matches[1:]):
+            has_group_keys = any(
+                spec is None and plan_entry is None
+                for spec, plan_entry in zip(item_aggregate_specs, item_post_aggregate_plans)
+            )
+            all_aggregate_specs = [spec for spec in item_aggregate_specs if spec is not None] + [
+                inner_spec
+                for plan_entry in item_post_aggregate_plans
+                if plan_entry is not None
+                for inner_spec in plan_entry[0]
+            ]
+            has_count_star = any(
+                spec.func == "count" and spec.expr_text is None and not spec.distinct
+                for spec in all_aggregate_specs
+            )
+            if has_group_keys or has_count_star:
+                raise _unsupported(
+                    "Cypher aggregates over MATCH ... OPTIONAL MATCH are not yet supported for this optional-arm shape in the local compiler (this lowering has no null-extension and would drop unmatched rows)",
+                    field=query.return_.kind,
+                    value=[item.expression.text for item in query.return_.items],
+                    line=query.return_.span.line,
+                    column=query.return_.span.column,
+                )
         if not has_aggregates:
             try:
                 active = _active_match_alias(
@@ -9164,19 +9291,6 @@ def compile_cypher_query(
                         return _attach_graph_context(_lower_general())
                     raise _multi_alias_exc2
             seed_alias = _single_node_seed_alias(query.matches[0]) if len(query.matches) == 2 else None
-            if (
-                seed_alias is not None
-                and query.matches[0].optional is False
-                and query.matches[1].optional is True
-                and plan.source_alias == seed_alias
-            ):
-                raise _unsupported(
-                    "Cypher MATCH ... OPTIONAL MATCH projections that return only the bound seed alias are not yet supported in the local compiler",
-                    field=query.return_.kind,
-                    value=[item.expression.text for item in query.return_.items],
-                    line=query.return_.span.line,
-                    column=query.return_.span.column,
-                )
             empty_result_row = (
                 _projection._empty_optional_projection_row(
                     plan,
@@ -9228,6 +9342,25 @@ def compile_cypher_query(
                         line=query.return_.span.line,
                         column=query.return_.span.column,
                     )
+            # Honest residual gate: shapes with an optional clause that the
+            # connected optional-match left-join lowering declined (e.g.
+            # variable-length optional arms) and that no null-extension
+            # mechanism above covers would silently inner-join here, dropping
+            # unmatched rows. Decline honestly instead of answering wrong.
+            if (
+                len(query.matches) >= 2
+                and any(m.optional for m in query.matches)
+                and empty_result_row is None
+                and optional_null_fill is None
+                and optional_projection_row_guard is None
+            ):
+                raise _unsupported(
+                    "Cypher OPTIONAL MATCH null-extension is not yet supported for this optional-arm shape in the local compiler (this lowering would drop unmatched rows)",
+                    field=query.return_.kind,
+                    value=[item.expression.text for item in query.return_.items],
+                    line=query.return_.span.line,
+                    column=query.return_.span.column,
+                )
             return _attach_graph_context(CompiledCypherQuery(
                 Chain(
                     _lower_projection_chain(

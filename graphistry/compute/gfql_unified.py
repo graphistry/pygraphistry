@@ -510,6 +510,19 @@ def _apply_connected_optional_match(
                     opt_rows_df = opt_rows_df.join(join_keys, on=join_cols, how="inner")
                 joined = joined.join(opt_rows_df.select(opt_only_cols), on=join_cols, how="left")
             else:
+                # Zero-match (or unjoinable) arm: null-extend the FULL arm
+                # schema with typed nulls, not just the bare alias columns.
+                # The rows op emits the arm's binding schema even at 0 rows,
+                # so property refs (x.v) and downstream join keys (x.id) keep
+                # real dtypes -- the outcome must not depend on whether the
+                # arm happened to match (#1891 F-03).
+                if opt_rows_df is not None:
+                    arm_schema = opt_rows_df.schema
+                    joined = joined.with_columns([
+                        pl.lit(None, dtype=arm_schema[col]).alias(col)
+                        for col in opt_rows_df.columns
+                        if col not in joined.columns
+                    ])
                 for alias in arm.opt_only_aliases:
                     if alias not in joined.columns:
                         joined = joined.with_columns(pl.lit(None).alias(alias))
@@ -533,6 +546,13 @@ def _apply_connected_optional_match(
                 opt_rows_df = opt_rows_df.merge(join_keys, on=join_cols, how="inner")
             joined = joined.merge(opt_rows_df[opt_only_cols], on=join_cols, how="left")
         else:
+            # Zero-match (or unjoinable) arm: null-extend the full arm schema
+            # (see the polars twin above) so property refs and downstream join
+            # keys exist regardless of whether the arm matched (#1891 F-03).
+            if opt_rows_df is not None:
+                for col in opt_rows_df.columns:
+                    if col not in joined.columns:
+                        joined[col] = None
             for alias in arm.opt_only_aliases:
                 if alias not in joined.columns:
                     joined[alias] = None
@@ -1443,9 +1463,56 @@ def _execute_compiled_query_with_reentry(
             engine=engine,
             empty_result_row=compiled_query.empty_result_row,
             reentry_plan=compiled_query.reentry_plan,
+            aggregate_fill_values=_optional_reentry_aggregate_fill_values(compiled_query),
         )
 
     return result
+
+
+def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery) -> Dict[str, Any]:
+    """Cypher empty-group values for aggregate outputs of an optional-reentry suffix.
+
+    An unmatched prefix row contributes one null-extended row, so aggregates
+    over suffix-bound sources take their empty-group value (count -> 0,
+    sum -> 0, collect -> []) and count(*) sees the row itself (-> 1).
+    Aggregates whose source traces to a carried scalar or the carried seed
+    alias cannot be answered statically here and stay NULL.
+    """
+    plan = compiled_query.reentry_plan
+    carried = set(plan.scalar_columns) if plan is not None else set()
+    reentry_alias = plan.reentry_alias_name if plan is not None else None
+    ops = list(compiled_query.chain.chain) if compiled_query.chain is not None else []
+    with_map: Dict[str, Any] = {}
+    fills: Dict[str, Any] = {}
+    for op in ops:
+        function = getattr(op, "function", None)
+        params = getattr(op, "params", None) or {}
+        if function == "with_":
+            for item in params.get("items") or []:
+                if isinstance(item, (list, tuple)) and len(item) == 2 and isinstance(item[0], str):
+                    with_map[item[0]] = item[1]
+        elif function == "group_by":
+            fills = {}
+            for agg in params.get("aggregations") or []:
+                if not isinstance(agg, (list, tuple)) or len(agg) not in (2, 3):
+                    continue
+                alias = str(agg[0])
+                func = str(agg[1]).lower()
+                expr = agg[2] if len(agg) == 3 else None
+                if func == "count" and (expr is None or expr == "*"):
+                    fills[alias] = 1
+                    continue
+                source = with_map.get(cast(str, expr), expr)
+                if not isinstance(source, str):
+                    continue
+                base = source.split(".", 1)[0]
+                if "__cypher_reentry_" in source or base in carried or base == reentry_alias:
+                    continue
+                if func in {"count", "count_distinct", "sum"}:
+                    fills[alias] = 0
+                elif func in {"collect", "collect_distinct"}:
+                    fills[alias] = []
+    return fills
 
 
 def _materialize_split_alias_columns(

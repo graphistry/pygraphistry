@@ -2265,6 +2265,14 @@ def _execute_single_hop_grouped_aggregate_fast_path(
             out_nodes = out_nodes.head(limit_value)
         out_df = cast(DataFrameT, out_nodes)
     else:
+        # A projected output name that collides with an edge endpoint column
+        # would be suffixed by the pandas merges below (e.g. src col 's' +
+        # `p.score AS s` -> 's_x'/'s_y'), so the later groupby on the output
+        # name raises a raw KeyError instead of answering. Decline; the row
+        # pipeline serves it. (The polars lanes above resolve or decline the
+        # collision themselves.)
+        if any(out_col in (src_col, dst_col) for out_col in with_items):
+            return None
         start_ids = start_nodes[node_col].drop_duplicates()
         end_ids = end_nodes[node_col].drop_duplicates()
         work = edges[edges[src_col].isin(start_ids) & edges[dst_col].isin(end_ids)][[src_col, dst_col]]

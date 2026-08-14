@@ -6,13 +6,15 @@ aliases bound to NULL (left-join semantics, never inner-join).
 
 Every expected value in this file is HAND-COMPUTED against that contract on
 the shared fixture below. Cross-engine agreement is NOT evidence of
-correctness here: every wrong-value shape pinned as a strict xfail is
-engine-AGREEING (pandas and polars return the same wrong answer), which is
-exactly why parity suites never saw them (#1891).
+correctness here: every wrong-value shape originally pinned as a strict xfail
+was engine-AGREEING (pandas and polars returned the same wrong answer), which
+is exactly why parity suites never saw them (#1891). All 31 strict-xfail pins
+flipped green with the #1891 fix (single-node-seed and pure-carry-WITH shapes
+routed onto the connected optional-match left-join lowering; typed-null
+empty-arm schema fill on polars; aggregate-aware reentry null fill).
 
 Layout:
-- strict xfail pins -- silent-wrong / bare-crash shapes; flipping one = fixing
-  that #1891 instance (adjust, don't delete)
+- section A -- formerly silent-wrong / bare-crash shapes, now pinned green
 - green pins -- hand-verified-correct bright spots that must not regress
 - gate-or-keep-seeds sweep -- every seed+OPTIONAL projection shape must either
   raise a typed gate / honest NotImplementedError or keep unmatched seeds, so
@@ -114,12 +116,11 @@ def _assert_rows(df: pd.DataFrame, expected, ordered: bool = False) -> None:
 
 
 # ===========================================================================
-# A. Strict xfail pins: silent-wrong / bare-crash shapes (#1891)
+# A. Formerly silent-wrong / bare-crash shapes (#1891), now pinned green
 # ===========================================================================
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.xfail(strict=True, reason="#1891: seed-gate bypass -- ungrouped count(*) inner-joins (2, not 5)")
 def test_optional_match_seed_ungrouped_count_star_counts_null_rows(engine):
     """B8: the discriminating probe -- grouped shapes can pass by luck, an
     ungrouped count(*) cannot. 5 rows = alice x2 + 3 null-extended seeds."""
@@ -129,7 +130,6 @@ def test_optional_match_seed_ungrouped_count_star_counts_null_rows(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.xfail(strict=True, reason="#1891: seed-gate bypass -- zero-match arm + count(x) returns an EMPTY frame")
 def test_optional_match_seed_zero_arm_aggregate_keeps_all_seeds(engine):
     """B3: every seed row must survive a fully-unmatched arm with c=0."""
     q = ("MATCH (p {kind:'person'}) OPTIONAL MATCH (p)-[{t:'NOPE'}]->(x) "
@@ -141,10 +141,9 @@ def test_optional_match_seed_zero_arm_aggregate_keeps_all_seeds(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.xfail(strict=True, reason="#1891: seed-gate bypass is NOT aggregate-specific -- alias-only projection drops null rows")
 def test_optional_match_alias_only_projection_null_extends(engine):
-    """B10: plain `RETURN x.v` (no aggregate) also sails past the seed gate
-    (plan.source_alias is x, not the seed) and inner-joins to [100, 200]."""
+    """B10: plain `RETURN x.v` (no aggregate) also used to sail past the seed
+    gate (plan.source_alias was x, not the seed) and inner-join to [100, 200]."""
     q = ("MATCH (p {kind:'person'}) OPTIONAL MATCH (p)-[{t:'L'}]->(x) "
          "RETURN x.v AS v")
     _assert_rows(_run(q, engine), [
@@ -161,7 +160,6 @@ def test_optional_match_alias_only_projection_null_extends(engine):
      [{"n": "alice", "a": 2}, {"n": "bob", "a": 1},
       {"n": "carol", "a": 1}, {"n": None, "a": 1}]),
 ], ids=["sum_zero_for_unmatched", "count_star_one_for_unmatched"])
-@pytest.mark.xfail(strict=True, reason="#1891: seed-gate bypass -- grouped sum/count(*) drop unmatched seeds")
 def test_optional_match_seed_sum_and_count_star_grouped(proj, expected, engine):
     """B4 + B6: unmatched seeds keep their group row -- sum()=0, count(*)=1."""
     q = ("MATCH (p {kind:'person'}) OPTIONAL MATCH (p)-[{t:'L'}]->(x) "
@@ -170,10 +168,10 @@ def test_optional_match_seed_sum_and_count_star_grouped(proj, expected, engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.xfail(strict=True, reason="#1891: WITH-prefix + zero-match arm nulls EVERY carried seed property")
 def test_with_prefix_optional_zero_arm_keeps_carried_props(engine):
-    """E6: row count is right (4) and every value is wrong (all-null rows) --
-    so the pin compares the FULL record set, not the count."""
+    """E6: the broken reentry concat had the right row count (4) with every
+    value wrong (all-null rows) -- so the pin compares the FULL record set,
+    not the count."""
     q = ("MATCH (p {kind:'person'}) WITH p OPTIONAL MATCH (p)-[{t:'NOPE'}]->(x) "
          "RETURN p.name AS n, x.v AS v")
     _assert_rows(_run(q, engine), [
@@ -183,17 +181,15 @@ def test_with_prefix_optional_zero_arm_keeps_carried_props(engine):
 
 
 @polars_only
-@pytest.mark.xfail(strict=True, raises=NotImplementedError,
-                   reason="#1891: polars optional-arm support is DATA-dependent -- same query flips ANSWER -> NIE on an empty arm")
 def test_polars_optional_zero_arm_same_answer_as_matched_arm():
     """F-03: identical query text, only the data changes (bob's H edge
     removed). 'Runs natively on polars' must be a property of the QUERY --
     production queries die the day an optional arm comes back empty."""
     q = ("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'H'}]->(x) "
          "RETURN p.name AS n, x.v AS v")
-    # arm-matching data: polars answers correctly today (green, CN1)
+    # arm-matching data: polars answers correctly (green, CN1)
     _assert_rows(_run(q, "polars"), [{"n": "bob", "v": 100}, {"n": None, "v": None}])
-    # arm-empty data: today NotImplementedError "cypher row op 'select'"
+    # arm-empty data: formerly NotImplementedError "cypher row op 'select'"
     edges = _edges_pd()
     edges = edges[~((edges["s"] == 1) & (edges["t"] == "H"))].reset_index(drop=True)
     _assert_rows(_run(q, "polars", edges=edges),
@@ -201,11 +197,11 @@ def test_polars_optional_zero_arm_same_answer_as_matched_arm():
 
 
 @polars_only
-@pytest.mark.xfail(strict=True, reason="#1891: nested optional over an empty mid arm -- bare polars SchemaError (Null-typed join key)")
 def test_polars_nested_optional_zero_mid_arm_no_bare_crash():
-    """H2: pins the CONTRACT (polars matches the pandas oracle), so it xfails
-    on today's raw polars.exceptions.SchemaError -- a raw internal, not even an
-    honest decline. The oracle itself is asserted (hand-verified correct)."""
+    """H2: pins the CONTRACT (polars matches the pandas oracle). Formerly a
+    raw polars.exceptions.SchemaError (Null-typed join key from the empty mid
+    arm); fixed by the typed-null empty-arm schema fill. The oracle itself is
+    asserted (hand-verified correct)."""
     q = ("MATCH (m {kind:'person'})-[{t:'K'}]->(p) "
          "OPTIONAL MATCH (p)-[{t:'NOPE'}]->(x) OPTIONAL MATCH (x)-[{t:'X'}]->(z) "
          "RETURN p.name AS n, x.v AS xv, z.v AS zv")
@@ -218,8 +214,6 @@ def test_polars_nested_optional_zero_mid_arm_no_bare_crash():
 
 @pytest.mark.parametrize("seed_filter", ["{kind:'person'}", "{name:'alice'}"],
                          ids=["four_row_prefix", "single_row_prefix"])
-@pytest.mark.xfail(strict=True, raises=KeyError,
-                   reason="#1891: WITH-carried scalar + aggregate after OPTIONAL re-entry raises raw KeyError 's' on pandas")
 def test_with_carried_scalar_aggregate_after_optional_reentry(seed_filter):
     """F-04/E5: the aggregate projection rebuild recomputes group keys from the
     match frame, which no longer carries the WITH scalar. The single-row-prefix
@@ -325,8 +319,8 @@ def test_optional_match_nested_arm_and_label_arm_matched(engine):
 @pytest.mark.parametrize("engine", ENGINES)
 def test_with_carried_scalar_props_after_optional_reentry(engine):
     """F-04 control: scalar WITH carry + optional PROPS projection is a correct
-    5-row left join with the scalar carried -- protects the working half while
-    the aggregate half (xfail above) is fixed. polars: parity-or-NIE."""
+    5-row left join with the scalar carried -- protects the working half next
+    to the aggregate half (fixed above). polars: parity-or-NIE."""
     q = ("MATCH (p {kind:'person'}) WITH p, p.score AS s "
          "OPTIONAL MATCH (p)-[{t:'L'}]->(x) RETURN s, x.v AS v")
     _parity_or_nie(q, engine, [
@@ -343,8 +337,8 @@ def test_with_carried_scalar_props_after_optional_reentry(engine):
 # typed GFQLValidationError / honest NotImplementedError OR an answer that
 # still reflects the unmatched seeds -- never a silent inner-join. Future
 # bypass shapes fail this suite the day they appear, without a hand-check.
-# Currently-bypassing cells enter as strict-xfail params sharing the #1891
-# reason with the section-A pins.
+# The formerly-bypassing cells (silent inner-joins) are green since the
+# #1891 fix routed them onto the connected optional-match left-join lowering.
 
 
 def _has_bob_row(recs):
@@ -353,31 +347,29 @@ def _has_bob_row(recs):
 
 _SEED_Q = "MATCH (p {kind:'person'}) OPTIONAL MATCH (p)-[{t:'L'}]->(x) RETURN "
 _WITH_Q = "MATCH (p {kind:'person'}) WITH p OPTIONAL MATCH (p)-[{t:'L'}]->(x) RETURN "
-_BYPASS = pytest.mark.xfail(strict=True, reason="#1891: seed-gate bypass -- silent inner-join (see section-A pins)")
 
 SWEEP_CASES = [
     # gate fires today (typed) -- green invariant params
     pytest.param(_SEED_Q + "p.name AS n, x.v AS v", _has_bob_row, id="props"),
     pytest.param(_SEED_Q + "p.name AS n, collect(x.v) AS vs", _has_bob_row, id="collect"),
     pytest.param(_SEED_Q + "DISTINCT p.name AS n", _has_bob_row, id="distinct_seed"),
-    # gate bypassed today (silent inner-join) -- strict-xfail params
-    pytest.param(_SEED_Q + "p.name AS n, count(x) AS c", _has_bob_row,
-                 id="count", marks=_BYPASS),
-    pytest.param(_SEED_Q + "p.name AS n, sum(x.v) AS a", _has_bob_row,
-                 id="sum", marks=_BYPASS),
+    # formerly gate-bypassed (silent inner-join), fixed by the connected
+    # optional-match left-join route (#1891) -- green invariant params
+    pytest.param(_SEED_Q + "p.name AS n, count(x) AS c", _has_bob_row, id="count"),
+    pytest.param(_SEED_Q + "p.name AS n, sum(x.v) AS a", _has_bob_row, id="sum"),
     pytest.param(_SEED_Q + "p.name AS n, count(*) AS c", _has_bob_row,
-                 id="count_star_grouped", marks=_BYPASS),
+                 id="count_star_grouped"),
     pytest.param(_SEED_Q + "count(*) AS c",
                  lambda recs: recs == [{"c": 5}],
-                 id="count_star_ungrouped", marks=_BYPASS),
+                 id="count_star_ungrouped"),
     pytest.param(_SEED_Q + "x.v AS v",
                  lambda recs: sum(1 for r in recs if r.get("v") is None) == 3,
-                 id="alias_only", marks=_BYPASS),
+                 id="alias_only"),
     pytest.param(_WITH_Q + "p.name AS n, x.v AS v", _has_bob_row,
-                 id="with_prefix_props", marks=_BYPASS),
+                 id="with_prefix_props"),
     pytest.param(_WITH_Q + "p.name AS n, count(x) AS c",
                  lambda recs: {"n": "bob", "c": 0} in recs,
-                 id="with_prefix_count", marks=_BYPASS),
+                 id="with_prefix_count"),
 ]
 
 
@@ -399,20 +391,47 @@ def test_optional_match_seed_shapes_gate_or_keep_seeds(query, seeds_kept, engine
 # ===========================================================================
 
 
-@pytest.mark.xfail(strict=True, reason="#1891: gate message claims the aggregate 'must be top-level' when it IS a top-level RETURN projection")
 def test_optional_match_gate_messages_describe_the_query():
     """Typed gates are the good outcome, but their messages must not assert
-    falsehoods: gates re-raise whichever pre-existing _unsupported message the
-    failing lowering phase owns, so the text tracks the code path, not the
-    query. Land the flip together with the message fix."""
-    # connected seed + count(x): the aggregate IS a top-level RETURN projection
-    with pytest.raises(GFQLValidationError) as agg_err:
-        _run("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'H'}]->(x) "
-             "RETURN p.name AS n, count(x) AS c", "pandas")
-    assert "must be top-level" not in str(agg_err.value), str(agg_err.value)
-    # canonical anti-join: suggesting plain MATCH would CHANGE semantics
-    # (an anti-join can never be expressed with non-optional MATCH)
+    falsehoods (F-05). Two former offenders:
+    - connected seed + count(x) used to raise 'aggregate ... must be
+      top-level' when the aggregate IS a top-level RETURN projection; the
+      shape is now served by the connected optional-match lowering, so pin
+      the (hand-computed) answer instead.
+    - the canonical anti-join used to carry the suggestion 'Use MATCH instead
+      of OPTIONAL MATCH', a rewrite that CHANGES semantics (an anti-join can
+      never be expressed with non-optional MATCH)."""
+    out = _run("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'H'}]->(x) "
+               "RETURN p.name AS n, count(x) AS c", "pandas")
+    _assert_rows(out, [{"n": "bob", "c": 1}, {"n": None, "c": 0}])
+    # canonical anti-join: still a typed decline, but it must not suggest a
+    # semantics-changing rewrite and must not claim the aggregate placement
+    # is wrong
     with pytest.raises(GFQLValidationError) as anti_err:
         _run("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'L'}]->(x) "
              "WITH p, x WHERE x IS NULL RETURN p.name AS n", "pandas")
     assert "Use MATCH instead of OPTIONAL MATCH" not in str(anti_err.value)
+    assert "must be top-level" not in str(anti_err.value)
+
+
+def test_optional_match_varlen_arm_residual_gate_is_honest():
+    """Variable-length optional arms are declined by the connected left-join
+    lowering, so they exercise the residual general path: each shape must
+    either answer with unmatched seeds kept (the null-fill mechanism serves
+    the props shape) or fail typed with a message that describes the actual
+    limitation -- never the old 'return only the bound seed alias' text
+    (false for projections that also referenced the optional alias) and never
+    a silent inner-join."""
+    for proj in ["p.name AS n, x.v AS v", "x.v AS v", "p.name AS n, count(x) AS c"]:
+        try:
+            out = _run("MATCH (p {kind:'person'}) OPTIONAL MATCH (p)-[*1..2]->(x) RETURN " + proj,
+                       "pandas")
+        except GFQLValidationError as err:
+            msg = str(err)
+            assert "return only the bound seed alias" not in msg, msg
+            assert "OPTIONAL MATCH" in msg, msg
+            continue
+        recs = _records(out)
+        # bob's only outgoing path is bob-H->t1(-X->t3); carol reaches only the
+        # null-named person -- unmatched/null-extended seeds must be present
+        assert any(r.get("n") == "carol" or r.get("v") is None for r in recs), recs
