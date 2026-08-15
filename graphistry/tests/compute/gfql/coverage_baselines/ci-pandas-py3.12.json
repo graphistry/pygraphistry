@@ -21,7 +21,7 @@
     "graphistry/compute/chain_let.py": 69.5,
     "graphistry/compute/gfql/cypher/__init__.py": 100.0,
     "graphistry/compute/gfql/cypher/_boolean_expr_text.py": 97.06,
-    "graphistry/compute/gfql/cypher/aggregate_identity.py": 83.61,
+    "graphistry/compute/gfql/cypher/aggregate_identity.py": 100.0,
     "graphistry/compute/gfql/cypher/api.py": 89.29,
     "graphistry/compute/gfql/cypher/ast.py": 99.02,
     "graphistry/compute/gfql/cypher/ast_normalizer.py": 77.31,
