@@ -143,6 +143,13 @@ def _apply_empty_result_row(
     return out
 
 
+def _slice_rows(rows_df: DataFrameT, start: int, stop: int) -> DataFrameT:
+    """Positional half-open row slice ``[start, stop)``, engine-dispatched."""
+    if is_polars_df(rows_df):
+        return rows_df.slice(start, stop - start)
+    return rows_df.iloc[start:stop]
+
+
 def _projector_recorded_matched_seed_ids(
     alignment_result: Plottable,
     alignment_output_name: str,
@@ -244,11 +251,7 @@ def _apply_optional_null_fill(
                     suggestion="Retry with a simpler OPTIONAL MATCH projection shape in the local compiler.",
                     language="cypher",
                 )
-            segments.append(
-                rows_df.iloc[group_start:matched_idx]
-                if hasattr(rows_df, "iloc")
-                else rows_df.slice(group_start, matched_idx - group_start)
-            )
+            segments.append(_slice_rows(rows_df, group_start, matched_idx))
         else:
             segments.append(fill_df)
     if matched_idx != len(matched_id_list):
@@ -1226,12 +1229,13 @@ def _execute_compiled_query_chain_non_union(
             empty_result_row=compiled_query.empty_result_row,
         )
     if compiled_query.result_projection is not None:
-        # OPTIONAL row-guard still consumes a single-column entity value, so it
-        # keeps the legacy text form; null-fill and plain terminal RETURN emit
-        # the #1650 flattened columns (fill rows null-extend across them).
-        structured_projection = compiled_query.optional_projection_row_guard is None
+        row_guard_needs_single_column_entity_text = (
+            compiled_query.optional_projection_row_guard is not None
+        )
         result = apply_result_projection(
-            result, compiled_query.result_projection, structured=structured_projection
+            result,
+            compiled_query.result_projection,
+            structured=not row_guard_needs_single_column_entity_text,
         )
     if compiled_query.optional_projection_row_guard is not None:
         expected_rows = 1
@@ -1489,17 +1493,19 @@ def _execute_compiled_query_with_reentry(
 
 
 def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery) -> Dict[str, CypherEmptyGroupValue]:
-    """Cypher empty-group values for aggregate outputs of an optional-reentry suffix.
-
-    An unmatched prefix row contributes one null-extended row, so aggregates
-    over suffix-bound sources take their empty-group value (count -> 0,
-    sum -> 0, collect -> []) and count(*) sees the row itself (-> 1).
-    Aggregates whose source traces to a carried scalar or the carried seed
-    alias cannot be answered statically here and stay NULL.
-    """
+    """Cypher empty-group value per aggregate output on an unmatched prefix row's null-extended row."""
     plan = compiled_query.reentry_plan
-    carried = set(plan.scalar_columns) if plan is not None else set()
+    carried_scalar_columns = set(plan.scalar_columns) if plan is not None else set()
     reentry_alias = plan.reentry_alias_name if plan is not None else None
+
+    def source_is_carried_rather_than_suffix_bound(source: str) -> bool:
+        base = source.split(".", 1)[0]
+        return (
+            is_reentry_hidden_column_reference(source)
+            or base in carried_scalar_columns
+            or base == reentry_alias
+        )
+
     ops = list(compiled_query.chain.chain) if compiled_query.chain is not None else []
     with_map: Dict[str, object] = {}
     fills: Dict[str, CypherEmptyGroupValue] = {}
@@ -1524,12 +1530,7 @@ def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery)
                 source: object = with_map.get(expr, expr) if isinstance(expr, str) else expr
                 if not isinstance(source, str):
                     continue
-                base = source.split(".", 1)[0]
-                if (
-                    is_reentry_hidden_column_reference(source)
-                    or base in carried
-                    or base == reentry_alias
-                ):
+                if source_is_carried_rather_than_suffix_bound(source):
                     continue
                 if func in CYPHER_ZERO_EMPTY_GROUP_AGGREGATIONS:
                     fills[alias] = 0
@@ -1591,7 +1592,7 @@ def _gfql_otel_attrs(
     policy: Optional[Dict[str, PolicyFunction]] = None,
     where: Optional[Sequence[WhereComparison]] = None,
     language: Optional[Literal["cypher", "gremlin"]] = None,
-    params: Optional[Mapping[str, Any]] = None,
+    params: Optional[CypherParams] = None,
 ) -> Dict[str, Any]:
     if isinstance(query, dict):
         query_type = "chain" if "chain" in query else "dag"
@@ -1698,7 +1699,7 @@ def _compile_cache_value_key(value: Any) -> Optional[Any]:
     return None
 
 
-def _compile_cache_params_key(params: Optional[Mapping[str, Any]]) -> Optional[Tuple[Tuple[str, Any], ...]]:
+def _compile_cache_params_key(params: Optional[CypherParams]) -> Optional[Tuple[Tuple[str, Any], ...]]:
     if not params:
         return ()
     items = []
@@ -1764,7 +1765,7 @@ def _compile_string_query(
     query: str,
     *,
     language: Optional[Literal["cypher", "gremlin"]],
-    params: Optional[Mapping[str, Any]],
+    params: Optional[CypherParams],
     engine_key: str,
     node_dtypes: Optional[NodeDtypes] = None,
 ) -> Any:
@@ -1843,7 +1844,7 @@ def _compiler_phase_for_error(exc: GFQLValidationError) -> str:
 def _compile_summary(
     *,
     query_language: str,
-    params: Optional[Mapping[str, Any]],
+    params: Optional[CypherParams],
     exc: Optional[GFQLValidationError] = None,
 ) -> CompileSummary:
     if exc is None:
@@ -1936,7 +1937,7 @@ def _fire_postcompile_policy(
     policy_depth: int,
     execution_depth: int,
     operation_path: str,
-    params: Optional[Mapping[str, Any]],
+    params: Optional[CypherParams],
 ) -> None:
     if not policy or "postcompile" not in policy:
         return
@@ -2023,7 +2024,7 @@ def _auto_cudf_polars_gpu_route(
     output: Optional[str],
     where: Optional[Sequence[WhereComparison]],
     language: Optional[Literal["cypher", "gremlin"]],
-    params: Optional[Mapping[str, Any]],
+    params: Optional[CypherParams],
     validate: bool,
     shortest_path_backend: str,
 ) -> Plottable:
