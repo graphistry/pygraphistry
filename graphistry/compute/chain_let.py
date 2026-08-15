@@ -5,6 +5,7 @@ from graphistry.Engine import Engine, EngineAbstract, resolve_engine
 from graphistry.Plottable import Plottable
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTRef, ASTRemoteGraph, ASTNode, ASTEdge, ASTCall
+from .exceptions import ErrorCode, GFQLValidationError
 from .execution_context import ExecutionContext
 from .engine_coercion import ensure_engine_match
 from .gfql.policy import PolicyContext, PolicyException
@@ -35,10 +36,8 @@ def extract_dependencies(ast_obj: Union[ASTObject, 'Chain', 'Plottable']) -> Set
             deps.update(extract_dependencies(op))
     
     elif isinstance(ast_obj, ASTLet):
-        # Nested let is an opaque execution unit — no external dependencies.
-        # Inner bindings are resolved in the inner DAG's own scope.
-        pass
-    
+        deps.update(free_variables(ast_obj))
+
     elif isinstance(ast_obj, Chain):
         # Chain may contain ASTRef operations
         for op in ast_obj.chain:
@@ -51,6 +50,19 @@ def extract_dependencies(ast_obj: Union[ASTObject, 'Chain', 'Plottable']) -> Set
     
     # Other AST types (ASTCall, ASTRemoteGraph) have no dependencies
     return deps
+
+
+def free_variables(dag: ASTLet) -> Set[str]:
+    """Names a let reads from its enclosing scope: inner references minus inner bindings
+
+    :param dag: Let whose bindings are scanned
+    :returns: Set of binding names the let expects its parent scope to provide
+    :rtype: Set[str]
+    """
+    referenced: Set[str] = set()
+    for inner_obj in dag.bindings.values():
+        referenced.update(extract_dependencies(inner_obj))
+    return referenced - set(dag.bindings.keys())
 
 
 def build_dependency_graph(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plottable']]) -> Tuple[Dict[str, Set[str]], Dict[str, Set[str]]]:
@@ -76,27 +88,35 @@ def build_dependency_graph(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plotta
     return dependencies, dependents
 
 
-def validate_dependencies(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plottable']], 
-                        dependencies: Dict[str, Set[str]]) -> None:
+def validate_dependencies(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plottable']],
+                        dependencies: Dict[str, Set[str]],
+                        enclosing_names: Optional[Set[str]] = None) -> None:
     """Check for missing references and self-cycles
-    
+
     :param bindings: Dictionary of available GraphOperation bindings
     :param dependencies: Dictionary of dependencies per binding
-    :raises ValueError: If missing references or self-cycles found
+    :param enclosing_names: Binding names an enclosing let already provides
+    :raises GFQLValidationError: If missing references or self-cycles found
     """
-    all_names = set(bindings.keys())
-    
+    resolvable = set(bindings.keys()) | (enclosing_names or set())
+
     for name, deps in dependencies.items():
         # Check self-reference
         if name in deps:
-            raise ValueError(f"Self-reference cycle detected: '{name}' depends on itself")
-        
+            raise GFQLValidationError(
+                ErrorCode.E153,
+                f"Self-reference cycle detected: '{name}' depends on itself",
+                field=name,
+            )
+
         # Check missing references
-        missing = deps - all_names
+        missing = deps - resolvable
         if missing:
-            raise ValueError(
+            raise GFQLValidationError(
+                ErrorCode.E151,
                 f"Node '{name}' references undefined nodes: {sorted(missing)}. "
-                f"Available nodes: {sorted(all_names)}"
+                f"Available nodes: {sorted(resolvable)}",
+                field=name,
             )
 
 
@@ -114,7 +134,7 @@ def detect_cycles(dependencies: Dict[str, Set[str]]) -> Optional[List[str]]:
         color[node] = GRAY
         path.append(node)
         
-        for neighbor in dependencies.get(node, set()):
+        for neighbor in sorted(dependencies.get(node, set())):
             if color.get(neighbor, WHITE) == GRAY:
                 # Found cycle - build cycle path
                 cycle_start = path.index(neighbor)
@@ -140,73 +160,95 @@ def detect_cycles(dependencies: Dict[str, Set[str]]) -> Optional[List[str]]:
 def topological_sort(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plottable']],
                     dependencies: Dict[str, Set[str]],
                     dependents: Dict[str, Set[str]]) -> List[str]:
-    """Kahn's algorithm for topological sort"""
+    """Kahn's algorithm for topological sort, ties broken by declaration order"""
+    declaration_order = {name: index for index, name in enumerate(bindings)}
+
     # Calculate in-degrees
     in_degree = {name: len(dependencies.get(name, set())) for name in bindings}
-    
+
     # Start with nodes that have no dependencies
     queue = [name for name, degree in in_degree.items() if degree == 0]
     result = []
-    
+
     while queue:
         # Process node with no remaining dependencies
         current = queue.pop(0)
         result.append(current)
-        
+
         # Update dependents
-        for dependent in dependents.get(current, set()):
+        for dependent in sorted(dependents.get(current, set()), key=declaration_order.__getitem__):
             in_degree[dependent] -= 1
             if in_degree[dependent] == 0:
                 queue.append(dependent)
-    
+
     if len(result) != len(bindings):
         # Cycle detected - use DFS to find it for better error
         cycle = detect_cycles(dependencies)
         if cycle:
-            raise ValueError(
+            raise GFQLValidationError(
+                ErrorCode.E153,
                 f"Circular dependency detected: {' -> '.join(cycle)}. "
-                "Please restructure your DAG to remove cycles."
+                "Please restructure your DAG to remove cycles.",
             )
         else:
             # Should not happen, but be defensive
-            raise ValueError("Failed to determine execution order (possible circular dependency)")
-    
+            raise GFQLValidationError(
+                ErrorCode.E153,
+                "Failed to determine execution order (possible circular dependency)",
+            )
+
     return result
 
 
-def determine_execution_order(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plottable']]) -> List[str]:
+def determine_execution_order(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plottable']],
+                              enclosing_names: Optional[Set[str]] = None) -> List[str]:
     """Determine topological execution order for DAG bindings
-    
+
     Validates dependencies and computes execution order that respects
     all dependencies. Detects cycles and missing references.
-    
+
     :param bindings: Dictionary of name -> GraphOperation bindings
+    :param enclosing_names: Binding names an enclosing let already provides
     :returns: List of binding names in execution order
     :rtype: List[str]
-    :raises ValueError: If cycles detected or references missing
+    :raises GFQLValidationError: If cycles detected or references missing
     """
     # Handle trivial cases
     if not bindings:
         return []
-    if len(bindings) == 1:
-        return list(bindings.keys())
-    
+
     # Build dependency graph
     dependencies, dependents = build_dependency_graph(bindings)
-    
+
     # Validate all references exist
-    validate_dependencies(bindings, dependencies)
-    
+    validate_dependencies(bindings, dependencies, enclosing_names)
+
+    same_scope_dependencies = {name: deps & set(bindings.keys()) for name, deps in dependencies.items()}
+
     # Check for cycles with detailed error
-    cycle = detect_cycles(dependencies)
+    cycle = detect_cycles(same_scope_dependencies)
     if cycle:
-        raise ValueError(
+        raise GFQLValidationError(
+            ErrorCode.E153,
             f"Circular dependency detected: {' -> '.join(cycle)}. "
-            "Please restructure your DAG to remove cycles."
+            "Please restructure your DAG to remove cycles.",
         )
-    
+
     # Compute topological sort
-    return topological_sort(bindings, dependencies, dependents)
+    return topological_sort(bindings, same_scope_dependencies, dependents)
+
+
+def keeps_type_across_binding_boundary(err: BaseException) -> bool:
+    """Whether a binding failure reaches the caller unwrapped
+
+    Engine-capability declines and GFQL validation errors carry a contract the
+    caller dispatches on; a RuntimeError wrapper would erase it.
+
+    :param err: Exception raised while executing a binding
+    :returns: True if the error propagates as-is
+    :rtype: bool
+    """
+    return isinstance(err, (NotImplementedError, GFQLValidationError))
 
 
 def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: Plottable,
@@ -223,14 +265,14 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
 
     :param name: Binding name for this node
     :param ast_obj: GraphOperation to execute
-    :param g: Input graph
+    :param g: Root graph every binding kind filters from
     :param context: Execution context for storing/retrieving results
     :param engine: Engine to use (pandas/cudf)
     :param policy: Optional policy dictionary with preload/postload/precall/postcall hooks
     :param global_query: The global query AST for policy context
     :returns: Resulting Plottable
     :rtype: Plottable
-    :raises ValueError: If reference not found in context
+    :raises GFQLValidationError: If reference not found in context
     :raises NotImplementedError: For unsupported types
     """
     logger.debug("Executing node '%s' of type %s", name, type(ast_obj).__name__)
@@ -241,19 +283,18 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         # - reads fall through to parent (inner can see outer bindings)
         # - writes stay local (inner bindings don't leak to outer scope)
         child_ctx = context.child_context()
-        # Pass the original graph (not accumulated_result) so the inner let
-        # filters independently, same as Chain/ASTNode bindings in the outer scope.
-        original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
-        result = chain_let_impl(original_g, ast_obj, EngineAbstract(engine.value), policy=policy, context=child_ctx)
+        result = chain_let_impl(g, ast_obj, EngineAbstract(engine.value), policy=policy, context=child_ctx)
     elif isinstance(ast_obj, ASTRef):
         # Resolve reference from context
         try:
             referenced_result = context.get_binding(ast_obj.ref)
         except KeyError as e:
             available = sorted(context.get_all_bindings().keys())
-            raise ValueError(
+            raise GFQLValidationError(
+                ErrorCode.E151,
                 f"Node '{name}' references '{ast_obj.ref}' which has not been executed yet. "
-                f"Available bindings: {available}"
+                f"Available bindings: {available}",
+                field=name,
             ) from e
 
         # Execute the chain on the referenced result
@@ -272,16 +313,9 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         else:
             # Empty chain - just return the referenced result
             result = referenced_result
-    elif isinstance(ast_obj, ASTNode):
-        # ASTNode operates on the original graph (unless accessed via ASTRef)
-        original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
+    elif isinstance(ast_obj, (ASTNode, ASTEdge)):
         from .chain import chain as chain_impl
-        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value), policy=policy, context=context)
-    elif isinstance(ast_obj, ASTEdge):
-        # ASTEdge operates on the original graph (unless accessed via ASTRef)
-        original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
-        from .chain import chain as chain_impl
-        result = chain_impl(original_g, [ast_obj], EngineAbstract(engine.value), policy=policy, context=context)
+        result = chain_impl(g, [ast_obj], EngineAbstract(engine.value), policy=policy, context=context)
     elif isinstance(ast_obj, ASTRemoteGraph):
         # Create a new plottable bound to the remote dataset_id
         # This doesn't fetch the data immediately - it just creates a reference
@@ -357,12 +391,8 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         # Check if it's a Chain or Plottable
         from graphistry.compute.chain import Chain
         if isinstance(ast_obj, Chain):
-            # Execute the chain operations
-            # For DAG context: Chain should filter from the original graph independently
-            # Get the original graph from the context (stored at initialization)
             from .chain import chain as chain_impl
-            original_g = context.get_binding('__original_graph__') if context.has_binding('__original_graph__') else g
-            result = chain_impl(original_g, ast_obj.chain, EngineAbstract(engine.value), policy=policy, context=context)
+            result = chain_impl(g, ast_obj.chain, EngineAbstract(engine.value), policy=policy, context=context)
         elif isinstance(ast_obj, Plottable):
             # Direct Plottable instance - just return it
             result = ast_obj
@@ -396,7 +426,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     :rtype: Plottable
     :raises TypeError: If dag is not an ASTLet
     :raises RuntimeError: If node execution fails
-    :raises ValueError: If output binding not found
+    :raises GFQLValidationError: If output binding not found
     """
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
@@ -419,15 +449,12 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     if context is None:
         context = ExecutionContext()
 
-    # Store original graph for independent Chain filtering
-    context.set_binding('__original_graph__', g)
-
     # Handle empty let bindings
     if not dag.bindings:
         return g
-    
+
     # Determine execution order
-    order = determine_execution_order(dag.bindings)
+    order = determine_execution_order(dag.bindings, set(context.get_all_bindings().keys()))
     logger.debug("DAG execution order: %s", order)
 
     # Build dependency graph for binding hooks
@@ -437,7 +464,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
     result = None
     error = None
     success = False
-    last_result = None
+    last_result: Plottable = g
 
     try:
         # Prelet hook - fires BEFORE any bindings execute
@@ -466,9 +493,6 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                 raise
 
         # Execute nodes in topological order
-        # Start with the original graph and accumulate all binding columns
-        accumulated_result = g
-
         for binding_index, node_name in enumerate(order):
             ast_obj = dag.bindings[node_name]
             logger.debug("Executing node '%s' in DAG", node_name)
@@ -513,12 +537,10 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
             context.push_path(f"binding:{node_name}")
 
             try:
-                # Execute node - this adds the binding name as a column
-                binding_result = execute_node(node_name, ast_obj, accumulated_result, context, engine_concrete, policy, dag)
+                binding_result = execute_node(node_name, ast_obj, g, context, engine_concrete, policy, dag)
                 binding_success = True
 
-                # Accumulate the new column(s) onto our result
-                accumulated_result = binding_result
+                last_result = binding_result
                 result = binding_result
 
             except Exception as e:
@@ -535,9 +557,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                 policy_error = None
                 if policy and 'postletbinding' in policy:
 
-                    # Extract stats from binding result (if success) or current graph (if error)
-                    # Cast: if binding_success=True, binding_result is guaranteed to be a Plottable
-                    graph_for_stats = cast(Plottable, binding_result) if binding_success else accumulated_result
+                    graph_for_stats = binding_result if binding_result is not None else last_result
                     stats = extract_graph_stats(graph_for_stats)
 
                     current_path = context.operation_path
@@ -580,10 +600,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                 else:
                     raise policy_error
             elif binding_error is not None:
-                # Honest engine-capability declines propagate as-is so a DAG caller can catch
-                # NotImplementedError and retry on engine='pandas' (matching the chain surface);
-                # don't bury them in a RuntimeError.
-                if isinstance(binding_error, NotImplementedError):
+                if keeps_type_across_binding_boundary(binding_error):
                     raise binding_error
                 # Wrap other failures in RuntimeError with context
                 raise RuntimeError(
@@ -591,19 +608,16 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
                     f"Error: {type(binding_error).__name__}: {str(binding_error)}"
                 ) from binding_error
 
-        last_result = accumulated_result
-
         # Return requested output or last executed result
         if output is not None:
             if output not in context.get_all_bindings():
-                # Filter out internal bindings from the error message
-                available = sorted([
-                    k for k in context.get_all_bindings().keys()
-                    if not k.startswith('__')
-                ])
-                raise ValueError(
+                available = sorted(context.get_all_bindings().keys())
+                raise GFQLValidationError(
+                    ErrorCode.E151,
                     f"Output binding '{output}' not found. "
-                    f"Available bindings: {available}"
+                    f"Available bindings: {available}",
+                    field='output',
+                    value=output,
                 )
             result = context.get_binding(output)
         else:
