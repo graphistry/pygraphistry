@@ -17,6 +17,7 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT
 from graphistry.compute.ast import ASTLet, ASTRef, call, n
 from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError, GFQLValidationError
+from graphistry.compute.chain_let import detect_cycles, in_declaration_order
 
 ENGINES: Tuple[str, ...] = ("pandas", "polars")
 
@@ -321,3 +322,33 @@ def test_multi_binding_cycle_is_a_coded_error(engine: str) -> None:
             engine=engine,
         )
     assert exc_info.value.code == ErrorCode.E153
+
+
+# --- the one ordering primitive the scheduler and the cycle report share ---------------------
+
+
+def test_in_declaration_order_follows_the_declaration_index() -> None:
+    order = {"z": 0, "a": 1, "m": 2}
+    assert in_declaration_order({"a", "m", "z"}, order) == ["z", "a", "m"]
+
+
+def test_enclosing_scope_names_trail_the_declared_ones_ordered_by_name() -> None:
+    order = {"z": 0, "a": 1}
+    assert in_declaration_order({"a", "z", "outer2", "outer1"}, order) == [
+        "z", "a", "outer1", "outer2",
+    ]
+
+
+def test_without_a_declaration_order_names_fall_back_to_name_order() -> None:
+    assert in_declaration_order({"m", "a", "z"}, {}) == ["a", "m", "z"]
+
+
+def test_cycle_is_reported_in_declaration_order_not_name_order() -> None:
+    dependencies = {"z": {"a"}, "a": {"z"}}
+    assert detect_cycles(dependencies, {"z": 0, "a": 1}) == ["z", "a", "z"]
+    assert detect_cycles(dependencies, {"a": 0, "z": 1}) == ["a", "z", "a"]
+
+
+def test_cycle_report_is_stable_when_no_declaration_order_is_supplied() -> None:
+    dependencies = {"z": {"a"}, "a": {"z"}}
+    assert detect_cycles(dependencies) == detect_cycles(dependencies)

@@ -1,4 +1,4 @@
-from typing import Dict, Set, List, Optional, Tuple, Union, cast, TYPE_CHECKING, Callable, Any
+from typing import Dict, Iterable, List, Mapping, Optional, Set, Tuple, Union, cast, TYPE_CHECKING, Callable, Any
 from typing_extensions import Literal
 import pandas as pd
 from graphistry.Engine import Engine, EngineAbstract, resolve_engine
@@ -15,6 +15,21 @@ if TYPE_CHECKING:
     from graphistry.compute.chain import Chain
 
 logger = setup_logger(__name__)
+
+
+def in_declaration_order(
+    names: Iterable[str], declaration_order: Mapping[str, int]
+) -> List[str]:
+    unranked = len(declaration_order)
+    return sorted(names, key=lambda name: (declaration_order.get(name, unranked), name))
+
+
+def declaration_order_of(bindings: Mapping[str, object]) -> Dict[str, int]:
+    return {name: index for index, name in enumerate(bindings)}
+
+
+def executed_binding_names(context: ExecutionContext) -> List[str]:
+    return sorted(context.get_all_bindings().keys())
 
 
 def extract_dependencies(ast_obj: Union[ASTObject, 'Chain', 'Plottable']) -> Set[str]:
@@ -120,7 +135,10 @@ def validate_dependencies(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plottab
             )
 
 
-def detect_cycles(dependencies: Dict[str, Set[str]]) -> Optional[List[str]]:
+def detect_cycles(
+    dependencies: Dict[str, Set[str]],
+    declaration_order: Optional[Mapping[str, int]] = None,
+) -> Optional[List[str]]:
     """Use DFS to detect cycles and return the cycle path if found
     
     :param dependencies: Dictionary mapping nodes to their dependencies
@@ -128,13 +146,14 @@ def detect_cycles(dependencies: Dict[str, Set[str]]) -> Optional[List[str]]:
     :rtype: Optional[List[str]]
     """
     WHITE, GRAY, BLACK = 0, 1, 2
+    order = declaration_order or {}
     color = {node: WHITE for node in dependencies}
     
     def dfs(node: str, path: List[str]) -> Optional[List[str]]:
         color[node] = GRAY
         path.append(node)
         
-        for neighbor in sorted(dependencies.get(node, set())):
+        for neighbor in in_declaration_order(dependencies.get(node, set()), order):
             if color.get(neighbor, WHITE) == GRAY:
                 # Found cycle - build cycle path
                 cycle_start = path.index(neighbor)
@@ -148,7 +167,7 @@ def detect_cycles(dependencies: Dict[str, Set[str]]) -> Optional[List[str]]:
         color[node] = BLACK
         return None
     
-    for node in dependencies:
+    for node in in_declaration_order(dependencies, order):
         if color[node] == WHITE:
             cycle = dfs(node, [])
             if cycle:
@@ -161,7 +180,7 @@ def topological_sort(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plottable']]
                     dependencies: Dict[str, Set[str]],
                     dependents: Dict[str, Set[str]]) -> List[str]:
     """Kahn's algorithm for topological sort, ties broken by declaration order"""
-    declaration_order = {name: index for index, name in enumerate(bindings)}
+    declaration_order = declaration_order_of(bindings)
 
     # Calculate in-degrees
     in_degree = {name: len(dependencies.get(name, set())) for name in bindings}
@@ -176,14 +195,14 @@ def topological_sort(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plottable']]
         result.append(current)
 
         # Update dependents
-        for dependent in sorted(dependents.get(current, set()), key=declaration_order.__getitem__):
+        for dependent in in_declaration_order(dependents.get(current, set()), declaration_order):
             in_degree[dependent] -= 1
             if in_degree[dependent] == 0:
                 queue.append(dependent)
 
     if len(result) != len(bindings):
         # Cycle detected - use DFS to find it for better error
-        cycle = detect_cycles(dependencies)
+        cycle = detect_cycles(dependencies, declaration_order)
         if cycle:
             raise GFQLValidationError(
                 ErrorCode.E153,
@@ -226,7 +245,7 @@ def determine_execution_order(bindings: Dict[str, Union[ASTObject, 'Chain', 'Plo
     same_scope_dependencies = {name: deps & set(bindings.keys()) for name, deps in dependencies.items()}
 
     # Check for cycles with detailed error
-    cycle = detect_cycles(same_scope_dependencies)
+    cycle = detect_cycles(same_scope_dependencies, declaration_order_of(bindings))
     if cycle:
         raise GFQLValidationError(
             ErrorCode.E153,
@@ -289,7 +308,7 @@ def execute_node(name: str, ast_obj: Union[ASTObject, 'Chain', 'Plottable'], g: 
         try:
             referenced_result = context.get_binding(ast_obj.ref)
         except KeyError as e:
-            available = sorted(context.get_all_bindings().keys())
+            available = executed_binding_names(context)
             raise GFQLValidationError(
                 ErrorCode.E151,
                 f"Node '{name}' references '{ast_obj.ref}' which has not been executed yet. "
@@ -611,7 +630,7 @@ def chain_let_impl(g: Plottable, dag: ASTLet,
         # Return requested output or last executed result
         if output is not None:
             if output not in context.get_all_bindings():
-                available = sorted(context.get_all_bindings().keys())
+                available = executed_binding_names(context)
                 raise GFQLValidationError(
                     ErrorCode.E151,
                     f"Output binding '{output}' not found. "
