@@ -7,6 +7,9 @@ INTERNAL_COLUMN_PATTERN: str = '__gfql_*__'
 INTERNAL_COLUMN_PREFIX: str = '__gfql_'
 INTERNAL_COLUMN_SUFFIX: str = '__'
 
+#: Prefix of the internal columns that carry an alias's value under a hidden name.
+HIDDEN_ALIAS_COLUMN_PREFIX: str = '__gfql_hidden_'
+
 
 def is_internal_column(name: str) -> bool:
     """Check if name matches internal column pattern __gfql_*__."""
