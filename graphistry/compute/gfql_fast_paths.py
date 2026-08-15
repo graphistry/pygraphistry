@@ -1362,10 +1362,15 @@ def _connected_join_two_star_fast_grouped_count(
         for _, prop in group_prop_refs:
             if prop not in prop_cols:
                 prop_cols.append(prop)
-        second_lookup = second_leaf_nodes[[node_col] + prop_cols].drop_duplicates(subset=[node_col]).rename(columns={node_col: lookup_key})
+        second_lookup_src = second_leaf_nodes[[node_col] + prop_cols].drop_duplicates(subset=[node_col])
+        # ONE frame construction, not rename()-then-per-column writes (twin of the
+        # grouped-aggregate lookup below): column-by-column writes leave the frame
+        # unconsolidated and the merge pays per-block take + vstack for it (#1918).
+        projected: Dict[str, SeriesT] = {lookup_key: second_lookup_src[node_col]}
         for out_col, prop in group_prop_refs:
-            second_lookup[out_col] = second_lookup[prop]
-        right_base = right_base.merge(second_lookup[[lookup_key] + output_group_keys], left_on=dst_col, right_on=lookup_key, how="inner")
+            projected[out_col] = second_lookup_src[prop]
+        second_lookup = df_cons(engine)(projected)
+        right_base = right_base.merge(second_lookup, left_on=dst_col, right_on=lookup_key, how="inner")
     right_rows = right_base[[src_col] + output_group_keys].rename(columns={src_col: shared_alias})
     joined = right_rows.merge(left_counts, on=shared_alias, how="inner")
     if len(joined) == 0:
@@ -2409,14 +2414,18 @@ def _execute_single_hop_grouped_aggregate_fast_path(
                 if prop != node_col and prop not in prop_cols:
                     prop_cols.append(prop)
             lookup_key = f"__gfql_t3_{alias}_id__"
-            lookup = node_df[[node_col] + prop_cols].drop_duplicates(subset=[node_col]).copy()
-            # Rename the join key FIRST: an output column named like the node-id
-            # column (`a.id AS id`) must survive as an output, not be clobbered
-            # into the key (#1899 KeyError) -- and an output named `id` sourced
-            # from another prop must not corrupt the key either.
-            lookup = lookup.rename(columns={node_col: lookup_key})
+            src_df = node_df[[node_col] + prop_cols].drop_duplicates(subset=[node_col])
+            # Key is renamed away from node_col so an output named like the node-id column
+            # (`a.id AS id`) survives as an output instead of clobbering the key (#1899).
+            # ONE frame construction, not rename()-then-per-column writes: column-by-column
+            # writes leave the frame unconsolidated and the inner merge below pays per-block
+            # take + vstack for it (#1918).
+            projected: Dict[str, SeriesT] = {lookup_key: src_df[node_col]}
+            for prop in prop_cols:
+                projected[prop] = src_df[prop]
             for out_col, prop in props:
-                lookup[out_col] = lookup[lookup_key if prop == node_col else prop]
+                projected[out_col] = projected[lookup_key] if prop == node_col else projected[prop]
+            lookup = df_cons(requested_engine)(projected)
             return cast(DataFrameT, work_df.merge(lookup, left_on=edge_col, right_on=lookup_key, how="inner"))
 
         work = cast(DataFrameT, work)
