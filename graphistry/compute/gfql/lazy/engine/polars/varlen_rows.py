@@ -13,7 +13,7 @@ Only ``min_hops <= 1`` reaches the unbounded arm — the gate in ``row_pipeline.
 declines ``-[*2..]->`` because pandas' ``step_pairs`` prune by min_hops against a
 dedup-by-node eccentricity that the raw-edge reconstruction here cannot reproduce.
 
-openCypher TRAIL semantics (#1903): when ``pairs`` carries the stable
+openCypher TRAIL semantics: when ``pairs`` carries the stable
 ``__gfql_edge_ident__`` column, each expansion hop filters the new edge against
 every edge already bound on the path (this segment's and prior elements', via
 ``trail_cols_in``) and records it as a ``__gfql_trail_*`` column — mirroring the

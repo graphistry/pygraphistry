@@ -243,9 +243,7 @@ class _ScalarTemporalComparison(_StringAllowingComparisonMixin, ComparisonPredic
 
     def __call__(self, s: SeriesT) -> SeriesT:
         if isinstance(self.val, (int, float, str)):
-            # Cypher: ordering a BOOLEAN against a NUMBER is incomparable ->
-            # null (never satisfies the predicate) -- the bool-vs-int twin of
-            # the mixed-type null semantics in _safe_scalar_compare (#1900).
+            # Cypher: ordering a BOOLEAN against a NUMBER is incomparable -> null, never a match.
             val_is_bool = isinstance(self.val, bool)
             if not val_is_bool and isinstance(self.val, (int, float)) and self._series_is_boolean(s):
                 return cast(SeriesT, s.notna() & False)  # hygiene-ok: explicit-cast -- SeriesT narrowing, module-wide idiom

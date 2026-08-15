@@ -476,9 +476,7 @@ class RowPipelineMixin:
                     self._gfql_broadcast_scalar(table_df, False).astype(bool), pd.NA
                 )
 
-        # Overrides carry the expression's INPUT null mask (#1903 addendum B-1):
-        # Cypher propagates null through arithmetic, but a COMPUTED NaN (x % 0.0)
-        # is a value -- IEEE-compare it (NaN > 1 is false) instead of nulling.
+        # A computed NaN (x % 0.0) is a VALUE to IEEE-compare; only an INPUT null nulls the result.
         left_null_mask = (
             left_null_mask_override
             if left_null_mask_override is not None
@@ -969,11 +967,7 @@ class RowPipelineMixin:
             if not any(hasattr(val, "astype") for val in item_values):
                 return True, list(item_values)
 
-            # cuDF groupby-collect (.agg(list)) gives NO within-group row-order guarantee, so the
-            # melt+sort+groupby path below permutes list ELEMENTS vs construction order on cuDF
-            # (issue #1663 finding 1; pandas groupby(sort=False) is stable so it's correct there).
-            # Build the list column directly column-wise on cuDF — order-deterministic (same logic
-            # as the except-fallback below, which list-TYPED elements already use).
+            # cuDF groupby-collect has no within-group order guarantee; build the list column-wise.
             if resolve_engine(EngineAbstract.AUTO, table_df) == Engine.CUDF:
                 _rc = len(table_df)
                 _items: List[List[Any]] = []
@@ -1180,9 +1174,8 @@ class RowPipelineMixin:
                 return True, bool_out
 
             def _arith_input_null_mask(operand_node: Any) -> Optional[Any]:  # hygiene-ok: explicit-any -- AST node + scalar-or-Series mask
-                """Input-null mask of an ARITHMETIC subtree (None -> caller falls
-                back to isna-of-result). Distinguishes genuine null inputs from
-                computed NaN so `n.f % 0.0 > 1` is false, not null (#1903 B-1)."""
+                """Input-null mask of an ARITHMETIC subtree; None -> caller falls back
+                to isna-of-result. Separates a genuine null input from a computed NaN."""
                 if isinstance(operand_node, BinaryOp) and str(operand_node.op).lower() in {"+", "-", "*", "/", "%"}:
                     left_mask = _arith_input_null_mask(operand_node.left)
                     right_mask = _arith_input_null_mask(operand_node.right)
@@ -1494,9 +1487,7 @@ class RowPipelineMixin:
                 left_null_mask = self._gfql_null_mask(table_df, left)
                 right_null_mask = self._gfql_null_mask(table_df, right)
                 any_null_mask = left_null_mask | right_null_mask
-                # openCypher simple CASE uses '=': a null subject or WHEN value
-                # NEVER matches (conformed #1900; the old deliberate null==null
-                # match contradicted Neo4j -- CASE x WHEN null falls to ELSE).
+                # openCypher simple CASE uses '=': a null subject or WHEN value NEVER matches.
                 left_scalar_null = not hasattr(left, "astype") and is_null_scalar(left)
                 right_scalar_null = not hasattr(right, "astype") and is_null_scalar(right)
                 if right_scalar_null or left_scalar_null:
@@ -1591,13 +1582,7 @@ class RowPipelineMixin:
                 return True, float(math.ceil(inner) if use_ceil else math.floor(inner))
 
             if fn == "round" and len(values) in {1, 2}:
-                # neo4j tie-breaking (standards-vetted, #1673): precision 0 (or 1-arg)
-                # rounds ties toward +inf (round(-1.5) = -1.0); precision > 0 rounds ties
-                # away from zero (HALF_UP: round(-1.55, 1) = -1.6). numpy/pandas .round is
-                # half-to-even (round(2.5) -> 2.0) — a wrong answer vs the neo4j spec.
-                # Uses a floor+frac kernel, NOT floor(x+0.5): the +0.5 addition itself
-                # rounds up when x sits 1 ulp below a tie (JDK-6430675 class), e.g.
-                # round(0.49999999999999994) must be 0.0, round(0.0499…96, 1) → 0.0.
+                # floor+frac, NOT floor(x+0.5): the addition itself rounds up 1 ulp below a tie.
                 inner = values[0]
                 ndigits = int(values[1]) if len(values) == 2 else 0
                 if ndigits < 0:
@@ -2567,9 +2552,7 @@ class RowPipelineMixin:
             try:
                 out = apply_string_predicate_series(left_txt, needle, op_name)
             except NotImplementedError:
-                # Honest engine decline (e.g. cuDF inline-flag/lookaround limits) —
-                # the blanket remap below destroyed the NIE class AND blamed the op
-                # name for what is a pattern/engine limit (#1675 wave-1).
+                # An engine decline is a pattern/engine limit, not a bad op name: keep its class.
                 raise
             except re.error as exc:
                 raise ValueError(f"invalid regex pattern in {expr!r}: {exc}") from exc
@@ -2924,9 +2907,7 @@ class RowPipelineMixin:
                     if node_id is not None and node_id in table_df.columns:
                         return table_df[node_id]
                 return self._gfql_broadcast_scalar(table_df, pd.NA)
-        # Bare alias name on a bindings-row table: resolve to the alias's
-        # identity column (alias.{node_id_col}).  This lets expressions like
-        # count(post) work when the table has post.id, post.name, etc. (#880)
+        # A bare alias on a bindings-row table resolves to its identity column, alias.{node_id}.
         if "." not in txt and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, txt):
             edge_aliases = self._gfql_rows_edge_aliases
             if edge_aliases is not None and txt in edge_aliases:
@@ -3134,9 +3115,7 @@ class RowPipelineMixin:
             )[[row_col, base_col, key_col]]
 
         if isinstance(base, pd.DataFrame):
-            # openCypher negative subscripts index from the end (l[-1] -> last);
-            # normalize per-row against the list length so the positional join
-            # below can match (#1899). Out-of-range stays null.
+            # A negative subscript indexes from the end; normalize per-row so the join matches.
             key_values = list(base[key_col])
             if any(isinstance(k, (int, float)) and not isinstance(k, bool) and k == k and k < 0 for k in key_values):
                 normalized_keys: List[Any] = []
@@ -3454,11 +3433,7 @@ class RowPipelineMixin:
             ast_ok, ast_value = self._gfql_eval_expr_ast(table_df, ast_node)
         except Exception as exc:
             if isinstance(exc, (ValueError, NotImplementedError, GFQLValidationError)):
-                # NotImplementedError = an honest engine decline from a predicate
-                # (e.g. cuDF regex limits) — re-labeling it here destroyed the NIE
-                # class one frame above the predicate-level pass-through (#1675 wave-2).
-                # GFQLValidationError = an already-typed Cypher error (e.g. integer
-                # division by zero, #1900) — keep its taxonomy.
+                # An engine decline and an already-typed Cypher error each keep their own class.
                 raise
             raise ValueError(f"unsupported row expression: AST evaluator unsupported in {expr!r}") from exc
 
@@ -3597,10 +3572,7 @@ class RowPipelineMixin:
         current = state_df.copy()
         prev_col = WALK_PREV_COL
         shortest_path_mode = is_shortest_path_hops_column(hop_column)
-        # openCypher trail semantics (#1903): step_pairs carries a stable edge
-        # identity outside shortestPath mode; each expansion hop filters the
-        # new edge against every edge already bound on the path (this segment's
-        # AND prior pattern elements'), then records it.
+        # A relationship binds at most once per path; shortestPath is exempt (BFS never reuses one).
         trail_tracking = (
             not shortest_path_mode and TRAIL_EDGE_IDENT_COL in getattr(step_pairs, "columns", [])
         )
@@ -3691,9 +3663,7 @@ class RowPipelineMixin:
                 "Cypher multi-alias row bindings currently require terminating variable-length segments"
             )
         if segment_trail_cols:
-            # rows that stopped before the deepest hop lack the later trail
-            # columns; pad BEFORE concat (float NaN, numeric-widening-safe) so
-            # cuDF's stricter schema alignment keeps every hop's rows.
+            # cuDF aligns concat schemas strictly, so pad the shallower hops' absent trail columns.
             reachable = [
                 frame.assign(**{
                     col: float("nan")
@@ -3887,12 +3857,7 @@ class RowPipelineMixin:
             state_df[first_alias] = state_df[WALK_CURRENT_COL]
             alias_frames[first_alias] = first_nodes
 
-        # openCypher trail semantics (#1903): a relationship may bind at most
-        # once per path, across every element of the pattern. The base edge
-        # frame carries a stable positional identity (per-hop frames reset
-        # their index, so the index cannot serve); each hop filters its edge
-        # against every prior one via __gfql_trail_* columns. (shortestPath
-        # mode skips this: BFS never reuses an edge on a shortest route.)
+        # Positional, not index-based: per-hop frames reset their index so it cannot identify an edge.
         trail_cols: List[str] = []
         base_edges_frame = base_graph._edges
         if base_edges_frame is not None and TRAIL_EDGE_IDENT_COL not in base_edges_frame.columns:
@@ -3959,8 +3924,7 @@ class RowPipelineMixin:
                     dedupe=False,
                 ).rename(columns=rename_map)
                 if not shortest_path_mode and TRAIL_EDGE_IDENT_COL in oriented.columns:
-                    # A self-loop's two undirected orientations are the SAME
-                    # binding: dedupe the flip twin (#1903 / addendum A-1).
+                    # A self-loop's two undirected orientations are the SAME binding: drop the twin.
                     oriented = oriented.drop_duplicates(
                         subset=[WALK_FROM_COL, WALK_TO_COL, TRAIL_EDGE_IDENT_COL], keep="first"
                     )
@@ -4226,11 +4190,7 @@ class RowPipelineMixin:
             if base_nodes is not None and node_id in base_nodes.columns
             else self._gfql_empty_frame(base_nodes, columns=[node_id])
         )
-        # #1711 projection-pushdown: attach_prop_aliases (from the cypher lowering)
-        # names the node aliases whose PROPERTIES are referenced downstream. Aliases
-        # not listed skip the O(N) property left-join — their bare id column (already
-        # in state) is all the query needs (e.g. count(*) references nothing,
-        # count(a) references only the bare column). None = attach all (default).
+        # attach_prop_aliases names the aliases whose PROPERTIES are read downstream; None = all.
         attach_set = None if attach_prop_aliases is None else set(attach_prop_aliases)
 
         bindings = state_df.copy()
@@ -5311,12 +5271,7 @@ class RowPipelineMixin:
         table_df = table_df.assign(**{group_order_col: range(len(table_df))})
 
         def _make_grouped(df: Any, value_cols: Any = ()) -> Any:
-            # Group over ONLY the key columns + the value columns THIS call aggregates. Carrying
-            # unrelated non-key/non-agg columns (e.g. an object 'name' or float 'f') into the
-            # groupby pushes cuDF onto a Series-truthiness path that raises "The truth value of a
-            # Series is ambiguous" (issue #1663 finding 4); pandas/polars tolerate the extra cols.
-            # Projecting first yields an IDENTICAL result on every engine (selecting value columns
-            # before grouping cannot change group sizes or per-column reductions) and sidesteps it.
+            # Group over ONLY key + this call's value columns; a spare column trips cuDF's groupby.
             keep_cols = list(dict.fromkeys([*key_cols, *(c for c in value_cols if c in df.columns)]))
             df = df[keep_cols]
 

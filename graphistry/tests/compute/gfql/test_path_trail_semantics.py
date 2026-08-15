@@ -67,21 +67,70 @@ def _run(fixture: str, query: str, engine: str) -> pd.DataFrame:
     return out.reset_index(drop=True)
 
 
+#: A polars decline must NAME the gap; these are the capabilities it may cite.
+DECLINE_PHRASES = (
+    "not yet hop-gated",                                # #1748 min_hops>1 node-alias window
+    "undirected min_hops>1",                            # var-length feature gate
+    "require terminating variable-length segments",     # unbounded walk into a reachable cycle
+    "does not yet natively support cypher row op",      # row-op surface gap
+)
+
+#: Every (fixture, query) polars is currently allowed to decline -- keyed on the
+#: pair because the same shape routes differently per graph (``-[*]->`` serves on
+#: the acyclic DIAMOND and declines on the cyclic TRI). Membership is asserted in
+#: BOTH directions, so a shape that starts declining -- or quietly starts serving
+#: -- fails instead of passing silently. Without the table every polars cell here
+#: is vacuous: 14 of the 28 (fixture, query) pairs below decline today.
+POLARS_DECLINED = frozenset({
+    ("DIAMOND", "MATCH (x {id:'a'})-[*1..2]->(m)-[]->(y) RETURN y.id AS y"),
+    ("DIAMOND", "MATCH (x {id:'a'})-[*2]-(y) RETURN y.id AS y"),
+    ("DIAMOND", "MATCH (x {id:'a'})-[*2]->(y {id:'c'}) RETURN count(*) AS y"),
+    ("DIAMOND", "MATCH (x {id:'a'})-[*2]->(y) RETURN x.id AS x, y.id AS y"),
+    ("DIAMOND", "MATCH (x {id:'a'})-[*2]->(y) RETURN y.id AS y"),
+    ("DIAMOND", "MATCH (x {id:'a'})-[*3]->(y) RETURN y.id AS y"),
+    ("DIAMOND", "MATCH (x {id:'c'})<-[*2]-(y) RETURN y.id AS y"),
+    ("PARA", "MATCH (x {id:'a'})-[*2]-(y) RETURN y.id AS y"),
+    ("PARA", "MATCH (x {id:'a'})-[*2]->(y) RETURN y.id AS y"),
+    ("SELF", "MATCH (x {id:'s'})-[*2]->(y) RETURN y.id AS y"),
+    ("TRI", "MATCH (x {id:'a'})-[*2]-(y) RETURN y.id AS y"),
+    ("TRI", "MATCH (x {id:'a'})-[*3]-(y) RETURN y.id AS y"),
+    ("TRI", "MATCH (x {id:'a'})-[*3]->(y) RETURN y.id AS y"),
+    ("TRI", "MATCH (x {id:'a'})-[*]->(y) RETURN y.id AS y"),
+})
+
+
 def _bag(fixture: str, query: str, engine: str, col: str = "y"):
-    """Sorted value bag; polars NIE -> the sentinel 'NIE' (parity-or-NIE)."""
+    """Sorted value bag, or ``('DECLINED', message)`` when the engine declines."""
     try:
         df = _run(fixture, query, engine)
-    except NotImplementedError:
-        return "NIE"
-    except GFQLValidationError:
-        return "TYPED"
+    except NotImplementedError as exc:
+        return ("DECLINED", str(exc))
+    except GFQLValidationError as exc:
+        return ("DECLINED", str(exc))
     return sorted(str(v) for v in df[col])
+
+
+def _is_decline(got) -> bool:
+    return isinstance(got, tuple) and bool(got) and got[0] == "DECLINED"
+
+
+def _assert_polars_routing(fixture, query, got) -> None:
+    """A decline passes only if it was TABLED and it SAYS what is missing."""
+    assert _is_decline(got) == ((fixture, query) in POLARS_DECLINED), (
+        f"polars routing changed for ({fixture}, {query}): "
+        f"{'declined but not tabled' if _is_decline(got) else 'tabled as declined but served'}"
+    )
+    if _is_decline(got):
+        assert any(phrase in got[1] for phrase in DECLINE_PHRASES), \
+            f"decline did not name the gap: {got[1]}"
 
 
 def _assert_bag(fixture, query, engine, expected, col="y"):
     got = _bag(fixture, query, engine, col)
-    if engine == "polars" and got in ("NIE", "TYPED"):
-        return  # honest decline; pandas is the value oracle
+    if engine == "polars":
+        _assert_polars_routing(fixture, query, got)
+        if _is_decline(got):
+            return
     assert got == sorted(str(v) for v in expected), f"{query}: got {got}"
 
 
@@ -114,11 +163,15 @@ def test_single_alias_projection_keeps_path_multiplicity(fixture, query, expecte
 def test_one_match_one_cardinality(engine):
     """The headline invariant: RETURN y.id, count(*), and RETURN x.id, y.id
     agree on cardinality for the same MATCH."""
-    bag = _bag("DIAMOND", "MATCH (x {id:'a'})-[*2]->(y) RETURN y.id AS y", engine)
-    cnt = _bag("DIAMOND", "MATCH (x {id:'a'})-[*2]->(y {id:'c'}) RETURN count(*) AS y", engine)
-    pair = _bag("DIAMOND", "MATCH (x {id:'a'})-[*2]->(y) RETURN x.id AS x, y.id AS y", engine)
-    if engine == "polars" and "NIE" in (bag, cnt, pair):
-        return
+    queries = ["MATCH (x {id:'a'})-[*2]->(y) RETURN y.id AS y",
+               "MATCH (x {id:'a'})-[*2]->(y {id:'c'}) RETURN count(*) AS y",
+               "MATCH (x {id:'a'})-[*2]->(y) RETURN x.id AS x, y.id AS y"]
+    bag, cnt, pair = [_bag("DIAMOND", q, engine) for q in queries]
+    if engine == "polars":
+        for query, got in zip(queries, (bag, cnt, pair)):
+            _assert_polars_routing("DIAMOND", query, got)
+        if any(_is_decline(got) for got in (bag, cnt, pair)):
+            return
     assert bag == ["c", "c"] and cnt == ["2"] and pair == ["c", "c"]
 
 

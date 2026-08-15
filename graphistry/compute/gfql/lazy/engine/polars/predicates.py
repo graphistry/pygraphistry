@@ -98,15 +98,7 @@ def _cmp_expr(
         "DateTimeValue", "TimeValue", "DateValue",
     ):
         return None
-    # Narrow residual: no IEEE NaN mask here (unlike the WHERE/row-pipeline _nan_guard) — on a
-    # GENUINE polars NaN, `col > x` keeps the row (NaN = largest) where pandas drops it.
-    # Unreachable on standard ingestion: from_pandas/df_to_engine convert NaN→null (nan_to_null)
-    # and filter_by_dict runs on INGESTED columns (no in-query float math — that's the WHERE
-    # path). Only a natively-built polars frame with raw NaN diverges; documented, not guarded,
-    # to keep the lowering simple. (Mirrors the documented integer 0/0 column-compare residual.)
-    # Cypher: ORDERING a Boolean column against a number is incomparable -> null
-    # (never satisfies) -- the bool-vs-int twin of the numeric-vs-string decline,
-    # mirroring the pandas predicate guard (#1900). Equality stays served.
+    # Cypher: ORDERING a Boolean against a number is incomparable -> null; equality stays served.
     if (
         op in (operator.gt, operator.lt, operator.ge, operator.le)
         and not isinstance(val, bool)
