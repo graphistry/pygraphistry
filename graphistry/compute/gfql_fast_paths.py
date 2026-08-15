@@ -563,8 +563,6 @@ def _two_hop_equal_domain_degree_counts(
     counts: Tuple[DataFrameT, DataFrameT]
     if engine in POLARS_ENGINES:
         import polars as pl
-        # ONE lazy plan for both degree arms: polars pushes the src/dst projection
-        # into the semi-joins and shares the filtered sub-plan across the collects.
         domain_ids = domain_nodes.lazy().select(node_col).unique()
         filtered_edges = (
             edge_domain.lazy()

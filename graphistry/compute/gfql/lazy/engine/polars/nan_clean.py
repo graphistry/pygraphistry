@@ -23,15 +23,11 @@ if TYPE_CHECKING:
 # frame every call) from O(E)-per-call into O(1) after the first check — the dominant
 # per-call cost for polars/polars-gpu seeded traversal on float-column (i.e. real) graphs.
 #
-# BOUND-FRAME IMMUTABILITY CONTRACT (owner decision, 2026-08-13): frames handed
-# to GFQL are treated as immutable, like any engine with indexes -- that is what
-# makes verdict/index/fact reuse sound. Mutating a bound frame in place
-# (pandas .loc, polars extend/replace_column/insert_column/hstack(in_place=True))
-# is undefined behavior for caches and results; the supported recipe after
-# mutation is REBIND (g.nodes(df)/g.edges(df)) or gfql_clear_caches(). This
-# cache is REGISTERED so that recipe actually works -- the pre-#1883 version was
-# invisible to gfql_clear_caches and the completeness lock, which is what turned
-# a contract violation into an unflushable wrong answer.
+# BOUND-FRAME IMMUTABILITY CONTRACT: frames handed to GFQL are treated as immutable.
+# Mutating one in place (pandas .loc, polars extend/replace_column/insert_column/
+# hstack(in_place=True)) is undefined behavior for caches and results; the supported
+# recipe after mutation is REBIND (g.nodes(df)/g.edges(df)) or gfql_clear_caches().
+# This cache must stay REGISTERED for gfql_clear_caches to reach it.
 _PL_NAN_CLEAN_CACHE_IDS: Set[int] = set()
 
 

@@ -1051,14 +1051,9 @@ def _execute_compiled_query_via_physical_plan(
         # paths, and it cannot be bypassed the way patching a directly-imported name is.
         from graphistry.compute.gfql.index.api import record_fast_path_decision
         from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
-        # Fast paths run BEFORE the chain route, which is where the execution
-        # target is established -- so engine='polars-gpu' serves fast-path work
-        # on CPU (#1824: eager arms never collect, and dgx measured 86 polars-gpu
-        # tests green only via that mislabel). The target stays CPU here until
-        # the fast paths are made GPU-or-decline arm by arm (#1824, next cycle);
-        # the collect routing + NIE-decline plumbing below is already in place
-        # and is a no-op on the CPU target. Flip to ExecutionTarget.GPU on
-        # POLARS_GPU resolutions only together with the per-arm decline work.
+        # Fast paths run before the chain route establishes the execution target, so they
+        # serve on CPU even under engine='polars-gpu'. Do not flip this to GPU without
+        # making each fast-path arm GPU-or-decline (#1824).
         _fp_target = ExecutionTarget.CPU
 
         _FastPathName = Literal["single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop"]
@@ -2053,14 +2048,11 @@ def gfql(self: Plottable,
     :returns: Resulting Plottable
     :rtype: Plottable
     """
-    # TRANSITIONAL guard, not a contract: with a POLICY attached, AUTO serves via
-    # pandas until the polars route emits the postload/postchain hooks -- hooks
-    # are the governance surface and must fire exactly once on whatever engine
-    # serves. The predicate is resolve_engine itself, so EVERY graph AUTO would
-    # route to polars (all-polars AND mixed frames) is guarded -- a frame-shape
-    # check here once let mixed frames bypass a denying policy. Delete this
-    # guard when the hook gap closes; tests pin the hook contract.
-    # (Native-vs-generic magnitudes: pyg-bench, matched q1-q9.)
+    # TRANSITIONAL, not a contract: policy hooks must fire exactly once on whatever engine
+    # serves, and the polars route does not yet emit postload/postchain -- so a policied
+    # AUTO serves via pandas. Delete once the polars route emits them. The predicate must
+    # stay resolve_engine itself: a frame-shape check here let mixed frames bypass a
+    # denying policy.
     if (
         (engine == EngineAbstract.AUTO or engine == EngineAbstract.AUTO.value)
         and policy is not None
@@ -2080,12 +2072,9 @@ def gfql(self: Plottable,
                 shortest_path_backend=shortest_path_backend,
             )
         except NotImplementedError:
-            # AUTO must answer: pandas explicitly, since the generic path would
-            # re-resolve these frames to POLARS and re-raise the same NIE. The
-            # frames must be COERCED first -- the pandas executors are
-            # pandas-idiom, and handing them polars frames crashed 7/7 same-path
-            # projection shapes on the default route (round-002 agent-03 BUG-2;
-            # #1885 was one corner of it).
+            # pandas explicitly, not AUTO: the generic path would re-resolve these frames
+            # to POLARS and re-raise the same NIE. Coerce first -- the pandas executors
+            # are pandas-idiom and do not accept polars frames.
             logger.debug('AUTO polars-native attempt declined; serving via pandas')
             from graphistry.compute.ComputeMixin import _coerce_input_formats
             return gfql(

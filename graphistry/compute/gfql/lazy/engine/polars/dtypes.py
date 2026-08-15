@@ -62,10 +62,9 @@ def is_stringlike(dt: "Optional[PolarsDType]") -> bool:
     return False
 
 
-# --- cross-ENGINE dtype classification (pandas/numpy/arrow/polars), the pushdown
-# planner's contract. Lives with the polars vocabulary because the polars arm is
-# the one that made single-sourcing load-bearing: pandas' classifiers return a
-# confident False for polars dtypes, so per-site fallbacks silently diverged. ---
+# --- cross-engine dtype classification (pandas/numpy/arrow/polars) for the pushdown
+# planner. Single-sourced here: pandas' classifiers return a confident False for polars
+# dtypes, so per-site fallbacks silently diverge. ---
 
 def dtype_text(dtype: object) -> str:
     try:

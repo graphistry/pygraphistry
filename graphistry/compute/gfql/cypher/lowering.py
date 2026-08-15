@@ -9403,18 +9403,14 @@ def compile_cypher_query(
                     query,
                     params=params,
                 )
-            # Honest residual gate: shapes with an optional clause that the
-            # connected optional-match left-join lowering declined (e.g.
-            # variable-length optional arms) and that no null-extension
-            # mechanism above covers would silently inner-join here, dropping
-            # unmatched rows. Decline honestly instead of answering wrong.
-            if (
+            optional_arm_with_no_null_extension = (
                 len(query.matches) >= 2
                 and any(m.optional for m in query.matches)
                 and empty_result_row is None
                 and optional_null_fill is None
                 and optional_projection_row_guard is None
-            ):
+            )
+            if optional_arm_with_no_null_extension:
                 raise _unsupported(
                     "Cypher OPTIONAL MATCH null-extension is not yet supported for this optional-arm shape in the local compiler (this lowering would drop unmatched rows)",
                     field=query.return_.kind,

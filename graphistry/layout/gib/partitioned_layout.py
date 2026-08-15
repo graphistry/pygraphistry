@@ -196,7 +196,6 @@ def partitioned_layout(
         'min': 1
     }).max(axis=1)
 
-    # Vectorized normalize: merge per-partition stats once, no per-row dict lookups.
     # Stats stay in-engine: cudf's merge rejects a pandas right operand.
     combined_with_stats = combined_nodes.merge(
         node_stats[['x_min', 'dx', 'y_min', 'dy']],

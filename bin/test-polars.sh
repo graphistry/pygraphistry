@@ -57,6 +57,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_semi_join_key_frame.py
     graphistry/tests/compute/gfql/test_fast_path_engagement.py
     graphistry/tests/compute/gfql/test_known_cross_engine_divergences.py
+    graphistry/tests/compute/gfql/test_endpoint_closure_matrix.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_fused_polars.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_lowcard_count.py
     # module-level `importorskip("polars")` files that previously ran in no lane at all
