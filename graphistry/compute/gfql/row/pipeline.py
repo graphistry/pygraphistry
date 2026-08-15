@@ -7,10 +7,6 @@ from functools import lru_cache
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Mapping, NoReturn, Optional, Sequence, Tuple, cast
 
-#: Cypher's two numeric kinds; a Literal so a typo'd branch is a type error, not a silent miss.
-CypherNumericKind = Literal["int", "float"]
-from typing_extensions import Literal
-
 import pandas as pd
 from graphistry.Engine import (
     Engine,
@@ -91,6 +87,10 @@ from graphistry.compute.gfql.temporal.durations import (
     parse_temporal_sort_duration_components,
     resolve_duration_text_property,
 )
+
+
+#: Cypher's two numeric kinds; a Literal so a typo'd branch is a type error, not a silent miss.
+CypherNumericKind = Literal["int", "float"]
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
