@@ -181,6 +181,25 @@ def test_hop_seeded_matches_only_closed_edges(engine, seed, direction, want_edge
     assert node_id_set(out) <= want_nodes | {seed}
 
 
+# A SEED id with no node row is itself an unresolvable endpoint, so every edge incident to it
+# is unclosed -- the source side of the rule, which a destination-only reading would pass.
+# MIXED's phantom ids are {5,6,7,8}; each is an endpoint of exactly one edge.
+_PHANTOM_SEED_ORACLE = [(8, "forward"), (8, "undirected"), (5, "forward"), (6, "undirected"),
+                        (7, "reverse"), (0, "forward")]
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("seed,direction", _PHANTOM_SEED_ORACLE)
+def test_hop_seeded_on_an_id_with_no_node_row(engine, seed, direction):
+    """Seed 0 is the positive control: a real node still traverses its closed edge."""
+    _require_engine(engine)
+    out = _bind(engine, MIXED_NODES, MIXED_EDGES).hop(
+        nodes=_seed(engine, [seed]), hops=1, direction=direction, engine=engine)
+    want = {(0, 1)} if seed == 0 else set()
+    assert edge_pair_set(out) == want
+    assert node_id_set(out) == ({0, 1} if seed == 0 else set())
+
+
 @pytest.mark.parametrize("engine", ALL_ENGINES)
 def test_cypher_property_rows_only_closed_edges(engine):
     """Cypher row surface: one row per closed edge, carrying the REAL endpoint attributes."""
