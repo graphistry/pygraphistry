@@ -825,3 +825,84 @@ def test_output_window_on_a_cycle_keeps_only_the_windowed_endpoints(kwargs, want
     assert edge_pair_set(out) == want_edges
     assert node_id_set(out) == want_nodes
     _assert_output_is_endpoint_closed(out)
+
+
+# =============================================================================================
+# AMPLIFICATION ROUND 4 -- the surfaces master gained AFTER rounds 1-3 were written.
+#
+# The branch was rebased onto master carrying #1894 (OPTIONAL MATCH null-extension) and #1893
+# (hop filter-domain / to_fixed_point saturation). Neither had ever been exercised together
+# with the endpoint-closure gate.
+#
+# ANTI-VACUITY, measured at the merge-base (526976e9): of the 8 cells below that run on this
+# box, 5 FAIL there -- both OPTIONAL MATCH cells on pandas and on cudf, and the label cell on
+# cudf. The other 3 are named CONTROLS: polars already applied closure on the OPTIONAL MATCH
+# surface (it was the correct side of #1808), and pandas never raised on the missing label
+# column because pandas .loc creates one.
+# =============================================================================================
+
+# --- AXIS: OPTIONAL MATCH x closure ------------------------------------------------------------
+#
+# openCypher: OPTIONAL MATCH keeps every driving row and NULL-binds the optional aliases when
+# the pattern finds no match. Endpoint closure says a pattern edge matches only when BOTH
+# endpoints resolve to node rows. Composed on MIXED, the two rules answer one question: a row
+# whose only candidate edge is DANGLING is an unmatched row, so it is NULL-extended -- it is
+# never bound to the unbacked id.
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_optional_match_null_extends_a_dangling_endpoint(engine):
+    """MIXED, hand-walked. Driving rows are the node table {0, 1, 2}. Closed out-edges:
+    0 -> (0,1), 1 -> (1,2), 2 -> only the dangling (2,7). So 2 is the unmatched row and binds
+    b to NULL; it must NOT bind b to 7."""
+    _require_engine(engine)
+    rows = _rows(_bind(engine, MIXED_NODES, MIXED_EDGES).gfql(
+        "MATCH (a) OPTIONAL MATCH (a)-[r]->(b) RETURN a.id AS aid, b.id AS bid ORDER BY aid, bid",
+        engine=engine))
+    got = [(int(r["aid"]), None if pd.isna(r["bid"]) else int(r["bid"]))
+           for r in rows.to_dict("records")]
+    assert got == [(0, 1), (1, 2), (2, None)]
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_optional_match_undirected_null_extends_a_dangling_endpoint(engine):
+    """Same rule on the UNDIRECTED optional pattern, which reaches an endpoint the forward
+    cell never touches: id 0 is the DESTINATION of the dangling (8,0). Closed undirected
+    adjacency on MIXED is 0-1 and 1-2, so 0 has neighbour {1} (not 8) and 2 has neighbour {1}
+    (not 7)."""
+    _require_engine(engine)
+    rows = _rows(_bind(engine, MIXED_NODES, MIXED_EDGES).gfql(
+        "MATCH (a) OPTIONAL MATCH (a)-[r]-(b) RETURN a.id AS aid, b.id AS bid ORDER BY aid, bid",
+        engine=engine))
+    got = [(int(r["aid"]), None if pd.isna(r["bid"]) else int(r["bid"]))
+           for r in rows.to_dict("records")]
+    assert got == [(0, 1), (1, 0), (1, 2), (2, 1)]
+
+
+# --- AXIS: the hop-label column under the undirected seed strip --------------------------------
+#
+# The gate made the endpoint backfill CONDITIONAL (it appends only ids the node table does not
+# back), and the backfill is also where the hop-label column used to get materialized. On a
+# result with no surviving edges there is nothing to backfill, so the undirected seed strip --
+# which writes NA into that column for every seed -- is the first writer. pandas creates a
+# column on assignment; cuDF raises. Hence the column has to exist before the strip writes it.
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_undirected_zero_hop_seed_under_an_output_window_labels_before_it_strips(engine):
+    """MIXED, seed 0, hops=0 with include_zero_hop_seed and an output window (the window is
+    what turns hop LABELLING on without a user-visible label column, so the column is internal
+    and gets dropped before this point).
+
+    Hand-walked: hops=0 traverses no edge, so the edge set is empty. The undirected arm then
+    sets every seed's hop label to NA, and the output window keeps a node iff its label is in
+    the window OR it is an endpoint of a surviving edge -- NA satisfies neither and there are
+    no edges, so the node set is empty too. The VALUE is the pandas oracle's; what this cell
+    pins is that cuDF reaches it instead of raising on the missing label column.
+
+    (The polars lane declines include_zero_hop_seed with a typed NIE --
+    test_polars_lane_declines_zero_hop_seed_loudly.)"""
+    _require_engine(engine)
+    out = _bind(engine, MIXED_NODES, MIXED_EDGES).hop(
+        nodes=_seed(engine, [0]), hops=0, direction="undirected",
+        include_zero_hop_seed=True, output_min_hops=0, engine=engine)
+    assert edge_pair_set(out) == set()
+    assert node_id_set(out) == set()
