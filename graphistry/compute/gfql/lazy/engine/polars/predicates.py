@@ -349,6 +349,16 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
         return None
 
     exprs: "List[pl.Expr]" = []
+    # ONE schema resolution per call, shared by every branch and every entry: on a
+    # LazyFrame `df.schema` re-resolves the whole plan (and warns) at each lookup, and
+    # this runs per filtered frame on the count/join hot lanes.
+    _schema_memo: "List[pl.Schema]" = []
+
+    def _dtype_of(name: str) -> "Optional[pl.DataType]":
+        if not _schema_memo:
+            _schema_memo.append(df.collect_schema() if isinstance(df, pl.LazyFrame) else df.schema)
+        return _schema_memo[0].get(name)
+
     for col, val in filter_dict.items():
         resolved_col, resolved_val = resolve_filter_column(df, col, val)
         if isinstance(resolved_val, ASTPredicate):
@@ -365,7 +375,7 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
             # on a Categorical/Enum/numeric column. Raise the SAME clean, typed error so all three
             # engines agree (categorical is treated as non-string here, exactly as filter_by_dict).
             if isinstance(resolved_val, (Contains, Startswith, Endswith, Match)):
-                _col_dtype = df.schema.get(resolved_col)
+                _col_dtype = _dtype_of(resolved_col)
                 if _col_dtype is not None and _col_dtype != pl.String:
                     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
                     raise GFQLSchemaError(
@@ -376,7 +386,7 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
                         column_type=str(_col_dtype),
                         suggestion='Use numeric predicates like gt() or lt() for numeric columns',
                     )
-            expr = predicate_to_expr(resolved_col, resolved_val, df.schema.get(resolved_col))
+            expr = predicate_to_expr(resolved_col, resolved_val, _dtype_of(resolved_col))
             if expr is None:
                 # decline (NIE): no native lowering for this predicate; no pandas bridge.
                 raise NotImplementedError(
@@ -388,7 +398,7 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
             exprs.append(expr)
         elif _is_membership(resolved_val):
             exprs.append(pl.col(resolved_col).is_in(list(resolved_val)))
-        elif isinstance(df.schema.get(resolved_col), pl.List):
+        elif isinstance(_dtype_of(resolved_col), pl.List):
             if resolved_col == "labels":
                 # MATCH (n:Label) = scalar match on the RESERVED `labels` List column ->
                 # list.contains (empty for a non-existent label, matching pandas). A plain ==
@@ -407,7 +417,7 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
             # Scalar equality against an incompatible column dtype: pandas/cuDF raise a
             # typed GFQLSchemaError (E302) up front, polars would leak a raw ComputeError
             # at collect (#1905). Same check, same message, so the contract is engine-wide.
-            _eq_dtype = df.schema.get(resolved_col)
+            _eq_dtype = _dtype_of(resolved_col)
             _empty_eager = isinstance(df, pl.DataFrame) and df.height == 0
             if _eq_dtype is not None and not _empty_eager:
                 from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError

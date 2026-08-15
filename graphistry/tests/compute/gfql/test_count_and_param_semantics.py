@@ -103,6 +103,10 @@ _COUNT_TWIN_CASES = [
     # MIXED, typed to the K edges {e0, e1, e2, e5}: (e0,e2),(e1,e2); e5 cannot pair with
     # itself. 2 bindings.
     (_mixed_graph, "MATCH (a)-[:K]->(b)-[:K]->(c)", "a.id, b.id, c.id", 2),
+    # MIXED, hops typed DIFFERENTLY (typed then untyped), so the two hops read DIFFERENT
+    # edge domains and one edge (the K self-loop e5) is in both: (e0,e2),(e1,e2),(e2,e3);
+    # e5 would have to bind twice. 3 bindings.
+    (_mixed_graph, "MATCH (a)-[:K]->(b)-->(c)", "a.id, b.id, c.id", 3),
     # PARALLEL edges: (a->b #1, b->c), (a->b #2, b->c). 2 bindings.
     (_parallel_graph, "MATCH (a)-->(b)-->(c)", "a.id, b.id, c.id", 2),
     # PARALLEL branching: the two a->b edges, ordered. 2 bindings.

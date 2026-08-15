@@ -550,8 +550,17 @@ def _two_hop_equal_domain_degree_counts(
     src_col: str,
     dst_col: str,
     engine: Engine,
-) -> Tuple[DataFrameT, DataFrameT]:
-    """In/out degree frames over the equal-domain filtered edges, per engine.
+) -> Tuple[DataFrameT, DataFrameT, int]:
+    """In/out degree frames + trail-illegal self-loop count over the equal-domain edges.
+
+    The third value is ``|{e in the domain-restricted edges : src(e) == dst(e)}|`` --
+    the ``(r, r)`` pairs openCypher TRAIL semantics forbid (#1905). On the EQUAL-domain
+    shape that count IS the correction: one relationship can serve both hops only as a
+    self-loop, and the single domain covers all three node roles. It rides the SAME
+    sub-plan as the two degree arms (polars: a third sink over the shared semi-join,
+    which ``collect_all`` serves out of the arms' work; pandas: one compare over the
+    already-restricted frame), so it costs no extra pass over the edge frame -- the
+    separate O(E) probe it replaces cost +0.4..0.5ms per call at 200k/2.4M edges.
 
     PURE -- no memo. A cross-call memo here was #1825: setattr onto the caller's
     Plottable keyed by id(), which returns a STALE answer after an in-place frame
@@ -561,28 +570,34 @@ def _two_hop_equal_domain_degree_counts(
     CONTENT edits under a declared index are the documented immutability
     assumption, not something any fingerprint detects.
     """
-    counts: Tuple[DataFrameT, DataFrameT]
+    counts: Tuple[DataFrameT, DataFrameT, int]
     if engine in POLARS_ENGINES:
         import polars as pl
-        # ONE lazy plan for both degree arms: polars pushes the src/dst projection
+        # ONE lazy plan for all three sinks: polars pushes the src/dst projection
         # into the semi-joins and shares the filtered sub-plan across the collects.
-        domain_ids = domain_nodes.lazy().select(node_col).unique()
+        # No `unique()` on the build side: a semi-join tests EXISTENCE, so duplicate
+        # ids cannot duplicate a left row -- deduping first is a wasted O(N) pass.
+        domain_ids = domain_nodes.lazy().select(node_col)
         filtered_edges = (
             edge_domain.lazy()
             .join(domain_ids, left_on=src_col, right_on=node_col, how="semi")
             .join(domain_ids, left_on=dst_col, right_on=node_col, how="semi")
         )
-        in_counts, out_counts = _lazy_collect_all([
+        in_counts, out_counts, loops = _lazy_collect_all([
             filtered_edges.group_by(dst_col).len("__in_count__"),
             filtered_edges.group_by(src_col).len("__out_count__"),
+            filtered_edges.select((pl.col(src_col) == pl.col(dst_col)).sum().alias("__self_loops__")),
         ])
-        counts = (in_counts, out_counts)  # type: ignore[assignment]  # polars frames; DataFrameT pins pandas
+        counts = (in_counts, out_counts, int(loops.item() or 0))  # type: ignore[assignment]  # polars frames; DataFrameT pins pandas
     else:
         domain_ids = domain_nodes[node_col].drop_duplicates()
         filtered_edges = edge_domain[edge_domain[src_col].isin(domain_ids) & edge_domain[dst_col].isin(domain_ids)]
         counts = (
             filtered_edges.groupby(dst_col, sort=False).size().reset_index(name="__in_count__"),
             filtered_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__"),
+            # Compare only -- no boolean-indexed row materialization, and null == null
+            # is False on both engines, matching the polars sink above.
+            int((filtered_edges[src_col] == filtered_edges[dst_col]).sum()),
         )
     return counts
 
@@ -1616,6 +1631,13 @@ def _two_hop_count_alias(chain: Chain) -> Optional[str]:
 
 _TWO_HOP_IN_COUNT_COL = "__in_count__"
 _TWO_HOP_OUT_COUNT_COL = "__out_count__"
+#: Alias for the one-cell scalar sinks of the fused lane (degree product, loop count).
+_TWO_HOP_SCALAR_COL = "__two_hop_scalar__"
+
+
+def _polars_scalar_int(frame: "pl.DataFrame") -> int:
+    """One-cell polars frame -> int; an EMPTY sink reads as 0 (count over no rows)."""
+    return 0 if frame.height == 0 else int(frame.item() or 0)
 
 
 def _two_hop_count_fused_polars(
@@ -1629,7 +1651,7 @@ def _two_hop_count_fused_polars(
     src_col: str,
     dst_col: str,
     alias: str,
-    illegal_pairs: int = 0,
+    illegal_pairs: Optional[int] = 0,
 ) -> Optional[DataFrameT]:
     """FUSED lazy lane for the DISTINCT-DOMAIN two-hop count:
     ``MATCH (a)-[]->(b)-[]->(c) RETURN count(*)`` where the three node domains and/or
@@ -1651,6 +1673,12 @@ def _two_hop_count_fused_polars(
     value is identical, including openCypher's count-over-no-rows 0 on an empty match.
     Returns None to DECLINE (non-eager polars input, reserved count-column collision)
     so the caller falls through to the eager twin rather than answering differently.
+
+    ``illegal_pairs`` is the trail correction (#1905). An int is subtracted as given;
+    ``None`` means "compute it here", which is legal ONLY when both hops read the SAME
+    filtered edge frame -- then the illegal ``(r, r)`` pairs are exactly the self-loops
+    at nodes in all three domains, and they ride this plan as a second sink over the
+    id sub-plans the arms already build, instead of a separate eager O(E) probe.
     """
     import polars as pl
 
@@ -1668,11 +1696,19 @@ def _two_hop_count_fused_polars(
             # eager twin answers this shape correctly -- so hand it back rather than bet.
             return None
 
+    if illegal_pairs is None and second_edges is not first_edges:
+        # Two DIFFERENT filtered edge frames: an illegal pair needs a self-loop passing
+        # BOTH relationship filters, which neither frame alone answers -- the caller
+        # owns that shape (it hands an int in).
+        return None
+
     lf_first: "pl.LazyFrame" = first_edges.lazy()
     lf_second: "pl.LazyFrame" = lf_first if second_edges is first_edges else second_edges.lazy()
 
     def ids_of(frame: DataFrameT) -> "pl.LazyFrame":
-        return cast("pl.DataFrame", frame).lazy().select(node_col).unique()
+        # No `unique()`: a semi-join tests EXISTENCE, so duplicate build-side ids cannot
+        # duplicate a left row -- deduping the domain first is a wasted O(N) pass.
+        return cast("pl.DataFrame", frame).lazy().select(node_col)
 
     # Reuse the SAME sub-plan when the caller aliased the frames (equal filter dicts),
     # so the optimizer sees one node scan instead of three.
@@ -1700,6 +1736,29 @@ def _two_hop_count_fused_polars(
         .group_by(src_col)
         .len(_TWO_HOP_OUT_COUNT_COL)
     )
+    if illegal_pairs is None:
+        # Second sink, same collect: the self-loops of the shared edge frame that sit in
+        # ALL THREE domains -- the only way one relationship binds both hops. Semi-joining
+        # the (tiny) self-loop rows against the SAME id sub-plans keeps the domain work
+        # out of the correction; the eager probe it replaces re-derived those id frames.
+        loops_lf = (
+            lf_first
+            .filter(pl.col(src_col) == pl.col(dst_col))
+            .join(start_ids, left_on=src_col, right_on=node_col, how="semi")
+            .join(middle_ids, left_on=src_col, right_on=node_col, how="semi")
+            .join(end_ids, left_on=src_col, right_on=node_col, how="semi")
+            .select(pl.len().alias(_TWO_HOP_SCALAR_COL))
+        )
+        product_lf = (
+            in_counts
+            .join(out_counts, left_on=dst_col, right_on=src_col, how="inner")
+            .select((pl.col(_TWO_HOP_IN_COUNT_COL) * pl.col(_TWO_HOP_OUT_COUNT_COL))
+                    .sum().fill_null(0).alias(_TWO_HOP_SCALAR_COL))
+        )
+        product_df, loops_df = _lazy_collect_all([product_lf, loops_lf])
+        total = _polars_scalar_int(product_df) - _polars_scalar_int(loops_df)
+        return cast(DataFrameT, pl.DataFrame({alias: [total]}, schema={alias: pl.Int64}))  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
+
     total_lf = (
         in_counts
         .join(out_counts, left_on=dst_col, right_on=src_col, how="inner")
@@ -2963,9 +3022,18 @@ def _execute_two_hop_count_fast_path(
             out._edges = df_cons(requested_engine)()
             return out
 
-    # openCypher TRAIL (#1905): the degree product also counts (r, r), which no
-    # binding may bind twice; subtract it from every non-dense branch below.
-    illegal_pairs = _two_hop_trail_illegal_pairs(
+    # openCypher TRAIL (#1905): the degree product also counts (r, r), which no binding
+    # may bind twice; every non-dense branch below subtracts it. Where BOTH hops read the
+    # same filtered edge frame, the counting lane derives it from a frame it ALREADY
+    # scans and this standalone O(E) probe -- the residual #1905 count regression -- is
+    # skipped. The probe still owns the shapes no lane can fold: two DIFFERENT
+    # relationship filters (an illegal pair must pass both, which no single arm frame
+    # sees), and the pandas/cuDF distinct-domain lane, where folding measured SLOWER than
+    # this one early-exiting compare (+4.9ms on a 2.4M-edge count).
+    shared_edge_domain = second_edges is first_edges
+    lane_folds_correction = reuse_single_edge_domain or (
+        requested_engine in POLARS_ENGINES and shared_edge_domain)
+    illegal_pairs = 0 if lane_folds_correction else _two_hop_trail_illegal_pairs(
         cast(DataFrameT, edges_obj),  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
         start_nodes,
         middle_nodes,
@@ -2995,7 +3063,7 @@ def _execute_two_hop_count_fast_path(
             src_col=src_col,
             dst_col=dst_col,
             alias=alias,
-            illegal_pairs=illegal_pairs,
+            illegal_pairs=None if shared_edge_domain else illegal_pairs,
         )
 
     if fused_total is not None:
@@ -3003,7 +3071,7 @@ def _execute_two_hop_count_fast_path(
     elif requested_engine in POLARS_ENGINES:
         import polars as pl
         if reuse_single_edge_domain:
-            in_counts, out_counts = _two_hop_equal_domain_degree_counts(
+            in_counts, out_counts, illegal_pairs = _two_hop_equal_domain_degree_counts(
                 start_nodes,
                 first_edges,
                 node_col=node_col,
@@ -3015,6 +3083,17 @@ def _execute_two_hop_count_fast_path(
             start_ids = start_nodes.select(node_col).unique()
             middle_ids = middle_nodes.select(node_col).unique()
             end_ids = end_nodes.select(node_col).unique()
+            if shared_edge_domain:
+                # Fused-lane DECLINE fallback: same correction, computed eagerly here --
+                # the self-loops of the shared edge frame that sit in all three domains.
+                # Starts from a frame this branch already holds, and everything after the
+                # first filter is self-loop-sized.
+                loops = first_edges.filter(pl.col(src_col) == pl.col(dst_col))
+                for _domain_ids in (start_ids, middle_ids, end_ids):
+                    if len(loops) == 0:
+                        break
+                    loops = loops.join(_domain_ids, left_on=src_col, right_on=node_col, how="semi")
+                illegal_pairs = len(loops)
             in_counts = (
                 first_edges
                 .join(start_ids, left_on=src_col, right_on=node_col, how="semi")
@@ -3040,7 +3119,7 @@ def _execute_two_hop_count_fast_path(
         out_nodes = cast(DataFrameT, total_df)
     else:
         if reuse_single_edge_domain:
-            in_counts, out_counts = _two_hop_equal_domain_degree_counts(
+            in_counts, out_counts, illegal_pairs = _two_hop_equal_domain_degree_counts(
                 start_nodes,
                 first_edges,
                 node_col=node_col,
