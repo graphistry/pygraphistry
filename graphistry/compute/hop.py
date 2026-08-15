@@ -4,7 +4,7 @@ Graph hop/traversal operations for PyGraphistry.
 NOTE: Excluded from pyre (.pyre_configuration) - hop() complexity causes hang. Use mypy.
 """
 import os
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union, cast
+from typing import Any, Callable, Dict, Hashable, List, Optional, Set, Tuple, TYPE_CHECKING, Union, cast
 import pandas as pd
 
 from graphistry.Engine import (
@@ -43,6 +43,30 @@ def query_if_not_none(query: Optional[str], df: DataFrameT) -> DataFrameT:
     if query is None:
         return df
     return df.query(query)
+
+
+def _reached_node_ids(matches_nodes: Optional[DataFrameT], node_col: str) -> Set[Hashable]:
+    if matches_nodes is None or len(matches_nodes) == 0:
+        return set()
+    reached = column_values(matches_nodes, node_col)
+    reached = reached.to_pandas() if hasattr(reached, "to_pandas") else reached
+    return set(reached.tolist())
+
+
+def _endpoint_ids_without_node_rows(
+    g: Plottable, engine_bound_concat: Callable[..., DataFrameT],
+) -> DataFrameT:
+    """Endpoint ids the node table does not back."""
+    concat = engine_bound_concat
+    endpoints = concat(
+        [
+            g._edges[[g._source]].rename(columns={g._source: g._node}),
+            g._edges[[g._destination]].rename(columns={g._destination: g._node}),
+        ],
+        ignore_index=True,
+        sort=False,
+    ).drop_duplicates(subset=[g._node])
+    return endpoints[~endpoints[g._node].isin(g._nodes[g._node])]
 
 
 @otel_traced("gfql.hop", attrs_fn=_hop_otel_attrs)
@@ -327,15 +351,12 @@ def hop(self: Plottable,
         # Allow intermediate hops to traverse graph nodes while constraining final targets.
         base_target_nodes = concat([target_wave_front, g2._nodes], ignore_index=True, sort=False).drop_duplicates(subset=[node_col])
 
-    # #1888 endpoint closure: with a node table BOUND, an edge can match only if BOTH
-    # endpoints resolve to node rows (Cypher: `(a)-[]->(b)` binds nodes at both ends) —
-    # symmetric source/destination gate (#1808 asymmetry fix). Nodes synthesized from
-    # edges (self._nodes is None) are vacuously closed, so skip the O(E) pass there.
-    if self._nodes is not None:
-        _closure_ids = base_target_nodes[node_col]
+    node_table_bound = self._nodes is not None
+    if node_table_bound:
+        ids_an_endpoint_may_resolve_to = base_target_nodes[node_col]
         edges_indexed = edges_indexed[
-            edges_indexed[source_col].isin(_closure_ids)
-            & edges_indexed[destination_col].isin(_closure_ids)
+            edges_indexed[source_col].isin(ids_an_endpoint_may_resolve_to)
+            & edges_indexed[destination_col].isin(ids_an_endpoint_may_resolve_to)
         ]
 
     def _build_allowed_ids(
@@ -351,9 +372,9 @@ def hop(self: Plottable,
     allowed_source_ids: Optional[DataFrameT] = None
     if source_node_match is not None or source_node_query is not None:
         source_base_nodes = g2._nodes
-        if seeds_provided and not to_fixed_point and resolved_max_hops == 1:
-            # #1892 F-01: source filters read the node TABLE at every hops value; at
-            # single hop only seeds can be sources, so semi-join seeds first for cost.
+        only_seeds_can_be_sources = (
+            seeds_provided and not to_fixed_point and resolved_max_hops == 1)
+        if only_seeds_can_be_sources:
             source_base_nodes = g2._nodes[g2._nodes[node_col].isin(starting_nodes[node_col])]
         allowed_source_ids = _build_allowed_ids(source_base_nodes, source_node_match, source_node_query)
 
@@ -904,6 +925,19 @@ def hop(self: Plottable,
                     queue.append(neighbor)
         return loop_nodes | {node_id for node_id in degrees if node_id not in removed}
 
+    def _undirected_rediscovered_seed_ids(
+        edges_df: DataFrameT,
+        seed_nodes_df: DataFrameT,
+        reached_nodes: Optional[DataFrameT],
+    ) -> Set[Hashable]:
+        """Seeds a walk that REUSES NO EDGE arrives back at: another seed shares the
+        component, or the seed lies on a cycle -- and the traversal actually reached it."""
+        rediscovered = _undirected_component_seed_keep_ids(edges_df, seed_nodes_df)
+        rediscovered |= _undirected_cycle_nodes(edges_df)
+        if not rediscovered:
+            return rediscovered
+        return rediscovered & _reached_node_ids(reached_nodes, node_col)
+
     if self._nodes is not None:
         rich_nodes = self._nodes
         if target_wave_front is not None:
@@ -995,35 +1029,21 @@ def hop(self: Plottable,
 
         g_out = g_out.nodes(final_nodes)
 
-    # Ensure all edge endpoints are present in nodes. Only MISSING endpoints are
-    # appended (#1888): with endpoint closure the edge frame cannot reference an id
-    # outside a bound node table, so for the common case this is empty and the old
-    # unconditional concat — which synthesized NaN-attribute rows and upcast attr
-    # dtypes (e.g. int64 -> float64) even when nothing was missing — never runs.
-    # Wavefront-mode outputs whose node frame omits an endpoint side still backfill.
     if g_out._edges is not None and len(g_out._edges) > 0 and g_out._nodes is not None:
-        endpoints = concat(
-            [
-                g_out._edges[[g_out._source]].rename(columns={g_out._source: g_out._node}),
-                g_out._edges[[g_out._destination]].rename(columns={g_out._destination: g_out._node}),
-            ],
-            ignore_index=True,
-            sort=False,
-        ).drop_duplicates(subset=[g_out._node])
-        endpoints = endpoints[~endpoints[g_out._node].isin(g_out._nodes[g_out._node])]
-        if len(endpoints) > 0:
+        unbacked_endpoints = _endpoint_ids_without_node_rows(g_out, concat)
+        nodes_out = g_out._nodes
+        if len(unbacked_endpoints) > 0:
             if track_node_hops and node_hop_records is not None and node_hop_col is not None:
-                endpoints = safe_merge(
-                    endpoints,
+                unbacked_endpoints = safe_merge(
+                    unbacked_endpoints,
                     node_hop_records[[g_out._node, node_hop_col]].drop_duplicates(subset=[g_out._node]),
                     on=g_out._node,
                     how='left'
                 )
-            endpoints = align_shared_column_dtypes(g_out._nodes, endpoints)
-            g_out = g_out.nodes(safe_row_concat([g_out._nodes, endpoints], ignore_index=True, sort=False).drop_duplicates(subset=[g_out._node]))
-        else:
-            # Preserve the block's historical node-table dedup side effect.
-            g_out = g_out.nodes(g_out._nodes.drop_duplicates(subset=[g_out._node]))
+            unbacked_endpoints = align_shared_column_dtypes(nodes_out, unbacked_endpoints)
+            nodes_out = safe_row_concat(
+                [nodes_out, unbacked_endpoints], ignore_index=True, sort=False)
+        g_out = g_out.nodes(nodes_out.drop_duplicates(subset=[g_out._node]))
 
     if track_node_hops and node_hop_records is not None and node_hop_col is not None and g_out._nodes is not None:
         hop_map = (
@@ -1168,18 +1188,8 @@ def hop(self: Plottable,
     ):
         wavefront_seed_ids_df = cast(DataFrameT, column_frame(starting_nodes, node_col).drop_duplicates())
         if direction == 'undirected' and to_fixed_point:
-            # NOTE: both helpers are O(E) python itertuples walks; vectorize if this arm gets hot.
-            keep_seed_ids = _undirected_component_seed_keep_ids(final_edges, wavefront_seed_ids_df)
-            keep_seed_ids |= _undirected_cycle_nodes(final_edges)
-            # #1892 F-02: the topology-only heuristics ignore source/dest filter pruning;
-            # keep only seeds the traversal re-encountered so tfp == saturated bounded.
-            if keep_seed_ids:
-                if matches_nodes is None or len(matches_nodes) == 0:
-                    keep_seed_ids = set()
-                else:
-                    reached_vals = column_values(matches_nodes, node_col)
-                    reached_pdf = reached_vals.to_pandas() if hasattr(reached_vals, "to_pandas") else reached_vals
-                    keep_seed_ids &= set(reached_pdf.tolist())
+            keep_seed_ids = _undirected_rediscovered_seed_ids(
+                final_edges, wavefront_seed_ids_df, matches_nodes)
             seed_mask = g_out._nodes[node_col].isin(column_values(wavefront_seed_ids_df, node_col))
             if keep_seed_ids:
                 keep_mask = g_out._nodes[node_col].isin(list(keep_seed_ids))
