@@ -70,6 +70,8 @@ from graphistry.compute.gfql.row.entity_text import (
     is_entity_text_scalar,
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN
+from graphistry.compute.gfql.identifiers import ROW_EDGE_IDENTITY_BASE
+from graphistry.compute.util import generate_safe_column_name
 from graphistry.compute.gfql.cache_registry import register_process_singleton
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype, series_sequence_len, series_str_match
 from graphistry.compute.gfql.row.ordering import (
@@ -3508,6 +3510,32 @@ class RowPipelineMixin:
         return "connected_path"
 
     @staticmethod
+    def _gfql_unshadow_alias_marker_column(
+        lookup_source: Optional[DataFrameT],
+        alias: str,
+        base_frame: Optional[DataFrameT],
+        key_col: str,
+    ) -> Optional[DataFrameT]:
+        """Restore a user column that the alias marker overwrote, for property lookup (#1911).
+
+        ``ASTNode``/``ASTEdge.execute`` stamp the alias flag as ``<alias> = True``, so a
+        graph whose entity column is named like the alias (``MATCH (kind:P) ... kind.kind``)
+        had that column read back as ``True``. The binding column is rebuilt from ids, not
+        from the marker, so restoring the user values here only affects property reads.
+        """
+        if base_frame is None or lookup_source is None:
+            return lookup_source
+        if alias == key_col:
+            return lookup_source
+        if alias not in getattr(base_frame, "columns", []) or alias not in lookup_source.columns:
+            return lookup_source
+        if key_col not in lookup_source.columns or key_col not in base_frame.columns:
+            return lookup_source
+        return lookup_source.drop(columns=[alias]).merge(
+            base_frame[[key_col, alias]], on=key_col, how="left"
+        )
+
+    @staticmethod
     def _gfql_node_alias_lookup_frame(lookup_source: Any, node_id: str, alias: str) -> Any:
         lookup = lookup_source[[node_id]].copy()
         lookup[alias] = lookup_source[node_id]
@@ -3583,6 +3611,7 @@ class RowPipelineMixin:
         avoid_immediate_backtrack: bool = False,
         hop_column: Optional[str] = None,
         trail_cols: Optional[List[str]] = None,
+        ident_col: str = "__gfql_edge_ident_0__",
     ) -> Tuple[Any, List[str]]:
         reachable: List[Any] = []
         current = state_df.copy()
@@ -3595,7 +3624,7 @@ class RowPipelineMixin:
         # new edge against every edge already bound on the path (this segment's
         # AND prior pattern elements'), then records it.
         trail_tracking = (
-            not shortest_path_mode and "__gfql_edge_ident__" in getattr(step_pairs, "columns", [])
+            not shortest_path_mode and ident_col in getattr(step_pairs, "columns", [])
         )
         outer_trail_cols = list(trail_cols or [])
         segment_trail_cols: List[str] = []
@@ -3628,13 +3657,13 @@ class RowPipelineMixin:
                 for used_col in outer_trail_cols + segment_trail_cols:
                     if len(current) == 0:
                         break
-                    keep = current["__gfql_edge_ident__"].ne(current[used_col]) | current[used_col].isna()
+                    keep = current[ident_col].ne(current[used_col]) | current[used_col].isna()
                     current = current[keep]
                 if len(current) == 0:
                     exhausted = True
                     break
                 hop_trail_col = f"__gfql_trail_{len(outer_trail_cols) + len(segment_trail_cols)}__"
-                current = current.rename(columns={"__gfql_edge_ident__": hop_trail_col})
+                current = current.rename(columns={ident_col: hop_trail_col})
                 segment_trail_cols.append(hop_trail_col)
             if avoid_immediate_backtrack:
                 prev_missing = current[prev_col].isna()
@@ -3888,9 +3917,18 @@ class RowPipelineMixin:
         # mode skips this: BFS never reuses an edge on a shortest route.)
         trail_cols: List[str] = []
         base_edges_frame = base_graph._edges
-        if base_edges_frame is not None and "__gfql_edge_ident__" not in base_edges_frame.columns:
+        # #1911: resolve the identity name against the user's edge columns instead of
+        # testing a bare literal -- a user column literally named ``__gfql_edge_ident__``
+        # was otherwise adopted AS the identity (its values silently standing in for
+        # per-edge identity, and the column lost from whole-entity relationship output).
+        ident_col = (
+            generate_safe_column_name(ROW_EDGE_IDENTITY_BASE, base_edges_frame)
+            if base_edges_frame is not None
+            else f"__gfql_{ROW_EDGE_IDENTITY_BASE}_0__"
+        )
+        if base_edges_frame is not None:
             base_graph = base_graph.edges(
-                base_edges_frame.assign(__gfql_edge_ident__=range(len(base_edges_frame)))
+                base_edges_frame.assign(**{ident_col: range(len(base_edges_frame))})
             )
 
         for edge_idx in range(1, len(ops), 2):
@@ -3930,10 +3968,17 @@ class RowPipelineMixin:
 
             rename_map = {}
             if isinstance(edge_alias, str) and edges_df_step is not None:
+                # #1911: same marker shadowing as the node side, keyed on the edge identity
+                # column this function already materialized.
+                unshadowed = self._gfql_unshadow_alias_marker_column(
+                    edges_df_step, edge_alias, base_graph._edges, ident_col
+                )
+                assert unshadowed is not None  # non-None in, non-None out
+                edges_df_step = unshadowed
                 rename_map = {
                     col: f"{edge_alias}.{col}"
                     for col in edges_df_step.columns
-                    if col not in {src_col, dst_col, "__gfql_edge_ident__"}
+                    if col not in {src_col, dst_col, ident_col}
                 }
             hop_column = getattr(edge_op, "label_node_hops", None)
             shortest_path_mode = bool(
@@ -3944,8 +3989,8 @@ class RowPipelineMixin:
                     edges_df_step if edges_df_step is not None else state_df,
                     columns=["__from__", "__to__"],
                 )
-                if "__gfql_edge_ident__" not in oriented.columns:
-                    oriented["__gfql_edge_ident__"] = self._gfql_broadcast_scalar(oriented, None)
+                if ident_col not in oriented.columns:
+                    oriented[ident_col] = self._gfql_broadcast_scalar(oriented, None)
             else:
                 oriented = sem.orient_edges(
                     edges_df_step,
@@ -3953,17 +3998,17 @@ class RowPipelineMixin:
                     dst_col,
                     dedupe=False,
                 ).rename(columns=rename_map)
-                if not shortest_path_mode and "__gfql_edge_ident__" in oriented.columns:
+                if not shortest_path_mode and ident_col in oriented.columns:
                     # A self-loop's two undirected orientations are the SAME
                     # binding: dedupe the flip twin (#1903 / addendum A-1).
                     oriented = oriented.drop_duplicates(
-                        subset=["__from__", "__to__", "__gfql_edge_ident__"], keep="first"
+                        subset=["__from__", "__to__", ident_col], keep="first"
                     )
 
             if sem.is_multihop:
                 step_cols = ["__from__", "__to__"] + (
-                    ["__gfql_edge_ident__"]
-                    if not shortest_path_mode and "__gfql_edge_ident__" in oriented.columns
+                    [ident_col]
+                    if not shortest_path_mode and ident_col in oriented.columns
                     else []
                 )
                 step_pairs = oriented[step_cols].drop_duplicates(keep="first")
@@ -3982,19 +4027,20 @@ class RowPipelineMixin:
                     avoid_immediate_backtrack=sem.is_undirected and shortest_path_mode,
                     hop_column=edge_op.label_node_hops,
                     trail_cols=trail_cols,
+                    ident_col=ident_col,
                 )
                 trail_cols = trail_cols + segment_trail_cols
             else:
                 state_df = state_df.merge(oriented, left_on="__current__", right_on="__from__", how="inner")
                 state_df = state_df.drop(columns=["__current__", "__from__"]).rename(columns={"__to__": "__current__"})
-                if not shortest_path_mode and "__gfql_edge_ident__" in state_df.columns:
+                if not shortest_path_mode and ident_col in state_df.columns:
                     for trail_col in trail_cols:
                         if len(state_df) == 0:
                             break
-                        keep = state_df["__gfql_edge_ident__"].ne(state_df[trail_col]) | state_df[trail_col].isna()
+                        keep = state_df[ident_col].ne(state_df[trail_col]) | state_df[trail_col].isna()
                         state_df = state_df[keep]
                     new_trail_col = f"__gfql_trail_{len(trail_cols)}__"
-                    state_df = state_df.rename(columns={"__gfql_edge_ident__": new_trail_col})
+                    state_df = state_df.rename(columns={ident_col: new_trail_col})
                     trail_cols = trail_cols + [new_trail_col]
 
             if len(state_df) == 0:
@@ -4244,6 +4290,9 @@ class RowPipelineMixin:
             lookup_source = alias_frames.get(alias)
             if lookup_source is None or node_id not in lookup_source.columns:
                 lookup_source = empty_lookup_source
+            lookup_source = self._gfql_unshadow_alias_marker_column(
+                lookup_source, alias, base_nodes, node_id
+            )
             lookup = self._gfql_node_alias_lookup_frame(lookup_source, node_id, alias)
             bindings = bindings.merge(
                 lookup,

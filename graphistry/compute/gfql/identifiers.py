@@ -7,6 +7,12 @@ INTERNAL_COLUMN_PATTERN: str = '__gfql_*__'
 INTERNAL_COLUMN_PREFIX: str = '__gfql_'
 INTERNAL_COLUMN_SUFFIX: str = '__'
 
+# Base names for internal columns that BOTH row engines materialize. Never inline the
+# rendered name: resolve through generate_safe_column_name(_from) against the user's
+# frame so a user column of the same name is never clobbered (#1911).
+ROW_EDGE_IDENTITY_BASE: str = 'edge_ident'
+EDGE_INDEX_BASE: str = 'edge_index'
+
 
 def is_internal_column(name: str) -> bool:
     """Check if name matches internal column pattern __gfql_*__."""

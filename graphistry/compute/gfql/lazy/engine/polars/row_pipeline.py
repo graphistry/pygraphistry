@@ -42,6 +42,8 @@ from graphistry.compute.gfql.agg_types import (
     raise_non_numeric_aggregation,
 )
 from graphistry.compute.gfql.call.support import AggSpec, OrderKey, SelectItem
+from graphistry.compute.gfql.identifiers import ROW_EDGE_IDENTITY_BASE
+from graphistry.compute.util import generate_safe_column_name_from
 from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
 # Same-package sibling holding the var-length specializations. Safe at module scope:
 # `varlen_rows` has no runtime module-level imports of its own (polars and the pandas
@@ -1771,8 +1773,11 @@ def binding_rows_polars(
             edges_lf = edges_lf.with_columns(_endpoint_casts)
         # openCypher trail semantics (#1903): stable per-edge identity for the
         # at-most-once-per-path relationship constraint (pandas twin:
-        # _gfql_connected_bindings_state's __gfql_edge_ident__).
-        edges_lf = edges_lf.with_row_index("__gfql_edge_ident__")
+        # _gfql_connected_bindings_state's edge-identity column). #1911: the name is
+        # resolved against the user's edge columns, never the bare literal --
+        # ``with_row_index`` raises `duplicate column name` on a collision.
+        _ident_col = generate_safe_column_name_from(ROW_EDGE_IDENTITY_BASE, _edge_schema.names())
+        edges_lf = edges_lf.with_row_index(_ident_col)
         trail_cols_pl: List[str] = []
         first_op = ops[0]
         if not isinstance(first_op, ASTNode):
@@ -1805,12 +1810,12 @@ def binding_rows_polars(
                 payload_renames = {
                     col: f"{edge_alias}.{col}"
                     for col in _names(edges_f)
-                    if col not in (src, dst, "__gfql_edge_ident__")
+                    if col not in (src, dst, _ident_col)
                 }
             else:
                 # Unaliased edge payload is unaddressable downstream; carrying it
                 # unprefixed (as pandas does) only risks column collisions.
-                edges_f = edges_f.select([src, dst, "__gfql_edge_ident__"])
+                edges_f = edges_f.select([src, dst, _ident_col])
                 payload_renames = {}
             if sem.is_undirected:
                 fwd = edges_f.rename({src: "__from__", dst: "__to__"})
@@ -1819,7 +1824,7 @@ def binding_rows_polars(
                 # A self-loop's two undirected orientations are the SAME binding:
                 # dedupe the flip twin (#1903 / addendum A-1).
                 oriented = oriented.unique(
-                    subset=["__from__", "__to__", "__gfql_edge_ident__"],
+                    subset=["__from__", "__to__", _ident_col],
                     keep="first",
                     maintain_order=True,
                 )
@@ -1885,7 +1890,7 @@ def binding_rows_polars(
                     max_hops = int(max_hops_value)
                     normal = edges_f.filter(pl.col(src) != pl.col(dst))
                     loops = edges_f.filter(pl.col(src) == pl.col(dst))
-                    ident = pl.col("__gfql_edge_ident__")
+                    ident = pl.col(_ident_col)
                     fwd = normal.select([pl.col(src).alias("__from__"), pl.col(dst).alias("__to__"), ident])
                     rev = normal.select([pl.col(dst).alias("__from__"), pl.col(src).alias("__to__"), ident])
                     loop = loops.select([pl.col(src).alias("__from__"), pl.col(dst).alias("__to__"), ident])
@@ -1899,10 +1904,10 @@ def binding_rows_polars(
                         )
                         for _used in trail_cols_pl + _und_trail_cols:
                             joined = joined.filter(
-                                (pl.col("__gfql_edge_ident__") != pl.col(_used)) | pl.col(_used).is_null()
+                                (pl.col(_ident_col) != pl.col(_used)) | pl.col(_used).is_null()
                             )
                         _hop_trail = f"__gfql_trail_{len(trail_cols_pl) + len(_und_trail_cols)}__"
-                        joined = joined.rename({"__gfql_edge_ident__": _hop_trail})
+                        joined = joined.rename({_ident_col: _hop_trail})
                         _und_trail_cols.append(_hop_trail)
                         joined = joined.drop("__current__").rename({"__to__": "__current__"})
                         current = joined.select(state_cols + _und_trail_cols)
@@ -1915,11 +1920,12 @@ def binding_rows_polars(
                     # trail-tracked (#1903).
                     state, _seg_trail_cols = _directed_varlen_reachable_polars(
                         state,
-                        oriented.select(["__from__", "__to__", "__gfql_edge_ident__"]),
+                        oriented.select(["__from__", "__to__", _ident_col]),
                         state_cols,
                         min_hops=min_hops,
                         max_hops=int(max_hops_value),
                         trail_cols_in=trail_cols_pl,
+                        ident_col=_ident_col,
                     )
                     trail_cols_pl = trail_cols_pl + _seg_trail_cols
             else:
@@ -1930,10 +1936,10 @@ def binding_rows_polars(
                 )
                 for _used in trail_cols_pl:
                     state = state.filter(
-                        (pl.col("__gfql_edge_ident__") != pl.col(_used)) | pl.col(_used).is_null()
+                        (pl.col(_ident_col) != pl.col(_used)) | pl.col(_used).is_null()
                     )
                 _new_trail = f"__gfql_trail_{len(trail_cols_pl)}__"
-                state = state.rename({"__gfql_edge_ident__": _new_trail})
+                state = state.rename({_ident_col: _new_trail})
                 trail_cols_pl = trail_cols_pl + [_new_trail]
 
             state = state.join(
