@@ -43,19 +43,35 @@ and the ``ErrorCode`` cannot drift between engines.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final, FrozenSet, NoReturn, Optional
+from typing import TYPE_CHECKING, Final, FrozenSet, List, Mapping, NoReturn, Optional, Union
 
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
 if TYPE_CHECKING:
     import polars as pl
 
+    from graphistry.compute.gfql.cypher.ast import CypherScalar
     from graphistry.compute.typing import SeriesT
 
 
-#: Aggregates Cypher restricts to ``INTEGER | FLOAT | DURATION``. ``mean`` is GFQL's internal
-#: spelling of ``avg`` (see ``GFQL_GROUPBY_AGG_METHODS``), so both names must gate.
+#: Aggregates Cypher restricts to ``INTEGER | FLOAT | DURATION`` (``mean`` spells ``avg``).
 GFQL_NUMERIC_ONLY_AGGREGATIONS: Final[FrozenSet[str]] = frozenset({"sum", "avg", "mean"})
+
+#: What an aggregate answers for an EMPTY group, when it has an answer other than ``null``.
+CypherEmptyGroupValue = Union[int, List["CypherScalar"]]
+
+#: Output column -> its empty-group value, for the columns that HAVE one.
+CypherEmptyGroupFills = Mapping[str, CypherEmptyGroupValue]
+
+#: Aggregates whose empty-group answer is ``0``.
+CYPHER_ZERO_EMPTY_GROUP_AGGREGATIONS: Final[FrozenSet[str]] = frozenset(
+    {"count", "count_distinct", "sum"}
+)
+
+#: Aggregates whose empty-group answer is ``[]``.
+CYPHER_EMPTY_LIST_EMPTY_GROUP_AGGREGATIONS: Final[FrozenSet[str]] = frozenset(
+    {"collect", "collect_distinct"}
+)
 
 
 def _describe_agg_input(column: str, alias: Optional[str]) -> str:

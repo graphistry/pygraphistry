@@ -174,6 +174,27 @@ def test_b1_order_by_and_aggregates_on_native_datetime_unchanged():
     assert _values(agg, "c")[0] == 3
 
 
+@pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
+def test_b1_native_datetime_comparison_is_resolution_independent(unit):
+    """``astype('int64')`` returns the column's OWN ticks, not nanoseconds. Keying the
+    native-datetime comparison as if the ticks were always ns collapsed every row onto
+    the same Julian day for any coarser resolution, so the predicate matched nothing.
+
+    pandas 3 made this the DEFAULT (``pd.to_datetime`` yields datetime64[us], not
+    datetime64[ns]), but the same column shape is reachable on pandas 2 -- hence the
+    pin is over resolutions, not over pandas versions."""
+    nodes = TEMPORAL_NODES.assign(dt_native=TEMPORAL_NODES["dt_native"].astype(f"datetime64[{unit}]"))
+    g = graphistry.nodes(nodes, "id").edges(TEMPORAL_EDGES, "src", "dst")
+    assert _ids(g.gfql(
+        "MATCH (n) WHERE n.dt_native > datetime('2020-02-01T00:00:00') RETURN n.id AS id",
+        engine="pandas",
+    )) == ["n2", "n3"]
+    assert _ids(g.gfql(
+        "MATCH (n) WHERE n.dt_native = datetime('2020-03-04T00:00:00') RETURN n.id AS id",
+        engine="pandas",
+    )) == ["n2"]
+
+
 def test_b1_incomparable_mixed_comparison_is_null_not_false():
     """The general trap behind B-1: an element-wise TypeError inside the mixed-type
     comparison handler became ``False``. openCypher orders only within a type; anything

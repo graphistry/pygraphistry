@@ -100,7 +100,7 @@ def _shift_temporal_value(value: _TemporalValue, months: int, days: int, time_na
         day = min(day, _days_in_month(year, month))
     try:
         shifted_date = py_datetime(year, month, day).date() + timedelta(days=days)
-    except ValueError:
+    except (ValueError, OverflowError):  # timedelta past date.max raises OverflowError
         return None
 
     if value.kind == "date":
@@ -115,7 +115,10 @@ def _shift_temporal_value(value: _TemporalValue, months: int, days: int, time_na
         + time_nanos
     )
     day_carry, nanos_of_day = divmod(total_time, _NANOS_PER_DAY)
-    shifted_date = shifted_date + timedelta(days=int(day_carry))
+    try:
+        shifted_date = shifted_date + timedelta(days=int(day_carry))
+    except OverflowError:  # the seconds group can carry past date.max
+        return None
     hour, rest = divmod(nanos_of_day, 3_600_000_000_000)
     minute, rest = divmod(rest, 60_000_000_000)
     second, nanosecond = divmod(rest, 1_000_000_000)
