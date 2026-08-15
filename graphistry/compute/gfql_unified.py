@@ -671,7 +671,9 @@ def _connected_join_trail_arms(
             if isinstance(op, ASTEdge):
                 alias = getattr(op, "_name", None) or f"{TRAIL_ARM_EDGE_ALIAS_PREFIX}{index}_{position}__"
                 if getattr(op, "_name", None) is None:
-                    op = cast(ASTEdge, ast_from_json({**op.to_json(), "name": alias}, validate=False))  # hygiene-ok: explicit-cast -- from_json is the ASTEdge clone-with-name seam
+                    cloned = ast_from_json({**op.to_json(), "name": alias}, validate=False)
+                    assert isinstance(cloned, ASTEdge)
+                    op = cloned
                 columns.append(f"{alias}.{EDGE_IDENTITY_COLUMN}")
             ops.append(op)
         rewritten.append(Chain(ops, where=pattern_chain.where))
@@ -684,9 +686,10 @@ def _is_polars_frame(frame: object) -> bool:
 
 
 def _with_edge_identity(base_graph: Plottable, *, engine: Engine) -> Plottable:
-    if base_graph._edges is None:
+    edges_obj = base_graph._edges
+    if edges_obj is None:
         return base_graph
-    edges = df_to_engine(cast(DataFrameT, base_graph._edges), engine, warn=False)  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
+    edges = df_to_engine(edges_obj, engine, warn=False)
     if EDGE_IDENTITY_COLUMN in edges.columns:
         return base_graph
     if _is_polars_frame(edges):
@@ -710,15 +713,16 @@ def _drop_shared_relationship_bindings(
         return joined_rows
     if _is_polars_frame(joined_rows):
         import polars as pl
+        pl_rows: "pl.DataFrame" = joined_rows  # engine seam: polars frame rides engine-agnostic DataFrameT
         expr = pl.lit(True)
         for left, right in pairs:
             expr = expr & (pl.col(left) != pl.col(right))
-        return cast(DataFrameT, joined_rows.filter(expr))  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
+        return pl_rows.filter(expr)
     mask = None
     for left, right in pairs:
         keep = joined_rows[left] != joined_rows[right]
         mask = keep if mask is None else (mask & keep)
-    return cast(DataFrameT, joined_rows[mask])  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
+    return joined_rows[mask]
 
 
 def _apply_connected_match_join(
@@ -865,8 +869,8 @@ def _apply_connected_match_join(
             if str(column).startswith(TRAIL_ARM_EDGE_ALIAS_PREFIX)
         ]
         if drop_columns:
-            joined_rows = cast(DataFrameT, joined_rows.drop(drop_columns) if _is_polars_frame(joined_rows)  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
-                               else joined_rows.drop(columns=drop_columns))
+            joined_rows = (joined_rows.drop(drop_columns) if _is_polars_frame(joined_rows)
+                           else joined_rows.drop(columns=drop_columns))
     joined_rows = _joined_hidden_scalar_columns(joined_rows)
     joined_rows = _joined_alias_columns(joined_rows)
     joined_plottable = base_graph.bind()
