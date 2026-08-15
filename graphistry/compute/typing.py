@@ -140,6 +140,9 @@ class ArrayNamespace(Protocol):
     def nonzero(self, a: ArrayLike) -> Tuple[ArrayLike, ...]:
         ...
 
+    def count_nonzero(self, a: ArrayLike) -> SupportsInt:
+        ...
+
     def concatenate(self, arrays: Any) -> ArrayLike:
         ...
 

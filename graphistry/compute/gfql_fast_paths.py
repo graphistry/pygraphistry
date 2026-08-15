@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.gfql.index.api import ColStatsOutcome
     from graphistry.compute.gfql.index.registry import ColStatsFact, DegreeFact, PartitionValue
+    from graphistry.compute.typing import ArrayLike, ArrayNamespace
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
@@ -2632,6 +2633,68 @@ def _dense_interval_from_fact(fact: Optional["ColStatsFact"]) -> Optional[Tuple[
     return int(fact.min_val), int(fact.max_val)
 
 
+#: Rows per block in the fused gather + self-loop pass below. Cache residency of a
+#: block's src slice, its gathered in-degrees and the equality temp -- not the loop --
+#: is what lets the self-loop compare ride the gather's read of src instead of costing
+#: a second streaming pass. Swept 16k..1M on 200k/2.42M-edge frames: 16k-32k pay
+#: per-block overhead, 1M spills; 128k-256k sit at the no-correction floor. Any value
+#: is value-identical -- this only picks how the same reduction is partitioned.
+_TWO_HOP_SELF_LOOP_BLOCK = 1 << 17
+
+
+def _self_loop_count(
+    src_arr: "ArrayLike", dst_arr: "ArrayLike", *, xp: "ArrayNamespace", blocked: bool
+) -> int:
+    """``|{e : src(e) == dst(e)}|`` -- the trail-illegal ``(r, r)`` pairs (#1905).
+
+    ``blocked`` splits the reduction into cache-sized pieces (host arrays); a device
+    backend passes False because per-block kernel launches would dominate.
+    """
+    n = int(src_arr.shape[0])
+    if not blocked or n <= _TWO_HOP_SELF_LOOP_BLOCK:
+        return int(xp.count_nonzero(src_arr == dst_arr))
+    loops = 0
+    for i in range(0, n, _TWO_HOP_SELF_LOOP_BLOCK):
+        j = i + _TWO_HOP_SELF_LOOP_BLOCK
+        loops += int(xp.count_nonzero(src_arr[i:j] == dst_arr[i:j]))
+    return loops
+
+
+def _gather_sum_and_self_loops(
+    in_counts: "ArrayLike", src_arr: "ArrayLike", dst_arr: "ArrayLike",
+    *, xp: "ArrayNamespace", blocked: bool,
+) -> Tuple[int, int]:
+    """``(sum_e in_counts[src(e)], self-loop count)`` from ONE blocked pass over src.
+
+    The self-loop correction used to be its own full O(E) scan of both endpoint
+    arrays, which is the whole #1905 count regression. Here the compare rides the
+    gather: each block's src slice is already in cache from ``in_counts[block]``, so
+    the marginal cost is the dst read alone, and blocking also drops the E-sized
+    gather temp the one-shot form allocates. Kernel microbenchmark (medians of 21
+    interleaved reps, pandas and polars, over the no-correction floor): the separate
+    scan cost +2.74..+2.84ms at 2.42M edges and +0.08..+0.19ms at 200k; blocked and
+    fused it costs +0.54..+1.02ms and +0.02..+0.06ms. The residual is the dst read
+    itself -- irreducible without a proof that the frame is self-loop-free, which is
+    what ``DegreeFact.self_loops`` supplies on an indexed graph (O(1) branch above).
+
+    Value-identical to the one-shot pair by construction (a sum and a count over the
+    same partition of the same rows); the one-shot form still serves device backends
+    and frames small enough that one block covers them.
+    """
+    n = int(src_arr.shape[0])
+    if not blocked or n <= _TWO_HOP_SELF_LOOP_BLOCK:
+        return (int(in_counts[src_arr].sum()),
+                int(xp.count_nonzero(src_arr == dst_arr)))
+    total = 0
+    loops = 0
+    for i in range(0, n, _TWO_HOP_SELF_LOOP_BLOCK):
+        j = i + _TWO_HOP_SELF_LOOP_BLOCK
+        block = src_arr[i:j]
+        total += int(in_counts[block].sum())
+        loops += int(xp.count_nonzero(block == dst_arr[i:j]))
+    return total, loops
+
+
 def _two_hop_equal_domain_dense_total(
     domain_nodes: DataFrameT,
     edge_domain: DataFrameT,
@@ -2721,25 +2784,31 @@ def _two_hop_equal_domain_dense_total(
     dst_arr = col_to_array(edge_domain, dst_col, engine)
     # openCypher TRAIL (#1905): the equal-domain product counts (r, r) once per
     # self-loop, and a self-loop is the only way one relationship serves both hops.
-    self_loops = int((src_arr == dst_arr).sum())
+    # Host backends fold that count into the gather block loop (see
+    # _gather_sum_and_self_loops); a device backend keeps the one-shot reductions.
+    blocked = _backend == "numpy"
     # bincount emits platform int64 counts; inputs are integer dtype by proof, so no
     # astype copies here (a copying astype measurably dominated the kernel at 2.5M edges).
     if 0 <= lo and hi + 1 <= table_budget:
         # Shift elision: raw arrays, table of hi+1; bounds proof keeps [0, lo) all-zero (pinned).
         in_counts = xp.bincount(dst_arr, minlength=hi + 1)
-        total = in_counts[src_arr].sum()
+        total, self_loops = _gather_sum_and_self_loops(
+            in_counts, src_arr, dst_arr, xp=xp, blocked=blocked)
     elif src_arr.dtype == dst_arr.dtype:
-        # Shifted lane through ONE scratch buffer; gather runs strictly after the bincount (pinned).
+        # Shifted lane through ONE scratch buffer; gather runs strictly after the bincount
+        # (pinned), so the self-loop compare reads the raw arrays before the buffer exists.
+        self_loops = _self_loop_count(src_arr, dst_arr, xp=xp, blocked=blocked)
         buf = xp.empty(src_arr.shape[0], dtype=src_arr.dtype)
         xp.subtract(dst_arr, lo, out=buf)
         in_counts = xp.bincount(buf, minlength=n)
         xp.subtract(src_arr, lo, out=buf)
-        total = in_counts[buf].sum()
+        total = int(in_counts[buf].sum())
     else:
         # Mixed endpoint dtypes: plain shift, no cross-dtype scratch buffer (pinned).
+        self_loops = _self_loop_count(src_arr, dst_arr, xp=xp, blocked=blocked)
         in_counts = xp.bincount(dst_arr - lo, minlength=n)
-        total = in_counts[src_arr - lo].sum()
-    return int(total) - self_loops
+        total = int(in_counts[src_arr - lo].sum())
+    return total - self_loops
 
 
 def _execute_two_hop_count_fast_path(

@@ -17722,6 +17722,64 @@ def test_t6_dense_gather_elision_matches_degree_oracle() -> None:
         assert total == oracle
 
 
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("base", [0, 10**7])
+@pytest.mark.parametrize("self_loop_rows", [0, 137])
+def test_t6_dense_total_multi_block_matches_single_block(
+    engine: str, base: int, self_loop_rows: int, monkeypatch: Any
+) -> None:
+    # The self-loop correction rides a BLOCKED pass now (#1905 cost fix), so every
+    # fixture above -- all far under one block -- exercises only the single-block
+    # arm. Cross the block boundary and pin BOTH arms against each other and against
+    # the degree oracle, on the raw lane (base 0, fused gather + compare) and the
+    # shifted lane (base far from 0, standalone compare), with and without self-loops.
+    # A block-boundary bug would double-count or drop whole blocks, which only a
+    # multi-block frame can see.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    import numpy as np
+    from graphistry.compute import gfql_fast_paths as fp
+
+    block = fp._TWO_HOP_SELF_LOOP_BLOCK
+    n_edges = 2 * block + 251  # >= 3 blocks, last one partial
+    rng = np.random.default_rng(1905)
+    n_nodes = 500
+    src = rng.integers(0, n_nodes, size=n_edges)
+    dst = rng.integers(0, n_nodes, size=n_edges)
+    dst[src == dst] = (dst[src == dst] + 1) % n_nodes  # start self-loop-free
+    if self_loop_rows:
+        # Spread the self-loops across every block, including the partial tail.
+        pos = rng.choice(n_edges, size=self_loop_rows, replace=False)
+        dst[pos] = src[pos]
+    nodes_pd = pd.DataFrame({"id": np.arange(n_nodes) + base})
+    edges_pd = pd.DataFrame({"s": src + base, "d": dst + base})
+
+    indeg = edges_pd.groupby("d").size().reindex(np.arange(n_nodes) + base, fill_value=0)
+    outdeg = edges_pd.groupby("s").size().reindex(np.arange(n_nodes) + base, fill_value=0)
+    oracle = int((indeg * outdeg).sum()) - self_loop_rows
+    assert int((edges_pd["s"] == edges_pd["d"]).sum()) == self_loop_rows
+
+    if engine == "polars":
+        import polars as pl
+        dom: Any = pl.from_pandas(nodes_pd)
+        edom: Any = pl.from_pandas(edges_pd)
+        eng = Engine.POLARS
+    else:
+        dom, edom = nodes_pd, edges_pd
+        eng = Engine.PANDAS
+
+    def run() -> Any:
+        return fp._two_hop_equal_domain_dense_total(
+            dom, edom, node_col="id", src_col="s", dst_col="d", engine=eng)
+
+    multi_block = run()
+    assert multi_block == oracle
+    # Same frame through the single-block arm (block wider than the frame): the two
+    # arms are two spellings of one reduction, so they must agree exactly.
+    monkeypatch.setattr(fp, "_TWO_HOP_SELF_LOOP_BLOCK", n_edges + 1)
+    assert run() == multi_block
+
+
 @pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 def test_t6_count_path_projection_widths_and_value(engine: str, monkeypatch: Any) -> None:
     # Round-4 pin, every engine: the count path's filters project to the id
