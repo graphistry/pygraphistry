@@ -531,8 +531,6 @@ def _empty_optional_projection_row(
 def _eligible_optional_projection_query(query: CypherQuery) -> bool:
     if len(query.matches) != 2:
         return False
-    # query.where mirrors the last MATCH clause's WHERE; a WHERE owned by the
-    # optional arm scopes the arm only (rows failing it null-extend, openCypher).
     where_is_optional_arm_only = (
         query.matches[0].where is None
         and query.matches[1].where is not None

@@ -180,6 +180,22 @@ def test_with_prefix_optional_zero_arm_keeps_carried_props(engine):
     ])
 
 
+@pytest.mark.parametrize("engine", ENGINES)
+def test_optional_zero_arm_null_extends_full_arm_schema_not_just_bare_aliases(engine):
+    """A fully-unmatched arm must still surface every column the arm would have bound --
+    property refs (x.v) AND the downstream join key (x.id) -- so a second arm chained off
+    it can join. Null-extending only the bare `x` alias leaves x.id absent and the next
+    arm silently loses its rows."""
+    q = ("MATCH (p {kind:'person'}) OPTIONAL MATCH (p)-[{t:'NOPE'}]->(x) "
+         "OPTIONAL MATCH (x)-[{t:'X'}]->(z) RETURN p.name AS n, x.v AS xv, z.v AS zv")
+    out = _run(q, engine)
+    assert list(out.columns) == ["n", "xv", "zv"]
+    _assert_rows(out, [
+        {"n": "alice", "xv": None, "zv": None}, {"n": "bob", "xv": None, "zv": None},
+        {"n": "carol", "xv": None, "zv": None}, {"n": None, "xv": None, "zv": None},
+    ])
+
+
 @polars_only
 def test_polars_optional_zero_arm_same_answer_as_matched_arm():
     """F-03: identical query text, only the data changes (bob's H edge
@@ -393,20 +409,18 @@ def test_optional_match_seed_shapes_gate_or_keep_seeds(query, seeds_kept, engine
 
 def test_optional_match_gate_messages_describe_the_query():
     """Typed gates are the good outcome, but their messages must not assert
-    falsehoods (F-05). Two former offenders:
-    - connected seed + count(x) used to raise 'aggregate ... must be
-      top-level' when the aggregate IS a top-level RETURN projection; the
-      shape is now served by the connected optional-match lowering, so pin
-      the (hand-computed) answer instead.
-    - the canonical anti-join used to carry the suggestion 'Use MATCH instead
-      of OPTIONAL MATCH', a rewrite that CHANGES semantics (an anti-join can
-      never be expressed with non-optional MATCH)."""
+    falsehoods (F-05). Connected seed + count(x) used to raise 'aggregate ...
+    must be top-level' when the aggregate IS a top-level RETURN projection;
+    the shape is now served by the connected optional-match lowering, so pin
+    the (hand-computed) answer instead."""
     out = _run("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'H'}]->(x) "
                "RETURN p.name AS n, count(x) AS c", "pandas")
     _assert_rows(out, [{"n": "bob", "c": 1}, {"n": None, "c": 0}])
-    # canonical anti-join: served since #1896 (WITH..WHERE is a binding-row
-    # filter; `x IS NULL` keeps exactly the unmatched rows) -- pin the
-    # hand-computed answer: bob and the null-named person have no L edge.
+
+
+def test_optional_match_anti_join_with_where_x_is_null_keeps_only_unmatched_rows():
+    """`WITH p, x WHERE x IS NULL` filters binding ROWS: bob and the null-named
+    person are the two K-targets with no L edge, so exactly those two rows survive."""
     anti = _run("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'L'}]->(x) "
                 "WITH p, x WHERE x IS NULL RETURN p.name AS n", "pandas")
     _assert_rows(anti, [{"n": "bob"}, {"n": None}])
@@ -576,11 +590,6 @@ def test_optional_varlen_arm_bound_endpoints_projects_bound_alias(engine):
 # ===========================================================================
 # F. #1896 OM -> WITH pipeline row semantics (post-fix adversarial re-probe)
 # ===========================================================================
-# Fixture G1 (issue #1896): a1-a4:P v=1..4, b1:C v=10, b2:C v=20, z; edges
-# a1-KNOWS->b1, a1-KNOWS->b2, a2-LIKES->b1, b1-KNOWS->a3. Every expected value
-# is HAND-COMPUTED openCypher; a WITH after OPTIONAL MATCH operates on binding
-# ROWS (matched rows keep their optional bindings; null-extended rows carry
-# their seed identity, never anonymous nulls).
 
 
 def _run_1896(query: str, engine: str) -> pd.DataFrame:

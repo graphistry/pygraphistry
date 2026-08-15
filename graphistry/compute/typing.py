@@ -1,5 +1,9 @@
+import datetime
+import numpy as np
 import pandas as pd
 from typing import Any, Mapping, Optional, Protocol, TYPE_CHECKING, Tuple, SupportsInt, Type, TypeVar, Union
+
+NodeId = Union[int, float, str, bool, bytes, datetime.date, np.generic]
 
 # TODO stubs for Union[cudf.DataFrame, dask.DataFrame, ..] at checking time
 if TYPE_CHECKING:
@@ -30,9 +34,7 @@ if TYPE_CHECKING:
 
     #: Either polars frame flavour. Use for a parameter that accepts eager *or* lazy.
     PolarsFrame = Union["pl.DataFrame", "pl.LazyFrame"]
-    #: A polars dtype in either circulating form: schema values are INSTANCES
-    #: (``pl.String()``, ``pl.Enum([...])``) but the bare classes (``pl.Utf8``,
-    #: ``pl.Int64``) flow through user code and compare equal via the metaclass.
+    #: A polars dtype as either an instance or the bare class.
     PolarsDType = Union["pl.DataType", Type["pl.DataType"]]
 
     #: Eager-in -> eager-out / lazy-in -> lazy-out. CONSTRAINED (not bound) on purpose: a
