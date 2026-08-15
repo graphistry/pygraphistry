@@ -53,6 +53,12 @@ def _reached_node_ids(matches_nodes: Optional[DataFrameT], node_col: str) -> Set
     return set(reached.tolist())
 
 
+def _nodes_with_hop_label_column(nodes: DataFrameT, hop_label_col: str) -> DataFrameT:
+    if hop_label_col in nodes.columns:
+        return nodes
+    return nodes.assign(**{hop_label_col: float('nan')})
+
+
 def _endpoint_ids_without_node_rows(
     g: Plottable, engine_bound_concat: Callable[..., DataFrameT],
 ) -> DataFrameT:
@@ -1023,12 +1029,8 @@ def hop(self: Plottable,
     if g_out._edges is not None and len(g_out._edges) > 0 and g_out._nodes is not None:
         unbacked_endpoints = _endpoint_ids_without_node_rows(g_out, concat)
         nodes_out = g_out._nodes
-        if (track_node_hops and node_hop_records is not None and node_hop_col is not None
-                and node_hop_col not in nodes_out.columns):
-            # The concat below used to attach this column as a side effect whenever there were
-            # edges; it now runs only when an id is genuinely unbacked. Readers downstream (the
-            # output-window node filter) assume it exists, so attach it unconditionally here.
-            nodes_out = nodes_out.assign(**{node_hop_col: float('nan')})
+        if track_node_hops and node_hop_records is not None and node_hop_col is not None:
+            nodes_out = _nodes_with_hop_label_column(nodes_out, node_hop_col)
         if len(unbacked_endpoints) > 0:
             if track_node_hops and node_hop_records is not None and node_hop_col is not None:
                 unbacked_endpoints = safe_merge(
@@ -1112,12 +1114,8 @@ def hop(self: Plottable,
         and node_hop_col is not None
     ):
         def _ensure_node_hop_col() -> None:
-            # The endpoint concat used to leave this column behind; it now runs only when an id
-            # is genuinely unbacked. Assigning through .loc creates it implicitly on pandas but
-            # RAISES on cudf, so materialize it right before each write, on every engine.
             assert node_hop_col is not None and g_out._nodes is not None
-            if node_hop_col not in g_out._nodes.columns:
-                g_out._nodes = g_out._nodes.assign(**{node_hop_col: float('nan')})
+            g_out._nodes = _nodes_with_hop_label_column(g_out._nodes, node_hop_col)
 
         seed_mask_all = g_out._nodes[node_col].isin(starting_nodes[node_col])
         if direction == 'undirected':
