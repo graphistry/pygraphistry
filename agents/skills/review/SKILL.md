@@ -162,6 +162,58 @@ git show origin/<base>:<file>
 - Test coverage should mirror changed areas in `graphistry/tests/**`.
 - Prefer behavioral tests over implementation-detail assertions.
 - Treat broad exception catches (`except Exception`, bare `except`) as a bad dynamic/over-defensive typing pattern by default. Require narrowed, documented exception types at local helpers; allow broad catches only at explicit isolation boundaries where the PR explains why programmer errors must be contained.
+### Encoding: names, tests, and structure — not prose
+
+The recurring rejection class on the 2026-08 GFQL stack. Meaning must live where it
+cannot rot: in a **name**, a **test/pin**, or the **structure** of the code. Prose is
+the last resort, not the first.
+
+| Pattern | Verdict | Fix |
+|---|---|---|
+| Multi-line comment narrating what the next block does | BLOCKER | Extract a helper whose NAME states the rule; delete the narration |
+| Comment explaining WHY a fix was made / citing an issue number as the rationale | BLOCKER | The pin's test NAME carries it (`test_<contract>_<condition>`); an issue ref may stay only as a trailing tag |
+| Performance claim, complexity/asymptotics note, or benchmark number in a code comment | BLOCKER | Belongs in **pyg-bench** as a measured test. Code carries at most the one-line invariant the optimization relies on |
+| Comment describing engine mechanics ("polars does X so we Y") | SUGGESTION → BLOCKER if >1 line | Name the helper for the constraint (`_align_edge_endpoints`); keep at most one line if the constraint is genuinely inexpressible |
+| Comment restating a type or a guard the signature already states | BLOCKER | Delete |
+
+**A comment earns its place only if** it states a constraint the code and tests
+cannot express — an external invariant, a version-specific behavior, or a
+deliberate deviation from a spec. Those stay, and stay to ONE line. When in doubt:
+if deleting the comment would let a future reader make a wrong change that no test
+would catch, write the test instead.
+
+**Asymptotics and perf reasoning**: never in product code. `pyg-bench` owns
+measurement; pygraphistry owns results and data contracts. A comment saying "one
+O(E) pass" is a claim nobody re-measures — a pyg-bench case is a claim that fails
+loudly when it stops being true.
+
+### Typing: narrow beats annotated
+
+| Pattern | Verdict | Fix |
+|---|---|---|
+| `Any` where the domain is a scalar/union | BLOCKER | Define the real alias (`CypherScalar`, `CypherParams`) next to the existing ones and use it |
+| `# type: ignore` added alongside new code | BLOCKER | Restructure so it is unnecessary; an ignore is admissible only on a pre-existing external-typing gap, and must name the reason |
+| `hygiene-ok:` pin added in the same PR that introduced the finding | BLOCKER | The pin is for grandfathered debt, not for new code. Narrow the type instead |
+| `cast(...)` used to satisfy the checker | BLOCKER | A cast is an assertion the checker cannot verify — if it is wrong the code crashes later. Prefer `isinstance` narrowing or a real alias |
+| Type-hygiene guard reported "no growth" | NOT SUFFICIENT | "No growth" means debt held constant. For a PR that touches a file, the per-file count should go DOWN or be justified |
+
+### Self-review gate (authoring, not just reviewing)
+
+This skill is written for reviewing *others'* code, and on the 2026-08 stack it was
+never run against our own PRs before pushing — which is why the same categories were
+rejected repeatedly by the owner. **Before pushing any branch for review, run this
+skill against your own diff.** Cheapest form, on the full stack range not just the
+last commit:
+
+```bash
+git diff <base>..HEAD -- 'graphistry/**/*.py' | grep -nE '^\+\s*#' | head -50   # every comment ADDED
+git diff <base>..HEAD -- 'graphistry/**/*.py' | grep -nE '^\+.*(Any|type: ignore|hygiene-ok|cast\()'
+```
+Every hit needs a verdict from the tables above before the branch is pushed. Fix-cycle
+briefs handed to subagents MUST carry these rules explicitly — a brief that lists
+correctness gates and only mentions style in passing will produce code that satisfies
+what was measured and violates what was not.
+
 - Control-flow checks (runtime code, tests, and prompt-routing logic) must use structured signals (for example `code`, context keys like `field`/`value`, AST/symbol kinds, and stable symbol-binding metadata/files) and never **hardcoded** message-substring matching.
 - Run focused validation before escalating severity when feasible:
 
