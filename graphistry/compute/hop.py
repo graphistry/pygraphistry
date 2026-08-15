@@ -4,7 +4,7 @@ Graph hop/traversal operations for PyGraphistry.
 NOTE: Excluded from pyre (.pyre_configuration) - hop() complexity causes hang. Use mypy.
 """
 import os
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union, cast
+from typing import Any, Dict, Hashable, List, Optional, Set, Tuple, TYPE_CHECKING, Union, cast
 import pandas as pd
 
 from graphistry.Engine import (
@@ -43,6 +43,14 @@ def query_if_not_none(query: Optional[str], df: DataFrameT) -> DataFrameT:
     if query is None:
         return df
     return df.query(query)
+
+
+def _reached_node_ids(matches_nodes: Optional[DataFrameT], node_col: str) -> Set[Hashable]:
+    if matches_nodes is None or len(matches_nodes) == 0:
+        return set()
+    reached = column_values(matches_nodes, node_col)
+    reached = reached.to_pandas() if hasattr(reached, "to_pandas") else reached
+    return set(reached.tolist())
 
 
 @otel_traced("gfql.hop", attrs_fn=_hop_otel_attrs)
@@ -340,9 +348,9 @@ def hop(self: Plottable,
     allowed_source_ids: Optional[DataFrameT] = None
     if source_node_match is not None or source_node_query is not None:
         source_base_nodes = g2._nodes
-        if seeds_provided and not to_fixed_point and resolved_max_hops == 1:
-            # #1892 F-01: source filters read the node TABLE at every hops value; at
-            # single hop only seeds can be sources, so semi-join seeds first for cost.
+        only_seeds_can_be_sources = (
+            seeds_provided and not to_fixed_point and resolved_max_hops == 1)
+        if only_seeds_can_be_sources:
             source_base_nodes = g2._nodes[g2._nodes[node_col].isin(starting_nodes[node_col])]
         allowed_source_ids = _build_allowed_ids(source_base_nodes, source_node_match, source_node_query)
 
@@ -893,6 +901,19 @@ def hop(self: Plottable,
                     queue.append(neighbor)
         return loop_nodes | {node_id for node_id in degrees if node_id not in removed}
 
+    def _undirected_rediscovered_seed_ids(
+        edges_df: DataFrameT,
+        seed_nodes_df: DataFrameT,
+        reached_nodes: Optional[DataFrameT],
+    ) -> Set[Hashable]:
+        """Seeds a walk that REUSES NO EDGE arrives back at: another seed shares the
+        component, or the seed lies on a cycle -- and the traversal actually reached it."""
+        rediscovered = _undirected_component_seed_keep_ids(edges_df, seed_nodes_df)
+        rediscovered |= _undirected_cycle_nodes(edges_df)
+        if not rediscovered:
+            return rediscovered
+        return rediscovered & _reached_node_ids(reached_nodes, node_col)
+
     if self._nodes is not None:
         rich_nodes = self._nodes
         if target_wave_front is not None:
@@ -1147,18 +1168,8 @@ def hop(self: Plottable,
     ):
         wavefront_seed_ids_df = cast(DataFrameT, column_frame(starting_nodes, node_col).drop_duplicates())
         if direction == 'undirected' and to_fixed_point:
-            # NOTE: both helpers are O(E) python itertuples walks; vectorize if this arm gets hot.
-            keep_seed_ids = _undirected_component_seed_keep_ids(final_edges, wavefront_seed_ids_df)
-            keep_seed_ids |= _undirected_cycle_nodes(final_edges)
-            # #1892 F-02: the topology-only heuristics ignore source/dest filter pruning;
-            # keep only seeds the traversal re-encountered so tfp == saturated bounded.
-            if keep_seed_ids:
-                if matches_nodes is None or len(matches_nodes) == 0:
-                    keep_seed_ids = set()
-                else:
-                    reached_vals = column_values(matches_nodes, node_col)
-                    reached_pdf = reached_vals.to_pandas() if hasattr(reached_vals, "to_pandas") else reached_vals
-                    keep_seed_ids &= set(reached_pdf.tolist())
+            keep_seed_ids = _undirected_rediscovered_seed_ids(
+                final_edges, wavefront_seed_ids_df, matches_nodes)
             seed_mask = g_out._nodes[node_col].isin(column_values(wavefront_seed_ids_df, node_col))
             if keep_seed_ids:
                 keep_mask = g_out._nodes[node_col].isin(list(keep_seed_ids))
