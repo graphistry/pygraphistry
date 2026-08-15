@@ -227,11 +227,11 @@ _DECLINED_SHAPES: List[Tuple[str, str]] = [
     ("partial_order_no_limit", Q_PARTIAL_ORDER),
     ("no_order_by", Q_NO_ORDER),
     ("no_order_by_with_limit", Q_NO_ORDER_LIMIT),
-    ("out_col_collides_with_src", Q_OUT_COL_COLLIDES_SRC),
 ]
 
 # NEVER REACHED: the fast path's own shape guard declines before the fused lane exists.
 _UNREACHED_SHAPES: List[Tuple[str, str]] = [
+    ("out_col_collides_with_src", Q_OUT_COL_COLLIDES_SRC),
     ("undirected",
      "MATCH (p {kind:'P'})-[{rel:'L'}]-(c {kind:'C'}) RETURN c.city AS city, count(*) AS n "
      "ORDER BY n DESC, city ASC"),

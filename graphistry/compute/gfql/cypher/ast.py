@@ -33,9 +33,7 @@ CypherLiteral = Union[CypherScalar, ParameterRef]
 CypherPageValue = Union[int, ParameterRef, ExpressionText]
 CypherPropertyValue = Union[CypherLiteral, ExpressionText]
 
-#: What a ``$name`` parameter can bind. NOT an arbitrary object: openCypher admits a scalar
-#: (``= $x``), a list (``IN $xs``) or a map (``$m.field``), and lists/maps may nest — so this
-#: is the honest closure over :data:`CypherScalar`, not ``Any``.
+#: What a ``$name`` parameter can bind: a scalar, or a nesting list/map of them.
 CypherParamValue = Union[CypherScalar, Sequence["CypherParamValue"], Mapping[str, "CypherParamValue"]]
 
 #: The ``params=`` argument of every Cypher-compiling entrypoint.

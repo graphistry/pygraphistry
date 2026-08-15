@@ -67,26 +67,19 @@ def _native_scalar_text_expr(col: str, dtype: Any) -> Optional[Any]:
 
 
 def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Optional[Any]:
-    """Native ``(:Label {prop: val, ...})`` node entity text for the single-entity
-    int/string/bool case, boolean ``label__*`` flags included; None → caller raises.
-    ``pl.concat_str(..., ignore_nulls=True)`` joins only non-null property segments with
-    ", ", exactly matching the pandas renderer's null-omission."""
+    """Native ``(:Label {prop: val, ...})`` node entity text; ``None`` → caller raises."""
     import polars as pl
 
     cols = list(rows_df.columns)
     if alias not in cols:
         return None
-    # single-entity only (no prefixed alias columns), no node-type rendering
-    if any(str(c).startswith(f"{alias}.") for c in cols):
-        return None
-    if "type" in cols:
+    single_entity_untyped_rows = (
+        not any(str(c).startswith(f"{alias}.") for c in cols) and "type" not in cols
+    )
+    if not single_entity_untyped_rows:
         return None
     from .dtypes import is_int
     schema = rows_df.schema
-    # Mirror entity_props.node_property_columns with a polars-aware "numeric id is a property"
-    # check (the pandas helper's pd.api.types check drops id). The internal-column set and the
-    # label-flag predicate are IMPORTED from that module, not restated, so the two renderers
-    # cannot drift.
     excluded = set(str(c) for c in (exclude or ()))
     include_id = "id" in cols and is_int(schema["id"])
     prop_cols = [
@@ -95,7 +88,6 @@ def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Opt
         and not str(c).startswith("__") and not str(c).startswith(LABEL_FLAG_PREFIX)
         and (str(c) not in NODE_INTERNAL_COLS or (include_id and str(c) == "id"))
     ]
-    # mirror _node_label_text: ":Name" per true boolean label__Name flag, column order
     label_cols = label_flag_columns(cols)
     if any(schema[c] != pl.Boolean for c, _ in label_cols):
         return None  # non-boolean label flags -> defer (NIE)

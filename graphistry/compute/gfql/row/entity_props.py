@@ -17,18 +17,14 @@ from graphistry.compute.gfql.temporal.constructors import (
 from graphistry.compute.typing import DataFrameT, IndexT, SeriesT
 
 
-#: Node columns that are engine structure, not user properties. Public because the native
-#: polars projector renders the same entity text and must not carry its own copy.
+#: Node columns that are engine structure, not user properties.
 NODE_INTERNAL_COLS = frozenset({"id", "labels", "type"})
 _EDGE_INTERNAL_COLS = frozenset({"s", "d", "src", "dst", "edge_id", "type", "__gfql_edge_index_0__", "undirected"})
 
 #: A node's labels arrive as boolean ``label__{name}`` flag columns.
 LABEL_FLAG_PREFIX = "label__"
 
-#: ``astype(str)`` renders a NULL label name as one of these, so ``label__<NA>`` is a
-#: stringified null rather than a label and must not be emitted as ``:<NA>``. Every
-#: entity-text renderer (pandas rows, cypher result post-processing, native polars
-#: projection) shares this one set so they cannot disagree about what a label is.
+#: How a stringified NULL label name spells itself: ``label__<NA>`` is not a label.
 NULLISH_LABEL_NAMES = frozenset({"<NA>", "None", "nan"})
 
 

@@ -260,7 +260,7 @@
       "graphistry/compute/gfql/temporal/truncation.py": 2,
       "graphistry/compute/gfql/temporal/values.py": 10,
       "graphistry/compute/gfql_fast_paths.py": 126,
-      "graphistry/compute/gfql_unified.py": 41,
+      "graphistry/compute/gfql_unified.py": 40,
       "graphistry/compute/gfql_validate.py": 26,
       "graphistry/compute/hop.py": 7,
       "graphistry/compute/predicates/comparison.py": 8,
