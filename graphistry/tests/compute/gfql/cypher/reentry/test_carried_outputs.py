@@ -1,7 +1,7 @@
-"""Which optional-reentry outputs the unmatched-row null-fill can reproduce (#1896).
+"""Which optional-reentry outputs the unmatched-row null-fill can reproduce.
 
 Unit pins for the source-column resolution behind
-``_carried_output_sources``: every branch that decides whether an unmatched
+``carried_output_sources``: every branch that decides whether an unmatched
 prefix row can be given its own identity, or whether the fill must decline.
 """
 from __future__ import annotations
@@ -10,7 +10,9 @@ from typing import Optional
 
 import pytest
 
-from graphistry.compute.gfql_unified import _carried_output_source_column
+from graphistry.compute.gfql.cypher.reentry.carried_outputs import (
+    carried_output_source_column,
+)
 
 
 ALIASES = {"p"}
@@ -35,6 +37,6 @@ SCALARS = {"av"}
 )
 def test_carried_output_source_column(src: str, expected: Optional[str]) -> None:
     assert (
-        _carried_output_source_column(src, alias_names=ALIASES, scalar_columns=SCALARS)
+        carried_output_source_column(src, alias_names=ALIASES, scalar_columns=SCALARS)
         == expected
     )

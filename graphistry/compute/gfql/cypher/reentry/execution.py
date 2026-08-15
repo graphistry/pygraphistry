@@ -25,6 +25,10 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
 from graphistry.compute.gfql.agg_types import CypherEmptyGroupFills, CypherEmptyGroupValue
 from graphistry.compute.gfql.cypher.ast import CypherScalar
+from graphistry.compute.gfql.cypher.reentry.carried_outputs import (
+    CARRIED_OUTPUTS_NOT_REPRODUCIBLE,
+    CarriedOutputSources,
+)
 from graphistry.compute.gfql.cypher.reentry.naming import (
     REENTRY_HIDDEN_COLUMN_PREFIX,
     _reentry_hidden_column_name,
@@ -46,19 +50,6 @@ CypherFillValue = Union[CypherScalar, CypherEmptyGroupValue]
 
 #: Output column -> its value in a synthesized null-extended row.
 CypherFillRow = Dict[str, CypherFillValue]
-
-
-@dataclass(frozen=True)
-class CarriedOutputSources:
-    """Prefix-frame column behind each result output that reads the carried alias."""
-
-    columns: Mapping[str, str]
-    every_output_reproducible: bool
-
-
-#: At least one carried-alias output has no prefix-frame column behind it, so an unmatched
-#: prefix row cannot be given its own values and the null-fill must decline typed.
-CARRIED_OUTPUTS_NOT_REPRODUCIBLE = CarriedOutputSources(columns={}, every_output_reproducible=False)
 
 
 from graphistry.Engine import is_polars_df as _is_polars_df
