@@ -215,6 +215,14 @@ categories on four consecutive PRs:
    keeping, because a justification is always writable, and an author is the
    worst judge of whether their own explanation is necessary. **A doubtful keep
    defaults to DELETE.**
+7. **A justified keep is still a keep.** On the 2026-08 stack an audit kept six
+   comments with written justifications; the owner then rejected three of them
+   — including two documenting real engine traps. The test is not "can I defend
+   this?" but **"can a test or a name carry this instead?"** A trap a test can
+   demonstrate (e.g. "pandas' `is_numeric_dtype` returns a confident False for a
+   polars dtype") belongs in a pin named for the trap, not in prose beside the
+   code. Only a constraint that NO test and NO name can express survives — and
+   the reason it cannot must be stated, not asserted.
 
 ### Concurrent human review while a PR is being edited
 
