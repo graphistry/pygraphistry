@@ -147,8 +147,8 @@ from graphistry.compute.gfql.temporal.folding import (
     rewrite_temporal_constructors_in_expr,
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, WhereComparison, col, compare, where_to_row_expr
-from graphistry.compute.gfql.cypher.reentry import naming as _reentry_naming
-from graphistry.compute.gfql.cypher.reentry import scope as _reentry_scope
+from graphistry.compute.gfql.cypher.reentry import naming as _reentry_naming, scope as _reentry_scope
+from graphistry.compute.gfql.cypher.ast import CypherParams
 
 
 @dataclass(frozen=True)
@@ -2709,7 +2709,7 @@ def _return_references_only_bound_aliases(
     query: CypherQuery,
     *,
     alias_targets: Mapping[str, ASTObject],
-    params: Optional[Mapping[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher query parameters are arbitrary user scalars
+    params: Optional[CypherParams] = None,
     bound_nullable_aliases: Optional[AbstractSet[str]] = None,
 ) -> bool:
     """True when every RETURN item references only non-optional-bound aliases:

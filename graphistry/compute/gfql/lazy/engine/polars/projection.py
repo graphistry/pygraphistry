@@ -21,6 +21,11 @@ if TYPE_CHECKING:
 
 
 from graphistry.Engine import is_polars_df as _is_polars_frame
+from graphistry.compute.gfql.row.entity_props import (
+    LABEL_FLAG_PREFIX,
+    NODE_INTERNAL_COLS,
+    label_flag_columns,
+)
 
 
 def _has_temporal_constructor_text(rows_df: pl.DataFrame, col: str) -> bool:
@@ -79,28 +84,25 @@ def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Opt
     from .dtypes import is_int
     schema = rows_df.schema
     # Mirror entity_props.node_property_columns with a polars-aware "numeric id is a property"
-    # check (the pandas helper's pd.api.types check drops id).
-    internal = {"id", "labels", "type"}
+    # check (the pandas helper's pd.api.types check drops id). The internal-column set and the
+    # label-flag predicate are IMPORTED from that module, not restated, so the two renderers
+    # cannot drift.
     excluded = set(str(c) for c in (exclude or ()))
     include_id = "id" in cols and is_int(schema["id"])
     prop_cols = [
         str(c) for c in cols
         if str(c) != alias and str(c) not in excluded
-        and not str(c).startswith("__") and not str(c).startswith("label__")
-        and (str(c) not in internal or (include_id and str(c) == "id"))
+        and not str(c).startswith("__") and not str(c).startswith(LABEL_FLAG_PREFIX)
+        and (str(c) not in NODE_INTERNAL_COLS or (include_id and str(c) == "id"))
     ]
     # mirror _node_label_text: ":Name" per true boolean label__Name flag, column order
-    label_cols = [
-        str(c) for c in cols
-        if str(c).startswith("label__")
-        and str(c).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
-    ]
-    if any(schema[c] != pl.Boolean for c in label_cols):
+    label_cols = label_flag_columns(cols)
+    if any(schema[c] != pl.Boolean for c, _ in label_cols):
         return None  # non-boolean label flags -> defer (NIE)
     labels = (
         pl.concat_str([
-            pl.when(pl.col(c).fill_null(False)).then(pl.lit(":" + str(c).split("label__", 1)[1])).otherwise(pl.lit(""))
-            for c in label_cols
+            pl.when(pl.col(c).fill_null(False)).then(pl.lit(":" + label_name)).otherwise(pl.lit(""))
+            for c, label_name in label_cols
         ], separator="")
         if label_cols else pl.lit("")
     )

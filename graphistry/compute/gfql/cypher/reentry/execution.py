@@ -22,6 +22,7 @@ from graphistry.Engine import (
 )
 from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
+from graphistry.compute.gfql.agg_types import CypherEmptyGroupFills
 from graphistry.compute.gfql.cypher.reentry.naming import _reentry_hidden_column_name
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.result_postprocess import (
@@ -76,8 +77,16 @@ def reentry_validation_error(
     value: object,
     suggestion: str,
     field: str = "with",
-    **extra_context: object,
+    reason: Optional[str] = None,
+    carried_row_count: Optional[int] = None,
+    carried_scalar_columns: Optional[Tuple[str, ...]] = None,
 ) -> GFQLValidationError:
+    """E108 decline for the bounded-reentry paths.
+
+    The extra context is a CLOSED set, not open kwargs: ``gfql_unified`` dispatches its
+    fallback on ``context['reason']``, so the payload has a shape and is spelled out here.
+    ``GFQLValidationError`` drops ``None`` context entries, so an unset keyword is absent.
+    """
     return GFQLValidationError(
         ErrorCode.E108,
         message,
@@ -85,7 +94,9 @@ def reentry_validation_error(
         value=value,
         suggestion=suggestion,
         language="cypher",
-        **extra_context,  # type: ignore[arg-type]
+        reason=reason,
+        carried_row_count=carried_row_count,
+        carried_scalar_columns=carried_scalar_columns,
     )
 
 
@@ -96,7 +107,7 @@ def apply_optional_reentry_null_fill(
     engine: Union[EngineAbstract, str],
     empty_result_row: Optional[Dict[str, Any]] = None,
     reentry_plan: Optional[ReentryPlan] = None,
-    aggregate_fill_values: Optional[Mapping[str, Any]] = None,
+    aggregate_fill_values: Optional[CypherEmptyGroupFills] = None,
 ) -> Plottable:
     """Null-fill result rows for prefix rows that the optional reentry didn't match."""
     prefix_df = prefix_result._nodes

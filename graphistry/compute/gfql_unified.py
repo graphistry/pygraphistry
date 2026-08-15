@@ -8,7 +8,7 @@ import pandas as pd
 from types import MappingProxyType
 from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 from graphistry.Plottable import Plottable
-from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, is_polars_df, resolve_engine, series_to_pylist
+from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, is_polars_df, is_series_like, resolve_engine, series_to_pylist
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
@@ -31,6 +31,8 @@ from graphistry.compute.gfql.same_path_types import (
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.gfql.agg_types import CypherEmptyGroupValue
+from graphistry.compute.gfql.cypher.ast import CypherParams
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
 from graphistry.compute.gfql.cypher.lowering import (
@@ -170,7 +172,11 @@ def _apply_optional_null_fill(
         message="Cypher OPTIONAL MATCH null-row alignment could not recover matched seed identities",
         suggestion="Use a simpler OPTIONAL MATCH projection shape in the local compiler.",
     )["ids"]
-    if not (hasattr(matched_ids, "tolist") or hasattr(matched_ids, "to_list")):
+    # `is_series_like` (pandas/cuDF `.dropna` or a polars Series) rather than sniffing
+    # `tolist`/`to_list`: cuDF has BOTH and both RAISE by design (host-transfer guard),
+    # so attribute presence never proved this was usable. `series_to_pylist` below is
+    # the only thing that reads the values, and it is engine-aware.
+    if not is_series_like(matched_ids):
         raise GFQLValidationError(
             ErrorCode.E108,
             "Cypher OPTIONAL MATCH null-row alignment could not recover matched seed identities",
@@ -1472,7 +1478,7 @@ def _execute_compiled_query_with_reentry(
     return result
 
 
-def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery) -> Dict[str, Any]:
+def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery) -> Dict[str, CypherEmptyGroupValue]:
     """Cypher empty-group values for aggregate outputs of an optional-reentry suffix.
 
     An unmatched prefix row contributes one null-extended row, so aggregates
@@ -1485,8 +1491,8 @@ def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery)
     carried = set(plan.scalar_columns) if plan is not None else set()
     reentry_alias = plan.reentry_alias_name if plan is not None else None
     ops = list(compiled_query.chain.chain) if compiled_query.chain is not None else []
-    with_map: Dict[str, Any] = {}
-    fills: Dict[str, Any] = {}
+    with_map: Dict[str, object] = {}
+    fills: Dict[str, CypherEmptyGroupValue] = {}
     for op in ops:
         function = getattr(op, "function", None)
         params = getattr(op, "params", None) or {}
@@ -1505,7 +1511,7 @@ def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery)
                 if func == "count" and (expr is None or expr == "*"):
                     fills[alias] = 1
                     continue
-                source = with_map.get(cast(str, expr), expr)
+                source: object = with_map.get(expr, expr) if isinstance(expr, str) else expr
                 if not isinstance(source, str):
                     continue
                 base = source.split(".", 1)[0]
@@ -2029,7 +2035,7 @@ def gfql(self: Plottable,
          policy: Optional[Dict[str, PolicyFunction]] = None,
          where: Optional[Sequence[WhereComparison]] = None,
          language: Optional[Literal["cypher", "gremlin"]] = None,
-         params: Optional[Mapping[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher query parameters are arbitrary user scalars
+         params: Optional[CypherParams] = None,
          validate: bool = False,
          shortest_path_backend: str = "auto") -> Plottable:
     """
