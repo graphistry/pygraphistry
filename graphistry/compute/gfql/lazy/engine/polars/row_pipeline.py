@@ -18,6 +18,8 @@ import re
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, TypeVar, Union, cast
 
+from typing_extensions import assert_never
+
 if TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.gfql.expr_parser import ExprNode, FunctionCall
@@ -131,11 +133,7 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
     import polars as pl  # function-local: polars is an optional dependency
     name = node.name.lower()
     if name == "__cypher_case_eq__" and len(node.args) == 2:
-        # Simple-CASE equality marker (`CASE x WHEN v`). openCypher simple CASE
-        # uses '=': null NEVER matches (conformed #1900 -- `CASE x WHEN null`
-        # matches no row and falls to ELSE, mirroring the pandas evaluator);
-        # the general form carries pandas' bool/numeric cross-dtype rules --
-        # decline it rather than diverge.
+        # Simple CASE compares with '=', so a null WHEN value matches nothing and falls to ELSE.
         from graphistry.compute.gfql.expr_parser import Literal as _Lit
         a_node, b_node = node.args
         if (isinstance(b_node, _Lit) and b_node.value is None) or (
@@ -317,13 +315,26 @@ def _is_int_literal(node: ExprNode) -> bool:
     return isinstance(node, Literal) and isinstance(node.value, int) and not isinstance(node.value, bool)
 
 
+def _orders_boolean_against_number(op: str, ldt: "Optional[pl.DataType]", rdt: "Optional[pl.DataType]") -> bool:
+    """Ordering a Boolean against a number is incomparable -> null (the row drops).
+
+    Boolean-vs-boolean ordering (false < true) stays served.
+    """
+    import polars as pl
+    if op not in _ORDER_OPS or ldt is None or rdt is None:
+        return False
+    return (
+        (ldt == pl.Boolean and _dtype_is_numeric(rdt) and rdt != pl.Boolean)
+        or (rdt == pl.Boolean and _dtype_is_numeric(ldt) and ldt != pl.Boolean)
+    )
+
+
 def _nonzero_int_literal(node: ExprNode) -> bool:
     """True iff the node is a NONZERO integer literal (unary +/- admitted).
 
-    Gates the native int `/` and `%` lowering (#1900): openCypher mandates an
-    ERROR for an integer zero divisor, but polars `// 0` silently yields null,
-    so only a provably nonzero literal divisor may run natively -- anything
-    else declines to the pandas lane's typed error."""
+    Gates the native int `/` and `%` lowering: a zero divisor must reach the pandas
+    lane's typed error rather than polars' silent `// 0` null.
+    """
     from graphistry.compute.gfql.expr_parser import Literal, UnaryOp as _UnaryOp
     if isinstance(node, _UnaryOp) and node.op in ("+", "-"):
         node = node.operand
@@ -615,18 +626,8 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             # engines; only % diverges.
             if node.op == "%" and (ldt == pl.Boolean or rdt == pl.Boolean):
                 return None
-            # openCypher: ordering a BOOLEAN against a NUMBER is incomparable -> null
-            # (rows drop in WHERE); boolean-vs-boolean ordering stays served (#1900).
-            if node.op in _ORDER_OPS and ldt is not None and rdt is not None and (
-                (ldt == pl.Boolean and _dtype_is_numeric(rdt) and rdt != pl.Boolean)
-                or (rdt == pl.Boolean and _dtype_is_numeric(ldt) and ldt != pl.Boolean)
-            ):
+            if _orders_boolean_against_number(node.op, ldt, rdt):
                 return pl.lit(None, dtype=pl.Boolean)
-            # openCypher numeric tower (#1900): `%` is TRUNCATED (sign of the
-            # dividend, -7 % 3 = -1), int `/` truncates toward zero, and an
-            # integer zero divisor is an ERROR -- polars `// 0` yields null, so
-            # int `/` and int `%` run natively only with a provably nonzero
-            # literal divisor; other divisors decline to pandas' typed error.
             if (
                 node.op in ("/", "%")
                 and ldt is not None and rdt is not None
@@ -659,14 +660,16 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         operand = lower_expr(node.operand, columns)
         if operand is None:
             return None
+        if node.op == "+":
+            return operand
         if node.op == "-":
             return -operand
-        if node.op.upper() == "NOT":
+        if node.op == "not":
             # Cast to Boolean so NOT null (Null-dtype lit) yields null (Cypher 3VL: NOT null =
             # null) instead of raising `dtype Null not supported in 'not' operation`; no-op
             # on a real Boolean column.
             return ~operand.cast(pl.Boolean)
-        return None
+        assert_never(node.op)
     if isinstance(node, IsNullOp):
         value = lower_expr(node.value, columns)
         if value is None:

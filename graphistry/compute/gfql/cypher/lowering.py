@@ -6676,9 +6676,7 @@ def lower_match_query(
                         continue
                 from graphistry.compute.gfql.same_path_types import SUPPORTED_WHERE_OPS as _SP_OPS
                 if predicate.op not in _SP_OPS:
-                    # e.g. property-vs-property STARTS WITH: the same-path WHERE
-                    # only carries comparisons -- typed decline, not a raw
-                    # ValueError from its validator (#1900).
+                    # The same-path WHERE carries comparisons only; anything else declines.
                     raise _unsupported(
                         f"Cypher cross-property '{predicate.op}' predicates between two aliases are not yet supported in the local compiler",
                         field="where",
