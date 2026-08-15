@@ -513,6 +513,31 @@ def hop_polars(
     if synth_eid:
         out_edges = out_edges.drop(EID)
 
+    # #1918 F4: undirected wavefront seed strip, the SAME rule as the pandas hop
+    # (compute/hop.py undirected_rediscovered_seed_ids). The BFS re-enters a seed by walking
+    # back along the edge it left by -- on the acyclic path a-b-c-d-e seeded at {a}, hop 2
+    # re-reaches `a` over edge `ab` a second time -- but return_as_wave_front returns
+    # ENCOUNTERED nodes, and the trip home is not an encounter. A seed stays only if an
+    # edge-disjoint walk reaches it: another seed in its component, or a cycle through it.
+    # Only a window of MORE THAN ONE edge needs this: a hop-1 arrival crossed a single edge, so
+    # it is edge-disjoint by construction (this is also why the single-bounded-hop lazy path
+    # above needs no strip at all, and it keeps the dominant chain shape at its old cost).
+    if (direction == "undirected" and return_as_wave_front and nodes is not None
+            and not (not to_fixed_point and resolved_max_hops is not None
+                     and resolved_max_hops <= 1)):
+        from graphistry.compute.hop import undirected_rediscovered_seed_ids
+        seed_id_list = seed.get_column(NID).to_list()
+        keep_seed_ids = undirected_rediscovered_seed_ids(
+            out_edges.get_column(src).to_list(), out_edges.get_column(dst).to_list(),
+            seed_id_list,
+        )
+        drop_seed_ids = [s for s in set(seed_id_list) if s not in keep_seed_ids]
+        if drop_seed_ids:
+            # dtype pinned to the node-id dtype: polars will not coerce is_in operands the way
+            # pandas does, so an inferred dtype could silently match nothing.
+            visited_nodes = visited_nodes.filter(
+                ~pl.col(NID).is_in(pl.Series(drop_seed_ids, dtype=node_dtype)))
+
     # Final node set: reached ∪ (edge endpoints, unless wavefront-with-seeds).
     needed = visited_nodes
     materialize_endpoints = not (return_as_wave_front and nodes is not None)

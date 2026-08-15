@@ -4,7 +4,7 @@ Graph hop/traversal operations for PyGraphistry.
 NOTE: Excluded from pyre (.pyre_configuration) - hop() complexity causes hang. Use mypy.
 """
 import os
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union, cast
+from typing import Any, Dict, Hashable, List, Optional, Set, Tuple, TYPE_CHECKING, Union, cast
 import pandas as pd
 
 from graphistry.Engine import (
@@ -14,7 +14,7 @@ from graphistry.Plottable import Plottable
 from graphistry.otel import otel_traced, otel_detail_enabled
 from .filter_by_dict import filter_by_dict
 from graphistry.Engine import safe_merge
-from .typing import DataFrameT, DomainT
+from .typing import DataFrameT, DomainT, SeriesT
 from .dataframe_utils import column_frame, column_values
 from .util import generate_safe_column_name
 
@@ -107,6 +107,110 @@ def resolve_hop_bounds(
         raise ValueError(f'output_max_hops ({resolved_output_max}) cannot be below min_hops traversal bound ({resolved_min_hops})')
 
     return resolved_max_hops, resolved_min_hops, resolved_output_min, resolved_output_max
+
+
+def _host_list(series: SeriesT) -> List[Hashable]:
+    """Column -> python list, engine-uniformly. cuDF REFUSES ``.tolist()`` outright ("Consider
+    using .to_arrow().to_pylist()"), polars spells it ``.to_list()``, pandas ``.tolist()``."""
+    if hasattr(series, "to_arrow"):
+        return cast(List[Hashable], series.to_arrow().to_pylist())
+    if hasattr(series, "tolist"):
+        return cast(List[Hashable], series.tolist())
+    return cast(List[Hashable], series.to_list())
+
+
+def undirected_rediscovered_seed_ids(
+    edge_sources: List[Hashable],
+    edge_destinations: List[Hashable],
+    seed_ids: List[Hashable],
+) -> Set[Hashable]:
+    """Seeds an undirected wavefront legitimately RE-ENCOUNTERS (#1918 F4).
+
+    ``return_as_wave_front=True`` documents "exclude starting node(s) in return, returning
+    only encountered nodes". A seed counts as encountered only when a walk that never REUSES
+    AN EDGE arrives back at it -- coming back along the edge you left by is the trip home, not
+    a discovery. That is the contract pinned by ``tests/compute/test_hop.py``: on the acyclic
+    path ``a-b-c-d-e`` seeded at ``{a}`` the answer excludes ``a`` (returning needs edge ``ab``
+    twice), while seeded at ``{a, b}`` it INCLUDES ``a``, which seed ``b`` reaches over ``ab``
+    on a one-edge walk that reuses nothing. Same rule, two different answers.
+
+    A seed ``s`` is re-encountered by an edge-disjoint walk of SOME length iff either
+
+      (A) its component holds another seed ``s'`` -- the shortest ``s'``->``s`` path is simple,
+          hence reuses no edge; or
+      (B) ``s`` lies on a cycle -- go around it.
+
+    (A) is a component scan; (B) is the 2-core, peeling nodes of degree <= 1. Degree counts
+    EDGE ROWS, not distinct neighbours, so two PARALLEL edges between ``u`` and ``v`` correctly
+    leave both on a length-2 cycle; the set-based adjacency this replaces collapsed them and
+    dropped such seeds. Self-loops are length-1 cycles.
+
+    Takes plain id SEQUENCES, not a frame, so pandas/cuDF and polars can both call it without
+    a ``to_pandas()`` bridge (the polars test lane ships no pyarrow).
+
+    Verified equal to brute-force edge-disjoint-walk enumeration on 6000 random multigraphs
+    (see the #1918 pins). NOTE it is LENGTH-BLIND: it answers "some length", so a bounded hop
+    whose window is shorter than the cycle back to the seed still keeps that seed. Both arms
+    share that limit; narrowing it needs shortest-cycle-through-a-vertex.
+    """
+    seeds = set(seed_ids)
+    src, dst = edge_sources, edge_destinations
+    if not seeds or not src:
+        return set()
+
+    # (A) components holding more than one seed
+    adjacency: Dict[Hashable, Set[Hashable]] = {}
+    for u, v in zip(src, dst):
+        adjacency.setdefault(u, set()).add(v)
+        adjacency.setdefault(v, set()).add(u)
+    keep: Set[Hashable] = set()
+    seen: Set[Hashable] = set()
+    for seed in seeds:
+        if seed in seen:
+            continue
+        stack, component = [seed], set()  # type: List[Hashable], Set[Hashable]
+        while stack:
+            current = stack.pop()
+            if current in component:
+                continue
+            component.add(current)
+            seen.add(current)
+            for neighbor in adjacency.get(current, set()):
+                if neighbor not in component:
+                    stack.append(neighbor)
+        component_seeds = component & seeds
+        if len(component_seeds) > 1:
+            keep.update(component_seeds)
+
+    # (B) cycle nodes: self-loops, plus the multigraph 2-core
+    loop_nodes = {u for u, v in zip(src, dst) if u == v}
+    simple = [(u, v) for u, v in zip(src, dst) if u != v]
+    incident: Dict[Hashable, Set[int]] = {}
+    endpoints: Dict[int, Tuple[Hashable, Hashable]] = {}
+    for eid, (u, v) in enumerate(simple):
+        endpoints[eid] = (u, v)
+        incident.setdefault(u, set()).add(eid)
+        incident.setdefault(v, set()).add(eid)
+    removed: Set[Hashable] = set()
+    queue = [node for node, eids in incident.items() if len(eids) <= 1]
+    while queue:
+        current = queue.pop()
+        if current in removed or len(incident.get(current, set())) > 1:
+            continue
+        removed.add(current)
+        for eid in list(incident.get(current, set())):
+            u, v = endpoints[eid]
+            other = v if u == current else u
+            if other in removed:
+                continue
+            incident[other].discard(eid)
+            if len(incident[other]) <= 1:
+                queue.append(other)
+        incident[current] = set()
+    cycle_nodes = loop_nodes | {
+        node for node, eids in incident.items() if eids and node not in removed
+    }
+    return (keep | cycle_nodes) & seeds
 
 
 @otel_traced("gfql.hop", attrs_fn=_hop_otel_attrs)
@@ -1185,20 +1289,57 @@ def hop(self: Plottable,
         and node_col in starting_nodes.columns
     ):
         wavefront_seed_ids_df = cast(DataFrameT, column_frame(starting_nodes, node_col).drop_duplicates())
-        # #1918 F4: ONE seed-strip rule for every direction/closure arm -- a seed stays iff
-        # the traversal actually re-encountered it (matches_nodes). undirected+to_fixed_point
-        # used to take topology-only heuristics instead (component-has->1-seed OR seed-on-a-cycle),
-        # which DROPPED seeds the bounded arm keeps on any acyclic single-seed component
-        # (2-node path, 3-node path seeded in the middle, star) -- so `to_fixed_point`
-        # disagreed with the saturated bounded hop, violating #1892's own headline invariant.
-        # The reached set is the bounded arm's rule and is engine-uniform (polars strips on
-        # `reached` too, hop_eager.py:491-493).
-        seeds_not_reached_df = wavefront_seed_ids_df
-        if matches_nodes is not None and node_col in matches_nodes.columns:
-            seeds_not_reached_df = wavefront_seed_ids_df[
-                ~column_values(wavefront_seed_ids_df, node_col).isin(column_values(matches_nodes, node_col))
-            ]
-        filtered_nodes = g_out._nodes[~g_out._nodes[node_col].isin(column_values(seeds_not_reached_df, node_col))]
+        # #1918 F4: ONE rule, both closure arms. A seed survives the wavefront strip iff the
+        # traversal REACHED it (matches_nodes -- this is what respects source/dest filtering,
+        # #1892 F-02) AND that reach is a genuine rediscovery rather than a walk back along the
+        # departure edge (undirected_rediscovered_seed_ids).
+        #
+        # to_fixed_point already applied the topology condition; the BOUNDED arm applied only
+        # the reached condition, which is why `hops=4` on the acyclic path a-b-c-d-e seeded at
+        # {a} returned {a,b,c,d,e}: the BFS re-enters `a` at hop 2 by traversing edge `ab` a
+        # second time, and nothing downstream rejected it. to_fixed_point had it right; the
+        # two were reconciled the wrong way once already (round-011 read the bounded arm as the
+        # reference), so this reconciles onto the tfp side and the two now share the rule.
+        #
+        # The topology condition is length-blind ("re-encountered at SOME length"), so it is
+        # exactly right for to_fixed_point and a NECESSARY condition for a bounded window: a
+        # seed reachable by an edge-disjoint walk of length <= max is reachable by one of some
+        # length. Intersecting therefore never drops a seed a bounded window should keep, and
+        # removes the whole backtracking class. What it does not yet catch is a seed whose only
+        # cycle home is LONGER than max_hops; that needs shortest-cycle-through-a-vertex and is
+        # pinned as a known residue in the #1918 pins.
+        #
+        # A window of at most ONE edge cannot backtrack: every hop-1 arrival crossed a single
+        # edge, so it is edge-disjoint by construction and the reached test alone is exact.
+        # Skipping the topology walk there keeps the dominant chain shape (undirected single
+        # hop) at its old cost -- it was +43% with the walk always on.
+        single_edge_window = (
+            not to_fixed_point and resolved_max_hops is not None and resolved_max_hops <= 1
+        )
+        if direction == 'undirected' and not single_edge_window:
+            keep_seed_ids = undirected_rediscovered_seed_ids(
+                _host_list(final_edges[source_col]),
+                _host_list(final_edges[destination_col]),
+                _host_list(column_values(wavefront_seed_ids_df, node_col)),
+            )
+            if keep_seed_ids:
+                if matches_nodes is None or len(matches_nodes) == 0:
+                    keep_seed_ids = set()
+                else:
+                    keep_seed_ids &= set(_host_list(column_values(matches_nodes, node_col)))
+            seed_mask = g_out._nodes[node_col].isin(column_values(wavefront_seed_ids_df, node_col))
+            if keep_seed_ids:
+                keep_mask = g_out._nodes[node_col].isin(list(keep_seed_ids))
+                filtered_nodes = g_out._nodes[~seed_mask | keep_mask]
+            else:
+                filtered_nodes = g_out._nodes[~seed_mask]
+        else:
+            seeds_not_reached_df = wavefront_seed_ids_df
+            if matches_nodes is not None and node_col in matches_nodes.columns:
+                seeds_not_reached_df = wavefront_seed_ids_df[
+                    ~column_values(wavefront_seed_ids_df, node_col).isin(column_values(matches_nodes, node_col))
+                ]
+            filtered_nodes = g_out._nodes[~g_out._nodes[node_col].isin(column_values(seeds_not_reached_df, node_col))]
         g_out = g_out.nodes(filtered_nodes)
 
     return g_out
