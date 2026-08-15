@@ -235,3 +235,38 @@ def test_sum_over_empty_match_is_zero():
     out = (graphistry.nodes(nodes, "id").edges(edges, "s", "d")
            .gfql(q, engine="pandas")._nodes.to_dict("records"))
     assert out == [{"s": 0}], out
+
+
+cudf_only = pytest.mark.skipif(
+    __import__("importlib.util", fromlist=["util"]).find_spec("cudf") is None,
+    reason="cudf lane requires a GPU box (--gpus all)")
+
+
+@cudf_only
+@pytest.mark.xfail(strict=True, reason="cuDF drops the sliced edge's source node row under an output hop window; pandas backfills it")
+def test_output_hop_window_backfills_the_source_node_row_on_cudf():
+    """Found by the #1895 hop.py boundary amplification, PRE-EXISTING (reproduces identically
+    at that branch's merge-base, so #1888/#1895 did not cause it).
+
+    With an output hop window, pandas returns edge (0,1) AND both endpoint node rows; cuDF
+    returns the edge with only node 1 -- the source row is never backfilled, leaving an edge
+    whose endpoint has no node row. Every engine should satisfy endpoint closure on its OUTPUT.
+    Flipping this xfail = the cuDF epilogue backfilling like the pandas one.
+    """
+    import cudf
+
+    nodes = pd.DataFrame({"id": [0, 1, 2, 3], "v": [10, 20, 30, 40]})
+    edges = pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3]})
+    seed = pd.DataFrame({"id": [0]})
+
+    def _hop(mk, engine):
+        g = graphistry.nodes(mk(nodes), "id").edges(mk(edges), "s", "d")
+        out = g.hop(nodes=mk(seed), max_hops=4, output_max_hops=1,
+                    direction="forward", engine=engine)
+        to_pd = (lambda d: d.to_pandas()) if engine == "cudf" else (lambda d: d)
+        return set(to_pd(out._edges)["s"]), set(to_pd(out._nodes)["id"])
+
+    src_pandas, ids_pandas = _hop(lambda d: d, "pandas")
+    src_cudf, ids_cudf = _hop(cudf.from_pandas, "cudf")
+    assert src_pandas <= ids_pandas  # pandas is the correct side
+    assert src_cudf <= ids_cudf, "cuDF left an edge source with no node row"

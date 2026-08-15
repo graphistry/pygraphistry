@@ -12,6 +12,7 @@ from graphistry.compute.gfql.cypher.ast import (
     PatternElement,
     RelationshipPattern,
 )
+from graphistry.compute.gfql.identifiers import shortest_path_hops_column
 
 
 @dataclass(frozen=True)
@@ -78,7 +79,7 @@ def _shortest_path_alias_specs(query: CypherQuery) -> Dict[str, _ShortestPathAli
             end_alias = pattern[-1].variable if isinstance(pattern[-1], NodePattern) else None
             out[alias] = _ShortestPathAliasSpec(
                 alias=alias,
-                hop_column=f"__cypher_shortest_path_hops__{alias}",
+                hop_column=shortest_path_hops_column(alias),
                 pattern=pattern,
                 start_alias=start_alias,
                 end_alias=end_alias,

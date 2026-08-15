@@ -173,8 +173,7 @@ class DegreeFact:
     hi: int
     backend: IndexBackend
     engine: Engine
-    # Trail-illegal (r, r) pairs the degree product would count (#1905); None = unknown,
-    # which the two-hop kernel treats as a decline rather than a zero correction.
+    #: ``|{e : src(e) == dst(e)}|``; None = unknown, which consumers must not read as 0.
     self_loops: Optional[int] = None
     type_column: Optional[str] = None
     type_value: Optional[PartitionValue] = None
