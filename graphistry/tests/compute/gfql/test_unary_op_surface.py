@@ -213,6 +213,34 @@ def test_empty_frame_yields_no_rows_not_an_error(engine):
     assert len(out) == 0
 
 
+@pytest.mark.parametrize("engine", ENGINES)
+def test_boolean_ordered_against_number_in_the_row_lane_is_null(engine):
+    """The WHERE-pushdown guard and the ROW-lane guard are different code paths; a
+    projected comparison exercises the row lane, where the answer is null (not False)."""
+    assert _values(engine, "n.flag > n.neg") == [None] * 4
+    assert _values(engine, "n.flag > 0") == [None] * 4
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_case_over_unmatched_optional_alias_when_null_falls_to_else(engine):
+    """Simple CASE compares with '=', so an UNMATCHED optional alias (null) does not
+    match `WHEN null` -- it falls to ELSE. Entity-alias twin of the property-ref rule."""
+    nodes = pd.DataFrame({"id": ["a", "b"], "neg": [-7, 8], "flag": [True, False],
+                          "score": [1.0, 2.0]})
+    edges = pd.DataFrame({"src": ["a"], "dst": ["b"], "type": ["KNOWS"]})
+    q = ("MATCH (a) OPTIONAL MATCH (a)-[:NOPE]->(z) "
+         "RETURN a.id AS id, CASE z WHEN null THEN 'none' ELSE 'found' END AS v")
+    try:
+        out = _graph(engine, nodes=nodes, edges=edges).gfql(q, engine=engine)._nodes
+    except NotImplementedError as decline:
+        assert engine != "pandas", f"pandas must not decline: {decline}"
+        assert "does not yet natively support" in str(decline)
+        return
+    if hasattr(out, "to_pandas"):
+        out = out.to_pandas()
+    assert out.sort_values("id")["v"].tolist() == ["found", "found"]
+
+
 # ------------------------------------------------------------------ toInteger(string)
 
 @pytest.mark.parametrize("engine", ENGINES)
