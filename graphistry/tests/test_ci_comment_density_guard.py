@@ -1,6 +1,7 @@
 """Pins for bin/ci_comment_density_guard.py: what it must catch, and what it must not."""
 
 import importlib.util
+import io
 import os
 import sys
 from typing import List, Sequence
@@ -149,3 +150,24 @@ def test_tests_are_exempt_from_comment_block_but_not_from_perf_claim():
 
 def test_repo_is_at_or_below_its_committed_baseline():
     assert GUARD.main([]) == 0  # type: ignore[attr-defined]
+
+
+def test_every_guard_baseline_triggers_the_python_ci_lane():
+    """A new guard must not need a ci.yml edit to have its baseline watched."""
+    import glob
+    import re
+
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    workflow = io.open(
+        os.path.join(root, ".github", "workflows", "ci.yml"), encoding="utf-8"
+    ).read()
+    block = workflow.split("emit python")[1].split("emit ")[0]
+    patterns = [re.compile(m) for m in re.findall(r"'([^']+)'", block)]
+
+    baselines = sorted(
+        os.path.relpath(p, root).replace(os.sep, "/")
+        for p in glob.glob(os.path.join(root, "bin", "ci_*baseline*.json"))
+    )
+    assert baselines, "no guard baselines found -- the glob or the layout changed"
+    unwatched = [b for b in baselines if not any(p.search(b) for p in patterns)]
+    assert unwatched == [], f"guard baselines not watched by the python lane: {unwatched}"

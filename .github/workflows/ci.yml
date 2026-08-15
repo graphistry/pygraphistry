@@ -234,10 +234,7 @@ jobs:
           '^mypy\.ini$' \
           '^bin/lint\.sh$' \
           '^bin/typecheck\.sh$' \
-          '^bin/ci_type_hygiene_guard\.py$' \
-          '^bin/ci_type_hygiene_baseline\.json$' \
-          '^bin/ci_comment_density_guard\.py$' \
-          '^bin/ci_comment_density_baseline\.json$'
+          '^bin/ci_.*baseline\.json$'
 
         # GFQL core + tests.
         emit gfql \
