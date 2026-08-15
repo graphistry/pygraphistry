@@ -74,23 +74,19 @@ SUPPRESS_MARKER = "guard-ok"
 
 CHECKS = ("comment-block", "perf-claim", "issue-rationale")
 
-# A measured claim belongs in pyg-bench whether or not the file stating it is a test.
 CHECKS_SKIPPING_TESTS = frozenset(["comment-block", "issue-rationale"])
 
-# Tool directives are machine-readable, so they never start, continue, or become prose.
 TOOL_DIRECTIVE_PREFIXES = (
     "type:", "noqa", "pragma", SUPPRESS_MARKER, "hygiene-ok", "fmt:", "isort:",
     "mypy:", "flake8:", "ruff:", "pylint:", "nosec", "yapf:", "coding:", "-*-",
 )
 
-# Sphinx attribute docs legitimately wrap to two lines; three is prose either way.
 SPHINX_PREFIX = "#:"
 PLAIN_RUN_LIMIT = 1
 SPHINX_RUN_LIMIT = 2
 
 ENCODING_RE = re.compile(r"coding[:=]\s*([-\w.]+)")
 
-# Complexity notation is matched case-sensitively so `foo(` and `into(` cannot hit.
 PERF_PATTERNS: Tuple[Tuple["re.Pattern[str]", str], ...] = (
     (re.compile(r"\bO\([^)]*\)"), "asymptotic-complexity notation"),
     (re.compile(r"\b(?:faster|slower|vectoriz\w*|measurably|cheap\w*|expensive\w*)\b",
@@ -98,7 +94,6 @@ PERF_PATTERNS: Tuple[Tuple["re.Pattern[str]", str], ...] = (
     (re.compile(r"\bhot[\s-]path\b", re.IGNORECASE), "hot-path claim"),
 )
 
-# `regress`/`A/B` also name correctness concepts, so they count only next to perf vocabulary.
 PERF_CONTEXTUAL_PATTERNS: Tuple[Tuple["re.Pattern[str]", str], ...] = (
     (re.compile(r"\bregress\w*\b", re.IGNORECASE), "performance-regression claim"),
     (re.compile(r"\bA/B\b"), "A/B-comparison claim"),
@@ -109,7 +104,6 @@ PERF_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Naming pyg-bench points at where the measurement lives, so it is a pointer, not a claim.
 BENCH_PATTERN = re.compile(r"\bbenchmark\w*\b", re.IGNORECASE)
 BENCH_POINTER_RE = re.compile(r"pyg[-_]bench", re.IGNORECASE)
 

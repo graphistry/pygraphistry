@@ -84,6 +84,17 @@ def test_perf_vocabulary_in_a_docstring_is_a_perf_claim(tmp_path):
     assert checks_for(tmp_path, source, ["perf-claim"]) == ["perf-claim"]
 
 
+@pytest.mark.parametrize("call", ["foo(x)", "into(rows)", "o(n)", "do(work)"])
+def test_a_lowercase_call_is_not_asymptotic_notation(tmp_path, call):
+    source = "X = 1  # delegates to %s for the rebind\n" % call
+    assert checks_for(tmp_path, source, ["perf-claim"]) == []
+
+
+def test_uppercase_complexity_notation_is_asymptotic_notation(tmp_path):
+    source = "X = 1  # delegates to O(n) for the rebind\n"
+    assert checks_for(tmp_path, source, ["perf-claim"]) == ["perf-claim"]
+
+
 def test_correctness_regression_without_performance_context_is_not_a_perf_claim(tmp_path):
     source = "X = 1  # regression guard: the fallback must stay reachable\n"
     assert checks_for(tmp_path, source, ["perf-claim"]) == []
