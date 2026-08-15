@@ -2588,7 +2588,7 @@ def _forces_relationship_multiplicity_projection_bindings(
     order_by: Optional[OrderByClause],
 ) -> bool:
     """Non-aggregate projections over relationship patterns run on binding rows:
-    the per-alias node table collapses row multiplicity (#1899 bag semantics).
+    the per-alias node table collapses row multiplicity under bag semantics.
 
     Scope: every projected/ordered expression must be either alias-free or a
     bare ``node_alias.prop`` ref -- whole-row refs, edge-alias refs, and
@@ -2633,10 +2633,9 @@ def _forces_relationship_multiplicity_projection_bindings(
         saw_node_prop_ref = True
     if not saw_node_prop_ref:
         return False
-    # Fast-path precedence (#1899 follow-up): the seeded typed-hop fast path
-    # (the benchmark-critical 2.5ms lever, #1755) pattern-matches the
-    # rows(table, source) compiled shape for a single [seed-node, single-hop
-    # edge, node] pattern projecting only destination props -- leave those
+    # The seeded typed-hop fast path matches the rows(table, source) compiled shape
+    # for a single [seed-node, single-hop edge, node] pattern projecting only
+    # destination props -- leave those
     # shapes on it (its seeded reduction is value-correct there).
     if len(query.matches) == 1 and len(query.matches[0].patterns) == 1:
         pattern = query.matches[0].patterns[0]
@@ -5560,7 +5559,7 @@ def _row_only_empty_aggregate_row(
     params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- Cypher params mapping, module-wide idiom
 ) -> Optional[Dict[str, Any]]:  # hygiene-ok: explicit-any -- heterogeneous Cypher identity values (0 / [] / None)
     """openCypher aggregate identities for an ungrouped aggregate RETURN over an
-    empty row stream (#1899): count -> 0, sum -> 0, collect -> [], else null.
+    empty row stream: count -> 0, sum -> 0, collect -> [], else null.
     Grouped/paged/non-aggregate finals return None (no synthesis)."""
     if not query.row_sequence:
         return None
@@ -7857,7 +7856,7 @@ def _clause_has_variable_length_relationship(clause: MatchClause) -> bool:
         for el in pat:
             if isinstance(el, RelationshipPattern) and (
                 el.min_hops is not None or el.max_hops is not None
-                or (el.to_fixed_point if hasattr(el, "to_fixed_point") else False)
+                or el.to_fixed_point
             ):
                 return True
     return False
@@ -9320,9 +9319,8 @@ def compile_cypher_query(
         if compiled_connected_optional is not None:
             return _attach_graph_context(compiled_connected_optional)
     if query.with_stages and query.matches and not any(m.optional for m in query.matches):
-        # #1899: a terminal pure bare-alias WITH carry over non-OPTIONAL
-        # matches is a row no-op; fold it away so binding-row multiplicity
-        # survives (the row-column pipeline would collapse it).
+        # A terminal pure bare-alias WITH carry over non-OPTIONAL matches is a row
+        # no-op; fold it away so binding-row multiplicity survives.
         from graphistry.compute.gfql.cypher.reentry.flatten import (
             flatten_pure_carry_terminal_with_nonoptional,
         )

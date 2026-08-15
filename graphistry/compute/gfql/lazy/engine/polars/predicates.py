@@ -64,7 +64,7 @@ _CMP_OPS = frozenset({operator.gt, operator.lt, operator.ge, operator.le, operat
 _ORDER_OPS = frozenset({operator.gt, operator.lt, operator.ge, operator.le})
 
 
-def _orders_boolean_column_against_number(op: Any, val: Any, dtype: "Optional[pl.DataType]") -> bool:
+def _orders_boolean_column_against_number(op: object, val: object, dtype: "Optional[pl.DataType]") -> bool:
     """Ordering a Boolean column against a number: incomparable, so it never satisfies.
 
     Equality is not ordering and stays served.

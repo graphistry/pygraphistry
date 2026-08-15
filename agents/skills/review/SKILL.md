@@ -162,6 +162,29 @@ git show origin/<base>:<file>
 - Test coverage should mirror changed areas in `graphistry/tests/**`.
 - Prefer behavioral tests over implementation-detail assertions.
 - Treat broad exception catches (`except Exception`, bare `except`) as a bad dynamic/over-defensive typing pattern by default. Require narrowed, documented exception types at local helpers; allow broad catches only at explicit isolation boundaries where the PR explains why programmer errors must be contained.
+### Encoding: names, tests, structure — not prose
+
+Meaning belongs in a **name**, a **test**, or the **structure**; a comment is the last resort.
+Delete from a diff: narration of the next block (extract a helper named for the rule), a
+why-this-fix or issue-number rationale (the pin's test name carries it; an issue ref may stay as a
+trailing tag), any perf/complexity/benchmark claim (measurement belongs in pyg-bench), and
+restatements of the signature. A keep must state a constraint that no name and no test can express
+— *defensible* is not the bar, and a doubtful keep deletes. Guard: `bin/ci_comment_density_guard.py`.
+
+Typing, same rule: `Any` over a known domain gets the real alias; a new `# type: ignore` or
+`hygiene-ok` gets restructured (both are for grandfathered debt only); `cast()` to satisfy the
+checker becomes `isinstance` narrowing. Hygiene-guard "no growth" is not sufficient — a file the PR
+touches should go down.
+
+Run this skill on your own `<base>..HEAD` diff before pushing, and carry these rules in any brief
+you hand a subagent. Re-fetch review comments before calling a thread addressed: anchors are
+per-commit (`commit_id`, `original_line`), and your remediation commit gets reviewed too.
+
+```bash
+git diff <base>..HEAD -- 'graphistry/**/*.py' ':!graphistry/tests/**' \
+  | grep -nE '^\+\s*#|^\+.*(\bAny\b|type: ignore|hygiene-ok|cast\()' | grep -v 'from typing import'
+```
+
 - Control-flow checks (runtime code, tests, and prompt-routing logic) must use structured signals (for example `code`, context keys like `field`/`value`, AST/symbol kinds, and stable symbol-binding metadata/files) and never **hardcoded** message-substring matching.
 - Run focused validation before escalating severity when feasible:
 
