@@ -187,6 +187,30 @@ measurement; pygraphistry owns results and data contracts. A comment saying "one
 O(E) pass" is a claim nobody re-measures — a pyg-bench case is a claim that fails
 loudly when it stops being true.
 
+### Concurrent human review while a PR is being edited
+
+A reviewer may be reading and commenting **while you push**. Assume it, and it
+changes three things:
+
+- **Re-fetch comments before declaring a review addressed.** Comments added after
+  your last fetch are invisible to you and look, from the outside, like you
+  ignored them. Query with timestamps and compare against what you handled:
+  `gh api repos/O/R/pulls/<n>/comments --paginate -q '.[] | "\(.created_at) \(.path):\(.line // .original_line) [\(.commit_id[0:7])]"'`
+- **Comment anchors drift.** A comment filed against an older commit reports a
+  line number from THAT commit; after your push the same remark may point at
+  different code, or at a line you deleted. Use the `commit_id` and
+  `original_line` fields, and read the surrounding code at that commit rather
+  than trusting the current line number.
+- **Your fix will itself be reviewed.** Remediation commits are new code and are
+  held to the same bar — on the 2026-08 stack a review-remediation commit drew a
+  second round of the same categories (a NOTE comment placed away from the symbol
+  it describes, `getattr` probes where static typing was available, magic symbol
+  strings not externed). Run the self-review gate on the remediation diff too,
+  not just on the original work.
+
+When a reviewer asks to "audit & fix" a class of violation, the deliverable is a
+repo-wide sweep with a site-by-site table, not a fix of the flagged line.
+
 ### Typing: narrow beats annotated
 
 | Pattern | Verdict | Fix |
