@@ -213,6 +213,32 @@ def test_empty_frame_yields_no_rows_not_an_error(engine):
     assert len(out) == 0
 
 
+# ------------------------------------------------------------------ toInteger(string)
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("literal,expected", [
+    ("'12'", 12),
+    ("'1.9'", 1),          # truncates toward zero, like Neo4j
+    ("'x1'", None),        # unparseable -> null
+    ("'nan'", None),
+    ("'inf'", None),       # parses as a float but has NO integer value
+    ("'-inf'", None),
+    ("'1e400'", None),     # overflows to inf on the float hop
+])
+def test_tointeger_of_a_string_without_an_integer_value_is_null(engine, literal, expected):
+    """openCypher: toInteger of a string that is not an integer is null -- never a raw
+    OverflowError surfacing as 'AST evaluator unsupported'.
+
+    polars may decline this lowering; the decline must be a TYPED NotImplementedError
+    naming the unsupported row op, never a silent skip or a different answer.
+    """
+    try:
+        assert _values(engine, f"toInteger({literal})") == [expected] * 4
+    except NotImplementedError as decline:
+        assert engine == "polars", f"{engine} must not decline: {decline}"
+        assert "does not yet natively support cypher row op" in str(decline)
+
+
 @pytest.mark.parametrize("engine", ENGINES)
 def test_null_cell_propagates_through_truncated_division(engine):
     """null / 2 is null (Cypher 3VL) -- and must not become 0 via a fillna in the
