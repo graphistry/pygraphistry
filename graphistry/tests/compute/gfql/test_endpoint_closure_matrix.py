@@ -316,3 +316,512 @@ def test_closed_answer_is_invariant_to_the_serving_lane(engine):
     policied = g.gfql(ops, engine=engine, policy=_POLICY)
     assert edge_pair_set(fast) == MIXED_CLOSED_EDGES
     assert edge_pair_set(policied) == MIXED_CLOSED_EDGES
+
+
+# =============================================================================================
+# ROUND-2 AMPLIFICATION -- the hop.py pos/neg boundary obligation (#1895 review).
+#
+# The section above sweeps the SHAPES of an endpoint miss on a 1-hop pattern. This section
+# sweeps the AXES hop.py actually branches on, because both hop.py changes live on those
+# branches: the closure gate sits next to the ``base_target_nodes`` construction (so it
+# interacts with hop windows, direction, seeds, filters and the target wavefront), and the
+# endpoint-backfill epilogue now runs ONLY for genuinely unbacked ids (so dtype preservation
+# and the still-required backfill are both live contracts).
+#
+# ORACLES ARE HAND-COMPUTED from the fixture tables and written as literals. Engine agreement
+# is never the oracle -- every expected value below is derived by walking the edge list by hand.
+# =============================================================================================
+
+# LADDER -- a directed path with a dangling id welded onto EACH end, so the gate must bite at
+# the head and the tail of a multi-hop walk and at the hop-window saturation boundary.
+#   nodes {0,1,2,3}
+#   0->1, 1->2, 2->3   both endpoints resolve   -> CLOSED
+#   3->9               destination 9 has no row -> dropped (tail)
+#   4->0               source 4 has no row      -> dropped (head)
+LADDER_NODES = pd.DataFrame({"id": [0, 1, 2, 3], "v": [10, 20, 30, 40]})
+LADDER_EDGES = pd.DataFrame({"s": [0, 1, 2, 3, 4], "d": [1, 2, 3, 9, 0]})
+LADDER_CLOSED = {(0, 1), (1, 2), (2, 3)}
+LADDER_IDS = {0, 1, 2, 3}
+
+# PARALLEL -- duplicate rows for one closed pair and one dangling pair. The gate is a row
+# filter, so it must drop BOTH dangling rows and keep BOTH closed rows (row count, not just
+# the pair set: a gate that deduplicated would pass a set-only assertion).
+PARALLEL_NODES = pd.DataFrame({"id": [0, 1, 2], "v": [10, 20, 30]})
+PARALLEL_EDGES = pd.DataFrame({"s": [0, 0, 2, 2], "d": [1, 1, 7, 7]})
+
+# ISLANDS -- two disconnected closed components, one fully-dangling component, one isolated
+# node (4) that no edge touches.
+ISLANDS_NODES = pd.DataFrame({"id": [0, 1, 2, 3, 4], "v": [10, 20, 30, 40, 50]})
+ISLANDS_EDGES = pd.DataFrame({"s": [0, 2, 5], "d": [1, 3, 6]})
+
+# NO_EDGES -- a bound node table over an EMPTY (correctly typed) edge table.
+NO_EDGES = pd.DataFrame({"s": pd.Series([], dtype="int64"), "d": pd.Series([], dtype="int64")})
+
+
+def _assert_no_phantom_node_ids(out, bound_ids):
+    """CLOSURE, stated on the OUTPUT: a hop may never surface an id the node table lacks.
+    This is the assertion that fails loudest pre-gate -- a dangling endpoint used to arrive
+    as a synthesized NaN-attribute node row."""
+    assert node_id_set(out) <= bound_ids, f"phantom node ids: {node_id_set(out) - bound_ids}"
+
+
+def _assert_output_is_endpoint_closed(out):
+    """The OTHER half, and the reason the backfill epilogue still has to exist: every endpoint
+    of every surviving edge must have a node row. Deleting the backfill breaks this."""
+    edges = to_pandas_any(out._edges)
+    nodes = to_pandas_any(out._nodes)
+    if edges is None or len(edges) == 0:
+        return
+    ids = set(nodes["id"].tolist())
+    assert set(edges["s"].tolist()) <= ids, "edge source has no node row"
+    assert set(edges["d"].tolist()) <= ids, "edge destination has no node row"
+
+
+# --- AXIS: hop window x direction, walked by hand on LADDER ------------------------------------
+#
+# (seed, direction, hops, expected closed edges). Derived by walking LADDER_EDGES:
+#   forward from 0 : hop1 {(0,1)}  hop2 +{(1,2)}  hop3 +{(2,3)}  hop4 saturates -- 3->9 is
+#                    dropped, so the 4th hop adds NOTHING (pre-gate it added (3,9) and node 9)
+#   reverse from 3 : hop1 {(2,3)}  hop3 the whole path -- 4->0 is dropped, so the walk stops
+#                    at 0 instead of continuing to the phantom 4
+#   reverse from 0 : EMPTY -- 0's only in-edge is the dangling 4->0
+#   undirected     : both ends bite at once
+_LADDER_WINDOW_ORACLE = [
+    (0, "forward", 1, {(0, 1)}),
+    (0, "forward", 2, {(0, 1), (1, 2)}),
+    (0, "forward", 3, LADDER_CLOSED),
+    (0, "forward", 4, LADDER_CLOSED),          # saturated: the 4th hop would be 3->9
+    (3, "reverse", 1, {(2, 3)}),
+    (3, "reverse", 3, LADDER_CLOSED),
+    (3, "reverse", 4, LADDER_CLOSED),          # saturated: the 4th hop would be 4->0
+    (0, "reverse", 1, set()),                  # only in-edge is dangling 4->0
+    (3, "forward", 1, set()),                  # only out-edge is dangling 3->9
+    (0, "undirected", 1, {(0, 1)}),            # 4->0 dropped, so only the 0-1 side
+    (3, "undirected", 1, {(2, 3)}),            # 3->9 dropped, so only the 2-3 side
+    (0, "undirected", 3, LADDER_CLOSED),
+]
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("seed,direction,hops,want", _LADDER_WINDOW_ORACLE)
+def test_hop_window_never_reaches_through_a_dangling_endpoint(engine, seed, direction, hops, want):
+    _require_engine(engine)
+    out = _bind(engine, LADDER_NODES, LADDER_EDGES).hop(
+        nodes=_seed(engine, [seed]), hops=hops, direction=direction, engine=engine)
+    assert edge_pair_set(out) == want
+    _assert_no_phantom_node_ids(out, LADDER_IDS)
+    _assert_output_is_endpoint_closed(out)
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("seed,direction,want", [
+    (0, "forward", LADDER_CLOSED),
+    (3, "reverse", LADDER_CLOSED),
+    (0, "undirected", LADDER_CLOSED),
+    (3, "undirected", LADDER_CLOSED),
+])
+def test_to_fixed_point_stops_at_the_closed_frontier(engine, seed, direction, want):
+    """to_fixed_point runs the eager BFS loop (a different arm from the bounded single hop),
+    so it needs its own cell: the fixed point must be the CLOSED component, not the raw one."""
+    _require_engine(engine)
+    out = _bind(engine, LADDER_NODES, LADDER_EDGES).hop(
+        nodes=_seed(engine, [seed]), to_fixed_point=True, direction=direction, engine=engine)
+    assert edge_pair_set(out) == want
+    _assert_no_phantom_node_ids(out, LADDER_IDS)
+
+
+# --- AXIS: seed cardinality 0 / 1 / many / all -------------------------------------------------
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("label,seeds,want", [
+    ("zero_seeds", [], set()),                                   # nothing to start from
+    ("one_seed", [0], {(0, 1)}),
+    ("many_seeds", [0, 2], {(0, 1), (2, 3)}),
+    ("all_seeds", [0, 1, 2, 3], LADDER_CLOSED),                  # 3->9 still excluded
+])
+def test_seed_cardinality_boundaries_stay_closed(engine, label, seeds, want):
+    _require_engine(engine)
+    out = _bind(engine, LADDER_NODES, LADDER_EDGES).hop(
+        nodes=_seed(engine, seeds), hops=1, direction="forward", engine=engine)
+    assert edge_pair_set(out) == want, label
+    _assert_no_phantom_node_ids(out, LADDER_IDS)
+
+
+# --- AXIS: topology (parallel edges, disconnected, isolated, empty edge table) ------------------
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_parallel_edges_are_gated_row_by_row(engine):
+    """BOTH duplicate closed rows survive and BOTH duplicate dangling rows die: the gate is a
+    row filter, not a dedup. A set-only assertion cannot tell those apart, so assert the count."""
+    _require_engine(engine)
+    out = _bind(engine, PARALLEL_NODES, PARALLEL_EDGES).gfql(
+        [n(), e_forward(), n()], engine=engine)
+    assert edge_pair_set(out) == {(0, 1)}
+    assert len(to_pandas_any(out._edges)) == 2, "both parallel closed rows must survive"
+    _assert_no_phantom_node_ids(out, {0, 1, 2})
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_disconnected_components_and_isolated_node(engine):
+    """Two closed components survive independently, the all-dangling component vanishes, and
+    the isolated node 4 never appears in an edge result."""
+    _require_engine(engine)
+    out = _bind(engine, ISLANDS_NODES, ISLANDS_EDGES).gfql(
+        [n(), e_forward(), n()], engine=engine)
+    assert edge_pair_set(out) == {(0, 1), (2, 3)}
+    assert node_id_set(out) == {0, 1, 2, 3}
+    _assert_output_is_endpoint_closed(out)
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("direction", ["forward", "reverse", "undirected"])
+def test_empty_edge_table_with_bound_nodes_is_empty_not_a_crash(engine, direction):
+    """Degenerate boundary: the gate indexes an empty edge frame. Must return empty, and must
+    not raise on the empty isin/join."""
+    _require_engine(engine)
+    out = _bind(engine, PARALLEL_NODES, NO_EDGES).hop(
+        nodes=_seed(engine, [0]), hops=1, direction=direction, engine=engine)
+    assert edge_pair_set(out) == set()
+
+
+# --- AXIS: endpoint filters (source side / destination side) x closure -------------------------
+#
+# These are the cells where the gate and the FILTER domain interact. On MIXED, node 2 (v=30) has
+# exactly one out-edge and it is the dangling (2,7); node 0 (v=10) has exactly one in-edge and it
+# is the dangling (8,0). So each filter selects a real node whose entire adjacency is unclosed --
+# the answer is EMPTY, where pre-gate it was the dangling edge itself.
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("label,kwargs,want", [
+    ("source_filter_selects_a_node_whose_only_out_edge_dangles",
+     {"source_node_match": {"v": 30}, "direction": "forward"}, set()),
+    ("destination_filter_selects_a_node_whose_only_in_edge_dangles",
+     {"destination_node_match": {"v": 10}, "direction": "forward"}, set()),
+    ("source_filter_on_a_closed_node_still_matches",
+     {"source_node_match": {"v": 10}, "direction": "forward"}, {(0, 1)}),
+    ("destination_filter_on_a_closed_node_still_matches",
+     {"destination_node_match": {"v": 30}, "direction": "forward"}, {(1, 2)}),
+])
+def test_endpoint_filters_compose_with_closure(engine, label, kwargs, want):
+    _require_engine(engine)
+    out = _bind(engine, MIXED_NODES, MIXED_EDGES).hop(hops=1, engine=engine, **kwargs)
+    assert edge_pair_set(out) == want, label
+    _assert_no_phantom_node_ids(out, {0, 1, 2})
+
+
+# --- AXIS: the backfill epilogue (the SECOND hop.py change) ------------------------------------
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("direction", ["forward", "reverse", "undirected"])
+def test_direct_hop_keeps_node_attribute_dtypes(engine, direction):
+    """THE cell for the backfill change, aimed at the surface it lives on. Pre-gate, direct
+    hop() on MIXED returned a NaN-attribute row for id 7 and upcast v from int64 to float64
+    (the chain surface filtered its own node frame and so never showed this). Closure plus
+    backfill-only-when-actually-missing means the attribute column comes back untouched."""
+    _require_engine(engine)
+    out = _bind(engine, MIXED_NODES, MIXED_EDGES).hop(
+        hops=1, direction=direction, engine=engine)
+    nodes_pdf = to_pandas_any(out._nodes)
+    assert not nodes_pdf["v"].isna().any(), "a phantom NaN-attribute node row survived"
+    assert str(nodes_pdf["v"].dtype) == "int64", "attribute dtype was upcast by a stub row"
+    _assert_no_phantom_node_ids(out, {0, 1, 2})
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_chain_surface_keeps_node_attribute_dtypes(engine):
+    """Same contract on the chain surface. This one already held pre-gate (chain filtered its
+    node frame independently), so it is a guard against the gate REGRESSING it, not a fix pin."""
+    _require_engine(engine)
+    out = _bind(engine, MIXED_NODES, MIXED_EDGES).gfql([n(), e_forward(), n()], engine=engine)
+    nodes_pdf = to_pandas_any(out._nodes)
+    assert not nodes_pdf["v"].isna().any()
+    assert str(nodes_pdf["v"].dtype) == "int64"
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("direction", ["forward", "reverse", "undirected"])
+@pytest.mark.parametrize("hops", [1, 2])
+def test_every_surviving_edge_still_has_both_node_rows(engine, direction, hops):
+    """The backfill epilogue is now conditional, so pin what it still owes: whatever edges come
+    back, their endpoints are present in the node frame. Deleting the backfill breaks this even
+    though closure alone would not."""
+    _require_engine(engine)
+    out = _bind(engine, LADDER_NODES, LADDER_EDGES).hop(
+        nodes=_seed(engine, [0, 3]), hops=hops, direction=direction, engine=engine)
+    _assert_output_is_endpoint_closed(out)
+    _assert_no_phantom_node_ids(out, LADDER_IDS)
+
+
+# --- AXIS: zero-hop seed inclusion -------------------------------------------------------------
+#
+# include_zero_hop_seed is a PANDAS-LANE kwarg: the polars hop declines it with
+# NotImplementedError (its documented parity-or-NIE contract). Both halves are pinned below --
+# the closed answer where it is served, and the loud decline where it is not. A silent wrong
+# answer on the polars lane is exactly what the NIE cell exists to catch.
+_ZERO_HOP_SEED_SERVED = ["pandas", "cudf"]
+_ZERO_HOP_SEED_DECLINED = ["polars", "polars-gpu"]
+
+# CONTROL fixture: a graph with ZERO dangling endpoints, so the gate cannot be involved.
+ISOLATED_SEED_NODES = pd.DataFrame({"id": [0, 1, 4], "v": [10, 20, 50]})
+ISOLATED_SEED_EDGES = pd.DataFrame({"s": [0], "d": [1]})
+
+
+@pytest.mark.parametrize("engine", _ZERO_HOP_SEED_SERVED)
+def test_zero_hop_seed_does_not_smuggle_back_a_dangling_edge(engine):
+    """include_zero_hop_seed must not reintroduce the seed's unclosed edge. Seed 2's only
+    out-edge is the dangling (2,7), so the edge answer stays empty with the flag set."""
+    _require_engine(engine)
+    out = _bind(engine, MIXED_NODES, MIXED_EDGES).hop(
+        nodes=_seed(engine, [2]), hops=1, direction="forward",
+        include_zero_hop_seed=True, engine=engine)
+    assert edge_pair_set(out) == set()
+    _assert_no_phantom_node_ids(out, {0, 1, 2})
+
+
+@pytest.mark.parametrize("engine", _ZERO_HOP_SEED_SERVED)
+@pytest.mark.parametrize("include_zero_hop_seed", [False, True])
+def test_unreached_seed_is_dropped_on_a_fully_closed_graph_too(engine, include_zero_hop_seed):
+    """CONTROL for the cell above: a seed that reaches nothing comes back with an EMPTY node
+    frame on direct hop() even with the flag set, on a graph where NOTHING dangles. Pinned so
+    the empty node frame in the dangling case is never misread as closure eating the seed."""
+    _require_engine(engine)
+    out = _bind(engine, ISOLATED_SEED_NODES, ISOLATED_SEED_EDGES).hop(
+        nodes=_seed(engine, [4]), hops=1, direction="forward",
+        include_zero_hop_seed=include_zero_hop_seed, engine=engine)
+    assert edge_pair_set(out) == set()
+    assert node_id_set(out) == set(), "pre-existing hop() behaviour, independent of #1888"
+
+
+@pytest.mark.parametrize("engine", _ZERO_HOP_SEED_DECLINED)
+def test_polars_lane_declines_zero_hop_seed_loudly(engine):
+    """Parity-or-NIE: the polars hop must REFUSE the kwarg, not quietly ignore it and return a
+    differently-shaped answer than the pandas lane."""
+    _require_engine(engine)
+    with pytest.raises(NotImplementedError, match="include_zero_hop_seed"):
+        _bind(engine, MIXED_NODES, MIXED_EDGES).hop(
+            nodes=_seed(engine, [2]), hops=1, direction="forward",
+            include_zero_hop_seed=True, engine=engine)
+
+
+# =============================================================================================
+# AMPLIFICATION ROUND 2 -- axes round 1 did not touch.
+#
+# Round 1 swept seeds / topology / direction / hop count / endpoint filters. Round 2 goes after
+# the remaining hop.py branches that sit downstream of the gate and the backfill: the OUTPUT
+# hop window, hop LABELLING (which reaches the backfill's node_hop_records merge -- a branch
+# that only executes when something is genuinely unbacked), wavefront-mode output, a CYCLE
+# (to_fixed_point termination), a non-integer id dtype, an edge-attribute filter, and the
+# target wavefront that widens the resolvable-id universe.
+# =============================================================================================
+
+# CYCLE -- a closed 3-cycle with a dangling edge hanging off each of two nodes. to_fixed_point
+# must terminate on the cycle and must not step onto 9 or admit 8.
+CYCLE_NODES = pd.DataFrame({"id": [0, 1, 2], "v": [10, 20, 30]})
+CYCLE_EDGES = pd.DataFrame({"s": [0, 1, 2, 2, 8], "d": [1, 2, 0, 9, 0]})
+CYCLE_CLOSED = {(0, 1), (1, 2), (2, 0)}
+
+# STRING IDS -- the gate is an id-membership test, so it has to hold on a non-integer id dtype.
+STR_NODES = pd.DataFrame({"id": ["a", "b", "c"], "v": [10, 20, 30]})
+STR_EDGES = pd.DataFrame({"s": ["a", "b", "c", "yy"], "d": ["b", "c", "zz", "a"]})
+STR_CLOSED = {("a", "b"), ("b", "c")}
+
+# TYPED LADDER -- LADDER plus an edge attribute, for the edge_match x closure cell.
+TYPED_LADDER_EDGES = pd.DataFrame({
+    "s": [0, 1, 2, 3, 4],
+    "d": [1, 2, 3, 9, 0],
+    "t": ["x", "y", "y", "x", "x"],
+})
+
+
+# --- AXIS: the OUTPUT hop window ---------------------------------------------------------------
+#
+# Walked by hand on LADDER from seed 0 forward with max_hops=4. Hop k contributes the k-th edge
+# of the path: hop1 (0,1), hop2 (1,2), hop3 (2,3), hop4 would be (3,9) -- which the gate deletes,
+# so hop 4 contributes NOTHING. output_min_hops=4 is therefore EMPTY where pre-gate it was
+# exactly the dangling edge: the sharpest cell in this file.
+# Served on the pandas-lane engines only; the polars hop declines output windows with NIE
+# (pinned separately below).
+_OUTPUT_WINDOW_SERVED = ["pandas", "cudf"]
+_OUTPUT_WINDOW_DECLINED = ["polars", "polars-gpu"]
+
+# (kwargs, expected edges, expected node frame). The node frame is the ENDPOINT SET of the
+# retained edges -- both sides -- which is what the backfill epilogue is for: the sliced edge's
+# SOURCE is not itself a hop-window survivor, so only the backfill puts its node row back.
+_OUTPUT_WINDOW_ORACLE = [
+    ({"output_max_hops": 1}, {(0, 1)}, {0, 1}),
+    ({"output_max_hops": 2}, {(0, 1), (1, 2)}, {0, 1, 2}),
+    ({"output_max_hops": 3}, LADDER_CLOSED, LADDER_IDS),
+    ({"output_max_hops": 4}, LADDER_CLOSED, LADDER_IDS),   # hop 4 is the dangling 3->9
+    ({"output_min_hops": 2}, {(1, 2), (2, 3)}, {1, 2, 3}),
+    ({"output_min_hops": 3}, {(2, 3)}, {2, 3}),
+    ({"output_min_hops": 4}, set(), set()),                # ONLY the dangling edge lived at hop 4
+]
+
+
+@pytest.mark.parametrize("kwargs,want,want_nodes", _OUTPUT_WINDOW_ORACLE)
+def test_output_hop_window_node_frame_is_the_closed_endpoint_set(kwargs, want, want_nodes):
+    """PANDAS ONLY, deliberately: this is the cell that pins the endpoint BACKFILL. Under an
+    output window the surviving edge's source is not itself in the window, so without the
+    backfill the node frame comes back missing it. cuDF does not backfill here -- that
+    divergence is pre-existing and pinned in test_known_cross_engine_divergences.py."""
+    out = _bind("pandas", LADDER_NODES, LADDER_EDGES).hop(
+        nodes=_seed("pandas", [0]), max_hops=4, direction="forward", engine="pandas", **kwargs)
+    assert edge_pair_set(out) == want
+    assert node_id_set(out) == want_nodes
+    _assert_output_is_endpoint_closed(out)
+
+
+@pytest.mark.parametrize("engine", _OUTPUT_WINDOW_SERVED)
+@pytest.mark.parametrize("kwargs,want,want_nodes", _OUTPUT_WINDOW_ORACLE)
+def test_output_hop_window_slices_only_closed_edges(engine, kwargs, want, want_nodes):
+    # NOTE: no _assert_output_is_endpoint_closed here. Under an output window the cudf lane
+    # returns the sliced edge WITHOUT backfilling its source node row, where pandas backfills.
+    # That divergence is PRE-EXISTING (reproduces identically at this branch's merge-base) and
+    # is pinned as a strict xfail in test_known_cross_engine_divergences.py.
+    _require_engine(engine)
+    out = _bind(engine, LADDER_NODES, LADDER_EDGES).hop(
+        nodes=_seed(engine, [0]), max_hops=4, direction="forward", engine=engine, **kwargs)
+    assert edge_pair_set(out) == want
+    _assert_no_phantom_node_ids(out, LADDER_IDS)
+
+
+@pytest.mark.parametrize("engine", _OUTPUT_WINDOW_DECLINED)
+@pytest.mark.parametrize("kwarg", ["output_min_hops", "output_max_hops"])
+def test_polars_lane_declines_output_hop_windows_loudly(engine, kwarg):
+    """Parity-or-NIE: declining loudly is the contract, so a future polars implementation
+    cannot land silently returning the ungated window."""
+    _require_engine(engine)
+    with pytest.raises(NotImplementedError, match=kwarg):
+        _bind(engine, LADDER_NODES, LADDER_EDGES).hop(
+            nodes=_seed(engine, [0]), max_hops=4, direction="forward",
+            engine=engine, **{kwarg: 2})
+
+
+# --- AXIS: hop labelling (reaches the backfill's node_hop_records merge) ------------------------
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_hop_labels_carry_no_phantom_row_and_stay_integral(engine):
+    """The backfill epilogue merges node_hop_records into the ids it appends. Pre-gate that
+    appended a row for id 9 with a NULL hop label, which also forced the label column off int64.
+    With closure there is nothing unbacked to append, so every labelled node is a real one and
+    the label column stays integral."""
+    _require_engine(engine)
+    out = _bind(engine, LADDER_NODES, LADDER_EDGES).hop(
+        nodes=_seed(engine, [0]), max_hops=4, direction="forward",
+        label_node_hops="nh", label_seeds=True, engine=engine)
+    assert edge_pair_set(out) == LADDER_CLOSED
+    nodes_pdf = to_pandas_any(out._nodes)
+    assert "nh" in nodes_pdf.columns
+    assert not nodes_pdf["nh"].isna().any(), "a phantom node arrived with a null hop label"
+    # INTEGRAL, not a specific spelling: the lanes legitimately land on int64 vs nullable Int64.
+    # What the null-stub row used to do is force the column to FLOAT, which this still catches.
+    assert pd.api.types.is_integer_dtype(nodes_pdf["nh"]), "null label row forced the column off an integer dtype"
+    _assert_no_phantom_node_ids(out, LADDER_IDS)
+
+
+# --- AXIS: wavefront-mode output ---------------------------------------------------------------
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("seed,hops,want_edges,want_nodes", [
+    (0, 1, {(0, 1)}, {1}),
+    # hops=2 reaches 1 then 2; wavefront mode returns the ids REACHED (seed excluded), not
+    # only the last ring -- so {1,2}. The closure claim here is that 9 is in neither.
+    (0, 2, {(0, 1), (1, 2)}, {1, 2}),
+    (3, 1, set(), set()),          # 3's only out-edge is the dangling 3->9
+])
+def test_wave_front_mode_returns_only_closed_frontier(engine, seed, hops, want_edges, want_nodes):
+    """return_as_wave_front drops the seed from the node output, so it is a separate epilogue
+    arm from every cell above."""
+    _require_engine(engine)
+    out = _bind(engine, LADDER_NODES, LADDER_EDGES).hop(
+        nodes=_seed(engine, [seed]), hops=hops, direction="forward",
+        return_as_wave_front=True, engine=engine)
+    assert edge_pair_set(out) == want_edges
+    assert node_id_set(out) == want_nodes
+
+
+# --- AXIS: cycle topology + to_fixed_point termination -----------------------------------------
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("direction", ["forward", "undirected"])
+def test_fixed_point_on_a_cycle_terminates_at_the_closed_component(engine, direction):
+    """A cycle makes to_fixed_point revisit nodes, which is where an over-eager gate or a
+    broken visited-set would loop or under-collect. The closed component is the whole cycle;
+    2->9 and 8->0 are not part of it."""
+    _require_engine(engine)
+    out = _bind(engine, CYCLE_NODES, CYCLE_EDGES).hop(
+        nodes=_seed(engine, [0]), to_fixed_point=True, direction=direction, engine=engine)
+    assert edge_pair_set(out) == CYCLE_CLOSED
+    assert node_id_set(out) == {0, 1, 2}
+    _assert_output_is_endpoint_closed(out)
+
+
+# --- AXIS: id dtype ----------------------------------------------------------------------------
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("direction", ["forward", "reverse", "undirected"])
+def test_closure_holds_on_string_ids(engine, direction):
+    """The gate is an id-membership test; string ids exercise a different comparison path than
+    the int64 fixtures above (and a different join-key alignment on the polars lane)."""
+    _require_engine(engine)
+    out = _bind(engine, STR_NODES, STR_EDGES).hop(direction=direction, engine=engine)
+    assert edge_pair_set(out) == STR_CLOSED
+    assert node_id_set(out) == {"a", "b", "c"}
+    _assert_output_is_endpoint_closed(out)
+
+
+# --- AXIS: edge-attribute filter x closure -----------------------------------------------------
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("match,want", [
+    ({"t": "x"}, {(0, 1)}),        # t='x' also selects the dangling 3->9 and 4->0 -- both die
+    ({"t": "y"}, {(1, 2), (2, 3)}),
+])
+def test_edge_match_composes_with_closure(engine, match, want):
+    """edge_match filters edges BEFORE the gate, so this pins that the two filters compose
+    rather than one shadowing the other."""
+    _require_engine(engine)
+    out = _bind(engine, LADDER_NODES, TYPED_LADDER_EDGES).hop(
+        to_fixed_point=True, direction="forward", edge_match=match, engine=engine)
+    assert edge_pair_set(out) == want
+    _assert_no_phantom_node_ids(out, LADDER_IDS)
+
+
+# --- AXIS: the target wavefront widens the resolvable-id universe ------------------------------
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_target_wave_front_inside_the_node_table_keeps_closure(engine):
+    """The ordinary chain case: the wavefront is a SUBSET of the node table, so it constrains
+    the final target and changes nothing about closure."""
+    _require_engine(engine)
+    out = _bind(engine, LADDER_NODES, LADDER_EDGES).hop(
+        nodes=_seed(engine, [0]), hops=1, direction="forward",
+        target_wave_front=_seed(engine, [1]), engine=engine)
+    assert edge_pair_set(out) == {(0, 1)}
+    _assert_no_phantom_node_ids(out, LADDER_IDS)
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_target_wave_front_cannot_resurrect_an_unrelated_dangling_edge(engine):
+    """A wavefront naming id 1 does not make id 9 resolvable: 3->9 stays dropped."""
+    _require_engine(engine)
+    out = _bind(engine, LADDER_NODES, LADDER_EDGES).hop(
+        nodes=_seed(engine, [3]), hops=1, direction="forward",
+        target_wave_front=_seed(engine, [1]), engine=engine)
+    assert edge_pair_set(out) == set()
+    _assert_no_phantom_node_ids(out, LADDER_IDS)
+
+
+@pytest.mark.parametrize("kwargs,want_edges,want_nodes", [
+    ({"output_max_hops": 1}, {(0, 1)}, {0, 1}),
+    ({"output_max_hops": 2}, {(0, 1), (1, 2)}, {0, 1, 2}),
+])
+def test_output_window_on_a_cycle_keeps_only_the_windowed_endpoints(kwargs, want_edges, want_nodes):
+    """PANDAS ONLY (see the cuDF divergence note above). A CYCLE is the case where the seed is
+    re-reached, which routes the hop-label bookkeeping down a different arm than the acyclic
+    LADDER: node 2 is reachable but is NOT an endpoint of any windowed edge, so it must not
+    appear. Pins that the hop-label column still reaches the output-window node filter."""
+    out = _bind("pandas", CYCLE_NODES, CYCLE_EDGES).hop(
+        nodes=_seed("pandas", [0]), max_hops=4, direction="forward", engine="pandas", **kwargs)
+    assert edge_pair_set(out) == want_edges
+    assert node_id_set(out) == want_nodes
+    _assert_output_is_endpoint_closed(out)

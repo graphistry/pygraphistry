@@ -52,6 +52,7 @@ from graphistry.compute.gfql.row.dispatch import (
     eval_sequence_fn_series,
 )
 from graphistry.compute.gfql.row.entity_props import (
+    LABEL_FLAG_PREFIX,
     edge_property_columns,
     entity_keys_series,
     format_edge_entity_text,
@@ -336,7 +337,7 @@ class RowPipelineMixin:
             or "dst" in cols
             or "edge_id" in cols
             or "type" in cols
-            or any(col.startswith("label__") for col in cols)
+            or any(col.startswith(LABEL_FLAG_PREFIX) for col in cols)
         )
 
     @staticmethod
@@ -3384,7 +3385,7 @@ class RowPipelineMixin:
     def _gfql_node_filter_has_label(filter_dict: Any) -> bool:
         if not isinstance(filter_dict, Mapping):
             return False
-        return any(str(key).startswith("label__") and value is True for key, value in filter_dict.items())
+        return any(str(key).startswith(LABEL_FLAG_PREFIX) and value is True for key, value in filter_dict.items())
 
     @staticmethod
     def _gfql_edge_match_type(edge_match: Any) -> Optional[str]:

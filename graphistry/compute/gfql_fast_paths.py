@@ -208,25 +208,19 @@ def _filter_project(
 ) -> DataFrameT:
     """filter_by_dict with an optional column projection, on every engine.
 
-    WHEN to project is a STATIC plan property, not a cost decision: a caller
-    passes ``project`` iff its plan provably reads only those columns (e.g. a
-    count-shaped fast path reads only node id and edge endpoint columns). That
-    admission rule is sufficient because both arms are monotone — projection is
-    never more expensive than the plain filter (on polars this REQUIRES the
-    small-frame eager gate below: the lazy plan carries a fixed per-call cost
-    that a small frame cannot amortize — receipted q8@20k floor trip):
+    WHEN to project is a STATIC plan property: a caller passes ``project`` iff its
+    plan provably reads only those columns (e.g. a count-shaped fast path reads
+    only node id and edge endpoint columns).
 
     - polars: the SAME validated expr (built against the full schema) runs as
       one lazy filter+select, so the engine gathers only the requested columns.
     - pandas/cudf: the boolean mask is built without materializing anything
       (``filter_mask_by_dict`` — same column resolution, same typed errors),
-      then ``.loc[mask, project]`` gathers only the requested columns: identical
-      mask work, strictly fewer gathered columns than the full filter.
+      then ``.loc[mask, project]`` gathers only the requested columns.
 
     The filter may reference projected-away columns in every arm.
     ``project=None`` is byte-identical to the plain filter. Contract with
-    columns: AT LEAST ``project`` post-filter -- and exactly ``project`` once the
-    frame is large enough that narrowing pays (the polars small-frame arm skips
+    columns: AT LEAST ``project`` post-filter (the polars small-frame arm skips
     narrowing entirely; pandas/cudf mask+loc is narrow at every size).
     """
     if engine in POLARS_ENGINES:
@@ -235,11 +229,8 @@ def _filter_project(
         if project is None:
             return cast(DataFrameT, frame.filter(expr) if expr is not None else frame)
         if len(frame) < _PROJECT_LAZY_MIN_ROWS:
-            # Small frame: EVERY extra polars op carries fixed overhead that small
-            # frames cannot amortize (receipted twice: the lazy plan tripped the
-            # q8@20k floor, and even eager+select re-tripped it), so skip narrowing
-            # entirely -- byte-identical to the pre-projection path. Contract here
-            # is AT LEAST the projected columns; consumers must tolerate extras.
+            # Small frame: skip narrowing -- byte-identical to the pre-projection path.
+            # Contract here is AT LEAST the projected columns; consumers must tolerate extras.
             return cast(DataFrameT, frame.filter(expr) if expr is not None else frame)
         lf = frame.lazy()  # engine seam: polars frame rides DataFrameT
         if expr is not None:
@@ -689,11 +680,10 @@ def _connected_join_apply_node_residuals(
 ) -> DataFrameT:
     """Filter a fast-path node frame by single-alias post-join residual expressions.
 
-    Fast lane (polars): the residual is lowered by the SAME native polars row lowering the
+    Native lane (polars): the residual is lowered by the SAME native polars row lowering the
     fallback's ``where_rows`` chain would use (``_residual_polars_expr``), so it becomes one
-    ``frame.filter(expr)`` with no chain dispatch (the where_rows chain costs ~1.7ms/alias,
-    the dominant cost of the residual OLAP fast path). Whatever that lowering declines falls
-    back to the chain below, so semantics never diverge — the fast lane's accept set, its
+    ``frame.filter(expr)`` with no chain dispatch. Whatever that lowering declines falls
+    back to the chain below, so semantics never diverge — the native lane's accept set, its
     decline set and its answers are the fallback's, by construction.
 
     ALL-OR-NOTHING per alias: one untranslatable expr sends the WHOLE group to the fallback
@@ -787,7 +777,7 @@ def _connected_join_two_star_fused_polars(
     shared key) and the right arm's second-leaf semi-join when the unique-keyed
     group-property lookup subsumes it. The subsumption proofs, plan shapes, and
     boundary parity are pinned in test_residual_polars_native.py (plan-shape pins
-    + both-sides differential); measured effects live in pyg-bench receipts.
+    + both-sides differential).
     """
     import polars as pl
     from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_expr_by_dict_polars
@@ -847,7 +837,7 @@ def _connected_join_two_star_fused_polars(
         [pl.col(src_col).alias(shared_alias)] + [pl.col(key) for key in output_group_keys]
     )
     joined_lf = right_rows_lf.join(left_counts_lf, on=shared_alias, how="inner")
-    # One collect on the hot path; boundary-only plans collect only on the empty match (receipts in pyg-bench).
+    # One collect; boundary-only plans collect only on the empty match.
     if output_group_keys and limit_value != 0:
         # LIMIT != 0 keeps out_df empty <=> joined empty; LIMIT 0 takes the eager tail (pinned).
         out_lf = joined_lf.group_by(output_group_keys, maintain_order=True).agg(
@@ -1594,12 +1584,12 @@ def _two_hop_count_fused_polars(
     frames = (start_nodes, middle_nodes, end_nodes, first_edges, second_edges)
     if not all(isinstance(frame, pl.DataFrame) for frame in frames):
         # LazyFrame (or a non-polars frame) input: the eager twin owns those. Schema
-        # probes on a LazyFrame warn and cost, and a non-polars frame has no .lazy().
+        # probes on a LazyFrame warn, and a non-polars frame has no .lazy().
         return None
     for edge_frame in (first_edges, second_edges):
         if _TWO_HOP_IN_COUNT_COL in edge_frame.columns or _TWO_HOP_OUT_COUNT_COL in edge_frame.columns:
             # DEFENSIVE decline: an edge column already carrying a degree-counter name.
-            # Measured on polars 1.42 both lanes still agree (group_by().len() replaces the
+            # On polars 1.42 both lanes still agree (group_by().len() replaces the
             # column, and projection pushdown drops it), but whether a name collision
             # survives projection pushdown is a polars-version-dependent detail and the
             # eager twin answers this shape correctly -- so hand it back rather than bet.
@@ -1611,8 +1601,7 @@ def _two_hop_count_fused_polars(
     def ids_of(frame: DataFrameT) -> "pl.LazyFrame":
         return cast("pl.DataFrame", frame).lazy().select(node_col).unique()
 
-    # Reuse the SAME sub-plan when the caller aliased the frames (equal filter dicts),
-    # so the optimizer sees one node scan instead of three.
+    # Reuse the SAME sub-plan when the caller aliased the frames (equal filter dicts).
     start_ids = ids_of(start_nodes)
     middle_ids = start_ids if middle_nodes is start_nodes else ids_of(middle_nodes)
     end_ids = (
@@ -1679,11 +1668,6 @@ def _property_ref(expr: Any, valid_aliases: Sequence[str]) -> Optional[Tuple[str
 
 _GROUPED_AGG_LOOKUP_KEY_FMT = "__gfql_t3_{alias}_id__"
 
-# Both bounds are needed: group_by has a flat coordination cost only at low group
-# cardinality, value_counts has none but scales worse with input rows, so neither
-# bound alone is sound. Fixed from a crossover sweep BEFORE the formulation was
-# validated on any query -- a threshold chosen after seeing verdicts is
-# unfalsifiable. Sweep and crossover points: pyg-bench.
 _LOWCARD_COUNT_MAX_GROUPS = 32
 _LOWCARD_COUNT_MAX_INPUT_ROWS = 100_000
 
@@ -1695,7 +1679,7 @@ def _low_cardinality_pure_count_key(
     """``(group_key, out_alias)`` iff this is a single-key, pure ``count(*)`` aggregate.
 
     Pure ``count(*)`` is the ONLY aggregate the alternative formulation below can express,
-    and the only one measured value-identical to ``pl.len()``. Anything else -- a second
+    and the only one value-identical to ``pl.len()``. Anything else -- a second
     group key, a second aggregate, ``avg``/``sum``/``min``/``max``, or a ``count`` over a
     named property (which counts NON-NULL values, not rows) -- declines here.
 
@@ -1732,10 +1716,10 @@ def _low_cardinality_pure_count_plan(
     The two formulations are VALUE-IDENTICAL wherever this admits -- same key rows, same
     counts, same ``UInt32`` count dtype, same treatment of null / NaN / empty-input keys --
     and the caller's gate has already made the following ``sort`` TOTAL over the output
-    rows, so neither formulation's internal row order can reach the answer. They differ
-    only in COST, which is why this is a routing decision and not a semantic one.
+    rows, so neither formulation's internal row order can reach the answer. Choosing
+    between them is a routing decision, not a semantic one.
 
-    THE BOUNDS ARE STATIC, O(1) IN THE DATA, AND THEY ARE UPPER BOUNDS:
+    THE BOUNDS ARE STATIC AND THEY ARE UPPER BOUNDS:
 
     * **group cardinality <= height of the alias node frame supplying the group key.**
       The group key column is produced by an inner join that reads ``prop`` out of that one
@@ -1747,15 +1731,11 @@ def _low_cardinality_pure_count_plan(
       the eager twin does not -- so the bound only holds once the sole property join is
       known to be non-multiplying. Hence the two structural conditions below: exactly one
       alias may carry properties, and its node ids must be unique. That uniqueness check
-      runs on a frame already known to be <= ``_LOWCARD_COUNT_MAX_GROUPS`` rows, so it is
-      bounded work regardless of graph size.
+      runs on a frame already known to be <= ``_LOWCARD_COUNT_MAX_GROUPS`` rows.
 
-    BOTH BOUNDS ARE LOOSE IN THE SAFE DIRECTION. A loose bound over-estimates, so it can
-    only make this DECLINE a shape the alternative would have served -- it can never route
-    a high-cardinality or high-row aggregate into the wrong formulation, which is the
-    failure that would matter (that formulation is 2.7 ms slower on a ~20,000-group
-    aggregate). The cost of looseness is a forgone speedup: a 7,117-row City frame carrying
-    only 3 distinct countries declines here, because an O(1) height bound cannot see the 3.
+    BOTH BOUNDS ARE LOOSE IN THE SAFE DIRECTION: over-estimating can only make this DECLINE
+    a shape the alternative would have served, never route a high-cardinality or high-row
+    aggregate into the wrong formulation.
 
     DECLINES: a non-single-key or non-pure-``count(*)`` aggregate; a group key not supplied
     by exactly one alias; a second alias also contributing property columns (the row bound
@@ -1836,9 +1816,9 @@ def _single_hop_grouped_aggregate_fused_polars(
     null-largest ordering is pinned in the sort.
 
     ONE aggregate shape has a second, value-identical polars formulation: see
-    :func:`_low_cardinality_pure_count_plan`. It is chosen only when static O(1) bounds
-    prove both the group cardinality and the aggregate input rows are low, and it declines
-    to this ``group_by`` everywhere else.
+    :func:`_low_cardinality_pure_count_plan`. It is chosen only when static bounds prove
+    both the group cardinality and the aggregate input rows are low, and it declines to
+    this ``group_by`` everywhere else.
 
     Collects on the ACTIVE execution target (#1824): CPU for POLARS, the GPU-or-error
     engine for POLARS_GPU (NIE on a non-GPU-executable plan; dispatch declines to the
@@ -1847,7 +1827,7 @@ def _single_hop_grouped_aggregate_fused_polars(
     DECLINES (returns None; the caller falls through to the untouched eager twin, so a
     decline can never answer differently):
 
-    * a non-eager-polars input frame -- LazyFrame schema probes warn and cost, and a
+    * a non-eager-polars input frame -- LazyFrame schema probes warn, and a
       non-polars frame has no polars ``.lazy()``;
     * a needed property column missing from its alias' node frame. The eager twin
       discovers this mid-chain and returns ``None`` from the whole fast path, so this
@@ -1944,10 +1924,8 @@ def _single_hop_grouped_aggregate_fused_polars(
     # keeps (null endpoint ids match neither), and row MULTIPLICITY is identical too --
     # a semi-join never multiplies, and the inner join's multiplication on duplicate
     # node ids happens with or without the semi-join in front of it. So the semi-join is
-    # emitted ONLY for an endpoint with no property join (e.g. the count(*) side of
-    # graph-bench q4), where it is the sole membership restriction. Profiled one-shot on
-    # the 20k graph-benchmark (diagnosis-only, local CPU): the two redundant semi-joins
-    # were 1.7ms of q3's 3.5ms fused collect -- polars 1.42 does not eliminate them.
+    # emitted ONLY for an endpoint with no property join, where it is the sole membership
+    # restriction.
     work_lf: "pl.LazyFrame" = edges.lazy()
     for alias, node_frame, edge_col in (
         (start_alias, start_nodes, src_col),
@@ -2229,8 +2207,8 @@ def _execute_single_hop_grouped_aggregate_fast_path(
             # guard here the exact same query answers differently depending on whether it
             # matched the fast-path shape.
             if func in GFQL_NUMERIC_ONLY_AGGREGATIONS and expr_alias is not None:
-                # Dtype first, data second -- see the row-pipeline twin: only a column the schema
-                # already rejects is worth the O(n) null scan.
+                # Dtype first, data second -- see the row-pipeline twin: the null scan runs only
+                # on a column the schema already rejects.
                 dtype_label = polars_non_numeric_agg_dtype(work_schema.get(expr_alias))
                 if work_schema.get(expr_alias) == pl.Null or (
                     dtype_label is not None
@@ -2426,7 +2404,7 @@ def _dense_int_domain_interval(
 
     Dense means: integer dtype, no nulls, and ``n_unique == hi - lo + 1`` -- so
     interval membership (``lo <= x <= hi``) IS set membership. That equivalence is
-    what lets a caller replace a hash semi-join against the id set with an O(1)-space
+    what lets a caller replace a hash semi-join against the id set with a
     bounds proof (see ``_two_hop_equal_domain_dense_total``). Engine-polymorphic
     dispatcher over the typed per-engine helpers above; anything unprovable declines
     with None.
@@ -2459,10 +2437,7 @@ def _edge_cols_bounds_polars(
 ) -> bool:
     """Polars arm of ``_edge_cols_bounds_within`` -- fully typed, no ignores.
 
-    Fuses all six reductions (min/max/null_count per column) into ONE ``select`` so
-    the engine computes them in a single parallel pass over the edge frame -- the
-    per-Series chain it replaces cost ~2x at 2.4M edges (two O(E) passes serialized
-    per column).
+    All six reductions (min/max/null_count per column) go in ONE ``select``.
     """
     import polars as pl
     schema = frame.schema
@@ -2520,8 +2495,8 @@ def _facts_prove_bounds(
     True is always sound (full-frame bounds contain every subset's bounds; zero
     nulls on the frame means zero nulls on any subset), while False may be
     over-cautious (the subset can satisfy the claim even when the full frame
-    does not). A False therefore costs at most the O(E) scan it would have
-    skipped; it can never change an answer, and it never declines."""
+    does not). A False falls back to the scan; it can never change an answer,
+    and it never declines."""
     if facts is None:
         return False
     for fact in facts:
@@ -2583,20 +2558,16 @@ def _two_hop_equal_domain_dense_total(
 
     The equal-domain branch of ``_execute_two_hop_count_fast_path`` restricts the
     rel-filtered edges to domain x domain (two semi-joins on polars, two ``isin``
-    masks on pandas/cuDF) before counting per-node degrees -- and that restriction,
-    not the counting, dominates the lane (profiled on the 20k graph-benchmark q8:
-    ~5.3ms of the ~9.3ms one-shot polars call at 249k edges; the same two group_bys
-    without the semi-joins cost 2.1ms).
+    masks on pandas/cuDF) before counting per-node degrees.
 
     When ``_dense_int_domain_interval`` proves the domain ids form a dense integer
     interval [lo, hi] and BOTH endpoint columns are integer, null-free and bounded
     by [lo, hi], every endpoint is in-domain by interval arithmetic: the semi-joins
-    are the identity, and the degree product collapses to one O(E) ``bincount``
-    plus one O(E) gather-sum (``sum_b indeg(b)*outdeg(b) == sum_e indeg(src(e))``;
+    are the identity, and the degree product collapses to one ``bincount``
+    plus one gather-sum (``sum_b indeg(b)*outdeg(b) == sum_e indeg(src(e))``;
     oracle-pinned in test_lowering.py).
     Dense type-partitioned integer ids are the idiomatic multi-table graph encoding
-    (offset-based global ids), so the proof is cheap (a handful of O(E) min/max
-    reductions, no allocation) and admission is a data property, not a query hack.
+    (offset-based global ids), so admission is a data property, not a query hack.
 
     Returns the exact ``count(*)`` total, or None to DECLINE (any guard fails,
     including an empty edge frame) so the caller's existing semi-join / memo path
@@ -2623,7 +2594,7 @@ def _two_hop_equal_domain_dense_total(
         return None
     lo, hi = interval
     if not _facts_prove_bounds(edge_endpoint_facts, lo, hi):
-        # Fact miss or insufficient: fall back to the O(E) scan -- never decline on facts.
+        # Fact miss or insufficient: fall back to the scan -- never decline on facts.
         if not _edge_cols_bounds_within(edge_domain, src_col, dst_col, lo, hi, engine=engine):
             return None
 
@@ -2633,16 +2604,13 @@ def _two_hop_equal_domain_dense_total(
     n = hi - lo + 1
     table_budget = 4 * len(edge_domain) + 1024
     if n > table_budget:
-        # MEMORY guard, not a tuning knob: the count tables are O(domain), the path
-        # they replace is O(edges). A domain far wider than the edge count (huge node
-        # space, sparse rel) would allocate tables the semi-join path never needs --
-        # decline and let it answer.
+        # MEMORY guard: a domain far wider than the edge count (huge node space, sparse
+        # rel) would allocate count tables the semi-join path never needs -- decline.
         return None
     if degree_fact is not None and degree_fact.lo <= lo and degree_fact.hi >= hi:
-        # Precomputed degrees answer the SAME degree product with no per-query pass
-        # over the edges: sum_e indeg(src(e)) == sum_v indeg(v)*outdeg(v). O(N) instead
-        # of an O(E) bincount plus gather. The interval must match exactly -- the arrays
-        # are indexed by id - lo, so a different interval indexes the wrong slots.
+        # Precomputed degrees answer the SAME degree product without touching the edges:
+        # sum_e indeg(src(e)) == sum_v indeg(v)*outdeg(v). The interval must match exactly
+        # -- the arrays are indexed by id - lo, so a different interval indexes wrong slots.
         # Slice to the domain the caller proved. Endpoints outside [lo, hi] cannot
         # exist here -- that is exactly what _facts_prove_bounds established -- so the
         # slice loses no edge, and nodes outside the domain must not be counted.
@@ -2650,8 +2618,7 @@ def _two_hop_equal_domain_dense_total(
         return int(xp.dot(degree_fact.indeg[a:b], degree_fact.outdeg[a:b]))
     src_arr = col_to_array(edge_domain, src_col, engine)
     dst_arr = col_to_array(edge_domain, dst_col, engine)
-    # bincount emits platform int64 counts; inputs are integer dtype by proof, so no
-    # astype copies here (a copying astype measurably dominated the kernel at 2.5M edges).
+    # bincount emits platform int64 counts; inputs are integer dtype by proof, so no astype.
     if 0 <= lo and hi + 1 <= table_budget:
         # Shift elision: raw arrays, table of hi+1; bounds proof keeps [0, lo) all-zero (pinned).
         in_counts = xp.bincount(dst_arr, minlength=hi + 1)
@@ -2729,8 +2696,7 @@ def _execute_two_hop_count_fast_path(
         # dense integer interval that provably contains every filtered edge endpoint,
         # the domain semi-joins are the identity and the degree product is two
         # bincounts. Declines (None) keep the memoized semi-join path below untouched;
-        # when it serves, no cross-call memo is needed -- the kernel is cheaper than a
-        # memo HIT's count-join, so one-shot and warm calls converge.
+        # when it serves, no cross-call memo is needed.
         from graphistry.compute.gfql.index.api import get_registry, record_col_stats_decision
         _reg = get_registry(base_graph)
 
@@ -2756,7 +2722,7 @@ def _execute_two_hop_count_fast_path(
         # all node types and the domain is a strict subset of the node frame.
         # Partition facts restore both claims per label, keyed by the single
         # equality the typed pattern lowers to. Whole-frame facts stay the
-        # fallback; a miss anywhere costs the scan, never an answer.
+        # fallback; a miss anywhere falls back to the scan, never an answer.
         _edge_part = _partition_key_from_match(first_edge.edge_match)
         _src_fact = _dst_fact = None
         if _edge_part is not None:
@@ -3149,8 +3115,7 @@ def _execute_seeded_typed_hop_fast_path(
     assert projection is not None  # narrowed by the gate above
     # Lean projection: p_rows already IS the RETURN-alias (destination) node set.
     # Tag with the alias and reuse apply_result_projection for the exact
-    # column-order/flatten semantics — all on a handful of rows, so seeded cypher
-    # stays sub-ms (vs the ~25ms rows-pivot pipeline on the full graph).
+    # column-order/flatten semantics.
     if is_polars:
         import polars as pl
         tagged = p_rows.with_columns(pl.lit(True).alias(projection.alias))
