@@ -376,15 +376,16 @@ def _two_filter_loop_graph(engine: str) -> Any:
     Nodes n1..n4. Edges, with the (rel, w) pair each relationship filter reads:
       e0 = n1->n2 (K, 1)   e1 = n2->n3 (L, 1)
       e2 = n2->n2 (K, 1)   -- self-loop passing BOTH filters
+      e4 = n3->n3 (K, 1)   -- a SECOND self-loop passing BOTH filters
       e3 = n4->n4 (K, 2)   -- self-loop passing the FIRST filter ONLY
     """
     return _mk(
         pd.DataFrame({"id": ["n1", "n2", "n3", "n4"]}),
         pd.DataFrame({
-            "s": ["n1", "n2", "n2", "n4"],
-            "d": ["n2", "n3", "n2", "n4"],
-            "rel": ["K", "L", "K", "K"],
-            "w": [1, 1, 1, 2],
+            "s": ["n1", "n2", "n2", "n4", "n3"],
+            "d": ["n2", "n3", "n2", "n4", "n3"],
+            "rel": ["K", "L", "K", "K", "K"],
+            "w": [1, 1, 1, 2, 1],
         }),
         engine,
     )
@@ -394,14 +395,17 @@ def _two_filter_loop_graph(engine: str) -> Any:
 def test_two_hop_count_subtracts_only_loops_passing_both_relationship_filters(engine: str) -> None:
     """Hand oracle over ``MATCH (a)-[{rel:'K'}]->(b)-[{w:1}]->(c)``.
 
-    First arm admits {e0, e2, e3}; second admits {e0, e1, e2}. Ordered pairs of
-    DISTINCT relationships with ``dst(r1) == src(r2)``:
+    First arm admits {e0, e2, e3, e4}; second admits {e0, e1, e2, e4}. Ordered
+    pairs of DISTINCT relationships with ``dst(r1) == src(r2)``:
       r1=e0 (ends n2) -> r2 in {e1, e2}                        2
       r1=e2 (ends n2) -> r2 in {e1} (e2 already bound)         1
       r1=e3 (ends n4) -> no second-arm edge leaves n4          0
-    Total 3. The degree product is 4 (indeg_K(n2)=2 x outdeg_w1(n2)=2), so
-    exactly ONE pair is illegal: e2, the only self-loop passing BOTH filters.
-    e3 passes the first filter only and must NOT be subtracted.
+      r1=e4 (ends n3) -> no second-arm edge leaves n3          0
+    Total 3. The uncorrected degree product is 5 (middle n2: 2x2, middle n3: 1x1),
+    so TWO pairs are illegal -- e2 and e4, the self-loops passing BOTH filters.
+    That the answer needs 5-2 and not 5-1 is the point: the correction subtracts a
+    COUNT, not a "there is a loop" flag. e3 passes the first filter only and must
+    not be subtracted at all.
     """
     _skip_unless_engine(engine)
     graph = _two_filter_loop_graph(engine)
@@ -574,3 +578,122 @@ def test_all_shortest_paths_is_still_a_typed_decline() -> None:
     with pytest.raises(GFQLValidationError) as err:
         parse_cypher("MATCH (a), (b), p = allShortestPaths((a)-[*]-(b)) RETURN a.id")
     assert "allShortestPaths" in str(err.value)
+
+
+# (id, node ids, edge src, edge dst, hand oracle, anti-vacuous at the merge base)
+_DEGENERATE_SHAPES = [
+    # ONE self-loop and nothing else: a two-hop needs two DISTINCT relationships, so
+    # there is no binding. The uncorrected degree product is 1x1 = 1.
+    pytest.param(["a"], ["a"], ["a"], 0, id="single_self_loop"),
+    # TWO PARALLEL self-loops at one node: the ordered distinct pairs (e0,e1),(e1,e0).
+    # The correction must subtract the loop COUNT (2), not a "has a loop" flag:
+    # the uncorrected product is 2x2 = 4.
+    pytest.param(["a"], ["a", "a"], ["a", "a"], 2, id="parallel_self_loops"),
+    # DISCONNECTED components, each a self-loop plus an out-edge: (e0,e1) in one and
+    # (e2,e3) in the other. Uncorrected product 4, two loops.
+    pytest.param(["a", "b", "c", "d"], ["a", "a", "c", "c"], ["a", "b", "c", "d"], 2,
+                 id="two_components_each_with_a_loop"),
+    # CONTROL (passes at the merge base too): no edges, so openCypher's
+    # count-over-no-rows 0 -- there is nothing for the correction to get wrong.
+    pytest.param(["a", "b"], [], [], 0, id="control_empty_edge_frame"),
+    # CONTROL: a NULL endpoint is not equal to anything, itself included, so it is
+    # neither a self-loop nor a join partner.
+    pytest.param(["a", "b"], ["a", None], ["b", "b"], 0, id="control_null_endpoint"),
+]
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("ids,src,dst,oracle", _DEGENERATE_SHAPES)
+def test_two_hop_count_on_degenerate_self_loop_shapes(
+    engine: str, ids: List[Any], src: List[Any], dst: List[Any], oracle: int
+) -> None:
+    _skip_unless_engine(engine)
+    edges = pd.DataFrame({"s": src, "d": dst}).astype({"s": object, "d": object})
+    graph = _mk(pd.DataFrame({"id": ids}), edges, engine)
+    match = "MATCH (a)-->(b)-->(c)"
+    assert len(_rows(graph.gfql(f"{match} RETURN a.id, b.id, c.id", engine=engine))) == oracle
+    assert _rows(graph.gfql(f"{match} RETURN count(*) AS n", engine=engine)) == [{"n": oracle}]
+
+
+# cudf is absent for the same reason as the degree-fact cell: the dense-integer kernel
+# reduces through cupy, which needs the NVRTC runtime.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_dense_integer_two_hop_count_subtracts_every_self_loop(engine: str) -> None:
+    """DENSE-integer kernel with TWO self-loops at one node.
+
+    Nodes 0,1. Edges e0 = 0->0, e1 = 0->0 (parallel loops), e2 = 0->1.
+    Ordered DISTINCT-relationship pairs with ``dst(r1) == src(r2)``:
+      r1=e0 -> r2 in {e1, e2}     2
+      r1=e1 -> r2 in {e0, e2}     2
+      r1=e2 (ends 1, out-degree 0)  0
+    Total 4. Uncorrected the kernel answers indeg(0)*outdeg(0) = 2*3 = 6, so the
+    correction is 2 -- the loop COUNT. Subtracting a flag would answer 5.
+    """
+    _skip_unless_engine(engine)
+    graph = _mk(
+        pd.DataFrame({"id": [0, 1]}),
+        pd.DataFrame({"s": [0, 0, 0], "d": [0, 0, 1]}),
+        engine,
+    )
+    match = "MATCH (a)-->(b)-->(c)"
+    assert len(_rows(graph.gfql(f"{match} RETURN a.id, b.id, c.id", engine=engine))) == 4
+    assert _rows(graph.gfql(f"{match} RETURN count(*) AS n", engine=engine)) == [{"n": 4}]
+
+
+def test_fused_polars_lane_reads_an_empty_scalar_sink_as_zero() -> None:
+    """CONTROL (0 is also the merge-base answer): distinct node domains put the count
+    on the fused polars lane, and no middle node matches, so BOTH of that lane's
+    one-cell sinks collect EMPTY. openCypher counts over no rows as 0, so an empty
+    sink must read as 0 rather than raising on a missing cell.
+    """
+    pytest.importorskip("polars")
+    graph = _mk(
+        pd.DataFrame({
+            "id": ["n1", "n2", "n3"],
+            "label__A": [True, False, False],
+            "label__B": [False, True, False],
+            "label__C": [False, False, True],
+        }),
+        pd.DataFrame({"s": ["n1"], "d": ["n1"]}),
+        "polars",
+    )
+    assert _rows(graph.gfql("MATCH (a:A)-->(b:B)-->(c:C) RETURN count(*) AS n", engine="polars")) == [{"n": 0}]
+
+
+def test_fused_polars_lane_declines_to_derive_the_correction_across_two_edge_frames() -> None:
+    """``illegal_pairs=None`` asks the lane to DERIVE the correction, which it can only
+    do from a single shared edge frame: an illegal pair must pass both relationship
+    filters, and neither arm frame alone answers that. On distinct frames it must hand
+    the shape back (None), not derive a wrong number from the first arm.
+
+    Positive twin: the same call with ONE shared frame answers instead of declining.
+    """
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.gfql_fast_paths import _two_hop_count_fused_polars
+
+    nodes = pl.DataFrame({"id": ["n1", "n2", "n3"]})
+    first = pl.DataFrame({"s": ["n1", "n2"], "d": ["n2", "n2"]})
+    second = pl.DataFrame({"s": ["n2"], "d": ["n3"]})
+
+    def call(second_edges: Any) -> Any:
+        return _two_hop_count_fused_polars(
+            nodes, nodes, nodes, first, second_edges,
+            node_col="id", src_col="s", dst_col="d", alias="n", illegal_pairs=None,
+        )
+
+    assert call(second) is None
+    assert call(first) is not None
+
+
+def test_edge_identity_column_already_on_the_frame_is_reused_not_overwritten() -> None:
+    """A user column spelled like the internal edge-identity column is the identity the
+    trail join reads; re-deriving it would silently rewrite the caller's data.
+    """
+    from graphistry.compute.gfql.same_path_types import EDGE_IDENTITY_COLUMN
+    from graphistry.compute.gfql_unified import _with_edge_identity
+    from graphistry.Engine import Engine
+
+    edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], EDGE_IDENTITY_COLUMN: [70, 80]})
+    graph = graphistry.nodes(pd.DataFrame({"id": ["a", "b", "c"]}), "id").edges(edges, "s", "d")
+    out = _with_edge_identity(graph, engine=Engine.PANDAS)
+    assert list(out._edges[EDGE_IDENTITY_COLUMN]) == [70, 80]
