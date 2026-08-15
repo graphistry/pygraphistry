@@ -1862,8 +1862,18 @@ def _i1913_conv(df, engine):
 
 
 def _i1913_ids(g, ops, engine):
+    # Result frame type follows the SERVING engine, not the requested one (a
+    # cudf/polars-gpu request can hand back a polars Series), and the three
+    # Series types spell this differently: polars/pandas `to_list`, cudf
+    # `to_arrow().to_pylist()` -- cudf HAS `tolist` but it raises on purpose.
     ids = g.gfql(ops, engine=engine)._nodes["id"]
-    return sorted(ids.to_list() if engine == "polars" else ids.tolist())
+    # cudf's to_list AND tolist both raise on purpose (host-transfer guard), so
+    # attribute probing cannot discriminate -- sniff the module, as dtypes.py does.
+    if type(ids).__module__.startswith("cudf"):
+        return sorted(ids.to_arrow().to_pylist())
+    if hasattr(ids, "to_list"):  # polars, pandas
+        return sorted(ids.to_list())
+    return sorted(ids.tolist())
 
 
 def _i1913_frames(nn=_I1913_NN):

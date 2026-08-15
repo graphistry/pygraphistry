@@ -55,6 +55,7 @@ POLARS_TEST_FILES=(
     # polars params (WITH-rebind decline parity, edge-identity collision crash) only run here
     graphistry/tests/compute/gfql/test_alias_scoping_semantics.py
     graphistry/tests/compute/gfql/test_count_and_param_semantics.py
+    graphistry/tests/compute/gfql/test_hop_boundary_matrix.py
     graphistry/tests/compute/gfql/test_hop_semantics_pins.py
     # #1918 round-011 hop() pins: every case is parametrized pandas AND polars, and the
     # polars params (bound validation, hops=None run-to-closure, edges-only node output)
@@ -69,6 +70,9 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_semi_join_key_frame.py
     graphistry/tests/compute/gfql/test_fast_path_engagement.py
     graphistry/tests/compute/gfql/test_known_cross_engine_divergences.py
+    graphistry/tests/compute/gfql/test_endpoint_closure_matrix.py
+    graphistry/tests/compute/gfql/test_hop_kernel_contracts.py
+    graphistry/tests/compute/gfql/test_polars_dtype_classifier_contracts.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_fused_polars.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_lowcard_count.py
     # module-level `importorskip("polars")` files that previously ran in no lane at all

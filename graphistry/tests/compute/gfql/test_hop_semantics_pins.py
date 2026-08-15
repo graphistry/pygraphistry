@@ -3,21 +3,19 @@
 Two contract invariants this file exists to hold:
 
 1. FILTER-DOMAIN INVARIANCE: a filter's meaning must not depend on the hops
-   value. ``source_node_match``/``destination_node_match`` are documented as
-   matching against the graph's node attribute table; which table they read
-   must not flip when ``hops`` goes 1 -> 2 (F-01, FIXED: the seeded hops==1
-   special case used to filter the SEED frame -- an error on id-only seeds, a
-   silent wrong answer when the seed frame shadowed an attr column; it now
-   filters the node table semi-joined to seed ids, on both engines).
+   value. ``source_node_match``/``destination_node_match`` match against the
+   graph's node attribute table; which table they read must not flip when
+   ``hops`` goes 1 -> 2, and a seed frame carrying a same-named attr column is
+   never authoritative.
 2. FIXED-POINT == SATURATED BOUNDED: ``to_fixed_point=True`` must return
    exactly what a bounded hop returns once ``hops`` exceeds the graph
-   diameter (F-02, FIXED: the pandas undirected+tfp+wavefront seed-trim
-   heuristics used to leak never-re-encountered seeds; they now intersect
-   with the traversal's reached set, matching pandas' bounded arms + polars).
+   diameter, on both engines.
+
+Boundary coverage for both invariants lives in
+``test_hop_boundary_matrix.py`` (hand-computed oracles).
 
 Layout mirrors the round-003 agent-02 proposal (T-01..T-07):
-- value pins (T-01/02/03/04) -- the two HIGH classes, formerly strict-xfail,
-  flipped green by the #1892 F-01/F-02 fixes
+- value pins (T-01/02/03/04) -- the two HIGH classes
 - NIE contract pins (T-05/06) -- pin today's typed declines so support can
   only land via a conscious flip to a value test, and pin the arms that
   already answer so they cannot regress to NIE
@@ -73,10 +71,10 @@ def edge_ids(g):
 
 
 # ================================================================ T-01 (F-01a)
-# Seeded single-hop source filter must read the NODE TABLE, not the seed frame.
-# An id-only seed frame is the documented public shape ("id column matching
-# g._node"); fixed by #1892 F-01: hops==1 now filters the node table
-# (semi-joined to seed ids), same domain as hops>=2.
+# Seeded source filter reads the NODE TABLE at every hops value; an id-only
+# seed frame is the documented public shape ("id column matching g._node").
+# Oracle: 0(a) -x-> 1(b); source filter type=='a' admits 0, so hop from seed
+# {0} yields {0, 1} at both hops values.
 
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("hops", [1, 2])
@@ -90,11 +88,9 @@ def test_hop_seeded_source_match_id_only_seeds(engine, hops):
 
 
 # ================================================================ T-02 (F-01b)
-# Filter domain must not flip with hops when the seed frame shadows an attr
-# column: seed says type 'b' (stale), node table says 'a'. Pre-fix, hops=1 read
-# the seed frame (empty result) and hops=2 the node table ([0, 1]) -- a SILENT
-# wrong answer on one side. Fixed by #1892 F-01: the node table is
-# authoritative at every hops value; stale seed-frame attrs are ignored.
+# The node table is authoritative even when the seed frame shadows an attr
+# column: seed says type 'b' (stale), node table says 'a'. Oracle: the table's
+# 'a' admits node 0, so both hops values yield {0, 1}.
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_hop_seeded_source_match_domain_hops_invariant(engine):
@@ -109,10 +105,17 @@ def test_hop_seeded_source_match_domain_hops_invariant(engine):
 
 # ================================================================ T-03 (F-02)
 # to_fixed_point must equal the saturated bounded hop (engine-local, so it
-# catches the seed-leak without any cross-engine comparison). Graph diameter
-# < 3, so hops=3 bounded is saturated and MUST equal tfp. Fixed by #1892 F-02:
-# the pandas undirected+tfp+wavefront seed-keep heuristics now intersect with
-# the traversal's reached set, so filtered-out seeds no longer leak.
+# catches a seed leak without any cross-engine comparison). Graph diameter
+# < 3, so hops=3 bounded is saturated and MUST equal tfp.
+#
+# Hand oracle for 0(a) -x-> 1(b) -y-> 2(a), undirected, wavefront, seeds {0, 1}:
+#   source type=='a' -> sources may only be {0, 2}. From seed 0, edge x reaches
+#     1; seed 1 is type 'b' so it cannot depart. Node 2 is never reached, so
+#     edge y is never used. Encountered {1}, edges {(0,1)}. Seed 0 is not
+#     re-encountered (returning needs edge x twice) -> nodes [1].
+#   dest type=='b' -> destinations may only be {1}. From 0: x -> 1 (kept). From
+#     1: x back to 0 and y to 2 are both type 'a' (rejected). Same answer:
+#     nodes [1], edges [(0,1)].
 
 # #1918 F4 WIDENING. The original parameterization was `filt` in {source_node_match,
 # destination_node_match} x seeds fixed at [0, 1] -- and that is precisely what HID the
@@ -143,6 +146,23 @@ def test_hop_undirected_tfp_wavefront_matches_saturated_bounded(engine, filt, se
     fixed = g.hop(hops=3, to_fixed_point=True, **kw)
     assert node_ids(fixed) == node_ids(bounded)
     assert edge_ids(fixed) == edge_ids(bounded)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("filt", [
+    {"source_node_match": {"type": "a"}},
+    {"destination_node_match": {"type": "b"}},
+], ids=["src-match", "dst-match"])
+def test_hop_undirected_tfp_wavefront_filtered_values(engine, filt):
+    kw = dict(
+        nodes=_frame(engine, pd.DataFrame({"id": [0, 1]})),
+        direction="undirected", return_as_wave_front=True, engine=engine, **filt,
+    )
+    g = _graph(engine)
+    bounded = g.hop(hops=3, to_fixed_point=False, **kw)
+    fixed = g.hop(hops=3, to_fixed_point=True, **kw)
+    assert node_ids(fixed) == node_ids(bounded) == [1]
+    assert edge_ids(fixed) == edge_ids(bounded) == [(0, 1)]
 
 
 # The invariant above is self-checking (engine-local equality), so it could in principle be

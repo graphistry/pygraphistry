@@ -56,36 +56,40 @@ def test_admits_terminal_aggregate_substitution() -> None:
 @pytest.mark.parametrize(
     "query",
     [
-        # no OPTIONAL MATCH anywhere
-        "MATCH (a:P) WITH a RETURN a.id",
-        # first MATCH optional
-        "OPTIONAL MATCH (a:P) WITH a RETURN a.id",
-        # two WITH stages
-        BASE + "WITH a, b WITH a, b RETURN a.id",
-        # UNWIND present
-        "MATCH (a:P) OPTIONAL MATCH (a)-->(b) UNWIND [1] AS x WITH a, b, x RETURN a.id",
-        # ORDER BY / SKIP / LIMIT on the stage
-        BASE + "WITH a, b ORDER BY a.v RETURN a.id",
-        BASE + "WITH a, b LIMIT 2 RETURN a.id",
-        # DISTINCT on stage and on RETURN
-        BASE + "WITH DISTINCT a, b RETURN a.id",
-        BASE + "WITH a, b RETURN DISTINCT a.id",
-        # subset carry + downstream reference to dropped alias
-        BASE + "WITH a WHERE a.v <= 2 RETURN a.id, b.id",
-        # non-pure stage (rename) with a stage WHERE
-        BASE + "WITH a.id AS aid WHERE a.v <= 2 RETURN aid",
-        # substitution: RETURN references something not in the stage
-        BASE + "WITH a.id AS aid RETURN aid, b.id",
-        # whole-row carried alias next to an aggregate stays typed-declined
-        BASE + "WITH b, count(a) AS cnt RETURN b, cnt",
+        pytest.param("MATCH (a:P) WITH a RETURN a.id", id="no_optional_match_anywhere"),
+        pytest.param("OPTIONAL MATCH (a:P) WITH a RETURN a.id", id="lead_match_is_optional"),
+        pytest.param(BASE + "WITH a, b WITH a, b RETURN a.id", id="two_with_stages"),
+        pytest.param(
+            "MATCH (a:P) OPTIONAL MATCH (a)-->(b) UNWIND [1] AS x WITH a, b, x RETURN a.id",
+            id="unwind_present",
+        ),
+        pytest.param(BASE + "WITH a, b ORDER BY a.v RETURN a.id", id="order_by_on_stage"),
+        pytest.param(BASE + "WITH a, b LIMIT 2 RETURN a.id", id="limit_on_stage"),
+        pytest.param(BASE + "WITH DISTINCT a, b RETURN a.id", id="distinct_on_stage"),
+        pytest.param(BASE + "WITH a, b RETURN DISTINCT a.id", id="distinct_on_return"),
+        pytest.param(
+            BASE + "WITH a WHERE a.v <= 2 RETURN a.id, b.id",
+            id="subset_carry_with_downstream_reference_to_dropped_alias",
+        ),
+        pytest.param(
+            BASE + "WITH a.id AS aid WHERE a.v <= 2 RETURN aid",
+            id="renaming_stage_with_a_stage_where",
+        ),
+        pytest.param(
+            BASE + "WITH a.id AS aid RETURN aid, b.id",
+            id="return_references_something_not_in_the_stage",
+        ),
+        pytest.param(
+            BASE + "WITH b, count(a) AS cnt RETURN b, cnt",
+            id="whole_row_carried_alias_next_to_an_aggregate",
+        ),
     ],
 )
 def test_declines(query: str) -> None:
     assert flatten_terminal_with_over_optional(_parse(query)) is None
 
 
-def test_declines_reentry_shape() -> None:
-    # WITH before the OPTIONAL MATCH makes it a reentry query, not terminal-WITH.
+def test_declines_when_with_precedes_the_optional_match_reentry_shape() -> None:
     q = _parse("MATCH (a:P) WITH a OPTIONAL MATCH (a)-->(b) RETURN a.id, b.id")
     assert q.reentry_matches
     assert flatten_terminal_with_over_optional(q) is None
@@ -114,14 +118,33 @@ def test_declines_duplicate_stage_output_names() -> None:
     assert flatten_terminal_with_over_optional(hacked) is None
 
 
-def test_admits_carried_property_projection_through_substitution() -> None:
-    # `o.prop` of a bare-carried alias output passes through.
+def test_admits_property_of_a_bare_carried_alias_through_substitution() -> None:
     q = _parse(BASE + "WITH b, a.id AS aid RETURN aid, b.id")
     out = flatten_terminal_with_over_optional(q)
     assert out is not None
 
 
-def test_order_by_downstream_scope_check() -> None:
-    # ORDER BY referencing a non-carried match alias declines the pure carry.
+def test_declines_pure_carry_when_order_by_references_an_uncarried_alias() -> None:
     q = _parse(BASE + "WITH a WHERE a.v <= 2 RETURN a.id AS aid ORDER BY b.v")
     assert flatten_terminal_with_over_optional(q) is None
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param(BASE + "WITH a, b WHERE a.v <= 2 RETURN a.id AS aid, b.id AS bid",
+                     id="pure_carry_with_where"),
+        pytest.param(BASE + "WITH a, b RETURN a.id AS aid, b.id AS bid",
+                     id="pure_carry_without_where"),
+        pytest.param(BASE + "WITH a.id AS aid, count(b) AS cnt RETURN aid, cnt",
+                     id="terminal_aggregate_substitution"),
+        pytest.param(BASE + "WITH b, a.id AS aid RETURN aid, b.id",
+                     id="property_of_a_bare_carried_alias"),
+    ],
+)
+def test_admitted_query_never_retains_a_with_stage_so_recompiling_it_terminates(query: str) -> None:
+    out = flatten_terminal_with_over_optional(_parse(query))
+    assert out is not None
+    flattened, _ = out
+    assert flattened.with_stages == ()
+    assert flatten_terminal_with_over_optional(flattened) is None
