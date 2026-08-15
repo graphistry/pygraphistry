@@ -105,11 +105,20 @@ def _seeded(id_: str, query: str, oracle: int) -> Shape:
 #: Oracle literals recomputed under openCypher TRAIL semantics (#1903, independent
 #: brute-force enumerator): a relationship binds once per path, so the old walk
 #: reconstruction's doubled undirected orientations and reused edges are gone.
-#: (dir-min3-* keep 0: hop-window eccentricity pruning still under-reports the one
-#: 3-trail on the pandas lane -- pre-existing, out of #1903's scope.)
+#: (dir-min3-* WERE pinned at 0 with the note "hop-window eccentricity pruning still
+#: under-reports THE ONE 3-TRAIL on the pandas lane -- pre-existing, out of #1903's scope".
+#: #1918 F8 fixed that under-report at its source: hop.py's reachable-set closure break no
+#: longer fires while a min_hops lower bound is unsatisfied, so the 3-cycle-style saturation
+#: stops freezing max_reached_hop below min_hops. Both literals move 0 -> 1, which is the
+#: trail count this file's own note already named. Re-derived independently, not
+#: re-baselined: a brute-force trail enumerator over BOUNDED_EDGES gives *3..3 = 1 and
+#: *3..4 = 1 -- the single trail 0->4, 4->5, 5->6 -- and reproduces this file's UNCHANGED
+#: neighbour literals *1..2 = 12 and *2..3 = 6 as controls.
+#: The shapes stay DECLINED on polars: the pandas answer changing does not by itself make
+#: the multiplicity reconstructible there, and widening that gate is a separate decision.)
 DECLINED_BY_POLARS: List[Shape] = [
-    _bounded("dir-min3-exact", "MATCH (a)-[*3..3]->(b) RETURN count(*) AS c", 0),
-    _bounded("dir-min3-window", "MATCH (a)-[*3..4]->(b) RETURN count(*) AS c", 0),
+    _bounded("dir-min3-exact", "MATCH (a)-[*3..3]->(b) RETURN count(*) AS c", 1),
+    _bounded("dir-min3-window", "MATCH (a)-[*3..4]->(b) RETURN count(*) AS c", 1),
     # seeded directed min>=2: pandas' per-seed hop window under-reports
     # data-dependently (fuzz: 1 vs trail 2), so polars stays declined; the 28
     # here happens to be trail-exact on THIS fixture.
@@ -258,19 +267,30 @@ def test_degenerate_window_is_not_the_same_query_as_a_plain_edge(engine: str) ->
 
 
 @pytest.mark.parametrize("engine", PANDAS_API_ENGINES)
-def test_directed_min_hops_3_collapses_to_empty_on_the_oracle(engine: str) -> None:
-    """The observable consequence of ``max_reached_hop`` being a BFS eccentricity.
+def test_directed_min_hops_3_reports_the_one_trail_not_empty(engine: str) -> None:
+    """``min_hops >= 3`` narrows to the ONE 3-trail; it does not collapse to empty.
 
-    ``compute/hop.py`` prunes against a dedup-by-node eccentricity, not a longest-walk length,
-    so on this graph the oracle returns NOTHING at ``min_hops >= 3`` while still returning rows
-    at ``min_hops == 2``. A raw-edge rebuild expands a different edge multiset and cannot land
-    on empty, which is why ``min_hops >= 3`` is unreconstructible rather than merely narrower.
+    ADJUDICATED, NOT RE-BASELINED (#1918 F8). This test previously asserted 0 at ``*3..3``
+    and ``*3..4`` and named that "the observable consequence of ``max_reached_hop`` being a
+    BFS eccentricity" -- pinning the defect as the oracle. ``compute/hop.py`` broke its
+    traversal loop as soon as the reachable NODE SET stopped growing, which froze
+    ``max_reached_hop`` below ``min_hops`` even where longer WALKS existed, and the
+    ``max_reached_hop < min_hops`` gate then emptied the result.
+
+    Hand oracle (independent brute-force trail enumeration over ``BOUNDED_EDGES``, trail
+    semantics per #1903 -- a relationship binds once per path): exactly one directed 3-trail
+    exists, ``0->4, 4->5, 5->6``, so ``*3..3 == 1``; no 4-trail exists, so ``*3..4 == 1`` too.
+    The same enumerator reproduces the UNCHANGED ``*2..3 == 6`` control below, and the
+    DECLINED_BY_POLARS note above had already identified "the one 3-trail" as under-reported.
+
+    ``*2..3`` is unchanged at 6: the fix only DEFERS the closure break while a lower bound is
+    unmet, so no shape that already satisfied its bound moves.
     """
     _require(engine)
     g = _graph(engine, BOUNDED_NODES, BOUNDED_EDGES)
     assert _count(g, "MATCH (a)-[*2..3]->(b) RETURN count(*) AS c", engine) == 6
-    assert _count(g, "MATCH (a)-[*3..3]->(b) RETURN count(*) AS c", engine) == 0
-    assert _count(g, "MATCH (a)-[*3..4]->(b) RETURN count(*) AS c", engine) == 0
+    assert _count(g, "MATCH (a)-[*3..3]->(b) RETURN count(*) AS c", engine) == 1
+    assert _count(g, "MATCH (a)-[*3..4]->(b) RETURN count(*) AS c", engine) == 1
 
 
 @pytest.mark.parametrize("engine", POLARS_API_ENGINES)

@@ -56,7 +56,14 @@ def test_polars_hop_parity(gname, case, seed):
     # label_node_hops / label_seeds are NATIVE on the plain BFS as of #1741 — see
     # TestHopLabelsDifferential; only label_edge_hops and min_hops>1 labeling still decline.
     {"label_edge_hops": "h"},
-    {"min_hops": 2},   # min_hops>1 is native in chain()/gfql() only; a DIRECT hop() stays NIE
+    # min_hops>1 is native in chain()/gfql() only; a DIRECT hop() stays NIE.
+    # #1918 F6: max_hops=3 added. This case used to be a bare {"min_hops": 2} against the
+    # shared `hops=1` below, i.e. min 2 > max 1 -- CONTRADICTORY bounds, which pandas has
+    # always rejected with ValueError. polars validated no bounds at all, so the NIE gate
+    # fired first and the case silently tested the wrong thing. With bound validation now
+    # shared, that spelling correctly raises ValueError; widening max_hops keeps the case
+    # testing what it was written to test (the min_hops>1 decline) on a SATISFIABLE window.
+    {"min_hops": 2, "max_hops": 3},
     {"output_min_hops": 1},
     {"output_max_hops": 2},
     {"source_node_query": "s == 'a'"},

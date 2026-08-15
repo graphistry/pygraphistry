@@ -141,6 +141,14 @@ def hop_polars(
             '"forward" (default), "reverse", "undirected"'
         )
 
+    # #1918 F6/F7: bounds are validated by the SHARED resolver (compute/hop.py), before the
+    # _unsupported gate — a contradictory argument must be a ValueError on both engines, not
+    # a NotImplementedError, an empty frame, or (min_hops=-1 with hops=1) a silent answer.
+    # Function-local import: compute.hop imports this module's entry point lazily.
+    from graphistry.compute.hop import resolve_hop_bounds
+    resolved_max_hops, _resolved_min_hops, _out_min, _out_max = resolve_hop_bounds(
+        hops, min_hops, max_hops, output_min_hops, output_max_hops, to_fixed_point)
+
     _unsupported(
         # min_hops>1 is NATIVE fwd/rev with finite max_hops, but ONLY in the CHAIN context
         # (min_hops_label_policy=True): the layered walk + NON-anti-joined BFS port pandas'
@@ -159,10 +167,16 @@ def hop_polars(
         # decline (NIE): min_hops>1 runs the NON-anti-joined revisit BFS whose labels come from
         # the layered backward walk (hop.py:676-778), a different rule not yet ported.
         label_node_hops=label_node_hops if (min_hops is not None and min_hops > 1) else None,
-        # decline (NIE): label_edge_hops stays deferred at every shape — with labels on, the
-        # pandas edge output DUPLICATES an undirected edge traversed in both directions (one row
-        # per labeled traversal; 448/4800 differential cases). Reproducing that row duplication
-        # would bake a questionable pandas artifact into polars; #1741 needs only node labels.
+        # decline (NIE): label_edge_hops stays deferred at every shape.
+        # ITS ORIGINAL REASON IS GONE (#1918 F3): "with labels on, the pandas edge output
+        # DUPLICATES an undirected edge traversed in both directions (one row per labeled
+        # traversal; 448/4800 differential cases)" — that duplication was a missing dedup on
+        # the first labeled hop and is fixed; a re-run of the same differential (2879 shapes,
+        # direction x hops x seeds) now shows 0 divergences between the labeled and unlabeled
+        # pandas edge multiset, down from 628. So there is no longer a questionable artifact to
+        # bake in. The decline is KEPT because lifting it is now a FEATURE, not a gate removal:
+        # this engine has no edge-label output path at all, and #1741 needs only node labels.
+        # Whoever adds it inherits a clean pandas oracle.
         label_edge_hops=label_edge_hops,
         label_seeds=(label_seeds or None) if (min_hops is not None and min_hops > 1) else None,
         source_node_query=source_node_query,
@@ -192,14 +206,7 @@ def hop_polars(
     if edge_match is not None:
         edges = filter_by_dict_polars(edges, edge_match)
 
-    resolved_max_hops = max_hops if max_hops is not None else hops
-    if to_fixed_point:
-        resolved_max_hops = None
-    elif not isinstance(resolved_max_hops, int):
-        raise ValueError(
-            f"Must provide integer hops when to_fixed_point is False, received: {resolved_max_hops}"
-        )
-
+    # resolved_max_hops comes from the shared resolver above (None == run-to-closure).
     FROM, TO, NID, EID, edges_idx, synth_eid, node_dtype = _hop_setup_columns(
         edges, all_nodes, node_col, g._edge)
 
@@ -414,9 +421,18 @@ def hop_polars(
         if min_hops_active:
             # Advance with ALL destinations (revisits, hop.py:620) so a cycle-re-entered node
             # re-traverses its edges, but terminate once the cumulative reachable set stops
-            # growing (hop.py:617). max_reached_hop (set above when the hop had any edge) is then
-            # the closure hop the 3-case gate compares to min_hops.
-            if new_frontier.height == 0:
+            # growing. max_reached_hop (set above when the hop had any edge) is then the closure
+            # hop the 3-case gate compares to min_hops.
+            # #1918 F8: that closure break must NOT fire while the min_hops lower bound is still
+            # unsatisfied -- a cycle saturates its node set yet keeps admitting longer walks, and
+            # breaking there froze max_reached_hop below min_hops so the gate emptied the result.
+            # Mirrors the pandas deferral (hop.py, `min_bound_unmet`) so the 400-case chain
+            # min_hops parity holds; bounded by resolved_max_hops, and `frontier = cand` empty
+            # still exits at the top-of-loop height check, so the loop always terminates.
+            if new_frontier.height == 0 and not (
+                min_hops is not None and max_reached_hop < min_hops
+                and resolved_max_hops is not None
+            ):
                 break
             frontier = cand
         else:

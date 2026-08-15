@@ -114,21 +114,52 @@ def test_hop_seeded_source_match_domain_hops_invariant(engine):
 # the pandas undirected+tfp+wavefront seed-keep heuristics now intersect with
 # the traversal's reached set, so filtered-out seeds no longer leak.
 
+# #1918 F4 WIDENING. The original parameterization was `filt` in {source_node_match,
+# destination_node_match} x seeds fixed at [0, 1] -- and that is precisely what HID the
+# violation: BOTH omitted arms (no filter, and a SINGLE seed) were the broken ones. pandas
+# answered tfp=[1,2] against bounded=[0,1,2] for seeds=[0], and tfp=[0,2] for seeds=[1],
+# because the undirected+tfp seed-strip took topology-only heuristics that keep a seed only
+# if its component holds >1 seed OR it sits on a cycle -- a single seed on an acyclic
+# component satisfies neither. The unfiltered/single-seed cells now carry the invariant.
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("filt", [
+    {},                                              # #1918 F4: the arm that was missing
     {"source_node_match": {"type": "a"}},
     {"destination_node_match": {"type": "b"}},
-])
-def test_hop_undirected_tfp_wavefront_matches_saturated_bounded(engine, filt):
+], ids=["unfiltered", "src-match", "dst-match"])
+@pytest.mark.parametrize("seeds", [[0], [1], [2], [0, 1]],
+                         ids=["seed-0", "seed-1", "seed-2", "seeds-0-1"])
+def test_hop_undirected_tfp_wavefront_matches_saturated_bounded(engine, filt, seeds):
     g = _graph(engine)
     kw = dict(
-        nodes=_frame(engine, pd.DataFrame({"id": [0, 1]})),
+        nodes=_frame(engine, pd.DataFrame({"id": seeds})),
         direction="undirected", return_as_wave_front=True, engine=engine, **filt,
     )
     bounded = g.hop(hops=3, to_fixed_point=False, **kw)  # saturated: diameter < 3
     fixed = g.hop(hops=3, to_fixed_point=True, **kw)
     assert node_ids(fixed) == node_ids(bounded)
     assert edge_ids(fixed) == edge_ids(bounded)
+
+
+# The invariant above is self-checking (engine-local equality), so it could in principle be
+# satisfied vacuously by two empty frames. These literals make the unfiltered single-seed
+# cells NON-VACUOUS: hand oracle on 0 -x-> 1 -y-> 2 read undirected, walk semantics (a hop may
+# return along the edge it arrived on), so every seed IS re-encountered at hop 2 and the whole
+# component comes back -- the exact node sets the heuristics used to truncate.
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("seeds,expect_nodes", [
+    ([0], [0, 1, 2]),      # 0->1 (h1), 1->{0,2} (h2): 0 re-encountered
+    ([1], [0, 1, 2]),      # 1->{0,2} (h1), {0,2}->1 (h2): 1 re-encountered
+    ([2], [0, 1, 2]),      # 2->1 (h1), 1->{0,2} (h2): 2 re-encountered
+    ([0, 1], [0, 1, 2]),
+], ids=["seed-0", "seed-1", "seed-2", "seeds-0-1"])
+def test_hop_undirected_tfp_wavefront_unfiltered_values(engine, seeds, expect_nodes):
+    g = _graph(engine)
+    r = g.hop(nodes=_frame(engine, pd.DataFrame({"id": seeds})), hops=3,
+              to_fixed_point=True, direction="undirected", return_as_wave_front=True,
+              engine=engine)
+    assert node_ids(r) == expect_nodes
+    assert edge_ids(r) == [(0, 1), (1, 2)]
 
 
 # ================================================================ T-04 (F-02)
