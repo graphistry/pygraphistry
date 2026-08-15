@@ -7938,7 +7938,7 @@ def _clause_has_variable_length_relationship(clause: MatchClause) -> bool:
         for el in pat:
             if isinstance(el, RelationshipPattern) and (
                 el.min_hops is not None or el.max_hops is not None
-                or (el.to_fixed_point if hasattr(el, "to_fixed_point") else False)
+                or el.to_fixed_point
             ):
                 return True
     return False
