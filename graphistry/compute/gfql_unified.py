@@ -1073,6 +1073,143 @@ def _execute_query_with_graph_context(
     )
 
 
+def _polars_union_dtype_is_numeric(dtype: Any) -> bool:  # hygiene-ok: explicit-any -- polars DataType, imported lazily
+    import polars as pl
+    if dtype == pl.Boolean:
+        return False
+    checker = getattr(dtype, "is_numeric", None)
+    if callable(checker):
+        return bool(checker())
+    return False
+
+
+def _reject_unrepresentable_polars_union(frames: List[DataFrameT]) -> None:
+    """Decline a UNION whose branches disagree on a column's VALUE TYPE.
+
+    polars' ``vertical_relaxed`` concat coerces to a common supertype, which
+    stringifies an Int64 branch next to a String branch (and turns ``true`` into
+    ``1`` next to an Int64 branch) — silently changing values and then deleting
+    rows via the DISTINCT that follows (#1915 A-2/A-3). openCypher keeps the branch
+    values distinct; a polars column cannot, so decline typed rather than answer.
+    Numeric-vs-numeric widening stays served (openCypher ``1 = 1.0`` is true).
+    """
+    import polars as pl
+    for name in frames[0].columns:
+        dtypes = []
+        for frame in frames:
+            if name not in frame.columns:
+                continue
+            dtype = frame.schema[name]
+            if dtype == pl.Null:
+                continue  # all-null column adopts any branch's type
+            if dtype not in dtypes:
+                dtypes.append(dtype)
+        if len(dtypes) <= 1:
+            continue
+        if all(_polars_union_dtype_is_numeric(dtype) for dtype in dtypes):
+            continue
+        raise NotImplementedError(
+            "polars engine does not yet natively support UNION over branches with "
+            f"different value types for column {name!r} ({', '.join(str(d) for d in dtypes)}); "
+            "use engine='pandas' for this query (no pandas fallback; parity-or-error by design)"
+        )
+
+
+def _pandas_union_widen_boolean_columns(frames: List[DataFrameT]) -> List[DataFrameT]:
+    """Keep BOOLEAN branch values distinguishable from numeric ones.
+
+    pandas concat of a bool column next to an int column upcasts ``True`` to ``1``,
+    after which DISTINCT collapses two openCypher-distinct values (``true = 1`` is
+    false) into one row (#1915 A-3). Widening to object keeps ``True`` a bool.
+    """
+    widen: Set[Any] = set()
+    for name in frames[0].columns:
+        kinds = {
+            getattr(frame[name].dtype, "kind", None)
+            for frame in frames
+            if name in frame.columns
+        }
+        if "b" in kinds and len(kinds) > 1:
+            widen.add(name)
+    if not widen:
+        return frames
+    return [
+        frame.assign(**{name: frame[name].astype(object) for name in widen if name in frame.columns})
+        for frame in frames
+    ]
+
+
+def _concat_union_branch_rows(
+    row_frames: List[DataFrameT],
+    concrete_engine: Engine,
+    concat: Callable[..., DataFrameT],
+) -> DataFrameT:
+    """Row-concat UNION branch frames without letting a branch's dtype rewrite another's values."""
+    frames = list(row_frames)
+    non_empty = [frame for frame in frames if len(frame) > 0]
+    if non_empty and len(non_empty) != len(frames):
+        # openCypher: an empty branch contributes no rows. Its column dtype must not
+        # drag the supertype either -- a 0-row String branch alone was enough to
+        # stringify a surviving Int64 branch on polars (#1915 A-2).
+        frames = non_empty
+    if len(frames) == 1:
+        return frames[0]
+    if concrete_engine in POLARS_ENGINES:
+        _reject_unrepresentable_polars_union(frames)
+    elif concrete_engine == Engine.PANDAS:
+        frames = _pandas_union_widen_boolean_columns(frames)
+    return concat(frames, ignore_index=True, sort=False)
+
+
+def _union_dedup_key(value: Any) -> Any:  # hygiene-ok: explicit-any -- arbitrary cypher cell value
+    """Hashable openCypher-identity key for a UNION DISTINCT cell.
+
+    Two rules the raw pandas value does not carry: a float NaN in an object column is
+    the pandas spelling of a missing value and must dedup against ``None`` (#1915 A-1),
+    and a BOOLEAN is never equal to a NUMBER even though ``True == 1`` in Python
+    (#1915 A-3).
+    """
+    if value is None:
+        return ("null",)
+    if isinstance(value, float) and value != value:
+        return ("null",)
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, (list, tuple)):
+        return ("list", tuple(_union_dedup_key(item) for item in value))
+    if isinstance(value, dict):
+        return ("map", tuple(sorted((str(k), _union_dedup_key(v)) for k, v in value.items())))
+    return ("value", value)
+
+
+def _union_distinct_rows(union_rows: DataFrameT, concrete_engine: Engine) -> DataFrameT:
+    """UNION DISTINCT dedup under openCypher value identity (pandas object columns)."""
+    if concrete_engine != Engine.PANDAS:
+        return df_unique(union_rows, concrete_engine)
+    object_cols = [
+        name for name in union_rows.columns
+        if getattr(union_rows[name].dtype, "kind", None) == "O"
+    ]
+    if not object_cols:
+        return df_unique(union_rows, concrete_engine)
+    try:
+        key_frame = pd.DataFrame(
+            {
+                name: (
+                    union_rows[name].map(_union_dedup_key)
+                    if name in object_cols
+                    else union_rows[name]
+                )
+                for name in union_rows.columns
+            },
+            index=union_rows.index,
+        )
+        keep = ~key_frame.duplicated()
+    except (TypeError, ValueError):
+        return df_unique(union_rows, concrete_engine)
+    return union_rows.loc[keep].reset_index(drop=True)
+
+
 def _execute_compiled_query(
     base_graph: Plottable,
     *,
@@ -1098,9 +1235,12 @@ def _execute_compiled_query(
             for branch in compiled_query.branches
         ]
         row_frames = [cast(DataFrameT, result._nodes) for result in branch_results if result._nodes is not None]
-        union_rows = df_ctor() if not row_frames else concat(row_frames, ignore_index=True, sort=False)
+        union_rows = (
+            df_ctor() if not row_frames
+            else _concat_union_branch_rows(row_frames, concrete_engine, concat)
+        )
         if compiled_query.union_kind == "distinct" and len(union_rows) > 0:
-            union_rows = cast(DataFrameT, df_unique(union_rows, concrete_engine))
+            union_rows = cast(DataFrameT, _union_distinct_rows(union_rows, concrete_engine))
         out = base_graph.bind()
         out._nodes = union_rows
         out._edges = df_ctor()

@@ -74,6 +74,94 @@ def parse_temporal_sort_duration_components(text: str) -> Optional[tuple[int, in
     return month_shift * prefix_sign, int((total * prefix_sign).to_integral_value())
 
 
+_NANOS_PER_DAY = 24 * 60 * 60 * 1_000_000_000
+
+
+def parse_duration_calendar_components(text: str) -> Optional[tuple[int, int, int]]:
+    """``(months, days, time_nanoseconds)`` for an ISO-8601 duration literal, or None.
+
+    Unlike :func:`parse_temporal_sort_duration_components` the DAY group stays
+    separate from the time group: openCypher keeps a Duration's month/day/second
+    components distinct, so ``date(x) + duration('P1D')`` advances one day while
+    ``date(x) + duration('PT25H')`` advances none (the seconds group is dropped when
+    adding to a Date). Fractional days spill into the time component (Neo4j:
+    ``P0.5D`` == ``PT12H``); fractional years/months are rejected (return None).
+    """
+    stripped = text.strip()
+    prefix_sign = 1
+    if stripped.startswith("-P"):
+        prefix_sign = -1
+        body = stripped[2:]
+    elif stripped.startswith("P"):
+        body = stripped[1:]
+    else:
+        return None
+    if body == "":
+        return None
+
+    if "T" in body:
+        date_part, time_part = body.split("T", 1)
+    else:
+        date_part, time_part = body, ""
+
+    # _DURATION_TOKEN_RE (not the day/time-only variant) so the year unit is lexable.
+    raw_date_tokens = _tt._consume_duration_tokens(date_part, {"Y", "M", "W", "D"}, _DURATION_TOKEN_RE)
+    raw_time_tokens = _tt._consume_duration_tokens(time_part, {"H", "M", "S"}, _DURATION_TOKEN_RE)
+    if raw_date_tokens is None or raw_time_tokens is None:
+        return None
+
+    months = 0
+    days = Decimal(0)
+    time_nanos = Decimal(0)
+    for value_txt, unit in raw_date_tokens:
+        value = Decimal(value_txt)
+        if unit == "Y":
+            if value != int(value):
+                return None
+            months += int(value) * 12
+        elif unit == "M":
+            if value != int(value):
+                return None
+            months += int(value)
+        elif unit == "W":
+            days += value * 7
+        else:
+            days += value
+    for value_txt, unit in raw_time_tokens:
+        value = Decimal(value_txt)
+        if unit == "H":
+            time_nanos += value * Decimal(60 * 60 * 1_000_000_000)
+        elif unit == "M":
+            time_nanos += value * Decimal(60 * 1_000_000_000)
+        else:
+            time_nanos += value * Decimal(1_000_000_000)
+
+    whole_days = int(days.to_integral_value(rounding="ROUND_DOWN"))
+    time_nanos += (days - whole_days) * Decimal(_NANOS_PER_DAY)
+    return (
+        months * prefix_sign,
+        whole_days * prefix_sign,
+        int((time_nanos * prefix_sign).to_integral_value()),
+    )
+
+
+def format_duration_calendar_components(months: int, days: int, time_nanoseconds: int) -> str:
+    """Render ``(months, days, time_nanoseconds)`` back to an ISO-8601 duration literal."""
+    if months == 0:
+        return _format_day_time_duration_nanoseconds(days * _NANOS_PER_DAY + time_nanoseconds)
+    month_sign = -1 if months < 0 else 1
+    year_count, month_count = divmod(abs(months), 12)
+    parts = ["P"]
+    if year_count:
+        parts.append(f"{month_sign * year_count}Y")
+    if month_count:
+        parts.append(f"{month_sign * month_count}M")
+    day_time = days * _NANOS_PER_DAY + time_nanoseconds
+    if day_time != 0:
+        parts.append(_format_day_time_duration_nanoseconds(day_time)[1:])
+    return "".join(parts)
+
+
 def _format_signed_time_duration(
     total_units: int,
     *,
