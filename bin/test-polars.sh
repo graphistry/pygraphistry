@@ -47,6 +47,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_polars_nan_clean.py
     graphistry/tests/compute/gfql/test_optional_match_polars_frames.py
     graphistry/tests/compute/gfql/test_optional_match_semantics.py
+    graphistry/tests/compute/gfql/test_hop_boundary_matrix.py
     graphistry/tests/compute/gfql/test_hop_semantics_pins.py
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
     graphistry/tests/compute/gfql/test_seeded_typed_hop_fastpath.py
@@ -57,6 +58,9 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_semi_join_key_frame.py
     graphistry/tests/compute/gfql/test_fast_path_engagement.py
     graphistry/tests/compute/gfql/test_known_cross_engine_divergences.py
+    graphistry/tests/compute/gfql/test_endpoint_closure_matrix.py
+    graphistry/tests/compute/gfql/test_hop_kernel_contracts.py
+    graphistry/tests/compute/gfql/test_polars_dtype_classifier_contracts.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_fused_polars.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_lowcard_count.py
     # module-level `importorskip("polars")` files that previously ran in no lane at all

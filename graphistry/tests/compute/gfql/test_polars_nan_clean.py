@@ -11,7 +11,7 @@ import pytest
 pl = pytest.importorskip("polars")
 
 from graphistry.compute.gfql.lazy.engine.polars.nan_clean import (  # noqa: E402
-    _PL_NAN_CLEAN_CACHE_IDS,
+    _nan_free_frame_id_cache,
     _pl_nan_to_null,
 )
 
@@ -31,7 +31,7 @@ def test_nan_present_is_cleaned_to_null():
 def test_clean_float_frame_identity_stable_and_cached():
     df = pl.DataFrame({"w": [1.0, 2.0, 3.0]})
     assert _pl_nan_to_null(df) is df
-    assert id(df) in _PL_NAN_CLEAN_CACHE_IDS
+    assert id(df) in _nan_free_frame_id_cache
     assert _pl_nan_to_null(df) is df  # O(1) repeat
 
 
@@ -42,7 +42,7 @@ def test_verdict_cache_is_registered_and_flushable():
 
     df = pl.DataFrame({"w": [1.0, 2.0, 3.0]})
     _pl_nan_to_null(df)
-    assert id(df) in _PL_NAN_CLEAN_CACHE_IDS
+    assert id(df) in _nan_free_frame_id_cache
     df.replace_column(0, pl.Series("w", [1.0, float("nan"), 3.0]))  # contract violation
     gfql_clear_caches()  # the supported recovery recipe
     out = _pl_nan_to_null(df)
@@ -54,11 +54,11 @@ def test_new_frame_is_never_served_by_a_dead_frames_verdict():
 
     dirty = pl.DataFrame({"w": [float("nan"), 2.0]})
     cleaned = _pl_nan_to_null(dirty)
-    assert id(cleaned) in _PL_NAN_CLEAN_CACHE_IDS
+    assert id(cleaned) in _nan_free_frame_id_cache
     key = id(cleaned)
     del cleaned
     gc.collect()
-    assert key not in _PL_NAN_CLEAN_CACHE_IDS  # weakref.finalize evicted
+    assert key not in _nan_free_frame_id_cache  # weakref.finalize evicted
 
 
 def test_distinct_frames_do_not_cross_contaminate():

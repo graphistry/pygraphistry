@@ -182,6 +182,14 @@ def test_rebind_declines_row_sequence() -> None:
     assert flatten_carried_endpoint_rebind(hacked) is None
 
 
+def test_rebind_result_has_no_reentry_matches_so_recompilation_terminates() -> None:
+    q = _parse("MATCH (a:A) WITH a MATCH (a)-[r:R]->(a) RETURN a")
+    flattened = flatten_carried_endpoint_rebind(q)
+    assert flattened is not None
+    assert flattened.reentry_matches == ()
+    assert flattened.with_stages == ()
+
+
 # --- helper backfills --------------------------------------------------------
 
 

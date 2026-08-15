@@ -62,11 +62,6 @@ def is_stringlike(dt: "Optional[PolarsDType]") -> bool:
     return False
 
 
-# --- cross-ENGINE dtype classification (pandas/numpy/arrow/polars), the pushdown
-# planner's contract. Lives with the polars vocabulary because the polars arm is
-# the one that made single-sourcing load-bearing: pandas' classifiers return a
-# confident False for polars dtypes, so per-site fallbacks silently diverged. ---
-
 def dtype_text(dtype: object) -> str:
     try:
         return str(dtype).lower()
@@ -75,9 +70,6 @@ def dtype_text(dtype: object) -> str:
 
 
 def is_numeric_dtype_safe(dtype: object) -> bool:
-    # polars first: pandas' is_numeric_dtype returns a confident False for polars
-    # dtypes (no exception, so a fallback never runs). Polars' own is_numeric(),
-    # not is_numeric above: Decimal is in scope for this planner.
     import pandas as pd
     if is_polars_dtype(dtype):
         try:
@@ -102,8 +94,6 @@ def is_string_dtype_safe(dtype: object) -> bool:
         return bool(pd.api.types.is_string_dtype(dtype))
     except Exception:
         dtype_txt = dtype_text(dtype)
-        # "str" exact: pandas 3-era default string dtype reprs as "str" (not
-        # "object"/"string[...]"); exact match so "struct" stays non-string.
         return (dtype_txt in ("object", "str") or "string" in dtype_txt
                 or dtype_txt.endswith("[python]"))
 
@@ -138,10 +128,8 @@ def endpoint_ids(frame: "PolarsT", src: str, dst: str, out_col: str,
                  dtype: "Optional[pl.DataType]" = None) -> "PolarsT":
     """One-column frame of edge endpoints (src stacked on dst) as ``out_col`` — the engine's
     node-id-universe builder, shared by hop/hop_eager/chain; eager/lazy agnostic. ``dtype`` casts
-    both sides to the node-id join dtype (polars won't coerce int/float join keys like pandas).
-    NOT deduplicated: each caller applies its own ``.unique(...)`` variant, preserved verbatim
-    from pre-refactor sites (plain vs ``subset=`` are equivalent on this one-column output —
-    kept per-site for a byte-identical diff, not semantics)."""
+    both sides to the node-id join dtype. NOT deduplicated: each caller applies its own
+    ``.unique(...)`` variant."""
     import polars as pl
 
     def _side(c: str) -> "pl.Expr":

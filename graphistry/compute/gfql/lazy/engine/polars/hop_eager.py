@@ -69,8 +69,8 @@ def _build_hop_pairs(
     frame: "PolarsT", direction: str, src: str, dst: str,
     node_dtype: "pl.DataType", FROM: str, TO: str, EID: str,
 ) -> "PolarsT":
-    """Directed-(FROM,TO,EID) builder with join-key dtype aligned (polars won't coerce int/float
-    join keys like pandas). `frame` = edge-id frame, eager or lazy; select/concat identical on both."""
+    """Directed-(FROM,TO,EID) builder with join-key dtype aligned. `frame` = edge-id frame,
+    eager or lazy; select/concat identical on both."""
     import polars as pl
 
     def _p(s: str, d: str) -> "PolarsT":
@@ -81,6 +81,32 @@ def _build_hop_pairs(
     if direction == "reverse":
         return _p(dst, src)
     return pl.concat([_p(src, dst), _p(dst, src)], how="vertical_relaxed")
+
+
+def _ids_an_endpoint_may_resolve_to(
+    all_nodes: "pl.DataFrame", target_wave_front: "Optional[pl.DataFrame]", node_col: str,
+) -> "pl.Series":
+    """The bound node table's ids, widened by any target wavefront (pandas' base_target_nodes)."""
+    import polars as pl
+
+    ids = all_nodes.get_column(node_col)
+    if target_wave_front is not None and node_col in target_wave_front.columns:
+        ids = pl.concat([ids, target_wave_front.get_column(node_col).cast(ids.dtype)])
+    return ids
+
+
+def _keep_edges_with_both_endpoints_resolvable(
+    edges_idx: "PolarsT", src: str, dst: str, node_dtype: "pl.DataType",
+    resolvable_ids: "pl.Series",
+) -> "PolarsT":
+    """`.implode()` makes the id series ONE membership collection; bare `is_in` is deprecated."""
+    import polars as pl
+
+    universe = resolvable_ids.implode()
+    return edges_idx.filter(
+        pl.col(src).cast(node_dtype).is_in(universe)
+        & pl.col(dst).cast(node_dtype).is_in(universe)
+    )
 
 
 def _min_hops_labeled_node_output(
@@ -203,20 +229,11 @@ def hop_polars(
     FROM, TO, NID, EID, edges_idx, synth_eid, node_dtype = _hop_setup_columns(
         edges, all_nodes, node_col, g._edge)
 
-    # #1888 endpoint closure: with a node table BOUND, an edge can match only if BOTH
-    # endpoints resolve to node rows (Cypher: `(a)-[]->(b)` binds nodes at both ends).
-    # One O(E) pass, parity with the pandas hop's symmetric gate. Nodes synthesized
-    # from edges (self._nodes is None) are vacuously closed — skip.
-    if self._nodes is not None:
-        _closure_ids = all_nodes.get_column(node_col)
-        if target_wave_front is not None and node_col in target_wave_front.columns:
-            # Mirror pandas' base_target_nodes universe (node table ∪ target_wave_front).
-            _closure_ids = pl.concat(
-                [_closure_ids, target_wave_front.get_column(node_col).cast(_closure_ids.dtype)]
-            )
-        edges_idx = edges_idx.filter(
-            pl.col(src).cast(node_dtype).is_in(_closure_ids)
-            & pl.col(dst).cast(node_dtype).is_in(_closure_ids)
+    node_table_bound = self._nodes is not None
+    if node_table_bound:
+        edges_idx = _keep_edges_with_both_endpoints_resolvable(
+            edges_idx, src, dst, node_dtype,
+            _ids_an_endpoint_may_resolve_to(all_nodes, target_wave_front, node_col),
         )
 
     pairs = _build_hop_pairs(edges_idx, direction, src, dst, node_dtype, FROM, TO, EID)
@@ -224,14 +241,9 @@ def hop_polars(
     def _idframe(df: "pl.DataFrame", col: str) -> "pl.DataFrame":
         return df.select(pl.col(col).cast(node_dtype).alias(NID)).unique()
 
-    # --- SINGLE BOUNDED HOP (the dominant case — every chain edge): ONE lazy plan, ONE
-    # collect_all on the active target (GPU: edge table read/transferred once -- the
-    # collect-once path, formerly the separate hop.py twin). Placed BEFORE the eager gate
-    # construction: the seed/gate/target id-frame .unique()s must stay INSIDE the lazy plan
-    # (eagerly materializing them over chain wavefronts measurably regressed large-edge
-    # runs -- A/B twice). Multi-hop/min_hops/to_fixed_point use the eager loop below: the
-    # early-break + revisit bookkeeping need per-hop materialization, and for hops>=2 an
-    # unrolled lazy plan recomputes the big edge-join per hop (polars CSE doesn't dedup it).
+    # Single bounded hop: one lazy plan, one collect_all. Must stay ABOVE the eager gate
+    # construction — the id-frame .unique()s have to remain inside the lazy plan. The eager
+    # loop below owns multi-hop: early-break/revisit bookkeeping needs per-hop materialization.
     if (not to_fixed_point and resolved_max_hops == 1
             and not (label_node_hops is not None or label_edge_hops is not None or label_seeds)
             and not (min_hops is not None and min_hops > 1 and direction in ("forward", "reverse"))):
@@ -256,16 +268,15 @@ def hop_polars(
             """
             return lf.select(pl.col(col).cast(node_dtype).alias(NID))
 
-        # #1892 F-01: source filters read the node TABLE at every hops value; the seed
-        # semi-join keeps the single-hop small-frame cost (frontier IS the seed set).
         allowed_source_lf = None
         if source_node_match is not None:
-            _src_base = all_nodes
-            if nodes is not None:
-                _src_base = all_nodes.join(
+            source_filter_domain = all_nodes
+            only_seeds_can_be_sources = nodes is not None
+            if only_seeds_can_be_sources:
+                source_filter_domain = all_nodes.join(
                     _idframe(nodes, node_col).rename({NID: node_col}), on=node_col, how="semi")
             allowed_source_lf = _idframe_lf(
-                filter_by_dict_polars(_src_base, source_node_match).lazy(), node_col)
+                filter_by_dict_polars(source_filter_domain, source_node_match).lazy(), node_col)
         allowed_dest_lf = (
             _idframe_lf(filter_by_dict_polars(all_nodes, destination_node_match).lazy(), node_col)
             if destination_node_match is not None else None
@@ -298,15 +309,16 @@ def hop_polars(
         out_edges_c, out_nodes_c = collect_all([out_edges_lf, out_nodes_lf])
         return g.nodes(out_nodes_c, node_col).edges(out_edges_c, src, dst)
 
-    # #1892 F-01: source-filter domain is the node TABLE regardless of hops; at a seeded
-    # single hop, semi-join seeds first to keep the old small-frame filter cost.
     allowed_source = None
     if source_node_match is not None:
-        _src_base = all_nodes
-        if nodes is not None and not to_fixed_point and resolved_max_hops == 1:
-            _src_base = all_nodes.join(
+        source_filter_domain = all_nodes
+        only_seeds_can_be_sources = (
+            nodes is not None and not to_fixed_point and resolved_max_hops == 1)
+        if only_seeds_can_be_sources:
+            source_filter_domain = all_nodes.join(
                 _idframe(nodes, node_col).rename({NID: node_col}), on=node_col, how="semi")
-        allowed_source = _idframe(filter_by_dict_polars(_src_base, source_node_match), node_col)
+        allowed_source = _idframe(
+            filter_by_dict_polars(source_filter_domain, source_node_match), node_col)
     allowed_dest = (
         _idframe(filter_by_dict_polars(all_nodes, destination_node_match), node_col)
         if destination_node_match is not None else None

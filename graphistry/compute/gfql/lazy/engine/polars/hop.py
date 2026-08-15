@@ -15,10 +15,8 @@ from graphistry.compute.gfql.lazy.engine.polars.hop_eager import hop_polars
 
 def hop_lazy_or_eager(self: Plottable, nodes: Optional[Any] = None, hops: Optional[int] = 1, **kwargs: Any) -> Plottable:
     """Run the polars hop: lazy collect-once for a single bounded hop, eager loop otherwise."""
-    # Normalize input eagerness ONCE, mirroring the chain_polars entry (#1740): LazyFrame is
-    # an accepted INPUT format, but the BFS loop mixes user frames with eager wavefronts and
-    # polars joins do not mix eagerness. Direct .hop() reaches here without passing through
-    # chain_polars, so the chain-entry normalization alone leaves this route crashing.
+    # Normalize input eagerness ONCE (mirrors the chain_polars entry): polars joins do not
+    # mix eagerness, and direct .hop() reaches here without passing through chain_polars.
     if self._nodes is not None and is_lazy(self._nodes):
         self = self.nodes(self._nodes.collect(), self._node)
     if self._edges is not None and is_lazy(self._edges):

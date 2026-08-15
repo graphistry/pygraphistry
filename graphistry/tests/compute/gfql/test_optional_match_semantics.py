@@ -180,6 +180,22 @@ def test_with_prefix_optional_zero_arm_keeps_carried_props(engine):
     ])
 
 
+@pytest.mark.parametrize("engine", ENGINES)
+def test_optional_zero_arm_null_extends_full_arm_schema_not_just_bare_aliases(engine):
+    """A fully-unmatched arm must still surface every column the arm would have bound --
+    property refs (x.v) AND the downstream join key (x.id) -- so a second arm chained off
+    it can join. Null-extending only the bare `x` alias leaves x.id absent and the next
+    arm silently loses its rows."""
+    q = ("MATCH (p {kind:'person'}) OPTIONAL MATCH (p)-[{t:'NOPE'}]->(x) "
+         "OPTIONAL MATCH (x)-[{t:'X'}]->(z) RETURN p.name AS n, x.v AS xv, z.v AS zv")
+    out = _run(q, engine)
+    assert list(out.columns) == ["n", "xv", "zv"]
+    _assert_rows(out, [
+        {"n": "alice", "xv": None, "zv": None}, {"n": "bob", "xv": None, "zv": None},
+        {"n": "carol", "xv": None, "zv": None}, {"n": None, "xv": None, "zv": None},
+    ])
+
+
 @polars_only
 def test_polars_optional_zero_arm_same_answer_as_matched_arm():
     """F-03: identical query text, only the data changes (bob's H edge

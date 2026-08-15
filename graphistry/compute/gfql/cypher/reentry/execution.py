@@ -25,7 +25,10 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
 from graphistry.compute.gfql.agg_types import CypherEmptyGroupFills, CypherEmptyGroupValue
 from graphistry.compute.gfql.cypher.ast import CypherScalar
-from graphistry.compute.gfql.cypher.reentry.naming import _reentry_hidden_column_name
+from graphistry.compute.gfql.cypher.reentry.naming import (
+    REENTRY_HIDDEN_COLUMN_PREFIX,
+    _reentry_hidden_column_name,
+)
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.result_postprocess import (
     entity_projection_meta_entry,
@@ -99,8 +102,11 @@ def reentry_validation_error(
     value: object,
     suggestion: str,
     field: str = "with",
-    **extra_context: object,
+    reason: Optional[str] = None,
+    carried_row_count: Optional[int] = None,
+    carried_scalar_columns: Optional[Tuple[str, ...]] = None,
 ) -> GFQLValidationError:
+    """E108 decline for the bounded-reentry paths; context is a CLOSED set (callers dispatch on ``reason``)."""
     return GFQLValidationError(
         ErrorCode.E108,
         message,
@@ -108,7 +114,9 @@ def reentry_validation_error(
         value=value,
         suggestion=suggestion,
         language="cypher",
-        **extra_context,  # type: ignore[arg-type]
+        reason=reason,
+        carried_row_count=carried_row_count,
+        carried_scalar_columns=carried_scalar_columns,
     )
 
 
@@ -136,8 +144,6 @@ def apply_optional_reentry_null_fill(
     df_ctor = df_cons(concrete_engine)
     concat = df_concat(concrete_engine)
 
-    # Use the compiled empty_result_row template (correct projected column names)
-    # or fall back to the result's own columns.
     null_row: CypherFillRow
     if empty_result_row is not None:
         null_row = dict(empty_result_row)
@@ -542,11 +548,11 @@ def freeform_broadcast_row_to_nodes(
     broadcast_values.update({
         col: row[col]
         for col in prefix_rows.columns
-        if isinstance(col, str) and col.startswith("__cypher_reentry_")
+        if isinstance(col, str) and col.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)
     })
 
     if broadcast_values:
-        existing_hidden = [c for c in base_nodes.columns if isinstance(c, str) and c.startswith("__cypher_reentry_")]
+        existing_hidden = [c for c in base_nodes.columns if isinstance(c, str) and c.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)]
         node_rows = (
             cast(DataFrameT, drop_columns(base_nodes, existing_hidden))
             if existing_hidden

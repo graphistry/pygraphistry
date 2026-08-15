@@ -108,23 +108,11 @@ def _normalized_kinds(
 
 
 def flatten_pure_carry_optional_reentry(query: CypherQuery) -> Optional[CypherQuery]:
-    """Flatten ``MATCH ... WITH <pure carry> OPTIONAL MATCH ...`` (#1891).
+    """Flatten ``MATCH ... WITH <pure carry> OPTIONAL MATCH ...`` to its WITH-less form.
 
-    When the single WITH stage is a pure bare-alias carry of EVERY
-    prefix-bound alias (a scope-preserving no-op) and every trailing match is
-    OPTIONAL, the query is equivalent to the WITH-less
-    ``MATCH ... OPTIONAL MATCH ...`` form, which the connected optional-match
-    left-join lowering serves with correct null-extension semantics. The
-    reentry row assembly, by contrast, loses carried seed properties for
-    unmatched rows, so routing onto the join mechanism fixes the semantics
-    rather than patching the reentry concat.
-
-    Trailing OPTIONAL MATCH clauses keep their position; a per-clause reentry
-    WHERE is attached to its clause (WHERE inside an optional clause filters
-    matches but keeps rows null-extended, which the join lowering honors).
-    Each trailing pattern must share at least one node alias with the aliases
-    known before it, mirroring the connected lowering's join requirement, so
-    disconnected shapes keep their current reentry behavior.
+    Admits only a scope-preserving WITH (bare carry of every prefix-bound alias),
+    all-OPTIONAL trailing matches, and trailing patterns that share a node alias with
+    the aliases known before them. Per-clause reentry WHEREs move onto their clause.
     """
     if not query.reentry_matches:
         return None
@@ -154,9 +142,8 @@ def flatten_pure_carry_optional_reentry(query: CypherQuery) -> Optional[CypherQu
         prefix_aliases.update(
             alias for alias in prefix_match.pattern_aliases if alias is not None
         )
-    # Scope preservation: the WITH must carry every prefix-bound alias, so
-    # dropping it cannot re-admit an out-of-scope reference.
-    if carried != prefix_aliases:
+    with_carries_every_prefix_bound_alias = carried == prefix_aliases
+    if not with_carries_every_prefix_bound_alias:
         return None
 
     reentry_wheres = query.reentry_wheres or tuple(None for _ in query.reentry_matches)

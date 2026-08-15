@@ -563,8 +563,6 @@ def _two_hop_equal_domain_degree_counts(
     counts: Tuple[DataFrameT, DataFrameT]
     if engine in POLARS_ENGINES:
         import polars as pl
-        # ONE lazy plan for both degree arms: polars pushes the src/dst projection
-        # into the semi-joins and shares the filtered sub-plan across the collects.
         domain_ids = domain_nodes.lazy().select(node_col).unique()
         filtered_edges = (
             edge_domain.lazy()
@@ -2131,6 +2129,12 @@ def _execute_single_hop_grouped_aggregate_fast_path(
     if node_col not in nodes_obj.columns or src_col not in edges_obj.columns or dst_col not in edges_obj.columns:
         return None
 
+    output_name_collides_with_edge_endpoint = any(
+        out_col in (src_col, dst_col) for out_col in with_items
+    )
+    if output_name_collides_with_edge_endpoint:
+        return None
+
     nodes = cast(DataFrameT, nodes_obj)
     needed_by_alias: Dict[str, List[Tuple[str, str]]] = {start_alias: [], end_alias: []}
     for out_col, ref in with_items.items():
@@ -2265,14 +2269,6 @@ def _execute_single_hop_grouped_aggregate_fast_path(
             out_nodes = out_nodes.head(limit_value)
         out_df = cast(DataFrameT, out_nodes)
     else:
-        # A projected output name that collides with an edge endpoint column
-        # would be suffixed by the pandas merges below (e.g. src col 's' +
-        # `p.score AS s` -> 's_x'/'s_y'), so the later groupby on the output
-        # name raises a raw KeyError instead of answering. Decline; the row
-        # pipeline serves it. (The polars lanes above resolve or decline the
-        # collision themselves.)
-        if any(out_col in (src_col, dst_col) for out_col in with_items):
-            return None
         start_ids = start_nodes[node_col].drop_duplicates()
         end_ids = end_nodes[node_col].drop_duplicates()
         work = edges[edges[src_col].isin(start_ids) & edges[dst_col].isin(end_ids)][[src_col, dst_col]]
