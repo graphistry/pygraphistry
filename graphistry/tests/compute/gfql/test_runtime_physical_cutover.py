@@ -207,10 +207,13 @@ def test_optional_reentry_route_uses_same_path_when_all_rows_match(monkeypatch):
     edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "a"]})
     g = graphistry.bind(source="s", destination="d", node="id").nodes(nodes).edges(edges)
     optional_routes = _spy_physical_routes(monkeypatch, optional_only=True)
+    # #1891 note: a PURE-carry `WITH a` is now flattened onto the connected
+    # optional-match (wavefront) lowering, so a scalar carry keeps this test
+    # on the reentry route it is meant to pin.
     result = g.gfql(
-        "MATCH (a) WITH a "
+        "MATCH (a) WITH a, a.id AS aid0 "
         "OPTIONAL MATCH (a)-->(b) "
-        "RETURN a.id AS aid, b.id AS bid "
+        "RETURN aid0 AS aid, b.id AS bid "
         "ORDER BY aid, bid"
     )
 
@@ -338,8 +341,16 @@ def test_scalar_projection_alias_match_uses_planned_route_on_cudf():
 
 
 def test_non_top_level_optional_match_count_projection_uses_planned_route(monkeypatch):
+    # #1891: the single-node-seed OPTIONAL MATCH aggregate is now served by
+    # the connected optional-match lowering, whose logical plan routes
+    # wavefront (left-join arms), not same_path.
     query = "MATCH (a) OPTIONAL MATCH (a)-->(b) RETURN count(b) AS c"
-    _assert_same_path_rows(monkeypatch, query, [{"c": 2}])
+    _assert_planned_query(query)
+    g = _mk_graph()
+    routes = _spy_physical_routes(monkeypatch)
+    result = g.gfql(query)
+    assert routes == ["wavefront"]
+    assert result._nodes.to_dict(orient="records") == [{"c": 2}]
 
 
 def test_non_union_execution_requires_logical_plan():

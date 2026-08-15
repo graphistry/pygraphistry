@@ -51,6 +51,21 @@ def test_grouped_aggregate_fast_path_engages(engine: str) -> None:
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+def test_grouped_aggregate_fast_path_declines_output_name_colliding_with_edge_endpoint(engine: str) -> None:
+    """An output name equal to an edge endpoint column ('s') is a collision BOTH lanes get
+    wrong: the eager pandas merges suffix it and the groupby raises a bare KeyError, and the
+    fused polars lane silently returned the edge src id instead of c.city. The decline is
+    asserted on every engine because a per-lane guard is what let polars answer wrong."""
+    g = _graph(engine)
+    q = "MATCH (p {kind:'P'})-[{rel:'L'}]->(c {kind:'C'}) RETURN c.city AS s, count(*) AS n"
+    assert_fast_path(g, q, "single_hop_grouped_aggregate", served=False, engine=engine)
+    out = g.gfql(q, engine=engine)._nodes
+    if hasattr(out, "to_pandas"):
+        out = out.to_pandas()
+    assert sorted(out["s"].tolist()) == ["LA", "NY"]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
 def test_a_shape_neither_path_serves_declines_both(engine: str) -> None:
     """The negative side: EVERY path consulted, all decline, answer still correct.
 

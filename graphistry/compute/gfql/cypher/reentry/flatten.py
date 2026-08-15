@@ -98,6 +98,75 @@ def _normalized_kinds(
     return tuple(default for _ in patterns)
 
 
+def flatten_pure_carry_optional_reentry(query: CypherQuery) -> Optional[CypherQuery]:
+    """Flatten ``MATCH ... WITH <pure carry> OPTIONAL MATCH ...`` to its WITH-less form.
+
+    Admits only a scope-preserving WITH (bare carry of every prefix-bound alias),
+    all-OPTIONAL trailing matches, and trailing patterns that share a node alias with
+    the aliases known before them. Per-clause reentry WHEREs move onto their clause.
+    """
+    if not query.reentry_matches:
+        return None
+    if len(query.with_stages) != 1:
+        return None
+    if len(query.matches) != 1:
+        return None
+    if query.unwinds or query.reentry_unwinds:
+        return None
+    if query.call is not None or query.row_sequence:
+        return None
+
+    prefix_match = query.matches[0]
+    if prefix_match.optional:
+        return None
+    if not all(m.optional for m in query.reentry_matches):
+        return None
+
+    carried = _pure_carry_aliases(query.with_stages[0])
+    if carried is None or not carried:
+        return None
+
+    prefix_aliases: Set[str] = set()
+    for pattern in prefix_match.patterns:
+        prefix_aliases.update(_all_pattern_aliases(pattern))
+    if prefix_match.pattern_aliases:
+        prefix_aliases.update(
+            alias for alias in prefix_match.pattern_aliases if alias is not None
+        )
+    with_carries_every_prefix_bound_alias = carried == prefix_aliases
+    if not with_carries_every_prefix_bound_alias:
+        return None
+
+    reentry_wheres = query.reentry_wheres or tuple(None for _ in query.reentry_matches)
+    if len(reentry_wheres) != len(query.reentry_matches):
+        return None
+
+    known_aliases: Set[str] = set(prefix_aliases)
+    trailing_matches = []
+    for trailing_match, reentry_where in zip(query.reentry_matches, reentry_wheres):
+        trailing_node_aliases: Set[str] = set()
+        for pattern in trailing_match.patterns:
+            trailing_node_aliases.update(_node_aliases(pattern))
+        if not (trailing_node_aliases & known_aliases):
+            return None
+        if reentry_where is not None:
+            if trailing_match.where is not None:
+                return None
+            trailing_match = replace(trailing_match, where=reentry_where)
+        trailing_matches.append(trailing_match)
+        for pattern in trailing_match.patterns:
+            known_aliases.update(_all_pattern_aliases(pattern))
+
+    return replace(
+        query,
+        matches=(prefix_match, *trailing_matches),
+        with_stages=(),
+        reentry_matches=(),
+        reentry_wheres=(),
+        reentry_unwinds=(),
+    )
+
+
 def flatten_carried_endpoint_rebind(query: CypherQuery) -> Optional[CypherQuery]:
     """Return a flattened equivalent if the query matches the narrow shape.
 

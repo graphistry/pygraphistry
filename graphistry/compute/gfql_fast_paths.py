@@ -2131,6 +2131,12 @@ def _execute_single_hop_grouped_aggregate_fast_path(
     if node_col not in nodes_obj.columns or src_col not in edges_obj.columns or dst_col not in edges_obj.columns:
         return None
 
+    output_name_collides_with_edge_endpoint = any(
+        out_col in (src_col, dst_col) for out_col in with_items
+    )
+    if output_name_collides_with_edge_endpoint:
+        return None
+
     nodes = cast(DataFrameT, nodes_obj)
     needed_by_alias: Dict[str, List[Tuple[str, str]]] = {start_alias: [], end_alias: []}
     for out_col, ref in with_items.items():
