@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
-from typing import Optional, Set, Tuple
+from typing import Dict, Optional, Set, Tuple
 
 from graphistry.compute.gfql.cypher.ast import (
     CypherQuery,
@@ -33,21 +33,20 @@ from graphistry.compute.gfql.cypher.ast import (
     PatternElement,
     ProjectionStage,
     RelationshipPattern,
+    ReturnClause,
+    ReturnItem,
 )
 
 
 _BARE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_IDENT_TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_AGGREGATE_CALL = re.compile(
+    r"\b(count|sum|avg|min|max|collect|stdev|percentile\w*)\s*\(", re.IGNORECASE
+)
 
 
-def _pure_carry_aliases(stage: ProjectionStage) -> Optional[Set[str]]:
-    """Return the carried alias set if the WITH stage is a pure bare carry, else None."""
-    if stage.where is not None:
-        return None
-    if stage.order_by is not None or stage.skip is not None or stage.limit is not None:
-        return None
-    clause = stage.clause
-    if clause.distinct:
-        return None
+def _bare_carry_aliases(clause: ReturnClause) -> Optional[Set[str]]:
+    """Alias set when every projection item is an unaliased bare identifier, else None."""
     aliases: Set[str] = set()
     for item in clause.items:
         if item.alias is not None:
@@ -57,6 +56,15 @@ def _pure_carry_aliases(stage: ProjectionStage) -> Optional[Set[str]]:
             return None
         aliases.add(text)
     return aliases
+
+
+def _pure_carry_aliases(stage: ProjectionStage) -> Optional[Set[str]]:
+    """Return the carried alias set if the WITH stage is a pure bare carry, else None."""
+    if stage.where is not None:
+        return None
+    if _stage_reshapes_rows(stage):
+        return None
+    return _bare_carry_aliases(stage.clause)
 
 
 def _node_aliases(pattern: Tuple[PatternElement, ...]) -> Set[str]:
@@ -100,23 +108,11 @@ def _normalized_kinds(
 
 
 def flatten_pure_carry_optional_reentry(query: CypherQuery) -> Optional[CypherQuery]:
-    """Flatten ``MATCH ... WITH <pure carry> OPTIONAL MATCH ...`` (#1891).
+    """Flatten ``MATCH ... WITH <pure carry> OPTIONAL MATCH ...`` to its WITH-less form.
 
-    When the single WITH stage is a pure bare-alias carry of EVERY
-    prefix-bound alias (a scope-preserving no-op) and every trailing match is
-    OPTIONAL, the query is equivalent to the WITH-less
-    ``MATCH ... OPTIONAL MATCH ...`` form, which the connected optional-match
-    left-join lowering serves with correct null-extension semantics. The
-    reentry row assembly, by contrast, loses carried seed properties for
-    unmatched rows, so routing onto the join mechanism fixes the semantics
-    rather than patching the reentry concat.
-
-    Trailing OPTIONAL MATCH clauses keep their position; a per-clause reentry
-    WHERE is attached to its clause (WHERE inside an optional clause filters
-    matches but keeps rows null-extended, which the join lowering honors).
-    Each trailing pattern must share at least one node alias with the aliases
-    known before it, mirroring the connected lowering's join requirement, so
-    disconnected shapes keep their current reentry behavior.
+    Admits only a scope-preserving WITH (bare carry of every prefix-bound alias),
+    all-OPTIONAL trailing matches, and trailing patterns that share a node alias with
+    the aliases known before them. Per-clause reentry WHEREs move onto their clause.
     """
     if not query.reentry_matches:
         return None
@@ -146,9 +142,8 @@ def flatten_pure_carry_optional_reentry(query: CypherQuery) -> Optional[CypherQu
         prefix_aliases.update(
             alias for alias in prefix_match.pattern_aliases if alias is not None
         )
-    # Scope preservation: the WITH must carry every prefix-bound alias, so
-    # dropping it cannot re-admit an out-of-scope reference.
-    if carried != prefix_aliases:
+    with_carries_every_prefix_bound_alias = carried == prefix_aliases
+    if not with_carries_every_prefix_bound_alias:
         return None
 
     reentry_wheres = query.reentry_wheres or tuple(None for _ in query.reentry_matches)
@@ -288,93 +283,100 @@ def flatten_carried_endpoint_rebind(query: CypherQuery) -> Optional[CypherQuery]
 
 def flatten_terminal_with_over_optional(
     query: CypherQuery,
-) -> Optional[Tuple[CypherQuery, Optional["ExpressionText"]]]:
-    """Flatten ``MATCH ... OPTIONAL MATCH ... WITH ... RETURN`` (#1896).
+) -> Optional[Tuple[CypherQuery, Optional[ExpressionText]]]:
+    """Rewrite terminal ``WITH`` over OPTIONAL MATCH onto the left-join lowering (#1896).
 
-    The row-column WITH pipeline cannot represent OPTIONAL MATCH binding rows:
-    it collapses multiplicity, drops null-extended rows, and (multi-alias
-    carries) mis-projects the optional alias. Two safe rewrites route these
-    shapes onto the connected optional-match left-join lowering instead:
-
-    - Pure bare-alias carry (``WITH a, b [WHERE expr]``): drop the stage; a
-      stage WHERE is returned separately for the caller to apply as a
-      post-join binding-ROW filter (openCypher: WITH..WHERE after OPTIONAL
-      MATCH filters rows -- matched rows keep their bindings, null-extended
-      rows pass or fail on their own values).
-    - Terminal projection/aggregate stage passed through unchanged by RETURN
-      (``WITH a.id AS aid, count(b) AS cnt RETURN aid, cnt``): fold the stage
-      into RETURN so the direct aggregate lowering (null-keeping group keys)
-      serves it.
-
-    Disqualified shapes return None and stay on the (typed-decline) pipeline:
-    renames/DISTINCT/ORDER/SKIP/LIMIT on the stage, multiple stages, UNWIND/
-    CALL, references to non-carried aliases after a subset carry.
+    Returns the WITH-free query plus the stage ``WHERE`` for the caller to apply as a
+    post-join binding-row filter, or None to leave the query on its typed-decline path.
     """
-    if query.reentry_matches or query.unwinds or query.call is not None or query.row_sequence:
-        return None
-    if len(query.with_stages) != 1:
-        return None
-    if not query.matches or query.matches[0].optional:
-        return None
-    if not any(m.optional for m in query.matches):
+    if not _is_terminal_with_over_optional_match(query):
         return None
     stage = query.with_stages[0]
-    if stage.order_by is not None or stage.skip is not None or stage.limit is not None:
+    if _stage_reshapes_rows(stage) or query.return_.distinct:
         return None
-    if stage.clause.distinct or query.return_.distinct:
-        return None
+    match_aliases = _match_clause_aliases(query)
+    carried = _bare_carry_aliases(stage.clause)
+    if carried is not None and carried and carried <= match_aliases:
+        return _query_without_pure_carry_stage(query, stage, carried, match_aliases)
+    return _query_with_terminal_stage_folded_into_return(query, stage, match_aliases)
 
-    match_aliases: Set[str] = set()
+
+def _is_terminal_with_over_optional_match(query: CypherQuery) -> bool:
+    """One trailing WITH stage over a non-optional lead MATCH plus at least one OPTIONAL MATCH."""
+    if query.reentry_matches or query.unwinds or query.call is not None or query.row_sequence:
+        return False
+    if len(query.with_stages) != 1:
+        return False
+    if not query.matches or query.matches[0].optional:
+        return False
+    return any(m.optional for m in query.matches)
+
+
+def _stage_reshapes_rows(stage: ProjectionStage) -> bool:
+    return (
+        stage.order_by is not None
+        or stage.skip is not None
+        or stage.limit is not None
+        or stage.clause.distinct
+    )
+
+
+def _match_clause_aliases(query: CypherQuery) -> Set[str]:
+    aliases: Set[str] = set()
     for m in query.matches:
         for pattern in m.patterns:
-            match_aliases.update(_all_pattern_aliases(pattern))
+            aliases.update(_all_pattern_aliases(pattern))
+    return aliases
 
-    def _referenced_match_aliases(text: str) -> Set[str]:
-        return {
-            tok for tok in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", text)
-            if tok in match_aliases
-        }
 
-    carried = _pure_carry_aliases_ignoring_where(stage)
-    if carried is not None and carried and carried <= match_aliases:
-        # Pure carry: scope check -- everything referenced downstream must be carried.
-        downstream_texts = [item.expression.text for item in query.return_.items]
-        if query.order_by is not None:
-            downstream_texts.extend(item.expression.text for item in query.order_by.items)
-        if stage.where is not None:
-            downstream_texts.append(stage.where.text)
-        for text in downstream_texts:
-            if not _referenced_match_aliases(text) <= carried:
-                return None
-        return replace(query, with_stages=()), stage.where
+def _referenced_aliases(text: str, candidates: Set[str]) -> Set[str]:
+    return {tok for tok in _IDENT_TOKEN.findall(text) if tok in candidates}
 
-    # Terminal substitution: every RETURN item is either a bare stage-output
-    # reference (fold its defining expression in) or `o.prop` of a bare-carried
-    # alias output -- the folded query runs as a direct RETURN, whose aggregate
-    # lowering keeps null-extended group rows.
+
+def _query_without_pure_carry_stage(
+    query: CypherQuery,
+    stage: ProjectionStage,
+    carried: Set[str],
+    match_aliases: Set[str],
+) -> Optional[Tuple[CypherQuery, Optional[ExpressionText]]]:
+    """Drop a bare-alias carry stage, handing its WHERE back as a post-join row filter."""
+    downstream_texts = [item.expression.text for item in query.return_.items]
+    if query.order_by is not None:
+        downstream_texts.extend(item.expression.text for item in query.order_by.items)
+    if stage.where is not None:
+        downstream_texts.append(stage.where.text)
+    for text in downstream_texts:
+        if not _referenced_aliases(text, match_aliases) <= carried:
+            return None
+    return replace(query, with_stages=()), stage.where
+
+
+def _query_with_terminal_stage_folded_into_return(
+    query: CypherQuery,
+    stage: ProjectionStage,
+    match_aliases: Set[str],
+) -> Optional[Tuple[CypherQuery, Optional[ExpressionText]]]:
+    """Fold a stage that RETURN passes through unchanged into the RETURN clause itself."""
     if stage.where is not None:
         return None
-    stage_exprs: dict = {}
+    stage_items: Dict[str, ReturnItem] = {}
     bare_carries: Set[str] = set()
     for item in stage.clause.items:
         name = item.alias or item.expression.text
         text = item.expression.text.strip()
-        if name in stage_exprs:
+        if name in stage_items:
             return None
-        stage_exprs[name] = item
+        stage_items[name] = item
         if item.alias is None and _BARE_IDENT.fullmatch(text) and text in match_aliases:
             bare_carries.add(name)
-    stage_has_aggregates = any(
-        re.search(r"\b(count|sum|avg|min|max|collect|stdev|percentile\w*)\s*\(", item.expression.text, re.IGNORECASE)
-        for item in stage.clause.items
-    )
+    stage_aggregates = _stage_has_aggregates(stage)
     new_items = []
     for ret_item in query.return_.items:
         text = ret_item.expression.text.strip()
-        if text in stage_exprs:
-            if text in bare_carries and stage_has_aggregates:
-                return None  # whole-row next to aggregates: keep the typed decline
-            src = stage_exprs[text]
+        if text in stage_items:
+            if text in bare_carries and stage_aggregates:
+                return None
+            src = stage_items[text]
             new_items.append(replace(src, alias=ret_item.alias if ret_item.alias is not None else src.alias))
             continue
         parts = text.split(".")
@@ -387,6 +389,10 @@ def flatten_terminal_with_over_optional(
         with_stages=(),
         return_=replace(stage.clause, kind="return", items=tuple(new_items)),
     ), None
+
+
+def _stage_has_aggregates(stage: ProjectionStage) -> bool:
+    return any(_AGGREGATE_CALL.search(item.expression.text) for item in stage.clause.items)
 
 
 def flatten_pure_carry_terminal_with_nonoptional(query: CypherQuery) -> Optional[CypherQuery]:
@@ -426,21 +432,3 @@ def flatten_pure_carry_terminal_with_nonoptional(query: CypherQuery) -> Optional
         if not referenced <= carried:
             return None
     return replace(query, with_stages=())
-
-
-def _pure_carry_aliases_ignoring_where(stage: ProjectionStage) -> Optional[Set[str]]:
-    """Like _pure_carry_aliases but a stage WHERE does not disqualify."""
-    if stage.order_by is not None or stage.skip is not None or stage.limit is not None:
-        return None
-    clause = stage.clause
-    if clause.distinct:
-        return None
-    aliases: Set[str] = set()
-    for item in clause.items:
-        if item.alias is not None:
-            return None
-        text = item.expression.text.strip()
-        if not _BARE_IDENT.fullmatch(text):
-            return None
-        aliases.add(text)
-    return aliases

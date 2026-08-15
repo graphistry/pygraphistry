@@ -512,6 +512,20 @@ def test_all_null_substitution_values_follow_cypher():
     assert numeric_agg_all_null_value("mean") is None
 
 
+def test_empty_group_aggregation_sets_cover_both_distinct_spellings():
+    """Cypher's non-null empty-group answers: count/sum -> 0, collect -> []. A set holding
+    only the plain spelling would leave the ``*_distinct`` output unfilled (NULL, wrong)."""
+    from graphistry.compute.gfql.agg_types import (
+        CYPHER_EMPTY_LIST_EMPTY_GROUP_AGGREGATIONS,
+        CYPHER_ZERO_EMPTY_GROUP_AGGREGATIONS,
+    )
+    assert CYPHER_ZERO_EMPTY_GROUP_AGGREGATIONS == {"count", "count_distinct", "sum"}
+    assert CYPHER_EMPTY_LIST_EMPTY_GROUP_AGGREGATIONS == {"collect", "collect_distinct"}
+    assert not (
+        CYPHER_ZERO_EMPTY_GROUP_AGGREGATIONS & CYPHER_EMPTY_LIST_EMPTY_GROUP_AGGREGATIONS
+    )
+
+
 def test_numeric_only_aggregation_set_covers_both_spellings():
     """``avg`` is the cypher name and ``mean`` GFQL's internal one (GFQL_GROUPBY_AGG_METHODS maps
     avg -> mean); a set holding only one of them would leave the other unguarded."""

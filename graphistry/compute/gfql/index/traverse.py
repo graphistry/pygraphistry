@@ -406,14 +406,11 @@ def index_seeded_hop(
     else:
         out_nodes = select_by_ids(g._nodes, node_col, needed, engine)
 
-    # #1888 endpoint closure: the scan DROPS edges whose endpoints are absent from a
-    # bound node table (compute/hop.py symmetric gate) — it no longer synthesizes
-    # phantom node rows. The CSR gather here is built from the raw edge frame, so a
-    # traversal that touches a dangling endpoint would emit an unclosed edge; decline
-    # (return None) so the scan serves the closed answer. No-op when nodes are complete.
     present = col_to_array(out_nodes, node_col, engine)
     present_unique = xp.unique(present)
-    if int(set_difference(needed, present_unique, xp).shape[0]) > 0:
+    reached_an_endpoint_with_no_node_row = (
+        int(set_difference(needed, present_unique, xp).shape[0]) > 0)
+    if reached_an_endpoint_with_no_node_row:
         return None
     # B2: the scan dedups output nodes by id (hop.py drop_duplicates(subset=[node])).
     # The select_by_ids path returns ALL rows per id, so a node table with DUPLICATE
