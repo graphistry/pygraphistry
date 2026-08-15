@@ -81,6 +81,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_reentry_caller_graph_immutability.py
     graphistry/tests/compute/gfql/test_rewrite_param_discard.py
     graphistry/tests/compute/test_engine_coercion.py
+    graphistry/tests/compute/test_let_binding_contracts.py
     # index tests exercise the seeded-index hook in the polars hop entry (hop.py) — without
     # them the hook dominates the now-thin file and trips its per-file coverage floor
     graphistry/tests/compute/gfql/index/test_index.py

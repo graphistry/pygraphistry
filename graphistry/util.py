@@ -36,10 +36,14 @@ def setup_logger(name='', verbose=VERBOSE, fullpath=TRACE):
         else:
             logger.setLevel(logging.ERROR)
     elif os.environ.get('LOG_LEVEL', None) is not None:
-        if os.environ['LOG_LEVEL'] == 'TRACE':
+        # logging.Logger.setLevel() only accepts uppercase level names (INFO, DEBUG, ...)
+        # or ints; normalize the env value so a common lowercase LOG_LEVEL=info does not
+        # raise "ValueError: Unknown level: 'info'" at import time.
+        level = os.environ['LOG_LEVEL'].upper()
+        if level == 'TRACE':
             logger.setLevel(logging.DEBUG)
         else:
-            logger.setLevel(os.environ['LOG_LEVEL'])
+            logger.setLevel(level)
 
     if (
         not bool(logging.getLogger().handlers)
