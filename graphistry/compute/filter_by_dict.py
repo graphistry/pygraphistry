@@ -10,9 +10,6 @@ from .typing import DataFrameT, DType, NodeDtypes, SeriesT
 
 
 logger = setup_logger(__name__)
-# Single source in the dtype-contract module; deferred imports because the polars
-# package __init__ transitively imports this module (import cycle).
-
 def _dtype_text(dtype: Any) -> str:
     from graphistry.compute.gfql.lazy.engine.polars.dtypes import dtype_text
     return dtype_text(dtype)
