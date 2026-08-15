@@ -17,6 +17,7 @@ from graphistry.compute.gfql.language_defs import (
     GFQL_ALLOWED_UNARY_OPS,
     GFQL_COMPARISON_GRAMMAR_ALTS,
     GFQL_STRING_PREDICATE_OPS,
+    UnaryOpName,
 )
 
 
@@ -40,7 +41,7 @@ class Literal:
 
 @dataclass(frozen=True)
 class UnaryOp:
-    op: str
+    op: UnaryOpName
     operand: "ExprNode"
 
 

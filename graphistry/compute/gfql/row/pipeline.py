@@ -5,7 +5,10 @@ import re
 import warnings
 from functools import lru_cache
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, NoReturn, Optional, Sequence, Tuple, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Mapping, NoReturn, Optional, Sequence, Tuple, cast
+
+#: Cypher's two numeric kinds; a Literal so a typo'd branch is a type error, not a silent miss.
+CypherNumericKind = Literal["int", "float"]
 from typing_extensions import Literal
 
 import pandas as pd
@@ -38,6 +41,7 @@ from graphistry.compute.gfql.agg_types import (
     raise_non_numeric_aggregation,
 )
 from graphistry.compute.gfql.language_defs import (
+    GFQL_ALLOWED_UNARY_OPS,
     GFQL_COMPARISON_BINARY_OP_NAMES,
     GFQL_COMPARISON_BINARY_OPS,
     GFQL_GROUPBY_AGG_METHODS,
@@ -506,7 +510,7 @@ class RowPipelineMixin:
         return out
 
     @staticmethod
-    def _gfql_cypher_numeric_kind(value: Any) -> Optional[str]:  # hygiene-ok: explicit-any -- heterogeneous scalar-or-Series operands, evaluator-wide idiom
+    def _gfql_cypher_numeric_kind(value: object) -> Optional[CypherNumericKind]:
         """'int' / 'float' for Cypher-numeric scalars and Series; None otherwise (bools excluded)."""
         if isinstance(value, bool):
             return None
@@ -547,8 +551,12 @@ class RowPipelineMixin:
         if isinstance(left, numbers.Integral) and isinstance(right, numbers.Integral):
             quotient = abs(int(left)) // abs(int(right))
             return -quotient if (left < 0) != (right < 0) else quotient
-        import numpy as np
-        return (abs(left) // abs(right)) * np.sign(left) * np.sign(right)
+        # `.where`, not np.sign: np.sign on a cudf Series needs the cupy JIT (libnvrtc).
+        quotient = abs(left) // abs(right)
+        negative = (left < 0) != (right < 0)
+        if hasattr(quotient, "where"):
+            return quotient.where(~negative, -quotient)
+        return -quotient if negative else quotient
 
     @staticmethod
     def _gfql_is_cypher_null_scalar(value: Any) -> bool:
@@ -1129,7 +1137,13 @@ class RowPipelineMixin:
                 if bool_out is None:
                     return False, None
                 return True, bool_out
-            return False, None
+            raise GFQLTypeError(
+                ErrorCode.E203,
+                f"Unsupported Cypher unary operator: {node.op!r}",
+                field="expression",
+                value=str(node.op),
+                suggestion=f"Use one of {sorted(GFQL_ALLOWED_UNARY_OPS)}.",
+            )
 
         if isinstance(node, BinaryOp):
             op = str(node.op).lower()
@@ -1277,8 +1291,6 @@ class RowPipelineMixin:
                 left_kind = RowPipelineMixin._gfql_cypher_numeric_kind(left)
                 right_kind = RowPipelineMixin._gfql_cypher_numeric_kind(right)
                 if left_kind == "int" and right_kind == "int":
-                    # openCypher integer division: truncates toward zero;
-                    # dividing by zero is an error (never inf).
                     RowPipelineMixin._gfql_raise_on_integer_zero_divisor(right, "/")
                     return True, RowPipelineMixin._gfql_truncated_int_div(left, right)
                 try:
@@ -1302,9 +1314,6 @@ class RowPipelineMixin:
                 left_kind = RowPipelineMixin._gfql_cypher_numeric_kind(left)
                 right_kind = RowPipelineMixin._gfql_cypher_numeric_kind(right)
                 if left_kind is not None and right_kind is not None:
-                    # openCypher/Java modulo is TRUNCATED (sign of the dividend:
-                    # -7 % 3 = -1), not Python-floored; int % 0 is an error and
-                    # float % 0.0 is NaN (Java parity).
                     if left_kind == "int" and right_kind == "int":
                         RowPipelineMixin._gfql_raise_on_integer_zero_divisor(right, "%")
                         quotient = RowPipelineMixin._gfql_truncated_int_div(left, right)
@@ -1487,7 +1496,7 @@ class RowPipelineMixin:
                 left_null_mask = self._gfql_null_mask(table_df, left)
                 right_null_mask = self._gfql_null_mask(table_df, right)
                 any_null_mask = left_null_mask | right_null_mask
-                # openCypher simple CASE uses '=': a null subject or WHEN value NEVER matches.
+                # Simple CASE compares with '=', so null matches nothing and falls to ELSE.
                 left_scalar_null = not hasattr(left, "astype") and is_null_scalar(left)
                 right_scalar_null = not hasattr(right, "astype") and is_null_scalar(right)
                 if right_scalar_null or left_scalar_null:
@@ -1684,11 +1693,10 @@ class RowPipelineMixin:
                 if is_null_scalar(inner):
                     return True, None
                 if isinstance(inner, str):
-                    # unparseable STRING -> null (openCypher); invalid TYPES
-                    # (list/map) below still error (TCK expects the failure)
+                    # A string with no integer value is null; invalid TYPES below still error.
                     try:
                         return True, int(float(inner))
-                    except ValueError:
+                    except (ValueError, OverflowError):
                         return True, None
                 return True, int(float(inner))
 
@@ -3433,7 +3441,7 @@ class RowPipelineMixin:
             ast_ok, ast_value = self._gfql_eval_expr_ast(table_df, ast_node)
         except Exception as exc:
             if isinstance(exc, (ValueError, NotImplementedError, GFQLValidationError)):
-                # An engine decline and an already-typed Cypher error each keep their own class.
+                # An honest decline or an already-typed Cypher error keeps its own taxonomy.
                 raise
             raise ValueError(f"unsupported row expression: AST evaluator unsupported in {expr!r}") from exc
 

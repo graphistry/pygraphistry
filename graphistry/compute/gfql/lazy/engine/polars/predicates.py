@@ -61,6 +61,18 @@ def _homogeneous_scalar_category(opts: List[Any]) -> Optional[str]:
 # implements Python rich comparison so op(lhs, rhs) builds exactly `lhs > rhs`/... . Ops outside
 # this whitelist have no proven lowering and fall through to the decline paths.
 _CMP_OPS = frozenset({operator.gt, operator.lt, operator.ge, operator.le, operator.eq, operator.ne})
+_ORDER_OPS = frozenset({operator.gt, operator.lt, operator.ge, operator.le})
+
+
+def _orders_boolean_column_against_number(op: object, val: object, dtype: "Optional[pl.DataType]") -> bool:
+    """Ordering a Boolean column against a number: incomparable, so it never satisfies.
+
+    Equality is not ordering and stays served.
+    """
+    if op not in _ORDER_OPS or isinstance(val, bool) or not isinstance(val, (int, float)):
+        return False
+    import polars as pl
+    return dtype == pl.Boolean
 
 
 def _cmp_expr(
@@ -98,15 +110,10 @@ def _cmp_expr(
         "DateTimeValue", "TimeValue", "DateValue",
     ):
         return None
-    # Cypher: ORDERING a Boolean against a number is incomparable -> null; equality stays served.
-    if (
-        op in (operator.gt, operator.lt, operator.ge, operator.le)
-        and not isinstance(val, bool)
-        and isinstance(val, (int, float))
-    ):
+    # Documented residual: only a natively-built polars frame holding a RAW NaN diverges from pandas.
+    if _orders_boolean_column_against_number(op, val, dtype):
         import polars as pl
-        if dtype == pl.Boolean:
-            return pl.lit(False)
+        return pl.lit(False)
     if op in _CMP_OPS:
         return op(col_expr, val)
     return None

@@ -2589,7 +2589,7 @@ def _forces_relationship_multiplicity_projection_bindings(
     order_by: Optional[OrderByClause],
 ) -> bool:
     """Non-aggregate projections over relationship patterns run on binding rows:
-    the per-alias node table collapses row multiplicity.
+    the per-alias node table collapses row multiplicity under bag semantics.
 
     Scope: every projected/ordered expression must be either alias-free or a
     bare ``node_alias.prop`` ref -- whole-row refs, edge-alias refs, and
@@ -2634,7 +2634,10 @@ def _forces_relationship_multiplicity_projection_bindings(
         saw_node_prop_ref = True
     if not saw_node_prop_ref:
         return False
-    # Fast-path precedence: the seeded typed-hop fast path is chosen before the bindings-row lane.
+    # The seeded typed-hop fast path matches the rows(table, source) compiled shape
+    # for a single [seed-node, single-hop edge, node] pattern projecting only
+    # destination props -- leave those
+    # shapes on it (its seeded reduction is value-correct there).
     if len(query.matches) == 1 and len(query.matches[0].patterns) == 1:
         pattern = query.matches[0].patterns[0]
         if (
@@ -5602,7 +5605,7 @@ def _row_only_empty_aggregate_row(
     params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- Cypher params mapping, module-wide idiom
 ) -> Optional[Dict[str, Any]]:  # hygiene-ok: explicit-any -- heterogeneous Cypher identity values (0 / [] / None)
     """openCypher aggregate identities for an ungrouped aggregate RETURN over an
-    empty row stream (#1899): count -> 0, sum -> 0, collect -> [], else null.
+    empty row stream: count -> 0, sum -> 0, collect -> [], else null.
     Grouped/paged/non-aggregate finals return None (no synthesis)."""
     if not query.row_sequence:
         return None
@@ -6718,9 +6721,7 @@ def lower_match_query(
                         continue
                 from graphistry.compute.gfql.same_path_types import SUPPORTED_WHERE_OPS as _SP_OPS
                 if predicate.op not in _SP_OPS:
-                    # e.g. property-vs-property STARTS WITH: the same-path WHERE
-                    # only carries comparisons -- typed decline, not a raw
-                    # ValueError from its validator.
+                    # The same-path WHERE carries comparisons only; anything else declines.
                     raise _unsupported(
                         f"Cypher cross-property '{predicate.op}' predicates between two aliases are not yet supported in the local compiler",
                         field="where",
@@ -9376,9 +9377,8 @@ def compile_cypher_query(
         if compiled_connected_optional is not None:
             return _attach_graph_context(compiled_connected_optional)
     if query.with_stages and query.matches and not any(m.optional for m in query.matches):
-        # A terminal pure bare-alias WITH carry over non-OPTIONAL
-        # matches is a row no-op; fold it away so binding-row multiplicity
-        # survives (the row-column pipeline would collapse it).
+        # A terminal pure bare-alias WITH carry over non-OPTIONAL matches is a row
+        # no-op; fold it away so binding-row multiplicity survives.
         from graphistry.compute.gfql.cypher.reentry.flatten import (
             flatten_pure_carry_terminal_with_nonoptional,
         )

@@ -230,23 +230,25 @@ class _ScalarTemporalComparison(_StringAllowingComparisonMixin, ComparisonPredic
 
     @staticmethod
     def _series_is_boolean(s: SeriesT) -> bool:
-        dtype = getattr(s, "dtype", None)
-        try:
-            if pd.api.types.is_bool_dtype(dtype):
-                return True
-            if isinstance(s, pd.Series) and pd.api.types.is_object_dtype(dtype):
-                non_null = s.dropna()
-                return len(non_null) > 0 and bool(non_null.map(lambda v: isinstance(v, bool)).all())
-        except Exception:
-            return False
+        if pd.api.types.is_bool_dtype(s.dtype):
+            return True
+        if isinstance(s, pd.Series) and pd.api.types.is_object_dtype(s.dtype):
+            non_null = s.dropna()
+            return len(non_null) > 0 and bool(non_null.map(lambda v: isinstance(v, bool)).all())
         return False
+
+    def _orders_boolean_series_against_number(self, s: SeriesT) -> bool:
+        """Ordering a Boolean series against a number is incomparable, so it never satisfies."""
+        return (
+            not isinstance(self.val, bool)
+            and isinstance(self.val, (int, float))
+            and self._series_is_boolean(s)
+        )
 
     def __call__(self, s: SeriesT) -> SeriesT:
         if isinstance(self.val, (int, float, str)):
-            # Cypher: ordering a BOOLEAN against a NUMBER is incomparable -> null, never a match.
-            val_is_bool = isinstance(self.val, bool)
-            if not val_is_bool and isinstance(self.val, (int, float)) and self._series_is_boolean(s):
-                return cast(SeriesT, s.notna() & False)  # hygiene-ok: explicit-cast -- SeriesT narrowing, module-wide idiom
+            if self._orders_boolean_series_against_number(s):
+                return s.notna() & False
             return (
                 self._safe_scalar_compare(s, type(self).op)
                 if self.safe_scalar_compare
