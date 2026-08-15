@@ -477,7 +477,7 @@ def test_two_hop_count_ignores_duplicate_rows_in_a_node_domain(engine: str) -> N
 
 def _dense_self_loop_graph(engine: str) -> Any:
     """Dense integer ids 0..2 with a typed self-loop, so a DEGREE FACT is buildable
-    whose interval covers the whole node domain (what the O(1) branch requires).
+    whose interval covers the whole node domain (what the fact branch requires).
 
     Edges: e0 = 0->1, e1 = 1->2, e2 = 2->2 (self-loop). All type K.
     """
@@ -500,7 +500,7 @@ _DENSE_ORACLE = 2
 # environment reason and say nothing about this contract.
 @pytest.mark.parametrize("engine", ENGINES)
 def test_two_hop_count_over_precomputed_degree_fact_subtracts_its_self_loops(engine: str) -> None:
-    """The O(1) degree-fact branch must apply the SAME correction as the scan branches."""
+    """The precomputed-degree branch must apply the SAME correction as the scan branches."""
     _skip_unless_engine(engine)
     from graphistry.compute.gfql.index.api import get_registry
 
@@ -516,7 +516,7 @@ def test_two_hop_count_over_precomputed_degree_fact_subtracts_its_self_loops(eng
 
 
 def test_dense_two_hop_kernel_never_reads_unknown_self_loops_as_zero() -> None:
-    """``self_loops=None`` means UNKNOWN, so the O(1) degree-fact branch must step
+    """``self_loops=None`` means UNKNOWN, so the precomputed-degree branch must step
     aside and let the scan lane count the loops -- NOT read the unknown as 0 and
     answer the uncorrected degree product (which is 3 here, not the oracle 2).
 
@@ -542,7 +542,7 @@ def test_dense_two_hop_kernel_never_reads_unknown_self_loops_as_zero() -> None:
     assert total(fact) == _DENSE_ORACLE
     assert total(replace(fact, self_loops=None)) == _DENSE_ORACLE
     # and the branch really is the thing under test: a fact whose loop count is a LIE
-    # changes the answer, so the O(1) branch -- not the scan -- served the first assert.
+    # changes the answer, so the fact branch -- not the scan -- served the first assert.
     assert total(replace(fact, self_loops=0)) == _DENSE_ORACLE + 1
 
 

@@ -945,7 +945,7 @@ def _build_transformer(source: str) -> _TransformerLike:
             return {"min_hops": min_hops, "max_hops": max_hops, "to_fixed_point": False}
 
         def rel_range_open_min(self, meta: Any, items: Sequence[Any]) -> dict[str, Any]:  # hygiene-ok: explicit-any -- lark transformer callback signature, module-wide idiom
-            # openCypher [*..M]: omitted lower bound defaults to 1 (#1903)
+            # openCypher [*..M]: omitted lower bound defaults to 1
             if len(items) != 1:
                 raise _to_syntax_error("Invalid relationship range", line=meta.line, column=meta.column)
             max_hops = self._rel_hops(meta, items[0])

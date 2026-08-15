@@ -51,6 +51,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_numeric_conformance_semantics.py
     graphistry/tests/compute/gfql/test_path_trail_semantics.py
     graphistry/tests/compute/gfql/test_count_and_param_semantics.py
+    graphistry/tests/compute/gfql/row/test_row_pipeline_boundaries.py
+    graphistry/tests/compute/gfql/test_unary_op_surface.py
     graphistry/tests/compute/gfql/test_hop_boundary_matrix.py
     graphistry/tests/compute/gfql/test_hop_semantics_pins.py
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
@@ -63,6 +65,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_fast_path_engagement.py
     graphistry/tests/compute/gfql/test_known_cross_engine_divergences.py
     graphistry/tests/compute/gfql/test_endpoint_closure_matrix.py
+    graphistry/tests/compute/gfql/test_gfql_unified_routing_contracts.py
     graphistry/tests/compute/gfql/test_hop_kernel_contracts.py
     graphistry/tests/compute/gfql/test_polars_dtype_classifier_contracts.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_fused_polars.py

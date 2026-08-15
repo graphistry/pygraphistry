@@ -1,9 +1,9 @@
-"""Index-driven seeded traversal — the O(degree) fast path.
+"""Index-driven seeded traversal.
 
-Replaces hop()'s O(E) ``edges[edges[src].isin(frontier)]`` scan with a CSR
-searchsorted gather. Returns a subgraph Plottable parity-matched to the eager
-hop() for the covered cases, or ``None`` when a feature isn't covered (caller
-falls back to the scan/join path — correctness is never traded for speed).
+Answers hop()'s ``edges[edges[src].isin(frontier)]`` with a CSR searchsorted
+gather. Returns a subgraph Plottable parity-matched to the eager hop() for the
+covered cases, or ``None`` when a feature isn't covered (caller falls back to the
+scan/join path).
 
 Covered (v1): seeded (nodes given), integer ``hops`` >= 1 or ``to_fixed_point``,
 direction forward/reverse/undirected, ``return_as_wave_front``, and a simple
@@ -31,13 +31,6 @@ from .types import (
     ArrayLike, EdgeMatch, HopDirection, ScalarMatchValue, SimpleEqualityEdgeMatch,
 )
 
-# Cost guard for candidate-row edge_match evaluation. Gathering candidate rows beats one
-# whole-column compare only while the candidates stay a small fraction of the frame; a
-# fixed-point walk that reaches most of the graph inverts that and gathers up to 2E by
-# random access. Once cumulative gathered rows reach E/DIVISOR we build the whole-column
-# mask once and reuse it, bounding total predicate work at ~(1 + 1/DIVISOR)*E. The FLOOR
-# keeps small frames on the candidate-row path, where the whole-column compare is cheap
-# anyway and the switch would only add a branch.
 _EAGER_MASK_SWITCH_DIVISOR = 8
 _EAGER_MASK_SWITCH_FLOOR = 1024
 
@@ -47,9 +40,8 @@ def _candidate_edge_mask_enabled() -> bool:
     ``GFQL_INDEX_CANDIDATE_EDGE_MASK=0`` to force the whole-column mask on every hop.
 
     Follows the ``GFQL_LEAN_COMBINE`` precedent: the BOUNDARY is externally switchable so
-    the differential harness can exercise both sides of it and assert they agree, while the
-    numeric thresholds above stay private module constants like ``_LEAN_SHRINK_RATIO`` —
-    they are a cost heuristic, not an interface, and the guard already bounds the bad case.
+    the differential harness can exercise both sides of it and assert they agree; the numeric
+    thresholds above stay private module constants like ``_LEAN_SHRINK_RATIO``.
     """
     import os as _os
 
@@ -103,24 +95,12 @@ def is_simple_equality_edge_match(
 class _EdgeMatchRowFilter:
     """Evaluates a simple-equality ``edge_match`` on the CSR-matched edge rows only.
 
-    The mask is read exactly once per hop, as ``rows[keep[rows]]`` — at the handful of
-    positions the adjacency lookup returned. Materializing it over all E edges first
-    therefore put an O(E) predicate scan inside an O(degree) traversal, which is what
-    made the indexed path scale with the graph instead of with the answer. Evaluating
-    ``col == val`` on the gathered candidate rows makes the predicate proportional to
-    the edges the traversal actually visits, so a seeded hop examines O(edges traversed)
-    elements.
+    The mask is read as ``rows[keep[rows]]``, at the positions the adjacency lookup returned.
 
-    A row is *mostly* returned once per index — frontiers are set-differenced against
+    A row is *mostly* gathered once per index — frontiers are set-differenced against
     ``visited`` — but not strictly: ``edge_match`` is only reachable with
     ``return_as_wave_front=True``, and that mode skips the first-hop ``visited`` seeding
     below, so seed ids can re-enter a later frontier and their rows be gathered twice.
-    The worst case is a fixed-point undirected walk reaching the whole graph, where the
-    out- and in-indices are filtered separately and the gathered total approaches 2E
-    against the eager form's single sequential pass over E. That regime is a genuine
-    REGRESSION for this form (measured: 1.94×E gathered, 1.2–1.6× slower than the eager
-    mask), which is why the caller keeps a cumulative-gathered counter and falls back to
-    ``full_mask()`` once it crosses a fraction of the frame.
 
     Column values are compared with each frame's native ``==`` (so cudf string columns
     stay on the cudf layer rather than becoming a cupy string compare), matching the
@@ -200,7 +180,7 @@ class _EdgeMatchRowFilter:
 
 
 def _gather_series(series: SeriesT, rows: ArrayLike, engine: Engine) -> SeriesT:
-    """Positionally gather ``rows`` out of a single column. O(len(rows))."""
+    """Positionally gather ``rows`` out of a single column."""
     if engine in (Engine.POLARS, Engine.POLARS_GPU):
         import numpy as np
 
@@ -216,7 +196,7 @@ def _build_edge_row_filter(
     per-row evaluator, or ``None`` when the shape isn't covered (caller falls back to
     the scan rather than risk a divergence).
 
-    All checks here are schema-level (O(1) in E); no predicate is evaluated yet.
+    All checks here are schema-level; no predicate is evaluated yet.
     """
     try:
         if not is_simple_equality_edge_match(edge_match):
@@ -288,22 +268,16 @@ def index_seeded_hop(
 
     xp, _backend = array_namespace(engine)
 
-    # Typed-edge (edge_match) support: the match predicate is evaluated on the
-    # CSR-matched rows of each hop, so it costs O(edges visited) rather than O(E).
-    # Gated to simple scalar equality + the wavefront path by the coverability check
-    # upstream (maybe_index_hop); an unsupported shape returns None here => scan
-    # (parity-safe). Schema validation happens now, up front, so an uncovered
-    # edge_match still declines before any traversal work.
+    # Typed-edge (edge_match): gated to simple scalar equality + the wavefront path by the
+    # coverability check upstream (maybe_index_hop); an unsupported shape returns None here =>
+    # scan (parity-safe). Schema validation happens up front, before any traversal work.
     edge_filter: Optional[_EdgeMatchRowFilter] = None
     if edge_match:
         edge_filter = _build_edge_row_filter(edges, edge_match, engine)
         if edge_filter is None:
             return None
-    # Cost guard for the candidate-row form (see _EdgeMatchRowFilter.full_mask). Cumulative
-    # gathered rows; once they reach a fraction of the frame we are demonstrably NOT in the
-    # seeded regime, so we pay for the whole-column mask once and reuse it. Bounds total
-    # predicate work at ~(1 + 1/D)*E instead of the unbounded-in-hops gather, while a seeded
-    # hop — which gathers ~degree — never comes close to the threshold and never builds it.
+    # Guard for the candidate-row form (see _EdgeMatchRowFilter.full_mask): once cumulative
+    # gathered rows cross the threshold, build the whole-column mask once and reuse it.
     gathered_rows = 0
     eager_keep: Optional[ArrayLike] = None
     switch_at = (
@@ -394,8 +368,7 @@ def index_seeded_hop(
         endpoints = xp.unique(xp.concatenate([src_vals, dst_vals]))  # natural dtype, never narrowed
         needed = union1d(needed, endpoints, xp)
 
-    # Materialize node rows. Prefer the node_id index (O(result·log N) searchsorted
-    # gather) over an O(N) isin scan — this keeps warm seeded latency flat in N.
+    # Materialize node rows: node_id index searchsorted gather when available, else isin scan.
     node_idx = cast(Optional[NodeIdIndex], registry.get_valid(NODE_ID, g._nodes, (node_col,), engine))
     if node_idx is not None:
         node_rows = lookup_node_rows(node_idx, needed, xp)
@@ -414,9 +387,8 @@ def index_seeded_hop(
         return None
     # B2: the scan dedups output nodes by id (hop.py drop_duplicates(subset=[node])).
     # The select_by_ids path returns ALL rows per id, so a node table with DUPLICATE
-    # ids would emit extra rows here. Fall back to scan (O(result) check) rather than
-    # diverge. (Unique-id tables — the norm — never trip this; node_id index unused
-    # for dup ids by construction, so this only guards the isin path.)
+    # ids would emit extra rows here. Fall back to scan rather than diverge. (node_id index
+    # is unused for dup ids by construction, so this only guards the isin path.)
     if int(present.shape[0]) != int(present_unique.shape[0]):
         return None
     return g.nodes(out_nodes, node_col).edges(out_edges, src, dst)

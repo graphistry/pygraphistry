@@ -51,9 +51,7 @@ if TYPE_CHECKING:
 DType = Any
 NodeDtypes = Mapping[str, DType]
 
-# A GFQL filter dict: column name -> scalar literal, membership collection, or ASTPredicate.
-# Honestly Any in the value -- the admissible literals are open (numeric/string/bool/temporal)
-# and every consumer dispatches on the runtime type.
+# Honestly Any: the admissible literals are open and every consumer dispatches on the runtime type.
 FilterValue = Any
 FilterDict = Dict[str, FilterValue]
 

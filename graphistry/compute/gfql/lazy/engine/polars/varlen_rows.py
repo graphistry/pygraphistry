@@ -13,7 +13,7 @@ Only ``min_hops <= 1`` reaches the unbounded arm — the gate in ``row_pipeline.
 declines ``-[*2..]->`` because pandas' ``step_pairs`` prune by min_hops against a
 dedup-by-node eccentricity that the raw-edge reconstruction here cannot reproduce.
 
-openCypher TRAIL semantics (#1903): when ``pairs`` carries the stable
+openCypher TRAIL semantics: when ``pairs`` carries the stable
 ``__gfql_edge_ident__`` column, each expansion hop filters the new edge against
 every edge already bound on the path (this segment's and prior elements', via
 ``trail_cols_in``) and records it as a ``__gfql_trail_*`` column — mirroring the
@@ -22,11 +22,17 @@ pandas ``_gfql_multihop_binding_rows`` twin exactly.
 from __future__ import annotations
 
 from typing import List, Optional, Tuple, TYPE_CHECKING
+from graphistry.compute.gfql.identifiers import (
+    TRAIL_EDGE_IDENT_COL,
+    WALK_CURRENT_COL,
+    WALK_FROM_COL,
+    WALK_TO_COL,
+    trail_column_name,
+)
 
 if TYPE_CHECKING:
     import polars as pl
 
-TRAIL_IDENT_COL = "__gfql_edge_ident__"
 
 
 def _directed_varlen_reachable_polars(
@@ -55,23 +61,23 @@ def _directed_varlen_reachable_polars(
     """
     import polars as pl
 
-    trail = TRAIL_IDENT_COL in pairs.collect_schema().names()
+    trail = TRAIL_EDGE_IDENT_COL in pairs.collect_schema().names()
     outer_trail = list(trail_cols_in or [])
     segment_trail_cols: List[str] = []
 
     reachable: List["pl.LazyFrame"] = [state.select(state_cols)] if min_hops == 0 else []
     current = state
     for hop in range(1, max_hops + 1):
-        current = current.join(pairs, left_on="__current__", right_on="__from__", how="inner")
+        current = current.join(pairs, left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner")
         if trail:
             for used_col in outer_trail + segment_trail_cols:
                 current = current.filter(
-                    (pl.col(TRAIL_IDENT_COL) != pl.col(used_col)) | pl.col(used_col).is_null()
+                    (pl.col(TRAIL_EDGE_IDENT_COL) != pl.col(used_col)) | pl.col(used_col).is_null()
                 )
-            hop_trail_col = f"__gfql_trail_{len(outer_trail) + len(segment_trail_cols)}__"
-            current = current.rename({TRAIL_IDENT_COL: hop_trail_col})
+            hop_trail_col = trail_column_name(len(outer_trail) + len(segment_trail_cols))
+            current = current.rename({TRAIL_EDGE_IDENT_COL: hop_trail_col})
             segment_trail_cols.append(hop_trail_col)
-        current = current.drop("__current__").rename({"__to__": "__current__"})
+        current = current.drop(WALK_CURRENT_COL).rename({WALK_TO_COL: WALK_CURRENT_COL})
         current = current.select(state_cols + segment_trail_cols)
         if hop >= min_hops:
             reachable.append(current)
@@ -112,7 +118,7 @@ def _directed_fixed_point_binding_rows_polars(
 
     pairs_df = _lazy_collect(pairs)
     pairs_lf = pairs_df.lazy()
-    pairs_step = pairs_lf.select(["__from__", "__to__"])
+    pairs_step = pairs_lf.select([WALK_FROM_COL, WALK_TO_COL])
 
     # (a) depth probe: dedup-by-node frontier, so each hop costs O(N) not O(paths).
     #
@@ -122,7 +128,7 @@ def _directed_fixed_point_binding_rows_polars(
     # ``hop + 1`` exceeds ``seen.height`` some node has repeated, and a repeat on a walk IS
     # a reachable cycle. An acyclic reachable subgraph empties the frontier before the
     # bound; a reachable cycle keeps it non-empty past it.
-    frontier = _lazy_collect(state.select(pl.col("__current__")).unique())
+    frontier = _lazy_collect(state.select(pl.col(WALK_CURRENT_COL)).unique())
     seen = frontier
     frontier_lf = frontier.lazy()
     depth = 0
@@ -132,8 +138,8 @@ def _directed_fixed_point_binding_rows_polars(
     while not exhausted:
         hop += 1
         frontier = _lazy_collect(
-            frontier_lf.join(pairs_step, left_on="__current__", right_on="__from__", how="inner")
-            .select(pl.col("__to__").alias("__current__"))
+            frontier_lf.join(pairs_step, left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner")
+            .select(pl.col(WALK_TO_COL).alias(WALK_CURRENT_COL))
             .unique()
         )
         if frontier.height == 0:

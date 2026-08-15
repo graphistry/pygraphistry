@@ -1,6 +1,6 @@
 """GFQL reserved identifiers and validation."""
 
-from typing import Optional, Dict, Any, Final, Set
+from typing import Optional, Dict, Any, Final, FrozenSet, Set
 
 # Internal column pattern for temporary GFQL columns
 INTERNAL_COLUMN_PATTERN: Final[str] = '__gfql_*__'
@@ -12,6 +12,60 @@ HIDDEN_ALIAS_COLUMN_PREFIX: Final[str] = '__gfql_hidden_'
 
 #: Prefix of the internal name given to an otherwise-anonymous connected-join arm edge.
 TRAIL_ARM_EDGE_ALIAS_PREFIX: Final[str] = '__gfql_trail_arm_'
+
+#: Source endpoint of an ORIENTED edge row (``EdgeSemantics.orient_edges`` output).
+WALK_FROM_COL: Final[str] = '__from__'
+
+#: Destination endpoint of an ORIENTED edge row.
+WALK_TO_COL: Final[str] = '__to__'
+
+#: The node a row of the path bag currently stands on.
+WALK_CURRENT_COL: Final[str] = '__current__'
+
+#: The node a path-bag row just left, so a hop can drop an immediate backtrack.
+WALK_PREV_COL: Final[str] = '__gfql_prev__'
+
+#: Stable per-edge identity: openCypher TRAIL semantics bind a relationship at most once per path.
+TRAIL_EDGE_IDENT_COL: Final[str] = '__gfql_edge_ident__'
+
+#: Prefix of the per-hop column recording WHICH relationship that hop bound.
+TRAIL_COLUMN_PREFIX: Final[str] = '__gfql_trail_'
+
+#: Prefix of the hidden hop-count column a ``shortestPath`` pattern binds for its path alias.
+SHORTEST_PATH_HOPS_COLUMN_PREFIX: Final[str] = '__cypher_shortest_path_hops__'
+
+#: Every scratch column the row-binding walk may introduce; none may survive into a result.
+WALK_SCRATCH_COLUMNS: FrozenSet[str] = frozenset({
+    WALK_FROM_COL, WALK_TO_COL, WALK_CURRENT_COL, WALK_PREV_COL, TRAIL_EDGE_IDENT_COL,
+})
+
+
+def trail_column_name(hop_index: int) -> str:
+    """Name of the trail column recording the relationship bound at ``hop_index``."""
+    return f'{TRAIL_COLUMN_PREFIX}{hop_index}{INTERNAL_COLUMN_SUFFIX}'
+
+
+def is_trail_column(name: str) -> bool:
+    """Whether ``name`` is a per-hop trail column produced by :func:`trail_column_name`."""
+    return (isinstance(name, str)
+            and name.startswith(TRAIL_COLUMN_PREFIX)
+            and name.endswith(INTERNAL_COLUMN_SUFFIX)
+            and name[len(TRAIL_COLUMN_PREFIX):-len(INTERNAL_COLUMN_SUFFIX)].isdigit())
+
+
+def shortest_path_hops_column(alias: str) -> str:
+    """Name of the hidden hop-count column bound by the ``shortestPath`` path alias ``alias``."""
+    return f'{SHORTEST_PATH_HOPS_COLUMN_PREFIX}{alias}'
+
+
+def is_shortest_path_hops_column(name: object) -> bool:
+    """Whether ``name`` is a ``shortestPath`` hop-count column, i.e. selects shortestPath mode."""
+    return isinstance(name, str) and name.startswith(SHORTEST_PATH_HOPS_COLUMN_PREFIX)
+
+
+def is_walk_scratch_column(name: str) -> bool:
+    """Whether ``name`` is any walk scratch column (fixed vocabulary or a trail column)."""
+    return name in WALK_SCRATCH_COLUMNS or is_trail_column(name)
 
 
 def is_internal_column(name: str) -> bool:

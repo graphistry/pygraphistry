@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union, c
 from graphistry.Engine import Engine, df_concat
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT
+from graphistry.compute.gfql.identifiers import WALK_CURRENT_COL
 
 from .api import (
     _record_indexed_traversal,
@@ -50,7 +51,7 @@ from .registry import (
 from .traverse import _indices_for_direction
 
 
-_CURRENT = "__current__"
+_CURRENT = WALK_CURRENT_COL
 _FROM = "__gfql_ib_from__"
 _TO = "__gfql_ib_to__"
 _PATH_ORD = "__gfql_ib_path_ord__"
@@ -233,9 +234,7 @@ def _orient_edges(
         if engine == Engine.POLARS:
             reverse = reverse.select(forward.columns)  # type: ignore[operator]
         combined = cast(DataFrameT, df_concat(engine)([forward, reverse], ignore_index=True))
-        # openCypher trail semantics (#1903 A-1): a self-loop's two undirected
-        # orientations are the SAME binding -- dedupe the flip twin on the
-        # per-edge ordinal, mirroring the standard builder.
+        # A self-loop's two undirected orientations are the SAME binding: drop the per-ordinal twin.
         if _EDGE_ORD in combined.columns:
             if engine == Engine.POLARS:
                 combined = cast(  # hygiene-ok: explicit-cast -- DataFrameT narrowing, module-wide idiom
