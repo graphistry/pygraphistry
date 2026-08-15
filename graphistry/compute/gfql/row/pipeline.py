@@ -79,12 +79,14 @@ from graphistry.compute.gfql.row.ordering import (
     build_temporal_sort_columns,
     is_null_scalar,
     order_detect_list_series,
+    order_detect_native_temporal_mode,
     order_detect_stringified_list_series,
     order_detect_temporal_mode,
     parse_stringified_list_series,
     validate_order_series_vector_safe,
 )
 from graphistry.compute.gfql.temporal.durations import (
+    parse_duration_calendar_components,
     parse_temporal_sort_duration_components,
     resolve_duration_text_property,
 )
@@ -501,6 +503,13 @@ class RowPipelineMixin:
         return out
 
     @staticmethod
+    def _gfql_is_duration_text_scalar(value: Any) -> bool:  # hygiene-ok: explicit-any -- heterogeneous scalar-or-Series operands, evaluator-wide idiom
+        """True for a scalar ISO-8601 duration literal (what ``duration(...)`` lowers to)."""
+        if not isinstance(value, str):
+            return False
+        return parse_duration_calendar_components(value) is not None
+
+    @staticmethod
     def _gfql_cypher_numeric_kind(value: Any) -> Optional[str]:  # hygiene-ok: explicit-any -- heterogeneous scalar-or-Series operands, evaluator-wide idiom
         """'int' / 'float' for Cypher-numeric scalars and Series; None otherwise (bools excluded)."""
         if isinstance(value, bool):
@@ -622,7 +631,11 @@ class RowPipelineMixin:
             try:
                 comparison = cmp_fn(left_value, right_value)
             except TypeError:
-                out_values.append(False)
+                # openCypher: comparing incomparable types yields null, never false
+                # (same rule this file states for cross-type ordering ~200 lines up).
+                # A silent False here made `WHERE n.ts > datetime('...')` drop every
+                # row AND made `NOT (...)` keep every row (#1915 B-1).
+                out_values.append(pd.NA)
                 continue
             if is_null_scalar(comparison):
                 out_values.append(pd.NA)
@@ -711,8 +724,8 @@ class RowPipelineMixin:
 
         left_series = left_value if hasattr(left_value, "astype") else self._gfql_broadcast_scalar(table_df, left_value)
         right_series = right_value if hasattr(right_value, "astype") else self._gfql_broadcast_scalar(table_df, right_value)
-        left_mode = order_detect_temporal_mode(left_series)
-        right_mode = order_detect_temporal_mode(right_series)
+        left_mode = order_detect_native_temporal_mode(left_series) or order_detect_temporal_mode(left_series)
+        right_mode = order_detect_native_temporal_mode(right_series) or order_detect_temporal_mode(right_series)
         if left_mode is None or right_mode is None:
             return None
 
@@ -1216,6 +1229,13 @@ class RowPipelineMixin:
             if op == "+":
                 if left is None or right is None:
                     return True, None  # Cypher: null + anything -> null
+                if RowPipelineMixin._gfql_is_duration_text_scalar(left) or RowPipelineMixin._gfql_is_duration_text_scalar(right):
+                    # Literal temporal arithmetic is constant-folded in
+                    # temporal/folding.py; anything still carrying an ISO duration
+                    # here has a non-literal operand we cannot evaluate. Decline
+                    # typed, exactly as '-' already does -- Python str+str would
+                    # silently concatenate and change WHERE row sets (#1915 B-2).
+                    return False, None
                 if isinstance(left, (list, tuple)) and not isinstance(right, (list, tuple)):
                     right_is_series = hasattr(right, "astype")
                     right_is_list = right_is_series and RowPipelineMixin._gfql_series_is_list_like(right)
@@ -3386,6 +3406,57 @@ class RowPipelineMixin:
         except Exception:
             return _python_fallback()
 
+    def _gfql_eval_temporal_in_expr(
+        self,
+        table_df: Any,  # hygiene-ok: explicit-any -- pandas/cuDF table, evaluator-wide idiom
+        left_series: Any,  # hygiene-ok: explicit-any -- heterogeneous scalar-or-Series operand, evaluator-wide idiom
+        right_value: Any,  # hygiene-ok: explicit-any -- arbitrary cypher list value, evaluator-wide idiom
+    ) -> Optional[Any]:  # hygiene-ok: explicit-any -- scalar-or-Series mask, evaluator-wide idiom
+        """``<temporal> IN [<temporal literals>]`` via the temporal comparison path.
+
+        Plain value equality compares the ISO TEXT, so ``n.ts_txt IN [datetime('...')]``
+        never matched: ``datetime()`` renders a UTC 'Z' suffix the column does not carry
+        (#1915 B-4). ``=`` against the same literal already compares as instants; this
+        makes IN agree with it. Returns None (fall through) unless every element engages
+        the temporal path, so non-temporal IN is untouched.
+        """
+        if not isinstance(right_value, (list, tuple)) or len(right_value) == 0:
+            return None
+        if (
+            order_detect_native_temporal_mode(left_series) is None
+            and order_detect_temporal_mode(left_series) is None
+        ):
+            return None
+        element_masks: List[Optional[Any]] = []
+        for element in right_value:
+            if is_null_scalar(element):
+                element_masks.append(None)
+                continue
+            element_mask = self._gfql_eval_temporal_comparison_op(table_df, left_series, element, "=")
+            if element_mask is None:
+                return None
+            element_masks.append(element_mask)
+
+        row_count = len(table_df)
+        per_element_values = [
+            self._gfql_series_to_pylist(mask) if mask is not None else [None] * row_count
+            for mask in element_masks
+        ]
+        out_values: List[Any] = []
+        for row_index in range(row_count):
+            saw_true = False
+            saw_unknown = False
+            for values in per_element_values:
+                item = values[row_index]
+                if is_null_scalar(item):
+                    saw_unknown = True
+                elif bool(item):
+                    saw_true = True
+                    break
+            out_values.append(True if saw_true else (None if saw_unknown else False))
+        out_col = RowPipelineMixin._gfql_fresh_col_name(table_df.columns, "__gfql_in_temporal__")
+        return table_df.reset_index(drop=True).assign(**{out_col: out_values})[out_col]
+
     def _gfql_eval_in_expr(
         self,
         table_df: Any,
@@ -3395,6 +3466,10 @@ class RowPipelineMixin:
     ) -> Any:
         left_series = left_value if hasattr(left_value, "astype") else self._gfql_broadcast_scalar(table_df, left_value)
         right_series = right_value if hasattr(right_value, "astype") else self._gfql_broadcast_scalar(table_df, right_value)
+
+        temporal_in = self._gfql_eval_temporal_in_expr(table_df, left_series, right_value)
+        if temporal_in is not None:
+            return temporal_in
 
         lhs_values = self._gfql_series_to_pylist(left_series)
         rhs_values = self._gfql_series_to_pylist(right_series)
