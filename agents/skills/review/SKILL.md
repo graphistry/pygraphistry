@@ -187,6 +187,35 @@ measurement; pygraphistry owns results and data contracts. A comment saying "one
 O(E) pass" is a claim nobody re-measures — a pyg-bench case is a claim that fails
 loudly when it stops being true.
 
+### Why this class keeps escaping — and the four countermeasures
+
+Root cause, from the 2026-08 GFQL stack where the owner rejected the same
+categories on four consecutive PRs:
+
+1. **Authoring writes discovery logs.** Whoever just solved a subtle bug has a
+   fresh mental model and writes it down because it feels like leaving value. It
+   is a journey, not a constraint; the next reader needs the rule.
+2. **Fix-cycle briefs incentivize prose.** A brief demanding "report root cause,
+   justify every existing-test change, say why you chose X over Y" puts the
+   author in explain-mode for hours, and the explanation leaks into the nearest
+   medium — the code. **Briefs must say where reasoning GOES** (PR body, test
+   names, the ledger) not merely what to report.
+3. **Perf notes are a special case of (2).** Briefs that demand "measure it and
+   do not hide the cost" get an annotation in the code. State explicitly that
+   the finding goes in the PR body and the measurement in pyg-bench.
+4. **No automated gate.** Every rule in this repo that stuck has one — the type
+   hygiene guard, the cypher surface guard, coverage floors, the polars lane
+   completeness lock. Comment discipline was enforced only by human review, so
+   it was the only class that reliably reached the owner. See
+   `bin/ci_comment_density_guard.py`.
+5. **A stack-wide audit does NOT fix the PRs below it.** An audit run on the tip
+   branch leaves every ancestor PR carrying the same violations, and reviewers
+   review PRs individually. **Remediate per-PR, against that PR's own base.**
+6. **Self-judged gates default to keep.** "Justify each keep" biases toward
+   keeping, because a justification is always writable, and an author is the
+   worst judge of whether their own explanation is necessary. **A doubtful keep
+   defaults to DELETE.**
+
 ### Concurrent human review while a PR is being edited
 
 A reviewer may be reading and commenting **while you push**. Assume it, and it
