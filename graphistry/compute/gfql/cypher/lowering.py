@@ -63,6 +63,11 @@ from graphistry.compute.predicates.is_in import is_in
 from graphistry.compute.predicates.logical import all_of
 from graphistry.compute.predicates.str import contains as str_contains, endswith, fullmatch, never_match, startswith
 from graphistry.compute.gfql.cypher.parser import _mask_quoted_backticked_and_commented_for_scan
+from graphistry.compute.gfql.cypher.aggregate_identity import (
+    aggregate_identity_value,
+    identity_row_after_paging,
+    ungrouped_aggregate_identity_row,
+)
 from graphistry.compute.gfql.language_defs import GFQL_AGGREGATION_FUNCTIONS
 from graphistry.compute.gfql.expr_parser import (
     BinaryOp,
@@ -494,6 +499,9 @@ _CYPHER_CHAINED_COMPARISON_RE = re.compile(
     re.DOTALL,
 )
 _CYPHER_AGGREGATES = frozenset({"count", "sum", "min", "max", "avg", "collect"})
+# openCypher aggregate names the local compiler does not lower; rejected at
+# compile time so both engines raise the same GFQLValidationError (#1909 item 4).
+_CYPHER_UNSUPPORTED_AGGREGATES = frozenset({"stdev", "stdevp", "percentilecont", "percentiledisc"})
 _CYPHER_BARE_WHERE_GROUPED_ALIAS_RE = re.compile(r"^\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)$")
 
 
@@ -1032,6 +1040,11 @@ def _validate_cypher_expr_constraints(
         )
 
     def _enter(current: ExprNode) -> None:
+        if isinstance(current, FunctionCall) and current.name.lower() in _CYPHER_UNSUPPORTED_AGGREGATES:
+            _raise(
+                "Cypher aggregate function is not supported by the local compiler "
+                f"(supported: {', '.join(sorted(_CYPHER_AGGREGATES))})"
+            )
         if isinstance(current, ExprLiteral) and isinstance(current.value, int) and not isinstance(current.value, bool):
             if current.value < _CYPHER_INT64_MIN or current.value > _CYPHER_INT64_MAX:
                 _raise("Cypher integer literal is out of the supported 64-bit range")
@@ -2115,15 +2128,10 @@ def _post_aggregate_expr_plan(
 
 
 def _empty_aggregate_row(aggregate_specs: Sequence[_AggregateSpec]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
-    for agg_spec in aggregate_specs:
-        if agg_spec.func in {"count"}:
-            out[agg_spec.output_name] = 0
-        elif agg_spec.func == "collect":
-            out[agg_spec.output_name] = []
-        else:
-            out[agg_spec.output_name] = None
-    return out
+    return {
+        agg_spec.output_name: aggregate_identity_value(agg_spec.func)
+        for agg_spec in aggregate_specs
+    }
 
 
 class _SyntheticRowGraph:
@@ -3994,6 +4002,39 @@ def _alias_table(
     )
 
 
+def _reject_order_by_aggregate(
+    item: Any,  # hygiene-ok: explicit-any -- OrderByItem, imported only under TYPE_CHECKING here
+    *,
+    expr_text: str,
+    params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- Cypher params mapping, module-wide idiom
+) -> None:
+    """openCypher (and Neo4j) reject an aggregate INTRODUCED by ORDER BY: the sort
+    runs after aggregation, so there is nothing left to aggregate over. Raised at
+    compile time as GFQLValidationError [unsupported-cypher-query] on BOTH engines
+    (#1909 item 4). Callers pass the expression AFTER rewriting projected outputs,
+    so `ORDER BY count(*)` / `ORDER BY age + count(*)` alongside `count(*) AS cnt`
+    still resolve to the projected column and are unaffected."""
+    try:
+        node = _parse_row_expr(
+            expr_text,
+            params=params,
+            allow_missing_params=True,
+            field="order_by",
+            line=item.span.line,
+            column=item.span.column,
+        )
+    except GFQLValidationError:
+        return
+    if _contains_aggregate_call(node):
+        raise _unsupported(
+            "Cypher ORDER BY cannot introduce an aggregate function; project it in RETURN/WITH and order by that output",
+            field="order_by",
+            value=item.expression.text,
+            line=item.span.line,
+            column=item.span.column,
+        )
+
+
 def _lower_order_by_clause(
     clause: OrderByClause,
     *,
@@ -4006,6 +4047,7 @@ def _lower_order_by_clause(
     keys: List[Tuple[str, str]] = []
     projection_output_names = _projection._projection_output_names(plan)
     for item in clause.items:
+        _reject_order_by_aggregate(item, expr_text=item.expression.text, params=params)
         try:
             alias_name, prop = _projection._projection_ref_from_expr(
                 item.expression.text,
@@ -4166,6 +4208,7 @@ def _lower_order_by_outputs(
                 line=item.span.line,
                 column=item.span.column,
             )
+            _reject_order_by_aggregate(item, expr_text=order_key, params=params)
         if order_key not in available_columns:
             node = _parse_row_expr(
                 order_key,
@@ -4217,6 +4260,23 @@ def _append_page_ops_values(
                 )
             )
         )
+
+
+def _query_page_value(
+    clause: Optional[Any],  # hygiene-ok: explicit-any -- SkipClause | LimitClause, structurally identical
+    *,
+    params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- Cypher params mapping, module-wide idiom
+    field: str,
+) -> Optional[int]:
+    if clause is None:
+        return None
+    return _resolve_page_value(
+        clause.value,
+        params=params,
+        field=field,
+        line=clause.span.line,
+        column=clause.span.column,
+    )
 
 
 def _append_page_ops(
@@ -5594,41 +5654,10 @@ def _lower_row_only_sequence_with_scope(
         procedure_call=procedure_call,
         post_processing=_normalize_post_processing(
             CompiledCypherPostProcessing(
-                empty_result_row=_row_only_empty_aggregate_row(query, params=params),
+                empty_result_row=ungrouped_aggregate_identity_row(row_steps),
             )
         ),
     )
-
-
-def _row_only_empty_aggregate_row(
-    query: CypherQuery,
-    *,
-    params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- Cypher params mapping, module-wide idiom
-) -> Optional[Dict[str, Any]]:  # hygiene-ok: explicit-any -- heterogeneous Cypher identity values (0 / [] / None)
-    """openCypher aggregate identities for an ungrouped aggregate RETURN over an
-    empty row stream (#1899): count -> 0, sum -> 0, collect -> [], else null.
-    Grouped/paged/non-aggregate finals return None (no synthesis)."""
-    if not query.row_sequence:
-        return None
-    final = query.row_sequence[-1]
-    if not isinstance(final, ProjectionStage) or final.clause.kind != "return":
-        return None
-    if final.skip is not None or final.limit is not None:
-        return None
-    specs = _collect_aggregate_specs_for_clause(final.clause, params=params, alias_targets={})
-    if not specs or len(specs) != len(final.clause.items):
-        return None
-    out: Dict[str, Any] = {}
-    for spec in specs:
-        if spec.func == "count":
-            out[spec.output_name] = 0
-        elif spec.func == "sum":
-            out[spec.output_name] = 0
-        elif spec.func == "collect":
-            out[spec.output_name] = []
-        else:
-            out[spec.output_name] = None
-    return out
 
 
 def _lower_row_only_sequence(
@@ -7590,6 +7619,11 @@ def _lower_general_row_projection(
             )
         )
     _append_page_ops(row_steps, query=query, params=params)
+    empty_result_row = identity_row_after_paging(
+        empty_result_row,
+        skip_value=_query_page_value(query.skip, params=params, field="skip"),
+        limit_value=_query_page_value(query.limit, params=params, field="limit"),
+    )
     exec_steps = row_steps if binding_row_aliases else lowered.query + row_steps
     return CompiledCypherQuery(
         Chain(exec_steps, where=[] if binding_row_aliases else lowered.where),
@@ -9540,6 +9574,8 @@ def compile_cypher_query(
                 specs=_shortest_path_alias_specs(query),
                 alias_targets=alias_targets,
             )
+        if empty_result_row is None and result_projection is None:
+            empty_result_row = ungrouped_aggregate_identity_row(row_steps)
 
         return _attach_graph_context(CompiledCypherQuery(
             Chain(row_steps if binding_row_aliases else lowered.query + row_steps, where=lowered.where),
