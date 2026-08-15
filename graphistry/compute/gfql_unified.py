@@ -152,9 +152,7 @@ def _apply_optional_null_fill(
 
     rows_df = result._nodes
     actual_rows = 0 if rows_df is None else len(rows_df)
-    # polars serves this natively only when its projector recorded the matched-seed
-    # `_cypher_entity_projection_meta["ids"]`; otherwise decline honestly
-    # (NO-CHEATING) rather than raise a misleading validation error.
+    # Decline (not a validation error) when the projector recorded no matched-seed ids.
     if resolve_engine(cast(Any, engine), result) in POLARS_ENGINES:
         meta = getattr(alignment_result, "_cypher_entity_projection_meta", None)
         if not isinstance(meta, dict) or alignment_output_name not in meta or "ids" not in meta[alignment_output_name]:
@@ -207,8 +205,7 @@ def _apply_optional_null_fill(
     concrete_engine = resolve_engine(cast(Any, engine), result)
     df_ctor = df_cons(concrete_engine)
     concat = df_concat(concrete_engine)
-    # Fill rows span the projected frame's columns (#1650 flattened form:
-    # a whole-entity miss is all-null across its {alias}.{field} columns).
+    # A whole-entity miss is all-null across its {alias}.{field} columns.
     fill_columns = list(rows_df.columns) if rows_df is not None else list(null_row.keys())
     fill_df = df_ctor({col: [null_row.get(col)] for col in fill_columns})
     segments = []
@@ -515,12 +512,8 @@ def _apply_connected_optional_match(
                     opt_rows_df = opt_rows_df.join(join_keys, on=join_cols, how="inner")
                 joined = joined.join(opt_rows_df.select(opt_only_cols), on=join_cols, how="left")
             else:
-                # Zero-match (or unjoinable) arm: null-extend the FULL arm
-                # schema with typed nulls, not just the bare alias columns.
-                # The rows op emits the arm's binding schema even at 0 rows,
-                # so property refs (x.v) and downstream join keys (x.id) keep
-                # real dtypes -- the outcome must not depend on whether the
-                # arm happened to match (#1891 F-03).
+                # Null-extend the FULL arm schema: the result must not depend on
+                # whether the arm happened to match.
                 if opt_rows_df is not None:
                     arm_schema = opt_rows_df.schema
                     joined = joined.with_columns([
@@ -551,9 +544,7 @@ def _apply_connected_optional_match(
                 opt_rows_df = opt_rows_df.merge(join_keys, on=join_cols, how="inner")
             joined = joined.merge(opt_rows_df[opt_only_cols], on=join_cols, how="left")
         else:
-            # Zero-match (or unjoinable) arm: null-extend the full arm schema
-            # (see the polars twin above) so property refs and downstream join
-            # keys exist regardless of whether the arm matched (#1891 F-03).
+            # Null-extend the FULL arm schema (see the polars twin above).
             if opt_rows_df is not None:
                 for col in opt_rows_df.columns:
                     if col not in joined.columns:
@@ -1205,9 +1196,8 @@ def _execute_compiled_query_chain_non_union(
             empty_result_row=compiled_query.empty_result_row,
         )
     if compiled_query.result_projection is not None:
-        # OPTIONAL row-guard still consumes a single-column entity value, so it
-        # keeps the legacy text form; null-fill and plain terminal RETURN emit
-        # the #1650 flattened columns (fill rows null-extend across them).
+        # The OPTIONAL row-guard consumes a single-column entity value, not the
+        # flattened columns the other two paths emit.
         structured_projection = compiled_query.optional_projection_row_guard is None
         result = apply_result_projection(
             result, compiled_query.result_projection, structured=structured_projection

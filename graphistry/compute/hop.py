@@ -14,7 +14,7 @@ from graphistry.Plottable import Plottable
 from graphistry.otel import otel_traced, otel_detail_enabled
 from .filter_by_dict import filter_by_dict
 from graphistry.Engine import safe_merge
-from .typing import DataFrameT, DomainT
+from .typing import DataFrameT, DomainT, NodeId
 from .dataframe_utils import column_frame, column_values
 from .util import generate_safe_column_name
 
@@ -47,7 +47,7 @@ def query_if_not_none(query: Optional[str], df: DataFrameT) -> DataFrameT:
 
 def _seed_ids_the_traversal_reencountered(
     matches_nodes: Optional[DataFrameT], node_col: str,
-) -> Set[Any]:  # hygiene-ok: explicit-any -- node ids are heterogeneous engine scalars (int/str/date)
+) -> Set[NodeId]:
     """The topology-only undirected heuristics ignore source/dest filter pruning, so their
     keep-set must be intersected with what the traversal actually reached."""
     if matches_nodes is None or len(matches_nodes) == 0:
@@ -58,12 +58,10 @@ def _seed_ids_the_traversal_reencountered(
 
 
 def _endpoint_ids_without_node_rows(
-    g: Plottable, concat: Callable[..., DataFrameT],
+    g: Plottable, engine_bound_concat: Callable[..., DataFrameT],
 ) -> DataFrameT:
-    """Endpoint ids the node table does not back. Under endpoint closure this is empty
-    except in wavefront mode, where the output node frame omits one endpoint side.
-    ``concat`` is the caller's engine-bound df_concat — a pandas concat would leave the
-    device on cudf."""
+    """Endpoint ids the node table does not back."""
+    concat = engine_bound_concat
     endpoints = concat(
         [
             g._edges[[g._source]].rename(columns={g._source: g._node}),

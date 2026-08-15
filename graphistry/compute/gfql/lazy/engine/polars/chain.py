@@ -76,9 +76,7 @@ def _align_seed_dtype(seed, node_col, ref_nodes):
 def _align_edge_endpoints(g, node_col, src, dst):
     """Cast edge endpoint columns to the node-id dtype so join keys match.
 
-    polars won't auto-cast int↔float join keys, and a null endpoint promotes its column to float
-    while int node ids stay int — endpoint↔node-id joins then raise SchemaError where pandas joins
-    fine. The hop casts internally; the chain (fast paths + combine) did not. Returns
+    Casts endpoint columns to the node-id dtype so the endpoint<->node-id joins match. Returns
     ``(aligned_g, restore)``: restore = original (src_dtype, dst_dtype) to put back on the OUTPUT
     edges (matching pandas' dtype), or None when already matched (common case — no table copy)."""
     import polars as pl
@@ -1041,9 +1039,6 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         EID = "__gfql_edge_index__"
         g = g.edges(g._edges.with_row_index(EID), g._source, g._destination, edge=EID)
         added_edge_index = True
-        # with_row_index only PREPENDS a column, so the indexed src/dst survive by value:
-        # re-point any resident adjacency index at the new edge frame, else the index's
-        # identity guard rejects it (mirrors compute/chain.py).
         from graphistry.compute.gfql.index import get_registry, set_registry
         _reg = get_registry(g)
         if not _reg.is_empty():

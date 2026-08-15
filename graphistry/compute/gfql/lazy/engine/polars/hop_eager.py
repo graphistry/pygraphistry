@@ -69,8 +69,8 @@ def _build_hop_pairs(
     frame: "PolarsT", direction: str, src: str, dst: str,
     node_dtype: "pl.DataType", FROM: str, TO: str, EID: str,
 ) -> "PolarsT":
-    """Directed-(FROM,TO,EID) builder with join-key dtype aligned (polars won't coerce int/float
-    join keys like pandas). `frame` = edge-id frame, eager or lazy; select/concat identical on both."""
+    """Directed-(FROM,TO,EID) builder with join-key dtype aligned. `frame` = edge-id frame,
+    eager or lazy; select/concat identical on both."""
     import polars as pl
 
     def _p(s: str, d: str) -> "PolarsT":
