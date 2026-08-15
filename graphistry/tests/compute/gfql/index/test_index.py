@@ -1878,7 +1878,11 @@ def _i1913_indexed(ndf, edf, engine):
     return g.gfql_index_all(engine=engine)
 
 
-@pytest.mark.parametrize("engine", _cpu_engines())
+# GPU lanes PROVEN affected by #1913 (dgx: cuDF and polars-gpu both returned the
+# stale-index answer pre-fix, correct post-fix), so these two correctness pins run
+# the full ENGINES matrix. On a box with cudf importable but no device they fail
+# like every other cudf-parameterized test here; the dgx sweep is their real gate.
+@pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("ops", [_I1913_2HOP, _I1913_VARLEN], ids=["two-hop", "var-length"])
 def test_rebind_to_different_values_does_not_resurrect_the_index(engine, ops):
     """SAME row count, DIFFERENT edges: the reported silent-wrong repro. Multi-hop and
@@ -1898,7 +1902,11 @@ def test_rebind_to_different_values_does_not_resurrect_the_index(engine, ops):
     assert _i1913_ids(rebound, ops, engine) == oracle
 
 
-@pytest.mark.parametrize("engine", _cpu_engines())
+# GPU lanes PROVEN affected by #1913 (dgx: cuDF and polars-gpu both returned the
+# stale-index answer pre-fix, correct post-fix), so these two correctness pins run
+# the full ENGINES matrix. On a box with cudf importable but no device they fail
+# like every other cudf-parameterized test here; the dgx sweep is their real gate.
+@pytest.mark.parametrize("engine", ENGINES)
 def test_rebind_to_a_row_permutation_does_not_resurrect_the_index(engine):
     """``df.sort_values(...)`` is an ordinary user action and preserves the edge SET, so
     every structural check passes -- yet the CSR's row positions are now meaningless."""
