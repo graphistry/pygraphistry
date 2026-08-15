@@ -2004,7 +2004,6 @@ def test_documented_recovery_from_in_place_mutation(engine):
     ``gfql_clear_caches()`` is asserted to NOT recover: it empties process-lifetime memos and
     says so, while the index registry is graph-keyed state living on the Plottable. The
     ``gfql()`` docstring used to name it as a recovery; it now names these three instead."""
-    import polars as pl
     from graphistry.compute.gfql_unified import gfql_clear_caches
 
     ndf, edf = _i1913_frames()
@@ -2017,6 +2016,7 @@ def test_documented_recovery_from_in_place_mutation(engine):
         ef.loc[1999, "s"] = 2000
         ef.loc[1999, "d"] = 3000
     else:
+        import polars as pl  # polars-only arm; this test also runs on pandas-only installs
         s, d = ef["s"].to_list(), ef["d"].to_list()
         d[0] = 2000
         s[1999] = 2000
