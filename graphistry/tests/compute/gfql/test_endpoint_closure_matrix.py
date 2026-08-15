@@ -430,6 +430,58 @@ def test_to_fixed_point_stops_at_the_closed_frontier(engine, seed, direction, wa
     _assert_no_phantom_node_ids(out, LADDER_IDS)
 
 
+# --- AXIS: the TRAVERSAL min_hops window (NOT output_min_hops) ---------------------------------
+#
+# min_hops constrains the final TARGETS; intermediate hops still traverse. On LADDER forward
+# from 0 the closed distances are 1->1, 2->2, 3->3, and the only hop-4 edge is the dangling 3->9:
+#   min_hops=2 : targets {2,3}; the paths reaching them are the whole closed ladder
+#   min_hops=3 : target {3};    same paths
+#   min_hops=4 : NO closed target at all -- pre-gate this returned 3->9 and node 9
+# Served on the pandas-lane engines; the polars hop declines min_hops with a typed NIE.
+_MIN_HOPS_SERVED = ["pandas", "cudf"]
+_MIN_HOPS_DECLINED = ["polars", "polars-gpu"]
+
+_MIN_HOPS_CUDF_SEED_XFAIL = pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
+    "PRE-EXISTING cuDF divergence (identical at merge-base 526976e91): under a hop window the "
+    "cuDF epilogue drops the SEED's node row -- its hop label is NULL and cuDF's NULL-valued "
+    "boolean mask is not rescued by the endpoint OR -- so edge (0,1) survives with no node row "
+    "for 0. pandas keeps it. Same family as "
+    "test_output_hop_window_backfills_the_source_node_row_on_cudf."))
+
+_MIN_HOPS_ORACLE = [(2, LADDER_CLOSED), (3, LADDER_CLOSED), (4, set())]
+
+
+@pytest.mark.parametrize("engine", _MIN_HOPS_SERVED)
+@pytest.mark.parametrize("min_hops,want", _MIN_HOPS_ORACLE)
+def test_min_hops_window_never_lands_on_a_dangling_target(engine, min_hops, want):
+    _require_engine(engine)
+    out = _bind(engine, LADDER_NODES, LADDER_EDGES).hop(
+        nodes=_seed(engine, [0]), min_hops=min_hops, hops=4, direction="forward", engine=engine)
+    assert edge_pair_set(out) == want
+    _assert_no_phantom_node_ids(out, LADDER_IDS)
+
+
+@pytest.mark.parametrize("engine,min_hops", [
+    ("pandas", 2), ("pandas", 3), ("pandas", 4),
+    pytest.param("cudf", 2, marks=_MIN_HOPS_CUDF_SEED_XFAIL),
+    pytest.param("cudf", 3, marks=_MIN_HOPS_CUDF_SEED_XFAIL),
+    ("cudf", 4),  # empty answer, so there is no edge whose endpoint could be unbacked
+])
+def test_min_hops_window_output_is_endpoint_closed(engine, min_hops):
+    _require_engine(engine)
+    out = _bind(engine, LADDER_NODES, LADDER_EDGES).hop(
+        nodes=_seed(engine, [0]), min_hops=min_hops, hops=4, direction="forward", engine=engine)
+    _assert_output_is_endpoint_closed(out)
+
+
+@pytest.mark.parametrize("engine", _MIN_HOPS_DECLINED)
+def test_polars_lane_declines_min_hops_loudly(engine):
+    _require_engine(engine)
+    with pytest.raises(NotImplementedError, match="min_hops"):
+        _bind(engine, LADDER_NODES, LADDER_EDGES).hop(
+            nodes=_seed(engine, [0]), min_hops=2, hops=4, direction="forward", engine=engine)
+
+
 # --- AXIS: seed cardinality 0 / 1 / many / all -------------------------------------------------
 
 @pytest.mark.parametrize("engine", ALL_ENGINES)
@@ -506,6 +558,49 @@ def test_endpoint_filters_compose_with_closure(engine, label, kwargs, want):
     out = _bind(engine, MIXED_NODES, MIXED_EDGES).hop(hops=1, engine=engine, **kwargs)
     assert edge_pair_set(out) == want, label
     _assert_no_phantom_node_ids(out, {0, 1, 2})
+
+
+# --- AXIS: WHICH endpoint each node filter binds to, in the loop that carries the gate ---------
+#
+# The polars single-hop chain fast path applies the closure semi-join and the node filters in
+# ONE loop over (source_col, dest_col). The gate is symmetric, so it cannot detect a swapped
+# from/to mapping -- but the FILTERS can, and only on `reverse`, where the pattern's left node
+# binds to the edge DESTINATION. Round-5 mutation audit: collapsing the swap to `(n0, n2)`
+# leaves the whole compute suite green while every reverse cell answers with the mirror edge set.
+#
+# Fixture RING: ids 0..3, kind 'A' on even ids and 'B' on odd; edges 0->1, 1->2, 2->3, 3->0.
+# Hand-walked (a node filter constrains the node it is written on, never the edge direction):
+#   [A]<-[e]-[ ]  a is the DESTINATION and must be A => dst in {0,2} => (3,0), (1,2)
+#   [ ]<-[e]-[A]  b is the SOURCE and must be A      => src in {0,2} => (0,1), (2,3)
+#   [A]<-[e]-[B]  dst in {0,2} AND src in {1,3}      => (3,0), (1,2)
+#   [A]-[e]->[ ]  src in {0,2}                       => (0,1), (2,3)
+#   [ ]-[e]->[A]  dst in {0,2}                       => (1,2), (3,0)
+RING_NODES = pd.DataFrame({"id": [0, 1, 2, 3], "kind": ["A", "B", "A", "B"]})
+RING_EDGES = pd.DataFrame({"s": [0, 1, 2, 3], "d": [1, 2, 3, 0]})
+
+_ENDPOINT_BINDING_ORACLE = [
+    ("reverse_left_filter", "reverse", {"kind": "A"}, None, {(3, 0), (1, 2)}),
+    ("reverse_right_filter", "reverse", None, {"kind": "A"}, {(0, 1), (2, 3)}),
+    ("reverse_both_filters", "reverse", {"kind": "A"}, {"kind": "B"}, {(3, 0), (1, 2)}),
+    ("forward_left_filter", "forward", {"kind": "A"}, None, {(0, 1), (2, 3)}),
+    ("forward_right_filter", "forward", None, {"kind": "A"}, {(1, 2), (3, 0)}),
+]
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("label,direction,left,right,want", _ENDPOINT_BINDING_ORACLE)
+def test_node_filter_binds_to_the_endpoint_it_is_written_on(
+    engine, label, direction, left, right, want
+):
+    _require_engine(engine)
+    from graphistry.compute.ast import e_reverse
+
+    edge = e_forward() if direction == "forward" else e_reverse()
+    ops = [n(left) if left else n(), edge, n(right) if right else n()]
+    out = _bind(engine, RING_NODES, RING_EDGES).gfql(ops, engine=engine)
+    assert edge_pair_set(out) == want, label
+    endpoints = {i for pair in want for i in pair}
+    assert node_id_set(out) == endpoints, label
 
 
 # --- AXIS: the backfill epilogue (the SECOND hop.py change) ------------------------------------
