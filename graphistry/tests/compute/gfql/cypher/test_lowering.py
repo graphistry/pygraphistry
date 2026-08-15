@@ -72,7 +72,7 @@ from graphistry.compute.gfql_fast_paths import (
     _filter_nodes_for_fast_count,
     _connected_join_two_star_split_residuals,
     _dense_int_domain_interval,
-    _edge_cols_bounds_within,
+    _edge_cols_bounds_scan,
     _two_hop_equal_domain_dense_total,
 )
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
@@ -17520,7 +17520,7 @@ def test_t6_dense_total_declines_non_integer_edge_cols(engine: str) -> None:
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
-def test_t6_edge_cols_bounds_within_empty_frame_declines(engine: str) -> None:
+def test_t6_edge_cols_bounds_scan_empty_frame_declines(engine: str) -> None:
     # The kernel declines empty edge frames before the bounds proof, so the helper's
     # own empty guard (it must stay safe standalone) is pinned directly.
     if engine == "polars":
@@ -17529,16 +17529,16 @@ def test_t6_edge_cols_bounds_within_empty_frame_declines(engine: str) -> None:
                              "d": pd.Series([], dtype="int64")})
     if engine == "polars":
         import polars as pl
-        assert _edge_cols_bounds_within(
+        assert _edge_cols_bounds_scan(
             pl.from_pandas(empty_pd), "s", "d", 0, 3, engine=Engine.POLARS
-        ) is False
+        )[0] is False
     else:
-        assert _edge_cols_bounds_within(
+        assert _edge_cols_bounds_scan(
             empty_pd, "s", "d", 0, 3, engine=Engine.PANDAS
-        ) is False
+        )[0] is False
 
 
-def test_t6_edge_cols_bounds_within_null_mask_declines() -> None:
+def test_t6_edge_cols_bounds_scan_null_mask_declines() -> None:
     # cudf rides the pandas/cudf arm with a plain numpy dtype PLUS a ``null_count``
     # attribute (the null mask is separate). Emulate that series shape CPU-side so the
     # null-mask decline is pinned without a GPU.
@@ -17557,9 +17557,62 @@ def test_t6_edge_cols_bounds_within_null_mask_declines() -> None:
 
     # engine=CUDF: the null guard is engine-dispatched now (a numpy-int pandas
     # series cannot hold NA, so only the cuDF arm reads null_count).
-    assert _edge_cols_bounds_within(
+    assert _edge_cols_bounds_scan(
         cast(Any, _NullMaskedFrame()), "s", "d", 0, 3, engine=Engine.CUDF
-    ) is False
+    )[0] is False
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_edge_cols_bounds_scan_reports_self_loops_only_where_it_rides_the_scan(
+    engine: str,
+) -> None:
+    # The scan's SECOND value is the #1905 correction, and it is a by-product claim:
+    # polars gets it out of the fused reduction select it already runs, pandas/cudf
+    # report None ("not computed") because their per-column reductions have no pass
+    # for it to ride. Both sides are pinned so the kernel's two routes stay honest.
+    nodes, edges = _t6_dense_frames()
+    loops_edges = pd.concat(
+        [edges, pd.DataFrame({"s": [1, 2], "d": [1, 2], "rel": ["FOLLOWS", "FOLLOWS"]})],
+        ignore_index=True,
+    )
+    _dom, edom, eng = _t6b_helper_frames(engine, nodes, loops_edges)
+    proven, loops = _edge_cols_bounds_scan(edom, "s", "d", 0, 3, engine=eng)
+    assert proven is True
+    assert loops == (2 if engine == "polars" else None)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("n_loops", [0, 1, 3])
+def test_t6_dense_kernel_identical_whether_scan_or_kernel_counts_self_loops(
+    engine: str, n_loops: int, monkeypatch: Any
+) -> None:
+    # VALUE IDENTITY across the two counting routes: the scan's by-product count and
+    # the kernel's own fused block-loop count must agree exactly, self-loops or none.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes, edges = _t6_dense_frames()
+    if n_loops:
+        ids = [1, 2, 3][:n_loops]
+        edges = pd.concat(
+            [edges, pd.DataFrame({"s": ids, "d": ids, "rel": ["FOLLOWS"] * n_loops})],
+            ignore_index=True,
+        )
+    dom, edom, eng = _t6b_helper_frames(engine, nodes, edges)
+    served = _two_hop_equal_domain_dense_total(
+        dom, edom, node_col="id", src_col="s", dst_col="d", engine=eng)
+
+    real = gfql_fast_paths_module._edge_cols_bounds_scan
+
+    def no_by_product(*args: Any, **kw: Any) -> Any:
+        return real(*args, **kw)[0], None
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_scan", no_by_product)
+    in_kernel = _two_hop_equal_domain_dense_total(
+        dom, edom, node_col="id", src_col="s", dst_col="d", engine=eng)
+    assert served == in_kernel
+    # 8 two-hop paths on the loop-free base; each self-loop at b adds indeg(b)+outdeg(b)
+    # legal pairs and exactly ONE illegal (r, r) the correction must drop.
+    assert served == {0: 8, 1: 13, 3: 18}[n_loops]
 
 
 class _T6ArrayNamespaceSpy:
@@ -17978,13 +18031,13 @@ def test_t6_col_stats_skip_bounds_scan_both_sides(
         graph = graph.gfql_index_col_stats(engine=engine)
 
     calls: List[str] = []
-    real = gfql_fast_paths_module._edge_cols_bounds_within
+    real = gfql_fast_paths_module._edge_cols_bounds_scan
 
     def spy(*args: Any, **kw: Any) -> Any:
         calls.append("scan")
         return real(*args, **kw)
 
-    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_within", spy)
+    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_scan", spy)
     compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
     result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
     assert result is not None
@@ -18008,13 +18061,13 @@ def test_t6_col_stats_conservative_miss_falls_back_to_scan(
     graph = _mk_h3_graph(engine, nodes_pd, edges_wide).gfql_index_col_stats(engine=engine)
 
     calls: List[str] = []
-    real = gfql_fast_paths_module._edge_cols_bounds_within
+    real = gfql_fast_paths_module._edge_cols_bounds_scan
 
     def spy(*args: Any, **kw: Any) -> Any:
         calls.append("scan")
         return real(*args, **kw)
 
-    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_within", spy)
+    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_scan", spy)
     compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
     result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
     assert result is not None
@@ -18738,7 +18791,7 @@ def test_t6b_dtype_matrix_nullable_int64_declines_and_reason_is_pinned() -> None
         nodes_ext, edges, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
     ) is None
     # Seam 2: bounds proof rejects extension endpoint columns.
-    assert _edge_cols_bounds_within(edges_ext, "s", "d", 0, 3, engine=Engine.PANDAS) is False
+    assert _edge_cols_bounds_scan(edges_ext, "s", "d", 0, 3, engine=Engine.PANDAS)[0] is False
     assert _two_hop_equal_domain_dense_total(
         nodes, edges_ext, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
     ) is None
@@ -18756,7 +18809,7 @@ def test_t6b_dtype_matrix_float_ids_decline(engine: str) -> None:
     assert _two_hop_equal_domain_dense_total(
         dom_f, _edom_f, node_col="id", src_col="s", dst_col="d", engine=eng
     ) is None
-    assert _edge_cols_bounds_within(edom_f2, "s", "d", 0, 3, engine=eng) is False
+    assert _edge_cols_bounds_scan(edom_f2, "s", "d", 0, 3, engine=eng)[0] is False
     assert _two_hop_equal_domain_dense_total(
         dom_i, edom_f2, node_col="id", src_col="s", dst_col="d", engine=eng
     ) is None

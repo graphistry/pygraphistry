@@ -2563,7 +2563,7 @@ def _dense_int_domain_interval(
 
 
 def _bounds_within_indexable(s: SeriesT, lo: int, hi: int, *, engine: Engine) -> bool:
-    """pandas/cudf arm of ``_edge_cols_bounds_within`` (numpy-dtype series)."""
+    """pandas/cudf arm of ``_edge_cols_bounds_scan`` (numpy-dtype series)."""
     import numpy as np
     dtype = s.dtype
     if not isinstance(dtype, np.dtype) or dtype.kind not in "iu":
@@ -2581,21 +2581,29 @@ def _edge_cols_bounds_polars(
     dst_col: str,
     lo: int,
     hi: int,
-) -> bool:
-    """Polars arm of ``_edge_cols_bounds_within`` -- fully typed, no ignores.
+) -> Tuple[bool, int]:
+    """Polars arm of ``_edge_cols_bounds_scan`` -- fully typed, no ignores.
 
     Fuses all six reductions (min/max/null_count per column) into ONE ``select`` so
     the engine computes them in a single parallel pass over the edge frame -- the
     per-Series chain it replaces cost ~2x at 2.4M edges (two O(E) passes serialized
     per column).
+
+    A SEVENTH sink rides that same select: the self-loop count the #1905 trail
+    correction needs. Standalone that count is a bandwidth-bound O(E) pass, but as
+    one more sink on a select the lane ALREADY runs it is marginal: +0.60ms on the
+    select in isolation and +0.81ms in the lane at 2.42M edges, against the +1.27ms
+    the same count costs the kernel (which has to re-read dst for it). Whole-query
+    effect on the 2.42M-edge equal-domain polars count: -0.28ms, 95% CI
+    [-0.45, -0.16] over 225 interleaved reps -- 43% of that lane's #1905 residual.
     """
     import polars as pl
     schema = frame.schema
     for col in (src_col, dst_col):
         if not schema[col].is_integer():
-            return False
+            return False, 0
     if len(frame) == 0:
-        return False
+        return False, 0
     stats = frame.select(
         pl.col(src_col).min().alias("__smin__"),
         pl.col(src_col).max().alias("__smax__"),
@@ -2603,15 +2611,19 @@ def _edge_cols_bounds_polars(
         pl.col(dst_col).min().alias("__dmin__"),
         pl.col(dst_col).max().alias("__dmax__"),
         pl.col(dst_col).null_count().alias("__dnull__"),
+        (pl.col(src_col) == pl.col(dst_col)).sum().alias("__loops__"),
     )
-    smin, smax, snull, dmin, dmax, dnull = stats.row(0)
+    smin, smax, snull, dmin, dmax, dnull, loops = stats.row(0)
     if snull != 0 or dnull != 0:
-        return False
-    return (int(smin) >= lo and int(smax) <= hi
-            and int(dmin) >= lo and int(dmax) <= hi)
+        # Null endpoints: the caller declines, so the loop count is never read. Report
+        # 0 rather than a count taken under `null == null is False`.
+        return False, 0
+    within = (int(smin) >= lo and int(smax) <= hi
+              and int(dmin) >= lo and int(dmax) <= hi)
+    return within, int(loops or 0)
 
 
-def _edge_cols_bounds_within(
+def _edge_cols_bounds_scan(
     frame: DataFrameT,
     src_col: str,
     dst_col: str,
@@ -2619,18 +2631,26 @@ def _edge_cols_bounds_within(
     hi: int,
     *,
     engine: Engine,
-) -> bool:
-    """True iff BOTH endpoint columns are integer, null-free, non-empty and bounded by [lo, hi].
+) -> Tuple[bool, Optional[int]]:
+    """``(bounds proven, self-loop count)`` for the endpoint columns.
 
-    Engine dispatcher over the typed arms above: polars keeps its fused single-select
-    shape; pandas/cudf keep per-column reductions (each is already one C/device call
-    and fusing buys nothing there).
+    The first value is True iff BOTH endpoint columns are integer, null-free,
+    non-empty and bounded by [lo, hi]. The second is the number of ``src == dst``
+    rows when this scan produced it as a by-product, else None ("not computed" --
+    the caller then counts them itself).
+
+    Engine dispatcher over the typed arms above. Polars keeps its fused
+    single-select shape and answers the self-loop count from it. pandas/cudf keep
+    per-column reductions (each is already one C/device call) and return None:
+    blocking the four reductions into one Python-level pass so the compare could
+    ride them measured +1.8ms on a 2.4M-edge count -- the per-block call overhead
+    costs more than the pass it saves -- and a device backend has no such pass at all.
     """
     if engine in POLARS_ENGINES:
         pl_frame: "pl.DataFrame" = frame  # engine seam: polars frame rides engine-agnostic DataFrameT
         return _edge_cols_bounds_polars(pl_frame, src_col, dst_col, lo, hi)
     return (_bounds_within_indexable(frame[src_col], lo, hi, engine=engine)
-            and _bounds_within_indexable(frame[dst_col], lo, hi, engine=engine))
+            and _bounds_within_indexable(frame[dst_col], lo, hi, engine=engine)), None
 
 
 def _facts_prove_bounds(
@@ -2719,22 +2739,40 @@ def _self_loop_count(
     return loops
 
 
+def _gather_sum(in_counts: "ArrayLike", src_arr: "ArrayLike", *, blocked: bool) -> int:
+    """``sum_e in_counts[src(e)]`` -- the degree product, no correction.
+
+    Serves the callers that already KNOW the self-loop count (a fact, or the bounds
+    scan that produced it), so the gather never re-reads dst. Blocking is a win on
+    its own -- it drops the E-sized gather temp the one-shot form allocates: -0.88ms
+    (polars) and -3.76ms, 95% CI [-6.2, -2.5] (pandas) on a 2.42M-edge equal-domain
+    count, measured with the correction switched off on BOTH sides.
+    """
+    n = int(src_arr.shape[0])
+    if not blocked or n <= _TWO_HOP_SELF_LOOP_BLOCK:
+        return int(in_counts[src_arr].sum())
+    total = 0
+    for i in range(0, n, _TWO_HOP_SELF_LOOP_BLOCK):
+        total += int(in_counts[src_arr[i:i + _TWO_HOP_SELF_LOOP_BLOCK]].sum())
+    return total
+
+
 def _gather_sum_and_self_loops(
     in_counts: "ArrayLike", src_arr: "ArrayLike", dst_arr: "ArrayLike",
     *, xp: "ArrayNamespace", blocked: bool,
 ) -> Tuple[int, int]:
     """``(sum_e in_counts[src(e)], self-loop count)`` from ONE blocked pass over src.
 
-    The self-loop correction used to be its own full O(E) scan of both endpoint
-    arrays, which is the whole #1905 count regression. Here the compare rides the
-    gather: each block's src slice is already in cache from ``in_counts[block]``, so
-    the marginal cost is the dst read alone, and blocking also drops the E-sized
-    gather temp the one-shot form allocates. Kernel microbenchmark (medians of 21
-    interleaved reps, pandas and polars, over the no-correction floor): the separate
-    scan cost +2.74..+2.84ms at 2.42M edges and +0.08..+0.19ms at 200k; blocked and
-    fused it costs +0.54..+1.02ms and +0.02..+0.06ms. The residual is the dst read
-    itself -- irreducible without a proof that the frame is self-loop-free, which is
-    what ``DegreeFact.self_loops`` supplies on an indexed graph (O(1) branch above).
+    The correction's cost here is the SECOND read of dst, and that read is bandwidth
+    bound, not implementation bound: at 2.42M edges (19.4MB per endpoint column) five
+    formulations of the count alone -- numpy one-shot, numpy blocked, numpy blocked
+    into a reused out-buffer, numpy not_equal, and a polars sink -- land in
+    1.16..1.29ms, a 0.13ms spread. So no rewriting of THIS pass removes it: fusing it
+    into the gather block loop beats a one-shot scan over an unblocked gather by
+    ~0.7ms and ties a separate blocked scan (9.68 vs 9.40ms for the whole kernel,
+    inside the run-to-run spread). What removes it is not counting here at all:
+    ``DegreeFact.self_loops`` (O(1), indexed graph) or the polars bounds scan's
+    seventh sink, both of which route to ``_gather_sum`` instead.
 
     Value-identical to the one-shot pair by construction (a sum and a count over the
     same partition of the same rows); the one-shot form still serves device backends
@@ -2810,9 +2848,14 @@ def _two_hop_equal_domain_dense_total(
     if interval is None:
         return None
     lo, hi = interval
+    # None = "the scan did not run, or did not produce it"; an int is the exact
+    # self-loop count of THIS edge domain, taken as a by-product of the bounds scan.
+    scanned_self_loops: Optional[int] = None
     if not _facts_prove_bounds(edge_endpoint_facts, lo, hi):
         # Fact miss or insufficient: fall back to the O(E) scan -- never decline on facts.
-        if not _edge_cols_bounds_within(edge_domain, src_col, dst_col, lo, hi, engine=engine):
+        proven, scanned_self_loops = _edge_cols_bounds_scan(
+            edge_domain, src_col, dst_col, lo, hi, engine=engine)
+        if not proven:
             return None
 
     from graphistry.compute.gfql.index.engine_arrays import array_namespace, col_to_array
@@ -2843,20 +2886,28 @@ def _two_hop_equal_domain_dense_total(
     dst_arr = col_to_array(edge_domain, dst_col, engine)
     # openCypher TRAIL (#1905): the equal-domain product counts (r, r) once per
     # self-loop, and a self-loop is the only way one relationship serves both hops.
-    # Host backends fold that count into the gather block loop (see
-    # _gather_sum_and_self_loops); a device backend keeps the one-shot reductions.
+    # When the bounds scan already counted them (polars), the kernel never touches
+    # dst a second time; otherwise host backends fold the count into the gather block
+    # loop (see _gather_sum_and_self_loops) and a device backend keeps the one-shot
+    # reductions. All three read the SAME rows, so the count -- and the answer -- is
+    # the same whichever produced it.
     blocked = _backend == "numpy"
     # bincount emits platform int64 counts; inputs are integer dtype by proof, so no
     # astype copies here (a copying astype measurably dominated the kernel at 2.5M edges).
     if 0 <= lo and hi + 1 <= table_budget:
         # Shift elision: raw arrays, table of hi+1; bounds proof keeps [0, lo) all-zero (pinned).
         in_counts = xp.bincount(dst_arr, minlength=hi + 1)
-        total, self_loops = _gather_sum_and_self_loops(
-            in_counts, src_arr, dst_arr, xp=xp, blocked=blocked)
+        if scanned_self_loops is None:
+            total, self_loops = _gather_sum_and_self_loops(
+                in_counts, src_arr, dst_arr, xp=xp, blocked=blocked)
+        else:
+            self_loops = scanned_self_loops
+            total = _gather_sum(in_counts, src_arr, blocked=blocked)
     elif src_arr.dtype == dst_arr.dtype:
         # Shifted lane through ONE scratch buffer; gather runs strictly after the bincount
         # (pinned), so the self-loop compare reads the raw arrays before the buffer exists.
-        self_loops = _self_loop_count(src_arr, dst_arr, xp=xp, blocked=blocked)
+        self_loops = (scanned_self_loops if scanned_self_loops is not None
+                      else _self_loop_count(src_arr, dst_arr, xp=xp, blocked=blocked))
         buf = xp.empty(src_arr.shape[0], dtype=src_arr.dtype)
         xp.subtract(dst_arr, lo, out=buf)
         in_counts = xp.bincount(buf, minlength=n)
@@ -2864,7 +2915,8 @@ def _two_hop_equal_domain_dense_total(
         total = int(in_counts[buf].sum())
     else:
         # Mixed endpoint dtypes: plain shift, no cross-dtype scratch buffer (pinned).
-        self_loops = _self_loop_count(src_arr, dst_arr, xp=xp, blocked=blocked)
+        self_loops = (scanned_self_loops if scanned_self_loops is not None
+                      else _self_loop_count(src_arr, dst_arr, xp=xp, blocked=blocked))
         in_counts = xp.bincount(dst_arr - lo, minlength=n)
         total = int(in_counts[src_arr - lo].sum())
     return total - self_loops
