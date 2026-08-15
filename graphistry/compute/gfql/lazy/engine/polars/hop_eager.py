@@ -1,10 +1,9 @@
-"""Native Polars hop() — Phase 1, vectorized.
+"""Native Polars hop() — Phase 1.
 
 Supports forward/reverse/undirected, integer hops + to_fixed_point, default and
 return_as_wave_front seed semantics, edge/source/destination match predicates, and
-target_wave_front (chain reverse pass). Vectorization-first: BFS frontier/visited/allowed sets
-are polars frames advanced by semi/anti joins — no per-element Python work, no
-``.to_list()``/``is_in(python_list)`` ping-pong; each hop is one big join. Parity-or-NIE:
+target_wave_front (chain reverse pass). BFS frontier/visited/allowed sets are polars frames
+advanced by semi/anti joins. Parity-or-NIE:
 pandas is the oracle; not-yet-ported features (hop labeling, min_hops>1 outside the chain
 policy, output_min/max slicing, *_query, prune_to_endpoints, include_zero_hop_seed) raise
 NotImplementedError.
@@ -246,27 +245,14 @@ def hop_polars(
     def _idframe(df: "pl.DataFrame", col: str) -> "pl.DataFrame":
         return df.select(pl.col(col).cast(node_dtype).alias(NID)).unique()
 
-    # Single bounded hop: one lazy plan, one collect_all. Must stay ABOVE the eager gate
-    # construction — the id-frame .unique()s have to remain inside the lazy plan. The eager
-    # loop below owns multi-hop: early-break/revisit bookkeeping needs per-hop materialization.
+    # Must stay ABOVE the eager gate construction: the id-frame .unique()s stay inside the lazy plan.
     if serves_single_bounded_hop:
         from graphistry.compute.gfql.lazy import collect_all
 
         def _idframe_lf(lf: "pl.LazyFrame", col: str) -> "pl.LazyFrame":
-            """Id frame for a SEMI-JOIN KEY side only — deliberately NOT deduplicated.
-
-            Every consumer below (`allowed_source_lf`, `allowed_dest_lf`, `target_final_lf`,
-            `frontier_lf`) is the key side of a `how="semi"` join, and a semi-join emits a
-            row iff >=1 match exists — duplicate keys cannot change the result, and unlike an
-            inner join it cannot multiply rows either. `frontier_lf` is also the LEFT side of
-            one semi-join, whose output then feeds another as the key side; duplicates stay
-            harmless the whole way. So `.unique()` here is a full hash pass over the node-id
-            column bought for nothing: on an unfiltered hop the key side IS the node table,
-            making it O(N) work inside a query whose answer is O(degree) -- and this path
-            builds two such frames per hop.
-
-            Anything that needs a *distinct* id set must apply its own `.unique()`.
-            """
+            """Key side of a semi-join only — deliberately NOT deduplicated (duplicate keys
+            cannot change a semi-join result); callers needing distinct ids apply their own
+            `.unique()`."""
             return lf.select(pl.col(col).cast(node_dtype).alias(NID))
 
         allowed_source_lf = None

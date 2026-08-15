@@ -180,6 +180,22 @@ def test_with_prefix_optional_zero_arm_keeps_carried_props(engine):
     ])
 
 
+@pytest.mark.parametrize("engine", ENGINES)
+def test_optional_zero_arm_null_extends_full_arm_schema_not_just_bare_aliases(engine):
+    """A fully-unmatched arm must still surface every column the arm would have bound --
+    property refs (x.v) AND the downstream join key (x.id) -- so a second arm chained off
+    it can join. Null-extending only the bare `x` alias leaves x.id absent and the next
+    arm silently loses its rows."""
+    q = ("MATCH (p {kind:'person'}) OPTIONAL MATCH (p)-[{t:'NOPE'}]->(x) "
+         "OPTIONAL MATCH (x)-[{t:'X'}]->(z) RETURN p.name AS n, x.v AS xv, z.v AS zv")
+    out = _run(q, engine)
+    assert list(out.columns) == ["n", "xv", "zv"]
+    _assert_rows(out, [
+        {"n": "alice", "xv": None, "zv": None}, {"n": "bob", "xv": None, "zv": None},
+        {"n": "carol", "xv": None, "zv": None}, {"n": None, "xv": None, "zv": None},
+    ])
+
+
 @polars_only
 def test_polars_optional_zero_arm_same_answer_as_matched_arm():
     """F-03: identical query text, only the data changes (bob's H edge
@@ -573,3 +589,46 @@ def test_optional_varlen_arm_bound_endpoints_projects_bound_alias(engine):
     is s->a->c, so exactly one row with x = c."""
     q = "MATCH (a:Single), (x:C) OPTIONAL MATCH (a)-[*]->(x) RETURN x"
     _assert_rows(_labeled_flat_pd(_run_labeled(q, engine)), [{"x": "(:C)"}])
+
+
+# ===========================================================================
+# E. Optional-reentry aggregate fill values (#1891)
+# ===========================================================================
+#
+# Pins the empty-group value each aggregate output carries on the
+# null-extended row an UNMATCHED prefix row contributes. Compile-level (not
+# end-to-end) so the sweep above cannot discharge it vacuously via a decline.
+
+
+def _reentry_aggregate_fills(query: str):
+    from graphistry.compute.gfql.cypher.parser import parse_cypher
+    from graphistry.compute.gfql.cypher.lowering import compile_cypher_query
+    from graphistry.compute.gfql_unified import _optional_reentry_aggregate_fill_values
+
+    compiled = compile_cypher_query(parse_cypher(query))
+    assert compiled.reentry_plan is not None, "shape no longer takes the reentry route"
+    return _optional_reentry_aggregate_fill_values(compiled)
+
+
+_REENTRY_PREFIX = "MATCH (a:A) WITH a, a.v AS av OPTIONAL MATCH (a)-[:R]->(b) RETURN av AS n, "
+
+
+@pytest.mark.parametrize("projection,expected", [
+    pytest.param("count(b) AS c", {"c": 0}, id="count_suffix_alias_is_zero"),
+    pytest.param("sum(b.w) AS s", {"s": 0}, id="sum_suffix_property_is_zero"),
+    pytest.param("collect(b.w) AS ws", {"ws": []}, id="collect_suffix_property_is_empty_list"),
+    pytest.param("count(*) AS c", {"c": 1}, id="count_star_counts_the_null_extended_row"),
+])
+def test_optional_reentry_aggregate_over_suffix_source_takes_empty_group_value(projection, expected):
+    assert _reentry_aggregate_fills(_REENTRY_PREFIX + projection) == expected
+
+
+@pytest.mark.parametrize("projection", [
+    pytest.param("collect(av) AS avs", id="collect_over_carried_scalar"),
+    pytest.param("max(av) AS m", id="max_over_carried_scalar"),
+])
+def test_optional_reentry_aggregate_over_carried_source_stays_null(projection):
+    """A carried column is bound on the prefix row itself, so its aggregate is
+    NOT an empty group -- filling it with 0/[] would be wrong, not merely
+    unhelpful. No fill entry => the null-fill leaves it NULL."""
+    assert _reentry_aggregate_fills(_REENTRY_PREFIX + projection) == {}

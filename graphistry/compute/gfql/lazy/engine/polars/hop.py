@@ -1,31 +1,31 @@
 """Polars hop entry point — the single place both ``.hop()`` dispatch and ``chain_polars``
 go through (also the #1658 seeded-index hook site).
-
-The unified ``hop_polars`` (hop_eager.py) runs a single bounded hop as ONE lazy
-collect-once plan (the GPU path) and everything else (multi-hop / min_hops /
-to_fixed_point) on the eager BFS loop — formerly a separate lazy twin lived in this
-module; its setup/gates/epilogue sections are now shared inside ``hop_polars``.
 """
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
+
+from graphistry.compute.typing import DataFrameT
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
 from graphistry.compute.gfql.lazy.engine.polars.hop_eager import hop_polars
 
 
-def hop_lazy_or_eager(self: Plottable, nodes: Optional[Any] = None, hops: Optional[int] = 1, **kwargs: Any) -> Plottable:
-    """Run the polars hop: lazy collect-once for a single bounded hop, eager loop otherwise."""
-    # Normalize input eagerness ONCE (mirrors the chain_polars entry): polars joins do not
-    # mix eagerness, and direct .hop() reaches here without passing through chain_polars.
+def _with_every_lazy_input_collected(
+    self: Plottable, nodes: Optional[DataFrameT],
+) -> Tuple[Plottable, Optional[DataFrameT]]:
+    """Polars joins refuse to mix a LazyFrame with an eager frame."""
     if self._nodes is not None and is_lazy(self._nodes):
         self = self.nodes(self._nodes.collect(), self._node)
     if self._edges is not None and is_lazy(self._edges):
         self = self.edges(self._edges.collect(), self._source, self._destination)
     if nodes is not None and is_lazy(nodes):
         nodes = nodes.collect()
-    # GFQL physical index fast path (pay-as-you-go). chain_polars reaches the
-    # polars hop here without passing through compute/hop.py, so the index hook
-    # lives here too to cover polars gfql() chains (not just direct .hop()).
+    return self, nodes
+
+
+def hop_lazy_or_eager(self: Plottable, nodes: Optional[Any] = None, hops: Optional[int] = 1, **kwargs: Any) -> Plottable:
+    """Run the polars hop: lazy collect-once for a single bounded hop, eager loop otherwise."""
+    self, nodes = _with_every_lazy_input_collected(self, nodes)
     from graphistry.compute.gfql.index import get_index_policy, get_registry, maybe_index_hop
     _pol = get_index_policy(self)
     if (not get_registry(self).is_empty()) or _pol in ("auto", "force"):

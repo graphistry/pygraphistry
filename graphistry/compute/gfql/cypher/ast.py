@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal, Optional, Tuple, Union
+from typing import Literal, Mapping, Optional, Sequence, Tuple, Union
 
 
 # INVARIANT: keep every node deeply immutable (scalar/tuple fields only) — parse_cypher
@@ -26,9 +26,18 @@ class ParameterRef:
     span: SourceSpan
 
 
-CypherLiteral = Union[None, bool, int, float, str, ParameterRef]
+#: Every value openCypher can write literally: the four primitive types plus null.
+CypherScalar = Union[None, bool, int, float, str]
+
+CypherLiteral = Union[CypherScalar, ParameterRef]
 CypherPageValue = Union[int, ParameterRef, ExpressionText]
 CypherPropertyValue = Union[CypherLiteral, ExpressionText]
+
+#: What a ``$name`` parameter can bind: a scalar, or a nesting list/map of them.
+CypherParamValue = Union[CypherScalar, Sequence["CypherParamValue"], Mapping[str, "CypherParamValue"]]
+
+#: The ``params=`` argument of every Cypher-compiling entrypoint.
+CypherParams = Mapping[str, CypherParamValue]
 
 
 @dataclass(frozen=True)

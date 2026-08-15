@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal, Sequence, cast
+from typing import Any, Iterable, List, Literal, Optional, Sequence, Tuple, cast
 
 import pandas as pd
 
@@ -17,8 +17,34 @@ from graphistry.compute.gfql.temporal.constructors import (
 from graphistry.compute.typing import DataFrameT, IndexT, SeriesT
 
 
-_NODE_INTERNAL_COLS = frozenset({"id", "labels", "type"})
+#: Node columns that are engine structure, not user properties.
+NODE_INTERNAL_COLS = frozenset({"id", "labels", "type"})
 _EDGE_INTERNAL_COLS = frozenset({"s", "d", "src", "dst", "edge_id", "type", "__gfql_edge_index_0__", "undirected"})
+
+#: A node's labels arrive as boolean ``label__{name}`` flag columns.
+LABEL_FLAG_PREFIX = "label__"
+
+#: How a stringified NULL label name spells itself: ``label__<NA>`` is not a label.
+NULLISH_LABEL_NAMES = frozenset({"<NA>", "None", "nan"})
+
+
+def label_flag_name(col: object) -> Optional[str]:
+    """``label__Foo`` -> ``"Foo"``; ``None`` when ``col`` is not a real label flag column."""
+    text = str(col)
+    if not text.startswith(LABEL_FLAG_PREFIX):
+        return None
+    name = text[len(LABEL_FLAG_PREFIX):]
+    return None if name in NULLISH_LABEL_NAMES else name
+
+
+def label_flag_columns(columns: Iterable[object]) -> List[Tuple[str, str]]:
+    """``[(column, label name), ...]`` for the real label flag columns, in column order."""
+    out: List[Tuple[str, str]] = []
+    for col in columns:
+        name = label_flag_name(col)
+        if name is not None:
+            out.append((str(col), name))
+    return out
 
 
 def _fresh_col_name(columns: Sequence[object] | IndexT, prefix: str) -> str:
@@ -57,8 +83,8 @@ def node_property_columns(df: DataFrameT, alias_col: str, excluded: Sequence[str
         if str(col) != alias_col
         and str(col) not in excluded
         and not str(col).startswith("__")
-        and not str(col).startswith("label__")
-        and (str(col) not in _NODE_INTERNAL_COLS or (include_id and str(col) == "id"))
+        and not str(col).startswith(LABEL_FLAG_PREFIX)
+        and (str(col) not in NODE_INTERNAL_COLS or (include_id and str(col) == "id"))
     ]
 
 
@@ -419,17 +445,11 @@ def format_node_entity_text(
         has_list_labels = cast(SeriesT, labels_raw != "[]")
         labels = cast(SeriesT, labels + (_const_text(df, alias_col, ":") + labels_body).where(has_list_labels, ""))
     else:
-        label_cols = [
-            col
-            for col in df.columns
-            if str(col).startswith("label__")
-            and str(col).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
-        ]
-        for col in label_cols:
+        for col, label_name in label_flag_columns(df.columns):
             mask = cast(SeriesT, df[col] == True)  # noqa: E712
             if not _mask_has_true(mask):
                 continue
-            labels = cast(SeriesT, labels + (_const_text(df, alias_col, ":" + str(col).split("label__", 1)[1])).where(mask, ""))
+            labels = cast(SeriesT, labels + (_const_text(df, alias_col, ":" + label_name)).where(mask, ""))
     if "type" in df.columns:
         type_series = cast(SeriesT, df["type"])
         include = cast(SeriesT, ~_is_null_mask(type_series))
@@ -455,14 +475,7 @@ def format_node_labels_text(
 
     labels_text = _empty_text(df, alias_col)
     has_labels = _false_mask(df, alias_col)
-    label_cols = [
-        col
-        for col in df.columns
-        if str(col).startswith("label__")
-        and str(col).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
-    ]
-    for col in label_cols:
-        label_name = str(col).split("label__", 1)[1]
+    for col, label_name in label_flag_columns(df.columns):
         include = cast(SeriesT, df[col] == True)  # noqa: E712
         if not _mask_has_true(include):
             continue
