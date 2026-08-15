@@ -2,6 +2,7 @@
 # ruff: noqa: E501
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union, cast
 
 from graphistry.Engine import (
@@ -22,7 +23,12 @@ from graphistry.Engine import (
 )
 from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
-from graphistry.compute.gfql.cypher.reentry.naming import _reentry_hidden_column_name
+from graphistry.compute.gfql.agg_types import CypherEmptyGroupFills, CypherEmptyGroupValue
+from graphistry.compute.gfql.cypher.ast import CypherScalar
+from graphistry.compute.gfql.cypher.reentry.naming import (
+    REENTRY_HIDDEN_COLUMN_PREFIX,
+    _reentry_hidden_column_name,
+)
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.result_postprocess import (
     entity_projection_meta_entry,
@@ -33,6 +39,26 @@ from graphistry.compute.typing import DataFrameT, SeriesT
 REENTRY_WHOLE_ROW_SUGGESTION = "Carry a whole-row node alias through WITH before MATCH re-entry."
 REENTRY_SCALAR_SUGGESTION = "Carry scalar columns through WITH before MATCH re-entry."
 REENTRY_DUPLICATE_CARRIED_ROWS_REASON = "duplicate_carried_node_rows"
+
+#: One cell of a synthesized null-extended row: a Cypher property value copied from the
+#: prefix frame, or an aggregate's empty-group value (:data:`CypherEmptyGroupValue`).
+CypherFillValue = Union[CypherScalar, CypherEmptyGroupValue]
+
+#: Output column -> its value in a synthesized null-extended row.
+CypherFillRow = Dict[str, CypherFillValue]
+
+
+@dataclass(frozen=True)
+class CarriedOutputSources:
+    """Prefix-frame column behind each result output that reads the carried alias."""
+
+    columns: Mapping[str, str]
+    every_output_reproducible: bool
+
+
+#: At least one carried-alias output has no prefix-frame column behind it, so an unmatched
+#: prefix row cannot be given its own values and the null-fill must decline typed.
+CARRIED_OUTPUTS_NOT_REPRODUCIBLE = CarriedOutputSources(columns={}, every_output_reproducible=False)
 
 
 from graphistry.Engine import is_polars_df as _is_polars_df
@@ -76,8 +102,11 @@ def reentry_validation_error(
     value: object,
     suggestion: str,
     field: str = "with",
-    **extra_context: object,
+    reason: Optional[str] = None,
+    carried_row_count: Optional[int] = None,
+    carried_scalar_columns: Optional[Tuple[str, ...]] = None,
 ) -> GFQLValidationError:
+    """E108 decline for the bounded-reentry paths; context is a CLOSED set (callers dispatch on ``reason``)."""
     return GFQLValidationError(
         ErrorCode.E108,
         message,
@@ -85,7 +114,9 @@ def reentry_validation_error(
         value=value,
         suggestion=suggestion,
         language="cypher",
-        **extra_context,  # type: ignore[arg-type]
+        reason=reason,
+        carried_row_count=carried_row_count,
+        carried_scalar_columns=carried_scalar_columns,
     )
 
 
@@ -94,17 +125,12 @@ def apply_optional_reentry_null_fill(
     *,
     prefix_result: Plottable,
     engine: Union[EngineAbstract, str],
-    empty_result_row: Optional[Dict[str, Any]] = None,
+    empty_result_row: Optional[CypherFillRow] = None,
     reentry_plan: Optional[ReentryPlan] = None,
-    aggregate_fill_values: Optional[Mapping[str, Any]] = None,
-    carried_output_map: Optional[Mapping[str, str]] = None,
+    aggregate_fill_values: Optional[CypherEmptyGroupFills] = None,
+    carried_outputs: CarriedOutputSources = CARRIED_OUTPUTS_NOT_REPRODUCIBLE,
 ) -> Plottable:
-    """Null-fill result rows for prefix rows that the optional reentry didn't match.
-
-    ``carried_output_map`` maps result output columns to prefix-frame columns
-    for outputs sourced from the carried alias (#1896): a dict enables the
-    identity anti-join fill; None marks carried-alias outputs the fill cannot
-    reproduce (typed decline instead of anonymous rows)."""
+    """Null-fill result rows for prefix rows that the optional reentry didn't match."""
     prefix_df = prefix_result._nodes
     result_df = result._nodes
 
@@ -118,16 +144,13 @@ def apply_optional_reentry_null_fill(
     df_ctor = df_cons(concrete_engine)
     concat = df_concat(concrete_engine)
 
-    # Use the compiled empty_result_row template (correct projected column names)
-    # or fall back to the result's own columns.
+    null_row: CypherFillRow
     if empty_result_row is not None:
         null_row = dict(empty_result_row)
     elif result_df is not None and len(result_df.columns) > 0:
         null_row = {col: None for col in result_df.columns}
     else:
         null_row = {}
-    # Aggregate outputs over an unmatched optional arm take their Cypher
-    # empty-group value (count -> 0, sum -> 0, collect -> []), not NULL.
     if aggregate_fill_values:
         for col, value in aggregate_fill_values.items():
             if col in null_row:
@@ -139,20 +162,18 @@ def apply_optional_reentry_null_fill(
         null_row=null_row,
         reentry_plan=reentry_plan,
     )
-    if fill_rows is None and carried_output_map:
-        # #1896: never synthesize ANONYMOUS null rows by count arithmetic --
-        # anti-join unmatched prefix rows so the null-extension keeps its
-        # carried seed identity, or decline typed below.
-        fill_rows = _optional_reentry_identity_null_rows(
+    if fill_rows is None and carried_outputs.columns:
+        fill_rows = _optional_reentry_unmatched_identity_null_rows(
             prefix_df=prefix_df,
             result_df=result_df,
             null_row=null_row,
-            carried_output_map=carried_output_map,
+            carried_output_columns=carried_outputs.columns,
         )
     if fill_rows is None:
-        if prefix_rows == 1 and result_rows > 0:
-            return result  # the single prefix row matched; nothing to fill
-        if carried_output_map is None:
+        single_prefix_row_matched = prefix_rows == 1 and result_rows > 0
+        if single_prefix_row_matched:
+            return result
+        if not carried_outputs.every_output_reproducible:
             raise reentry_validation_error(
                 "Cypher OPTIONAL MATCH after WITH cannot null-extend unmatched carried rows: the projection derives outputs from the carried alias in a form the null-extension cannot reproduce",
                 value=sorted(null_row),
@@ -186,13 +207,13 @@ def apply_optional_reentry_null_fill(
     )
 
 
-def _optional_reentry_identity_null_rows(
+def _optional_reentry_unmatched_identity_null_rows(
     *,
     prefix_df: DataFrameT,
     result_df: Optional[DataFrameT],
-    null_row: Dict[str, Any],  # hygiene-ok: explicit-any -- heterogeneous Cypher fill values, mirrors _optional_reentry_carried_null_rows
-    carried_output_map: Mapping[str, str],
-) -> Optional[List[Dict[str, Any]]]:  # hygiene-ok: explicit-any -- heterogeneous Cypher fill values, mirrors _optional_reentry_carried_null_rows
+    null_row: CypherFillRow,
+    carried_output_columns: Mapping[str, str],
+) -> Optional[List[CypherFillRow]]:
     """Anti-join fill rows for unmatched prefix rows, keyed on carried-alias outputs.
 
     Returns None when no projected output can identify prefix rows (or keys
@@ -201,7 +222,7 @@ def _optional_reentry_identity_null_rows(
     result_columns = {str(col) for col in result_df.columns} if result_df is not None else set(null_row)
     pairs = [
         (out, src)
-        for out, src in carried_output_map.items()
+        for out, src in carried_output_columns.items()
         if src in prefix_columns and out in result_columns
     ]
     if not pairs:
@@ -232,9 +253,9 @@ def _optional_reentry_carried_null_rows(
     *,
     prefix_df: DataFrameT,
     result_df: Optional[DataFrameT],
-    null_row: Dict[str, Any],
+    null_row: CypherFillRow,
     reentry_plan: Optional[ReentryPlan],
-) -> Optional[List[Dict[str, Any]]]:
+) -> Optional[List[CypherFillRow]]:
     if reentry_plan is None or not reentry_plan.scalar_columns:
         return None
 
@@ -265,7 +286,7 @@ def _optional_reentry_carried_null_rows(
             if key not in matched_keys
         ]
 
-    fill_rows: List[Dict[str, Any]] = []
+    fill_rows: List[CypherFillRow] = []
     for record in missing_records:
         row = dict(null_row)
         for col in carried_columns:
@@ -274,11 +295,13 @@ def _optional_reentry_carried_null_rows(
     return fill_rows
 
 
-def _optional_reentry_key(record: Dict[str, Any], columns: Tuple[str, ...]) -> Tuple[Any, ...]:
+def _optional_reentry_key(
+    record: Mapping[str, CypherFillValue], columns: Tuple[str, ...]
+) -> Tuple[CypherFillValue, ...]:
     return tuple(_optional_reentry_key_value(record[col]) for col in columns)
 
 
-def _records_for_columns(df: DataFrameT, columns: Tuple[str, ...]) -> List[Dict[str, Any]]:
+def _records_for_columns(df: DataFrameT, columns: Tuple[str, ...]) -> List[CypherFillRow]:
     values_by_column = {column: series_to_pylist(cast(SeriesT, df[column])) for column in columns}
     row_count = len(df)
     return [
@@ -287,7 +310,7 @@ def _records_for_columns(df: DataFrameT, columns: Tuple[str, ...]) -> List[Dict[
     ]
 
 
-def _optional_reentry_key_value(value: Any) -> Any:
+def _optional_reentry_key_value(value: CypherFillValue) -> CypherFillValue:
     try:
         if value != value:
             return None
@@ -529,11 +552,11 @@ def freeform_broadcast_row_to_nodes(
     broadcast_values.update({
         col: row[col]
         for col in prefix_rows.columns
-        if isinstance(col, str) and col.startswith("__cypher_reentry_")
+        if isinstance(col, str) and col.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)
     })
 
     if broadcast_values:
-        existing_hidden = [c for c in base_nodes.columns if isinstance(c, str) and c.startswith("__cypher_reentry_")]
+        existing_hidden = [c for c in base_nodes.columns if isinstance(c, str) and c.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)]
         node_rows = (
             cast(DataFrameT, drop_columns(base_nodes, existing_hidden))
             if existing_hidden

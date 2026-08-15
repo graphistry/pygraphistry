@@ -35,6 +35,8 @@ from graphistry.compute.gfql.cypher.ast import (
     WherePredicate,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.gfql.cypher.reentry.naming import REENTRY_HIDDEN_COLUMN_PREFIX
+from graphistry.compute.gfql.identifiers import INTERNAL_COLUMN_SUFFIX
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, BoundVariable, ScopeFrame, SemanticTable
 from graphistry.compute.gfql.ir.compilation import GraphSchemaCatalog, PlanContext
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
@@ -1740,7 +1742,8 @@ def _entity_kind_from_logical_type(logical_type: LogicalType) -> Literal["node",
 
 
 def _is_hidden_reentry_property(property_name: str) -> bool:
-    return property_name.startswith("__cypher_reentry_") and property_name.endswith("__")
+    return (property_name.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)
+            and property_name.endswith(INTERNAL_COLUMN_SUFFIX))
 
 
 def _strict_schema_mode(state: _BindState) -> bool:
