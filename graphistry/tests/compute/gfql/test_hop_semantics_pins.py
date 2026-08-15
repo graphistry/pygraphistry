@@ -116,11 +116,15 @@ def test_hop_seeded_source_match_domain_hops_invariant(engine):
 
 # #1918 F4 WIDENING. The original parameterization was `filt` in {source_node_match,
 # destination_node_match} x seeds fixed at [0, 1] -- and that is precisely what HID the
-# violation: BOTH omitted arms (no filter, and a SINGLE seed) were the broken ones. pandas
-# answered tfp=[1,2] against bounded=[0,1,2] for seeds=[0], and tfp=[0,2] for seeds=[1],
-# because the undirected+tfp seed-strip took topology-only heuristics that keep a seed only
-# if its component holds >1 seed OR it sits on a cycle -- a single seed on an acyclic
-# component satisfies neither. The unfiltered/single-seed cells now carry the invariant.
+# disagreement: BOTH omitted arms (no filter, and a SINGLE seed) were the broken ones, where
+# tfp answered [1,2] and bounded [0,1,2] for seeds=[0].
+#
+# WHICH ARM WAS WRONG: the BOUNDED one. tfp applied the edge-disjointness condition (see the
+# hand oracle below); bounded returned whatever its BFS reached, and the BFS re-enters a seed
+# by walking back along the edge it left by. An earlier pass at #1918 read the probe's
+# "bounded=[0,1,2] vs tfp=[1,2]" as evidence against tfp and moved tfp -- making both arms
+# agree on the wrong answer and breaking tests/compute/test_hop.py. The equivalence pin alone
+# cannot catch that, which is why the value pin below is derived on paper instead.
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("filt", [
     {},                                              # #1918 F4: the arm that was missing
@@ -142,15 +146,25 @@ def test_hop_undirected_tfp_wavefront_matches_saturated_bounded(engine, filt, se
 
 
 # The invariant above is self-checking (engine-local equality), so it could in principle be
-# satisfied vacuously by two empty frames. These literals make the unfiltered single-seed
-# cells NON-VACUOUS: hand oracle on 0 -x-> 1 -y-> 2 read undirected, walk semantics (a hop may
-# return along the edge it arrived on), so every seed IS re-encountered at hop 2 and the whole
-# component comes back -- the exact node sets the heuristics used to truncate.
+# satisfied vacuously -- or, worse, by both arms agreeing on a WRONG answer, which is exactly
+# what happened once here. So the literals below come from a HAND ORACLE, not from either arm.
+#
+# ORACLE (derived on paper, edge-disjoint-walk semantics). Fixture read undirected is the path
+# 0 -x- 1 -y- 2. ``return_as_wave_front=True`` returns ENCOUNTERED nodes, and returning along
+# the edge you departed on is the trip home, not an encounter -- so a walk may not REUSE an
+# edge. Enumerating from each seed:
+#   seed {0}: 0-x-1 (len 1), 0-x-1-y-2 (len 2). Getting back to 0 would need x twice.  -> {1,2}
+#   seed {1}: 1-x-0 (len 1), 1-y-2 (len 1). Back to 1 would need x or y twice.          -> {0,2}
+#   seed {2}: 2-y-1 (len 1), 2-y-1-x-0 (len 2).                                          -> {0,1}
+#   seeds {0,1}: as above, plus 0 is reached from seed 1 over x and 1 from seed 0 over x --
+#                one edge each, nothing reused, so BOTH seeds are genuinely encountered. -> {0,1,2}
+# The path is acyclic, so a lone seed is never re-encountered; a second seed in the component
+# changes that. Both are one rule: a seed stays iff an edge-disjoint walk reaches it.
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("seeds,expect_nodes", [
-    ([0], [0, 1, 2]),      # 0->1 (h1), 1->{0,2} (h2): 0 re-encountered
-    ([1], [0, 1, 2]),      # 1->{0,2} (h1), {0,2}->1 (h2): 1 re-encountered
-    ([2], [0, 1, 2]),      # 2->1 (h1), 1->{0,2} (h2): 2 re-encountered
+    ([0], [1, 2]),
+    ([1], [0, 2]),
+    ([2], [0, 1]),
     ([0, 1], [0, 1, 2]),
 ], ids=["seed-0", "seed-1", "seed-2", "seeds-0-1"])
 def test_hop_undirected_tfp_wavefront_unfiltered_values(engine, seeds, expect_nodes):

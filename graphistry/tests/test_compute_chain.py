@@ -669,7 +669,22 @@ class TestComputeChainWavefront2Mixin(NoAuthTestCase):
 
         g = chain_graph()
 
-        g_out_nodes_hop = [{'n': 'a'}, {'n': 'b'}, {'n': 'c'}]
+        # ADJUDICATED (#1918 F4), not re-baselined. The raw-hop expectation used to be
+        # [a, b, c]; it is now [b, c] -- the CHAIN expectations below are unchanged.
+        # `return_as_wave_front=True` returns ENCOUNTERED nodes, and on the path a-b-c-d a
+        # 2-hop undirected walk only gets back to seed 'a' by traversing edge a-b a second
+        # time, which is the trip home rather than a discovery. Hand oracle: the edge-disjoint
+        # walks from 'a' are a-b and a-b-c, so the wavefront is {b, c}.
+        # That contract is pinned by tests/compute/test_hop.py's
+        # test_hop_fixedpoint_undirected_does_not_revisit_seed_via_same_edge (same shape,
+        # unbounded) and its ..._keeps_rediscovered_seed_from_other_seed sibling (seed kept
+        # when a DIFFERENT seed reaches it). The bounded arm simply never applied the rule, so
+        # this list -- reused verbatim from the chain expectation just below it -- recorded the
+        # gap. The chain surface legitimately keeps 'a': `n({'n': 'a'})` BINDS it as a matched
+        # node, which is a different question from whether the wavefront re-encountered it.
+        # Edges are unchanged: the seed strip filters nodes only, so a wavefront result still
+        # shows the edge it left by (test_hop.py pins that same shape).
+        g_out_nodes_hop = [{'n': 'b'}, {'n': 'c'}]
         g_out_nodes = [{'n': 'a'}, {'n': 'b'}, {'n': 'c'}]
         g_out_edges = [{'s': 'a', 'd': 'b'}, {'s': 'b', 'd': 'c'}]
 
@@ -789,7 +804,13 @@ class TestComputeChainWavefront2Mixin(NoAuthTestCase):
 
         g = chain_graph()
 
-        g_out_nodes_hop = [{'n': 'b'}, {'n': 'c'}, {'n': 'd'}]
+        # ADJUDICATED (#1918 F4), not re-baselined -- the mirror image of
+        # test_hop_chain_2_undirected above, seeded at the far end. Raw-hop expectation was
+        # [b, c, d]; it is now [b, c]. Hand oracle: the edge-disjoint walks from 'd' on the
+        # path a-b-c-d are d-c and d-c-b, so the wavefront is {b, c}; getting back to 'd' would
+        # need edge c-d twice. The CHAIN expectation below is unchanged, because `n({'n':'d'})`
+        # binds 'd' as a matched node regardless of whether the wavefront re-encountered it.
+        g_out_nodes_hop = [{'n': 'b'}, {'n': 'c'}]
         g_out_nodes = [{'n': 'b'}, {'n': 'c'}, {'n': 'd'}]
         g_out_edges = [{'s': 'b', 'd': 'c'}, {'s': 'c', 'd': 'd'}]
 

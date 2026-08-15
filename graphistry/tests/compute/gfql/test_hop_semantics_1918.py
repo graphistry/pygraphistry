@@ -10,8 +10,9 @@ written against the documented semantics in ``graphistry/compute/hop.py``'s docs
   backfill re-added it id-only, NaN-ing its attributes and upcasting int64 -> float64.
 * F3 -- an undirected edge traversed in both directions inside one wavefront produced TWO
   output edge rows under hop labeling.
-* F4 -- ``to_fixed_point`` disagreed with the saturated bounded hop on any acyclic
-  single-seed component (also widens the #1892 pin in ``test_hop_semantics_pins.py``).
+* F4 -- the BOUNDED undirected wavefront re-entered a seed by walking back along the edge
+  it departed on, so it disagreed with ``to_fixed_point`` on any acyclic single-seed
+  component (also widens the #1892 pin in ``test_hop_semantics_pins.py``).
 * F5 -- ``label_seeds``, a label-column flag, changed the returned node SET.
 * F6/F7 -- polars validated no bounds at all; ``min_hops=-1, hops=1`` returned an ANSWER.
 * F8 -- a directed cycle with ``min_hops=4, max_hops=5`` returned empty (#1787-adjacent).
@@ -95,21 +96,34 @@ def _edges_only(engine, rel=None):
 
 # ============================================================================ F4
 # to_fixed_point == saturated bounded, on every undirected topology x every single seed.
-# Hand oracle: hop() is WALK-based (the docstring's "paths", no relationship isomorphism),
-# so hop 2 may return along the edge hop 1 arrived on. Therefore on a connected undirected
-# component EVERY seed is re-encountered by hop 2 and the whole component is returned --
-# including the acyclic single-seed cases the old heuristics truncated.
-
+#
+# HAND ORACLE (on paper, from the documented wavefront contract -- NOT read off either arm).
+# ``return_as_wave_front=True`` is documented as "exclude starting node(s) in return, returning
+# only encountered nodes". Coming back along the edge you departed on is the trip home, not an
+# encounter, so a seed is returned only when a walk REUSING NO EDGE arrives at it. Equivalently
+# (proved in ``undirected_rediscovered_seed_ids`` and checked against brute-force enumeration
+# on 6000 random multigraphs): a seed stays iff another seed shares its component, or it lies
+# on a cycle. Non-seed nodes are unaffected -- a shortest path is already edge-disjoint.
+#
+# Enumerated per fixture, single seed, so every seed below is alone in its component:
+#   path2 (0-1)         seed 0: only walk out is 0-1; back needs edge 01 twice     -> {1}
+#   path3 (0-1,1-2)     seed 0: 0-1, 0-1-2                                          -> {1,2}
+#                       seed 1 (middle): 1-0 and 1-2; back needs one of them twice  -> {0,2}
+#   star  (0-1,0-2,0-3) seed 0 (hub): 0-1, 0-2, 0-3; every leaf is a dead end       -> {1,2,3}
+#                       seed 1 (leaf): 1-0, 1-0-2, 1-0-3                            -> {0,2,3}
+#   tri   (0-1,1-2,2-0) seed 0: 0-1-2-0 goes around using each edge ONCE            -> {0,1,2}
+# The triangle is the arm that keeps its seed; the three acyclic shapes drop theirs. That
+# contrast is the whole point of the rule, so both kinds are parameterized here.
 _F4_CASES = [
-    ("path2", 0, [0, 1]),
-    ("path2", 1, [0, 1]),
-    ("path3", 0, [0, 1, 2]),
-    ("path3", 1, [0, 1, 2]),   # seed in the MIDDLE of an acyclic component
-    ("path3", 2, [0, 1, 2]),
-    ("star", 0, [0, 1, 2, 3]),  # hub
-    ("star", 1, [0, 1, 2, 3]),  # leaf
-    ("star", 3, [0, 1, 2, 3]),
-    ("tri", 0, [0, 1, 2]),      # cyclic: correct BEFORE the fix too; must stay correct
+    ("path2", 0, [1]),
+    ("path2", 1, [0]),
+    ("path3", 0, [1, 2]),
+    ("path3", 1, [0, 2]),      # seed in the MIDDLE of an acyclic component
+    ("path3", 2, [0, 1]),
+    ("star", 0, [1, 2, 3]),     # hub
+    ("star", 1, [0, 2, 3]),     # leaf
+    ("star", 3, [0, 1, 2]),
+    ("tri", 0, [0, 1, 2]),      # cyclic: the seed IS legitimately re-encountered
     ("tri", 2, [0, 1, 2]),
 ]
 
@@ -129,6 +143,69 @@ def test_f4_tfp_equals_saturated_bounded_single_seed(engine, topo, seed, expect)
     # ... and the VALUE, so neither side can satisfy it by being empty
     assert node_ids(fixed) == expect
     assert edge_ids(fixed) == sorted(_TOPOLOGIES[topo])
+
+
+def _cycle_graph(engine, n):
+    ndf = pd.DataFrame({"id": list(range(n))})
+    edf = pd.DataFrame({"s": list(range(n)), "d": [(i + 1) % n for i in range(n)]})
+    return graphistry.nodes(_frame(engine, ndf), "id").edges(_frame(engine, edf), "s", "d")
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("hops,expect", [(2, [1, 2, 3, 4]), (5, [0, 1, 2, 3, 4])],
+                         ids=["window-2-shorter-than-cycle", "window-5-reaches-round"])
+def test_f4_bounded_window_respects_cycle_length(engine, hops, expect):
+    """The bound is not ignored: on the 5-cycle seeded at {0}, a 2-edge window cannot get
+    round to 0 (the only way home is all 5 edges), so 0 is excluded; a 5-edge window can, so
+    it is included. Hand oracle by enumeration -- edge-disjoint walks of length <= 2 from 0
+    are 0-1, 0-4, 0-1-2, 0-4-3, none ending at 0."""
+    r = _cycle_graph(engine, 5).hop(
+        nodes=_seeds(engine, [0]), hops=hops, direction="undirected",
+        return_as_wave_front=True, engine=engine)
+    assert node_ids(r) == expect
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_f4_length_blind_residue_on_a_mid_length_window(engine):
+    """RESIDUE PIN (#1918 F4, deliberately NOT fixed) -- a value test so it cannot rot.
+
+    The rediscovery rule answers "is this seed re-encountered at SOME length", which is exact
+    for to_fixed_point and a NECESSARY condition for a bounded window. It is therefore
+    length-blind in one direction: a seed whose only way home is a cycle LONGER than the
+    window is still kept, as long as the retained edge set contains that whole cycle.
+
+    5-cycle seeded at {0}, hops=3. Hand oracle: edge-disjoint walks of length <= 3 from 0 are
+    0-1, 0-4, 0-1-2, 0-4-3, 0-1-2-3, 0-4-3-2 -- none returns to 0, which needs all 5 edges.
+    So the oracle is {1,2,3,4} and both engines answer {0,1,2,3,4}.
+
+    (hops=2 is NOT affected and is pinned green above: there the retained edges stop one short
+    of closing the cycle, so the topology sees an acyclic component and drops the seed. The
+    residue only bites once the window is long enough to retain the full cycle but too short
+    to walk it.) Closing it needs shortest-cycle-through-a-vertex, per-seed and length-bounded.
+    """
+    r = _cycle_graph(engine, 5).hop(
+        nodes=_seeds(engine, [0]), hops=3, direction="undirected",
+        return_as_wave_front=True, engine=engine)
+    assert node_ids(r) == [0, 1, 2, 3, 4]      # oracle is [1, 2, 3, 4]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("closure", [True, False], ids=["tfp", "bounded"])
+def test_f4_parallel_edges_are_a_two_cycle(engine, closure):
+    """Two PARALLEL edges between 0 and 1 are a length-2 cycle, so seed {0} IS re-encountered:
+    out over one edge, back over the OTHER, reusing neither. Hand oracle {0, 1}.
+
+    BEHAVIOUR CHANGE on the to_fixed_point arm (#1918): the topology heuristic this replaces
+    built adjacency as a set of NEIGHBOURS, which collapsed the two edges into one, peeled both
+    nodes as degree-1 and answered {1}. The bounded arm already answered {0,1}, for the wrong
+    reason (it allowed edge reuse). Counting edge ROWS makes both arms right for the right
+    reason, and is why the two arms agree here.
+    """
+    g = graphistry.nodes(_frame(engine, pd.DataFrame({"id": [0, 1]})), "id").edges(
+        _frame(engine, pd.DataFrame({"s": [0, 0], "d": [1, 1]})), "s", "d")
+    r = g.hop(nodes=_seeds(engine, [0]), hops=3, to_fixed_point=closure,
+              direction="undirected", return_as_wave_front=True, engine=engine)
+    assert node_ids(r) == [0, 1]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
