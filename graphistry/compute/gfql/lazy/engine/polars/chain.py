@@ -852,6 +852,16 @@ def _try_indexed_middle_polars(
     return try_indexed_connected_bindings_state(g, middle, engine=engine), True
 
 
+def _bound_edge_endpoints(g: Plottable) -> Tuple[str, str]:
+    """The graph's (source, destination) columns; a row-pipeline call() result leaves them unbound."""
+    if g._source is None or g._destination is None:
+        raise NotImplementedError(
+            "polars chain engine does not yet support traversing a graph with unbound edge "
+            "endpoints (e.g. a call() row-pipeline result); use engine='pandas' for this chain."
+        )
+    return g._source, g._destination
+
+
 def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plottable:
     import polars as pl
     from graphistry.compute.chain import Chain
@@ -863,6 +873,8 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     if len(ops) == 0:
         return self
 
+    edge_src, edge_dst = _bound_edge_endpoints(self)
+
     # Node-only shape: single MATCH (n). Result is just the filtered node table + empty edges,
     # so skip forward/backward/combine. Byte-identical: the one-node-step combine yields filtered
     # g._nodes in order + empty edges + the alias flag on every matched node.
@@ -870,7 +882,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         op0 = ops[0]
         g0 = ensure_nodes_polars(self)
         nc = g0._node
-        assert nc is not None and g0._source is not None and g0._destination is not None
+        assert nc is not None
         nodes = filter_by_dict_polars(g0._nodes, op0.filter_dict)
         if start_nodes is not None:
             from graphistry.Engine import Engine as _E, df_to_engine as _d2e
@@ -878,7 +890,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             nodes = _semi(nodes, seed, nc, nc)
         if op0._name is not None:
             nodes = nodes.with_columns(pl.lit(True).alias(op0._name))
-        return g0.nodes(nodes, nc).edges(g0._edges.clear(), g0._source, g0._destination)
+        return g0.nodes(nodes, nc).edges(g0._edges.clear(), edge_src, edge_dst)
 
     if isinstance(ops[0], ASTEdge):
         ops = [ASTNode()] + ops
