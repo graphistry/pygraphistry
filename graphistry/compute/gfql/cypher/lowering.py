@@ -2608,7 +2608,7 @@ def _forces_relationship_multiplicity_projection_bindings(
                     getattr(element, "to_fixed_point", False)
                     and element.direction == "undirected"
                 ):
-                    # undirected unbounded fixed point: the binding-rows builder cannot reconstruct its multiplicity;
+                    # An undirected unbounded fixed point is not reconstructible from binding rows.
                     return False
     texts = [item.expression.text for item in items]
     if order_by is not None:
@@ -7598,7 +7598,7 @@ def _lower_general_row_projection(
     )
 
 
-def _cypher_return_output_names(clause: ReturnClause) -> Tuple[str,...]:
+def _cypher_return_output_names(clause: ReturnClause) -> Tuple[str, ...]:
     names: List[str] = []
     for item in clause.items:
         if item.expression.text == "*":
@@ -7704,7 +7704,7 @@ def _compile_graph_residual_filters(
     params: Optional[Mapping[str, Any]],
     line: int,
     column: int,
-) -> Tuple[CompiledGraphResidualFilter,...]:
+) -> Tuple[CompiledGraphResidualFilter, ...]:
     if lowered.row_where is None and not lowered.row_pre_filters:
         return ()
 
@@ -7795,7 +7795,7 @@ def _compile_graph_constructor(
     *,
     params: Optional[Mapping[str, Any]] = None,
 ) -> CompiledCypherQuery:
-    """Compile a GRAPH {... } constructor body into a CompiledCypherQuery.
+    """Compile a GRAPH { ... } constructor body into a CompiledCypherQuery.
 
     Supports both MATCH-based constructors (subgraph extraction) and
     CALL-based constructors (graph-preserving procedure execution).
@@ -9196,7 +9196,7 @@ def _maybe_pushdown_row_prefilters(
         or has_graph_context
     ):
         return result
-    from.row_pushdown import apply_row_prefilter_pushdown
+    from .row_pushdown import apply_row_prefilter_pushdown
 
     new_chain = apply_row_prefilter_pushdown(result.chain)
     if new_chain is result.chain:
@@ -9230,7 +9230,7 @@ def compile_cypher_query(
             graph_residual_filters=compiled_constructor.graph_residual_filters,
         )
     if isinstance(query, CypherUnionQuery):
-        branch_output_names: Optional[Tuple[str,...]] = None
+        branch_output_names: Optional[Tuple[str, ...]] = None
         compiled_branches: List[CompiledCypherQuery] = []
         for branch in query.branches:
             output_names = _cypher_return_output_names(branch.return_)
@@ -9269,7 +9269,7 @@ def compile_cypher_query(
     logical_plan: Optional[LogicalPlan] = None
     logical_plan_defer_reason: Optional[str] = None
     logical_plan_defer_code: Optional[str] = None
-    _bound_scope_stack: Tuple[ScopeFrame,...] = ()
+    _bound_scope_stack: Tuple[ScopeFrame, ...] = ()
 
     def _attach_graph_context(result: CompiledCypherQuery) -> CompiledCypherQuery:
         result = _maybe_pushdown_row_prefilters(result, has_graph_context=bool(compiled_bindings) or _use_ref is not None)
@@ -9310,7 +9310,7 @@ def compile_cypher_query(
 
     # Re-bind after normalization so scope and semantic metadata reflect the
     # lowered query shape consumed by downstream lowering decisions.
-    #: strict alias/name-resolution is now the runtime default for the
+    # Strict alias/name-resolution is the runtime default for the
     # post-normalize bind pass so alias-scope enforcement is centralized at
     # binder time (validator/runtime parity).
     bound_ir = FrontendBinder().bind(query, PlanContext(), strict_name_resolution=True)
@@ -9376,7 +9376,7 @@ def compile_cypher_query(
         if compiled_connected_optional is not None:
             return _attach_graph_context(compiled_connected_optional)
     if query.with_stages and query.matches and not any(m.optional for m in query.matches):
-        #: a terminal pure bare-alias WITH carry over non-OPTIONAL
+        # A terminal pure bare-alias WITH carry over non-OPTIONAL
         # matches is a row no-op; fold it away so binding-row multiplicity
         # survives (the row-column pipeline would collapse it).
         from graphistry.compute.gfql.cypher.reentry.flatten import (
@@ -9560,7 +9560,7 @@ def compile_cypher_query(
                 item_post_aggregate_plans,
             ):
                 raise _unsupported(
-                    "Cypher aggregates over MATCH... OPTIONAL MATCH are not yet supported for this optional-arm shape in the local compiler (this lowering has no null-extension and would drop unmatched rows)",
+                    "Cypher aggregates over MATCH ... OPTIONAL MATCH are not yet supported for this optional-arm shape in the local compiler (this lowering has no null-extension and would drop unmatched rows)",
                     field=query.return_.kind,
                     value=[item.expression.text for item in query.return_.items],
                     line=query.return_.span.line,
@@ -9645,7 +9645,7 @@ def compile_cypher_query(
                 )
                 if seed_alias is None and optional_projection_row_guard is None:
                     raise _unsupported(
-                        "Cypher MATCH... OPTIONAL MATCH projections that require null-extension for optional aliases are only supported from a single-node seed MATCH",
+                        "Cypher MATCH ... OPTIONAL MATCH projections that require null-extension for optional aliases are only supported from a single-node seed MATCH",
                         field=query.return_.kind,
                         value=[item.expression.text for item in query.return_.items],
                         line=query.return_.span.line,

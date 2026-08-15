@@ -1508,7 +1508,7 @@ def binding_rows_polars(
     from graphistry.compute.gfql.lazy import collect as _lazy_collect
     from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
     from graphistry.compute.gfql.same_path.edge_semantics import EdgeSemantics
-    from.predicates import filter_by_dict_polars
+    from .predicates import filter_by_dict_polars
 
     def _names(lf: pl.LazyFrame) -> List[str]:
         # LazyFrame column names WITHOUT collecting data (schema-only resolve).
@@ -1516,7 +1516,7 @@ def binding_rows_polars(
 
     # Build from the PRE-CHAIN base graph, exactly like the pandas oracle
     # (`_gfql_binding_rows`: `base_nodes = base_graph._nodes`, every alias step
-    # `op.execute(g=base_graph,...)`) and like the indexed builder below, which is
+    # `op.execute(g=base_graph, ...)`) and like the indexed builder below, which is
     # already handed `base_graph`. Rebuilding from the chain OUTPUT instead would
     # silently under-report: the traversal prunes to nodes/edges IT considers
     # matched, and that is not the same set the bindings builder matches — e.g. a
