@@ -26,7 +26,10 @@ class ParameterRef:
     span: SourceSpan
 
 
-CypherLiteral = Union[None, bool, int, float, str, ParameterRef]
+#: Every value openCypher can write literally: the four primitive types plus null.
+CypherScalar = Union[None, bool, int, float, str]
+
+CypherLiteral = Union[CypherScalar, ParameterRef]
 CypherPageValue = Union[int, ParameterRef, ExpressionText]
 CypherPropertyValue = Union[CypherLiteral, ExpressionText]
 

@@ -32,6 +32,7 @@ from graphistry.compute.gfql.same_path_types import (
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.gfql.agg_types import CypherEmptyGroupValue
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
 from graphistry.compute.gfql.cypher.lowering import (
@@ -45,6 +46,8 @@ from graphistry.compute.gfql.cypher.lowering import (
 )
 from graphistry.compute.filter_by_dict import _node_dtypes_for_pushdown
 from graphistry.compute.gfql.cypher.reentry.execution import (
+    CARRIED_OUTPUTS_NOT_REPRODUCIBLE,
+    CarriedOutputSources,
     REENTRY_DUPLICATE_CARRIED_ROWS_REASON as _REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
     REENTRY_WHOLE_ROW_SUGGESTION as _REENTRY_WHOLE_ROW_SUGGESTION,
     apply_optional_reentry_null_fill as _apply_optional_reentry_null_fill,
@@ -1468,30 +1471,48 @@ def _execute_compiled_query_with_reentry(
             empty_result_row=compiled_query.empty_result_row,
             reentry_plan=compiled_query.reentry_plan,
             aggregate_fill_values=_optional_reentry_aggregate_fill_values(compiled_query),
-            carried_output_map=_optional_reentry_carried_output_map(compiled_query),
+            carried_outputs=_carried_output_sources(compiled_query),
         )
 
     return result
 
 
-def _optional_reentry_carried_output_map(
-    compiled_query: CompiledCypherQuery,
-) -> Optional[Dict[str, str]]:
-    """Map result output columns to prefix-frame columns for carried-alias outputs (#1896).
+_IDENTIFIER_TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_REENTRY_MARKER_COLUMN = re.compile(r"__cypher_reentry_(\w+)__")
 
-    Bare ``{carried_alias}.{prop}`` projection sources ARE the prefix frame's
-    column names, so the null-fill can anti-join and reproduce them. Returns
-    None when an output derives from the carried alias in any other form
-    (whole-row / expression) -- unmatched-row values would be wrong, so the
-    fill must decline typed. Aggregate (grouped) suffixes keep their own fill
-    path and yield an empty map here.
-    """
+
+def _output_reads_carried_alias(
+    src: str, *, alias_names: Set[str], scalar_columns: Set[str]
+) -> bool:
+    tokens = set(_IDENTIFIER_TOKEN.findall(src))
+    return bool(tokens & alias_names or tokens & scalar_columns)
+
+
+def _carried_output_source_column(
+    src: str, *, alias_names: Set[str], scalar_columns: Set[str]
+) -> Optional[str]:
+    """Prefix-frame column an output copies verbatim, or None when it cannot be reproduced."""
+    if src in scalar_columns:
+        return src
+    parts = src.split(".")
+    if len(parts) != 2 or parts[0] not in alias_names:
+        return None
+    marker = _REENTRY_MARKER_COLUMN.fullmatch(parts[1])
+    if marker is not None and marker.group(1) in scalar_columns:
+        return marker.group(1)
+    if _IDENTIFIER_TOKEN.fullmatch(parts[1]):
+        return src
+    return None
+
+
+def _carried_output_sources(compiled_query: CompiledCypherQuery) -> CarriedOutputSources:
+    """Which result outputs the unmatched-prefix-row null-fill can reproduce (#1896)."""
     plan = compiled_query.reentry_plan
     if plan is None:
-        return {}
+        return CarriedOutputSources(columns={}, every_output_reproducible=True)
     alias_names = {plan.reentry_alias_name} | {a.output_name for a in plan.aliases}
-    scalar_cols = set(plan.scalar_columns)
-    items: Optional[List[Any]] = None
+    scalar_columns = set(plan.scalar_columns)
+    items: Optional[List[object]] = None
     grouped = False
     ops = list(compiled_query.chain.chain) if compiled_query.chain is not None else []
     for op in ops:
@@ -1503,31 +1524,30 @@ def _optional_reentry_carried_output_map(
         elif function == "group_by":
             grouped = True
     if items is None or grouped:
-        return {}
-    out: Dict[str, str] = {}
+        return CarriedOutputSources(columns={}, every_output_reproducible=True)
+    columns: Dict[str, str] = {}
     for item in items:
         if not (isinstance(item, (list, tuple)) and len(item) == 2 and isinstance(item[0], str)):
             continue
-        name, src = item
+        name, src = item[0], item[1]
         if not isinstance(src, str):
             continue
-        tokens = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", src))
-        if not tokens & alias_names and not tokens & scalar_cols:
+        if not _output_reads_carried_alias(
+            src, alias_names=alias_names, scalar_columns=scalar_columns
+        ):
             continue
-        parts = src.split(".")
-        marker = re.fullmatch(r"__cypher_reentry_(\w+)__", parts[1]) if len(parts) == 2 else None
-        if src in scalar_cols:
-            out[name] = src  # (possibly renamed) carried WITH scalar
-        elif len(parts) == 2 and parts[0] in alias_names and marker is not None and marker.group(1) in scalar_cols:
-            out[name] = marker.group(1)  # scalar read back through its reentry marker
-        elif len(parts) == 2 and parts[0] in alias_names and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", parts[1]):
-            out[name] = src
-        else:
-            return None
-    return out
+        source_column = _carried_output_source_column(
+            src, alias_names=alias_names, scalar_columns=scalar_columns
+        )
+        if source_column is None:
+            return CARRIED_OUTPUTS_NOT_REPRODUCIBLE
+        columns[name] = source_column
+    return CarriedOutputSources(columns=columns, every_output_reproducible=True)
 
 
-def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery) -> Dict[str, Any]:
+def _optional_reentry_aggregate_fill_values(
+    compiled_query: CompiledCypherQuery,
+) -> Dict[str, CypherEmptyGroupValue]:
     """Cypher empty-group values for aggregate outputs of an optional-reentry suffix.
 
     An unmatched prefix row contributes one null-extended row, so aggregates
@@ -1540,8 +1560,8 @@ def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery)
     carried = set(plan.scalar_columns) if plan is not None else set()
     reentry_alias = plan.reentry_alias_name if plan is not None else None
     ops = list(compiled_query.chain.chain) if compiled_query.chain is not None else []
-    with_map: Dict[str, Any] = {}
-    fills: Dict[str, Any] = {}
+    with_map: Dict[str, object] = {}
+    fills: Dict[str, CypherEmptyGroupValue] = {}
     for op in ops:
         function = getattr(op, "function", None)
         params = getattr(op, "params", None) or {}

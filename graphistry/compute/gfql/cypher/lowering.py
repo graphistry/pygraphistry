@@ -8598,10 +8598,6 @@ def _compile_connected_optional_match(
     chained left-outer-joins at runtime, and delegates RETURN / ORDER BY /
     SKIP / LIMIT to the standard row pipeline.
 
-    ``post_join_row_filter`` (#1896 flattened ``WITH ... WHERE``) filters the
-    left-joined binding ROWS before projection/aggregation -- openCypher
-    post-OPTIONAL-MATCH WITH..WHERE semantics.
-
     Returns None to DEFER to the general lowering for sub-shapes it serves
     better (post-aggregate expressions; the 2-match single-node-seed
     whole-row null-fill path).
@@ -9157,9 +9153,6 @@ def compile_cypher_query(
         if compiled_connected_optional is not None:
             return _attach_graph_context(compiled_connected_optional)
     if query.with_stages and any(m.optional for m in query.matches):
-        # #1896: terminal WITH over OPTIONAL MATCH -- the row-column pipeline
-        # cannot represent binding rows; flatten onto the connected left-join
-        # lowering (stage WHERE becomes a post-join row filter).
         from graphistry.compute.gfql.cypher.reentry.flatten import (
             flatten_terminal_with_over_optional,
         )
@@ -9177,9 +9170,6 @@ def compile_cypher_query(
                 if compiled_flattened is not None:
                     return _attach_graph_context(compiled_flattened)
             if stage_row_filter is None:
-                # Connected lowering deferred (e.g. whole-row projection);
-                # the flattened query has no WITH stage, so the general
-                # paths (null-fill / typed gates) serve or decline it.
                 return compile_cypher_query(flattened_query, params=params)
         raise _unsupported(
             "Cypher WITH pipelines after OPTIONAL MATCH are only supported for pure bare-alias carries (optionally with WHERE) or a terminal WITH passed through unchanged by RETURN; other stage shapes would drop or corrupt null-extended rows in the local compiler",

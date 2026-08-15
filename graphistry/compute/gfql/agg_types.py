@@ -43,19 +43,32 @@ and the ``ErrorCode`` cannot drift between engines.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final, FrozenSet, NoReturn, Optional
+from typing import TYPE_CHECKING, Final, FrozenSet, List, Mapping, NoReturn, Optional, Union
 
 from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
 
 if TYPE_CHECKING:
     import polars as pl
 
+    # TYPE_CHECKING only: `gfql.cypher.__init__` eagerly imports the whole compiler, and
+    # this module is imported from inside that import (row.pipeline), so a runtime import
+    # would be circular. The aliases below only need the name at type-check time.
+    from graphistry.compute.gfql.cypher.ast import CypherScalar
     from graphistry.compute.typing import SeriesT
 
 
 #: Aggregates Cypher restricts to ``INTEGER | FLOAT | DURATION``. ``mean`` is GFQL's internal
 #: spelling of ``avg`` (see ``GFQL_GROUPBY_AGG_METHODS``), so both names must gate.
 GFQL_NUMERIC_ONLY_AGGREGATIONS: Final[FrozenSet[str]] = frozenset({"sum", "avg", "mean"})
+
+#: What an aggregate answers for an EMPTY group, per the Cypher contract documented above:
+#: ``count``/``sum`` -> ``0``, ``count(*)`` over a synthesized null-extended row -> ``1``,
+#: ``collect`` -> ``[]``. Every other aggregate's empty-group answer is ``null`` and is
+#: therefore absent from a fill map rather than present as a value.
+CypherEmptyGroupValue = Union[int, List["CypherScalar"]]
+
+#: Output column -> its empty-group value, for the columns that HAVE one.
+CypherEmptyGroupFills = Mapping[str, CypherEmptyGroupValue]
 
 
 def _describe_agg_input(column: str, alias: Optional[str]) -> str:
