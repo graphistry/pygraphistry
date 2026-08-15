@@ -62,6 +62,13 @@ from .lowering_context import (
     COLUMNS_NAN_FREE as _COLUMNS_NAN_FREE,
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN as _NODE_ID_TOKEN
+from graphistry.compute.gfql.identifiers import (
+    TRAIL_EDGE_IDENT_COL,
+    WALK_CURRENT_COL,
+    WALK_FROM_COL,
+    WALK_TO_COL,
+    trail_column_name,
+)
 
 # Ops needing the NaN guard: polars treats NaN as the LARGEST value (>/>=/== TRUE), but
 # IEEE/Python/pandas/Cypher compare NaN as FALSE (!= TRUE; Neo4j TCK agrees). Float operands
@@ -979,7 +986,7 @@ def _finish_binding_rows_polars(
             state = state.join(
                 lookup, left_on=alias, right_on=node_id, how="left",
             )
-        state = state.drop("__current__")
+        state = state.drop(WALK_CURRENT_COL)
         out_df = (
             _lazy_collect(state)
             if isinstance(state, pl.LazyFrame)
@@ -1772,7 +1779,7 @@ def binding_rows_polars(
         # openCypher trail semantics (#1903): stable per-edge identity for the
         # at-most-once-per-path relationship constraint (pandas twin:
         # _gfql_connected_bindings_state's __gfql_edge_ident__).
-        edges_lf = edges_lf.with_row_index("__gfql_edge_ident__")
+        edges_lf = edges_lf.with_row_index(TRAIL_EDGE_IDENT_COL)
         trail_cols_pl: List[str] = []
         first_op = ops[0]
         if not isinstance(first_op, ASTNode):
@@ -1785,12 +1792,12 @@ def binding_rows_polars(
         # `filter_by_dict_polars` is frame-polymorphic at runtime but declares the eager
         # type, so pin the path bag lazy here instead of leaving every downstream lazy
         # op to fight an eager inference.
-        state: pl.LazyFrame = seed_nodes.select(pl.col(node_id).alias("__current__"))  # type: ignore[assignment]
+        state: pl.LazyFrame = seed_nodes.select(pl.col(node_id).alias(WALK_CURRENT_COL))  # type: ignore[assignment]
         alias_frames: Dict[str, pl.LazyFrame] = {}
         node_aliases: List[str] = []
         first_alias = first_op._name
         if isinstance(first_alias, str):
-            state = state.with_columns(pl.col("__current__").alias(first_alias))
+            state = state.with_columns(pl.col(WALK_CURRENT_COL).alias(first_alias))
             alias_frames[first_alias] = seed_nodes
             node_aliases.append(first_alias)
 
@@ -1805,27 +1812,27 @@ def binding_rows_polars(
                 payload_renames = {
                     col: f"{edge_alias}.{col}"
                     for col in _names(edges_f)
-                    if col not in (src, dst, "__gfql_edge_ident__")
+                    if col not in (src, dst, TRAIL_EDGE_IDENT_COL)
                 }
             else:
                 # Unaliased edge payload is unaddressable downstream; carrying it
                 # unprefixed (as pandas does) only risks column collisions.
-                edges_f = edges_f.select([src, dst, "__gfql_edge_ident__"])
+                edges_f = edges_f.select([src, dst, TRAIL_EDGE_IDENT_COL])
                 payload_renames = {}
             if sem.is_undirected:
-                fwd = edges_f.rename({src: "__from__", dst: "__to__"})
-                rev = edges_f.rename({dst: "__from__", src: "__to__"})
+                fwd = edges_f.rename({src: WALK_FROM_COL, dst: WALK_TO_COL})
+                rev = edges_f.rename({dst: WALK_FROM_COL, src: WALK_TO_COL})
                 oriented = pl.concat([fwd, rev.select(_names(fwd))], how="vertical")
                 # A self-loop's two undirected orientations are the SAME binding:
                 # dedupe the flip twin (#1903 / addendum A-1).
                 oriented = oriented.unique(
-                    subset=["__from__", "__to__", "__gfql_edge_ident__"],
+                    subset=[WALK_FROM_COL, WALK_TO_COL, TRAIL_EDGE_IDENT_COL],
                     keep="first",
                     maintain_order=True,
                 )
             else:
                 join_col, result_col = (dst, src) if edge_op.direction == "reverse" else (src, dst)
-                oriented = edges_f.rename({join_col: "__from__", result_col: "__to__"})
+                oriented = edges_f.rename({join_col: WALK_FROM_COL, result_col: WALK_TO_COL})
             if payload_renames:
                 oriented = oriented.rename(payload_renames)
 
@@ -1840,14 +1847,14 @@ def binding_rows_polars(
                 # this turn an all-edges scan into a small-domain edge semi-join.
                 oriented = oriented.join(
                     next_node_ids,
-                    left_on="__to__",
+                    left_on=WALK_TO_COL,
                     right_on=node_id,
                     how="semi",
                 )
 
             # Column collision between edge payload and accumulated state → decline
             # (pandas resolves via merge suffixes; unreferenced-by-queries either way).
-            overlap = (set(_names(oriented)) - {"__from__"}) & set(_names(state))
+            overlap = (set(_names(oriented)) - {WALK_FROM_COL}) & set(_names(state))
             if overlap:
                 return None
             if sem.is_multihop:
@@ -1870,7 +1877,7 @@ def binding_rows_polars(
                     # fully lazy — it collects one frontier per hop.
                     state, _fp_trail_cols = _directed_fixed_point_binding_rows_polars(
                         state,
-                        oriented.select(["__from__", "__to__"]),
+                        oriented.select([WALK_FROM_COL, WALK_TO_COL]),
                         state_cols,
                         min_hops=min_hops,
                     )
@@ -1885,26 +1892,26 @@ def binding_rows_polars(
                     max_hops = int(max_hops_value)
                     normal = edges_f.filter(pl.col(src) != pl.col(dst))
                     loops = edges_f.filter(pl.col(src) == pl.col(dst))
-                    ident = pl.col("__gfql_edge_ident__")
-                    fwd = normal.select([pl.col(src).alias("__from__"), pl.col(dst).alias("__to__"), ident])
-                    rev = normal.select([pl.col(dst).alias("__from__"), pl.col(src).alias("__to__"), ident])
-                    loop = loops.select([pl.col(src).alias("__from__"), pl.col(dst).alias("__to__"), ident])
+                    ident = pl.col(TRAIL_EDGE_IDENT_COL)
+                    fwd = normal.select([pl.col(src).alias(WALK_FROM_COL), pl.col(dst).alias(WALK_TO_COL), ident])
+                    rev = normal.select([pl.col(dst).alias(WALK_FROM_COL), pl.col(src).alias(WALK_TO_COL), ident])
+                    loop = loops.select([pl.col(src).alias(WALK_FROM_COL), pl.col(dst).alias(WALK_TO_COL), ident])
                     pairs = pl.concat([fwd, rev, loop], how="vertical")
                     reachable = [state.select(state_cols)] if min_hops == 0 else []
                     current = state
                     _und_trail_cols: List[str] = []
                     for _hop in range(1, max_hops + 1):
                         joined = current.join(
-                            pairs, left_on="__current__", right_on="__from__", how="inner"
+                            pairs, left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner"
                         )
                         for _used in trail_cols_pl + _und_trail_cols:
                             joined = joined.filter(
-                                (pl.col("__gfql_edge_ident__") != pl.col(_used)) | pl.col(_used).is_null()
+                                (pl.col(TRAIL_EDGE_IDENT_COL) != pl.col(_used)) | pl.col(_used).is_null()
                             )
-                        _hop_trail = f"__gfql_trail_{len(trail_cols_pl) + len(_und_trail_cols)}__"
-                        joined = joined.rename({"__gfql_edge_ident__": _hop_trail})
+                        _hop_trail = trail_column_name(len(trail_cols_pl) + len(_und_trail_cols))
+                        joined = joined.rename({TRAIL_EDGE_IDENT_COL: _hop_trail})
                         _und_trail_cols.append(_hop_trail)
-                        joined = joined.drop("__current__").rename({"__to__": "__current__"})
+                        joined = joined.drop(WALK_CURRENT_COL).rename({WALK_TO_COL: WALK_CURRENT_COL})
                         current = joined.select(state_cols + _und_trail_cols)
                         if _hop >= min_hops:
                             reachable.append(current)
@@ -1915,7 +1922,7 @@ def binding_rows_polars(
                     # trail-tracked (#1903).
                     state, _seg_trail_cols = _directed_varlen_reachable_polars(
                         state,
-                        oriented.select(["__from__", "__to__", "__gfql_edge_ident__"]),
+                        oriented.select([WALK_FROM_COL, WALK_TO_COL, TRAIL_EDGE_IDENT_COL]),
                         state_cols,
                         min_hops=min_hops,
                         max_hops=int(max_hops_value),
@@ -1924,21 +1931,21 @@ def binding_rows_polars(
                     trail_cols_pl = trail_cols_pl + _seg_trail_cols
             else:
                 state = (
-                    state.join(oriented, left_on="__current__", right_on="__from__", how="inner")
-                    .drop("__current__")
-                    .rename({"__to__": "__current__"})
+                    state.join(oriented, left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner")
+                    .drop(WALK_CURRENT_COL)
+                    .rename({WALK_TO_COL: WALK_CURRENT_COL})
                 )
                 for _used in trail_cols_pl:
                     state = state.filter(
-                        (pl.col("__gfql_edge_ident__") != pl.col(_used)) | pl.col(_used).is_null()
+                        (pl.col(TRAIL_EDGE_IDENT_COL) != pl.col(_used)) | pl.col(_used).is_null()
                     )
-                _new_trail = f"__gfql_trail_{len(trail_cols_pl)}__"
-                state = state.rename({"__gfql_edge_ident__": _new_trail})
+                _new_trail = trail_column_name(len(trail_cols_pl))
+                state = state.rename({TRAIL_EDGE_IDENT_COL: _new_trail})
                 trail_cols_pl = trail_cols_pl + [_new_trail]
 
             state = state.join(
                 next_node_ids,
-                left_on="__current__",
+                left_on=WALK_CURRENT_COL,
                 right_on=node_id,
                 how="semi",
             )
@@ -1971,7 +1978,7 @@ def binding_rows_polars(
                     return None
             next_alias = next_op._name
             if isinstance(next_alias, str):
-                state = state.with_columns(pl.col("__current__").alias(next_alias))
+                state = state.with_columns(pl.col(WALK_CURRENT_COL).alias(next_alias))
                 alias_frames[next_alias] = next_nodes
                 node_aliases.append(next_alias)
 

@@ -149,6 +149,7 @@ from graphistry.compute.gfql.temporal.folding import (
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, WhereComparison, col, compare, where_to_row_expr
 from graphistry.compute.gfql.cypher.reentry import naming as _reentry_naming, scope as _reentry_scope
 from graphistry.compute.gfql.cypher.ast import CypherParams
+from graphistry.compute.gfql.identifiers import shortest_path_hops_column
 
 
 @dataclass(frozen=True)
@@ -6218,7 +6219,7 @@ def _shortest_path_relationship_hop_columns(clause: MatchClause) -> Dict[Tuple[i
             if isinstance(element, RelationshipPattern):
                 span = element.span
                 out[(span.line, span.column, span.end_line, span.end_column, span.start_pos, span.end_pos)] = (
-                    f"__cypher_shortest_path_hops__{alias}"
+                    shortest_path_hops_column(alias)
                 )
     return out
 
