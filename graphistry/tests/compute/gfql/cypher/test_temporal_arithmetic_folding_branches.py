@@ -802,3 +802,21 @@ def test_ast_fold_recurses_into_call_arguments() -> None:
     assert folded.name == "length"
     inner: Optional[ExprNode] = folded.args[0]
     assert inner == Literal("2020-01-03")
+
+
+def test_temporal_shift_past_date_max_declines_not_overflowerror():
+    """A shift past ``date.max`` raises OverflowError from ``timedelta`` (not the
+    ValueError the constructors raise), so both carry sites must catch it or a raw
+    OverflowError escapes the fold. Found by the coverage sweep of this module."""
+    import graphistry
+    import pandas as pd
+    from graphistry.compute.exceptions import GFQLTypeError
+
+    g = (graphistry.nodes(pd.DataFrame({"id": [0]}), "id")
+         .edges(pd.DataFrame({"s": [0], "d": [0]}), "s", "d"))
+    for q in [
+        "RETURN date('9999-12-31') + duration('P1D') AS d",              # day carry
+        "RETURN localdatetime('9999-12-31T23:00:00') + duration('PT2H') AS d",  # seconds carry
+    ]:
+        with pytest.raises(GFQLTypeError):
+            g.gfql(q, engine="pandas")
