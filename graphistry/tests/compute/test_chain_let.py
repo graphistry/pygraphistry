@@ -14,7 +14,9 @@ from graphistry.compute.chain_let import (
     detect_cycles, determine_execution_order
 )
 from graphistry.compute.execution_context import ExecutionContext
-from graphistry.compute.exceptions import GFQLTypeError, GFQLSyntaxError, ErrorCode
+from graphistry.compute.exceptions import (
+    GFQLTypeError, GFQLSyntaxError, GFQLValidationError, ErrorCode
+)
 from graphistry.tests.test_compute import CGFull
 
 
@@ -44,12 +46,20 @@ class TestChainDagHelpers:
         deps = extract_dependencies(nested)
         assert deps == {'a', 'b'}
 
-        # Nested ASTLet is an opaque unit — no external dependencies
+    def test_extract_dependencies_nested_let_reports_free_variables(self):
+        """A nested let depends on the names it reads from the enclosing scope"""
         dag = ASTLet({
             'inner': ASTRef('outer', [n()])
         })
-        deps = extract_dependencies(dag)
-        assert deps == set(), "Nested ASTLet should be opaque (no external deps)"
+        assert extract_dependencies(dag) == {'outer'}
+
+    def test_extract_dependencies_nested_let_hides_own_bindings(self):
+        """Names a nested let binds itself are not dependencies of the enclosing scope"""
+        dag = ASTLet({
+            'own': n(),
+            'inner': ASTRef('own', [n()])
+        })
+        assert extract_dependencies(dag) == set()
     
     def test_build_dependency_graph(self):
         """Test building dependency and dependent mappings"""
@@ -89,9 +99,10 @@ class TestChainDagHelpers:
         }
         dependencies = {'a': {'missing'}}
         
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(GFQLValidationError) as exc_info:
             validate_dependencies(bindings, dependencies)
-        
+
+        assert exc_info.value.code == ErrorCode.E151
         assert "references undefined nodes: ['missing']" in str(exc_info.value)
         assert "Available nodes: ['a']" in str(exc_info.value)
     
@@ -102,9 +113,10 @@ class TestChainDagHelpers:
         }
         dependencies = {'a': {'a'}}
         
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(GFQLValidationError) as exc_info:
             validate_dependencies(bindings, dependencies)
-        
+
+        assert exc_info.value.code == ErrorCode.E153
         assert "Self-reference cycle detected: 'a' depends on itself" in str(exc_info.value)
     
     def test_detect_cycles_no_cycle(self):
@@ -231,10 +243,10 @@ class TestExecutionContext:
         # Create ASTRef that references non-existent binding
         chain_ref = ASTRef('missing_ref', [])
         
-        # Should raise ValueError with helpful message
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(GFQLValidationError) as exc_info:
             execute_node('test', chain_ref, g, context, Engine.PANDAS)
-        
+
+        assert exc_info.value.code == ErrorCode.E151
         assert "references 'missing_ref' which has not been executed yet" in str(exc_info.value)
         assert "Available bindings: []" in str(exc_info.value)
     
@@ -582,9 +594,10 @@ class TestErrorHandling:
         })
         
         g = CGFull().edges(pd.DataFrame({'s': ['x'], 'd': ['y']}), 's', 'd')
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(GFQLValidationError) as exc_info:
             g.gfql(dag)
-        
+
+        assert exc_info.value.code == ErrorCode.E153
         error_msg = str(exc_info.value)
         assert "Circular dependency detected" in error_msg
         assert "->" in error_msg  # Shows the cycle path
@@ -620,9 +633,10 @@ class TestErrorHandling:
         })
         
         g = CGFull().edges(pd.DataFrame({'s': ['x'], 'd': ['y']}), 's', 'd')
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(GFQLValidationError) as exc_info:
             g.gfql(dag)
-        
+
+        assert exc_info.value.code == ErrorCode.E151
         error_msg = str(exc_info.value)
         assert "references undefined nodes: ['data3']" in error_msg
         assert "Available nodes: ['data1', 'data2', 'result']" in error_msg
@@ -731,8 +745,9 @@ class TestExecutionMechanics:
             'ref_fail': ASTRef('node1', [])  # Should fail - node1 not in this context
         })
         
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(GFQLValidationError) as exc_info:
             g.gfql(dag2)
+        assert exc_info.value.code == ErrorCode.E151
         assert "references undefined nodes: ['node1']" in str(exc_info.value)
     
     def test_execution_order_logging(self):
@@ -1290,9 +1305,10 @@ class TestChainDagInternal:
         g = CGFull().edges(pd.DataFrame({'s': ['a'], 'd': ['b']}), 's', 'd')
         dag = ASTLet({'node1': Chain([n()])})
         
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(GFQLValidationError) as exc_info:
             g.gfql(dag, output='missing')
-        
+
+        assert exc_info.value.code == ErrorCode.E151
         error_msg = str(exc_info.value)
         assert "Output binding 'missing' not found" in error_msg
         assert "Available bindings: ['node1']" in error_msg
@@ -1492,7 +1508,7 @@ class TestNestedLetScopeIsolation:
             'inner': ASTLet({'secret': self._persons()}),
             'bad': ASTRef('secret', [])
         })
-        with pytest.raises(ValueError, match="references undefined nodes"):
+        with pytest.raises(GFQLValidationError, match="references undefined nodes"):
             g.gfql(dag)
 
     def test_sibling_inner_lets_same_binding_names_no_collision(self):
@@ -1592,7 +1608,7 @@ class TestNestedLetScopeIsolation:
             'left': ASTLet({'people': self._persons()}),
             'right': ASTLet({'bad': ASTRef('people', [])}),
         })
-        with pytest.raises((ValueError, RuntimeError)):
+        with pytest.raises(GFQLValidationError, match="references undefined nodes"):
             g.gfql(dag)
 
     def test_inner_ref_to_not_yet_executed_outer_fails(self):
@@ -1602,7 +1618,7 @@ class TestNestedLetScopeIsolation:
             'inner': ASTLet({'bad': ASTRef('outer_late', [])}),
             'outer_late': ASTRef('inner', [])
         })
-        with pytest.raises((ValueError, RuntimeError, KeyError)):
+        with pytest.raises(GFQLValidationError, match="Circular dependency detected"):
             g.gfql(dag)
 
     # ==================================================================
