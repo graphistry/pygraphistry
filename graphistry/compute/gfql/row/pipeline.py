@@ -70,7 +70,7 @@ from graphistry.compute.gfql.row.entity_text import (
     entity_type_series,
     is_entity_text_scalar,
 )
-from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN
+from graphistry.compute.gfql.same_path_types import EDGE_IDENTITY_COLUMN, NODE_IDENTITY_COLUMN
 from graphistry.compute.gfql.cache_registry import register_process_singleton
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype, series_sequence_len, series_str_match
 from graphistry.compute.gfql.row.ordering import (
@@ -2876,7 +2876,7 @@ class RowPipelineMixin:
         node_id = self._gfql_node_id_column()
         if txt == NODE_IDENTITY_COLUMN and node_id is not None and node_id in table_df.columns:
             return table_df[node_id]
-        if txt == "__gfql_edge_index_0__" and self._edge is not None and self._edge in table_df.columns:
+        if txt == EDGE_IDENTITY_COLUMN and self._edge is not None and self._edge in table_df.columns:
             return table_df[self._edge]
         prop_match = RowPipelineMixin._GFQL_ALIAS_PROP_RE.fullmatch(txt)
         if prop_match is not None:

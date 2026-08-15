@@ -146,7 +146,14 @@ from graphistry.compute.gfql.temporal.folding import (
     fold_temporal_constructor_ast,
     rewrite_temporal_constructors_in_expr,
 )
-from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, WhereComparison, col, compare, where_to_row_expr
+from graphistry.compute.gfql.same_path_types import (
+    EDGE_IDENTITY_COLUMN,
+    NODE_IDENTITY_COLUMN,
+    WhereComparison,
+    col,
+    compare,
+    where_to_row_expr,
+)
 from graphistry.compute.gfql.cypher.reentry import naming as _reentry_naming, scope as _reentry_scope
 from graphistry.compute.gfql.cypher.ast import CypherParams
 
@@ -1269,7 +1276,7 @@ def _connected_join_alias_identity_expr(
             return PropertyAccessExpr(_rewrite(node_in.value), node_in.property)
         if isinstance(node_in, Identifier) and "." not in node_in.name and node_in.name in alias_targets:
             target = alias_targets[node_in.name]
-            prop = NODE_IDENTITY_COLUMN if isinstance(target, ASTNode) else "__gfql_edge_index_0__"
+            prop = NODE_IDENTITY_COLUMN if isinstance(target, ASTNode) else EDGE_IDENTITY_COLUMN
             return PropertyAccessExpr(Identifier(node_in.name), prop)
         return _rebuild_expr_node(node_in, rewrite=_rewrite, error_context="connected join identity rewrite")
 
@@ -2579,6 +2586,22 @@ def _match_relationship_count(clause: MatchClause) -> int:
     return sum(1 for element in _match_pattern_elements(clause) if isinstance(element, RelationshipPattern))
 
 
+def _binds_one_route_per_pair_undirected(clause: MatchClause) -> bool:
+    """Undirected unbounded arm under shortestPath/allShortestPaths, whose one-route-per-
+    endpoint-pair cardinality binding rows cannot reproduce. Plain ``-[*]-`` is not one."""
+    kinds = _match_pattern_alias_kinds(clause)
+    for index, pattern in enumerate(clause.patterns):
+        if index < len(kinds) and kinds[index] == "pattern":
+            continue
+        for element in pattern:
+            if isinstance(element, RelationshipPattern) and (
+                getattr(element, "to_fixed_point", False)
+                and element.direction == "undirected"
+            ):
+                return True
+    return False
+
+
 def _forces_relationship_multiplicity_projection_bindings(
     query: CypherQuery,
     *,
@@ -2600,21 +2623,8 @@ def _forces_relationship_multiplicity_projection_bindings(
         return False
     if not all(isinstance(target, (ASTNode, ASTEdge)) for target in alias_targets.values()):
         return False
-    for clause in query.matches:
-        kinds = _match_pattern_alias_kinds(clause)
-        for index, pattern in enumerate(clause.patterns):
-            if index < len(kinds) and kinds[index] == "pattern":
-                continue
-            for element in pattern:
-                if isinstance(element, RelationshipPattern) and (
-                    getattr(element, "to_fixed_point", False)
-                    and element.direction == "undirected"
-                ):
-                    # shortestPath binds ONE representative route per endpoint pair and
-                    # deliberately skips trail tracking (#1903); binding rows cannot
-                    # reproduce that cardinality. Plain `-[*]-` DOES belong on the trail
-                    # lane and is routed there (#1906).
-                    return False
+    if any(_binds_one_route_per_pair_undirected(clause) for clause in query.matches):
+        return False
     texts = [item.expression.text for item in items]
     if order_by is not None:
         texts.extend(order_item.expression.text for order_item in order_by.items)
@@ -6857,7 +6867,7 @@ def _distinct_aggregate_expr_text(
                 line=agg_spec.span_line,
                 column=agg_spec.span_column,
             )
-        return "__gfql_edge_index_0__"
+        return EDGE_IDENTITY_COLUMN
     return expr_text
 
 
@@ -6923,7 +6933,7 @@ def _whole_row_group_key_expr(
     if isinstance(target, ASTNode):
         return NODE_IDENTITY_COLUMN
     if isinstance(target, ASTEdge):
-        return "__gfql_edge_index_0__"
+        return EDGE_IDENTITY_COLUMN
     raise _unsupported(
         "Cypher aggregate whole-row grouping requires a node or edge alias",
         field=field,

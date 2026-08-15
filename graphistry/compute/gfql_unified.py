@@ -25,7 +25,9 @@ from .gfql.policy import (
     QueryType,
     expand_policy
 )
+from graphistry.compute.gfql.identifiers import TRAIL_ARM_EDGE_ALIAS_PREFIX
 from graphistry.compute.gfql.same_path_types import (
+    EDGE_IDENTITY_COLUMN,
     NODE_IDENTITY_COLUMN,
     WhereComparison,
     normalize_where_entries,
@@ -87,7 +89,7 @@ from graphistry.compute.gfql.physical_planner import PhysicalPlanner
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
 from graphistry.compute.gfql.search_any import search_any_mask
-from graphistry.compute.typing import DataFrameT, SeriesT, NodeDtypes
+from graphistry.compute.typing import DataFrameT, FilterDict, SeriesT, NodeDtypes
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
@@ -615,13 +617,7 @@ from .gfql_fast_paths import (
     _execute_two_hop_count_fast_path,
 )
 
-_TRAIL_EDGE_IDENTITY_COL = "__gfql_edge_index_0__"
-_TRAIL_EDGE_ALIAS_PREFIX = "__gfql_trail_arm_"
-
-
-def _filter_dicts_provably_disjoint(
-    first: Optional[Dict[str, Any]], second: Optional[Dict[str, Any]]  # hygiene-ok: explicit-any -- filter_dict values are heterogeneous by contract
-) -> bool:
+def _filter_dicts_provably_disjoint(first: Optional[FilterDict], second: Optional[FilterDict]) -> bool:
     if not first or not second:
         return False
     return any(
@@ -636,13 +632,11 @@ def _connected_join_trail_arms(
 ) -> Optional[Tuple[Tuple[Chain, ...], Tuple[Tuple[str, ...], ...]]]:
     """Rewritten arm chains + per-arm relationship identity columns, or None.
 
-    openCypher relationship uniqueness spans the WHOLE match clause (#1905), but
-    the arm join is a cartesian product that drops edge identity, so an edge that
-    fits two arms is bound twice. Naming every anonymous arm edge surfaces its
-    ``<alias>.__gfql_edge_index_0__`` identity in the arm rows so the join can drop
-    those bindings. Returns None when no arm pair can share an edge (nothing to
-    enforce) or an arm is variable-length (its rows carry no per-hop identity;
-    #1905 residual).
+    openCypher relationship uniqueness spans the WHOLE match clause, but the arm join
+    is a cartesian product that drops edge identity, so an edge fitting two arms binds
+    twice. Naming every anonymous arm edge surfaces its identity column in the arm rows
+    so the join can drop those bindings. Returns None when no arm pair can share an edge
+    (nothing to enforce) or an arm is variable-length (its rows carry no per-hop identity).
     """
     chains = plan.pattern_chains
     if len(chains) < 2:
@@ -675,10 +669,10 @@ def _connected_join_trail_arms(
         columns: List[str] = []
         for position, op in enumerate(pattern_chain.chain):
             if isinstance(op, ASTEdge):
-                alias = getattr(op, "_name", None) or f"{_TRAIL_EDGE_ALIAS_PREFIX}{index}_{position}__"
+                alias = getattr(op, "_name", None) or f"{TRAIL_ARM_EDGE_ALIAS_PREFIX}{index}_{position}__"
                 if getattr(op, "_name", None) is None:
                     op = cast(ASTEdge, ast_from_json({**op.to_json(), "name": alias}, validate=False))  # hygiene-ok: explicit-cast -- from_json is the ASTEdge clone-with-name seam
-                columns.append(f"{alias}.{_TRAIL_EDGE_IDENTITY_COL}")
+                columns.append(f"{alias}.{EDGE_IDENTITY_COLUMN}")
             ops.append(op)
         rewritten.append(Chain(ops, where=pattern_chain.where))
         identity_columns.append(tuple(columns))
@@ -693,12 +687,12 @@ def _with_edge_identity(base_graph: Plottable, *, engine: Engine) -> Plottable:
     if base_graph._edges is None:
         return base_graph
     edges = df_to_engine(cast(DataFrameT, base_graph._edges), engine, warn=False)  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
-    if _TRAIL_EDGE_IDENTITY_COL in edges.columns:
+    if EDGE_IDENTITY_COLUMN in edges.columns:
         return base_graph
     if _is_polars_frame(edges):
         import polars as pl
-        return base_graph.edges(edges.with_columns(pl.int_range(pl.len()).alias(_TRAIL_EDGE_IDENTITY_COL)))
-    return base_graph.edges(edges.assign(**{_TRAIL_EDGE_IDENTITY_COL: range(len(edges))}))
+        return base_graph.edges(edges.with_columns(pl.int_range(pl.len()).alias(EDGE_IDENTITY_COLUMN)))
+    return base_graph.edges(edges.assign(**{EDGE_IDENTITY_COLUMN: range(len(edges))}))
 
 
 def _drop_shared_relationship_bindings(
@@ -747,9 +741,8 @@ def _apply_connected_match_join(
     # recomputes instead of returning a stale cached answer (BLOCKER 1).
     cache_store: Dict[str, Any] = {}
 
-    # openCypher relationship uniqueness across the arms (#1905). Both fast paths
-    # count/emit the raw arm product, so they only serve provably disjoint arms.
     trail_arms = _connected_join_trail_arms(plan)
+    arms_may_share_an_edge = trail_arms is not None
     arm_chains = plan.pattern_chains if trail_arms is None else trail_arms[0]
     arm_identity_columns: Tuple[Tuple[str, ...], ...] = (
         tuple(() for _ in plan.pattern_chains) if trail_arms is None else trail_arms[1]
@@ -757,8 +750,9 @@ def _apply_connected_match_join(
     if trail_arms is not None:
         base_graph = _with_edge_identity(base_graph, engine=requested_engine)
 
+    # Both two-star fast paths emit the raw arm product, so they serve disjoint arms only.
     fast_grouped_count = (
-        None if trail_arms is not None
+        None if arms_may_share_an_edge
         else _connected_join_two_star_fast_grouped_count(base_graph, plan, engine=requested_engine, cache_store=cache_store)
     )
     if fast_grouped_count is not None:
@@ -768,7 +762,7 @@ def _apply_connected_match_join(
         return out
 
     fast_rows = (
-        None if trail_arms is not None
+        None if arms_may_share_an_edge
         else _connected_join_two_star_fast_rows(base_graph, plan, engine=requested_engine, cache_store=cache_store)
     )
     if fast_rows is not None:
@@ -817,7 +811,7 @@ def _apply_connected_match_join(
         ]
         keep_binding_columns = [
             column for column in _binding_join_columns(pattern_rows)
-            if column in identity_columns or not str(column).startswith(_TRAIL_EDGE_ALIAS_PREFIX)
+            if column in identity_columns or not str(column).startswith(TRAIL_ARM_EDGE_ALIAS_PREFIX)
         ] + [alias for alias in node_aliases if alias in pattern_rows.columns]
         pattern_rows = cast(DataFrameT, pattern_rows[keep_binding_columns])
         if joined_rows is None:
@@ -868,7 +862,7 @@ def _apply_connected_match_join(
     if trail_arms is not None:
         drop_columns = [
             column for column in joined_rows.columns
-            if str(column).startswith(_TRAIL_EDGE_ALIAS_PREFIX)
+            if str(column).startswith(TRAIL_ARM_EDGE_ALIAS_PREFIX)
         ]
         if drop_columns:
             joined_rows = cast(DataFrameT, joined_rows.drop(drop_columns) if _is_polars_frame(joined_rows)  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape

@@ -1,14 +1,17 @@
 """GFQL reserved identifiers and validation."""
 
-from typing import Optional, Dict, Any, Set
+from typing import Optional, Dict, Any, Final, Set
 
 # Internal column pattern for temporary GFQL columns
-INTERNAL_COLUMN_PATTERN: str = '__gfql_*__'
-INTERNAL_COLUMN_PREFIX: str = '__gfql_'
-INTERNAL_COLUMN_SUFFIX: str = '__'
+INTERNAL_COLUMN_PATTERN: Final[str] = '__gfql_*__'
+INTERNAL_COLUMN_PREFIX: Final[str] = '__gfql_'
+INTERNAL_COLUMN_SUFFIX: Final[str] = '__'
 
 #: Prefix of the internal columns that carry an alias's value under a hidden name.
-HIDDEN_ALIAS_COLUMN_PREFIX: str = '__gfql_hidden_'
+HIDDEN_ALIAS_COLUMN_PREFIX: Final[str] = '__gfql_hidden_'
+
+#: Prefix of the internal name given to an otherwise-anonymous connected-join arm edge.
+TRAIL_ARM_EDGE_ALIAS_PREFIX: Final[str] = '__gfql_trail_arm_'
 
 
 def is_internal_column(name: str) -> bool:
