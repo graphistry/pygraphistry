@@ -21,6 +21,7 @@ from graphistry.compute.gfql.row.entity_props import (
     append_property_segments,
     edge_property_columns,
     format_edge_entity_text,
+    label_flag_columns,
     node_property_columns,
 )
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter
@@ -67,18 +68,12 @@ def entity_projection_meta_entry(
 
 
 def _node_label_text(df: DataFrameT, alias_col: str) -> SeriesT:
-    label_cols = [
-        col
-        for col in df.columns
-        if str(col).startswith("label__")
-        and str(col).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
-    ]
+    label_cols = label_flag_columns(df.columns)
     if label_cols:
         labels = _empty_text(df, alias_col)
-        for col in label_cols:
+        for col, label_name in label_cols:
             mask = cast(SeriesT, cast(SeriesT, df[col]) == True)  # noqa: E712
-            label = ":" + str(col).split("label__", 1)[1]
-            labels = cast(SeriesT, labels + _const_text(df, alias_col, label).where(mask, ""))
+            labels = cast(SeriesT, labels + _const_text(df, alias_col, ":" + label_name).where(mask, ""))
         return labels
     if "type" in df.columns:
         type_series = cast(SeriesT, df["type"])
@@ -118,12 +113,7 @@ def _format_edge_entities(df: DataFrameT, projection: ResultProjectionPlan) -> S
 
 
 def _label_flag_columns(df: DataFrameT) -> list[str]:
-    return [
-        str(col)
-        for col in df.columns
-        if str(col).startswith("label__")
-        and str(col).split("label__", 1)[1] not in {"<NA>", "None", "nan"}
-    ]
+    return [col for col, _ in label_flag_columns(df.columns)]
 
 
 def _flat_entity_field_names(

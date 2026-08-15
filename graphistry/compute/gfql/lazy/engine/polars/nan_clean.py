@@ -17,35 +17,22 @@ if TYPE_CHECKING:
 
 
 # Ids of polars frames already verified NaN-free (or produced NaN-free by cleaning).
-# Recycle-safe: a weakref.finalize on each cached frame evicts its id on GC, so a reused
-# id can never be a stale hit while the original frame is alive. This turns the repeated
-# per-hop NaN probe on a RESIDENT graph (seeded Search / native-hop hammers the same edge
-# frame every call) from O(E)-per-call into O(1) after the first check — the dominant
-# per-call cost for polars/polars-gpu seeded traversal on float-column (i.e. real) graphs.
-#
-# BOUND-FRAME IMMUTABILITY CONTRACT (owner decision, 2026-08-13): frames handed
-# to GFQL are treated as immutable, like any engine with indexes -- that is what
-# makes verdict/index/fact reuse sound. Mutating a bound frame in place
-# (pandas .loc, polars extend/replace_column/insert_column/hstack(in_place=True))
-# is undefined behavior for caches and results; the supported recipe after
-# mutation is REBIND (g.nodes(df)/g.edges(df)) or gfql_clear_caches(). This
-# cache is REGISTERED so that recipe actually works -- the pre-#1883 version was
-# invisible to gfql_clear_caches and the completeness lock, which is what turned
-# a contract violation into an unflushable wrong answer.
-_PL_NAN_CLEAN_CACHE_IDS: Set[int] = set()
+# Bound frames are treated as IMMUTABLE: after mutating one in place, rebind
+# (g.nodes(df)/g.edges(df)) or call gfql_clear_caches().
+_nan_free_frame_id_cache: Set[int] = set()
 
 
 def _mark_pl_nan_clean(df: "pl.DataFrame") -> None:
-    key = id(df)
-    _PL_NAN_CLEAN_CACHE_IDS.add(key)
+    frame_id = id(df)
+    _nan_free_frame_id_cache.add(frame_id)
     try:
-        weakref.finalize(df, _PL_NAN_CLEAN_CACHE_IDS.discard, key)
+        weakref.finalize(df, _nan_free_frame_id_cache.discard, frame_id)
     except TypeError:  # pragma: no cover - pl.DataFrame is weakref-able; guard anyway
-        _PL_NAN_CLEAN_CACHE_IDS.discard(key)  # can't track lifetime -> don't cache (stay correct)
+        _nan_free_frame_id_cache.discard(frame_id)
 
 
 from graphistry.compute.gfql.cache_registry import register_clearable_dict as _register_clearable
-_register_clearable("_PL_NAN_CLEAN_CACHE_IDS", _PL_NAN_CLEAN_CACHE_IDS)
+_register_clearable("_nan_free_frame_id_cache", _nan_free_frame_id_cache)
 
 
 def _pl_nan_to_null(df: "PolarsFrame") -> "PolarsFrame":
@@ -76,7 +63,7 @@ def _pl_nan_to_null(df: "PolarsFrame") -> "PolarsFrame":
     if not float_cols:
         return df
     if isinstance(df, pl.DataFrame):
-        if id(df) in _PL_NAN_CLEAN_CACHE_IDS:
+        if id(df) in _nan_free_frame_id_cache:
             return df
         nan_cols = [c for c in float_cols if df.get_column(c).is_nan().any()]
         if not nan_cols:
