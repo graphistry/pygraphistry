@@ -941,7 +941,7 @@ def test_rebind_edges_revalidates_after_shallow_augmentation():
     aug = gi._edges.copy(deep=False)
     aug["__synthetic_id__"] = aug.index
     assert reg.get_valid(EDGE_OUT_ADJ, aug, ("src", "dst"), _E.PANDAS) is None  # identity miss
-    reg2 = reg.rebind_edges(aug)
+    reg2 = reg.rebind_edges(aug, gi._edges)
     assert reg2.get_valid(EDGE_OUT_ADJ, aug, ("src", "dst"), _E.PANDAS) is not None  # now valid
 
 
@@ -960,18 +960,18 @@ def test_rebind_edges_drops_index_on_fingerprint_mismatch():
 
     # row count changed -> both edge indexes dropped, never mis-bound
     fewer = gi._edges.iloc[:-1].copy(deep=False)
-    reg2 = reg.rebind_edges(fewer)
+    reg2 = reg.rebind_edges(fewer, gi._edges)
     assert not reg2.has(EDGE_OUT_ADJ) and not reg2.has(EDGE_IN_ADJ)
 
     # indexed column renamed away -> dropped
     renamed = gi._edges.rename(columns={"dst": "dst2"})
-    reg3 = reg.rebind_edges(renamed)
+    reg3 = reg.rebind_edges(renamed, gi._edges)
     assert not reg3.has(EDGE_OUT_ADJ) and not reg3.has(EDGE_IN_ADJ)
 
     # same-shape shallow augmentation still rebinds (the intended use)
     aug = gi._edges.copy(deep=False)
     aug["__synthetic_id__"] = aug.index
-    reg4 = reg.rebind_edges(aug)
+    reg4 = reg.rebind_edges(aug, gi._edges)
     assert reg4.has(EDGE_OUT_ADJ) and reg4.has(EDGE_IN_ADJ)
 
 
@@ -1833,3 +1833,211 @@ class TestIndexAutoPreservesPolarsFrames:
         assert isinstance(gi._edges, pd.DataFrame)
         from graphistry.compute.gfql.index import show_indexes
         assert set(show_indexes(gi)["engine"]) == {"pandas"}
+
+
+# ---- #1913: a STALE adjacency index must not survive an .edges() rebind ---------------
+# Root cause: both chain executors attach a synthetic per-edge id column and then called
+# ``registry.rebind_edges()`` UNCONDITIONALLY. rebind_edges validated only the NEW frame's
+# structural fingerprint (row count + bound cols + engine), never that the index was still
+# live for the frame it was augmenting. So after an ordinary ``g.edges(other_frame)`` -- the
+# identity guard having ALREADY missed -- a same-row-count frame re-passed the structural
+# check and a CSR built over the OLD edges was re-marked valid for the NEW ones: silent
+# wrong answers on pandas and polars, including a plain ``df.sort_values`` permutation of
+# the SAME edge set. Shipped in 0.58.0 (9b121e4fb, 129d72cb4).
+#
+# The contract these pins hold: staleness is always MISS-TO-SCAN (correct, maybe slower),
+# never a re-pointed index -- while the intended win (the executor's own shallow
+# augmentation of a frame the index IS live for) keeps engaging.
+
+_I1913_NN = 4000
+_I1913_2HOP = [n({"id": 0}), e_forward(), n(), e_forward(), n()]
+_I1913_VARLEN = [n({"id": 0}), e_forward(min_hops=1, max_hops=3), n()]
+
+
+def _i1913_conv(df, engine):
+    if engine == "polars":
+        import polars as pl
+        return pl.from_pandas(df)
+    return df
+
+
+def _i1913_ids(g, ops, engine):
+    ids = g.gfql(ops, engine=engine)._nodes["id"]
+    return sorted(ids.to_list() if engine == "polars" else ids.tolist())
+
+
+def _i1913_frames(nn=_I1913_NN):
+    """A path graph 0->1->...->nn-1 (2-hop from 0 is unambiguous: [0, 1, 2])."""
+    ndf = pd.DataFrame({"id": list(range(nn))})
+    edf = pd.DataFrame({"s": list(range(nn - 1)), "d": list(range(1, nn))})
+    return ndf, edf
+
+
+def _i1913_indexed(ndf, edf, engine):
+    g = graphistry.nodes(_i1913_conv(ndf, engine), "id").edges(_i1913_conv(edf, engine), "s", "d")
+    return g.gfql_index_all(engine=engine)
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+@pytest.mark.parametrize("ops", [_I1913_2HOP, _I1913_VARLEN], ids=["two-hop", "var-length"])
+def test_rebind_to_different_values_does_not_resurrect_the_index(engine, ops):
+    """SAME row count, DIFFERENT edges: the reported silent-wrong repro. Multi-hop and
+    variable-length shapes both, since the single-hop seed never went through the rebind."""
+    ndf, edf = _i1913_frames()
+    rng = np.random.default_rng(0)
+    perm = rng.permutation(_I1913_NN)
+    other = pd.DataFrame({"s": perm[:-1], "d": perm[1:]})
+    assert len(other) == len(edf)
+
+    oracle = _i1913_ids(
+        graphistry.nodes(_i1913_conv(ndf, engine), "id").edges(_i1913_conv(other, engine), "s", "d"),
+        ops, engine)
+    gi = _i1913_indexed(ndf, edf, engine)
+    _i1913_ids(gi, ops, engine)  # warm: build + engage over the ORIGINAL edges
+    rebound = gi.edges(_i1913_conv(other, engine), "s", "d")
+    assert _i1913_ids(rebound, ops, engine) == oracle
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_rebind_to_a_row_permutation_does_not_resurrect_the_index(engine):
+    """``df.sort_values(...)`` is an ordinary user action and preserves the edge SET, so
+    every structural check passes -- yet the CSR's row positions are now meaningless."""
+    ndf, edf = _i1913_frames()
+    permuted = edf.sort_values("d", ascending=False).reset_index(drop=True)
+
+    oracle = _i1913_ids(
+        graphistry.nodes(_i1913_conv(ndf, engine), "id").edges(_i1913_conv(permuted, engine), "s", "d"),
+        _I1913_2HOP, engine)
+    assert oracle == [0, 1, 2]  # hand oracle: a permutation cannot change the answer
+    gi = _i1913_indexed(ndf, edf, engine)
+    _i1913_ids(gi, _I1913_2HOP, engine)
+    rebound = gi.edges(_i1913_conv(permuted, engine), "s", "d")
+    assert _i1913_ids(rebound, _I1913_2HOP, engine) == oracle
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_rebind_to_a_different_row_count_stays_correct(engine):
+    """The case the structural fingerprint already caught -- pinned so the #1913 guard
+    cannot be 'simplified' into dropping the row-count check it subsumes."""
+    ndf, edf = _i1913_frames()
+    fewer = edf.iloc[:-500].reset_index(drop=True)
+
+    oracle = _i1913_ids(
+        graphistry.nodes(_i1913_conv(ndf, engine), "id").edges(_i1913_conv(fewer, engine), "s", "d"),
+        _I1913_2HOP, engine)
+    gi = _i1913_indexed(ndf, edf, engine)
+    _i1913_ids(gi, _I1913_2HOP, engine)
+    assert _i1913_ids(gi.edges(_i1913_conv(fewer, engine), "s", "d"), _I1913_2HOP, engine) == oracle
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_shallow_augmentation_rebind_stays_correct(engine):
+    """``E.assign(w=...)`` / a deep copy preserve the src/dst values, so these were CORRECT
+    before the fix -- pinned so the guard cannot regress them into wrong answers either.
+
+    They are now served by the SCAN: a caller-supplied frame carries no promise that its
+    values were preserved, and no O(1) check can tell ``E.copy(deep=True)`` from a
+    same-shaped different edge set. Correctness first; the executor's own augmentation
+    (the case the optimization exists for) still engages -- see the engagement pin below.
+    """
+    ndf, edf = _i1913_frames()
+    for label, aug in (("assign", edf.assign(w=1)), ("deep-copy", edf.copy(deep=True))):
+        aug_e = _i1913_conv(aug, engine)
+        oracle = _i1913_ids(
+            graphistry.nodes(_i1913_conv(ndf, engine), "id").edges(aug_e, "s", "d"),
+            _I1913_2HOP, engine)
+        assert oracle == [0, 1, 2], label
+        gi = _i1913_indexed(ndf, edf, engine)
+        _i1913_ids(gi, _I1913_2HOP, engine)
+        assert _i1913_ids(gi.edges(aug_e, "s", "d"), _I1913_2HOP, engine) == oracle, label
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_i1913_guard_keeps_the_executor_rebind_engaging(typed_graph, engine):
+    """THE WIN THE GUARD MUST NOT COST: the chain's own synthetic-edge-id augmentation is
+    derived from a frame the index IS live for, so it still migrates and the seeded hop is
+    served from the index rather than an O(E) scan. Engagement, not just correctness --
+    a fix that disabled the index everywhere would 'pass' every correctness pin above.
+    (The GPU lanes of the same assertion are already carried by
+    ``test_chain_typed_edge_engages_index`` / ``test_chain_untyped_engages_index``.)"""
+    from graphistry.compute.gfql.index import index_trace
+
+    gi = typed_graph.gfql_index_all(engine=engine)
+    rep = gi.gfql_explain(_TYPED_CHAIN, index_policy="use", engine=engine)
+    assert rep["used_index"] is True, (engine, rep)
+    with index_trace() as steps:
+        gi.gfql(_TYPED_CHAIN, index_policy="use", engine=engine)
+    assert any(step["path"] == "index" for step in steps), (engine, steps)
+
+
+def test_rebind_edges_refuses_an_index_already_stale_for_the_augmented_frame():
+    """THE GAP the two older rebind tests miss: both start from an index that is ALREADY
+    VALID for the frame being augmented. Here the index is live for ``edf`` while the
+    frame handed over descends from ``other`` -- same row count, same columns, different
+    edges. The migration must refuse, and must not corrupt the entry it declined."""
+    from graphistry.Engine import Engine as _E
+    from graphistry.compute.gfql.index import get_registry
+    from graphistry.compute.gfql.index.registry import EDGE_IN_ADJ, EDGE_OUT_ADJ
+
+    rng = np.random.default_rng(4)
+    edf = pd.DataFrame({"src": rng.integers(0, 100, 500), "dst": rng.integers(0, 100, 500)})
+    other = pd.DataFrame({"src": rng.integers(0, 100, 500), "dst": rng.integers(0, 100, 500)})
+    ndf = pd.DataFrame({"id": np.arange(100)})
+    gi = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all(engine="pandas")
+    reg = get_registry(gi)
+
+    aug = other.copy(deep=False)          # exactly what the chain executor builds...
+    aug["__synthetic_id__"] = aug.index   # ...but from a frame the index never saw
+    reg2 = reg.rebind_edges(aug, other)
+    for kind in (EDGE_OUT_ADJ, EDGE_IN_ADJ):
+        assert reg2.get_valid(kind, aug, ("src", "dst"), _E.PANDAS) is None, kind
+        # left un-migrated rather than dropped: it still truthfully describes `edf`, so
+        # show_indexes/gfql_explain can report it as resident-and-stale, not absent
+        assert reg2.get_valid(kind, gi._edges, ("src", "dst"), _E.PANDAS) is not None, kind
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_documented_recovery_from_in_place_mutation(engine):
+    """The recovery matrix named in ``ComputeMixin.gfql``'s docstring, after in-place edits
+    to BOTH indexed columns (documented undefined behavior).
+
+    ``gfql_clear_caches()`` is asserted to NOT recover: it empties process-lifetime memos and
+    says so, while the index registry is graph-keyed state living on the Plottable. The
+    ``gfql()`` docstring used to name it as a recovery; it now names these three instead."""
+    import polars as pl
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    ndf, edf = _i1913_frames()
+    nf, ef = _i1913_conv(ndf, engine), _i1913_conv(edf, engine)
+    gi = graphistry.nodes(nf, "id").edges(ef, "s", "d").gfql_index_all(engine=engine)
+    _i1913_ids(gi, _I1913_2HOP, engine)  # warm
+
+    if engine == "pandas":
+        ef.loc[0, "d"] = 2000
+        ef.loc[1999, "s"] = 2000
+        ef.loc[1999, "d"] = 3000
+    else:
+        s, d = ef["s"].to_list(), ef["d"].to_list()
+        d[0] = 2000
+        s[1999] = 2000
+        d[1999] = 3000
+        ef.replace_column(ef.columns.index("s"), pl.Series("s", s))
+        ef.replace_column(ef.columns.index("d"), pl.Series("d", d))
+
+    mutated = ef.to_pandas() if engine == "polars" else ef.copy(deep=True)
+    oracle = _i1913_ids(
+        graphistry.nodes(_i1913_conv(ndf, engine), "id").edges(_i1913_conv(mutated, engine), "s", "d"),
+        _I1913_2HOP, engine)
+    assert oracle == [0, 2000, 2001, 3000]  # hand oracle for the rewired path
+
+    gfql_clear_caches()
+    assert _i1913_ids(gi, _I1913_2HOP, engine) != oracle, (
+        "gfql_clear_caches() is documented NOT to touch graph-keyed state; if it starts "
+        "clearing index registries, update BOTH docstrings and this pin together")
+
+    fresh = ef.clone() if engine == "polars" else ef.copy(deep=True)
+    assert _i1913_ids(gi.edges(fresh, "s", "d"), _I1913_2HOP, engine) == oracle
+    dropped = gi.drop_index("edge_out_adj").drop_index("edge_in_adj")
+    assert _i1913_ids(dropped, _I1913_2HOP, engine) == oracle
+    brand_new = graphistry.nodes(nf, "id").edges(ef, "s", "d")
+    assert _i1913_ids(brand_new, _I1913_2HOP, engine) == oracle

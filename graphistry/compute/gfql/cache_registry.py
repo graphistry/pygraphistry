@@ -83,12 +83,22 @@ def register_clearable_callable(name: str, clear: Callable[[], None]) -> None:
     _register(CacheEntry(name, clear, None))
 
 
+def register_exempt(name: str, reason: str) -> None:
+    """Exempt a discovered process-global by NAME, with the reason in writing.
+
+    For state the coverage lock finds but ``gfql_clear_caches`` must NOT empty --
+    deliberate process configuration, or this ledger itself. Named rather than
+    handed a callable because the thing being exempted is often a bare container.
+    """
+    if len(reason.split()) < 6:
+        raise ValueError(f"{name}: exemption reason is too thin to be a reason")
+    _register(CacheEntry(name, None, reason))
+
+
 def register_process_singleton(fn: _SupportsCacheClear, reason: str) -> None:
     """Exempt a maxsize=1, function-of-the-code cache, with the reason in writing."""
     fn_name = str(getattr(fn, "__name__", repr(fn)))
-    if len(reason.split()) < 6:
-        raise ValueError(f"{fn_name}: exemption reason is too thin to be a reason")
-    _register(CacheEntry(fn_name, None, reason))
+    register_exempt(fn_name, reason)
 
 
 def clear_all() -> None:
@@ -108,3 +118,10 @@ def entries() -> Dict[str, CacheEntry]:
     """Snapshot for the coverage lock test."""
     with _LOCK:
         return dict(_REGISTRY)
+
+
+# This ledger is itself module-level mutable state, so the widened coverage lock
+# discovers it (#1913). It is exempt by construction: clearing it would delete the
+# clear handles and turn gfql_clear_caches into the silent no-op this file exists
+# to prevent, and clear_all() already raises on an empty registry.
+register_exempt("_REGISTRY", "the cache ledger itself; emptying it would delete every clear handle and make gfql_clear_caches a silent no-op")

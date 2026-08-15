@@ -67,6 +67,11 @@ from graphistry.Engine import active_frames_are_polars as _active_frames_are_pol
 # construction a non-native eager analytic. Mirrors the GRAPHISTRY_CUDF_SAME_PATH_MODE auto/strict
 # precedent. (Follow-ups tracked in plan PHASE 12: G3 otel attribution, G4 queryable flag, G5 size guard.)
 _OFFENGINE_BRIDGE_WARNED: Set[str] = set()
+# Process-lifetime, keyed by caller input (the function name) -> CLEARABLE (#1913). A
+# warn-once ledger that cannot be emptied makes warning behavior order-dependent across
+# a session's queries, which is the same untestability that motivated the registry.
+from graphistry.compute.gfql.cache_registry import register_clearable_dict as _register_clearable_dict
+_register_clearable_dict("_OFFENGINE_BRIDGE_WARNED", _OFFENGINE_BRIDGE_WARNED)
 
 
 def _compute_engine_for_offengine_call(engine: Engine, function: str) -> Engine:

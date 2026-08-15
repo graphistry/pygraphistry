@@ -1044,6 +1044,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     g, _endpoint_restore = _align_edge_endpoints(g, g._node, g._source, g._destination)
     if g._edge is None:
         EID = "__gfql_edge_index__"
+        pre_index_edges = g._edges
         g = g.edges(g._edges.with_row_index(EID), g._source, g._destination, edge=EID)
         added_edge_index = True
         # with_row_index only PREPENDS a synthetic id column; the indexed src/dst are
@@ -1052,10 +1053,12 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         # chain executor (mirrors compute/chain.py — else the identity guard misses
         # and every hop falls back to the O(E) scan). Enables typed-edge chains on
         # polars/polars-gpu (untyped already engaged; the frame swap blocked typed).
+        # The frame we derived FROM is passed too, so an index that is already stale
+        # for it is dropped rather than laundered onto the copy (#1913).
         from graphistry.compute.gfql.index import get_registry, set_registry
         _reg = get_registry(g)
         if not _reg.is_empty():
-            g = set_registry(g, _reg.rebind_edges(g._edges))
+            g = set_registry(g, _reg.rebind_edges(g._edges, pre_index_edges))
     else:
         EID = g._edge
         added_edge_index = False

@@ -1209,6 +1209,7 @@ def _chain_impl(
             # with no O(E) data copy. The column is internal-only — dropped on
             # every exit path (see added_edge_index consumers below) — so only
             # uniqueness matters.
+            pre_index_edges_df = g._edges
             indexed_edges_df = g._edges.copy(deep=False)
             indexed_edges_df[GFQL_EDGE_INDEX] = indexed_edges_df.index
             g = g.edges(indexed_edges_df, edge=GFQL_EDGE_INDEX)
@@ -1216,11 +1217,14 @@ def _chain_impl(
             # src/dst columns are preserved by value. Re-point any resident #1658
             # adjacency index at the new edge frame so the seeded fast path still
             # engages through gfql()/Cypher chains (else the identity guard misses and
-            # every chain hop falls back to the O(E) scan).
+            # every chain hop falls back to the O(E) scan). The frame we derived FROM
+            # is passed too: rebind_edges migrates only an index that is still valid
+            # for it, so a user's own `.edges(other_frame)` cannot launder a stale
+            # index onto the augmented copy (#1913).
             from graphistry.compute.gfql.index import get_registry, set_registry
             _reg = get_registry(g)
             if not _reg.is_empty():
-                g = set_registry(g, _reg.rebind_edges(indexed_edges_df))
+                g = set_registry(g, _reg.rebind_edges(indexed_edges_df, pre_index_edges_df))
         else:
             added_edge_index = False
 
