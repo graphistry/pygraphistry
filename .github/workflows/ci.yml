@@ -233,7 +233,8 @@ jobs:
           '^pytest\.ini$' \
           '^mypy\.ini$' \
           '^bin/lint\.sh$' \
-          '^bin/typecheck\.sh$'
+          '^bin/typecheck\.sh$' \
+          '^bin/ci_.*baseline\.json$'
 
         # GFQL core + tests.
         emit gfql \
