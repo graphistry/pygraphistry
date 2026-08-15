@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, 
 
 #: Cypher's two numeric kinds; a Literal so a typo'd branch is a type error, not a silent miss.
 CypherNumericKind = Literal["int", "float"]
-from typing_extensions import Literal
 
 import pandas as pd
 from graphistry.Engine import (
