@@ -3556,6 +3556,23 @@ class RowPipelineMixin:
             return candidate_nodes
         return candidate_nodes[candidate_nodes[label_col].fillna(False).astype(bool)].copy()
 
+    @staticmethod
+    def _gfql_drop_reused_relationship_rows(frame: DataFrameT, trail_cols: Sequence[str]) -> DataFrameT:
+        """Keep only rows whose newly bound relationship is not already on the path.
+
+        One combined mask and ONE slice, so the frame is copied once per hop rather
+        than once per already-bound relationship.
+        """
+        if not trail_cols or len(frame) == 0:
+            return frame
+        ident = frame[TRAIL_EDGE_IDENT_COL]
+        keep = None
+        for used_col in trail_cols:
+            used = frame[used_col]
+            unused = ident.ne(used) | used.isna()
+            keep = unused if keep is None else (keep & unused)
+        return frame if keep is None else frame[keep]
+
     def _gfql_multihop_binding_rows(
         self,
         state_df: Any,
@@ -3604,11 +3621,9 @@ class RowPipelineMixin:
                 exhausted = True
                 break
             if trail_tracking:
-                for used_col in outer_trail_cols + segment_trail_cols:
-                    if len(current) == 0:
-                        break
-                    keep = current[TRAIL_EDGE_IDENT_COL].ne(current[used_col]) | current[used_col].isna()
-                    current = current[keep]
+                current = RowPipelineMixin._gfql_drop_reused_relationship_rows(
+                    current, outer_trail_cols + segment_trail_cols
+                )
                 if len(current) == 0:
                     exhausted = True
                     break
@@ -3957,11 +3972,7 @@ class RowPipelineMixin:
                 state_df = state_df.merge(oriented, left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner")
                 state_df = state_df.drop(columns=[WALK_CURRENT_COL, WALK_FROM_COL]).rename(columns={WALK_TO_COL: WALK_CURRENT_COL})
                 if not shortest_path_mode and TRAIL_EDGE_IDENT_COL in state_df.columns:
-                    for trail_col in trail_cols:
-                        if len(state_df) == 0:
-                            break
-                        keep = state_df[TRAIL_EDGE_IDENT_COL].ne(state_df[trail_col]) | state_df[trail_col].isna()
-                        state_df = state_df[keep]
+                    state_df = RowPipelineMixin._gfql_drop_reused_relationship_rows(state_df, trail_cols)
                     new_trail_col = trail_column_name(len(trail_cols))
                     state_df = state_df.rename(columns={TRAIL_EDGE_IDENT_COL: new_trail_col})
                     trail_cols = trail_cols + [new_trail_col]
