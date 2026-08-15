@@ -97,8 +97,6 @@ def hop(self: Plottable,
     """
     Given a graph and some source nodes, return subgraph of all paths within k-hops from the sources
 
-    This can be faster than the equivalent chain([...]) call that wraps it with additional steps
-
     See chain() examples for examples of many of the parameters
 
     g: Plotter
@@ -133,11 +131,8 @@ def hop(self: Plottable,
     from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
     self = _coerce_input_formats(self, engine_concrete)
 
-    # GFQL physical index fast path (pay-as-you-go). When a resident adjacency
-    # index covers this seeded traversal and the planner deems it profitable, run
-    # the O(degree) CSR gather instead of the O(E) scan below. Engine-uniform;
-    # returns None to fall back. Coercion above is a no-op when already in-engine,
-    # so the index fingerprint (keyed on the live edge frame) still matches.
+    # GFQL physical index path; returns None to fall back. Coercion above is a no-op when already
+    # in-engine, so the index fingerprint (keyed on the live edge frame) still matches.
     from graphistry.compute.gfql.index import get_index_policy, get_registry, maybe_index_hop
     from graphistry.compute.gfql.index.types import HopDirection
     _idx_policy = get_index_policy(self)
@@ -293,12 +288,8 @@ def hop(self: Plottable,
 
         GFQL_EDGE_INDEX = generate_safe_column_name('edge_index', pre_indexed_edges, prefix='__gfql_', suffix='__')
 
-        # Attach the synthetic per-edge id WITHOUT copying edge data (#1670):
-        # reset_index(drop=False) + rename deep-copied + block-consolidated the
-        # whole (post-filter) edge frame (~80ms @2M edges) on every hop — the
-        # traversal hot path. A shallow copy + assigning the index as a column
-        # gives identical id values (used only as a dedup/join key, never
-        # positionally) with no O(E) copy. Mirrors the chain.py edge-index attach.
+        # Shallow-copy edge-id attach (#1670): ids are a dedup/join key only, never used
+        # positionally. Mirrors the chain.py edge-index attach.
         edges_indexed = pre_indexed_edges.copy(deep=False)
         edges_indexed[GFQL_EDGE_INDEX] = edges_indexed.index
         EDGE_ID = GFQL_EDGE_INDEX
@@ -1032,6 +1023,12 @@ def hop(self: Plottable,
     if g_out._edges is not None and len(g_out._edges) > 0 and g_out._nodes is not None:
         unbacked_endpoints = _endpoint_ids_without_node_rows(g_out, concat)
         nodes_out = g_out._nodes
+        if (track_node_hops and node_hop_records is not None and node_hop_col is not None
+                and node_hop_col not in nodes_out.columns):
+            # The concat below used to attach this column as a side effect whenever there were
+            # edges; it now runs only when an id is genuinely unbacked. Readers downstream (the
+            # output-window node filter) assume it exists, so attach it unconditionally here.
+            nodes_out = nodes_out.assign(**{node_hop_col: float('nan')})
         if len(unbacked_endpoints) > 0:
             if track_node_hops and node_hop_records is not None and node_hop_col is not None:
                 unbacked_endpoints = safe_merge(
@@ -1114,8 +1111,17 @@ def hop(self: Plottable,
         and node_col in starting_nodes.columns
         and node_hop_col is not None
     ):
+        def _ensure_node_hop_col() -> None:
+            # The endpoint concat used to leave this column behind; it now runs only when an id
+            # is genuinely unbacked. Assigning through .loc creates it implicitly on pandas but
+            # RAISES on cudf, so materialize it right before each write, on every engine.
+            assert node_hop_col is not None and g_out._nodes is not None
+            if node_hop_col not in g_out._nodes.columns:
+                g_out._nodes = g_out._nodes.assign(**{node_hop_col: float('nan')})
+
         seed_mask_all = g_out._nodes[node_col].isin(starting_nodes[node_col])
         if direction == 'undirected':
+            _ensure_node_hop_col()
             g_out._nodes.loc[seed_mask_all, node_hop_col] = s_na(engine_concrete)
         else:
             seen_nodes_series = node_hop_records[node_col].dropna()
@@ -1124,6 +1130,7 @@ def hop(self: Plottable,
             unreached_seed_ids = seed_ids_series[unreached_mask]
             if len(unreached_seed_ids) > 0:
                 mask = g_out._nodes[node_col].isin(unreached_seed_ids)
+                _ensure_node_hop_col()
                 g_out._nodes.loc[mask, node_hop_col] = s_na(engine_concrete)
             if (
                 direction in ('forward', 'reverse')
@@ -1136,6 +1143,7 @@ def hop(self: Plottable,
                     g_out._edges[endpoint_col].isin(seed_ids_series)
                 ][[endpoint_col, edge_hop_col]].rename(columns={endpoint_col: node_col})
                 if len(seed_endpoint_hops) > 0:
+                    _ensure_node_hop_col()
                     seed_endpoint_hop_map = seed_endpoint_hops.groupby(node_col)[edge_hop_col].min()
                     seed_reached_mask = g_out._nodes[node_col].isin(seed_ids_series)
                     seed_node_ids = g_out._nodes[node_col]

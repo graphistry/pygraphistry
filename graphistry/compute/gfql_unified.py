@@ -7,7 +7,7 @@ import re
 import threading
 import pandas as pd
 from types import MappingProxyType
-from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, TYPE_CHECKING, Union, cast
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, is_polars_df, is_series_like, resolve_engine, series_to_pylist
 from graphistry.util import setup_logger
@@ -146,6 +146,13 @@ def _apply_empty_result_row(
     return out
 
 
+def _slice_rows(rows_df: DataFrameT, start: int, stop: int) -> DataFrameT:
+    """Positional half-open row slice ``[start, stop)``, engine-dispatched."""
+    if is_polars_df(rows_df):
+        return rows_df.slice(start, stop - start)
+    return rows_df.iloc[start:stop]
+
+
 def _projector_recorded_matched_seed_ids(
     alignment_result: Plottable,
     alignment_output_name: str,
@@ -247,11 +254,7 @@ def _apply_optional_null_fill(
                     suggestion="Retry with a simpler OPTIONAL MATCH projection shape in the local compiler.",
                     language="cypher",
                 )
-            segments.append(
-                rows_df.iloc[group_start:matched_idx]
-                if hasattr(rows_df, "iloc")
-                else rows_df.slice(group_start, matched_idx - group_start)
-            )
+            segments.append(_slice_rows(rows_df, group_start, matched_idx))
         else:
             segments.append(fill_df)
     if matched_idx != len(matched_id_list):
@@ -1032,6 +1035,31 @@ def _run_logical_pass_pipeline(logical_plan: LogicalPlan, ctx: PlanContext) -> L
     return PassManager(DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES).run(logical_plan, ctx).plan
 
 
+if TYPE_CHECKING:
+    from graphistry.compute.gfql.lazy import ExecutionTarget
+
+
+def _policied_auto_serves_via_pandas_until_the_polars_route_emits_hooks(
+    engine: Union[EngineAbstract, str],
+    policy: Optional[Dict[str, PolicyFunction]],
+    g: Plottable,
+) -> bool:
+    """Transitional: the polars route does not emit the postload/postchain policy hooks yet."""
+    return (
+        (engine == EngineAbstract.AUTO or engine == EngineAbstract.AUTO.value)
+        and policy is not None
+        and resolve_engine(EngineAbstract.AUTO, g) == Engine.POLARS
+    )
+
+
+def _fast_path_execution_target_ignoring_requested_engine(
+    engine: Union[EngineAbstract, Engine, str],
+) -> "ExecutionTarget":
+    """Not GPU until every fast-path arm is GPU-or-decline (#1824)."""
+    from graphistry.compute.gfql.lazy import ExecutionTarget
+    return ExecutionTarget.CPU
+
+
 def _execute_compiled_query_via_physical_plan(
     base_graph: Plottable,
     *,
@@ -1070,10 +1098,7 @@ def _execute_compiled_query_via_physical_plan(
         # paths, and it cannot be bypassed the way patching a directly-imported name is.
         from graphistry.compute.gfql.index.api import record_fast_path_decision
         from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
-        # Fast paths run before the chain route establishes the execution target, so they
-        # serve on CPU even under engine='polars-gpu'. Do not flip this to GPU without
-        # making each fast-path arm GPU-or-decline (#1824).
-        _fp_target = ExecutionTarget.CPU
+        _fp_target = _fast_path_execution_target_ignoring_requested_engine(engine)
 
         _FastPathName = Literal["single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop"]
 
@@ -1083,8 +1108,6 @@ def _execute_compiled_query_via_physical_plan(
                     out = run()
                 reason = "served" if out is not None else "declined; caller falls back"
             except NotImplementedError:
-                # ONLY the GPU target's plan-not-executable NIE is a decline; on
-                # CPU an NIE is a real error and must surface, not be swallowed.
                 if _fp_target != ExecutionTarget.GPU:
                     raise
                 out = None
@@ -1224,11 +1247,13 @@ def _execute_compiled_query_chain_non_union(
             empty_result_row=compiled_query.empty_result_row,
         )
     if compiled_query.result_projection is not None:
-        # The OPTIONAL row-guard consumes a single-column entity value, not the
-        # flattened columns the other two paths emit.
-        structured_projection = compiled_query.optional_projection_row_guard is None
+        row_guard_needs_single_column_entity_text = (
+            compiled_query.optional_projection_row_guard is not None
+        )
         result = apply_result_projection(
-            result, compiled_query.result_projection, structured=structured_projection
+            result,
+            compiled_query.result_projection,
+            structured=not row_guard_needs_single_column_entity_text,
         )
     if compiled_query.optional_projection_row_guard is not None:
         expected_rows = 1
@@ -1555,17 +1580,19 @@ def _carried_output_sources(compiled_query: CompiledCypherQuery) -> CarriedOutpu
 
 
 def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery) -> Dict[str, CypherEmptyGroupValue]:
-    """Cypher empty-group values for aggregate outputs of an optional-reentry suffix.
-
-    An unmatched prefix row contributes one null-extended row, so aggregates
-    over suffix-bound sources take their empty-group value (count -> 0,
-    sum -> 0, collect -> []) and count(*) sees the row itself (-> 1).
-    Aggregates whose source traces to a carried scalar or the carried seed
-    alias cannot be answered statically here and stay NULL.
-    """
+    """Cypher empty-group value per aggregate output on an unmatched prefix row's null-extended row."""
     plan = compiled_query.reentry_plan
-    carried = set(plan.scalar_columns) if plan is not None else set()
+    carried_scalar_columns = set(plan.scalar_columns) if plan is not None else set()
     reentry_alias = plan.reentry_alias_name if plan is not None else None
+
+    def source_is_carried_rather_than_suffix_bound(source: str) -> bool:
+        base = source.split(".", 1)[0]
+        return (
+            is_reentry_hidden_column_reference(source)
+            or base in carried_scalar_columns
+            or base == reentry_alias
+        )
+
     ops = list(compiled_query.chain.chain) if compiled_query.chain is not None else []
     with_map: Dict[str, object] = {}
     fills: Dict[str, CypherEmptyGroupValue] = {}
@@ -1590,12 +1617,7 @@ def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery)
                 source: object = with_map.get(expr, expr) if isinstance(expr, str) else expr
                 if not isinstance(source, str):
                     continue
-                base = source.split(".", 1)[0]
-                if (
-                    is_reentry_hidden_column_reference(source)
-                    or base in carried
-                    or base == reentry_alias
-                ):
+                if source_is_carried_rather_than_suffix_bound(source):
                     continue
                 if func in CYPHER_ZERO_EMPTY_GROUP_AGGREGATIONS:
                     fills[alias] = 0
@@ -1657,7 +1679,7 @@ def _gfql_otel_attrs(
     policy: Optional[Dict[str, PolicyFunction]] = None,
     where: Optional[Sequence[WhereComparison]] = None,
     language: Optional[Literal["cypher", "gremlin"]] = None,
-    params: Optional[Mapping[str, Any]] = None,
+    params: Optional[CypherParams] = None,
 ) -> Dict[str, Any]:
     if isinstance(query, dict):
         query_type = "chain" if "chain" in query else "dag"
@@ -1764,7 +1786,7 @@ def _compile_cache_value_key(value: Any) -> Optional[Any]:
     return None
 
 
-def _compile_cache_params_key(params: Optional[Mapping[str, Any]]) -> Optional[Tuple[Tuple[str, Any], ...]]:
+def _compile_cache_params_key(params: Optional[CypherParams]) -> Optional[Tuple[Tuple[str, Any], ...]]:
     if not params:
         return ()
     items = []
@@ -1830,7 +1852,7 @@ def _compile_string_query(
     query: str,
     *,
     language: Optional[Literal["cypher", "gremlin"]],
-    params: Optional[Mapping[str, Any]],
+    params: Optional[CypherParams],
     engine_key: str,
     node_dtypes: Optional[NodeDtypes] = None,
 ) -> Any:
@@ -1909,7 +1931,7 @@ def _compiler_phase_for_error(exc: GFQLValidationError) -> str:
 def _compile_summary(
     *,
     query_language: str,
-    params: Optional[Mapping[str, Any]],
+    params: Optional[CypherParams],
     exc: Optional[GFQLValidationError] = None,
 ) -> CompileSummary:
     if exc is None:
@@ -2002,7 +2024,7 @@ def _fire_postcompile_policy(
     policy_depth: int,
     execution_depth: int,
     operation_path: str,
-    params: Optional[Mapping[str, Any]],
+    params: Optional[CypherParams],
 ) -> None:
     if not policy or "postcompile" not in policy:
         return
@@ -2089,7 +2111,7 @@ def _auto_cudf_polars_gpu_route(
     output: Optional[str],
     where: Optional[Sequence[WhereComparison]],
     language: Optional[Literal["cypher", "gremlin"]],
-    params: Optional[Mapping[str, Any]],
+    params: Optional[CypherParams],
     validate: bool,
     shortest_path_backend: str,
 ) -> Plottable:
@@ -2139,16 +2161,7 @@ def gfql(self: Plottable,
     :returns: Resulting Plottable
     :rtype: Plottable
     """
-    # TRANSITIONAL, not a contract: policy hooks must fire exactly once on whatever engine
-    # serves, and the polars route does not yet emit postload/postchain -- so a policied
-    # AUTO serves via pandas. Delete once the polars route emits them. The predicate must
-    # stay resolve_engine itself: a frame-shape check here let mixed frames bypass a
-    # denying policy.
-    if (
-        (engine == EngineAbstract.AUTO or engine == EngineAbstract.AUTO.value)
-        and policy is not None
-        and resolve_engine(EngineAbstract.AUTO, self) == Engine.POLARS
-    ):
+    if _policied_auto_serves_via_pandas_until_the_polars_route_emits_hooks(engine, policy, self):
         engine = Engine.PANDAS.value
 
     if (
@@ -2163,9 +2176,6 @@ def gfql(self: Plottable,
                 shortest_path_backend=shortest_path_backend,
             )
         except NotImplementedError:
-            # pandas explicitly, not AUTO: the generic path would re-resolve these frames
-            # to POLARS and re-raise the same NIE. Coerce first -- the pandas executors
-            # are pandas-idiom and do not accept polars frames.
             logger.debug('AUTO polars-native attempt declined; serving via pandas')
             from graphistry.compute.ComputeMixin import _coerce_input_formats
             return gfql(
