@@ -46,6 +46,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_conformance_ledger.py
     graphistry/tests/compute/gfql/test_polars_nan_clean.py
     graphistry/tests/compute/gfql/test_optional_match_polars_frames.py
+    graphistry/tests/compute/gfql/test_optional_match_semantics.py
+    graphistry/tests/compute/gfql/test_hop_semantics_pins.py
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
     graphistry/tests/compute/gfql/test_seeded_typed_hop_fastpath.py
     graphistry/tests/compute/gfql/test_residual_polars_native.py
@@ -54,6 +56,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_single_alias_cache_key.py
     graphistry/tests/compute/gfql/test_semi_join_key_frame.py
     graphistry/tests/compute/gfql/test_fast_path_engagement.py
+    graphistry/tests/compute/gfql/test_known_cross_engine_divergences.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_fused_polars.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_lowcard_count.py
     # module-level `importorskip("polars")` files that previously ran in no lane at all
@@ -77,6 +80,7 @@ POLARS_TEST_FILES=(
     # engine-agnostic frame/series primitives (graphistry/Engine.py) — the polars branches of
     # these dispatch helpers are only measured when this lane covers graphistry (see cov widen below)
     graphistry/tests/test_engine_frame_helpers.py
+    graphistry/tests/test_public_apis_do_not_mutate_inputs.py
 )
 
 # PARALLELISM. The py3.12 cell of this lane is the coverage cell and has repeatedly run out

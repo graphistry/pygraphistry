@@ -1,0 +1,418 @@
+"""Round-003 OPTIONAL MATCH semantics pins (#1891).
+
+openCypher contract: OPTIONAL MATCH keeps every row produced by the preceding
+clauses; rows whose optional pattern finds no match are KEPT with the optional
+aliases bound to NULL (left-join semantics, never inner-join).
+
+Every expected value in this file is HAND-COMPUTED against that contract on
+the shared fixture below. Cross-engine agreement is NOT evidence of
+correctness here: every wrong-value shape pinned as a strict xfail is
+engine-AGREEING (pandas and polars return the same wrong answer), which is
+exactly why parity suites never saw them (#1891).
+
+Layout:
+- strict xfail pins -- silent-wrong / bare-crash shapes; flipping one = fixing
+  that #1891 instance (adjust, don't delete)
+- green pins -- hand-verified-correct bright spots that must not regress
+- gate-or-keep-seeds sweep -- every seed+OPTIONAL projection shape must either
+  raise a typed gate / honest NotImplementedError or keep unmatched seeds, so
+  FUTURE gate-bypass shapes fail the suite the day they appear
+- message audit -- typed gates must not assert falsehoods about the query
+
+Provenance: plans/gfql-release-amplification/rounds/round-003/findings/agent-01/
+(probe_matrix.py + cells.jsonl in the plans repo; 88 hand-scored cells).
+"""
+import json
+import math
+
+import pandas as pd
+import pytest
+
+import graphistry
+from graphistry.compute.exceptions import GFQLValidationError
+
+try:
+    import polars as pl
+    HAS_POLARS = True
+except ImportError:
+    HAS_POLARS = False
+
+polars_only = pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
+
+ENGINES = ["pandas", pytest.param("polars", marks=polars_only)]
+
+
+# ---------------------------------------------------------------- fixture
+# persons: 0 alice(score 5), 1 bob(9), 2 carol(7), 3 <null-name>(2)
+# things:  10 t1(v=100), 11 t2(v=200), 12 t3(v=300)
+# edges: alice-L->t1, alice-L->t2, bob-H->t1, alice-K->bob, carol-K->noname, t1-X->t3
+def _nodes_pd() -> pd.DataFrame:
+    return pd.DataFrame({
+        "id":    [0, 1, 2, 3, 10, 11, 12],
+        "kind":  ["person"] * 4 + ["thing"] * 3,
+        "name":  ["alice", "bob", "carol", None, "t1", "t2", "t3"],
+        "score": [5, 9, 7, 2, None, None, None],
+        "v":     [None, None, None, None, 100, 200, 300],
+        "label__Person": [True] * 4 + [False] * 3,
+        "label__Thing":  [False] * 4 + [True] * 3,
+    })
+
+
+def _edges_pd() -> pd.DataFrame:
+    return pd.DataFrame({
+        "s": [0, 0, 1, 0, 2, 10],
+        "d": [10, 11, 10, 1, 3, 12],
+        "t": ["L", "L", "H", "K", "K", "X"],
+    })
+
+
+def _run(query: str, engine: str, edges=None) -> pd.DataFrame:
+    nodes = _nodes_pd()
+    if edges is None:
+        edges = _edges_pd()
+    if engine == "polars":
+        g = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
+    else:
+        g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    out = g.gfql(query, engine=engine)._nodes
+    if hasattr(out, "to_pandas"):
+        out = out.to_pandas()
+    return out.reset_index(drop=True)
+
+
+def _scalar(x):
+    """Engine-neutral scalar: None==NaN, ints not floats, lists sorted."""
+    if x is None:
+        return None
+    if isinstance(x, float) and math.isnan(x):
+        return None
+    if isinstance(x, float) and x.is_integer():
+        return int(x)
+    if hasattr(x, "item"):
+        try:
+            return _scalar(x.item())
+        except (ValueError, AttributeError):
+            pass
+    if isinstance(x, (list, tuple)) or type(x).__name__ == "ndarray":
+        return sorted((_scalar(i) for i in x), key=lambda z: (z is None, str(z)))
+    return x
+
+
+def _key(rec):
+    return json.dumps(rec, sort_keys=True, default=str)
+
+
+def _records(df: pd.DataFrame, ordered: bool = False):
+    recs = [{k: _scalar(v) for k, v in r.items()} for r in df.to_dict("records")]
+    return recs if ordered else sorted(recs, key=_key)
+
+
+def _assert_rows(df: pd.DataFrame, expected, ordered: bool = False) -> None:
+    got = _records(df, ordered=ordered)
+    exp = expected if ordered else sorted(expected, key=_key)
+    assert got == exp, f"got {got}, expected {exp}"
+
+
+# ===========================================================================
+# A. Strict xfail pins: silent-wrong / bare-crash shapes (#1891)
+# ===========================================================================
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.xfail(strict=True, reason="#1891: seed-gate bypass -- ungrouped count(*) inner-joins (2, not 5)")
+def test_optional_match_seed_ungrouped_count_star_counts_null_rows(engine):
+    """B8: the discriminating probe -- grouped shapes can pass by luck, an
+    ungrouped count(*) cannot. 5 rows = alice x2 + 3 null-extended seeds."""
+    q = ("MATCH (p {kind:'person'}) OPTIONAL MATCH (p)-[{t:'L'}]->(x) "
+         "RETURN count(*) AS c")
+    _assert_rows(_run(q, engine), [{"c": 5}])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.xfail(strict=True, reason="#1891: seed-gate bypass -- zero-match arm + count(x) returns an EMPTY frame")
+def test_optional_match_seed_zero_arm_aggregate_keeps_all_seeds(engine):
+    """B3: every seed row must survive a fully-unmatched arm with c=0."""
+    q = ("MATCH (p {kind:'person'}) OPTIONAL MATCH (p)-[{t:'NOPE'}]->(x) "
+         "RETURN p.name AS n, count(x) AS c")
+    _assert_rows(_run(q, engine), [
+        {"n": "alice", "c": 0}, {"n": "bob", "c": 0},
+        {"n": "carol", "c": 0}, {"n": None, "c": 0},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.xfail(strict=True, reason="#1891: seed-gate bypass is NOT aggregate-specific -- alias-only projection drops null rows")
+def test_optional_match_alias_only_projection_null_extends(engine):
+    """B10: plain `RETURN x.v` (no aggregate) also sails past the seed gate
+    (plan.source_alias is x, not the seed) and inner-joins to [100, 200]."""
+    q = ("MATCH (p {kind:'person'}) OPTIONAL MATCH (p)-[{t:'L'}]->(x) "
+         "RETURN x.v AS v")
+    _assert_rows(_run(q, engine), [
+        {"v": 100}, {"v": 200}, {"v": None}, {"v": None}, {"v": None},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("proj,expected", [
+    ("sum(x.v) AS a",
+     [{"n": "alice", "a": 300}, {"n": "bob", "a": 0},
+      {"n": "carol", "a": 0}, {"n": None, "a": 0}]),
+    ("count(*) AS a",
+     [{"n": "alice", "a": 2}, {"n": "bob", "a": 1},
+      {"n": "carol", "a": 1}, {"n": None, "a": 1}]),
+], ids=["sum_zero_for_unmatched", "count_star_one_for_unmatched"])
+@pytest.mark.xfail(strict=True, reason="#1891: seed-gate bypass -- grouped sum/count(*) drop unmatched seeds")
+def test_optional_match_seed_sum_and_count_star_grouped(proj, expected, engine):
+    """B4 + B6: unmatched seeds keep their group row -- sum()=0, count(*)=1."""
+    q = ("MATCH (p {kind:'person'}) OPTIONAL MATCH (p)-[{t:'L'}]->(x) "
+         "RETURN p.name AS n, " + proj)
+    _assert_rows(_run(q, engine), expected)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.xfail(strict=True, reason="#1891: WITH-prefix + zero-match arm nulls EVERY carried seed property")
+def test_with_prefix_optional_zero_arm_keeps_carried_props(engine):
+    """E6: row count is right (4) and every value is wrong (all-null rows) --
+    so the pin compares the FULL record set, not the count."""
+    q = ("MATCH (p {kind:'person'}) WITH p OPTIONAL MATCH (p)-[{t:'NOPE'}]->(x) "
+         "RETURN p.name AS n, x.v AS v")
+    _assert_rows(_run(q, engine), [
+        {"n": "alice", "v": None}, {"n": "bob", "v": None},
+        {"n": "carol", "v": None}, {"n": None, "v": None},
+    ])
+
+
+@polars_only
+@pytest.mark.xfail(strict=True, raises=NotImplementedError,
+                   reason="#1891: polars optional-arm support is DATA-dependent -- same query flips ANSWER -> NIE on an empty arm")
+def test_polars_optional_zero_arm_same_answer_as_matched_arm():
+    """F-03: identical query text, only the data changes (bob's H edge
+    removed). 'Runs natively on polars' must be a property of the QUERY --
+    production queries die the day an optional arm comes back empty."""
+    q = ("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'H'}]->(x) "
+         "RETURN p.name AS n, x.v AS v")
+    # arm-matching data: polars answers correctly today (green, CN1)
+    _assert_rows(_run(q, "polars"), [{"n": "bob", "v": 100}, {"n": None, "v": None}])
+    # arm-empty data: today NotImplementedError "cypher row op 'select'"
+    edges = _edges_pd()
+    edges = edges[~((edges["s"] == 1) & (edges["t"] == "H"))].reset_index(drop=True)
+    _assert_rows(_run(q, "polars", edges=edges),
+                 [{"n": "bob", "v": None}, {"n": None, "v": None}])
+
+
+@polars_only
+@pytest.mark.xfail(strict=True, reason="#1891: nested optional over an empty mid arm -- bare polars SchemaError (Null-typed join key)")
+def test_polars_nested_optional_zero_mid_arm_no_bare_crash():
+    """H2: pins the CONTRACT (polars matches the pandas oracle), so it xfails
+    on today's raw polars.exceptions.SchemaError -- a raw internal, not even an
+    honest decline. The oracle itself is asserted (hand-verified correct)."""
+    q = ("MATCH (m {kind:'person'})-[{t:'K'}]->(p) "
+         "OPTIONAL MATCH (p)-[{t:'NOPE'}]->(x) OPTIONAL MATCH (x)-[{t:'X'}]->(z) "
+         "RETURN p.name AS n, x.v AS xv, z.v AS zv")
+    expected = [{"n": "bob", "xv": None, "zv": None},
+                {"n": None, "xv": None, "zv": None}]
+    oracle = _run(q, "pandas")
+    _assert_rows(oracle, expected)  # pandas side is a bright spot; keep it honest
+    _assert_rows(_run(q, "polars"), expected)
+
+
+@pytest.mark.parametrize("seed_filter", ["{kind:'person'}", "{name:'alice'}"],
+                         ids=["four_row_prefix", "single_row_prefix"])
+@pytest.mark.xfail(strict=True, raises=KeyError,
+                   reason="#1891: WITH-carried scalar + aggregate after OPTIONAL re-entry raises raw KeyError 's' on pandas")
+def test_with_carried_scalar_aggregate_after_optional_reentry(seed_filter):
+    """F-04/E5: the aggregate projection rebuild recomputes group keys from the
+    match frame, which no longer carries the WITH scalar. The single-row-prefix
+    variant pins that the bug is the aggregate rebuild, NOT the N>1 prefix
+    guard (that guard never gets a say for aggregate shapes)."""
+    q = ("MATCH (p " + seed_filter + ") WITH p, p.score AS s "
+         "OPTIONAL MATCH (p)-[{t:'L'}]->(x) RETURN s, count(x) AS c")
+    expected = ([{"s": 5, "c": 2}] if seed_filter == "{name:'alice'}" else
+                [{"s": 5, "c": 2}, {"s": 9, "c": 0}, {"s": 7, "c": 0}, {"s": 2, "c": 0}])
+    _assert_rows(_run(q, "pandas"), expected)
+
+
+# ===========================================================================
+# B. Green pins: hand-verified-correct bright spots
+# ===========================================================================
+
+
+def _parity_or_nie(q: str, engine: str, expected) -> None:
+    """Green-pin helper for shapes polars currently declines honestly: pandas
+    must match the hand-computed answer; polars must either match it or raise
+    a clean NotImplementedError (parity-or-error contract) -- a future
+    silent-wrong polars route cannot land unseen."""
+    if engine == "polars":
+        try:
+            out = _run(q, "polars")
+        except NotImplementedError:
+            return
+        _assert_rows(out, expected)
+    else:
+        _assert_rows(_run(q, engine), expected)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_optional_match_first_clause_zero_match_yields_null_row(engine):
+    """A1 + A4: OPTIONAL MATCH as the first clause; zero matches yield one
+    null row, and count(x) over it is 0 -- both engines."""
+    _assert_rows(_run("OPTIONAL MATCH (a {kind:'zzz'}) RETURN a.name AS n", engine),
+                 [{"n": None}])
+    _assert_rows(_run("OPTIONAL MATCH (a)-[{t:'NOPE'}]->(x) RETURN count(x) AS c", engine),
+                 [{"c": 0}])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_optional_match_where_inside_keeps_null_extended_rows(engine):
+    """C1 + C4: WHERE inside the optional clause filters MATCHES but keeps the
+    rows null-extended (openCypher), including WHERE on the seed alias only.
+    pandas is the oracle; polars is pinned parity-or-NotImplementedError."""
+    expected = [{"n": "bob", "v": None}, {"n": None, "v": None}]
+    _parity_or_nie(
+        "MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'H'}]->(x) "
+        "WHERE x.v > 150 RETURN p.name AS n, x.v AS v", engine, expected)
+    _parity_or_nie(
+        "MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'H'}]->(x) "
+        "WHERE p.score > 20 RETURN p.name AS n, x.v AS v", engine, expected)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_optional_match_two_arms_from_single_node_seed_left_joins(engine):
+    """D2, full 5-record compare, both engines. THE D2 PARADOX: this two-arm
+    single-node-seed shape is answered correctly, while its one-arm twin (B1)
+    is gate-blocked as unsupported -- so the null-extension mechanism the gate
+    claims missing demonstrably exists. A gate relaxation must flip the B1
+    gate pin (in the sweep below / section-A pins), never this test."""
+    q = ("MATCH (p {kind:'person'}) "
+         "OPTIONAL MATCH (p)-[{t:'H'}]->(x) OPTIONAL MATCH (p)-[{t:'L'}]->(y) "
+         "RETURN p.name AS n, x.v AS xv, y.v AS yv")
+    _assert_rows(_run(q, engine), [
+        {"n": "alice", "xv": None, "yv": 100}, {"n": "alice", "xv": None, "yv": 200},
+        {"n": "bob", "xv": 100, "yv": None}, {"n": "carol", "xv": None, "yv": None},
+        {"n": None, "xv": None, "yv": None},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_optional_match_order_by_null_placement(engine):
+    """F1 + F2: ORDER BY an optional prop -- nulls last ASC, nulls first DESC
+    (openCypher null placement), ordered compare, both engines."""
+    base = ("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'H'}]->(x) "
+            "RETURN p.id AS pid, x.v AS v ORDER BY v")
+    _assert_rows(_run(base, engine),
+                 [{"pid": 1, "v": 100}, {"pid": 3, "v": None}], ordered=True)
+    _assert_rows(_run(base + " DESC", engine),
+                 [{"pid": 3, "v": None}, {"pid": 1, "v": 100}], ordered=True)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_optional_match_nested_arm_and_label_arm_matched(engine):
+    """H1 + L1: nested optionality from an optional alias, and a label on the
+    optional alias -- matched-arm data, both engines."""
+    _assert_rows(_run(
+        "MATCH (m {kind:'person'})-[{t:'K'}]->(p) "
+        "OPTIONAL MATCH (p)-[{t:'H'}]->(x) OPTIONAL MATCH (x)-[{t:'X'}]->(z) "
+        "RETURN p.name AS n, x.v AS xv, z.v AS zv", engine), [
+        {"n": "bob", "xv": 100, "zv": 300}, {"n": None, "xv": None, "zv": None},
+    ])
+    _assert_rows(_run(
+        "MATCH (m:Person)-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'H'}]->(x:Thing) "
+        "RETURN p.name AS n, x.v AS v", engine), [
+        {"n": "bob", "v": 100}, {"n": None, "v": None},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_with_carried_scalar_props_after_optional_reentry(engine):
+    """F-04 control: scalar WITH carry + optional PROPS projection is a correct
+    5-row left join with the scalar carried -- protects the working half while
+    the aggregate half (xfail above) is fixed. polars: parity-or-NIE."""
+    q = ("MATCH (p {kind:'person'}) WITH p, p.score AS s "
+         "OPTIONAL MATCH (p)-[{t:'L'}]->(x) RETURN s, x.v AS v")
+    _parity_or_nie(q, engine, [
+        {"s": 5, "v": 100}, {"s": 5, "v": 200},
+        {"s": 9, "v": None}, {"s": 7, "v": None}, {"s": 2, "v": None},
+    ])
+
+
+# ===========================================================================
+# C. Gate-or-keep-seeds invariant sweep (the anti-blindness test)
+# ===========================================================================
+# Template: MATCH (p {kind:'person'}) OPTIONAL MATCH (p)-[{t:'L'}]->(x)
+# RETURN <proj> (+ WITH-prefix variants). Invariant: the outcome is EITHER a
+# typed GFQLValidationError / honest NotImplementedError OR an answer that
+# still reflects the unmatched seeds -- never a silent inner-join. Future
+# bypass shapes fail this suite the day they appear, without a hand-check.
+# Currently-bypassing cells enter as strict-xfail params sharing the #1891
+# reason with the section-A pins.
+
+
+def _has_bob_row(recs):
+    return any(r.get("n") == "bob" for r in recs)
+
+
+_SEED_Q = "MATCH (p {kind:'person'}) OPTIONAL MATCH (p)-[{t:'L'}]->(x) RETURN "
+_WITH_Q = "MATCH (p {kind:'person'}) WITH p OPTIONAL MATCH (p)-[{t:'L'}]->(x) RETURN "
+_BYPASS = pytest.mark.xfail(strict=True, reason="#1891: seed-gate bypass -- silent inner-join (see section-A pins)")
+
+SWEEP_CASES = [
+    # gate fires today (typed) -- green invariant params
+    pytest.param(_SEED_Q + "p.name AS n, x.v AS v", _has_bob_row, id="props"),
+    pytest.param(_SEED_Q + "p.name AS n, collect(x.v) AS vs", _has_bob_row, id="collect"),
+    pytest.param(_SEED_Q + "DISTINCT p.name AS n", _has_bob_row, id="distinct_seed"),
+    # gate bypassed today (silent inner-join) -- strict-xfail params
+    pytest.param(_SEED_Q + "p.name AS n, count(x) AS c", _has_bob_row,
+                 id="count", marks=_BYPASS),
+    pytest.param(_SEED_Q + "p.name AS n, sum(x.v) AS a", _has_bob_row,
+                 id="sum", marks=_BYPASS),
+    pytest.param(_SEED_Q + "p.name AS n, count(*) AS c", _has_bob_row,
+                 id="count_star_grouped", marks=_BYPASS),
+    pytest.param(_SEED_Q + "count(*) AS c",
+                 lambda recs: recs == [{"c": 5}],
+                 id="count_star_ungrouped", marks=_BYPASS),
+    pytest.param(_SEED_Q + "x.v AS v",
+                 lambda recs: sum(1 for r in recs if r.get("v") is None) == 3,
+                 id="alias_only", marks=_BYPASS),
+    pytest.param(_WITH_Q + "p.name AS n, x.v AS v", _has_bob_row,
+                 id="with_prefix_props", marks=_BYPASS),
+    pytest.param(_WITH_Q + "p.name AS n, count(x) AS c",
+                 lambda recs: {"n": "bob", "c": 0} in recs,
+                 id="with_prefix_count", marks=_BYPASS),
+]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query,seeds_kept", SWEEP_CASES)
+def test_optional_match_seed_shapes_gate_or_keep_seeds(query, seeds_kept, engine):
+    try:
+        out = _run(query, engine)
+    except GFQLValidationError:
+        return  # typed gate: acceptable ("not yet supported" beats silent-wrong)
+    except NotImplementedError:
+        return  # honest engine decline: acceptable (parity-or-error by design)
+    recs = _records(out)
+    assert seeds_kept(recs), f"unmatched seeds silently dropped (inner-join): {recs}"
+
+
+# ===========================================================================
+# D. Message audit: typed gates must describe the query they reject (F-05)
+# ===========================================================================
+
+
+@pytest.mark.xfail(strict=True, reason="#1891: gate message claims the aggregate 'must be top-level' when it IS a top-level RETURN projection")
+def test_optional_match_gate_messages_describe_the_query():
+    """Typed gates are the good outcome, but their messages must not assert
+    falsehoods: gates re-raise whichever pre-existing _unsupported message the
+    failing lowering phase owns, so the text tracks the code path, not the
+    query. Land the flip together with the message fix."""
+    # connected seed + count(x): the aggregate IS a top-level RETURN projection
+    with pytest.raises(GFQLValidationError) as agg_err:
+        _run("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'H'}]->(x) "
+             "RETURN p.name AS n, count(x) AS c", "pandas")
+    assert "must be top-level" not in str(agg_err.value), str(agg_err.value)
+    # canonical anti-join: suggesting plain MATCH would CHANGE semantics
+    # (an anti-join can never be expressed with non-optional MATCH)
+    with pytest.raises(GFQLValidationError) as anti_err:
+        _run("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'L'}]->(x) "
+             "WITH p, x WHERE x IS NULL RETURN p.name AS n", "pandas")
+    assert "Use MATCH instead of OPTIONAL MATCH" not in str(anti_err.value)

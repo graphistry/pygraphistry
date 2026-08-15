@@ -38,6 +38,28 @@ REENTRY_DUPLICATE_CARRIED_ROWS_REASON = "duplicate_carried_node_rows"
 from graphistry.Engine import is_polars_df as _is_polars_df
 
 
+def _serving_engine_base_graph(base_graph: Plottable, engine: Union[EngineAbstract, str]) -> Plottable:
+    """Align the base graph to the SERVING engine before re-entry joins/guards run.
+
+    Re-entry joins carried rows (built on the serving engine) against the base tables through
+    eagerness-blind helpers (``ordered_left_join``/``safe_merge``) and a frame-SHAPE NIE guard
+    below — without this, polars frames under an explicit ``engine='pandas'`` raise the NIE
+    whose own suggestion is ``engine='pandas'``. Lazy polars inputs are collected too (#1740
+    class: this route bypasses the chain-entry eagerness normalization)."""
+    from graphistry.compute.ComputeMixin import _coerce_input_formats
+    abstract = EngineAbstract(engine) if isinstance(engine, str) else engine
+    g = _coerce_input_formats(base_graph, resolve_engine(abstract, base_graph))
+    if g._nodes is not None and _is_polars_df(g._nodes):
+        from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
+        if is_lazy(g._nodes):
+            g = g.nodes(g._nodes.collect(), g._node)
+    if g._edges is not None and _is_polars_df(g._edges):
+        from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
+        if is_lazy(g._edges):
+            g = g.edges(g._edges.collect(), g._source, g._destination)
+    return g
+
+
 def _bind_reentry_graph(graph: Plottable, node_rows: Optional[DataFrameT], *, empty_edges: bool = False) -> Plottable:
     out = graph.bind()
     out._nodes = node_rows
@@ -204,6 +226,7 @@ def compiled_query_reentry_state(
             value=plan.reentry_alias_name,
             suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
         )
+    base_graph = _serving_engine_base_graph(base_graph, engine)
     output_name = plan.reentry_alias_name
     carried_columns = tuple(plan.scalar_columns)
     prefix_rows = cast(Optional[DataFrameT], prefix_result._nodes)

@@ -753,7 +753,13 @@ class ComputeMixin(Plottable):
             'force' (always probe the index). Also accepts index DDL strings
             (``CREATE GFQL INDEX ...``) / wire ops as the query — routed to the
             index registry. See :meth:`create_index` and :doc:`gfql/index_adjacency`.
-    """
+    
+
+        Bound frames are treated as IMMUTABLE (like any engine with indexes):
+        mutating a bound frame in place is undefined behavior for caches,
+        indexes, and results. After mutating, rebind fresh frames or call
+        ``graphistry.compute.gfql_unified.gfql_clear_caches()``.
+        """
 
     def gfql_explain(
         self,

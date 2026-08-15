@@ -6,7 +6,7 @@ from dataclasses import replace
 import threading
 import pandas as pd
 from types import MappingProxyType
-from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, is_polars_df, resolve_engine, series_to_pylist
 from graphistry.util import setup_logger
@@ -1025,24 +1025,50 @@ def _execute_compiled_query_via_physical_plan(
         # this is where the decision is consumed, it is one place instead of N return
         # paths, and it cannot be bypassed the way patching a directly-imported name is.
         from graphistry.compute.gfql.index.api import record_fast_path_decision
-        fast_grouped = _execute_single_hop_grouped_aggregate_fast_path(base_graph, compiled_query.chain, engine=engine)
-        record_fast_path_decision(
-            path="single_hop_grouped_aggregate", engine=engine, served=fast_grouped is not None,
-            reason="served" if fast_grouped is not None else "declined; caller falls back")
+        from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
+        # Fast paths run BEFORE the chain route, which is where the execution
+        # target is established -- so engine='polars-gpu' serves fast-path work
+        # on CPU (#1824: eager arms never collect, and dgx measured 86 polars-gpu
+        # tests green only via that mislabel). The target stays CPU here until
+        # the fast paths are made GPU-or-decline arm by arm (#1824, next cycle);
+        # the collect routing + NIE-decline plumbing below is already in place
+        # and is a no-op on the CPU target. Flip to ExecutionTarget.GPU on
+        # POLARS_GPU resolutions only together with the per-arm decline work.
+        _fp_target = ExecutionTarget.CPU
+
+        _FastPathName = Literal["single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop"]
+
+        def _try_fast(path_name: _FastPathName, run: Callable[[], Optional[Plottable]]) -> Optional[Plottable]:
+            try:
+                with target_mode(_fp_target):
+                    out = run()
+                reason = "served" if out is not None else "declined; caller falls back"
+            except NotImplementedError:
+                # ONLY the GPU target's plan-not-executable NIE is a decline; on
+                # CPU an NIE is a real error and must surface, not be swallowed.
+                if _fp_target != ExecutionTarget.GPU:
+                    raise
+                out = None
+                reason = "declined; plan not GPU-executable, chain route answers"
+            record_fast_path_decision(
+                path=path_name, engine=engine, served=out is not None, reason=reason)
+            return out
+
+        fast_grouped = _try_fast(
+            "single_hop_grouped_aggregate",
+            lambda: _execute_single_hop_grouped_aggregate_fast_path(base_graph, compiled_query.chain, engine=engine))
         if fast_grouped is not None:
             return fast_grouped
-        fast_count = _execute_two_hop_count_fast_path(base_graph, compiled_query.chain, engine=engine)
-        record_fast_path_decision(
-            path="two_hop_count", engine=engine, served=fast_count is not None,
-            reason="served" if fast_count is not None else "declined; caller falls back")
+        fast_count = _try_fast(
+            "two_hop_count",
+            lambda: _execute_two_hop_count_fast_path(base_graph, compiled_query.chain, engine=engine))
         if fast_count is not None:
             return fast_count
-        fast_hop = _execute_seeded_typed_hop_fast_path(
-            base_graph, compiled_query, physical_plan,
-            engine=engine, policy=policy, context=context, start_nodes=start_nodes)
-        record_fast_path_decision(
-            path="seeded_typed_hop", engine=engine, served=fast_hop is not None,
-            reason="served" if fast_hop is not None else "declined; caller falls back")
+        fast_hop = _try_fast(
+            "seeded_typed_hop",
+            lambda: _execute_seeded_typed_hop_fast_path(
+                base_graph, compiled_query, physical_plan,
+                engine=engine, policy=policy, context=context, start_nodes=start_nodes))
         if fast_hop is not None:
             return fast_hop
         return _execute_compiled_query_chain_non_union(
@@ -1985,10 +2011,16 @@ def gfql(self: Plottable,
             )
         except NotImplementedError:
             # AUTO must answer: pandas explicitly, since the generic path would
-            # re-resolve these frames to POLARS and re-raise the same NIE.
+            # re-resolve these frames to POLARS and re-raise the same NIE. The
+            # frames must be COERCED first -- the pandas executors are
+            # pandas-idiom, and handing them polars frames crashed 7/7 same-path
+            # projection shapes on the default route (round-002 agent-03 BUG-2;
+            # #1885 was one corner of it).
             logger.debug('AUTO polars-native attempt declined; serving via pandas')
+            from graphistry.compute.ComputeMixin import _coerce_input_formats
             return gfql(
-                self, query, engine=Engine.PANDAS.value, output=output, policy=policy,
+                _coerce_input_formats(self, Engine.PANDAS), query,
+                engine=Engine.PANDAS.value, output=output, policy=policy,
                 where=where, language=language, params=params, validate=validate,
                 shortest_path_backend=shortest_path_backend,
             )

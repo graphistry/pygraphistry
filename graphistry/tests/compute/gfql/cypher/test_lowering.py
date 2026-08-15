@@ -17136,17 +17136,28 @@ def test_t2_two_hop_count_fast_path_empty_count_returns_zero() -> None:
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
-def test_t5_two_hop_equal_domain_degree_cache_reuses_counts(engine: str) -> None:
+def test_t5_two_hop_count_recovers_via_clear_caches_after_mutation_1825(engine: str) -> None:
+    """#1825 under the bound-frame immutability contract: in-place mutation is
+    UB, and the SUPPORTED recovery recipe (gfql_clear_caches) must restore a
+    fresh answer -- which the old memo made impossible (setattr'd onto the
+    caller keyed by id(): unregistered, unflushable, the BLOCKER-1 pattern this
+    file forbids). STRING ids on purpose: dense-integer-id graphs are served by
+    the dense kernel before the degree-counts path, so an int-id fixture cannot
+    catch a regression here (a false "fixed").
+
+    Per-caller setattr channels stay forbidden (they evade clear_caches);
+    cross-call reuse belongs to REGISTERED caches or the fingerprint-validated
+    index layer."""
     if engine == "polars":
         pytest.importorskip("polars")
     nodes = pd.DataFrame({
-        "id": [0, 1, 2, 3],
-        "node_type": ["Person", "Person", "Person", "City"],
+        "id": ["n0", "n1", "n2", "n3", "n9"],
+        "node_type": ["Person", "Person", "Person", "Person", "City"],
     })
     edges = pd.DataFrame({
-        "s": [0, 0, 1, 1, 2, 2, 3],
-        "d": [1, 1, 2, 3, 0, 3, 0],
-        "rel": ["FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "LIKES", "FOLLOWS"],
+        "s": ["n0", "n1", "n1"],
+        "d": ["n1", "n2", "n3"],
+        "rel": ["FOLLOWS", "FOLLOWS", "FOLLOWS"],
     })
     query = (
         "MATCH (a {node_type:'Person'})-[{rel:'FOLLOWS'}]->(b {node_type:'Person'})"
@@ -17158,18 +17169,16 @@ def test_t5_two_hop_equal_domain_degree_cache_reuses_counts(engine: str) -> None
 
     first = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
     assert first is not None
-    assert _to_pandas_df(first._nodes).to_dict(orient="records") == [{"numPaths": 5}]
+    assert _to_pandas_df(first._nodes).to_dict(orient="records") == [{"numPaths": 2}]
 
-    cache = getattr(graph, "_gfql_two_hop_equal_domain_degree_counts_cache")
-    assert isinstance(cache, dict)
-    assert len(cache) == 1
-    cached_counts = next(iter(cache.values()))
-
+    edges.loc[1, "rel"] = "BLOCKS"  # in-place mutation: contract violation...
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+    gfql_clear_caches()  # ...and the supported recovery recipe
     second = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
     assert second is not None
-    assert _to_pandas_df(second._nodes).to_dict(orient="records") == [{"numPaths": 5}]
-    assert len(cache) == 1
-    assert next(iter(cache.values())) is cached_counts
+    assert _to_pandas_df(second._nodes).to_dict(orient="records") == [{"numPaths": 1}], (
+        "stale count after mutation + gfql_clear_caches -- an UNREGISTERED memo is back")
+    assert getattr(graph, "_gfql_two_hop_equal_domain_degree_counts_cache", None) is None
 
 
 # ---------------------------------------------------------------------------
@@ -17209,7 +17218,7 @@ def _t6_dense_frames() -> Tuple[pd.DataFrame, pd.DataFrame]:
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
-def test_t6_dense_domain_kernel_serves_equal_domain_count_and_skips_memo(
+def test_t6_dense_domain_kernel_serves_equal_domain_count_and_skips_semi_join(
     engine: str, monkeypatch: Any
 ) -> None:
     if engine == "polars":
@@ -17217,13 +17226,13 @@ def test_t6_dense_domain_kernel_serves_equal_domain_count_and_skips_memo(
     graph = _mk_graph(*_t6_dense_frames())
     compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
 
-    # LANE PIN: when the dense kernel serves, the memoized degree-count path is
+    # LANE PIN: when the dense kernel serves, the semi-join degree-count path is
     # never entered -- prove it by making that path explode.
     def _boom(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("dense kernel must serve this shape; memo path was entered")
+        raise AssertionError("dense kernel must serve this shape; degree-count path was entered")
 
     monkeypatch.setattr(
-        gfql_fast_paths_module, "_two_hop_cached_equal_domain_degree_counts", _boom
+        gfql_fast_paths_module, "_two_hop_equal_domain_degree_counts", _boom
     )
     result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
     assert result is not None
@@ -18365,10 +18374,10 @@ def test_t6_per_type_request_raises_when_unusable() -> None:
         graph.gfql_index_col_stats(node_type_column="not_a_column")
 
 
-def test_t6_decline_keeps_memo_path_reachable() -> None:
-    # The T5 memo graph has an out-of-domain FOLLOWS endpoint (a City), so the
-    # dense kernel must DECLINE there and the memo must populate exactly as before
-    # (T5 pins the reuse; this pins the reachability under the new seam).
+def test_t6_decline_keeps_degree_count_path_reachable(monkeypatch: Any) -> None:
+    # This graph has an out-of-domain FOLLOWS endpoint (a City), so the dense
+    # kernel must DECLINE and the semi-join degree-count path must answer --
+    # reachability pinned by a spy, no cross-call state involved (#1825).
     nodes = pd.DataFrame({
         "id": [0, 1, 2, 3],
         "node_type": ["Person", "Person", "Person", "City"],
@@ -18380,12 +18389,18 @@ def test_t6_decline_keeps_memo_path_reachable() -> None:
     })
     graph = _mk_graph(nodes, edges)
     compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+    calls: List[int] = []
+    real = gfql_fast_paths_module._two_hop_equal_domain_degree_counts
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_two_hop_equal_domain_degree_counts", spy)
     result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine="pandas")
     assert result is not None
     assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 5}]
-    assert isinstance(
-        getattr(graph, "_gfql_two_hop_equal_domain_degree_counts_cache", None), dict
-    )
+    assert calls, "degree-count path was not reached on the dense-kernel decline"
 
 
 # ---------------------------------------------------------------------------
@@ -18830,8 +18845,8 @@ def test_h3_fused_two_hop_count_serves_distinct_edge_domains(engine: str, monkey
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_h3_fused_two_hop_count_never_reached_by_equal_domain_shape(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """EQUAL-DOMAIN NO-REGRESSION GUARD (structural). The equal-domain shape is served by the
-    memoized degree-count branch; routing it through the fused lane would trade a cross-call
-    cache hit for a replan. Assert the fused lane is not even CALLED."""
+    dense kernel or the semi-join degree-count branch, both cheaper than the fused lane's
+    replan. Assert the fused lane is not even CALLED."""
     nodes, edges = _mk_h3_base_data()
     oracle = _h3_records(_mk_graph(nodes, edges).gfql(_H3_EQUAL_DOMAIN_QUERY, engine="pandas"))
     graph = _mk_h3_graph(engine, nodes, edges)
@@ -18843,29 +18858,23 @@ def test_h3_fused_two_hop_count_never_reached_by_equal_domain_shape(engine: str,
     assert _h3_records(result) == oracle == [{"numPaths": 7}]
 
 
-_H3_DEGREE_MEMO_ATTR = "_gfql_two_hop_equal_domain_degree_counts_cache"
-
-
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
-def test_h3_equal_domain_two_hop_count_memo_miss_matches_memo_hit(engine: str) -> None:
-    """The equal-domain degree counts are memoized on the Plottable, so a FIRST call runs a
-    different branch (compute the two degree frames) than every later call on the same frames
-    (read them back). Both branches are pinned here rather than assumed: engagement is asserted
-    via the memo attribute (absent before, one entry after), and the memo-MISS answer, the
-    memo-HIT answer and a never-warmed Plottable's answer must all equal the pandas oracle.
+def test_h3_equal_domain_two_hop_count_repeat_matches_one_shot(engine: str) -> None:
+    """Repeated calls on one Plottable, and a never-reused Plottable, must all
+    equal the pandas oracle -- there is no cross-call memo to diverge them
+    (#1825 removed it: warm == one-shot is now an identity, pinned anyway so a
+    reintroduced memo has to face this test).
 
-    The base graph's Person ids are relabeled with a GAP (4 -> 6) so the T6 dense-domain
-    kernel provably declines (interval != id set) and the memoized degree-count lane -- the
-    lane this test pins -- is actually the one that answers. Same topology, same count."""
+    The base graph's Person ids are relabeled with a GAP (4 -> 6) so the T6
+    dense-domain kernel provably declines and the semi-join degree-count lane
+    is the one that answers."""
     nodes, edges = _mk_h3_base_data()
     nodes = nodes.assign(id=nodes["id"].replace(4, 6))
     edges = edges.assign(s=edges["s"].replace(4, 6), d=edges["d"].replace(4, 6))
     oracle = _h3_records(_mk_graph(nodes, edges).gfql(_H3_EQUAL_DOMAIN_QUERY, engine="pandas"))
 
     graph = _mk_h3_graph(engine, nodes, edges)
-    assert not getattr(graph, _H3_DEGREE_MEMO_ATTR, None), "memo must start empty"
     cold = _h3_records(graph.gfql(_H3_EQUAL_DOMAIN_QUERY, engine=engine))
-    assert len(getattr(graph, _H3_DEGREE_MEMO_ATTR, {}) or {}) == 1, "memo lane was not reached"
     warm = _h3_records(graph.gfql(_H3_EQUAL_DOMAIN_QUERY, engine=engine))
 
     unwarmed = _mk_h3_graph(engine, nodes, edges)

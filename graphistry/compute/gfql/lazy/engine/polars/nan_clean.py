@@ -23,24 +23,29 @@ if TYPE_CHECKING:
 # frame every call) from O(E)-per-call into O(1) after the first check — the dominant
 # per-call cost for polars/polars-gpu seeded traversal on float-column (i.e. real) graphs.
 #
-# Soundness contract: frames handed to GFQL must not be mutated in place afterwards.
-# polars DOES expose in-place mutation (``extend``, ``replace_column``, ``insert_column``,
-# ``hstack(in_place=True)``) that keeps ``id()`` stable — a caller injecting NaN through
-# those after a hop would get a stale "clean" verdict. This is the same implicit contract
-# the pandas-input paths already rely on (``pl.from_pandas(nan_to_null=True)`` snapshots
-# at entry); typical GFQL usage rebinds frames rather than mutating them. Thread-safety:
-# set.add/discard are atomic under the GIL and eviction-vs-insert races can only lose a
-# cache entry, never fabricate one — worst case a redundant re-probe, never a stale hit.
-_PL_NAN_CLEAN_IDS: Set[int] = set()
+# BOUND-FRAME IMMUTABILITY CONTRACT (owner decision, 2026-08-13): frames handed
+# to GFQL are treated as immutable, like any engine with indexes -- that is what
+# makes verdict/index/fact reuse sound. Mutating a bound frame in place
+# (pandas .loc, polars extend/replace_column/insert_column/hstack(in_place=True))
+# is undefined behavior for caches and results; the supported recipe after
+# mutation is REBIND (g.nodes(df)/g.edges(df)) or gfql_clear_caches(). This
+# cache is REGISTERED so that recipe actually works -- the pre-#1883 version was
+# invisible to gfql_clear_caches and the completeness lock, which is what turned
+# a contract violation into an unflushable wrong answer.
+_PL_NAN_CLEAN_CACHE_IDS: Set[int] = set()
 
 
 def _mark_pl_nan_clean(df: "pl.DataFrame") -> None:
     key = id(df)
-    _PL_NAN_CLEAN_IDS.add(key)
+    _PL_NAN_CLEAN_CACHE_IDS.add(key)
     try:
-        weakref.finalize(df, _PL_NAN_CLEAN_IDS.discard, key)
+        weakref.finalize(df, _PL_NAN_CLEAN_CACHE_IDS.discard, key)
     except TypeError:  # pragma: no cover - pl.DataFrame is weakref-able; guard anyway
-        _PL_NAN_CLEAN_IDS.discard(key)  # can't track lifetime -> don't cache (stay correct)
+        _PL_NAN_CLEAN_CACHE_IDS.discard(key)  # can't track lifetime -> don't cache (stay correct)
+
+
+from graphistry.compute.gfql.cache_registry import register_clearable_dict as _register_clearable
+_register_clearable("_PL_NAN_CLEAN_CACHE_IDS", _PL_NAN_CLEAN_CACHE_IDS)
 
 
 def _pl_nan_to_null(df: "PolarsFrame") -> "PolarsFrame":
@@ -58,12 +63,11 @@ def _pl_nan_to_null(df: "PolarsFrame") -> "PolarsFrame":
     oracle (which skipna/dropna's NaN). No-op when there are no float columns.
 
     Identity-stable + O(1)-repeat: an eager DataFrame is probed once for real NaN
-    (``is_nan().any()`` per float column). A frame verified clean is returned UNCHANGED
-    (same object) and its id is cached so subsequent calls skip the O(E) probe entirely;
-    only columns that genuinely carry NaN are rewritten (values identical to the old
-    unconditional ``fill_nan`` — it never touches non-NaN cells). This restores the #1726
-    identity guard (reverted by #1731) AND removes the per-call O(E) re-scan that made
-    polars/polars-gpu seeded Search grow with edge count (see plans/gfql-benchmark-numbers)."""
+    (``is_nan().any()`` per float column); a clean frame is returned UNCHANGED
+    (same object) and its verdict cached (sound under the immutability contract
+    above; ``gfql_clear_caches()`` flushes it). Only columns that genuinely carry
+    NaN are rewritten -- values identical to the old unconditional ``fill_nan``.
+    Frames without float columns short-circuit before any probe."""
     import polars as pl
     # collect_schema(): resolves the LazyFrame schema without a PerformanceWarning
     # (LazyFrame.schema is deprecated for that); on eager DataFrames .schema is free.
@@ -72,7 +76,7 @@ def _pl_nan_to_null(df: "PolarsFrame") -> "PolarsFrame":
     if not float_cols:
         return df
     if isinstance(df, pl.DataFrame):
-        if id(df) in _PL_NAN_CLEAN_IDS:
+        if id(df) in _PL_NAN_CLEAN_CACHE_IDS:
             return df
         nan_cols = [c for c in float_cols if df.get_column(c).is_nan().any()]
         if not nan_cols:

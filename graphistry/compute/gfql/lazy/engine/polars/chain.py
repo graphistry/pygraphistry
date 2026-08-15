@@ -724,6 +724,16 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
     from graphistry.compute.ast import ASTCall
     from graphistry.compute.chain import Chain, _get_boundary_calls
 
+    # Normalize input eagerness ONCE: LazyFrame is an accepted INPUT format, but
+    # the traversal mixes user frames with eager wavefronts at many joins, and
+    # polars joins do not mix eagerness (#1740 -- fixing seams one by one left
+    # the varlen and multi-hop undirected shapes crashing). The chain re-lazifies
+    # internally where plans benefit; results are eager either way.
+    if self._nodes is not None and is_lazy(self._nodes):
+        self = self.nodes(self._nodes.collect(), self._node)
+    if self._edges is not None and is_lazy(self._edges):
+        self = self.edges(self._edges.collect(), self._source, self._destination)
+
     if isinstance(ops, Chain):
         ops = ops.chain
     ops = list(ops)

@@ -95,6 +95,7 @@ from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
 from graphistry.compute.gfql.search_any import search_any_mask
 from graphistry.compute.typing import DataFrameT, SeriesT, NodeDtypes
+from graphistry.compute.gfql.lazy import collect as _lazy_collect, collect_all as _lazy_collect_all
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
@@ -243,7 +244,7 @@ def _filter_project(
         lf = frame.lazy()  # engine seam: polars frame rides DataFrameT
         if expr is not None:
             lf = lf.filter(expr)
-        return cast(DataFrameT, lf.select(list(project)).collect())
+        return cast(DataFrameT, _lazy_collect(lf.select(list(project))))
     if project is None:
         return filter_by_dict(frame, match, engine=EngineAbstract(engine.value))
     if not match:
@@ -540,60 +541,41 @@ def _connected_join_cached_second_arm_group_rows(  # pragma: no cover - polars-o
     return cast(DataFrameT, right_rows)
 
 
-def _two_hop_cached_equal_domain_degree_counts(
-    base_graph: Plottable,
-    nodes_obj: DataFrameT,
-    edges_obj: DataFrameT,
+def _two_hop_equal_domain_degree_counts(
     domain_nodes: DataFrameT,
     edge_domain: DataFrameT,
     *,
-    node_match: Optional[dict],
-    edge_match: Optional[dict],
     node_col: str,
     src_col: str,
     dst_col: str,
     engine: Engine,
-) -> Optional[Tuple[DataFrameT, DataFrameT]]:
-    node_key = _connected_join_simple_filter_cache_key(node_match)
-    edge_key = _connected_join_simple_filter_cache_key(edge_match)
-    if node_key is None or edge_key is None:
-        return None
+) -> Tuple[DataFrameT, DataFrameT]:
+    """In/out degree frames over the equal-domain filtered edges, per engine.
 
-    cache_attr = "_gfql_two_hop_equal_domain_degree_counts_cache"
-    cache = getattr(base_graph, cache_attr, None)
-    if not isinstance(cache, dict):
-        cache = {}
-        try:
-            setattr(base_graph, cache_attr, cache)
-        except Exception:
-            cache = None
-    full_key = (id(nodes_obj), id(edges_obj), engine.value, node_col, src_col, dst_col, node_key, edge_key)
-    if cache is not None and full_key in cache:
-        return cast(Tuple[DataFrameT, DataFrameT], cache[full_key])
-
-    # Declared ONCE so neither arm needs a call-site ``cast``: the polars arm produces
-    # ``pl.DataFrame`` and the pandas/cuDF arm produces ``pd.DataFrame``, and ``DataFrameT`` is
-    # pinned to pandas at checking time (graphistry/compute/typing.py). One localized ignore on
-    # the polars assignment replaces four casts; the values are untouched either way.
+    PURE -- no memo. A cross-call memo here was #1825: setattr onto the caller's
+    Plottable keyed by id(), which returns a STALE answer after an in-place frame
+    mutation (the BLOCKER-1 pattern this file forbids). Cross-call reuse belongs
+    in the DECLARED index layer (gfql_index_all's degree facts), whose
+    identity+fingerprint contract invalidates on rebind and reshape; in-place
+    CONTENT edits under a declared index are the documented immutability
+    assumption, not something any fingerprint detects.
+    """
     counts: Tuple[DataFrameT, DataFrameT]
     if engine in POLARS_ENGINES:
         import polars as pl
-        # MEMO-MISS lane: ONE lazy plan for both degree arms. Eagerly this materialized the
-        # whole filtered edge frame (every edge column attached) and grouped it twice; lazily
-        # polars pushes the src/dst projection into the semi-joins and shares the filtered
-        # sub-plan across the two collects. Same algebra, same values -- and the memo HIT
-        # above returns before reaching here, so a warm call is byte-for-byte unaffected.
+        # ONE lazy plan for both degree arms: polars pushes the src/dst projection
+        # into the semi-joins and shares the filtered sub-plan across the collects.
         domain_ids = domain_nodes.lazy().select(node_col).unique()
         filtered_edges = (
             edge_domain.lazy()
             .join(domain_ids, left_on=src_col, right_on=node_col, how="semi")
             .join(domain_ids, left_on=dst_col, right_on=node_col, how="semi")
         )
-        in_counts, out_counts = pl.collect_all([
+        in_counts, out_counts = _lazy_collect_all([
             filtered_edges.group_by(dst_col).len("__in_count__"),
             filtered_edges.group_by(src_col).len("__out_count__"),
         ])
-        counts = (in_counts, out_counts)  # polars frames; DataFrameT pins pandas
+        counts = (in_counts, out_counts)  # type: ignore[assignment]  # polars frames; DataFrameT pins pandas
     else:
         domain_ids = domain_nodes[node_col].drop_duplicates()
         filtered_edges = edge_domain[edge_domain[src_col].isin(domain_ids) & edge_domain[dst_col].isin(domain_ids)]
@@ -601,9 +583,6 @@ def _two_hop_cached_equal_domain_degree_counts(
             filtered_edges.groupby(dst_col, sort=False).size().reset_index(name="__in_count__"),
             filtered_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__"),
         )
-
-    if cache is not None:
-        cache[full_key] = counts
     return counts
 
 
@@ -885,12 +864,12 @@ def _connected_join_two_star_fused_polars(
             out_lf = out_lf.head(limit_value)
         if select_items is not None:
             out_lf = out_lf.select([pl.col(s_col).alias(d_col) for s_col, d_col in select_items])
-        out_df = out_lf.collect()
+        out_df = _lazy_collect(out_lf)
         if len(out_df) == 0:
             # 0x0 frame, matching the eager generic branch (pinned).
             out_df = out_df.select([])
     else:
-        joined = joined_lf.collect()
+        joined = _lazy_collect(joined_lf)
         if len(joined) == 0:
             # Empty-match parity probe: eager-lane left counts (WITH the shared-domain
             # restriction) decide n=0 single-row vs 0x0 frame (pinned).
@@ -901,7 +880,7 @@ def _connected_join_two_star_fused_polars(
                     .join(shared_ids_lf, left_on=src_col, right_on=node_col, how="semi")
                     .group_by(src_col)
                     .len("__left_count__")
-                    .collect()
+                    .pipe(_lazy_collect)
                 )
                 emit_zero_row = (
                     len(left_counts_df) > 0
@@ -1602,8 +1581,9 @@ def _two_hop_count_fused_polars(
     degree-count arms, 1 degree-product sum) as ONE lazy plan lets polars push the
     src/dst projection into the semi-joins and collect once.
 
-    NOT a GPU change: like the eager twin (and like the fused two-star lane), this
-    collects on CPU polars for both POLARS and POLARS_GPU.
+    Collects on the ACTIVE execution target (#1824): CPU for POLARS, the
+    GPU-or-error engine for POLARS_GPU -- a non-GPU-executable plan raises NIE,
+    which the dispatch records as a decline and the chain route answers.
 
     Algebra is character-identical to the eager twin -- the same semi-joins, the same
     ``group_by().len()``, the same ``(in*out).sum().fill_null(0).cast(Int64)`` -- so the
@@ -1670,7 +1650,7 @@ def _two_hop_count_fused_polars(
             .sum().fill_null(0).cast(pl.Int64).alias(alias)
         )
     )
-    return cast(DataFrameT, total_lf.collect())
+    return cast(DataFrameT, _lazy_collect(total_lf))
 
 
 def _two_hop_count_binding_ops(chain: Chain) -> Optional[Tuple[ASTNode, ASTEdge, ASTNode, ASTEdge, ASTNode]]:
@@ -1862,8 +1842,9 @@ def _single_hop_grouped_aggregate_fused_polars(
     prove both the group cardinality and the aggregate input rows are low, and it declines
     to this ``group_by`` everywhere else.
 
-    NOT a GPU change: like the eager twin and the fused two-star lane, it collects on CPU
-    polars for both POLARS and POLARS_GPU.
+    Collects on the ACTIVE execution target (#1824): CPU for POLARS, the GPU-or-error
+    engine for POLARS_GPU (NIE on a non-GPU-executable plan; dispatch declines to the
+    chain route).
 
     DECLINES (returns None; the caller falls through to the untouched eager twin, so a
     decline can never answer differently):
@@ -2022,7 +2003,7 @@ def _single_hop_grouped_aggregate_fused_polars(
     )
     if limit_value is not None:
         out_lf = out_lf.head(limit_value)
-    return cast(DataFrameT, out_lf.collect())
+    return cast(DataFrameT, _lazy_collect(out_lf))
 
 
 def _execute_single_hop_grouped_aggregate_fast_path(
@@ -2856,30 +2837,14 @@ def _execute_two_hop_count_fast_path(
     elif requested_engine in POLARS_ENGINES:
         import polars as pl
         if reuse_single_edge_domain:
-            cached_counts = _two_hop_cached_equal_domain_degree_counts(
-                base_graph,
-                nodes,
-                cast(DataFrameT, edges_obj),
+            in_counts, out_counts = _two_hop_equal_domain_degree_counts(
                 start_nodes,
                 first_edges,
-                node_match=cast(Optional[dict], start_op.filter_dict),
-                edge_match=cast(Optional[dict], first_edge.edge_match),
                 node_col=node_col,
                 src_col=src_col,
                 dst_col=dst_col,
                 engine=requested_engine,
             )
-            if cached_counts is None:
-                domain_ids = start_nodes.select(node_col).unique()
-                domain_edges = (
-                    first_edges
-                    .join(domain_ids, left_on=src_col, right_on=node_col, how="semi")
-                    .join(domain_ids, left_on=dst_col, right_on=node_col, how="semi")
-                )
-                in_counts = domain_edges.group_by(dst_col).len("__in_count__")
-                out_counts = domain_edges.group_by(src_col).len("__out_count__")
-            else:
-                in_counts, out_counts = cached_counts
         else:
             start_ids = start_nodes.select(node_col).unique()
             middle_ids = middle_nodes.select(node_col).unique()
@@ -2906,26 +2871,14 @@ def _execute_two_hop_count_fast_path(
         out_nodes = cast(DataFrameT, total_df)
     else:
         if reuse_single_edge_domain:
-            cached_counts = _two_hop_cached_equal_domain_degree_counts(
-                base_graph,
-                nodes,
-                cast(DataFrameT, edges_obj),
+            in_counts, out_counts = _two_hop_equal_domain_degree_counts(
                 start_nodes,
                 first_edges,
-                node_match=cast(Optional[dict], start_op.filter_dict),
-                edge_match=cast(Optional[dict], first_edge.edge_match),
                 node_col=node_col,
                 src_col=src_col,
                 dst_col=dst_col,
                 engine=requested_engine,
             )
-            if cached_counts is None:
-                domain_ids = start_nodes[node_col].drop_duplicates()
-                domain_edges = first_edges[first_edges[src_col].isin(domain_ids) & first_edges[dst_col].isin(domain_ids)]
-                in_counts = domain_edges.groupby(dst_col, sort=False).size().reset_index(name="__in_count__")
-                out_counts = domain_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__")
-            else:
-                in_counts, out_counts = cached_counts
         else:
             start_ids = start_nodes[node_col].drop_duplicates()
             middle_ids = middle_nodes[node_col].drop_duplicates()

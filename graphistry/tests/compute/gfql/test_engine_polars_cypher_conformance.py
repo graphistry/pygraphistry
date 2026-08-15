@@ -640,6 +640,30 @@ class TestAutoEngineLazyFrames:
     the AUTO route must take it too — and hand back EAGER polars, same as explicit
     engine='polars' does."""
 
+    @pytest.mark.parametrize("query", [
+        "MATCH (a {id: 0})-[]-(b) RETURN b.id AS x ORDER BY x",
+        "MATCH (a {id: 0})-[*1..2]-(b) RETURN DISTINCT b.id AS x ORDER BY x",
+        "MATCH (a {id: 0})-[]-(m)-[]-(b) RETURN DISTINCT b.id AS x ORDER BY x",
+    ], ids=["single_hop", "varlen", "two_hop_chain"])
+    @pytest.mark.parametrize("nodes_lazy", [False, True])
+    @pytest.mark.parametrize("edges_lazy", [False, True])
+    def test_undirected_shapes_any_eagerness_mix(self, query, nodes_lazy, edges_lazy):
+        """#1740: polars joins do not mix eagerness, and the traversal joins the
+        user's frames against eager wavefronts at MANY seams -- patching one
+        seam left varlen and multi-hop undirected crashing, so the chain entry
+        normalizes eagerness once and this pin sweeps the shape class. Every
+        combination must answer with pandas parity, eagerly."""
+        nodes = pl.DataFrame({"id": [0, 1, 2, 3], "node_type": ["P"] * 4})
+        edges = pl.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3], "rel": ["F"] * 3})
+        oracle = (graphistry.nodes(nodes.to_pandas(), "id")
+                  .edges(edges.to_pandas(), "s", "d")
+                  .gfql(query, engine="pandas")._nodes.to_dict("records"))
+        g = graphistry.nodes(nodes.lazy() if nodes_lazy else nodes, "id").edges(
+            edges.lazy() if edges_lazy else edges, "s", "d")
+        out = g.gfql(query, engine="polars")._nodes
+        assert isinstance(out, pl.DataFrame), type(out)  # eager out
+        assert out.to_pandas().to_dict("records") == oracle
+
     def test_lazyframe_auto_routes_native_and_matches_explicit(self):
         nodes = pl.DataFrame({"id": [0, 1, 2, 3], "label__Person": [True] * 4}).lazy()
         edges = pl.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3], "type": ["KNOWS"] * 3}).lazy()
@@ -1123,3 +1147,30 @@ class TestAutoEnginePandasOracleParity:
         b = _normalize_nulls(_round_floats(oracle.reset_index(drop=True)))
         assert list(a.columns) == list(b.columns), (list(a.columns), list(b.columns))
         pd.testing.assert_frame_equal(a.astype(str), b.astype(str), check_dtype=False)
+
+
+class TestAutoFallbackCoercesFrames:
+    """Round-002 BUG-2 (#1885's route): when native polars declines and AUTO
+    falls back to pandas, the frames must be coerced first -- the pandas
+    executors are pandas-idiom, and uncoerced polars frames crashed 7/7
+    same-path projection shapes on the DEFAULT route."""
+
+    SHAPES = [
+        "MATCH (p)-[]->(q) WHERE q.score > p.score RETURN p.name AS pn, q.name AS qn",
+        "MATCH (p)-[]->(q) WHERE q.score > p.score RETURN p, q",
+        "MATCH (p)-[r]->(q) WHERE q.score > p.score RETURN p.name AS pn ORDER BY pn",
+    ]
+
+    @pytest.mark.parametrize("shape_i", [0, 1, 2])
+    @pytest.mark.parametrize("lazy", [False, True])
+    def test_same_path_projection_answers_on_default_engine(self, shape_i, lazy):
+        nodes = pl.DataFrame({"id": [0, 1, 2], "name": ["a", "b", "c"], "score": [1, 2, 3]})
+        edges = pl.DataFrame({"s": [0, 1], "d": [1, 2]})
+        q = self.SHAPES[shape_i]
+        oracle = (graphistry.nodes(nodes.to_pandas(), "id")
+                  .edges(edges.to_pandas(), "s", "d").gfql(q, engine="pandas")._nodes.to_dict("records"))
+        g = graphistry.nodes(nodes.lazy() if lazy else nodes, "id").edges(
+            edges.lazy() if lazy else edges, "s", "d")
+        out = g.gfql(q)._nodes  # DEFAULT engine
+        out = (out.to_pandas() if hasattr(out, "to_pandas") else out).to_dict("records")
+        assert out == oracle

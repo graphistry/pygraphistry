@@ -41,6 +41,11 @@ SELF = "graphistry/tests/compute/gfql/test_polars_lane_completeness.py"
 # Modules that mention polars but are NOT polars-gated, each with the reason. A new entry
 # here is a deliberate, reviewable statement -- which is the point of the guard.
 NOT_POLARS_GATED: Dict[str, str] = {
+    "graphistry/tests/test_pandas_without_polars.py": (
+        "the ANTI-polars pin: a subprocess hard-blocks the polars import and asserts the "
+        "pandas engine works without ever importing it -- running it in the polars lane "
+        "would prove nothing the minimal lanes don't already prove"
+    ),
     "graphistry/tests/compute/gfql/cypher/test_row_pushdown.py": (
         "single engine-agnostic to_pandas() branch; every test runs on the pandas lane"
     ),
