@@ -2579,16 +2579,19 @@ def _forces_relationship_multiplicity_projection_bindings(
     if not all(isinstance(target, (ASTNode, ASTEdge)) for target in alias_targets.values()):
         return False
     for clause in query.matches:
-        for pattern in clause.patterns:
+        kinds = _match_pattern_alias_kinds(clause)
+        for index, pattern in enumerate(clause.patterns):
+            if index < len(kinds) and kinds[index] == "pattern":
+                continue
             for element in pattern:
                 if isinstance(element, RelationshipPattern) and (
                     getattr(element, "to_fixed_point", False)
                     and element.direction == "undirected"
                 ):
-                    # undirected unbounded fixed point: the binding-rows builder
-                    # cannot reconstruct its multiplicity (#1787 gate); keep the
-                    # source-table lane rather than trade one wrongness for a
-                    # decline (#1903 residual).
+                    # shortestPath binds ONE representative route per endpoint pair and
+                    # deliberately skips trail tracking (#1903); binding rows cannot
+                    # reproduce that cardinality. Plain `-[*]-` DOES belong on the trail
+                    # lane and is routed there (#1906).
                     return False
     texts = [item.expression.text for item in items]
     if order_by is not None:
@@ -3085,10 +3088,13 @@ def _filter_dict_from_entries(
     for entry in properties:
         if isinstance(entry.value, ExpressionText):
             continue
-        out[entry.key] = _resolve_literal(
-            entry.value,
-            params=params,
-            field=f"{field_prefix}.{entry.key}",
+        out[entry.key] = _predicate_value(
+            "==",
+            _resolve_literal(
+                entry.value,
+                params=params,
+                field=f"{field_prefix}.{entry.key}",
+            ),
         )
     return out or None
 
@@ -3920,6 +3926,13 @@ def _set_target_filter_dict(target: ASTObject, filter_dict: Dict[str, Any]) -> N
 
 
 def _predicate_value(op: str, value: Any) -> Any:
+    if isinstance(value, (list, tuple, set, frozenset, dict)):
+        # openCypher (#1905): a scalar property is never EQUAL to a list/map, and a
+        # filter_dict list means membership -- so `= $list` must not push as one.
+        if op == "==":
+            return never_match()
+        if op == "!=":
+            return notna()
     if op == "==":
         return value
     if op == "!=":

@@ -474,7 +474,10 @@ def test_connected_match_join_uses_physical_route(monkeypatch):
     )
 
     assert planner_calls
-    assert result._nodes.to_dict(orient="records") == [{"cityId": "c1", "friendCount": 2}]
+    # #1905 TRAIL: `person` is pinned to p1, so its arm binds edge p1->c1; `friend` = p1
+    # would bind that SAME relationship, which openCypher forbids -- only friend = p2
+    # remains (the old friendCount=2 counted the self-pairing).
+    assert result._nodes.to_dict(orient="records") == [{"cityId": "c1", "friendCount": 1}]
 
 
 def test_connected_optional_match_uses_physical_route(monkeypatch):

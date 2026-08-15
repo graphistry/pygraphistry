@@ -1523,6 +1523,65 @@ def _connected_join_two_star_fast_rows(
     return cast(DataFrameT, left_rows.merge(right_rows, on=shared_alias, how="inner"))
 
 
+def _eager(frame: DataFrameT, *, engine: Engine) -> DataFrameT:
+    """Materialize a polars LazyFrame; identity on every eager frame."""
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        if isinstance(frame, pl.LazyFrame):
+            return cast(DataFrameT, _lazy_collect(frame))  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
+    return frame
+
+
+def _self_loop_edges(frame: DataFrameT, src_col: str, dst_col: str, *, engine: Engine) -> DataFrameT:
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        return cast(DataFrameT, frame.filter(pl.col(src_col) == pl.col(dst_col)))  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
+    return cast(DataFrameT, frame[frame[src_col] == frame[dst_col]])  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
+
+
+def _two_hop_trail_illegal_pairs(
+    edges_obj: DataFrameT,
+    start_nodes: DataFrameT,
+    middle_nodes: DataFrameT,
+    end_nodes: DataFrameT,
+    first_edges: DataFrameT,
+    first_match: Optional[Dict[str, Any]],  # hygiene-ok: explicit-any -- filter_dict values are heterogeneous by contract
+    second_match: Optional[Dict[str, Any]],  # hygiene-ok: explicit-any -- filter_dict values are heterogeneous by contract
+    *,
+    node_col: str,
+    src_col: str,
+    dst_col: str,
+    engine: Engine,
+) -> int:
+    """Pairs the degree product counts that openCypher TRAIL semantics forbid (#1905).
+
+    A two-hop binding is illegal iff its two relationships are the SAME one, which
+    with ``dst(r1) == src(r2) == b`` forces a self-loop at ``b`` matching both
+    relationship filters with ``b`` in all three node domains -- exactly one illegal
+    pair per such edge, and none at all on a self-loop-free edge domain.
+    """
+    loops = _eager(_self_loop_edges(first_edges, src_col, dst_col, engine=engine), engine=engine)
+    if len(loops) == 0:
+        return 0
+    if first_match != second_match:
+        # Arm frames are projected to endpoints, so the second filter cannot be
+        # re-applied to them; conjoin both filters on the base edge frame instead.
+        both = _filter_project(df_to_engine(edges_obj, engine), first_match, None, engine=engine)
+        both = _filter_project(both, second_match, [src_col, dst_col], engine=engine)
+        loops = _eager(_self_loop_edges(both, src_col, dst_col, engine=engine), engine=engine)
+        if len(loops) == 0:
+            return 0
+    for domain in (start_nodes, middle_nodes, end_nodes):
+        if engine in POLARS_ENGINES:
+            ids = _eager(cast(DataFrameT, domain.select(node_col).unique()), engine=engine)  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
+            loops = cast(DataFrameT, loops.join(ids, left_on=src_col, right_on=node_col, how="semi"))  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
+        else:
+            loops = cast(DataFrameT, loops[loops[src_col].isin(domain[node_col])])  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
+        if len(loops) == 0:
+            return 0
+    return int(len(loops))
+
+
 def _filter_nodes_for_fast_count(nodes: DataFrameT, filter_dict: Optional[dict], *, engine: Engine) -> DataFrameT:
     if engine in POLARS_ENGINES:
         from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
@@ -1569,6 +1628,7 @@ def _two_hop_count_fused_polars(
     src_col: str,
     dst_col: str,
     alias: str,
+    illegal_pairs: int = 0,
 ) -> Optional[DataFrameT]:
     """FUSED lazy lane for the DISTINCT-DOMAIN two-hop count:
     ``MATCH (a)-[]->(b)-[]->(c) RETURN count(*)`` where the three node domains and/or
@@ -1646,8 +1706,9 @@ def _two_hop_count_fused_polars(
             # `.cast(pl.Int64)` below is `pl.Expr.cast` -- a polars RUNTIME dtype conversion,
             # not `typing.cast`. The hygiene guard matches any call named `cast`, so the
             # suppression rides the line the guard reports (the head of the chained call).
-            (pl.col(_TWO_HOP_IN_COUNT_COL) * pl.col(_TWO_HOP_OUT_COUNT_COL))  # hygiene-ok: explicit-cast -- polars dtype cast
-            .sum().fill_null(0).cast(pl.Int64).alias(alias)
+            ((pl.col(_TWO_HOP_IN_COUNT_COL) * pl.col(_TWO_HOP_OUT_COUNT_COL))  # hygiene-ok: explicit-cast -- polars dtype cast
+             .sum().fill_null(0) - illegal_pairs)
+            .cast(pl.Int64).alias(alias)
         )
     )
     return cast(DataFrameT, _lazy_collect(total_lf))
@@ -2606,9 +2667,10 @@ def _two_hop_equal_domain_dense_total(
     including an empty edge frame) so the caller's existing semi-join / memo path
     answers instead. Value-identical by construction when admitted:
     ``sum_b indeg(b) * outdeg(b)`` over the SAME filtered edge multiset the
-    semi-join plan would count -- multi-edges and self-loops included, and the
-    inner join on the middle node is subsumed because out-of-domain middles cannot
-    exist under the proof (a zero on either side contributes zero to the sum).
+    semi-join plan would count, minus the trail-illegal ``(r, r)`` pairs (#1905,
+    one per self-loop); multi-edges are included, and the inner join on the middle
+    node is subsumed because out-of-domain middles cannot exist under the proof (a
+    zero on either side contributes zero to the sum).
 
     Engine note: arrays ride the index module's polymorphic helpers
     (``array_namespace`` / ``col_to_array``) -- numpy host for pandas/polars(-gpu),
@@ -2642,7 +2704,10 @@ def _two_hop_equal_domain_dense_total(
         # space, sparse rel) would allocate tables the semi-join path never needs --
         # decline and let it answer.
         return None
-    if degree_fact is not None and degree_fact.lo <= lo and degree_fact.hi >= hi:
+    if (
+        degree_fact is not None and degree_fact.lo <= lo and degree_fact.hi >= hi
+        and degree_fact.self_loops is not None
+    ):
         # Precomputed degrees answer the SAME degree product with no per-query pass
         # over the edges: sum_e indeg(src(e)) == sum_v indeg(v)*outdeg(v). O(N) instead
         # of an O(E) bincount plus gather. The interval must match exactly -- the arrays
@@ -2651,9 +2716,12 @@ def _two_hop_equal_domain_dense_total(
         # exist here -- that is exactly what _facts_prove_bounds established -- so the
         # slice loses no edge, and nodes outside the domain must not be counted.
         a, b = lo - degree_fact.lo, hi - degree_fact.lo + 1
-        return int(xp.dot(degree_fact.indeg[a:b], degree_fact.outdeg[a:b]))
+        return int(xp.dot(degree_fact.indeg[a:b], degree_fact.outdeg[a:b])) - degree_fact.self_loops
     src_arr = col_to_array(edge_domain, src_col, engine)
     dst_arr = col_to_array(edge_domain, dst_col, engine)
+    # openCypher TRAIL (#1905): the equal-domain product counts (r, r) once per
+    # self-loop, and a self-loop is the only way one relationship serves both hops.
+    self_loops = int((src_arr == dst_arr).sum())
     # bincount emits platform int64 counts; inputs are integer dtype by proof, so no
     # astype copies here (a copying astype measurably dominated the kernel at 2.5M edges).
     if 0 <= lo and hi + 1 <= table_budget:
@@ -2671,7 +2739,7 @@ def _two_hop_equal_domain_dense_total(
         # Mixed endpoint dtypes: plain shift, no cross-dtype scratch buffer (pinned).
         in_counts = xp.bincount(dst_arr - lo, minlength=n)
         total = in_counts[src_arr - lo].sum()
-    return int(total)
+    return int(total) - self_loops
 
 
 def _execute_two_hop_count_fast_path(
@@ -2826,6 +2894,22 @@ def _execute_two_hop_count_fast_path(
             out._edges = df_cons(requested_engine)()
             return out
 
+    # openCypher TRAIL (#1905): the degree product also counts (r, r), which no
+    # binding may bind twice; subtract it from every non-dense branch below.
+    illegal_pairs = _two_hop_trail_illegal_pairs(
+        cast(DataFrameT, edges_obj),  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
+        start_nodes,
+        middle_nodes,
+        end_nodes,
+        first_edges,
+        cast(Optional[dict], first_edge.edge_match),  # hygiene-ok: explicit-cast -- ASTEdge.edge_match is untyped on the AST node
+        cast(Optional[dict], second_edge.edge_match),  # hygiene-ok: explicit-cast -- ASTEdge.edge_match is untyped on the AST node
+        node_col=node_col,
+        src_col=src_col,
+        dst_col=dst_col,
+        engine=requested_engine,
+    )
+
     fused_total: Optional[DataFrameT] = None
     if requested_engine in POLARS_ENGINES and not reuse_single_edge_domain:
         # Distinct-domain shape: ONE lazy plan instead of five eager collects.
@@ -2842,6 +2926,7 @@ def _execute_two_hop_count_fast_path(
             src_col=src_col,
             dst_col=dst_col,
             alias=alias,
+            illegal_pairs=illegal_pairs,
         )
 
     if fused_total is not None:
@@ -2878,7 +2963,10 @@ def _execute_two_hop_count_fast_path(
         total_df = (
             in_counts
             .join(out_counts, left_on=dst_col, right_on=src_col, how="inner")
-            .select((pl.col("__in_count__") * pl.col("__out_count__")).sum().fill_null(0).cast(pl.Int64).alias(alias))
+            .select(
+                ((pl.col("__in_count__") * pl.col("__out_count__")).sum().fill_null(0) - illegal_pairs)
+                .cast(pl.Int64).alias(alias)  # hygiene-ok: explicit-cast -- polars dtype cast
+            )
         )
         out_nodes = cast(DataFrameT, total_df)
     else:
@@ -2901,7 +2989,7 @@ def _execute_two_hop_count_fast_path(
             out_counts = out_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__")
         joined = in_counts.merge(out_counts, left_on=dst_col, right_on=src_col, how="inner")
         total = int((joined["__in_count__"] * joined["__out_count__"]).sum()) if len(joined) else 0
-        out_nodes = df_to_engine(pd.DataFrame({alias: [total]}), requested_engine)
+        out_nodes = df_to_engine(pd.DataFrame({alias: [total - illegal_pairs]}), requested_engine)
 
     out = base_graph.bind()
     out._nodes = out_nodes

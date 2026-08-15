@@ -189,6 +189,11 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
             return combined
         return None
 
+    if name == "NeverMatch":
+        # pandas twin is `s.isna() & False` -- all-False, nulls included; the
+        # `is_null() &` keeps the expr column-length rather than a broadcast literal.
+        return c.is_null() & pl.lit(False)
+
     if name in ("IsNull", "IsNA"):
         return c.is_null()
     if name in ("NotNull", "NotNA"):
@@ -399,6 +404,36 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
                     f"(no pandas fallback; parity-or-error by design)"
                 )
         else:
+            # Scalar equality against an incompatible column dtype: pandas/cuDF raise a
+            # typed GFQLSchemaError (E302) up front, polars would leak a raw ComputeError
+            # at collect (#1905). Same check, same message, so the contract is engine-wide.
+            _eq_dtype = df.schema.get(resolved_col)
+            _empty_eager = isinstance(df, pl.DataFrame) and df.height == 0
+            if _eq_dtype is not None and not _empty_eager:
+                from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+                _numeric = _eq_dtype.is_numeric() or _eq_dtype == pl.Boolean
+                if _numeric and isinstance(resolved_val, str):
+                    raise GFQLSchemaError(
+                        ErrorCode.E302,
+                        f'Type mismatch: column "{resolved_col}" is numeric but filter value is string',
+                        field=col,
+                        value=resolved_val,
+                        column_type=str(_eq_dtype),
+                        suggestion=f'Use a numeric value like {col}=123',
+                    )
+                if (
+                    _eq_dtype == pl.String
+                    and isinstance(resolved_val, (int, float))
+                    and not isinstance(resolved_val, bool)
+                ):
+                    raise GFQLSchemaError(
+                        ErrorCode.E302,
+                        f'Type mismatch: column "{resolved_col}" is string but filter value is numeric',
+                        field=col,
+                        value=resolved_val,
+                        column_type=str(_eq_dtype),
+                        suggestion=f'Use a string value like {col}="value"',
+                    )
             exprs.append(pl.col(resolved_col) == resolved_val)
 
     if not exprs:
