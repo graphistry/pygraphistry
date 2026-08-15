@@ -4,7 +4,7 @@ Graph hop/traversal operations for PyGraphistry.
 NOTE: Excluded from pyre (.pyre_configuration) - hop() complexity causes hang. Use mypy.
 """
 import os
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING, Union, cast
+from typing import Any, Callable, Dict, Hashable, List, Optional, Set, Tuple, TYPE_CHECKING, Union, cast
 import pandas as pd
 
 from graphistry.Engine import (
@@ -14,7 +14,7 @@ from graphistry.Plottable import Plottable
 from graphistry.otel import otel_traced, otel_detail_enabled
 from .filter_by_dict import filter_by_dict
 from graphistry.Engine import safe_merge
-from .typing import DataFrameT, DomainT, NodeId
+from .typing import DataFrameT, DomainT
 from .dataframe_utils import column_frame, column_values
 from .util import generate_safe_column_name
 
@@ -45,11 +45,7 @@ def query_if_not_none(query: Optional[str], df: DataFrameT) -> DataFrameT:
     return df.query(query)
 
 
-def _seed_ids_the_traversal_reencountered(
-    matches_nodes: Optional[DataFrameT], node_col: str,
-) -> Set[NodeId]:
-    """The topology-only undirected heuristics ignore source/dest filter pruning, so their
-    keep-set must be intersected with what the traversal actually reached."""
+def _reached_node_ids(matches_nodes: Optional[DataFrameT], node_col: str) -> Set[Hashable]:
     if matches_nodes is None or len(matches_nodes) == 0:
         return set()
     reached = column_values(matches_nodes, node_col)
@@ -929,6 +925,19 @@ def hop(self: Plottable,
                     queue.append(neighbor)
         return loop_nodes | {node_id for node_id in degrees if node_id not in removed}
 
+    def _undirected_rediscovered_seed_ids(
+        edges_df: DataFrameT,
+        seed_nodes_df: DataFrameT,
+        reached_nodes: Optional[DataFrameT],
+    ) -> Set[Hashable]:
+        """Seeds a walk that REUSES NO EDGE arrives back at: another seed shares the
+        component, or the seed lies on a cycle -- and the traversal actually reached it."""
+        rediscovered = _undirected_component_seed_keep_ids(edges_df, seed_nodes_df)
+        rediscovered |= _undirected_cycle_nodes(edges_df)
+        if not rediscovered:
+            return rediscovered
+        return rediscovered & _reached_node_ids(reached_nodes, node_col)
+
     if self._nodes is not None:
         rich_nodes = self._nodes
         if target_wave_front is not None:
@@ -1179,10 +1188,8 @@ def hop(self: Plottable,
     ):
         wavefront_seed_ids_df = cast(DataFrameT, column_frame(starting_nodes, node_col).drop_duplicates())
         if direction == 'undirected' and to_fixed_point:
-            keep_seed_ids = _undirected_component_seed_keep_ids(final_edges, wavefront_seed_ids_df)
-            keep_seed_ids |= _undirected_cycle_nodes(final_edges)
-            if keep_seed_ids:
-                keep_seed_ids &= _seed_ids_the_traversal_reencountered(matches_nodes, node_col)
+            keep_seed_ids = _undirected_rediscovered_seed_ids(
+                final_edges, wavefront_seed_ids_df, matches_nodes)
             seed_mask = g_out._nodes[node_col].isin(column_values(wavefront_seed_ids_df, node_col))
             if keep_seed_ids:
                 keep_mask = g_out._nodes[node_col].isin(list(keep_seed_ids))

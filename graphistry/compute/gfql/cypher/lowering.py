@@ -147,8 +147,8 @@ from graphistry.compute.gfql.temporal.folding import (
     rewrite_temporal_constructors_in_expr,
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, WhereComparison, col, compare, where_to_row_expr
-from graphistry.compute.gfql.cypher.reentry import naming as _reentry_naming
-from graphistry.compute.gfql.cypher.reentry import scope as _reentry_scope
+from graphistry.compute.gfql.cypher.reentry import naming as _reentry_naming, scope as _reentry_scope
+from graphistry.compute.gfql.cypher.ast import CypherParams
 
 
 @dataclass(frozen=True)
@@ -2051,6 +2051,28 @@ def _aggregate_spec_from_function_call(
     )
 
 
+def _aggregate_shape_needs_null_extension_this_lowering_lacks(
+    item_aggregate_specs: Sequence[Optional["_AggregateSpec"]],
+    item_post_aggregate_plans: Sequence[Optional[Tuple[List["_AggregateSpec"], "_PostAggregateExprPlan"]]],
+) -> bool:
+    """Grouped shapes (their group rows vanish) or ``count(*)`` (the null row itself counts)."""
+    has_group_keys = any(
+        spec is None and plan_entry is None
+        for spec, plan_entry in zip(item_aggregate_specs, item_post_aggregate_plans)
+    )
+    all_aggregate_specs = [spec for spec in item_aggregate_specs if spec is not None] + [
+        inner_spec
+        for plan_entry in item_post_aggregate_plans
+        if plan_entry is not None
+        for inner_spec in plan_entry[0]
+    ]
+    has_count_star = any(
+        spec.func == "count" and spec.expr_text is None and not spec.distinct
+        for spec in all_aggregate_specs
+    )
+    return has_group_keys or has_count_star
+
+
 def _post_aggregate_expr_plan(
     item: ReturnItem,
     *,
@@ -2709,12 +2731,10 @@ def _return_references_only_bound_aliases(
     query: CypherQuery,
     *,
     alias_targets: Mapping[str, ASTObject],
-    params: Optional[Mapping[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher query parameters are arbitrary user scalars
+    params: Optional[CypherParams] = None,
     bound_nullable_aliases: Optional[AbstractSet[str]] = None,
 ) -> bool:
-    """True when every RETURN item references only non-optional-bound aliases:
-    projected values are optional-arm-independent, so the row guard alone can
-    serve the projection (TCK match7-13)."""
+    """True when every RETURN item references only non-optional-bound aliases."""
     if not any(clause.optional for clause in query.matches) or not any(not clause.optional for clause in query.matches):
         return False
     bound_aliases = {
@@ -7662,6 +7682,29 @@ def _compile_graph_bindings(
     return tuple(compiled)
 
 
+def _clause_has_variable_length_relationship(clause: MatchClause) -> bool:
+    for pat in clause.patterns:
+        for el in pat:
+            if isinstance(el, RelationshipPattern) and (
+                el.min_hops is not None or el.max_hops is not None
+                or (el.to_fixed_point if hasattr(el, "to_fixed_point") else False)
+            ):
+                return True
+    return False
+
+
+def _clause_repeats_a_node_alias(clause: MatchClause) -> bool:
+    """A self-loop like ``(a)-[r]-(a)``: per-clause ``_alias_target`` cannot represent it."""
+    seen_nodes: Set[str] = set()
+    for pat in clause.patterns:
+        for el in pat:
+            if isinstance(el, NodePattern) and el.variable is not None:
+                if el.variable in seen_nodes:
+                    return True
+                seen_nodes.add(el.variable)
+    return False
+
+
 def _is_connected_optional_match_query(query: CypherQuery) -> bool:
     """Detect: 1 non-optional MATCH + 1-or-more OPTIONAL MATCH clauses.
 
@@ -7677,30 +7720,13 @@ def _is_connected_optional_match_query(query: CypherQuery) -> bool:
         return False
     if query.with_stages or query.unwinds or query.call is not None or query.row_sequence:
         return False
-    first = query.matches[0]
-    # Reject comma-separated base MATCH patterns (e.g., (a:A), (b:B)) — the
-    # binding_ops mechanism requires a single connected path.
-    if len(first.patterns) > 1:
+    base_match_is_comma_separated_patterns = len(query.matches[0].patterns) > 1
+    if base_match_is_comma_separated_patterns:
         return False
-    # Reject optional clauses with variable-length relationships — binding_ops
-    # can handle them for the base chain but the join semantics are untested.
-    for m in query.matches[1:]:
-        for pat in m.patterns:
-            for el in pat:
-                if isinstance(el, RelationshipPattern) and (
-                    el.min_hops is not None or el.max_hops is not None
-                    or (el.to_fixed_point if hasattr(el, "to_fixed_point") else False)
-                ):
-                    return False
-    # per-clause _alias_target cannot represent a self-loop like (a)-[r]-(a)
-    for m in query.matches:
-        seen_nodes: Set[str] = set()
-        for pat in m.patterns:
-            for el in pat:
-                if isinstance(el, NodePattern) and el.variable is not None:
-                    if el.variable in seen_nodes:
-                        return False
-                    seen_nodes.add(el.variable)
+    if any(_clause_has_variable_length_relationship(m) for m in query.matches[1:]):
+        return False
+    if any(_clause_repeats_a_node_alias(m) for m in query.matches):
+        return False
     return True
 
 
@@ -8719,12 +8745,10 @@ def _compile_connected_optional_match(
         and _post_aggregate_expr_plan(item, params=params, alias_targets=combined_alias_targets) is not None
         for item, spec in zip(query.return_.items, item_aggregate_specs)
     ):
-        return None  # post-aggregate exprs: general lowering serves these
+        return None
     has_aggregates = bool(return_aggregate_specs)
     if has_aggregates:
-        whole_row_alias_beside_an_aggregate = any(
-            item.expression.text in combined_alias_targets for item in query.return_.items)
-        if whole_row_alias_beside_an_aggregate:
+        if any(item.expression.text in combined_alias_targets for item in query.return_.items):
             raise _unsupported(
                 "Cypher whole-row alias projections alongside aggregates are not yet supported for MATCH ... OPTIONAL MATCH in the local compiler",
                 field=query.return_.kind,
@@ -8743,7 +8767,6 @@ def _compile_connected_optional_match(
                 line=query.return_.span.line,
                 column=query.return_.span.column,
             )
-        # group_by keeps null keys, so unmatched seeds keep their group row
         final_stage = ProjectionStage(
             clause=query.return_,
             where=None,
@@ -8777,8 +8800,13 @@ def _compile_connected_optional_match(
             params=params,
             semantic_entity_kinds=semantic_entity_kinds,
         )
-        if plan.whole_row_output_names and len(query.matches) == 2 and _single_node_seed_alias(query.matches[0]) is not None:
-            return None  # whole-row projections: general path null-fills these
+        served_by_general_optional_null_fill = (
+            plan.whole_row_output_names
+            and len(query.matches) == 2
+            and _single_node_seed_alias(query.matches[0]) is not None
+        )
+        if served_by_general_optional_null_fill:
+            return None
 
         post_join_ops = []
         if not plan.whole_row_output_names:
@@ -9057,23 +9085,13 @@ def compile_cypher_query(
         params=params,
     )
     if query.reentry_matches:
-        # #1341: when the trailing MATCH only re-binds carried whole-row aliases
-        # (e.g. LDBC SNB IC1 ``shortestPath((p)-[:KNOWS*]-(friend))``), the WITH
-        # stage is a no-op. Flatten the reentry into a single MATCH so the
-        # supported single-MATCH paths (including two-endpoint shortestPath)
-        # handle it directly.
         from graphistry.compute.gfql.cypher.reentry.flatten import (
             flatten_carried_endpoint_rebind,
         )
 
         flattened = flatten_carried_endpoint_rebind(query)
         if flattened is not None:
-            # ``flatten_carried_endpoint_rebind`` returns a query with
-            # ``reentry_matches=()``, so the recursive call cannot re-enter
-            # this branch — recursion terminates after one step.
             return compile_cypher_query(flattened, params=params)
-        # A pure-carry WITH before OPTIONAL MATCH is scope-preserving, so it can be
-        # flattened onto the left-join lowering, which null-extends correctly.
         from graphistry.compute.gfql.cypher.reentry.flatten import (
             flatten_pure_carry_optional_reentry,
         )
@@ -9254,23 +9272,10 @@ def compile_cypher_query(
             plan_entry is not None for plan_entry in item_post_aggregate_plans
         )
         if has_aggregates and any(m.optional for m in query.matches[1:]):
-            has_group_keys = any(
-                spec is None and plan_entry is None
-                for spec, plan_entry in zip(item_aggregate_specs, item_post_aggregate_plans)
-            )
-            all_aggregate_specs = [spec for spec in item_aggregate_specs if spec is not None] + [
-                inner_spec
-                for plan_entry in item_post_aggregate_plans
-                if plan_entry is not None
-                for inner_spec in plan_entry[0]
-            ]
-            has_count_star = any(
-                spec.func == "count" and spec.expr_text is None and not spec.distinct
-                for spec in all_aggregate_specs
-            )
-            # Ungrouped null-skipping aggregates are inner-join-safe; these two are not.
-            aggregate_needs_the_unmatched_rows = has_group_keys or has_count_star
-            if aggregate_needs_the_unmatched_rows:
+            if _aggregate_shape_needs_null_extension_this_lowering_lacks(
+                item_aggregate_specs,
+                item_post_aggregate_plans,
+            ):
                 raise _unsupported(
                     "Cypher aggregates over MATCH ... OPTIONAL MATCH are not yet supported for this optional-arm shape in the local compiler (this lowering has no null-extension and would drop unmatched rows)",
                     field=query.return_.kind,
@@ -9373,14 +9378,14 @@ def compile_cypher_query(
                     query,
                     params=params,
                 )
-            optional_arm_with_no_null_extension = (
+            optional_arm_has_no_null_extension_mechanism = (
                 len(query.matches) >= 2
                 and any(m.optional for m in query.matches)
                 and empty_result_row is None
                 and optional_null_fill is None
                 and optional_projection_row_guard is None
             )
-            if optional_arm_with_no_null_extension:
+            if optional_arm_has_no_null_extension_mechanism:
                 raise _unsupported(
                     "Cypher OPTIONAL MATCH null-extension is not yet supported for this optional-arm shape in the local compiler (this lowering would drop unmatched rows)",
                     field=query.return_.kind,

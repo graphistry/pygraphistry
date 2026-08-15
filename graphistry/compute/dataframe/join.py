@@ -4,6 +4,8 @@ import operator
 from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
 from graphistry.Engine import Engine, POLARS_ENGINES
+from graphistry.compute.gfql.cypher.reentry.naming import REENTRY_HIDDEN_COLUMN_PREFIX
+from graphistry.compute.gfql.identifiers import HIDDEN_ALIAS_COLUMN_PREFIX
 from graphistry.compute.typing import DataFrameT, DomainT
 
 
@@ -17,7 +19,7 @@ def joined_hidden_scalar_columns(frame: DataFrameT) -> DataFrameT:
         if not isinstance(column, str) or "." not in column:
             continue
         _, suffix = column.split(".", 1)
-        if suffix.startswith("__cypher_reentry_") or suffix.startswith("__gfql_hidden_"):
+        if suffix.startswith(REENTRY_HIDDEN_COLUMN_PREFIX) or suffix.startswith(HIDDEN_ALIAS_COLUMN_PREFIX):
             hidden_suffixes.setdefault(suffix, []).append(column)
     out = frame
     is_polars = "polars" in type(frame).__module__

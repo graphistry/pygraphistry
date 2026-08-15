@@ -16,7 +16,7 @@ import pytest
 import graphistry
 from graphistry.Engine import Engine, df_concat
 from graphistry.compute.hop import (
-    _endpoint_ids_without_node_rows, _seed_ids_the_traversal_reencountered,
+    _endpoint_ids_without_node_rows, _reached_node_ids,
 )
 
 from .polars_test_utils import node_id_set, to_pandas_any
@@ -132,7 +132,7 @@ def test_endpoint_universe_ignores_a_wavefront_without_the_node_column():
     assert sorted(got.to_list()) == [0, 1]
 
 
-# --- _endpoint_ids_without_node_rows / _seed_ids_the_traversal_reencountered ----------------
+# --- _endpoint_ids_without_node_rows / _reached_node_ids ----------------
 
 # _endpoint_ids_without_node_rows is a pandas-IDIOM helper (.rename(columns=), .isin,
 # .drop_duplicates) reached only from the pandas/cuDF hop; polars has its own kernel.
@@ -165,8 +165,8 @@ def test_an_unbacked_endpoint_id_is_reported(engine):
     (pd.DataFrame({"id": []}), set()),
     (pd.DataFrame({"id": [1, 2, 2]}), {1, 2}),
 ])
-def test_seed_ids_the_traversal_reencountered(matches, expected):
-    assert _seed_ids_the_traversal_reencountered(matches, "id") == expected
+def test_reached_node_ids(matches, expected):
+    assert _reached_node_ids(matches, "id") == expected
 
 
 # --- the unconditional trailing de-dup in hop()'s endpoint backfill -------------------------
