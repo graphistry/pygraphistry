@@ -162,118 +162,28 @@ git show origin/<base>:<file>
 - Test coverage should mirror changed areas in `graphistry/tests/**`.
 - Prefer behavioral tests over implementation-detail assertions.
 - Treat broad exception catches (`except Exception`, bare `except`) as a bad dynamic/over-defensive typing pattern by default. Require narrowed, documented exception types at local helpers; allow broad catches only at explicit isolation boundaries where the PR explains why programmer errors must be contained.
-### Encoding: names, tests, and structure — not prose
+### Encoding: names, tests, structure — not prose
 
-The recurring rejection class on the 2026-08 GFQL stack. Meaning must live where it
-cannot rot: in a **name**, a **test/pin**, or the **structure** of the code. Prose is
-the last resort, not the first.
+Meaning belongs in a **name**, a **test**, or the **structure**; a comment is the last resort.
+Delete from a diff: narration of the next block (extract a helper named for the rule), a
+why-this-fix or issue-number rationale (the pin's test name carries it; an issue ref may stay as a
+trailing tag), any perf/complexity/benchmark claim (measurement belongs in pyg-bench), and
+restatements of the signature. A keep must state a constraint that no name and no test can express
+— *defensible* is not the bar, and a doubtful keep deletes. Guard: `bin/ci_comment_density_guard.py`.
 
-| Pattern | Verdict | Fix |
-|---|---|---|
-| Multi-line comment narrating what the next block does | BLOCKER | Extract a helper whose NAME states the rule; delete the narration |
-| Comment explaining WHY a fix was made / citing an issue number as the rationale | BLOCKER | The pin's test NAME carries it (`test_<contract>_<condition>`); an issue ref may stay only as a trailing tag |
-| Performance claim, complexity/asymptotics note, or benchmark number in a code comment | BLOCKER | Belongs in **pyg-bench** as a measured test. Code carries at most the one-line invariant the optimization relies on |
-| Comment describing engine mechanics ("polars does X so we Y") | SUGGESTION → BLOCKER if >1 line | Name the helper for the constraint (`_align_edge_endpoints`); keep at most one line if the constraint is genuinely inexpressible |
-| Comment restating a type or a guard the signature already states | BLOCKER | Delete |
+Typing, same rule: `Any` over a known domain gets the real alias; a new `# type: ignore` or
+`hygiene-ok` gets restructured (both are for grandfathered debt only); `cast()` to satisfy the
+checker becomes `isinstance` narrowing. Hygiene-guard "no growth" is not sufficient — a file the PR
+touches should go down.
 
-**A comment earns its place only if** it states a constraint the code and tests
-cannot express — an external invariant, a version-specific behavior, or a
-deliberate deviation from a spec. Those stay, and stay to ONE line. When in doubt:
-if deleting the comment would let a future reader make a wrong change that no test
-would catch, write the test instead.
-
-**Asymptotics and perf reasoning**: never in product code. `pyg-bench` owns
-measurement; pygraphistry owns results and data contracts. A comment saying "one
-O(E) pass" is a claim nobody re-measures — a pyg-bench case is a claim that fails
-loudly when it stops being true.
-
-### Why this class keeps escaping — and the four countermeasures
-
-Root cause, from the 2026-08 GFQL stack where the owner rejected the same
-categories on four consecutive PRs:
-
-1. **Authoring writes discovery logs.** Whoever just solved a subtle bug has a
-   fresh mental model and writes it down because it feels like leaving value. It
-   is a journey, not a constraint; the next reader needs the rule.
-2. **Fix-cycle briefs incentivize prose.** A brief demanding "report root cause,
-   justify every existing-test change, say why you chose X over Y" puts the
-   author in explain-mode for hours, and the explanation leaks into the nearest
-   medium — the code. **Briefs must say where reasoning GOES** (PR body, test
-   names, the ledger) not merely what to report.
-3. **Perf notes are a special case of (2).** Briefs that demand "measure it and
-   do not hide the cost" get an annotation in the code. State explicitly that
-   the finding goes in the PR body and the measurement in pyg-bench.
-4. **No automated gate.** Every rule in this repo that stuck has one — the type
-   hygiene guard, the cypher surface guard, coverage floors, the polars lane
-   completeness lock. Comment discipline was enforced only by human review, so
-   it was the only class that reliably reached the owner. See
-   `bin/ci_comment_density_guard.py`.
-5. **A stack-wide audit does NOT fix the PRs below it.** An audit run on the tip
-   branch leaves every ancestor PR carrying the same violations, and reviewers
-   review PRs individually. **Remediate per-PR, against that PR's own base.**
-6. **Self-judged gates default to keep.** "Justify each keep" biases toward
-   keeping, because a justification is always writable, and an author is the
-   worst judge of whether their own explanation is necessary. **A doubtful keep
-   defaults to DELETE.**
-7. **A justified keep is still a keep.** On the 2026-08 stack an audit kept six
-   comments with written justifications; the owner then rejected three of them
-   — including two documenting real engine traps. The test is not "can I defend
-   this?" but **"can a test or a name carry this instead?"** A trap a test can
-   demonstrate (e.g. "pandas' `is_numeric_dtype` returns a confident False for a
-   polars dtype") belongs in a pin named for the trap, not in prose beside the
-   code. Only a constraint that NO test and NO name can express survives — and
-   the reason it cannot must be stated, not asserted.
-
-### Concurrent human review while a PR is being edited
-
-A reviewer may be reading and commenting **while you push**. Assume it, and it
-changes three things:
-
-- **Re-fetch comments before declaring a review addressed.** Comments added after
-  your last fetch are invisible to you and look, from the outside, like you
-  ignored them. Query with timestamps and compare against what you handled:
-  `gh api repos/O/R/pulls/<n>/comments --paginate -q '.[] | "\(.created_at) \(.path):\(.line // .original_line) [\(.commit_id[0:7])]"'`
-- **Comment anchors drift.** A comment filed against an older commit reports a
-  line number from THAT commit; after your push the same remark may point at
-  different code, or at a line you deleted. Use the `commit_id` and
-  `original_line` fields, and read the surrounding code at that commit rather
-  than trusting the current line number.
-- **Your fix will itself be reviewed.** Remediation commits are new code and are
-  held to the same bar — on the 2026-08 stack a review-remediation commit drew a
-  second round of the same categories (a NOTE comment placed away from the symbol
-  it describes, `getattr` probes where static typing was available, magic symbol
-  strings not externed). Run the self-review gate on the remediation diff too,
-  not just on the original work.
-
-When a reviewer asks to "audit & fix" a class of violation, the deliverable is a
-repo-wide sweep with a site-by-site table, not a fix of the flagged line.
-
-### Typing: narrow beats annotated
-
-| Pattern | Verdict | Fix |
-|---|---|---|
-| `Any` where the domain is a scalar/union | BLOCKER | Define the real alias (`CypherScalar`, `CypherParams`) next to the existing ones and use it |
-| `# type: ignore` added alongside new code | BLOCKER | Restructure so it is unnecessary; an ignore is admissible only on a pre-existing external-typing gap, and must name the reason |
-| `hygiene-ok:` pin added in the same PR that introduced the finding | BLOCKER | The pin is for grandfathered debt, not for new code. Narrow the type instead |
-| `cast(...)` used to satisfy the checker | BLOCKER | A cast is an assertion the checker cannot verify — if it is wrong the code crashes later. Prefer `isinstance` narrowing or a real alias |
-| Type-hygiene guard reported "no growth" | NOT SUFFICIENT | "No growth" means debt held constant. For a PR that touches a file, the per-file count should go DOWN or be justified |
-
-### Self-review gate (authoring, not just reviewing)
-
-This skill is written for reviewing *others'* code, and on the 2026-08 stack it was
-never run against our own PRs before pushing — which is why the same categories were
-rejected repeatedly by the owner. **Before pushing any branch for review, run this
-skill against your own diff.** Cheapest form, on the full stack range not just the
-last commit:
+Run this skill on your own `<base>..HEAD` diff before pushing, and carry these rules in any brief
+you hand a subagent. Re-fetch review comments before calling a thread addressed: anchors are
+per-commit (`commit_id`, `original_line`), and your remediation commit gets reviewed too.
 
 ```bash
-git diff <base>..HEAD -- 'graphistry/**/*.py' | grep -nE '^\+\s*#' | head -50   # every comment ADDED
-git diff <base>..HEAD -- 'graphistry/**/*.py' | grep -nE '^\+.*(Any|type: ignore|hygiene-ok|cast\()'
+git diff <base>..HEAD -- 'graphistry/**/*.py' ':!graphistry/tests/**' \
+  | grep -nE '^\+\s*#|^\+.*(\bAny\b|type: ignore|hygiene-ok|cast\()' | grep -v 'from typing import'
 ```
-Every hit needs a verdict from the tables above before the branch is pushed. Fix-cycle
-briefs handed to subagents MUST carry these rules explicitly — a brief that lists
-correctness gates and only mentions style in passing will produce code that satisfies
-what was measured and violates what was not.
 
 - Control-flow checks (runtime code, tests, and prompt-routing logic) must use structured signals (for example `code`, context keys like `field`/`value`, AST/symbol kinds, and stable symbol-binding metadata/files) and never **hardcoded** message-substring matching.
 - Run focused validation before escalating severity when feasible:
