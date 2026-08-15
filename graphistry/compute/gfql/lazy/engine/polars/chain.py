@@ -76,9 +76,7 @@ def _align_seed_dtype(seed, node_col, ref_nodes):
 def _align_edge_endpoints(g, node_col, src, dst):
     """Cast edge endpoint columns to the node-id dtype so join keys match.
 
-    polars won't auto-cast int↔float join keys, and a null endpoint promotes its column to float
-    while int node ids stay int — endpoint↔node-id joins then raise SchemaError where pandas joins
-    fine. The hop casts internally; the chain (fast paths + combine) did not. Returns
+    Casts endpoint columns to the node-id dtype so the endpoint<->node-id joins match. Returns
     ``(aligned_g, restore)``: restore = original (src_dtype, dst_dtype) to put back on the OUTPUT
     edges (matching pandas' dtype), or None when already matched (common case — no table copy)."""
     import polars as pl
@@ -724,11 +722,8 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
     from graphistry.compute.ast import ASTCall
     from graphistry.compute.chain import Chain, _get_boundary_calls
 
-    # Normalize input eagerness ONCE: LazyFrame is an accepted INPUT format, but
-    # the traversal mixes user frames with eager wavefronts at many joins, and
-    # polars joins do not mix eagerness (#1740 -- fixing seams one by one left
-    # the varlen and multi-hop undirected shapes crashing). The chain re-lazifies
-    # internally where plans benefit; results are eager either way.
+    # Normalize input eagerness ONCE: polars joins do not mix eagerness, and the
+    # traversal joins user frames against eager wavefronts throughout.
     if self._nodes is not None and is_lazy(self._nodes):
         self = self.nodes(self._nodes.collect(), self._node)
     if self._edges is not None and is_lazy(self._edges):
@@ -1006,30 +1001,28 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         n0, e1, n2 = ops
         unconstrained = not n0.filter_dict and not n2.filter_dict
         if unconstrained or e1.direction in ("forward", "reverse"):
-            node_bound = self._nodes is not None
+            node_table_bound = self._nodes is not None
             gf = ensure_nodes_polars(self)
             ncol, scol, dcol = gf._node, gf._source, gf._destination
             assert ncol is not None and scol is not None and dcol is not None
             gf, restore = _align_edge_endpoints(gf, ncol, scol, dcol)
             edges = gf._edges
-            # #1888 endpoint closure: with a node table BOUND, an edge matches only if
-            # BOTH endpoints resolve to node rows — one semi-join per endpoint against
-            # its filtered (or full) node universe, parity with the pandas chain's
-            # endpoint prune. Synthesized-from-edges node tables are vacuously closed:
-            # keep the zero-join fast path there.
             n_from, n_to = (n0, n2) if e1.direction != "reverse" else (n2, n0)
             all_ids = gf._nodes.select(pl.col(ncol))
 
-            def _gate_ids(node_op: ASTNode) -> "Optional[PolarsFrame]":
+            def _ids_endpoint_must_resolve_to(node_op: ASTNode) -> "Optional[PolarsFrame]":
+                """None = unconstrained; a synthesized node table is vacuously closed."""
                 if node_op.filter_dict:
                     return filter_by_dict_polars(gf._nodes, node_op.filter_dict).select(pl.col(ncol))
-                return all_ids if node_bound else None
+                return all_ids if node_table_bound else None
 
-            src_ids, dst_ids = _gate_ids(n_from), _gate_ids(n_to)
-            if src_ids is not None:
-                edges = edges.join(src_ids, left_on=scol, right_on=ncol, how="semi")
-            if dst_ids is not None:
-                edges = edges.join(dst_ids, left_on=dcol, right_on=ncol, how="semi")
+            for endpoint_col, resolvable_ids in (
+                (scol, _ids_endpoint_must_resolve_to(n_from)),
+                (dcol, _ids_endpoint_must_resolve_to(n_to)),
+            ):
+                if resolvable_ids is not None:
+                    edges = edges.join(
+                        resolvable_ids, left_on=endpoint_col, right_on=ncol, how="semi")
             endpoints = endpoint_ids(edges, scol, dcol, ncol)
             nodes = gf._nodes.join(endpoints, on=ncol, how="semi")
             return gf.nodes(nodes, ncol).edges(_restore_edge_dtypes(edges, scol, dcol, restore), scol, dcol)
@@ -1047,14 +1040,6 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         pre_index_edges = g._edges
         g = g.edges(g._edges.with_row_index(EID), g._source, g._destination, edge=EID)
         added_edge_index = True
-        # with_row_index only PREPENDS a synthetic id column; the indexed src/dst are
-        # preserved by value. Re-point any resident #1658 adjacency index at the new
-        # edge frame so the seeded fast path still engages through the native polars
-        # chain executor (mirrors compute/chain.py — else the identity guard misses
-        # and every hop falls back to the O(E) scan). Enables typed-edge chains on
-        # polars/polars-gpu (untyped already engaged; the frame swap blocked typed).
-        # The frame we derived FROM is passed too, so an index that is already stale
-        # for it is dropped rather than laundered onto the copy (#1913).
         from graphistry.compute.gfql.index import get_registry, set_registry
         _reg = get_registry(g)
         if not _reg.is_empty():
