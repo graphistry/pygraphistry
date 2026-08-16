@@ -293,6 +293,31 @@ def test_empty_aggregate_identity_row_survives_noop_paging(query, engine):
     assert len(df) == 1 and _scalar(df["c"][0]) == 0
 
 
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query,true_value", [
+    ("UNWIND [] AS x WITH count(*) AS c RETURN count(c) AS out", 1),
+    ("UNWIND [] AS x WITH count(*) AS c RETURN min(c) AS out", 0),
+    ("UNWIND [] AS x WITH count(*) AS c RETURN collect(c) AS out", [0]),
+], ids=["count_of_count", "min_of_count", "collect_of_count"])
+def test_chained_ungrouped_aggregate_never_fabricates(query, true_value, engine):
+    """An aggregate OF an ungrouped aggregate sees ONE row (the earlier identity,
+    c = 0), never an empty stream: count(c) is 1, min(c) is 0, collect(c) is [0].
+    Synthesizing the final aggregate's bare identity fabricates 0/null/[] --
+    either decline (0 rows, residual below) or emit the true chained value."""
+    df = _run(query, engine)
+    if len(df):
+        assert _scalar(df["out"][0]) == true_value
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.xfail(strict=True, reason="#1899 residual: chained ungrouped aggregates over an "
+                   "empty stream need the intermediate identity row replayed "
+                   "(count(c) -> 1); served by #1909's aggregate_identity module in flight")
+def test_chained_ungrouped_aggregate_identity_residual(engine):
+    df = _run("UNWIND [] AS x WITH count(*) AS c RETURN count(c) AS out", engine)
+    assert len(df) == 1 and _scalar(df["out"][0]) == 1
+
+
 @pytest.mark.parametrize("engine", ALL_ENGINES)
 def test_grouped_aggregate_over_empty_stream_stays_zero_rows(engine):
     """Grouped aggregates over zero rows emit zero groups -- the identity row
