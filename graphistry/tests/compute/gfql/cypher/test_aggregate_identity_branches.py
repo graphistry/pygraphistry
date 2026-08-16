@@ -393,14 +393,42 @@ def test_synthesizes_from_the_count_table_fast_path() -> None:
     assert ungrouped_aggregate_identity_row([count_table(alias="c")]) == {"c": 0}
 
 
-def test_the_last_aggregate_producer_wins() -> None:
-    """A stage that aggregates an aggregate: the identity belongs to the FINAL
-    ungrouped aggregate, not the first one."""
+def test_chained_aggregates_replay_the_intermediate_identity_row() -> None:
+    """An aggregate OF an ungrouped aggregate sees ONE row (the earlier identity),
+    never an empty stream: count(c) over `WITH count(*) AS c` on empty input is 1.
+    Pivoting at the last seed would fabricate 0; the earliest seed replays."""
     assert ungrouped_aggregate_identity_row([
         ROWS,
         with_([(GROUP_KEY, 1)]), _group_by(("c", "count")),
-        with_([(GROUP_KEY, 1)]), _group_by(("total", "sum"), ("names", "collect")),
-    ]) == {"total": 0, "names": []}
+        with_([("c", "c")]),
+        with_([(GROUP_KEY, 1), ("__cypher_agg__", "c")]),
+        _group_by(("n", "count", "__cypher_agg__")),
+        select([("n", "n")]),
+    ]) == {"n": 1}
+
+
+def test_chained_collect_replays_to_a_singleton_list() -> None:
+    assert ungrouped_aggregate_identity_row([
+        ROWS,
+        with_([(GROUP_KEY, 1)]), _group_by(("c", "count")),
+        with_([("c", "c")]),
+        with_([(GROUP_KEY, 1), ("__cypher_agg__", "c")]),
+        _group_by(("total", "sum", "__cypher_agg__"), ("vals", "collect", "__cypher_agg__")),
+    ]) == {"total": 0, "vals": [0]}
+
+
+def test_chained_aggregate_behind_a_filter_pivots_at_the_last_seed() -> None:
+    """A filter between the aggregates makes the earlier identity's survival
+    undecidable at compile time, so the LAST seed keeps the pivot (a dropped
+    row and an empty upstream both leave the final aggregate an empty input)."""
+    assert ungrouped_aggregate_identity_row([
+        ROWS,
+        with_([(GROUP_KEY, 1)]), _group_by(("c", "count")),
+        with_([("c", "c")]),
+        where_rows(expr="(c > 99)"),
+        with_([(GROUP_KEY, 1)]), _group_by(("n", "count")),
+        select([("n", "n")]),
+    ]) == {"n": 0}
 
 
 def test_order_by_and_distinct_are_transparent() -> None:

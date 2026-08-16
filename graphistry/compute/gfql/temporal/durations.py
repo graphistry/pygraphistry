@@ -146,9 +146,12 @@ def parse_duration_calendar_components(text: str) -> Optional[tuple[int, int, in
 
 
 def format_duration_calendar_components(months: int, days: int, time_nanoseconds: int) -> str:
-    """Render ``(months, days, time_nanoseconds)`` back to an ISO-8601 duration literal."""
-    if months == 0:
-        return _format_day_time_duration_nanoseconds(days * _NANOS_PER_DAY + time_nanoseconds)
+    """Render ``(months, days, time_nanoseconds)`` back to an ISO-8601 duration literal.
+
+    Each group renders in its own place -- a 25-hour time group stays ``PT25H``, never
+    ``P1DT1H``: Date arithmetic drops the seconds group but consumes the day group, so
+    hoisting time into days would CHANGE ``date + duration`` results downstream.
+    """
     month_sign = -1 if months < 0 else 1
     year_count, month_count = divmod(abs(months), 12)
     parts = ["P"]
@@ -156,9 +159,12 @@ def format_duration_calendar_components(months: int, days: int, time_nanoseconds
         parts.append(f"{month_sign * year_count}Y")
     if month_count:
         parts.append(f"{month_sign * month_count}M")
-    day_time = days * _NANOS_PER_DAY + time_nanoseconds
-    if day_time != 0:
-        parts.append(_format_day_time_duration_nanoseconds(day_time)[1:])
+    if days:
+        parts.append(f"{days}D")
+    if time_nanoseconds:
+        parts.append(_format_large_time_only_duration(time_nanoseconds)[1:])
+    if len(parts) == 1:
+        return "PT0S"
     return "".join(parts)
 
 

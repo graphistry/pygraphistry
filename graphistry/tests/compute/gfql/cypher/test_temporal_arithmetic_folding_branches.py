@@ -169,9 +169,10 @@ def test_parse_duration_calendar_components_bare_t_is_zero() -> None:
         ((0, 0, -1_500_000_000), "PT-1.5S"),
         ((0, 0, 1), "PT0.000000001S"),
         ((0, 2, _HOUR_NS), "P2DT1H"),
-        # days and the seconds group are summed only once rendered
-        ((0, 0, _NANOS_PER_DAY + _HOUR_NS), "P1DT1H"),
-        ((0, 0, -_NANOS_PER_DAY), "P-1D"),
+        # the time group NEVER migrates into days: date arithmetic consumes days
+        # but drops the seconds group, so hoisting would change date + duration
+        ((0, 0, _NANOS_PER_DAY + _HOUR_NS), "PT25H"),
+        ((0, 0, -_NANOS_PER_DAY), "PT-24H"),
         # months != 0 takes the year/month renderer
         ((1, 0, 0), "P1M"),
         ((12, 0, 0), "P1Y"),
@@ -206,12 +207,15 @@ def test_duration_calendar_components_round_trip(text: str) -> None:
     assert parse_duration_calendar_components(rendered) == components
 
 
-def test_format_normalizes_an_overlong_seconds_group_into_days() -> None:
-    """Rendering is where 25 hours becomes a day: the round trip is one-way."""
+def test_format_preserves_an_overlong_seconds_group() -> None:
+    """PT25H and P1DT1H are DIFFERENT durations under date arithmetic (a Date
+    consumes the day group and drops the seconds group), so the round trip is
+    exact and the two never collapse into each other."""
     parsed = parse_duration_calendar_components("PT25H")
     assert parsed == (0, 0, 25 * _HOUR_NS)
-    assert format_duration_calendar_components(*parsed) == "P1DT1H"
+    assert format_duration_calendar_components(*parsed) == "PT25H"
     assert parse_duration_calendar_components("P1DT1H") == (0, 1, _HOUR_NS)
+    assert format_duration_calendar_components(0, 1, _HOUR_NS) == "P1DT1H"
 
 
 def test_day_time_and_time_only_renderers_differ_on_the_day_group() -> None:
@@ -323,12 +327,17 @@ def test_shift_declines_when_the_shifted_year_leaves_the_representable_range() -
         ("P1M", "+", "P1D", "P1M1D"),
         ("P1M", "-", "P1M", "PT0S"),
         ("PT1H", "+", "PT30M", "PT1H30M"),
-        # <duration> * | / <number>
+        # <duration> * | / <number>: each group scales IN PLACE -- the time group
+        # never migrates into days (date + PT36H is a no-op; date + P1DT12H is not)
         ("P1D", "*", 2, "P2D"),
         ("P1D", "/", 2, "PT12H"),
         ("P1D", "*", 0.5, "PT12H"),
         ("P1D", "*", -1, "P-1D"),
         ("P1D", "/", -2, "PT-12H"),
+        ("P1D", "*", 0, "PT0S"),
+        ("PT18H", "*", 2, "PT36H"),
+        ("P2DT2H", "*", 2, "P4DT4H"),
+        ("P3D", "*", 1.5, "P4DT12H"),
         # <number> * <duration> commutes
         (2, "*", "P1D", "P2D"),
         (0.5, "*", "P1D", "PT12H"),
@@ -364,10 +373,10 @@ def test_fold_temporal_arithmetic_folds(left: Any, op: str, right: Any, expected
         ("P1D", "*", True),
         (True, "*", "P1D"),
         ("P1D", "/", False),
-        # Scaling by zero: multiplication by 0 and any division by 0 decline
-        # rather than emit PT0S / raise.
+        # Division by zero declines rather than raise; multiplication by zero is
+        # served as PT0S (pinned in the fold table above) -- declining it left
+        # Python's `str * 0` to emit the empty string.
         ("P1D", "/", 0),
-        ("P1D", "*", 0),
         # A fractional month result has no fixed length.
         ("P1M", "*", 0.5),
         ("P1M", "/", 2),
