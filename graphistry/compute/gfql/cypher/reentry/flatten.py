@@ -22,40 +22,48 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
-from typing import Optional, Set, Tuple
+from typing import Dict, Optional, Set, Tuple
 
 from graphistry.compute.gfql.cypher.ast import (
     CypherQuery,
+    ExpressionText,
     MatchClause,
     NodePattern,
     PathPatternKind,
     PatternElement,
     ProjectionStage,
     RelationshipPattern,
+    ReturnClause,
+    ReturnItem,
+)
+from graphistry.compute.gfql.identifiers import identifier_tokens, is_bare_identifier
+
+
+_AGGREGATE_CALL = re.compile(
+    r"\b(count|sum|avg|min|max|collect|stdev|percentile\w*)\s*\(", re.IGNORECASE
 )
 
 
-_BARE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+def _bare_carry_aliases(clause: ReturnClause) -> Optional[Set[str]]:
+    """Alias set when every projection item is an unaliased bare identifier, else None."""
+    aliases: Set[str] = set()
+    for item in clause.items:
+        if item.alias is not None:
+            return None
+        text = item.expression.text.strip()
+        if not is_bare_identifier(text):
+            return None
+        aliases.add(text)
+    return aliases
 
 
 def _pure_carry_aliases(stage: ProjectionStage) -> Optional[Set[str]]:
     """Return the carried alias set if the WITH stage is a pure bare carry, else None."""
     if stage.where is not None:
         return None
-    if stage.order_by is not None or stage.skip is not None or stage.limit is not None:
+    if _stage_reshapes_rows(stage):
         return None
-    clause = stage.clause
-    if clause.distinct:
-        return None
-    aliases: Set[str] = set()
-    for item in clause.items:
-        if item.alias is not None:
-            return None
-        text = item.expression.text.strip()
-        if not _BARE_IDENT.fullmatch(text):
-            return None
-        aliases.add(text)
-    return aliases
+    return _bare_carry_aliases(stage.clause)
 
 
 def _node_aliases(pattern: Tuple[PatternElement, ...]) -> Set[str]:
@@ -270,3 +278,117 @@ def flatten_carried_endpoint_rebind(query: CypherQuery) -> Optional[CypherQuery]
         reentry_wheres=(),
         reentry_unwinds=(),
     )
+
+
+def flatten_terminal_with_over_optional(
+    query: CypherQuery,
+) -> Optional[Tuple[CypherQuery, Optional[ExpressionText]]]:
+    """Rewrite terminal ``WITH`` over OPTIONAL MATCH onto the left-join lowering.
+
+    Returns the WITH-free query plus the stage ``WHERE`` for the caller to apply as a
+    post-join binding-row filter, or None to leave the query on its typed-decline path.
+    """
+    if not _is_terminal_with_over_optional_match(query):
+        return None
+    stage = query.with_stages[0]
+    if _stage_reshapes_rows(stage) or query.return_.distinct:
+        return None
+    match_aliases = _match_clause_aliases(query)
+    carried = _bare_carry_aliases(stage.clause)
+    if carried is not None and carried and carried <= match_aliases:
+        return _query_without_pure_carry_stage(query, stage, carried, match_aliases)
+    return _query_with_terminal_stage_folded_into_return(query, stage, match_aliases)
+
+
+def _is_terminal_with_over_optional_match(query: CypherQuery) -> bool:
+    """One trailing WITH stage over a non-optional lead MATCH plus at least one OPTIONAL MATCH."""
+    if query.reentry_matches or query.unwinds or query.call is not None or query.row_sequence:
+        return False
+    if len(query.with_stages) != 1:
+        return False
+    if not query.matches or query.matches[0].optional:
+        return False
+    return any(m.optional for m in query.matches)
+
+
+def _stage_reshapes_rows(stage: ProjectionStage) -> bool:
+    return (
+        stage.order_by is not None
+        or stage.skip is not None
+        or stage.limit is not None
+        or stage.clause.distinct
+    )
+
+
+def _match_clause_aliases(query: CypherQuery) -> Set[str]:
+    aliases: Set[str] = set()
+    for m in query.matches:
+        for pattern in m.patterns:
+            aliases.update(_all_pattern_aliases(pattern))
+    return aliases
+
+
+def _referenced_aliases(text: str, candidates: Set[str]) -> Set[str]:
+    return identifier_tokens(text) & candidates
+
+
+def _query_without_pure_carry_stage(
+    query: CypherQuery,
+    stage: ProjectionStage,
+    carried: Set[str],
+    match_aliases: Set[str],
+) -> Optional[Tuple[CypherQuery, Optional[ExpressionText]]]:
+    """Drop a bare-alias carry stage, handing its WHERE back as a post-join row filter."""
+    downstream_texts = [item.expression.text for item in query.return_.items]
+    if query.order_by is not None:
+        downstream_texts.extend(item.expression.text for item in query.order_by.items)
+    if stage.where is not None:
+        downstream_texts.append(stage.where.text)
+    for text in downstream_texts:
+        if not _referenced_aliases(text, match_aliases) <= carried:
+            return None
+    return replace(query, with_stages=()), stage.where
+
+
+def _query_with_terminal_stage_folded_into_return(
+    query: CypherQuery,
+    stage: ProjectionStage,
+    match_aliases: Set[str],
+) -> Optional[Tuple[CypherQuery, Optional[ExpressionText]]]:
+    """Fold a stage that RETURN passes through unchanged into the RETURN clause itself."""
+    if stage.where is not None:
+        return None
+    stage_items: Dict[str, ReturnItem] = {}
+    bare_carries: Set[str] = set()
+    for item in stage.clause.items:
+        name = item.alias or item.expression.text
+        text = item.expression.text.strip()
+        if name in stage_items:
+            return None
+        stage_items[name] = item
+        if item.alias is None and is_bare_identifier(text) and text in match_aliases:
+            bare_carries.add(name)
+    stage_aggregates = _stage_has_aggregates(stage)
+    new_items = []
+    for ret_item in query.return_.items:
+        text = ret_item.expression.text.strip()
+        if text in stage_items:
+            if text in bare_carries and stage_aggregates:
+                return None
+            src = stage_items[text]
+            new_items.append(replace(src, alias=ret_item.alias if ret_item.alias is not None else src.alias))
+            continue
+        parts = text.split(".")
+        if len(parts) == 2 and parts[0] in bare_carries and is_bare_identifier(parts[1]):
+            new_items.append(ret_item)
+            continue
+        return None
+    return replace(
+        query,
+        with_stages=(),
+        return_=replace(stage.clause, kind="return", items=tuple(new_items)),
+    ), None
+
+
+def _stage_has_aggregates(stage: ProjectionStage) -> bool:
+    return any(_AGGREGATE_CALL.search(item.expression.text) for item in stage.clause.items)

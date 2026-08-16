@@ -3,6 +3,7 @@
 
 from collections import OrderedDict
 from dataclasses import replace
+import re
 import threading
 import pandas as pd
 from types import MappingProxyType
@@ -31,11 +32,6 @@ from graphistry.compute.gfql.same_path_types import (
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
-from graphistry.compute.gfql.agg_types import (
-    CYPHER_EMPTY_LIST_EMPTY_GROUP_AGGREGATIONS,
-    CYPHER_ZERO_EMPTY_GROUP_AGGREGATIONS,
-    CypherEmptyGroupValue,
-)
 from graphistry.compute.gfql.cypher.ast import CypherParams
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
@@ -49,6 +45,10 @@ from graphistry.compute.gfql.cypher.lowering import (
     compile_cypher_query,
 )
 from graphistry.compute.filter_by_dict import _node_dtypes_for_pushdown
+from graphistry.compute.gfql.cypher.reentry.carried_outputs import (
+    carried_output_sources as _carried_output_sources,
+    optional_reentry_aggregate_fill_values as _optional_reentry_aggregate_fill_values,
+)
 from graphistry.compute.gfql.cypher.reentry.execution import (
     REENTRY_DUPLICATE_CARRIED_ROWS_REASON as _REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
     REENTRY_WHOLE_ROW_SUGGESTION as _REENTRY_WHOLE_ROW_SUGGESTION,
@@ -60,7 +60,6 @@ from graphistry.compute.gfql.cypher.reentry.execution import (
     reentry_validation_error as _reentry_validation_error,
     union_scalar_reentry_results as _union_scalar_reentry_results,
 )
-from graphistry.compute.gfql.cypher.reentry.naming import is_reentry_hidden_column_reference
 from graphistry.compute.gfql.cypher.call_procedures import execute_cypher_call
 from graphistry.compute.gfql.cypher.result_postprocess import (
     apply_result_projection,
@@ -1502,56 +1501,10 @@ def _execute_compiled_query_with_reentry(
             empty_result_row=compiled_query.empty_result_row,
             reentry_plan=compiled_query.reentry_plan,
             aggregate_fill_values=_optional_reentry_aggregate_fill_values(compiled_query),
+            carried_outputs=_carried_output_sources(compiled_query),
         )
 
     return result
-
-
-def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery) -> Dict[str, CypherEmptyGroupValue]:
-    """Cypher empty-group value per aggregate output on an unmatched prefix row's null-extended row."""
-    plan = compiled_query.reentry_plan
-    carried_scalar_columns = set(plan.scalar_columns) if plan is not None else set()
-    reentry_alias = plan.reentry_alias_name if plan is not None else None
-
-    def source_is_carried_rather_than_suffix_bound(source: str) -> bool:
-        base = source.split(".", 1)[0]
-        return (
-            is_reentry_hidden_column_reference(source)
-            or base in carried_scalar_columns
-            or base == reentry_alias
-        )
-
-    ops = list(compiled_query.chain.chain) if compiled_query.chain is not None else []
-    with_map: Dict[str, object] = {}
-    fills: Dict[str, CypherEmptyGroupValue] = {}
-    for op in ops:
-        if not isinstance(op, ASTCall):
-            continue
-        if op.function == "with_":
-            for item in op.params.get("items") or []:
-                if isinstance(item, (list, tuple)) and len(item) == 2 and isinstance(item[0], str):
-                    with_map[item[0]] = item[1]
-        elif op.function == "group_by":
-            fills = {}
-            for agg in op.params.get("aggregations") or []:
-                if not isinstance(agg, (list, tuple)) or len(agg) not in (2, 3):
-                    continue
-                alias = str(agg[0])
-                func = str(agg[1]).lower()
-                expr = agg[2] if len(agg) == 3 else None
-                if func == "count" and (expr is None or expr == "*"):
-                    fills[alias] = 1
-                    continue
-                source: object = with_map.get(expr, expr) if isinstance(expr, str) else expr
-                if not isinstance(source, str):
-                    continue
-                if source_is_carried_rather_than_suffix_bound(source):
-                    continue
-                if func in CYPHER_ZERO_EMPTY_GROUP_AGGREGATIONS:
-                    fills[alias] = 0
-                elif func in CYPHER_EMPTY_LIST_EMPTY_GROUP_AGGREGATIONS:
-                    fills[alias] = []
-    return fills
 
 
 def _materialize_split_alias_columns(

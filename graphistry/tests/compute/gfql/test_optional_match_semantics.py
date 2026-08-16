@@ -247,16 +247,24 @@ def test_with_carried_scalar_aggregate_after_optional_reentry(seed_filter):
 # ===========================================================================
 
 
-def _parity_or_nie(q: str, engine: str, expected) -> None:
+def _parity_or_nie(q: str, engine: str, expected, *, polars_nie: str = "") -> None:
     """Green-pin helper for shapes polars currently declines honestly: pandas
     must match the hand-computed answer; polars must either match it or raise
     a clean NotImplementedError (parity-or-error contract) -- a future
-    silent-wrong polars route cannot land unseen."""
+    silent-wrong polars route cannot land unseen.
+
+    A polars decline is only accepted when the caller NAMES the feature being
+    declined. Without ``polars_nie`` the cell would pass without reaching an
+    assertion, which is how ``test_with_carried_scalar_props_after_optional_reentry
+    [polars]`` sat vacuous."""
     if engine == "polars":
         try:
             out = _run(q, "polars")
-        except NotImplementedError:
+        except NotImplementedError as nie:
+            assert polars_nie, f"undeclared polars decline: {nie}"
+            assert polars_nie in str(nie), str(nie)
             return
+        assert not polars_nie, "polars now serves a shape declared as declining"
         _assert_rows(out, expected)
     else:
         _assert_rows(_run(q, engine), expected)
@@ -336,13 +344,15 @@ def test_optional_match_nested_arm_and_label_arm_matched(engine):
 def test_with_carried_scalar_props_after_optional_reentry(engine):
     """F-04 control: scalar WITH carry + optional PROPS projection is a correct
     5-row left join with the scalar carried -- protects the working half next
-    to the aggregate half (fixed above). polars: parity-or-NIE."""
+    to the aggregate half (fixed above). polars declines this one, and the
+    decline is now ASSERTED by name: the whole-row carry that also threads
+    scalar WITH columns is the pandas-only payload path."""
     q = ("MATCH (p {kind:'person'}) WITH p, p.score AS s "
          "OPTIONAL MATCH (p)-[{t:'L'}]->(x) RETURN s, x.v AS v")
     _parity_or_nie(q, engine, [
         {"s": 5, "v": 100}, {"s": 5, "v": 200},
         {"s": 9, "v": None}, {"s": 7, "v": None}, {"s": 2, "v": None},
-    ])
+    ], polars_nie="re-entry that carries scalar WITH columns")
 
 
 # ===========================================================================
@@ -409,25 +419,21 @@ def test_optional_match_seed_shapes_gate_or_keep_seeds(query, seeds_kept, engine
 
 def test_optional_match_gate_messages_describe_the_query():
     """Typed gates are the good outcome, but their messages must not assert
-    falsehoods (F-05). Two former offenders:
-    - connected seed + count(x) used to raise 'aggregate ... must be
-      top-level' when the aggregate IS a top-level RETURN projection; the
-      shape is now served by the connected optional-match lowering, so pin
-      the (hand-computed) answer instead.
-    - the canonical anti-join used to carry the suggestion 'Use MATCH instead
-      of OPTIONAL MATCH', a rewrite that CHANGES semantics (an anti-join can
-      never be expressed with non-optional MATCH)."""
+    falsehoods (F-05). Connected seed + count(x) used to raise 'aggregate ...
+    must be top-level' when the aggregate IS a top-level RETURN projection;
+    the shape is now served by the connected optional-match lowering, so pin
+    the (hand-computed) answer instead."""
     out = _run("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'H'}]->(x) "
                "RETURN p.name AS n, count(x) AS c", "pandas")
     _assert_rows(out, [{"n": "bob", "c": 1}, {"n": None, "c": 0}])
-    # canonical anti-join: still a typed decline, but it must not suggest a
-    # semantics-changing rewrite and must not claim the aggregate placement
-    # is wrong
-    with pytest.raises(GFQLValidationError) as anti_err:
-        _run("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'L'}]->(x) "
-             "WITH p, x WHERE x IS NULL RETURN p.name AS n", "pandas")
-    assert "Use MATCH instead of OPTIONAL MATCH" not in str(anti_err.value)
-    assert "must be top-level" not in str(anti_err.value)
+
+
+def test_optional_match_anti_join_with_where_x_is_null_keeps_only_unmatched_rows():
+    """`WITH p, x WHERE x IS NULL` filters binding ROWS: bob and the null-named
+    person are the two K-targets with no L edge, so exactly those two rows survive."""
+    anti = _run("MATCH (m {kind:'person'})-[{t:'K'}]->(p) OPTIONAL MATCH (p)-[{t:'L'}]->(x) "
+                "WITH p, x WHERE x IS NULL RETURN p.name AS n", "pandas")
+    _assert_rows(anti, [{"n": "bob"}, {"n": None}])
 
 
 def test_optional_match_varlen_arm_residual_gate_is_honest():
@@ -568,15 +574,17 @@ def test_optional_self_loop_arm_projects_edge(engine):
     alias in the optional arm must not route into the connected-OM path's
     duplicate-alias decline. b's LOOP self-edge is the only (a)-[r]-(a) match;
     the edge whole-row flattens to r.* columns (#1650).
-    polars: parity-or-NIE (self-loop lowers to a same-path WHERE it declines)."""
+    polars: parity-or-NIE, and the decline is ASSERTED, not swallowed -- a bare
+    `except NotImplementedError: return` made this the one cell in the file that
+    could pass without reaching an assertion, so a polars route that started
+    answering (rightly or wrongly) would never be noticed here."""
     q = "MATCH (a:B) OPTIONAL MATCH (a)-[r]-(a) RETURN r"
     if engine == "polars":
-        try:
-            result = _run_labeled(q, "polars")
-        except NotImplementedError:
-            return
-    else:
-        result = _run_labeled(q, engine)
+        with pytest.raises(NotImplementedError) as nie:
+            _run_labeled(q, "polars")
+        assert "cross-entity (same-path) WHERE" in str(nie.value), str(nie.value)
+        return
+    result = _run_labeled(q, engine)
     records, _flat = _rendered_whole_entity(result, "r", table="edges")
     assert records == [{"r": "[:LOOP]"}]
 
@@ -632,3 +640,171 @@ def test_optional_reentry_aggregate_over_carried_source_stays_null(projection):
     NOT an empty group -- filling it with 0/[] would be wrong, not merely
     unhelpful. No fill entry => the null-fill leaves it NULL."""
     assert _reentry_aggregate_fills(_REENTRY_PREFIX + projection) == {}
+
+
+# ===========================================================================
+# F. #1896 OM -> WITH pipeline row semantics (post-fix adversarial re-probe)
+# ===========================================================================
+
+
+def _run_1896(query: str, engine: str) -> pd.DataFrame:
+    nodes = pd.DataFrame({
+        "id": ["a1", "a2", "a3", "a4", "b1", "b2", "z"],
+        "label__P": [True, True, True, True, False, False, False],
+        "label__C": [False, False, False, False, True, True, False],
+        "v": [1, 2, 3, 4, 10, 20, 99],
+        "name": ["a1", "a2", "a3", "a4", "b1", "b2", "z"],
+    })
+    edges = pd.DataFrame({
+        "s": ["a1", "a1", "a2", "b1"],
+        "d": ["b1", "b2", "b1", "a3"],
+        "eid": ["e1", "e2", "e3", "e4"],
+        "type": ["KNOWS", "KNOWS", "LIKES", "KNOWS"],
+        "w": [5, 6, 7, 8],
+    })
+    if engine == "polars":
+        g = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
+    else:
+        g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    out = g.gfql(query, engine=engine)._nodes
+    if hasattr(out, "to_pandas"):
+        out = out.to_pandas()
+    return out.reset_index(drop=True)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_with_where_seed_predicate_filters_rows_keeps_bindings(engine):
+    """Finding 1 (CRITICAL): a seed-only WITH..WHERE filters binding ROWS --
+    matched rows keep their b (multiplicity preserved), never nulled (pandas
+    bug) or fabricated as seed ids (polars bug)."""
+    q = ("MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a, b WHERE a.v <= 2 "
+         "RETURN a.id AS aid, b.id AS bid")
+    _assert_rows(_run_1896(q, engine), [
+        {"aid": "a1", "bid": "b1"}, {"aid": "a1", "bid": "b2"},
+        {"aid": "a2", "bid": "b1"},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_with_carry_no_where_preserves_null_extension(engine):
+    """Finding 1 corollary: a pure WITH a, b carry is a row no-op -- all five
+    binding rows survive, unmatched seeds null-extended."""
+    q = ("MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a, b "
+         "RETURN a.id AS aid, b.id AS bid")
+    _assert_rows(_run_1896(q, engine), [
+        {"aid": "a1", "bid": "b1"}, {"aid": "a1", "bid": "b2"},
+        {"aid": "a2", "bid": "b1"}, {"aid": "a3", "bid": None},
+        {"aid": "a4", "bid": None},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_with_where_optional_predicate_filters_null_rows(engine):
+    """A WITH..WHERE over the OPTIONAL alias operates on rows too: null rows
+    fail `b.v >= 20` (openCypher null comparison) and drop; only (a1,b2)
+    survives. Previously a typed decline; now served."""
+    q = ("MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a, b WHERE b.v >= 20 "
+         "RETURN a.id AS aid, b.id AS bid")
+    _assert_rows(_run_1896(q, engine), [{"aid": "a1", "bid": "b2"}])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_single_alias_carry_where_preserves_multiplicity(engine):
+    """Finding 1 sibling: WITH a WHERE ... RETURN a.id keeps one row PER
+    binding row -- a1 appears twice (two arm matches), never deduplicated."""
+    q = "MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a WHERE a.v <= 2 RETURN a.id AS aid"
+    _assert_rows(_run_1896(q, engine), [{"aid": "a1"}, {"aid": "a1"}, {"aid": "a2"}])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_with_stage_aggregate_keeps_zero_count_groups(engine):
+    """Finding 2: WITH-stage aggregate must match the direct RETURN aggregate:
+    unmatched seeds keep their group with count(b)=0; count(*) sees the
+    null-extended row itself (=1)."""
+    q = ("MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a.id AS aid, count(b) AS cnt "
+         "RETURN aid, cnt")
+    _assert_rows(_run_1896(q, engine), [
+        {"aid": "a1", "cnt": 2}, {"aid": "a2", "cnt": 1},
+        {"aid": "a3", "cnt": 0}, {"aid": "a4", "cnt": 0},
+    ])
+    q_star = ("MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a.id AS aid, count(*) AS cnt "
+              "RETURN aid, cnt")
+    _assert_rows(_run_1896(q_star, engine), [
+        {"aid": "a1", "cnt": 2}, {"aid": "a2", "cnt": 1},
+        {"aid": "a3", "cnt": 1}, {"aid": "a4", "cnt": 1},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_with_property_stage_keeps_rows(engine):
+    """Finding 2 sibling: a property-projection WITH stage is row-preserving:
+    av carries one value per binding row incl. null-extended seeds."""
+    q = "MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a.v AS av RETURN av"
+    _assert_rows(_run_1896(q, engine),
+                 [{"av": 1}, {"av": 1}, {"av": 2}, {"av": 3}, {"av": 4}])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_rename_carry_null_extension_keeps_seed_identity(engine):
+    """Finding 3: `WITH a AS p` reentry null-fill must anti-join unmatched
+    seeds -- a2 (LIKES only), a3, a4 each get a row with THEIR pid, never
+    anonymous all-null rows (and never a wrong count of them)."""
+    q = ("MATCH (a:P) WITH a AS p OPTIONAL MATCH (p)-[:KNOWS]->(b) "
+         "RETURN p.id AS pid, b.id AS bid")
+    _assert_rows(_run_1896(q, engine), [
+        {"pid": "a1", "bid": "b1"}, {"pid": "a1", "bid": "b2"},
+        {"pid": "a2", "bid": None}, {"pid": "a3", "bid": None},
+        {"pid": "a4", "bid": None},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_limit_carry_null_extension_not_shortcircuited(engine):
+    """Finding 4: with LIMIT 2 carrying {a1, a2}, a1's two matches must not
+    mask a2's missing null row (the old result_rows >= prefix_rows
+    short-circuit); LIMIT 10 keeps every unmatched seed identified."""
+    q2 = ("MATCH (a:P) WITH a LIMIT 2 OPTIONAL MATCH (a)-[:KNOWS]->(b) "
+          "RETURN a.id AS aid, b.id AS bid")
+    _assert_rows(_run_1896(q2, engine), [
+        {"aid": "a1", "bid": "b1"}, {"aid": "a1", "bid": "b2"},
+        {"aid": "a2", "bid": None},
+    ])
+    q10 = ("MATCH (a:P) WITH a LIMIT 10 OPTIONAL MATCH (a)-[:KNOWS]->(b) "
+           "RETURN a.id AS aid, b.id AS bid")
+    _assert_rows(_run_1896(q10, engine), [
+        {"aid": "a1", "bid": "b1"}, {"aid": "a1", "bid": "b2"},
+        {"aid": "a2", "bid": None}, {"aid": "a3", "bid": None},
+        {"aid": "a4", "bid": None},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_no_identity_projection_declines_not_anonymous(engine):
+    """Negative control: when no carried-alias column is projected, unmatched
+    seeds cannot be identified -- typed decline, never anonymous null rows or
+    a silently short row set."""
+    q = ("MATCH (a:P) WITH a AS p OPTIONAL MATCH (p)-[:KNOWS]->(b) "
+         "RETURN b.id AS bid")
+    with pytest.raises(GFQLValidationError):
+        _run_1896(q, engine)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_1896_nonflattenable_with_stage_declines_not_silent(engine):
+    """Negative control: a WITH stage the flatten cannot serve (rename of a
+    carried alias inside the stage) declines typed instead of riding the
+    row-column pipeline into silent-wrong."""
+    q = ("MATCH (a:P) OPTIONAL MATCH (a)-->(b) WITH a AS x, b AS y "
+         "RETURN x.id AS xid, y.id AS yid")
+    with pytest.raises(GFQLValidationError):
+        _run_1896(q, engine)
+
+
+def test_1896_orderby_property_decline_hints_output_alias():
+    """Finding 5: the ORDER BY optional-alias-property decline must hint the
+    output-alias spelling that works (ORDER BY bv sorts with openCypher null
+    placement)."""
+    q = "MATCH (a:P) OPTIONAL MATCH (a)-->(b) RETURN a.id AS aid, b.v AS bv ORDER BY b.v"
+    with pytest.raises(GFQLValidationError) as exc:
+        _run_1896(q, "pandas")
+    assert "output alias" in str(exc.value) or "AS sort_key" in str(exc.value)

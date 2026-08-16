@@ -115,7 +115,6 @@
       "graphistry/compute/gfql/cypher/procedures/networkx.py": 20,
       "graphistry/compute/gfql/cypher/projection_planning.py": 9,
       "graphistry/compute/gfql/cypher/reentry/compiletime.py": 2,
-      "graphistry/compute/gfql/cypher/reentry/execution.py": 8,
       "graphistry/compute/gfql/cypher/reentry/scope.py": 2,
       "graphistry/compute/gfql/cypher/result_postprocess.py": 1,
       "graphistry/compute/gfql/cypher/shortest_path_guards.py": 1,
