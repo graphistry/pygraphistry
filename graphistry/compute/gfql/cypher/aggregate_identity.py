@@ -148,11 +148,22 @@ def ungrouped_aggregate_identity_row(
     """
     pivot: Optional[int] = None
     seed: Optional[Dict[str, Any]] = None
-    for idx in range(len(row_steps) - 1, -1, -1):
-        seed = _ungrouped_aggregate_identity_seed(row_steps[idx])
-        if seed is not None:
-            pivot = idx
+    # Prefer the EARLIEST seed whose whole suffix is replayable: a later ungrouped
+    # aggregate then aggregates the replayed identity row (count(c) over an empty
+    # stream is 1, not 0); pivoting at the last seed there fabricates its value.
+    for idx in range(len(row_steps)):
+        candidate = _ungrouped_aggregate_identity_seed(row_steps[idx])
+        if candidate is None:
+            continue
+        if pivot is None:
+            pivot, seed = idx, candidate
+            continue
+        if all(
+            isinstance(step, ASTCall) and step.function in _IDENTITY_ROW_REPLAY_CALLS
+            for step in row_steps[pivot + 1:]
+        ):
             break
+        pivot, seed = idx, candidate
     if pivot is None or seed is None:
         return None
 
