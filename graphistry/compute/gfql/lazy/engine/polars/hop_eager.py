@@ -1,10 +1,9 @@
-"""Native Polars hop() — Phase 1, vectorized.
+"""Native Polars hop() — Phase 1.
 
 Supports forward/reverse/undirected, integer hops + to_fixed_point, default and
 return_as_wave_front seed semantics, edge/source/destination match predicates, and
-target_wave_front (chain reverse pass). Vectorization-first: BFS frontier/visited/allowed sets
-are polars frames advanced by semi/anti joins — no per-element Python work, no
-``.to_list()``/``is_in(python_list)`` ping-pong; each hop is one big join. Parity-or-NIE:
+target_wave_front (chain reverse pass). BFS frontier/visited/allowed sets are polars frames
+advanced by semi/anti joins. Parity-or-NIE:
 pandas is the oracle; not-yet-ported features (hop labeling, min_hops>1 outside the chain
 policy, output_min/max slicing, *_query, prune_to_endpoints, include_zero_hop_seed) raise
 NotImplementedError.
@@ -69,8 +68,8 @@ def _build_hop_pairs(
     frame: "PolarsT", direction: str, src: str, dst: str,
     node_dtype: "pl.DataType", FROM: str, TO: str, EID: str,
 ) -> "PolarsT":
-    """Directed-(FROM,TO,EID) builder with join-key dtype aligned (polars won't coerce int/float
-    join keys like pandas). `frame` = edge-id frame, eager or lazy; select/concat identical on both."""
+    """Directed-(FROM,TO,EID) builder with join-key dtype aligned. `frame` = edge-id frame,
+    eager or lazy; select/concat identical on both."""
     import polars as pl
 
     def _p(s: str, d: str) -> "PolarsT":
@@ -81,6 +80,40 @@ def _build_hop_pairs(
     if direction == "reverse":
         return _p(dst, src)
     return pl.concat([_p(src, dst), _p(dst, src)], how="vertical_relaxed")
+
+
+def _ids_an_endpoint_may_resolve_to(
+    all_nodes: "pl.DataFrame", target_wave_front: "Optional[pl.DataFrame]", node_col: str,
+) -> "pl.Series":
+    """The bound node table's ids, widened by any target wavefront (pandas' base_target_nodes)."""
+    import polars as pl
+
+    ids = all_nodes.get_column(node_col)
+    if target_wave_front is not None and node_col in target_wave_front.columns:
+        ids = pl.concat([ids, target_wave_front.get_column(node_col).cast(ids.dtype)])
+    return ids
+
+
+def _keep_edges_with_both_endpoints_resolvable(
+    edges_idx: "PolarsT", src: str, dst: str, node_dtype: "pl.DataType",
+    resolvable_ids: "pl.Series",
+) -> "PolarsT":
+    """`.implode()` makes the id series ONE membership collection; bare `is_in` is deprecated.
+
+    A NULL endpoint resolves iff the id universe holds a NULL id: `is_in` answers NULL for a
+    NULL input (dropped by `filter`), where the pandas/cuDF `isin` this mirrors answers True.
+    """
+    import polars as pl
+
+    universe = resolvable_ids.implode()
+    a_null_id_is_resolvable = resolvable_ids.null_count() > 0
+
+    def _resolvable(endpoint_col: str) -> "pl.Expr":
+        endpoint = pl.col(endpoint_col).cast(node_dtype)
+        member = endpoint.is_in(universe)
+        return (member | endpoint.is_null()) if a_null_id_is_resolvable else member
+
+    return edges_idx.filter(_resolvable(src) & _resolvable(dst))
 
 
 def _min_hops_labeled_node_output(
@@ -202,19 +235,20 @@ def hop_polars(
 
     FROM, TO, NID, EID, edges_idx, synth_eid, node_dtype = _hop_setup_columns(
         edges, all_nodes, node_col, g._edge)
+
+    node_table_bound = self._nodes is not None
+    if node_table_bound:
+        edges_idx = _keep_edges_with_both_endpoints_resolvable(
+            edges_idx, src, dst, node_dtype,
+            _ids_an_endpoint_may_resolve_to(all_nodes, target_wave_front, node_col),
+        )
+
     pairs = _build_hop_pairs(edges_idx, direction, src, dst, node_dtype, FROM, TO, EID)
 
     def _idframe(df: "pl.DataFrame", col: str) -> "pl.DataFrame":
         return df.select(pl.col(col).cast(node_dtype).alias(NID)).unique()
 
-    # --- SINGLE BOUNDED HOP (the dominant case — every chain edge): ONE lazy plan, ONE
-    # collect_all on the active target (GPU: edge table read/transferred once -- the
-    # collect-once path, formerly the separate hop.py twin). Placed BEFORE the eager gate
-    # construction: the seed/gate/target id-frame .unique()s must stay INSIDE the lazy plan
-    # (eagerly materializing them over chain wavefronts measurably regressed large-edge
-    # runs -- A/B twice). Multi-hop/min_hops/to_fixed_point use the eager loop below: the
-    # early-break + revisit bookkeeping need per-hop materialization, and for hops>=2 an
-    # unrolled lazy plan recomputes the big edge-join per hop (polars CSE doesn't dedup it).
+    # Must stay ABOVE the eager gate construction: the id-frame .unique()s stay inside the lazy plan.
     if (not to_fixed_point and resolved_max_hops == 1
             and not (label_node_hops is not None or label_edge_hops is not None or label_seeds)
             and not (min_hops is not None and min_hops > 1 and direction in ("forward", "reverse"))):
@@ -223,20 +257,9 @@ def hop_polars(
         pairs_lf = _build_hop_pairs(edges_lf, direction, src, dst, node_dtype, FROM, TO, EID)
 
         def _idframe_lf(lf: "pl.LazyFrame", col: str) -> "pl.LazyFrame":
-            """Id frame for a SEMI-JOIN KEY side only — deliberately NOT deduplicated.
-
-            Every consumer below (`allowed_source_lf`, `allowed_dest_lf`, `target_final_lf`,
-            `frontier_lf`) is the key side of a `how="semi"` join, and a semi-join emits a
-            row iff >=1 match exists — duplicate keys cannot change the result, and unlike an
-            inner join it cannot multiply rows either. `frontier_lf` is also the LEFT side of
-            one semi-join, whose output then feeds another as the key side; duplicates stay
-            harmless the whole way. So `.unique()` here is a full hash pass over the node-id
-            column bought for nothing: on an unfiltered hop the key side IS the node table,
-            making it O(N) work inside a query whose answer is O(degree) -- and this path
-            builds two such frames per hop.
-
-            Anything that needs a *distinct* id set must apply its own `.unique()`.
-            """
+            """Key side of a semi-join only — deliberately NOT deduplicated (duplicate keys
+            cannot change a semi-join result); callers needing distinct ids apply their own
+            `.unique()`."""
             return lf.select(pl.col(col).cast(node_dtype).alias(NID))
 
         allowed_source_lf = None

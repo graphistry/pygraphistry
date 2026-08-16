@@ -6,7 +6,7 @@ from dataclasses import replace
 import threading
 import pandas as pd
 from types import MappingProxyType
-from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, TYPE_CHECKING, Union, cast
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, is_polars_df, is_series_like, resolve_engine, series_to_pylist
 from graphistry.util import setup_logger
@@ -1032,6 +1032,31 @@ def _run_logical_pass_pipeline(logical_plan: LogicalPlan, ctx: PlanContext) -> L
     return PassManager(DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES).run(logical_plan, ctx).plan
 
 
+if TYPE_CHECKING:
+    from graphistry.compute.gfql.lazy import ExecutionTarget
+
+
+def _policied_auto_serves_via_pandas_until_the_polars_route_emits_hooks(
+    engine: Union[EngineAbstract, str],
+    policy: Optional[Dict[str, PolicyFunction]],
+    g: Plottable,
+) -> bool:
+    """Transitional: the polars route does not emit the postload/postchain policy hooks yet."""
+    return (
+        (engine == EngineAbstract.AUTO or engine == EngineAbstract.AUTO.value)
+        and policy is not None
+        and resolve_engine(EngineAbstract.AUTO, g) == Engine.POLARS
+    )
+
+
+def _fast_path_execution_target_ignoring_requested_engine(
+    engine: Union[EngineAbstract, Engine, str],
+) -> "ExecutionTarget":
+    """Not GPU until every fast-path arm is GPU-or-decline (#1824)."""
+    from graphistry.compute.gfql.lazy import ExecutionTarget
+    return ExecutionTarget.CPU
+
+
 def _execute_compiled_query_via_physical_plan(
     base_graph: Plottable,
     *,
@@ -1070,15 +1095,7 @@ def _execute_compiled_query_via_physical_plan(
         # paths, and it cannot be bypassed the way patching a directly-imported name is.
         from graphistry.compute.gfql.index.api import record_fast_path_decision
         from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
-        # Fast paths run BEFORE the chain route, which is where the execution
-        # target is established -- so engine='polars-gpu' serves fast-path work
-        # on CPU (#1824: eager arms never collect, and dgx measured 86 polars-gpu
-        # tests green only via that mislabel). The target stays CPU here until
-        # the fast paths are made GPU-or-decline arm by arm (#1824, next cycle);
-        # the collect routing + NIE-decline plumbing below is already in place
-        # and is a no-op on the CPU target. Flip to ExecutionTarget.GPU on
-        # POLARS_GPU resolutions only together with the per-arm decline work.
-        _fp_target = ExecutionTarget.CPU
+        _fp_target = _fast_path_execution_target_ignoring_requested_engine(engine)
 
         _FastPathName = Literal["single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop"]
 
@@ -1088,8 +1105,6 @@ def _execute_compiled_query_via_physical_plan(
                     out = run()
                 reason = "served" if out is not None else "declined; caller falls back"
             except NotImplementedError:
-                # ONLY the GPU target's plan-not-executable NIE is a decline; on
-                # CPU an NIE is a real error and must surface, not be swallowed.
                 if _fp_target != ExecutionTarget.GPU:
                     raise
                 out = None
@@ -2074,19 +2089,7 @@ def gfql(self: Plottable,
     :returns: Resulting Plottable
     :rtype: Plottable
     """
-    # TRANSITIONAL guard, not a contract: with a POLICY attached, AUTO serves via
-    # pandas until the polars route emits the postload/postchain hooks -- hooks
-    # are the governance surface and must fire exactly once on whatever engine
-    # serves. The predicate is resolve_engine itself, so EVERY graph AUTO would
-    # route to polars (all-polars AND mixed frames) is guarded -- a frame-shape
-    # check here once let mixed frames bypass a denying policy. Delete this
-    # guard when the hook gap closes; tests pin the hook contract.
-    # (Native-vs-generic magnitudes: pyg-bench, matched q1-q9.)
-    if (
-        (engine == EngineAbstract.AUTO or engine == EngineAbstract.AUTO.value)
-        and policy is not None
-        and resolve_engine(EngineAbstract.AUTO, self) == Engine.POLARS
-    ):
+    if _policied_auto_serves_via_pandas_until_the_polars_route_emits_hooks(engine, policy, self):
         engine = Engine.PANDAS.value
 
     if (
@@ -2101,12 +2104,6 @@ def gfql(self: Plottable,
                 shortest_path_backend=shortest_path_backend,
             )
         except NotImplementedError:
-            # AUTO must answer: pandas explicitly, since the generic path would
-            # re-resolve these frames to POLARS and re-raise the same NIE. The
-            # frames must be COERCED first -- the pandas executors are
-            # pandas-idiom, and handing them polars frames crashed 7/7 same-path
-            # projection shapes on the default route (round-002 agent-03 BUG-2;
-            # #1885 was one corner of it).
             logger.debug('AUTO polars-native attempt declined; serving via pandas')
             from graphistry.compute.ComputeMixin import _coerce_input_formats
             return gfql(

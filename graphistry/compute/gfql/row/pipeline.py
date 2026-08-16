@@ -278,11 +278,9 @@ class RowPipelineMixin:
         edges = getattr(base_graph, "_edges", None)
         if edges is None:
             return None
-        # Strong ref + `is`, not id(): a recycled id from a GC'd frame would
-        # validate a dead cache; the strong ref pins the object while cached.
         cache = getattr(base_graph, "_gfql_native_sp_cache", None)
-        if not isinstance(cache, dict) or cache.get("__edges_ref__") is not edges:
-            cache = {"__edges_ref__": edges}
+        if not isinstance(cache, dict) or cache.get("__edges_strong_ref__") is not edges:
+            cache = {"__edges_strong_ref__": edges}
             try:
                 base_graph._gfql_native_sp_cache = cache
             except Exception:

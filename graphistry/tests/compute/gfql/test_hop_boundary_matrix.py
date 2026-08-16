@@ -39,6 +39,9 @@ except ImportError:
     HAS_POLARS = False
 
 polars_only = pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
+cudf_only = pytest.mark.skipif(
+    __import__("importlib.util", fromlist=["util"]).find_spec("cudf") is None,
+    reason="cudf lane requires a GPU box (--gpus all)")
 ENGINES = ["pandas", pytest.param("polars", marks=polars_only)]
 
 TOPOLOGIES = {
@@ -58,11 +61,19 @@ def _graph(topology: str, engine: str):
     edf = pd.DataFrame({"s": [e[0] for e in edges], "d": [e[1] for e in edges]})
     if engine == "polars":
         return graphistry.nodes(pl.from_pandas(ndf), "id").edges(pl.from_pandas(edf), "s", "d")
+    if engine == "cudf":
+        import cudf
+        return graphistry.nodes(cudf.from_pandas(ndf), "id").edges(cudf.from_pandas(edf), "s", "d")
     return graphistry.nodes(ndf, "id").edges(edf, "s", "d")
 
 
 def _frame(engine: str, df: pd.DataFrame):
-    return pl.from_pandas(df) if engine == "polars" else df
+    if engine == "polars":
+        return pl.from_pandas(df)
+    if engine == "cudf":
+        import cudf
+        return cudf.from_pandas(df)
+    return df
 
 
 def node_ids(g):
@@ -341,12 +352,18 @@ TFP_EQUALS_BOUNDED_XFAIL = {
     ("pandas", "twocomp", (0,)),
     ("pandas", "isolated", (0, 1)),
 }
+# Round 5, measured on cudf 25.10: the cuDF arm lands on exactly the pandas cells of BOTH
+# sets above -- same one rediscovery miss, same ten tfp-vs-bounded cells. Mirrored rather
+# than re-listed so a cuDF-only drift shows up as an unexpected pass or failure.
+REDISCOVERY_XFAIL |= {("cudf",) + c[1:] for c in set(REDISCOVERY_XFAIL) if c[0] == "pandas"}
+TFP_EQUALS_BOUNDED_XFAIL |= {
+    ("cudf",) + c[1:] for c in set(TFP_EQUALS_BOUNDED_XFAIL) if c[0] == "pandas"}
 
 
 def _rediscovery_params(xfail_set, reason):
     params = []
-    for engine in ("pandas", "polars"):
-        marks = [] if engine == "pandas" else [polars_only]
+    for engine in ("pandas", "polars", "cudf"):
+        marks = {"pandas": [], "polars": [polars_only], "cudf": [cudf_only]}[engine]
         for topology, seeds, expected in REDISCOVERY_ORACLE:
             cell_marks = list(marks)
             if (engine, topology, tuple(seeds)) in xfail_set:

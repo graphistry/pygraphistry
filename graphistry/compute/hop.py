@@ -4,7 +4,7 @@ Graph hop/traversal operations for PyGraphistry.
 NOTE: Excluded from pyre (.pyre_configuration) - hop() complexity causes hang. Use mypy.
 """
 import os
-from typing import Any, Dict, Hashable, List, Optional, Set, Tuple, TYPE_CHECKING, Union, cast
+from typing import Any, Callable, Dict, Hashable, List, Optional, Set, Tuple, TYPE_CHECKING, Union, cast
 import pandas as pd
 
 from graphistry.Engine import (
@@ -53,6 +53,28 @@ def _reached_node_ids(matches_nodes: Optional[DataFrameT], node_col: str) -> Set
     return set(reached.tolist())
 
 
+def _nodes_with_hop_label_column(nodes: DataFrameT, hop_label_col: str) -> DataFrameT:
+    if hop_label_col in nodes.columns:
+        return nodes
+    return nodes.assign(**{hop_label_col: float('nan')})
+
+
+def _endpoint_ids_without_node_rows(
+    g: Plottable, engine_bound_concat: Callable[..., DataFrameT],
+) -> DataFrameT:
+    """Endpoint ids the node table does not back."""
+    concat = engine_bound_concat
+    endpoints = concat(
+        [
+            g._edges[[g._source]].rename(columns={g._source: g._node}),
+            g._edges[[g._destination]].rename(columns={g._destination: g._node}),
+        ],
+        ignore_index=True,
+        sort=False,
+    ).drop_duplicates(subset=[g._node])
+    return endpoints[~endpoints[g._node].isin(g._nodes[g._node])]
+
+
 @otel_traced("gfql.hop", attrs_fn=_hop_otel_attrs)
 def hop(self: Plottable,
     nodes: Optional[DataFrameT] = None,  # chain: incoming wavefront
@@ -80,8 +102,6 @@ def hop(self: Plottable,
 ) -> Plottable:
     """
     Given a graph and some source nodes, return subgraph of all paths within k-hops from the sources
-
-    This can be faster than the equivalent chain([...]) call that wraps it with additional steps
 
     See chain() examples for examples of many of the parameters
 
@@ -117,11 +137,8 @@ def hop(self: Plottable,
     from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
     self = _coerce_input_formats(self, engine_concrete)
 
-    # GFQL physical index fast path (pay-as-you-go). When a resident adjacency
-    # index covers this seeded traversal and the planner deems it profitable, run
-    # the O(degree) CSR gather instead of the O(E) scan below. Engine-uniform;
-    # returns None to fall back. Coercion above is a no-op when already in-engine,
-    # so the index fingerprint (keyed on the live edge frame) still matches.
+    # GFQL physical index path; returns None to fall back. Coercion above is a no-op when already
+    # in-engine, so the index fingerprint (keyed on the live edge frame) still matches.
     from graphistry.compute.gfql.index import get_index_policy, get_registry, maybe_index_hop
     from graphistry.compute.gfql.index.types import HopDirection
     _idx_policy = get_index_policy(self)
@@ -277,12 +294,8 @@ def hop(self: Plottable,
 
         GFQL_EDGE_INDEX = generate_safe_column_name('edge_index', pre_indexed_edges, prefix='__gfql_', suffix='__')
 
-        # Attach the synthetic per-edge id WITHOUT copying edge data (#1670):
-        # reset_index(drop=False) + rename deep-copied + block-consolidated the
-        # whole (post-filter) edge frame (~80ms @2M edges) on every hop — the
-        # traversal hot path. A shallow copy + assigning the index as a column
-        # gives identical id values (used only as a dedup/join key, never
-        # positionally) with no O(E) copy. Mirrors the chain.py edge-index attach.
+        # Shallow-copy edge-id attach (#1670): ids are a dedup/join key only, never used
+        # positionally. Mirrors the chain.py edge-index attach.
         edges_indexed = pre_indexed_edges.copy(deep=False)
         edges_indexed[GFQL_EDGE_INDEX] = edges_indexed.index
         EDGE_ID = GFQL_EDGE_INDEX
@@ -334,6 +347,14 @@ def hop(self: Plottable,
     else:
         # Allow intermediate hops to traverse graph nodes while constraining final targets.
         base_target_nodes = concat([target_wave_front, g2._nodes], ignore_index=True, sort=False).drop_duplicates(subset=[node_col])
+
+    node_table_bound = self._nodes is not None
+    if node_table_bound:
+        ids_an_endpoint_may_resolve_to = base_target_nodes[node_col]
+        edges_indexed = edges_indexed[
+            edges_indexed[source_col].isin(ids_an_endpoint_may_resolve_to)
+            & edges_indexed[destination_col].isin(ids_an_endpoint_may_resolve_to)
+        ]
 
     def _build_allowed_ids(
         base_nodes: DataFrameT,
@@ -1005,25 +1026,23 @@ def hop(self: Plottable,
 
         g_out = g_out.nodes(final_nodes)
 
-    # Ensure all edge endpoints are present in nodes.
     if g_out._edges is not None and len(g_out._edges) > 0 and g_out._nodes is not None:
-        endpoints = concat(
-            [
-                g_out._edges[[g_out._source]].rename(columns={g_out._source: g_out._node}),
-                g_out._edges[[g_out._destination]].rename(columns={g_out._destination: g_out._node}),
-            ],
-            ignore_index=True,
-            sort=False,
-        ).drop_duplicates(subset=[g_out._node])
+        unbacked_endpoints = _endpoint_ids_without_node_rows(g_out, concat)
+        nodes_out = g_out._nodes
         if track_node_hops and node_hop_records is not None and node_hop_col is not None:
-            endpoints = safe_merge(
-                endpoints,
-                node_hop_records[[g_out._node, node_hop_col]].drop_duplicates(subset=[g_out._node]),
-                on=g_out._node,
-                how='left'
-            )
-        endpoints = align_shared_column_dtypes(g_out._nodes, endpoints)
-        g_out = g_out.nodes(safe_row_concat([g_out._nodes, endpoints], ignore_index=True, sort=False).drop_duplicates(subset=[g_out._node]))
+            nodes_out = _nodes_with_hop_label_column(nodes_out, node_hop_col)
+        if len(unbacked_endpoints) > 0:
+            if track_node_hops and node_hop_records is not None and node_hop_col is not None:
+                unbacked_endpoints = safe_merge(
+                    unbacked_endpoints,
+                    node_hop_records[[g_out._node, node_hop_col]].drop_duplicates(subset=[g_out._node]),
+                    on=g_out._node,
+                    how='left'
+                )
+            unbacked_endpoints = align_shared_column_dtypes(nodes_out, unbacked_endpoints)
+            nodes_out = safe_row_concat(
+                [nodes_out, unbacked_endpoints], ignore_index=True, sort=False)
+        g_out = g_out.nodes(nodes_out.drop_duplicates(subset=[g_out._node]))
 
     if track_node_hops and node_hop_records is not None and node_hop_col is not None and g_out._nodes is not None:
         hop_map = (
@@ -1094,8 +1113,13 @@ def hop(self: Plottable,
         and node_col in starting_nodes.columns
         and node_hop_col is not None
     ):
+        def _ensure_node_hop_col() -> None:
+            assert node_hop_col is not None and g_out._nodes is not None
+            g_out._nodes = _nodes_with_hop_label_column(g_out._nodes, node_hop_col)
+
         seed_mask_all = g_out._nodes[node_col].isin(starting_nodes[node_col])
         if direction == 'undirected':
+            _ensure_node_hop_col()
             g_out._nodes.loc[seed_mask_all, node_hop_col] = s_na(engine_concrete)
         else:
             seen_nodes_series = node_hop_records[node_col].dropna()
@@ -1104,6 +1128,7 @@ def hop(self: Plottable,
             unreached_seed_ids = seed_ids_series[unreached_mask]
             if len(unreached_seed_ids) > 0:
                 mask = g_out._nodes[node_col].isin(unreached_seed_ids)
+                _ensure_node_hop_col()
                 g_out._nodes.loc[mask, node_hop_col] = s_na(engine_concrete)
             if (
                 direction in ('forward', 'reverse')
@@ -1116,6 +1141,7 @@ def hop(self: Plottable,
                     g_out._edges[endpoint_col].isin(seed_ids_series)
                 ][[endpoint_col, edge_hop_col]].rename(columns={endpoint_col: node_col})
                 if len(seed_endpoint_hops) > 0:
+                    # Non-empty edges here, so the backfill above already added node_hop_col.
                     seed_endpoint_hop_map = seed_endpoint_hops.groupby(node_col)[edge_hop_col].min()
                     seed_reached_mask = g_out._nodes[node_col].isin(seed_ids_series)
                     seed_node_ids = g_out._nodes[node_col]
