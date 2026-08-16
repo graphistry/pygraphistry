@@ -349,12 +349,23 @@ def hop(self: Plottable,
         base_target_nodes = concat([target_wave_front, g2._nodes], ignore_index=True, sort=False).drop_duplicates(subset=[node_col])
 
     node_table_bound = self._nodes is not None
-    if node_table_bound:
-        ids_an_endpoint_may_resolve_to = base_target_nodes[node_col]
+    ids_an_endpoint_may_resolve_to = base_target_nodes[node_col]
+    closure_rides_traversal = (
+        node_table_bound and seeds_provided and not to_fixed_point and resolved_max_hops == 1)
+    if node_table_bound and not closure_rides_traversal:
         edges_indexed = edges_indexed[
             edges_indexed[source_col].isin(ids_an_endpoint_may_resolve_to)
             & edges_indexed[destination_col].isin(ids_an_endpoint_may_resolve_to)
         ]
+
+    def _drop_unresolvable_endpoints(frame: DataFrameT, endpoint_col: str) -> DataFrameT:
+        if not closure_rides_traversal:
+            return frame
+        return frame[frame[endpoint_col].isin(ids_an_endpoint_may_resolve_to)]
+
+    # Only caller seeds can name an id the node table lacks.
+    traversal_seeds = (
+        _drop_unresolvable_endpoints(starting_nodes, node_col) if seeds_provided else starting_nodes)
 
     def _build_allowed_ids(
         base_nodes: DataFrameT,
@@ -450,13 +461,15 @@ def hop(self: Plottable,
         pairs = edges_indexed[[EDGE_ID]][:0]
         max_reached_hop = 0
     elif simple_single_hop_undirected_fast_path:
-        seed_ids = _domain_unique(starting_nodes[node_col])
+        seed_ids = _domain_unique(traversal_seeds[node_col])
         if _domain_is_empty(seed_ids):
             matches_nodes = starting_nodes[[node_col]][:0]
             matches_edges = edges_indexed[[EDGE_ID]][:0]
         else:
             incident_mask = edges_indexed[source_col].isin(seed_ids) | edges_indexed[destination_col].isin(seed_ids)
-            incident_edges = edges_indexed[incident_mask]
+            incident_edges = _drop_unresolvable_endpoints(
+                _drop_unresolvable_endpoints(edges_indexed[incident_mask], source_col),
+                destination_col)
             src_hits = incident_edges[incident_edges[source_col].isin(seed_ids)]
             dst_hits = incident_edges[incident_edges[destination_col].isin(seed_ids)]
 
@@ -494,7 +507,7 @@ def hop(self: Plottable,
             ).drop_duplicates(subset=[FROM_COL, TO_COL, EDGE_ID])
 
     if fast_path_enabled and not skip_full_loop:
-        frontier_ids = _domain_unique(starting_nodes[node_col])
+        frontier_ids = _domain_unique(traversal_seeds[node_col])
         visited_node_ids = None
         visited_edge_ids = None
         while True:
@@ -505,7 +518,8 @@ def hop(self: Plottable,
 
             current_hop += 1
 
-            hop_edges = pairs[pairs[FROM_COL].isin(frontier_ids)]
+            hop_edges = _drop_unresolvable_endpoints(
+                pairs[pairs[FROM_COL].isin(frontier_ids)], TO_COL)
             cand_nodes = _domain_unique(hop_edges[TO_COL])
             seed_ids_domain = None
             if visited_node_ids is None and not return_as_wave_front:
@@ -550,7 +564,7 @@ def hop(self: Plottable,
         current_hop += 1
 
         assert len(wave_front.columns) == 1, "just indexes"
-        wave_front_base = starting_nodes[[node_col]] if first_iter else wave_front
+        wave_front_base = traversal_seeds[[node_col]] if first_iter else wave_front
         if allowed_source_series is None:
             wave_front_iter = wave_front_base
         else:
@@ -560,7 +574,8 @@ def hop(self: Plottable,
         # isin() dedups internally; wavefront_ids feeds only isin -> skip the
         # explicit .unique() dedup pass (a kernel launch on GPU). Byte-identical.
         wavefront_ids = wave_front_iter[node_col]
-        hop_edges = pairs[pairs[FROM_COL].isin(wavefront_ids)]
+        hop_edges = _drop_unresolvable_endpoints(
+            pairs[pairs[FROM_COL].isin(wavefront_ids)], TO_COL)
 
         if allowed_target_intermediate is not None:
             has_more_hops_planned = to_fixed_point or resolved_max_hops is None or current_hop < resolved_max_hops

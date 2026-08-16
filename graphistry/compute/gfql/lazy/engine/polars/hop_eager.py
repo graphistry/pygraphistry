@@ -236,12 +236,17 @@ def hop_polars(
     FROM, TO, NID, EID, edges_idx, synth_eid, node_dtype = _hop_setup_columns(
         edges, all_nodes, node_col, g._edge)
 
-    node_table_bound = self._nodes is not None
-    if node_table_bound:
+    serves_single_bounded_hop = (
+        not to_fixed_point and resolved_max_hops == 1
+        and not (label_node_hops is not None or label_edge_hops is not None or label_seeds)
+        and not (min_hops is not None and min_hops > 1 and direction in ("forward", "reverse")))
+
+    resolvable_ids = (
+        _ids_an_endpoint_may_resolve_to(all_nodes, target_wave_front, node_col)
+        if self._nodes is not None else None)
+    if resolvable_ids is not None and not serves_single_bounded_hop:
         edges_idx = _keep_edges_with_both_endpoints_resolvable(
-            edges_idx, src, dst, node_dtype,
-            _ids_an_endpoint_may_resolve_to(all_nodes, target_wave_front, node_col),
-        )
+            edges_idx, src, dst, node_dtype, resolvable_ids)
 
     pairs = _build_hop_pairs(edges_idx, direction, src, dst, node_dtype, FROM, TO, EID)
 
@@ -249,12 +254,8 @@ def hop_polars(
         return df.select(pl.col(col).cast(node_dtype).alias(NID)).unique()
 
     # Must stay ABOVE the eager gate construction: the id-frame .unique()s stay inside the lazy plan.
-    if (not to_fixed_point and resolved_max_hops == 1
-            and not (label_node_hops is not None or label_edge_hops is not None or label_seeds)
-            and not (min_hops is not None and min_hops > 1 and direction in ("forward", "reverse"))):
+    if serves_single_bounded_hop:
         from graphistry.compute.gfql.lazy import collect_all
-        edges_lf = edges_idx.lazy()
-        pairs_lf = _build_hop_pairs(edges_lf, direction, src, dst, node_dtype, FROM, TO, EID)
 
         def _idframe_lf(lf: "pl.LazyFrame", col: str) -> "pl.LazyFrame":
             """Key side of a semi-join only — deliberately NOT deduplicated (duplicate keys
@@ -277,10 +278,20 @@ def hop_polars(
         )
         target_final_lf = (_idframe_lf(target_wave_front.lazy(), node_col)
                            if target_wave_front is not None else None)
+        resolvable_lf = (
+            resolvable_ids.cast(node_dtype).alias(NID).to_frame().lazy()
+            if resolvable_ids is not None else None)
         frontier_lf = _idframe_lf((nodes if nodes is not None else all_nodes).lazy(), node_col)
+        if resolvable_lf is not None and nodes is not None:
+            # Only caller seeds can name an id the node table lacks.
+            frontier_lf = frontier_lf.join(resolvable_lf, on=NID, how="semi")
         if allowed_source_lf is not None:
             frontier_lf = frontier_lf.join(allowed_source_lf, on=NID, how="semi")
+        edges_lf = edges_idx.lazy()
+        pairs_lf = _build_hop_pairs(edges_lf, direction, src, dst, node_dtype, FROM, TO, EID)
         hop_edges_lf = pairs_lf.join(frontier_lf.rename({NID: FROM}), on=FROM, how="semi")
+        if resolvable_lf is not None:
+            hop_edges_lf = hop_edges_lf.join(resolvable_lf.rename({NID: TO}), on=TO, how="semi")
         if target_final_lf is not None:   # single hop IS the last hop -> final gate only
             hop_edges_lf = hop_edges_lf.join(target_final_lf.rename({NID: TO}), on=TO, how="semi")
         if allowed_dest_lf is not None:
