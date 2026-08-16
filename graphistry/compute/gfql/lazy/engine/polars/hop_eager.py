@@ -98,14 +98,22 @@ def _keep_edges_with_both_endpoints_resolvable(
     edges_idx: "PolarsT", src: str, dst: str, node_dtype: "pl.DataType",
     resolvable_ids: "pl.Series",
 ) -> "PolarsT":
-    """`.implode()` makes the id series ONE membership collection; bare `is_in` is deprecated."""
+    """`.implode()` makes the id series ONE membership collection; bare `is_in` is deprecated.
+
+    A NULL endpoint resolves iff the id universe holds a NULL id: `is_in` answers NULL for a
+    NULL input (dropped by `filter`), where the pandas/cuDF `isin` this mirrors answers True.
+    """
     import polars as pl
 
     universe = resolvable_ids.implode()
-    return edges_idx.filter(
-        pl.col(src).cast(node_dtype).is_in(universe)
-        & pl.col(dst).cast(node_dtype).is_in(universe)
-    )
+    a_null_id_is_resolvable = resolvable_ids.null_count() > 0
+
+    def _resolvable(endpoint_col: str) -> "pl.Expr":
+        endpoint = pl.col(endpoint_col).cast(node_dtype)
+        member = endpoint.is_in(universe)
+        return (member | endpoint.is_null()) if a_null_id_is_resolvable else member
+
+    return edges_idx.filter(_resolvable(src) & _resolvable(dst))
 
 
 def _min_hops_labeled_node_output(

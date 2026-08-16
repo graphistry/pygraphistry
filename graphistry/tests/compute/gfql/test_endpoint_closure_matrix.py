@@ -1001,3 +1001,71 @@ def test_undirected_zero_hop_seed_under_an_output_window_labels_before_it_strips
         include_zero_hop_seed=True, output_min_hops=0, engine=engine)
     assert edge_pair_set(out) == set()
     assert node_id_set(out) == set()
+
+
+# --- AXIS: a NULL endpoint id, and the NULL node row that backs it -----------------------------
+#
+# Round 6. Membership is the gate's whole implementation, and the engines disagree about NULL:
+# pandas/cuDF ``isin`` answers True for NULL-in-{..., NULL}; polars ``is_in`` answers NULL, and
+# ``filter`` drops a NULL predicate. So the gate can silently over-filter on polars alone.
+#
+# NULLEP nodes: ids 0, 1, 2, and a fourth row whose id is NULL.
+# NULLEP edges: (0,1), (1,2), (NULL,2).
+# EVERY endpoint -- NULL included -- has a node row, so the graph is CLOSED end to end and the
+# gate must remove nothing. Hand-walked undirected walk from seed 0 with hops=3:
+#     hop 1: 0 --(0,1)--> 1        reaches 1
+#     hop 2: 1 --(1,2)--> 2        reaches 2
+#     hop 3: 2 --(NULL,2)--> NULL  reaches NULL
+# so all three edges are traversed and the answer is the whole graph.
+
+NULL_ENDPOINT_NODES = pd.DataFrame({"id": [0.0, 1.0, 2.0, None]})
+NULL_ENDPOINT_EDGES = pd.DataFrame({"s": [0.0, 1.0, None], "d": [1.0, 2.0, 2.0]})
+_NULL_ENDPOINT_CLOSED = {(0.0, 1.0), (1.0, 2.0), ("NULL", 2.0)}
+
+
+def _pairs_with_nulls_named(g):
+    """``edge_pair_set`` with NULL spelled ``"NULL"`` -- NaN != NaN makes a raw set unusable."""
+    df = to_pandas_any(g._edges)
+    if df is None or len(df) == 0:
+        return set()
+
+    def _v(x):
+        return "NULL" if pd.isna(x) else float(x)
+
+    return {(_v(a), _v(b)) for a, b in zip(df[g._source].tolist(), df[g._destination].tolist())}
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_a_null_endpoint_backed_by_a_null_node_row_survives_the_gate(engine):
+    """The bound-table side. A NULL endpoint id resolves to the NULL node row, so the closed
+    graph comes back whole. REGRESSION PIN: red on the polars arm before the round-6 fix to
+    ``_keep_edges_with_both_endpoints_resolvable`` (it answered 2 edges where pandas, cuDF and
+    the merge-base 526976e91 all answer 3)."""
+    _require_engine(engine)
+    out = _bind(engine, NULL_ENDPOINT_NODES, NULL_ENDPOINT_EDGES).hop(
+        nodes=_seed(engine, [0.0]), hops=3, direction="undirected", engine=engine)
+    assert _pairs_with_nulls_named(out) == _NULL_ENDPOINT_CLOSED
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_a_null_endpoint_survives_the_vacuously_closed_synthesized_table(engine):
+    """The synthesized-table side of the same fixture: with no node table bound the id universe
+    is built FROM the endpoints, so it holds the NULL too and the gate must still remove nothing.
+    Same hand-walked answer as the bound case."""
+    _require_engine(engine)
+    out = _edges_only(engine, NULL_ENDPOINT_EDGES).hop(
+        nodes=_seed(engine, [0.0]), hops=3, direction="undirected", engine=engine)
+    assert _pairs_with_nulls_named(out) == _NULL_ENDPOINT_CLOSED
+
+
+def test_the_synthesized_table_does_not_gate_a_null_endpoint_on_the_polars_chain():
+    """The polars single-hop chain fast path reaches the same question through a semi-JOIN, and
+    a polars join never matches NULL to NULL -- so ``node_table_bound`` there is load-bearing,
+    not the no-op the round-5 audit called it: forcing the gate on drops (NULL,2).
+
+    Hand-walked ``(n)-[e]->(n)`` over NULLEP: an unconstrained forward pattern selects every
+    edge, so all three come back. (pandas and cuDF answer {(0,1),(1,2)} on this SURFACE -- a
+    pre-existing chain divergence, identical at the merge-base 526976e91 and unrelated to the
+    #1888 gate, so it is reported rather than pinned here.)"""
+    out = _edges_only("polars", NULL_ENDPOINT_EDGES).gfql([n(), e_forward(), n()], engine="polars")
+    assert _pairs_with_nulls_named(out) == _NULL_ENDPOINT_CLOSED
