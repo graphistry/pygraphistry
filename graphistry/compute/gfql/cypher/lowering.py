@@ -5655,6 +5655,13 @@ def _row_only_empty_aggregate_row(
     specs = _collect_aggregate_specs_for_clause(final.clause, params=params, alias_targets={})
     if not specs or len(specs) != len(final.clause.items):
         return None
+    # Compound items (count(*) + 1) need post-aggregate evaluation OVER the identity, and an earlier ungrouped aggregate feeds the final one exactly ONE row (count(c) is 1): synthesizing the bare final identity fabricates values for both, so decline.
+    if any(spec.output_name.startswith("__cypher_postagg__") for spec in specs) or any(
+        isinstance(stage, ProjectionStage)
+        and _collect_aggregate_specs_for_clause(stage.clause, params=params, alias_targets={})
+        for stage in query.row_sequence[:-1]
+    ):
+        return None
     out: Dict[str, Any] = {}
     for spec in specs:
         if spec.func == "count":
