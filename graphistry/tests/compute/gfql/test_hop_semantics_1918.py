@@ -145,6 +145,20 @@ def test_f4_tfp_equals_saturated_bounded_single_seed(engine, topo, seed, expect)
     assert edge_ids(fixed) == sorted(_TOPOLOGIES[topo])
 
 
+@pytest.mark.parametrize("engine", ENGINES)
+def test_f4_tfp_saturates_past_a_small_hops_argument(engine):
+    """to_fixed_point ignores the hops bound ENTIRELY: with hops=1 on the path
+    a-b-c-d seeded {a}, closure still reaches every node. A bound that survives
+    into the fixed-point loop would stop at b."""
+    ndf = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edf = pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "d"]})
+    g = graphistry.nodes(_frame(engine, ndf), "id").edges(_frame(engine, edf), "s", "d")
+    r = g.hop(nodes=_frame(engine, pd.DataFrame({"id": ["a"]})), hops=1,
+              to_fixed_point=True, direction="forward", return_as_wave_front=True,
+              engine=engine)
+    assert node_ids(r) == ["b", "c", "d"]
+
+
 def _cycle_graph(engine, n):
     ndf = pd.DataFrame({"id": list(range(n))})
     edf = pd.DataFrame({"s": list(range(n)), "d": [(i + 1) % n for i in range(n)]})
@@ -419,6 +433,10 @@ _BAD_BOUNDS = [
     ("negative-output-max", dict(hops=2, output_max_hops=-1)),
     ("output-min-gt-max", dict(hops=3, output_min_hops=2, output_max_hops=1)),
     ("output-min-gt-traversal", dict(hops=1, output_min_hops=2)),
+    # min > max must raise from the BOUND check itself: a wide output_max_hops
+    # would otherwise mask it (the output cross-check no longer fires) and the
+    # traversal would answer empty instead of raising.
+    ("min-gt-max-wide-output", dict(min_hops=2, max_hops=1, output_max_hops=5)),
 ]
 
 
