@@ -14,12 +14,13 @@ from graphistry.compute.gfql.temporal.constructors import (
     LOCALTIME_CALL_TEXT_RE,
     TIME_CALL_TEXT_RE,
 )
+from graphistry.compute.gfql.same_path_types import EDGE_IDENTITY_COLUMN
 from graphistry.compute.typing import DataFrameT, IndexT, SeriesT
 
 
 #: Node columns that are engine structure, not user properties.
 NODE_INTERNAL_COLS = frozenset({"id", "labels", "type"})
-_EDGE_INTERNAL_COLS = frozenset({"s", "d", "src", "dst", "edge_id", "type", "__gfql_edge_index_0__", "undirected"})
+_EDGE_INTERNAL_COLS = frozenset({"s", "d", "src", "dst", "edge_id", "type", EDGE_IDENTITY_COLUMN, "undirected"})
 
 #: A node's labels arrive as boolean ``label__{name}`` flag columns.
 LABEL_FLAG_PREFIX = "label__"

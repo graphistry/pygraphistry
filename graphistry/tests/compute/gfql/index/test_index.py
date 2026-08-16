@@ -1845,9 +1845,9 @@ class TestIndexAutoPreservesPolarsFrames:
 # wrong answers on pandas and polars, including a plain ``df.sort_values`` permutation of
 # the SAME edge set. Shipped in 0.58.0 (9b121e4fb, 129d72cb4).
 #
-# The contract these pins hold: staleness is always MISS-TO-SCAN (correct, maybe slower),
-# never a re-pointed index -- while the intended win (the executor's own shallow
-# augmentation of a frame the index IS live for) keeps engaging.
+# The contract these pins hold: staleness always falls back to the scan (still correct),
+# never a re-pointed index -- while the executor's own shallow augmentation of a frame the
+# index IS live for keeps engaging.
 
 _I1913_NN = 4000
 _I1913_2HOP = [n({"id": 0}), e_forward(), n(), e_forward(), n()]
@@ -1954,9 +1954,9 @@ def test_shallow_augmentation_rebind_stays_correct(engine):
     before the fix -- pinned so the guard cannot regress them into wrong answers either.
 
     They are now served by the SCAN: a caller-supplied frame carries no promise that its
-    values were preserved, and no O(1) check can tell ``E.copy(deep=True)`` from a
+    values were preserved, and no structural check can tell ``E.copy(deep=True)`` from a
     same-shaped different edge set. Correctness first; the executor's own augmentation
-    (the case the optimization exists for) still engages -- see the engagement pin below.
+    still engages -- see the engagement pin below.
     """
     ndf, edf = _i1913_frames()
     for label, aug in (("assign", edf.assign(w=1)), ("deep-copy", edf.copy(deep=True))):
@@ -1972,9 +1972,9 @@ def test_shallow_augmentation_rebind_stays_correct(engine):
 
 @pytest.mark.parametrize("engine", _cpu_engines())
 def test_i1913_guard_keeps_the_executor_rebind_engaging(typed_graph, engine):
-    """THE WIN THE GUARD MUST NOT COST: the chain's own synthetic-edge-id augmentation is
+    """WHAT THE GUARD MUST NOT COST: the chain's own synthetic-edge-id augmentation is
     derived from a frame the index IS live for, so it still migrates and the seeded hop is
-    served from the index rather than an O(E) scan. Engagement, not just correctness --
+    served from the index rather than the scan. Engagement, not just correctness --
     a fix that disabled the index everywhere would 'pass' every correctness pin above.
     (The GPU lanes of the same assertion are already carried by
     ``test_chain_typed_edge_engages_index`` / ``test_chain_untyped_engages_index``.)"""

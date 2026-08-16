@@ -49,15 +49,13 @@ def _pl_nan_to_null(df: "PolarsFrame") -> "PolarsFrame":
     polars / Arrow / cuDF input carrying genuine NaN is treated as MISSING like the pandas
     oracle (which skipna/dropna's NaN). No-op when there are no float columns.
 
-    Identity-stable + O(1)-repeat: an eager DataFrame is probed once for real NaN
-    (``is_nan().any()`` per float column); a clean frame is returned UNCHANGED
-    (same object) and its verdict cached (sound under the immutability contract
-    above; ``gfql_clear_caches()`` flushes it). Only columns that genuinely carry
-    NaN are rewritten -- values identical to the old unconditional ``fill_nan``.
-    Frames without float columns short-circuit before any probe."""
+    Identity-stable: an eager DataFrame is probed for real NaN (``is_nan().any()`` per
+    float column); a clean frame is returned UNCHANGED (same object) and its verdict
+    cached (sound under the immutability contract above; ``gfql_clear_caches()`` flushes
+    it). Only columns that genuinely carry NaN are rewritten -- values identical to the
+    old unconditional ``fill_nan``."""
     import polars as pl
-    # collect_schema(): resolves the LazyFrame schema without a PerformanceWarning
-    # (LazyFrame.schema is deprecated for that); on eager DataFrames .schema is free.
+    # collect_schema(): LazyFrame.schema is deprecated and warns.
     schema = df.collect_schema() if isinstance(df, pl.LazyFrame) else df.schema
     float_cols = [c for c, dt in schema.items() if dt in (pl.Float32, pl.Float64)]
     if not float_cols:
@@ -72,5 +70,5 @@ def _pl_nan_to_null(df: "PolarsFrame") -> "PolarsFrame":
         cleaned = df.with_columns([pl.col(c).fill_nan(None) for c in nan_cols])
         _mark_pl_nan_clean(cleaned)
         return cleaned
-    # LazyFrame (rare): no cheap eager NaN probe -> keep the unconditional rewrite.
+    # LazyFrame: no eager NaN probe available -> keep the unconditional rewrite.
     return df.with_columns([pl.col(c).fill_nan(None) for c in float_cols])

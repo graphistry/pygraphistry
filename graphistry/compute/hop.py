@@ -53,7 +53,7 @@ def resolve_hop_bounds(
     output_max_hops: Optional[int],
     to_fixed_point: bool,
 ) -> Tuple[Optional[int], int, Optional[int], Optional[int]]:
-    """ONE bound contract for every hop engine (#1918 F6/F7).
+    """ONE bound contract for every hop engine.
 
     Returns ``(max_hops, min_hops, output_min_hops, output_max_hops)`` resolved, raising
     ``ValueError`` on any contradictory argument. Lives here, called by BOTH the pandas/cuDF
@@ -124,7 +124,7 @@ def undirected_rediscovered_seed_ids(
     edge_destinations: List[Hashable],
     seed_ids: List[Hashable],
 ) -> Set[Hashable]:
-    """Seeds an undirected wavefront legitimately RE-ENCOUNTERS (#1918 F4).
+    """Seeds an undirected wavefront legitimately RE-ENCOUNTERS.
 
     ``return_as_wave_front=True`` documents "exclude starting node(s) in return, returning
     only encountered nodes". A seed counts as encountered only when a walk that never REUSES
@@ -149,7 +149,7 @@ def undirected_rediscovered_seed_ids(
     a ``to_pandas()`` bridge (the polars test lane ships no pyarrow).
 
     Verified equal to brute-force edge-disjoint-walk enumeration on 6000 random multigraphs
-    (see the #1918 pins). NOTE it is LENGTH-BLIND: it answers "some length", so a bounded hop
+    (see the hop-semantics pins). NOTE it is LENGTH-BLIND: it answers "some length", so a bounded hop
     whose window is shorter than the cycle back to the seed still keeps that seed. Both arms
     share that limit; narrowing it needs shortest-cycle-through-a-vertex.
     """
@@ -265,8 +265,6 @@ def hop(self: Plottable,
     """
     Given a graph and some source nodes, return subgraph of all paths within k-hops from the sources
 
-    This can be faster than the equivalent chain([...]) call that wraps it with additional steps
-
     See chain() examples for examples of many of the parameters
 
     g: Plotter
@@ -294,18 +292,13 @@ def hop(self: Plottable,
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
 
-    # Resolve engine from original data BEFORE coercion, then coerce input formats to that engine.
-    # This preserves GPU mode: cuDF input with engine=AUTO resolves to CUDF and stays cuDF.
-    # Calling _coerce_to_pandas unconditionally would be wrong for GPU mode.
+    # Resolve the engine from the ORIGINAL data before coercing, so cuDF input stays cuDF.
     engine_concrete = resolve_engine(engine, self)
     from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
     self = _coerce_input_formats(self, engine_concrete)
 
-    # GFQL physical index fast path (pay-as-you-go). When a resident adjacency
-    # index covers this seeded traversal and the planner deems it profitable, run
-    # the O(degree) CSR gather instead of the O(E) scan below. Engine-uniform;
-    # returns None to fall back. Coercion above is a no-op when already in-engine,
-    # so the index fingerprint (keyed on the live edge frame) still matches.
+    # GFQL physical index path; returns None to fall back. Coercion above is a no-op when already
+    # in-engine, so the index fingerprint (keyed on the live edge frame) still matches.
     from graphistry.compute.gfql.index import get_index_policy, get_registry, maybe_index_hop
     from graphistry.compute.gfql.index.types import HopDirection
     _idx_policy = get_index_policy(self)
@@ -328,12 +321,7 @@ def hop(self: Plottable,
             return _indexed
 
     if engine_concrete in POLARS_ENGINES:
-        # Native polars traversal lives in a dedicated dispatched module so the
-        # production pandas/cuDF internals below stay untouched (see
-        # no-silent-fallback policy). Correctness gated by differential parity.
-        # LAZY engine first (one plan, collect-once on the active target); it
-        # returns None for cases it doesn't cover -> fall back to the eager hop.
-        # POLARS_GPU = the same lazy engine with the GPU execution target.
+        # Lazy engine first; it returns None for shapes it does not cover -> eager hop.
         _hop_kwargs = dict(
             min_hops=min_hops, max_hops=max_hops,
             output_min_hops=output_min_hops, output_max_hops=output_max_hops,
@@ -425,12 +413,8 @@ def hop(self: Plottable,
 
         GFQL_EDGE_INDEX = generate_safe_column_name('edge_index', pre_indexed_edges, prefix='__gfql_', suffix='__')
 
-        # Attach the synthetic per-edge id WITHOUT copying edge data (#1670):
-        # reset_index(drop=False) + rename deep-copied + block-consolidated the
-        # whole (post-filter) edge frame (~80ms @2M edges) on every hop — the
-        # traversal hot path. A shallow copy + assigning the index as a column
-        # gives identical id values (used only as a dedup/join key, never
-        # positionally) with no O(E) copy. Mirrors the chain.py edge-index attach.
+        # Shallow-copy edge-id attach (#1670): ids are a dedup/join key only, never used
+        # positionally. Mirrors the chain.py edge-index attach.
         edges_indexed = pre_indexed_edges.copy(deep=False)
         edges_indexed[GFQL_EDGE_INDEX] = edges_indexed.index
         EDGE_ID = GFQL_EDGE_INDEX
@@ -720,11 +704,7 @@ def hop(self: Plottable,
 
         if track_edge_hops and edge_hop_col is not None:
             if len(hop_edges) > 0:
-                # #1918 F3: dedup by EDGE_ID. `pairs` carries an undirected edge in BOTH
-                # orientations, so one edge with both endpoints in the same wavefront produces
-                # two hop_edges rows for the SAME edge id -> two label rows -> two output rows
-                # from the inner label merge below. Every later concat already dedups on
-                # EDGE_ID; only this seeding branch did not.
+                # `pairs` holds both orientations: one undirected edge, two rows, one EDGE_ID.
                 labeled_edges = hop_edges[[EDGE_ID]].drop_duplicates(
                     subset=[EDGE_ID]).assign(**{edge_hop_col: current_hop})
                 if edge_hop_records is None:
@@ -791,13 +771,7 @@ def hop(self: Plottable,
         else:
             combined_node_ids = new_node_ids
 
-        # #1918 F8 (same root cause as the #1787 starvation, new arm): the reachable-set
-        # closure break must not fire while a min_hops LOWER BOUND is still unsatisfied.
-        # A directed cycle saturates its node set at hop 3 but keeps admitting longer WALKS;
-        # breaking there froze max_reached_hop at 3, so `min_hops=4, max_hops=5` on a 3-cycle
-        # returned EMPTY via the max_reached_hop < min_hops gate although walks of length 4
-        # and 5 exist. Only defers the break (never removes it): guarded on a finite max_hops
-        # so the loop still terminates, and to_fixed_point (max is unbounded) is excluded.
+        # A saturated node set still admits longer WALKS; the finite max_hops keeps this finite.
         min_bound_unmet = (
             resolved_min_hops is not None
             and resolved_min_hops > 1
@@ -821,10 +795,6 @@ def hop(self: Plottable,
 
     # Prune dead-end branches that do not reach min_hops.
     # Use edge endpoints rather than node hop records to avoid lossy per-node min hop labels.
-    # #1918 F2 scoping flag: True once the block below REBUILDS node_hop_records from the
-    # retained-path backward walk. In that arm the hop-label id set is a genuine PRUNE (an
-    # unlabeled source-side node is deliberately excluded), so the node-output block must keep
-    # restricting to it; in every other arm the labels are just labels. See the note there.
     min_hop_prune_applied = False
     if (
         resolved_min_hops is not None
@@ -1011,12 +981,7 @@ def hop(self: Plottable,
         final_edges = final_edges.drop(columns=[EDGE_ID])
     g_out = g2.edges(final_edges)
 
-    # #1918 F1: the node output is applied UNCONDITIONALLY. This block used to be gated on
-    # `self._nodes is not None`, so an edges-only graph (nodes synthesized by
-    # materialize_nodes above) kept g2's FULL node table next to correctly-filtered edges --
-    # a self-inconsistent graph (`edges(s=[0,1,2,3], d=[1,2,3,4]).hop(nodes=[0], hops=1)`
-    # returned nodes [0..4] with the single edge (0,1)). polars always semi-joins
-    # (hop_eager.py:497); this matches it. rich_nodes falls back to the materialized frame.
+    # UNCONDITIONAL, matching polars: gating on `self._nodes` left edges-only graphs inconsistent.
     rich_nodes = self._nodes if self._nodes is not None else g2._nodes
     assert rich_nodes is not None, "materialize_nodes guarantees a node frame"
     if target_wave_front is not None:
@@ -1059,27 +1024,10 @@ def hop(self: Plottable,
                     sort=False
                 ).drop_duplicates(subset=[node_col])
 
-        # #1918 F2: outside the min_hops prune arm the traversal result (base_nodes) IS the
-        # node output and hop LABELS are a left-join on top of it, never a filter. This used
-        # to INNER-merge base_nodes against the label ids unconditionally, dropping every
-        # traversed node with no hop record -- which under plain tracking is exactly the SEED
-        # (labeled only with label_seeds; an undirected re-reached seed stays unlabeled by
-        # the #1741 rule). The endpoint backfill below then re-added it id-only, so its
-        # attributes came back NaN and int64 attr columns upcast to float64. Fires under
-        # label_node_hops / label_edge_hops / output_min_hops / output_max_hops.
-        # Output-window slicing does NOT belong here either: the window nulls the LABEL above
-        # and the row filter runs later (the final_output_min/max mask), so nothing is lost.
-        #
-        # NOT FIXED under min_hops>=2 (min_hop_prune_applied): there the label set is the
-        # REBUILT retained-path set, and dropping an unlabeled source-side node is load-bearing
-        # -- it is how a dead-end branch leaves the answer. Widening it there admits nodes with
-        # no retained incident edge (fuzz seed-60: n5 appears with zero edges) and breaks the
-        # 400-case polars chain min_hops parity, whose node output deliberately mirrors this
-        # pandas stub (hop_eager.py:_min_hops_labeled_node_output). Under min_hops>=2 a seed
-        # therefore still comes back attribute-less; that residue is called out in the #1918
-        # pins and needs its own decision about the chain contract.
+        # Hop labels are a left-join on the traversal result, never a filter.
         filtered_nodes = base_nodes
         if min_hop_prune_applied:
+            # Here the label set IS the retained-path set: dropping is how dead ends leave.
             filtered_nodes = safe_merge(
                 base_nodes,
                 node_labels_source[[node_col]],
@@ -1132,6 +1080,12 @@ def hop(self: Plottable,
     if g_out._edges is not None and len(g_out._edges) > 0 and g_out._nodes is not None:
         unbacked_endpoints = _endpoint_ids_without_node_rows(g_out, concat)
         nodes_out = g_out._nodes
+        if (track_node_hops and node_hop_records is not None and node_hop_col is not None
+                and node_hop_col not in nodes_out.columns):
+            # The concat below used to attach this column as a side effect whenever there were
+            # edges; it now runs only when an id is genuinely unbacked. Readers downstream (the
+            # output-window node filter) assume it exists, so attach it unconditionally here.
+            nodes_out = nodes_out.assign(**{node_hop_col: float('nan')})
         if len(unbacked_endpoints) > 0:
             if track_node_hops and node_hop_records is not None and node_hop_col is not None:
                 unbacked_endpoints = safe_merge(
@@ -1214,8 +1168,17 @@ def hop(self: Plottable,
         and node_col in starting_nodes.columns
         and node_hop_col is not None
     ):
+        def _ensure_node_hop_col() -> None:
+            # The endpoint concat used to leave this column behind; it now runs only when an id
+            # is genuinely unbacked. Assigning through .loc creates it implicitly on pandas but
+            # RAISES on cudf, so materialize it right before each write, on every engine.
+            assert node_hop_col is not None and g_out._nodes is not None
+            if node_hop_col not in g_out._nodes.columns:
+                g_out._nodes = g_out._nodes.assign(**{node_hop_col: float('nan')})
+
         seed_mask_all = g_out._nodes[node_col].isin(starting_nodes[node_col])
         if direction == 'undirected':
+            _ensure_node_hop_col()
             g_out._nodes.loc[seed_mask_all, node_hop_col] = s_na(engine_concrete)
         else:
             seen_nodes_series = node_hop_records[node_col].dropna()
@@ -1224,6 +1187,7 @@ def hop(self: Plottable,
             unreached_seed_ids = seed_ids_series[unreached_mask]
             if len(unreached_seed_ids) > 0:
                 mask = g_out._nodes[node_col].isin(unreached_seed_ids)
+                _ensure_node_hop_col()
                 g_out._nodes.loc[mask, node_hop_col] = s_na(engine_concrete)
             if (
                 direction in ('forward', 'reverse')
@@ -1236,6 +1200,7 @@ def hop(self: Plottable,
                     g_out._edges[endpoint_col].isin(seed_ids_series)
                 ][[endpoint_col, edge_hop_col]].rename(columns={endpoint_col: node_col})
                 if len(seed_endpoint_hops) > 0:
+                    _ensure_node_hop_col()
                     seed_endpoint_hop_map = seed_endpoint_hops.groupby(node_col)[edge_hop_col].min()
                     seed_reached_mask = g_out._nodes[node_col].isin(seed_ids_series)
                     seed_node_ids = g_out._nodes[node_col]
@@ -1281,43 +1246,17 @@ def hop(self: Plottable,
         and resolved_min_hops is not None
         and resolved_min_hops >= 1
         and seeds_provided
-        # #1918 F5: NOT gated on label_seeds. label_seeds is documented as a LABEL-column
-        # contract ("also write hop 0 for seed nodes in the node label column"), so it must
-        # not change WHICH nodes come back: gating the wavefront seed-strip on it made
-        # `return_as_wave_front=True` answer [1,2] or [0,1,2] purely by whether labels were
-        # requested. polars strips unreached seeds regardless (hop_eager.py:491-493).
+        # NOT gated on label_seeds: a LABEL contract must not change WHICH nodes come back.
         and g_out._nodes is not None
         and starting_nodes is not None
         and node_col in starting_nodes.columns
     ):
         wavefront_seed_ids_df = cast(DataFrameT, column_frame(starting_nodes, node_col).drop_duplicates())
-        # #1918 F4: ONE rule, both closure arms. A seed survives the wavefront strip iff the
-        # traversal REACHED it (matches_nodes -- this is what respects source/dest filtering,
-        # #1892 F-02) AND that reach is a genuine rediscovery rather than a walk back along the
-        # departure edge (undirected_rediscovered_seed_ids).
-        #
-        # to_fixed_point already applied the topology condition; the BOUNDED arm applied only
-        # the reached condition, which is why `hops=4` on the acyclic path a-b-c-d-e seeded at
-        # {a} returned {a,b,c,d,e}: the BFS re-enters `a` at hop 2 by traversing edge `ab` a
-        # second time, and nothing downstream rejected it. to_fixed_point had it right; the
-        # two were reconciled the wrong way once already (round-011 read the bounded arm as the
-        # reference), so this reconciles onto the tfp side and the two now share the rule.
-        #
-        # The topology condition is length-blind ("re-encountered at SOME length"), so it is
-        # exactly right for to_fixed_point and a NECESSARY condition for a bounded window: a
-        # seed reachable by an edge-disjoint walk of length <= max is reachable by one of some
-        # length. Intersecting therefore never drops a seed a bounded window should keep, and
-        # removes the whole backtracking class. What it does not yet catch is a seed whose only
-        # cycle home is LONGER than max_hops; that needs shortest-cycle-through-a-vertex and is
-        # pinned as a known residue in the #1918 pins.
-        #
-        # A window of at most ONE edge cannot backtrack: every hop-1 arrival crossed a single
-        # edge, so it is edge-disjoint by construction and the reached test alone is exact.
-        # Skipping the topology walk there keeps the dominant chain shape (undirected single
-        # hop) at its old cost -- it was +43% with the walk always on.
+        # ONE rule, both arms: survive iff REACHED and edge-disjointly rediscovered.
         single_edge_window = (
             not to_fixed_point and resolved_max_hops is not None and resolved_max_hops <= 1
         )
+        # A one-edge window is edge-disjoint by construction, so reached alone is already exact.
         if direction == 'undirected' and not single_edge_window:
             keep_seed_ids = undirected_rediscovered_seed_ids(
                 _host_list(final_edges[source_col]),

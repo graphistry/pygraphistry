@@ -1,8 +1,10 @@
 """Tests for logging behavior across the graphistry package"""
-import unittest
 import logging
+import os
 import sys
+import unittest
 from io import StringIO
+from unittest import mock
 
 
 class TestLogging(unittest.TestCase):
@@ -40,6 +42,34 @@ class TestLogging(unittest.TestCase):
         output = capture.getvalue()
         self.assertEqual(output, "Line 1\nLine 2\n",
                         "Logger output should have newlines between messages")
+
+
+class TestLogLevelEnv(unittest.TestCase):
+    """setup_logger must tolerate any-case LOG_LEVEL env values.
+
+    logging.Logger.setLevel() only accepts uppercase level names or ints, so a common
+    lowercase value like LOG_LEVEL=info used to raise 'ValueError: Unknown level: info'
+    at import time. setup_logger now upper-cases the env value before use.
+    """
+
+    def test_log_level_env_is_case_insensitive(self):
+        from graphistry.util import setup_logger
+        cases = [
+            ("info", logging.INFO),
+            ("INFO", logging.INFO),
+            ("debug", logging.DEBUG),
+            ("Warning", logging.WARNING),
+            ("error", logging.ERROR),
+            ("trace", logging.DEBUG),  # TRACE alias -> DEBUG
+            ("TRACE", logging.DEBUG),
+        ]
+        for env_val, expected in cases:
+            with mock.patch.dict(os.environ, {"LOG_LEVEL": env_val}):
+                logger = setup_logger(f"test_loglevel_{env_val}", verbose=None)
+                self.assertEqual(
+                    logger.level, expected,
+                    f"LOG_LEVEL={env_val!r} should set level {expected}, got {logger.level}",
+                )
 
 
 if __name__ == "__main__":
