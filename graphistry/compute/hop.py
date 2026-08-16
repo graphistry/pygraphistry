@@ -1141,7 +1141,7 @@ def hop(self: Plottable,
                     g_out._edges[endpoint_col].isin(seed_ids_series)
                 ][[endpoint_col, edge_hop_col]].rename(columns={endpoint_col: node_col})
                 if len(seed_endpoint_hops) > 0:
-                    _ensure_node_hop_col()
+                    # Non-empty edges here, so the backfill above already added node_hop_col.
                     seed_endpoint_hop_map = seed_endpoint_hops.groupby(node_col)[edge_hop_col].min()
                     seed_reached_mask = g_out._nodes[node_col].isin(seed_ids_series)
                     seed_node_ids = g_out._nodes[node_col]
