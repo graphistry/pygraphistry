@@ -3581,6 +3581,12 @@ class RowPipelineMixin:
             keep = unused if keep is None else (keep & unused)
         return frame if keep is None else frame[keep]
 
+    @staticmethod
+    def _gfql_relabel_columns(frame: DataFrameT, mapping: Mapping[str, str]) -> DataFrameT:
+        """Metadata-only column relabel of a frame the walk owns -- never copies blocks."""
+        frame.columns = [mapping.get(col, col) for col in frame.columns]
+        return frame
+
     def _gfql_multihop_binding_rows(
         self,
         state_df: Any,
@@ -3615,7 +3621,8 @@ class RowPipelineMixin:
             current = current.assign(**{prev_col: None})
         key_cols = _state_key_cols(current)
         if min_hops == 0:
-            zero_hop = current.drop(columns=[prev_col], errors="ignore").copy()
+            # drop() already returns a walk-owned frame; assigning below never aliases the input.
+            zero_hop = current.drop(columns=[prev_col], errors="ignore")
             if hop_column is not None:
                 zero_hop[hop_column] = 0
             reachable.append(zero_hop)
@@ -3636,7 +3643,8 @@ class RowPipelineMixin:
                     exhausted = True
                     break
                 hop_trail_col = trail_column_name(len(outer_trail_cols) + len(segment_trail_cols))
-                current = current.rename(columns={TRAIL_EDGE_IDENT_COL: hop_trail_col})
+                # The merge above made this hop's frame the walk's own: relabel in place.
+                current = RowPipelineMixin._gfql_relabel_columns(current, {TRAIL_EDGE_IDENT_COL: hop_trail_col})
                 segment_trail_cols.append(hop_trail_col)
             if avoid_immediate_backtrack:
                 prev_missing = current[prev_col].isna()
@@ -3645,11 +3653,15 @@ class RowPipelineMixin:
                 if len(current) == 0:
                     exhausted = True
                     break
-                current = current.drop(columns=[WALK_CURRENT_COL, prev_col]).rename(
-                    columns={WALK_FROM_COL: prev_col, WALK_TO_COL: WALK_CURRENT_COL}
+                current = RowPipelineMixin._gfql_relabel_columns(
+                    current.drop(columns=[WALK_CURRENT_COL, prev_col]),
+                    {WALK_FROM_COL: prev_col, WALK_TO_COL: WALK_CURRENT_COL},
                 )
             else:
-                current = current.drop(columns=[WALK_CURRENT_COL, WALK_FROM_COL]).rename(columns={WALK_TO_COL: WALK_CURRENT_COL})
+                current = RowPipelineMixin._gfql_relabel_columns(
+                    current.drop(columns=[WALK_CURRENT_COL, WALK_FROM_COL]),
+                    {WALK_TO_COL: WALK_CURRENT_COL},
+                )
             if shortest_path_mode:
                 if len(current) > 0:
                     current = current.drop_duplicates(subset=key_cols, keep="first")
@@ -3675,7 +3687,7 @@ class RowPipelineMixin:
                     if combined is not None:
                         seen_states = combined
             if hop >= min_hops:
-                reached = current.drop(columns=[prev_col], errors="ignore").copy()
+                reached = current.drop(columns=[prev_col], errors="ignore")
                 if hop_column is not None:
                     reached[hop_column] = hop
                 reachable.append(reached)
@@ -3685,8 +3697,9 @@ class RowPipelineMixin:
             self._gfql_bindings_error(
                 "Cypher multi-alias row bindings currently require terminating variable-length segments"
             )
-        if segment_trail_cols:
-            # cuDF aligns concat schemas strictly, so pad the shallower hops' absent trail columns.
+        if segment_trail_cols and reachable and reachable[0].__class__.__module__.startswith("cudf"):
+            # cuDF aligns concat schemas strictly, so pad the shallower hops' absent trail
+            # columns there; pandas pd.concat aligns and NaN-fills mismatched schemas natively.
             reachable = [
                 frame.assign(**{
                     col: float("nan")
@@ -3958,7 +3971,10 @@ class RowPipelineMixin:
                     if not shortest_path_mode and TRAIL_EDGE_IDENT_COL in oriented.columns
                     else []
                 )
-                step_pairs = oriented[step_cols].drop_duplicates(keep="first")
+                step_pairs = oriented[step_cols]
+                if TRAIL_EDGE_IDENT_COL not in step_cols:
+                    step_pairs = step_pairs.drop_duplicates(keep="first")
+                # else: already unique -- the self-loop-twin dedup above ran on exactly step_cols
                 min_hops = edge_op.min_hops if edge_op.min_hops is not None else (
                     edge_op.hops if edge_op.hops is not None else 1
                 )
