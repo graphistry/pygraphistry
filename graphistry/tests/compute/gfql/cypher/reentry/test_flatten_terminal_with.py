@@ -83,6 +83,19 @@ def test_admits_terminal_aggregate_substitution() -> None:
             BASE + "WITH b, count(a) AS cnt RETURN b, cnt",
             id="whole_row_carried_alias_next_to_an_aggregate",
         ),
+        # `collect` is deliberately absent: dropping it from the detector's
+        # pattern already reddens
+        # test_lowering.py::test_string_cypher_failfast_optional_match_collect_null_whole_row_with_boundary,
+        # so a param here would be a redundant pin. `sum` and `max` are caught
+        # by nothing, measured the same way.
+        pytest.param(
+            BASE + "WITH b, sum(a.v) AS total RETURN b, total",
+            id="whole_row_carried_alias_next_to_sum",
+        ),
+        pytest.param(
+            BASE + "WITH b, max(a.v) AS hi RETURN b, hi",
+            id="whole_row_carried_alias_next_to_max",
+        ),
     ],
 )
 def test_declines(query: str) -> None:
@@ -95,10 +108,35 @@ def test_declines_when_with_precedes_the_optional_match_reentry_shape() -> None:
     assert flatten_terminal_with_over_optional(q) is None
 
 
+def test_declines_a_trailing_match_reentry_even_with_an_optional_arm_in_front() -> None:
+    """The reentry-matches guard, isolated. The shape above declines on the
+    ``any(m.optional)`` test instead -- its OPTIONAL MATCH moved into
+    ``reentry_matches``, so ``query.matches`` holds no optional at all and the
+    reentry guard is never the deciding one. Here the OPTIONAL arm stays in
+    ``query.matches`` and only the trailing MATCH is a reentry, so every other
+    precondition passes and ``reentry_matches`` alone must stop the flatten --
+    dropping the stage would silently discard the trailing MATCH's re-entry."""
+    q = _parse("MATCH (a:P) OPTIONAL MATCH (a)-[:KNOWS]->(b) WITH a, b "
+               "MATCH (b)-[:KNOWS]->(c) RETURN a.id AS aid, c.id AS cid")
+    assert q.reentry_matches
+    assert len(q.with_stages) == 1
+    assert any(m.optional for m in q.matches) and not q.matches[0].optional
+    assert flatten_terminal_with_over_optional(q) is None
+
+
 def test_declines_row_sequence() -> None:
     q = _parse(BASE + "WITH a, b RETURN a.id")
     hacked = dataclasses.replace(q, row_sequence=q.row_sequence or ("row",))
     assert flatten_terminal_with_over_optional(hacked) is None
+
+
+def test_declines_a_call_clause() -> None:
+    """A CALL feeds rows the flatten's pattern-only alias analysis cannot see,
+    so its presence must veto the rewrite -- the same reason row_sequence does."""
+    call = _parse("CALL db.labels() YIELD label RETURN label").call
+    assert call is not None
+    q = _parse(BASE + "WITH a, b RETURN a.id")
+    assert flatten_terminal_with_over_optional(dataclasses.replace(q, call=call)) is None
 
 
 def test_declines_duplicate_stage_output_names() -> None:
@@ -148,3 +186,57 @@ def test_admitted_query_never_retains_a_with_stage_so_recompiling_it_terminates(
     flattened, _ = out
     assert flattened.with_stages == ()
     assert flatten_terminal_with_over_optional(flattened) is None
+
+
+# --------------------------------------------------------------- round 2
+# ``_match_clause_aliases`` walks pattern elements only, so a PATH alias
+# (``MATCH path = ...``, which lives on ``MatchClause.pattern_aliases``) is a
+# carried bare identifier that is NOT a match alias. That is the only Cypher
+# spelling that separates the two arms below.
+
+PATH_BASE = ("MATCH path = (a:P)-[:KNOWS]->(b) "
+             "OPTIONAL MATCH (b)-[:KNOWS]->(c) ")
+
+
+def test_admits_a_path_alias_carry_when_the_stage_has_no_where() -> None:
+    """Boundary partner of the decline below: the same carry without a stage
+    WHERE folds through RETURN, so the decline there is attributable to the
+    WHERE reaching the fold arm and nothing else."""
+    out = flatten_terminal_with_over_optional(
+        _parse(PATH_BASE + "WITH path, a, b, c RETURN a.id AS aid, c.id AS cid"))
+    assert out is not None
+    flattened, row_filter = out
+    assert flattened.with_stages == ()
+    assert row_filter is None
+
+
+def test_declines_a_path_alias_carry_that_also_has_a_stage_where() -> None:
+    """``carried <= match_aliases`` is load-bearing, not defensive: ``path`` is
+    carried but is not a match alias, so the pure-carry arm must not claim this
+    stage. That arm would hand the stage WHERE back as a post-join row filter
+    and answer; the fold arm it falls to instead declines on the WHERE."""
+    assert flatten_terminal_with_over_optional(
+        _parse(PATH_BASE + "WITH path, a, b, c WHERE a.v <= 1 "
+                           "RETURN a.id AS aid, c.id AS cid")) is None
+
+
+def test_declines_a_property_of_a_carried_alias_that_no_match_clause_binds() -> None:
+    """``text in match_aliases`` on the fold arm's bare-carry set is
+    load-bearing. ``WITH path, a.id AS aid`` is not a pure bare carry, so the
+    pure-carry arm is out of the picture; only this membership test stops
+    ``path.x`` from being passed through as if ``path`` were a bound node."""
+    assert flatten_terminal_with_over_optional(
+        _parse(PATH_BASE + "WITH path, a.id AS aid RETURN path.x AS px")) is None
+
+
+def test_declines_a_carry_stage_with_no_projection_items() -> None:
+    """Defensive branch, pinned at the level it is reachable from: no Cypher
+    text parses to a WITH with zero items, so this is an AST-built input. With
+    an empty carry the pure-carry arm would admit any RETURN that names no
+    alias, dropping a stage whose scope is empty rather than everything."""
+    q = _parse(BASE + "WITH a, b RETURN 1 AS one")
+    stage = q.with_stages[0]
+    empty = dataclasses.replace(
+        stage, clause=dataclasses.replace(stage.clause, items=()))
+    assert flatten_terminal_with_over_optional(
+        dataclasses.replace(q, with_stages=(empty,))) is None
