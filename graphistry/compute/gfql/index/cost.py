@@ -16,11 +16,6 @@ from graphistry.Engine import Engine
 _COST_GATE_FRAC = {Engine.PANDAS: 0.5}
 _COST_GATE_FRAC_DEFAULT = 0.02
 _COST_GATE_FRAC_OVERRIDES: Dict[Engine, float] = {}
-# Process-global mutable state, so the coverage lock discovers it (#1913) -- but it is
-# deliberate CONFIGURATION written only by set_cost_gate_frac, not a memo of any input.
-# gfql_clear_caches must not touch it: silently reverting a benchmark's tuning under a
-# call named "clear caches" would be a surprise, and the knob already has its own public
-# reset (reset_cost_gate_frac). Plan choice only; never an answer.
 from graphistry.compute.gfql.cache_registry import register_exempt as _register_exempt
 _register_exempt(
     "_COST_GATE_FRAC_OVERRIDES",

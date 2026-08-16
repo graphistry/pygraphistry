@@ -120,8 +120,4 @@ def entries() -> Dict[str, CacheEntry]:
         return dict(_REGISTRY)
 
 
-# This ledger is itself module-level mutable state, so the widened coverage lock
-# discovers it (#1913). It is exempt by construction: clearing it would delete the
-# clear handles and turn gfql_clear_caches into the silent no-op this file exists
-# to prevent, and clear_all() already raises on an empty registry.
 register_exempt("_REGISTRY", "the cache ledger itself; emptying it would delete every clear handle and make gfql_clear_caches a silent no-op")

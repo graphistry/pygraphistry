@@ -309,7 +309,10 @@ class TestCallInDAG:
             .nodes(nodes_df)\
             .bind(source='source', destination='target', node='node')
     
-    def test_call_in_dag(self, sample_graph):
+    #: Undirected incident-edge count over the fixture's 0->1, 1->2, 2->0, 2->3, 3->0.
+    ROOT_DEGREE = {0: 3, 1: 2, 2: 3, 3: 2}
+
+    def test_call_in_dag_reads_the_root_graph_not_the_preceding_binding(self, sample_graph):
         dag = ASTLet({
             'filtered': Chain([n({'type': 'user'})]),
             'with_degrees': ASTCall('get_degrees', {'col': 'degree'})
@@ -317,9 +320,20 @@ class TestCallInDAG:
 
         result = chain_let_impl(sample_graph, dag, EngineAbstract.PANDAS)
 
-        assert 'degree' in result._nodes.columns
-        assert len(result._nodes) == 3  # Only 'user' nodes
-    
+        assert dict(zip(result._nodes['node'], result._nodes['degree'])) == self.ROOT_DEGREE
+
+    def test_call_in_dag_leaves_a_sibling_filter_binding_alone(self, sample_graph):
+        dag = ASTLet({
+            'filtered': Chain([n({'type': 'user'})]),
+            'with_degrees': ASTCall('get_degrees', {'col': 'degree'})
+        })
+
+        result = chain_let_impl(sample_graph, dag, EngineAbstract.PANDAS, output='filtered')
+
+        assert sorted(result._nodes['node'].tolist()) == [0, 1, 3]
+        assert 'degree' not in result._nodes.columns
+
+
     def test_multiple_calls(self, sample_graph):
         dag1 = ASTLet({
             'with_degrees': ASTCall('get_degrees', {'col': 'deg'})

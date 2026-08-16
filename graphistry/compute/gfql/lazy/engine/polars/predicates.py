@@ -61,6 +61,18 @@ def _homogeneous_scalar_category(opts: List[Any]) -> Optional[str]:
 # implements Python rich comparison so op(lhs, rhs) builds exactly `lhs > rhs`/... . Ops outside
 # this whitelist have no proven lowering and fall through to the decline paths.
 _CMP_OPS = frozenset({operator.gt, operator.lt, operator.ge, operator.le, operator.eq, operator.ne})
+_ORDER_OPS = frozenset({operator.gt, operator.lt, operator.ge, operator.le})
+
+
+def _orders_boolean_column_against_number(op: object, val: object, dtype: "Optional[pl.DataType]") -> bool:
+    """Ordering a Boolean column against a number: incomparable, so it never satisfies.
+
+    Equality is not ordering and stays served.
+    """
+    if op not in _ORDER_OPS or isinstance(val, bool) or not isinstance(val, (int, float)):
+        return False
+    import polars as pl
+    return dtype == pl.Boolean
 
 
 def _cmp_expr(
@@ -98,23 +110,10 @@ def _cmp_expr(
         "DateTimeValue", "TimeValue", "DateValue",
     ):
         return None
-    # Narrow residual: no IEEE NaN mask here (unlike the WHERE/row-pipeline _nan_guard) — on a
-    # GENUINE polars NaN, `col > x` keeps the row (NaN = largest) where pandas drops it.
-    # Unreachable on standard ingestion: from_pandas/df_to_engine convert NaN→null (nan_to_null)
-    # and filter_by_dict runs on INGESTED columns (no in-query float math — that's the WHERE
-    # path). Only a natively-built polars frame with raw NaN diverges; documented, not guarded,
-    # to keep the lowering simple. (Mirrors the documented integer 0/0 column-compare residual.)
-    # Cypher: ORDERING a Boolean column against a number is incomparable -> null
-    # (never satisfies) -- the bool-vs-int twin of the numeric-vs-string decline,
-    # mirroring the pandas predicate guard (#1900). Equality stays served.
-    if (
-        op in (operator.gt, operator.lt, operator.ge, operator.le)
-        and not isinstance(val, bool)
-        and isinstance(val, (int, float))
-    ):
+    # Documented residual: only a natively-built polars frame holding a RAW NaN diverges from pandas.
+    if _orders_boolean_column_against_number(op, val, dtype):
         import polars as pl
-        if dtype == pl.Boolean:
-            return pl.lit(False)
+        return pl.lit(False)
     if op in _CMP_OPS:
         return op(col_expr, val)
     return None
@@ -190,9 +189,7 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
         return None
 
     if name == "NeverMatch":
-        # pandas twin is `s.isna() & False` -- all-False, nulls included; the
-        # `is_null() &` keeps the expr column-length rather than a broadcast literal.
-        return c.is_null() & pl.lit(False)
+        return c.is_null() & pl.lit(False)  # column-length all-False, nulls included
 
     if name in ("IsNull", "IsNA"):
         return c.is_null()
@@ -349,9 +346,6 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
         return None
 
     exprs: "List[pl.Expr]" = []
-    # ONE schema resolution per call, shared by every branch and every entry: on a
-    # LazyFrame `df.schema` re-resolves the whole plan (and warns) at each lookup, and
-    # this runs per filtered frame on the count/join hot lanes.
     _schema_memo: "List[pl.Schema]" = []
 
     def _dtype_of(name: str) -> "Optional[pl.DataType]":
@@ -414,9 +408,6 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
                     f"(no pandas fallback; parity-or-error by design)"
                 )
         else:
-            # Scalar equality against an incompatible column dtype: pandas/cuDF raise a
-            # typed GFQLSchemaError (E302) up front, polars would leak a raw ComputeError
-            # at collect (#1905). Same check, same message, so the contract is engine-wide.
             _eq_dtype = _dtype_of(resolved_col)
             _empty_eager = isinstance(df, pl.DataFrame) and df.height == 0
             if _eq_dtype is not None and not _empty_eager:

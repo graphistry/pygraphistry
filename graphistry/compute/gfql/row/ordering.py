@@ -262,7 +262,7 @@ def order_detect_native_temporal_mode(series: Any) -> Optional[str]:  # hygiene-
 
     ``order_detect_temporal_mode`` only recognises temporals stored as TEXT, so a
     real datetime column used to skip the temporal comparison path entirely and fall
-    through to a ``datetime64``-vs-``str`` compare (#1915 B-1). Kept separate from
+    through to a ``datetime64``-vs-``str`` compare. Kept separate from
     the text detector so ORDER BY keeps its existing native-dtype sort path.
     """
     dtype = getattr(series, "dtype", None)
@@ -274,8 +274,7 @@ def order_detect_native_temporal_mode(series: Any) -> Optional[str]:  # hygiene-
     return None
 
 
-# Julian day number of 1970-01-01, so native epoch keys land on the same scale as
-# the text path's civil-calendar Julian day.
+# Rebases native epoch keys onto the text path's civil-calendar Julian day scale.
 _GFQL_JULIAN_DAY_AT_EPOCH = 2_440_588
 
 
@@ -404,15 +403,11 @@ def build_temporal_sort_columns(
     value = work_df[sort_col]
     day_nanos = 86_400 * 1_000_000_000
     if mode == "datetime_native":
-        # Native datetime dtype: the instant is already exact, so key straight off
-        # UTC epoch nanoseconds (rebased onto the text path's Julian day scale so the
-        # two key families are comparable).
+        # The instant is already exact, so key straight off the UTC epoch.
         if month_shift != 0:
             raise ValueError("native datetime order_by duration support currently rejects year/month offsets")
         native_null_mask = null_mask_fn(work_df, value)
-        # Key in the dtype's OWN unit (ticks), never assuming nanoseconds: pandas 3
-        # stores datetime64[us] by default. Staying in ticks also keeps the full
-        # datetime64[s]/[ms] range, which an int64 nanosecond count would overflow.
+        # Key in the dtype's OWN unit: assuming nanoseconds overflows int64 for [s]/[ms].
         unit_nanos = _native_temporal_unit_nanoseconds(getattr(value, "dtype", None))
         ticks_per_day = day_nanos // unit_nanos
         shift_ticks, shift_nanos_remainder = divmod(nanosecond_shift, unit_nanos)

@@ -1,7 +1,7 @@
 import datetime
 import numpy as np
 import pandas as pd
-from typing import Any, Mapping, Optional, Protocol, TYPE_CHECKING, Tuple, SupportsInt, Type, TypeVar, Union
+from typing import Any, Dict, Mapping, Optional, Protocol, TYPE_CHECKING, Tuple, SupportsInt, Type, TypeVar, Union
 
 NodeId = Union[int, float, str, bool, bytes, datetime.date, np.generic]
 
@@ -50,6 +50,10 @@ if TYPE_CHECKING:
 # helpers that accept Any and fail closed.
 DType = Any
 NodeDtypes = Mapping[str, DType]
+
+# Honestly Any: the admissible literals are open and every consumer dispatches on the runtime type.
+FilterValue = Any
+FilterDict = Dict[str, FilterValue]
 
 # Type variable for return type preservation in predicates
 T = TypeVar('T')

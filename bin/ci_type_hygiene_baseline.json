@@ -152,7 +152,7 @@
       "graphistry/compute/gfql/temporal_text.py": 1,
       "graphistry/compute/gfql/validate.py": 5,
       "graphistry/compute/gfql_fast_paths.py": 21,
-      "graphistry/compute/gfql_unified.py": 20,
+      "graphistry/compute/gfql_unified.py": 14,
       "graphistry/compute/gfql_validate.py": 10,
       "graphistry/compute/hop.py": 4,
       "graphistry/compute/predicates/comparison.py": 4,

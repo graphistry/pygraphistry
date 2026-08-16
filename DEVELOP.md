@@ -168,6 +168,49 @@ Do **not** raise a cap with `--update-baseline` to make a new finding go away.
 Lowering caps after fixing debt is the intended use; commit the code change and
 the baseline update together.
 
+### Comment Density Guard
+
+`bin/lint.sh` (the same `python-lint-types` matrix lane as the type-hygiene
+guard) runs `bin/ci_comment_density_guard.py`, a stdlib-only `tokenize` + `ast`
+check over `graphistry/`. It enforces the "Encoding: names, tests, and
+structure — not prose" rules in `agents/skills/review/SKILL.md`, which were the
+last rule class on that stack still enforced only by human review.
+
+| Check | What it flags |
+|---|---|
+| `comment-block` | a run of 2+ adjacent full-line `#` comments (3+ for a Sphinx `#:` run) |
+| `perf-claim` | performance / complexity / benchmark vocabulary in a comment or docstring |
+| `issue-rationale` | a standalone comment or a docstring citing `#<issue>` as the explanation |
+
+`comment-block` is a form rule and reads `#` comments only. `perf-claim` and
+`issue-rationale` are content rules — the claim does not become admissible by
+moving into a docstring — so they read docstrings too. Tests are exempt from
+`comment-block` and `issue-rationale` (a test may explain its oracle) but not
+from `perf-claim`: measurement belongs in pyg-bench wherever it is written.
+
+The line limit is 127, so a constraint that genuinely cannot be expressed by a
+name or a test fits on one line. `regress` and `A/B` count only next to
+performance vocabulary (they also name correctness concepts), and a comment that
+points at `pyg-bench` is a pointer to the measurement rather than a claim.
+
+Enforcement is a **per-file count ratchet** against
+`bin/ci_comment_density_baseline.json`, exactly like the type-hygiene guard.
+
+```bash
+./bin/ci_comment_density_guard.py             # what CI runs
+./bin/ci_comment_density_guard.py --report    # totals per check
+./bin/ci_comment_density_guard.py --list comment-block
+./bin/ci_comment_density_guard.py --strict    # show files that improved; time to retighten
+```
+
+The fix is almost never a suppression: extract a helper whose NAME states the
+rule, or write the test whose NAME states it. When a comment genuinely earns its
+place and still cannot fit, annotate it:
+
+```python
+# guard-ok: comment-block -- openCypher 9.1 §4.2 wording, quoted verbatim
+```
+
 ### GFQL Cache Registry
 
 Every process-lifetime cache in `graphistry/compute/gfql/**` registers itself in
