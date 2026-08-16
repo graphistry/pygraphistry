@@ -852,6 +852,16 @@ def _try_indexed_middle_polars(
     return try_indexed_connected_bindings_state(g, middle, engine=engine), True
 
 
+def _bound_edge_endpoints(g: Plottable) -> Tuple[str, str]:
+    """The graph's (source, destination) columns; a row-pipeline call() result leaves them unbound."""
+    if g._source is None or g._destination is None:
+        raise NotImplementedError(
+            "polars chain engine does not yet support traversing a graph with unbound edge "
+            "endpoints (e.g. a call() row-pipeline result); use engine='pandas' for this chain."
+        )
+    return g._source, g._destination
+
+
 def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plottable:
     import polars as pl
     from graphistry.compute.chain import Chain
@@ -863,6 +873,8 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     if len(ops) == 0:
         return self
 
+    edge_src, edge_dst = _bound_edge_endpoints(self)
+
     # Node-only shape: single MATCH (n). Result is just the filtered node table + empty edges,
     # so skip forward/backward/combine. Byte-identical: the one-node-step combine yields filtered
     # g._nodes in order + empty edges + the alias flag on every matched node.
@@ -870,7 +882,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         op0 = ops[0]
         g0 = ensure_nodes_polars(self)
         nc = g0._node
-        assert nc is not None and g0._source is not None and g0._destination is not None
+        assert nc is not None
         nodes = filter_by_dict_polars(g0._nodes, op0.filter_dict)
         if start_nodes is not None:
             from graphistry.Engine import Engine as _E, df_to_engine as _d2e
@@ -878,7 +890,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             nodes = _semi(nodes, seed, nc, nc)
         if op0._name is not None:
             nodes = nodes.with_columns(pl.lit(True).alias(op0._name))
-        return g0.nodes(nodes, nc).edges(g0._edges.clear(), g0._source, g0._destination)
+        return g0.nodes(nodes, nc).edges(g0._edges.clear(), edge_src, edge_dst)
 
     if isinstance(ops[0], ASTEdge):
         ops = [ASTNode()] + ops
@@ -988,21 +1000,33 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             n_from, n_to = (n0, n2) if e1.direction != "reverse" else (n2, n0)
             all_ids = gf._nodes.select(pl.col(ncol))
 
-            def _ids_endpoint_must_resolve_to(node_op: ASTNode) -> "Optional[PolarsFrame]":
-                """None = unconstrained; a synthesized node table is vacuously closed."""
-                if node_op.filter_dict:
-                    return filter_by_dict_polars(gf._nodes, node_op.filter_dict).select(pl.col(ncol))
-                return all_ids if node_table_bound else None
+            def _filter_ids(node_op: ASTNode) -> "Optional[PolarsFrame]":
+                if not node_op.filter_dict:
+                    return None
+                return filter_by_dict_polars(gf._nodes, node_op.filter_dict).select(pl.col(ncol))
 
-            for endpoint_col, resolvable_ids in (
-                (scol, _ids_endpoint_must_resolve_to(n_from)),
-                (dcol, _ids_endpoint_must_resolve_to(n_to)),
-            ):
-                if resolvable_ids is not None:
-                    edges = edges.join(
-                        resolvable_ids, left_on=endpoint_col, right_on=ncol, how="semi")
+            filter_sides = ((scol, _filter_ids(n_from)), (dcol, _filter_ids(n_to)))
+            for endpoint_col, filter_ids in filter_sides:
+                if filter_ids is not None:
+                    edges = edges.join(filter_ids, left_on=endpoint_col, right_on=ncol, how="semi")
+            # A filtered side drew its ids FROM the node table; a synthesized one is vacuously closed.
+            sides_not_closed_by_a_filter = (
+                [col for col, filter_ids in filter_sides if filter_ids is None]
+                if node_table_bound else [])
             endpoints = endpoint_ids(edges, scol, dcol, ncol)
-            nodes = gf._nodes.join(endpoints, on=ncol, how="semi")
+            if sides_not_closed_by_a_filter:
+                from graphistry.compute.gfql.lazy import collect_all
+                unresolvable, nodes = collect_all([
+                    endpoints.lazy().join(all_ids.lazy(), on=ncol, how="anti").select(pl.len()),
+                    gf._nodes.lazy().join(endpoints.lazy(), on=ncol, how="semi"),
+                ])
+                if unresolvable.item() > 0:
+                    for endpoint_col in sides_not_closed_by_a_filter:
+                        edges = edges.join(all_ids, left_on=endpoint_col, right_on=ncol, how="semi")
+                    nodes = gf._nodes.join(
+                        endpoint_ids(edges, scol, dcol, ncol), on=ncol, how="semi")
+            else:
+                nodes = gf._nodes.join(endpoints, on=ncol, how="semi")
             return gf.nodes(nodes, ncol).edges(_restore_edge_dtypes(edges, scol, dcol, restore), scol, dcol)
 
     if start_nodes is not None:

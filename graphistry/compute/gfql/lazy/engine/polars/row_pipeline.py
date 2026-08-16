@@ -1482,8 +1482,6 @@ def binding_rows_polars(
     src = base_graph._source
     dst = base_graph._destination
     if (nodes is None or node_id is None) and edges is not None:
-        # Edges-only graph: materialize nodes (the node-set path did this
-        # implicitly through the hop executor); keep the frame on polars.
         try:
             base_graph = base_graph.materialize_nodes()
         except Exception:
@@ -1713,10 +1711,7 @@ def binding_rows_polars(
         # NIE → use engine='pandas'/'polars'), never a silent CPU fallback.
         nodes_lf = nodes.lazy()
         edges_lf = edges.lazy()
-        # int-vs-float endpoint dtype mismatch (e.g. a null endpoint promoted the
-        # column) SchemaErrors the join chain; align endpoints to the node-id
-        # dtype when lossless, mirroring the chain traversal's join-key fix.
-        # Output dtypes are untouched (alias columns come from the node frames).
+        # A null-promoted endpoint dtype SchemaErrors the join chain; align losslessly to the node-id dtype.
         _node_dtype = nodes_lf.collect_schema().get(node_id)
         _edge_schema = edges_lf.collect_schema()
         _endpoint_casts = []

@@ -2305,7 +2305,7 @@ def _clause_has_mixed_aggregate_item(
     an aggregate in ONE expression (e.g. ``me.age + count(you.age)``). Such compound
     cross-source items have ambiguous multiplicity and must keep the conservative
     fail-fast; a clean split (``c.city`` and ``avg(p.age)`` as separate items) does
-    not trip this (#1273 / rejects-unsound-multi-source-overlap contract)."""
+    not trip this (rejects-unsound-multi-source-overlap contract)."""
     return_clause = query.return_
     exprs: List[Tuple[str, int, int]] = []
     if return_clause is not None:
@@ -2360,7 +2360,7 @@ def _binding_prop_alias_set(
     alias_targets: Mapping[str, ASTObject],
     params: Optional[Mapping[str, Any]],
 ) -> Optional[List[str]]:
-    """#1711 projection-pushdown: node aliases whose PROPERTIES are referenced by
+    """Projection-pushdown: node aliases whose PROPERTIES are referenced by
     the RETURN/ORDER BY, so the binding builders can skip property joins for the
     rest (e.g. ``count(*)`` needs none; ``count(a)`` needs only a's bare id column).
 
@@ -2389,7 +2389,7 @@ def _binding_prop_alias_set(
 
     # A repeated node alias (e.g. `MATCH (n)-[:LOOP]->(n)`) enforces n==n via hidden
     # bound-identity columns (`n.__gfql_node_id__`) that a RETURN-text walk can't see —
-    # skipping n's property join would drop them. Bail on any repeat (#1490).
+    # skipping n's property join would drop them. Bail on any repeat.
     try:
         node_vars = [
             el.variable
@@ -2588,7 +2588,7 @@ def _forces_relationship_multiplicity_projection_bindings(
     order_by: Optional[OrderByClause],
 ) -> bool:
     """Non-aggregate projections over relationship patterns run on binding rows:
-    the per-alias node table collapses row multiplicity (#1899 bag semantics).
+    the per-alias node table collapses row multiplicity (bag semantics).
 
     Scope: every projected/ordered expression must be either alias-free or a
     bare ``node_alias.prop`` ref -- whole-row refs, edge-alias refs, and
@@ -2633,11 +2633,7 @@ def _forces_relationship_multiplicity_projection_bindings(
         saw_node_prop_ref = True
     if not saw_node_prop_ref:
         return False
-    # Fast-path precedence (#1899 follow-up): the seeded typed-hop fast path
-    # (the benchmark-critical 2.5ms lever, #1755) pattern-matches the
-    # rows(table, source) compiled shape for a single [seed-node, single-hop
-    # edge, node] pattern projecting only destination props -- leave those
-    # shapes on it (its seeded reduction is value-correct there).
+    # A single seeded [node, single-hop edge, node] pattern projecting only destination props stays on the seeded typed-hop fast path.
     if len(query.matches) == 1 and len(query.matches[0].patterns) == 1:
         pattern = query.matches[0].patterns[0]
         if (
@@ -5560,7 +5556,7 @@ def _row_only_empty_aggregate_row(
     params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- Cypher params mapping, module-wide idiom
 ) -> Optional[Dict[str, Any]]:  # hygiene-ok: explicit-any -- heterogeneous Cypher identity values (0 / [] / None)
     """openCypher aggregate identities for an ungrouped aggregate RETURN over an
-    empty row stream (#1899): count -> 0, sum -> 0, collect -> [], else null.
+    empty row stream: count -> 0, sum -> 0, collect -> [], else null.
     Grouped/paged/non-aggregate finals return None (no synthesis)."""
     if not query.row_sequence:
         return None
@@ -9310,9 +9306,6 @@ def compile_cypher_query(
         if compiled_connected_optional is not None:
             return _attach_graph_context(compiled_connected_optional)
     if query.with_stages and query.matches and not any(m.optional for m in query.matches):
-        # #1899: a terminal pure bare-alias WITH carry over non-OPTIONAL
-        # matches is a row no-op; fold it away so binding-row multiplicity
-        # survives (the row-column pipeline would collapse it).
         from graphistry.compute.gfql.cypher.reentry.flatten import (
             flatten_pure_carry_terminal_with_nonoptional,
         )

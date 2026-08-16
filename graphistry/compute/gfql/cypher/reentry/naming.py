@@ -1,6 +1,9 @@
 """Naming conventions for hidden reentry carry columns."""
 from __future__ import annotations
 
+import re
+from typing import Optional
+
 from graphistry.compute.gfql.identifiers import (
     HIDDEN_ALIAS_COLUMN_PREFIX,
     INTERNAL_COLUMN_SUFFIX,
@@ -10,6 +13,7 @@ __all__ = [
     "REENTRY_HIDDEN_COLUMN_PREFIX",
     "REENTRY_PROPERTY_CARRY_PREFIX",
     "is_reentry_hidden_column_reference",
+    "reentry_hidden_column_output_name",
     "_reentry_hidden_column_name",
     "_reentry_property_carry_name",
     "_secondary_reentry_hidden_column_name",
@@ -47,3 +51,14 @@ def _is_hidden_reentry_property(property_name: str) -> bool:
 def is_reentry_hidden_column_reference(expression: str) -> bool:
     """A projection/aggregate source that reaches into a hidden reentry carry column."""
     return REENTRY_HIDDEN_COLUMN_PREFIX in expression
+
+
+_REENTRY_HIDDEN_COLUMN = re.compile(
+    re.escape(REENTRY_HIDDEN_COLUMN_PREFIX) + r"(\w+)" + re.escape(_REENTRY_COLUMN_SUFFIX)
+)
+
+
+def reentry_hidden_column_output_name(column: str) -> Optional[str]:
+    """Inverse of :func:`_reentry_hidden_column_name`: the WITH output it carries, else None."""
+    match = _REENTRY_HIDDEN_COLUMN.fullmatch(column)
+    return match.group(1) if match is not None else None
