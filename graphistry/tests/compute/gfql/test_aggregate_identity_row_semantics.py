@@ -372,3 +372,143 @@ def test_missing_property_aggregate_value_is_zero_on_pandas(engine):
             _run("MATCH (m) RETURN count(m.nosuch) AS c", "polars")
         return
     assert _records(_run("MATCH (m) RETURN count(m.nosuch) AS c", engine)) == [{"c": 0}]
+
+
+# ===========================================================================
+# 7. Round-005 amplification (mutation-audit round for #1909/#1910)
+# ===========================================================================
+
+try:
+    import cudf  # noqa: F401
+    HAS_CUDF = True
+except ImportError:
+    HAS_CUDF = False
+
+ALL_ENGINES = ENGINES + [pytest.param("cudf", marks=pytest.mark.skipif(not HAS_CUDF, reason="cudf not installed"))]
+
+
+def _run_any(query: str, engine: str) -> pd.DataFrame:
+    if engine == "cudf":
+        import cudf as _cudf
+        g = (graphistry.nodes(_cudf.from_pandas(NODES), "id")
+             .edges(_cudf.from_pandas(EDGES), "s", "d").bind(edge="eid"))
+        out = g.gfql(query, engine="cudf")._nodes
+        if hasattr(out, "to_pandas"):
+            out = out.to_pandas()
+        return out.reset_index(drop=True)
+    return _run(query, engine)
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("query,expected", [
+    # WITH count(*) yields ONE row {c: 0} over the empty stream, so the outer
+    # aggregate sees one row, never an empty input.
+    ("UNWIND [] AS x WITH count(*) AS c RETURN count(c) AS out", [{"out": 1}]),
+    ("UNWIND [] AS x WITH count(*) AS c RETURN min(c) AS out", [{"out": 0}]),
+    ("UNWIND [] AS x WITH count(*) AS c RETURN sum(c) AS out", [{"out": 0}]),
+    ("UNWIND [] AS x WITH count(*) AS c RETURN collect(c) AS out", [{"out": [0]}]),
+    ("MATCH (m) WHERE m.name = 'Zed' WITH count(*) AS c RETURN count(c) AS out", [{"out": 1}]),
+], ids=["count_of_count", "min_of_count", "sum_of_count", "collect_of_count", "match_rooted"])
+def test_chained_ungrouped_aggregates_see_the_intermediate_identity_row(query, expected, engine):
+    """Pivoting the synthesis at the LAST aggregate fabricated 0/null/[] here;
+    the earliest all-replayable seed chains the true values."""
+    assert _records(_run_any(query, engine)) == expected
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_chained_aggregate_behind_a_filter_keeps_the_final_identity(engine):
+    """Both a dropped row and an empty upstream leave the final aggregate an
+    empty input, so the last-seed identity n=0 is correct on either branch --
+    the chain rule must NOT fire across a post-aggregate WHERE."""
+    query = "MATCH (m) WHERE m.name = 'Zed' WITH count(*) AS c WHERE c > 99 RETURN count(*) AS n"
+    assert _records(_run(query, engine)) == [{"n": 0}]
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("query,expected", [
+    ("UNWIND [] AS x RETURN count(*) + 1 AS c", [{"c": 1}]),
+    ("UNWIND [] AS x RETURN abs(sum(x)) AS c", [{"c": 0}]),
+    ("UNWIND [] AS x RETURN avg(x) * 2 AS c", [{"c": None}]),
+    ("UNWIND [] AS x RETURN count(*) AS c, count(*) + 1 AS d", [{"c": 0, "d": 1}]),
+], ids=["count_plus_1", "abs_sum", "avg_times_2", "mixed_pure_and_compound"])
+def test_compound_aggregate_items_evaluate_over_the_identity_row(query, expected, engine):
+    """The replay lane must evaluate post-aggregate expressions over the
+    identity row under the user's alias -- never emit a bare identity under an
+    internal postagg column (the #1901-lane fabrication this stack fixed)."""
+    df = _run_any(query, engine)
+    assert not any(str(col).startswith("__cypher") for col in df.columns)
+    assert _records(df) == expected
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("params,expected", [
+    ({"s": 0}, [{"c": 0}]),
+    ({"s": 1}, []),
+], ids=["skip_param_0", "skip_param_1"])
+def test_identity_row_paging_by_parameter(params, expected, engine):
+    out = _graph(engine).gfql("UNWIND [] AS x RETURN count(*) AS c SKIP $s",
+                              engine=engine, params=params)._nodes
+    if hasattr(out, "to_pandas"):
+        out = out.to_pandas()
+    assert _records(out.reset_index(drop=True)) == expected
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("params,expected", [
+    ({"l": 0}, []),
+    ({"l": 2}, [{"c": 0}]),
+], ids=["limit_param_0", "limit_param_2"])
+def test_identity_row_limit_by_parameter(params, expected, engine):
+    out = _graph(engine).gfql("UNWIND [] AS x RETURN count(*) AS c LIMIT $l",
+                              engine=engine, params=params)._nodes
+    if hasattr(out, "to_pandas"):
+        out = out.to_pandas()
+    assert _records(out.reset_index(drop=True)) == expected
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query,field", [
+    ("UNWIND [] AS x RETURN count(*) AS c SKIP -1", "skip"),
+    ("UNWIND [] AS x RETURN count(*) AS c LIMIT -1", "limit"),
+], ids=["negative_skip", "negative_limit"])
+def test_negative_paging_values_stay_validation_errors(query, field, engine):
+    """Guard the paging lane's edges: Cypher SKIP/LIMIT must be non-negative,
+    and the identity-row synthesis must not swallow that rejection."""
+    with pytest.raises(GFQLValidationError) as excinfo:
+        _run(query, engine)
+    assert field in str(excinfo.value)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_mid_pipeline_paging_before_the_final_aggregate(engine):
+    """SKIP inside an earlier WITH pages the (empty) stream, not the identity
+    row: the final ungrouped count still emits its row."""
+    assert _records(_run("UNWIND [] AS x WITH x AS y SKIP 5 RETURN count(*) AS c", engine)) == [{"c": 0}]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query", [
+    "UNWIND [] AS x RETURN DISTINCT count(*) AS c",
+    "UNWIND [] AS x RETURN count(*) AS c ORDER BY c",
+], ids=["distinct", "order_by_output"])
+def test_distinct_and_order_by_keep_the_identity_row(query, engine):
+    assert _records(_run(query, engine)) == [{"c": 0}]
+
+
+def test_unwind_empty_parameter_list_identity_row():
+    """$param-driven empty UNWIND: pandas serves c=0; polars declines UNWIND
+    with its typed NIE (parity-or-error)."""
+    out = _graph("pandas").gfql("UNWIND $xs AS x RETURN count(x) AS c",
+                                engine="pandas", params={"xs": []})._nodes
+    assert _records(out.reset_index(drop=True)) == [{"c": 0}]
+    if HAS_POLARS:
+        with pytest.raises(NotImplementedError):
+            _graph("polars").gfql("UNWIND $xs AS x RETURN count(x) AS c",
+                                  engine="polars", params={"xs": []})
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_constant_grouping_key_over_empty_stream_stays_empty(engine):
+    """`RETURN 1 AS k, count(*)` groups by the constant item: no input rows,
+    no groups, no identity row (ungrouped-only rule holds for expression keys)."""
+    assert _records(_run("UNWIND [] AS x RETURN 1 AS k, count(*) AS c", engine)) == []
