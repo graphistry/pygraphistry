@@ -6677,6 +6677,16 @@ def lower_match_query(
                     if row_predicate_expr is not None:
                         row_where_predicates.append(row_predicate_expr)
                         continue
+                from graphistry.compute.gfql.same_path_types import SUPPORTED_WHERE_OPS as _SP_OPS
+                if predicate.op not in _SP_OPS:
+                    # The same-path WHERE carries comparisons only; anything else declines.
+                    raise _unsupported(
+                        f"Cypher cross-property '{predicate.op}' predicates between two aliases are not yet supported in the local compiler",
+                        field="where",
+                        value=predicate.op,
+                        line=predicate.span.line,
+                        column=predicate.span.column,
+                    )
                 where_out.append(
                     compare(
                         col(cast(PropertyRef, predicate.left).alias, cast(PropertyRef, predicate.left).property),

@@ -228,8 +228,27 @@ class _ScalarTemporalComparison(_StringAllowingComparisonMixin, ComparisonPredic
     op: ClassVar[Any]
     safe_scalar_compare: ClassVar[bool] = True
 
+    @staticmethod
+    def _series_is_boolean(s: SeriesT) -> bool:
+        if pd.api.types.is_bool_dtype(s.dtype):
+            return True
+        if isinstance(s, pd.Series) and pd.api.types.is_object_dtype(s.dtype):
+            non_null = s.dropna()
+            return len(non_null) > 0 and bool(non_null.map(lambda v: isinstance(v, bool)).all())
+        return False
+
+    def _orders_boolean_series_against_number(self, s: SeriesT) -> bool:
+        """Ordering a Boolean series against a number is incomparable, so it never satisfies."""
+        return (
+            not isinstance(self.val, bool)
+            and isinstance(self.val, (int, float))
+            and self._series_is_boolean(s)
+        )
+
     def __call__(self, s: SeriesT) -> SeriesT:
         if isinstance(self.val, (int, float, str)):
+            if self._orders_boolean_series_against_number(s):
+                return s.notna() & False
             return (
                 self._safe_scalar_compare(s, type(self).op)
                 if self.safe_scalar_compare

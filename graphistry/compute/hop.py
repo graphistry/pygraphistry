@@ -130,9 +130,7 @@ def hop(self: Plottable,
     if isinstance(engine, str):
         engine = EngineAbstract(engine)
 
-    # Resolve engine from original data BEFORE coercion, then coerce input formats to that engine.
-    # This preserves GPU mode: cuDF input with engine=AUTO resolves to CUDF and stays cuDF.
-    # Calling _coerce_to_pandas unconditionally would be wrong for GPU mode.
+    # Resolve the engine from the ORIGINAL data before coercing, so cuDF input stays cuDF.
     engine_concrete = resolve_engine(engine, self)
     from graphistry.compute.ComputeMixin import _coerce_input_formats  # lazy — avoids circular import
     self = _coerce_input_formats(self, engine_concrete)
@@ -161,12 +159,7 @@ def hop(self: Plottable,
             return _indexed
 
     if engine_concrete in POLARS_ENGINES:
-        # Native polars traversal lives in a dedicated dispatched module so the
-        # production pandas/cuDF internals below stay untouched (see
-        # no-silent-fallback policy). Correctness gated by differential parity.
-        # LAZY engine first (one plan, collect-once on the active target); it
-        # returns None for cases it doesn't cover -> fall back to the eager hop.
-        # POLARS_GPU = the same lazy engine with the GPU execution target.
+        # Lazy engine first; it returns None for shapes it does not cover -> eager hop.
         _hop_kwargs = dict(
             min_hops=min_hops, max_hops=max_hops,
             output_min_hops=output_min_hops, output_max_hops=output_max_hops,

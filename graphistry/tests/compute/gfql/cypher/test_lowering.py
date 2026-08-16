@@ -3788,7 +3788,9 @@ def test_string_cypher_simple_case_does_not_match_bool_to_int() -> None:
 
 
 def test_string_cypher_simple_case_when_null_matches_null_value() -> None:
-    """CASE x WHEN null THEN 'yes' ELSE 'no' END — x is null → 'yes'."""
+    """openCypher simple CASE uses '=': null = null is null, so `WHEN null`
+    NEVER matches -- every row (null subject included) falls to ELSE
+    (conformed #1900; Neo4j: use `CASE WHEN x IS NULL` for null flags)."""
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b"], "val": [None, "v"]}),
         pd.DataFrame({"s": [], "d": []}),
@@ -3797,7 +3799,7 @@ def test_string_cypher_simple_case_when_null_matches_null_value() -> None:
         "MATCH (n) RETURN n.id AS id, CASE n.val WHEN null THEN 'yes' ELSE 'no' END AS out ORDER BY id"
     )
     rows = result._nodes.to_dict(orient="records")
-    assert {"id": "a", "out": "yes"} in rows   # null → matches null arm
+    assert {"id": "a", "out": "no"} in rows    # null subject → WHEN null does NOT match → ELSE
     assert {"id": "b", "out": "no"} in rows    # non-null → falls to ELSE
 
 
@@ -3814,7 +3816,8 @@ def test_string_cypher_simple_case_when_null_non_null_not_matched() -> None:
 
 
 def test_string_cypher_simple_case_when_null_all_null() -> None:
-    """All rows null → all match the null arm."""
+    """All rows null → NONE match (`WHEN null` uses '='; null = null is null,
+    openCypher) -- every row takes ELSE (conformed #1900)."""
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b"], "val": [None, None]}),
         pd.DataFrame({"s": [], "d": []}),
@@ -3823,11 +3826,12 @@ def test_string_cypher_simple_case_when_null_all_null() -> None:
         "MATCH (n) RETURN n.id AS id, CASE n.val WHEN null THEN 1 ELSE 0 END AS out ORDER BY id"
     )
     for row in result._nodes.to_dict(orient="records"):
-        assert row["out"] == 1
+        assert row["out"] == 0
 
 
 def test_string_cypher_simple_case_when_null_mixed_series() -> None:
-    """Mixed series: some null, some non-null, some other value."""
+    """Mixed series: `WHEN null` never matches (openCypher '=' semantics,
+    conformed #1900) -- null and non-null rows alike take ELSE."""
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c"], "val": [None, "x", None]}),
         pd.DataFrame({"s": [], "d": []}),
@@ -3836,11 +3840,12 @@ def test_string_cypher_simple_case_when_null_mixed_series() -> None:
         "MATCH (n) RETURN n.id AS id, CASE n.val WHEN null THEN 'null' ELSE 'set' END AS out ORDER BY id"
     )
     rows = {r["id"]: r["out"] for r in result._nodes.to_dict(orient="records")}
-    assert rows == {"a": "null", "b": "set", "c": "null"}
+    assert rows == {"a": "set", "b": "set", "c": "set"}
 
 
 def test_string_cypher_simple_case_when_null_no_else() -> None:
-    """CASE x WHEN null THEN 'y' END — no ELSE; non-null should yield null."""
+    """CASE x WHEN null THEN 'y' END with no ELSE: `WHEN null` never matches
+    (openCypher '='; conformed #1900), so EVERY row yields null."""
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b"], "val": [None, "v"]}),
         pd.DataFrame({"s": [], "d": []}),
@@ -3849,8 +3854,8 @@ def test_string_cypher_simple_case_when_null_no_else() -> None:
         "MATCH (n) RETURN n.id AS id, CASE n.val WHEN null THEN 'hit' END AS out ORDER BY id"
     )
     rows = {r["id"]: r["out"] for r in result._nodes.to_dict(orient="records")}
-    assert rows["a"] == "hit"
-    assert rows["b"] is None or (isinstance(rows["b"], float) and rows["b"] != rows["b"])
+    for key in ("a", "b"):
+        assert rows[key] is None or (isinstance(rows[key], float) and rows[key] != rows[key])
 
 
 def test_string_cypher_simple_case_non_null_comparison_unaffected() -> None:
@@ -3867,7 +3872,8 @@ def test_string_cypher_simple_case_non_null_comparison_unaffected() -> None:
 
 
 def test_string_cypher_simple_case_when_null_first_arm_then_value_arm() -> None:
-    """Multiple arms: first is null, second is a value."""
+    """Multiple arms: the null arm never matches (openCypher '='; conformed
+    #1900) -- the null subject falls past it to ELSE; value arms unaffected."""
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c"], "val": [None, "x", "y"]}),
         pd.DataFrame({"s": [], "d": []}),
@@ -3876,7 +3882,7 @@ def test_string_cypher_simple_case_when_null_first_arm_then_value_arm() -> None:
         "MATCH (n) RETURN n.id AS id, CASE n.val WHEN null THEN 'N' WHEN 'x' THEN 'X' ELSE 'E' END AS out ORDER BY id"
     )
     rows = {r["id"]: r["out"] for r in result._nodes.to_dict(orient="records")}
-    assert rows == {"a": "N", "b": "X", "c": "E"}
+    assert rows == {"a": "E", "b": "X", "c": "E"}
 
 
 def test_string_cypher_supports_generic_match_where_chained_comparison() -> None:
@@ -15661,8 +15667,14 @@ def _real_pandas_bool_graph() -> Plottable:
         # The gate reads the source frame but the executor filters a joined one, where an
         # unmatched row introduces NaN and pandas widens bool -> object: numeric to the gate,
         # string to the validator. Declining keeps the residual's answer.
-        ("p.flag > 0", [{"n": 2}]),
-        ("p.flag >= 1", [{"n": 2}]),
+        # openCypher (#1900): ORDERING a boolean against a number is an
+        # incomparable cross-type comparison -> null, so `flag > 0` /
+        # `flag >= 1` match NO rows (the old n=2 pinned the bool-as-int
+        # coercion bug); equality forms stay served. The empty frame (vs the
+        # openCypher identity row n=0) is the connected-join lane's known
+        # empty-aggregate synthesis gap (BUG-4 family), pinned as-is.
+        ("p.flag > 0", []),
+        ("p.flag >= 1", []),
         ("p.flag <> 0", [{"n": 2}]),
         ("p.flag = 1", [{"n": 2}]),
         ("p.flag = true", [{"n": 2}]),
@@ -16060,7 +16072,11 @@ def test_node_dtypes_for_pushdown_on_polars_matches_the_full_conversion() -> Non
 
 @pytest.mark.parametrize(
     "predicate,expected",
-    [("p.flag > 0", [{"n": 4}]), ("p.flag = true", [{"n": 4}]), ("p.age >= 2", [{"n": 4}])],
+    # #1900: bool-vs-number ordering is incomparable -> null (0 rows); the old
+    # n=4 for `p.flag > 0` pinned the coercion bug (empty frame vs identity row
+    # n=0 = the lane's known empty-aggregate gap, BUG-4 family). Equality/
+    # numeric unchanged.
+    [("p.flag > 0", []), ("p.flag = true", [{"n": 4}]), ("p.age >= 2", [{"n": 4}])],
 )
 def test_connected_join_polars_nullable_columns_match_master(predicate: str, expected: Any) -> None:
     pl = pytest.importorskip("polars")
@@ -20003,8 +20019,8 @@ def test_issue_1472_independent_optional_arms_preserve_per_row_nulls(optional_cl
         "MATCH (m:M) "
         f"{optional_clauses} "
         "RETURN m.id AS mid, "
-        "CASE a WHEN null THEN 'no-a' ELSE a.id END AS aid, "
-        "CASE b WHEN null THEN 'no-b' ELSE b.id END AS bid "
+        "CASE WHEN a IS NULL THEN 'no-a' ELSE a.id END AS aid, "
+        "CASE WHEN b IS NULL THEN 'no-b' ELSE b.id END AS bid "
         "ORDER BY mid, aid, bid"
     )
 
@@ -20427,7 +20443,7 @@ def test_issue_996_connected_match_optional_match_case_edge_alias() -> None:
     """
     IS7 shape: MATCH (m)<-[:R]-(c)-[:H]->(p)
                OPTIONAL MATCH (m)-[:H]->(a)-[r:K]-(p)
-               RETURN ..., CASE r WHEN null THEN false ELSE true END AS knows
+               RETURN ..., CASE WHEN r IS NULL THEN false ELSE true END AS knows
 
     Left-join semantics: all (m,c,p) rows preserved; r=null when OPTIONAL arm misses.
     """
@@ -20448,7 +20464,7 @@ def test_issue_996_connected_match_optional_match_case_edge_alias() -> None:
         "MATCH (m:Message)<-[:REPLY_OF]-(c:Comment)-[:HAS_CREATOR]->(p:Person) "
         "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:Person)-[r:KNOWS]-(p) "
         "RETURN c.id AS commentId, p.id AS replyAuthorId, "
-        "CASE r WHEN null THEN false ELSE true END AS knows "
+        "CASE WHEN r IS NULL THEN false ELSE true END AS knows "
         "ORDER BY commentId"
     )
 
@@ -20480,7 +20496,7 @@ def test_issue_996_connected_match_optional_match_no_rows_match() -> None:
     result = g.gfql(
         "MATCH (x:N)-[:T]->(y:N) "
         "OPTIONAL MATCH (x)-[:MISSING]->(z:N) "
-        "RETURN x.id AS xid, CASE z WHEN null THEN 'none' ELSE 'found' END AS found"
+        "RETURN x.id AS xid, CASE WHEN z IS NULL THEN 'none' ELSE 'found' END AS found"
     )
     rows = result._nodes[["xid", "found"]].to_dict(orient="records")
     assert rows == [{"xid": "a", "found": "none"}]
@@ -20520,7 +20536,7 @@ def test_issue_996_connected_match_optional_match_order_by_optional_col() -> Non
     result = g.gfql(
         "MATCH (m:Message)<-[:REPLY_OF]-(c:Comment)-[:HAS_CREATOR]->(p:Person) "
         "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:Person)-[r:KNOWS]-(p) "
-        "RETURN c.id AS cid, CASE r WHEN null THEN false ELSE true END AS knows "
+        "RETURN c.id AS cid, CASE WHEN r IS NULL THEN false ELSE true END AS knows "
         "ORDER BY cid"
     )
     rows = result._nodes[["cid", "knows"]].to_dict(orient="records")
@@ -20830,7 +20846,7 @@ def test_issue_1488_optional_match_seeds_shared_first_alias_before_materializati
     result = g.gfql(
         "MATCH (m:M {id: $mid})<-[:REPLY_OF]-(c:C)-[:HAS_CREATOR]->(p:P) "
         "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:A)-[r:KNOWS]-(p) "
-        "RETURN c.id AS cid, CASE r WHEN null THEN false ELSE true END AS knows",
+        "RETURN c.id AS cid, CASE WHEN r IS NULL THEN false ELSE true END AS knows",
         params={"mid": "m1"},
     )
 
@@ -20857,7 +20873,7 @@ def test_issue_1052_optional_match_semijoin_filters_opt_arm() -> None:
     result = g.gfql(
         "MATCH (m:Message {id: $mid})<-[:REPLY_OF]-(c:Comment)-[:HAS_CREATOR]->(p:Person) "
         "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:Person)-[r:KNOWS]-(p) "
-        "RETURN c.id AS cid, CASE r WHEN null THEN false ELSE true END AS knows "
+        "RETURN c.id AS cid, CASE WHEN r IS NULL THEN false ELSE true END AS knows "
         "ORDER BY cid",
         params={"mid": "m1"},
     )
@@ -20948,8 +20964,8 @@ def test_issue_1052_semijoin_multi_arm_second_arm_null_when_first_misses() -> No
         "OPTIONAL MATCH (m)-[:H]->(a:A) "
         "OPTIONAL MATCH (a)-[:K]->(p:P) "
         "RETURN c.id AS cid, "
-        "CASE a WHEN null THEN 'no-a' ELSE 'has-a' END AS a_status, "
-        "CASE p WHEN null THEN 'no-p' ELSE 'has-p' END AS p_status"
+        "CASE WHEN a IS NULL THEN 'no-a' ELSE 'has-a' END AS a_status, "
+        "CASE WHEN p IS NULL THEN 'no-p' ELSE 'has-p' END AS p_status"
     )
     rows = result._nodes[["cid", "a_status", "p_status"]].to_dict(orient="records")
     assert len(rows) == 1
@@ -20977,7 +20993,7 @@ def test_issue_1052_semijoin_edge_alias_synthesis_after_filter() -> None:
         "MATCH (m:M {id: $mid})-[:H]->(a:A) "
         "OPTIONAL MATCH (a)-[r:K]->(p:P) "
         "RETURN m.id AS mid, p.id AS pid, "
-        "CASE r WHEN null THEN false ELSE true END AS knows",
+        "CASE WHEN r IS NULL THEN false ELSE true END AS knows",
         params={"mid": "m1"},
     )
     rows = result._nodes[["mid", "pid", "knows"]].to_dict(orient="records")
@@ -21017,7 +21033,7 @@ def test_issue_1052_semijoin_no_bleed_from_unscoped_opt_rows() -> None:
         "MATCH (m:M {id: $mid})<-[:REPLY_OF]-(c:C)-[:HAS_CREATOR]->(p:P) "
         "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:A)-[r:KNOWS]-(p) "
         "RETURN c.id AS cid, p.id AS pid, "
-        "CASE r WHEN null THEN false ELSE true END AS knows "
+        "CASE WHEN r IS NULL THEN false ELSE true END AS knows "
         "ORDER BY cid",
         params={"mid": "m1"},
     )
