@@ -15,14 +15,16 @@ row no-op; a WHERE on a stage filters binding ROWS with three-valued logic).
 Cross-engine agreement is NOT the oracle: ``test_carried_prefix_row_multiplicity``
 below is a shape where all three engines agree on the WRONG answer.
 
-Anti-vacuity (measured at merge-base a7c9d6f, the tree #1897 branched from):
-30 of these 45 cells FAIL there -- 10 of the 15 shapes answer differently, in
-silent inner-joins that drop every unmatched seed, a wrong row count under a
-null-valued predicate, and two declines whose message described a different
-limitation. Of the remaining 5 shapes, 4 are marked ``deliberate control`` in
-their docstring -- each kills a mutation of this PR's diff that nothing else
-catches -- and the 5th is the strict xfail below, which fails as expected on
-both trees because the defect it names predates this PR.
+Anti-vacuity (re-measured at this PR's base 21167e08, which reproduces the
+figure first taken at a7c9d6f): 30 of the first 45 cells FAIL there -- 10 of
+the 15 shapes answer differently, in silent inner-joins that drop every
+unmatched seed, a wrong row count under a null-valued predicate, and two
+declines whose message described a different limitation. Of the remaining 5
+shapes, 4 are marked ``deliberate control`` in their docstring -- each kills a
+mutation of this PR's diff, one of them (the single-prefix-row control) also
+covered by an existing pandas-only pin named in its docstring -- and the 5th is
+the strict xfail below, which fails as expected on both trees because the
+defect it names predates this PR.
 """
 from __future__ import annotations
 
@@ -241,7 +243,9 @@ def test_with_pipeline_without_any_optional_match_still_answers(engine):
     """Deliberate control (holds at the merge base): the OPTIONAL-MATCH
     precondition on the flatten hook is load-bearing. Without it every plain
     WITH pipeline falls into the hook's unconditional decline, so this ordinary
-    query must keep answering all four rows."""
+    query must keep answering all four rows. Round 2's cross-suite sweep found
+    that mutation is caught 151 times over in the pre-existing cypher suite; the
+    value here is that it is caught by NAME and on all three engines."""
     _assert_rows(_run("MATCH (a:P) WITH a.v AS av RETURN av", engine),
                  [{"av": 1}, {"av": 2}, {"av": 3}, {"av": 4}])
 
@@ -268,7 +272,9 @@ def test_reentry_single_prefix_row_with_zero_matches_null_extends(engine):
     """Deliberate control (holds at the merge base): one carried row that
     matches nothing still yields one null row. Kills the single-row
     short-circuit if it stops checking whether the reentry produced any result
-    at all."""
+    at all -- round 2's cross-suite sweep found that mutation is ALSO caught by
+    ``test_lowering.py::test_issue_1461_optional_reentry_null_extension_does_not_leak_unprojected_scalar``,
+    which is pandas-only; what this cell adds over it is polars and cuDF."""
     q = ("MATCH (a:P {v:3}) WITH a AS p OPTIONAL MATCH (p)-[:KNOWS]->(b) "
          "RETURN b.id AS bid")
     _assert_rows(_run(q, engine), [{"bid": None}])
@@ -295,4 +301,218 @@ def test_carried_prefix_row_multiplicity_survives_the_reentry(engine):
         {"pid": "a1", "did": "b1"}, {"pid": "a1", "did": "b2"},
         {"pid": "a1", "did": "b1"}, {"pid": "a1", "did": "b2"},
         {"pid": "a2", "did": None},
+    ])
+
+
+# ===================================================== round 2
+# Round 1 called ten surviving mutations "defensive branches with no Cypher
+# spelling that reaches them", on the strength of a 30-query battery. Six do
+# have one; two of those six were already caught elsewhere in the suite, and
+# the four below had nothing. The shapes here are those spellings, plus the
+# NULL axis (NULL ids, NULL carried values, a NULL key shared by a matched and
+# an unmatched row) that the sibling PR's silent-wrong answer came from.
+#
+# Anti-vacuity, measured at this PR's base 21167e08: 27 of the 29 cells below
+# FAIL there. The two that do not are the strict xfail, whose defect predates
+# the PR and xfails on both trees. No cell here is base-passing.
+
+# A PATH alias (`MATCH path = ...`) is the one carried bare identifier that no
+# MATCH clause binds as a pattern variable.
+_PATH_BASE = ("MATCH path = (a:P)-[:KNOWS]->(b) "
+              "OPTIONAL MATCH (b)-[:KNOWS]->(c) ")
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_path_alias_carry_null_extends_the_unmatched_arm(engine):
+    """The prefix binds path/a/b twice (a1->b1, a1->b2 are the only :P KNOWS
+    edges). b1-[:KNOWS]->a3 matches the arm, b2 has no outgoing edge, so the
+    second row null-extends. The merge base declined this shape outright."""
+    q = _PATH_BASE + "WITH path, a, b, c RETURN a.id AS aid, c.id AS cid"
+    _assert_rows(_run(q, engine),
+                 [{"aid": "a1", "cid": "a3"}, {"aid": "a1", "cid": None}])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_path_alias_carry_with_a_stage_where_declines_typed(engine):
+    """openCypher answers the two rows above (a1.v is 1, so the predicate keeps
+    both). We decline instead, and that decline is the only thing standing
+    between this shape and the pure-carry rewrite, which would drop a WITH
+    stage whose carried set is not a subset of the bound aliases. Pinned as the
+    limitation it is, named by the WITH-pipeline message."""
+    with pytest.raises(GFQLValidationError) as err:
+        _run(_PATH_BASE + "WITH path, a, b, c WHERE a.v <= 1 "
+                          "RETURN a.id AS aid, c.id AS cid", engine)
+    assert "WITH pipelines after OPTIONAL MATCH" in str(err.value), str(err.value)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_variable_length_arm_declines_on_row_synthesis_not_the_with_pipeline(engine):
+    """The terminal WITH here IS supported -- it is the variable-length arm the
+    left-join lowering cannot null-extend. The decline must say so. Naming the
+    WITH pipeline instead would send a reader to rewrite the clause that is not
+    the problem. The merge base answered this WRONG and differently per engine
+    (pandas one row with a null, polars/cuDF a1 joined to itself)."""
+    q = ("MATCH (a:P) OPTIONAL MATCH (a)-[:KNOWS*1..2]->(b) WITH a, b "
+         "RETURN a.id AS aid, b.id AS bid")
+    with pytest.raises(GFQLValidationError) as err:
+        _run(q, engine)
+    msg = str(err.value)
+    assert "null-extension rows that the local compiler cannot synthesize" in msg, msg
+    assert "WITH pipelines after OPTIONAL MATCH" not in msg, msg
+
+
+# ------------------------------------------------- carried-identity keys
+
+def _grouped_nodes(**extra) -> pd.DataFrame:
+    """a1/a2 share a grp value, a3 has its own; only a1 has a KNOWS edge."""
+    return pd.DataFrame({
+        "id": ["a1", "a2", "a3", "b1"],
+        "label__P": [True, True, True, False],
+        "label__C": [False, False, False, True],
+        "grp": ["g", "g", "h", "z"],
+        "nul": [None, None, None, None],
+        "v": [1.0, 2.0, 3.0, 10.0],
+        **extra,
+    })
+
+
+_GROUPED_EDGES = pd.DataFrame({"s": ["a1"], "d": ["b1"], "type": ["KNOWS"]})
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_non_unique_carried_identity_projection_declines(engine):
+    """openCypher answers [(g,b1),(g,None),(h,None)]. `p.grp` repeats across
+    a1 and a2, so the anti-join that finds unmatched carried rows cannot tell
+    a2's row from a1's. Declining is the only sound option: without the
+    duplicate-key guard the fill silently emits [(g,b1),(h,None)] and a2's row
+    disappears. The merge base answered three rows with two of the grp values
+    replaced by null."""
+    q = ("MATCH (a:P) WITH a AS p OPTIONAL MATCH (p)-[:KNOWS]->(b) "
+         "RETURN p.grp AS g, b.id AS bid")
+    with pytest.raises(GFQLValidationError) as err:
+        _run(q, engine, nodes=_grouped_nodes(), edges=_GROUPED_EDGES)
+    assert "no uniquely-identifying carried-alias columns" in str(err.value), str(err.value)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_all_null_carried_identity_projection_declines(engine):
+    """The NULL flavour of the same guard: every key is NULL, so every key
+    collides. Dropping the guard here loses BOTH unmatched rows, not one --
+    the fill returns a single row. openCypher answers [(None,b1),(None,None),
+    (None,None)], which the merge base produced by accident (its fill padded
+    with all-null rows and the projected column is null anyway); we decline,
+    which is a lost query but never a wrong one."""
+    q = ("MATCH (a:P) WITH a AS p OPTIONAL MATCH (p)-[:KNOWS]->(b) "
+         "RETURN p.nul AS g, b.id AS bid")
+    with pytest.raises(GFQLValidationError) as err:
+        _run(q, engine, nodes=_grouped_nodes(), edges=_GROUPED_EDGES)
+    assert "no uniquely-identifying carried-alias columns" in str(err.value), str(err.value)
+
+
+# ------------------------------------------------- the NULL axis
+
+def _null_valued_nodes() -> pd.DataFrame:
+    """a2 and a3 both have a NULL v; a2 matches the arm and a3 does not."""
+    return pd.DataFrame({
+        "id": ["a1", "a2", "a3", "a4", "b1"],
+        "label__P": [True, True, True, True, False],
+        "label__C": [False, False, False, False, True],
+        "v": [1.0, None, None, 4.0, 10.0],
+    })
+
+
+_NULL_EDGES = pd.DataFrame({"s": ["a1", "a2"], "d": ["b1", "b1"],
+                            "type": ["KNOWS", "KNOWS"]})
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_null_carried_value_beside_an_identity_column_null_extends(engine):
+    """A NULL carried value must not be treated as membership in the matched
+    set. a2 (v NULL) matched and a3 (v NULL) did not; only `p.id` separates
+    them. a3 must come back null-extended with its own NULL v, and a4 must keep
+    v=4. The merge base returned NULL for both pid and pv on the two unmatched
+    rows, losing a4's value and both identities."""
+    q = ("MATCH (a:P) WITH a AS p OPTIONAL MATCH (p)-[:KNOWS]->(b) "
+         "RETURN p.id AS pid, p.v AS pv, b.id AS bid")
+    _assert_rows(_run(q, engine, nodes=_null_valued_nodes(), edges=_NULL_EDGES), [
+        {"pid": "a1", "pv": 1, "bid": "b1"},
+        {"pid": "a2", "pv": None, "bid": "b1"},
+        {"pid": "a3", "pv": None, "bid": None},
+        {"pid": "a4", "pv": 4, "bid": None},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_null_valued_property_is_indistinguishable_from_an_unbound_alias(engine):
+    """Same graph through the flatten path rather than the reentry path. Both
+    (NULL, b1) -- a2 matched but has no v -- and (NULL, None) -- a3 unmatched --
+    are legal openCypher rows and the projection cannot tell them apart. The
+    merge base collapsed this to two rows on pandas/cuDF and answered b.id as
+    a1/a2 on polars."""
+    q = ("MATCH (a:P) OPTIONAL MATCH (a)-[:KNOWS]->(b) WITH a, b "
+         "RETURN a.v AS av, b.id AS bid")
+    _assert_rows(_run(q, engine, nodes=_null_valued_nodes(), edges=_NULL_EDGES), [
+        {"av": 1, "bid": "b1"}, {"av": None, "bid": "b1"},
+        {"av": None, "bid": None}, {"av": 4, "bid": None},
+    ])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_null_node_id_seed_still_null_extends(engine):
+    """A node whose id property is NULL is still a node and still a carried
+    row. Its identity key is NULL, distinct from a2's, so a2 keeps its own id
+    on the fill row -- the merge base returned NULL for a2 as well."""
+    nodes = pd.DataFrame({
+        "id": ["a1", "a2", None, "b1"],
+        "label__P": [True, True, True, False],
+        "label__C": [False, False, False, True],
+        "v": [1.0, 2.0, 3.0, 10.0],
+    })
+    edges = pd.DataFrame({"s": ["a1"], "d": ["b1"], "type": ["KNOWS"]})
+    q = ("MATCH (a:P) WITH a AS p OPTIONAL MATCH (p)-[:KNOWS]->(b) "
+         "RETURN p.id AS pid, b.id AS bid")
+    _assert_rows(_run(q, engine, nodes=nodes, edges=edges),
+                 [{"pid": "a1", "bid": "b1"}, {"pid": "a2", "bid": None},
+                  {"pid": None, "bid": None}])
+
+
+# ------------------------------------------------- irreproducible outputs
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_expression_over_a_carried_alias_declines_as_irreproducible(engine):
+    """Round 1 reported that no Cypher query reaches the
+    CARRIED_OUTPUTS_NOT_REPRODUCIBLE decline. This one does: `p.v + 1` is not a
+    column the fill can copy off the prefix frame, and the RETURN names only
+    `p`, so the multi-source residual does not intercept it first. openCypher
+    answers [2, 2, 3]; the merge base answered [2, None]."""
+    q = ("MATCH (a:P) WITH a AS p LIMIT 2 OPTIONAL MATCH (p)-[:KNOWS]->(b) "
+         "RETURN p.v + 1 AS pv")
+    with pytest.raises(GFQLValidationError) as err:
+        _run(q, engine)
+    assert "the null-extension cannot reproduce" in str(err.value), str(err.value)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.xfail(
+    strict=True,
+    reason="KNOWN WRONG (pandas and cuDF agree it is wrong, and disagree on "
+           "how): the null-extended row for an unmatched carried row leaves "
+           "the whole-entity carried alias NULL instead of the node it is "
+           "still bound to. cuDF additionally renders the NULL boolean columns "
+           "as False. Predates #1897 -- byte-identical at base 21167e08.",
+)
+def test_whole_entity_carried_alias_keeps_its_values_on_the_null_extended_row(engine):
+    """`WITH a AS p, a.id AS pid` binds p for every carried row. OPTIONAL MATCH
+    cannot unbind it, so a2's null-extended row must still carry a2's own node
+    columns; only `bid` is NULL. polars declines this shape outright with the
+    typed scalar-carry NotImplementedError, so it is not parametrized here."""
+    q = ("MATCH (a:P) WITH a AS p, a.id AS pid LIMIT 2 "
+         "OPTIONAL MATCH (p)-[:KNOWS]->(b) RETURN p, pid, b.id AS bid")
+    _assert_rows(_run(q, engine), [
+        {"p.id": "a1", "p.v": 1, "p.name": "a1", "p.label__P": True,
+         "p.label__C": False, "pid": "a1", "bid": "b1"},
+        {"p.id": "a1", "p.v": 1, "p.name": "a1", "p.label__P": True,
+         "p.label__C": False, "pid": "a1", "bid": "b2"},
+        {"p.id": "a2", "p.v": 2, "p.name": "a2", "p.label__P": True,
+         "p.label__C": False, "pid": "a2", "bid": None},
     ])

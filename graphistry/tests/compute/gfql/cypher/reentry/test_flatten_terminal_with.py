@@ -186,3 +186,57 @@ def test_admitted_query_never_retains_a_with_stage_so_recompiling_it_terminates(
     flattened, _ = out
     assert flattened.with_stages == ()
     assert flatten_terminal_with_over_optional(flattened) is None
+
+
+# --------------------------------------------------------------- round 2
+# ``_match_clause_aliases`` walks pattern elements only, so a PATH alias
+# (``MATCH path = ...``, which lives on ``MatchClause.pattern_aliases``) is a
+# carried bare identifier that is NOT a match alias. That is the only Cypher
+# spelling that separates the two arms below.
+
+PATH_BASE = ("MATCH path = (a:P)-[:KNOWS]->(b) "
+             "OPTIONAL MATCH (b)-[:KNOWS]->(c) ")
+
+
+def test_admits_a_path_alias_carry_when_the_stage_has_no_where() -> None:
+    """Boundary partner of the decline below: the same carry without a stage
+    WHERE folds through RETURN, so the decline there is attributable to the
+    WHERE reaching the fold arm and nothing else."""
+    out = flatten_terminal_with_over_optional(
+        _parse(PATH_BASE + "WITH path, a, b, c RETURN a.id AS aid, c.id AS cid"))
+    assert out is not None
+    flattened, row_filter = out
+    assert flattened.with_stages == ()
+    assert row_filter is None
+
+
+def test_declines_a_path_alias_carry_that_also_has_a_stage_where() -> None:
+    """``carried <= match_aliases`` is load-bearing, not defensive: ``path`` is
+    carried but is not a match alias, so the pure-carry arm must not claim this
+    stage. That arm would hand the stage WHERE back as a post-join row filter
+    and answer; the fold arm it falls to instead declines on the WHERE."""
+    assert flatten_terminal_with_over_optional(
+        _parse(PATH_BASE + "WITH path, a, b, c WHERE a.v <= 1 "
+                           "RETURN a.id AS aid, c.id AS cid")) is None
+
+
+def test_declines_a_property_of_a_carried_alias_that_no_match_clause_binds() -> None:
+    """``text in match_aliases`` on the fold arm's bare-carry set is
+    load-bearing. ``WITH path, a.id AS aid`` is not a pure bare carry, so the
+    pure-carry arm is out of the picture; only this membership test stops
+    ``path.x`` from being passed through as if ``path`` were a bound node."""
+    assert flatten_terminal_with_over_optional(
+        _parse(PATH_BASE + "WITH path, a.id AS aid RETURN path.x AS px")) is None
+
+
+def test_declines_a_carry_stage_with_no_projection_items() -> None:
+    """Defensive branch, pinned at the level it is reachable from: no Cypher
+    text parses to a WITH with zero items, so this is an AST-built input. With
+    an empty carry the pure-carry arm would admit any RETURN that names no
+    alias, dropping a stage whose scope is empty rather than everything."""
+    q = _parse(BASE + "WITH a, b RETURN 1 AS one")
+    stage = q.with_stages[0]
+    empty = dataclasses.replace(
+        stage, clause=dataclasses.replace(stage.clause, items=()))
+    assert flatten_terminal_with_over_optional(
+        dataclasses.replace(q, with_stages=(empty,))) is None

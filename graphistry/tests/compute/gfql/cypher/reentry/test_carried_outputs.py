@@ -50,9 +50,12 @@ def test_carried_output_source_column(src: str, expected: Optional[str]) -> None
 # following group_by cancels it, and what happens when one output of many is
 # irreproducible -- are only reachable through the aggregating function, and a
 # mutation audit found every one of them survived both this file and the
-# end-to-end #1896 pins. Two of them (the NOT_REPRODUCIBLE decline and its
-# consumer in apply_optional_reentry_null_fill) have no Cypher spelling that
-# reaches them today: they are defensive, and pinned here so they stay honest.
+# end-to-end #1896 pins. The NOT_REPRODUCIBLE decline and its consumer in
+# apply_optional_reentry_null_fill DO have a Cypher spelling -- any expression
+# over a carried alias in a single-source RETURN, e.g. ``RETURN p.v + 1 AS pv``
+# (pinned end-to-end on all three engines in
+# ``test_optional_match_with_pipeline_boundaries.py``); the unit pins here fix
+# the branch, that one fixes the user-visible behaviour.
 # ---------------------------------------------------------------------------
 
 import dataclasses

@@ -247,16 +247,24 @@ def test_with_carried_scalar_aggregate_after_optional_reentry(seed_filter):
 # ===========================================================================
 
 
-def _parity_or_nie(q: str, engine: str, expected) -> None:
+def _parity_or_nie(q: str, engine: str, expected, *, polars_nie: str = "") -> None:
     """Green-pin helper for shapes polars currently declines honestly: pandas
     must match the hand-computed answer; polars must either match it or raise
     a clean NotImplementedError (parity-or-error contract) -- a future
-    silent-wrong polars route cannot land unseen."""
+    silent-wrong polars route cannot land unseen.
+
+    A polars decline is only accepted when the caller NAMES the feature being
+    declined. Without ``polars_nie`` the cell would pass without reaching an
+    assertion, which is how ``test_with_carried_scalar_props_after_optional_reentry
+    [polars]`` sat vacuous."""
     if engine == "polars":
         try:
             out = _run(q, "polars")
-        except NotImplementedError:
+        except NotImplementedError as nie:
+            assert polars_nie, f"undeclared polars decline: {nie}"
+            assert polars_nie in str(nie), str(nie)
             return
+        assert not polars_nie, "polars now serves a shape declared as declining"
         _assert_rows(out, expected)
     else:
         _assert_rows(_run(q, engine), expected)
@@ -336,13 +344,15 @@ def test_optional_match_nested_arm_and_label_arm_matched(engine):
 def test_with_carried_scalar_props_after_optional_reentry(engine):
     """F-04 control: scalar WITH carry + optional PROPS projection is a correct
     5-row left join with the scalar carried -- protects the working half next
-    to the aggregate half (fixed above). polars: parity-or-NIE."""
+    to the aggregate half (fixed above). polars declines this one, and the
+    decline is now ASSERTED by name: the whole-row carry that also threads
+    scalar WITH columns is the pandas-only payload path."""
     q = ("MATCH (p {kind:'person'}) WITH p, p.score AS s "
          "OPTIONAL MATCH (p)-[{t:'L'}]->(x) RETURN s, x.v AS v")
     _parity_or_nie(q, engine, [
         {"s": 5, "v": 100}, {"s": 5, "v": 200},
         {"s": 9, "v": None}, {"s": 7, "v": None}, {"s": 2, "v": None},
-    ])
+    ], polars_nie="re-entry that carries scalar WITH columns")
 
 
 # ===========================================================================
