@@ -16,11 +16,13 @@ Cross-engine agreement is NOT the oracle: ``test_carried_prefix_row_multiplicity
 below is a shape where all three engines agree on the WRONG answer.
 
 Anti-vacuity (measured at merge-base a7c9d6f, the tree #1897 branched from):
-10 of these 15 shapes answer differently there -- silent inner-joins that drop
-every unmatched seed, a wrong row count under a null-valued predicate, and two
-declines whose message described a different limitation. The 5 that already
-held at the merge base are marked ``deliberate control`` in their docstring and
-each one kills a mutation of this PR's diff that nothing else catches.
+30 of these 45 cells FAIL there -- 10 of the 15 shapes answer differently, in
+silent inner-joins that drop every unmatched seed, a wrong row count under a
+null-valued predicate, and two declines whose message described a different
+limitation. Of the remaining 5 shapes, 4 are marked ``deliberate control`` in
+their docstring -- each kills a mutation of this PR's diff that nothing else
+catches -- and the 5th is the strict xfail below, which fails as expected on
+both trees because the defect it names predates this PR.
 """
 from __future__ import annotations
 
