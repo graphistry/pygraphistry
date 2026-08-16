@@ -23,3 +23,48 @@ def test_handoff_80m_is_allowed():
 def test_peak_scales_with_edges_and_cugraph_factor():
     assert preflight.peak_gb(1_000_000_000) > preflight.peak_gb(100_000_000)
     assert preflight.peak_gb(100_000_000, cugraph_factor=3.0) > preflight.peak_gb(100_000_000, cugraph_factor=1.0)
+
+
+# --- host address-space guard (sitecustomize GFQL_HOST_LIMIT_GB) -------------
+# RMM only contains device/unified allocs, so CPU lanes previously had NO hard
+# cap -- the watchdog fires only once the box is already swapping. These run in
+# subprocesses because setrlimit is process-wide and irreversible.
+
+import subprocess  # noqa: E402
+
+_GUARD_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _run_guarded(code: str, limit_gb: str | None):
+    env = dict(os.environ, PYTHONPATH=_GUARD_DIR)
+    env.pop("GFQL_HOST_LIMIT_GB", None)
+    if limit_gb is not None:
+        env["GFQL_HOST_LIMIT_GB"] = limit_gb
+    return subprocess.run([sys.executable, "-c", code], env=env,
+                          capture_output=True, text=True, timeout=120)
+
+
+def test_host_limit_blocks_oversized_cpu_allocation():
+    code = (
+        "import numpy as np\n"
+        "try:\n"
+        "    np.ones(8 * 1024**3 // 8, dtype='float64')\n"
+        "    print('ALLOCATED')\n"
+        "except MemoryError:\n"
+        "    print('REFUSED')\n"
+    )
+    assert "REFUSED" in _run_guarded(code, "3").stdout
+
+
+def test_host_limit_still_allows_normal_work():
+    code = "import numpy as np; print(len(np.arange(1_000_000)))"
+    out = _run_guarded(code, "3")
+    assert out.returncode == 0 and "1000000" in out.stdout
+
+
+def test_host_limit_is_a_noop_when_unset():
+    """Must not perturb GPU lanes, where RLIMIT_AS would break CUDA's large
+    virtual reservations."""
+    out = _run_guarded("import numpy; print('OK')", None)
+    assert out.returncode == 0 and "OK" in out.stdout
+    assert "host address-space limit" not in out.stderr
