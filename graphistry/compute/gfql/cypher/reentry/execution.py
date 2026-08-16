@@ -408,13 +408,13 @@ def compiled_query_reentry_state(
     if _is_polars_df(carried_ids) or _is_polars_df(aligned_prefix_rows) or _is_polars_df(base_nodes):
         # Whole-row re-entry that ALSO carries scalar WITH columns (e.g. `WITH a, a.val AS av
         # MATCH (a)-...`) threads hidden ``__cypher_reentry_*`` payload columns through the
-        # binding pipeline; that carry path is pandas-only so far. The seed-only whole-row case
-        # (no carried scalars) returned above. Decline honestly rather than run the pandas-only
-        # payload merge on polars frames (parity-or-NIE; no silent bridge).
+        # binding pipeline; that carry path is pandas/cuDF-only so far. The seed-only whole-row
+        # case (no carried scalars) returned above. Decline honestly rather than run the
+        # pandas/cuDF payload merge on polars frames (parity-or-NIE; no silent bridge).
         raise NotImplementedError(
             "polars engine does not yet natively support Cypher WITH -> MATCH re-entry that carries "
-            "scalar WITH columns into the trailing MATCH; use engine='pandas' for this query "
-            "(no pandas fallback; parity-or-error by design)"
+            "scalar WITH columns into the trailing MATCH; use engine='pandas' or engine='cudf' "
+            "for this query (no silent fallback; parity-or-error by design)"
         )
     duplicate_mask = carried_ids.duplicated()
     if bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False:

@@ -590,8 +590,8 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
             continue
         raise NotImplementedError(
             f"polars engine does not yet natively support cypher row op "
-            f"{getattr(op, 'function', op)!r}; use engine='pandas' for this query "
-            f"(no pandas fallback; parity-or-error by design)"
+            f"{getattr(op, 'function', op)!r}; use engine='pandas' or engine='cudf' for this "
+            f"query (no silent fallback; parity-or-error by design)"
         )
     # Attach/detach pair: the boundary run is done, so the context is spent and must not
     # ride out on the result the caller sees (see the twin in compute/chain.py).
@@ -760,11 +760,11 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
 
     if prefix:
         # decline (NIE): leading call() yields a row table the following traversal would have to
-        # re-enter as a graph. pandas cascades via _chain_impl, but it's not a cypher shape
+        # re-enter as a graph. pandas/cuDF cascade via _chain_impl, but it's not a cypher shape
         # (MATCH comes first) and the polars traversal doesn't yet consume a row-table input.
         raise NotImplementedError(
             "polars chain engine does not yet support call() before a traversal; "
-            "use engine='pandas' for this chain."
+            "use engine='pandas' or engine='cudf' for this chain."
         )
 
     from graphistry.compute.chain import serialize_binding_ops
@@ -857,7 +857,8 @@ def _bound_edge_endpoints(g: Plottable) -> Tuple[str, str]:
     if g._source is None or g._destination is None:
         raise NotImplementedError(
             "polars chain engine does not yet support traversing a graph with unbound edge "
-            "endpoints (e.g. a call() row-pipeline result); use engine='pandas' for this chain."
+            "endpoints (e.g. a call() row-pipeline result); use engine='pandas' or "
+            "engine='cudf' for this chain."
         )
     return g._source, g._destination
 
@@ -924,7 +925,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             raise NotImplementedError(
                 "polars chain engine: a node alias after a forward/reverse variable-length edge "
                 "with min_hops>1 is not yet hop-gated (would tag nodes outside the hop window — "
-                "issue #1748); use engine='pandas' for this query"
+                "issue #1748); use engine='pandas' or engine='cudf' for this query"
             )
 
     edge_ops = [op for op in ops if isinstance(op, ASTEdge)]
