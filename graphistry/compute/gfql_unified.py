@@ -7,7 +7,7 @@ import re
 import threading
 import pandas as pd
 from types import MappingProxyType
-from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, TYPE_CHECKING, Union, cast
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, is_polars_df, is_series_like, resolve_engine, series_to_pylist
 from graphistry.util import setup_logger
@@ -25,7 +25,9 @@ from .gfql.policy import (
     QueryType,
     expand_policy
 )
+from graphistry.compute.gfql.identifiers import TRAIL_ARM_EDGE_ALIAS_PREFIX
 from graphistry.compute.gfql.same_path_types import (
+    EDGE_IDENTITY_COLUMN,
     NODE_IDENTITY_COLUMN,
     WhereComparison,
     normalize_where_entries,
@@ -87,8 +89,11 @@ from graphistry.compute.gfql.physical_planner import PhysicalPlanner
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
 from graphistry.compute.gfql.search_any import search_any_mask
-from graphistry.compute.typing import DataFrameT, SeriesT, NodeDtypes
-from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
+from graphistry.compute.typing import DataFrameT, FilterDict, SeriesT, NodeDtypes
+from graphistry.compute.util.generate_safe_column_name import (
+    generate_safe_column_name,
+    generate_safe_column_name_from,
+)
 from graphistry.compute.gfql.identifiers import EDGE_INDEX_BASE
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
@@ -145,6 +150,13 @@ def _apply_empty_result_row(
     if edges_df is not None:
         out._edges = edges_df[:0]
     return out
+
+
+def _slice_rows(rows_df: DataFrameT, start: int, stop: int) -> DataFrameT:
+    """Positional half-open row slice ``[start, stop)``, engine-dispatched."""
+    if is_polars_df(rows_df):
+        return rows_df.slice(start, stop - start)
+    return rows_df.iloc[start:stop]
 
 
 def _projector_recorded_matched_seed_ids(
@@ -248,11 +260,7 @@ def _apply_optional_null_fill(
                     suggestion="Retry with a simpler OPTIONAL MATCH projection shape in the local compiler.",
                     language="cypher",
                 )
-            segments.append(
-                rows_df.iloc[group_start:matched_idx]
-                if hasattr(rows_df, "iloc")
-                else rows_df.slice(group_start, matched_idx - group_start)
-            )
+            segments.append(_slice_rows(rows_df, group_start, matched_idx))
         else:
             segments.append(fill_df)
     if matched_idx != len(matched_id_list):
@@ -613,12 +621,7 @@ from .gfql_fast_paths import (
     _execute_two_hop_count_fast_path,
 )
 
-_TRAIL_EDGE_ALIAS_PREFIX = "__gfql_trail_arm_"
-
-
-def _filter_dicts_provably_disjoint(
-    first: Optional[Dict[str, Any]], second: Optional[Dict[str, Any]]  # hygiene-ok: explicit-any -- filter_dict values are heterogeneous by contract
-) -> bool:
+def _filter_dicts_provably_disjoint(first: Optional[FilterDict], second: Optional[FilterDict]) -> bool:
     if not first or not second:
         return False
     return any(
@@ -635,13 +638,11 @@ def _connected_join_trail_arms(
 ) -> Optional[Tuple[Tuple[Chain, ...], Tuple[Tuple[str, ...], ...]]]:
     """Rewritten arm chains + per-arm relationship identity columns, or None.
 
-    openCypher relationship uniqueness spans the WHOLE match clause (#1905), but
-    the arm join is a cartesian product that drops edge identity, so an edge that
-    fits two arms is bound twice. Naming every anonymous arm edge surfaces its
-    ``<alias>.<identity_col>`` identity in the arm rows so the join can drop
-    those bindings. Returns None when no arm pair can share an edge (nothing to
-    enforce) or an arm is variable-length (its rows carry no per-hop identity;
-    #1905 residual).
+    openCypher relationship uniqueness spans the WHOLE match clause, but the arm join
+    is a cartesian product that drops edge identity, so an edge fitting two arms binds
+    twice. Naming every anonymous arm edge surfaces its ``<alias>.<identity_col>`` identity
+    in the arm rows so the join can drop those bindings. Returns None when no arm pair can
+    share an edge (nothing to enforce) or an arm is variable-length (no per-hop identity).
     """
     chains = plan.pattern_chains
     if len(chains) < 2:
@@ -674,9 +675,11 @@ def _connected_join_trail_arms(
         columns: List[str] = []
         for position, op in enumerate(pattern_chain.chain):
             if isinstance(op, ASTEdge):
-                alias = getattr(op, "_name", None) or f"{_TRAIL_EDGE_ALIAS_PREFIX}{index}_{position}__"
+                alias = getattr(op, "_name", None) or f"{TRAIL_ARM_EDGE_ALIAS_PREFIX}{index}_{position}__"
                 if getattr(op, "_name", None) is None:
-                    op = cast(ASTEdge, ast_from_json({**op.to_json(), "name": alias}, validate=False))  # hygiene-ok: explicit-cast -- from_json is the ASTEdge clone-with-name seam
+                    cloned = ast_from_json({**op.to_json(), "name": alias}, validate=False)
+                    assert isinstance(cloned, ASTEdge)
+                    op = cloned
                 columns.append(f"{alias}.{identity_col}")
             ops.append(op)
         rewritten.append(Chain(ops, where=pattern_chain.where))
@@ -689,23 +692,19 @@ def _is_polars_frame(frame: object) -> bool:
 
 
 def _trail_edge_identity_col(base_graph: Plottable) -> str:
-    """Name for the per-arm relationship identity column, safe against user edge columns.
-
-    #1911: the name was a hardcoded ``__gfql_edge_index_0__``, so a user edge column of
-    that name was silently adopted AS the identity (its values standing in for per-edge
-    identity in the cross-arm uniqueness drop).
-    """
+    """Name for the per-arm relationship identity column, safe against user edge columns."""
     edges = base_graph._edges
     if edges is None:
-        return f"__gfql_{EDGE_INDEX_BASE}_0__"
+        return generate_safe_column_name_from(EDGE_INDEX_BASE, ())
     # The bound frame may still be arrow here (df_to_engine runs later in _with_edge_identity).
     return generate_safe_column_name(EDGE_INDEX_BASE, edges)
 
 
 def _with_edge_identity(base_graph: Plottable, *, engine: Engine, identity_col: str) -> Plottable:
-    if base_graph._edges is None:
+    edges_obj = base_graph._edges
+    if edges_obj is None:
         return base_graph
-    edges = df_to_engine(cast(DataFrameT, base_graph._edges), engine, warn=False)  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
+    edges = df_to_engine(edges_obj, engine, warn=False)
     if identity_col in edges.columns:
         return base_graph
     if _is_polars_frame(edges):
@@ -729,15 +728,16 @@ def _drop_shared_relationship_bindings(
         return joined_rows
     if _is_polars_frame(joined_rows):
         import polars as pl
+        pl_rows: "pl.DataFrame" = joined_rows  # engine seam: polars frame rides engine-agnostic DataFrameT
         expr = pl.lit(True)
         for left, right in pairs:
             expr = expr & (pl.col(left) != pl.col(right))
-        return cast(DataFrameT, joined_rows.filter(expr))  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
+        return pl_rows.filter(expr)
     mask = None
     for left, right in pairs:
         keep = joined_rows[left] != joined_rows[right]
         mask = keep if mask is None else (mask & keep)
-    return cast(DataFrameT, joined_rows[mask])  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
+    return joined_rows[mask]
 
 
 def _apply_connected_match_join(
@@ -760,10 +760,9 @@ def _apply_connected_match_join(
     # recomputes instead of returning a stale cached answer (BLOCKER 1).
     cache_store: Dict[str, Any] = {}
 
-    # openCypher relationship uniqueness across the arms (#1905). Both fast paths
-    # count/emit the raw arm product, so they only serve provably disjoint arms.
     trail_identity_col = _trail_edge_identity_col(base_graph)
     trail_arms = _connected_join_trail_arms(plan, identity_col=trail_identity_col)
+    arms_may_share_an_edge = trail_arms is not None
     arm_chains = plan.pattern_chains if trail_arms is None else trail_arms[0]
     arm_identity_columns: Tuple[Tuple[str, ...], ...] = (
         tuple(() for _ in plan.pattern_chains) if trail_arms is None else trail_arms[1]
@@ -773,8 +772,9 @@ def _apply_connected_match_join(
             base_graph, engine=requested_engine, identity_col=trail_identity_col
         )
 
+    # Both two-star fast paths emit the raw arm product, so they serve disjoint arms only.
     fast_grouped_count = (
-        None if trail_arms is not None
+        None if arms_may_share_an_edge
         else _connected_join_two_star_fast_grouped_count(base_graph, plan, engine=requested_engine, cache_store=cache_store)
     )
     if fast_grouped_count is not None:
@@ -784,7 +784,7 @@ def _apply_connected_match_join(
         return out
 
     fast_rows = (
-        None if trail_arms is not None
+        None if arms_may_share_an_edge
         else _connected_join_two_star_fast_rows(base_graph, plan, engine=requested_engine, cache_store=cache_store)
     )
     if fast_rows is not None:
@@ -833,7 +833,7 @@ def _apply_connected_match_join(
         ]
         keep_binding_columns = [
             column for column in _binding_join_columns(pattern_rows)
-            if column in identity_columns or not str(column).startswith(_TRAIL_EDGE_ALIAS_PREFIX)
+            if column in identity_columns or not str(column).startswith(TRAIL_ARM_EDGE_ALIAS_PREFIX)
         ] + [alias for alias in node_aliases if alias in pattern_rows.columns]
         pattern_rows = cast(DataFrameT, pattern_rows[keep_binding_columns])
         if joined_rows is None:
@@ -884,11 +884,11 @@ def _apply_connected_match_join(
     if trail_arms is not None:
         drop_columns = [
             column for column in joined_rows.columns
-            if str(column).startswith(_TRAIL_EDGE_ALIAS_PREFIX)
+            if str(column).startswith(TRAIL_ARM_EDGE_ALIAS_PREFIX)
         ]
         if drop_columns:
-            joined_rows = cast(DataFrameT, joined_rows.drop(drop_columns) if _is_polars_frame(joined_rows)  # hygiene-ok: explicit-cast -- engine-neutral DataFrameT seam, not a typing.Any escape
-                               else joined_rows.drop(columns=drop_columns))
+            joined_rows = (joined_rows.drop(drop_columns) if _is_polars_frame(joined_rows)
+                           else joined_rows.drop(columns=drop_columns))
     joined_rows = _joined_hidden_scalar_columns(joined_rows)
     joined_rows = _joined_alias_columns(joined_rows)
     joined_plottable = base_graph.bind()
@@ -1198,6 +1198,31 @@ def _run_logical_pass_pipeline(logical_plan: LogicalPlan, ctx: PlanContext) -> L
     return PassManager(DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES).run(logical_plan, ctx).plan
 
 
+if TYPE_CHECKING:
+    from graphistry.compute.gfql.lazy import ExecutionTarget
+
+
+def _policied_auto_serves_via_pandas_until_the_polars_route_emits_hooks(
+    engine: Union[EngineAbstract, str],
+    policy: Optional[Dict[str, PolicyFunction]],
+    g: Plottable,
+) -> bool:
+    """Transitional: the polars route does not emit the postload/postchain policy hooks yet."""
+    return (
+        (engine == EngineAbstract.AUTO or engine == EngineAbstract.AUTO.value)
+        and policy is not None
+        and resolve_engine(EngineAbstract.AUTO, g) == Engine.POLARS
+    )
+
+
+def _fast_path_execution_target_ignoring_requested_engine(
+    engine: Union[EngineAbstract, Engine, str],
+) -> "ExecutionTarget":
+    """Not GPU until every fast-path arm is GPU-or-decline (#1824)."""
+    from graphistry.compute.gfql.lazy import ExecutionTarget
+    return ExecutionTarget.CPU
+
+
 def _execute_compiled_query_via_physical_plan(
     base_graph: Plottable,
     *,
@@ -1236,10 +1261,7 @@ def _execute_compiled_query_via_physical_plan(
         # paths, and it cannot be bypassed the way patching a directly-imported name is.
         from graphistry.compute.gfql.index.api import record_fast_path_decision
         from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
-        # Fast paths run before the chain route establishes the execution target, so they
-        # serve on CPU even under engine='polars-gpu'. Do not flip this to GPU without
-        # making each fast-path arm GPU-or-decline (#1824).
-        _fp_target = ExecutionTarget.CPU
+        _fp_target = _fast_path_execution_target_ignoring_requested_engine(engine)
 
         _FastPathName = Literal["single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop"]
 
@@ -1249,8 +1271,6 @@ def _execute_compiled_query_via_physical_plan(
                     out = run()
                 reason = "served" if out is not None else "declined; caller falls back"
             except NotImplementedError:
-                # ONLY the GPU target's plan-not-executable NIE is a decline; on
-                # CPU an NIE is a real error and must surface, not be swallowed.
                 if _fp_target != ExecutionTarget.GPU:
                     raise
                 out = None
@@ -1390,11 +1410,13 @@ def _execute_compiled_query_chain_non_union(
             empty_result_row=compiled_query.empty_result_row,
         )
     if compiled_query.result_projection is not None:
-        # The OPTIONAL row-guard consumes a single-column entity value, not the
-        # flattened columns the other two paths emit.
-        structured_projection = compiled_query.optional_projection_row_guard is None
+        row_guard_needs_single_column_entity_text = (
+            compiled_query.optional_projection_row_guard is not None
+        )
         result = apply_result_projection(
-            result, compiled_query.result_projection, structured=structured_projection
+            result,
+            compiled_query.result_projection,
+            structured=not row_guard_needs_single_column_entity_text,
         )
     if compiled_query.optional_projection_row_guard is not None:
         expected_rows = 1
@@ -1721,17 +1743,19 @@ def _carried_output_sources(compiled_query: CompiledCypherQuery) -> CarriedOutpu
 
 
 def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery) -> Dict[str, CypherEmptyGroupValue]:
-    """Cypher empty-group values for aggregate outputs of an optional-reentry suffix.
-
-    An unmatched prefix row contributes one null-extended row, so aggregates
-    over suffix-bound sources take their empty-group value (count -> 0,
-    sum -> 0, collect -> []) and count(*) sees the row itself (-> 1).
-    Aggregates whose source traces to a carried scalar or the carried seed
-    alias cannot be answered statically here and stay NULL.
-    """
+    """Cypher empty-group value per aggregate output on an unmatched prefix row's null-extended row."""
     plan = compiled_query.reentry_plan
-    carried = set(plan.scalar_columns) if plan is not None else set()
+    carried_scalar_columns = set(plan.scalar_columns) if plan is not None else set()
     reentry_alias = plan.reentry_alias_name if plan is not None else None
+
+    def source_is_carried_rather_than_suffix_bound(source: str) -> bool:
+        base = source.split(".", 1)[0]
+        return (
+            is_reentry_hidden_column_reference(source)
+            or base in carried_scalar_columns
+            or base == reentry_alias
+        )
+
     ops = list(compiled_query.chain.chain) if compiled_query.chain is not None else []
     with_map: Dict[str, object] = {}
     fills: Dict[str, CypherEmptyGroupValue] = {}
@@ -1756,12 +1780,7 @@ def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery)
                 source: object = with_map.get(expr, expr) if isinstance(expr, str) else expr
                 if not isinstance(source, str):
                     continue
-                base = source.split(".", 1)[0]
-                if (
-                    is_reentry_hidden_column_reference(source)
-                    or base in carried
-                    or base == reentry_alias
-                ):
+                if source_is_carried_rather_than_suffix_bound(source):
                     continue
                 if func in CYPHER_ZERO_EMPTY_GROUP_AGGREGATIONS:
                     fills[alias] = 0
@@ -1823,7 +1842,7 @@ def _gfql_otel_attrs(
     policy: Optional[Dict[str, PolicyFunction]] = None,
     where: Optional[Sequence[WhereComparison]] = None,
     language: Optional[Literal["cypher", "gremlin"]] = None,
-    params: Optional[Mapping[str, Any]] = None,
+    params: Optional[CypherParams] = None,
 ) -> Dict[str, Any]:
     if isinstance(query, dict):
         query_type = "chain" if "chain" in query else "dag"
@@ -1930,7 +1949,7 @@ def _compile_cache_value_key(value: Any) -> Optional[Any]:
     return None
 
 
-def _compile_cache_params_key(params: Optional[Mapping[str, Any]]) -> Optional[Tuple[Tuple[str, Any], ...]]:
+def _compile_cache_params_key(params: Optional[CypherParams]) -> Optional[Tuple[Tuple[str, Any], ...]]:
     if not params:
         return ()
     items = []
@@ -1969,7 +1988,7 @@ def gfql_clear_caches() -> None:
 
     Caches keyed to a specific graph are NOT touched: they live on their ``Plottable`` and
     die with it. This function is therefore NOT the recovery from an in-place mutation of a
-    bound frame -- the resident #1658 index registry survives it. Rebind a fresh frame object
+    bound frame -- the resident adjacency-index registry survives it. Rebind a fresh frame object
     or ``drop_index`` instead (see :meth:`ComputeMixin.gfql`, which names the same two).
     Neither are the process-lifetime *singletons* -- Lark parser objects,
     compiled regexes, dependency probes -- which are a function of the code, not of any
@@ -1999,7 +2018,7 @@ def _compile_string_query(
     query: str,
     *,
     language: Optional[Literal["cypher", "gremlin"]],
-    params: Optional[Mapping[str, Any]],
+    params: Optional[CypherParams],
     engine_key: str,
     node_dtypes: Optional[NodeDtypes] = None,
 ) -> Any:
@@ -2078,7 +2097,7 @@ def _compiler_phase_for_error(exc: GFQLValidationError) -> str:
 def _compile_summary(
     *,
     query_language: str,
-    params: Optional[Mapping[str, Any]],
+    params: Optional[CypherParams],
     exc: Optional[GFQLValidationError] = None,
 ) -> CompileSummary:
     if exc is None:
@@ -2171,7 +2190,7 @@ def _fire_postcompile_policy(
     policy_depth: int,
     execution_depth: int,
     operation_path: str,
-    params: Optional[Mapping[str, Any]],
+    params: Optional[CypherParams],
 ) -> None:
     if not policy or "postcompile" not in policy:
         return
@@ -2258,7 +2277,7 @@ def _auto_cudf_polars_gpu_route(
     output: Optional[str],
     where: Optional[Sequence[WhereComparison]],
     language: Optional[Literal["cypher", "gremlin"]],
-    params: Optional[Mapping[str, Any]],
+    params: Optional[CypherParams],
     validate: bool,
     shortest_path_backend: str,
 ) -> Plottable:
@@ -2308,16 +2327,7 @@ def gfql(self: Plottable,
     :returns: Resulting Plottable
     :rtype: Plottable
     """
-    # TRANSITIONAL, not a contract: policy hooks must fire exactly once on whatever engine
-    # serves, and the polars route does not yet emit postload/postchain -- so a policied
-    # AUTO serves via pandas. Delete once the polars route emits them. The predicate must
-    # stay resolve_engine itself: a frame-shape check here let mixed frames bypass a
-    # denying policy.
-    if (
-        (engine == EngineAbstract.AUTO or engine == EngineAbstract.AUTO.value)
-        and policy is not None
-        and resolve_engine(EngineAbstract.AUTO, self) == Engine.POLARS
-    ):
+    if _policied_auto_serves_via_pandas_until_the_polars_route_emits_hooks(engine, policy, self):
         engine = Engine.PANDAS.value
 
     if (
@@ -2332,9 +2342,6 @@ def gfql(self: Plottable,
                 shortest_path_backend=shortest_path_backend,
             )
         except NotImplementedError:
-            # pandas explicitly, not AUTO: the generic path would re-resolve these frames
-            # to POLARS and re-raise the same NIE. Coerce first -- the pandas executors
-            # are pandas-idiom and do not accept polars frames.
             logger.debug('AUTO polars-native attempt declined; serving via pandas')
             from graphistry.compute.ComputeMixin import _coerce_input_formats
             return gfql(
@@ -2629,7 +2636,7 @@ def gfql(self: Plottable,
 
 
 def _reject_node_alias_shadowing_id_binding(g: Plottable, chain_obj: Chain) -> None:
-    """Typed decline for a node alias named after the node-ID binding column (#1911).
+    """Typed decline for a node alias named after the node-ID binding column.
 
     The alias marker is stamped as ``<alias> = True``, so an alias equal to the node-id
     column overwrites the ids themselves: pandas then died with a raw

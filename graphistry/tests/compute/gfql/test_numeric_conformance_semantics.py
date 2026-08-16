@@ -76,11 +76,16 @@ def _one(query: str, engine: str, colname: str):
 
 
 def _served_or_nie(query: str, engine: str, colname: str, expected):
-    """polars parity-or-NIE: pandas must match the oracle; polars matches or NIEs."""
+    """polars parity-or-NIE: pandas must match the oracle; polars matches or NIEs.
+
+    A decline is asserted to be the TYPED row-op NotImplementedError, so a lane that
+    quietly stops evaluating cannot pass as agreement.
+    """
     if engine == "polars":
         try:
             got = _one(query, "polars", colname)
-        except NotImplementedError:
+        except NotImplementedError as decline:
+            assert "does not yet natively support cypher row op" in str(decline)
             return
         assert got == expected
     else:
@@ -181,9 +186,10 @@ def test_numeric_ordering_control_unchanged(engine):
 def test_simple_case_when_null_never_matches(engine):
     """openCypher simple CASE compares with '='; null = null is null, so a
     null subject falls through to ELSE -- the old deliberate null==null match
-    contradicted Neo4j. n.missing is null on every row."""
-    q = ("MATCH (n {id:'a'}) "
-         "RETURN CASE n.missing WHEN null THEN 'was-null' ELSE 'other' END AS c")
+    contradicted Neo4j. Node 'c' carries a REAL null name, so both engines
+    evaluate the arm instead of declining on an unknown column."""
+    q = ("MATCH (n {id:'c'}) "
+         "RETURN CASE n.name WHEN null THEN 'was-null' ELSE 'other' END AS c")
     _served_or_nie(q, engine, "c", "other")
 
 
