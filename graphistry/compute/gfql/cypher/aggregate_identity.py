@@ -148,9 +148,7 @@ def ungrouped_aggregate_identity_row(
     """
     pivot: Optional[int] = None
     seed: Optional[Dict[str, Any]] = None
-    # Prefer the EARLIEST seed whose whole suffix is replayable: a later ungrouped
-    # aggregate then aggregates the replayed identity row (count(c) over an empty
-    # stream is 1, not 0); pivoting at the last seed there fabricates its value.
+    # Earliest seed with a fully-replayable suffix wins: a later ungrouped aggregate must aggregate the replayed identity row (count(c) over empty is 1), not synthesize its own.
     for idx in range(len(row_steps)):
         candidate = _ungrouped_aggregate_identity_seed(row_steps[idx])
         if candidate is None:
