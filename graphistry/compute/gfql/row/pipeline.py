@@ -79,6 +79,7 @@ from graphistry.compute.gfql.identifiers import (
     WALK_PREV_COL,
     WALK_TO_COL,
     is_shortest_path_hops_column,
+    is_trail_column,
     trail_column_name,
 )
 from graphistry.compute.gfql.cache_registry import register_process_singleton
@@ -4120,6 +4121,15 @@ class RowPipelineMixin:
         from graphistry.compute.ast import ASTEdge
 
         state_df, alias_frames = self._gfql_connected_bindings_state(ops, alias_prefilters=alias_prefilters)
+        # Trail identity columns are DEAD past state building: every relationship-uniqueness
+        # check consumes them inside the state builder, they are never dotted (so never
+        # binding-join keys), and no expression surface can name a __gfql_* column.
+        trail_cols = [
+            col for col in state_df.columns
+            if isinstance(col, str) and is_trail_column(col)
+        ]
+        if trail_cols:
+            state_df = state_df.drop(columns=trail_cols)
         bindings = self._gfql_connected_bindings_row_frame_from_state(
             ops, state_df, alias_frames, attach_prop_aliases
         )
