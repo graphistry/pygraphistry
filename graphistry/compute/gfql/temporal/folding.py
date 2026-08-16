@@ -131,13 +131,20 @@ def _shift_temporal_value(value: _TemporalValue, months: int, days: int, time_na
 
 
 def _scale_duration(components: tuple[int, int, int], factor: float, divide: bool) -> Optional[str]:
+    """Scale each duration group IN PLACE: the time group never migrates into days
+    (PT18H * 2 is PT36H, and date + PT36H is a no-op while date + P1DT12H is not);
+    only a fractional day result spills into time (P1D / 2 is PT12H)."""
     months, days, time_nanos = components
     scaled_months = (months / factor) if divide else (months * factor)
     if scaled_months != int(scaled_months):
         return None
-    total_nanos = days * _NANOS_PER_DAY + time_nanos
-    scaled_nanos = (total_nanos / factor) if divide else (total_nanos * factor)
-    return format_duration_calendar_components(int(scaled_months), 0, int(round(scaled_nanos)))
+    scaled_days = (days / factor) if divide else (days * factor)
+    whole_days = int(scaled_days)
+    day_spill_nanos = (scaled_days - whole_days) * _NANOS_PER_DAY
+    scaled_time = (time_nanos / factor) if divide else (time_nanos * factor)
+    return format_duration_calendar_components(
+        int(scaled_months), whole_days, int(round(scaled_time + day_spill_nanos))
+    )
 
 
 def _fold_temporal_arithmetic(node: BinaryOp) -> Optional[Literal]:
@@ -174,7 +181,8 @@ def _fold_temporal_arithmetic(node: BinaryOp) -> Optional[Literal]:
     if op in {"*", "/"}:
         if left_duration is not None and right_duration is None:
             factor = _number_of(right_value)
-            if factor is None or factor == 0:
+            # Multiplying by zero is PT0S; only DIVISION by zero declines.
+            if factor is None or (factor == 0 and op == "/"):
                 return None
             scaled = _scale_duration(left_duration, factor, divide=(op == "/"))
             return None if scaled is None else Literal(scaled)
