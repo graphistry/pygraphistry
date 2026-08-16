@@ -284,7 +284,7 @@ def flatten_carried_endpoint_rebind(query: CypherQuery) -> Optional[CypherQuery]
 def flatten_terminal_with_over_optional(
     query: CypherQuery,
 ) -> Optional[Tuple[CypherQuery, Optional[ExpressionText]]]:
-    """Rewrite terminal ``WITH`` over OPTIONAL MATCH onto the left-join lowering (#1896).
+    """Rewrite terminal ``WITH`` over OPTIONAL MATCH onto the left-join lowering.
 
     Returns the WITH-free query plus the stage ``WHERE`` for the caller to apply as a
     post-join binding-row filter, or None to leave the query on its typed-decline path.
@@ -396,7 +396,7 @@ def _stage_has_aggregates(stage: ProjectionStage) -> bool:
 
 
 def flatten_pure_carry_terminal_with_nonoptional(query: CypherQuery) -> Optional[CypherQuery]:
-    """Drop a terminal pure bare-alias WITH carry over non-OPTIONAL matches (#1899).
+    """Drop a terminal pure bare-alias WITH carry over non-OPTIONAL matches.
 
     ``MATCH (a)-->(b) WITH a RETURN a.id`` is row-equivalent to the WITH-less
     form; the row-column pipeline would collapse binding-row multiplicity, so

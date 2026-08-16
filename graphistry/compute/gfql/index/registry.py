@@ -173,8 +173,7 @@ class DegreeFact:
     hi: int
     backend: IndexBackend
     engine: Engine
-    # Trail-illegal (r, r) pairs the degree product would count (#1905); None = unknown,
-    # which the two-hop kernel treats as a decline rather than a zero correction.
+    #: ``|{e : src(e) == dst(e)}|``; None = unknown, which consumers must not read as 0.
     self_loops: Optional[int] = None
     type_column: Optional[str] = None
     type_value: Optional[PartitionValue] = None
@@ -300,9 +299,9 @@ class GfqlIndexRegistry:
         strong-ref so ``get_valid`` recognizes the live frame. NODE_ID is left
         untouched (node materialization may legitimately change node rows).
 
-        ENFORCED (O(1), engine-portable), and BOTH halves are required:
+        ENFORCED engine-portably, and BOTH halves are required:
 
-        1. LINEAGE (#1913) — the index must still be VALID for ``old_edges``, the
+        1. LINEAGE — the index must still be VALID for ``old_edges``, the
            exact ``get_valid`` contract (identity + fingerprint + engine). Without
            this a caller launders a stale index onto a frame the index was never
            built over: after a user's ordinary ``g.edges(other_frame)`` the identity
@@ -332,7 +331,7 @@ class GfqlIndexRegistry:
                 new.pop(kind, None)
                 continue
             cols = tuple(idx.fingerprint[1])
-            # #1913: only an index that is LIVE for the frame being augmented may migrate.
+            # Only an index that is LIVE for the frame being augmented may migrate.
             if not (
                 idx.source_ref is not None
                 and idx.source_ref is old_edges

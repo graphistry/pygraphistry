@@ -1,4 +1,4 @@
-"""openCypher ungrouped-aggregate identity row (#1899 / #1909).
+"""openCypher ungrouped-aggregate identity row.
 
 An aggregate with NO grouping keys always yields exactly one row, so a stage that
 empties the row stream must still return the aggregate identities (count/sum -> 0,
@@ -32,8 +32,8 @@ def identity_row_after_paging(
     skip_value: Optional[int],
     limit_value: Optional[int],
 ) -> Optional[Dict[str, Any]]:  # hygiene-ok: explicit-any -- heterogeneous Cypher identity values (0 / [] / None)
-    """Terminal SKIP/LIMIT pages the synthesized identity row like any other row
-    (#1909 item 2): ``SKIP >= 1`` and ``LIMIT <= 0`` drop it, everything else keeps it."""
+    """Terminal SKIP/LIMIT pages the synthesized identity row like any other row:
+    ``SKIP >= 1`` and ``LIMIT <= 0`` drop it, everything else keeps it."""
     if row is None:
         return None
     if skip_value is not None and skip_value >= 1:
@@ -138,13 +138,13 @@ def ungrouped_aggregate_identity_row(
 ) -> Optional[Dict[str, Any]]:  # hygiene-ok: explicit-any -- heterogeneous Cypher identity values (0 / [] / None)
     """openCypher: an aggregate with no grouping keys ALWAYS yields exactly one row,
     so a later stage that empties the stream still returns the identities
-    (count/sum -> 0, collect -> [], else null) (#1899/#1909).
+    (count/sum -> 0, collect -> [], else null).
 
     Synthesizes that row at the last ungrouped aggregate step and applies the
     compiled suffix (trailing projections, post-aggregate expressions, ORDER BY,
     SKIP/LIMIT) to it. Declines whenever the suffix can filter or reshape rows on
     data invisible at compile time -- notably a post-aggregate WHERE, whose outcome
-    depends on the real aggregate value (#1909 residual).
+    depends on the real aggregate value.
     """
     pivot: Optional[int] = None
     seed: Optional[Dict[str, Any]] = None

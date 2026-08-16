@@ -24,6 +24,7 @@ from graphistry.compute.gfql.same_path.native_shortest_path import (
     try_native_shortest_path,
 )
 from graphistry.Engine import Engine
+from graphistry.compute.gfql.identifiers import WALK_FROM_COL, WALK_TO_COL
 from graphistry.tests.test_compute import CGFull
 
 igraph = pytest.importorskip("igraph", reason="igraph not installed")
@@ -63,7 +64,7 @@ def _chain_graph() -> _TestGraph:
 # ---------------------------------------------------------------------------
 
 def _step_pairs(frm, to):
-    return pd.DataFrame({"__from__": frm, "__to__": to})
+    return pd.DataFrame({WALK_FROM_COL: frm, WALK_TO_COL: to})
 
 
 def _hops(result, src, tgt):

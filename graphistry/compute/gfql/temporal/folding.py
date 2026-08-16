@@ -147,7 +147,7 @@ def _fold_temporal_arithmetic(node: BinaryOp) -> Optional[Literal]:
     Temporal literals lower to ISO TEXT before the AST exists, so without this fold
     ``date('2020-01-02') + duration('P1D')`` reached Python ``str + str`` and silently
     produced ``'2020-01-02P1D'`` — including inside WHERE, where the concatenated text
-    then changed the row set (#1915 B-2). Only ISO-duration-shaped operands engage, so
+    then changed the row set. Only ISO-duration-shaped operands engage, so
     ordinary string concatenation is untouched.
     """
     op = str(node.op).lower()
