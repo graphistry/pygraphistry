@@ -2014,6 +2014,31 @@ def test_rebind_edges_refuses_an_index_already_stale_for_the_augmented_frame():
         assert reg2.get_valid(kind, gi._edges, ("src", "dst"), _E.PANDAS) is not None, kind
 
 
+def test_rebind_edges_leaves_index_resident_after_in_place_shape_mutation():
+    """Lineage is get_valid, not bare identity: a frame mutated OUT OF SHAPE in place
+    (documented undefined behavior) still passes the ``source_ref is old_edges`` identity
+    test, but the index is no longer valid for it. The migration must refuse AND leave
+    the entry resident (reported stale, never silently migrated or dropped)."""
+    from graphistry.Engine import Engine as _E
+    from graphistry.compute.gfql.index import get_registry
+    from graphistry.compute.gfql.index.registry import EDGE_IN_ADJ, EDGE_OUT_ADJ
+
+    rng = np.random.default_rng(5)
+    edf = pd.DataFrame({"src": rng.integers(0, 50, 200), "dst": rng.integers(0, 50, 200)})
+    ndf = pd.DataFrame({"id": np.arange(50)})
+    gi = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all(engine="pandas")
+    reg = get_registry(gi)
+    live_edges = gi._edges
+
+    live_edges.loc[len(live_edges)] = [0, 1]      # in-place shape mutation: row count changed
+    aug = live_edges.copy(deep=False)
+    aug["__synthetic_id__"] = aug.index
+    reg2 = reg.rebind_edges(aug, live_edges)
+    for kind in (EDGE_OUT_ADJ, EDGE_IN_ADJ):
+        assert kind in reg2.indexes, f"{kind}: stale entry was dropped, not left resident"
+        assert reg2.get_valid(kind, aug, ("src", "dst"), _E.PANDAS) is None, kind
+
+
 @pytest.mark.parametrize("engine", _cpu_engines())
 def test_documented_recovery_from_in_place_mutation(engine):
     """The recovery matrix named in ``ComputeMixin.gfql``'s docstring, after in-place edits
