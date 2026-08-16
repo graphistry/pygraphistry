@@ -1562,12 +1562,44 @@ def _self_loops_in_domains_indexable(
     node_col: str,
     src_col: str,
 ) -> int:
-    """pandas/cudf arm of ``_self_loops_in_domains``."""
+    """cudf arm of ``_self_loops_in_domains`` -- device-side hashing, no host round-trip."""
     for domain in domains:
         if len(loops) == 0:
             return 0
         loops = loops[loops[src_col].isin(domain[node_col])]
     return int(len(loops))
+
+
+#: Unique-loop-value count up to which the pandas arm probes each value with one
+#: vectorized equality scan instead of hashing a whole domain column (pinned).
+_SELF_LOOP_PROBE_LIMIT: Final[int] = 16
+
+
+def _self_loops_in_domains_pandas(
+    loops: DataFrameT,
+    domains: Sequence[DataFrameT],
+    *,
+    node_col: str,
+    src_col: str,
+) -> int:
+    """pandas arm of ``_self_loops_in_domains``.
+
+    Never hashes a domain column: self-loop rows are few, so membership is answered
+    by per-value equality scans (or, past the probe limit, by hashing the loop side).
+    """
+    loop_vals = loops[src_col]
+    for domain in domains:
+        if len(loop_vals) == 0:
+            return 0
+        domain_arr = domain[node_col].to_numpy()
+        unique_vals = pd.unique(loop_vals.to_numpy())
+        if len(unique_vals) <= _SELF_LOOP_PROBE_LIMIT:
+            present = [value for value in unique_vals if (domain_arr == value).any()]
+        else:
+            domain_series = pd.Series(domain_arr)
+            present = list(pd.unique(domain_series[domain_series.isin(unique_vals)]))
+        loop_vals = loop_vals[loop_vals.isin(present)]
+    return int(len(loop_vals))
 
 
 def _self_loops_in_domains(
@@ -1584,6 +1616,9 @@ def _self_loops_in_domains(
         pl_domains: Sequence["pl.DataFrame"] = domains  # engine seam: polars frames ride engine-agnostic DataFrameT
         return _self_loops_in_domains_polars(
             pl_loops, pl_domains, node_col=node_col, src_col=src_col)
+    if engine == Engine.PANDAS:
+        return _self_loops_in_domains_pandas(
+            loops, domains, node_col=node_col, src_col=src_col)
     return _self_loops_in_domains_indexable(
         loops, domains, node_col=node_col, src_col=src_col)
 
