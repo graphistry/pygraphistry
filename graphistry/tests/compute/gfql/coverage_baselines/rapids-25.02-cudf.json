@@ -26,6 +26,7 @@
     "graphistry/compute/gfql/cypher/parser.py": 85.59,
     "graphistry/compute/gfql/cypher/projection_planning.py": 24.2,
     "graphistry/compute/gfql/cypher/reentry/__init__.py": 100.0,
+    "graphistry/compute/gfql/cypher/reentry/carried_outputs.py": 0.0,
     "graphistry/compute/gfql/cypher/reentry/carry.py": 0.0,
     "graphistry/compute/gfql/cypher/reentry/compiletime.py": 0.0,
     "graphistry/compute/gfql/cypher/reentry/execution.py": 10.85,
