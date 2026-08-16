@@ -159,6 +159,28 @@ def test_f4_tfp_saturates_past_a_small_hops_argument(engine):
     assert node_ids(r) == ["b", "c", "d"]
 
 
+def test_f4_tfp_with_min_hops_does_not_trip_the_dead_hops_bound():
+    """Under to_fixed_point the hops argument is DEAD, so min_hops=2 next to hops=1
+    must not trip the min>max check against a bound fixed-point never uses.
+    RESIDUAL, unchanged by #1918 (same at this PR's base): pandas currently IGNORES
+    min_hops under to_fixed_point (answers all depths, not depth >= 2); polars
+    declines the combination typed. Pinned as-is so a change is deliberate."""
+    ndf = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    edf = pd.DataFrame({"s": ["a", "b", "c"], "d": ["b", "c", "d"]})
+    g = graphistry.nodes(ndf, "id").edges(edf, "s", "d")
+    r = g.hop(nodes=pd.DataFrame({"id": ["a"]}), hops=1, min_hops=2,
+              to_fixed_point=True, direction="forward", return_as_wave_front=True,
+              engine="pandas")
+    assert node_ids(r) == ["b", "c", "d"]
+    if HAS_POLARS:
+        import polars as pl_mod
+        gp = graphistry.nodes(pl_mod.from_pandas(ndf), "id").edges(pl_mod.from_pandas(edf), "s", "d")
+        with pytest.raises(NotImplementedError):
+            gp.hop(nodes=pl_mod.from_pandas(pd.DataFrame({"id": ["a"]})), hops=1, min_hops=2,
+                   to_fixed_point=True, direction="forward", return_as_wave_front=True,
+                   engine="polars")
+
+
 def _cycle_graph(engine, n):
     ndf = pd.DataFrame({"id": list(range(n))})
     edf = pd.DataFrame({"s": list(range(n)), "d": [(i + 1) % n for i in range(n)]})
