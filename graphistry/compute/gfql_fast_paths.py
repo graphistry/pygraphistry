@@ -1343,7 +1343,8 @@ def _connected_join_two_star_fast_grouped_count(
         lookup_key = "__gfql_fast_second_leaf_id__"
         prop_cols = []
         for _, prop in group_prop_refs:
-            if prop not in prop_cols:
+            # A group prop naming the node-id column reads the key series, exactly like the grouped-aggregate lookup below: selecting it twice yields a duplicate-column frame whose per-column reads are frames, not series.
+            if prop != node_col and prop not in prop_cols:
                 prop_cols.append(prop)
         second_lookup_src = second_leaf_nodes[[node_col] + prop_cols].drop_duplicates(subset=[node_col])
         # ONE frame construction, not rename()-then-per-column writes (twin of the
@@ -1351,7 +1352,7 @@ def _connected_join_two_star_fast_grouped_count(
         # unconsolidated and the merge pays per-block take + vstack for it (#1918).
         projected: Dict[str, SeriesT] = {lookup_key: second_lookup_src[node_col]}
         for out_col, prop in group_prop_refs:
-            projected[out_col] = second_lookup_src[prop]
+            projected[out_col] = projected[lookup_key] if prop == node_col else second_lookup_src[prop]
         second_lookup = df_cons(engine)(projected)
         right_base = right_base.merge(second_lookup, left_on=dst_col, right_on=lookup_key, how="inner")
     right_rows = right_base[[src_col] + output_group_keys].rename(columns={src_col: shared_alias})
