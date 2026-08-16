@@ -8,7 +8,12 @@ the two behaviour-adjacent changes the #1895 remediation made:
     deprecated in polars 1.x) -- pinned VALUE-IDENTICAL on the shapes where the two forms
     could plausibly differ: nulls among the ids, nulls among the endpoints, and empty.
   * the unconditional trailing de-dup in ``hop()``'s endpoint backfill, which replaced a
-    de-dup that used to live only on the else-branch.
+    de-dup that used to live only on the else-branch -- pinned on ``to_fixed_point``, the
+    only shape where deleting it changes an answer (round-5 mutation audit; every bounded
+    hop is de-duped again by the output-window epilogue).
+  * the undirected seed hop-label STRIP the ``_ensure_node_hop_col()`` call exists to serve.
+  * ``_with_every_lazy_input_collected``: the polars closure kernel calls ``get_column``,
+    which a LazyFrame does not have.
 """
 import pandas as pd
 import pytest
@@ -19,7 +24,7 @@ from graphistry.compute.hop import (
     _endpoint_ids_without_node_rows, _reached_node_ids,
 )
 
-from .polars_test_utils import node_id_set, to_pandas_any
+from .polars_test_utils import edge_pair_set, node_id_set, to_pandas_any
 
 pl = pytest.importorskip("polars")
 
@@ -178,9 +183,34 @@ def _dup_node_graph(engine):
 
 
 @pytest.mark.parametrize("engine", PANDAS_IDIOM_ENGINES)
+def test_duplicate_node_rows_are_deduped_under_to_fixed_point(engine):
+    """to_fixed_point is the ONLY shape where the backfill's trailing de-dup is load-bearing.
+
+    Round-5 mutation audit: deleting it changes nothing on any bounded hop, because
+    ``output_max_hops`` defaults to ``max_hops`` and the output-window epilogue de-dups on
+    its way out. ``to_fixed_point=True`` leaves max_hops None, that epilogue never runs, and
+    the duplicate id rows reach the caller. Oracle: node ids {0,0,1} + edge 0->1, so a
+    forward walk keeps rows for 0 and 1 -- ONE row each, whatever the input multiplicity."""
+    _require_engine(engine)
+    out = _dup_node_graph(engine).hop(to_fixed_point=True, direction="forward", engine=engine)
+    assert to_pandas_any(out._nodes)["id"].tolist() == [0, 1]
+
+
+@pytest.mark.parametrize("engine", PANDAS_IDIOM_ENGINES)
+def test_duplicate_node_rows_are_deduped_under_to_fixed_point_seeded(engine):
+    """Seeded twin of the above: the seed 0 is the duplicated id, so a surviving duplicate
+    would double the SEED row specifically."""
+    _require_engine(engine)
+    out = _dup_node_graph(engine).hop(
+        nodes=_frame(pd.DataFrame({"id": [0]}), engine), to_fixed_point=True,
+        direction="forward", engine=engine)
+    assert to_pandas_any(out._nodes)["id"].tolist() == [0, 1]
+
+
+@pytest.mark.parametrize("engine", PANDAS_IDIOM_ENGINES)
 def test_duplicate_node_rows_are_deduped_when_no_endpoint_is_missing(engine):
-    """POSITIVE: nothing to backfill, so this exercises the path that used to carry the
-    de-dup only on its else-branch. Making the de-dup unconditional must preserve it."""
+    """CONTROL (passes with the backfill de-dup deleted -- the output-window epilogue de-dups
+    this shape). Kept because it pins the OUTPUT property on the no-backfill path."""
     _require_engine(engine)
     out = _dup_node_graph(engine).hop(engine=engine)
     nodes_pdf = to_pandas_any(out._nodes)
@@ -190,8 +220,8 @@ def test_duplicate_node_rows_are_deduped_when_no_endpoint_is_missing(engine):
 
 @pytest.mark.parametrize("engine", PANDAS_IDIOM_ENGINES)
 def test_duplicate_node_rows_are_deduped_when_an_endpoint_is_backfilled(engine):
-    """The other side: wavefront mode leaves an endpoint unbacked, so the concat branch runs.
-    The de-dup must apply to the CONCATENATED frame, not just the untouched one."""
+    """CONTROL, concat side: wavefront mode leaves an endpoint unbacked, so the concat branch
+    runs. Also de-duped by the output-window epilogue, so this pins the property, not the site."""
     _require_engine(engine)
     out = _dup_node_graph(engine).hop(
         nodes=_frame(pd.DataFrame({"id": [0]}), engine), hops=1,
@@ -211,6 +241,84 @@ def test_duplicate_node_rows_are_deduped_on_polars_too(engine):
     out = _dup_node_graph(engine).hop(engine=engine)
     nodes_pdf = to_pandas_any(out._nodes)
     assert nodes_pdf["id"].tolist() == sorted(set(nodes_pdf["id"].tolist()))
+
+
+# --- the undirected seed label STRIP, not just the column it needs -------------------------
+#
+# #1895 added ``_ensure_node_hop_col()`` above this strip because the strip crashed on cuDF
+# when the column was absent. That pins the column EXISTS; these pin what the strip WRITES.
+# Fixture: path 0-1-2-3, seeded undirected. An undirected walk re-enters a seed over its own
+# departure edge, so every seed would otherwise carry a hop distance; a seed is at distance
+# 0 from itself and hop labels are "distance travelled", so a seed's label is NULL.
+#
+#   seed [0], hops 2 : 1 is one edge away, 2 is two.  {0: NULL, 1: 1, 2: 2}   (3 unreached)
+#   seed [1], hops 2 : 0 and 2 are one edge away, 3 is two. {1: NULL, 0: 1, 2: 1, 3: 2}
+#   seed [0,3], hops 2: 1 is one from 0, 2 is one from 3.   {0: NULL, 3: NULL, 1: 1, 2: 1}
+
+_SEED_LABEL_ORACLE = [
+    ([0], {0: None, 1: 1, 2: 2}),
+    ([1], {1: None, 0: 1, 2: 1, 3: 2}),
+    ([0, 3], {0: None, 3: None, 1: 1, 2: 1}),
+]
+
+
+_SEED_LABEL_CUDF_XFAIL = pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
+    "PRE-EXISTING cuDF divergence (identical at merge-base 526976e91, so #1888/#1895 did not "
+    "cause it): the labelled hop's output-window mask is `(hop <= max) | endpoint`, and on cuDF "
+    "a NULL hop makes the whole mask NULL rather than False-then-rescued, so the SEED's node row "
+    "is dropped -- leaving edges whose endpoint has no node row on a fully closed input graph. "
+    "Same family as test_output_hop_window_backfills_the_source_node_row_on_cudf."))
+
+
+def _labelled_undirected_hop(engine, seeds):
+    g = (graphistry
+         .nodes(_frame(pd.DataFrame({"id": [0, 1, 2, 3], "v": [10, 20, 30, 40]}), engine), "id")
+         .edges(_frame(pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3]}), engine), "s", "d"))
+    return g.hop(nodes=_frame(pd.DataFrame({"id": seeds}), engine), hops=2,
+                 direction="undirected", label_node_hops="nh", engine=engine)
+
+
+@pytest.mark.parametrize("engine", [
+    "pandas", "polars", pytest.param("cudf", marks=_SEED_LABEL_CUDF_XFAIL)])
+@pytest.mark.parametrize("seeds,want", _SEED_LABEL_ORACLE)
+def test_undirected_hop_labels_leave_the_seed_unlabelled(engine, seeds, want):
+    _require_engine(engine)
+    got = to_pandas_any(_labelled_undirected_hop(engine, seeds)._nodes)
+    labels = {int(r.id): (None if pd.isna(r.nh) else int(r.nh)) for r in got.itertuples()}
+    assert labels == want
+
+
+@pytest.mark.parametrize("engine", [
+    "pandas", "polars", pytest.param("cudf", marks=_SEED_LABEL_CUDF_XFAIL)])
+def test_labelled_undirected_hop_output_still_backs_every_edge_endpoint(engine):
+    """The closure contract read on the OUTPUT: every endpoint of a surviving edge has a node
+    row. Input here is fully closed, so nothing may be dropped."""
+    _require_engine(engine)
+    out = _labelled_undirected_hop(engine, [0])
+    edges = to_pandas_any(out._edges)
+    endpoints = set(edges["s"].tolist()) | set(edges["d"].tolist())
+    assert endpoints <= node_id_set(out), (
+        f"edge endpoints with no node row: {sorted(endpoints - node_id_set(out))}")
+
+
+# --- polars hop accepts LazyFrame inputs (_with_every_lazy_input_collected) -----------------
+
+@pytest.mark.parametrize("lazy_nodes,lazy_edges", [(True, False), (False, True), (True, True)])
+def test_polars_hop_accepts_lazy_graph_frames(lazy_nodes, lazy_edges):
+    """A LazyFrame is an accepted INPUT format, and #1895's endpoint-closure kernel calls
+    ``get_column`` on the node frame -- which a LazyFrame does not have. Without the entry
+    normalization this raises AttributeError instead of answering.
+
+    Oracle: nodes {0,1,2}, edge 0->1 and 1->2, one forward hop from 0 => edge (0,1), nodes {0,1}.
+    """
+    nodes = pl.DataFrame({"id": [0, 1, 2], "v": [10, 20, 30]})
+    edges = pl.DataFrame({"s": [0, 1], "d": [1, 2]})
+    g = (graphistry
+         .nodes(nodes.lazy() if lazy_nodes else nodes, "id")
+         .edges(edges.lazy() if lazy_edges else edges, "s", "d"))
+    out = g.hop(nodes=pl.DataFrame({"id": [0]}), hops=1, direction="forward", engine="polars")
+    assert node_id_set(out) == {0, 1}
+    assert edge_pair_set(out) == {(0, 1)}
 
 
 # --- frame-identity cache keys: strong ref + `is`, never id() ------------------------------

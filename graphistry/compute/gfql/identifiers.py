@@ -1,6 +1,21 @@
 """GFQL reserved identifiers and validation."""
 
+import re
 from typing import Optional, Dict, Any, Final, FrozenSet, Set
+
+#: The openCypher identifier form, shared by every surface that has to recognize one.
+IDENTIFIER_TOKEN = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
+
+
+def is_bare_identifier(text: str) -> bool:
+    """The text is exactly one identifier: no dots, calls, operators or whitespace."""
+    return IDENTIFIER_TOKEN.fullmatch(text) is not None
+
+
+def identifier_tokens(text: str) -> Set[str]:
+    """Every identifier-shaped token in an expression, ignoring where it appears."""
+    return set(IDENTIFIER_TOKEN.findall(text))
+
 
 # Internal column pattern for temporary GFQL columns
 INTERNAL_COLUMN_PATTERN: str = '__gfql_*__'

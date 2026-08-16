@@ -36,10 +36,9 @@ from graphistry.compute.gfql.cypher.ast import (
     ReturnClause,
     ReturnItem,
 )
+from graphistry.compute.gfql.identifiers import identifier_tokens, is_bare_identifier
 
 
-_BARE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_IDENT_TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _AGGREGATE_CALL = re.compile(
     r"\b(count|sum|avg|min|max|collect|stdev|percentile\w*)\s*\(", re.IGNORECASE
 )
@@ -52,7 +51,7 @@ def _bare_carry_aliases(clause: ReturnClause) -> Optional[Set[str]]:
         if item.alias is not None:
             return None
         text = item.expression.text.strip()
-        if not _BARE_IDENT.fullmatch(text):
+        if not is_bare_identifier(text):
             return None
         aliases.add(text)
     return aliases
@@ -330,7 +329,7 @@ def _match_clause_aliases(query: CypherQuery) -> Set[str]:
 
 
 def _referenced_aliases(text: str, candidates: Set[str]) -> Set[str]:
-    return {tok for tok in _IDENT_TOKEN.findall(text) if tok in candidates}
+    return identifier_tokens(text) & candidates
 
 
 def _query_without_pure_carry_stage(
@@ -367,7 +366,7 @@ def _query_with_terminal_stage_folded_into_return(
         if name in stage_items:
             return None
         stage_items[name] = item
-        if item.alias is None and _BARE_IDENT.fullmatch(text) and text in match_aliases:
+        if item.alias is None and is_bare_identifier(text) and text in match_aliases:
             bare_carries.add(name)
     stage_aggregates = _stage_has_aggregates(stage)
     new_items = []
@@ -380,7 +379,7 @@ def _query_with_terminal_stage_folded_into_return(
             new_items.append(replace(src, alias=ret_item.alias if ret_item.alias is not None else src.alias))
             continue
         parts = text.split(".")
-        if len(parts) == 2 and parts[0] in bare_carries and _BARE_IDENT.fullmatch(parts[1]):
+        if len(parts) == 2 and parts[0] in bare_carries and is_bare_identifier(parts[1]):
             new_items.append(ret_item)
             continue
         return None

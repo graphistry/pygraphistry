@@ -3123,7 +3123,7 @@ class RowPipelineMixin:
             )[[row_col, base_col, key_col]]
 
         if isinstance(base, pd.DataFrame):
-            # A negative subscript indexes from the end; normalize per-row so the join matches.
+            # openCypher negative subscripts index from the end; normalize per-row so the positional join matches (out-of-range stays null).
             key_values = list(base[key_col])
             if any(isinstance(k, (int, float)) and not isinstance(k, bool) and k == k and k < 0 for k in key_values):
                 normalized_keys: List[Any] = []
@@ -3826,8 +3826,6 @@ class RowPipelineMixin:
         src_col = base_graph._source
         dst_col = base_graph._destination
         if node_id_col is None and base_graph._edges is not None and src_col is not None and dst_col is not None:
-            # Edges-only graph: materialize nodes (the node-set path did this
-            # implicitly through the hop executor).
             try:
                 base_graph = base_graph.materialize_nodes()
                 node_id_col = base_graph._node
