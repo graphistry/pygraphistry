@@ -11,6 +11,7 @@ engine agreement is not evidence. Fixture: nodes 1-5 (Ann/Bob/Cat/Dan/Eve,
 null age/city cases), edges 1->2, 1->3, 2->3, 3->4.
 """
 import math
+from typing import Optional
 
 import pandas as pd
 import pytest
@@ -24,21 +25,33 @@ try:
 except ImportError:
     HAS_POLARS = False
 
+try:
+    import cudf  # noqa: F401
+    HAS_CUDF = True
+except ImportError:
+    HAS_CUDF = False
+
 polars_only = pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
+cudf_only = pytest.mark.skipif(not HAS_CUDF, reason="cudf not installed")
 
 ENGINES = ["pandas", pytest.param("polars", marks=polars_only)]
+ALL_ENGINES = ENGINES + [pytest.param("cudf", marks=cudf_only)]
 
 
-def _run(query: str, engine: str) -> pd.DataFrame:
+def _run(query: str, engine: str, edges: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     nodes = pd.DataFrame({
         "id": [1, 2, 3, 4, 5],
         "name": ["Ann", "Bob", "Cat", "Dan", "Eve"],
         "age": [30.0, 40.0, 25.0, None, 35.0],
         "city": ["NYC", "NYC", "SF", "SF", None],
     })
-    edges = pd.DataFrame({"s": [1, 1, 2, 3], "d": [2, 3, 3, 4]})
+    if edges is None:
+        edges = pd.DataFrame({"s": [1, 1, 2, 3], "d": [2, 3, 3, 4]})
     if engine == "polars":
         g = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
+    elif engine == "cudf":
+        import cudf as _cudf
+        g = graphistry.nodes(_cudf.from_pandas(nodes), "id").edges(_cudf.from_pandas(edges), "s", "d")
     else:
         g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
     out = g.gfql(query, engine=engine)._nodes
@@ -211,3 +224,177 @@ def test_negative_list_subscript_indexes_from_end(query, expected, engine):
         return
     df = _run(query, engine)
     assert [_scalar(v) for v in df["v"]] == expected
+
+
+# ===========================================================================
+# 5. Round-005 amplification (mutation-audit round for #1899/#1901)
+# ===========================================================================
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query,value_if_emitted", [
+    ("UNWIND [] AS x RETURN count(*) + 1 AS c", 1),
+    ("UNWIND [] AS x RETURN abs(sum(x)) AS c", 0),
+    ("UNWIND [] AS x RETURN avg(x) * 2 AS c", None),
+], ids=["count_plus_1", "abs_sum", "avg_times_2"])
+def test_empty_compound_aggregate_never_fabricates(query, value_if_emitted, engine):
+    """A compound aggregate item over an empty stream must never emit the bare
+    identity under the internal postagg column: either the identity row is
+    declined (0 rows, named residual below) or the post-aggregate expression is
+    evaluated (count(*) + 1 -> 1). A fabricated {'__cypher_postagg__': 0} is
+    the silent-wrong this pins out."""
+    df = _run(query, engine)
+    assert not any(str(col).startswith("__cypher") for col in df.columns)
+    if len(df):
+        assert list(df.columns) == ["c"]
+        assert _scalar(df["c"][0]) == value_if_emitted
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_empty_mixed_compound_aggregate_never_fabricates(engine):
+    """Mixed pure + compound items: emitting a partial row that drops the
+    compound alias (or leaks an internal column) is silent-wrong."""
+    df = _run("UNWIND [] AS x RETURN count(*) AS c, count(*) + 1 AS d", engine)
+    assert not any(str(col).startswith("__cypher") for col in df.columns)
+    if len(df):
+        assert sorted(df.columns) == ["c", "d"]
+        assert _scalar(df["c"][0]) == 0 and _scalar(df["d"][0]) == 1
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.xfail(strict=True, reason="#1899 residual: compound aggregate items over an empty "
+                   "stream should evaluate post-aggregate over the identity (count(*) + 1 -> 1); "
+                   "synthesis currently declines to the pre-#1901 empty result")
+def test_empty_compound_aggregate_identity_residual(engine):
+    df = _run("UNWIND [] AS x RETURN count(*) + 1 AS c", engine)
+    assert len(df) == 1 and _scalar(df["c"][0]) == 1
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("query", [
+    "UNWIND [] AS x RETURN count(*) AS c SKIP 1",
+    "UNWIND [] AS x RETURN count(*) AS c LIMIT 0",
+], ids=["skip_past_identity", "limit_zero"])
+def test_empty_aggregate_identity_row_respects_paging_removal(query, engine):
+    """SKIP past / LIMIT 0 must remove the synthesized identity row -- a
+    synthesis that ignores the final stage's paging would emit it anyway."""
+    assert len(_run(query, engine)) == 0
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query", [
+    "UNWIND [] AS x RETURN count(*) AS c SKIP 0",
+    "UNWIND [] AS x RETURN count(*) AS c LIMIT 1",
+], ids=["skip_zero", "limit_one"])
+@pytest.mark.xfail(strict=True, reason="#1909: SKIP 0 / LIMIT >= 1 must page the synthesized "
+                   "identity row, not suppress it (fix in flight on #1910)")
+def test_empty_aggregate_identity_row_survives_noop_paging(query, engine):
+    df = _run(query, engine)
+    assert len(df) == 1 and _scalar(df["c"][0]) == 0
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_grouped_aggregate_over_empty_stream_stays_zero_rows(engine):
+    """Grouped aggregates over zero rows emit zero groups -- the identity row
+    is ungrouped-only (openCypher)."""
+    assert len(_run("UNWIND [] AS x RETURN x AS k, count(*) AS c", engine)) == 0
+
+
+@pytest.mark.parametrize("engine", ["pandas", pytest.param("polars", marks=polars_only)])
+def test_edges_only_graph_projection_keeps_multiplicity(engine):
+    """Bag semantics on a graph with no node table: nodes are materialized from
+    edge endpoints, and a-side keeps one row per edge ([1, 1, 2, 3])."""
+    edges = pd.DataFrame({"s": [1, 1, 2, 3], "d": [2, 3, 3, 4]})
+    e = pl.from_pandas(edges) if engine == "polars" else edges
+    g = graphistry.edges(e, "s", "d")
+    out = g.gfql("MATCH (a)-->(b) RETURN a.id AS x", engine=engine)._nodes
+    if hasattr(out, "to_pandas"):
+        out = out.to_pandas()
+    assert _bag(out, "x") == [1, 1, 2, 3]
+
+
+@polars_only
+def test_polars_integral_float_endpoints_join_node_ids():
+    """Float64 endpoint columns holding integral values join Int64 node ids
+    losslessly (pandas NaN-promotion artifact); bag multiplicity preserved."""
+    edges = pd.DataFrame({"s": [1.0, 1.0, 2.0, 3.0], "d": [2.0, 3.0, 3.0, 4.0]})
+    assert _bag(_run("MATCH (a)-->(b) RETURN a.id AS x", "polars", edges=edges), "x") == [1, 1, 2, 3]
+
+
+@polars_only
+def test_polars_nonintegral_float_endpoint_declines_typed():
+    """A truly non-integral endpoint cannot cast losslessly: polars declines
+    with its typed NIE rather than silently coercing or crashing."""
+    edges = pd.DataFrame({"s": [1.0, 2.5], "d": [2.0, 3.0]})
+    with pytest.raises(NotImplementedError):
+        _run("MATCH (a)-->(b) RETURN a.id AS x", "polars", edges=edges)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.xfail(strict=True, reason="#1899 residual: leading OPTIONAL MATCH single-endpoint "
+                   "projection still collapses bag multiplicity (guarded off binding rows to "
+                   "protect null extension); expected [1, 1, 2, 3]")
+def test_leading_optional_match_multiplicity_residual(engine):
+    assert _bag(_run("OPTIONAL MATCH (a)-->(b) RETURN a.id AS x", engine), "x") == [1, 1, 2, 3]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_optional_match_no_match_null_extension_preserved(engine):
+    """The reason the OPTIONAL guard exists: a no-match OPTIONAL still emits
+    one null-extended row; an inner-join binding lane would drop it."""
+    df = _run("OPTIONAL MATCH (a {name: 'Zed'})-->(b) RETURN a.id AS x", engine)
+    assert len(df) == 1 and _scalar(df["x"][0]) is None
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.xfail(strict=True, reason="#1899 residual: the seeded typed-hop fast path dedupes "
+                   "parallel edges; Ann has two edges to Bob so b.id must be [2, 2]")
+def test_seeded_parallel_edge_multiplicity_residual(engine):
+    edges = pd.DataFrame({"s": [1, 1, 2, 3], "d": [2, 2, 3, 4]})
+    assert _bag(_run("MATCH (a {name: 'Ann'})-->(b) RETURN b.id AS x", engine, edges=edges), "x") == [2, 2]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_unseeded_parallel_edges_keep_multiplicity(engine):
+    edges = pd.DataFrame({"s": [1, 1, 2, 3], "d": [2, 2, 3, 4]})
+    assert _bag(_run("MATCH (a)-->(b) RETURN b.id AS x", engine, edges=edges), "x") == [2, 2, 3, 4]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_bag_paging_after_order_by(engine):
+    """SKIP/LIMIT page the multiplicity bag, not the deduplicated set:
+    sorted bag [1, 1, 2, 3], SKIP 1 LIMIT 2 -> [1, 2]."""
+    df = _run("MATCH (a)-->(b) RETURN a.id AS x ORDER BY x SKIP 1 LIMIT 2", engine)
+    assert [_scalar(v) for v in df["x"]] == [1, 2]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_forcing_does_not_open_unsupported_lanes(engine):
+    """Multiplicity forcing must not widen the supported surface: disconnected
+    multi-pattern and repeated-alias projections stay typed declines."""
+    for query in [
+        "MATCH (a), (b)-->(c) RETURN a.id AS x",
+        "MATCH (a)-->(b), (c)-->(d) RETURN a.id AS x",
+        "MATCH (a)-->(a) RETURN a.id AS x",
+    ]:
+        with pytest.raises(GFQLValidationError):
+            _run(query, engine)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_pure_carry_does_not_leak_out_of_scope_alias(engine):
+    """Flattening `WITH a` must not resurrect b: the binder scope error stays."""
+    with pytest.raises(GFQLValidationError):
+        _run("MATCH (a)-->(b) WITH a RETURN b.id AS x", engine)
+
+
+@pytest.mark.skipif(not HAS_CUDF, reason="cudf not installed")
+def test_cudf_bag_and_identity_parity():
+    """cuDF engine (dataframe ops only): bag multiplicity, empty-stream count
+    identity, and the id-named grouped output all hand-checked."""
+    assert _bag(_run("MATCH (a)-->(b) RETURN a.id AS x", "cudf"), "x") == [1, 1, 2, 3]
+    df = _run("UNWIND [] AS x RETURN count(*) AS c", "cudf")
+    assert len(df) == 1 and _scalar(df["c"][0]) == 0
+    grouped = _run("MATCH (a)-->(b) RETURN a.id AS id, count(*) AS c", "cudf")
+    got = sorted((int(r["id"]), int(r["c"])) for r in grouped.to_dict("records"))
+    assert got == [(1, 2), (2, 1), (3, 1)]

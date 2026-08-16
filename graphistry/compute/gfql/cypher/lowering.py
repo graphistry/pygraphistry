@@ -5568,6 +5568,9 @@ def _row_only_empty_aggregate_row(
     specs = _collect_aggregate_specs_for_clause(final.clause, params=params, alias_targets={})
     if not specs or len(specs) != len(final.clause.items):
         return None
+    # A compound item (count(*) + 1) needs its post-aggregate expression evaluated over the identity; synthesizing the bare identity would fabricate the value under the internal postagg column.
+    if any(spec.output_name.startswith("__cypher_postagg__") for spec in specs):
+        return None
     out: Dict[str, Any] = {}
     for spec in specs:
         if spec.func == "count":
