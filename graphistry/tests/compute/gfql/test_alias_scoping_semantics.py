@@ -418,3 +418,102 @@ def test_trail_edge_identity_col_is_resolved_against_user_edge_columns() -> None
         "__gfql_edge_index_0__"
     )
     assert _trail_edge_identity_col(graphistry.bind()) == "__gfql_edge_index_0__"
+
+
+# ------------------------------------------- round-005 amplification cells
+
+def test_trail_edge_identity_col_resolves_against_arrow_edge_frames() -> None:
+    """The bound frame may still be pyarrow when the identity name is resolved --
+    arrow exposes names as `.column_names`, and `.columns` (the arrays) would
+    make the collision scan crash or silently miss."""
+    pa = pytest.importorskip("pyarrow")
+    from graphistry.compute.gfql_unified import _trail_edge_identity_col
+
+    plain = graphistry.edges(pa.table({"s": ["a"], "d": ["b"], "w": [1]}), "s", "d")
+    assert _trail_edge_identity_col(plain) == "__gfql_edge_index_0__"
+    colliding = graphistry.edges(
+        pa.table({"s": ["a"], "d": ["b"], "__gfql_edge_index_0__": [9]}), "s", "d"
+    )
+    assert _trail_edge_identity_col(colliding) == "__gfql_edge_index_1__"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_with_rebind_edge_alias_onto_edge_alias_declines(engine: str) -> None:
+    """Edge-onto-edge is the same-kind rebind on the RELATIONSHIP side; before
+    the guard it silently answered [None, 2, None] on pandas (rows from r,
+    properties resolved against the shadowed q)."""
+    query = ("MATCH (a:Person)-[r:KNOWS]->(b:Person)-[q:KNOWS]->(c:Person) "
+             "WITH r AS q RETURN q.w")
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
+    assert exc_info.value.code == ErrorCode.E108
+    assert "rebind an entity alias" in str(exc_info.value)
+    assert exc_info.value.context["value"] == "r AS q"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("query", [
+    # node alias onto an edge-alias name and the reverse: outside the guard's
+    # same-kind scope, but they must stay ERRORS (never a silent split-read).
+    "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a AS r RETURN r.type AS t",
+    "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH r AS b RETURN b.w AS t",
+    # a property read off a scalar rebind is a type error, not the shadowed entity
+    "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a.name AS b RETURN b.name AS t",
+], ids=["node_onto_edge", "edge_onto_node", "scalar_then_property"])
+def test_cross_kind_and_scalar_rebinds_stay_errors(query: str, engine: str) -> None:
+    with pytest.raises(Exception) as exc_info:
+        _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
+    assert type(exc_info.value).__name__ in (
+        "GFQLTypeError", "GFQLValidationError", "NotImplementedError"
+    )
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_scalar_shadow_in_where_keeps_the_bag(engine: str) -> None:
+    """A scalar projected onto a live alias name flows through WHERE with bag
+    multiplicity: a-side ages [30, 25, 30, 35], filter > 26 -> [30, 30, 35]."""
+    rows = _run(PEOPLE_NODES, PEOPLE_EDGES,
+                "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a.age AS b WHERE b > 26 "
+                "RETURN b AS t", engine)
+    assert sorted(r["t"] for r in rows) == [30, 30, 35]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_unwind_alias_collision_still_declines_before_the_rebind_guard(engine: str) -> None:
+    """The guard's UNWIND carve-out never has to defend a colliding UNWIND alias:
+    the collision rejection fires first."""
+    query = ("MATCH (a:Person)-[:KNOWS]->(b:Person) UNWIND [1, 2] AS a "
+             "WITH b AS a RETURN a.name AS t")
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
+    assert "UNWIND alias collides" in str(exc_info.value)
+
+
+def test_edge_alias_named_like_source_column_is_a_schema_error_residual() -> None:
+    """RESIDUAL: an edge alias named after the edge SOURCE column has its marker
+    destroy that column -- surfaced as a typed GFQLSchemaError (column-not-found),
+    not a silent answer. Pinned so a change here is deliberate; a typed decline
+    naming the alias collision (like the node-ID one) would be the upgrade."""
+    from graphistry.compute.exceptions import GFQLSchemaError
+
+    with pytest.raises(GFQLSchemaError):
+        _run(PEOPLE_NODES, PEOPLE_EDGES,
+             "MATCH (a:Person)-[s:KNOWS]->(b:Person) RETURN s.type AS t", "pandas")
+
+
+def test_cudf_unshadow_and_rebind_guard_parity() -> None:
+    """cuDF (dataframe ops only): the marker unshadow reads the user value and
+    the rebind guard declines identically."""
+    cudf = pytest.importorskip("cudf")
+
+    def _cudf_graph(nodes: pd.DataFrame, edges: pd.DataFrame):
+        return graphistry.nodes(cudf.from_pandas(nodes), "id").edges(
+            cudf.from_pandas(edges), "s", "d"
+        )
+
+    g = _cudf_graph(SHADOW_NODES, SHADOW_EDGES)
+    out = g.gfql("MATCH (kind:P)-[:K]->(b:P) RETURN kind.kind AS k", engine="cudf")._nodes
+    assert sorted(out.to_pandas()["k"]) == ["K1", "K2"]
+    with pytest.raises(GFQLValidationError) as exc_info:
+        g.gfql("MATCH (a:P)-[r:K]->(b:P) WITH a AS b RETURN b.name", engine="cudf")
+    assert "rebind an entity alias" in str(exc_info.value)

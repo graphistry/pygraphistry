@@ -400,3 +400,82 @@ def test_a_union_regression_fence(engine):
     assert len(both_empty._nodes) == 0 and "x" in list(both_empty._nodes.columns)
     assert len(g.gfql("RETURN null AS x UNION RETURN null AS x", engine=engine)._nodes) == 1
     assert len(g.gfql("RETURN null AS x UNION ALL RETURN null AS x", engine=engine)._nodes) == 2
+
+
+# ------------------------------------------- round-005 amplification cells
+
+# Duration groups are load-bearing under DATE arithmetic: a Date consumes the day
+# group and DROPS the seconds group, so a scaled/summed duration whose time crossed
+# 24h must stay in the time group. The unfixed scaler emitted P1DT12H for PT18H*2,
+# silently advancing dates the openCypher answer leaves alone.
+B5_GROUP_PRESERVATION = [
+    ("scaled_seconds_stay_seconds", "RETURN duration('PT18H') * 2 AS x", "PT36H"),
+    ("date_plus_scaled_seconds_is_noop",
+     "RETURN date('2020-01-01') + duration('PT18H') * 2 AS x", "2020-01-01"),
+    ("date_plus_plain_pt36h_agrees",
+     "RETURN date('2020-01-01') + duration('PT36H') AS x", "2020-01-01"),
+    ("summed_seconds_stay_seconds", "RETURN duration('PT30H') + duration('PT7H') AS x", "PT37H"),
+    ("date_plus_summed_seconds_is_noop",
+     "RETURN date('2020-01-01') + (duration('PT30H') + duration('PT7H')) AS x", "2020-01-01"),
+    ("day_group_still_advances_the_date",
+     "RETURN date('2020-01-01') + duration('P1DT12H') * 1 AS x", "2020-01-02"),
+    ("day_fraction_spills_into_time", "RETURN duration('P3D') * 1.5 AS x", "P4DT12H"),
+    ("times_zero_is_zero_duration", "RETURN duration('P1D') * 0 AS x", "PT0S"),
+    ("datetime_consumes_the_seconds_group",
+     "RETURN localdatetime('2020-01-01T00:00:00') + duration('PT18H') * 2 AS x",
+     "2020-01-02T12:00"),
+]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("name,query,expected", B5_GROUP_PRESERVATION,
+                         ids=[c[0] for c in B5_GROUP_PRESERVATION])
+def test_b5_duration_scaling_preserves_component_groups(engine, name, query, expected):
+    assert _values(union_graph().gfql(query, engine=engine)) == [expected]
+
+
+def test_b5_division_by_zero_stays_a_typed_error():
+    """Only multiplication by zero is served (PT0S); division by zero declines to the
+    evaluator's typed error, never a silent value."""
+    from graphistry.compute.exceptions import GFQLTypeError
+
+    with pytest.raises(GFQLTypeError):
+        union_graph().gfql("RETURN duration('P1D') / 0 AS x", engine="pandas")
+
+
+def test_a4_union_all_keeps_cross_branch_duplicates_pandas():
+    """UNION ALL multiplicity across branches with overlapping values: 3 + 3 = 6 rows
+    even though the value sets are identical."""
+    g = union_graph()
+    out = g.gfql("MATCH (n) RETURN n.i AS x UNION ALL MATCH (n) RETURN n.i AS x",
+                 engine="pandas")._nodes
+    assert sorted(out["x"]) == [7, 7, 8, 8, 9, 9]
+
+
+def test_a4_union_distinct_dedups_int_against_float():
+    """openCypher: 1 = 1.0 is true, so numeric widening dedups across branches."""
+    g = union_graph()
+    out = g.gfql("RETURN 1 AS x UNION RETURN 1.0 AS x", engine="pandas")._nodes
+    assert len(out) == 1
+
+
+def test_a4_union_null_next_to_boolean_keeps_both():
+    """null and false are distinct; the NaN-as-null key must not conflate them."""
+    g = union_graph()
+    out = g.gfql("RETURN null AS x UNION RETURN false AS x", engine="pandas")._nodes
+    assert len(out) == 2
+
+
+def test_a4_cudf_union_parity_or_named_divergence():
+    """cuDF (dataframe ops only): same-type UNION dedups; the bool-vs-int collapse is
+    pinned as a KNOWN cross-engine divergence (pandas keeps both, cuDF upcasts like
+    pre-fix pandas). Flip this when the widening is ported."""
+    cudf = pytest.importorskip("cudf")
+    g = graphistry.nodes(cudf.from_pandas(UNION_NODES), "id").edges(
+        cudf.from_pandas(UNION_EDGES), "src", "dst"
+    )
+    same = g.gfql("MATCH (n) RETURN n.i AS x UNION MATCH (n) RETURN n.i AS x",
+                  engine="cudf")._nodes
+    assert len(same.to_pandas()) == 3
+    mixed = g.gfql("RETURN true AS x UNION RETURN 1 AS x", engine="cudf")._nodes
+    assert len(mixed.to_pandas()) == 1  # KNOWN divergence: openCypher (and pandas) keep 2
