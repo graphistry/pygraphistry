@@ -83,12 +83,11 @@ def test_admits_terminal_aggregate_substitution() -> None:
             BASE + "WITH b, count(a) AS cnt RETURN b, cnt",
             id="whole_row_carried_alias_next_to_an_aggregate",
         ),
-        # every aggregate name the stage-aggregate detector knows: dropping any
-        # one of them from its pattern admits a whole-row carry beside it
-        pytest.param(
-            BASE + "WITH b, collect(a.id) AS ids RETURN b, ids",
-            id="whole_row_carried_alias_next_to_collect",
-        ),
+        # `collect` is deliberately absent: dropping it from the detector's
+        # pattern already reddens
+        # test_lowering.py::test_string_cypher_failfast_optional_match_collect_null_whole_row_with_boundary,
+        # so a param here would be a redundant pin. `sum` and `max` are caught
+        # by nothing, measured the same way.
         pytest.param(
             BASE + "WITH b, sum(a.v) AS total RETURN b, total",
             id="whole_row_carried_alias_next_to_sum",
