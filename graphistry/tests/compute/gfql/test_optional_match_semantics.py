@@ -564,15 +564,17 @@ def test_optional_self_loop_arm_projects_edge(engine):
     alias in the optional arm must not route into the connected-OM path's
     duplicate-alias decline. b's LOOP self-edge is the only (a)-[r]-(a) match;
     the edge whole-row flattens to r.* columns (#1650).
-    polars: parity-or-NIE (self-loop lowers to a same-path WHERE it declines)."""
+    polars: parity-or-NIE, and the decline is ASSERTED, not swallowed -- a bare
+    `except NotImplementedError: return` made this the one cell in the file that
+    could pass without reaching an assertion, so a polars route that started
+    answering (rightly or wrongly) would never be noticed here."""
     q = "MATCH (a:B) OPTIONAL MATCH (a)-[r]-(a) RETURN r"
     if engine == "polars":
-        try:
-            result = _run_labeled(q, "polars")
-        except NotImplementedError:
-            return
-    else:
-        result = _run_labeled(q, engine)
+        with pytest.raises(NotImplementedError) as nie:
+            _run_labeled(q, "polars")
+        assert "cross-entity (same-path) WHERE" in str(nie.value), str(nie.value)
+        return
+    result = _run_labeled(q, engine)
     records, _flat = _rendered_whole_entity(result, "r", table="edges")
     assert records == [{"r": "[:LOOP]"}]
 

@@ -83,6 +83,20 @@ def test_admits_terminal_aggregate_substitution() -> None:
             BASE + "WITH b, count(a) AS cnt RETURN b, cnt",
             id="whole_row_carried_alias_next_to_an_aggregate",
         ),
+        # every aggregate name the stage-aggregate detector knows: dropping any
+        # one of them from its pattern admits a whole-row carry beside it
+        pytest.param(
+            BASE + "WITH b, collect(a.id) AS ids RETURN b, ids",
+            id="whole_row_carried_alias_next_to_collect",
+        ),
+        pytest.param(
+            BASE + "WITH b, sum(a.v) AS total RETURN b, total",
+            id="whole_row_carried_alias_next_to_sum",
+        ),
+        pytest.param(
+            BASE + "WITH b, max(a.v) AS hi RETURN b, hi",
+            id="whole_row_carried_alias_next_to_max",
+        ),
     ],
 )
 def test_declines(query: str) -> None:
@@ -95,10 +109,35 @@ def test_declines_when_with_precedes_the_optional_match_reentry_shape() -> None:
     assert flatten_terminal_with_over_optional(q) is None
 
 
+def test_declines_a_trailing_match_reentry_even_with_an_optional_arm_in_front() -> None:
+    """The reentry-matches guard, isolated. The shape above declines on the
+    ``any(m.optional)`` test instead -- its OPTIONAL MATCH moved into
+    ``reentry_matches``, so ``query.matches`` holds no optional at all and the
+    reentry guard is never the deciding one. Here the OPTIONAL arm stays in
+    ``query.matches`` and only the trailing MATCH is a reentry, so every other
+    precondition passes and ``reentry_matches`` alone must stop the flatten --
+    dropping the stage would silently discard the trailing MATCH's re-entry."""
+    q = _parse("MATCH (a:P) OPTIONAL MATCH (a)-[:KNOWS]->(b) WITH a, b "
+               "MATCH (b)-[:KNOWS]->(c) RETURN a.id AS aid, c.id AS cid")
+    assert q.reentry_matches
+    assert len(q.with_stages) == 1
+    assert any(m.optional for m in q.matches) and not q.matches[0].optional
+    assert flatten_terminal_with_over_optional(q) is None
+
+
 def test_declines_row_sequence() -> None:
     q = _parse(BASE + "WITH a, b RETURN a.id")
     hacked = dataclasses.replace(q, row_sequence=q.row_sequence or ("row",))
     assert flatten_terminal_with_over_optional(hacked) is None
+
+
+def test_declines_a_call_clause() -> None:
+    """A CALL feeds rows the flatten's pattern-only alias analysis cannot see,
+    so its presence must veto the rewrite -- the same reason row_sequence does."""
+    call = _parse("CALL db.labels() YIELD label RETURN label").call
+    assert call is not None
+    q = _parse(BASE + "WITH a, b RETURN a.id")
+    assert flatten_terminal_with_over_optional(dataclasses.replace(q, call=call)) is None
 
 
 def test_declines_duplicate_stage_output_names() -> None:
