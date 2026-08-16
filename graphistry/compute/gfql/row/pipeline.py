@@ -2989,6 +2989,25 @@ class RowPipelineMixin:
                 }
             )[[row_col, base_col, key_col]]
 
+        if isinstance(base, pd.DataFrame):
+            # openCypher negative subscripts index from the end; normalize per-row so the positional join matches (out-of-range stays null).
+            key_values = list(base[key_col])
+            if any(isinstance(k, (int, float)) and not isinstance(k, bool) and k == k and k < 0 for k in key_values):
+                normalized_keys: List[Any] = []
+                for k, v in zip(key_values, list(base[base_col])):
+                    if k is None or (isinstance(k, float) and k != k) or not isinstance(k, (int, float)) or isinstance(k, bool):
+                        normalized_keys.append(k)
+                        continue
+                    k_int = int(k)
+                    if k_int < 0 and isinstance(v, (list, tuple)):
+                        k_int += len(v)
+                        if k_int < 0:
+                            normalized_keys.append(None)
+                            continue
+                    normalized_keys.append(k_int)
+                base[key_col] = pd.Series(normalized_keys, index=base.index, dtype="object")
+                key_dtype = "object"
+
         expanded = base[[row_col, base_col]].explode(base_col)
         expanded = expanded.assign(
             **{pos_col: expanded.groupby(row_col, sort=False).cumcount()}
@@ -3620,6 +3639,12 @@ class RowPipelineMixin:
         node_id_col = base_graph._node
         src_col = base_graph._source
         dst_col = base_graph._destination
+        if node_id_col is None and base_graph._edges is not None and src_col is not None and dst_col is not None:
+            try:
+                base_graph = base_graph.materialize_nodes()
+                node_id_col = base_graph._node
+            except Exception:
+                node_id_col = None
         if node_id_col is None or src_col is None or dst_col is None:
             self._gfql_bindings_error(
                 "Cypher multi-alias row bindings require node id, edge source, and edge destination columns"

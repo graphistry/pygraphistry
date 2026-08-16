@@ -187,6 +187,10 @@ def apply_optional_reentry_null_fill(
         return _bind_reentry_graph(result, df_ctor(fill_rows))
 
     fill_df = df_ctor(fill_rows)
+    # NOTE: do NOT pre-align all-NA fill columns to result dtypes to silence
+    # the pandas concat FutureWarning -- casting to pandas-3 string dtypes
+    # turns the null-extension's None into NaN (user-visible representation
+    # regression caught by CI on py3.13/3.14 lanes). The warning is cosmetic.
     return _bind_reentry_graph(
         result,
         concat([result_df, fill_df], ignore_index=True, sort=False),

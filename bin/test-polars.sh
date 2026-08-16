@@ -48,6 +48,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_optional_match_polars_frames.py
     graphistry/tests/compute/gfql/test_optional_match_semantics.py
     graphistry/tests/compute/gfql/test_optional_match_with_pipeline_boundaries.py
+    graphistry/tests/compute/gfql/test_row_multiplicity_semantics.py
     graphistry/tests/compute/gfql/test_hop_boundary_matrix.py
     graphistry/tests/compute/gfql/test_hop_semantics_pins.py
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
