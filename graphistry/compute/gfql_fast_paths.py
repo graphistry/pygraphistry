@@ -2198,6 +2198,58 @@ def _single_hop_grouped_aggregate_fused_polars(
     return cast(DataFrameT, _lazy_collect(out_lf))
 
 
+def _has_edge_destination_disambiguated_nodes(
+    nodes: DataFrameT,
+    start_nodes: DataFrameT,
+    edges: DataFrameT,
+    *,
+    node_col: str,
+    src_col: str,
+    dst_col: str,
+    label_col: str,
+    engine: Engine,
+) -> Optional[DataFrameT]:
+    """HAS_<Label> destination disambiguation for the single-hop fast path.
+
+    Twin of pandas ``RowPipelineMixin._gfql_disambiguate_has_edge_destination_nodes`` at
+    its pipeline position: the candidate destination set is the base node rows whose id is
+    a dst of a (filtered) edge leaving a (filtered) start node; iff those candidate ids
+    COLLIDE, the destination domain narrows to the ``label__<Label>``-true rows of the
+    full node table. Returns the narrowed node frame, or None for "no narrowing" (unique
+    candidates — pandas does not narrow there either, even on a duplicate-id table)."""
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        tbl_dup = bool(_lazy_collect(
+            nodes.lazy()  # type: ignore[union-attr]
+            .select(pl.col(node_col).is_duplicated().any())
+        ).item())
+        if not tbl_dup:
+            return None
+        start_ids = start_nodes.lazy().select(node_col).unique()  # type: ignore[union-attr]
+        cand_ids = (
+            edges.lazy()  # type: ignore[union-attr]
+            .join(start_ids, left_on=src_col, right_on=node_col, how="semi")
+            .select(pl.col(dst_col).alias(node_col))
+            .unique()
+        )
+        cand_dup = bool(_lazy_collect(
+            nodes.lazy()  # type: ignore[union-attr]
+            .join(cand_ids, on=node_col, how="semi")
+            .select(pl.col(node_col).is_duplicated().any())
+        ).item())
+        if not cand_dup:
+            return None
+        return nodes.filter(pl.col(label_col).fill_null(False).cast(pl.Boolean))  # type: ignore[union-attr]
+    if not bool(nodes[node_col].duplicated(keep=False).any()):
+        return None
+    start_ids = start_nodes[node_col].drop_duplicates()
+    cand_ids = edges.loc[edges[src_col].isin(start_ids), dst_col].drop_duplicates()
+    cand = nodes[nodes[node_col].isin(cand_ids)]
+    if not bool(cand[node_col].duplicated(keep=False).any()):
+        return None
+    return nodes[nodes[label_col].fillna(False).astype(bool)]
+
+
 def _execute_single_hop_grouped_aggregate_fast_path(
     base_graph: Plottable,
     chain: Chain,
@@ -2348,6 +2400,26 @@ def _execute_single_hop_grouped_aggregate_fast_path(
     start_nodes = _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], start_op.filter_dict), engine=requested_engine, project=start_proj)
     end_nodes = _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], end_op.filter_dict), engine=requested_engine, project=end_proj)
     edges = _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], edge_op.edge_match), engine=requested_engine, project=edge_proj)
+
+    # Unlabeled HAS_<Label> destinations on a duplicate-id table must narrow BEFORE the
+    # property joins (they join by node id, so a colliding id attaches every same-id row);
+    # same conditional as pandas' `_gfql_disambiguate_has_edge_destination_nodes` oracle.
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin  # narrowing oracle (#1739)
+    dis_label_col = RowPipelineMixin._gfql_has_edge_destination_label_col(edge_op, nodes.columns)
+    if (
+        dis_label_col is not None
+        and not RowPipelineMixin._gfql_node_filter_has_label(end_op.filter_dict)
+    ):
+        narrowed = _has_edge_destination_disambiguated_nodes(
+            nodes, start_nodes, edges,
+            node_col=node_col, src_col=src_col, dst_col=dst_col,
+            label_col=dis_label_col, engine=requested_engine,
+        )
+        if narrowed is not None:
+            end_nodes = _filter_project(
+                narrowed, cast(Optional[dict], end_op.filter_dict), end_proj,
+                engine=requested_engine,
+            )
 
     fused_out: Optional[DataFrameT] = None
     if requested_engine in POLARS_ENGINES:

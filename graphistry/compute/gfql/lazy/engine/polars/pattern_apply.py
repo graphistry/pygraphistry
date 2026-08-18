@@ -17,6 +17,7 @@ from graphistry.Plottable import Plottable
 if TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.ast import ASTObject
+    from graphistry.compute.gfql.row.prefilter import AliasPrefilters
 
 from .dtypes import is_lazy
 from .row_pipeline import _active_table, _rewrap
@@ -39,15 +40,21 @@ def _binding_ast_ops(binding_ops: Sequence[Dict[str, JSONVal]]) -> Optional[List
         return None
 
 
-def rows_binding_ops_polars(g: Plottable, binding_ops: Sequence[Dict[str, JSONVal]]) -> Optional[Plottable]:
+def rows_binding_ops_polars(
+    g: Plottable,
+    binding_ops: Sequence[Dict[str, JSONVal]],
+    alias_prefilters: "Optional[AliasPrefilters]" = None,
+) -> Optional[Plottable]:
     """Native ``rows(binding_ops=[...])`` for the SINGLE named-Node case — the shape the
     boundary rewrite emits for a one-entity MATCH (the EXISTS pipeline's left table).
     Mirrors the pandas ``_gfql_node_alias_lookup_frame`` layout exactly:
     ``[node_id, alias, alias.node_id, alias.<col>...]`` in source column order.
+    ``alias_prefilters`` narrow the matched frame natively — never dropped.
     Anything else (multi-op, edge ops, unnamed, node query=) declines (None -> NIE)."""
     import polars as pl
     from graphistry.compute.ast import ASTNode as _ASTNode
     from .predicates import filter_by_dict_polars
+    from .row_pipeline import _apply_alias_prefilters_polars
     ops = _binding_ast_ops(binding_ops)
     if ops is None or len(ops) != 1 or not isinstance(ops[0], _ASTNode):
         return None
@@ -78,6 +85,8 @@ def rows_binding_ops_polars(g: Plottable, binding_ops: Sequence[Dict[str, JSONVa
         return None
     if matched is None:
         return None
+    # L4 pushdown twin of pandas' cartesian prefilter: NEVER silently dropped
+    matched = _apply_alias_prefilters_polars(matched, alias, alias_prefilters)  # honoured, never dropped (#1804)
     if alias == node_id:
         # pandas' named-op flag column OVERWRITES the id column in this corner —
         # neither engine has sane semantics; decline honestly (wave-1 I1).

@@ -625,9 +625,13 @@ def _try_native_row_op(g_cur, op):
     fn = op.function
     if fn == "rows" and op.params.get("binding_ops") is not None:
         # #1731: single-entity boundary rows (MATCH (n) / EXISTS seeds) are handled by
-        # the pattern-apply helper; try that narrow shape first.
+        # the pattern-apply helper; try that narrow shape first. alias_prefilters
+        # thread through — a helper that ignored them would silently drop the filter.
         if op.params.get("source") is None:
-            out = rows_binding_ops_polars(g_cur, op.params["binding_ops"])
+            out = rows_binding_ops_polars(
+                g_cur, op.params["binding_ops"],
+                alias_prefilters=op.params.get("alias_prefilters"),
+            )
             if out is not None:
                 return out
         # #1730 gate: only take the multi-alias bindings table when alias_endpoints is
@@ -638,7 +642,8 @@ def _try_native_row_op(g_cur, op):
             # pattern handler below (EXISTS/searchAny); returning None here would turn
             # those already-native shapes into an NIE.
             bindings_result = binding_rows_polars(
-                g_cur, op.params["binding_ops"], op.params.get("attach_prop_aliases")
+                g_cur, op.params["binding_ops"], op.params.get("attach_prop_aliases"),
+                alias_prefilters=op.params.get("alias_prefilters"),
             )
             if bindings_result is not None:
                 return bindings_result

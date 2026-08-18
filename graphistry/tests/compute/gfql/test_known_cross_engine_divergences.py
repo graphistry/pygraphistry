@@ -40,15 +40,16 @@ def test_1808_dangling_destination_pandas_matches_polars():
 
 
 @polars_only
-@pytest.mark.xfail(strict=True, reason="#1739: HAS_<Label> narrowing missing on polars; pandas fast-path answer is order-dependent")
 def test_1739_has_label_aggregate_on_duplicate_ids_converges():
-    """#1739: duplicate node id across Tag/Forum rows; the aggregating
+    """#1739 (fixed): duplicate node id across Tag/Forum rows; the aggregating
     single-MATCH shape serves BOTH engines via the grouped-aggregate fast path,
-    where pandas keeps one row per id by frame order (an accident, not the row
-    pipeline's label narrowing) and polars keeps both. The converged answer is
-    the label-narrowed one. Flipping this xfail = porting the
-    _gfql_disambiguate_has_edge_destination_nodes gate (or the #1737 decline)
-    to the shared fast path and the generic polars route."""
+    where pandas kept one row per id by frame order (an accident, not the row
+    pipeline's label narrowing) and polars kept both. The fast path now applies
+    the `_gfql_disambiguate_has_edge_destination_nodes` conditional to the
+    destination domain before its property joins
+    (`_has_edge_destination_disambiguated_nodes`), so every engine answers the
+    label-narrowed row set — see test_has_label_dup_id_fast_path.py for the
+    order-flip and no-narrowing pins."""
     nodes = pd.DataFrame({
         "id": [601, 400, 400],
         "label__Post": [True, False, False],
