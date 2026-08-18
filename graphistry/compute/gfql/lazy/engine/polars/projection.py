@@ -246,6 +246,6 @@ def apply_result_projection_polars(
     raise NotImplementedError(
         "polars engine does not yet natively render this cypher result projection "
         "(whole-entity RETURN over float/temporal/nested/multi-entity columns); "
-        "use engine='pandas' for this query "
-        "(no pandas fallback; parity-or-error by design)"
+        "use engine='pandas' or engine='cudf' for this query "
+        "(no silent fallback; parity-or-error by design)"
     )

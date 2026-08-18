@@ -498,7 +498,7 @@ def _apply_connected_optional_match(
 
         seed_src = joined_rows[[joined_col]]
         # each branch builds ``seed_frame`` directly rather than rebinding ``seed_src``: the
-        # polars result would otherwise widen the variable and break the pandas branch below
+        # polars result would otherwise widen the variable and break the pandas/cuDF branch below
         # (``is_polars_df`` is a TypeGuard -- it does not narrow the negative branch back).
         if is_polars_df(seed_src):
             seed_frame = cast(DataFrameT, df_to_engine(
@@ -1749,7 +1749,7 @@ def _compile_string_query(
         )
     params_key = _compile_cache_params_key(params)
     # node_dtypes (from #1730/#1729 pushdown) makes compilation engine-dependent: the same
-    # (query, params) yields a different pushdown plan under pandas vs polars dtypes. The
+    # (query, params) yields a different pushdown plan under pandas/cuDF vs polars dtypes. The
     # compile cache (#1731) must therefore key on node_dtypes too, or a plan compiled for one
     # engine would be wrongly reused for another on the same graph.
     node_dtypes_key = _node_dtypes_cache_key(node_dtypes)
@@ -2361,12 +2361,12 @@ def _chain_dispatch(
     engine_name = engine.value if hasattr(engine, "value") else str(engine)
     if chain_obj.where and engine_name in (Engine.POLARS.value, Engine.POLARS_GPU.value):
         # Cross-entity / same-path WHERE routes through DFSamePathExecutor
-        # (df_executor.py), which has no native polars implementation. NO pandas
-        # fallback (no-silent-fallback policy) — raise honestly.
+        # (df_executor.py, serving pandas AND cuDF), which has no native polars
+        # implementation. No silent fallback — raise honestly.
         raise NotImplementedError(
             "polars engine does not yet natively support cross-entity (same-path) "
-            "WHERE; use engine='pandas' for this query "
-            "(no pandas fallback; parity-or-error by design)"
+            "WHERE; use engine='pandas' or engine='cudf' for this query "
+            "(no silent fallback; parity-or-error by design)"
         )
     if chain_obj.where:
         if start_nodes is not None:
