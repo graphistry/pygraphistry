@@ -5,6 +5,7 @@ cudf/cugraph run whose ~87 GB peak exceeds the ~80 GB unified-memory budget must
 be REFUSED, while the #1658 handoff's 80M-edge run must be allowed.
 """
 import os, sys
+from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import preflight
 
@@ -35,7 +36,7 @@ import subprocess  # noqa: E402
 _GUARD_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-def _run_guarded(code: str, limit_gb: str | None):
+def _run_guarded(code: str, limit_gb: Optional[str]):
     env = dict(os.environ, PYTHONPATH=_GUARD_DIR)
     env.pop("GFQL_HOST_LIMIT_GB", None)
     if limit_gb is not None:
