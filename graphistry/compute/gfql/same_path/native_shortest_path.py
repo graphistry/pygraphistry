@@ -27,6 +27,7 @@ import logging
 from typing import Any, Dict, Hashable, Literal, Optional, Tuple
 
 import pandas as pd
+from graphistry.compute.gfql.identifiers import WALK_FROM_COL, WALK_TO_COL
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +41,8 @@ NativeShortestPathCache = Dict[Hashable, Any]
 def _build_igraph_shortest_path_state(step_pairs: Any, *, directed: bool) -> IgraphShortestPathState:
     import igraph as ig  # type: ignore[import]
 
-    sp_frm = list(step_pairs["__from__"])
-    sp_to = list(step_pairs["__to__"])
+    sp_frm = list(step_pairs[WALK_FROM_COL])
+    sp_to = list(step_pairs[WALK_TO_COL])
     all_nodes = list(dict.fromkeys(sp_frm + sp_to))
     node_index = {n: i for i, n in enumerate(all_nodes)}
     edges = [(node_index[f], node_index[t]) for f, t in zip(sp_frm, sp_to)]
@@ -166,8 +167,8 @@ def cugraph_shortest_path_distances(
 
     def _build_graph() -> Any:
         edges_gdf = cudf.DataFrame({
-            "src": step_pairs["__from__"],
-            "dst": step_pairs["__to__"],
+            "src": step_pairs[WALK_FROM_COL],
+            "dst": step_pairs[WALK_TO_COL],
         })
         graph = cugraph.Graph(directed=directed)
         graph.from_cudf_edgelist(edges_gdf, source="src", destination="dst")

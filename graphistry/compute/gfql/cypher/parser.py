@@ -144,6 +144,7 @@ rel_bidirectional_simple: REL_BIDIR_SIMPLE
 rel_types: ":" LABEL_NAME ("|" ":"? LABEL_NAME)*
 rel_range: "*" INT ".." INT      -> rel_range_bounded
          | "*" INT ".."          -> rel_range_open_max
+         | "*" ".." INT          -> rel_range_open_min
          | "*" INT               -> rel_range_exact
          | "*"                   -> rel_range_fixed
 
@@ -942,6 +943,21 @@ def _build_transformer(source: str) -> _TransformerLike:
                     value=self._slice(_span_from_meta(meta)),
                 )
             return {"min_hops": min_hops, "max_hops": max_hops, "to_fixed_point": False}
+
+        def rel_range_open_min(self, meta: Any, items: Sequence[Any]) -> dict[str, Any]:  # hygiene-ok: explicit-any -- lark transformer callback signature, module-wide idiom
+            # openCypher [*..M]: omitted lower bound defaults to 1
+            if len(items) != 1:
+                raise _to_syntax_error("Invalid relationship range", line=meta.line, column=meta.column)
+            max_hops = self._rel_hops(meta, items[0])
+            if max_hops < 1:
+                raise _to_unsupported(
+                    "Cypher relationship ranges require lower bound <= upper bound",
+                    line=meta.line,
+                    column=meta.column,
+                    field="match",
+                    value=self._slice(_span_from_meta(meta)),
+                )
+            return {"min_hops": 1, "max_hops": max_hops, "to_fixed_point": False}
 
         def rel_range_open_max(self, meta: Any, items: Sequence[Any]) -> dict[str, Any]:
             if len(items) != 1:

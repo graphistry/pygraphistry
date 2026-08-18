@@ -658,7 +658,8 @@ def test_group_by_polars_malformed_agg_declines_not_crashes():
 
 
 def test_polars_rows_binding_ops_undirected_self_loop_multiplicity():
-    """Raw undirected bindings preserve both orientations, including two self-loop paths."""
+    """Raw undirected bindings preserve both orientations; a self-loop's flip
+    twin is the SAME binding and appears once (#1903 addendum A-1)."""
     from graphistry.compute.ast import e_undirected, n, rows, serialize_binding_ops
 
     g = graphistry.nodes(pd.DataFrame({"id": [0, 1]}), "id").edges(
@@ -667,7 +668,7 @@ def test_polars_rows_binding_ops_undirected_self_loop_multiplicity():
     binding_ops = serialize_binding_ops([n(name="a"), e_undirected(), n(name="b")])
     out = g.gfql([rows(binding_ops=binding_ops)], engine="polars")._nodes
 
-    assert sorted(out.select(["a", "b"]).rows()) == [(0, 1), (1, 0), (1, 1), (1, 1)]
+    assert sorted(out.select(["a", "b"]).rows()) == [(0, 1), (1, 0), (1, 1)]
 
 
 def test_run_calls_polars_binding_ops_native():

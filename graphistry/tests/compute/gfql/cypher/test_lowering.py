@@ -3000,8 +3000,12 @@ def test_issue_1411_connected_join_property_projection_shape() -> None:
         "ORDER BY friendId"
     )
 
+    # openCypher relationship uniqueness (#1903 item 4): friend=p1 would have
+    # to REBIND person's own IS_LOCATED_IN edge across pattern elements, so
+    # only p2 (its own edge) matches -- the old expectation pinned the
+    # cross-element edge reuse. (LDBC's reference queries add friend <> person
+    # precisely because Neo4j excludes the same-edge rebind, not the node.)
     assert result._nodes.to_dict(orient="records") == [
-        {"friendId": "p1", "friendFirstName": "Seed", "cityName": "City"},
         {"friendId": "p2", "friendFirstName": "Friend", "cityName": "City"},
     ]
 
@@ -10642,12 +10646,6 @@ def test_string_cypher_executes_undirected_multihop_row_bindings_on_cudf() -> No
             None,
             "do not yet support variable-length relationship aliases",
         ),
-        (
-            _mk_multihop_row_binding_cycle_graph,
-            "MATCH (a:A)-[:R*0..]->(b) RETURN a.id AS aid, b.id AS bid",
-            None,
-            "currently require terminating variable-length segments",
-        ),
     ],
 )
 def test_string_cypher_failfast_rejects_remaining_unsupported_multihop_row_bindings(
@@ -10658,6 +10656,19 @@ def test_string_cypher_failfast_rejects_remaining_unsupported_multihop_row_bindi
 ) -> None:
     with pytest.raises(GFQLValidationError, match=match):
         graph_factory().gfql(query, params=params)
+
+
+def test_string_cypher_executes_unbounded_cycle_trail_termination() -> None:
+    """#1903: trail semantics bound an unbounded walk on a cycle (each edge
+    binds once per path), so `[*0..]` on a 2-cycle now SERVES on pandas:
+    zero-hop (a,a); e0 -> (a,b); e0,e1 -> (a,a); a third hop would reuse e0.
+    (polars' node-frontier probe still declines the reachable cycle -- its
+    terminating-segments error is the pinned #1903 residual.)"""
+    result = _mk_multihop_row_binding_cycle_graph().gfql(
+        "MATCH (a:A)-[:R*0..]->(b) RETURN a.id AS aid, b.id AS bid"
+    )
+    got = sorted((r["aid"], r["bid"]) for r in result._nodes.to_dict(orient="records"))
+    assert got == [("a", "a"), ("a", "a"), ("a", "b")]
 
 
 def test_compile_cypher_records_reentry_plan_for_multi_whole_row_prefix() -> None:
@@ -13229,8 +13240,11 @@ def test_multi_alias_undirected_self_loop() -> None:
     )
     records = _to_pandas_df(result._nodes).to_dict(orient="records")
     # Self-loop in undirected traversal matches both directions → 2 rows for the self-loop.
-    # KNOWS edge: 1 row with fid=2. Total: 3 rows.
-    assert len(records) == 3, f"Expected 3 rows (self-loop×2 + KNOWS), got {records}"
+    # openCypher (#1903 addendum A-1): a self-loop's two undirected
+    # orientations are the SAME relationship binding -> ONE row for the
+    # self-loop (the old x2 pinned the orientation-flip double-count).
+    # KNOWS edge: 1 row with fid=2. Total: 2 rows.
+    assert len(records) == 2, f"Expected 2 rows (self-loop + KNOWS), got {records}"
     assert records[0]["w"] == 10  # KNOWS edge first (weight 10)
     assert records[0]["fid"] == 2
     assert all(r["fid"] == 1 for r in records[1:]), f"Self-loop rows should reference self, got {records}"

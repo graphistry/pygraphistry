@@ -64,6 +64,13 @@ from .lowering_context import (
     COLUMNS_NAN_FREE as _COLUMNS_NAN_FREE,
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN as _NODE_ID_TOKEN
+from graphistry.compute.gfql.identifiers import (
+    TRAIL_EDGE_IDENT_COL,
+    WALK_CURRENT_COL,
+    WALK_FROM_COL,
+    WALK_TO_COL,
+    trail_column_name,
+)
 
 # Ops needing the NaN guard: polars treats NaN as the LARGEST value (>/>=/== TRUE), but
 # IEEE/Python/pandas/Cypher compare NaN as FALSE (!= TRUE; Neo4j TCK agrees). Float operands
@@ -982,7 +989,7 @@ def _finish_binding_rows_polars(
             state = state.join(
                 lookup, left_on=alias, right_on=node_id, how="left",
             )
-        state = state.drop("__current__")
+        state = state.drop(WALK_CURRENT_COL)
         out_df = (
             _lazy_collect(state)
             if isinstance(state, pl.LazyFrame)
@@ -1542,7 +1549,7 @@ def binding_rows_polars(
     seed_ids_lf: Optional[Any] = None  # LazyFrame; Any avoids the union-typed seed_nodes.join mismatch
     start_nodes = g._gfql_start_nodes
     if start_nodes is not None:
-        # Bounded WITH->MATCH re-entry (#1273): the carried WITH rows seed the first
+        # Bounded WITH->MATCH re-entry: the carried WITH rows seed the first
         # alias. Constrain the first node alias to the carried ids via a semi-join —
         # the native twin of the pandas wavefront seed. Support only UNIQUE carried
         # ids: then the semi-join contributes each seed node exactly once, matching the
@@ -1572,7 +1579,7 @@ def binding_rows_polars(
             # (wrong cross-product). Decline honestly (the alternating-path seed is
             # applied at seed_nodes; node-cartesian re-entry stays pandas-only).
             return None
-        # MATCH (a), (b), ... disconnected node aliases: native cross-product (#1273).
+        # MATCH (a), (b), ... disconnected node aliases: native cross-product.
         return _cartesian_node_bindings_polars(g, ops, node_id)
     if RowPipelineMixin._gfql_is_shortest_path_scalar_binding_ops(ops):
         return None  # shortestPath scalar contract: BFS/native backends, pandas-only
@@ -1627,41 +1634,7 @@ def binding_rows_polars(
                 return None
             sem = EdgeSemantics.from_edge(op)
             if sem.is_multihop:
-                # Bounded directed var-length (`-[*1..k]->`, graph-bench q3) is
-                # supported via iterative pair joins. Bounded UNDIRECTED var-length
-                # with min_hops == 1 (`-[*1..k]-`, the LDBC IC11/IC6 shape) is now
-                # also supported via a doubled-pair join with immediate-backtrack
-                # avoidance (see the execution branch below). UNBOUNDED DIRECTED
-                # fixed-point (`-[*0..]->` / `-[*]->`, the LDBC IS6 REPLY_OF ancestor
-                # walk, #1709) runs the same pair join to exhaustion — see
-                # `_directed_fixed_point_binding_rows_polars` for the parity argument.
-                # Everything else declines:
-                #  - aliased var-length edges (pandas rejects those outright);
-                #  - undirected var-length with min_hops != 1 (`-[*0..k]-` /
-                #    `-[*2..k]-`): pandas' step_pairs come from the var-length
-                #    `edge_op.execute` hop, whose backward hop-window pruning /
-                #    zero-hop handling changes the edge multiplicity in a way this
-                #    raw-edge reconstruction only reproduces for min_hops == 1 (every
-                #    edge is trivially a length-1 path, so no pruning occurs) —
-                #    fuzz-verified vs the pandas oracle;
-                #  - undirected UNBOUNDED (`-[*]-`): would need both the multiplicity
-                #    reconstruction above and backtrack-aware termination;
-                #  - unbounded WITHOUT to_fixed_point (`min_hops=2` and no max): pandas
-                #    silently truncates at `len(step_pairs) + 1` iterations instead of
-                #    erroring, and its step_pairs row count is not reconstructible here,
-                #    so the truncation depth (hence the answer) is not reproducible.
-                #  - UNBOUNDED with min_hops >= 2 (`-[*2..]->`): same multiplicity hazard as
-                #    the undirected min_hops != 1 case above, and it is Cypher-reachable.
-                #    Pandas' step_pairs come from the var-length `edge_op.execute` hop, which
-                #    returns an EMPTY frame when its `max_reached_hop < min_hops`
-                #    (compute/hop.py) and otherwise drops edges labelled below min_hops.
-                #    `max_reached_hop` is a dedup-by-node BFS eccentricity, NOT a longest-walk
-                #    length, so the raw-edge reconstruction below expands a DIFFERENT edge
-                #    multiset and disagrees SILENTLY — on a 7-node acyclic graph
-                #    `MATCH (a)-[*3..]->(b) RETURN count(*)` gives pandas 0 vs polars 30.
-                #    `RETURN count(*)` lowers to a pure-CALL chain, so `_is_native_multihop`
-                #    in `_chain_traversal_polars` never runs: this gate is the only gate.
-                # Decline the rest honestly rather than risk silent-wrong multiplicities.
+                # Served: bounded fwd/rev/undirected windows and the unbounded DIRECTED fixed point.
                 if isinstance(op._name, str):
                     return None
                 _resolved_max = op.max_hops if op.max_hops is not None else op.hops
@@ -1680,8 +1653,7 @@ def binding_rows_polars(
                 if _resolved_max is None:
                     if not bool(op.to_fixed_point) or op.direction == "undirected":
                         return None
-                    # min_hops 0 and 1 are the fuzz-verified shapes (`-[*]->`, `-[*0..]->`,
-                    # the #1709 IS6 walk); >= 2 is the divergence above.
+                    # Unbounded serves min_hops 0 and 1 only; >= 2 is the divergence above.
                     _resolved_min_unbounded = op.min_hops if op.min_hops is not None else (
                         op.hops if op.hops is not None else 1
                     )
@@ -1693,41 +1665,20 @@ def binding_rows_polars(
                     )
                     if _resolved_min != 1:
                         return None
-            # #1787, same root-cause family as the unbounded shapes #1781 declined: pandas'
-            # step_pairs come from the var-length `edge_op.execute` hop, whose hop-window
-            # pruning -- and, when seeded, its per-seed BFS -- changes an edge multiplicity
-            # this raw-edge rebuild cannot reproduce. Declining is a DELIBERATE divergence
-            # from master, which served these: parity-or-NIE means a loud error, never a
-            # different number. Shrink the gate again once the multiplicity is reconstructible.
-            # WHICH shapes, why each boundary sits where it does, and the counts that prove
-            # each one are executable rather than prose -- every claim that used to be written
-            # out here is now a named test in:
-            #   graphistry/tests/compute/gfql/test_varlen_bounded_engine_parity_1787.py
-            #
-            # Keyed on an EXPLICIT window, NOT on `sem.is_multihop`: `-[*1..1]-` resolves to
-            # min == max == 1, is therefore not multihop, and pandas still routes it here.
+            # Residual decline: pandas' `max_reached_hop` is a dedup-by-node eccentricity, not a
+            # longest-trail length, so a DIRECTED min_hops window under-reports on the pandas lane.
             if op.min_hops is not None or op.max_hops is not None:
-                _vl_max = op.max_hops if op.max_hops is not None else op.hops
                 _vl_min = op.min_hops if op.min_hops is not None else (
                     op.hops if op.hops is not None else 1
                 )
-                # a seed is anything that starts the segment from less than the whole node
-                # set: a filtered start alias, or a re-entry / `WITH` seed frame
                 _prev_op = ops[idx - 1] if idx >= 1 else None
                 _seeded_start = start_nodes is not None or (
                     isinstance(_prev_op, ASTNode) and bool(_prev_op.filter_dict)
                 )
-                if _vl_max is not None:
-                    if op.direction == "undirected":
-                        if _vl_max == 1:  # the degenerate window `-[*1..1]-` / `-[*1]-`
-                            return None
-                        if _seeded_start or idx > 1:  # doubled-pair expansion over-counts
-                            return None
-                    # `max_reached_hop` (compute/hop.py) is a dedup-by-node BFS eccentricity,
-                    # not a longest-walk length, so pandas prunes where this rebuild expands
-                    # a different edge multiset
-                    elif _vl_min >= 3 or (_vl_min >= 2 and _seeded_start):
-                        return None
+                if op.direction != "undirected" and (
+                    _vl_min >= 3 or (_vl_min >= 2 and _seeded_start)
+                ):
+                    return None
             if op.direction not in ("forward", "reverse", "undirected"):
                 return None
             if any(
@@ -1749,7 +1700,7 @@ def binding_rows_polars(
 
     try:
         # Build the WHOLE binding table as ONE deferred pl.LazyFrame and collect
-        # ONCE on the active target (#1709 laziness): under engine='polars-gpu' the
+        # ONCE on the active target: under engine='polars-gpu' the
         # entire join chain + property attach runs on cudf_polars in a single GPU
         # collect (~4-5× vs CPU on the join phase — de-risk probe 2026-07-06);
         # under 'polars' it collects on CPU (parity-identical). NO-CHEATING: a
@@ -1780,6 +1731,11 @@ def binding_rows_polars(
                     _endpoint_casts.append(pl.col(_endpoint).cast(_node_dtype))
         if _endpoint_casts:
             edges_lf = edges_lf.with_columns(_endpoint_casts)
+        # openCypher trail semantics: stable per-edge identity for the
+        # at-most-once-per-path relationship constraint (pandas twin:
+        # _gfql_connected_bindings_state's __gfql_edge_ident__).
+        edges_lf = edges_lf.with_row_index(TRAIL_EDGE_IDENT_COL)
+        trail_cols_pl: List[str] = []
         first_op = ops[0]
         if not isinstance(first_op, ASTNode):
             return None
@@ -1791,12 +1747,12 @@ def binding_rows_polars(
         # `filter_by_dict_polars` is frame-polymorphic at runtime but declares the eager
         # type, so pin the path bag lazy here instead of leaving every downstream lazy
         # op to fight an eager inference.
-        state: pl.LazyFrame = seed_nodes.select(pl.col(node_id).alias("__current__"))  # type: ignore[assignment]
+        state: pl.LazyFrame = seed_nodes.select(pl.col(node_id).alias(WALK_CURRENT_COL))  # type: ignore[assignment]
         alias_frames: Dict[str, pl.LazyFrame] = {}
         node_aliases: List[str] = []
         first_alias = first_op._name
         if isinstance(first_alias, str):
-            state = state.with_columns(pl.col("__current__").alias(first_alias))
+            state = state.with_columns(pl.col(WALK_CURRENT_COL).alias(first_alias))
             alias_frames[first_alias] = seed_nodes
             node_aliases.append(first_alias)
 
@@ -1811,20 +1767,27 @@ def binding_rows_polars(
                 payload_renames = {
                     col: f"{edge_alias}.{col}"
                     for col in _names(edges_f)
-                    if col not in (src, dst)
+                    if col not in (src, dst, TRAIL_EDGE_IDENT_COL)
                 }
             else:
                 # Unaliased edge payload is unaddressable downstream; carrying it
                 # unprefixed (as pandas does) only risks column collisions.
-                edges_f = edges_f.select([src, dst])
+                edges_f = edges_f.select([src, dst, TRAIL_EDGE_IDENT_COL])
                 payload_renames = {}
             if sem.is_undirected:
-                fwd = edges_f.rename({src: "__from__", dst: "__to__"})
-                rev = edges_f.rename({dst: "__from__", src: "__to__"})
+                fwd = edges_f.rename({src: WALK_FROM_COL, dst: WALK_TO_COL})
+                rev = edges_f.rename({dst: WALK_FROM_COL, src: WALK_TO_COL})
                 oriented = pl.concat([fwd, rev.select(_names(fwd))], how="vertical")
+                # A self-loop's two undirected orientations are the SAME binding:
+                # dedupe the flip twin.
+                oriented = oriented.unique(
+                    subset=[WALK_FROM_COL, WALK_TO_COL, TRAIL_EDGE_IDENT_COL],
+                    keep="first",
+                    maintain_order=True,
+                )
             else:
                 join_col, result_col = (dst, src) if edge_op.direction == "reverse" else (src, dst)
-                oriented = edges_f.rename({join_col: "__from__", result_col: "__to__"})
+                oriented = edges_f.rename({join_col: WALK_FROM_COL, result_col: WALK_TO_COL})
             if payload_renames:
                 oriented = oriented.rename(payload_renames)
 
@@ -1839,23 +1802,18 @@ def binding_rows_polars(
                 # this turn an all-edges scan into a small-domain edge semi-join.
                 oriented = oriented.join(
                     next_node_ids,
-                    left_on="__to__",
+                    left_on=WALK_TO_COL,
                     right_on=node_id,
                     how="semi",
                 )
 
             # Column collision between edge payload and accumulated state → decline
             # (pandas resolves via merge suffixes; unreferenced-by-queries either way).
-            overlap = (set(_names(oriented)) - {"__from__"}) & set(_names(state))
+            overlap = (set(_names(oriented)) - {WALK_FROM_COL}) & set(_names(state))
             if overlap:
                 return None
             if sem.is_multihop:
-                # Bounded directed var-length: iterative pair joins, one row per
-                # distinct edge sequence (Cypher path multiplicity — pairs NOT
-                # deduped, so parallel edges multiply per hop, matching pandas
-                # `_gfql_multihop_binding_rows`). Zero-hop rows (min 0) keep the
-                # seed row (endpoint == start), also matching pandas.
-                # Same defaults as the pandas builder: bare hops=k means exactly-k.
+                # Same defaults as the pandas builder: a bare hops=k means exactly k.
                 min_hops_value = edge_op.min_hops if edge_op.min_hops is not None else (
                     edge_op.hops if edge_op.hops is not None else 1
                 )
@@ -1867,79 +1825,71 @@ def binding_rows_polars(
                     # above to to_fixed_point=True and a directed edge. Termination is
                     # data-dependent, so unlike the bounded branch this one cannot stay
                     # fully lazy — it collects one frontier per hop.
-                    state = _directed_fixed_point_binding_rows_polars(
+                    state, _fp_trail_cols = _directed_fixed_point_binding_rows_polars(
                         state,
-                        oriented.select(["__from__", "__to__"]),
+                        oriented.select([WALK_FROM_COL, WALK_TO_COL]),
                         state_cols,
                         min_hops=min_hops,
                     )
                 elif sem.is_undirected:
-                    # Bounded UNDIRECTED var-length, min_hops == 1 (gated above): the
-                    # LDBC IC11/IC6 `-[*1..k]-` shape. Mirror the pandas oracle
-                    # (`_gfql_multihop_binding_rows`, avoid_immediate_backtrack=True)
-                    # EXACTLY, including its edge multiplicity: pandas' `step_pairs`
-                    # come from the undirected var-length hop + `orient_edges`, which
-                    # emits each NON-loop edge as (u,v)x2 AND (v,u)x2, and each
-                    # SELF-loop as (u,u)x2 (loops are not double-counted). Reconstruct
-                    # that here: `exec_rows` = both directions of non-loops + one row
-                    # per self-loop; the final `pairs` doubles `exec_rows`
-                    # (fuzz-verified vs pandas over random graphs incl. self-loops,
-                    # parallel + antiparallel edges). A `__prev__` column (seeded null)
-                    # carries the just-left node so each hop can drop immediate
-                    # backtracks (`__to__ == __prev__`), matching pandas' Kleene mask
-                    # (null prev -> kept).
+                    # One row per orientation (a self-loop just one); a relationship binds once per
+                    # path, so a same-edge backtrack dies while a PARALLEL-edge return trip is legal.
                     max_hops = int(max_hops_value)
                     normal = edges_f.filter(pl.col(src) != pl.col(dst))
                     loops = edges_f.filter(pl.col(src) == pl.col(dst))
-                    fwd = normal.select([pl.col(src).alias("__from__"), pl.col(dst).alias("__to__")])
-                    rev = normal.select([pl.col(dst).alias("__from__"), pl.col(src).alias("__to__")])
-                    loop = loops.select([pl.col(src).alias("__from__"), pl.col(dst).alias("__to__")])
-                    exec_rows = pl.concat([fwd, rev, loop], how="vertical")
-                    pairs = pl.concat([exec_rows, exec_rows], how="vertical")
-                    prev_col = "__prev__"
+                    ident = pl.col(TRAIL_EDGE_IDENT_COL)
+                    fwd = normal.select([pl.col(src).alias(WALK_FROM_COL), pl.col(dst).alias(WALK_TO_COL), ident])
+                    rev = normal.select([pl.col(dst).alias(WALK_FROM_COL), pl.col(src).alias(WALK_TO_COL), ident])
+                    loop = loops.select([pl.col(src).alias(WALK_FROM_COL), pl.col(dst).alias(WALK_TO_COL), ident])
+                    pairs = pl.concat([fwd, rev, loop], how="vertical")
                     reachable = [state.select(state_cols)] if min_hops == 0 else []
-                    # Seed the backtrack marker with the SAME dtype as __current__ so a
-                    # non-Int64 node id (e.g. string ids) compares/concats cleanly.
-                    current = state.with_columns(
-                        pl.lit(None).cast(state.collect_schema()["__current__"]).alias(prev_col)
-                    )
+                    current = state
+                    _und_trail_cols: List[str] = []
                     for _hop in range(1, max_hops + 1):
                         joined = current.join(
-                            pairs, left_on="__current__", right_on="__from__", how="inner"
+                            pairs, left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner"
                         )
-                        joined = joined.filter(
-                            pl.col(prev_col).is_null() | (pl.col("__to__") != pl.col(prev_col))
-                        )
-                        # new prev = the node we are leaving (old __current__); new
-                        # __current__ = __to__. Set prev BEFORE dropping __current__.
-                        joined = (
-                            joined.with_columns(pl.col("__current__").alias(prev_col))
-                            .drop("__current__")
-                            .rename({"__to__": "__current__"})
-                        )
-                        current = joined.select(state_cols + [prev_col])
+                        for _used in trail_cols_pl + _und_trail_cols:
+                            joined = joined.filter(
+                                (pl.col(TRAIL_EDGE_IDENT_COL) != pl.col(_used)) | pl.col(_used).is_null()
+                            )
+                        _hop_trail = trail_column_name(len(trail_cols_pl) + len(_und_trail_cols))
+                        joined = joined.rename({TRAIL_EDGE_IDENT_COL: _hop_trail})
+                        _und_trail_cols.append(_hop_trail)
+                        joined = joined.drop(WALK_CURRENT_COL).rename({WALK_TO_COL: WALK_CURRENT_COL})
+                        current = joined.select(state_cols + _und_trail_cols)
                         if _hop >= min_hops:
-                            reachable.append(current.select(state_cols))
-                    state = pl.concat(reachable, how="vertical") if reachable else state.limit(0)
+                            reachable.append(current)
+                    state = pl.concat(reachable, how="diagonal") if reachable else state.limit(0)
+                    trail_cols_pl = trail_cols_pl + _und_trail_cols
                 else:
-                    # Bounded directed var-length (`-[*1..k]->`, graph-bench q3).
-                    state = _directed_varlen_reachable_polars(
+                    # Bounded directed var-length (`-[*1..k]->`), trail-tracked.
+                    state, _seg_trail_cols = _directed_varlen_reachable_polars(
                         state,
-                        oriented.select(["__from__", "__to__"]),
+                        oriented.select([WALK_FROM_COL, WALK_TO_COL, TRAIL_EDGE_IDENT_COL]),
                         state_cols,
                         min_hops=min_hops,
                         max_hops=int(max_hops_value),
+                        trail_cols_in=trail_cols_pl,
                     )
+                    trail_cols_pl = trail_cols_pl + _seg_trail_cols
             else:
                 state = (
-                    state.join(oriented, left_on="__current__", right_on="__from__", how="inner")
-                    .drop("__current__")
-                    .rename({"__to__": "__current__"})
+                    state.join(oriented, left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner")
+.drop(WALK_CURRENT_COL)
+.rename({WALK_TO_COL: WALK_CURRENT_COL})
                 )
+                for _used in trail_cols_pl:
+                    state = state.filter(
+                        (pl.col(TRAIL_EDGE_IDENT_COL) != pl.col(_used)) | pl.col(_used).is_null()
+                    )
+                _new_trail = trail_column_name(len(trail_cols_pl))
+                state = state.rename({TRAIL_EDGE_IDENT_COL: _new_trail})
+                trail_cols_pl = trail_cols_pl + [_new_trail]
 
             state = state.join(
                 next_node_ids,
-                left_on="__current__",
+                left_on=WALK_CURRENT_COL,
                 right_on=node_id,
                 how="semi",
             )
@@ -1964,18 +1914,22 @@ def binding_rows_polars(
                     return None
                 _base_dup = bool(
                     nodes.lazy()
-                    .select(pl.col(node_id).is_duplicated().any())
-                    .collect()
-                    .item()
+.select(pl.col(node_id).is_duplicated().any())
+.collect()
+.item()
                 )
                 if _base_dup:
                     return None
             next_alias = next_op._name
             if isinstance(next_alias, str):
-                state = state.with_columns(pl.col("__current__").alias(next_alias))
+                state = state.with_columns(pl.col(WALK_CURRENT_COL).alias(next_alias))
                 alias_frames[next_alias] = next_nodes
                 node_aliases.append(next_alias)
 
+        if trail_cols_pl:
+            _present = [c for c in trail_cols_pl if c in _names(state)]
+            if _present:
+                state = state.drop(_present)
         # The finisher's frame type is a constrained TypeVar so `state.join(lookup)`
         # type-checks. The GENERIC builder above mixes eager and lazy frames across
         # its (pre-existing) branches, so inference cannot pick one here; the

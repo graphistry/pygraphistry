@@ -9,6 +9,7 @@ from graphistry.compute.gfql.cypher.api import compile_cypher
 from graphistry.compute.gfql.cypher.ast_normalizer import ASTNormalizer
 from graphistry.compute.gfql.cypher.lowering import lower_match_query
 from graphistry.compute.gfql.cypher.parser import parse_cypher
+from graphistry.compute.gfql.identifiers import shortest_path_hops_column
 
 
 def _normalize(query: str) -> CypherQuery:
@@ -26,7 +27,7 @@ def test_normalizer_rewrites_shortest_path_seed_and_projection() -> None:
     assert len(normalized.matches) == 2
     assert normalized.matches[0].pattern_alias_kinds == ("pattern",)
     assert normalized.matches[1].pattern_alias_kinds == ("shortestPath",)
-    assert "__cypher_shortest_path_hops__path" in normalized.return_.items[0].expression.text
+    assert shortest_path_hops_column("path") in normalized.return_.items[0].expression.text
 
 
 def test_normalizer_keeps_where_pattern_predicate_as_existence_check() -> None:

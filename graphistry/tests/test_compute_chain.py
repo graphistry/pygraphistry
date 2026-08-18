@@ -1815,8 +1815,11 @@ class TestChainBindingsTable(NoAuthTestCase):
         assert df["dst.id"].iloc[0] == "b"
         assert df["src.id"].iloc[0] == "a"
 
-    def test_native_chain_rows_select_undirected_self_loop_duplicates_both_directions(self):
-        """Undirected self-loops should surface both orientations in bindings rows."""
+    def test_native_chain_rows_select_undirected_self_loop_binds_once(self):
+        """Undirected self-loops bind ONCE: both orientations of a self-loop edge
+        produce the identical (seed, r, friend) assignment, and one assignment is
+        one binding row (openCypher; #1903 A-1 — the old two-row expectation
+        characterized the orientation double-count bug)."""
         g = self._mk_graph(
             pd.DataFrame({"id": ["a"], "label__Person": [True], "firstName": ["Alice"]}),
             pd.DataFrame({"s": ["a"], "d": ["a"], "type": ["KNOWS"], "weight": [7]}),
@@ -1831,7 +1834,6 @@ class TestChainBindingsTable(NoAuthTestCase):
             items=[("seedId", "seed.id"), ("friendId", "friend.id"), ("w", "r.weight")],
         )
         assert records == [
-            {"seedId": "a", "friendId": "a", "w": 7},
             {"seedId": "a", "friendId": "a", "w": 7},
         ]
 

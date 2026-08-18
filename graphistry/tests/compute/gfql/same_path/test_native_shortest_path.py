@@ -24,6 +24,7 @@ from graphistry.compute.gfql.same_path.native_shortest_path import (
     try_native_shortest_path,
 )
 from graphistry.Engine import Engine
+from graphistry.compute.gfql.identifiers import WALK_FROM_COL, WALK_TO_COL
 from graphistry.tests.test_compute import CGFull
 
 igraph = pytest.importorskip("igraph", reason="igraph not installed")
@@ -63,7 +64,7 @@ def _chain_graph() -> _TestGraph:
 # ---------------------------------------------------------------------------
 
 def _step_pairs(frm, to):
-    return pd.DataFrame({"__from__": frm, "__to__": to})
+    return pd.DataFrame({WALK_FROM_COL: frm, WALK_TO_COL: to})
 
 
 def _hops(result, src, tgt):
@@ -264,9 +265,11 @@ class TestCugraphGraphCache:
 # Integration: Cypher shortestPath via igraph backend
 # ---------------------------------------------------------------------------
 
+# OPTIONAL MATCH spelling: plain-MATCH shortestPath drops unreachable rows
+# (openCypher; #1903), so the -1 sentinel needs the null-extending clause.
 _SP_QUERY = (
-    "MATCH (a:Person {id: $a}), (b:Person {id: $b}), "
-    "path = shortestPath((a)-[:KNOWS*]-(b)) "
+    "MATCH (a:Person {id: $a}), (b:Person {id: $b}) "
+    "OPTIONAL MATCH path = shortestPath((a)-[:KNOWS*]-(b)) "
     "RETURN CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS dist"
 )
 

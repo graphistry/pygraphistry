@@ -26,6 +26,7 @@ from graphistry.compute.gfql.row.prefilter import (
     AliasPrefilterSpec, MutableAliasPrefilters, is_alias_prefilters,
 )
 from graphistry.utils.json import JSONVal
+from graphistry.compute.gfql.identifiers import is_shortest_path_hops_column
 from typing_extensions import TypeGuard
 
 # Ops that consume/close the post-``rows`` filter region.  Reaching any of these
@@ -122,7 +123,7 @@ def _binding_alias_targets(
         # honor alias_prefilters — pushing there would silently drop the filter.
         # Bail out of the entire pushdown for any such pattern.
         lnh = op_json.get("label_node_hops") if isinstance(op_json, dict) else None
-        if isinstance(lnh, str) and lnh.startswith("__cypher_shortest_path_hops__"):
+        if is_shortest_path_hops_column(lnh):
             return None
         try:
             obj = ast_from_json(op_json, validate=False)

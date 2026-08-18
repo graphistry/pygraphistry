@@ -149,6 +149,7 @@ from graphistry.compute.gfql.temporal.folding import (
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, WhereComparison, col, compare, where_to_row_expr
 from graphistry.compute.gfql.cypher.reentry import naming as _reentry_naming, scope as _reentry_scope
 from graphistry.compute.gfql.cypher.ast import CypherParams
+from graphistry.compute.gfql.identifiers import shortest_path_hops_column
 
 
 @dataclass(frozen=True)
@@ -2604,10 +2605,10 @@ def _forces_relationship_multiplicity_projection_bindings(
         for pattern in clause.patterns:
             for element in pattern:
                 if isinstance(element, RelationshipPattern) and (
-                    element.min_hops is not None
-                    or element.max_hops is not None
-                    or getattr(element, "to_fixed_point", False)
+                    getattr(element, "to_fixed_point", False)
+                    and element.direction == "undirected"
                 ):
+                    # An undirected unbounded fixed point is not reconstructible from binding rows.
                     return False
     texts = [item.expression.text for item in items]
     if order_by is not None:
@@ -2640,6 +2641,9 @@ def _forces_relationship_multiplicity_projection_bindings(
             len(pattern) == 3
             and isinstance(pattern[0], NodePattern)
             and isinstance(pattern[1], RelationshipPattern)
+            and pattern[1].min_hops is None
+            and pattern[1].max_hops is None
+            and not getattr(pattern[1], "to_fixed_point", False)
             and isinstance(pattern[2], NodePattern)
         ):
             seed_alias = pattern[0].variable
@@ -4356,6 +4360,36 @@ def _lift_search_any_from_row_where(
     return new_text, calls
 
 
+def _append_shortest_path_plain_match_filter(
+    row_steps: List[ASTObject],
+    *,
+    query: CypherQuery,
+    params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- Cypher params mapping, module-wide idiom
+    binding_rows_active: bool,
+) -> None:
+    """openCypher: a PLAIN-MATCH shortestPath with no path drops the row; only
+    OPTIONAL MATCH null-extends. The SP binding runtime left-joins (per-pair
+    null hops), so plain MATCH filters null-hop rows out here."""
+    if not binding_rows_active or not _query_has_shortest_path_patterns(query):
+        return
+    if any(clause.optional for clause in query.matches):
+        return
+    for spec in _shortest_path_alias_specs(query).values():
+        if spec.end_alias is None:
+            continue
+        expr_text = f"{spec.end_alias}.{spec.hop_column} IS NOT NULL"
+        row_steps.append(
+            where_rows(
+                expr=_row_expr_arg(
+                    ExpressionText(text=expr_text, span=query.return_.span),
+                    params=params,
+                    alias_targets={},
+                    field="where",
+                )
+            )
+        )
+
+
 def _append_match_row_where(
     row_steps: List[ASTObject],
     *,
@@ -4481,6 +4515,12 @@ def _lower_projection_chain(
         allowed_match_aliases=(allowed_match_aliases | pre_scope_binding_row_aliases) or None,
         params=params,
     )
+    _append_shortest_path_plain_match_filter(
+        row_steps,
+        query=query,
+        params=params,
+        binding_rows_active=bool(binding_row_aliases),
+    )
 
     if not plan.whole_row_output_names:
         projection_fn = with_ if plan.clause_kind == "with" else return_
@@ -4524,7 +4564,7 @@ def _build_initial_row_scope(
         params=params,
         alias_targets=alias_targets,
     )
-    # Admit first-stage multi-alias non-aggregate WITH projections (shape A, #1273)
+    # Admit first-stage multi-alias non-aggregate WITH projections (shape A)
     # by routing through the bindings-row path when multiple MATCH node aliases are
     # referenced together in scalar expressions.
     stage_has_aggregates = bool(stage_aggregate_specs)
@@ -4557,7 +4597,7 @@ def _build_initial_row_scope(
         ):
             binding_row_aliases.update(stage_non_aggregate_refs)
     # For connected non-cartesian MATCH, allow first-stage multi-whole-row node
-    # projections to use bindings rows (#880 / #1393).
+    # projections to use bindings rows.
     if not binding_row_aliases:
         binding_row_aliases.update(
             _binding_row_aliases_for_multi_alias_whole_row_node_projection(
@@ -4670,6 +4710,12 @@ def _build_initial_row_scope(
         active_alias=active_match_alias,
         allowed_match_aliases=binding_row_aliases or None,
         params=params,
+    )
+    _append_shortest_path_plain_match_filter(
+        row_steps,
+        query=query,
+        params=params,
+        binding_rows_active=bool(binding_row_aliases),
     )
 
     unwind_aliases: Set[str] = set()
@@ -4791,7 +4837,7 @@ def _lower_match_alias_stage(
     elif scope.allowed_match_aliases and plan.projection_items:
         # Mixed case: whole-row aliases + scalar items on a bindings-row table.
         # Use extend mode to add scalar columns without dropping the existing
-        # alias-prefixed bindings columns (#880).
+        # alias-prefixed bindings columns.
         row_steps.append(with_(plan.projection_items, extend=True))
     if stage.clause.distinct:
         row_steps.append(distinct())
@@ -4916,7 +4962,7 @@ def _lower_match_alias_aggregate_stage(
     projection_fn = with_ if stage.clause.kind == "with" else return_
     # On the bindings-row path (allowed_match_aliases populated), the row
     # table preserves per-row multiplicity from the MATCH, so relationship-
-    # count aggregation guards do not apply (#880).
+    # count aggregation guards do not apply.
     if not scope.allowed_match_aliases:
         _reject_unsound_relationship_multiplicity_aggregates_common(
             aggregate_specs=aggregate_specs,
@@ -6168,7 +6214,7 @@ def _shortest_path_relationship_hop_columns(clause: MatchClause) -> Dict[Tuple[i
             if isinstance(element, RelationshipPattern):
                 span = element.span
                 out[(span.line, span.column, span.end_line, span.end_column, span.start_pos, span.end_pos)] = (
-                    f"__cypher_shortest_path_hops__{alias}"
+                    shortest_path_hops_column(alias)
                 )
     return out
 
@@ -6996,13 +7042,12 @@ def _lower_general_row_projection(
                     continue
                 if len(refs) > 1 or (len(refs) == 1 and base_active_alias not in refs):
                     # An aggregate over a pattern alias other than the projection's
-                    # active alias. Two sound, benchmark-relevant shapes are routed to
-                    # the bindings-row table (which materializes every alias, one row
-                    # per matched path); everything else keeps the conservative
-                    # fail-fast (the misleading "one MATCH" error is the residual).
-                    #   (a) #1708: `count(<bare node alias>)` — "matched paths binding
+                    # active alias. Two sound shapes route to the bindings-row table
+                    # (which materializes every alias, one row per matched path);
+                    # everything else keeps the conservative fail-fast.
+                    #   (a): `count(<bare node alias>)` — "matched paths binding
                     #       this node per group" (graph-bench q1 top-k in-degree).
-                    #   (b) #1273: a CLEAN grouped aggregate `func(<alias>.<prop>)`
+                    #   (b): a CLEAN grouped aggregate `func(<alias>.<prop>)`
                     #       (avg/sum/min/max/count) grouped by another alias's property
                     #       (graph-bench q3/q4: `RETURN c.city, avg(p.age)`) — a
                     #       standard GROUP BY, sound on the per-path bindings rows.
@@ -7010,7 +7055,7 @@ def _lower_general_row_projection(
                     # item MIXES a non-aggregate ref with an aggregate in one
                     # expression (`me.age + count(you.age)`), the cross-source
                     # multiplicity is ambiguous — keep the fail-fast (the
-                    # rejects-unsound-multi-source-overlap contract, #1273 tests).
+                    # rejects-unsound-multi-source-overlap contract tests).
                     agg_arg = (agg_spec.expr_text or "").strip()
                     prop_ref = _projection_ref_from_expr_safe(agg_arg, alias_targets)
                     prop_alias = prop_ref[0] if prop_ref is not None else None
@@ -7100,6 +7145,12 @@ def _lower_general_row_projection(
         active_alias=active_match_alias,
         allowed_match_aliases=binding_row_aliases or None,
         params=params,
+    )
+    _append_shortest_path_plain_match_filter(
+        row_steps,
+        query=query,
+        params=params,
+        binding_rows_active=bool(binding_row_aliases),
     )
 
     unwind_aliases: Set[str] = set()
@@ -7506,7 +7557,14 @@ def _lower_general_row_projection(
         if query.return_.distinct:
             row_steps.append(distinct())
 
-    if empty_result_row is None and binding_row_aliases and _query_has_shortest_path_patterns(query):
+    if (
+        empty_result_row is None
+        and binding_row_aliases
+        and _query_has_shortest_path_patterns(query)
+        and any(clause.optional for clause in query.matches)
+    ):
+        # openCypher: only OPTIONAL MATCH null-extends an unreachable
+        # shortestPath; a plain MATCH emits NO row.
         from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter
 
         shortest_specs = _shortest_path_alias_specs(query)
@@ -9257,7 +9315,7 @@ def compile_cypher_query(
 
     # Re-bind after normalization so scope and semantic metadata reflect the
     # lowered query shape consumed by downstream lowering decisions.
-    # #1357: strict alias/name-resolution is now the runtime default for the
+    # Strict alias/name-resolution is the runtime default for the
     # post-normalize bind pass so alias-scope enforcement is centralized at
     # binder time (validator/runtime parity).
     bound_ir = FrontendBinder().bind(query, PlanContext(), strict_name_resolution=True)
@@ -9433,7 +9491,14 @@ def compile_cypher_query(
             row_steps.extend(stage_steps)
 
         empty_result_row: Optional[Dict[str, Any]] = None
-        if binding_row_aliases and _query_has_shortest_path_patterns(query) and result_projection is None:
+        if (
+            binding_row_aliases
+            and _query_has_shortest_path_patterns(query)
+            and result_projection is None
+            and any(clause.optional for clause in query.matches)
+        ):
+            # openCypher: unreachable shortestPath null-extends only under
+            # OPTIONAL MATCH; plain MATCH drops the row.
             empty_result_row = _shortest_path_empty_result_row_for_row_steps(
                 row_steps=row_steps,
                 specs=_shortest_path_alias_specs(query),
