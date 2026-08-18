@@ -28,8 +28,8 @@ MATCH (m:Message {id: $messageId })<-[:REPLY_OF]-(c:Comment)-[:HAS_CREATOR]->(p:
     RETURN c.id AS commentId,
         c.creationDate AS commentCreationDate,
         p.id AS replyAuthorId,
-        CASE r
-            WHEN null THEN false
+        CASE
+            WHEN r IS NULL THEN false
             ELSE true
         END AS replyAuthorKnowsOriginalMessageAuthor
     ORDER BY commentCreationDate DESC, replyAuthorId
@@ -90,7 +90,7 @@ def test_optional_match_polars_native_end_to_end() -> None:
 
 @pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
 def test_optional_match_polars_no_pandasism_crash() -> None:
-    """Full IS7 (CASE r WHEN null projection) runs natively on polars, oracle-exact.
+    """Full IS7 (CASE WHEN r IS NULL projection, conformed #1900) runs natively on polars, oracle-exact.
 
     The simple-CASE null-literal equality (`__cypher_case_eq__(x, null)`) lowers to
     `is_null()` on polars (pandas-parity null-mask semantics). If a future edit
@@ -228,12 +228,12 @@ def test_amp_partial_match_mixed_seeds() -> None:
 @pytestmark_polars
 def test_amp_zero_match_arm_case_flag() -> None:
     """Arm matches nothing anywhere (no NOPE edges): all seeds get flag False
-    via the CASE r WHEN null -> is_null lowering."""
+    via the CASE WHEN r IS NULL -> is_null lowering (conformed #1900)."""
     q = """
     MATCH (m:Message)-[:HAS_CREATOR]->(p:Person)
     OPTIONAL MATCH (p)-[r:NOPE]->(t:Tag)
     RETURN m.id AS mid, p.id AS pid,
-        CASE r WHEN null THEN false ELSE true END AS hasR
+        CASE WHEN r IS NULL THEN false ELSE true END AS hasR
     ORDER BY mid
     """
     expected = pd.DataFrame({"mid": [1, 2], "pid": [10, 11], "hasR": [False, False]})

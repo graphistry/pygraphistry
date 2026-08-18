@@ -5,8 +5,7 @@ import re
 import warnings
 from functools import lru_cache
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, NoReturn, Optional, Sequence, Tuple, cast
-from typing_extensions import Literal
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Mapping, NoReturn, Optional, Sequence, Tuple, cast
 
 import pandas as pd
 from graphistry.Engine import (
@@ -18,7 +17,7 @@ from graphistry.Engine import (
     s_cons,
     s_to_numeric,
 )
-from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
 from graphistry.compute.dataframe_utils import concat_frames
 from graphistry.compute.gfql.call.support import AggSpec
 from graphistry.compute.gfql.row import frame_ops as row_frame_ops
@@ -38,6 +37,7 @@ from graphistry.compute.gfql.agg_types import (
     raise_non_numeric_aggregation,
 )
 from graphistry.compute.gfql.language_defs import (
+    GFQL_ALLOWED_UNARY_OPS,
     GFQL_COMPARISON_BINARY_OP_NAMES,
     GFQL_COMPARISON_BINARY_OPS,
     GFQL_GROUPBY_AGG_METHODS,
@@ -87,6 +87,10 @@ from graphistry.compute.gfql.temporal.durations import (
     parse_temporal_sort_duration_components,
     resolve_duration_text_property,
 )
+
+
+#: Cypher's two numeric kinds; a Literal so a typo'd branch is a type error, not a silent miss.
+CypherNumericKind = Literal["int", "float"]
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
@@ -426,6 +430,44 @@ class RowPipelineMixin:
         if temporal_cmp is not None:
             return temporal_cmp
 
+        if op in ("<", ">", "<=", ">="):
+            # openCypher: ordering a BOOLEAN against a NUMBER is an incomparable
+            # cross-type comparison -> null (rows drop in WHERE), never a
+            # bool-as-int coercion. Boolean-vs-boolean ordering (false < true)
+            # stays served; the numeric-vs-string guard is the sibling of this.
+            # STRICT dtype/instance detection only -- the value-based
+            # _gfql_series_bool_like heuristic counts int 0/1 columns as bools
+            # and would null genuine numeric comparisons (IC4 sum(...) > 0).
+            def _is_strict_bool(value: Any) -> bool:  # hygiene-ok: explicit-any -- heterogeneous scalar-or-Series operands, evaluator-wide idiom
+                if isinstance(value, bool):
+                    return True
+                dtype = getattr(value, "dtype", None)
+                if dtype is None or not hasattr(value, "astype"):
+                    return False
+                try:
+                    if pd.api.types.is_bool_dtype(dtype):
+                        return True
+                    if pd.api.types.is_object_dtype(dtype) and isinstance(value, pd.Series):
+                        non_null = value.dropna()
+                        return len(non_null) > 0 and bool(non_null.map(lambda v: isinstance(v, bool)).all())
+                except Exception:
+                    return False
+                return False
+
+            def _is_numeric_nonbool(value: Any) -> bool:  # hygiene-ok: explicit-any -- heterogeneous scalar-or-Series operands, evaluator-wide idiom
+                if isinstance(value, bool):
+                    return False
+                if isinstance(value, (int, float)):
+                    return True
+                return RowPipelineMixin._gfql_cypher_numeric_kind(value) is not None
+
+            if (_is_strict_bool(left) and _is_numeric_nonbool(right)) or (
+                _is_numeric_nonbool(left) and _is_strict_bool(right)
+            ):
+                return self._gfql_broadcast_scalar(table_df, None).astype("object").where(
+                    self._gfql_broadcast_scalar(table_df, False).astype(bool), pd.NA
+                )
+
         left_null_mask = self._gfql_null_mask(table_df, left)
         right_null_mask = self._gfql_null_mask(table_df, right)
         if isinstance(left, float) and math.isnan(left):
@@ -445,6 +487,55 @@ class RowPipelineMixin:
             elif bool(null_mask):
                 out = None
         return out
+
+    @staticmethod
+    def _gfql_cypher_numeric_kind(value: object) -> Optional[CypherNumericKind]:
+        """'int' / 'float' for Cypher-numeric scalars and Series; None otherwise (bools excluded)."""
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, numbers.Integral):
+            return "int"
+        if isinstance(value, numbers.Real):
+            return "float"
+        dtype = getattr(value, "dtype", None)
+        if dtype is not None and hasattr(value, "astype"):
+            if pd.api.types.is_bool_dtype(dtype):
+                return None
+            if pd.api.types.is_integer_dtype(dtype):
+                return "int"
+            if pd.api.types.is_float_dtype(dtype):
+                return "float"
+        return None
+
+    @staticmethod
+    def _gfql_raise_on_integer_zero_divisor(right: Any, op: str) -> None:  # hygiene-ok: explicit-any -- heterogeneous scalar-or-Series operands, evaluator-wide idiom
+        """openCypher mandates an error for integer `/ 0` and `% 0`."""
+        has_zero = (
+            bool((right == 0).any())
+            if hasattr(right, "astype")
+            else right == 0
+        )
+        if has_zero:
+            raise GFQLTypeError(
+                ErrorCode.E203,
+                f"Cypher integer '{op}' by zero",
+                field="expression",
+                value=op,
+                suggestion="Guard the divisor (e.g. CASE WHEN d = 0 THEN null ELSE x / d END) or use a float divisor for IEEE semantics.",
+            )
+
+    @staticmethod
+    def _gfql_truncated_int_div(left: Any, right: Any) -> Any:  # hygiene-ok: explicit-any -- heterogeneous scalar-or-Series operands, evaluator-wide idiom
+        """Integer division truncated toward zero (openCypher/Java), scalar or Series."""
+        if isinstance(left, numbers.Integral) and isinstance(right, numbers.Integral):
+            quotient = abs(int(left)) // abs(int(right))
+            return -quotient if (left < 0) != (right < 0) else quotient
+        # `.where`, not np.sign: np.sign on a cudf Series needs the cupy JIT (libnvrtc).
+        quotient = abs(left) // abs(right)
+        negative = (left < 0) != (right < 0)
+        if hasattr(quotient, "where"):
+            return quotient.where(~negative, -quotient)
+        return -quotient if negative else quotient
 
     @staticmethod
     def _gfql_is_cypher_null_scalar(value: Any) -> bool:
@@ -1029,7 +1120,13 @@ class RowPipelineMixin:
                 if bool_out is None:
                     return False, None
                 return True, bool_out
-            return False, None
+            raise GFQLTypeError(
+                ErrorCode.E203,
+                f"Unsupported Cypher unary operator: {node.op!r}",
+                field="expression",
+                value=str(node.op),
+                suggestion=f"Use one of {sorted(GFQL_ALLOWED_UNARY_OPS)}.",
+            )
 
         if isinstance(node, BinaryOp):
             op = str(node.op).lower()
@@ -1089,6 +1186,8 @@ class RowPipelineMixin:
                 return True, self._gfql_eval_string_predicate_expr(table_df, left, right, "regex", "ast =~")
 
             if op == "+":
+                if left is None or right is None:
+                    return True, None  # Cypher: null + anything -> null
                 if isinstance(left, (list, tuple)) and not isinstance(right, (list, tuple)):
                     right_is_series = hasattr(right, "astype")
                     right_is_list = right_is_series and RowPipelineMixin._gfql_series_is_list_like(right)
@@ -1137,48 +1236,48 @@ class RowPipelineMixin:
                     return True, self._gfql_concat_list_scalar(table_df, right, left, prepend=True)
                 return True, left + right
             if op == "-":
+                if left is None or right is None:
+                    return True, None
                 return True, left - right
             if op == "*":
+                if left is None or right is None:
+                    return True, None
                 return True, left * right
             if op == "/":
-                if (
-                    isinstance(left, int)
-                    and not isinstance(left, bool)
-                    and isinstance(right, int)
-                    and not isinstance(right, bool)
-                ):
-                    if right == 0:
-                        return False, None
-                    # Cypher integer division truncates toward zero for integer operands.
-                    return True, int(left / right)
+                if left is None or right is None:
+                    return True, None
+                left_kind = RowPipelineMixin._gfql_cypher_numeric_kind(left)
+                right_kind = RowPipelineMixin._gfql_cypher_numeric_kind(right)
+                if left_kind == "int" and right_kind == "int":
+                    RowPipelineMixin._gfql_raise_on_integer_zero_divisor(right, "/")
+                    return True, RowPipelineMixin._gfql_truncated_int_div(left, right)
                 try:
-                    if (
-                        isinstance(left, numbers.Integral)
-                        and not isinstance(left, bool)
-                        and isinstance(right, numbers.Integral)
-                        and not isinstance(right, bool)
-                    ):
-                        left_int = int(left)
-                        right_int = int(right)
-                        return True, int(left_int / right_int)
                     return True, left / right
                 except ZeroDivisionError:
-                    if isinstance(left, bool) or isinstance(right, bool):
-                        return False, None
-                    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
-                        if right == 0:
-                            if isinstance(left, float) or isinstance(right, float):
-                                if left == 0:
-                                    return True, float("nan")
-                                return True, float("inf") if left > 0 else float("-inf")
+                    if isinstance(left, (int, float)) and not isinstance(left, bool) and isinstance(right, (int, float)):
+                        # float division by a zero literal: IEEE semantics (Neo4j parity)
+                        if left == 0:
+                            return True, float("nan")
+                        return True, float("inf") if left > 0 else float("-inf")
                     return False, None
             if op == "%":
+                if left is None or right is None:
+                    return True, None
                 if (hasattr(left, "astype") and RowPipelineMixin._gfql_series_bool_like(left)) or (
                     hasattr(right, "astype") and RowPipelineMixin._gfql_series_bool_like(right)
                 ):
                     return False, None
                 if isinstance(left, bool) or isinstance(right, bool):
                     return False, None
+                left_kind = RowPipelineMixin._gfql_cypher_numeric_kind(left)
+                right_kind = RowPipelineMixin._gfql_cypher_numeric_kind(right)
+                if left_kind is not None and right_kind is not None:
+                    if left_kind == "int" and right_kind == "int":
+                        RowPipelineMixin._gfql_raise_on_integer_zero_divisor(right, "%")
+                        quotient = RowPipelineMixin._gfql_truncated_int_div(left, right)
+                        return True, left - quotient * right
+                    import numpy as np
+                    return True, np.fmod(left, right)
                 return True, left % right
 
             return False, None
@@ -1355,15 +1454,11 @@ class RowPipelineMixin:
                 left_null_mask = self._gfql_null_mask(table_df, left)
                 right_null_mask = self._gfql_null_mask(table_df, right)
                 any_null_mask = left_null_mask | right_null_mask
-                # Cypher CASE x WHEN null: null == null is true (not suppressed).
-                # When one side is a scalar null literal, the equality IS the null-mask
-                # of the other side — pd.Series == None is always False in pandas.
+                # Simple CASE compares with '=', so null matches nothing and falls to ELSE.
                 left_scalar_null = not hasattr(left, "astype") and is_null_scalar(left)
                 right_scalar_null = not hasattr(right, "astype") and is_null_scalar(right)
-                if right_scalar_null:
-                    return True, left_null_mask
-                if left_scalar_null:
-                    return True, right_null_mask
+                if right_scalar_null or left_scalar_null:
+                    return True, self._gfql_broadcast_scalar(table_df, False).astype(bool)
                 left_is_bool = (
                     RowPipelineMixin._gfql_series_bool_like(left)
                     if hasattr(left, "astype")
@@ -1561,6 +1656,12 @@ class RowPipelineMixin:
                     return True, out.where(~null_mask, pd.NA)
                 if is_null_scalar(inner):
                     return True, None
+                if isinstance(inner, str):
+                    # A string with no integer value is null; invalid TYPES below still error.
+                    try:
+                        return True, int(float(inner))
+                    except (ValueError, OverflowError):
+                        return True, None
                 return True, int(float(inner))
 
             if fn == "substring" and len(values) in {2, 3}:
@@ -2989,6 +3090,25 @@ class RowPipelineMixin:
                 }
             )[[row_col, base_col, key_col]]
 
+        if isinstance(base, pd.DataFrame):
+            # openCypher negative subscripts index from the end; normalize per-row so the positional join matches (out-of-range stays null).
+            key_values = list(base[key_col])
+            if any(isinstance(k, (int, float)) and not isinstance(k, bool) and k == k and k < 0 for k in key_values):
+                normalized_keys: List[Any] = []
+                for k, v in zip(key_values, list(base[base_col])):
+                    if k is None or (isinstance(k, float) and k != k) or not isinstance(k, (int, float)) or isinstance(k, bool):
+                        normalized_keys.append(k)
+                        continue
+                    k_int = int(k)
+                    if k_int < 0 and isinstance(v, (list, tuple)):
+                        k_int += len(v)
+                        if k_int < 0:
+                            normalized_keys.append(None)
+                            continue
+                    normalized_keys.append(k_int)
+                base[key_col] = pd.Series(normalized_keys, index=base.index, dtype="object")
+                key_dtype = "object"
+
         expanded = base[[row_col, base_col]].explode(base_col)
         expanded = expanded.assign(
             **{pos_col: expanded.groupby(row_col, sort=False).cumcount()}
@@ -3288,10 +3408,8 @@ class RowPipelineMixin:
         try:
             ast_ok, ast_value = self._gfql_eval_expr_ast(table_df, ast_node)
         except Exception as exc:
-            if isinstance(exc, (ValueError, NotImplementedError)):
-                # NotImplementedError = an honest engine decline from a predicate
-                # (e.g. cuDF regex limits) — re-labeling it here destroyed the NIE
-                # class one frame above the predicate-level pass-through (#1675 wave-2).
+            if isinstance(exc, (ValueError, NotImplementedError, GFQLValidationError)):
+                # An honest decline or an already-typed Cypher error keeps its own taxonomy.
                 raise
             raise ValueError(f"unsupported row expression: AST evaluator unsupported in {expr!r}") from exc
 
@@ -3620,6 +3738,12 @@ class RowPipelineMixin:
         node_id_col = base_graph._node
         src_col = base_graph._source
         dst_col = base_graph._destination
+        if node_id_col is None and base_graph._edges is not None and src_col is not None and dst_col is not None:
+            try:
+                base_graph = base_graph.materialize_nodes()
+                node_id_col = base_graph._node
+            except Exception:
+                node_id_col = None
         if node_id_col is None or src_col is None or dst_col is None:
             self._gfql_bindings_error(
                 "Cypher multi-alias row bindings require node id, edge source, and edge destination columns"

@@ -392,3 +392,42 @@ def _query_with_terminal_stage_folded_into_return(
 
 def _stage_has_aggregates(stage: ProjectionStage) -> bool:
     return any(_AGGREGATE_CALL.search(item.expression.text) for item in stage.clause.items)
+
+
+def flatten_pure_carry_terminal_with_nonoptional(query: CypherQuery) -> Optional[CypherQuery]:
+    """Drop a terminal pure bare-alias WITH carry over non-OPTIONAL matches.
+
+    ``MATCH (a)-->(b) WITH a RETURN a.id`` is row-equivalent to the WITH-less
+    form; the row-column pipeline would collapse binding-row multiplicity, so
+    fold the no-op stage away and let the (multiplicity-correct) direct
+    projection lowering serve it. Renames, WHERE, DISTINCT, ORDER/SKIP/LIMIT,
+    or references to non-carried aliases downstream disqualify."""
+    if query.reentry_matches or query.unwinds or query.call is not None or query.row_sequence:
+        return None
+    if len(query.with_stages) != 1:
+        return None
+    if not query.matches or any(m.optional for m in query.matches):
+        return None
+    if query.return_.distinct:
+        return None
+    stage = query.with_stages[0]
+    carried = _pure_carry_aliases(stage)
+    if carried is None or not carried:
+        return None
+    match_aliases: Set[str] = set()
+    for m in query.matches:
+        for pattern in m.patterns:
+            match_aliases.update(_all_pattern_aliases(pattern))
+    if not carried <= match_aliases:
+        return None
+    downstream_texts = [item.expression.text for item in query.return_.items]
+    if query.order_by is not None:
+        downstream_texts.extend(item.expression.text for item in query.order_by.items)
+    for text in downstream_texts:
+        referenced = {
+            tok for tok in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", text)
+            if tok in match_aliases
+        }
+        if not referenced <= carried:
+            return None
+    return replace(query, with_stages=())

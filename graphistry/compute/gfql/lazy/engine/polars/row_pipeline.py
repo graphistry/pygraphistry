@@ -18,6 +18,8 @@ import re
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, TypeVar, Union, cast
 
+from typing_extensions import assert_never
+
 if TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.gfql.expr_parser import ExprNode, FunctionCall
@@ -87,7 +89,7 @@ def _parser():
 # anything subtler returns None upstream.
 _BINOP_FNS: Dict[str, Callable[[Any, Any], Any]] = {
     "+": operator.add, "-": operator.sub, "*": operator.mul, "/": operator.truediv,
-    "%": operator.mod,  # polars mod is floored, like pandas (NOTE: no negative-operand % conformance case yet)
+    "%": operator.mod,  # non-numeric fallback only: numeric % is conformed to TRUNCATED semantics in lower_expr (#1900)
     "=": operator.eq, "==": operator.eq, "<>": operator.ne, "!=": operator.ne,
     "<": operator.lt, ">": operator.gt, "<=": operator.le, ">=": operator.ge,
 }
@@ -131,19 +133,13 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
     import polars as pl  # function-local: polars is an optional dependency
     name = node.name.lower()
     if name == "__cypher_case_eq__" and len(node.args) == 2:
-        # Simple-CASE equality marker (`CASE x WHEN v`). Cypher/pandas semantics:
-        # null matches null (NOT 3-valued suppressed). Lower ONLY the null-literal
-        # forms (`CASE x WHEN null` = the LDBC IS7 shape) as the other side's
-        # null-mask, exactly like the pandas evaluator; the general form carries
-        # pandas' bool/numeric cross-dtype rules — decline it rather than diverge.
+        # Simple CASE compares with '=', so a null WHEN value matches nothing and falls to ELSE.
         from graphistry.compute.gfql.expr_parser import Literal as _Lit
         a_node, b_node = node.args
-        if isinstance(b_node, _Lit) and b_node.value is None:
-            a = lower_expr(a_node, columns)
-            return None if a is None else a.is_null()
-        if isinstance(a_node, _Lit) and a_node.value is None:
-            b = lower_expr(b_node, columns)
-            return None if b is None else b.is_null()
+        if (isinstance(b_node, _Lit) and b_node.value is None) or (
+            isinstance(a_node, _Lit) and a_node.value is None
+        ):
+            return pl.lit(False)
         return None
     args: List[pl.Expr] = []
     for arg in node.args:
@@ -317,6 +313,37 @@ def _is_int_literal(node: ExprNode) -> bool:
     cypher 5/2 == 2 (truncating) vs polars 2.5; column / int is Float on both, so it matches."""
     from graphistry.compute.gfql.expr_parser import Literal
     return isinstance(node, Literal) and isinstance(node.value, int) and not isinstance(node.value, bool)
+
+
+def _orders_boolean_against_number(op: str, ldt: "Optional[pl.DataType]", rdt: "Optional[pl.DataType]") -> bool:
+    """Ordering a Boolean against a number is incomparable -> null (the row drops).
+
+    Boolean-vs-boolean ordering (false < true) stays served.
+    """
+    import polars as pl
+    if op not in _ORDER_OPS or ldt is None or rdt is None:
+        return False
+    return (
+        (ldt == pl.Boolean and _dtype_is_numeric(rdt) and rdt != pl.Boolean)
+        or (rdt == pl.Boolean and _dtype_is_numeric(ldt) and ldt != pl.Boolean)
+    )
+
+
+def _nonzero_int_literal(node: ExprNode) -> bool:
+    """True iff the node is a NONZERO integer literal (unary +/- admitted).
+
+    Gates the native int `/` and `%` lowering: a zero divisor must reach the pandas
+    lane's typed error rather than polars' silent `// 0` null.
+    """
+    from graphistry.compute.gfql.expr_parser import Literal, UnaryOp as _UnaryOp
+    if isinstance(node, _UnaryOp) and node.op in ("+", "-"):
+        node = node.operand
+    return (
+        isinstance(node, Literal)
+        and isinstance(node.value, int)
+        and not isinstance(node.value, bool)
+        and node.value != 0
+    )
 
 
 def _is_iso_duration_literal(node: ExprNode) -> bool:
@@ -582,11 +609,6 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             or (_is_iso_temporal_literal(node.right) and _is_temporal_column_ref(node.left, columns))
         ):
             return None
-        # decline (NIE): int-literal division — Cypher folds 5/2 to 2 (truncating; x/0 errors) vs
-        # polars true division 2.5, silently wrong inside a non-monotonic op (e.g. ORDER BY
-        # n.val % (10/4) sorts differently); pandas folds it. Column / int is Float on both, so kept.
-        if node.op == "/" and _is_int_literal(node.left) and _is_int_literal(node.right):
-            return None
         left = lower_expr(node.left, columns)
         right = lower_expr(node.right, columns)
         if left is None or right is None:
@@ -604,6 +626,28 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             # engines; only % diverges.
             if node.op == "%" and (ldt == pl.Boolean or rdt == pl.Boolean):
                 return None
+            if _orders_boolean_against_number(node.op, ldt, rdt):
+                return pl.lit(None, dtype=pl.Boolean)
+            if (
+                node.op in ("/", "%")
+                and ldt is not None and rdt is not None
+                and _dtype_is_numeric(ldt) and _dtype_is_numeric(rdt)
+                and ldt != pl.Boolean and rdt != pl.Boolean
+            ):
+                both_int = _dtype_is_int(ldt) and _dtype_is_int(rdt)
+                if node.op == "/" and both_int:
+                    if not _nonzero_int_literal(node.right):
+                        return None
+                    return (left.abs() // right.abs()) * left.sign() * right.sign()
+                if node.op == "%":
+                    if both_int:
+                        if not _nonzero_int_literal(node.right):
+                            return None
+                        quotient = (left.abs() // right.abs()) * left.sign() * right.sign()
+                        return left - quotient * right
+                    true_q = left / right
+                    quotient = pl.when(true_q >= 0).then(true_q.floor()).otherwise(true_q.ceil())
+                    return left - quotient * right
         result = _apply_binop(node.op, left, right)
         if result is not None and node.op in _NAN_GUARD_OPS:
             result = _nan_guard(
@@ -616,14 +660,16 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
         operand = lower_expr(node.operand, columns)
         if operand is None:
             return None
+        if node.op == "+":
+            return operand
         if node.op == "-":
             return -operand
-        if node.op.upper() == "NOT":
+        if node.op == "not":
             # Cast to Boolean so NOT null (Null-dtype lit) yields null (Cypher 3VL: NOT null =
             # null) instead of raising `dtype Null not supported in 'not' operation`; no-op
             # on a real Boolean column.
             return ~operand.cast(pl.Boolean)
-        return None
+        assert_never(node.op)
     if isinstance(node, IsNullOp):
         value = lower_expr(node.value, columns)
         if value is None:
@@ -1481,6 +1527,16 @@ def binding_rows_polars(
     node_id = base_graph._node
     src = base_graph._source
     dst = base_graph._destination
+    if (nodes is None or node_id is None) and edges is not None:
+        try:
+            base_graph = base_graph.materialize_nodes()
+        except Exception:
+            return None
+        nodes = base_graph._nodes
+        node_id = base_graph._node
+        from graphistry.Engine import Engine as _MatEngine, df_to_engine as _mat_to_engine, is_polars_df as _mat_is_polars
+        if nodes is not None and not _mat_is_polars(nodes):
+            nodes = _mat_to_engine(nodes, _MatEngine.POLARS)
     if nodes is None or edges is None or node_id is None or src is None or dst is None:
         return None
     seed_ids_lf: Optional[Any] = None  # LazyFrame; Any avoids the union-typed seed_nodes.join mismatch
@@ -1701,6 +1757,29 @@ def binding_rows_polars(
         # NIE → use engine='pandas'/'polars'), never a silent CPU fallback.
         nodes_lf = nodes.lazy()
         edges_lf = edges.lazy()
+        # A null-promoted endpoint dtype SchemaErrors the join chain; align losslessly to the node-id dtype.
+        _node_dtype = nodes_lf.collect_schema().get(node_id)
+        _edge_schema = edges_lf.collect_schema()
+        _endpoint_casts = []
+        for _endpoint in {src, dst}:
+            _e_dtype = _edge_schema.get(_endpoint)
+            if _e_dtype is None or _node_dtype is None or _e_dtype == _node_dtype:
+                continue
+            if _dtype_is_int(_e_dtype) and _dtype_is_float(_node_dtype):
+                _endpoint_casts.append(pl.col(_endpoint).cast(_node_dtype))
+            elif _dtype_is_float(_e_dtype) and _dtype_is_int(_node_dtype):
+                _nonintegral = bool(
+                    edges_lf.select(
+                        (
+                            pl.col(_endpoint).is_not_null()
+                            & (pl.col(_endpoint) != pl.col(_endpoint).round(0))
+                        ).any()
+                    ).collect().item()
+                )
+                if not _nonintegral:
+                    _endpoint_casts.append(pl.col(_endpoint).cast(_node_dtype))
+        if _endpoint_casts:
+            edges_lf = edges_lf.with_columns(_endpoint_casts)
         first_op = ops[0]
         if not isinstance(first_op, ASTNode):
             return None
