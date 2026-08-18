@@ -225,8 +225,10 @@ def test_with_carried_scalar_projects_next_to_aggregate():
     assert out == [{"s": 5, "c": 1}], out
 
 
-@pytest.mark.xfail(strict=True, reason="round-002 BUG-4: ungrouped sum over an empty match is NULL; openCypher says 0")
 def test_sum_over_empty_match_is_zero():
+    """FIXED by #1909: was xfail(strict) for round-002 BUG-4. openCypher 9 s3.2
+    ("sum() ... returns 0 if there were no matching rows") -- the empty-match
+    identity row now carries sum -> 0, not null, on every lowering path."""
     nodes = pd.DataFrame({"id": [0], "v": [1], "t": ["A"]})
     edges = pd.DataFrame({"s": [], "d": []})
     q = "MATCH (a {t:'ZZZ'}) RETURN sum(a.v) AS s"

@@ -262,9 +262,6 @@ def test_empty_mixed_compound_aggregate_never_fabricates(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.xfail(strict=True, reason="#1899 residual: compound aggregate items over an empty "
-                   "stream should evaluate post-aggregate over the identity (count(*) + 1 -> 1); "
-                   "synthesis currently declines to the pre-#1901 empty result")
 def test_empty_compound_aggregate_identity_residual(engine):
     df = _run("UNWIND [] AS x RETURN count(*) + 1 AS c", engine)
     assert len(df) == 1 and _scalar(df["c"][0]) == 1
@@ -286,8 +283,6 @@ def test_empty_aggregate_identity_row_respects_paging_removal(query, engine):
     "UNWIND [] AS x RETURN count(*) AS c SKIP 0",
     "UNWIND [] AS x RETURN count(*) AS c LIMIT 1",
 ], ids=["skip_zero", "limit_one"])
-@pytest.mark.xfail(strict=True, reason="#1909: SKIP 0 / LIMIT >= 1 must page the synthesized "
-                   "identity row, not suppress it (fix in flight on #1910)")
 def test_empty_aggregate_identity_row_survives_noop_paging(query, engine):
     df = _run(query, engine)
     assert len(df) == 1 and _scalar(df["c"][0]) == 0
@@ -306,13 +301,14 @@ def test_chained_ungrouped_aggregate_never_fabricates(query, true_value, engine)
     either decline (0 rows, residual below) or emit the true chained value."""
     df = _run(query, engine)
     if len(df):
-        assert _scalar(df["out"][0]) == true_value
+        got = df["out"][0]
+        if isinstance(true_value, list):
+            assert [_scalar(x) for x in got] == true_value
+        else:
+            assert _scalar(got) == true_value
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.xfail(strict=True, reason="#1899 residual: chained ungrouped aggregates over an "
-                   "empty stream need the intermediate identity row replayed "
-                   "(count(c) -> 1); served by #1909's aggregate_identity module in flight")
 def test_chained_ungrouped_aggregate_identity_residual(engine):
     df = _run("UNWIND [] AS x WITH count(*) AS c RETURN count(c) AS out", engine)
     assert len(df) == 1 and _scalar(df["out"][0]) == 1
