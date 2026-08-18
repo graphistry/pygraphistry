@@ -60,6 +60,10 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_unary_op_surface.py
     graphistry/tests/compute/gfql/test_hop_boundary_matrix.py
     graphistry/tests/compute/gfql/test_hop_semantics_pins.py
+    # #1918 round-011 hop() pins: every case is parametrized pandas AND polars, and the
+    # polars params (bound validation, hops=None run-to-closure, edges-only node output)
+    # only ever run in this lane
+    graphistry/tests/compute/gfql/test_hop_semantics_1918.py
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
     graphistry/tests/compute/gfql/test_seeded_typed_hop_fastpath.py
     graphistry/tests/compute/gfql/test_residual_polars_native.py

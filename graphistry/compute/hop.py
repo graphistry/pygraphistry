@@ -14,7 +14,7 @@ from graphistry.Plottable import Plottable
 from graphistry.otel import otel_traced, otel_detail_enabled
 from .filter_by_dict import filter_by_dict
 from graphistry.Engine import safe_merge
-from .typing import DataFrameT, DomainT
+from .typing import DataFrameT, DomainT, SeriesT
 from .dataframe_utils import column_frame, column_values
 from .util import generate_safe_column_name
 
@@ -43,6 +43,174 @@ def query_if_not_none(query: Optional[str], df: DataFrameT) -> DataFrameT:
     if query is None:
         return df
     return df.query(query)
+
+
+def resolve_hop_bounds(
+    hops: Optional[int],
+    min_hops: Optional[int],
+    max_hops: Optional[int],
+    output_min_hops: Optional[int],
+    output_max_hops: Optional[int],
+    to_fixed_point: bool,
+) -> Tuple[Optional[int], int, Optional[int], Optional[int]]:
+    """ONE bound contract for every hop engine.
+
+    Returns ``(max_hops, min_hops, output_min_hops, output_max_hops)`` resolved, raising
+    ``ValueError`` on any contradictory argument. Lives here, called by BOTH the pandas/cuDF
+    hop below and the native polars hop, which previously validated only ``direction`` and
+    the integer-ness of ``hops``: ``min_hops=1, max_hops=0`` and ``hops=-1`` answered EMPTY
+    instead of raising, and ``min_hops=-1, hops=1`` RETURNED AN ANSWER (the polars loop reads
+    ``min_hops`` only when >1, so the contradictory argument was silently ignored).
+
+    ``hops=None`` (legal for ``Optional[int] = 1``) resolves to an unbounded max, i.e.
+    run-to-closure -- the incumbent pandas behavior, adopted as the cross-engine contract
+    rather than polars' ``ValueError``: it is the released default-engine semantics, and the
+    signature admits None, so raising would break callers that pass an unbounded max through.
+    """
+    resolved_max_hops = max_hops if max_hops is not None else hops
+    resolved_min_hops = min_hops
+
+    if not to_fixed_point:
+        if resolved_max_hops is not None and not isinstance(resolved_max_hops, int):
+            raise ValueError(f'Must provide integer hops when to_fixed_point is False, received: {resolved_max_hops}')
+    else:
+        resolved_max_hops = None
+
+    if resolved_min_hops is None:
+        resolved_min_hops = 0 if resolved_max_hops == 0 else 1
+
+    if resolved_min_hops < 0:
+        raise ValueError(f'min_hops must be >= 0, received: {resolved_min_hops}')
+
+    if resolved_max_hops is not None and resolved_max_hops < 0:
+        raise ValueError(f'max_hops must be >= 0, received: {resolved_max_hops}')
+
+    if resolved_max_hops is not None and resolved_min_hops > resolved_max_hops:
+        raise ValueError(f'min_hops ({resolved_min_hops}) cannot exceed max_hops ({resolved_max_hops})')
+
+    resolved_output_min = output_min_hops
+    resolved_output_max = output_max_hops
+
+    if resolved_output_min is not None and resolved_output_min < 0:
+        raise ValueError(f'output_min_hops must be >= 0, received: {resolved_output_min}')
+    if resolved_output_max is not None and resolved_output_max < 0:
+        raise ValueError(f'output_max_hops must be >= 0, received: {resolved_output_max}')
+    if resolved_output_min is not None and resolved_output_max is not None and resolved_output_min > resolved_output_max:
+        raise ValueError(f'output_min_hops ({resolved_output_min}) cannot exceed output_max_hops ({resolved_output_max})')
+
+    if resolved_output_max is None:
+        resolved_output_max = resolved_max_hops
+
+    if resolved_output_min is not None and resolved_max_hops is not None and resolved_output_min > resolved_max_hops:
+        raise ValueError(f'output_min_hops ({resolved_output_min}) cannot exceed max_hops traversal bound ({resolved_max_hops})')
+    if resolved_output_max is not None and resolved_min_hops is not None and resolved_output_max < resolved_min_hops:
+        raise ValueError(f'output_max_hops ({resolved_output_max}) cannot be below min_hops traversal bound ({resolved_min_hops})')
+
+    return resolved_max_hops, resolved_min_hops, resolved_output_min, resolved_output_max
+
+
+def _host_list(series: SeriesT) -> List[Hashable]:
+    """Column -> python list, engine-uniformly. cuDF REFUSES ``.tolist()`` outright ("Consider
+    using .to_arrow().to_pylist()"), polars spells it ``.to_list()``, pandas ``.tolist()``."""
+    if hasattr(series, "to_arrow"):
+        return cast(List[Hashable], series.to_arrow().to_pylist())
+    if hasattr(series, "tolist"):
+        return cast(List[Hashable], series.tolist())
+    return cast(List[Hashable], series.to_list())
+
+
+def undirected_rediscovered_seed_ids(
+    edge_sources: List[Hashable],
+    edge_destinations: List[Hashable],
+    seed_ids: List[Hashable],
+) -> Set[Hashable]:
+    """Seeds an undirected wavefront legitimately RE-ENCOUNTERS.
+
+    ``return_as_wave_front=True`` documents "exclude starting node(s) in return, returning
+    only encountered nodes". A seed counts as encountered only when a walk that never REUSES
+    AN EDGE arrives back at it -- coming back along the edge you left by is the trip home, not
+    a discovery. That is the contract pinned by ``tests/compute/test_hop.py``: on the acyclic
+    path ``a-b-c-d-e`` seeded at ``{a}`` the answer excludes ``a`` (returning needs edge ``ab``
+    twice), while seeded at ``{a, b}`` it INCLUDES ``a``, which seed ``b`` reaches over ``ab``
+    on a one-edge walk that reuses nothing. Same rule, two different answers.
+
+    A seed ``s`` is re-encountered by an edge-disjoint walk of SOME length iff either
+
+      (A) its component holds another seed ``s'`` -- the shortest ``s'``->``s`` path is simple,
+          hence reuses no edge; or
+      (B) ``s`` lies on a cycle -- go around it.
+
+    (A) is a component scan; (B) is the 2-core, peeling nodes of degree <= 1. Degree counts
+    EDGE ROWS, not distinct neighbours, so two PARALLEL edges between ``u`` and ``v`` correctly
+    leave both on a length-2 cycle; the set-based adjacency this replaces collapsed them and
+    dropped such seeds. Self-loops are length-1 cycles.
+
+    Takes plain id SEQUENCES, not a frame, so pandas/cuDF and polars can both call it without
+    a ``to_pandas()`` bridge (the polars test lane ships no pyarrow).
+
+    Verified equal to brute-force edge-disjoint-walk enumeration on 6000 random multigraphs
+    (see the hop-semantics pins). NOTE it is LENGTH-BLIND: it answers "some length", so a bounded hop
+    whose window is shorter than the cycle back to the seed still keeps that seed. Both arms
+    share that limit; narrowing it needs shortest-cycle-through-a-vertex.
+    """
+    seeds = set(seed_ids)
+    src, dst = edge_sources, edge_destinations
+    if not seeds or not src:
+        return set()
+
+    # (A) components holding more than one seed
+    adjacency: Dict[Hashable, Set[Hashable]] = {}
+    for u, v in zip(src, dst):
+        adjacency.setdefault(u, set()).add(v)
+        adjacency.setdefault(v, set()).add(u)
+    keep: Set[Hashable] = set()
+    seen: Set[Hashable] = set()
+    for seed in seeds:
+        if seed in seen:
+            continue
+        stack, component = [seed], set()  # type: List[Hashable], Set[Hashable]
+        while stack:
+            current = stack.pop()
+            if current in component:
+                continue
+            component.add(current)
+            seen.add(current)
+            for neighbor in adjacency.get(current, set()):
+                if neighbor not in component:
+                    stack.append(neighbor)
+        component_seeds = component & seeds
+        if len(component_seeds) > 1:
+            keep.update(component_seeds)
+
+    # (B) cycle nodes: self-loops, plus the multigraph 2-core
+    loop_nodes = {u for u, v in zip(src, dst) if u == v}
+    simple = [(u, v) for u, v in zip(src, dst) if u != v]
+    incident: Dict[Hashable, Set[int]] = {}
+    endpoints: Dict[int, Tuple[Hashable, Hashable]] = {}
+    for eid, (u, v) in enumerate(simple):
+        endpoints[eid] = (u, v)
+        incident.setdefault(u, set()).add(eid)
+        incident.setdefault(v, set()).add(eid)
+    removed: Set[Hashable] = set()
+    queue = [node for node, eids in incident.items() if len(eids) <= 1]
+    while queue:
+        current = queue.pop()
+        if current in removed or len(incident.get(current, set())) > 1:
+            continue
+        removed.add(current)
+        for eid in list(incident.get(current, set())):
+            u, v = endpoints[eid]
+            other = v if u == current else u
+            if other in removed:
+                continue
+            incident[other].discard(eid)
+            if len(incident[other]) <= 1:
+                queue.append(other)
+        incident[current] = set()
+    cycle_nodes = loop_nodes | {
+        node for node, eids in incident.items() if eids and node not in removed
+    }
+    return (keep | cycle_nodes) & seeds
 
 
 def _reached_node_ids(matches_nodes: Optional[DataFrameT], node_col: str) -> Set[Hashable]:
@@ -217,44 +385,8 @@ def hop(self: Plottable,
     if target_wave_front is not None and nodes is None:
         raise ValueError('target_wave_front requires nodes to target against (for intermediate hops)')
 
-    resolved_max_hops = max_hops if max_hops is not None else hops
-    resolved_min_hops = min_hops
-
-    if not to_fixed_point:
-        if resolved_max_hops is not None and not isinstance(resolved_max_hops, int):
-            raise ValueError(f'Must provide integer hops when to_fixed_point is False, received: {resolved_max_hops}')
-    else:
-        resolved_max_hops = None
-
-    if resolved_min_hops is None:
-        resolved_min_hops = 0 if resolved_max_hops == 0 else 1
-
-    if resolved_min_hops < 0:
-        raise ValueError(f'min_hops must be >= 0, received: {resolved_min_hops}')
-
-    if resolved_max_hops is not None and resolved_max_hops < 0:
-        raise ValueError(f'max_hops must be >= 0, received: {resolved_max_hops}')
-
-    if resolved_max_hops is not None and resolved_min_hops > resolved_max_hops:
-        raise ValueError(f'min_hops ({resolved_min_hops}) cannot exceed max_hops ({resolved_max_hops})')
-
-    resolved_output_min = output_min_hops
-    resolved_output_max = output_max_hops
-
-    if resolved_output_min is not None and resolved_output_min < 0:
-        raise ValueError(f'output_min_hops must be >= 0, received: {resolved_output_min}')
-    if resolved_output_max is not None and resolved_output_max < 0:
-        raise ValueError(f'output_max_hops must be >= 0, received: {resolved_output_max}')
-    if resolved_output_min is not None and resolved_output_max is not None and resolved_output_min > resolved_output_max:
-        raise ValueError(f'output_min_hops ({resolved_output_min}) cannot exceed output_max_hops ({resolved_output_max})')
-
-    if resolved_output_max is None:
-        resolved_output_max = resolved_max_hops
-
-    if resolved_output_min is not None and resolved_max_hops is not None and resolved_output_min > resolved_max_hops:
-        raise ValueError(f'output_min_hops ({resolved_output_min}) cannot exceed max_hops traversal bound ({resolved_max_hops})')
-    if resolved_output_max is not None and resolved_min_hops is not None and resolved_output_max < resolved_min_hops:
-        raise ValueError(f'output_max_hops ({resolved_output_max}) cannot be below min_hops traversal bound ({resolved_min_hops})')
+    resolved_max_hops, resolved_min_hops, resolved_output_min, resolved_output_max = resolve_hop_bounds(
+        hops, min_hops, max_hops, output_min_hops, output_max_hops, to_fixed_point)
 
     final_output_min = resolved_output_min
     final_output_max = resolved_output_max
@@ -593,7 +725,9 @@ def hop(self: Plottable,
 
         if track_edge_hops and edge_hop_col is not None:
             if len(hop_edges) > 0:
-                labeled_edges = hop_edges[[EDGE_ID]].assign(**{edge_hop_col: current_hop})
+                # `pairs` holds both orientations: one undirected edge, two rows, one EDGE_ID.
+                labeled_edges = hop_edges[[EDGE_ID]].drop_duplicates(
+                    subset=[EDGE_ID]).assign(**{edge_hop_col: current_hop})
                 if edge_hop_records is None:
                     edge_hop_records = labeled_edges
                     seen_edge_ids = _domain_unique(labeled_edges[EDGE_ID])
@@ -658,7 +792,15 @@ def hop(self: Plottable,
         else:
             combined_node_ids = new_node_ids
 
-        if len(combined_node_ids) == len(matches_nodes):
+        # A saturated node set still admits longer WALKS; the finite max_hops keeps this finite.
+        min_bound_unmet = (
+            resolved_min_hops is not None
+            and resolved_min_hops > 1
+            and max_reached_hop < resolved_min_hops
+            and not to_fixed_point
+            and resolved_max_hops is not None
+        )
+        if len(combined_node_ids) == len(matches_nodes) and not min_bound_unmet:
             break
 
         wave_front = new_node_ids
@@ -674,6 +816,7 @@ def hop(self: Plottable,
 
     # Prune dead-end branches that do not reach min_hops.
     # Use edge endpoints rather than node hop records to avoid lossy per-node min hop labels.
+    min_hop_prune_applied = False
     if (
         resolved_min_hops is not None
         and resolved_min_hops > 1
@@ -780,6 +923,7 @@ def hop(self: Plottable,
                 )
             else:
                 node_hop_records = node_hop_records[node_hop_records[node_col].isin(valid_node_series)]
+            min_hop_prune_applied = True
             if (
                 not label_seeds
                 and seeds_provided
@@ -858,181 +1002,101 @@ def hop(self: Plottable,
         final_edges = final_edges.drop(columns=[EDGE_ID])
     g_out = g2.edges(final_edges)
 
-    def _undirected_component_seed_keep_ids(
-        edges_df: DataFrameT,
-        seed_nodes_df: DataFrameT,
-    ) -> set:
-        if len(edges_df) == 0 or len(seed_nodes_df) == 0:
-            return set()
-        edge_subset = cast(Any, edges_df[[source_col, destination_col]])
-        seed_subset = cast(Any, seed_nodes_df[[node_col]])
-        edges_pdf = edge_subset.to_pandas() if hasattr(edge_subset, "to_pandas") else edge_subset.copy()
-        seeds_pdf = seed_subset.to_pandas() if hasattr(seed_subset, "to_pandas") else seed_subset.copy()
-        adjacency: Dict[Any, set] = {}
-        for row in edges_pdf.itertuples(index=False):
-            src = getattr(row, source_col)
-            dst = getattr(row, destination_col)
-            adjacency.setdefault(src, set()).add(dst)
-            adjacency.setdefault(dst, set()).add(src)
-        seeds = set(seeds_pdf[node_col].drop_duplicates().tolist())
-        keep: set = set()
-        seen: set = set()
-        for seed in seeds:
-            if seed in seen:
-                continue
-            stack = [seed]
-            component: set = set()
-            while stack:
-                current = stack.pop()
-                if current in component:
-                    continue
-                component.add(current)
-                seen.add(current)
-                for neighbor in adjacency.get(current, set()):
-                    if neighbor not in component:
-                        stack.append(neighbor)
-            component_seeds = component & seeds
-            if len(component_seeds) > 1:
-                keep.update(component_seeds)
-        return keep
+    # UNCONDITIONAL, matching polars: gating on `self._nodes` left edges-only graphs inconsistent.
+    rich_nodes = self._nodes if self._nodes is not None else g2._nodes
+    assert rich_nodes is not None, "materialize_nodes guarantees a node frame"
+    if target_wave_front is not None:
+        rich_nodes = concat([rich_nodes, target_wave_front], ignore_index=True, sort=False).drop_duplicates(subset=[node_col])
 
-    def _undirected_cycle_nodes(edges_df: DataFrameT) -> set:
-        if len(edges_df) == 0:
-            return set()
-        edge_subset = cast(Any, edges_df[[source_col, destination_col]])
-        edges_pdf = edge_subset.to_pandas() if hasattr(edge_subset, "to_pandas") else edge_subset.copy()
-        loop_nodes = set(
-            edges_pdf.loc[edges_pdf[source_col] == edges_pdf[destination_col], source_col].tolist()
-        )
-        simple_edges = edges_pdf.loc[edges_pdf[source_col] != edges_pdf[destination_col]]
-        adjacency: Dict[Any, set] = {}
-        degrees: Dict[Any, int] = {}
-        for row in simple_edges.itertuples(index=False):
-            src = getattr(row, source_col)
-            dst = getattr(row, destination_col)
-            adjacency.setdefault(src, set()).add(dst)
-            adjacency.setdefault(dst, set()).add(src)
-        for node_id, neighbors in adjacency.items():
-            degrees[node_id] = len(neighbors)
-        queue = [node_id for node_id, degree in degrees.items() if degree <= 1]
-        removed: set = set()
-        while queue:
-            current = queue.pop()
-            if current in removed:
-                continue
-            removed.add(current)
-            for neighbor in list(adjacency.get(current, set())):
-                if neighbor in removed:
-                    continue
-                adjacency[neighbor].discard(current)
-                degrees[neighbor] = len(adjacency[neighbor])
-                if degrees[neighbor] == 1:
-                    queue.append(neighbor)
-        return loop_nodes | {node_id for node_id in degrees if node_id not in removed}
+    base_nodes = matches_nodes if matches_nodes is not None else wave_front[:0]
 
-    def _undirected_rediscovered_seed_ids(
-        edges_df: DataFrameT,
-        seed_nodes_df: DataFrameT,
-        reached_nodes: Optional[DataFrameT],
-    ) -> Set[Hashable]:
-        """Seeds a walk that REUSES NO EDGE arrives back at: another seed shares the
-        component, or the seed lies on a cycle -- and the traversal actually reached it."""
-        rediscovered = _undirected_component_seed_keep_ids(edges_df, seed_nodes_df)
-        rediscovered |= _undirected_cycle_nodes(edges_df)
-        if not rediscovered:
-            return rediscovered
-        return rediscovered & _reached_node_ids(reached_nodes, node_col)
+    if track_node_hops and node_hop_col is not None:
+        node_labels_source = node_hop_records
+        if node_labels_source is None:
+            node_labels_source = base_nodes.assign(**{node_hop_col: []})
 
-    if self._nodes is not None:
-        rich_nodes = self._nodes
-        if target_wave_front is not None:
-            rich_nodes = concat([rich_nodes, target_wave_front], ignore_index=True, sort=False).drop_duplicates(subset=[node_col])
+        node_labels_source = node_labels_source.copy()
+        unfiltered_node_labels_source = node_labels_source.copy()
+        node_mask = None
+        if final_output_min is not None:
+            node_mask = node_labels_source[node_hop_col] >= final_output_min
+        if final_output_max is not None:
+            max_node_mask = node_labels_source[node_hop_col] <= final_output_max
+            node_mask = max_node_mask if node_mask is None else node_mask & max_node_mask
 
-        base_nodes = matches_nodes if matches_nodes is not None else wave_front[:0]
+        if node_mask is not None:
+            node_labels_source.loc[~node_mask, node_hop_col] = s_na(engine_concrete)
 
-        if track_node_hops and node_hop_col is not None:
-            node_labels_source = node_hop_records
-            if node_labels_source is None:
-                node_labels_source = base_nodes.assign(**{node_hop_col: []})
-
-            node_labels_source = node_labels_source.copy()
-            unfiltered_node_labels_source = node_labels_source.copy()
-            node_mask = None
-            if final_output_min is not None:
-                node_mask = node_labels_source[node_hop_col] >= final_output_min
-            if final_output_max is not None:
-                max_node_mask = node_labels_source[node_hop_col] <= final_output_max
-                node_mask = max_node_mask if node_mask is None else node_mask & max_node_mask
-
-            if node_mask is not None:
-                node_labels_source.loc[~node_mask, node_hop_col] = s_na(engine_concrete)
-
-            if label_seeds:
-                if node_hop_records is not None:
-                    seed_rows = node_hop_records[node_hop_col] == 0
-                    if seed_rows.any():
-                        seeds_for_output = node_hop_records[seed_rows]
-                        node_labels_source = concat(
-                            [node_labels_source, seeds_for_output],
-                            ignore_index=True,
-                            sort=False
-                        ).drop_duplicates(subset=[node_col])
-                elif starting_nodes is not None and node_col in starting_nodes.columns:
-                    seed_nodes = starting_nodes[[node_col]].drop_duplicates()
+        if label_seeds:
+            if node_hop_records is not None:
+                seed_rows = node_hop_records[node_hop_col] == 0
+                if seed_rows.any():
+                    seeds_for_output = node_hop_records[seed_rows]
                     node_labels_source = concat(
-                        [node_labels_source, seed_nodes.assign(**{node_hop_col: 0})],
+                        [node_labels_source, seeds_for_output],
                         ignore_index=True,
                         sort=False
                     ).drop_duplicates(subset=[node_col])
+            elif starting_nodes is not None and node_col in starting_nodes.columns:
+                seed_nodes = starting_nodes[[node_col]].drop_duplicates()
+                node_labels_source = concat(
+                    [node_labels_source, seed_nodes.assign(**{node_hop_col: 0})],
+                    ignore_index=True,
+                    sort=False
+                ).drop_duplicates(subset=[node_col])
 
+        # Hop labels are a left-join on the traversal result, never a filter.
+        filtered_nodes = base_nodes
+        if min_hop_prune_applied:
+            # Here the label set IS the retained-path set: dropping is how dead ends leave.
             filtered_nodes = safe_merge(
                 base_nodes,
                 node_labels_source[[node_col]],
                 on=node_col,
                 how='inner')
 
-            final_nodes = safe_merge(
-                rich_nodes,
-                filtered_nodes,
-                on=self._node,
-                how='inner')
+        final_nodes = safe_merge(
+            rich_nodes,
+            filtered_nodes,
+            on=node_col,
+            how='inner')
 
-            final_nodes = safe_merge(
-                final_nodes,
-                node_labels_source,
-                on=node_col,
-                how='left')
+        final_nodes = safe_merge(
+            final_nodes,
+            node_labels_source,
+            on=node_col,
+            how='left')
 
-            if node_hop_col in final_nodes and unfiltered_node_labels_source is not None:
-                fallback_map = (
-                    unfiltered_node_labels_source[[node_col, node_hop_col]]
-                    .drop_duplicates(subset=[node_col])
-                    .set_index(node_col)[node_hop_col]
+        if node_hop_col in final_nodes and unfiltered_node_labels_source is not None:
+            fallback_map = (
+                unfiltered_node_labels_source[[node_col, node_hop_col]]
+                .drop_duplicates(subset=[node_col])
+                .set_index(node_col)[node_hop_col]
+            )
+            try:
+                final_nodes[node_hop_col] = _combine_first_no_warn(
+                    final_nodes[node_hop_col],
+                    safe_map_series(final_nodes[node_col], fallback_map)
                 )
-                try:
-                    final_nodes[node_hop_col] = _combine_first_no_warn(
-                        final_nodes[node_hop_col],
-                        safe_map_series(final_nodes[node_col], fallback_map)
-                    )
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
-                try:
-                    if final_nodes[node_hop_col].notna().all():
-                        final_nodes[node_hop_col] = final_nodes[node_hop_col].astype('int64')
-                except Exception:
-                    pass
+            try:
+                if final_nodes[node_hop_col].notna().all():
+                    final_nodes[node_hop_col] = final_nodes[node_hop_col].astype('int64')
+            except Exception:
+                pass
 
-            if label_node_hops is None and node_hop_col in final_nodes:
-                final_nodes = final_nodes.drop(columns=[node_hop_col])
-        else:
-            final_nodes = safe_merge(
-                rich_nodes,
-                base_nodes,
-                on=self._node,
-                how='inner')
+        if label_node_hops is None and node_hop_col in final_nodes:
+            final_nodes = final_nodes.drop(columns=[node_hop_col])
+    else:
+        final_nodes = safe_merge(
+            rich_nodes,
+            base_nodes,
+            on=node_col,
+            how='inner')
 
-        g_out = g_out.nodes(final_nodes)
+    g_out = g_out.nodes(final_nodes)
 
     if g_out._edges is not None and len(g_out._edges) > 0 and g_out._nodes is not None:
         unbacked_endpoints = _endpoint_ids_without_node_rows(g_out, concat)
@@ -1195,15 +1259,28 @@ def hop(self: Plottable,
         and resolved_min_hops is not None
         and resolved_min_hops >= 1
         and seeds_provided
-        and not label_seeds
+        # NOT gated on label_seeds: a LABEL contract must not change WHICH nodes come back.
         and g_out._nodes is not None
         and starting_nodes is not None
         and node_col in starting_nodes.columns
     ):
         wavefront_seed_ids_df = cast(DataFrameT, column_frame(starting_nodes, node_col).drop_duplicates())
-        if direction == 'undirected' and to_fixed_point:
-            keep_seed_ids = _undirected_rediscovered_seed_ids(
-                final_edges, wavefront_seed_ids_df, matches_nodes)
+        # ONE rule, both arms: survive iff REACHED and edge-disjointly rediscovered.
+        single_edge_window = (
+            not to_fixed_point and resolved_max_hops is not None and resolved_max_hops <= 1
+        )
+        # A one-edge window is edge-disjoint by construction, so reached alone is already exact.
+        if direction == 'undirected' and not single_edge_window:
+            keep_seed_ids = undirected_rediscovered_seed_ids(
+                _host_list(final_edges[source_col]),
+                _host_list(final_edges[destination_col]),
+                _host_list(column_values(wavefront_seed_ids_df, node_col)),
+            )
+            if keep_seed_ids:
+                if matches_nodes is None or len(matches_nodes) == 0:
+                    keep_seed_ids = set()
+                else:
+                    keep_seed_ids &= set(_host_list(column_values(matches_nodes, node_col)))
             seed_mask = g_out._nodes[node_col].isin(column_values(wavefront_seed_ids_df, node_col))
             if keep_seed_ids:
                 keep_mask = g_out._nodes[node_col].isin(list(keep_seed_ids))

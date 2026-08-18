@@ -238,9 +238,6 @@ def test_negative_hops_rejected_pandas():
 
 
 @polars_only
-@pytest.mark.xfail(strict=True, raises=pytest.fail.Exception,
-                   reason="#1918: polars accepts hops=-1 and returns empty where "
-                          "pandas raises ValueError('max_hops must be >= 0')")
 def test_negative_hops_rejected_polars():
     g = _graph("path5", "polars")
     with pytest.raises(ValueError):
@@ -318,46 +315,14 @@ REDISCOVERY_ORACLE = [
     ("isolated", [0, 1], [2]),
 ]
 
-# Cells whose engine disagrees with the hand oracle at this commit.
-# pandas: the cycle helper builds adjacency as a set of NEIGHBOURS, so two
-# parallel edges collapse into one, both endpoints peel as degree 1, and the
-# seed on that length-2 cycle is dropped.
-# polars: applies no undirected-wavefront seed strip at all, so it returns every
-# seed whether or not a walk can rediscover it.
-REDISCOVERY_XFAIL = {
-    ("pandas", "parallel", (0,)),
-    ("polars", "path5", (0,)),
-    ("polars", "path5", (2,)),
-    ("polars", "selfloop", (0,)),
-    ("polars", "parallel", (2,)),
-    ("polars", "star", (0,)),
-    ("polars", "star", (1,)),
-    ("polars", "twocomp", (0, 2)),
-    ("polars", "twocomp", (0,)),
-    ("polars", "isolated", (0, 1)),
-}
+# Both engines now agree with the hand oracle on every cell: pandas counts EDGE
+# ROWS in the cycle helper (so parallel edges stay a length-2 cycle) and polars
+# applies the same undirected-wavefront seed strip (#1918).
+REDISCOVERY_XFAIL: set = set()
 
-# to_fixed_point must equal the saturated bounded hop. Cells where the BOUNDED
-# arm re-enters a seed by traversing its departure edge a second time (see
-# REDISCOVERY_ORACLE: exactly the cells whose oracle drops a seed) diverge.
-TFP_EQUALS_BOUNDED_XFAIL = {
-    ("pandas", "path5", (0,)),
-    ("pandas", "path5", (2,)),
-    ("pandas", "selfloop", (0,)),
-    ("pandas", "parallel", (0,)),
-    ("pandas", "parallel", (2,)),
-    ("pandas", "star", (0,)),
-    ("pandas", "star", (1,)),
-    ("pandas", "twocomp", (0, 2)),
-    ("pandas", "twocomp", (0,)),
-    ("pandas", "isolated", (0, 1)),
-}
-# Round 5, measured on cudf 25.10: the cuDF arm lands on exactly the pandas cells of BOTH
-# sets above -- same one rediscovery miss, same ten tfp-vs-bounded cells. Mirrored rather
-# than re-listed so a cuDF-only drift shows up as an unexpected pass or failure.
-REDISCOVERY_XFAIL |= {("cudf",) + c[1:] for c in set(REDISCOVERY_XFAIL) if c[0] == "pandas"}
-TFP_EQUALS_BOUNDED_XFAIL |= {
-    ("cudf",) + c[1:] for c in set(TFP_EQUALS_BOUNDED_XFAIL) if c[0] == "pandas"}
+# to_fixed_point must equal the saturated bounded hop. The bounded arm applies the
+# same edge-disjoint rediscovery rule as to_fixed_point (#1918), so no cell diverges.
+TFP_EQUALS_BOUNDED_XFAIL: set = set()
 
 
 def _rediscovery_params(xfail_set, reason):

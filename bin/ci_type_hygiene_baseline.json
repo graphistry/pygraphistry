@@ -300,7 +300,7 @@
       "graphistry/compute/gfql/validate.py": 4,
       "graphistry/compute/gfql_fast_paths.py": 20,
       "graphistry/compute/gfql_unified.py": 1,
-      "graphistry/compute/hop.py": 6,
+      "graphistry/compute/hop.py": 4,
       "graphistry/compute/predicates/comparison.py": 2,
       "graphistry/compute/predicates/is_in.py": 1,
       "graphistry/compute/predicates/str.py": 6,

@@ -346,13 +346,14 @@ def test_nonexistent_optional_arm_label_should_null_extend() -> None:
     assert all(row["c"] is None for row in rows)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#1787 (pre-existing, not #1905): pandas min_hops>=2 hop-window starvation -- "
-           "row/pipeline.py's trail expander consumes edge_op.execute output that hop.py "
-           "already pruned with its dedup-by-node eccentricity gate, so an emptied frame "
-           "starves the trail lane and the window returns 0 rows.",
-)
+# WAS a strict xfail for #1787 ("pandas min_hops>=2 hop-window starvation -- row/pipeline.py's
+# trail expander consumes edge_op.execute output that hop.py already pruned with its
+# dedup-by-node eccentricity gate, so an emptied frame starves the trail lane and the window
+# returns 0 rows"). FIXED by #1918 F8 at the source: hop.py's traversal no longer breaks on
+# reachable-set closure while a min_hops lower bound is unsatisfied, so it stops handing the
+# trail expander an emptied frame. Un-xfailed rather than left strict-xpassing; the three
+# oracles below are UNCHANGED and were re-verified against an independent brute-force
+# undirected trail enumerator (C4 seeded *4..4 = 2, C4 *3..3 = 8, C3 *3..3 = 6).
 @pytest.mark.parametrize("n,query,oracle", [
     # seeded *4..4 on the 4-cycle: the two 4-edge circuits back to a.
     (4, "MATCH (x {id:'a'})-[*4..4]-(y) RETURN y.id AS y", 2),

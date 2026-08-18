@@ -117,21 +117,83 @@ def test_hop_seeded_source_match_domain_hops_invariant(engine):
 #     1: x back to 0 and y to 2 are both type 'a' (rejected). Same answer:
 #     nodes [1], edges [(0,1)].
 
+# #1918 F4 WIDENING. The original parameterization was `filt` in {source_node_match,
+# destination_node_match} x seeds fixed at [0, 1] -- and that is precisely what HID the
+# disagreement: BOTH omitted arms (no filter, and a SINGLE seed) were the broken ones, where
+# tfp answered [1,2] and bounded [0,1,2] for seeds=[0].
+#
+# WHICH ARM WAS WRONG: the BOUNDED one. tfp applied the edge-disjointness condition (see the
+# hand oracle below); bounded returned whatever its BFS reached, and the BFS re-enters a seed
+# by walking back along the edge it left by. An earlier pass at #1918 read the probe's
+# "bounded=[0,1,2] vs tfp=[1,2]" as evidence against tfp and moved tfp -- making both arms
+# agree on the wrong answer and breaking tests/compute/test_hop.py. The equivalence pin alone
+# cannot catch that, which is why the value pin below is derived on paper instead.
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("filt", [
+    {},                                              # #1918 F4: the arm that was missing
     {"source_node_match": {"type": "a"}},
     {"destination_node_match": {"type": "b"}},
-])
-def test_hop_undirected_tfp_wavefront_matches_saturated_bounded(engine, filt):
+], ids=["unfiltered", "src-match", "dst-match"])
+@pytest.mark.parametrize("seeds", [[0], [1], [2], [0, 1]],
+                         ids=["seed-0", "seed-1", "seed-2", "seeds-0-1"])
+def test_hop_undirected_tfp_wavefront_matches_saturated_bounded(engine, filt, seeds):
     g = _graph(engine)
     kw = dict(
-        nodes=_frame(engine, pd.DataFrame({"id": [0, 1]})),
+        nodes=_frame(engine, pd.DataFrame({"id": seeds})),
         direction="undirected", return_as_wave_front=True, engine=engine, **filt,
     )
     bounded = g.hop(hops=3, to_fixed_point=False, **kw)  # saturated: diameter < 3
     fixed = g.hop(hops=3, to_fixed_point=True, **kw)
+    assert node_ids(fixed) == node_ids(bounded)
+    assert edge_ids(fixed) == edge_ids(bounded)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("filt", [
+    {"source_node_match": {"type": "a"}},
+    {"destination_node_match": {"type": "b"}},
+], ids=["src-match", "dst-match"])
+def test_hop_undirected_tfp_wavefront_filtered_values(engine, filt):
+    kw = dict(
+        nodes=_frame(engine, pd.DataFrame({"id": [0, 1]})),
+        direction="undirected", return_as_wave_front=True, engine=engine, **filt,
+    )
+    g = _graph(engine)
+    bounded = g.hop(hops=3, to_fixed_point=False, **kw)
+    fixed = g.hop(hops=3, to_fixed_point=True, **kw)
     assert node_ids(fixed) == node_ids(bounded) == [1]
     assert edge_ids(fixed) == edge_ids(bounded) == [(0, 1)]
+
+
+# The invariant above is self-checking (engine-local equality), so it could in principle be
+# satisfied vacuously -- or, worse, by both arms agreeing on a WRONG answer, which is exactly
+# what happened once here. So the literals below come from a HAND ORACLE, not from either arm.
+#
+# ORACLE (derived on paper, edge-disjoint-walk semantics). Fixture read undirected is the path
+# 0 -x- 1 -y- 2. ``return_as_wave_front=True`` returns ENCOUNTERED nodes, and returning along
+# the edge you departed on is the trip home, not an encounter -- so a walk may not REUSE an
+# edge. Enumerating from each seed:
+#   seed {0}: 0-x-1 (len 1), 0-x-1-y-2 (len 2). Getting back to 0 would need x twice.  -> {1,2}
+#   seed {1}: 1-x-0 (len 1), 1-y-2 (len 1). Back to 1 would need x or y twice.          -> {0,2}
+#   seed {2}: 2-y-1 (len 1), 2-y-1-x-0 (len 2).                                          -> {0,1}
+#   seeds {0,1}: as above, plus 0 is reached from seed 1 over x and 1 from seed 0 over x --
+#                one edge each, nothing reused, so BOTH seeds are genuinely encountered. -> {0,1,2}
+# The path is acyclic, so a lone seed is never re-encountered; a second seed in the component
+# changes that. Both are one rule: a seed stays iff an edge-disjoint walk reaches it.
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("seeds,expect_nodes", [
+    ([0], [1, 2]),
+    ([1], [0, 2]),
+    ([2], [0, 1]),
+    ([0, 1], [0, 1, 2]),
+], ids=["seed-0", "seed-1", "seed-2", "seeds-0-1"])
+def test_hop_undirected_tfp_wavefront_unfiltered_values(engine, seeds, expect_nodes):
+    g = _graph(engine)
+    r = g.hop(nodes=_frame(engine, pd.DataFrame({"id": seeds})), hops=3,
+              to_fixed_point=True, direction="undirected", return_as_wave_front=True,
+              engine=engine)
+    assert node_ids(r) == expect_nodes
+    assert edge_ids(r) == [(0, 1), (1, 2)]
 
 
 # ================================================================ T-04 (F-02)
