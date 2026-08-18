@@ -5547,7 +5547,7 @@ def execute_row_pipeline_call(
         if unsupported:
             raise NotImplementedError(
                 f"polars row pipeline does not yet support op {function!r}; "
-                "use engine='pandas' for this query"
+                "use engine='pandas' or engine='cudf' for this query"
             )
     adapter = _RowPipelineAdapter(g)
     method = _ROW_PIPELINE_DISPATCH[function]
