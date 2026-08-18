@@ -16732,6 +16732,39 @@ def test_t6_connected_comma_two_star_direct_count_preserves_multiplicity(engine:
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_two_star_grouped_count_keyed_on_the_node_id_column(engine: str) -> None:
+    """Group key IS the node-id column: the lookup must read the key series, not
+    select the id column twice (pandas died -- KeyError before the one-pass
+    construction, a duplicate-column ValueError after -- while polars served it).
+    Direct call pins ENGAGEMENT; gfql pins the end-to-end value."""
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": [0, 1, 10, 11, 20],
+        "node_type": ["Person", "Person", "City", "City", "Interest"],
+        "city": [None, None, "London", "Paris", None],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 0, 1, 1, 0, 1],
+        "d": [20, 10, 20, 11, 11, 10],
+        "rel": ["HAS_INTEREST", "LIVES_IN", "HAS_INTEREST", "LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN c.id AS x, count(p) AS n"
+    )
+    graph = _mk_graph(nodes, edges)
+    plan = _compiled_connected_join_plan(query)
+    direct = _connected_join_two_star_fast_grouped_count(graph, plan, engine=Engine(engine))
+    assert direct is not None
+    expected = [{"x": 10, "n": 2}, {"x": 11, "n": 2}]
+    assert sorted(_to_pandas_df(direct).to_dict(orient="records"), key=lambda r: r["x"]) == expected
+    result = graph.gfql(query, engine=engine)
+    assert sorted(_to_pandas_df(result._nodes).to_dict(orient="records"), key=lambda r: r["x"]) == expected
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
 def test_t6_connected_comma_two_star_direct_grouped_count_orders_and_limits(engine: str) -> None:
     if engine == "polars":
         pytest.importorskip("polars")
