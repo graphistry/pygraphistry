@@ -376,6 +376,65 @@ def _is_iso_temporal_literal(node: ExprNode) -> bool:
     )
 
 
+def _utc_z_iso_temporal_literal_text(node: ExprNode) -> Optional[str]:
+    """The literal text when ``node`` is an ISO temporal literal carrying a UTC 'Z'."""
+    from graphistry.compute.gfql.expr_parser import Literal
+    if not _is_iso_temporal_literal(node):
+        return None
+    assert isinstance(node, Literal)
+    text = node.value
+    if not isinstance(text, str):
+        return None
+    return text if text.endswith("Z") else None
+
+
+def _strip_utc_z_expr(expr: pl.Expr) -> pl.Expr:
+    return expr.str.replace("Z$", "")
+
+
+def _is_utc_z_iso_temporal_text(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and value.endswith("Z")
+        and _ISO_TEMPORAL_RE.match(value) is not None
+    )
+
+
+def _lower_utc_z_normalized_comparison(
+    node: ExprNode,
+    columns: Sequence[str],
+) -> Optional[tuple[pl.Expr, pl.Expr]]:
+    """Z-normalized operands for ``<String column> <cmp> <Z-suffixed ISO literal>``.
+
+    ``datetime('2020-06-15T08:30:00')`` lowers to Z-suffixed ISO text while a String
+    column of ISO text carries no 'Z', so the lexicographic compare never matched
+    (``=`` returned nothing and ``>=`` silently degraded to ``>``). Under
+    GFQL's text-temporal extension naive ISO text denotes UTC, so a trailing 'Z' is
+    not part of the value; dropping it from BOTH sides restores equality and preserves
+    lexicographic order. Only engages when one side is a Z-suffixed ISO literal and the
+    other resolves to a String column, so real Datetime columns still take the decline
+    above and ordinary string comparisons are untouched.
+    """
+    import polars as pl
+    from graphistry.compute.gfql.expr_parser import BinaryOp
+    assert isinstance(node, BinaryOp)
+    left_text = _utc_z_iso_temporal_literal_text(node.left)
+    right_text = _utc_z_iso_temporal_literal_text(node.right)
+    if (left_text is None) == (right_text is None):
+        return None
+    literal_text = left_text if right_text is None else right_text
+    assert literal_text is not None
+    other_node = node.right if right_text is None else node.left
+    other = lower_expr(other_node, columns)
+    if other is None or _expr_output_dtype(other) != pl.String:
+        return None
+    stripped_literal = pl.lit(literal_text[:-1])
+    stripped_other = _strip_utc_z_expr(other)
+    if right_text is None:
+        return (stripped_literal, stripped_other)
+    return (stripped_other, stripped_literal)
+
+
 def _is_temporal_column_ref(node: ExprNode, columns: Sequence[str]) -> bool:
     """True iff ``node`` references a column with TEMPORAL schema dtype (Datetime/Date/Time).
     Temporal column vs ISO temporal STRING literal makes polars raise -> decline; a String
@@ -546,7 +605,13 @@ def _lower_in(left: pl.Expr, items: Sequence[ExprNode], columns: Sequence[str]) 
     if _dtype_category(_expr_output_dtype(left)) != next(iter(cats)):
         return None
     values = [it.value for it in literals]
-    return pl.when(left.is_null()).then(pl.lit(None, dtype=pl.Boolean)).otherwise(left.is_in(values))
+    member_expr = left
+    if _expr_output_dtype(left) == pl.String and any(_is_utc_z_iso_temporal_text(v) for v in values):
+        # Same Z-normalization as the comparison path: otherwise
+        # `n.ts_txt IN [datetime('...')]` never matched what `= datetime('...')` matches.
+        values = [v[:-1] if _is_utc_z_iso_temporal_text(v) else v for v in values]
+        member_expr = _strip_utc_z_expr(left)
+    return pl.when(left.is_null()).then(pl.lit(None, dtype=pl.Boolean)).otherwise(member_expr.is_in(values))
 
 
 def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
@@ -617,6 +682,10 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             or (_is_iso_temporal_literal(node.right) and _is_temporal_column_ref(node.left, columns))
         ):
             return None
+        if node.op in _NAN_GUARD_OPS:
+            z_normalized = _lower_utc_z_normalized_comparison(node, columns)
+            if z_normalized is not None:
+                return _apply_binop(node.op, z_normalized[0], z_normalized[1])
         left = lower_expr(node.left, columns)
         right = lower_expr(node.right, columns)
         if left is None or right is None:
