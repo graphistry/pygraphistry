@@ -630,9 +630,11 @@ class RowPipelineMixin:
             return hasattr(value, "__class__") and value.__class__.__module__.startswith("cudf")
 
         if _is_cudf_series(left) or _is_cudf_series(right):
-            # cuDF raises dtype-level TypeError for mixed-type comparisons;
-            # preserve Cypher filtering semantics without host round-trips.
-            return self._gfql_broadcast_scalar(table_df, False)
+            # cuDF raises dtype-level TypeError for mixed-type comparisons, and a
+            # cuDF column holds ONE dtype, so every row is incomparable -> null
+            # (openCypher), never False: NOT (...) must drop these rows too (#1934).
+            false_series = self._gfql_broadcast_scalar(table_df, False)
+            return false_series.where(false_series, None)
 
         left_series = left if hasattr(left, "astype") else self._gfql_broadcast_scalar(table_df, left)
         right_series = right if hasattr(right, "astype") else self._gfql_broadcast_scalar(table_df, right)
