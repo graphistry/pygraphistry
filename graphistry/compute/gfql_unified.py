@@ -1868,7 +1868,10 @@ def gfql_clear_caches() -> None:
     server cannot reclaim the memory on demand).
 
     Caches keyed to a specific graph are NOT touched: they live on their ``Plottable`` and
-    die with it. Neither are the process-lifetime *singletons* -- Lark parser objects,
+    die with it. This function is therefore NOT the recovery from an in-place mutation of a
+    bound frame -- the resident adjacency-index registry survives it. Rebind a fresh frame object
+    or ``drop_index`` instead (see :meth:`ComputeMixin.gfql`, which names the same two).
+    Neither are the process-lifetime *singletons* -- Lark parser objects,
     compiled regexes, dependency probes -- which are a function of the code, not of any
     input; see ``clear_cypher_parser_caches`` and
     ``graphistry/tests/compute/gfql/test_clear_caches_covers_every_cache.py``, which fails

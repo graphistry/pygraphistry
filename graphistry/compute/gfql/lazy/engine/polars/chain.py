@@ -1044,12 +1044,13 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     g, _endpoint_restore = _align_edge_endpoints(g, g._node, g._source, g._destination)
     if g._edge is None:
         EID = "__gfql_edge_index__"
+        pre_index_edges = g._edges
         g = g.edges(g._edges.with_row_index(EID), g._source, g._destination, edge=EID)
         added_edge_index = True
         from graphistry.compute.gfql.index import get_registry, set_registry
         _reg = get_registry(g)
         if not _reg.is_empty():
-            g = set_registry(g, _reg.rebind_edges(g._edges))
+            g = set_registry(g, _reg.rebind_edges(g._edges, pre_index_edges))
     else:
         EID = g._edge
         added_edge_index = False

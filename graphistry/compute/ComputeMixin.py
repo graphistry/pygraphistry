@@ -757,8 +757,14 @@ class ComputeMixin(Plottable):
 
         Bound frames are treated as IMMUTABLE (like any engine with indexes):
         mutating a bound frame in place is undefined behavior for caches,
-        indexes, and results. After mutating, rebind fresh frames or call
-        ``graphistry.compute.gfql_unified.gfql_clear_caches()``.
+        indexes, and results. To recover, rebind a FRESH frame object
+        (``g.edges(df.copy(), ...)`` / ``g.nodes(...)``) or drop the resident
+        indexes (:meth:`drop_index`); either re-establishes a sound binding, and a
+        brand-new ``nodes()/edges()`` graph always starts clean. Note
+        ``gfql_clear_caches()`` is NOT a recovery here: it empties the
+        process-lifetime memos (compiled plans, parse caches) and deliberately
+        leaves graph-keyed state — the #1658 index registry included — on the
+        ``Plottable`` that owns it.
         """
 
     def gfql_explain(
