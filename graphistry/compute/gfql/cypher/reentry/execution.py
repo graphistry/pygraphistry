@@ -25,6 +25,10 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
 from graphistry.compute.gfql.agg_types import CypherEmptyGroupFills, CypherEmptyGroupValue
 from graphistry.compute.gfql.cypher.ast import CypherScalar
+from graphistry.compute.gfql.cypher.reentry.carried_outputs import (
+    CARRIED_OUTPUTS_NOT_REPRODUCIBLE,
+    CarriedOutputSources,
+)
 from graphistry.compute.gfql.cypher.reentry.naming import (
     REENTRY_HIDDEN_COLUMN_PREFIX,
     _reentry_hidden_column_name,
@@ -46,19 +50,6 @@ CypherFillValue = Union[CypherScalar, CypherEmptyGroupValue]
 
 #: Output column -> its value in a synthesized null-extended row.
 CypherFillRow = Dict[str, CypherFillValue]
-
-
-@dataclass(frozen=True)
-class CarriedOutputSources:
-    """Prefix-frame column behind each result output that reads the carried alias."""
-
-    columns: Mapping[str, str]
-    every_output_reproducible: bool
-
-
-#: At least one carried-alias output has no prefix-frame column behind it, so an unmatched
-#: prefix row cannot be given its own values and the null-fill must decline typed.
-CARRIED_OUTPUTS_NOT_REPRODUCIBLE = CarriedOutputSources(columns={}, every_output_reproducible=False)
 
 
 from graphistry.Engine import is_polars_df as _is_polars_df
@@ -421,13 +412,13 @@ def compiled_query_reentry_state(
     if _is_polars_df(carried_ids) or _is_polars_df(aligned_prefix_rows) or _is_polars_df(base_nodes):
         # Whole-row re-entry that ALSO carries scalar WITH columns (e.g. `WITH a, a.val AS av
         # MATCH (a)-...`) threads hidden ``__cypher_reentry_*`` payload columns through the
-        # binding pipeline; that carry path is pandas-only so far. The seed-only whole-row case
-        # (no carried scalars) returned above. Decline honestly rather than run the pandas-only
-        # payload merge on polars frames (parity-or-NIE; no silent bridge).
+        # binding pipeline; that carry path is pandas/cuDF-only so far. The seed-only whole-row
+        # case (no carried scalars) returned above. Decline honestly rather than run the
+        # pandas/cuDF payload merge on polars frames (parity-or-NIE; no silent bridge).
         raise NotImplementedError(
             "polars engine does not yet natively support Cypher WITH -> MATCH re-entry that carries "
-            "scalar WITH columns into the trailing MATCH; use engine='pandas' for this query "
-            "(no pandas fallback; parity-or-error by design)"
+            "scalar WITH columns into the trailing MATCH; use engine='pandas' or engine='cudf' "
+            "for this query (no silent fallback; parity-or-error by design)"
         )
     duplicate_mask = carried_ids.duplicated()
     if bool(duplicate_mask.any()) if hasattr(duplicate_mask, "any") else False:
