@@ -51,6 +51,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_row_multiplicity_semantics.py
     graphistry/tests/compute/gfql/test_numeric_conformance_semantics.py
     graphistry/tests/compute/gfql/test_path_trail_semantics.py
+    graphistry/tests/compute/gfql/test_count_and_param_semantics.py
     graphistry/tests/compute/gfql/row/test_row_pipeline_boundaries.py
     graphistry/tests/compute/gfql/test_unary_op_surface.py
     graphistry/tests/compute/gfql/test_hop_boundary_matrix.py

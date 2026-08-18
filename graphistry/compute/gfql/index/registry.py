@@ -173,6 +173,8 @@ class DegreeFact:
     hi: int
     backend: IndexBackend
     engine: Engine
+    #: ``|{e : src(e) == dst(e)}|``; None = unknown, which consumers must not read as 0.
+    self_loops: Optional[int] = None
     type_column: Optional[str] = None
     type_value: Optional[PartitionValue] = None
     fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))

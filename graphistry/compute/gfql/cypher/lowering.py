@@ -146,7 +146,15 @@ from graphistry.compute.gfql.temporal.folding import (
     fold_temporal_constructor_ast,
     rewrite_temporal_constructors_in_expr,
 )
-from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, WhereComparison, col, compare, where_to_row_expr
+from graphistry.compute.gfql.row.entity_props import LABEL_FLAG_PREFIX
+from graphistry.compute.gfql.same_path_types import (
+    EDGE_IDENTITY_COLUMN,
+    NODE_IDENTITY_COLUMN,
+    WhereComparison,
+    col,
+    compare,
+    where_to_row_expr,
+)
 from graphistry.compute.gfql.cypher.reentry import naming as _reentry_naming, scope as _reentry_scope
 from graphistry.compute.gfql.cypher.ast import CypherParams
 from graphistry.compute.gfql.identifiers import shortest_path_hops_column
@@ -1270,7 +1278,7 @@ def _connected_join_alias_identity_expr(
             return PropertyAccessExpr(_rewrite(node_in.value), node_in.property)
         if isinstance(node_in, Identifier) and "." not in node_in.name and node_in.name in alias_targets:
             target = alias_targets[node_in.name]
-            prop = NODE_IDENTITY_COLUMN if isinstance(target, ASTNode) else "__gfql_edge_index_0__"
+            prop = NODE_IDENTITY_COLUMN if isinstance(target, ASTNode) else EDGE_IDENTITY_COLUMN
             return PropertyAccessExpr(Identifier(node_in.name), prop)
         return _rebuild_expr_node(node_in, rewrite=_rewrite, error_context="connected join identity rewrite")
 
@@ -2580,6 +2588,22 @@ def _match_relationship_count(clause: MatchClause) -> int:
     return sum(1 for element in _match_pattern_elements(clause) if isinstance(element, RelationshipPattern))
 
 
+def _binds_one_route_per_pair_undirected(clause: MatchClause) -> bool:
+    """Undirected unbounded arm under shortestPath/allShortestPaths, whose one-route-per-
+    endpoint-pair cardinality binding rows cannot reproduce. Plain ``-[*]-`` is not one."""
+    kinds = _match_pattern_alias_kinds(clause)
+    for index, pattern in enumerate(clause.patterns):
+        if index < len(kinds) and kinds[index] == "pattern":
+            continue
+        for element in pattern:
+            if isinstance(element, RelationshipPattern) and (
+                getattr(element, "to_fixed_point", False)
+                and element.direction == "undirected"
+            ):
+                return True
+    return False
+
+
 def _forces_relationship_multiplicity_projection_bindings(
     query: CypherQuery,
     *,
@@ -2601,15 +2625,8 @@ def _forces_relationship_multiplicity_projection_bindings(
         return False
     if not all(isinstance(target, (ASTNode, ASTEdge)) for target in alias_targets.values()):
         return False
-    for clause in query.matches:
-        for pattern in clause.patterns:
-            for element in pattern:
-                if isinstance(element, RelationshipPattern) and (
-                    getattr(element, "to_fixed_point", False)
-                    and element.direction == "undirected"
-                ):
-                    # An undirected unbounded fixed point is not reconstructible from binding rows.
-                    return False
+    if any(_binds_one_route_per_pair_undirected(clause) for clause in query.matches):
+        return False
     texts = [item.expression.text for item in items]
     if order_by is not None:
         texts.extend(order_item.expression.text for order_item in order_by.items)
@@ -2634,28 +2651,42 @@ def _forces_relationship_multiplicity_projection_bindings(
         saw_node_prop_ref = True
     if not saw_node_prop_ref:
         return False
-    # A single seeded [node, single-hop edge, node] pattern projecting only destination props stays on the seeded typed-hop fast path.
-    if len(query.matches) == 1 and len(query.matches[0].patterns) == 1:
-        pattern = query.matches[0].patterns[0]
-        if (
-            len(pattern) == 3
-            and isinstance(pattern[0], NodePattern)
-            and isinstance(pattern[1], RelationshipPattern)
-            and pattern[1].min_hops is None
-            and pattern[1].max_hops is None
-            and not getattr(pattern[1], "to_fixed_point", False)
-            and isinstance(pattern[2], NodePattern)
-        ):
-            seed_alias = pattern[0].variable
-            dest_alias = pattern[2].variable
-            seed_target = alias_targets.get(seed_alias) if seed_alias is not None else None
-            seed_filter = getattr(seed_target, "filter_dict", None)
-            has_selective_seed = seed_filter is not None and any(
-                not str(key).startswith("label__") for key in seed_filter
-            )
-            if has_selective_seed and dest_alias is not None and referenced_aliases <= {dest_alias}:
-                return False
+    if _seeded_typed_hop_reduction_is_value_correct(
+        query, alias_targets=alias_targets, referenced_aliases=referenced_aliases
+    ):
+        return False
     return True
+
+
+def _seeded_typed_hop_reduction_is_value_correct(
+    query: CypherQuery,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    referenced_aliases: AbstractSet[str],
+) -> bool:
+    """A selectively-seeded single-hop pattern projecting only destination props, which
+    the seeded typed-hop fast path already answers without binding rows."""
+    if len(query.matches) != 1 or len(query.matches[0].patterns) != 1:
+        return False
+    pattern = query.matches[0].patterns[0]
+    if not (
+        len(pattern) == 3
+        and isinstance(pattern[0], NodePattern)
+        and isinstance(pattern[1], RelationshipPattern)
+        and pattern[1].min_hops is None
+        and pattern[1].max_hops is None
+        and not getattr(pattern[1], "to_fixed_point", False)
+        and isinstance(pattern[2], NodePattern)
+    ):
+        return False
+    seed_alias = pattern[0].variable
+    dest_alias = pattern[2].variable
+    seed_target = alias_targets.get(seed_alias) if seed_alias is not None else None
+    seed_filter = getattr(seed_target, "filter_dict", None)
+    has_selective_seed = seed_filter is not None and any(
+        not str(key).startswith(LABEL_FLAG_PREFIX) for key in seed_filter
+    )
+    return has_selective_seed and dest_alias is not None and referenced_aliases <= {dest_alias}
 
 
 def _is_pure_count_star_shortcircuit(
@@ -3094,10 +3125,13 @@ def _filter_dict_from_entries(
     for entry in properties:
         if isinstance(entry.value, ExpressionText):
             continue
-        out[entry.key] = _resolve_literal(
-            entry.value,
-            params=params,
-            field=f"{field_prefix}.{entry.key}",
+        out[entry.key] = _predicate_value(
+            "==",
+            _resolve_literal(
+                entry.value,
+                params=params,
+                field=f"{field_prefix}.{entry.key}",
+            ),
         )
     return out or None
 
@@ -3929,6 +3963,13 @@ def _set_target_filter_dict(target: ASTObject, filter_dict: Dict[str, Any]) -> N
 
 
 def _predicate_value(op: str, value: Any) -> Any:
+    if isinstance(value, (list, tuple, set, frozenset, dict)):
+        # openCypher (#1905): a scalar property is never EQUAL to a list/map, and a
+        # filter_dict list means membership -- so `= $list` must not push as one.
+        if op == "==":
+            return never_match()
+        if op == "!=":
+            return notna()
     if op == "==":
         return value
     if op == "!=":
@@ -6838,7 +6879,7 @@ def _distinct_aggregate_expr_text(
                 line=agg_spec.span_line,
                 column=agg_spec.span_column,
             )
-        return "__gfql_edge_index_0__"
+        return EDGE_IDENTITY_COLUMN
     return expr_text
 
 
@@ -6904,7 +6945,7 @@ def _whole_row_group_key_expr(
     if isinstance(target, ASTNode):
         return NODE_IDENTITY_COLUMN
     if isinstance(target, ASTEdge):
-        return "__gfql_edge_index_0__"
+        return EDGE_IDENTITY_COLUMN
     raise _unsupported(
         "Cypher aggregate whole-row grouping requires a node or edge alias",
         field=field,

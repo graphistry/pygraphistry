@@ -72,7 +72,7 @@ from graphistry.compute.gfql_fast_paths import (
     _filter_nodes_for_fast_count,
     _connected_join_two_star_split_residuals,
     _dense_int_domain_interval,
-    _edge_cols_bounds_within,
+    _edge_cols_bounds_scan,
     _two_hop_equal_domain_dense_total,
 )
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
@@ -6558,7 +6558,13 @@ def test_string_cypher_executes_undirected_fixed_point_relationship_pattern_on_c
 
     result = graph.gfql("MATCH (a {id: 'a'})-[:R*]-(b) RETURN b.id AS id ORDER BY id")
 
-    assert result._nodes.to_dict(orient="records") == [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+    # #1906: the row lane now rides the same trail-filtered bindings as its count twin
+    # instead of the deduped node set. On the triangle a-b, b-c, c-a the trails from `a`
+    # are: [e_ab] -> b, [e_ca] -> c, [e_ab, e_bc] -> c, [e_ca, e_bc] -> b,
+    # [e_ab, e_bc, e_ca] -> a, [e_ca, e_bc, e_ab] -> a == 6 rows, 2 per endpoint.
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "a"}, {"id": "a"}, {"id": "b"}, {"id": "b"}, {"id": "c"}, {"id": "c"}
+    ]
 
 
 @pytest.mark.parametrize(
@@ -15553,9 +15559,12 @@ def _real_bool_shape_graph() -> Plottable:
     [
         # `bool` counts as numeric to the live validator, so a string value against a bool
         # column must stay residual rather than push into a type error.
+        # #1905 TRAIL: the fixture is a 4-cycle, out-degree 1 per node, so the two arms
+        # can only bind ONE relationship twice -- 0 bindings for every predicate (the old
+        # n=2/n=3 counted (r, r)); 0 rows is this lane's empty-aggregate convention.
         ("p.flag = 'yes'", []),
-        ("p.flag = true", [{"n": 2}]),
-        ("p.age >= 26", [{"n": 3}]),
+        ("p.flag = true", []),
+        ("p.age >= 26", []),
     ],
 )
 def test_connected_join_bool_column_matches_validator(predicate: str, expected: Any) -> None:
@@ -15584,7 +15593,9 @@ def test_connected_join_out_of_range_int_still_reports_range_error(predicate: st
 
 @pytest.mark.parametrize(
     "predicate,expected",
-    [("p.iv > 1", []), ("p.iv >= 1", []), ("p.iv <> 1", [{"n": 8}]), ("p.iv = 1", [])],
+    # #1905 TRAIL: p1 and p2 each have out-degree 2, so each contributes 2*1 = 2
+    # ordered pairs of DISTINCT relationships, not 2*2 = 4 -- n = 4, not 8.
+    [("p.iv > 1", []), ("p.iv >= 1", []), ("p.iv <> 1", [{"n": 4}]), ("p.iv = 1", [])],
 )
 def test_connected_join_interval_column_matches_master(predicate: str, expected: Any) -> None:
     # `interval[int64, right]` contains "int": classified numeric, a comparison pushed onto
@@ -15614,12 +15625,15 @@ def _real_labelled_inline_graph() -> Plottable:
         # Merging onto an existing STRING inline value wraps it with comparison.eq, which
         # serializes to {'type':'EQ'} -- a tag from_json binds to the numeric-only EQ, so the
         # executor raises when it rehydrates. Don't create that shape; stay residual.
-        ("{nick:'aa'}", "friend.nick = 'aa'", [{"n": 1}]),
+        # #1905 TRAIL: `person` is pinned to p1, so its arm binds edge p1->c1; every
+        # predicate below also selects p1 as `friend`, whose arm would bind that SAME
+        # relationship -- illegal, so 0 bindings (the old n=1 counted it).
+        ("{nick:'aa'}", "friend.nick = 'aa'", []),
         ("{nick:'aa'}", "friend.nick = 'bb'", []),
         # A different property never merges, and a numeric inline value rehydrates fine.
-        ("{nick:'aa'}", "friend.age > 20", [{"n": 1}]),
-        ("{age:30}", "friend.age > 20", [{"n": 1}]),
-        ("{}", "friend.nick = 'aa'", [{"n": 1}]),
+        ("{nick:'aa'}", "friend.age > 20", []),
+        ("{age:30}", "friend.age > 20", []),
+        ("{}", "friend.nick = 'aa'", []),
     ],
 )
 def test_connected_join_inline_string_property_merge_matches_master(
@@ -15654,12 +15668,15 @@ def _real_string_merge_graph() -> Plottable:
         # filter_dict is mutated as earlier atoms push, so a previously-pushed string
         # predicate must not green-light merging a raw string behind it. Checking only the
         # existing side made this order-dependent.
-        ("p.name CONTAINS 'al' AND p.name = 'alice'", [{"n": 4}]),
-        ("p.name STARTS WITH 'al' AND p.name = 'alice'", [{"n": 4}]),
-        ("p.name CONTAINS 'a' AND p.name CONTAINS 'l'", [{"n": 8}]),
-        ("p.name CONTAINS 'al'", [{"n": 4}]),
+        # #1905 TRAIL: each person has out-degree 2, so 2*1 = 2 ordered pairs of
+        # DISTINCT relationships per matching person (was 2*2 = 4, which counted (r, r)):
+        # 1 person -> 2, and the two-person `CONTAINS 'a' AND CONTAINS 'l'` row -> 4.
+        ("p.name CONTAINS 'al' AND p.name = 'alice'", [{"n": 2}]),
+        ("p.name STARTS WITH 'al' AND p.name = 'alice'", [{"n": 2}]),
+        ("p.name CONTAINS 'a' AND p.name CONTAINS 'l'", [{"n": 4}]),
+        ("p.name CONTAINS 'al'", [{"n": 2}]),
         # Numeric merges are representable and must still push.
-        ("p.age > 20 AND p.age = 30", [{"n": 4}]),
+        ("p.age > 20 AND p.age = 30", [{"n": 2}]),
     ],
 )
 def test_connected_join_string_predicate_merge_matches_cypher(predicate: str, expected: Any) -> None:
@@ -15749,8 +15766,11 @@ def _real_edge_alias_graph() -> Plottable:
         "s_col": pd.Series(["a", "b", "c", "d"], dtype=object),
         "i_col": pd.Series([1, 2, 3, 4], dtype="int64"),
     })
+    # n1 has out-degree 2 so a two-arm binding exists at all under TRAIL (#1905);
+    # every other node keeps out-degree 1.
     edges = pd.DataFrame({
-        "s": ["n1", "n2", "n3"], "d": ["n2", "n3", "n4"], "w": pd.Series([1, 2, 3], dtype="int64"),
+        "s": ["n1", "n2", "n3", "n1"], "d": ["n2", "n3", "n4", "n3"],
+        "w": pd.Series([1, 2, 3, 4], dtype="int64"),
     })
     return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
 
@@ -15877,7 +15897,9 @@ def test_connected_join_empty_node_bool_aggregate_matches_nonempty(bv_dtype: str
 
 def test_connected_join_non_empty_edge_alias_aggregate_answers() -> None:
     query = "MATCH (p)-[e1]->(q), (p)-[e2]->(r) WHERE e1.w > 0 RETURN count(p) AS n"
-    assert _real_edge_alias_graph().gfql(query)._nodes.to_dict(orient="records") == [{"n": 3}]
+    # #1905 TRAIL: only n1 has two out-edges -> 2*1 = 2 ordered pairs of DISTINCT
+    # relationships (the old n=3 counted each node's single edge against itself).
+    assert _real_edge_alias_graph().gfql(query)._nodes.to_dict(orient="records") == [{"n": 2}]
 
 
 def test_object_column_holds_non_strings_fails_closed_when_unreadable() -> None:
@@ -16090,7 +16112,9 @@ def test_node_dtypes_for_pushdown_on_polars_matches_the_full_conversion() -> Non
     # n=4 for `p.flag > 0` pinned the coercion bug (empty frame vs identity row
     # n=0 = the lane's known empty-aggregate gap, BUG-4 family). Equality/
     # numeric unchanged.
-    [("p.flag > 0", []), ("p.flag = true", [{"n": 4}]), ("p.age >= 2", [{"n": 4}])],
+    # #1905 TRAIL: `a` and `b` each have out-degree 2 -> 2*1 = 2 ordered pairs of
+    # DISTINCT relationships (was 2*2 = 4, which counted (r, r)).
+    [("p.flag > 0", []), ("p.flag = true", [{"n": 2}]), ("p.age >= 2", [{"n": 2}])],
 )
 def test_connected_join_polars_nullable_columns_match_master(predicate: str, expected: Any) -> None:
     pl = pytest.importorskip("polars")
@@ -16137,9 +16161,11 @@ def test_arrow_table_nodes_match_master_results() -> None:
         out = g.gfql(query)._nodes
         return out.to_dicts() if hasattr(out, "to_dicts") else out.to_dict(orient="records")
 
+    # #1905 TRAIL: `a` and `b` each have out-degree 2 -> 2*1 = 2 ordered pairs of
+    # DISTINCT relationships per matching node (was 2*2 = 4).
     assert run("p.name = 5") == []
-    assert run("p.name = 'ann'") == [{"n": 4}]
-    assert run("p.age >= 40") == [{"n": 4}]
+    assert run("p.name = 'ann'") == [{"n": 2}]
+    assert run("p.age >= 40") == [{"n": 2}]
 
 
 def test_connected_join_dtype_classes_defers_to_the_live_validator() -> None:
@@ -16250,12 +16276,14 @@ def test_polars_dtype_classifier_fallback_arms(monkeypatch: Any) -> None:
     "predicate,expected",
     [
         # Decimal materializes to pandas object, so ordering must not push; the residual answers.
-        ("p.age > 25", [{"n": 8}]),
-        ("p.age >= 26", [{"n": 8}]),
-        ("p.age != 26", [{"n": 8}]),
-        ("p.age = 26", [{"n": 4}]),
+        # #1905 TRAIL: p1/p2/p3 each have out-degree 2 -> 2*1 = 2 ordered pairs of
+        # DISTINCT relationships per matching person (was 2*2 = 4); 2 matches -> 4, 1 -> 2.
+        ("p.age > 25", [{"n": 4}]),
+        ("p.age >= 26", [{"n": 4}]),
+        ("p.age != 26", [{"n": 4}]),
+        ("p.age = 26", [{"n": 2}]),
         # A plain polars numeric column materializes to int64 and must still push and answer.
-        ("p.n2 >= 26", [{"n": 8}]),
+        ("p.n2 >= 26", [{"n": 4}]),
     ],
 )
 def test_connected_join_polars_decimal_matches_master(predicate: str, expected: Any) -> None:
@@ -17492,7 +17520,7 @@ def test_t6_dense_total_declines_non_integer_edge_cols(engine: str) -> None:
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
-def test_t6_edge_cols_bounds_within_empty_frame_declines(engine: str) -> None:
+def test_t6_edge_cols_bounds_scan_empty_frame_declines(engine: str) -> None:
     # The kernel declines empty edge frames before the bounds proof, so the helper's
     # own empty guard (it must stay safe standalone) is pinned directly.
     if engine == "polars":
@@ -17501,16 +17529,16 @@ def test_t6_edge_cols_bounds_within_empty_frame_declines(engine: str) -> None:
                              "d": pd.Series([], dtype="int64")})
     if engine == "polars":
         import polars as pl
-        assert _edge_cols_bounds_within(
+        assert _edge_cols_bounds_scan(
             pl.from_pandas(empty_pd), "s", "d", 0, 3, engine=Engine.POLARS
-        ) is False
+        )[0] is False
     else:
-        assert _edge_cols_bounds_within(
+        assert _edge_cols_bounds_scan(
             empty_pd, "s", "d", 0, 3, engine=Engine.PANDAS
-        ) is False
+        )[0] is False
 
 
-def test_t6_edge_cols_bounds_within_null_mask_declines() -> None:
+def test_t6_edge_cols_bounds_scan_null_mask_declines() -> None:
     # cudf rides the pandas/cudf arm with a plain numpy dtype PLUS a ``null_count``
     # attribute (the null mask is separate). Emulate that series shape CPU-side so the
     # null-mask decline is pinned without a GPU.
@@ -17529,9 +17557,62 @@ def test_t6_edge_cols_bounds_within_null_mask_declines() -> None:
 
     # engine=CUDF: the null guard is engine-dispatched now (a numpy-int pandas
     # series cannot hold NA, so only the cuDF arm reads null_count).
-    assert _edge_cols_bounds_within(
+    assert _edge_cols_bounds_scan(
         cast(Any, _NullMaskedFrame()), "s", "d", 0, 3, engine=Engine.CUDF
-    ) is False
+    )[0] is False
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_edge_cols_bounds_scan_reports_self_loops_only_where_it_rides_the_scan(
+    engine: str,
+) -> None:
+    # The scan's SECOND value is the #1905 correction, and it is a by-product claim:
+    # polars gets it out of the fused reduction select it already runs, pandas/cudf
+    # report None ("not computed") because their per-column reductions have no pass
+    # for it to ride. Both sides are pinned so the kernel's two routes stay honest.
+    nodes, edges = _t6_dense_frames()
+    loops_edges = pd.concat(
+        [edges, pd.DataFrame({"s": [1, 2], "d": [1, 2], "rel": ["FOLLOWS", "FOLLOWS"]})],
+        ignore_index=True,
+    )
+    _dom, edom, eng = _t6b_helper_frames(engine, nodes, loops_edges)
+    proven, loops = _edge_cols_bounds_scan(edom, "s", "d", 0, 3, engine=eng)
+    assert proven is True
+    assert loops == (2 if engine == "polars" else None)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("n_loops", [0, 1, 3])
+def test_t6_dense_kernel_identical_whether_scan_or_kernel_counts_self_loops(
+    engine: str, n_loops: int, monkeypatch: Any
+) -> None:
+    # VALUE IDENTITY across the two counting routes: the scan's by-product count and
+    # the kernel's own fused block-loop count must agree exactly, self-loops or none.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes, edges = _t6_dense_frames()
+    if n_loops:
+        ids = [1, 2, 3][:n_loops]
+        edges = pd.concat(
+            [edges, pd.DataFrame({"s": ids, "d": ids, "rel": ["FOLLOWS"] * n_loops})],
+            ignore_index=True,
+        )
+    dom, edom, eng = _t6b_helper_frames(engine, nodes, edges)
+    served = _two_hop_equal_domain_dense_total(
+        dom, edom, node_col="id", src_col="s", dst_col="d", engine=eng)
+
+    real = gfql_fast_paths_module._edge_cols_bounds_scan
+
+    def no_by_product(*args: Any, **kw: Any) -> Any:
+        return real(*args, **kw)[0], None
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_scan", no_by_product)
+    in_kernel = _two_hop_equal_domain_dense_total(
+        dom, edom, node_col="id", src_col="s", dst_col="d", engine=eng)
+    assert served == in_kernel
+    # 8 two-hop paths on the loop-free base; each self-loop at b adds indeg(b)+outdeg(b)
+    # legal pairs and exactly ONE illegal (r, r) the correction must drop.
+    assert served == {0: 8, 1: 13, 3: 18}[n_loops]
 
 
 class _T6ArrayNamespaceSpy:
@@ -17670,9 +17751,9 @@ def test_t6_dense_total_table_budget_boundary_lanes(engine: str, monkeypatch: An
 
 def test_t6_dense_gather_elision_matches_degree_oracle() -> None:
     # Round-3 algebra pin: the gather-sum form must equal the O(paths) oracle
-    # (sum over middle nodes of indeg*outdeg) on a duplicate-heavy random graph
-    # -- multi-edges and self-loops included -- for both the raw (lo == 0) and
-    # shifted (lo far from 0) lanes.
+    # (sum over middle nodes of indeg*outdeg, less the self-loops the product pairs
+    # with themselves -- TRAIL, #1905) on a duplicate-heavy random graph, for both
+    # the raw (lo == 0) and shifted (lo far from 0) lanes.
     import numpy as np
     from graphistry.compute import gfql_fast_paths as fp
 
@@ -17688,10 +17769,68 @@ def test_t6_dense_gather_elision_matches_degree_oracle() -> None:
             np.arange(n_nodes) + base, fill_value=0)
         outdeg = edges.groupby("s").size().reindex(
             np.arange(n_nodes) + base, fill_value=0)
-        oracle = int((indeg * outdeg).sum())
+        oracle = int((indeg * outdeg).sum()) - int((edges["s"] == edges["d"]).sum())
         total = fp._two_hop_equal_domain_dense_total(
             nodes, edges, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS)
         assert total == oracle
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("base", [0, 10**7])
+@pytest.mark.parametrize("self_loop_rows", [0, 137])
+def test_t6_dense_total_multi_block_matches_single_block(
+    engine: str, base: int, self_loop_rows: int, monkeypatch: Any
+) -> None:
+    # The self-loop correction rides a BLOCKED pass now (#1905 cost fix), so every
+    # fixture above -- all far under one block -- exercises only the single-block
+    # arm. Cross the block boundary and pin BOTH arms against each other and against
+    # the degree oracle, on the raw lane (base 0, fused gather + compare) and the
+    # shifted lane (base far from 0, standalone compare), with and without self-loops.
+    # A block-boundary bug would double-count or drop whole blocks, which only a
+    # multi-block frame can see.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    import numpy as np
+    from graphistry.compute import gfql_fast_paths as fp
+
+    block = fp._TWO_HOP_SELF_LOOP_BLOCK
+    n_edges = 2 * block + 251  # >= 3 blocks, last one partial
+    rng = np.random.default_rng(1905)
+    n_nodes = 500
+    src = rng.integers(0, n_nodes, size=n_edges)
+    dst = rng.integers(0, n_nodes, size=n_edges)
+    dst[src == dst] = (dst[src == dst] + 1) % n_nodes  # start self-loop-free
+    if self_loop_rows:
+        # Spread the self-loops across every block, including the partial tail.
+        pos = rng.choice(n_edges, size=self_loop_rows, replace=False)
+        dst[pos] = src[pos]
+    nodes_pd = pd.DataFrame({"id": np.arange(n_nodes) + base})
+    edges_pd = pd.DataFrame({"s": src + base, "d": dst + base})
+
+    indeg = edges_pd.groupby("d").size().reindex(np.arange(n_nodes) + base, fill_value=0)
+    outdeg = edges_pd.groupby("s").size().reindex(np.arange(n_nodes) + base, fill_value=0)
+    oracle = int((indeg * outdeg).sum()) - self_loop_rows
+    assert int((edges_pd["s"] == edges_pd["d"]).sum()) == self_loop_rows
+
+    if engine == "polars":
+        import polars as pl
+        dom: Any = pl.from_pandas(nodes_pd)
+        edom: Any = pl.from_pandas(edges_pd)
+        eng = Engine.POLARS
+    else:
+        dom, edom = nodes_pd, edges_pd
+        eng = Engine.PANDAS
+
+    def run() -> Any:
+        return fp._two_hop_equal_domain_dense_total(
+            dom, edom, node_col="id", src_col="s", dst_col="d", engine=eng)
+
+    multi_block = run()
+    assert multi_block == oracle
+    # Same frame through the single-block arm (block wider than the frame): the two
+    # arms are two spellings of one reduction, so they must agree exactly.
+    monkeypatch.setattr(fp, "_TWO_HOP_SELF_LOOP_BLOCK", n_edges + 1)
+    assert run() == multi_block
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
@@ -17892,13 +18031,13 @@ def test_t6_col_stats_skip_bounds_scan_both_sides(
         graph = graph.gfql_index_col_stats(engine=engine)
 
     calls: List[str] = []
-    real = gfql_fast_paths_module._edge_cols_bounds_within
+    real = gfql_fast_paths_module._edge_cols_bounds_scan
 
     def spy(*args: Any, **kw: Any) -> Any:
         calls.append("scan")
         return real(*args, **kw)
 
-    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_within", spy)
+    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_scan", spy)
     compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
     result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
     assert result is not None
@@ -17922,13 +18061,13 @@ def test_t6_col_stats_conservative_miss_falls_back_to_scan(
     graph = _mk_h3_graph(engine, nodes_pd, edges_wide).gfql_index_col_stats(engine=engine)
 
     calls: List[str] = []
-    real = gfql_fast_paths_module._edge_cols_bounds_within
+    real = gfql_fast_paths_module._edge_cols_bounds_scan
 
     def spy(*args: Any, **kw: Any) -> Any:
         calls.append("scan")
         return real(*args, **kw)
 
-    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_within", spy)
+    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_scan", spy)
     compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
     result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
     assert result is not None
@@ -18516,12 +18655,15 @@ def test_t6_decline_keeps_degree_count_path_reachable(monkeypatch: Any) -> None:
 def _t6b_two_hop_oracle(nodes_pd: pd.DataFrame, edges_pd: pd.DataFrame) -> int:
     """Independent two-hop count(*) reference: domain-restrict the FOLLOWS edges to
     Person x Person, then self merge-join on the middle node. Multiplicative over
-    duplicate edges and self-loops by construction (every edge ROW joins)."""
+    duplicate edges; openCypher TRAIL semantics (#1905) forbid binding one
+    relationship twice, so the pairs where the join matched an edge ROW to itself
+    (only reachable through a self-loop) are dropped."""
     dom = set(nodes_pd.loc[nodes_pd["node_type"] == "Person", "id"].tolist())
     e = edges_pd[edges_pd["rel"] == "FOLLOWS"]
-    e = e[e["s"].isin(dom) & e["d"].isin(dom)][["s", "d"]]
+    e = e[e["s"].isin(dom) & e["d"].isin(dom)][["s", "d"]].reset_index(drop=True)
+    e = e.assign(eid=range(len(e)))
     joined = e.merge(e, left_on="d", right_on="s", suffixes=("_ab", "_bd"))
-    return int(len(joined))
+    return int((joined["eid_ab"] != joined["eid_bd"]).sum())
 
 
 def _t6b_require_cudf_kernel_runtime() -> None:
@@ -18548,7 +18690,8 @@ def _t6b_graph_for(engine: str, nodes_pd: pd.DataFrame, edges_pd: pd.DataFrame) 
 def _t6b_selfloop_multi_frames() -> Tuple[pd.DataFrame, pd.DataFrame]:
     # Duplicate edges (0->1 twice), self-loops (1->1 twice, 2->2 once), and a cycle
     # closer (2->0). indeg = {0: 1, 1: 4, 2: 2}; outdeg = {0: 2, 1: 3, 2: 2};
-    # sum indeg*outdeg = 1*2 + 4*3 + 2*2 = 18.
+    # sum indeg*outdeg = 1*2 + 4*3 + 2*2 = 18, minus the 3 self-loops that the
+    # product pairs with themselves (TRAIL, #1905) = 15.
     nodes = pd.DataFrame({"id": [0, 1, 2], "node_type": ["Person"] * 3})
     edges = pd.DataFrame({
         "s": [0, 0, 1, 1, 1, 2, 2],
@@ -18576,11 +18719,11 @@ def test_t6b_engine_matrix_kernel_vs_forced_decline_parity(
     engine: str, fixture: str, monkeypatch: Any
 ) -> None:
     # (a) + (c): kernel-served vs forced-decline value parity per engine, and both
-    # equal the independent merge-join oracle -- including multiplicative counting
-    # over self-loops and duplicate edges.
+    # equal the independent merge-join oracle -- multiplicative over duplicate
+    # edges, trail-exact over self-loops (#1905).
     nodes, edges = _t6_dense_frames() if fixture == "dense" else _t6b_selfloop_multi_frames()
     expected = _t6b_two_hop_oracle(nodes, edges)
-    assert expected == {"dense": 8, "selfloop_multi": 18}[fixture]  # oracle self-pin
+    assert expected == {"dense": 8, "selfloop_multi": 15}[fixture]  # oracle self-pin
     compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
 
     kernel_returns: List[Any] = []
@@ -18648,7 +18791,7 @@ def test_t6b_dtype_matrix_nullable_int64_declines_and_reason_is_pinned() -> None
         nodes_ext, edges, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
     ) is None
     # Seam 2: bounds proof rejects extension endpoint columns.
-    assert _edge_cols_bounds_within(edges_ext, "s", "d", 0, 3, engine=Engine.PANDAS) is False
+    assert _edge_cols_bounds_scan(edges_ext, "s", "d", 0, 3, engine=Engine.PANDAS)[0] is False
     assert _two_hop_equal_domain_dense_total(
         nodes, edges_ext, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
     ) is None
@@ -18666,7 +18809,7 @@ def test_t6b_dtype_matrix_float_ids_decline(engine: str) -> None:
     assert _two_hop_equal_domain_dense_total(
         dom_f, _edom_f, node_col="id", src_col="s", dst_col="d", engine=eng
     ) is None
-    assert _edge_cols_bounds_within(edom_f2, "s", "d", 0, 3, engine=eng) is False
+    assert _edge_cols_bounds_scan(edom_f2, "s", "d", 0, 3, engine=eng)[0] is False
     assert _two_hop_equal_domain_dense_total(
         dom_i, edom_f2, node_col="id", src_col="s", dst_col="d", engine=eng
     ) is None

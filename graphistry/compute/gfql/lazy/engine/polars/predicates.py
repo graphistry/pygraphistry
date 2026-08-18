@@ -188,6 +188,9 @@ def predicate_to_expr(col: str, pred: ASTPredicate, dtype: "Optional[pl.DataType
             return combined
         return None
 
+    if name == "NeverMatch":
+        return c.is_null() & pl.lit(False)  # column-length all-False, nulls included
+
     if name in ("IsNull", "IsNA"):
         return c.is_null()
     if name in ("NotNull", "NotNA"):
@@ -343,6 +346,13 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
         return None
 
     exprs: "List[pl.Expr]" = []
+    _schema_memo: "List[pl.Schema]" = []
+
+    def _dtype_of(name: str) -> "Optional[pl.DataType]":
+        if not _schema_memo:
+            _schema_memo.append(df.collect_schema() if isinstance(df, pl.LazyFrame) else df.schema)
+        return _schema_memo[0].get(name)
+
     for col, val in filter_dict.items():
         resolved_col, resolved_val = resolve_filter_column(df, col, val)
         if isinstance(resolved_val, ASTPredicate):
@@ -359,7 +369,7 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
             # on a Categorical/Enum/numeric column. Raise the SAME clean, typed error so all three
             # engines agree (categorical is treated as non-string here, exactly as filter_by_dict).
             if isinstance(resolved_val, (Contains, Startswith, Endswith, Match)):
-                _col_dtype = df.schema.get(resolved_col)
+                _col_dtype = _dtype_of(resolved_col)
                 if _col_dtype is not None and _col_dtype != pl.String:
                     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
                     raise GFQLSchemaError(
@@ -370,7 +380,7 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
                         column_type=str(_col_dtype),
                         suggestion='Use numeric predicates like gt() or lt() for numeric columns',
                     )
-            expr = predicate_to_expr(resolved_col, resolved_val, df.schema.get(resolved_col))
+            expr = predicate_to_expr(resolved_col, resolved_val, _dtype_of(resolved_col))
             if expr is None:
                 # decline (NIE): no native lowering for this predicate; no pandas bridge.
                 raise NotImplementedError(
@@ -382,7 +392,7 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
             exprs.append(expr)
         elif _is_membership(resolved_val):
             exprs.append(pl.col(resolved_col).is_in(list(resolved_val)))
-        elif isinstance(df.schema.get(resolved_col), pl.List):
+        elif isinstance(_dtype_of(resolved_col), pl.List):
             if resolved_col == "labels":
                 # MATCH (n:Label) = scalar match on the RESERVED `labels` List column ->
                 # list.contains (empty for a non-existent label, matching pandas). A plain ==
@@ -398,6 +408,33 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
                     f"(no pandas fallback; parity-or-error by design)"
                 )
         else:
+            _eq_dtype = _dtype_of(resolved_col)
+            _empty_eager = isinstance(df, pl.DataFrame) and df.height == 0
+            if _eq_dtype is not None and not _empty_eager:
+                from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+                _numeric = _eq_dtype.is_numeric() or _eq_dtype == pl.Boolean
+                if _numeric and isinstance(resolved_val, str):
+                    raise GFQLSchemaError(
+                        ErrorCode.E302,
+                        f'Type mismatch: column "{resolved_col}" is numeric but filter value is string',
+                        field=col,
+                        value=resolved_val,
+                        column_type=str(_eq_dtype),
+                        suggestion=f'Use a numeric value like {col}=123',
+                    )
+                if (
+                    _eq_dtype == pl.String
+                    and isinstance(resolved_val, (int, float))
+                    and not isinstance(resolved_val, bool)
+                ):
+                    raise GFQLSchemaError(
+                        ErrorCode.E302,
+                        f'Type mismatch: column "{resolved_col}" is string but filter value is numeric',
+                        field=col,
+                        value=resolved_val,
+                        column_type=str(_eq_dtype),
+                        suggestion=f'Use a string value like {col}="value"',
+                    )
             exprs.append(pl.col(resolved_col) == resolved_val)
 
     if not exprs:

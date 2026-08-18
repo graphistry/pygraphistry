@@ -25,7 +25,9 @@ from .gfql.policy import (
     QueryType,
     expand_policy
 )
+from graphistry.compute.gfql.identifiers import TRAIL_ARM_EDGE_ALIAS_PREFIX
 from graphistry.compute.gfql.same_path_types import (
+    EDGE_IDENTITY_COLUMN,
     NODE_IDENTITY_COLUMN,
     WhereComparison,
     normalize_where_entries,
@@ -83,7 +85,7 @@ from graphistry.compute.gfql.physical_planner import PhysicalPlanner
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
 from graphistry.compute.gfql.search_any import search_any_mask
-from graphistry.compute.typing import DataFrameT, SeriesT, NodeDtypes
+from graphistry.compute.typing import DataFrameT, FilterDict, SeriesT, NodeDtypes
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
@@ -611,6 +613,114 @@ from .gfql_fast_paths import (
     _execute_two_hop_count_fast_path,
 )
 
+def _filter_dicts_provably_disjoint(first: Optional[FilterDict], second: Optional[FilterDict]) -> bool:
+    if not first or not second:
+        return False
+    return any(
+        isinstance(first[key], (str, int, float, bool)) and isinstance(second[key], (str, int, float, bool))
+        and first[key] != second[key]
+        for key in set(first) & set(second)
+    )
+
+
+def _connected_join_trail_arms(
+    plan: ConnectedMatchJoinPlan,
+) -> Optional[Tuple[Tuple[Chain, ...], Tuple[Tuple[str, ...], ...]]]:
+    """Rewritten arm chains + per-arm relationship identity columns, or None.
+
+    openCypher relationship uniqueness spans the WHOLE match clause, but the arm join
+    is a cartesian product that drops edge identity, so an edge fitting two arms binds
+    twice. Naming every anonymous arm edge surfaces its identity column in the arm rows
+    so the join can drop those bindings. Returns None when no arm pair can share an edge
+    (nothing to enforce) or an arm is variable-length (its rows carry no per-hop identity).
+    """
+    chains = plan.pattern_chains
+    if len(chains) < 2:
+        return None
+    arm_edges: List[List[ASTEdge]] = []
+    for pattern_chain in chains:
+        edges = [op for op in pattern_chain.chain if isinstance(op, ASTEdge)]
+        if not edges:
+            return None
+        for edge_op in edges:
+            if edge_op.to_fixed_point or edge_op.hops != 1 or edge_op.min_hops is not None or edge_op.max_hops is not None:
+                return None
+        arm_edges.append(edges)
+    can_share = any(
+        not _filter_dicts_provably_disjoint(first.edge_match, second.edge_match)
+        for index, edges in enumerate(arm_edges)
+        for other in arm_edges[index + 1:]
+        for first in edges
+        for second in other
+    )
+    if not can_share:
+        return None
+
+    from graphistry.compute.ast import from_json as ast_from_json
+
+    rewritten: List[Chain] = []
+    identity_columns: List[Tuple[str, ...]] = []
+    for index, pattern_chain in enumerate(chains):
+        ops: List[ASTObject] = []
+        columns: List[str] = []
+        for position, op in enumerate(pattern_chain.chain):
+            if isinstance(op, ASTEdge):
+                alias = getattr(op, "_name", None) or f"{TRAIL_ARM_EDGE_ALIAS_PREFIX}{index}_{position}__"
+                if getattr(op, "_name", None) is None:
+                    cloned = ast_from_json({**op.to_json(), "name": alias}, validate=False)
+                    assert isinstance(cloned, ASTEdge)
+                    op = cloned
+                columns.append(f"{alias}.{EDGE_IDENTITY_COLUMN}")
+            ops.append(op)
+        rewritten.append(Chain(ops, where=pattern_chain.where))
+        identity_columns.append(tuple(columns))
+    return tuple(rewritten), tuple(identity_columns)
+
+
+def _is_polars_frame(frame: object) -> bool:
+    return "polars" in type(frame).__module__
+
+
+def _with_edge_identity(base_graph: Plottable, *, engine: Engine) -> Plottable:
+    edges_obj = base_graph._edges
+    if edges_obj is None:
+        return base_graph
+    edges = df_to_engine(edges_obj, engine, warn=False)
+    if EDGE_IDENTITY_COLUMN in edges.columns:
+        return base_graph
+    if _is_polars_frame(edges):
+        import polars as pl
+        return base_graph.edges(edges.with_columns(pl.int_range(pl.len()).alias(EDGE_IDENTITY_COLUMN)))
+    return base_graph.edges(edges.assign(**{EDGE_IDENTITY_COLUMN: range(len(edges))}))
+
+
+def _drop_shared_relationship_bindings(
+    joined_rows: DataFrameT,
+    left_columns: Sequence[str],
+    right_columns: Sequence[str],
+) -> DataFrameT:
+    pairs = [
+        (left, right)
+        for left in left_columns
+        for right in right_columns
+        if left in joined_rows.columns and right in joined_rows.columns
+    ]
+    if not pairs:
+        return joined_rows
+    if _is_polars_frame(joined_rows):
+        import polars as pl
+        pl_rows: "pl.DataFrame" = joined_rows  # engine seam: polars frame rides engine-agnostic DataFrameT
+        expr = pl.lit(True)
+        for left, right in pairs:
+            expr = expr & (pl.col(left) != pl.col(right))
+        return pl_rows.filter(expr)
+    mask = None
+    for left, right in pairs:
+        keep = joined_rows[left] != joined_rows[right]
+        mask = keep if mask is None else (mask & keep)
+    return joined_rows[mask]
+
+
 def _apply_connected_match_join(
     base_graph: Plottable,
     plan: ConnectedMatchJoinPlan,
@@ -631,14 +741,30 @@ def _apply_connected_match_join(
     # recomputes instead of returning a stale cached answer (BLOCKER 1).
     cache_store: Dict[str, Any] = {}
 
-    fast_grouped_count = _connected_join_two_star_fast_grouped_count(base_graph, plan, engine=requested_engine, cache_store=cache_store)
+    trail_arms = _connected_join_trail_arms(plan)
+    arms_may_share_an_edge = trail_arms is not None
+    arm_chains = plan.pattern_chains if trail_arms is None else trail_arms[0]
+    arm_identity_columns: Tuple[Tuple[str, ...], ...] = (
+        tuple(() for _ in plan.pattern_chains) if trail_arms is None else trail_arms[1]
+    )
+    if trail_arms is not None:
+        base_graph = _with_edge_identity(base_graph, engine=requested_engine)
+
+    # Both two-star fast paths emit the raw arm product, so they serve disjoint arms only.
+    fast_grouped_count = (
+        None if arms_may_share_an_edge
+        else _connected_join_two_star_fast_grouped_count(base_graph, plan, engine=requested_engine, cache_store=cache_store)
+    )
     if fast_grouped_count is not None:
         out = base_graph.bind()
         out._nodes = fast_grouped_count
         out._edges = df_ctor()
         return out
 
-    fast_rows = _connected_join_two_star_fast_rows(base_graph, plan, engine=requested_engine, cache_store=cache_store)
+    fast_rows = (
+        None if arms_may_share_an_edge
+        else _connected_join_two_star_fast_rows(base_graph, plan, engine=requested_engine, cache_store=cache_store)
+    )
     if fast_rows is not None:
         if len(fast_rows) == 0:
             out = base_graph.bind()
@@ -653,8 +779,9 @@ def _apply_connected_match_join(
         return _chain_dispatch(joined_plottable, plan.post_join_chain, dispatch_engine, policy, context)
 
     joined_rows: Optional[DataFrameT] = None
+    joined_identity_columns: List[str] = []
     pattern_attach_prop_aliases = plan.pattern_attach_prop_aliases or tuple(None for _ in plan.pattern_chains)
-    for idx, pattern_chain in enumerate(plan.pattern_chains):
+    for idx, pattern_chain in enumerate(arm_chains):
         rows_params: Dict[str, Any] = {"binding_ops": serialize_binding_ops(pattern_chain.chain)}
         if idx < len(pattern_attach_prop_aliases) and pattern_attach_prop_aliases[idx] is not None:
             rows_params["attach_prop_aliases"] = list(cast(Tuple[str, ...], pattern_attach_prop_aliases[idx]))
@@ -679,12 +806,17 @@ def _apply_connected_match_join(
             for op in pattern_chain.chain
             if isinstance(op, _ASTNode) and isinstance(op._name, str)
         ]
-        keep_binding_columns = _binding_join_columns(pattern_rows) + [
-            alias for alias in node_aliases if alias in pattern_rows.columns
+        identity_columns = [
+            column for column in arm_identity_columns[idx] if column in pattern_rows.columns
         ]
+        keep_binding_columns = [
+            column for column in _binding_join_columns(pattern_rows)
+            if column in identity_columns or not str(column).startswith(TRAIL_ARM_EDGE_ALIAS_PREFIX)
+        ] + [alias for alias in node_aliases if alias in pattern_rows.columns]
         pattern_rows = cast(DataFrameT, pattern_rows[keep_binding_columns])
         if joined_rows is None:
             joined_rows = pattern_rows
+            joined_identity_columns = list(identity_columns)
             continue
         shared_aliases = plan.pattern_shared_node_aliases[idx - 1]
         join_cols = [
@@ -715,6 +847,11 @@ def _apply_connected_match_join(
             keep_cols=keep_cols,
             engine=requested_engine,
         )
+        if identity_columns and joined_identity_columns:
+            joined_rows = _drop_shared_relationship_bindings(
+                joined_rows, joined_identity_columns, identity_columns
+            )
+        joined_identity_columns.extend(identity_columns)
 
     if joined_rows is None:
         out = base_graph.bind()
@@ -722,6 +859,14 @@ def _apply_connected_match_join(
         out._edges = df_ctor()
         return out
 
+    if trail_arms is not None:
+        drop_columns = [
+            column for column in joined_rows.columns
+            if str(column).startswith(TRAIL_ARM_EDGE_ALIAS_PREFIX)
+        ]
+        if drop_columns:
+            joined_rows = (joined_rows.drop(drop_columns) if _is_polars_frame(joined_rows)
+                           else joined_rows.drop(columns=drop_columns))
     joined_rows = _joined_hidden_scalar_columns(joined_rows)
     joined_rows = _joined_alias_columns(joined_rows)
     joined_plottable = base_graph.bind()

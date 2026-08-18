@@ -409,6 +409,7 @@ def build_degree_fact(
     cols = tuple(sorted({src_col, dst_col} | ({type_column} if type_column else set())))
     return DegreeFact(
         src_col=src_col, dst_col=dst_col, indeg=indeg, outdeg=outdeg, lo=lo, hi=hi,
-        backend=backend, engine=engine, type_column=type_column, type_value=type_value,
+        backend=backend, engine=engine, self_loops=int((src == dst).sum()),
+        type_column=type_column, type_value=type_value,
         fingerprint=frame_fingerprint(edges, cols, engine), source_ref=edges,
     )
