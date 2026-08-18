@@ -2404,7 +2404,7 @@ def _binding_prop_alias_set(
 
     # A repeated node alias (e.g. `MATCH (n)-[:LOOP]->(n)`) enforces n==n via hidden
     # bound-identity columns (`n.__gfql_node_id__`) that a RETURN-text walk can't see —
-    # skipping n's property join would drop them. Bail on any repeat (#1490).
+    # skipping n's property join would drop them. Bail on any repeat.
     try:
         node_vars = [
             el.variable
@@ -2619,7 +2619,7 @@ def _forces_relationship_multiplicity_projection_bindings(
     order_by: Optional[OrderByClause],
 ) -> bool:
     """Non-aggregate projections over relationship patterns run on binding rows:
-    the per-alias node table collapses row multiplicity under bag semantics.
+    the per-alias node table collapses row multiplicity (bag semantics).
 
     Scope: every projected/ordered expression must be either alias-free or a
     bare ``node_alias.prop`` ref -- whole-row refs, edge-alias refs, and
@@ -9530,8 +9530,6 @@ def compile_cypher_query(
         if compiled_connected_optional is not None:
             return _attach_graph_context(compiled_connected_optional)
     if query.with_stages and query.matches and not any(m.optional for m in query.matches):
-        # A terminal pure bare-alias WITH carry over non-OPTIONAL matches is a row
-        # no-op; fold it away so binding-row multiplicity survives.
         from graphistry.compute.gfql.cypher.reentry.flatten import (
             flatten_pure_carry_terminal_with_nonoptional,
         )
