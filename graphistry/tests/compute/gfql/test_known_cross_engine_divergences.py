@@ -242,6 +242,50 @@ cudf_only = pytest.mark.skipif(
     reason="cudf lane requires a GPU box (--gpus all)")
 
 
+# --- OPTIONAL MATCH grouped aggregates: cuDF cannot serve the shape at all ------------------
+# Hand oracle on nodes alice(id 0, w 5) / bob(id 1, w 7) and the single edge 0->1:
+#   alice matches x=bob  -> count(x)=1, sum(x.w)=7
+#   bob matches nothing  -> count(x)=0, and openCypher's sum over an empty group is 0
+_OM_AGG_ORACLE = [
+    ("count(x) AS c", "c", [{"name": "alice", "c": 1}, {"name": "bob", "c": 0}]),
+    ("sum(x.w) AS s", "s", [{"name": "alice", "s": 7}, {"name": "bob", "s": 0}]),
+]
+
+_OM_AGG_CUDF_XFAIL = pytest.mark.xfail(strict=True, reason=(
+    "PRE-EXISTING (identical at merge-base 526976e91, fully closed graph, so #1888/#1895 did "
+    "not cause it): the row pipeline's group_by cannot run on cuDF -- _build_grouped's "
+    "grouped.size() raises 'truth value of a Series is ambiguous' -- so EVERY grouped aggregate "
+    "after OPTIONAL MATCH dies there. Round 4 saw the softer form of the same gap (an empty "
+    "group's sum coming back NULL instead of 0). Flipping this xfail = cuDF serving the shape."))
+
+
+_needs_cudf = pytest.mark.skipif(
+    __import__("importlib.util", fromlist=["util"]).find_spec("cudf") is None,
+    reason="cudf lane requires a GPU box (--gpus all)")
+
+
+@pytest.mark.parametrize("engine", [
+    "pandas", pytest.param("polars", marks=polars_only),
+    pytest.param("cudf", marks=[_needs_cudf, _OM_AGG_CUDF_XFAIL])])
+@pytest.mark.parametrize("agg,col,want", _OM_AGG_ORACLE)
+def test_optional_match_grouped_aggregate_is_served_on_every_engine(engine, agg, col, want):
+    nodes = pd.DataFrame({"id": [0, 1], "name": ["alice", "bob"], "t": ["P", "P"], "w": [5, 7]})
+    edges = pd.DataFrame({"s": [0], "d": [1]})
+    if engine == "polars":
+        g = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
+    elif engine == "cudf":
+        import cudf
+        g = graphistry.nodes(cudf.from_pandas(nodes), "id").edges(cudf.from_pandas(edges), "s", "d")
+    else:
+        g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+    q = f"MATCH (p {{t:'P'}}) OPTIONAL MATCH (p)-[]->(x) RETURN p.name AS name, {agg}"
+    out = g.gfql(q, engine=engine)._nodes
+    out = out.to_pandas() if hasattr(out, "to_pandas") else out
+    got = sorted(({"name": r["name"], col: int(r[col])} for r in out.to_dict("records")),
+                 key=lambda r: r["name"])
+    assert got == want
+
+
 @cudf_only
 @pytest.mark.xfail(strict=True, reason="cuDF drops the sliced edge's source node row under an output hop window; pandas backfills it")
 def test_output_hop_window_backfills_the_source_node_row_on_cudf():

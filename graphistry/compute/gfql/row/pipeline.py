@@ -7,9 +7,6 @@ from functools import lru_cache
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Mapping, NoReturn, Optional, Sequence, Tuple, cast
 
-#: Cypher's two numeric kinds; a Literal so a typo'd branch is a type error, not a silent miss.
-CypherNumericKind = Literal["int", "float"]
-
 import pandas as pd
 from graphistry.Engine import (
     Engine,
@@ -104,6 +101,10 @@ from graphistry.compute.gfql.temporal.durations import (
     parse_temporal_sort_duration_components,
     resolve_duration_text_property,
 )
+
+
+#: Cypher's two numeric kinds; a Literal so a typo'd branch is a type error, not a silent miss.
+CypherNumericKind = Literal["int", "float"]
 
 if TYPE_CHECKING:
     from graphistry.Plottable import Plottable
@@ -3144,7 +3145,7 @@ class RowPipelineMixin:
             )[[row_col, base_col, key_col]]
 
         if isinstance(base, pd.DataFrame):
-            # A negative subscript indexes from the end; normalize per-row so the join matches.
+            # openCypher negative subscripts index from the end; normalize per-row so the positional join matches (out-of-range stays null).
             key_values = list(base[key_col])
             if any(isinstance(k, (int, float)) and not isinstance(k, bool) and k == k and k < 0 for k in key_values):
                 normalized_keys: List[Any] = []
@@ -3685,6 +3686,12 @@ class RowPipelineMixin:
             keep = unused if keep is None else (keep & unused)
         return frame if keep is None else frame[keep]
 
+    @staticmethod
+    def _gfql_relabel_columns(frame: DataFrameT, mapping: Mapping[str, str]) -> DataFrameT:
+        """Metadata-only column relabel of a frame the walk owns -- never copies blocks."""
+        frame.columns = [mapping.get(col, col) for col in frame.columns]
+        return frame
+
     def _gfql_multihop_binding_rows(
         self,
         state_df: Any,
@@ -3720,7 +3727,8 @@ class RowPipelineMixin:
             current = current.assign(**{prev_col: None})
         key_cols = _state_key_cols(current)
         if min_hops == 0:
-            zero_hop = current.drop(columns=[prev_col], errors="ignore").copy()
+            # drop() already returns a walk-owned frame; assigning below never aliases the input.
+            zero_hop = current.drop(columns=[prev_col], errors="ignore")
             if hop_column is not None:
                 zero_hop[hop_column] = 0
             reachable.append(zero_hop)
@@ -3741,7 +3749,8 @@ class RowPipelineMixin:
                     exhausted = True
                     break
                 hop_trail_col = trail_column_name(len(outer_trail_cols) + len(segment_trail_cols))
-                current = current.rename(columns={ident_col: hop_trail_col})
+                # The merge above made this hop's frame the walk's own: relabel in place.
+                current = RowPipelineMixin._gfql_relabel_columns(current, {ident_col: hop_trail_col})
                 segment_trail_cols.append(hop_trail_col)
             if avoid_immediate_backtrack:
                 prev_missing = current[prev_col].isna()
@@ -3750,11 +3759,15 @@ class RowPipelineMixin:
                 if len(current) == 0:
                     exhausted = True
                     break
-                current = current.drop(columns=[WALK_CURRENT_COL, prev_col]).rename(
-                    columns={WALK_FROM_COL: prev_col, WALK_TO_COL: WALK_CURRENT_COL}
+                current = RowPipelineMixin._gfql_relabel_columns(
+                    current.drop(columns=[WALK_CURRENT_COL, prev_col]),
+                    {WALK_FROM_COL: prev_col, WALK_TO_COL: WALK_CURRENT_COL},
                 )
             else:
-                current = current.drop(columns=[WALK_CURRENT_COL, WALK_FROM_COL]).rename(columns={WALK_TO_COL: WALK_CURRENT_COL})
+                current = RowPipelineMixin._gfql_relabel_columns(
+                    current.drop(columns=[WALK_CURRENT_COL, WALK_FROM_COL]),
+                    {WALK_TO_COL: WALK_CURRENT_COL},
+                )
             if shortest_path_mode:
                 if len(current) > 0:
                     current = current.drop_duplicates(subset=key_cols, keep="first")
@@ -3780,7 +3793,7 @@ class RowPipelineMixin:
                     if combined is not None:
                         seen_states = combined
             if hop >= min_hops:
-                reached = current.drop(columns=[prev_col], errors="ignore").copy()
+                reached = current.drop(columns=[prev_col], errors="ignore")
                 if hop_column is not None:
                     reached[hop_column] = hop
                 reachable.append(reached)
@@ -3790,8 +3803,9 @@ class RowPipelineMixin:
             self._gfql_bindings_error(
                 "Cypher multi-alias row bindings currently require terminating variable-length segments"
             )
-        if segment_trail_cols:
-            # cuDF aligns concat schemas strictly, so pad the shallower hops' absent trail columns.
+        if segment_trail_cols and reachable and reachable[0].__class__.__module__.startswith("cudf"):
+            # cuDF aligns concat schemas strictly, so pad the shallower hops' absent trail
+            # columns there; pandas pd.concat aligns and NaN-fills mismatched schemas natively.
             reachable = [
                 frame.assign(**{
                     col: float("nan")
@@ -3918,8 +3932,6 @@ class RowPipelineMixin:
         src_col = base_graph._source
         dst_col = base_graph._destination
         if node_id_col is None and base_graph._edges is not None and src_col is not None and dst_col is not None:
-            # Edges-only graph: materialize nodes (the node-set path did this
-            # implicitly through the hop executor).
             try:
                 base_graph = base_graph.materialize_nodes()
                 node_id_col = base_graph._node
@@ -4074,7 +4086,10 @@ class RowPipelineMixin:
                     if not shortest_path_mode and ident_col in oriented.columns
                     else []
                 )
-                step_pairs = oriented[step_cols].drop_duplicates(keep="first")
+                step_pairs = oriented[step_cols]
+                if ident_col not in step_cols:
+                    step_pairs = step_pairs.drop_duplicates(keep="first")
+                # else: already unique -- the self-loop-twin dedup above ran on exactly step_cols
                 min_hops = edge_op.min_hops if edge_op.min_hops is not None else (
                     edge_op.hops if edge_op.hops is not None else 1
                 )
@@ -5655,7 +5670,7 @@ def execute_row_pipeline_call(
         if unsupported:
             raise NotImplementedError(
                 f"polars row pipeline does not yet support op {function!r}; "
-                "use engine='pandas' for this query"
+                "use engine='pandas' or engine='cudf' for this query"
             )
     adapter = _RowPipelineAdapter(g)
     method = _ROW_PIPELINE_DISPATCH[function]
