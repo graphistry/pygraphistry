@@ -508,7 +508,7 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
 
     if (
         middle
-        and any(getattr(op, "_name", None) is not None for op in middle)
+        and any(op._name is not None for op in middle)
         and isinstance(calls[0], ASTCall)
         and calls[0].function == "rows"
         and calls[0].params.get("binding_ops") is None
@@ -541,9 +541,16 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     #    SAME path as the DAG/let() surface, keeping surfaces consistent. Row-vs-analytic split
     #    is MECHANICAL (is_row_pipeline_call), not curated. (umap/hypergraph never reach here —
     #    the generic chain routes schema-changers straight to execute_call.)
+    from graphistry.compute.ast import ASTCall
     from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
     from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
     for op in calls:
+        if not isinstance(op, ASTCall):
+            raise NotImplementedError(
+                f"polars engine does not yet natively support cypher row op "
+                f"{op!r}; use engine='pandas' or engine='cudf' for this "
+                f"query (no silent fallback; parity-or-error by design)"
+            )
         try:
             native = _try_native_row_op(g_cur, op)
         except GFQLTypeError:
@@ -556,12 +563,11 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
             # repo's control flow keys on `.code`. Scoped to GFQLValidationError, the one
             # divergence actually observed (an E108 from the var-length cycle guard);
             # other exception classes are left alone rather than blanket-normalized.
-            fn_name = getattr(op, "function", None)
             raise GFQLTypeError(
                 ErrorCode.E303,
-                f"Error executing '{fn_name}': {validation_error}",
+                f"Error executing '{op.function}': {validation_error}",
                 field="function",
-                value=fn_name,
+                value=op.function,
             ) from validation_error
         except _polars_error_types() as polars_error:
             # A THIRD-PARTY exception must never be the GFQL surface. On the pandas/cuDF side
@@ -570,27 +576,25 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
             # letting e.g. `polars.exceptions.InvalidOperationError: \`sum\` operation not
             # supported for dtype \`str\`` reach the caller verbatim. Same code, same message
             # shape as the pandas surface; the polars text is preserved as the cause.
-            fn_name = getattr(op, "function", None)
             raise GFQLTypeError(
                 ErrorCode.E303,
-                f"Error executing '{fn_name}': {polars_error}",
+                f"Error executing '{op.function}': {polars_error}",
                 field="function",
-                value=fn_name,
+                value=op.function,
             ) from polars_error
         if native is not None:
             g_cur = native
             continue
-        fn = getattr(op, "function", None)
-        if fn is not None and not is_row_pipeline_call(fn):
+        if not is_row_pipeline_call(op.function):
             from graphistry.compute.gfql.call.executor import execute_call
             from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
             from graphistry.Engine import Engine as _Engine
             _eng = _Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else _Engine.POLARS
-            g_cur = execute_call(g_cur, fn, getattr(op, "params", {}) or {}, _eng)
+            g_cur = execute_call(g_cur, op.function, op.params or {}, _eng)
             continue
         raise NotImplementedError(
             f"polars engine does not yet natively support cypher row op "
-            f"{getattr(op, 'function', op)!r}; use engine='pandas' or engine='cudf' for this "
+            f"{op.function!r}; use engine='pandas' or engine='cudf' for this "
             f"query (no silent fallback; parity-or-error by design)"
         )
     # Attach/detach pair: the boundary run is done, so the context is spent and must not
@@ -618,7 +622,7 @@ def _try_native_row_op(g_cur, op):
     )
     from .search import search_any_polars
 
-    fn = getattr(op, "function", None)
+    fn = op.function
     if fn == "rows" and op.params.get("binding_ops") is not None:
         # #1731: single-entity boundary rows (MATCH (n) / EXISTS seeds) are handled by
         # the pattern-apply helper; try that narrow shape first.
