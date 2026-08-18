@@ -262,14 +262,6 @@ _SEED_LABEL_ORACLE = [
 ]
 
 
-_SEED_LABEL_CUDF_XFAIL = pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "PRE-EXISTING cuDF divergence (identical at merge-base 526976e91, so #1888/#1895 did not "
-    "cause it): the labelled hop's output-window mask is `(hop <= max) | endpoint`, and on cuDF "
-    "a NULL hop makes the whole mask NULL rather than False-then-rescued, so the SEED's node row "
-    "is dropped -- leaving edges whose endpoint has no node row on a fully closed input graph. "
-    "Same family as test_output_hop_window_backfills_the_source_node_row_on_cudf."))
-
-
 def _labelled_undirected_hop(engine, seeds):
     g = (graphistry
          .nodes(_frame(pd.DataFrame({"id": [0, 1, 2, 3], "v": [10, 20, 30, 40]}), engine), "id")
@@ -278,8 +270,7 @@ def _labelled_undirected_hop(engine, seeds):
                  direction="undirected", label_node_hops="nh", engine=engine)
 
 
-@pytest.mark.parametrize("engine", [
-    "pandas", "polars", pytest.param("cudf", marks=_SEED_LABEL_CUDF_XFAIL)])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 @pytest.mark.parametrize("seeds,want", _SEED_LABEL_ORACLE)
 def test_undirected_hop_labels_leave_the_seed_unlabelled(engine, seeds, want):
     _require_engine(engine)
@@ -288,8 +279,7 @@ def test_undirected_hop_labels_leave_the_seed_unlabelled(engine, seeds, want):
     assert labels == want
 
 
-@pytest.mark.parametrize("engine", [
-    "pandas", "polars", pytest.param("cudf", marks=_SEED_LABEL_CUDF_XFAIL)])
+@pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
 def test_labelled_undirected_hop_output_still_backs_every_edge_endpoint(engine):
     """The closure contract read on the OUTPUT: every endpoint of a surviving edge has a node
     row. Input here is fully closed, so nothing may be dropped."""
@@ -369,3 +359,90 @@ def test_nan_free_frame_id_cache_evicts_on_gc_so_a_recycled_id_cannot_hit():
 # No integration pin is added here: removing the chain's re-point call does NOT change any
 # observable result or index trace in the shapes reachable today (measured), so an
 # integration test would assert nothing.
+
+
+# --- #1798: tracked undirected hop must not drop self-loop/seed node rows on cuDF -----------
+#
+# Fixture: nodes 0..3 kind [b,a,a,b]; edges (2,2)x3, (0,3)x2, (3,1), (1,1). Seeded at the
+# 'a' nodes {1,2}, one undirected hop touches 5 edge rows -- (3,1), (1,1), (2,2)x3 -- and
+# nodes {1,2,3}. Any track_hops arm leaves seeds hop-label NULL, and cuDF's non-Kleene
+# NULL | True stayed NULL, so the output-window epilogue dropped BOTH self-loop seeds.
+
+_SELF_LOOP_NODES = pd.DataFrame({"id": [0, 1, 2, 3], "kind": ["b", "a", "a", "b"]})
+_SELF_LOOP_EDGES = pd.DataFrame(
+    [(2, 2), (0, 3), (2, 2), (3, 1), (0, 3), (2, 2), (1, 1)], columns=["s", "d"])
+_SELF_LOOP_EDGE_ORACLE = [(1, 1), (2, 2), (2, 2), (2, 2), (3, 1)]
+
+_TRACKED_UNDIRECTED_ARMS = [
+    ("min1max1_label_nodes", dict(min_hops=1, max_hops=1, label_node_hops="nh")),
+    ("min1max1_label_edges", dict(min_hops=1, max_hops=1, label_edge_hops="eh")),
+    ("output_window", dict(hops=1, output_min_hops=1, output_max_hops=1)),
+]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("arm,kwargs", _TRACKED_UNDIRECTED_ARMS, ids=[a for a, _ in _TRACKED_UNDIRECTED_ARMS])
+def test_tracked_undirected_hop_keeps_self_loop_seed_rows(engine, arm, kwargs):
+    _require_engine(engine)
+    g = (graphistry
+         .nodes(_frame(_SELF_LOOP_NODES, engine), "id")
+         .edges(_frame(_SELF_LOOP_EDGES, engine), "s", "d"))
+    out = g.hop(nodes=_frame(pd.DataFrame({"id": [1, 2]}), engine),
+                direction="undirected", engine=engine, **kwargs)
+    edges = to_pandas_any(out._edges)
+    assert sorted(map(tuple, edges[["s", "d"]].itertuples(index=False))) == _SELF_LOOP_EDGE_ORACLE
+    assert node_id_set(out) == {1, 2, 3}, "self-loop seed node rows must survive tracking"
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_seeded_undirected_degenerate_varlen_counts_self_loops(engine):
+    """#1798 end to end: MATCH (a {kind:'a'})-[*1..1]-(b) on the self-loop fixture. Hand
+    enumeration: seed 1 via (3,1) and its self-loop (1,1); seed 2 via (2,2)x3 -- self-loops
+    counted once per edge row (Neo4j relationship semantics) = 5. cuDF returned 1."""
+    _require_engine(engine)
+    g = (graphistry
+         .nodes(_frame(_SELF_LOOP_NODES, engine), "id")
+         .edges(_frame(_SELF_LOOP_EDGES, engine), "s", "d"))
+    out = g.gfql("MATCH (a {kind:'a'})-[*1..1]-(b) RETURN count(*) AS c", engine=engine)
+    assert int(to_pandas_any(out._nodes)["c"].iloc[0]) == 5
+
+
+# --- #1940: internal __gfqlhop__ tracking columns must never reach user output --------------
+
+_LEAK_ARMS = [
+    ("min_hops2", dict(min_hops=2, hops=2)),
+    ("label_nodes_only", dict(label_node_hops="nh", hops=2)),
+    ("label_edges_only", dict(label_edge_hops="eh", hops=2)),
+    ("output_min", dict(output_min_hops=1, hops=2)),
+    ("output_max", dict(output_max_hops=1, hops=2)),
+    ("output_window_both", dict(output_min_hops=1, output_max_hops=2, hops=2)),
+    ("label_seeds", dict(label_node_hops="nh", label_seeds=True, hops=2)),
+    ("wavefront_window", dict(output_min_hops=1, hops=2, return_as_wave_front=True)),
+    ("tfp_label_nodes", dict(to_fixed_point=True, label_node_hops="nh")),
+    ("tfp_output_min", dict(to_fixed_point=True, output_min_hops=1)),
+]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("direction", ["forward", "reverse", "undirected"])
+@pytest.mark.parametrize("arm,kwargs", _LEAK_ARMS, ids=[a for a, _ in _LEAK_ARMS])
+def test_no_internal_gfqlhop_column_reaches_user_output(engine, direction, arm, kwargs):
+    """Every track_hops arm allocates internal `__gfqlhop_*__` label columns; several output
+    paths re-added them after the mid-function drop (#1940). Requested label columns stay;
+    internal ones never escape, on any direction x window x label x tfp arm."""
+    _require_engine(engine)
+    ndf = pd.DataFrame({"id": [0, 1, 2], "val": [10, 11, 12]})
+    edf = pd.DataFrame({"s": [0, 1], "d": [1, 2]})
+    g = (graphistry
+         .nodes(_frame(ndf, engine), "id")
+         .edges(_frame(edf, engine), "s", "d"))
+    out = g.hop(nodes=_frame(pd.DataFrame({"id": [0]}), engine),
+                direction=direction, engine=engine, **kwargs)
+    leaked_node_cols = [c for c in out._nodes.columns if str(c).startswith("__gfqlhop_")]
+    leaked_edge_cols = [c for c in out._edges.columns if str(c).startswith("__gfqlhop_")]
+    assert leaked_node_cols == [] and leaked_edge_cols == [], (
+        f"internal tracking columns leaked: nodes={leaked_node_cols} edges={leaked_edge_cols}")
+    if "label_node_hops" in kwargs:
+        assert "nh" in out._nodes.columns, "requested node label column must remain"
+    if "label_edge_hops" in kwargs:
+        assert "eh" in out._edges.columns, "requested edge label column must remain"

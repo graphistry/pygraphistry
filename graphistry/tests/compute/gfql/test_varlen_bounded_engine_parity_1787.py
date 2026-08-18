@@ -415,34 +415,19 @@ CUDF_DIVERGENCE_EDGES = pd.DataFrame(
 )
 
 
-# The cuDF parameter carries the xfail at COLLECTION time (a marker added inside the test body
-# is applied too late to be reliable), and STRICT so the fix cannot land unnoticed.
-_DEGENERATE_SEED_ENGINES = [
-    pytest.param(
-        engine,
-        marks=pytest.mark.xfail(
-            strict=True,
-            reason="#1798: cuDF answers 1 where the pandas oracle answers 9",
-        ),
-    )
-    if engine == "cudf"
-    else engine
-    for engine in ALL_ENGINES
-]
+# #1798 fixed (non-Kleene NULL masks dropped the self-loop seed node rows on cuDF); the
+# strict xfail this list used to carry XPASSed and was lifted, so cuDF runs plain.
+_DEGENERATE_SEED_ENGINES = ALL_ENGINES
 
 
 @pytest.mark.parametrize("engine", _DEGENERATE_SEED_ENGINES)
 def test_seeded_undirected_degenerate_window_agrees_with_the_oracle(engine: str) -> None:
-    """``(a {..})-[*1..1]-(b)``: a SEPARATE cuDF defect, in the pandas-API family (#1798).
+    """``(a {..})-[*1..1]-(b)``: the seeded degenerate window that flushed out #1798.
 
-    Not the #1787 gap and not fixed by this PR — the polars engines decline this shape (it is
-    the ``undir-degenerate-window`` case above with a seed), so the polars fix cannot mask it.
-    cuDF answers 1 where pandas answers 9, silently: 23 of 40 random graphs diverge on this
-    shape alone, while the UNSEEDED ``-[*1..1]-``, the seeded ``-[]-``, the seeded
-    ``-[*1..2]-`` and the directed ``-[*1..1]->`` are all clean (0/40 each).
-
-    Recorded as a STRICT xfail rather than left out: when #1798 lands, this test fails loudly
-    and must be un-xfailed, whereas a comment or a skip would rot silently.
+    cuDF used to answer 1 where the trail oracle answers 5 (self-loops bind once): the
+    tracked output-window node mask combined NULL seed hop labels with cuDF's non-Kleene
+    boolean ops and dropped the self-loop seed node rows. Fixed in hop.py (fillna(False)
+    before combining); every engine now answers 5.
     """
     _require(engine)
     g = _graph(engine, CUDF_DIVERGENCE_NODES, CUDF_DIVERGENCE_EDGES)

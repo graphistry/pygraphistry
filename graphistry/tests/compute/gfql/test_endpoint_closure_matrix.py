@@ -460,13 +460,6 @@ def test_to_fixed_point_stops_at_the_closed_frontier(engine, seed, direction, wa
 _MIN_HOPS_SERVED = ["pandas", "cudf"]
 _MIN_HOPS_DECLINED = ["polars", "polars-gpu"]
 
-_MIN_HOPS_CUDF_SEED_XFAIL = pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "PRE-EXISTING cuDF divergence (identical at merge-base 526976e91): under a hop window the "
-    "cuDF epilogue drops the SEED's node row -- its hop label is NULL and cuDF's NULL-valued "
-    "boolean mask is not rescued by the endpoint OR -- so edge (0,1) survives with no node row "
-    "for 0. pandas keeps it. Same family as "
-    "test_output_hop_window_backfills_the_source_node_row_on_cudf."))
-
 _MIN_HOPS_ORACLE = [(2, LADDER_CLOSED), (3, LADDER_CLOSED), (4, set())]
 
 
@@ -482,15 +475,25 @@ def test_min_hops_window_never_lands_on_a_dangling_target(engine, min_hops, want
 
 @pytest.mark.parametrize("engine,min_hops", [
     ("pandas", 2), ("pandas", 3), ("pandas", 4),
-    pytest.param("cudf", 2, marks=_MIN_HOPS_CUDF_SEED_XFAIL),
-    pytest.param("cudf", 3, marks=_MIN_HOPS_CUDF_SEED_XFAIL),
-    ("cudf", 4),  # empty answer, so there is no edge whose endpoint could be unbacked
+    ("cudf", 2), ("cudf", 3), ("cudf", 4),
 ])
-def test_min_hops_window_output_is_endpoint_closed(engine, min_hops):
+def test_min_hops_window_output_excludes_the_seed_and_backs_everything_else(engine, min_hops):
+    """#1918 F2 contract: seeds are hop 0, and hop 0 is labeled only under label_seeds, so a
+    min_hops>=2 window excludes the seed's node ROW entirely (it does not come back as an
+    attribute-less stub, and cuDF no longer diverges by accident). Every NON-seed endpoint of
+    a surviving edge is still backed by its full-attribute node row."""
     _require_engine(engine)
     out = _bind(engine, LADDER_NODES, LADDER_EDGES).hop(
         nodes=_seed(engine, [0]), min_hops=min_hops, hops=4, direction="forward", engine=engine)
-    _assert_output_is_endpoint_closed(out)
+    ids = node_id_set(out)
+    assert 0 not in ids, "min_hops>=2 excludes the unlabeled seed row"
+    edges = to_pandas_any(out._edges)
+    if edges is not None and len(edges) > 0:
+        non_seed_endpoints = (set(edges["s"].tolist()) | set(edges["d"].tolist())) - {0}
+        assert non_seed_endpoints <= ids, "non-seed endpoint with no node row"
+    nodes = to_pandas_any(out._nodes)
+    if len(nodes) > 0:
+        assert not nodes.drop(columns=["id"]).isna().any().any(), "attribute-less stub row"
 
 
 @pytest.mark.parametrize("engine", _MIN_HOPS_DECLINED)

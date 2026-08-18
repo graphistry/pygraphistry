@@ -226,7 +226,8 @@ class TestComputeHopMixin(NoAuthTestCase):
         g = simple_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
         g2 = g.hop(seeds, min_hops=2, max_hops=3)
-        assert set(g2._nodes[g2._node].to_list()) == {'a', 'b', 'c', 'd'}
+        # min_hops>=2 excludes the unlabeled hop-0 seed row (#1918 F2); use label_seeds to keep it
+        assert set(g2._nodes[g2._node].to_list()) == {'b', 'c', 'd'}
         assert set(zip(g2._edges['s'], g2._edges['d'])) == {('a', 'b'), ('b', 'c'), ('c', 'd')}
 
     def test_hop_min_not_reached_returns_empty(self):
@@ -247,8 +248,9 @@ class TestComputeHopMixin(NoAuthTestCase):
         g = branching_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
         g2 = g.hop(seeds, min_hops=3, max_hops=3)
-        # Only nodes/edges on paths reaching 3 hops; b2/c2 branch excluded
-        assert set(g2._nodes[g._node].to_list()) == {'a', 'b1', 'c1', 'd1'}
+        # Only nodes/edges on paths reaching 3 hops; b2/c2 branch excluded, and the
+        # unlabeled hop-0 seed row is excluded by the min_hops window (#1918 F2)
+        assert set(g2._nodes[g._node].to_list()) == {'b1', 'c1', 'd1'}
         assert set(zip(g2._edges['s'], g2._edges['d'])) == {
             ('a', 'b1'),
             ('b1', 'c1'),
@@ -304,6 +306,8 @@ class TestComputeHopMixin(NoAuthTestCase):
         g = simple_chain_graph()
         seeds = pd.DataFrame({g._node: ['a']})
         g2 = g.hop(seeds, min_hops=2, max_hops=2, label_node_hops='hop', label_edge_hops='edge_hop')
+        # LABELED min_hops keeps the seed row with a NULL label (chain wavefront contract);
+        # only the unlabeled arm excludes it (#1918 F2)
         assert set(g2._nodes[g._node].to_list()) == {'a', 'b', 'c'}
         assert set(g2._nodes['hop'].dropna().to_list()) == {1, 2}
         assert set(zip(g2._edges['s'], g2._edges['d'])) == {('a', 'b'), ('b', 'c')}
