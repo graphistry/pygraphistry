@@ -3,6 +3,8 @@
 import re
 from typing import Optional, Dict, Any, Final, FrozenSet, Set
 
+from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name_from
+
 #: The openCypher identifier form, shared by every surface that has to recognize one.
 IDENTIFIER_TOKEN = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
 
@@ -21,6 +23,16 @@ def identifier_tokens(text: str) -> Set[str]:
 INTERNAL_COLUMN_PATTERN: Final[str] = '__gfql_*__'
 INTERNAL_COLUMN_PREFIX: Final[str] = '__gfql_'
 INTERNAL_COLUMN_SUFFIX: Final[str] = '__'
+
+# BASE names only: render through generate_safe_column_name(_from) against the user's frame.
+ROW_EDGE_IDENTITY_BASE: str = 'edge_ident'
+EDGE_INDEX_BASE: str = 'edge_index'
+
+#: The collision-free rendering against an empty frame, for callers that build their own
+#: pair frames; every caller holding real edge columns must resolve against those instead.
+DEFAULT_ROW_EDGE_IDENTITY_COL: Final[str] = generate_safe_column_name_from(
+    ROW_EDGE_IDENTITY_BASE, ()
+)
 
 #: Prefix of the internal columns that carry an alias's value under a hidden name.
 HIDDEN_ALIAS_COLUMN_PREFIX: Final[str] = '__gfql_hidden_'

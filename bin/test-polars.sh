@@ -52,6 +52,9 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_aggregate_identity_row_semantics.py
     graphistry/tests/compute/gfql/test_numeric_conformance_semantics.py
     graphistry/tests/compute/gfql/test_path_trail_semantics.py
+    # #1911 alias-scoping pins: every case is parametrized pandas AND polars, and the
+    # polars params (WITH-rebind decline parity, edge-identity collision crash) only run here
+    graphistry/tests/compute/gfql/test_alias_scoping_semantics.py
     graphistry/tests/compute/gfql/test_count_and_param_semantics.py
     graphistry/tests/compute/gfql/row/test_row_pipeline_boundaries.py
     graphistry/tests/compute/gfql/test_unary_op_surface.py

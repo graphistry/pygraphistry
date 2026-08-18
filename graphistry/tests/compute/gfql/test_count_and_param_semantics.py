@@ -695,5 +695,5 @@ def test_edge_identity_column_already_on_the_frame_is_reused_not_overwritten() -
 
     edges = pd.DataFrame({"s": ["a", "b"], "d": ["b", "c"], EDGE_IDENTITY_COLUMN: [70, 80]})
     graph = graphistry.nodes(pd.DataFrame({"id": ["a", "b", "c"]}), "id").edges(edges, "s", "d")
-    out = _with_edge_identity(graph, engine=Engine.PANDAS)
+    out = _with_edge_identity(graph, engine=Engine.PANDAS, identity_col=EDGE_IDENTITY_COLUMN)
     assert list(out._edges[EDGE_IDENTITY_COLUMN]) == [70, 80]

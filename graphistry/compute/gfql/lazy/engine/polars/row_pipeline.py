@@ -44,6 +44,8 @@ from graphistry.compute.gfql.agg_types import (
     raise_non_numeric_aggregation,
 )
 from graphistry.compute.gfql.call.support import AggSpec, OrderKey, SelectItem
+from graphistry.compute.gfql.identifiers import ROW_EDGE_IDENTITY_BASE
+from graphistry.compute.util import generate_safe_column_name_from
 from .dtypes import is_float as _dtype_is_float, is_int as _dtype_is_int, is_numeric as _dtype_is_numeric, is_stringlike as _dtype_is_stringlike
 # Same-package sibling holding the var-length specializations. Safe at module scope:
 # `varlen_rows` has no runtime module-level imports of its own (polars and the pandas
@@ -65,7 +67,6 @@ from .lowering_context import (
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN as _NODE_ID_TOKEN
 from graphistry.compute.gfql.identifiers import (
-    TRAIL_EDGE_IDENT_COL,
     WALK_CURRENT_COL,
     WALK_FROM_COL,
     WALK_TO_COL,
@@ -1733,8 +1734,9 @@ def binding_rows_polars(
             edges_lf = edges_lf.with_columns(_endpoint_casts)
         # openCypher trail semantics: stable per-edge identity for the
         # at-most-once-per-path relationship constraint (pandas twin:
-        # _gfql_connected_bindings_state's __gfql_edge_ident__).
-        edges_lf = edges_lf.with_row_index(TRAIL_EDGE_IDENT_COL)
+        # _gfql_connected_bindings_state's edge-identity column).
+        _ident_col = generate_safe_column_name_from(ROW_EDGE_IDENTITY_BASE, _edge_schema.names())
+        edges_lf = edges_lf.with_row_index(_ident_col)
         trail_cols_pl: List[str] = []
         first_op = ops[0]
         if not isinstance(first_op, ASTNode):
@@ -1767,12 +1769,12 @@ def binding_rows_polars(
                 payload_renames = {
                     col: f"{edge_alias}.{col}"
                     for col in _names(edges_f)
-                    if col not in (src, dst, TRAIL_EDGE_IDENT_COL)
+                    if col not in (src, dst, _ident_col)
                 }
             else:
                 # Unaliased edge payload is unaddressable downstream; carrying it
                 # unprefixed (as pandas does) only risks column collisions.
-                edges_f = edges_f.select([src, dst, TRAIL_EDGE_IDENT_COL])
+                edges_f = edges_f.select([src, dst, _ident_col])
                 payload_renames = {}
             if sem.is_undirected:
                 fwd = edges_f.rename({src: WALK_FROM_COL, dst: WALK_TO_COL})
@@ -1781,7 +1783,7 @@ def binding_rows_polars(
                 # A self-loop's two undirected orientations are the SAME binding:
                 # dedupe the flip twin.
                 oriented = oriented.unique(
-                    subset=[WALK_FROM_COL, WALK_TO_COL, TRAIL_EDGE_IDENT_COL],
+                    subset=[WALK_FROM_COL, WALK_TO_COL, _ident_col],
                     keep="first",
                     maintain_order=True,
                 )
@@ -1837,7 +1839,7 @@ def binding_rows_polars(
                     max_hops = int(max_hops_value)
                     normal = edges_f.filter(pl.col(src) != pl.col(dst))
                     loops = edges_f.filter(pl.col(src) == pl.col(dst))
-                    ident = pl.col(TRAIL_EDGE_IDENT_COL)
+                    ident = pl.col(_ident_col)
                     fwd = normal.select([pl.col(src).alias(WALK_FROM_COL), pl.col(dst).alias(WALK_TO_COL), ident])
                     rev = normal.select([pl.col(dst).alias(WALK_FROM_COL), pl.col(src).alias(WALK_TO_COL), ident])
                     loop = loops.select([pl.col(src).alias(WALK_FROM_COL), pl.col(dst).alias(WALK_TO_COL), ident])
@@ -1851,10 +1853,10 @@ def binding_rows_polars(
                         )
                         for _used in trail_cols_pl + _und_trail_cols:
                             joined = joined.filter(
-                                (pl.col(TRAIL_EDGE_IDENT_COL) != pl.col(_used)) | pl.col(_used).is_null()
+                                (pl.col(_ident_col) != pl.col(_used)) | pl.col(_used).is_null()
                             )
                         _hop_trail = trail_column_name(len(trail_cols_pl) + len(_und_trail_cols))
-                        joined = joined.rename({TRAIL_EDGE_IDENT_COL: _hop_trail})
+                        joined = joined.rename({_ident_col: _hop_trail})
                         _und_trail_cols.append(_hop_trail)
                         joined = joined.drop(WALK_CURRENT_COL).rename({WALK_TO_COL: WALK_CURRENT_COL})
                         current = joined.select(state_cols + _und_trail_cols)
@@ -1866,11 +1868,12 @@ def binding_rows_polars(
                     # Bounded directed var-length (`-[*1..k]->`), trail-tracked.
                     state, _seg_trail_cols = _directed_varlen_reachable_polars(
                         state,
-                        oriented.select([WALK_FROM_COL, WALK_TO_COL, TRAIL_EDGE_IDENT_COL]),
+                        oriented.select([WALK_FROM_COL, WALK_TO_COL, _ident_col]),
                         state_cols,
                         min_hops=min_hops,
                         max_hops=int(max_hops_value),
                         trail_cols_in=trail_cols_pl,
+                        ident_col=_ident_col,
                     )
                     trail_cols_pl = trail_cols_pl + _seg_trail_cols
             else:
@@ -1881,10 +1884,10 @@ def binding_rows_polars(
                 )
                 for _used in trail_cols_pl:
                     state = state.filter(
-                        (pl.col(TRAIL_EDGE_IDENT_COL) != pl.col(_used)) | pl.col(_used).is_null()
+                        (pl.col(_ident_col) != pl.col(_used)) | pl.col(_used).is_null()
                     )
                 _new_trail = trail_column_name(len(trail_cols_pl))
-                state = state.rename({TRAIL_EDGE_IDENT_COL: _new_trail})
+                state = state.rename({_ident_col: _new_trail})
                 trail_cols_pl = trail_cols_pl + [_new_trail]
 
             state = state.join(

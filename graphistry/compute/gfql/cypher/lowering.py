@@ -6388,6 +6388,87 @@ def _reject_variable_length_path_alias_references(
     )
 
 
+def _pattern_entity_alias_kinds(query: CypherQuery) -> Dict[str, str]:
+    """Leading-MATCH alias -> entity kind ("node" / "edge" / "path").
+
+    Deliberately excludes ``reentry_matches``: those run AFTER the WITH stages, so a
+    reentry pattern alias is a CONSUMER of a WITH output (``WITH a AS x MATCH (x)-->(b)``),
+    not a competing binding the WITH could shadow.
+    """
+    kinds: Dict[str, str] = {}
+    for clause in query.matches:
+        for alias in clause.pattern_aliases or ():
+            if isinstance(alias, str):
+                kinds[alias] = "path"
+        for pattern in clause.patterns:
+            for element in pattern:
+                variable = getattr(element, "variable", None)
+                if not isinstance(variable, str):
+                    continue
+                kinds[variable] = "edge" if isinstance(element, RelationshipPattern) else "node"
+    return kinds
+
+
+def _entity_alias_kinds_not_shadowed_by_unwind(query: CypherQuery) -> Dict[str, str]:
+    """Pattern entity aliases, minus those an UNWIND rebinds to a scalar."""
+    pattern_aliases = _pattern_entity_alias_kinds(query)
+    for unwind_clause in query.unwinds:
+        pattern_aliases.pop(unwind_clause.alias, None)
+    return pattern_aliases
+
+
+def _reject_with_rebind_onto_live_alias(query: CypherQuery) -> None:
+    """Decline ``WITH x AS y`` when ``y`` also names a MATCH pattern alias.
+
+    openCypher WITH projections are SIMULTANEOUS and open a new scope, so ``WITH a AS b``
+    rebinds ``b`` to ``a``'s entity and ``WITH a AS b, b AS a`` swaps them. Local lowering
+    has no whole-entity alias renaming at all -- ``WITH a AS fresh`` already declines with
+    "Unknown Cypher alias 'fresh'" -- but when the target name is also a pattern alias,
+    nothing declined: downstream resolution reads the query-global pattern binding, so the
+    renamed alias took its ROWS from the source and its PROPERTIES from the shadowed
+    pattern alias. Decline rather than answer wrongly, as the fresh-name case already does.
+
+    Scope-narrowing does NOT re-open the name: ``WITH a WITH a AS b`` is legal openCypher
+    (the first WITH drops ``b``) but lowering's ``alias_targets`` is query-global, so ``b``
+    still resolves to the pattern binding there too -- hence the guard keys off the pattern
+    aliases of the whole query, not the per-stage live set.
+    """
+    pattern_aliases = _entity_alias_kinds_not_shadowed_by_unwind(query)
+    if not pattern_aliases:
+        return
+    for stage in query.with_stages:
+        clause = stage.clause
+        if clause.kind != "with":
+            continue
+        for item in clause.items:
+            source = item.expression.text.strip()
+            source_kind = pattern_aliases.get(source)
+            if source_kind is None:
+                # Not a bare entity alias: a scalar column, which openCypher lets shadow freely.
+                continue
+            if item.alias is None or item.alias == source:
+                continue
+            if pattern_aliases.get(item.alias) != source_kind:
+                # Cross-kind rebinds are the binder's; a fresh name already declines downstream.
+                continue
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher WITH cannot yet rebind an entity alias onto another alias bound by the "
+                "MATCH pattern in the local compiler",
+                field=f"{clause.kind}.items",
+                value=f"{source} AS {item.alias}",
+                suggestion=(
+                    f"openCypher WITH projections are simultaneous, so '{source} AS {item.alias}' "
+                    f"would rebind '{item.alias}' to '{source}'. Carry the alias unrenamed "
+                    f"(WITH {source}) and project its properties, or rename to a name that no "
+                    f"MATCH pattern binds."
+                ),
+                line=item.span.line,
+                column=item.span.column,
+                language="cypher",
+            )
+
+
 def _reject_variable_length_relationship_alias_path_carriers(
     query: CypherQuery,
     *,
@@ -6685,6 +6766,7 @@ def lower_match_query(
     query = normalizer.rewrite_shortest_path(query)
     _reject_unsupported_where_expr_forms(query)
     _reject_variable_length_path_alias_references(query, params=params)
+    _reject_with_rebind_onto_live_alias(query)
     merged_match = _merged_match_clause(query)
     if merged_match is None:
         raise _unsupported(
@@ -9378,6 +9460,7 @@ def compile_cypher_query(
     normalizer = ASTNormalizer()
     query = normalizer.rewrite_shortest_path(query)
     _reject_variable_length_path_alias_references(query, params=params)
+    _reject_with_rebind_onto_live_alias(query)
 
     # Re-bind after normalization so scope and semantic metadata reflect the
     # lowered query shape consumed by downstream lowering decisions.

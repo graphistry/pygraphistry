@@ -86,7 +86,11 @@ from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
 from graphistry.compute.gfql.search_any import search_any_mask
 from graphistry.compute.typing import DataFrameT, FilterDict, SeriesT, NodeDtypes
-from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
+from graphistry.compute.util.generate_safe_column_name import (
+    generate_safe_column_name,
+    generate_safe_column_name_from,
+)
+from graphistry.compute.gfql.identifiers import EDGE_INDEX_BASE
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
 from graphistry.otel import otel_traced, otel_detail_enabled
@@ -625,14 +629,16 @@ def _filter_dicts_provably_disjoint(first: Optional[FilterDict], second: Optiona
 
 def _connected_join_trail_arms(
     plan: ConnectedMatchJoinPlan,
+    *,
+    identity_col: str,
 ) -> Optional[Tuple[Tuple[Chain, ...], Tuple[Tuple[str, ...], ...]]]:
     """Rewritten arm chains + per-arm relationship identity columns, or None.
 
     openCypher relationship uniqueness spans the WHOLE match clause, but the arm join
     is a cartesian product that drops edge identity, so an edge fitting two arms binds
-    twice. Naming every anonymous arm edge surfaces its identity column in the arm rows
-    so the join can drop those bindings. Returns None when no arm pair can share an edge
-    (nothing to enforce) or an arm is variable-length (its rows carry no per-hop identity).
+    twice. Naming every anonymous arm edge surfaces its ``<alias>.<identity_col>`` identity
+    in the arm rows so the join can drop those bindings. Returns None when no arm pair can
+    share an edge (nothing to enforce) or an arm is variable-length (no per-hop identity).
     """
     chains = plan.pattern_chains
     if len(chains) < 2:
@@ -670,7 +676,7 @@ def _connected_join_trail_arms(
                     cloned = ast_from_json({**op.to_json(), "name": alias}, validate=False)
                     assert isinstance(cloned, ASTEdge)
                     op = cloned
-                columns.append(f"{alias}.{EDGE_IDENTITY_COLUMN}")
+                columns.append(f"{alias}.{identity_col}")
             ops.append(op)
         rewritten.append(Chain(ops, where=pattern_chain.where))
         identity_columns.append(tuple(columns))
@@ -681,17 +687,26 @@ def _is_polars_frame(frame: object) -> bool:
     return "polars" in type(frame).__module__
 
 
-def _with_edge_identity(base_graph: Plottable, *, engine: Engine) -> Plottable:
+def _trail_edge_identity_col(base_graph: Plottable) -> str:
+    """Name for the per-arm relationship identity column, safe against user edge columns."""
+    edges = base_graph._edges
+    if edges is None:
+        return generate_safe_column_name_from(EDGE_INDEX_BASE, ())
+    # The bound frame may still be arrow here (df_to_engine runs later in _with_edge_identity).
+    return generate_safe_column_name(EDGE_INDEX_BASE, edges)
+
+
+def _with_edge_identity(base_graph: Plottable, *, engine: Engine, identity_col: str) -> Plottable:
     edges_obj = base_graph._edges
     if edges_obj is None:
         return base_graph
     edges = df_to_engine(edges_obj, engine, warn=False)
-    if EDGE_IDENTITY_COLUMN in edges.columns:
+    if identity_col in edges.columns:
         return base_graph
     if _is_polars_frame(edges):
         import polars as pl
-        return base_graph.edges(edges.with_columns(pl.int_range(pl.len()).alias(EDGE_IDENTITY_COLUMN)))
-    return base_graph.edges(edges.assign(**{EDGE_IDENTITY_COLUMN: range(len(edges))}))
+        return base_graph.edges(edges.with_columns(pl.int_range(pl.len()).alias(identity_col)))
+    return base_graph.edges(edges.assign(**{identity_col: range(len(edges))}))
 
 
 def _drop_shared_relationship_bindings(
@@ -741,14 +756,17 @@ def _apply_connected_match_join(
     # recomputes instead of returning a stale cached answer (BLOCKER 1).
     cache_store: Dict[str, Any] = {}
 
-    trail_arms = _connected_join_trail_arms(plan)
+    trail_identity_col = _trail_edge_identity_col(base_graph)
+    trail_arms = _connected_join_trail_arms(plan, identity_col=trail_identity_col)
     arms_may_share_an_edge = trail_arms is not None
     arm_chains = plan.pattern_chains if trail_arms is None else trail_arms[0]
     arm_identity_columns: Tuple[Tuple[str, ...], ...] = (
         tuple(() for _ in plan.pattern_chains) if trail_arms is None else trail_arms[1]
     )
     if trail_arms is not None:
-        base_graph = _with_edge_identity(base_graph, engine=requested_engine)
+        base_graph = _with_edge_identity(
+            base_graph, engine=requested_engine, identity_col=trail_identity_col
+        )
 
     # Both two-star fast paths emit the raw arm product, so they serve disjoint arms only.
     fast_grouped_count = (
@@ -2495,6 +2513,31 @@ def gfql(self: Plottable,
             context.policy_depth = policy_depth
 
 
+def _reject_node_alias_shadowing_id_binding(g: Plottable, chain_obj: Chain) -> None:
+    """Typed decline for a node alias named after the node-ID binding column.
+
+    The alias marker is stamped as ``<alias> = True``, so an alias equal to the node-id
+    column overwrites the ids themselves: pandas then died with a raw
+    ``ValueError: The column label 'id' is not unique`` from the chain's own merge while
+    polars answered ``True``. Neither is a usable result; decline the same way on both.
+    """
+    node_id = getattr(g, "_node", None)
+    if not isinstance(node_id, str):
+        return
+    for op in chain_obj.chain:
+        if isinstance(op, ASTNode) and getattr(op, "_name", None) == node_id:
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "A node alias cannot be named after the node-ID binding column",
+                field="chain.name",
+                value=node_id,
+                suggestion=(
+                    f"The alias flag is materialized as a column named '{node_id}', which would "
+                    f"overwrite the node-ID binding. Rename the alias."
+                ),
+            )
+
+
 def _chain_dispatch(
     g: Plottable,
     chain_obj: Chain,
@@ -2503,6 +2546,7 @@ def _chain_dispatch(
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
+    _reject_node_alias_shadowing_id_binding(g, chain_obj)
     engine_name = engine.value if hasattr(engine, "value") else str(engine)
     if chain_obj.where and engine_name in (Engine.POLARS.value, Engine.POLARS_GPU.value):
         # Cross-entity / same-path WHERE routes through DFSamePathExecutor

@@ -1955,12 +1955,18 @@ def _missing_property_in_schema_error(
 
 
 def _unresolved_name_error(identifier: str, visible_scope: Mapping[str, BoundVariable]) -> GFQLValidationError:
+    # The flagged name may be one the user DID bind earlier, so the suggestion must list scope.
+    visible = sorted(visible_scope.keys())
     return GFQLValidationError(
         ErrorCode.E204,
         "Unresolved identifier in binder scope",
         field="identifier",
         value=identifier,
-        suggestion="Introduce the alias in MATCH/WITH before referencing it.",
+        suggestion=(
+            "Introduce the alias in MATCH/WITH before referencing it. Visible in this scope: "
+            + (", ".join(visible) if visible else "(none)")
+            + "."
+        ),
         visible_scope=sorted(visible_scope.keys()),
         language="cypher",
     )

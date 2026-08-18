@@ -14,7 +14,7 @@ declines ``-[*2..]->`` because pandas' ``step_pairs`` prune by min_hops against 
 dedup-by-node eccentricity that the raw-edge reconstruction here cannot reproduce.
 
 openCypher TRAIL semantics: when ``pairs`` carries the stable
-``__gfql_edge_ident__`` column, each expansion hop filters the new edge against
+``ident_col`` identity column, each expansion hop filters the new edge against
 every edge already bound on the path (this segment's and prior elements', via
 ``trail_cols_in``) and records it as a ``__gfql_trail_*`` column — mirroring the
 pandas ``_gfql_multihop_binding_rows`` twin exactly.
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple, TYPE_CHECKING
 from graphistry.compute.gfql.identifiers import (
-    TRAIL_EDGE_IDENT_COL,
+    DEFAULT_ROW_EDGE_IDENTITY_COL,
     WALK_CURRENT_COL,
     WALK_FROM_COL,
     WALK_TO_COL,
@@ -34,7 +34,6 @@ if TYPE_CHECKING:
     import polars as pl
 
 
-
 def _directed_varlen_reachable_polars(
     state: "pl.LazyFrame",
     pairs: "pl.LazyFrame",
@@ -43,12 +42,13 @@ def _directed_varlen_reachable_polars(
     min_hops: int,
     max_hops: int,
     trail_cols_in: Optional[List[str]] = None,
+    ident_col: str = DEFAULT_ROW_EDGE_IDENTITY_COL,
 ) -> Tuple["pl.LazyFrame", List[str]]:
     """Bounded DIRECTED variable-length expansion of a bindings path bag.
 
     One row per distinct edge SEQUENCE under trail semantics: ``pairs`` is not
     deduped (parallel edges multiply per hop), and when it carries
-    ``__gfql_edge_ident__`` a relationship binds at most once per path. Zero-hop
+    ``ident_col`` a relationship binds at most once per path. Zero-hop
     rows (``min_hops == 0``) keep the seed row (endpoint == start) and come first,
     then hop 1, 2, ... — the same ``reachable`` concat order pandas builds.
 
@@ -61,7 +61,7 @@ def _directed_varlen_reachable_polars(
     """
     import polars as pl
 
-    trail = TRAIL_EDGE_IDENT_COL in pairs.collect_schema().names()
+    trail = ident_col in pairs.collect_schema().names()
     outer_trail = list(trail_cols_in or [])
     segment_trail_cols: List[str] = []
 
@@ -72,10 +72,10 @@ def _directed_varlen_reachable_polars(
         if trail:
             for used_col in outer_trail + segment_trail_cols:
                 current = current.filter(
-                    (pl.col(TRAIL_EDGE_IDENT_COL) != pl.col(used_col)) | pl.col(used_col).is_null()
+                    (pl.col(ident_col) != pl.col(used_col)) | pl.col(used_col).is_null()
                 )
             hop_trail_col = trail_column_name(len(outer_trail) + len(segment_trail_cols))
-            current = current.rename({TRAIL_EDGE_IDENT_COL: hop_trail_col})
+            current = current.rename({ident_col: hop_trail_col})
             segment_trail_cols.append(hop_trail_col)
         current = current.drop(WALK_CURRENT_COL).rename({WALK_TO_COL: WALK_CURRENT_COL})
         current = current.select(state_cols + segment_trail_cols)
