@@ -34,11 +34,6 @@ from graphistry.compute.gfql.same_path_types import (
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
-from graphistry.compute.gfql.agg_types import (
-    CYPHER_EMPTY_LIST_EMPTY_GROUP_AGGREGATIONS,
-    CYPHER_ZERO_EMPTY_GROUP_AGGREGATIONS,
-    CypherEmptyGroupValue,
-)
 from graphistry.compute.gfql.cypher.ast import CypherParams
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
@@ -52,9 +47,11 @@ from graphistry.compute.gfql.cypher.lowering import (
     compile_cypher_query,
 )
 from graphistry.compute.filter_by_dict import _node_dtypes_for_pushdown
+from graphistry.compute.gfql.cypher.reentry.carried_outputs import (
+    carried_output_sources as _carried_output_sources,
+    optional_reentry_aggregate_fill_values as _optional_reentry_aggregate_fill_values,
+)
 from graphistry.compute.gfql.cypher.reentry.execution import (
-    CARRIED_OUTPUTS_NOT_REPRODUCIBLE,
-    CarriedOutputSources,
     REENTRY_DUPLICATE_CARRIED_ROWS_REASON as _REENTRY_DUPLICATE_CARRIED_ROWS_REASON,
     REENTRY_WHOLE_ROW_SUGGESTION as _REENTRY_WHOLE_ROW_SUGGESTION,
     apply_optional_reentry_null_fill as _apply_optional_reentry_null_fill,
@@ -65,7 +62,6 @@ from graphistry.compute.gfql.cypher.reentry.execution import (
     reentry_validation_error as _reentry_validation_error,
     union_scalar_reentry_results as _union_scalar_reentry_results,
 )
-from graphistry.compute.gfql.cypher.reentry.naming import is_reentry_hidden_column_reference
 from graphistry.compute.gfql.cypher.call_procedures import execute_cypher_call
 from graphistry.compute.gfql.cypher.result_postprocess import (
     apply_result_projection,
@@ -508,7 +504,7 @@ def _apply_connected_optional_match(
 
         seed_src = joined_rows[[joined_col]]
         # each branch builds ``seed_frame`` directly rather than rebinding ``seed_src``: the
-        # polars result would otherwise widen the variable and break the pandas branch below
+        # polars result would otherwise widen the variable and break the pandas/cuDF branch below
         # (``is_polars_df`` is a TypeGuard -- it does not narrow the negative branch back).
         if is_polars_df(seed_src):
             seed_frame = cast(DataFrameT, df_to_engine(
@@ -1674,121 +1670,6 @@ def _execute_compiled_query_with_reentry(
     return result
 
 
-_IDENTIFIER_TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_REENTRY_MARKER_COLUMN = re.compile(r"__cypher_reentry_(\w+)__")
-
-
-def _output_reads_carried_alias(
-    src: str, *, alias_names: Set[str], scalar_columns: Set[str]
-) -> bool:
-    tokens = set(_IDENTIFIER_TOKEN.findall(src))
-    return bool(tokens & alias_names or tokens & scalar_columns)
-
-
-def _carried_output_source_column(
-    src: str, *, alias_names: Set[str], scalar_columns: Set[str]
-) -> Optional[str]:
-    """Prefix-frame column an output copies verbatim, or None when it cannot be reproduced."""
-    if src in scalar_columns:
-        return src
-    parts = src.split(".")
-    if len(parts) != 2 or parts[0] not in alias_names:
-        return None
-    marker = _REENTRY_MARKER_COLUMN.fullmatch(parts[1])
-    if marker is not None and marker.group(1) in scalar_columns:
-        return marker.group(1)
-    if _IDENTIFIER_TOKEN.fullmatch(parts[1]):
-        return src
-    return None
-
-
-def _carried_output_sources(compiled_query: CompiledCypherQuery) -> CarriedOutputSources:
-    """Which result outputs the unmatched-prefix-row null-fill can reproduce (#1896)."""
-    plan = compiled_query.reentry_plan
-    if plan is None:
-        return CarriedOutputSources(columns={}, every_output_reproducible=True)
-    alias_names = {plan.reentry_alias_name} | {a.output_name for a in plan.aliases}
-    scalar_columns = set(plan.scalar_columns)
-    items: Optional[List[object]] = None
-    grouped = False
-    ops = list(compiled_query.chain.chain) if compiled_query.chain is not None else []
-    for op in ops:
-        function = getattr(op, "function", None)
-        op_params = getattr(op, "params", None) or {}
-        if function in ("select", "return_", "with_") and op_params.get("items"):
-            items = list(op_params["items"])
-            grouped = False
-        elif function == "group_by":
-            grouped = True
-    if items is None or grouped:
-        return CarriedOutputSources(columns={}, every_output_reproducible=True)
-    columns: Dict[str, str] = {}
-    for item in items:
-        if not (isinstance(item, (list, tuple)) and len(item) == 2 and isinstance(item[0], str)):
-            continue
-        name, src = item[0], item[1]
-        if not isinstance(src, str):
-            continue
-        if not _output_reads_carried_alias(
-            src, alias_names=alias_names, scalar_columns=scalar_columns
-        ):
-            continue
-        source_column = _carried_output_source_column(
-            src, alias_names=alias_names, scalar_columns=scalar_columns
-        )
-        if source_column is None:
-            return CARRIED_OUTPUTS_NOT_REPRODUCIBLE
-        columns[name] = source_column
-    return CarriedOutputSources(columns=columns, every_output_reproducible=True)
-
-
-def _optional_reentry_aggregate_fill_values(compiled_query: CompiledCypherQuery) -> Dict[str, CypherEmptyGroupValue]:
-    """Cypher empty-group value per aggregate output on an unmatched prefix row's null-extended row."""
-    plan = compiled_query.reentry_plan
-    carried_scalar_columns = set(plan.scalar_columns) if plan is not None else set()
-    reentry_alias = plan.reentry_alias_name if plan is not None else None
-
-    def source_is_carried_rather_than_suffix_bound(source: str) -> bool:
-        base = source.split(".", 1)[0]
-        return (
-            is_reentry_hidden_column_reference(source)
-            or base in carried_scalar_columns
-            or base == reentry_alias
-        )
-
-    ops = list(compiled_query.chain.chain) if compiled_query.chain is not None else []
-    with_map: Dict[str, object] = {}
-    fills: Dict[str, CypherEmptyGroupValue] = {}
-    for op in ops:
-        if not isinstance(op, ASTCall):
-            continue
-        if op.function == "with_":
-            for item in op.params.get("items") or []:
-                if isinstance(item, (list, tuple)) and len(item) == 2 and isinstance(item[0], str):
-                    with_map[item[0]] = item[1]
-        elif op.function == "group_by":
-            fills = {}
-            for agg in op.params.get("aggregations") or []:
-                if not isinstance(agg, (list, tuple)) or len(agg) not in (2, 3):
-                    continue
-                alias = str(agg[0])
-                func = str(agg[1]).lower()
-                expr = agg[2] if len(agg) == 3 else None
-                if func == "count" and (expr is None or expr == "*"):
-                    fills[alias] = 1
-                    continue
-                source: object = with_map.get(expr, expr) if isinstance(expr, str) else expr
-                if not isinstance(source, str):
-                    continue
-                if source_is_carried_rather_than_suffix_bound(source):
-                    continue
-                if func in CYPHER_ZERO_EMPTY_GROUP_AGGREGATIONS:
-                    fills[alias] = 0
-                elif func in CYPHER_EMPTY_LIST_EMPTY_GROUP_AGGREGATIONS:
-                    fills[alias] = []
-    return fills
-
-
 def _materialize_split_alias_columns(
     result: Plottable,
     executor: DFSamePathExecutor,
@@ -2031,7 +1912,7 @@ def _compile_string_query(
         )
     params_key = _compile_cache_params_key(params)
     # node_dtypes (from #1730/#1729 pushdown) makes compilation engine-dependent: the same
-    # (query, params) yields a different pushdown plan under pandas vs polars dtypes. The
+    # (query, params) yields a different pushdown plan under pandas/cuDF vs polars dtypes. The
     # compile cache (#1731) must therefore key on node_dtypes too, or a plan compiled for one
     # engine would be wrongly reused for another on the same graph.
     node_dtypes_key = _node_dtypes_cache_key(node_dtypes)
@@ -2669,12 +2550,12 @@ def _chain_dispatch(
     engine_name = engine.value if hasattr(engine, "value") else str(engine)
     if chain_obj.where and engine_name in (Engine.POLARS.value, Engine.POLARS_GPU.value):
         # Cross-entity / same-path WHERE routes through DFSamePathExecutor
-        # (df_executor.py), which has no native polars implementation. NO pandas
-        # fallback (no-silent-fallback policy) — raise honestly.
+        # (df_executor.py, serving pandas AND cuDF), which has no native polars
+        # implementation. No silent fallback — raise honestly.
         raise NotImplementedError(
             "polars engine does not yet natively support cross-entity (same-path) "
-            "WHERE; use engine='pandas' for this query "
-            "(no pandas fallback; parity-or-error by design)"
+            "WHERE; use engine='pandas' or engine='cudf' for this query "
+            "(no silent fallback; parity-or-error by design)"
         )
     if chain_obj.where:
         if start_nodes is not None:
