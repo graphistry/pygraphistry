@@ -1162,9 +1162,7 @@ def _concat_union_branch_rows(
     frames = list(row_frames)
     non_empty = [frame for frame in frames if len(frame) > 0]
     if non_empty and len(non_empty) != len(frames):
-        # openCypher: an empty branch contributes no rows. Its column dtype must not
-        # drag the supertype either -- a 0-row String branch alone was enough to
-        # stringify a surviving Int64 branch on polars.
+        # A 0-row branch contributes no rows, and its dtype must not drag the union supertype.
         frames = non_empty
     if len(frames) == 1:
         return frames[0]
