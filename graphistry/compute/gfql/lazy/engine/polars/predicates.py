@@ -355,8 +355,8 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
                 # numeric-vs-string comparison -> polars ComputeError; decline (NIE).
                 raise NotImplementedError(
                     f"polars engine does not yet natively support a numeric-vs-string "
-                    f"comparison on column {resolved_col!r}; use engine='pandas' for this "
-                    f"query (no pandas fallback; parity-or-error by design)"
+                    f"comparison on column {resolved_col!r}; use engine='pandas' or "
+                    f"engine='cudf' for this query (no silent fallback; parity-or-error by design)"
                 )
             # String predicate on a non-`String` column: pandas/cuDF raise a clean
             # GFQLSchemaError (E302) at schema validation, but polars would build `.str.<op>` and

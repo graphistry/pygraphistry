@@ -508,7 +508,7 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
 
     if (
         middle
-        and any(getattr(op, "_name", None) is not None for op in middle)
+        and any(op._name is not None for op in middle)
         and isinstance(calls[0], ASTCall)
         and calls[0].function == "rows"
         and calls[0].params.get("binding_ops") is None
@@ -541,9 +541,16 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     #    SAME path as the DAG/let() surface, keeping surfaces consistent. Row-vs-analytic split
     #    is MECHANICAL (is_row_pipeline_call), not curated. (umap/hypergraph never reach here —
     #    the generic chain routes schema-changers straight to execute_call.)
+    from graphistry.compute.ast import ASTCall
     from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
     from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
     for op in calls:
+        if not isinstance(op, ASTCall):
+            raise NotImplementedError(
+                f"polars engine does not yet natively support cypher row op "
+                f"{op!r}; use engine='pandas' or engine='cudf' for this "
+                f"query (no silent fallback; parity-or-error by design)"
+            )
         try:
             native = _try_native_row_op(g_cur, op)
         except GFQLTypeError:
@@ -556,12 +563,11 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
             # repo's control flow keys on `.code`. Scoped to GFQLValidationError, the one
             # divergence actually observed (an E108 from the var-length cycle guard);
             # other exception classes are left alone rather than blanket-normalized.
-            fn_name = getattr(op, "function", None)
             raise GFQLTypeError(
                 ErrorCode.E303,
-                f"Error executing '{fn_name}': {validation_error}",
+                f"Error executing '{op.function}': {validation_error}",
                 field="function",
-                value=fn_name,
+                value=op.function,
             ) from validation_error
         except _polars_error_types() as polars_error:
             # A THIRD-PARTY exception must never be the GFQL surface. On the pandas/cuDF side
@@ -570,28 +576,26 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
             # letting e.g. `polars.exceptions.InvalidOperationError: \`sum\` operation not
             # supported for dtype \`str\`` reach the caller verbatim. Same code, same message
             # shape as the pandas surface; the polars text is preserved as the cause.
-            fn_name = getattr(op, "function", None)
             raise GFQLTypeError(
                 ErrorCode.E303,
-                f"Error executing '{fn_name}': {polars_error}",
+                f"Error executing '{op.function}': {polars_error}",
                 field="function",
-                value=fn_name,
+                value=op.function,
             ) from polars_error
         if native is not None:
             g_cur = native
             continue
-        fn = getattr(op, "function", None)
-        if fn is not None and not is_row_pipeline_call(fn):
+        if not is_row_pipeline_call(op.function):
             from graphistry.compute.gfql.call.executor import execute_call
             from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
             from graphistry.Engine import Engine as _Engine
             _eng = _Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else _Engine.POLARS
-            g_cur = execute_call(g_cur, fn, getattr(op, "params", {}) or {}, _eng)
+            g_cur = execute_call(g_cur, op.function, op.params or {}, _eng)
             continue
         raise NotImplementedError(
             f"polars engine does not yet natively support cypher row op "
-            f"{getattr(op, 'function', op)!r}; use engine='pandas' for this query "
-            f"(no pandas fallback; parity-or-error by design)"
+            f"{op.function!r}; use engine='pandas' or engine='cudf' for this "
+            f"query (no silent fallback; parity-or-error by design)"
         )
     # Attach/detach pair: the boundary run is done, so the context is spent and must not
     # ride out on the result the caller sees (see the twin in compute/chain.py).
@@ -618,7 +622,7 @@ def _try_native_row_op(g_cur, op):
     )
     from .search import search_any_polars
 
-    fn = getattr(op, "function", None)
+    fn = op.function
     if fn == "rows" and op.params.get("binding_ops") is not None:
         # #1731: single-entity boundary rows (MATCH (n) / EXISTS seeds) are handled by
         # the pattern-apply helper; try that narrow shape first.
@@ -760,11 +764,11 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
 
     if prefix:
         # decline (NIE): leading call() yields a row table the following traversal would have to
-        # re-enter as a graph. pandas cascades via _chain_impl, but it's not a cypher shape
+        # re-enter as a graph. pandas/cuDF cascade via _chain_impl, but it's not a cypher shape
         # (MATCH comes first) and the polars traversal doesn't yet consume a row-table input.
         raise NotImplementedError(
             "polars chain engine does not yet support call() before a traversal; "
-            "use engine='pandas' for this chain."
+            "use engine='pandas' or engine='cudf' for this chain."
         )
 
     from graphistry.compute.chain import serialize_binding_ops
@@ -857,7 +861,8 @@ def _bound_edge_endpoints(g: Plottable) -> Tuple[str, str]:
     if g._source is None or g._destination is None:
         raise NotImplementedError(
             "polars chain engine does not yet support traversing a graph with unbound edge "
-            "endpoints (e.g. a call() row-pipeline result); use engine='pandas' for this chain."
+            "endpoints (e.g. a call() row-pipeline result); use engine='pandas' or "
+            "engine='cudf' for this chain."
         )
     return g._source, g._destination
 
@@ -924,7 +929,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             raise NotImplementedError(
                 "polars chain engine: a node alias after a forward/reverse variable-length edge "
                 "with min_hops>1 is not yet hop-gated (would tag nodes outside the hop window — "
-                "issue #1748); use engine='pandas' for this query"
+                "issue #1748); use engine='pandas' or engine='cudf' for this query"
             )
 
     edge_ops = [op for op in ops if isinstance(op, ASTEdge)]
