@@ -1528,17 +1528,29 @@ def _connected_join_two_star_fast_rows(
     return cast(DataFrameT, left_rows.merge(right_rows, on=shared_alias, how="inner"))
 
 
-def _self_loops_in_all_domains_polars(
-    edges: "pl.DataFrame",
+def _self_loop_rows(
+    edges: DataFrameT,
+    *,
+    src_col: str,
+    dst_col: str,
+    engine: Engine,
+) -> DataFrameT:
+    """The ``src == dst`` rows of ``edges``. NULL endpoints drop: ``null == null`` is False."""
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        pl_edges: "pl.DataFrame" = edges  # engine seam: polars frame rides engine-agnostic DataFrameT
+        return pl_edges.filter(pl.col(src_col) == pl.col(dst_col))
+    return cast(DataFrameT, edges[edges[src_col] == edges[dst_col]])
+
+
+def _self_loops_in_domains_polars(
+    loops: "pl.DataFrame",
     domains: Sequence["pl.DataFrame"],
     *,
     node_col: str,
     src_col: str,
-    dst_col: str,
 ) -> int:
-    """Polars arm of ``_self_loops_in_all_domains`` -- fully typed, no ignores."""
-    import polars as pl
-    loops = edges.filter(pl.col(src_col) == pl.col(dst_col))
+    """Polars arm of ``_self_loops_in_domains`` -- fully typed, no ignores."""
     for domain in domains:
         if loops.height == 0:
             return 0
@@ -1549,21 +1561,72 @@ def _self_loops_in_all_domains_polars(
     return loops.height
 
 
-def _self_loops_in_all_domains_indexable(
-    edges: DataFrameT,
+def _self_loops_in_domains_indexable(
+    loops: DataFrameT,
     domains: Sequence[DataFrameT],
     *,
     node_col: str,
     src_col: str,
-    dst_col: str,
 ) -> int:
-    """pandas/cudf arm of ``_self_loops_in_all_domains``."""
-    loops = edges[edges[src_col] == edges[dst_col]]
+    """cudf arm of ``_self_loops_in_domains`` -- device-side hashing, no host round-trip."""
     for domain in domains:
         if len(loops) == 0:
             return 0
         loops = loops[loops[src_col].isin(domain[node_col])]
     return int(len(loops))
+
+
+#: Unique-loop-value count up to which the pandas arm probes each value with one
+#: vectorized equality scan instead of hashing a whole domain column (pinned).
+_SELF_LOOP_PROBE_LIMIT: Final[int] = 16
+
+
+def _self_loops_in_domains_pandas(
+    loops: DataFrameT,
+    domains: Sequence[DataFrameT],
+    *,
+    node_col: str,
+    src_col: str,
+) -> int:
+    """pandas arm of ``_self_loops_in_domains``.
+
+    Never hashes a domain column: self-loop rows are few, so membership is answered
+    by per-value equality scans (or, past the probe limit, by hashing the loop side).
+    """
+    loop_vals = loops[src_col]
+    for domain in domains:
+        if len(loop_vals) == 0:
+            return 0
+        domain_arr = domain[node_col].to_numpy()
+        unique_vals = pd.unique(loop_vals.to_numpy())
+        if len(unique_vals) <= _SELF_LOOP_PROBE_LIMIT:
+            present = [value for value in unique_vals if (domain_arr == value).any()]
+        else:
+            domain_series = pd.Series(domain_arr)
+            present = list(pd.unique(domain_series[domain_series.isin(unique_vals)]))
+        loop_vals = loop_vals[loop_vals.isin(present)]
+    return int(len(loop_vals))
+
+
+def _self_loops_in_domains(
+    loops: DataFrameT,
+    domains: Sequence[DataFrameT],
+    *,
+    node_col: str,
+    src_col: str,
+    engine: Engine,
+) -> int:
+    """``|{e in loops : src(e) is in EVERY domain}|``, given the self-loop rows."""
+    if engine in POLARS_ENGINES:
+        pl_loops: "pl.DataFrame" = loops  # engine seam: polars frame rides engine-agnostic DataFrameT
+        pl_domains: Sequence["pl.DataFrame"] = domains  # engine seam: polars frames ride engine-agnostic DataFrameT
+        return _self_loops_in_domains_polars(
+            pl_loops, pl_domains, node_col=node_col, src_col=src_col)
+    if engine == Engine.PANDAS:
+        return _self_loops_in_domains_pandas(
+            loops, domains, node_col=node_col, src_col=src_col)
+    return _self_loops_in_domains_indexable(
+        loops, domains, node_col=node_col, src_col=src_col)
 
 
 def _self_loops_in_all_domains(
@@ -1579,13 +1642,8 @@ def _self_loops_in_all_domains(
 
     NULL endpoints never count: ``null == null`` is False on all three engines.
     """
-    if engine in POLARS_ENGINES:
-        pl_edges: "pl.DataFrame" = edges  # engine seam: polars frame rides engine-agnostic DataFrameT
-        pl_domains: Sequence["pl.DataFrame"] = domains  # engine seam: polars frames ride engine-agnostic DataFrameT
-        return _self_loops_in_all_domains_polars(
-            pl_edges, pl_domains, node_col=node_col, src_col=src_col, dst_col=dst_col)
-    return _self_loops_in_all_domains_indexable(
-        edges, domains, node_col=node_col, src_col=src_col, dst_col=dst_col)
+    loops = _self_loop_rows(edges, src_col=src_col, dst_col=dst_col, engine=engine)
+    return _self_loops_in_domains(loops, domains, node_col=node_col, src_col=src_col, engine=engine)
 
 
 def _edges_passing_both_relationship_filters(
@@ -1623,17 +1681,17 @@ def _two_hop_trail_illegal_pairs(
     filters with ``b`` in all three node domains: exactly one illegal pair per such
     edge, and none at all on a self-loop-free edge domain.
     """
-    no_domains: Tuple[DataFrameT, ...] = ()
-    if _self_loops_in_all_domains(
-        first_edges, no_domains,
-        node_col=node_col, src_col=src_col, dst_col=dst_col, engine=engine,
-    ) == 0:
+    loops = _self_loop_rows(first_edges, src_col=src_col, dst_col=dst_col, engine=engine)
+    if len(loops) == 0:
         return 0
-    edges = first_edges if first_match == second_match else _edges_passing_both_relationship_filters(
-        edges_obj, first_match, second_match, src_col=src_col, dst_col=dst_col, engine=engine)
-    return _self_loops_in_all_domains(
-        edges, (start_nodes, middle_nodes, end_nodes),
-        node_col=node_col, src_col=src_col, dst_col=dst_col, engine=engine)
+    if first_match != second_match:
+        loops = _self_loop_rows(
+            _edges_passing_both_relationship_filters(
+                edges_obj, first_match, second_match, src_col=src_col, dst_col=dst_col, engine=engine),
+            src_col=src_col, dst_col=dst_col, engine=engine)
+    return _self_loops_in_domains(
+        loops, (start_nodes, middle_nodes, end_nodes),
+        node_col=node_col, src_col=src_col, engine=engine)
 
 
 def _filter_nodes_for_fast_count(nodes: DataFrameT, filter_dict: Optional[dict], *, engine: Engine) -> DataFrameT:
