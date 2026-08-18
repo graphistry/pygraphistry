@@ -109,9 +109,8 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
     logger.debug('filter_by_dict engine: %s => %s', engine, engine_concrete)
 
     if engine_concrete in POLARS_ENGINES:
-        # polars stays polars-native: filter_mask_by_dict/df[hits] are pandas/cuDF idioms (#1882)
         from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
-        return filter_by_dict_polars(df, filter_dict)
+        return filter_by_dict_polars(df, filter_dict)  # mask path below is pandas/cuDF-idiom (#1882)
 
     hits = filter_mask_by_dict(df, filter_dict)
     return df[hits]

@@ -576,11 +576,10 @@ class ComputeMixin(Plottable):
     def prune_self_edges(self):
         edges = self._edges
         if "polars" in type(edges).__module__:
-            # boolean __getitem__ is a pandas/cuDF idiom; polars masks select COLUMNS (#1913).
-            # fill_null(True) keeps null-endpoint rows, as pandas NaN != x does.
+            # polars boolean __getitem__ selects COLUMNS; fill_null(True) keeps null endpoints like pandas NaN != x
             import polars as pl
             return self.edges(edges.filter(
-                (pl.col(self._source) != pl.col(self._destination)).fill_null(True)))
+                (pl.col(self._source) != pl.col(self._destination)).fill_null(True)))  # #1913 finding-4
         return self.edges(edges[ edges[self._source] != edges[self._destination] ])
 
     def collapse(

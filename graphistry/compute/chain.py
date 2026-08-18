@@ -1197,12 +1197,11 @@ def _chain_impl(
 
         synthesized_empty_edges = False
         if g._edges is None and all(isinstance(op, ASTNode) for op in ops):
-            # Nodes-only graph + node-only chain (#1879): steps only ever slice edges[:0],
-            # so a synthetic empty frame serves; the result drops it (mirrors the input).
+            # node-only steps only ever slice edges[:0], so an empty frame serves; result drops it (#1879)
             synthesized_empty_edges = True
-            src_col = generate_safe_column_name('src', g._nodes, prefix='__gfql_', suffix='__')
-            dst_col = generate_safe_column_name('dst', g._nodes, prefix='__gfql_', suffix='__')
-            g = g.edges(df_cons(engine_concrete)({src_col: [], dst_col: []}), src_col, dst_col)
+            synth_src = generate_safe_column_name('src', g._nodes, prefix='__gfql_', suffix='__')
+            synth_dst = generate_safe_column_name('dst', g._nodes, prefix='__gfql_', suffix='__')
+            g = g.edges(df_cons(engine_concrete)({synth_src: [], synth_dst: []}), synth_src, synth_dst)
         elif g._edges is None and any(isinstance(op, ASTEdge) for op in ops):
             from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
             raise GFQLSchemaError(
