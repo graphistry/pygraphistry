@@ -495,7 +495,10 @@ def hop_polars(
                 valid_edge_frames = []
                 for level in range(max_edge_hop, 0, -1):
                     lvl = edge_rec.filter(pl.col(HOP) == level)
-                    reaching = lvl.join(current_targets.rename({NID: TO}), on=TO, how="semi")
+                    # An edge at >= min_hops ends a qualifying walk itself; only sub-min levels feed one.
+                    level_is_goal = level >= min_hops  # paired with hop.py, fixes #1944
+                    reaching = lvl if level_is_goal else lvl.join(
+                        current_targets.rename({NID: TO}), on=TO, how="semi")
                     valid_edge_frames.append(reaching.select(pl.col(EID)))
                     current_targets = reaching.select(pl.col(FROM).alias(NID)).unique()
                     valid_node = pl.concat([valid_node, current_targets], how="vertical_relaxed").unique(subset=[NID])
