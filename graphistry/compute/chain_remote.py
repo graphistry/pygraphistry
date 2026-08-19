@@ -19,7 +19,8 @@ from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
 from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError
-from graphistry.compute.remote_df_io import require_csv_opt_in, resolve_csv_reader
+from graphistry.compute.remote_df_io import (
+    require_supported_frame_library, resolve_csv_reader, validate_csv_import_args)
 from graphistry.compute.remote_response import (
     check_subset_result_bindings,
     decode_json_result,
@@ -165,8 +166,8 @@ def chain_remote_generic(
         else:
             format = "parquet"
 
-    if format == "csv":
-        require_csv_opt_in(df_import_args, "gfql_remote")
+    validate_csv_import_args(df_import_args, "gfql_remote")
+    frame_lib = require_supported_frame_library(self._nodes, self._edges, "gfql_remote")
 
     # Validate persist compatibility early
     if persist and output_type in ["nodes", "edges"]:
@@ -298,22 +299,16 @@ def chain_remote_generic(
 
     # deserialize based on output_type & format
 
-    # Determine DataFrame library by checking both edges and nodes
-    edges_is_cudf = self._edges is not None and 'cudf.core.dataframe' in str(getmodule(self._edges))
-    nodes_is_cudf = self._nodes is not None and 'cudf.core.dataframe' in str(getmodule(self._nodes))
-
-    if edges_is_cudf or nodes_is_cudf:
+    # Library was resolved pre-request; reuse it so the two cannot drift.
+    if frame_lib == "cudf":
         import cudf
         df_cons = cudf.DataFrame
         read_csv = cudf.read_csv
         read_parquet = cudf.read_parquet
-    elif (self._edges is None or isinstance(self._edges, pd.DataFrame) or 'unittest.mock' in str(type(self._edges))) and \
-         (self._nodes is None or isinstance(self._nodes, pd.DataFrame) or 'unittest.mock' in str(type(self._nodes))):
+    else:
         df_cons = pd.DataFrame
         read_csv = pd.read_csv
         read_parquet = pd.read_parquet
-    else:
-        raise ValueError(f"Unknown DataFrame types - edges: {type(self._edges)}, nodes: {type(self._nodes)}")
 
     if format == "csv":
         read_csv = resolve_csv_reader(read_csv, df_import_args, "gfql_remote")
