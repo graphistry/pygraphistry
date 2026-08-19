@@ -2913,11 +2913,6 @@ class RowPipelineMixin:
         if prop_match is not None:
             alias = prop_match.group("alias")
             prop = prop_match.group("prop")
-            if alias == prop:
-                restore_col = shadow_restore_column(alias)
-                if restore_col in table_df.columns:
-                    # the alias marker overwrote this same-named user column; rows() re-keyed it
-                    return table_df[restore_col]
             if RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias):
                 if prop == NODE_IDENTITY_COLUMN:
                     node_id = self._gfql_node_id_column()
