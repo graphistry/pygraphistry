@@ -82,15 +82,18 @@ def _dtype_is_temporal(dtype: "Optional[pl.DataType]") -> bool:
     )
 
 
-def _parse_temporal_filter_scalar(val: str, dtype: "pl.DataType") -> Optional[Any]:
+def _parse_temporal_filter_scalar(
+    val: str, dtype: "pl.DataType"
+) -> "Optional[Union[datetime.date, datetime.time, datetime.datetime, datetime.timedelta]]":
     """The python temporal scalar a TEMPORAL column can compare ``val`` against, or None.
 
     Parses with pandas (``pd.Timestamp`` / ``pd.to_timedelta``) — the SAME parse pandas
     comparison ops apply to a string operand, so the compared instant is
     parity-equal by construction. SAFE subset only: a NAIVE Datetime column takes a
     naive parse (tz-suffixed text and sub-microsecond precision decline — pandas
-    itself raises/zero-rows on the tz mix), Duration takes a to_timedelta parse,
-    Date/Time take exact ISO parses. None = not comparable -> caller raises typed."""
+    itself raises/zero-rows on the tz mix), Duration takes a ``to_timedelta`` parse,
+    Date/Time take exact ISO parses. None means not comparable, so the caller
+    raises the typed schema error."""
     import datetime as _dt
     import pandas as pd
     import polars as pl
@@ -133,12 +136,12 @@ def _raise_temporal_str_mismatch(col: str, dtype: "pl.DataType", val: str) -> No
 def _temporal_str_cmp_expr(
     col: str,
     col_expr: "pl.Expr",
-    op: Callable[[Any, Any], Any],
+    op: "Callable[[pl.Expr, pl.Expr], pl.Expr]",
     val: str,
     dtype: "pl.DataType",
 ) -> "pl.Expr":
     """Temporal column vs string comparison: parse-and-compare in the SAFE subset,
-    typed GFQLSchemaError otherwise (#1880/#1915 B-7) — never a raw polars error."""
+    typed GFQLSchemaError otherwise — never a raw polars error."""
     import polars as pl
     parsed = _parse_temporal_filter_scalar(val, dtype)
     if parsed is None:
@@ -186,8 +189,7 @@ def _cmp_expr(
     if _orders_boolean_column_against_number(op, val, dtype):
         import polars as pl
         return pl.lit(False)
-    # Temporal column vs string: a bare `col <op> 'str'` raises a raw
-    # InvalidOperationError at collect (#1880/#1915 B-7); parse-or-typed-error instead.
+    # Temporal column vs raw string raises InvalidOperationError at collect; parse-or-typed-error instead.
     if isinstance(val, str) and _dtype_is_temporal(dtype) and op in _CMP_OPS:
         assert dtype is not None
         return _temporal_str_cmp_expr(col, col_expr, op, val, dtype)
@@ -513,8 +515,7 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
                         suggestion=f'Use a string value like {col}="value"',
                     )
                 if isinstance(resolved_val, str) and _dtype_is_temporal(_eq_dtype):
-                    # Temporal-vs-string scalar equality: raw `col == 'str'` raises an
-                    # InvalidOperationError at collect (#1880); parse-or-typed-error instead.
+                    # Raw temporal `col == 'str'` raises at collect; parse-or-typed-error instead.
                     exprs.append(
                         _temporal_str_cmp_expr(
                             resolved_col, pl.col(resolved_col), operator.eq, resolved_val, _eq_dtype

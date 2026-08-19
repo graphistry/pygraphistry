@@ -1,7 +1,7 @@
 import operator
-from typing import Any
+from typing import Any, Tuple
 
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.compute.dataframe import (
     ineq_eval_pairs,
     project_node_attrs,
@@ -31,12 +31,10 @@ _OPS = {
 }
 
 
-def _align_mixed_tz_datetimes(series_left: Any, series_right: Any) -> Any:
-    """Normalize a tz-aware/tz-naive datetime column pair onto UTC-naive.
-
-    GFQL's temporal extension reads naive datetimes as UTC (the row pipeline's
-    ``_native_epoch_ticks`` does the same); without this, pandas raises a raw
-    TypeError comparing the pair in a same-path WHERE (#1915 B-7)."""
+def _align_mixed_tz_datetimes(series_left: SeriesT, series_right: SeriesT) -> Tuple[SeriesT, SeriesT]:
+    """Normalize a tz-aware/tz-naive datetime pair onto UTC-naive: GFQL reads naive
+    datetimes as UTC (as the row pipeline's ``_native_epoch_ticks`` does), and the
+    raw pandas compare of the mixed pair raises."""
     left_dtype = getattr(series_left, "dtype", None)
     right_dtype = getattr(series_right, "dtype", None)
     if getattr(left_dtype, "kind", None) != "M" or getattr(right_dtype, "kind", None) != "M":

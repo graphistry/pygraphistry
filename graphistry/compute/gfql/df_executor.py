@@ -206,9 +206,7 @@ class DFSamePathExecutor:
                             ">=": (left_vals >= right_min, right_vals <= left_max),
                         }
                     except TypeError:
-                        # Incomparable dtypes (e.g. tz-naive vs tz-aware datetime, #1915
-                        # B-7): this prune is only a bounds OPTIMIZATION, so skip it and
-                        # let the real WHERE filter give the typed/3VL answer.
+                        # Incomparable dtypes: this bounds prune is optional — the real WHERE filter answers.
                         continue
                     left_mask, right_mask = masks[clause.op]
                     changed |= _apply_mask(left_alias, left_frame, left_mask)

@@ -1159,8 +1159,7 @@ def _concat_union_branch_rows(
     concat: Callable[..., DataFrameT],
 ) -> DataFrameT:
     """Row-concat UNION branch frames without letting a branch's dtype rewrite another's values."""
-    # UNION aligns columns by NAME (Neo4j): a branch may project the same names in a
-    # different order, and the output keeps the first branch's order.
+    # UNION aligns columns by NAME (Neo4j); the output keeps the first branch's order.
     first_columns = list(row_frames[0].columns)
     frames = [
         frame if list(frame.columns) == first_columns else frame[first_columns]

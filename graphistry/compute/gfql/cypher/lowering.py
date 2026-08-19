@@ -6953,9 +6953,9 @@ _ZONED_ISO_TEMPORAL_TEXT_RE = re.compile(
 
 def _is_zoned_iso_temporal_comparison(predicate: WherePredicate) -> bool:
     """Comparison against tz-suffixed ISO temporal TEXT: keep it a ``where_rows``
-    residual (#1915 B-7). Pushed down, the raw pandas compare raises on a naive
-    datetime column and its equality silently matches zero rows; the row
-    pipeline's temporal path compares instants on both column shapes."""
+    residual. Pushed down, the raw pandas compare raises on a naive datetime
+    column and its equality silently matches zero rows; the row pipeline's
+    temporal path compares instants on both column shapes."""
     if predicate.op not in {"==", "!=", "<>", "<", "<=", ">", ">="}:
         return False
     right = predicate.right
@@ -8415,8 +8415,7 @@ def _connected_join_pushable_value(
         # int would evade it and reach pandas, which overflows with a raw OverflowError.
         return False
     if isinstance(resolved, str) and _ZONED_ISO_TEMPORAL_TEXT_RE.match(resolved) is not None:
-        # tz-suffixed ISO temporal text: a pushed equality string-compares (zero rows
-        # against a naive/text column); the where_rows residual compares instants (#1915 B-7).
+        # tz-suffixed ISO temporal text string-compares wrongly when pushed; the residual compares instants.
         return False
     if op in _CONNECTED_JOIN_STRING_OPS:
         if not isinstance(resolved, str):
@@ -9416,9 +9415,7 @@ def compile_cypher_query(
             if branch_output_names is None:
                 branch_output_names = output_names
             elif sorted(output_names) != sorted(branch_output_names):
-                # Same names in a different ORDER are fine (Neo4j aligns by name;
-                # execution reorders to the first branch) — only a genuinely
-                # different name multiset is an error.
+                # Same names in a different ORDER align by name at execution; only a different multiset errors.
                 raise _unsupported(
                     "Cypher UNION branches must project the same output names",
                     field="union",
