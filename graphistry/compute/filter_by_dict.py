@@ -1,7 +1,7 @@
 from typing import Any, Dict, Mapping, Optional, Tuple, Union, cast
 import pandas as pd
 
-from graphistry.Engine import EngineAbstract, df_to_engine, resolve_engine
+from graphistry.Engine import EngineAbstract, POLARS_ENGINES, df_to_engine, resolve_engine
 from graphistry.util import setup_logger
 
 from graphistry.Plottable import Plottable
@@ -107,6 +107,10 @@ def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: U
     engine_concrete = resolve_engine(engine, df)
     df = df_to_engine(df, engine_concrete)
     logger.debug('filter_by_dict engine: %s => %s', engine, engine_concrete)
+
+    if engine_concrete in POLARS_ENGINES:
+        from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
+        return filter_by_dict_polars(df, filter_dict)  # mask path below is pandas/cuDF-idiom (#1882)
 
     hits = filter_mask_by_dict(df, filter_dict)
     return df[hits]

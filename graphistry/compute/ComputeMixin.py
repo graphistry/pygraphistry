@@ -574,7 +574,13 @@ class ComputeMixin(Plottable):
         return self.edges(df[mask])
 
     def prune_self_edges(self):
-        return self.edges(self._edges[ self._edges[self._source] != self._edges[self._destination] ])
+        edges = self._edges
+        if "polars" in type(edges).__module__:
+            # polars boolean __getitem__ selects COLUMNS; fill_null(True) keeps null endpoints like pandas NaN != x
+            import polars as pl
+            return self.edges(edges.filter(
+                (pl.col(self._source) != pl.col(self._destination)).fill_null(True)))  # #1913 finding-4
+        return self.edges(edges[ edges[self._source] != edges[self._destination] ])
 
     def collapse(
         self,
