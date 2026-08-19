@@ -209,6 +209,64 @@ def test_zip_ambiguous_member_is_typed_not_arbitrary(call, kwargs):
     assert 'nodes' in str(ei.value)
 
 
+def test_compound_member_is_never_bound_to_either_table():
+    from graphistry.compute.remote_response import select_zip_member
+    from graphistry.compute.exceptions import GFQLRemoteError as _E
+    for kind in ('nodes', 'edges'):
+        with pytest.raises(_E):
+            select_zip_member(['nodes_and_edges.parquet'], kind, 'api')
+
+
+def test_compound_member_does_not_stand_in_for_a_missing_member():
+    from graphistry.compute.remote_response import select_zip_member
+    from graphistry.compute.exceptions import GFQLRemoteError as _E
+    names = ['nodes_and_edges.parquet', 'edges.parquet']
+    assert select_zip_member(names, 'edges', 'api') == 'edges.parquet'
+    with pytest.raises(_E):
+        select_zip_member(names, 'nodes', 'api')
+
+
+def test_prefixed_member_names_still_resolve():
+    from graphistry.compute.remote_response import select_zip_member
+    names = ['graph_nodes.parquet', 'graph_edges.parquet']
+    assert select_zip_member(names, 'nodes', 'api') == 'graph_nodes.parquet'
+    assert select_zip_member(names, 'edges', 'api') == 'graph_edges.parquet'
+
+
+def test_exact_member_still_wins_over_a_compound_decoy():
+    from graphistry.compute.remote_response import select_zip_member
+    names = ['nodes_and_edges.parquet', 'nodes.parquet', 'edges.parquet']
+    assert select_zip_member(names, 'nodes', 'api') == 'nodes.parquet'
+    assert select_zip_member(names, 'edges', 'api') == 'edges.parquet'
+
+
+@pytest.mark.parametrize('call,kwargs', [
+    (gfql, {'format': 'parquet', 'output_type': 'all'}),
+    (pyrem, {'format': 'parquet', 'output_type': 'all'}),
+])
+def test_compound_only_zip_declines_instead_of_binding_one_table_twice(call, kwargs):
+    payload = zip_of([('nodes_and_edges.parquet', parquet_bytes(EDGES))])
+    with Transport(resp(200, payload, 'application/zip')):
+        with pytest.raises(GFQLRemoteError) as ei:
+            call(bound_graph(), **kwargs)
+    assert 'nodes_and_edges.parquet' in str(ei.value)
+
+
+@pytest.mark.parametrize('call,kwargs', [
+    (gfql, {'format': 'parquet', 'output_type': 'all'}),
+    (pyrem, {'format': 'parquet', 'output_type': 'all'}),
+])
+def test_prefixed_member_zip_still_round_trips(call, kwargs):
+    payload = zip_of([
+        ('out/graph_nodes.parquet', parquet_bytes(NODES)),
+        ('out/graph_edges.parquet', parquet_bytes(EDGES)),
+    ])
+    with Transport(resp(200, payload, 'application/zip')):
+        out = call(bound_graph(), **kwargs)
+    assert out._nodes.to_dict('records') == NODES.to_dict('records')
+    assert out._edges.to_dict('records') == EDGES.to_dict('records')
+
+
 @pytest.mark.parametrize('call,kwargs', [
     (gfql, {'format': 'parquet', 'output_type': 'all'}),
     (pyrem, {'format': 'parquet', 'output_type': 'all'}),

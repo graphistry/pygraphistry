@@ -133,7 +133,13 @@ def decode_json_result(response: requests.Response, api_name: str) -> Any:  # hy
 
 
 def select_zip_member(names: Sequence[str], kind: ZipMemberKind, api_name: str) -> str:
-    """Pick the zip member holding the ``kind`` table by name, never by substring.
+    """Pick the zip member holding the ``kind`` table.
+
+    Policy, in order: a member whose stem is exactly ``kind`` wins; failing that, a
+    member whose name mentions ``kind`` and NOT the other kind is accepted only when
+    it is the sole such candidate. A compound name mentioning both (``nodes_and_edges``)
+    is never bound to either table -- which table it holds is unknowable from the name.
+    Anything else declines.
 
     :param names: Member names in the archive.
     :param kind: ``"nodes"`` or ``"edges"``.
@@ -141,28 +147,40 @@ def select_zip_member(names: Sequence[str], kind: ZipMemberKind, api_name: str) 
     :return: The selected member name.
     :raises GFQLRemoteError: When no member matches, or the match is ambiguous.
     """
+    other = 'edges' if kind == 'nodes' else 'nodes'
+
     exact = [nm for nm in names if PurePosixPath(nm).stem == kind]
     if len(exact) == 1:
         return exact[0]
+    candidates = exact
     if not exact:
-        # A server may name members differently; accept only an unambiguous looser match.
-        loose = [nm for nm in names if kind in PurePosixPath(nm).name]
-        if len(loose) == 1:
-            return loose[0]
-        if not loose:
+        mentions = [nm for nm in names if kind in PurePosixPath(nm).name]
+        # A server may prefix member names; accept a loose match only when it cannot be the other table.
+        candidates = [nm for nm in mentions if other not in PurePosixPath(nm).name]
+        if len(candidates) == 1:
+            return candidates[0]
+        if not candidates:
+            if mentions:
+                raise GFQLRemoteError(
+                    ErrorCode.E402,
+                    f"{api_name} failed: server zip response has no '{kind}' member; "
+                    f"{mentions} name both '{kind}' and '{other}', so which table they hold is undecidable",
+                    member=kind,
+                    members=list(names),
+                    ambiguous=mentions,
+                )
             raise GFQLRemoteError(
                 ErrorCode.E402,
                 f"{api_name} failed: server zip response has no '{kind}' member",
                 member=kind,
                 members=list(names),
             )
-        exact = loose
     raise GFQLRemoteError(
         ErrorCode.E402,
-        f"{api_name} failed: server zip response has {len(exact)} candidate '{kind}' members, cannot pick one",
+        f"{api_name} failed: server zip response has {len(candidates)} candidate '{kind}' members, cannot pick one",
         member=kind,
         members=list(names),
-        candidates=exact,
+        candidates=candidates,
     )
 
 
