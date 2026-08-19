@@ -196,14 +196,20 @@ class DFSamePathExecutor:
                 elif clause.op in INEQ_WHERE_OPS:
                     left_vals = left_frame[left_col]
                     right_vals = right_frame[right_col]
-                    left_min, left_max = left_vals.min(), left_vals.max()
-                    right_min, right_max = right_vals.min(), right_vals.max()
-                    masks = {
-                        "<": (left_vals < right_max, right_vals > left_min),
-                        "<=": (left_vals <= right_max, right_vals >= left_min),
-                        ">": (left_vals > right_min, right_vals < left_max),
-                        ">=": (left_vals >= right_min, right_vals <= left_max),
-                    }
+                    try:
+                        left_min, left_max = left_vals.min(), left_vals.max()
+                        right_min, right_max = right_vals.min(), right_vals.max()
+                        masks = {
+                            "<": (left_vals < right_max, right_vals > left_min),
+                            "<=": (left_vals <= right_max, right_vals >= left_min),
+                            ">": (left_vals > right_min, right_vals < left_max),
+                            ">=": (left_vals >= right_min, right_vals <= left_max),
+                        }
+                    except TypeError:
+                        # Incomparable dtypes (e.g. tz-naive vs tz-aware datetime, #1915
+                        # B-7): this prune is only a bounds OPTIMIZATION, so skip it and
+                        # let the real WHERE filter give the typed/3VL answer.
+                        continue
                     left_mask, right_mask = masks[clause.op]
                     changed |= _apply_mask(left_alias, left_frame, left_mask)
                     changed |= _apply_mask(right_alias, right_frame, right_mask)

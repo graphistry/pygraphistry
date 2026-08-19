@@ -151,7 +151,7 @@ rel_range: "*" INT ".." INT      -> rel_range_bounded
 variable: NAME
 
 properties: "{" [property_entry ("," property_entry)*] "}"
-property_entry: NAME ":" expr
+property_entry: PROP_NAME ":" expr
 
 // Unified: every WHERE parses as a generic boolean ``expr`` (so LALR(1) accepts
 // OR/XOR/NOT/parenthesized clauses, no Earley). ``generic_where_clause`` lifts the
@@ -205,8 +205,11 @@ order_direction: "ASC"i  -> asc_order
 skip_clause: "SKIP"i expr
 limit_clause: "LIMIT"i expr
 
-qualified_name: NAME ("." NAME)*
-property_ref.2: NAME "." NAME
+// PROP_NAME (dot/map-key contexts only) admits non-reserved keywords as property
+// names (n.when, n.order, {when: 1}) — openCypher property keys are unreserved;
+// the contextual lexer only expects it where NAME's keyword exclusions cannot apply.
+qualified_name: NAME ("." PROP_NAME)*
+property_ref.2: NAME "." PROP_NAME
 
 unwind_expr: expr
 order_expr: expr
@@ -261,7 +264,7 @@ order_expr: expr
         | postfix_composite
 ?postfix_composite: primary_composite
         | postfix "[" subscript_key "]"     -> subscript
-        | postfix_composite "." NAME        -> property_access
+        | postfix_composite "." PROP_NAME   -> property_access
 
 ?primary_composite: parameter
         | literal
@@ -362,6 +365,7 @@ SEMI: ";"
 MINUS: /-(?!-)/
 NAME: /(?!(?i:MATCH|RETURN|WITH|ORDER|BY|SKIP|LIMIT|UNWIND|WHERE|AS|ASC|ASCENDING|DESC|DESCENDING|AND|OR|XOR|NOT|IN|IS|NULL|TRUE|FALSE|CONTAINS|STARTS|ENDS|ANY|ALL|NONE|SINGLE|CASE|WHEN|THEN|ELSE|END)\b)[A-Za-z_][A-Za-z0-9_]*/
 MAP_KEY_NAME: /[A-Za-z_][A-Za-z0-9_]*/
+PROP_NAME: /[A-Za-z_][A-Za-z0-9_]*/
 NUMBER: /[+-]?(?:0[xX][0-9A-Fa-f]+|0[oO][0-7]+|(?:\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?))/
 INT: /[0-9]+/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/

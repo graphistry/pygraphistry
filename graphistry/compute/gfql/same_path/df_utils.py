@@ -31,12 +31,35 @@ _OPS = {
 }
 
 
+def _align_mixed_tz_datetimes(series_left: Any, series_right: Any) -> Any:
+    """Normalize a tz-aware/tz-naive datetime column pair onto UTC-naive.
+
+    GFQL's temporal extension reads naive datetimes as UTC (the row pipeline's
+    ``_native_epoch_ticks`` does the same); without this, pandas raises a raw
+    TypeError comparing the pair in a same-path WHERE (#1915 B-7)."""
+    left_dtype = getattr(series_left, "dtype", None)
+    right_dtype = getattr(series_right, "dtype", None)
+    if getattr(left_dtype, "kind", None) != "M" or getattr(right_dtype, "kind", None) != "M":
+        return series_left, series_right
+    left_tz = getattr(left_dtype, "tz", None)
+    right_tz = getattr(right_dtype, "tz", None)
+    if (left_tz is None) == (right_tz is None):
+        return series_left, series_right
+    try:
+        if left_tz is not None:
+            return series_left.dt.tz_convert("UTC").dt.tz_localize(None), series_right
+        return series_left, series_right.dt.tz_convert("UTC").dt.tz_localize(None)
+    except (AttributeError, TypeError):  # pragma: no cover - engine without tz_convert
+        return series_left, series_right
+
+
 def evaluate_clause(series_left: Any, op: str, series_right: Any, *, null_safe: bool = False) -> Any:
     fn = _OPS.get(op)
     if fn is None:
         if null_safe:
             return (series_left.notna() & series_right.notna()) & False
         return False
+    series_left, series_right = _align_mixed_tz_datetimes(series_left, series_right)
     if not null_safe:
         return fn(series_left, series_right)
     valid = series_left.notna() & series_right.notna()

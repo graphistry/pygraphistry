@@ -95,6 +95,9 @@ POLARS_TEST_FILES=(
     # polars params (Z-suffix text-temporal compare, IN [datetime(...)], mixed-type UNION
     # decline) only run here
     graphistry/tests/compute/gfql/test_temporal_and_union_semantics_1915.py
+    # #1915 B-5/B-7/B-8/A-4 + #1880 temporal-half pins: the polars cells (literal
+    # temporal fold, temporal-vs-string parse-or-E302, union name alignment) only run here
+    graphistry/tests/compute/gfql/test_temporal_leak_family_1915.py
     # #1934 incomparable-ordering-null pins: the polars typed-decline cells only run here
     graphistry/tests/compute/gfql/test_incomparable_ordering_null_1934.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings.py
