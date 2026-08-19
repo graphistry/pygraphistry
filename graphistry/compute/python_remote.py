@@ -11,7 +11,7 @@ import requests
 
 from graphistry.Engine import Engine, EngineAbstractType, resolve_input_engine
 from graphistry.Plottable import Plottable
-from graphistry.compute.remote_df_io import require_csv_opt_in, resolve_csv_reader
+from graphistry.compute.remote_df_io import resolve_csv_reader, validate_csv_import_args
 from graphistry.compute.remote_response import (
     decode_json_body,
     decode_json_result,
@@ -129,12 +129,11 @@ def python_remote_generic(
 
     code = normalize_task_code(code)
 
+    validate_csv_import_args(df_import_args, "python_remote")
+
     if validate:
         if not validate_python_str(code):
             raise ValueError("Invalid code")
-
-    if format == "csv":
-        require_csv_opt_in(df_import_args, "python_remote")
 
     if not api_token:
         self._pygraphistry.refresh()

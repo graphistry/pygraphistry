@@ -81,28 +81,31 @@ def norm(df: pd.DataFrame):
 class TestGfqlRemoteCsvFidelity:
 
     @patch('graphistry.compute.chain_remote.requests.post')
-    def test_gfql_remote_csv_declines_when_no_import_args(self, mock_post):
+    def test_gfql_remote_csv_warns_and_serves_when_no_import_args(self, mock_post):
         mock_post.return_value = mock_response(build_zip('csv'))
-        with pytest.raises(ValueError) as excinfo:
-            bound_graph().gfql_remote([n()], format='csv', api_token='t')
-        msg = str(excinfo.value)
+        with pytest.warns(UserWarning) as rec:
+            out = bound_graph().gfql_remote([n()], format='csv', api_token='t')
+        msg = str(rec[0].message)
         assert 'df_import_args' in msg
         assert 'parquet' in msg
-        assert not mock_post.called
+        assert mock_post.called
+        assert out._nodes is not None
 
     @patch('graphistry.compute.chain_remote.requests.post')
-    def test_gfql_remote_csv_declines_for_nodes_output_type(self, mock_post):
+    def test_gfql_remote_csv_warns_and_serves_for_nodes_output_type(self, mock_post):
         mock_post.return_value = mock_response(build_table('csv'))
-        with pytest.raises(ValueError):
-            bound_graph().gfql_remote([n()], output_type='nodes', format='csv', api_token='t')
-        assert not mock_post.called
+        with pytest.warns(UserWarning):
+            out = bound_graph().gfql_remote([n()], output_type='nodes', format='csv', api_token='t')
+        assert mock_post.called
+        assert out._nodes is not None
 
     @patch('graphistry.compute.chain_remote.requests.post')
-    def test_gfql_remote_shape_csv_declines_when_no_import_args(self, mock_post):
+    def test_gfql_remote_shape_csv_warns_and_serves(self, mock_post):
         mock_post.return_value = mock_response(build_table('csv'))
-        with pytest.raises(ValueError):
-            bound_graph().gfql_remote_shape([n()], format='csv', api_token='t')
-        assert not mock_post.called
+        with pytest.warns(UserWarning):
+            out = bound_graph().gfql_remote_shape([n()], format='csv', api_token='t')
+        assert mock_post.called
+        assert out is not None
 
     @patch('graphistry.compute.chain_remote.requests.post')
     def test_gfql_remote_csv_rejects_non_dict_import_args(self, mock_post):
@@ -186,21 +189,23 @@ class TestGfqlRemoteCsvFidelity:
 class TestPythonRemoteCsvFidelity:
 
     @patch('graphistry.compute.python_remote.requests.post')
-    def test_python_remote_table_csv_declines_when_no_import_args(self, mock_post):
+    def test_python_remote_table_csv_warns_and_serves(self, mock_post):
         mock_post.return_value = mock_response(build_table('csv'))
         code = "def task(g):\n    return g._nodes\n"
-        with pytest.raises(ValueError) as excinfo:
-            bound_graph().python_remote_table(code, format='csv', api_token='t')
-        assert 'df_import_args' in str(excinfo.value)
-        assert not mock_post.called
+        with pytest.warns(UserWarning) as rec:
+            out = bound_graph().python_remote_table(code, format='csv', api_token='t')
+        assert 'df_import_args' in str(rec[0].message)
+        assert mock_post.called
+        assert out is not None
 
     @patch('graphistry.compute.python_remote.requests.post')
-    def test_python_remote_g_csv_declines_when_no_import_args(self, mock_post):
+    def test_python_remote_g_csv_warns_and_serves(self, mock_post):
         mock_post.return_value = mock_response(build_zip('csv'))
         code = "def task(g):\n    return g\n"
-        with pytest.raises(ValueError):
-            bound_graph().python_remote_g(code, format='csv', api_token='t')
-        assert not mock_post.called
+        with pytest.warns(UserWarning):
+            out = bound_graph().python_remote_g(code, format='csv', api_token='t')
+        assert mock_post.called
+        assert out._nodes is not None
 
     @patch('graphistry.compute.python_remote.requests.post')
     def test_python_remote_table_csv_opt_in_preserves_string_ids(self, mock_post):
@@ -221,29 +226,36 @@ class TestPythonRemoteCsvFidelity:
         assert list(out['id']) == ['007', '08', 'NA']
 
 
-def test_csv_decline_is_a_typed_gfql_error() -> None:
+def test_missing_import_args_warns_and_yields_inferring_reader() -> None:
+    from graphistry.compute.remote_df_io import resolve_csv_import_args
+
+    with pytest.warns(UserWarning) as rec:
+        args = resolve_csv_import_args(None, "gfql_remote")
+    assert args == {}
+    assert 'parquet' in str(rec[0].message)
+
+
+def test_supplied_import_args_do_not_warn() -> None:
+    import warnings as _w
+    from graphistry.compute.remote_df_io import resolve_csv_import_args
+
+    with _w.catch_warnings():
+        _w.simplefilter("error")
+        assert resolve_csv_import_args({'dtype': str}, "gfql_remote") == {'dtype': str}
+
+
+def test_non_dict_import_args_is_a_typed_gfql_error() -> None:
     from graphistry.compute.exceptions import (
         ErrorCode, GFQLRemoteError, GFQLValidationError
     )
-    from graphistry.compute.remote_df_io import require_csv_opt_in
+    from graphistry.compute.remote_df_io import resolve_csv_import_args
 
     with pytest.raises(GFQLRemoteError) as excinfo:
-        require_csv_opt_in(None, "gfql_remote")
+        resolve_csv_import_args("nope", "gfql_remote")  # type: ignore[arg-type]
     assert excinfo.value.code == ErrorCode.E403
 
-    # Catchable the documented GFQL way ...
+    # Catchable the documented GFQL way, and still as ValueError.
     with pytest.raises(GFQLValidationError):
-        require_csv_opt_in(None, "gfql_remote")
-
-    # ... and still as ValueError, so pre-existing callers keep working.
+        resolve_csv_import_args("nope", "gfql_remote")  # type: ignore[arg-type]
     with pytest.raises(ValueError):
-        require_csv_opt_in(None, "gfql_remote")
-
-
-def test_csv_decline_on_non_dict_import_args_is_typed() -> None:
-    from graphistry.compute.exceptions import ErrorCode, GFQLRemoteError
-    from graphistry.compute.remote_df_io import require_csv_opt_in
-
-    with pytest.raises(GFQLRemoteError) as excinfo:
-        require_csv_opt_in("nope", "gfql_remote")  # type: ignore[arg-type]
-    assert excinfo.value.code == ErrorCode.E403
+        resolve_csv_import_args("nope", "gfql_remote")  # type: ignore[arg-type]
