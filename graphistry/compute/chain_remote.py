@@ -18,9 +18,18 @@ from graphistry.compute.gfql.cypher.lowering import compile_cypher_query
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
 from graphistry.io.metadata import deserialize_plottable_metadata
+from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError
 from graphistry.compute.remote_df_io import require_csv_opt_in, resolve_csv_reader
+from graphistry.compute.remote_response import (
+    check_subset_result_bindings,
+    decode_json_result,
+    error_document_error,
+    raise_for_remote_error,
+    require_json_result_keys,
+    select_zip_member,
+)
 from graphistry.models.compute.chain_remote import DFImportArgs, OutputTypeGraph, FormatType, output_types_graph
-from graphistry.utils.json import JSONVal
+from graphistry.utils.json import JSONVal, find_non_finite
 from graphistry.otel import inject_trace_headers
 
 
@@ -130,7 +139,7 @@ def chain_remote_generic(
     engine: EngineAbstractType = 'auto',
     validate: bool = True,
     persist: bool = False,
-    params: Optional[Dict[str, Any]] = None,
+    params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
     output: Optional[str] = None,
     df_import_args: Optional[DFImportArgs] = None,
 ) -> Union[Plottable, pd.DataFrame]:
@@ -197,6 +206,16 @@ def chain_remote_generic(
     else:
         raise TypeError(f"gfql_remote() query must be Chain, List, ASTLet, Dict, or str. Got {type(chain)}")
 
+    if output is not None and not is_let:
+        raise GFQLSyntaxError(
+            ErrorCode.E109,
+            "output= names a binding to return and requires a Let/DAG query; "
+            "this query compiled to a flat chain, which has no bindings",
+            field="output",
+            value=output,
+            suggestion="Drop output=, or express the query as a Let/DAG (or Cypher with named graph bindings)",
+        )
+
     if validate:
         gfql_preflight_validate(
             self,
@@ -255,6 +274,15 @@ def chain_remote_generic(
         if hasattr(self, '_privacy') and self._privacy is not None:
             request_body["privacy"] = dict(self._privacy)
 
+    non_finite = find_non_finite(request_body)
+    if non_finite is not None:
+        raise GFQLTypeError(
+            ErrorCode.E201,
+            "Filter values must be predicates or JSON-serializable: NaN and infinity have no JSON representation",
+            field=non_finite,
+            suggestion="Use is_na()/notna() predicates, or a finite bound",
+        )
+
     url = f"{self.base_url_server()}/api/v2/etl/datasets/{dataset_id}/gfql/{output_type}"
 
     # Prepare headers
@@ -266,23 +294,7 @@ def chain_remote_generic(
 
     response = requests.post(url, headers=headers, json=request_body, verify=self.session.certificate_validation)
 
-    # Enhanced error handling for GFQL validation errors
-    if not response.ok:
-        try:
-            # Try to parse JSON error response for more details
-            if response.headers.get('content-type', '').startswith('application/json'):
-                error_data = response.json()
-                error_msg = error_data.get('error', str(error_data))
-                raise ValueError(f"GFQL remote operation failed: {error_msg} (HTTP {response.status_code})")
-            else:
-                # Fallback to generic error with response text
-                raise ValueError(f"GFQL remote operation failed: {response.text[:500]} (HTTP {response.status_code})")
-        except (ValueError,) as ve:
-            # Re-raise our custom ValueError
-            raise ve
-        except Exception:
-            # If JSON parsing fails, re-raise the original HTTP error
-            response.raise_for_status()
+    raise_for_remote_error(response, "GFQL remote operation")
 
     # deserialize based on output_type & format
 
@@ -308,7 +320,7 @@ def chain_remote_generic(
 
     if output_type == "shape":
         if format == "json":
-            return pd.DataFrame(response.json())
+            return pd.DataFrame(decode_json_result(response, "GFQL remote operation"))
         elif format == "csv":
             return read_csv(BytesIO(response.content))
         elif format == "parquet":
@@ -318,79 +330,69 @@ def chain_remote_generic(
     elif output_type == "all" and format in ["csv", "parquet"]:
         zip_buffer = BytesIO(response.content)
         try:
-            with zipfile.ZipFile(zip_buffer, "r") as zip_ref:
-                nodes_file = [f for f in zip_ref.namelist() if "nodes" in f][0]
-                edges_file = [f for f in zip_ref.namelist() if "edges" in f][0]
+            zip_ref_cm = zipfile.ZipFile(zip_buffer, "r")
+        except zipfile.BadZipFile as e:
+            raise error_document_error(response, "GFQL remote operation", "a zip archive") from e
+        with zip_ref_cm as zip_ref:
+            names = zip_ref.namelist()
+            nodes_file = select_zip_member(names, "nodes", "GFQL remote operation")
+            edges_file = select_zip_member(names, "edges", "GFQL remote operation")
 
-                nodes_data = zip_ref.read(nodes_file)
-                edges_data = zip_ref.read(edges_file)
+            nodes_data = zip_ref.read(nodes_file)
+            edges_data = zip_ref.read(edges_file)
 
-                if len(nodes_data) > 0:
-                    nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
-                else:
-                    nodes_df = df_cons()
+            if len(nodes_data) > 0:
+                nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
+            else:
+                nodes_df = df_cons()
 
-                if len(edges_data) > 0:
-                    edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
-                else:
-                    edges_df = df_cons()
+            if len(edges_data) > 0:
+                edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
+            else:
+                edges_df = df_cons()
 
-                result = self.edges(edges_df).nodes(nodes_df)
+            result = self.edges(edges_df).nodes(nodes_df)
 
-                # Check for metadata.json in zip (both persist and GFQL metadata)
-                if 'metadata.json' in zip_ref.namelist():
-                    try:
-                        metadata_content = zip_ref.read('metadata.json')
-                        metadata = json.loads(metadata_content.decode('utf-8'))
+            # Check for metadata.json in zip (both persist and GFQL metadata)
+            if 'metadata.json' in zip_ref.namelist():
+                try:
+                    metadata_content = zip_ref.read('metadata.json')
+                    metadata = json.loads(metadata_content.decode('utf-8'))
 
-                        if persist:
-                            # Extract dataset_id for URL generation
-                            if 'dataset_id' in metadata:
-                                result._dataset_id = metadata['dataset_id']
+                    if persist:
+                        # Extract dataset_id for URL generation
+                        if 'dataset_id' in metadata:
+                            result._dataset_id = metadata['dataset_id']
 
-                                # Generate URL using existing infrastructure
-                                if result._dataset_id:  # Type guard
-                                    _refresh_url_from_dataset_id(result)
-
-                            # Optionally restore privacy settings
-                            if 'privacy' in metadata:
-                                result._privacy = metadata['privacy']
-
-                        if 'gfql_metadata' in metadata:
-                            result = deserialize_plottable_metadata(metadata['gfql_metadata'], result)
-                            _apply_persist_axis_defaults(result)
-                            if persist:
+                            # Generate URL using existing infrastructure
+                            if result._dataset_id:  # Type guard
                                 _refresh_url_from_dataset_id(result)
 
-                    except Exception as e:
-                        if persist:
-                            warnings.warn(f"persist=True requested but failed to parse metadata.json: {e}. "
-                                    f"URL generation will not be available. This may indicate an older server version.",
-                                    UserWarning, stacklevel=2)
-                        else:
-                            warnings.warn(f"Failed to parse metadata.json: {e}. GFQL metadata will not be hydrated.",
-                                    UserWarning, stacklevel=2)
-                elif persist:
-                    warnings.warn("persist=True requested but server did not return metadata.json. "
-                                "URL generation will not be available. This indicates an older server version that doesn't support zip format persistence.",
-                                UserWarning, stacklevel=2)
+                        # Optionally restore privacy settings
+                        if 'privacy' in metadata:
+                            result._privacy = metadata['privacy']
 
-                return result
-        except zipfile.BadZipFile as e:
-            # Server likely returned an error response instead of zip data
-            # Try to parse the response as JSON for a better error message
-            try:
-                if response.headers.get('content-type', '').startswith('application/json'):
-                    error_data = response.json()
-                    error_msg = error_data.get('error', str(error_data))
-                    raise ValueError(f"GFQL remote operation failed with validation error: {error_msg}")
-                else:
-                    # Show the response text for debugging
-                    raise ValueError(f"GFQL remote operation failed - server returned non-zip response: {response.text[:500]}")
-            except Exception:
-                # If all else fails, re-raise the original BadZipFile error with context
-                raise ValueError(f"GFQL remote operation failed - server response is not a valid zip file. "
-                               f"This usually indicates a server validation error. Response status: {response.status_code}") from e
+                    if 'gfql_metadata' in metadata:
+                        result = deserialize_plottable_metadata(metadata['gfql_metadata'], result)
+                        _apply_persist_axis_defaults(result)
+                        if persist:
+                            _refresh_url_from_dataset_id(result)
+
+                except Exception as e:
+                    if persist:
+                        warnings.warn(f"persist=True requested but failed to parse metadata.json: {e}. "
+                                f"URL generation will not be available. This may indicate an older server version.",
+                                UserWarning, stacklevel=2)
+                    else:
+                        warnings.warn(f"Failed to parse metadata.json: {e}. GFQL metadata will not be hydrated.",
+                                UserWarning, stacklevel=2)
+            elif persist:
+                warnings.warn("persist=True requested but server did not return metadata.json. "
+                            "URL generation will not be available. This indicates an older server version that doesn't support zip format persistence.",
+                            UserWarning, stacklevel=2)
+
+            check_subset_result_bindings(result, node_col_subset, edge_col_subset, "GFQL remote operation")
+            return result
     elif output_type in ["nodes", "edges"] and format in ["csv", "parquet"]:
         data = BytesIO(response.content)
         if len(response.content) > 0:
@@ -404,11 +406,12 @@ def chain_remote_generic(
             out = self.edges(df)
             out._nodes = None
 
-
+        check_subset_result_bindings(out, node_col_subset, edge_col_subset, "GFQL remote operation")
         return out
     elif format == "json":
-        o = response.json()
+        o = decode_json_result(response, "GFQL remote operation")
         if output_type == "all":
+            o = require_json_result_keys(o, ['nodes', 'edges'], response, "GFQL remote operation")
             result = self.edges(df_cons(o['edges'])).nodes(df_cons(o['nodes']))
         elif output_type == "nodes":
             result = self.nodes(df_cons(o))
@@ -438,6 +441,7 @@ def chain_remote_generic(
             if persist:
                 _refresh_url_from_dataset_id(result)
 
+        check_subset_result_bindings(result, node_col_subset, edge_col_subset, "GFQL remote operation")
         return result
     else:
         raise ValueError(f"Unsupported format {format}, output_type {output_type}")
@@ -456,6 +460,8 @@ def chain_remote_shape(
     validate: bool = True,
     persist: bool = False,
     df_import_args: Optional[DFImportArgs] = None,
+    params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
+    output: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Like chain_remote(), except instead of returning a Plottable, returns a pd.DataFrame of the shape of the resulting graph.
@@ -482,6 +488,12 @@ def chain_remote_shape(
 
             shape_df = g1.chain_remote_shape([n(), e(), n()], engine='cudf')
             print(shape_df)
+
+    :param params: Optional parameter dict for Cypher string queries (e.g. ``params={"cut": 10}`` for ``$cut``).
+    :type params: Optional[Dict[str, Any]]
+
+    :param output: Optional Let/DAG binding name to return. Requires a Let/DAG query.
+    :type output: Optional[str]
     """
 
     out_df = chain_remote_generic(
@@ -497,6 +509,8 @@ def chain_remote_shape(
         engine,
         validate,
         persist,
+        params=params,
+        output=output,
         df_import_args=df_import_args,
     )
     assert isinstance(out_df, pd.DataFrame)
@@ -515,7 +529,7 @@ def chain_remote(
     engine: EngineAbstractType = 'auto',
     validate: bool = True,
     persist: bool = False,
-    params: Optional[Dict[str, Any]] = None,
+    params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
     output: Optional[str] = None,
     df_import_args: Optional[DFImportArgs] = None,
 ) -> Plottable:

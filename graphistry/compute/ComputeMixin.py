@@ -830,7 +830,7 @@ class ComputeMixin(Plottable):
         validate: bool = True,
         persist: bool = False,
         df_import_args: Optional[DFImportArgs] = None,
-        params: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
         output: Optional[str] = None,
     ) -> Plottable:
         """Run GFQL query remotely.
@@ -883,18 +883,24 @@ class ComputeMixin(Plottable):
         validate: bool = True,
         persist: bool = False,
         df_import_args: Optional[DFImportArgs] = None,
+        params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
+        output: Optional[str] = None,
     ) -> pd.DataFrame:
         """Get shape metadata for remote GFQL query execution.
 
         This is the remote shape version of :meth:`gfql`. Returns metadata about the
         resulting graph without downloading the full data.
 
+        :param params: Optional parameter dict for Cypher string queries
+            (e.g., ``params={"cutoff": 10}`` for ``$cutoff`` references).
+        :param output: Optional Let/DAG binding name to return; requires a Let/DAG query.
+
         See :meth:`chain_remote_shape` for detailed documentation (chain_remote_shape is deprecated).
         """
         return chain_remote_shape_base(
             self, chain, api_token, dataset_id, format, df_export_args,
             node_col_subset, edge_col_subset, engine, validate, persist,
-            df_import_args=df_import_args,
+            df_import_args=df_import_args, params=params, output=output,
         )
 
     def python_remote_g(self, *args, **kwargs) -> Any:
