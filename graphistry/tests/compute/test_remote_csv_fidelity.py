@@ -120,7 +120,7 @@ class TestGfqlRemoteCsvFidelity:
         out = bound_graph().gfql_remote(
             [n()], format='csv', api_token='t', df_import_args=FAITHFUL_ARGS
         )
-        assert str(out._nodes['id'].dtype) == 'object'
+        assert not pd.api.types.is_numeric_dtype(out._nodes['id'])
         assert list(out._nodes['id']) == ['007', '08', 'NA']
         assert list(out._nodes['name']) == ['', 'null', 'x']
         assert list(out._nodes['big']) == [4611686018427387904, 4611686018427387905, 3]
