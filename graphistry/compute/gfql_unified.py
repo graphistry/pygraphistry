@@ -7,7 +7,7 @@ import re
 import threading
 import pandas as pd
 from types import MappingProxyType
-from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, TYPE_CHECKING, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, TYPE_CHECKING, TypeVar, Union, cast
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, is_polars_df, is_series_like, resolve_engine, series_to_pylist
 from graphistry.util import setup_logger
@@ -779,7 +779,11 @@ def _apply_connected_match_join(
     # Both two-star fast paths serve only disjoint, unseeded arms (their seeds are filter_dicts-only)
     fast_grouped_count = (
         None if arms_may_share_an_edge or start_nodes is not None
-        else _connected_join_two_star_fast_grouped_count(base_graph, plan, engine=requested_engine, cache_store=cache_store)
+        else _run_fast_path_on_requested_target(
+            engine,
+            lambda: _connected_join_two_star_fast_grouped_count(
+                base_graph, plan, engine=requested_engine, cache_store=cache_store),
+        )[0]
     )
     if fast_grouped_count is not None:
         out = base_graph.bind()
@@ -789,7 +793,11 @@ def _apply_connected_match_join(
 
     fast_rows = (
         None if arms_may_share_an_edge or start_nodes is not None
-        else _connected_join_two_star_fast_rows(base_graph, plan, engine=requested_engine, cache_store=cache_store)
+        else _run_fast_path_on_requested_target(
+            engine,
+            lambda: _connected_join_two_star_fast_rows(
+                base_graph, plan, engine=requested_engine, cache_store=cache_store),
+        )[0]
     )
     if fast_rows is not None:
         if len(fast_rows) == 0:
@@ -1370,12 +1378,46 @@ def _policied_auto_serves_via_pandas_until_the_polars_route_emits_hooks(
     )
 
 
-def _fast_path_execution_target_ignoring_requested_engine(
+def _fast_path_execution_target(
     engine: Union[EngineAbstract, Engine, str],
 ) -> "ExecutionTarget":
-    """Not GPU until every fast-path arm is GPU-or-decline (#1824)."""
+    """Lazy-collect target for a Cypher fast path: GPU only when ``polars-gpu`` was requested.
+
+    ``Engine.POLARS_GPU`` is never produced by ``resolve_engine`` from ``AUTO``, so comparing
+    the requested value IS the "did the caller ask for GPU" test and needs no graph. An
+    explicit request runs on GPU or raises; it is never quietly served on CPU.
+    """
     from graphistry.compute.gfql.lazy import ExecutionTarget
-    return ExecutionTarget.CPU
+    requested = engine.value if isinstance(engine, (Engine, EngineAbstract)) else engine
+    return ExecutionTarget.GPU if requested == Engine.POLARS_GPU.value else ExecutionTarget.CPU
+
+
+_FastPathOut = TypeVar("_FastPathOut")
+
+
+def _run_fast_path_on_requested_target(
+    engine: Union[EngineAbstract, Engine, str],
+    run: Callable[[], Optional[_FastPathOut]],
+) -> Tuple[Optional[_FastPathOut], str]:
+    """Run one Cypher fast path with its lazy collects on the requested engine's target.
+
+    ONE seam for every fast-path arm so the arms cannot drift onto different targets. Returns
+    ``(result, reason)``; a ``None`` result is a decline the caller falls back from. On the GPU
+    target a non-GPU-executable plan surfaces as ``NotImplementedError`` (``lazy._gpu_raise``)
+    and is converted to a decline, so the caller's generic route re-runs the shape on the SAME
+    GPU target -- which itself is GPU-or-raise, never a silent CPU answer. On the CPU target a
+    ``NotImplementedError`` is a real bug and propagates.
+    """
+    from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
+    target = _fast_path_execution_target(engine)
+    try:
+        with target_mode(target):
+            out = run()
+    except NotImplementedError:
+        if target != ExecutionTarget.GPU:
+            raise
+        return None, "declined; plan not GPU-executable, generic route answers"
+    return out, ("served" if out is not None else "declined; caller falls back")
 
 
 def _execute_compiled_query_via_physical_plan(
@@ -1420,21 +1462,11 @@ def _execute_compiled_query_via_physical_plan(
         # this is where the decision is consumed, it is one place instead of N return
         # paths, and it cannot be bypassed the way patching a directly-imported name is.
         from graphistry.compute.gfql.index.api import record_fast_path_decision
-        from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
-        _fp_target = _fast_path_execution_target_ignoring_requested_engine(engine)
 
         _FastPathName = Literal["single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop"]
 
         def _try_fast(path_name: _FastPathName, run: Callable[[], Optional[Plottable]]) -> Optional[Plottable]:
-            try:
-                with target_mode(_fp_target):
-                    out = run()
-                reason = "served" if out is not None else "declined; caller falls back"
-            except NotImplementedError:
-                if _fp_target != ExecutionTarget.GPU:
-                    raise
-                out = None
-                reason = "declined; plan not GPU-executable, chain route answers"
+            out, reason = _run_fast_path_on_requested_target(engine, run)
             record_fast_path_decision(
                 path=path_name, engine=engine, served=out is not None, reason=reason)
             return out
