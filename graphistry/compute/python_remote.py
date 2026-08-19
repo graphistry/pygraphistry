@@ -12,6 +12,14 @@ import requests
 from graphistry.Engine import Engine, EngineAbstractType, resolve_input_engine
 from graphistry.Plottable import Plottable
 from graphistry.compute.remote_df_io import require_csv_opt_in, resolve_csv_reader
+from graphistry.compute.remote_response import (
+    decode_json_body,
+    decode_json_result,
+    error_document_error,
+    raise_for_remote_error,
+    require_json_result_keys,
+    select_zip_member,
+)
 from graphistry.models.compute.chain_remote import DFImportArgs, FormatType, OutputTypeAll, OutputTypeDf
 from graphistry.otel import inject_trace_headers
 
@@ -175,21 +183,7 @@ def python_remote_generic(
 
     response = requests.post(url, headers=headers, json=request_body, verify=self.session.certificate_validation)
 
-    # Enhanced error handling for GFQL validation errors
-    if not response.ok:
-        try:
-            # Try to parse JSON error response for more details
-            if response.headers.get('content-type', '').startswith('application/json'):
-                error_data = response.json()
-                error_msg = error_data.get('error', str(error_data))
-                raise ValueError(f"GFQL remote operation failed: {error_msg} (HTTP {response.status_code})")
-        except ValueError:
-            # Re-raise ValueError (which includes our custom message)
-            raise
-        except Exception:
-            # Fall back to default error handling for other JSON parsing errors
-            pass
-        response.raise_for_status()
+    raise_for_remote_error(response, "Remote Python operation")
 
     if self._edges is None or isinstance(self._edges, pd.DataFrame):
         df_cons = pd.DataFrame
@@ -208,7 +202,7 @@ def python_remote_generic(
 
     if output_type == "shape":
         if format == "json":
-            return pd.DataFrame(response.json())
+            return pd.DataFrame(decode_json_result(response, "Remote Python operation"))
         elif format == "csv":
             return read_csv(BytesIO(response.content))
         elif format == "parquet":
@@ -218,42 +212,28 @@ def python_remote_generic(
     elif output_type == "all" and format in ["csv", "parquet"]:
         zip_buffer = BytesIO(response.content)
         try:
-            with zipfile.ZipFile(zip_buffer, "r") as zip_ref:
-                nodes_file = [f for f in zip_ref.namelist() if "nodes" in f][0]
-                edges_file = [f for f in zip_ref.namelist() if "edges" in f][0]
-
-                nodes_data = zip_ref.read(nodes_file)
-                edges_data = zip_ref.read(edges_file)
-
-                if len(nodes_data) > 0:
-                    nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
-                else:
-                    nodes_df = df_cons()
-
-                if len(edges_data) > 0:
-                    edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
-                else:
-                    edges_df = df_cons()
-
-                return self.edges(edges_df).nodes(nodes_df)
+            zip_ref_cm = zipfile.ZipFile(zip_buffer, "r")
         except zipfile.BadZipFile as e:
-            # Handle case where response is not a zip file (e.g., error response)
-            try:
-                # Try to parse as JSON error response
-                if response.headers.get('content-type', '').startswith('application/json'):
-                    error_data = response.json()
-                    error_msg = error_data.get('error', str(error_data))
-                    raise ValueError(f"GFQL remote operation failed: {error_msg} (Expected zip file but got JSON error)")
-                else:
-                    # Try to decode as text for better error context
-                    try:
-                        error_text = response.content.decode('utf-8')[:500]  # First 500 chars
-                        raise ValueError(f"GFQL remote operation failed: Expected zip file but received: {error_text}")
-                    except UnicodeDecodeError:
-                        raise ValueError(f"GFQL remote operation failed: Expected zip file but received invalid data (HTTP {response.status_code})")
-            except Exception:
-                # Fallback: re-raise original BadZipFile with more context
-                raise ValueError(f"GFQL remote operation failed: {str(e)} - Response may be an error message instead of expected zip file")
+            raise error_document_error(response, "Remote Python operation", "a zip archive") from e
+        with zip_ref_cm as zip_ref:
+            names = zip_ref.namelist()
+            nodes_file = select_zip_member(names, "nodes", "Remote Python operation")
+            edges_file = select_zip_member(names, "edges", "Remote Python operation")
+
+            nodes_data = zip_ref.read(nodes_file)
+            edges_data = zip_ref.read(edges_file)
+
+            if len(nodes_data) > 0:
+                nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
+            else:
+                nodes_df = df_cons()
+
+            if len(edges_data) > 0:
+                edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
+            else:
+                edges_df = df_cons()
+
+            return self.edges(edges_df).nodes(nodes_df)
     elif output_type in ["nodes", "edges", "table"] and format in ["csv", "parquet"]:
         data = BytesIO(response.content)
         if len(response.content) > 0:
@@ -271,8 +251,12 @@ def python_remote_generic(
         elif output_type == "table":
             return df
     elif format == "json":
-        o = response.json()
+        if output_type == "json":
+            # A task's own return value is the result here, error-shaped documents included.
+            return decode_json_body(response, "Remote Python operation")
+        o = decode_json_result(response, "Remote Python operation")
         if output_type == "all":
+            o = require_json_result_keys(o, ['nodes', 'edges'], response, "Remote Python operation")
             return self.edges(df_cons(o['edges'])).nodes(df_cons(o['nodes']))
         elif output_type == "nodes":
             out = self.nodes(df_cons(o))
@@ -284,8 +268,6 @@ def python_remote_generic(
             return out
         elif output_type == "table":
             return df_cons(o)
-        elif output_type == "json":
-            return o
         else:
             raise ValueError(f"JSON format read with unexpected output_type: {output_type}")
     else:
