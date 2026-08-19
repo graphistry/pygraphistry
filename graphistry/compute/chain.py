@@ -12,7 +12,7 @@ from .ast import ASTObject, ASTNode, ASTEdge, ASTCall, Direction, from_json as A
 from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
 from .chain_fast_paths import _seeded_typed_hop_pandas_cudf, _tag_fast_path_aliases
-from graphistry.compute.validate.validate_schema import validate_chain_schema
+from graphistry.compute.validate.validate_schema import validate_chain_schema, validate_graph_shape
 from graphistry.compute.gfql.same_path_types import (
     WhereComparison,
     normalize_where_entries,
@@ -1080,6 +1080,7 @@ def chain(
         # (Dependency guards for polars / cudf_polars are above, pre-coercion.)
         if validate_schema:
             Chain(ops if not isinstance(ops, Chain) else ops.chain).validate(collect_all=False)
+            validate_graph_shape(self, ops, collect_all=False)  # pandas gets this via validate_chain_schema (#1889)
         from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
         from graphistry.compute.gfql.lazy import target_mode, ExecutionTarget
         # NO pandas fallback here (no-silent-fallback policy): chain_polars raises
