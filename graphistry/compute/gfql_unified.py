@@ -759,6 +759,11 @@ def _apply_connected_match_join(
     # recomputes instead of returning a stale cached answer (BLOCKER 1).
     cache_store: Dict[str, Any] = {}
 
+    for pattern_chain in plan.pattern_chains:
+        _reject_node_alias_shadowing_id_binding(
+            base_graph, pattern_chain, include_edge_endpoint_aliases=True
+        )
+
     trail_identity_col = _trail_edge_identity_col(base_graph)
     trail_arms = _connected_join_trail_arms(plan, identity_col=trail_identity_col)
     arms_may_share_an_edge = trail_arms is not None
@@ -1531,6 +1536,9 @@ def _execute_compiled_query_chain_non_union(
             compiled_query=compiled_query,
             engine=engine,
         )
+    _reject_node_alias_shadowing_id_binding(
+        base_graph, compiled_query.chain, include_edge_endpoint_aliases=True
+    )
 
     # #1712: a bounded-reentry main chain that is a binding-ops row pipeline
     # (rows(binding_ops) -> group_by -> ...) must seed its first alias from the
@@ -2672,7 +2680,9 @@ def gfql(self: Plottable,
             context.policy_depth = policy_depth
 
 
-def _reject_node_alias_shadowing_id_binding(g: Plottable, chain_obj: Chain) -> None:
+def _reject_node_alias_shadowing_id_binding(
+    g: Plottable, chain_obj: Chain, *, include_edge_endpoint_aliases: bool = False
+) -> None:
     """Typed decline for a node alias named after the node-ID binding column.
 
     The alias marker is stamped as ``<alias> = True``, so an alias equal to the node-id
@@ -2697,8 +2707,13 @@ def _reject_node_alias_shadowing_id_binding(g: Plottable, chain_obj: Chain) -> N
                     f"overwrite the node-ID binding. Rename the alias."
                 ),
             )
-        # an edge alias equal to an endpoint binding overwrites the endpoints
-        if isinstance(op, ASTEdge) and getattr(op, "_name", None) in endpoint_cols:
+        # Cypher-only: an endpoint-named edge alias overwrites the endpoints downstream;
+        # raw GFQL chains keep their documented full-path overwrite parity instead.
+        if (
+            include_edge_endpoint_aliases
+            and isinstance(op, ASTEdge)
+            and getattr(op, "_name", None) in endpoint_cols
+        ):
             raise GFQLValidationError(
                 ErrorCode.E108,
                 "An edge alias cannot be named after an edge endpoint binding column",
