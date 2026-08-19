@@ -308,6 +308,16 @@ class TestB7TemporalStringLeaks:
                 got[engine] = sorted(out["id"].tolist())
             assert got["pandas"] == got["polars"] == expect
 
+    def test_pandas_optional_match_zoned_string_answers(self):
+        """Red-at-master: the connected OPTIONAL MATCH lowering pushed the tz-suffixed
+        literal into a filter dict too, leaking the same raw numpy TypeError."""
+        g = _graph("pandas")
+        out = _rows(g, "MATCH (a) WHERE a.id IN ['p', 'q'] OPTIONAL MATCH (a)-[]->(b) "
+                       "WHERE b.ts > '2021-01-01T00:00:00Z' RETURN a.id, b.id", "pandas")
+        out = out.where(out.notna(), None)
+        got = sorted(out.to_dict("records"), key=lambda r: r["a.id"])
+        assert got == [{"a.id": "p", "b.id": "q"}, {"a.id": "q", "b.id": None}]
+
     @pytest.mark.parametrize("engine", [
         "pandas",
         pytest.param("cudf", marks=pytest.mark.skipif(cudf is None, reason="cudf not installed")),

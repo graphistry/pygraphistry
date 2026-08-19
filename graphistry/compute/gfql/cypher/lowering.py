@@ -9003,6 +9003,11 @@ def _apply_where_to_ops(
                 )
             )
             continue
+        if _is_zoned_iso_temporal_comparison(predicate):
+            zoned_row_expr = _row_where_predicate_text(predicate)
+            if zoned_row_expr is not None:
+                row_expr_filters.append(ExpressionText(text=zoned_row_expr, span=predicate.span))
+                continue
         _apply_literal_where(
             alias_targets,
             left=cast(PropertyRef, predicate.left),
