@@ -111,7 +111,8 @@ def partitioned_layout(
     end_communities = timer()  # Define end_communities here to track layout time
     logger.debug('part_layout time: %s s', end_communities - start)
 
-    if True and len(singleton_nodes) > 0:
+    # small-partition fallbacks only apply to non-bulk mode; bulk already positions every node
+    if not bulk_mode and len(singleton_nodes) > 0:
         logger.debug('# SINGLETONS: %s', len(singleton_nodes))
         start_sing = timer()
         singletons = singleton_nodes.assign(
@@ -123,7 +124,7 @@ def partitioned_layout(
         end_sing = timer()
         logger.debug('singleton groups (%s): %s s', len(singletons), end_sing - start_sing)
 
-    if True and len(pair_nodes) > 0:
+    if not bulk_mode and len(pair_nodes) > 0:
         logger.debug('# PAIRS: %s', len(pair_nodes))
         start_pair = timer()
         pairs_indexed = pair_nodes.reset_index()
@@ -136,14 +137,14 @@ def partitioned_layout(
         logger.debug('pairs groups (%s): %s s', len(pairs), end_pair - start_pair)
 
     #FIXME: how to make safe?
-    if True and len(edgeless_nodes) > 0:
+    if not bulk_mode and len(edgeless_nodes) > 0:
         logger.debug('# EDGELESS: %s', len(edgeless_nodes))
         start_e = timer()
         edgeless = edgeless_nodes
         # FIXME: Sorted grid vs random
         if engine == Engine.PANDAS:
             edgeless['x'] = pd.Series(np.random.default_rng().uniform(0., 1., size=len(edgeless)), dtype='float32')
-            edgeless['x'] = pd.Series(np.random.default_rng().uniform(0., 1., size=len(edgeless)), dtype='float32')
+            edgeless['y'] = pd.Series(np.random.default_rng().uniform(0., 1., size=len(edgeless)), dtype='float32')
         elif engine == Engine.CUDF:
             import cudf, cupy as cp
             edgeless['x'] = cudf.Series(cp.random.rand(len(edgeless), dtype=cp.float32))
@@ -157,30 +158,14 @@ def partitioned_layout(
 
     combined_nodes = df_concat(engine)(node_partitions, ignore_index=True, sort=False)
     # FA unnconnected nodes, though circle would autoplace
-    updates = {}
-    if engine == Engine.PANDAS:
-        if combined_nodes.x.isna().any():
-            logger.debug('filling layout-returned NAs as random: %s xs', combined_nodes.x.isna().sum())
-            assert combined_nodes.x.isna().sum() == 0
-            updates['x'] = pd.Series(np.random.default_rng().uniform(0., 1., size=len(combined_nodes)), dtype='float32')
-        if combined_nodes.y.isna().any():
-            logger.debug('filling layout-returned NAs as random: %s ys', combined_nodes.y.isna().sum())
-            assert combined_nodes.y.isna().sum() == 0
-            updates['y'] = pd.Series(np.random.default_rng().uniform(0., 1., size=len(combined_nodes)), dtype='float32')
-    elif engine == Engine.CUDF:
-        import cudf, cupy as cp
-        if combined_nodes.x.isna().any():
-            logger.debug('filling layout-returned NAs as random: %s xs', combined_nodes.x.isna().sum())
-            assert combined_nodes.x.isna().sum() == 0
-            updates['x'] = cudf.Series(cp.random.rand(len(combined_nodes), 1, dtype=cp.float32))
-        if combined_nodes.y.isna().any():
-            logger.debug('filling layout-returned NAs as random: %s ys', combined_nodes.y.isna().sum())
-            assert combined_nodes.y.isna().sum() == 0
-            updates['y'] = cudf.Series(cp.random.rand(len(combined_nodes), 1, dtype=cp.float32))
-    else:
-        raise ValueError('Unknown engine, expected Pandas or CuDF')
-    if len(updates.keys()) > 0:
-        combined_nodes = combined_nodes.fillna(updates)
+    for axis in ['x', 'y']:
+        na_count = combined_nodes[axis].isna().sum()
+        if na_count > 0:
+            logger.debug('filling layout-returned NAs as random: %s %ss', na_count, axis)
+            fill = df_cons(engine)({
+                axis: np.random.default_rng().uniform(0., 1., size=len(combined_nodes)).astype('float32')
+            })[axis]
+            combined_nodes[axis] = combined_nodes[axis].fillna(fill)
 
     node_stats = combined_nodes.groupby(partition_key).agg({
         'x': ['max', 'min'],
