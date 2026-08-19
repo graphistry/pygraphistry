@@ -310,6 +310,46 @@ def _optional_reentry_key_value(value: CypherFillValue) -> CypherFillValue:
     return value
 
 
+def restrict_connected_join_rows_to_reentry_seed(
+    joined_rows: DataFrameT,
+    *,
+    start_nodes: DataFrameT,
+    reentry_alias: Optional[str],
+    node_col: str,
+) -> DataFrameT:
+    """Keep only comma-pattern join rows whose reentry alias is a carried seed id.
+
+    The connected comma-pattern join re-matches every arm from the whole graph, so a
+    ``WITH p MATCH (p)-..., (p)-...`` suffix must be narrowed back to the carried ``p``
+    rows here; seeds are non-null by construction (``aligned_reentry_rows``)."""
+    if reentry_alias is None or node_col not in start_nodes.columns:
+        raise reentry_validation_error(
+            "Cypher MATCH after WITH could not recover the carried seed ids for the connected comma-pattern join",
+            value=reentry_alias,
+            suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
+        )
+    alias_col = next(
+        (
+            col
+            for col in (reentry_alias, f"{reentry_alias}.{node_col}")
+            if col in joined_rows.columns
+        ),
+        None,
+    )
+    if alias_col is None:
+        raise reentry_validation_error(
+            "Cypher MATCH after WITH could not recover the carried alias binding column from the connected comma-pattern join",
+            value=reentry_alias,
+            suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
+        )
+    seed_ids = start_nodes[node_col]
+    if _is_polars_df(joined_rows):
+        import polars as pl
+        seed_values = seed_ids.to_list() if hasattr(seed_ids, "to_list") else list(seed_ids)
+        return joined_rows.filter(pl.col(alias_col).is_in(seed_values))  # type: ignore[attr-defined]
+    return joined_rows[joined_rows[alias_col].isin(seed_ids)]
+
+
 def compiled_query_reentry_state(
     base_graph: Plottable,
     plan: ReentryPlan,

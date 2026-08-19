@@ -55,6 +55,10 @@ POLARS_TEST_FILES=(
     # #1911 alias-scoping pins: every case is parametrized pandas AND polars, and the
     # polars params (WITH-rebind decline parity, edge-identity collision crash) only run here
     graphistry/tests/compute/gfql/test_alias_scoping_semantics.py
+    # #1712 reentry-carry seed pins: no module-level importorskip (pandas params run in
+    # test-gfql-core), but the polars params — native carry restriction + the typed
+    # scalar-carry declines — only ever run here
+    graphistry/tests/compute/gfql/test_reentry_carry_seed_restriction.py
     graphistry/tests/compute/gfql/test_count_and_param_semantics.py
     graphistry/tests/compute/gfql/row/test_row_pipeline_boundaries.py
     graphistry/tests/compute/gfql/test_unary_op_surface.py

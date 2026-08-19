@@ -81,6 +81,7 @@ from graphistry.compute.gfql.identifiers import (
     WALK_PREV_COL,
     WALK_TO_COL,
     is_shortest_path_hops_column,
+    shadow_restore_column,
     trail_column_name,
 )
 from graphistry.compute.util import generate_safe_column_name
@@ -1081,6 +1082,11 @@ class RowPipelineMixin:
         if isinstance(node, PropertyAccessExpr):
             if isinstance(node.value, Identifier):
                 alias_name = node.value.name
+                if alias_name == node.property:
+                    restore_col = shadow_restore_column(alias_name)
+                    if restore_col in table_df.columns:
+                        # the alias marker overwrote this same-named user column; rows() re-keyed it
+                        return True, table_df[restore_col]
                 if "." not in alias_name and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias_name):
                     if node.property == NODE_IDENTITY_COLUMN:
                         node_id = self._gfql_node_id_column()
@@ -4606,7 +4612,12 @@ class RowPipelineMixin:
             )
 
             if isinstance(alias, str):
-                frame = self._gfql_node_alias_lookup_frame(matched_nodes, str(node_id), alias)
+                # Same marker shadowing as the connected path, keyed on the node id.
+                lookup_source = self._gfql_unshadow_alias_marker_column(
+                    matched_nodes, alias, base_nodes, str(node_id)
+                )
+                assert lookup_source is not None  # non-None in, non-None out
+                frame = self._gfql_node_alias_lookup_frame(lookup_source, str(node_id), alias)
             else:
                 anon_col = RowPipelineMixin._gfql_fresh_col_name(matched_nodes.columns, f"__gfql_binding_node_{idx}__")
                 frame = matched_nodes[[node_id]].copy().rename(columns={node_id: anon_col})

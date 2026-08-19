@@ -516,11 +516,23 @@ def combine_steps(
                 out_df[op._name] = label_mask
 
     cols = list(out_df.columns)
+    # An alias named like a user column collides here (marker `_x` from the step frames
+    # vs user values `_y` from the base frame). The marker is authoritative (null =
+    # unbound row); user values are restored from the base frame at property-read time,
+    # never coalesced into the marker (mixed bool/user dtypes also crash cuDF).
+    alias_marker_names = {
+        op._name for op, _ in steps
+        if isinstance(op, op_type) and isinstance(getattr(op, '_name', None), str)
+    }
     for c in cols:
         if c.endswith('_x'):
             base = c[:-2]
             c_y = base + '_y'
             if c_y in out_df.columns:
+                if base in alias_marker_names:
+                    out_df[base] = out_df[c].fillna(False).astype(bool)
+                    out_df = out_df.drop(columns=[c, c_y])
+                    continue
                 if len(out_df) > 0:
                     out_df[base] = out_df[c].where(out_df[c].notna(), out_df[c_y])
                 out_df = out_df.drop(columns=[c, c_y])

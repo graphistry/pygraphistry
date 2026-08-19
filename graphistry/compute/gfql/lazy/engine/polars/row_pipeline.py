@@ -1649,15 +1649,14 @@ def _cartesian_node_bindings_polars(
         # L4 pushdown twin of pandas `_gfql_cartesian_node_bindings_row_table`
         matched = _apply_alias_prefilters_polars(matched, alias, alias_prefilters)  # honoured, never dropped (#1804)
         cols = matched.collect_schema().names()
-        # prop_cols excludes node_id and any real column named == alias: the pandas
-        # node execute() leaks a boolean FLAG into a column named ``alias``
-        # (shadowing a same-named real property), which the lookup frame surfaces
-        # as ``alias.alias = True``. Reproduce that exactly.
+        # prop_cols excludes node_id and any real column named == alias; that column is
+        # emitted once below as ``alias.alias``: the real user values when the column
+        # exists (#1911 defect-4 parity with pandas' unshadow), else the flag ``True``.
         prop_cols = [c for c in cols if c != node_id and c != alias]
         exprs = [
             pl.col(node_id).alias(alias),
             pl.col(node_id).alias(f"{alias}.{node_id}"),
-            pl.lit(True).alias(f"{alias}.{alias}"),
+            (pl.col(alias) if alias in cols else pl.lit(True)).alias(f"{alias}.{alias}"),
         ]
         exprs.extend(pl.col(c).alias(f"{alias}.{c}") for c in prop_cols)
         per_alias.append(matched.select(exprs))

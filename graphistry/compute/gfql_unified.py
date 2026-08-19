@@ -60,6 +60,7 @@ from graphistry.compute.gfql.cypher.reentry.execution import (
     compiled_query_scalar_reentry_state as _compiled_query_scalar_reentry_state,
     freeform_broadcast_row_to_nodes as _freeform_broadcast_row_to_nodes,
     reentry_validation_error as _reentry_validation_error,
+    restrict_connected_join_rows_to_reentry_seed as _restrict_connected_join_rows_to_reentry_seed,
     union_scalar_reentry_results as _union_scalar_reentry_results,
 )
 from graphistry.compute.gfql.cypher.call_procedures import execute_cypher_call
@@ -743,6 +744,8 @@ def _apply_connected_match_join(
     engine: Union[EngineAbstract, str],
     policy: Optional[PolicyDict],
     context: ExecutionContext,
+    start_nodes: Optional[DataFrameT] = None,
+    reentry_alias: Optional[str] = None,
 ) -> Plottable:
     from graphistry.compute.ast import ASTCall, ASTNode as _ASTNode, serialize_binding_ops
 
@@ -756,6 +759,11 @@ def _apply_connected_match_join(
     # recomputes instead of returning a stale cached answer (BLOCKER 1).
     cache_store: Dict[str, Any] = {}
 
+    for pattern_chain in plan.pattern_chains:
+        _reject_node_alias_shadowing_id_binding(
+            base_graph, pattern_chain, include_edge_endpoint_aliases=True
+        )
+
     trail_identity_col = _trail_edge_identity_col(base_graph)
     trail_arms = _connected_join_trail_arms(plan, identity_col=trail_identity_col)
     arms_may_share_an_edge = trail_arms is not None
@@ -768,9 +776,9 @@ def _apply_connected_match_join(
             base_graph, engine=requested_engine, identity_col=trail_identity_col
         )
 
-    # Both two-star fast paths emit the raw arm product, so they serve disjoint arms only.
+    # Both two-star fast paths serve only disjoint, unseeded arms (their seeds are filter_dicts-only)
     fast_grouped_count = (
-        None if arms_may_share_an_edge
+        None if arms_may_share_an_edge or start_nodes is not None
         else _connected_join_two_star_fast_grouped_count(base_graph, plan, engine=requested_engine, cache_store=cache_store)
     )
     if fast_grouped_count is not None:
@@ -780,7 +788,7 @@ def _apply_connected_match_join(
         return out
 
     fast_rows = (
-        None if arms_may_share_an_edge
+        None if arms_may_share_an_edge or start_nodes is not None
         else _connected_join_two_star_fast_rows(base_graph, plan, engine=requested_engine, cache_store=cache_store)
     )
     if fast_rows is not None:
@@ -887,6 +895,14 @@ def _apply_connected_match_join(
                            else joined_rows.drop(columns=drop_columns))
     joined_rows = _joined_hidden_scalar_columns(joined_rows)
     joined_rows = _joined_alias_columns(joined_rows)
+    if start_nodes is not None:
+        # the arms above re-matched from the whole graph; narrow to the carried seeds
+        joined_rows = _restrict_connected_join_rows_to_reentry_seed(
+            joined_rows,
+            start_nodes=start_nodes,
+            reentry_alias=reentry_alias,
+            node_col=node_col,
+        )
     joined_plottable = base_graph.bind()
     joined_plottable._nodes = joined_rows
     joined_plottable._edges = df_ctor()
@@ -1383,6 +1399,11 @@ def _execute_compiled_query_via_physical_plan(
             engine=engine,
             policy=policy,
             context=context,
+            start_nodes=start_nodes,
+            reentry_alias=(
+                None if compiled_query.reentry_plan is None
+                else compiled_query.reentry_plan.reentry_alias_name
+            ),
         )
 
     if connected_optional_match is not None:
@@ -1420,12 +1441,14 @@ def _execute_compiled_query_via_physical_plan(
 
         fast_grouped = _try_fast(
             "single_hop_grouped_aggregate",
-            lambda: _execute_single_hop_grouped_aggregate_fast_path(base_graph, compiled_query.chain, engine=engine))
+            lambda: _execute_single_hop_grouped_aggregate_fast_path(
+                base_graph, compiled_query.chain, engine=engine, reentry_start_nodes=start_nodes))
         if fast_grouped is not None:
             return fast_grouped
         fast_count = _try_fast(
             "two_hop_count",
-            lambda: _execute_two_hop_count_fast_path(base_graph, compiled_query.chain, engine=engine))
+            lambda: _execute_two_hop_count_fast_path(
+                base_graph, compiled_query.chain, engine=engine, reentry_start_nodes=start_nodes))
         if fast_count is not None:
             return fast_count
         fast_hop = _try_fast(
@@ -1518,6 +1541,9 @@ def _execute_compiled_query_chain_non_union(
             compiled_query=compiled_query,
             engine=engine,
         )
+    _reject_node_alias_shadowing_id_binding(
+        base_graph, compiled_query.chain, include_edge_endpoint_aliases=True
+    )
 
     # #1712: a bounded-reentry main chain that is a binding-ops row pipeline
     # (rows(binding_ops) -> group_by -> ...) must seed its first alias from the
@@ -2659,7 +2685,9 @@ def gfql(self: Plottable,
             context.policy_depth = policy_depth
 
 
-def _reject_node_alias_shadowing_id_binding(g: Plottable, chain_obj: Chain) -> None:
+def _reject_node_alias_shadowing_id_binding(
+    g: Plottable, chain_obj: Chain, *, include_edge_endpoint_aliases: bool = False
+) -> None:
     """Typed decline for a node alias named after the node-ID binding column.
 
     The alias marker is stamped as ``<alias> = True``, so an alias equal to the node-id
@@ -2668,10 +2696,12 @@ def _reject_node_alias_shadowing_id_binding(g: Plottable, chain_obj: Chain) -> N
     polars answered ``True``. Neither is a usable result; decline the same way on both.
     """
     node_id = getattr(g, "_node", None)
-    if not isinstance(node_id, str):
-        return
+    endpoint_cols = {
+        col for col in (getattr(g, "_source", None), getattr(g, "_destination", None))
+        if isinstance(col, str)
+    }
     for op in chain_obj.chain:
-        if isinstance(op, ASTNode) and getattr(op, "_name", None) == node_id:
+        if isinstance(node_id, str) and isinstance(op, ASTNode) and getattr(op, "_name", None) == node_id:
             raise GFQLValidationError(
                 ErrorCode.E108,
                 "A node alias cannot be named after the node-ID binding column",
@@ -2680,6 +2710,23 @@ def _reject_node_alias_shadowing_id_binding(g: Plottable, chain_obj: Chain) -> N
                 suggestion=(
                     f"The alias flag is materialized as a column named '{node_id}', which would "
                     f"overwrite the node-ID binding. Rename the alias."
+                ),
+            )
+        # Cypher-only decline; raw GFQL chains keep their documented overwrite parity.
+        if (
+            include_edge_endpoint_aliases
+            and isinstance(op, ASTEdge)
+            and getattr(op, "_name", None) in endpoint_cols
+        ):
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "An edge alias cannot be named after an edge endpoint binding column",
+                field="chain.name",
+                value=getattr(op, "_name", None),
+                suggestion=(
+                    "The alias flag is materialized as a column named like the edge "
+                    "source/destination binding, which would overwrite the endpoints. "
+                    "Rename the alias."
                 ),
             )
 

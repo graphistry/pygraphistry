@@ -2256,7 +2256,11 @@ def _execute_single_hop_grouped_aggregate_fast_path(
     chain: Chain,
     *,
     engine: Union[EngineAbstract, str],
+    reentry_start_nodes: Optional[DataFrameT] = None,
 ) -> Optional[Plottable]:
+    if reentry_start_nodes is not None:
+        # seed comes from filter_dicts alone; engaging would widen a carried WITH..MATCH seed
+        return None
     ops = list(chain.chain)
     if len(ops) not in (3, 4, 5) or not all(isinstance(op, ASTCall) for op in ops):
         return None
@@ -3019,7 +3023,11 @@ def _execute_two_hop_count_fast_path(
     chain: Chain,
     *,
     engine: Union[EngineAbstract, str],
+    reentry_start_nodes: Optional[DataFrameT] = None,
 ) -> Optional[Plottable]:
+    if reentry_start_nodes is not None:
+        # same seed-blindness as the grouped-aggregate path above
+        return None
     alias = _two_hop_count_alias(chain)
     if alias is None:
         return None
