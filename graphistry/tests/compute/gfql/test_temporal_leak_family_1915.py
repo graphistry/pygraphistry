@@ -308,6 +308,13 @@ class TestB7TemporalStringLeaks:
                 got[engine] = sorted(out["id"].tolist())
             assert got["pandas"] == got["polars"] == expect
 
+    def test_pandas_connected_join_zoned_string_answers(self):
+        """The connected-join lowering must also keep tz-suffixed text a residual."""
+        g = _graph("pandas")
+        out = _rows(g, "MATCH (a)-[]->(b) WHERE b.ts > '2021-01-01T00:00:00Z' RETURN a.id, b.id",
+                    "pandas")
+        assert out.to_dict("records") == [{"a.id": "p", "b.id": "q"}]
+
     def test_pandas_optional_match_zoned_string_answers(self):
         """Red-at-master: the connected OPTIONAL MATCH lowering pushed the tz-suffixed
         literal into a filter dict too, leaking the same raw numpy TypeError."""
