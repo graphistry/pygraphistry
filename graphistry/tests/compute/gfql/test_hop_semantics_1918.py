@@ -34,6 +34,14 @@ except ImportError:
 
 polars_only = pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
 
+try:
+    import cudf  # noqa: F401
+    HAS_CUDF = True
+except ImportError:
+    HAS_CUDF = False
+
+cudf_only = pytest.mark.skipif(not HAS_CUDF, reason="cudf not installed")
+
 ENGINES = ["pandas", pytest.param("polars", marks=polars_only)]
 
 
@@ -334,28 +342,49 @@ def test_f2_tracked_seed_keeps_its_attributes_and_dtype(flag_id, flags, directio
     assert str(nodes["w"].dtype) == "int64", "attr dtype must not upcast via a NaN backfill"
 
 
-def test_f2_min_hops_forward_seed_is_still_attribute_less_residue():
-    """RESIDUE PIN (#1918 F2, deliberately NOT fixed) -- recorded as a value test, not a
-    comment, so it cannot rot and so the day it changes is a loud test failure.
-
-    ``min_hops>=2`` is the one track_hops flag whose seed still returns attribute-less. There
-    the hop-label set is REBUILT from the retained-path backward walk and the node-output
-    restriction to it is load-bearing: it is how a dead-end source-side branch leaves the
-    answer. Widening it admits nodes with no retained incident edge and breaks the 400-case
-    polars chain min_hops parity, whose node output deliberately mirrors this pandas stub
-    (``hop_eager.py:_min_hops_labeled_node_output``). Lifting it is a decision about the
-    CHAIN contract, not a local hop() bug fix.
-
-    The seed's ROW is present (it is a retained-edge endpoint); only its attributes are NaN.
-    Scoped to FORWARD (and reverse): the retained-path label rebuild runs for directed hops
-    only, so UNDIRECTED min_hops takes the plain label-restriction path and is clean -- pinned
-    positively just below, which also fixes the boundary of this residue in place.
-    """
+def test_f2_min_hops_forward_seed_row_is_excluded_entirely():
+    """#1918 F2 CLOSED (this replaced the residue pin that recorded the defect): seeds are
+    hop 0, hop 0 is labeled only under label_seeds, so a ``min_hops>=2`` window excludes the
+    seed's node ROW entirely. Pre-fix pandas re-synthesized it id-only via the endpoint
+    backfill (type/w NaN, w upcast int64->float64) while cuDF omitted it -- divergent. Now
+    both engines return the same seed-less membership with unupcast attributes."""
     g = _attr_graph("pandas")
     r = g.hop(nodes=pd.DataFrame({"id": [0]}), min_hops=2, max_hops=2, engine="pandas")
     nodes = _pd(r._nodes)
-    row = nodes.loc[nodes["id"] == 0].iloc[0]
-    assert pd.isna(row["type"]) and pd.isna(row["w"]), "residue: still id-only backfilled"
+    assert nodes["id"].tolist() == [1, 2], "seed row excluded, traversed rows kept"
+    assert not nodes[["type", "w"]].isna().any().any(), "no attribute-less stub rows"
+    assert str(nodes["w"].dtype) == "int64", "no NaN-backfill upcast"
+
+
+def test_f2_min_hops_node_labels_survive_without_an_edge_label():
+    """min_hops>=2 rebuilds node hop labels from the retained-path walk. Those frames carry
+    the values under edge_hop_col, and the groupby that follows reads node_hop_col -- the two
+    names only coincide when BOTH labels are internal. With a user node label and no edge
+    label (so no edge-endpoint backfill to mask it), the goal node's label came back NULL.
+    The LABELED arm keeps the seed row with a NULL label (chain wavefront contract); only the
+    unlabeled arm excludes it."""
+    g = _attr_graph("pandas")
+    r = g.hop(nodes=pd.DataFrame({"id": [0]}), min_hops=2, max_hops=2,
+              label_node_hops="nh", engine="pandas")
+    nodes = _pd(r._nodes).sort_values("id")
+    labels = {i: (None if pd.isna(v) else int(v)) for i, v in zip(nodes["id"], nodes["nh"])}
+    assert labels == {0: None, 1: 1, 2: 2}
+
+
+@cudf_only
+def test_f2_min_hops_forward_membership_agrees_on_cudf():
+    """The cuDF side of the F2 close-out: same seed-less membership, same intact dtypes."""
+    import cudf
+    ndf = pd.DataFrame({"id": [0, 1, 2], "type": ["a", "b", "a"],
+                        "w": pd.Series([10, 20, 30], dtype="int64")})
+    edf = pd.DataFrame({"s": [0, 1], "d": [1, 2], "rel": ["x", "y"]})
+    g = graphistry.nodes(cudf.from_pandas(ndf), "id").edges(cudf.from_pandas(edf), "s", "d")
+    r = g.hop(nodes=cudf.from_pandas(pd.DataFrame({"id": [0]})), min_hops=2, max_hops=2,
+              engine="cudf")
+    nodes = _pd(r._nodes).sort_values("id")
+    assert nodes["id"].tolist() == [1, 2]
+    assert not nodes[["type", "w"]].isna().any().any()
+    assert str(nodes["w"].dtype) == "int64"
 
 
 def test_f2_min_hops_undirected_seed_keeps_attributes():
@@ -535,7 +564,8 @@ def test_f8_does_not_widen_a_satisfiable_window():
     edf = pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 3]})
     g = graphistry.nodes(ndf, "id").edges(edf, "s", "d")
     r = g.hop(nodes=pd.DataFrame({"id": [0]}), min_hops=2, max_hops=3, engine="pandas")
-    assert node_ids(r) == [0, 1, 2, 3]
+    # min_hops>=2 excludes the unlabeled hop-0 seed ROW (#1918 F2); paths/edges are intact.
+    assert node_ids(r) == [1, 2, 3]
     assert edge_ids(r) == [(0, 1), (1, 2), (2, 3)]
     r2 = g.hop(nodes=pd.DataFrame({"id": [0]}), min_hops=4, max_hops=5, engine="pandas")
     assert node_ids(r2) == [] and edge_ids(r2) == [], "acyclic: no 4-walk exists, still empty"

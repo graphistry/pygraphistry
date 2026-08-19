@@ -860,17 +860,6 @@ def hop(self: Plottable,
 
             rebuild_node_hops_from_retained_paths = direction in ('forward', 'reverse')
 
-            if direction == 'forward':
-                valid_node_hop_frames.append(
-                    valid_endpoint_edges_with_nodes[[g2._destination, edge_hop_col]]
-                    .rename(columns={g2._destination: node_col})
-                )
-            elif direction == 'reverse':
-                valid_node_hop_frames.append(
-                    valid_endpoint_edges_with_nodes[[g2._source, edge_hop_col]]
-                    .rename(columns={g2._source: node_col})
-                )
-
             max_edge_hop = int(edge_hop_records[edge_hop_col].max()) if len(edge_hop_records) > 0 else max_reached_hop
             for hop_level in range(max_edge_hop, 0, -1):
                 hop_edges = edge_records_with_endpoints[
@@ -913,6 +902,18 @@ def hop(self: Plottable,
             valid_node_series = valid_node_series.drop_duplicates()
             valid_edge_series = concat(valid_edge_list, ignore_index=True, sort=False).drop_duplicates() if valid_edge_list else goal_node_series[:0]
 
+            # Goal labels feed a groupby on node_hop_col: rename, or distinct-name arms read a dead column (all-NULL labels)
+            if rebuild_node_hops_from_retained_paths:
+                goal_endpoint_col = g2._destination if direction == 'forward' else g2._source
+                goal_label_rows = (
+                    valid_endpoint_edges_with_nodes[[goal_endpoint_col, EDGE_ID, edge_hop_col]]
+                    .rename(columns={goal_endpoint_col: node_col, edge_hop_col: node_hop_col}))
+                if node_hop_col != edge_hop_col:
+                    # Goals off the retained walk keep their row but a NULL label (net membership unchanged)
+                    unretained_mask = ~goal_label_rows[EDGE_ID].isin(valid_edge_series)
+                    goal_label_rows.loc[unretained_mask, node_hop_col] = s_na(engine_concrete)
+                valid_node_hop_frames.append(goal_label_rows[[node_col, node_hop_col]])
+
             edge_hop_records = edge_hop_records[edge_hop_records[EDGE_ID].isin(valid_edge_series)]
             if valid_node_hop_frames:
                 node_hop_records = (
@@ -940,14 +941,14 @@ def hop(self: Plottable,
                         retained_edges_with_endpoints[
                             retained_edges_with_endpoints[g2._destination].isin(seed_ids_for_labels)
                         ][[g2._destination, edge_hop_col]]
-                        .rename(columns={g2._destination: node_col})
+                        .rename(columns={g2._destination: node_col, edge_hop_col: node_hop_col})
                     )
                 else:
                     retained_seed_hops = (
                         retained_edges_with_endpoints[
                             retained_edges_with_endpoints[g2._source].isin(seed_ids_for_labels)
                         ][[g2._source, edge_hop_col]]
-                        .rename(columns={g2._source: node_col})
+                        .rename(columns={g2._source: node_col, edge_hop_col: node_hop_col})
                     )
                 if len(retained_seed_hops) > 0:
                     nonzero_seed_mask = (
@@ -1100,6 +1101,11 @@ def hop(self: Plottable,
 
     if g_out._edges is not None and len(g_out._edges) > 0 and g_out._nodes is not None:
         unbacked_endpoints = _endpoint_ids_without_node_rows(g_out, concat)
+        # Unlabeled min_hops>1 excludes pruned seed rows; labeled hops keep the NULL-labeled stub the chain wavefront contract expects
+        if min_hop_prune_applied and label_node_hops is None and not label_seeds \
+                and seeds_provided and node_col in starting_nodes.columns:  # 1918 F2 seed residue
+            unbacked_endpoints = unbacked_endpoints[
+                ~unbacked_endpoints[g_out._node].isin(starting_nodes[node_col])]
         nodes_out = g_out._nodes
         if track_node_hops and node_hop_records is not None and node_hop_col is not None:
             nodes_out = _nodes_with_hop_label_column(nodes_out, node_hop_col)
@@ -1232,10 +1238,11 @@ def hop(self: Plottable,
             SeriesCls = s_series(engine_concrete)
             mask = SeriesCls(True, index=g_out._nodes.index)
             if node_hop_col is not None and node_hop_col in g_out._nodes.columns:
+                # fillna BEFORE combining: cuDF &/| are non-Kleene and NULL-masked rows drop (1798 self-loop seeds)
                 if final_output_min is not None:
-                    mask = mask & (g_out._nodes[node_hop_col] >= final_output_min)
+                    mask = mask & (g_out._nodes[node_hop_col] >= final_output_min).fillna(False)
                 if final_output_max is not None:
-                    mask = mask & (g_out._nodes[node_hop_col] <= final_output_max)
+                    mask = mask & (g_out._nodes[node_hop_col] <= final_output_max).fillna(False)
             endpoint_ids = None
             if g_out._edges is not None:
                 endpoint_ids = concat(
@@ -1295,5 +1302,13 @@ def hop(self: Plottable,
                 ]
             filtered_nodes = g_out._nodes[~g_out._nodes[node_col].isin(column_values(seeds_not_reached_df, node_col))]
         g_out = g_out.nodes(filtered_nodes)
+
+    # Internal tracking columns must never reach user output; backfills above re-add them after the mid-function drops
+    if label_node_hops is None and node_hop_col is not None \
+            and g_out._nodes is not None and node_hop_col in g_out._nodes.columns:
+        g_out = g_out.nodes(g_out._nodes.drop(columns=[node_hop_col]))
+    if label_edge_hops is None and edge_hop_col is not None \
+            and g_out._edges is not None and edge_hop_col in g_out._edges.columns:
+        g_out = g_out.edges(g_out._edges.drop(columns=[edge_hop_col]))
 
     return g_out

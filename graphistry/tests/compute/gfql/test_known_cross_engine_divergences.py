@@ -288,15 +288,11 @@ def test_optional_match_grouped_aggregate_is_served_on_every_engine(engine, agg,
 
 
 @cudf_only
-@pytest.mark.xfail(strict=True, reason="cuDF drops the sliced edge's source node row under an output hop window; pandas backfills it")
 def test_output_hop_window_backfills_the_source_node_row_on_cudf():
-    """Found by the #1895 hop.py boundary amplification, PRE-EXISTING (reproduces identically
-    at that branch's merge-base, so #1888/#1895 did not cause it).
-
-    With an output hop window, pandas returns edge (0,1) AND both endpoint node rows; cuDF
-    returns the edge with only node 1 -- the source row is never backfilled, leaving an edge
-    whose endpoint has no node row. Every engine should satisfy endpoint closure on its OUTPUT.
-    Flipping this xfail = the cuDF epilogue backfilling like the pandas one.
+    """RESOLVED divergence (#1798 family): the output-window node mask now fills NULL hop
+    labels to False BEFORE combining (cuDF's &/| are not Kleene, so `NULL | endpoint` stayed
+    NULL and cuDF dropped the row that the endpoint OR rescued on pandas). Both engines now
+    keep the sliced edge's source node row: endpoint closure holds on the OUTPUT.
     """
     import cudf
 
