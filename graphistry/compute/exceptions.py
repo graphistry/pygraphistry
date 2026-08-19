@@ -42,6 +42,7 @@ class ErrorCode:
     E401 = "remote-request-failed"
     E402 = "remote-response-malformed"
     E403 = "remote-format-lossy"
+    E404 = "remote-unsupported-frames"
 
     # Graph constructor errors (E150-E159)
     E150 = "duplicate-graph-binding"

@@ -259,3 +259,32 @@ def test_non_dict_import_args_is_a_typed_gfql_error() -> None:
         resolve_csv_import_args("nope", "gfql_remote")  # type: ignore[arg-type]
     with pytest.raises(ValueError):
         resolve_csv_import_args("nope", "gfql_remote")  # type: ignore[arg-type]
+
+
+def test_polars_frames_decline_before_the_request() -> None:
+    pl = pytest.importorskip("polars")
+    from unittest.mock import MagicMock, patch as _patch
+    from graphistry.compute.exceptions import ErrorCode, GFQLRemoteError
+
+    g = graphistry.nodes(pl.DataFrame({"id": [0, 1]}), "id").edges(
+        pl.DataFrame({"s": [0], "d": [1]}), "s", "d")
+    g._dataset_id = "ds"
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.content = b"id\n1\n"
+    resp.headers = {"content-type": "text/csv"}
+
+    with _patch("graphistry.compute.chain_remote.requests.post", return_value=resp) as mp:
+        with pytest.raises(GFQLRemoteError) as excinfo:
+            g.gfql_remote([n()], format="parquet", api_token="t")
+        assert excinfo.value.code == ErrorCode.E404
+        assert "polars" in str(excinfo.value).lower()
+        assert not mp.called
+
+
+def test_supported_frame_library_resolves_pandas_and_none() -> None:
+    from graphistry.compute.remote_df_io import require_supported_frame_library
+
+    assert require_supported_frame_library(None, None, "gfql_remote") == "pandas"
+    assert require_supported_frame_library(
+        pd.DataFrame({"id": [0]}), pd.DataFrame({"s": [0]}), "gfql_remote") == "pandas"

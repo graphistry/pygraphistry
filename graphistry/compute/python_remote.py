@@ -11,7 +11,8 @@ import requests
 
 from graphistry.Engine import Engine, EngineAbstractType, resolve_input_engine
 from graphistry.Plottable import Plottable
-from graphistry.compute.remote_df_io import resolve_csv_reader, validate_csv_import_args
+from graphistry.compute.remote_df_io import (
+    require_supported_frame_library, resolve_csv_reader, validate_csv_import_args)
 from graphistry.compute.remote_response import (
     decode_json_body,
     decode_json_result,
@@ -130,6 +131,7 @@ def python_remote_generic(
     code = normalize_task_code(code)
 
     validate_csv_import_args(df_import_args, "python_remote")
+    frame_lib = require_supported_frame_library(self._nodes, self._edges, "python_remote")
 
     if validate:
         if not validate_python_str(code):
@@ -184,17 +186,16 @@ def python_remote_generic(
 
     raise_for_remote_error(response, "Remote Python operation")
 
-    if self._edges is None or isinstance(self._edges, pd.DataFrame):
-        df_cons = pd.DataFrame
-        read_csv = pd.read_csv
-        read_parquet = pd.read_parquet
-    elif 'cudf.core.dataframe' in str(getmodule(self._edges)):
+    # Library was resolved pre-request; reuse it so the two cannot drift.
+    if frame_lib == "cudf":
         import cudf
         df_cons = cudf.DataFrame
         read_csv = cudf.read_csv
         read_parquet = cudf.read_parquet
     else:
-        raise ValueError(f"Unknown self._edges type, expected cudf/pandas DataFrame: {type(self._edges)}")
+        df_cons = pd.DataFrame
+        read_csv = pd.read_csv
+        read_parquet = pd.read_parquet
 
     if format == "csv":
         read_csv = resolve_csv_reader(read_csv, df_import_args, "python_remote")

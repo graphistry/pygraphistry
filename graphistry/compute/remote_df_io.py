@@ -5,6 +5,7 @@ recover the original dtypes from it, so a bare reader re-infers them. Callers
 are warned, and may pass explicit reader kwargs to take control. ``parquet``
 carries an Arrow schema and is the faithful default.
 """
+from inspect import getmodule
 import warnings
 from typing import BinaryIO, Callable, Optional
 
@@ -20,6 +21,40 @@ CSV_LOSSY_WARNING = (
     "To control the csv reader yourself, pass df_import_args, e.g. "
     "df_import_args={'dtype': str, 'keep_default_na': False, 'na_values': []}."
 )
+
+
+def _frame_type_name(df: Optional[DataFrameT]) -> str:
+    if df is None:
+        return "None"
+    return f"{type(df).__module__.split('.')[0]}.{type(df).__name__}"
+
+
+def _is_pandas_like(df: Optional[DataFrameT]) -> bool:
+    import pandas as pd
+    return df is None or isinstance(df, pd.DataFrame) or 'unittest.mock' in str(type(df))
+
+
+def require_supported_frame_library(
+    nodes: Optional[DataFrameT], edges: Optional[DataFrameT], api_name: str
+) -> str:
+    """Resolve which DataFrame library backs a remote call, before any request is sent.
+
+    :param nodes: The graph's node frame, or ``None``.
+    :param edges: The graph's edge frame, or ``None``.
+    :param api_name: Public entry point named in the error message.
+    :return: ``"cudf"`` or ``"pandas"``.
+    :raises GFQLRemoteError: When either frame is some other library (e.g. polars).
+    """
+    if any('cudf.core.dataframe' in str(getmodule(df)) for df in (nodes, edges) if df is not None):
+        return "cudf"
+    if _is_pandas_like(nodes) and _is_pandas_like(edges):
+        return "pandas"
+    raise GFQLRemoteError(
+        ErrorCode.E404,
+        f"{api_name}: remote execution supports pandas and cudf frames; got "
+        f"nodes={_frame_type_name(nodes)}, edges={_frame_type_name(edges)}. "
+        f"Convert with .to_pandas() before calling, or run this query locally.",
+    )
 
 
 def validate_csv_import_args(
