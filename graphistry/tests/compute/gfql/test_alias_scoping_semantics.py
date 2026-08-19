@@ -88,13 +88,16 @@ def _graph(nodes: pd.DataFrame, edges: pd.DataFrame, engine: str):
     return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
 
 
+def _null(v):
+    return None if isinstance(v, float) and v != v else v
+
+
 def _rows(g, query: str, engine: str):
     frame = g.gfql(query, engine=engine)._nodes
     if frame is None:
         return []
-    if isinstance(frame, pl.DataFrame):
-        return frame.to_dicts()
-    return frame.to_dict("records")
+    records = frame.to_dicts() if isinstance(frame, pl.DataFrame) else frame.to_dict("records")
+    return [{k: _null(v) for k, v in r.items()} for r in records]
 
 
 def _run(nodes, edges, query: str, engine: str):
