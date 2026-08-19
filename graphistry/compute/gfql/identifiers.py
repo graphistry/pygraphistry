@@ -55,6 +55,11 @@ WALK_PREV_COL: Final[str] = '__gfql_prev__'
 #: Stable per-edge identity: openCypher TRAIL semantics bind a relationship at most once per path.
 TRAIL_EDGE_IDENT_COL: Final[str] = '__gfql_edge_ident__'
 
+
+def shadow_restore_column(alias: str) -> str:
+    """Row-table column carrying user values of a column the alias marker overwrote."""
+    return f'__gfql_shadow_restore__{alias}__'
+
 #: Prefix of the per-hop column recording WHICH relationship that hop bound.
 TRAIL_COLUMN_PREFIX: Final[str] = '__gfql_trail_'
 

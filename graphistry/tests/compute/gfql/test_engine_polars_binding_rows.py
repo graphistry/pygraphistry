@@ -180,15 +180,15 @@ def test_polars_cartesian_binding_rows_raw_meaningful_cols():
 
 
 def test_polars_cartesian_alias_name_collides_with_property():
-    """A node property named the same as a MATCH alias is shadowed by the leaked
-    named-op flag (``alias.alias = True``) on BOTH engines — polars mirrors the
-    pandas quirk exactly rather than surfacing the real property value."""
+    """A node property named the same as a MATCH alias used to be shadowed by the leaked
+    named-op flag (``alias.alias = True``) on BOTH engines; the cartesian builders now
+    unshadow it (#1911 defect-4), so the real property values surface identically."""
     nodes = pd.DataFrame({"id": [0, 1, 2], "kind": ["a", "b", "a"], "a": [10, 20, 30], "b": [1, 2, 3]})
     g = graphistry.nodes(nodes, "id").edges(pd.DataFrame({"s": [0], "d": [1]}), "s", "d")
     q = "MATCH (a {kind: 'a'}), (b {kind: 'b'}) RETURN a.id AS ai, a.a AS aa, b.id AS bi, b.b AS bb"
     rpd = g.gfql(q, engine="pandas")._nodes.reset_index(drop=True)
     rpl = g.gfql(q, engine="polars")._nodes.to_pandas().reset_index(drop=True)
-    assert list(rpd["aa"]) == [True, True] and list(rpd["bb"]) == [True, True]  # flag, not 10/30
+    assert sorted(rpd["aa"]) == [10, 30] and list(rpd["bb"]) == [2, 2]  # user values, not the flag
     pd.testing.assert_frame_equal(
         rpd.sort_values(["ai", "bi"]).reset_index(drop=True),
         rpl[rpd.columns.tolist()].sort_values(["ai", "bi"]).reset_index(drop=True),

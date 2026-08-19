@@ -81,6 +81,7 @@ from graphistry.compute.gfql.identifiers import (
     WALK_PREV_COL,
     WALK_TO_COL,
     is_shortest_path_hops_column,
+    shadow_restore_column,
     trail_column_name,
 )
 from graphistry.compute.util import generate_safe_column_name
@@ -1081,6 +1082,11 @@ class RowPipelineMixin:
         if isinstance(node, PropertyAccessExpr):
             if isinstance(node.value, Identifier):
                 alias_name = node.value.name
+                if alias_name == node.property:
+                    restore_col = shadow_restore_column(alias_name)
+                    if restore_col in table_df.columns:
+                        # the alias marker overwrote this same-named user column; rows() re-keyed it
+                        return True, table_df[restore_col]
                 if "." not in alias_name and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias_name):
                     if node.property == NODE_IDENTITY_COLUMN:
                         node_id = self._gfql_node_id_column()
@@ -2907,6 +2913,11 @@ class RowPipelineMixin:
         if prop_match is not None:
             alias = prop_match.group("alias")
             prop = prop_match.group("prop")
+            if alias == prop:
+                restore_col = shadow_restore_column(alias)
+                if restore_col in table_df.columns:
+                    # the alias marker overwrote this same-named user column; rows() re-keyed it
+                    return table_df[restore_col]
             if RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias):
                 if prop == NODE_IDENTITY_COLUMN:
                     node_id = self._gfql_node_id_column()

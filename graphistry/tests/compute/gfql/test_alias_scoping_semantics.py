@@ -558,6 +558,28 @@ def test_rows_route_edge_alias_colliding_with_its_own_type_filter() -> None:
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+def test_rows_route_self_named_plus_other_property(engine: str) -> None:
+    """The restore must not turn OTHER property reads of the same alias into NA: the
+    row table is not a bindings table just because the shadowed value was re-keyed
+    (an early restore design leaked exactly that, NA-ing ``name.id``)."""
+    rows = _run(SELF_NAMED_NODES, SELF_NAMED_EDGES,
+                "MATCH (name:P) RETURN name.name AS n, name.id AS i", engine)
+    assert [(r["n"], r["i"]) for r in rows] == [
+        ("Sa", "a1"), ("Sb", "a2"), (None, "b1"), ("Tb", "b2")]
+
+
+def test_connected_join_carried_relationship_projection_unaffected() -> None:
+    """CONTROL (regression found in-flight): a comma-pattern whose base graph is an
+    intermediate dispatch frame must not have the restore misread the arm's marker as
+    user data — ``r.weight`` stays 7, never NA."""
+    nodes = pd.DataFrame({"id": ["a1", "b1"], "label__A": [True, False], "label__B": [False, True]})
+    edges = pd.DataFrame({"s": ["a1", "b1"], "d": ["b1", "a1"], "type": ["R", "S"], "w": [7, 9]})
+    rows = _run(nodes, edges,
+                "MATCH (a:A {id: 'a1'})-[r:R]->(b:B), (b)-[:S]->(a) RETURN r.w AS w", "pandas")
+    assert rows == [{"w": 7}]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
 def test_mixed_whole_entity_and_self_named_property_projection(engine: str) -> None:
     """``RETURN name, name.name AS n``: the whole-entity flatten keeps omitting the
     shadowed column (pinned above) while the explicit property column must read the
@@ -569,11 +591,15 @@ def test_mixed_whole_entity_and_self_named_property_projection(engine: str) -> N
 
 
 def test_restore_alias_shadowed_user_column_branches() -> None:
-    """Helper-level pins for the rows-route restore: no-op without a base or a shadowed
-    column; index-keyed restore; key-merge fallback when the base index cannot re-key."""
+    """Helper-level pins for the rows-route restore: no-op without a base, a shadowed
+    column, or when the base column is itself a boolean marker (intermediate dispatch
+    graph); index-keyed restore; key-merge fallback when the index cannot re-key."""
     from types import SimpleNamespace
 
+    from graphistry.compute.gfql.identifiers import shadow_restore_column
     from graphistry.compute.gfql.row.frame_ops import _restore_alias_shadowed_user_column
+
+    restore_col = shadow_restore_column("kind")
 
     def ctx_for(base_graph):
         return SimpleNamespace(_gfql_rows_base_graph=base_graph, _g=None)
@@ -583,22 +609,25 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     assert _restore_alias_shadowed_user_column(ctx_for(None), marked, "nodes", "kind") is marked
     base_no_col = SimpleNamespace(_nodes=pd.DataFrame({"id": ["a", "b"]}), _edges=None, _node="id", _edge=None)
     assert _restore_alias_shadowed_user_column(ctx_for(base_no_col), marked, "nodes", "kind") is marked
-    # index-keyed restore adds the dotted self-column and keeps the marker boolean
+    # base column is itself a boolean marker (an intermediate dispatch graph): unchanged
+    base_marker = SimpleNamespace(_nodes=pd.DataFrame({"id": ["a", "b"], "kind": [True, False]}), _edges=None, _node="id", _edge=None)
+    assert _restore_alias_shadowed_user_column(ctx_for(base_marker), marked, "nodes", "kind") is marked
+    # index-keyed restore adds the internal restore column and keeps the marker boolean
     base = SimpleNamespace(_nodes=pd.DataFrame({"id": ["a", "b"], "kind": ["K1", "K2"]}), _edges=None, _node="id", _edge=None)
     out = _restore_alias_shadowed_user_column(ctx_for(base), marked, "nodes", "kind")
-    assert list(out["kind.kind"]) == ["K1", "K2"] and list(out["kind"]) == [True, True]
+    assert list(out[restore_col]) == ["K1", "K2"] and list(out["kind"]) == [True, True]
     # base index cannot re-key (duplicate labels): fall back to the id-key merge
     dup_index_nodes = pd.DataFrame({"id": ["a", "b"], "kind": ["K1", "K2"]}, index=[0, 0])
     base_dup = SimpleNamespace(_nodes=dup_index_nodes, _edges=None, _node="id", _edge=None)
     out = _restore_alias_shadowed_user_column(ctx_for(base_dup), marked, "nodes", "kind")
-    assert list(out["kind.kind"]) == ["K1", "K2"]
+    assert list(out[restore_col]) == ["K1", "K2"]
     # neither index nor key can re-key: unchanged (marker stays, as before)
     base_no_key = SimpleNamespace(_nodes=dup_index_nodes, _edges=None, _node=None, _edge=None)
     assert _restore_alias_shadowed_user_column(ctx_for(base_no_key), marked, "nodes", "kind") is marked
     # row-table labels absent from a unique base index: guarded .loc declines to the key merge
     shifted = pd.DataFrame({"id": ["a", "b"], "kind": [True, True]}, index=[10, 11])
     out = _restore_alias_shadowed_user_column(ctx_for(base), shifted, "nodes", "kind")
-    assert list(out["kind.kind"]) == ["K1", "K2"]
+    assert list(out[restore_col]) == ["K1", "K2"]
     # polars: id-keyed join replaces the marker column in place; no key -> unchanged
     marked_pl = pl.DataFrame({"id": ["a", "b"], "kind": [True, True]})
     base_pl = SimpleNamespace(_nodes=pl.DataFrame({"id": ["a", "b"], "kind": ["K1", "K2"]}), _edges=None, _node="id", _edge=None)
@@ -606,6 +635,9 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     assert out_pl["kind"].to_list() == ["K1", "K2"]
     base_pl_no_key = SimpleNamespace(_nodes=base_pl._nodes, _edges=None, _node=None, _edge=None)
     assert _restore_alias_shadowed_user_column(ctx_for(base_pl_no_key), marked_pl, "nodes", "kind") is marked_pl
+    # polars marker-carrying base: unchanged
+    base_pl_marker = SimpleNamespace(_nodes=pl.DataFrame({"id": ["a", "b"], "kind": [True, False]}), _edges=None, _node="id", _edge=None)
+    assert _restore_alias_shadowed_user_column(ctx_for(base_pl_marker), marked_pl, "nodes", "kind") is marked_pl
 
 
 def test_cudf_rows_route_self_named_alias_parity() -> None:

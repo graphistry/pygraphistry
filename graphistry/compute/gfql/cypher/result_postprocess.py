@@ -8,6 +8,7 @@ import pandas as pd
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.Engine import is_polars_df
+from graphistry.compute.gfql.identifiers import shadow_restore_column
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
 
 from .lowering import ResultProjectionColumn, ResultProjectionPlan
@@ -265,13 +266,6 @@ def _projection_alias_rows(
 ) -> Optional[DataFrameT]:
     prefix = f"{alias}."
     alias_columns = [column for column in rows_df.columns if str(column).startswith(prefix)]
-    if (
-        alias_columns == [f"{alias}.{alias}"]
-        and alias in rows_df.columns
-        and str(getattr(rows_df[alias], "dtype", "")).startswith("bool")
-    ):
-        # a lone dotted self-column beside the boolean marker is the rows() shadow restore, not a pre-flattened entity frame
-        return rows_df.drop(columns=[f"{alias}.{alias}"])
     if alias_columns:
         alias_rows = cast(
             DataFrameT,
@@ -377,9 +371,9 @@ def _apply_result_projection_pandas(
             output_columns.append(column.output_name)
             if column.kind == "property":
                 property_rows_df = alias_rows_df
-                self_shadow_col = f"{projection.alias}.{projection.alias}"
+                self_shadow_col = shadow_restore_column(projection.alias)
                 if column.source_name == projection.alias and self_shadow_col in rows_df.columns:
-                    # 'alias.alias': the plain column is the marker; user values live under the dotted self-name
+                    # 'alias.alias': the plain column is the marker; rows() re-keyed the user values
                     column = replace(column, source_name=self_shadow_col)
                     property_rows_df = rows_df
                 elif (
