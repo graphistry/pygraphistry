@@ -215,7 +215,7 @@ _GRAMMAR = r"""
 
 ?postfix: primary
         | postfix "[" subscript_key "]"  -> subscript
-        | postfix "." NAME               -> property_access
+        | postfix "." PROP_NAME          -> property_access
 
 ?subscript_key: expr                     -> subscript_index
               | expr ".." expr           -> subscript_slice_between
@@ -249,7 +249,10 @@ regular_func_args: func_arg ("," func_arg)*
 distinct_func_args: "DISTINCT"i func_arg
 ?func_arg: expr
          | "*"                           -> star_arg
-identifier: NAME ("." NAME)*
+// PROP_NAME (dot contexts only) admits non-reserved keywords as property names
+// (n.when, n.order) — openCypher property keys are unreserved; only after "." can
+// no keyword ambiguity arise, so NAME's exclusions need not apply there.
+identifier: NAME ("." PROP_NAME)*
 
 case_expr: searched_case_expr
          | simple_case_expr
@@ -278,6 +281,7 @@ REGEX_MATCH.2: "=~"
 COMP_OP: __GFQL_COMPARISON_GRAMMAR_ALTS__
 MINUS: /-(?!-)/
 NAME: /(?!(?i:AND|OR|XOR|NOT|IN|IS|NULL|CASE|WHEN|THEN|ELSE|END|CONTAINS|STARTS|WITH|ENDS|ANY|ALL|NONE|SINGLE)\b)[A-Za-z_][A-Za-z0-9_]*/
+PROP_NAME: /[A-Za-z_][A-Za-z0-9_]*/
 MAP_KEY_NAME: /[A-Za-z_][A-Za-z0-9_]*/
 NUMBER: /[+-]?(?:0[xX][0-9A-Fa-f]+|0[oO][0-7]+|(?:\d+\.\d+(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?|\d+(?:[eE][+-]?\d+)?))/
 STRING : /'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/
@@ -416,7 +420,7 @@ def _ast_builder_class() -> Callable[[], _TransformerLike]:
             return Literal(_parse_string_token(str(items[0])))
 
         def identifier(self, items: Sequence[Any]) -> Identifier:
-            names = [str(i) for i in items if _is_token(i) and str(getattr(i, "type", "")) == "NAME"]
+            names = [str(i) for i in items if _is_token(i) and str(getattr(i, "type", "")) in ("NAME", "PROP_NAME")]
             if len(names) == 0:
                 raise GFQLExprParseError("Invalid identifier")
             return Identifier(".".join(names))
@@ -666,7 +670,7 @@ def _ast_builder_class() -> Callable[[], _TransformerLike]:
             if len(stripped) != 1:
                 raise GFQLExprParseError("Invalid property access")
             value = cast(ExprNode, stripped[0])
-            names = [str(i) for i in items if _is_token(i) and str(getattr(i, "type", "")) == "NAME"]
+            names = [str(i) for i in items if _is_token(i) and str(getattr(i, "type", "")) in ("NAME", "PROP_NAME")]
             if len(names) == 0:
                 raise GFQLExprParseError("Invalid property access")
             return PropertyAccessExpr(value=value, property=names[-1])

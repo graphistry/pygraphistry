@@ -19,10 +19,15 @@ from graphistry.compute.gfql.temporal.durations import (
     format_duration_calendar_components,
     parse_duration_calendar_components,
 )
+from graphistry.compute.gfql.language_defs import (
+    GFQL_COMPARISON_BINARY_OPS,
+    GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS,
+)
 from graphistry.compute.gfql.temporal.rendering import _render_temporal_arg
 from graphistry.compute.gfql.temporal.truncation import _fold_temporal_truncate_call
 from graphistry.compute.gfql.temporal.values import (
     _TemporalValue,
+    _days_from_civil,
     _days_in_month,
     _format_localdatetime_parts,
     _format_localtime_parts,
@@ -145,6 +150,74 @@ def _scale_duration(components: tuple[int, int, int], factor: float, divide: boo
     return format_duration_calendar_components(
         int(scaled_months), whole_days, int(round(scaled_time + day_spill_nanos))
     )
+
+
+_TZ_OFFSET_PREFIX_RE = re.compile(r"^(Z|[+-]\d{2}:\d{2}(?::\d{2})?)")
+
+_NANOS_PER_SECOND = 1_000_000_000
+
+
+def _temporal_instant_key(value: _TemporalValue) -> Optional[tuple[str, int]]:
+    """(temporal kind, instant nanoseconds) for a parsed temporal literal.
+
+    Zoned kinds normalize to UTC ("compared on a global timeline"); a bare
+    ``[zone]`` suffix with no resolvable offset returns None (no fold)."""
+    offset_nanos = 0
+    if value.kind in {"datetime", "time"}:
+        match = _TZ_OFFSET_PREFIX_RE.match(value.tz_suffix or "")
+        if match is None:
+            return None
+        token = match.group(1)
+        if token != "Z":
+            sign = -1 if token[0] == "-" else 1
+            seconds = int(token[1:3]) * 3600 + int(token[4:6]) * 60
+            if len(token) > 6:
+                seconds += int(token[7:9])
+            offset_nanos = sign * seconds * _NANOS_PER_SECOND
+    days = 0
+    if value.date_value is not None:
+        days = _days_from_civil(value.date_value.year, value.date_value.month, value.date_value.day)
+    civil_nanos = (
+        days * _NANOS_PER_DAY
+        + (value.hour * 3600 + value.minute * 60 + value.second) * _NANOS_PER_SECOND
+        + value.nanosecond
+    )
+    return (value.kind, civil_nanos - offset_nanos)
+
+
+def _fold_temporal_comparison(node: BinaryOp) -> Optional[Literal]:
+    """Constant-fold ``<temporal literal> <cmp> <temporal literal>``.
+
+    openCypher CIP2016-06-14: zoned values compare on the UTC global timeline
+    (same instant under different offsets IS equal), while values of different
+    temporal types are never equal (`=` false) and are incomparable for
+    ordering (`<` etc. null). Both engines otherwise diverge here — pandas
+    instant-compared across types, polars compared rendered text."""
+    cmp_fn = GFQL_COMPARISON_BINARY_OPS.get(str(node.op))
+    if cmp_fn is None:
+        return None
+    if not (isinstance(node.left, Literal) and isinstance(node.right, Literal)):
+        return None
+    if not (isinstance(node.left.value, str) and isinstance(node.right.value, str)):
+        return None
+    try:
+        left_value = _parse_temporal_value(node.left.value)
+        right_value = _parse_temporal_value(node.right.value)
+    except ValueError:
+        return None
+    if left_value is None or right_value is None:
+        return None
+    left_key = _temporal_instant_key(left_value)
+    right_key = _temporal_instant_key(right_value)
+    if left_key is None or right_key is None:
+        return None
+    if left_key[0] != right_key[0]:
+        if str(node.op) == "=":
+            return Literal(False)
+        if str(node.op) in GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS:
+            return Literal(True)
+        return Literal(None)
+    return Literal(bool(cmp_fn(left_key[1], right_key[1])))
 
 
 def _fold_temporal_arithmetic(node: BinaryOp) -> Optional[Literal]:
@@ -328,6 +401,9 @@ def fold_temporal_constructor_ast(node: ExprNode) -> ExprNode:
             arithmetic = _fold_temporal_arithmetic(rebuilt)
             if arithmetic is not None:
                 return arithmetic
+            comparison = _fold_temporal_comparison(rebuilt)
+            if comparison is not None:
+                return comparison
         return rebuilt
 
     return _fold(node)

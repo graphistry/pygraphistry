@@ -829,3 +829,27 @@ def test_temporal_shift_past_date_max_declines_not_overflowerror():
     ]:
         with pytest.raises(GFQLTypeError):
             g.gfql(q, engine="pandas")
+
+
+# --- defensive arms of the #1948 comparison fold -------------------------------------
+
+
+def test_shift_declines_a_dateless_non_time_value():
+    from graphistry.compute.gfql.temporal.folding import _shift_temporal_value
+    from graphistry.compute.gfql.temporal.values import _TemporalValue
+    value = _TemporalValue(kind="date", date_value=None)
+    assert _shift_temporal_value(value, months=1, days=0, time_nanos=0) is None
+
+
+def test_fold_comparison_returns_none_on_unparseable_temporal_text():
+    from graphistry.compute.gfql.expr_parser import BinaryOp, Literal
+    from graphistry.compute.gfql.temporal.folding import _fold_temporal_comparison
+    node = BinaryOp("<", Literal("2020-13-99T99:99"), Literal("2020-01-01"))
+    assert _fold_temporal_comparison(node) is None
+
+
+def test_rewrite_keeps_unknown_current_temporal_call_verbatim(monkeypatch):
+    import graphistry.compute.gfql.temporal.folding as folding
+    monkeypatch.setattr(folding._tt, "_current_temporal_literal", lambda fn, now: None)
+    text = "n.ts > datetime()"
+    assert folding.rewrite_temporal_constructors_in_expr(text) == text

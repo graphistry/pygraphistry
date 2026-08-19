@@ -6871,6 +6871,11 @@ def lower_match_query(
                     )
                 )
                 continue
+            if _is_zoned_iso_temporal_comparison(predicate):
+                zoned_row_expr = _row_where_predicate_text(predicate)
+                if zoned_row_expr is not None:
+                    row_where_predicates.append(zoned_row_expr)
+                    continue
             _apply_literal_where(
                 alias_targets,
                 left=cast(PropertyRef, predicate.left),
@@ -6925,6 +6930,23 @@ def _render_row_where_operand_text(value: Union[PropertyRef, CypherLiteral]) -> 
     if isinstance(value, str):
         return render_cypher_string_literal(value)
     return str(value)
+
+
+_ZONED_ISO_TEMPORAL_TEXT_RE = re.compile(
+    r"^(?:\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?|\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)"
+    r"(?:Z|[+-]\d{2}:?\d{2})$"
+)
+
+
+def _is_zoned_iso_temporal_comparison(predicate: WherePredicate) -> bool:
+    """Comparison against tz-suffixed ISO temporal TEXT: keep it a ``where_rows``
+    residual. Pushed down, the raw pandas compare raises on a naive datetime
+    column and its equality silently matches zero rows; the row pipeline's
+    temporal path compares instants on both column shapes."""
+    if predicate.op not in {"==", "!=", "<>", "<", "<=", ">", ">="}:
+        return False
+    right = predicate.right
+    return isinstance(right, str) and _ZONED_ISO_TEMPORAL_TEXT_RE.match(right) is not None
 
 
 def _row_where_predicate_text(predicate: WherePredicate) -> Optional[str]:
@@ -8382,6 +8404,9 @@ def _connected_join_pushable_value(
         # The 64-bit literal guard lives on the row-expr path, so pushing an out-of-range
         # int would evade it and reach pandas, which overflows with a raw OverflowError.
         return False
+    if isinstance(resolved, str) and _ZONED_ISO_TEMPORAL_TEXT_RE.match(resolved) is not None:
+        # tz-suffixed ISO temporal text string-compares wrongly when pushed; the residual compares instants.
+        return False
     if op in _CONNECTED_JOIN_STRING_OPS:
         if not isinstance(resolved, str):
             return False
@@ -8968,6 +8993,11 @@ def _apply_where_to_ops(
                 )
             )
             continue
+        if _is_zoned_iso_temporal_comparison(predicate):
+            zoned_row_expr = _row_where_predicate_text(predicate)
+            if zoned_row_expr is not None:
+                row_expr_filters.append(ExpressionText(text=zoned_row_expr, span=predicate.span))
+                continue
         _apply_literal_where(
             alias_targets,
             left=cast(PropertyRef, predicate.left),
@@ -9379,9 +9409,10 @@ def compile_cypher_query(
             output_names = _cypher_return_output_names(branch.return_)
             if branch_output_names is None:
                 branch_output_names = output_names
-            elif output_names != branch_output_names:
+            elif sorted(output_names) != sorted(branch_output_names):
+                # Same names in a different ORDER align by name at execution; only a different multiset errors.
                 raise _unsupported(
-                    "Cypher UNION branches must project the same output names in the same order",
+                    "Cypher UNION branches must project the same output names",
                     field="union",
                     value={"expected": branch_output_names, "actual": output_names},
                     line=branch.return_.span.line,

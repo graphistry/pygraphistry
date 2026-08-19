@@ -1159,7 +1159,12 @@ def _concat_union_branch_rows(
     concat: Callable[..., DataFrameT],
 ) -> DataFrameT:
     """Row-concat UNION branch frames without letting a branch's dtype rewrite another's values."""
-    frames = list(row_frames)
+    # UNION aligns columns by NAME (Neo4j); the output keeps the first branch's order.
+    first_columns = list(row_frames[0].columns)
+    frames = [
+        frame if list(frame.columns) == first_columns else frame[first_columns]
+        for frame in row_frames
+    ]
     non_empty = [frame for frame in frames if len(frame) > 0]
     if non_empty and len(non_empty) != len(frames):
         # A 0-row branch contributes no rows, and its dtype must not drag the union supertype.
