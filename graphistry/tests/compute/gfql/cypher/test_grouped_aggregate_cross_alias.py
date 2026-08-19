@@ -140,6 +140,29 @@ def test_mixed_aggregate_compound_item_keeps_the_fail_fast(engine):
              engine)
 
 
+def test_gate_declines_an_unanalyzable_clause_expression():
+    """Unit pin for the gate's conservative branch: an item text the row-expr
+    parser rejects keeps the pre-existing one-source path (False, no raise)."""
+    from graphistry.compute.ast import n
+    from graphistry.compute.gfql.cypher.aggregate_bindings import requires_aggregate_bindings
+    from graphistry.compute.gfql.cypher.ast import ExpressionText, ReturnClause, ReturnItem, SourceSpan
+
+    span = SourceSpan(1, 1, 1, 1, 0, 0)
+    clause = ReturnClause(
+        items=(ReturnItem(ExpressionText("p.age ~~ c.x", span), None, span),),
+        distinct=False, kind="return", span=span,
+    )
+
+    class _Spec:
+        func = "min"
+        distinct = False
+
+    assert requires_aggregate_bindings(
+        aggregate_specs=[_Spec()], relationship_count=1, clause=clause,
+        alias_targets={"p": n(), "c": n()}, params=None,
+    ) is False
+
+
 # ===========================================================================
 # 2. pandas sum(bool) is a well-typed numeric column
 # ===========================================================================
