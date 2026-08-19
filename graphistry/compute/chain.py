@@ -1,6 +1,6 @@
 import logging
 from typing import Any, Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
-from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, align_shared_column_dtypes, df_concat, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_na
+from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, align_shared_column_dtypes, df_concat, df_cons, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_na
 from graphistry.compute.dataframe_utils import dbg_df
 
 from graphistry.Plottable import Plottable
@@ -1195,6 +1195,21 @@ def _chain_impl(
     try:
         g = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
 
+        synthesized_empty_edges = False
+        if g._edges is None and all(isinstance(op, ASTNode) for op in ops):
+            # node-only steps only ever slice edges[:0], so an empty frame serves; result drops it (#1879)
+            synthesized_empty_edges = True
+            synth_src = generate_safe_column_name('src', g._nodes, prefix='__gfql_', suffix='__')
+            synth_dst = generate_safe_column_name('dst', g._nodes, prefix='__gfql_', suffix='__')
+            g = g.edges(df_cons(engine_concrete)({synth_src: [], synth_dst: []}), synth_src, synth_dst)
+        elif g._edges is None and any(isinstance(op, ASTEdge) for op in ops):
+            from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+            raise GFQLSchemaError(
+                ErrorCode.E304,
+                'Cannot traverse edges: graph has no edges bound',
+                suggestion='Bind edges via g.edges(df, source, destination), or use a node-only pattern'
+            )
+
         if g._edges is None:
             added_edge_index = False
         elif g._edge is None:
@@ -1409,6 +1424,9 @@ def _chain_impl(
                 g_out = self.nodes(final_nodes_df, g._node).edges(final_edges_df, edge=original_edge)
             else:
                 g_out = g.nodes(final_nodes_df).edges(final_edges_df)
+
+            if synthesized_empty_edges:
+                g_out = self.nodes(final_nodes_df, g._node)
 
             if g_out._edges is not None and len(g_out._edges) > 0:
                 concat_fn = df_concat(engine_concrete)
