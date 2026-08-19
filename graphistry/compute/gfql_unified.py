@@ -2707,8 +2707,7 @@ def _reject_node_alias_shadowing_id_binding(
                     f"overwrite the node-ID binding. Rename the alias."
                 ),
             )
-        # Cypher-only: an endpoint-named edge alias overwrites the endpoints downstream;
-        # raw GFQL chains keep their documented full-path overwrite parity instead.
+        # Cypher-only decline; raw GFQL chains keep their documented overwrite parity.
         if (
             include_edge_endpoint_aliases
             and isinstance(op, ASTEdge)
