@@ -8374,9 +8374,8 @@ def _connected_join_pushable_value(
     Pushdown is an optimization: anything not exactly representable must stay a
     `where_rows` residual rather than push a filter that means something else.
 
-    - `None` is unrepresentable: `_filter_dict_to_json` drops null-valued entries, so a
-      pushed `nick = null` would vanish on the executor's serialization round-trip and
-      silently return unfiltered rows.
+    - `None` pushes down to a `filter_dict` equality, not to the three-valued-logic
+      comparison Cypher specifies for `nick = null`; the residual owns that meaning.
     - Ordering/inequality ops lower to `NumericASTPredicate`, which admits only int/float
       (`bool` is an `int` subclass but is not a numeric column predicate), so pushing a
       string or bool would raise where the residual answers correctly.
