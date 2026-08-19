@@ -538,9 +538,7 @@ def combine_steps(
             base = c[:-2]
             c_x = base + '_x'
             if c_x in out_df.columns:
-                if base in alias_marker_names:
-                    out_df[base] = out_df[c_x].fillna(False).astype(bool)
-                elif len(out_df) > 0:
+                if len(out_df) > 0:
                     out_df[base] = out_df[c_x].where(out_df[c_x].notna(), out_df[c])
                 out_df = out_df.drop(columns=[c, c_x])
 
