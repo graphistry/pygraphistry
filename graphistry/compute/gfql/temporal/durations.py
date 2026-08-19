@@ -76,6 +76,11 @@ def parse_temporal_sort_duration_components(text: str) -> Optional[tuple[int, in
 
 _NANOS_PER_DAY = 24 * 60 * 60 * 1_000_000_000
 
+_AVERAGE_NANOS_PER_MONTH = 2_629_746 * 1_000_000_000
+"""The only length a fractional month has: 365.2425 / 12 days, i.e. 30.436875 days."""
+
+_AVERAGE_DAYS_PER_MONTH = Decimal(_AVERAGE_NANOS_PER_MONTH) / Decimal(_NANOS_PER_DAY)
+
 
 def parse_duration_calendar_components(text: str) -> Optional[tuple[int, int, int]]:
     """``(months, days, time_nanoseconds)`` for an ISO-8601 duration literal, or None.
