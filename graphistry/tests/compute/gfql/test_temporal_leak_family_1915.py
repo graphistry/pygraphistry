@@ -211,6 +211,13 @@ class TestB5FoldUnits:
         from graphistry.compute.gfql.temporal.folding import _temporal_instant_key
         value = _parse_temporal_value("2020-01-02T00:00:00[Europe/Paris]")
         assert value is not None and _temporal_instant_key(value) is None
+        assert self._fold("=", "2020-01-02T00:00:00[Europe/Paris]", "2020-01-02T00:00:00Z") is None
+
+    def test_non_string_literals_do_not_fold(self):
+        from graphistry.compute.gfql.expr_parser import BinaryOp, Literal
+        from graphistry.compute.gfql.temporal.folding import _fold_temporal_comparison
+        assert _fold_temporal_comparison(BinaryOp(op="=", left=Literal(5), right=Literal("2020-01-02"))) is None
+        assert _fold_temporal_comparison(BinaryOp(op="and", left=Literal("2020-01-02"), right=Literal("2020-01-02"))) is None
 
     def test_offset_with_zone_name_still_folds(self):
         assert self._fold("=", "2020-01-02T02:00:00+02:00[Europe/Paris]", "2020-01-02T00:00:00Z").value is True
@@ -380,6 +387,7 @@ class TestB7Units:
         assert _parse_temporal_filter_scalar("2021-01-01", pl.Datetime("ns", "UTC")) is None  # aware column
         assert _parse_temporal_filter_scalar("1 days", pl.Duration("ns")) == dt.timedelta(days=1)
         assert _parse_temporal_filter_scalar("junk", pl.Duration("ns")) is None
+        assert _parse_temporal_filter_scalar("0 days 00:00:00.000000001", pl.Duration("ns")) is None  # sub-us
         assert _parse_temporal_filter_scalar("2021-01-01", pl.Date) == dt.date(2021, 1, 1)
         assert _parse_temporal_filter_scalar("12:30:00", pl.Time) == dt.time(12, 30)
         assert _parse_temporal_filter_scalar("2021-01-01", pl.Int64()) is None
@@ -407,6 +415,12 @@ class TestB8KeywordPropertyNames:
 
 
 class TestB8Grammar:
+    def test_composite_root_property_access_accepts_keywords(self):
+        """The expr grammar's property_access rule (composite roots) also takes PROP_NAME."""
+        from graphistry.compute.gfql.expr_parser import PropertyAccessExpr, parse_expr
+        node = parse_expr("(n).when")
+        assert isinstance(node, PropertyAccessExpr) and node.property == "when"
+
     @pytest.mark.parametrize("prop", ["when", "then", "end", "order", "is", "all", "any", "contains"])
     def test_issue_keywords_parse_in_where(self, prop):
         """Every keyword the audit listed parses as a property name (pandas run)."""
