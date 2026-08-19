@@ -3,70 +3,42 @@
 row_pipeline.py (the expression/projection lowering core) — degrees.py precedent."""
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING, List, Mapping, Optional, Sequence
 
 from graphistry.Plottable import Plottable
 
 from .row_pipeline import _active_table, _rewrap
 
+if TYPE_CHECKING:
+    import polars as pl
 
-def search_any_polars(
-    g: Plottable,
-    alias: str,
-    term: str,
-    out_col: str,
-    case_sensitive: bool = False,
-    regex: bool = False,
-    columns: Optional[Sequence[str]] = None,
-) -> Optional[Plottable]:
-    """Native polars ``search_any`` (viz-filter L2): OR-across-columns marker, same
-    dtype gate as the pandas kernel (string cols always; int cols iff numeric-literal
-    term; float/date/bool auto-gated out). Regex path applies the same Rust-regex
-    decline gate as Contains; literal default folds via lowercase (never regex).
-    None declines (honest NIE)."""
+
+def auto_search_columns(schema: "Mapping[str, pl.DataType]", pool_cols: Sequence[str], term: str) -> List[str]:
+    """The pandas kernel's dtype auto-gate: string columns always, int columns iff the
+    term is a numeric literal; float/date/bool/nested never (see search_any_polars)."""
     import polars as pl
     from graphistry.compute.gfql.search_any import is_numeric_term
+    numeric_ok = is_numeric_term(term)
+    chosen = []
+    for real in pool_cols:
+        dt = schema[real]
+        if dt == pl.String:
+            chosen.append(real)
+        elif numeric_ok and dt in (pl.Int8, pl.Int16, pl.Int32, pl.Int64,
+                                   pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64):
+            chosen.append(real)
+    return chosen
+
+
+def search_match_expr(schema: "Mapping[str, pl.DataType]", chosen: Sequence[str], term: str,
+                      *, case_sensitive: bool, regex: bool) -> "Optional[pl.Expr]":
+    """OR-across-columns match expr over already-chosen columns; None declines (NIE).
+
+    Single lowering shared by the ``search_any`` row op and the ``search_any`` alias
+    prefilter so the dtype/regex decline gates cannot drift between them.
+    """
+    import polars as pl
     from .predicates import _regex_rust_incompatible
-    left = _active_table(g)
-    if left is None:
-        return None
-    prefix = f"{alias}."
-    prefixed = [c for c in left.columns if c.startswith(prefix)]
-    if prefixed:
-        pool = {c[len(prefix):]: c for c in prefixed}
-    else:
-        pool = {c: c for c in left.columns
-                if not c.startswith("__gfql_") and c != alias}
-    schema = dict(left.schema)
-    if columns is not None:
-        if any(c not in pool for c in columns):
-            # same validation error as the pandas row pipeline (there is no pandas
-            # fallback behind this dispatch — a generic NIE here would misreport a
-            # user input error as an engine gap; wave-1 I2)
-            from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "searchAny columns= includes a column absent from the searched table",
-                field="columns",
-                value=list(columns),
-                suggestion="List only columns present on the searched entity.",
-                language="cypher",
-            )
-        chosen = [pool[c] for c in columns]
-    else:
-        numeric_ok = is_numeric_term(term)
-        chosen = []
-        for real in pool.values():
-            dt = schema[real]
-            if dt == pl.String:
-                chosen.append(real)
-            elif numeric_ok and dt in (pl.Int8, pl.Int16, pl.Int32, pl.Int64,
-                                       pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64):
-                chosen.append(real)
-    if len(left) == 0 or not chosen:
-        marked = left.with_columns(
-            pl.lit(False).alias(out_col) if len(left) else pl.lit(None).cast(pl.Boolean).alias(out_col))
-        return _rewrap(g, marked)
     if regex and _regex_rust_incompatible(term):
         return None
     # Explicit columns= reaches beyond the auto gate: only dtypes whose canonical
@@ -105,5 +77,58 @@ def search_any_polars(
             exprs.append(base.str.contains(term, literal=True))
         else:
             exprs.append(base.str.to_lowercase().str.contains(term.lower(), literal=True))
-    marked = left.with_columns(pl.any_horizontal(exprs).fill_null(False).alias(out_col))
+    return pl.any_horizontal(exprs)
+
+
+def search_any_polars(
+    g: Plottable,
+    alias: str,
+    term: str,
+    out_col: str,
+    case_sensitive: bool = False,
+    regex: bool = False,
+    columns: Optional[Sequence[str]] = None,
+) -> Optional[Plottable]:
+    """Native polars ``search_any`` (viz-filter L2): OR-across-columns marker, same
+    dtype gate as the pandas kernel (string cols always; int cols iff numeric-literal
+    term; float/date/bool auto-gated out). Regex path applies the same Rust-regex
+    decline gate as Contains; literal default folds via lowercase (never regex).
+    None declines (honest NIE)."""
+    import polars as pl
+    left = _active_table(g)
+    if left is None:
+        return None
+    prefix = f"{alias}."
+    prefixed = [c for c in left.columns if c.startswith(prefix)]
+    if prefixed:
+        pool = {c[len(prefix):]: c for c in prefixed}
+    else:
+        pool = {c: c for c in left.columns
+                if not c.startswith("__gfql_") and c != alias}
+    schema = dict(left.schema)
+    if columns is not None:
+        if any(c not in pool for c in columns):
+            # same validation error as the pandas row pipeline (there is no pandas
+            # fallback behind this dispatch — a generic NIE here would misreport a
+            # user input error as an engine gap; wave-1 I2)
+            from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "searchAny columns= includes a column absent from the searched table",
+                field="columns",
+                value=list(columns),
+                suggestion="List only columns present on the searched entity.",
+                language="cypher",
+            )
+        chosen = [pool[c] for c in columns]
+    else:
+        chosen = auto_search_columns(schema, list(pool.values()), term)
+    if len(left) == 0 or not chosen:
+        marked = left.with_columns(
+            pl.lit(False).alias(out_col) if len(left) else pl.lit(None).cast(pl.Boolean).alias(out_col))
+        return _rewrap(g, marked)
+    match = search_match_expr(schema, chosen, term, case_sensitive=case_sensitive, regex=regex)
+    if match is None:
+        return None
+    marked = left.with_columns(match.fill_null(False).alias(out_col))
     return _rewrap(g, marked)

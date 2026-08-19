@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.gfql.expr_parser import ExprNode, FunctionCall
     from graphistry.compute.ast import ASTObject
+    from graphistry.compute.gfql.row.prefilter import AliasPrefilters
 
     # Within ONE call the path bag and its per-alias frames are the same polars
     # flavour — the generic builder works in LazyFrames, the indexed one in eager
@@ -1089,13 +1090,123 @@ def _lower_with_schema(table: "pl.DataFrame", fn: Callable[[], _LowerT],
     """Run a lowering callable with the table schema published to ``_SCHEMA`` (float-operand
     inference for the NaN guard) and the graph node-id column published to ``_NODE_ID`` (bare
     ``__gfql_node_id__`` identity-sentinel resolution)."""
-    schema_token = _SCHEMA.set(dict(table.schema))
+    return _lower_with_schema_map(dict(table.schema), fn, node_id=node_id)
+
+
+def _lower_with_schema_map(schema: "Mapping[str, pl.DataType]", fn: Callable[[], _LowerT],
+                           node_id: Optional[str] = None) -> _LowerT:
+    """`_lower_with_schema` for callers holding a schema mapping rather than an eager frame
+    (LazyFrame call sites resolve via ``collect_schema`` — no ``.schema`` warning/collect)."""
+    schema_token = _SCHEMA.set(dict(schema))
     node_id_token = _NODE_ID.set(node_id)
     try:
         return fn()
     finally:
         _SCHEMA.reset(schema_token)
         _NODE_ID.reset(node_id_token)
+
+
+def _apply_alias_prefilters_polars(
+    frame: "PolarsFrameT",
+    alias: Optional[str],
+    alias_prefilters: "Optional[AliasPrefilters]",
+    *,
+    reserved: Sequence[str] = (),
+) -> "PolarsFrameT":
+    """Native twin of the pandas ``_gfql_apply_alias_prefilter`` (L4 single-alias predicate
+    pushdown): pre-filter ONE alias's frame before the binding join. Same evaluator
+    family as the post-join ops (``lower_expr_str`` / ``search_match_expr``), same validation
+    errors as the pandas prefilter, and a TYPED NotImplementedError naming ``alias_prefilters``
+    for any spec the polars lowering cannot serve — a dropped prefilter returns rows the
+    caller filtered out, the worst silent-wrong class. ``frame`` is eager-or-lazy polars;
+    returns the same flavour. ``reserved`` = edge endpoint columns excluded from the
+    searchAny pool (join keys, never searched — pandas twin's ``is_edge`` arm)."""
+    import polars as pl
+    from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+
+    if not alias or not alias_prefilters or frame is None:
+        return frame
+    specs = alias_prefilters.get(alias)
+    if not specs:
+        return frame
+
+    def _decline(detail: str) -> NotImplementedError:
+        return NotImplementedError(
+            f"polars engine cannot natively honour rows(alias_prefilters=...) for alias "
+            f"{alias!r}: {detail}; use engine='pandas' or engine='cudf' for this query "
+            f"(no silent fallback; a dropped prefilter would return filtered-out rows)"
+        )
+
+    schema = dict(frame.collect_schema()) if isinstance(frame, pl.LazyFrame) else dict(frame.schema)
+    names = list(schema.keys())
+    for spec in specs:
+        kind = spec.get("kind")
+        if kind == "expr":
+            # Same rename-to-qualified trick as the pandas twin: evaluate ``alias.prop``
+            # against a view whose columns carry the alias-qualified names.
+            mapping = {c: f"{alias}.{c}" for c in names}
+            inverse = {v: k for k, v in mapping.items()}
+            renamed_schema = {mapping[c]: dt for c, dt in schema.items()}
+            text = spec.get("text")
+            if not isinstance(text, str):
+                raise _decline("expr prefilter without string text")
+            lowered = _lower_with_schema_map(
+                renamed_schema,
+                lambda: lower_expr_str(text, list(renamed_schema.keys())),
+            )
+            if lowered is None:
+                raise _decline(f"expr prefilter not natively lowerable: {text!r}")
+            frame = frame.rename(mapping).filter(lowered).rename(inverse)
+        elif kind == "search_any":
+            from .search import auto_search_columns, search_match_expr
+            term = spec.get("term")
+            if not isinstance(term, str):
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "searchAny pushdown requires a string term",
+                    field="term",
+                    value=term,
+                    language="cypher",
+                )
+            columns = spec.get("columns")
+            if columns is not None and not all(isinstance(col, str) for col in columns):
+                raise GFQLValidationError(
+                    ErrorCode.E108,
+                    "searchAny pushdown columns= must be a list of strings",
+                    field="columns",
+                    value=columns,
+                    language="cypher",
+                )
+            # Same pool as the pandas twin: alias property columns only (join keys and
+            # internal ``__gfql_`` columns excluded).
+            pool = [c for c in names if c not in reserved and not c.startswith("__gfql_")]
+            if columns is not None:
+                if any(c not in pool for c in columns):
+                    raise GFQLValidationError(
+                        ErrorCode.E108,
+                        "searchAny pushdown columns= includes a column absent from the alias frame",
+                        field="columns",
+                        value=list(columns),
+                        language="cypher",
+                    )
+                chosen = list(columns)
+            else:
+                chosen = auto_search_columns(schema, pool, term)
+            if not chosen:
+                # No searchable column ⇒ no row matches (pandas kernel: all-False mask).
+                frame = frame.filter(pl.lit(False))
+                continue
+            match = search_match_expr(
+                schema, chosen, term,
+                case_sensitive=bool(spec.get("case_sensitive", False)),
+                regex=bool(spec.get("regex", False)),
+            )
+            if match is None:
+                raise _decline(f"searchAny prefilter not natively lowerable: {term!r}")
+            frame = frame.filter(match.fill_null(False))
+        else:
+            raise _decline(f"unknown prefilter kind {kind!r}")
+    return frame
 
 
 def _project_preserving_height(table: Any, exprs: List[Any]) -> Any:
@@ -1456,6 +1567,7 @@ def _cartesian_node_bindings_polars(
     g: Plottable,
     ops: "Sequence[ASTObject]",
     node_id: Optional[str],
+    alias_prefilters: "Optional[AliasPrefilters]" = None,
 ) -> Optional[Plottable]:
     """Native polars cross-product for disconnected MATCH aliases (#1273).
 
@@ -1520,6 +1632,8 @@ def _cartesian_node_bindings_polars(
             raise
         except Exception:  # pragma: no cover - defensive: unexpected filter failure declines
             return None
+        # L4 pushdown twin of pandas `_gfql_cartesian_node_bindings_row_table`
+        matched = _apply_alias_prefilters_polars(matched, alias, alias_prefilters)  # honoured, never dropped (#1804)
         cols = matched.collect_schema().names()
         # prop_cols excludes node_id and any real column named == alias: the pandas
         # node execute() leaks a boolean FLAG into a column named ``alias``
@@ -1551,6 +1665,7 @@ def binding_rows_polars(
     g: Plottable,
     binding_ops: Sequence[Dict[str, JSONVal]],
     attach_prop_aliases: Optional[Sequence[str]] = None,
+    alias_prefilters: "Optional[AliasPrefilters]" = None,
 ) -> Optional[Plottable]:
     """Native polars bindings-row table for connected alias patterns (#1709).
 
@@ -1561,6 +1676,12 @@ def binding_rows_polars(
     columns per node alias. (The pandas frame additionally carries join-residue
     columns — raw ``node_id``, ``a__a_join__``, leaked ``__gfql_edge_index__`` —
     that no lowered query references; those are intentionally not replicated.)
+
+    ``alias_prefilters`` are honoured natively via
+    ``_apply_alias_prefilters_polars`` at the same per-alias points as the pandas
+    builder (seed / per-hop edge / endpoint frames); a spec the polars lowering
+    cannot serve raises a typed NotImplementedError naming the feature — NEVER a
+    silent drop (rows the caller filtered out coming back is the worst class).
 
     Covers fixed-length hops, bounded variable-length (directed ``-[*i..k]->`` and
     undirected ``-[*1..k]-``), unbounded DIRECTED fixed point (``-[*]->`` /
@@ -1650,7 +1771,7 @@ def binding_rows_polars(
             # applied at seed_nodes; node-cartesian re-entry stays pandas-only).
             return None
         # MATCH (a), (b), ... disconnected node aliases: native cross-product.
-        return _cartesian_node_bindings_polars(g, ops, node_id)
+        return _cartesian_node_bindings_polars(g, ops, node_id, alias_prefilters)
     if RowPipelineMixin._gfql_is_shortest_path_scalar_binding_ops(ops):
         return None  # shortestPath scalar contract: BFS/native backends, pandas-only
 
@@ -1669,9 +1790,10 @@ def binding_rows_polars(
 
     handoff = read_handoff(g)
     plan = list(binding_ops)
+    # a prefiltered plan never reuses a prefilter-blind handoff state (pandas twin gate)
     indexed_state = (
         handoff.state
-        if handoff is not None and handoff.serves(plan, engine_concrete)
+        if handoff is not None and handoff.serves(plan, engine_concrete) and not alias_prefilters
         else None
     )
     if indexed_state is None and not (handoff is not None and handoff.declined(plan)):
@@ -1680,6 +1802,7 @@ def binding_rows_polars(
             ops,
             engine=engine_concrete,
             start_nodes=start_nodes,
+            alias_prefilters=alias_prefilters,
         )
     if indexed_state is not None:
         return _finish_binding_rows_polars(
@@ -1814,6 +1937,8 @@ def binding_rows_polars(
         if seed_ids_lf is not None:
             # WITH->MATCH re-entry seed: constrain the first alias to the carried ids.
             seed_nodes = seed_nodes.join(seed_ids_lf, on=node_id, how="semi")
+        # L4 pushdown twin of pandas `_gfql_connected_bindings_state`'s seed prefilter
+        seed_nodes = _apply_alias_prefilters_polars(seed_nodes, first_op._name, alias_prefilters)  # honoured, never dropped (#1804)
         # The whole generic builder works in LazyFrames (`nodes_lf` / `edges_lf` above);
         # `filter_by_dict_polars` is frame-polymorphic at runtime but declares the eager
         # type, so pin the path bag lazy here instead of leaving every downstream lazy
@@ -1834,6 +1959,11 @@ def binding_rows_polars(
             sem = EdgeSemantics.from_edge(edge_op)
             edges_f = filter_by_dict_polars(edges_lf, edge_op.edge_match)
             edge_alias = edge_op._name
+            if not sem.is_multihop and isinstance(edge_alias, str):
+                # pandas' per-hop edge prefilter twin; src/dst = join keys, never searched
+                edges_f = _apply_alias_prefilters_polars(
+                    edges_f, edge_alias, alias_prefilters, reserved=(src, dst),
+                )
             if isinstance(edge_alias, str):
                 payload_renames = {
                     col: f"{edge_alias}.{col}"
@@ -1866,6 +1996,8 @@ def binding_rows_polars(
             if not isinstance(next_op, ASTNode):
                 return None
             next_nodes = filter_by_dict_polars(nodes_lf, next_op.filter_dict)
+            # pandas' endpoint prefilter twin: before the id set, so membership + alias frame agree
+            next_nodes = _apply_alias_prefilters_polars(next_nodes, next_op._name, alias_prefilters)
             next_node_ids = next_nodes.select(node_id).unique()
             if not sem.is_multihop:
                 # Filter endpoint candidates before joining from the current state.

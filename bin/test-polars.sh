@@ -100,6 +100,12 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/index/test_indexed_bindings.py
     graphistry/tests/compute/gfql/test_reentry_caller_graph_immutability.py
     graphistry/tests/compute/gfql/test_rewrite_param_discard.py
+    # #1804 rows(alias_prefilters=...) native honouring: the polars params (and the typed
+    # NIE decline) only ever run here
+    graphistry/tests/compute/gfql/test_engine_polars_alias_prefilters.py
+    # #1739 HAS_<Label> dup-id disambiguation on the grouped-aggregate fast path: the
+    # polars params only ever run here
+    graphistry/tests/compute/gfql/test_has_label_dup_id_fast_path.py
     graphistry/tests/compute/test_engine_coercion.py
     graphistry/tests/compute/test_let_binding_contracts.py
     # index tests exercise the seeded-index hook in the polars hop entry (hop.py) — without
