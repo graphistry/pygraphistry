@@ -328,8 +328,8 @@ class TestB7TemporalStringLeaks:
         g = _graph("pandas")
         out = _rows(g, "MATCH (a) WHERE a.id IN ['p', 'q'] OPTIONAL MATCH (a)-[]->(b) "
                        "WHERE b.ts > '2021-01-01T00:00:00Z' RETURN a.id, b.id", "pandas")
-        out = out.where(out.notna(), None)
         got = sorted(out.to_dict("records"), key=lambda r: r["a.id"])
+        got = [{k: (None if isinstance(v, float) and v != v else v) for k, v in r.items()} for r in got]
         assert got == [{"a.id": "p", "b.id": "q"}, {"a.id": "q", "b.id": None}]
 
     @pytest.mark.parametrize("engine", [
