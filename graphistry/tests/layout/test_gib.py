@@ -1,5 +1,7 @@
 import logging, os, pandas as pd, pytest, warnings
+from contextlib import contextmanager
 from graphistry.compute import ComputeMixin
+from graphistry.Engine import Engine
 from graphistry.layouts import LayoutsMixin
 from graphistry.plotter import PlotterBase
 from graphistry.tests.common import NoAuthTestCase
@@ -8,6 +10,54 @@ logger.setLevel(logging.DEBUG)
 
 
 test_cudf = "TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"
+
+
+# nodes 0-2: connected triangle; 3-4: connected pair; 5: singleton; 6-8: edgeless partition
+MIXED_SIZES_NODES = {'id': [0, 1, 2, 3, 4, 5, 6, 7, 8], 'partition': [0, 0, 0, 1, 1, 2, 3, 3, 3]}
+MIXED_SIZES_EDGES = {'s': [0, 1, 2, 3], 'd': [1, 2, 0, 4]}
+
+
+NA_FILL_MESSAGE = 'filling layout-returned NAs as random'
+
+
+@contextmanager
+def capture_gib_layout_logs():
+    """Collect partitioned_layout debug records so a pin can tell which branch positioned a node"""
+    messages: list = []
+
+    class _Collect(logging.Handler):
+        def emit(self, record):
+            messages.append(record.getMessage())
+
+    target = logging.getLogger('graphistry.layout.gib.partitioned_layout')
+    handler = _Collect()
+    prior_level = target.level
+    target.setLevel(logging.DEBUG)
+    target.addHandler(handler)
+    try:
+        yield messages
+    finally:
+        target.removeHandler(handler)
+        target.setLevel(prior_level)
+
+
+def grid_layout(g):
+    """Deterministic layout callable so pins do not depend on igraph/cugraph being installed"""
+    n = g._nodes
+    idx = n[g._node].astype('float64')
+    return g.nodes(n.assign(x=idx % 3.0, y=idx // 3.0))
+
+
+def partial_layout(g):
+    """Layout callable leaving one x and one y unpositioned, exercising both NA-fill branches"""
+    n = g._nodes
+    idx = n[g._node].astype('float64')
+    out = n.assign(x=idx % 3.0, y=idx // 3.0)
+    ids = out[g._node]
+    out['x'] = out['x'].where(ids != ids.iloc[0], float('nan'))
+    out['y'] = out['y'].where(ids != ids.iloc[-1], float('nan'))
+    return g.nodes(out)
+
 
 class LG(LayoutsMixin):
     def __init__(self, *args, **kwargs):
@@ -216,6 +266,159 @@ class Test_gib(NoAuthTestCase):
         assert not result._nodes.x.isna().any(), "circle_layout produced NaN x coordinates"
         assert not result._nodes.y.isna().any(), "circle_layout produced NaN y coordinates"
         assert len(result._nodes) == 5
+
+    def test_gib_node_id_multiset_preserved_on_mixed_partition_sizes(self):
+        lg = LGFull()
+        nodes = pd.DataFrame(MIXED_SIZES_NODES)
+        edges = pd.DataFrame(MIXED_SIZES_EDGES)
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            g = (
+                lg
+                .nodes(nodes, 'id')
+                .edges(edges, 's', 'd')
+                .group_in_a_box_layout(layout_alg=grid_layout)
+            )
+
+        assert sorted(g._nodes['id'].to_numpy().tolist()) == sorted(nodes['id'].tolist())
+        assert int(g._nodes['id'].duplicated().sum()) == 0
+        assert not g._nodes.x.isna().any()
+        assert not g._nodes.y.isna().any()
+
+    def test_gib_node_id_multiset_preserved_on_edgeless_graph(self):
+        lg = LGFull()
+        nodes = pd.DataFrame({'id': [0, 1, 2, 5], 'partition': [0, 1, 2, 3]})
+        edges = pd.DataFrame({'s': pd.Series([], dtype='int64'), 'd': pd.Series([], dtype='int64')})
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            g = (
+                lg
+                .nodes(nodes, 'id')
+                .edges(edges, 's', 'd')
+                .group_in_a_box_layout(layout_alg=grid_layout)
+            )
+
+        assert sorted(g._nodes['id'].to_numpy().tolist()) == [0, 1, 2, 5]
+        assert int(g._nodes['id'].duplicated().sum()) == 0
+
+    def test_gib_node_id_multiset_preserved_with_default_layout(self):
+        pytest.importorskip('igraph')
+        lg = LGFull()
+        nodes = pd.DataFrame({'id': [0, 1, 2, 3, 4, 5, 6, 7, 8]})
+        edges = pd.DataFrame({'s': [0, 1, 2, 3, 4, 5, 6], 'd': [1, 2, 0, 4, 5, 3, 7]})
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            g = (
+                lg
+                .nodes(nodes, 'id')
+                .edges(edges, 's', 'd')
+                .group_in_a_box_layout()
+            )
+
+        assert sorted(g._nodes['id'].to_numpy().tolist()) == sorted(nodes['id'].tolist())
+        assert int(g._nodes['id'].duplicated().sum()) == 0
+        assert not g._nodes.x.isna().any()
+        assert not g._nodes.y.isna().any()
+
+    def test_gib_unpositioned_nodes_filled_instead_of_asserting(self):
+        lg = LGFull()
+        # every partition has 3 connected nodes, so the small-partition branches stay out of this pin
+        nodes = pd.DataFrame({'id': [0, 1, 2, 3, 4, 5], 'partition': [0, 0, 0, 1, 1, 1]})
+        edges = pd.DataFrame({'s': [0, 1, 2, 3, 4, 5], 'd': [1, 2, 0, 4, 5, 3]})
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            g = (
+                lg
+                .nodes(nodes, 'id')
+                .edges(edges, 's', 'd')
+                .group_in_a_box_layout(layout_alg=partial_layout)
+            )
+
+        assert len(g._nodes) == 6
+        assert not g._nodes.x.isna().any()
+        assert not g._nodes.y.isna().any()
+
+    def test_partitioned_layout_non_bulk_positions_edgeless_partitions_on_both_axes(self):
+        from graphistry.layout.gib.partitioned_layout import partitioned_layout
+        from graphistry.layout.gib.treemap import treemap
+
+        lg = LGFull()
+        # partition 0 is a connected pair, partition 1 is a 3-node edgeless group
+        nodes = pd.DataFrame({'id': [0, 1, 2, 3, 4], 'partition': [0, 0, 1, 1, 1]})
+        edges = pd.DataFrame({'s': [0], 'd': [1]})
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            g = lg.nodes(nodes, 'id').edges(edges, 's', 'd')
+            offsets = treemap(g, x=0, y=0, w=None, h=None, partition_key='partition', engine=Engine.PANDAS)
+            with capture_gib_layout_logs() as messages:
+                out = partitioned_layout(
+                    g,
+                    partition_offsets=offsets,
+                    partition_key='partition',
+                    bulk_mode=False,
+                    engine=Engine.PANDAS,
+                )
+
+        assert sorted(out._nodes['id'].to_numpy().tolist()) == [0, 1, 2, 3, 4]
+        assert int(out._nodes['id'].duplicated().sum()) == 0
+        assert not out._nodes.x.isna().any()
+        assert not out._nodes.y.isna().any()
+        # the edgeless branch must position both axes itself, not lean on the NA backstop
+        assert [m for m in messages if 'edgeless-community' in m], messages
+        assert not [m for m in messages if NA_FILL_MESSAGE in m], messages
+
+    @pytest.mark.skipif(
+        not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
+        reason="cudf tests need TEST_CUDF=1")
+    def test_gib_cudf_node_id_multiset_preserved_on_mixed_partition_sizes(self):
+        import cudf
+
+        lg = LGFull()
+        nodes = cudf.DataFrame(MIXED_SIZES_NODES)
+        edges = cudf.DataFrame(MIXED_SIZES_EDGES)
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            g = (
+                lg
+                .nodes(nodes, 'id')
+                .edges(edges, 's', 'd')
+                .group_in_a_box_layout(layout_alg=grid_layout, engine='cudf')
+            )
+
+        assert isinstance(g._nodes, cudf.DataFrame)
+        assert sorted(g._nodes['id'].to_arrow().to_pylist()) == sorted(MIXED_SIZES_NODES['id'])
+        assert int(g._nodes['id'].duplicated().sum()) == 0
+        assert not g._nodes.x.isna().any()
+        assert not g._nodes.y.isna().any()
+
+    @pytest.mark.skipif(
+        not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
+        reason="cudf tests need TEST_CUDF=1")
+    def test_gib_cudf_unpositioned_nodes_filled_instead_of_asserting(self):
+        import cudf
+
+        lg = LGFull()
+        nodes = cudf.DataFrame({'id': [0, 1, 2, 3, 4, 5], 'partition': [0, 0, 0, 1, 1, 1]})
+        edges = cudf.DataFrame({'s': [0, 1, 2, 3, 4, 5], 'd': [1, 2, 0, 4, 5, 3]})
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            g = (
+                lg
+                .nodes(nodes, 'id')
+                .edges(edges, 's', 'd')
+                .group_in_a_box_layout(layout_alg=partial_layout, engine='cudf')
+            )
+
+        assert len(g._nodes) == 6
+        assert not g._nodes.x.isna().any()
+        assert not g._nodes.y.isna().any()
 
     @pytest.mark.skipif(
         not ("TEST_CUDF" in os.environ and os.environ["TEST_CUDF"] == "1"),
