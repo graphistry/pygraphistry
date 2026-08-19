@@ -5,6 +5,7 @@ from typing import Any, Callable, Optional, Union
 import zipfile
 from typing_extensions import Literal
 import ast
+import textwrap
 import pandas as pd
 import requests
 
@@ -13,6 +14,22 @@ from graphistry.Plottable import Plottable
 from graphistry.compute.remote_df_io import require_csv_opt_in, resolve_csv_reader
 from graphistry.models.compute.chain_remote import DFImportArgs, FormatType, OutputTypeAll, OutputTypeDf
 from graphistry.otel import inject_trace_headers
+
+
+def normalize_task_code(code: Union[str, Callable[..., object]]) -> str:
+    """Normalize a callable or source string to a parseable top-level ``def task`` source."""
+
+    if callable(code):
+        code_str = inspect.getsource(code)
+        old_name = code.__name__
+        if old_name != "task":
+            code_str = code_str.replace(f"def {old_name}", "def task", 1)
+        code = code_str
+
+    assert code is not None and isinstance(code, str), f"Expected code to be a string, received type: {type(code)}"
+
+    # Source from a nested def, or written as an indented literal, does not parse as-is.
+    return textwrap.dedent(code)
 
 
 def validate_python_str(code: str) -> bool:
@@ -102,13 +119,7 @@ def python_remote_generic(
             print(f'num_edges: {num_edges}')
     """
 
-    if callable(code):
-        if code.__name__ != "task":
-            code_str = inspect.getsource(code)
-            old_name = code.__name__
-            code = code_str.replace(f"def {old_name}", "def task", 1)
-
-    assert code is not None and isinstance(code, str), f"Expected code to be a string, received type: {type(code)}"
+    code = normalize_task_code(code)
 
     if validate:
         if not validate_python_str(code):
