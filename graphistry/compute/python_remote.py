@@ -10,7 +10,8 @@ import requests
 
 from graphistry.Engine import Engine, EngineAbstractType, resolve_input_engine
 from graphistry.Plottable import Plottable
-from graphistry.models.compute.chain_remote import FormatType, OutputTypeAll, OutputTypeDf
+from graphistry.compute.remote_df_io import require_csv_opt_in, resolve_csv_reader
+from graphistry.models.compute.chain_remote import DFImportArgs, FormatType, OutputTypeAll, OutputTypeDf
 from graphistry.otel import inject_trace_headers
 
 
@@ -42,7 +43,8 @@ def python_remote_generic(
     output_type: Optional[OutputTypeAll] = 'json',
     engine: EngineAbstractType = 'auto',
     run_label: Optional[str] = None,
-    validate: bool = True
+    validate: bool = True,
+    df_import_args: Optional[DFImportArgs] = None,
 ) -> Union[Plottable, pd.DataFrame, Any]:
     """Remotely run Python code on a remote dataset.
     
@@ -57,7 +59,7 @@ def python_remote_generic(
     :param dataset_id: Optional dataset_id. If not provided, will fallback to self._dataset_id. If not defined, will upload current data, store that dataset_id, and run code against that.
     :type dataset_id: Optional[str]
 
-    :param format: What format to fetch results. Defaults to 'json'. We recommend a columnar format such as parquet.
+    :param format: What format to fetch results. Defaults to 'json'. We recommend a columnar format such as parquet. ``'csv'`` is untyped on the wire and is refused unless ``df_import_args`` is supplied.
     :type format: Optional[FormatType]
 
     :param output_type: What shape of output to fetch. Defaults to 'json'. Options include 'nodes', 'edges', 'all' (both), 'table', 'shape', and 'json'.
@@ -71,6 +73,9 @@ def python_remote_generic(
 
     :param validate: Whether to locally test code, and if uploading data, the data. Default true.
     :type validate: bool
+
+    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Required to use ``format='csv'`` at all: csv is untyped on the wire, so without explicit reader control the client would re-infer dtypes and can rewrite values. Prefer ``format='parquet'``, which is faithful and needs no reader args.
+    :type df_import_args: Optional[Dict[str, Any]]
 
     **Example: Upload data and count the results**
         ::
@@ -108,6 +113,9 @@ def python_remote_generic(
     if validate:
         if not validate_python_str(code):
             raise ValueError("Invalid code")
+
+    if format == "csv":
+        require_csv_opt_in(df_import_args, "python_remote")
 
     if not api_token:
         self._pygraphistry.refresh()
@@ -183,6 +191,9 @@ def python_remote_generic(
         read_parquet = cudf.read_parquet
     else:
         raise ValueError(f"Unknown self._edges type, expected cudf/pandas DataFrame: {type(self._edges)}")
+
+    if format == "csv":
+        read_csv = resolve_csv_reader(read_csv, df_import_args, "python_remote")
 
     if output_type == "shape":
         if format == "json":
@@ -281,7 +292,8 @@ def python_remote_g(
     output_type: Optional[OutputTypeAll] = 'all',
     engine: EngineAbstractType = 'auto',
     run_label: Optional[str] = None,
-    validate: bool = True
+    validate: bool = True,
+    df_import_args: Optional[DFImportArgs] = None,
 ) -> Plottable:
     """Remotely run Python code on a remote dataset that returns a Plottable
     
@@ -296,7 +308,7 @@ def python_remote_g(
     :param dataset_id: Optional dataset_id. If not provided, will fallback to self._dataset_id. If not defined, will upload current data, store that dataset_id, and run code against that.
     :type dataset_id: Optional[str]
 
-    :param format: What format to fetch results. Defaults to 'parquet'.
+    :param format: What format to fetch results. Defaults to 'parquet'. ``'csv'`` is untyped on the wire and is refused unless ``df_import_args`` is supplied.
     :type format: Optional[FormatType]
 
     :param output_type: What shape of output to fetch. Defaults to 'all'. Options include 'nodes', 'edges', 'all' (both). For other variants, see python_remote_shape and python_remote_json.
@@ -310,6 +322,9 @@ def python_remote_g(
 
     :param validate: Whether to locally test code, and if uploading data, the data. Default true.
     :type validate: bool
+
+    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Required to use ``format='csv'`` at all. Prefer ``format='parquet'``, which is faithful and needs no reader args.
+    :type df_import_args: Optional[Dict[str, Any]]
 
     **Example: Upload data and count the results**
         ::
@@ -345,7 +360,8 @@ def python_remote_g(
         output_type=output_type,
         engine=engine,
         run_label=run_label,
-        validate=validate
+        validate=validate,
+        df_import_args=df_import_args,
     )
 
     assert isinstance(out, Plottable), f"Expected Plottable, got: {type(out)}"
@@ -362,7 +378,8 @@ def python_remote_table(
     output_type: Optional[OutputTypeDf] = 'table',
     engine: EngineAbstractType = 'auto',
     run_label: Optional[str] = None,
-    validate: bool = True
+    validate: bool = True,
+    df_import_args: Optional[DFImportArgs] = None,
 ) -> pd.DataFrame:
     """Remotely run Python code on a remote dataset that returns a table
     
@@ -377,7 +394,7 @@ def python_remote_table(
     :param dataset_id: Optional dataset_id. If not provided, will fallback to self._dataset_id. If not defined, will upload current data, store that dataset_id, and run code against that.
     :type dataset_id: Optional[str]
 
-    :param format: What format to fetch results. Defaults to 'parquet'.
+    :param format: What format to fetch results. Defaults to 'parquet'. ``'csv'`` is untyped on the wire and is refused unless ``df_import_args`` is supplied.
     :type format: Optional[FormatType]
 
     :param output_type: What shape of output to fetch. Defaults to 'table'. Options include 'table', 'nodes', and 'edges'.
@@ -391,6 +408,9 @@ def python_remote_table(
 
     :param validate: Whether to locally test code, and if uploading data, the data. Default true.
     :type validate: bool
+
+    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Required to use ``format='csv'`` at all. Prefer ``format='parquet'``, which is faithful and needs no reader args.
+    :type df_import_args: Optional[Dict[str, Any]]
 
     **Example: Upload data and count the results**
         ::
@@ -426,7 +446,8 @@ def python_remote_table(
         output_type=output_type,
         engine=engine,
         run_label=run_label,
-        validate=validate
+        validate=validate,
+        df_import_args=df_import_args,
     )
 
     assert isinstance(out, pd.DataFrame), f"Expected pd.DataFrame, got: {type(out)}"

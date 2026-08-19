@@ -20,7 +20,7 @@ from .python_remote import (
     python_remote_table as python_remote_table_base,
     python_remote_json as python_remote_json_base
 )
-from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType
+from graphistry.models.compute.chain_remote import DFImportArgs, OutputTypeGraph, FormatType
 from .collapse import collapse_by
 from .hop import hop as hop_base
 from .filter_by_dict import (
@@ -829,6 +829,7 @@ class ComputeMixin(Plottable):
         engine: EngineAbstractType = 'auto',
         validate: bool = True,
         persist: bool = False,
+        df_import_args: Optional[DFImportArgs] = None,
         params: Optional[Dict[str, Any]] = None,
         output: Optional[str] = None,
     ) -> Plottable:
@@ -866,7 +867,7 @@ class ComputeMixin(Plottable):
         return chain_remote_base(
             self, chain, api_token, dataset_id, output_type, format,
             df_export_args, node_col_subset, edge_col_subset, engine, validate, persist,
-            params=params, output=output,
+            params=params, output=output, df_import_args=df_import_args,
         )
     
     def gfql_remote_shape(
@@ -880,7 +881,8 @@ class ComputeMixin(Plottable):
         edge_col_subset: Optional[List[str]] = None,
         engine: EngineAbstractType = 'auto',
         validate: bool = True,
-        persist: bool = False
+        persist: bool = False,
+        df_import_args: Optional[DFImportArgs] = None,
     ) -> pd.DataFrame:
         """Get shape metadata for remote GFQL query execution.
 
@@ -891,7 +893,8 @@ class ComputeMixin(Plottable):
         """
         return chain_remote_shape_base(
             self, chain, api_token, dataset_id, format, df_export_args,
-            node_col_subset, edge_col_subset, engine, validate, persist
+            node_col_subset, edge_col_subset, engine, validate, persist,
+            df_import_args=df_import_args,
         )
 
     def python_remote_g(self, *args, **kwargs) -> Any:
