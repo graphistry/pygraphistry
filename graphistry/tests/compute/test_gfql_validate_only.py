@@ -146,9 +146,17 @@ def test_gfql_validate_exception_payload_is_llm_friendly():
     assert diagnostics[0]["code"] == ErrorCode.E301
 
 
-def test_gfql_validate_chain_without_bound_tables_is_structural_only():
+def test_gfql_validate_chain_without_bound_tables_diagnoses_the_unqueryable_graph():
+    """Was structural-only (#1321) until execution parity: a graph with no frames answers nothing (#1889)."""
     g = CGFull()
-    report = g.gfql_validate([n({"missing_col": "x"})])
+    with pytest.raises(GFQLValidationError) as exc_info:
+        g.gfql_validate([n({"missing_col": "x"})])
+    assert exc_info.value.code == ErrorCode.E305
+
+
+def test_gfql_validate_chain_without_bound_tables_is_structural_only_when_schema_off():
+    g = CGFull()
+    report = g.gfql_validate([n({"missing_col": "x"})], schema=False)
     assert report["ok"] is True
     assert report["language"] == "gfql"
     assert report["query_type"] == "chain"

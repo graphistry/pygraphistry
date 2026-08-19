@@ -34,6 +34,7 @@ class ErrorCode:
     E302 = "incompatible-column-type"
     E303 = "invalid-node-reference"
     E304 = "invalid-edge-reference"
+    E305 = "graph-not-bound"
 
     # Graph constructor errors (E150-E159)
     E150 = "duplicate-graph-binding"
