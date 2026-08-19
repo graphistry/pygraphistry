@@ -502,6 +502,18 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         ),
     ),
 
+    'fill_empty_row': _safelist_entry(
+        {'row'},
+        required_params={'row'},
+        param_validators={
+            'row': lambda v: isinstance(v, dict) and all(isinstance(k, str) for k in v),
+        },
+        description='Replace an EMPTY active row table with the single given row (ungrouped-aggregate identity, #1939)',
+        schema_effects=_schema_effects(
+            adds_node_cols=lambda p: list(p.get('row') or {}),
+        ),
+    ),
+
     'drop_cols': _safelist_entry(
         {'cols'},
         required_params={'cols'},

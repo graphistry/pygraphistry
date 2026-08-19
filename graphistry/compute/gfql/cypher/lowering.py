@@ -63,10 +63,14 @@ from graphistry.compute.predicates.is_in import is_in
 from graphistry.compute.predicates.logical import all_of
 from graphistry.compute.predicates.str import contains as str_contains, endswith, fullmatch, never_match, startswith
 from graphistry.compute.gfql.cypher.parser import _mask_quoted_backticked_and_commented_for_scan
+from graphistry.compute.gfql.cypher.aggregate_bindings import (
+    is_multiplicity_sensitive_aggregate as _is_multiplicity_sensitive_aggregate,
+    requires_aggregate_bindings as _requires_aggregate_bindings,
+)
 from graphistry.compute.gfql.cypher.aggregate_identity import (
     aggregate_identity_value,
+    apply_ungrouped_aggregate_identity,
     identity_row_after_paging,
-    ungrouped_aggregate_identity_row,
 )
 from graphistry.compute.gfql.language_defs import GFQL_AGGREGATION_FUNCTIONS
 from graphistry.compute.gfql.expr_parser import (
@@ -2544,16 +2548,6 @@ def _validate_aggregate_expr_scope(
     )
 
 
-def _is_multiplicity_sensitive_aggregate(agg_spec: _AggregateSpec) -> bool:
-    if agg_spec.func in {"sum", "avg"}:
-        return True
-    if agg_spec.func == "collect":
-        return True
-    if agg_spec.func == "count":
-        return not agg_spec.distinct
-    return False
-
-
 def _collect_aggregate_specs_for_clause(
     clause: ReturnClause,
     *,
@@ -2577,17 +2571,6 @@ def _collect_aggregate_specs_for_clause(
             nested_aggregate_specs, _ = post_agg_plan
             aggregate_specs.extend(nested_aggregate_specs)
     return aggregate_specs
-
-
-def _requires_relationship_multiplicity_bindings(
-    *,
-    aggregate_specs: Sequence[_AggregateSpec],
-    relationship_count: int,
-) -> bool:
-    return relationship_count > 0 and any(
-        _is_multiplicity_sensitive_aggregate(spec)
-        for spec in aggregate_specs
-    )
 
 
 def _match_relationship_count(clause: MatchClause) -> int:
@@ -4717,9 +4700,12 @@ def _build_initial_row_scope(
         )
     ):
         binding_row_aliases = set(alias_targets.keys())
-    if _requires_relationship_multiplicity_bindings(
+    if _requires_aggregate_bindings(
         aggregate_specs=stage_aggregate_specs,
         relationship_count=relationship_count,
+        clause=stage_clause,
+        alias_targets=alias_targets,
+        params=params,
     ):
         return_has_whole_row_alias = any(
             item.expression.text in alias_targets
@@ -5683,13 +5669,14 @@ def _lower_row_only_sequence_with_scope(
         stage_steps, scope = _lower_row_column_stage(item, scope=scope, params=params)
         row_steps.extend(stage_steps)
 
+    empty_result_row = apply_ungrouped_aggregate_identity(row_steps)
     return CompiledCypherQuery(
         Chain(row_steps),
         seed_rows=seed_rows,
         procedure_call=procedure_call,
         post_processing=_normalize_post_processing(
             CompiledCypherPostProcessing(
-                empty_result_row=ungrouped_aggregate_identity_row(row_steps),
+                empty_result_row=empty_result_row,
             )
         ),
     )
@@ -7106,9 +7093,12 @@ def _lower_general_row_projection(
 
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
     forced_binding_row_aliases = False
-    if _requires_relationship_multiplicity_bindings(
+    if _requires_aggregate_bindings(
         aggregate_specs=aggregate_specs,
         relationship_count=relationship_count,
+        clause=query.return_,
+        alias_targets=alias_targets,
+        params=params,
     ):
         base_active_alias: Optional[str] = None
         can_force_bindings = True
@@ -9654,7 +9644,7 @@ def compile_cypher_query(
                 alias_targets=alias_targets,
             )
         if empty_result_row is None and result_projection is None:
-            empty_result_row = ungrouped_aggregate_identity_row(row_steps)
+            empty_result_row = apply_ungrouped_aggregate_identity(row_steps)
 
         return _attach_graph_context(CompiledCypherQuery(
             Chain(row_steps if binding_row_aliases else lowered.query + row_steps, where=lowered.where),

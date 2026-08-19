@@ -1259,6 +1259,20 @@ def with_columns_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[P
     return _project_polars(g, items, extend=True)
 
 
+def fill_empty_row_polars(g: Plottable, row: Dict[str, Any]) -> Plottable:  # hygiene-ok: explicit-any -- heterogeneous Cypher identity values (0 / [] / None)
+    """Native twin of ``RowPipelineMixin.fill_empty_row``: an ungrouped aggregate
+    yields exactly one row, so an EMPTY aggregate output becomes the compiled
+    identity row and the suffix (post-aggregate WHERE, paging) runs on it."""
+    import polars as pl
+    from .dtypes import is_lazy
+    table = _active_table(g)
+    if is_lazy(table):
+        table = table.collect()
+    if table.height > 0:
+        return g
+    return _rewrap(g, pl.DataFrame({key: [value] for key, value in row.items()}))
+
+
 def where_rows_polars(
     g: Plottable,
     filter_dict: Optional[dict] = None,
