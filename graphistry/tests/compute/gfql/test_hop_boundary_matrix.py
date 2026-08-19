@@ -26,6 +26,11 @@ Fixtures (node ``type`` is 'a' on even ids, 'b' on odd ids)::
     star      0-1, 0-2, 0-3                 acyclic, hub 0
     twocomp   0-1, 2-3                      two components
     isolated  1-2 (node 0 has no edges)     isolated node 0
+    tailcycle 0-1-2-0, 0->2, 2->3->4        cycle plus a tail ending below max
+
+C. MIN-HOP PRUNE RETENTION (#1944): min_hops/max_hops are INCLUSIVE bounds and
+   the prune removes only branches that never REACH min_hops, so a branch that
+   reaches min_hops and terminates below max_hops is retained whole.
 """
 import pandas as pd
 import pytest
@@ -52,6 +57,10 @@ TOPOLOGIES = {
     "star": ([0, 1, 2, 3], [(0, 1), (0, 2), (0, 3)]),
     "twocomp": ([0, 1, 2, 3], [(0, 1), (2, 3)]),
     "isolated": ([0, 1, 2], [(1, 2)]),
+    # #1944: a 3-cycle 0-1-2-0 with a 2-long tail 2->3->4 hanging off node 2,
+    # plus the chord 0->2. From seed 2 the tail terminates at hop 2 -- BELOW
+    # max_hops -- which is exactly the branch shape the min-hop prune dropped.
+    "tailcycle": ([0, 1, 2, 3, 4], [(0, 1), (1, 2), (2, 3), (3, 4), (0, 2), (2, 0)]),
 }
 
 
@@ -433,3 +442,86 @@ def test_undirected_tfp_equals_saturated_bounded_filtered(
               return_as_wave_front=True, hops=9, engine=engine, **filt)
     assert node_ids(g.hop(to_fixed_point=True, **kw)) == \
         node_ids(g.hop(to_fixed_point=False, **kw)) == expected
+
+
+# ======================================================================== C
+# MIN-HOP PRUNE RETENTION (#1944).
+#
+# Contract: min_hops/max_hops are INCLUSIVE traversal bounds, and the prune
+# only removes "dead-end branches that do not reach min_hops". So a branch that
+# reaches min_hops and then STOPS -- below max_hops -- qualifies and must be
+# retained whole.
+#
+# Hand derivation on ``tailcycle`` (0->1, 1->2, 2->3, 3->4, 0->2, 2->0) seeded
+# at {2}, forward, wavefront. First-traversal hop of each edge from seed 2:
+#
+#     hop 1: 2->3, 2->0
+#     hop 2: 3->4, 0->1, 0->2
+#     hop 3: 1->2                     (2->3 / 2->0 are revisits, keep hop 1)
+#
+# min_hops=2, max_hops=3: every walk of length >= 2 qualifies. The tail walk
+#   2->3->4 ENDS at hop 2, inside [2, 3], so 3 and 4 and both tail edges are
+#   retained; the cycle walks contribute the rest. -> all 5 nodes, all 6 edges.
+#   Pre-#1944 the backward walk seeded targets only from the TOP level, so the
+#   tail's terminating edge 3->4 was never a target when level 2 was processed:
+#   pandas/cuDF dropped (2,3) and (3,4) while leaking node 4 (an incoherent
+#   frame), and the polars chain mirror dropped node 4 as well.
+#
+# min_hops=3, max_hops=3 (anti-vacuity control, correct before AND after):
+#   only 1->2 is traversed at hop 3, so the goal set is {2}; level 2 must feed
+#   it (0->2 survives, 3->4 and 0->1 do not), level 1 must feed {0} (2->0
+#   survives, 2->3 does not). The tail is a genuine sub-min dead end and stays
+#   pruned. -> nodes {0, 1, 2}, edges {(0,1), (0,2), (1,2), (2,0)} minus the
+#   never-retained ones, i.e. exactly (0,1), (1,2), (2,0) via the retained tree.
+#
+# reverse, min_hops=2 (control): the tail hangs the wrong way, so it never
+#   enters the answer in either direction of the fix.
+
+def edge_pairs(g):
+    edf = g._edges
+    edf = edf.to_pandas() if hasattr(edf, "to_pandas") else edf
+    return sorted(map(tuple, edf[["s", "d"]].to_numpy().tolist()))
+
+
+HOP_ENGINES = ["pandas", pytest.param("cudf", marks=cudf_only)]
+
+MIN_HOP_RETENTION_ORACLE = [
+    # min_hops, expected nodes, expected edges
+    (2, [0, 1, 2, 3, 4], [(0, 1), (0, 2), (1, 2), (2, 0), (2, 3), (3, 4)]),
+    (3, [0, 1, 2], [(0, 1), (1, 2), (2, 0)]),
+]
+
+
+@pytest.mark.parametrize("engine", HOP_ENGINES)
+@pytest.mark.parametrize("min_hops,exp_nodes,exp_edges", MIN_HOP_RETENTION_ORACLE,
+                         ids=["min2-branch-ends-below-max", "min3-submin-tail-pruned"])
+def test_min_hops_prune_retains_qualifying_short_branch_hop(
+        engine, min_hops, exp_nodes, exp_edges):
+    g = _graph("tailcycle", engine)
+    r = g.hop(nodes=_frame(engine, pd.DataFrame({"id": [2]})),
+              min_hops=min_hops, max_hops=3, direction="forward",
+              return_as_wave_front=True, engine=engine)
+    assert node_ids(r) == exp_nodes
+    assert edge_pairs(r) == exp_edges
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("min_hops,exp_nodes,exp_edges", MIN_HOP_RETENTION_ORACLE,
+                         ids=["min2-branch-ends-below-max", "min3-submin-tail-pruned"])
+def test_min_hops_prune_retains_qualifying_short_branch_chain(
+        engine, min_hops, exp_nodes, exp_edges):
+    from graphistry.compute.ast import n, e_forward
+    g = _graph("tailcycle", engine)
+    r = g.chain([n({"id": 2}), e_forward(min_hops=min_hops, max_hops=3)], engine=engine)
+    assert node_ids(r) == exp_nodes
+    assert edge_pairs(r) == exp_edges
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_min_hops_prune_reverse_unchanged_control(engine):
+    # The tail points away from the reverse walk, so this cell must NOT move.
+    from graphistry.compute.ast import n, e_reverse
+    g = _graph("tailcycle", engine)
+    r = g.chain([n({"id": 2}), e_reverse(min_hops=2, max_hops=3)], engine=engine)
+    assert node_ids(r) == [0, 1, 2]
+    assert edge_pairs(r) == [(0, 1), (0, 2), (1, 2), (2, 0)]

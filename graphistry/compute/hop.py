@@ -866,18 +866,20 @@ def hop(self: Plottable,
                     edge_records_with_endpoints[edge_hop_col] == hop_level
                 ]
 
+                # An edge at >= min_hops ends a qualifying walk itself; only sub-min levels feed one.
+                level_is_goal = hop_level >= resolved_min_hops  # fixes #1944
                 new_node_hops = None
                 if direction == 'forward':
-                    reaching_edges = hop_edges[hop_edges[g2._destination].isin(current_targets)]
+                    reaching_edges = hop_edges if level_is_goal else hop_edges[hop_edges[g2._destination].isin(current_targets)]
                     new_source_series = reaching_edges[g2._source]
                     new_node_hops = reaching_edges[[g2._source]].rename(columns={g2._source: node_col})
                 elif direction == 'reverse':
-                    reaching_edges = hop_edges[hop_edges[g2._source].isin(current_targets)]
+                    reaching_edges = hop_edges if level_is_goal else hop_edges[hop_edges[g2._source].isin(current_targets)]
                     new_source_series = reaching_edges[g2._destination]
                     new_node_hops = reaching_edges[[g2._destination]].rename(columns={g2._destination: node_col})
                 else:
-                    reaching_fwd = hop_edges[hop_edges[g2._destination].isin(current_targets)]
-                    reaching_rev = hop_edges[hop_edges[g2._source].isin(current_targets)]
+                    reaching_fwd = hop_edges if level_is_goal else hop_edges[hop_edges[g2._destination].isin(current_targets)]
+                    reaching_rev = hop_edges if level_is_goal else hop_edges[hop_edges[g2._source].isin(current_targets)]
                     reaching_edges = concat([reaching_fwd, reaching_rev], ignore_index=True, sort=False).drop_duplicates(subset=[EDGE_ID])
                     new_source_series = concat([
                         reaching_fwd[g2._source],
