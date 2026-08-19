@@ -47,6 +47,7 @@ from graphistry.compute.gfql.agg_types import (
     numeric_agg_all_null_value,
     pandas_dtype_is_numeric_for_agg,
     pandas_non_numeric_agg_dtype,
+    pandas_object_series_is_bool_like,
     polars_non_numeric_agg_dtype,
     raise_non_numeric_aggregation,
 )
@@ -2595,6 +2596,9 @@ def _execute_single_hop_grouped_aggregate_fast_path(
                 agg_df = grouped[expr_alias].mean().reset_index(name=alias)
             elif func == "sum" and expr_alias is not None:
                 agg_df = grouped[expr_alias].sum().reset_index(name=alias)
+                if pandas_object_series_is_bool_like(work[expr_alias]):
+                    # Twin of the row-pipeline group_by sum(bool) numeric retype.
+                    agg_df = agg_df.assign(**{alias: pd.to_numeric(agg_df[alias])})  # bool sums as int (#1821)
             elif func == "min" and expr_alias is not None:
                 agg_df = grouped[expr_alias].min().reset_index(name=alias)
             elif func == "max" and expr_alias is not None:

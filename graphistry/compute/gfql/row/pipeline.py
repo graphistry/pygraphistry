@@ -34,6 +34,7 @@ from graphistry.compute.gfql.agg_types import (
     numeric_agg_all_null_value,
     pandas_dtype_is_numeric_for_agg,
     pandas_non_numeric_agg_dtype,
+    pandas_object_series_is_bool_like,
     raise_non_numeric_aggregation,
 )
 from graphistry.compute.gfql.language_defs import (
@@ -221,6 +222,7 @@ ROW_PIPELINE_CALLS = frozenset(
         "distinct",
         "unwind",
         "group_by",
+        "fill_empty_row",
         "drop_cols",
         "count_table",
     }
@@ -5571,6 +5573,9 @@ class RowPipelineMixin:
                         grouped = _make_grouped(table_df, [expr_col])
                     agg_series = grouped[expr_col]
                     agg_df = getattr(agg_series, method_name)().reset_index(name=alias)
+                    if func == "sum" and pandas_object_series_is_bool_like(table_df[expr_col]):
+                        # The object-dtype kernel returns a lone-row group as the raw bool.
+                        agg_df = agg_df.assign(**{alias: pd.to_numeric(agg_df[alias])})  # bool sums as int (#1821)
 
             out_df = out_df.merge(agg_df, on=key_cols, how="left", sort=False)
             if func in {"collect", "collect_distinct"}:
@@ -5595,6 +5600,17 @@ class RowPipelineMixin:
         out_df = out_df.sort_values(by=[group_order_col]).reset_index(drop=True)
         out_df = out_df.drop(columns=[group_order_col])
         return self._gfql_row_table(out_df)
+
+    def fill_empty_row(self, row: Dict[str, Any]) -> "Plottable":  # hygiene-ok: explicit-any -- heterogeneous Cypher identity values (0 / [] / None)
+        """openCypher ungrouped-aggregate identity: an aggregate with no grouping
+        keys yields exactly one row, so an EMPTY aggregate output becomes the given
+        identity row here -- where the compiled suffix (post-aggregate WHERE,
+        projections, paging) still sees it with runtime semantics."""
+        table_df = self._gfql_get_active_table()
+        if len(table_df) > 0:
+            return self._gfql_row_table(table_df)
+        filled = type(table_df)({key: [value] for key, value in row.items()})
+        return self._gfql_row_table(filled)
 
 
 class _RowPipelineAdapter(RowPipelineMixin):
@@ -5636,6 +5652,7 @@ _ROW_PIPELINE_DISPATCH: Dict[str, Callable[..., "Plottable"]] = {
     "distinct": RowPipelineMixin.distinct,
     "unwind": RowPipelineMixin.unwind,
     "group_by": RowPipelineMixin.group_by,
+    "fill_empty_row": RowPipelineMixin.fill_empty_row,
     "drop_cols": RowPipelineMixin.drop_cols,
     "count_table": RowPipelineMixin.count_table,
 }

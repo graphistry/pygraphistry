@@ -167,6 +167,25 @@ def pandas_non_numeric_agg_dtype(series: "SeriesT") -> Optional[str]:
     return None
 
 
+def pandas_object_series_is_bool_like(series: "SeriesT") -> bool:
+    """Object-dtype column whose sampled non-null values are all booleans.
+
+    ``sum()`` over BOOLEAN is the documented GFQL extension above, but pandas'
+    OBJECT-dtype groupby reduction hands a single-row group back as the raw bool,
+    mixing ``2`` and ``False`` in one output column. Callers use this probe to
+    retype that aggregate to a numeric column. Bounded head sample, same tradeoff
+    as :func:`_object_series_is_str_like`; cuDF cannot hold an object-of-bools
+    column (its object dtype is strings), so this never fires there.
+    """
+    if str(getattr(series, "dtype", "")).lower() != "object" or not hasattr(series, "dropna"):
+        return False
+    import numpy as np
+
+    from graphistry.Engine import series_to_pylist
+    values = series_to_pylist(series.dropna().head(128))
+    return len(values) > 0 and all(isinstance(v, (bool, np.bool_)) for v in values)
+
+
 def _object_series_is_str_like(series: "SeriesT") -> bool:
     """Every non-null value in a bounded head sample is a ``str`` (and there is at least one).
 

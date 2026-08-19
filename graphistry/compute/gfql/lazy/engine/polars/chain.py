@@ -679,6 +679,9 @@ def _try_native_row_op(g_cur, op):
         return select_polars(g_cur, op.params.get("items", []))
     if fn == "where_rows":
         return where_rows_polars(g_cur, op.params.get("filter_dict"), op.params.get("expr"))
+    if fn == "fill_empty_row":
+        from .row_pipeline import fill_empty_row_polars
+        return fill_empty_row_polars(g_cur, op.params["row"])
     if fn == "order_by":
         return order_by_polars(g_cur, op.params.get("keys", []))
     if fn == "group_by":

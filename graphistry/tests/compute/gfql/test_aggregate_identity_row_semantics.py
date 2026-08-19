@@ -302,28 +302,57 @@ def test_min_max_over_booleans_is_plain_opencypher(engine):
 
 
 # ===========================================================================
-# 5. Residual: a post-aggregate WHERE is undecidable at compile time (#1909)
+# 5. A truthy post-aggregate WHERE sees the identity row at RUNTIME (#1939)
 # ===========================================================================
+# Whether the identity row survives a post-aggregate WHERE depends on the real
+# aggregate value, which the compiler cannot see -- so the lowering injects a
+# `fill_empty_row` step at the aggregate itself and the WHERE runs over
+# whichever row exists at runtime (real or identity), on every engine.
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_post_aggregate_where_over_empty_stream_is_a_known_residual(engine):
-    """Control for the residual pinned below: with 6 nodes the count is 6, the
-    `c = 0` filter removes it, and 0 rows is CORRECT."""
-    assert _records(_run("MATCH (m) WITH count(*) AS c WHERE c = 0 RETURN c", engine)) == []
+@pytest.mark.parametrize("query,expected", [
+    # empty stream -> identity {c: 0}; `c = 0` KEEPS it
+    ("MATCH (m) WHERE m.name = 'Zed' WITH count(*) AS c WHERE c = 0 RETURN c", [{"c": 0}]),
+    ("UNWIND [] AS x WITH count(*) AS c WHERE c = 0 RETURN c", [{"c": 0}]),
+    # empty stream, `c > 0` DROPS the identity row
+    ("UNWIND [] AS x WITH count(*) AS c WHERE c > 0 RETURN c", []),
+    # post-aggregate expression after the surviving identity row
+    ("UNWIND [] AS x WITH count(*) AS c WHERE c = 0 RETURN c + 1 AS v", [{"v": 1}]),
+    # terminal paging still pages the surviving row
+    ("UNWIND [] AS x WITH count(*) AS c WHERE c = 0 RETURN c SKIP 1", []),
+    ("UNWIND [] AS x WITH count(*) AS c WHERE c = 0 RETURN c LIMIT 0", []),
+    # the other identities survive their own truthy WHEREs
+    ("MATCH (m) WHERE m.name = 'Zed' WITH sum(m.age) AS s WHERE s = 0 RETURN s", [{"s": 0}]),
+    ("MATCH (m) WHERE m.name = 'Zed' WITH min(m.age) AS mn WHERE mn IS NULL RETURN mn",
+     [{"mn": None}]),
+    ("MATCH (m) WHERE m.name = 'Zed' WITH collect(m.name) AS l WHERE size(l) = 0 RETURN l",
+     [{"l": []}]),
+    ("UNWIND [] AS x WITH count(DISTINCT x) AS c WHERE c = 0 RETURN c", [{"c": 0}]),
+    # chained: each ungrouped aggregate gets its own runtime fill.
+    # c=0 survives `c = 0`; count(c) over that one row is 1; `n = 1` keeps it.
+    ("UNWIND [] AS x WITH count(*) AS c WHERE c = 0 WITH count(c) AS n WHERE n = 1 RETURN n",
+     [{"n": 1}]),
+    # c=0 fails `c = 5`; count over the emptied stream refills n=0; `n = 1` drops it.
+    ("UNWIND [] AS x WITH count(*) AS c WHERE c = 5 WITH count(c) AS n WHERE n = 1 RETURN n",
+     []),
+], ids=["match_where_keeps", "unwind_where_keeps", "unwind_where_drops", "post_expr",
+        "skip_pages_out", "limit_pages_out", "sum_identity", "min_is_null", "collect_size",
+        "count_distinct", "chained_double_fill_keeps", "chained_double_fill_drops"])
+def test_post_aggregate_where_sees_the_identity_row(query, expected, engine):
+    assert _records(_run(query, engine)) == expected
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.xfail(strict=True, reason="#1909 residual: when a WHERE follows the ungrouped "
-                                       "aggregate, whether the identity row survives depends on "
-                                       "the real aggregate value, which the compiler cannot see; "
-                                       "the synthesis declines rather than guess")
-def test_post_aggregate_where_keeping_the_identity_row_is_unsupported(engine):
-    """openCypher: no node is named 'Zed', so count(*) is 0 and `WHERE c = 0` KEEPS
-    the identity row -> 1 row {c: 0}. We return 0 rows; deciding this needs the
-    emptiness of the pre-aggregate stream at runtime, not compile time."""
-    query = "MATCH (m) WHERE m.name = 'Zed' WITH count(*) AS c WHERE c = 0 RETURN c"
-    assert _records(_run(query, engine)) == [{"c": 0}]
+@pytest.mark.parametrize("query,expected", [
+    # SOUNDNESS: with 6 nodes the count is 6, `c = 0` removes the REAL row and the
+    # identity fill must NOT resurrect it -- a terminal "fill when empty" would.
+    ("MATCH (m) WITH count(*) AS c WHERE c = 0 RETURN c", []),
+    # the real aggregate value flows through the same WHERE unharmed
+    ("MATCH (m) WITH count(*) AS c WHERE c = 6 RETURN c", [{"c": 6}]),
+], ids=["real_row_filtered_stays_filtered", "real_row_kept"])
+def test_post_aggregate_where_over_a_nonempty_stream_uses_the_real_value(query, expected, engine):
+    assert _records(_run(query, engine)) == expected
 
 
 # ===========================================================================

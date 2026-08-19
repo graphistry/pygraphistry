@@ -36,12 +36,14 @@ from graphistry.compute.ast import (
     with_,
 )
 from graphistry.compute.gfql.cypher.aggregate_identity import (
+    _identity_fill_insertion_plan,
     _identity_row_passthrough_projection,
     _identity_row_scalar,
     _identity_row_without_temps,
     _replay_identity_row,
     _ungrouped_aggregate_identity_seed,
     aggregate_identity_value,
+    apply_ungrouped_aggregate_identity,
     identity_row_after_paging,
     ungrouped_aggregate_identity_row,
 )
@@ -478,9 +480,9 @@ def test_declines_a_non_call_suffix_step() -> None:
 
 
 def test_declines_a_post_aggregate_filter() -> None:
-    """#1909 residual: whether the identity row survives a post-aggregate WHERE
-    depends on the real aggregate value, so the synthesis declines. Pinned as a
-    strict xfail end-to-end in test_aggregate_identity_row_semantics.py."""
+    """Whether the identity row survives a post-aggregate WHERE depends on the
+    real aggregate value, so the compile-time synthesis declines; the runtime
+    fill-injection plan (section 9) serves the shape instead."""
     assert ungrouped_aggregate_identity_row(
         SEED_STEPS + [select([("c", "c")]), where_rows(expr="(c = 0)")]
     ) is None
@@ -501,3 +503,88 @@ def test_replay_fallback_still_pages_and_strips_temps() -> None:
     assert ungrouped_aggregate_identity_row(
         SEED_STEPS + [select([("c1", "(c + 1)")]), limit(1)]
     ) == {"c1": 1}
+
+
+# ===========================================================================
+# 9. Post-aggregate WHERE: runtime fill-injection plan (test_..._semantics
+#    pins the observable behavior; these pin the admit/decline branches)
+# ===========================================================================
+
+WHERE_STEPS = SEED_STEPS + [with_([("c", "c")]), where_rows(expr="(c = 0)"), select([("c", "c")])]
+
+
+def test_where_suffix_plans_a_fill_at_the_pivot() -> None:
+    assert _identity_fill_insertion_plan(WHERE_STEPS) == [(2, {GROUP_KEY: 1, "c": 0})]
+
+
+def test_apply_inserts_the_fill_step_and_compiles_no_terminal_row() -> None:
+    steps = list(WHERE_STEPS)
+    assert apply_ungrouped_aggregate_identity(steps) is None
+    assert len(steps) == len(WHERE_STEPS) + 1
+    fill = steps[3]
+    assert isinstance(fill, ASTCall)
+    assert fill.function == "fill_empty_row"
+    assert fill.params == {"row": {GROUP_KEY: 1, "c": 0}}
+    assert steps[:3] == WHERE_STEPS[:3] and steps[4:] == WHERE_STEPS[3:]
+
+
+def test_apply_keeps_replayable_suffixes_on_the_terminal_row() -> None:
+    """Anti-vacuity: the compile-time path is byte-for-byte untouched when no
+    where_rows follows the pivot -- terminal row returned, NO insertion."""
+    steps = list(SEED_STEPS)
+    assert apply_ungrouped_aggregate_identity(steps) == {"c": 0}
+    assert steps == SEED_STEPS
+
+
+def test_apply_returns_none_when_neither_path_serves() -> None:
+    original = [ROWS, select([("n", "m.name")])]
+    steps = list(original)
+    assert apply_ungrouped_aggregate_identity(steps) is None
+    assert steps == original
+
+
+def test_fill_plan_declines_without_a_where() -> None:
+    assert _identity_fill_insertion_plan(SEED_STEPS) is None
+    assert _identity_fill_insertion_plan(SEED_STEPS + [select([("c", "c")])]) is None
+
+
+def test_fill_plan_declines_without_a_pivot() -> None:
+    assert _identity_fill_insertion_plan([]) is None
+    assert _identity_fill_insertion_plan([ROWS, where_rows(expr="(x = 0)")]) is None
+    # count_table always emits its one row, so no fill is needed (or planned)
+    assert _identity_fill_insertion_plan(
+        [count_table(alias="c"), where_rows(expr="(c = 0)")]
+    ) is None
+
+
+def test_fill_plan_declines_non_replayable_suffix_steps() -> None:
+    assert _identity_fill_insertion_plan(WHERE_STEPS + [n()]) is None
+    assert _identity_fill_insertion_plan(
+        WHERE_STEPS + [ASTCall("unwind", {"expr": "[]", "as_": "x"})]
+    ) is None
+
+
+def test_fill_plan_declines_a_post_pivot_group_by_without_a_seed() -> None:
+    """A real-keyed (grouped) aggregate after the pivot has no identity contract."""
+    assert _identity_fill_insertion_plan(
+        WHERE_STEPS + [group_by(["c"], [("n", "count")]), select([("n", "n")])]
+    ) is None
+
+
+def test_fill_plan_covers_every_pivot() -> None:
+    steps = (
+        SEED_STEPS
+        + [with_([("c", "c")]), where_rows(expr="(c = 0)")]
+        + [with_([(GROUP_KEY, 1)]), _group_by(("n", "count")),
+           where_rows(expr="(n = 1)"), select([("n", "n")])]
+    )
+    assert _identity_fill_insertion_plan(steps) == [
+        (2, {GROUP_KEY: 1, "c": 0}),
+        (6, {GROUP_KEY: 1, "n": 0}),
+    ]
+    mutated = list(steps)
+    assert apply_ungrouped_aggregate_identity(mutated) is None
+    fills = [s for s in mutated if isinstance(s, ASTCall) and s.function == "fill_empty_row"]
+    assert len(fills) == 2
+    assert mutated[3].params == {"row": {GROUP_KEY: 1, "c": 0}}
+    assert mutated[8].params == {"row": {GROUP_KEY: 1, "n": 0}}

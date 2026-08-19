@@ -13717,14 +13717,21 @@ def test_gfql_executes_count_distinct_missing_property_as_zero() -> None:
     )
 
 
-def test_cypher_to_gfql_rejects_multi_source_aggregate_expr() -> None:
-    with pytest.raises(GFQLValidationError) as exc_info:
-        cypher_to_gfql("MATCH (a)-[r]->(b) RETURN a.id AS a_id, max(b.score) AS max_b")
+def test_cypher_to_gfql_serves_cross_alias_sole_insensitive_aggregate() -> None:
+    """Previously an E108 rejection: a sole multiplicity-insensitive aggregate
+    (max) over one alias grouped by another's property now lowers onto binding
+    rows. Oracle: edges 1->{2,3}, 2->{3}; max(b.score) is 30 for both groups."""
+    cypher_to_gfql("MATCH (a)-[r]->(b) RETURN a.id AS a_id, max(b.score) AS max_b")
 
-    assert exc_info.value.code == ErrorCode.E108
-    assert exc_info.value.context["field"] == "return"
-    assert exc_info.value.context["value"] == "b.score"
-    assert "value: 'b.score'" in str(exc_info.value)
+    g = _mk_graph(
+        pd.DataFrame({"id": [1, 2, 3], "score": [10.0, 20.0, 30.0]}),
+        pd.DataFrame({"s": [1, 1, 2], "d": [2, 3, 3]}),
+    )
+    out = g.gfql("MATCH (a)-[r]->(b) RETURN a.id AS a_id, max(b.score) AS max_b ORDER BY a_id")._nodes
+    assert out.to_dict("records") == [
+        {"a_id": 1, "max_b": 30.0},
+        {"a_id": 2, "max_b": 30.0},
+    ]
 
 
 def test_gfql_executes_top_level_quantifier_expression() -> None:

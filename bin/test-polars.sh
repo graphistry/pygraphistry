@@ -83,6 +83,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_polars_dtype_classifier_contracts.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_fused_polars.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_lowcard_count.py
+    # engine-parametrized (pandas/polars); the polars params only ever run here
+    graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_cross_alias.py
     # module-level `importorskip("polars")` files that previously ran in no lane at all
     graphistry/tests/compute/gfql/test_engine_polars_narrow_combine.py
     graphistry/tests/compute/gfql/test_engine_polars_semi_key_dedup.py

@@ -4,13 +4,15 @@ An aggregate with NO grouping keys always yields exactly one row, so a stage tha
 empties the row stream must still return the aggregate identities (count/sum -> 0,
 collect -> [], min/max/avg -> null) rather than an empty frame. Every lowering path
 that can end in an ungrouped aggregate feeds its compiled row steps through
-``ungrouped_aggregate_identity_row`` here; the result becomes the compiled query's
-``empty_result_row``, applied at runtime only when the real result is empty.
+``apply_ungrouped_aggregate_identity`` here. Replayable suffixes compile the row
+into ``empty_result_row``, applied at runtime only when the real result is empty;
+a post-aggregate ``where_rows`` suffix instead gets in-chain ``fill_empty_row``
+steps, because its outcome depends on the runtime aggregate value.
 """
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Mapping, Optional, Sequence, cast
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, cast
 
 import pandas as pd
 
@@ -202,5 +204,66 @@ def _identity_row_without_temps(row: Optional[Dict[str, Any]]) -> Optional[Dict[
         if not key.startswith(("__cypher_group__", "__cypher_agg__", "__cypher_postagg__"))
     }
     return out or None
+
+
+_IDENTITY_FILL_SUFFIX_CALLS = _IDENTITY_ROW_REPLAY_CALLS | {"where_rows"}
+
+
+def _identity_fill_insertion_plan(
+    row_steps: Sequence[ASTObject],
+) -> Optional[List[Tuple[int, Dict[str, Any]]]]:  # hygiene-ok: explicit-any -- heterogeneous Cypher identity values (0 / [] / None)
+    """``(pivot index, identity seed)`` pairs for runtime fill injection, or None.
+
+    Engages ONLY for the shape the compile-time replay cannot serve: a
+    ``where_rows`` after an ungrouped aggregate. The WHERE's outcome depends on
+    the aggregate VALUE, which at runtime is either real (stream non-empty) or
+    the identity (stream empty) -- a terminal fill applied at "result is empty"
+    cannot tell those apart (a WHERE that passes the identity but drops the real
+    value would be wrongly overwritten). So the identity row is injected
+    mid-chain, at the aggregate itself, and the suffix -- WHERE included --
+    runs over it with ordinary runtime semantics on every engine.
+    """
+    first_pivot: Optional[int] = None
+    saw_where = False
+    plan: List[Tuple[int, Dict[str, Any]]] = []
+    for idx, step in enumerate(row_steps):
+        seed = _ungrouped_aggregate_identity_seed(step)
+        if seed is not None and isinstance(step, ASTCall) and step.function == "group_by":
+            if first_pivot is None:
+                first_pivot = idx
+            plan.append((idx, seed))
+            continue
+        if first_pivot is None:
+            continue
+        if not isinstance(step, ASTCall) or step.function not in _IDENTITY_FILL_SUFFIX_CALLS:
+            return None
+        if step.function == "where_rows":
+            saw_where = True
+        elif step.function == "group_by":
+            # Post-pivot group_by without a computable identity seed -- decline.
+            return None
+    if first_pivot is None or not saw_where:
+        return None
+    return plan
+
+
+def apply_ungrouped_aggregate_identity(
+    row_steps: List[ASTObject],
+) -> Optional[Dict[str, Any]]:  # hygiene-ok: explicit-any -- heterogeneous Cypher identity values (0 / [] / None)
+    """Compile the ungrouped-aggregate identity contract for this row program.
+
+    Replayable suffixes keep the compile-time terminal row (returned as
+    ``empty_result_row``, unchanged). A post-aggregate ``where_rows`` suffix
+    instead gets ``fill_empty_row`` steps inserted in place after each ungrouped
+    aggregate and compiles NO terminal row -- runtime owns the outcome.
+    """
+    terminal = ungrouped_aggregate_identity_row(row_steps)
+    if terminal is not None:
+        return terminal
+    plan = _identity_fill_insertion_plan(row_steps)
+    if plan is not None:
+        for offset, (index, seed) in enumerate(plan):
+            row_steps.insert(index + 1 + offset, ASTCall("fill_empty_row", {"row": seed}))
+    return None
 
 
