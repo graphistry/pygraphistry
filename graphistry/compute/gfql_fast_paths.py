@@ -2259,9 +2259,7 @@ def _execute_single_hop_grouped_aggregate_fast_path(
     reentry_start_nodes: Optional[DataFrameT] = None,
 ) -> Optional[Plottable]:
     if reentry_start_nodes is not None:
-        # #1712: a carried WITH..MATCH seed restricts the first alias to those rows; this
-        # path derives its seed from the ops' filter_dicts alone, so engaging would
-        # silently widen the aggregate back to the whole graph. Decline.
+        # seed comes from filter_dicts alone; engaging would widen a carried WITH..MATCH seed
         return None
     ops = list(chain.chain)
     if len(ops) not in (3, 4, 5) or not all(isinstance(op, ASTCall) for op in ops):
@@ -3028,7 +3026,7 @@ def _execute_two_hop_count_fast_path(
     reentry_start_nodes: Optional[DataFrameT] = None,
 ) -> Optional[Plottable]:
     if reentry_start_nodes is not None:
-        # #1712: same seed-blindness as the grouped-aggregate path above — decline.
+        # same seed-blindness as the grouped-aggregate path above
         return None
     alias = _two_hop_count_alias(chain)
     if alias is None:

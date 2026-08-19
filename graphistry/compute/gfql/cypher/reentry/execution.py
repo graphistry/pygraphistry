@@ -317,7 +317,7 @@ def restrict_connected_join_rows_to_reentry_seed(
     reentry_alias: Optional[str],
     node_col: str,
 ) -> DataFrameT:
-    """#1712: keep only comma-pattern join rows whose reentry alias is a carried seed id.
+    """Keep only comma-pattern join rows whose reentry alias is a carried seed id.
 
     The connected comma-pattern join re-matches every arm from the whole graph, so a
     ``WITH p MATCH (p)-..., (p)-...`` suffix must be narrowed back to the carried ``p``
@@ -342,12 +342,12 @@ def restrict_connected_join_rows_to_reentry_seed(
             value=reentry_alias,
             suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
         )
-    seed_ids = cast(SeriesT, start_nodes[node_col])
+    seed_ids = start_nodes[node_col]
     if _is_polars_df(joined_rows):
         import polars as pl
         seed_values = seed_ids.to_list() if hasattr(seed_ids, "to_list") else list(seed_ids)
-        return cast(DataFrameT, joined_rows.filter(pl.col(alias_col).is_in(seed_values)))
-    return cast(DataFrameT, joined_rows[joined_rows[alias_col].isin(seed_ids)])
+        return joined_rows.filter(pl.col(alias_col).is_in(seed_values))  # type: ignore[attr-defined]
+    return joined_rows[joined_rows[alias_col].isin(seed_ids)]
 
 
 def compiled_query_reentry_state(

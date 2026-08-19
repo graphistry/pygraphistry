@@ -270,10 +270,8 @@ def _projection_alias_rows(
         and alias in rows_df.columns
         and str(getattr(rows_df[alias], "dtype", "")).startswith("bool")
     ):
-        # #1911 defect-4: rows() re-exposes a marker-shadowed user column under its dotted
-        # self-name for property reads; a lone self-column beside the boolean marker is that
-        # restore, not a pre-flattened entity frame — whole-entity reads the plain frame.
-        return cast(DataFrameT, rows_df.drop(columns=[f"{alias}.{alias}"]))
+        # a lone dotted self-column beside the boolean marker is the rows() shadow restore, not a pre-flattened entity frame
+        return rows_df.drop(columns=[f"{alias}.{alias}"])
     if alias_columns:
         alias_rows = cast(
             DataFrameT,
@@ -381,8 +379,7 @@ def _apply_result_projection_pandas(
                 property_rows_df = alias_rows_df
                 self_shadow_col = f"{projection.alias}.{projection.alias}"
                 if column.source_name == projection.alias and self_shadow_col in rows_df.columns:
-                    # #1911 defect-4: 'alias.alias' — the plain column is the boolean
-                    # marker; the restored user values live under the dotted self-name.
+                    # 'alias.alias': the plain column is the marker; user values live under the dotted self-name
                     column = replace(column, source_name=self_shadow_col)
                     property_rows_df = rows_df
                 elif (

@@ -62,14 +62,14 @@ def _alias_true_mask(table_df: Any, source: str) -> Any:
 
 
 def _restore_alias_shadowed_user_column(
-    ctx: RowPipelineCtx, table_df: Any, table: Optional[str], source: str
-) -> Any:
-    """#1911 defect-4: an alias named like a user column (``MATCH (name:P) RETURN name.name``)
-    has that column overwritten by the alias marker upstream, so ``source.source`` read back
-    the marker. Re-key the user's values from the base frame and expose them under the
-    dotted name the projection resolves first, keeping the boolean marker intact for every
-    other property read. No-op when the alias shadows nothing or rows cannot be re-keyed
-    (marker stays, as before)."""
+    ctx: RowPipelineCtx, table_df: "DataFrameT", table: Optional[str], source: str
+) -> "DataFrameT":
+    """An alias named like a user column (``MATCH (name:P) RETURN name.name``) has that
+    column overwritten by the alias marker upstream, so ``source.source`` read back the
+    marker. Re-key the user's values from the base frame and expose them under the
+    dotted name the projection resolves first, keeping the boolean marker intact for
+    every other property read. No-op when the alias shadows nothing or rows cannot be
+    re-keyed (marker stays, as before)."""
     base_graph = ctx._gfql_rows_base_graph if ctx._gfql_rows_base_graph is not None else ctx._g
     base_frame = None if base_graph is None else (
         base_graph._nodes if table == "nodes" else base_graph._edges
@@ -91,8 +91,7 @@ def _restore_alias_shadowed_user_column(
     dotted = f"{source}.{source}"
     base_index = getattr(base_frame, "index", None)
     if base_index is not None and bool(base_index.is_unique):
-        # the chain result is a row-subset of the base frame with its index preserved;
-        # a guarded .loc (not Index.isin — cuDF's disagrees with pandas') proves it.
+        # guarded .loc proves index-subset alignment (cuDF Index.isin disagrees with pandas)
         try:
             restored = base_frame[source].loc[table_df.index]
         except (KeyError, IndexError, TypeError):

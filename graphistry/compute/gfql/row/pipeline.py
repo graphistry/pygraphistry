@@ -4606,7 +4606,7 @@ class RowPipelineMixin:
             )
 
             if isinstance(alias, str):
-                # Same marker shadowing as the connected path (#1911 defect-4).
+                # Same marker shadowing as the connected path, keyed on the node id.
                 lookup_source = self._gfql_unshadow_alias_marker_column(
                     matched_nodes, alias, base_nodes, str(node_id)
                 )

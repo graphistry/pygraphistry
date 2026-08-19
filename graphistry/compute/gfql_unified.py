@@ -771,9 +771,7 @@ def _apply_connected_match_join(
             base_graph, engine=requested_engine, identity_col=trail_identity_col
         )
 
-    # Both two-star fast paths emit the raw arm product, so they serve disjoint arms only.
-    # A carried WITH..MATCH seed (#1712) also declines them: they re-derive every arm from
-    # filter_dicts alone, silently widening the seed back to the whole graph.
+    # Both two-star fast paths serve only disjoint, unseeded arms (their seeds are filter_dicts-only)
     fast_grouped_count = (
         None if arms_may_share_an_edge or start_nodes is not None
         else _connected_join_two_star_fast_grouped_count(base_graph, plan, engine=requested_engine, cache_store=cache_store)
@@ -893,10 +891,9 @@ def _apply_connected_match_join(
     joined_rows = _joined_hidden_scalar_columns(joined_rows)
     joined_rows = _joined_alias_columns(joined_rows)
     if start_nodes is not None:
-        # #1712: the arms above re-matched from the whole graph; narrow the joined rows
-        # back to the carried reentry-alias seeds before the aggregate/projection runs.
+        # the arms above re-matched from the whole graph; narrow to the carried seeds
         joined_rows = _restrict_connected_join_rows_to_reentry_seed(
-            cast(DataFrameT, joined_rows),
+            joined_rows,
             start_nodes=start_nodes,
             reentry_alias=reentry_alias,
             node_col=node_col,
@@ -2700,8 +2697,7 @@ def _reject_node_alias_shadowing_id_binding(g: Plottable, chain_obj: Chain) -> N
                     f"overwrite the node-ID binding. Rename the alias."
                 ),
             )
-        # #1911 defect-4 sibling: an edge alias equal to an endpoint binding column
-        # overwrites the endpoints themselves (silent empty result). Same decline shape.
+        # an edge alias equal to an endpoint binding overwrites the endpoints
         if isinstance(op, ASTEdge) and getattr(op, "_name", None) in endpoint_cols:
             raise GFQLValidationError(
                 ErrorCode.E108,
