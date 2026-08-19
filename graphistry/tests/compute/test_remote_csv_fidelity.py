@@ -219,3 +219,31 @@ class TestPythonRemoteCsvFidelity:
         code = "def task(g):\n    return g._nodes\n"
         out = bound_graph().python_remote_table(code, format='parquet', api_token='t')
         assert list(out['id']) == ['007', '08', 'NA']
+
+
+def test_csv_decline_is_a_typed_gfql_error() -> None:
+    from graphistry.compute.exceptions import (
+        ErrorCode, GFQLRemoteError, GFQLValidationError
+    )
+    from graphistry.compute.remote_df_io import require_csv_opt_in
+
+    with pytest.raises(GFQLRemoteError) as excinfo:
+        require_csv_opt_in(None, "gfql_remote")
+    assert excinfo.value.code == ErrorCode.E403
+
+    # Catchable the documented GFQL way ...
+    with pytest.raises(GFQLValidationError):
+        require_csv_opt_in(None, "gfql_remote")
+
+    # ... and still as ValueError, so pre-existing callers keep working.
+    with pytest.raises(ValueError):
+        require_csv_opt_in(None, "gfql_remote")
+
+
+def test_csv_decline_on_non_dict_import_args_is_typed() -> None:
+    from graphistry.compute.exceptions import ErrorCode, GFQLRemoteError
+    from graphistry.compute.remote_df_io import require_csv_opt_in
+
+    with pytest.raises(GFQLRemoteError) as excinfo:
+        require_csv_opt_in("nope", "gfql_remote")  # type: ignore[arg-type]
+    assert excinfo.value.code == ErrorCode.E403

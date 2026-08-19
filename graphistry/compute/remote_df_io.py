@@ -5,6 +5,7 @@ recover the original dtypes from it, so a bare reader re-infers them.
 """
 from typing import BinaryIO, Callable, Optional
 
+from graphistry.compute.exceptions import ErrorCode, GFQLRemoteError
 from graphistry.compute.typing import DataFrameT
 from graphistry.models.compute.chain_remote import DFImportArgs
 
@@ -29,12 +30,17 @@ def require_csv_opt_in(
     :param df_import_args: Caller-supplied reader kwargs; ``None`` means no opt-in.
     :param api_name: Public entry point named in the error message.
     :return: The validated reader kwargs.
-    :raises ValueError: When ``df_import_args`` is ``None`` or not a dict.
+    :raises GFQLRemoteError: When ``df_import_args`` is ``None`` or not a dict.
     """
     if df_import_args is None:
-        raise ValueError(f"{api_name}: {CSV_LOSSY_HINT}")
+        raise GFQLRemoteError(
+            ErrorCode.E403,
+            f"{api_name}: {CSV_LOSSY_HINT}",
+            field="df_import_args",
+        )
     if not isinstance(df_import_args, dict):
-        raise ValueError(
+        raise GFQLRemoteError(
+            ErrorCode.E403,
             f"{api_name}: df_import_args must be a dict of reader kwargs, got: {type(df_import_args)}"
         )
     return df_import_args
