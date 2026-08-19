@@ -24,7 +24,7 @@ from graphistry.compute.gfql.same_path_types import (
     normalize_where_entries,
     parse_where_json,
 )
-from graphistry.compute.validate.validate_schema import validate_chain_schema
+from graphistry.compute.validate.validate_schema import validate_chain_schema, validate_graph_shape
 
 
 GFQLValidationQuery = GFQLQuery
@@ -142,6 +142,7 @@ def _validate_cypher(
     *,
     params: Optional[Mapping[str, Any]],
     strict: Optional[bool],
+    schema: bool = True,
 ) -> Dict[str, Any]:
     parsed = parse_cypher(query)
     strict_mode = _resolve_strict_mode(g, strict=strict)
@@ -152,10 +153,17 @@ def _validate_cypher(
     compiled_kind: Literal["query", "union", "graph"] = "query"
     if isinstance(compiled, CompiledCypherUnionQuery):
         compiled_kind = "union"
+        compiled_chains = [branch.chain for branch in compiled.branches]
     elif isinstance(compiled, CompiledCypherGraphQuery):
         compiled_kind = "graph"
+        compiled_chains = [compiled.chain] + [b.chain for b in compiled.graph_bindings]
     else:
         compiled = cast(CompiledCypherQuery, compiled)
+        compiled_chains = [compiled.chain]
+    if schema:
+        # schema=False callers (e.g. remote execution) hold no local frames to judge
+        for compiled_chain in compiled_chains:
+            validate_graph_shape(g, compiled_chain.chain, collect_all=False)  # runtime declines these too (#1889)
     return {
         "ok": True,
         "query_type": "chain",
@@ -401,7 +409,7 @@ def gfql_validate(
                     suggestion="Use language='cypher' for now; Gremlin string compilation is not implemented yet.",
                     language="gfql",
                 )
-            return _validate_cypher(g, query, params=params, strict=strict)
+            return _validate_cypher(g, query, params=params, strict=strict, schema=schema)
 
         if language is not None:
             raise ValueError("language is only supported when query is a string")
