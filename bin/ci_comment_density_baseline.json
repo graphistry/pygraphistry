@@ -144,7 +144,7 @@
       "graphistry/ArrowFileUploader.py": 3,
       "graphistry/compute/ComputeMixin.py": 3,
       "graphistry/compute/ast.py": 1,
-      "graphistry/compute/chain.py": 7,
+      "graphistry/compute/chain.py": 6,
       "graphistry/compute/chain_fast_paths.py": 4,
       "graphistry/compute/chain_lean_combine.py": 2,
       "graphistry/compute/gfql/agg_types.py": 1,
