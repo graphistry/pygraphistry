@@ -398,6 +398,18 @@ class TestB8Grammar:
         out = g.gfql(f"MATCH (n) WHERE n.{prop} > 3 RETURN n.id", engine="pandas")._nodes
         assert out["n.id"].tolist() == ["b"]
 
+    def test_keyword_property_keeps_filter_pushdown(self):
+        """The WHERE-chain grammar (property_ref) must also accept keyword property
+        names, or the conjunct silently loses its filter_dict pushdown."""
+        import warnings
+        from graphistry.compute.ast import ASTNode
+        from graphistry.compute.gfql.cypher.api import compile_cypher
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            compiled = compile_cypher("MATCH (n) WHERE n.when > 3 RETURN n.id")
+        node_ops = [op for op in compiled.chain.chain if isinstance(op, ASTNode)]
+        assert node_ops and node_ops[0].filter_dict and "when" in node_ops[0].filter_dict
+
     def test_keywords_stay_reserved_outside_property_position(self):
         """Mutation guard: only the dot/map-key position was unreserved."""
         g = _graph("pandas")
