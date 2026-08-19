@@ -143,6 +143,10 @@ def _nullify_missing_alias_rows(df: DataFrameT, alias_col: str, rendered: Series
 def _all_non_null_match(mask: SeriesT, non_null: SeriesT) -> bool:
     if not hasattr(mask, "where"):
         return False
+    # all-null: nothing matches the shape being probed — vacuous truth here rendered
+    # NULL carried scalars as constructor zero-values (e.g. '0000-00-00'; #1712 family).
+    if hasattr(non_null, "any") and not bool(non_null.any()):
+        return False
     return bool(mask.where(non_null, True).all())
 
 

@@ -4606,7 +4606,12 @@ class RowPipelineMixin:
             )
 
             if isinstance(alias, str):
-                frame = self._gfql_node_alias_lookup_frame(matched_nodes, str(node_id), alias)
+                # Same marker shadowing as the connected path (#1911 defect-4).
+                lookup_source = self._gfql_unshadow_alias_marker_column(
+                    matched_nodes, alias, base_nodes, str(node_id)
+                )
+                assert lookup_source is not None  # non-None in, non-None out
+                frame = self._gfql_node_alias_lookup_frame(lookup_source, str(node_id), alias)
             else:
                 anon_col = RowPipelineMixin._gfql_fresh_col_name(matched_nodes.columns, f"__gfql_binding_node_{idx}__")
                 frame = matched_nodes[[node_id]].copy().rename(columns={node_id: anon_col})

@@ -318,46 +318,43 @@ def test_whole_entity_projection_of_shadowing_alias_omits_the_column(engine: str
     assert sorted(r["kind.name"] for r in rows) == ["One", "Three", "Two"]
 
 
-# ------------------------------------------------------------------ residuals
+# ---------------------------------------- defect-4 remaining shapes (fixed)
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_residual_single_alias_and_cartesian_alias_marker_still_leaks(engine: str) -> None:  # noqa: ARG001
-    """RESIDUAL (#1911 defect 4, not fixed this cycle): the single-alias
-    `rows(table='nodes', source=...)` and the cartesian binding paths read properties off
-    the chain output frame, where the alias marker has ALREADY overwritten the user
-    column -- the pre-marker values are gone by then, so the fix needs the marker itself
-    to move to a safe internal name (which chain.py's own labeling machinery reads back).
-    Pinned CONSISTENT across engines so the divergence cannot reappear silently."""
-    for query in ["MATCH (kind:P) RETURN kind.kind AS k",
-                  "MATCH (kind:P), (b:P) RETURN kind.kind AS k, b.id AS bi",
-                  # a bare relationship-property projection also skips the connected-
-                  # bindings property attach that the fix hooks.
-                  "MATCH (a:P)-[w:K]->(b:P) RETURN w.w AS k"]:
-        rows = _run(SHADOW_NODES, SHADOW_EDGES, query, "pandas")
-        assert {r["k"] for r in rows} == {True}, f"{query} -> {rows}"
+def test_single_alias_and_cartesian_shadowed_alias_reads_the_user_value(engine: str) -> None:
+    """#1911 defect 4 (was RESIDUAL): the single-alias ``rows(table=..., source=...)``
+    route and the cartesian binding path read properties off the chain output frame,
+    where the alias marker had overwritten the user column. The rows route now restores
+    the user values from the base frame (dotted self-column, marker kept boolean); the
+    cartesian paths unshadow like the connected one. Anti-vacuity: 3 node rows / 9
+    cartesian rows / 2 relationship rows, distinct values -- an all-``True`` marker
+    leak or an empty frame cannot pass."""
+    rows = _run(SHADOW_NODES, SHADOW_EDGES, "MATCH (kind:P) RETURN kind.kind AS k", engine)
+    assert sorted(r["k"] for r in rows) == ["K1", "K2", "K3"]
+    rows = _run(SHADOW_NODES, SHADOW_EDGES,
+                "MATCH (kind:P), (b:P) RETURN kind.kind AS k, b.id AS bi", engine)
+    assert len(rows) == 9 and sorted({r["k"] for r in rows}) == ["K1", "K2", "K3"]
+    # bare relationship-property projection (rows(table='edges', source=alias) route)
+    rows = _run(SHADOW_NODES, SHADOW_EDGES, "MATCH (a:P)-[w:K]->(b:P) RETURN w.w AS k", engine)
+    assert sorted(r["k"] for r in rows) == [7, 8]
 
 
-def test_residual_multihop_relationship_alias_marker_divergence() -> None:
-    """RESIDUAL (#1911 defect 4): a relationship alias in a MULTI-hop pattern still takes
-    a different path than the single-hop one fixed above -- pandas reads the marker,
-    polars reads the value (and also over-multiplies the rows, a separate pre-existing
-    polars defect independent of the alias name). Pinned so the state is explicit."""
+def test_multihop_relationship_shadowed_alias_pandas_fixed_polars_multiplicity_residual() -> None:
+    """#1911 defect 4: pandas now reads the user value in the MULTI-hop shape too
+    (was the marker ``True``). polars still over-multiplies the rows -- a separate
+    pre-existing multiplicity defect independent of the alias name -- pinned as-is."""
     query = "MATCH (a:P)-[w:K]->(b:P)-[:K]->(c:P) RETURN w.w AS x"
-    assert [r["x"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, "pandas")] == [True]
+    assert [r["x"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, "pandas")] == [7]
     assert sorted(r["x"] for r in _run(SHADOW_NODES, SHADOW_EDGES, query, "polars")) == [7, 8]
 
 
-def test_residual_empty_result_drops_a_shadowed_alias_column_on_pandas() -> None:
-    """RESIDUAL (#1911 defect 4): when an alias is named after ANY existing node column
-    and the match is EMPTY, pandas' chain output loses that column outright, so the
-    downstream `rows` op fails its schema check; polars returns the correct empty result.
-    Reproduces with a non-colliding property too (`kind.name`), so it is a chain
-    empty-frame column-preservation bug rather than a property-resolution one."""
-    from graphistry.compute.exceptions import GFQLSchemaError
-
+def test_empty_result_keeps_a_shadowed_alias_column_on_both_engines() -> None:
+    """#1911 defect 4 (was RESIDUAL): an EMPTY match on an alias named after an existing
+    node column used to lose that column on pandas (chain empty-frame column drop), so the
+    downstream ``rows`` op raised a schema error; the marker-aware coalesce now keeps the
+    column even at zero rows and both engines return the correct empty result."""
     query = "MATCH (kind:P) WHERE kind.name = 'ZZ' RETURN kind.name AS n"
-    with pytest.raises(GFQLSchemaError):
-        _run(SHADOW_NODES, SHADOW_EDGES, query, "pandas")
+    assert _run(SHADOW_NODES, SHADOW_EDGES, query, "pandas") == []
     assert _run(SHADOW_NODES, SHADOW_EDGES, query, "polars") == []
 
 
@@ -489,16 +486,100 @@ def test_unwind_alias_collision_still_declines_before_the_rebind_guard(engine: s
     assert "UNWIND alias collides" in str(exc_info.value)
 
 
-def test_edge_alias_named_like_source_column_is_a_schema_error_residual() -> None:
-    """RESIDUAL: an edge alias named after the edge SOURCE column has its marker
-    destroy that column -- surfaced as a typed GFQLSchemaError (column-not-found),
-    not a silent answer. Pinned so a change here is deliberate; a typed decline
-    naming the alias collision (like the node-ID one) would be the upgrade."""
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("alias", ["s", "d"])
+def test_edge_alias_named_like_an_endpoint_binding_is_a_typed_decline(alias: str, engine: str) -> None:
+    """#1911 defect-4 sibling (was RESIDUAL): an edge alias named after the edge
+    SOURCE/DESTINATION binding column has its marker destroy the endpoints. It used to
+    surface as an incidental GFQLSchemaError on pandas; the marker-aware coalesce would
+    have turned it into a silent EMPTY result, so it is now the same typed decline as
+    the node-ID collision, on both engines."""
+    with pytest.raises(GFQLValidationError) as exc_info:
+        _run(PEOPLE_NODES, PEOPLE_EDGES,
+             f"MATCH (a:Person)-[{alias}:KNOWS]->(b:Person) RETURN {alias}.type AS t", engine)
+    assert exc_info.value.code == ErrorCode.E108
+    assert "edge endpoint binding column" in str(exc_info.value)
+
+
+# -------------------- #1911 defect-4 round-2: single-alias rows-route restore
+
+# NULL cell on purpose: the restore must carry the NULL through (the NULL-vs-membership
+# class), never drop the row or backfill the marker.
+SELF_NAMED_NODES = pd.DataFrame({
+    "id": ["a1", "a2", "b1", "b2"],
+    "name": ["Sa", "Sb", None, "Tb"],
+    "label__P": [True, True, True, True],
+})
+SELF_NAMED_EDGES = pd.DataFrame({
+    "s": ["a1", "a2"], "d": ["b1", "b2"], "type": ["K", "K"], "w": [7, 8],
+})
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_rows_route_alias_named_as_its_property_reads_user_values(engine: str) -> None:
+    """#1911 defect-4 (rows route): ``MATCH (name:P) RETURN name.name`` answered the
+    alias marker ``[True] x 4`` on both engines (cuDF crashed with a raw mixed-types
+    TypeError). Anti-vacuity: 4 rows with 3 distinct values plus a preserved NULL."""
+    rows = _run(SELF_NAMED_NODES, SELF_NAMED_EDGES, "MATCH (name:P) RETURN name.name", engine)
+    assert [r["name.name"] for r in rows] == ["Sa", "Sb", None, "Tb"]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_rows_route_where_on_self_named_alias_filters_and_projects_user_values(engine: str) -> None:
+    """WHERE already compared user values (1 row matched) while RETURN projected the
+    marker ``True`` -- both sides must read the same user column."""
+    rows = _run(SELF_NAMED_NODES, SELF_NAMED_EDGES,
+                "MATCH (name:P) WHERE name.name = 'Sa' RETURN name.name AS n", engine)
+    assert rows == [{"n": "Sa"}]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_rows_route_edge_alias_named_as_its_property_reads_user_values(engine: str) -> None:
+    """Edge twin of the rows route (``rows(table='edges', source=alias)``): the marker
+    also overwrote the same-named edge payload column."""
+    rows = _run(SELF_NAMED_NODES, SELF_NAMED_EDGES,
+                "MATCH (a:P)-[w:K]->(b:P) RETURN w.w AS x", engine)
+    assert sorted(r["x"] for r in rows) == [7, 8]
+
+
+def test_rows_route_edge_alias_colliding_with_its_own_type_filter() -> None:
+    """``MATCH (a)-[type:K]->(b) RETURN type.type``: the alias shadows the very column
+    its ``:K`` filter reads. pandas/cuDF now answer the user values; polars' chain
+    machinery re-applies the type filter against the stamped marker and raises a typed
+    GFQLSchemaError -- an honest decline, pinned so it cannot rot into a silent wrong
+    answer (residual polish for #1911)."""
     from graphistry.compute.exceptions import GFQLSchemaError
 
+    query = "MATCH (a:P)-[type:K]->(b:P) RETURN type.type AS t"
+    assert _run(SELF_NAMED_NODES, SELF_NAMED_EDGES, query, "pandas") == [
+        {"t": "K"}, {"t": "K"}]
     with pytest.raises(GFQLSchemaError):
-        _run(PEOPLE_NODES, PEOPLE_EDGES,
-             "MATCH (a:Person)-[s:KNOWS]->(b:Person) RETURN s.type AS t", "pandas")
+        _run(SELF_NAMED_NODES, SELF_NAMED_EDGES, query, "polars")
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_mixed_whole_entity_and_self_named_property_projection(engine: str) -> None:
+    """``RETURN name, name.name AS n``: the whole-entity flatten keeps omitting the
+    shadowed column (pinned above) while the explicit property column must read the
+    restored user values, NULL included."""
+    rows = _run(SELF_NAMED_NODES, SELF_NAMED_EDGES,
+                "MATCH (name:P) RETURN name, name.name AS n", engine)
+    assert [r["n"] for r in rows] == ["Sa", "Sb", None, "Tb"]
+    assert [r["name.id"] for r in rows] == ["a1", "a2", "b1", "b2"]
+
+
+def test_cudf_rows_route_self_named_alias_parity() -> None:
+    """cuDF (dataframe ops only): the node shape crashed with a raw mixed-types
+    TypeError from the marker/user-column coalesce; both shapes now match pandas."""
+    cudf = pytest.importorskip("cudf")
+
+    g = graphistry.nodes(cudf.from_pandas(SELF_NAMED_NODES), "id").edges(
+        cudf.from_pandas(SELF_NAMED_EDGES), "s", "d"
+    )
+    out = g.gfql("MATCH (name:P) RETURN name.name", engine="cudf")._nodes.to_pandas()
+    assert list(out["name.name"].fillna("<null>")) == ["Sa", "Sb", "<null>", "Tb"]
+    out = g.gfql("MATCH (a:P)-[type:K]->(b:P) RETURN type.type AS t", engine="cudf")._nodes
+    assert sorted(out.to_pandas()["t"]) == ["K", "K"]
 
 
 def test_cudf_unshadow_and_rebind_guard_parity() -> None:
