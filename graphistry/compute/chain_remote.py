@@ -18,7 +18,8 @@ from graphistry.compute.gfql.cypher.lowering import compile_cypher_query
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
 from graphistry.io.metadata import deserialize_plottable_metadata
-from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType, output_types_graph
+from graphistry.compute.remote_df_io import require_csv_opt_in, resolve_csv_reader
+from graphistry.models.compute.chain_remote import DFImportArgs, OutputTypeGraph, FormatType, output_types_graph
 from graphistry.utils.json import JSONVal
 from graphistry.otel import inject_trace_headers
 
@@ -131,6 +132,7 @@ def chain_remote_generic(
     persist: bool = False,
     params: Optional[Dict[str, Any]] = None,
     output: Optional[str] = None,
+    df_import_args: Optional[DFImportArgs] = None,
 ) -> Union[Plottable, pd.DataFrame]:
 
     if not api_token:
@@ -153,6 +155,9 @@ def chain_remote_generic(
             format = "json"
         else:
             format = "parquet"
+
+    if format == "csv":
+        require_csv_opt_in(df_import_args, "gfql_remote")
 
     # Validate persist compatibility early
     if persist and output_type in ["nodes", "edges"]:
@@ -297,6 +302,9 @@ def chain_remote_generic(
         read_parquet = pd.read_parquet
     else:
         raise ValueError(f"Unknown DataFrame types - edges: {type(self._edges)}, nodes: {type(self._nodes)}")
+
+    if format == "csv":
+        read_csv = resolve_csv_reader(read_csv, df_import_args, "gfql_remote")
 
     if output_type == "shape":
         if format == "json":
@@ -446,7 +454,8 @@ def chain_remote_shape(
     edge_col_subset: Optional[List[str]] = None,
     engine: EngineAbstractType = 'auto',
     validate: bool = True,
-    persist: bool = False
+    persist: bool = False,
+    df_import_args: Optional[DFImportArgs] = None,
 ) -> pd.DataFrame:
     """
     Like chain_remote(), except instead of returning a Plottable, returns a pd.DataFrame of the shape of the resulting graph.
@@ -487,7 +496,8 @@ def chain_remote_shape(
         edge_col_subset,
         engine,
         validate,
-        persist
+        persist,
+        df_import_args=df_import_args,
     )
     assert isinstance(out_df, pd.DataFrame)
     return out_df
@@ -507,6 +517,7 @@ def chain_remote(
     persist: bool = False,
     params: Optional[Dict[str, Any]] = None,
     output: Optional[str] = None,
+    df_import_args: Optional[DFImportArgs] = None,
 ) -> Plottable:
     """Remotely run GFQL chain query on a remote dataset.
     
@@ -524,11 +535,14 @@ def chain_remote(
     :param output_type: Whether to return nodes and edges ("all", default), Plottable with just nodes ("nodes"), or Plottable with just edges ("edges"). For just a dataframe of the resultant graph shape (output_type="shape"), use instead chain_remote_shape().
     :type output_type: OutputType
 
-    :param format: What format to fetch results. We recommend a columnar format such as parquet, which it defaults to when output_type is not shape.
+    :param format: What format to fetch results. We recommend a columnar format such as parquet, which it defaults to when output_type is not shape. ``'csv'`` is untyped on the wire and is refused unless ``df_import_args`` is supplied.
     :type format: Optional[FormatType]
 
     :param df_export_args: When server parses data, any additional parameters to pass in.
     :type df_export_args: Optional[Dict, str, Any]]
+
+    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Required to use ``format='csv'`` at all: csv is untyped on the wire, so without explicit reader control the client would re-infer dtypes and can rewrite values. Prefer ``format='parquet'``, which is faithful and needs no reader args.
+    :type df_import_args: Optional[Dict[str, Any]]
 
     :param node_col_subset: When server returns nodes, what property subset to return. Defaults to all.
     :type node_col_subset: Optional[List[str]]
@@ -596,6 +610,7 @@ def chain_remote(
         persist,
         params=params,
         output=output,
+        df_import_args=df_import_args,
     )
     assert isinstance(g, Plottable)
     return g
