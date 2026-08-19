@@ -4,8 +4,10 @@ An aggregate with NO grouping keys always yields exactly one row, so a stage tha
 empties the row stream must still return the aggregate identities (count/sum -> 0,
 collect -> [], min/max/avg -> null) rather than an empty frame. Every lowering path
 that can end in an ungrouped aggregate feeds its compiled row steps through
-``ungrouped_aggregate_identity_row`` here; the result becomes the compiled query's
-``empty_result_row``, applied at runtime only when the real result is empty.
+``apply_ungrouped_aggregate_identity`` here. Replayable suffixes compile the row
+into ``empty_result_row``, applied at runtime only when the real result is empty;
+a post-aggregate ``where_rows`` suffix instead gets in-chain ``fill_empty_row``
+steps, because its outcome depends on the runtime aggregate value.
 """
 from __future__ import annotations
 
