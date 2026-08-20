@@ -233,7 +233,8 @@ jobs:
           '^pytest\.ini$' \
           '^mypy\.ini$' \
           '^bin/lint\.sh$' \
-          '^bin/typecheck\.sh$'
+          '^bin/typecheck\.sh$' \
+          '^bin/ci_.*baseline\.json$'
 
         # GFQL core + tests.
         emit gfql \
@@ -919,6 +920,22 @@ jobs:
         fi
         printf 'Differential/parity tests:\n- %s\n' "${parity_tests[@]}"
         python -B -m pytest -vv -n auto "${parity_tests[@]}"
+
+  gpu-gate-audit:
+    # Ungated: a guard against a silent coverage gap must not itself be conditionally
+    # silent, and the path filters do not cover every file it cross-checks.
+    name: gpu-gate-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Audit cuDF test gates and the CI coverage they lack
+      run: |
+        python bin/ci_gpu_gate_audit.py
 
   cypher-frontend-surface-guard:
     name: cypher-frontend-surface-guard

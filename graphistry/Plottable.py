@@ -4,7 +4,7 @@ import pandas as pd
 
 from graphistry.io.types import ComplexEncodingsDict
 from graphistry.models.ModelDict import ModelDict
-from graphistry.models.compute.chain_remote import FormatType, OutputTypeAll, OutputTypeDf, OutputTypeGraph
+from graphistry.models.compute.chain_remote import DFImportArgs, FormatType, OutputTypeAll, OutputTypeDf, OutputTypeGraph
 from graphistry.models.compute.dbscan import DBSCANEngine
 from graphistry.models.compute.umap import UMAPEngineConcrete
 from graphistry.models.compute.features import GraphEntityKind
@@ -559,7 +559,9 @@ class Plottable(Protocol):
         edge_col_subset: Optional[List[str]] = None,
         engine: Optional[Literal["pandas", "cudf"]] = None,
         validate: bool = True,
-        persist: bool = False
+        persist: bool = False,
+        df_import_args: Optional[DFImportArgs] = None,
+        strict: Any = None,  # hygiene-ok: explicit-any -- bool | strictness level | None; see gfql.strictness.StrictInput
     ) -> 'Plottable':
         """
         chain is Union[List[ASTObject], Chain]
@@ -577,7 +579,11 @@ class Plottable(Protocol):
         edge_col_subset: Optional[List[str]] = None,
         engine: Optional[Literal["pandas", "cudf"]] = None,
         validate: bool = True,
-        persist: bool = False
+        persist: bool = False,
+        df_import_args: Optional[DFImportArgs] = None,
+        params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
+        output: Optional[str] = None,
+        strict: Any = None,  # hygiene-ok: explicit-any -- bool | strictness level | None; see gfql.strictness.StrictInput
     ) -> pd.DataFrame:
         """
         chain is Union[List[ASTObject], Chain]
@@ -596,7 +602,11 @@ class Plottable(Protocol):
         edge_col_subset: Optional[List[str]] = None,
         engine: EngineAbstractType = 'auto',
         validate: bool = True,
-        persist: bool = False
+        persist: bool = False,
+        df_import_args: Optional[DFImportArgs] = None,
+        params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars
+        output: Optional[str] = None,
+        strict: Any = None,  # hygiene-ok: explicit-any -- bool | strictness level | None; see gfql.strictness.StrictInput
     ) -> 'Plottable':
         """
         chain is Union[List[ASTObject], Chain]
@@ -614,7 +624,11 @@ class Plottable(Protocol):
         edge_col_subset: Optional[List[str]] = None,
         engine: EngineAbstractType = 'auto',
         validate: bool = True,
-        persist: bool = False
+        persist: bool = False,
+        df_import_args: Optional[DFImportArgs] = None,
+        params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
+        output: Optional[str] = None,
+        strict: Any = None,  # hygiene-ok: explicit-any -- bool | strictness level | None; see gfql.strictness.StrictInput
     ) -> pd.DataFrame:
         """
         chain is Union[List[ASTObject], Chain]
@@ -630,7 +644,8 @@ class Plottable(Protocol):
         output_type: Optional[OutputTypeAll] = 'all',
         engine: EngineAbstractType = 'auto',
         run_label: Optional[str] = None,
-        validate: bool = True
+        validate: bool = True,
+        df_import_args: Optional[DFImportArgs] = None,
     ) -> 'Plottable':
         ...
 
@@ -643,7 +658,8 @@ class Plottable(Protocol):
         output_type: Optional[OutputTypeDf] = 'table',
         engine: EngineAbstractType = 'auto',
         run_label: Optional[str] = None,
-        validate: bool = True
+        validate: bool = True,
+        df_import_args: Optional[DFImportArgs] = None,
     ) -> pd.DataFrame:
         ...
 

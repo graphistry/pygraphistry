@@ -688,7 +688,7 @@ class PlotterBase(Plottable):
         :param for_default: Use encoding for when no user override is set. Default on.
         :type for_default: Optional[bool]
 
-        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default off.
         :type for_current: Optional[bool]
 
         :returns: Plotter
@@ -757,7 +757,7 @@ class PlotterBase(Plottable):
         :param for_default: Use encoding for when no user override is set. Default on.
         :type for_default: Optional[bool]
 
-        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default off.
         :type for_current: Optional[bool]
 
         :returns: Plotter
@@ -793,7 +793,7 @@ class PlotterBase(Plottable):
         :param for_default: Use encoding for when no user override is set. Default on.
         :type for_default: Optional[bool]
 
-        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default off.
         :type for_current: Optional[bool]
 
         :returns: Plotter
@@ -881,7 +881,7 @@ class PlotterBase(Plottable):
         :param for_default: Use encoding for when no user override is set. Default on.
         :type for_default: Optional[bool]
 
-        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default off.
         :type for_current: Optional[bool]
 
         :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
@@ -958,7 +958,7 @@ class PlotterBase(Plottable):
         :param for_default: Use encoding for when no user override is set. Default on.
         :type for_default: Optional[bool]
 
-        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default off.
         :type for_current: Optional[bool]
 
         :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
@@ -4127,7 +4127,7 @@ class PlotterBase(Plottable):
         and the renderable result Plotter. Hypergraphs reveal relationships between rows and between column values.
         This transform is useful for lists of events, samples, relationships, and other structured high-dimensional data.
 
-        Specify local compute engine by passing `engine='pandas'`, 'cudf', 'dask', 'dask_cudf' (default: 'pandas').
+        Specify local compute engine by passing `engine='pandas'`, 'cudf', 'dask', 'dask_cudf' (default: 'auto', which selects the engine from the input dataframe type).
         If events are not in that engine's format, they will be converted into it.
 
         The transform creates a node for every unique value in the entity_types columns (default: all columns). 

@@ -1,6 +1,6 @@
 import logging
 from typing import Any, Dict, Union, cast, List, Tuple, Sequence, Optional, TYPE_CHECKING
-from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, align_shared_column_dtypes, df_concat, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_na
+from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, align_shared_column_dtypes, df_concat, df_cons, df_to_engine, resolve_engine, safe_map_series, safe_row_concat, s_na
 from graphistry.compute.dataframe_utils import dbg_df
 
 from graphistry.Plottable import Plottable
@@ -12,18 +12,20 @@ from .ast import ASTObject, ASTNode, ASTEdge, ASTCall, Direction, from_json as A
 from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
 from .chain_fast_paths import _seeded_typed_hop_pandas_cudf, _tag_fast_path_aliases
-from graphistry.compute.validate.validate_schema import validate_chain_schema
+from graphistry.compute.validate.validate_schema import validate_chain_schema, validate_graph_shape
+from graphistry.compute.gfql.strictness import StrictInput
 from graphistry.compute.gfql.same_path_types import (
     WhereComparison,
     normalize_where_entries,
     parse_where_json,
     where_to_json,
 )
-from .gfql.policy import PolicyContext, PolicyException
+from .gfql.policy import PolicyContext, PolicyException, PolicyFunction
 from .gfql.policy.stats import extract_graph_stats
 from graphistry.otel import otel_traced, otel_detail_enabled
 
 if TYPE_CHECKING:
+    from .execution_context import ExecutionContext
     from graphistry.compute.exceptions import GFQLSchemaError, GFQLValidationError
     from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
 
@@ -516,11 +518,23 @@ def combine_steps(
                 out_df[op._name] = label_mask
 
     cols = list(out_df.columns)
+    # An alias named like a user column collides here (marker `_x` from the step frames
+    # vs user values `_y` from the base frame). The marker is authoritative (null =
+    # unbound row); user values are restored from the base frame at property-read time,
+    # never coalesced into the marker (mixed bool/user dtypes also crash cuDF).
+    alias_marker_names = {
+        op._name for op, _ in steps
+        if isinstance(op, op_type) and isinstance(getattr(op, '_name', None), str)
+    }
     for c in cols:
         if c.endswith('_x'):
             base = c[:-2]
             c_y = base + '_y'
             if c_y in out_df.columns:
+                if base in alias_marker_names:
+                    out_df[base] = out_df[c].fillna(False).astype(bool)
+                    out_df = out_df.drop(columns=[c, c_y])
+                    continue
                 if len(out_df) > 0:
                     out_df[base] = out_df[c].where(out_df[c].notna(), out_df[c_y])
                 out_df = out_df.drop(columns=[c, c_y])
@@ -1006,7 +1020,8 @@ def chain(
     validate_schema: bool = True,
     policy=None,
     context=None,
-    start_nodes: Optional[DataFrameT] = None
+    start_nodes: Optional[DataFrameT] = None,
+    strict: StrictInput = None,
 ) -> Plottable:
     """
     Chain a list of ASTObject (node/edge) traversal operations
@@ -1023,10 +1038,33 @@ def chain(
     :param policy: Optional policy dict for hooks
     :param context: Optional ExecutionContext for tracking execution state
     :param start_nodes: Optional node wavefront for the first traversal step
+    :param strict: Absent-name strictness: ``"strict"`` raises, ``"warn"`` (default) warns
+        once per absent name and resolves it to null, ``"quiet"`` resolves silently.
+        ``True``/``False`` map to ``"strict"``/``"quiet"``. ``None`` consults
+        ``bind(schema=...)``, then the ``"warn"`` default.
 
     :returns: Plotter
     :rtype: Plotter
     """
+    from graphistry.compute.gfql.strictness import (
+        resolve_strict_level, schema_declared_names, strictness_scope)
+
+    with strictness_scope(
+        resolve_strict_level(self, strict=strict), declared=schema_declared_names(self)
+    ):
+        return _chain_with_strictness(
+            self, ops, engine, validate_schema, policy, context, start_nodes)
+
+
+def _chain_with_strictness(
+    self: Plottable,
+    ops: Union[List[ASTObject], Chain],
+    engine: Union[EngineAbstract, str],
+    validate_schema: bool,
+    policy: Optional[Dict[str, PolicyFunction]],
+    context: Optional['ExecutionContext'],
+    start_nodes: Optional[DataFrameT],
+) -> Plottable:
     if context is None:
         from .execution_context import ExecutionContext
         context = ExecutionContext()
@@ -1068,6 +1106,7 @@ def chain(
         # (Dependency guards for polars / cudf_polars are above, pre-coercion.)
         if validate_schema:
             Chain(ops if not isinstance(ops, Chain) else ops.chain).validate(collect_all=False)
+            validate_graph_shape(self, ops, collect_all=False)  # pandas gets this via validate_chain_schema (#1889)
         from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
         from graphistry.compute.gfql.lazy import target_mode, ExecutionTarget
         # NO pandas fallback here (no-silent-fallback policy): chain_polars raises
@@ -1195,6 +1234,21 @@ def _chain_impl(
     try:
         g = self.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
 
+        synthesized_empty_edges = False
+        if g._edges is None and all(isinstance(op, ASTNode) for op in ops):
+            # node-only steps only ever slice edges[:0], so an empty frame serves; result drops it (#1879)
+            synthesized_empty_edges = True
+            synth_src = generate_safe_column_name('src', g._nodes, prefix='__gfql_', suffix='__')
+            synth_dst = generate_safe_column_name('dst', g._nodes, prefix='__gfql_', suffix='__')
+            g = g.edges(df_cons(engine_concrete)({synth_src: [], synth_dst: []}), synth_src, synth_dst)
+        elif g._edges is None and any(isinstance(op, ASTEdge) for op in ops):
+            from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+            raise GFQLSchemaError(
+                ErrorCode.E304,
+                'Cannot traverse edges: graph has no edges bound',
+                suggestion='Bind edges via g.edges(df, source, destination), or use a node-only pattern'
+            )
+
         if g._edges is None:
             added_edge_index = False
         elif g._edge is None:
@@ -1209,18 +1263,15 @@ def _chain_impl(
             # with no O(E) data copy. The column is internal-only — dropped on
             # every exit path (see added_edge_index consumers below) — so only
             # uniqueness matters.
+            pre_index_edges_df = g._edges
             indexed_edges_df = g._edges.copy(deep=False)
             indexed_edges_df[GFQL_EDGE_INDEX] = indexed_edges_df.index
             g = g.edges(indexed_edges_df, edge=GFQL_EDGE_INDEX)
-            # The shallow copy above only ADDS the synthetic id column; the indexed
-            # src/dst columns are preserved by value. Re-point any resident #1658
-            # adjacency index at the new edge frame so the seeded fast path still
-            # engages through gfql()/Cypher chains (else the identity guard misses and
-            # every chain hop falls back to the O(E) scan).
+            # Pass the frame this was derived FROM: only an index still valid for it may migrate.
             from graphistry.compute.gfql.index import get_registry, set_registry
             _reg = get_registry(g)
             if not _reg.is_empty():
-                g = set_registry(g, _reg.rebind_edges(indexed_edges_df))
+                g = set_registry(g, _reg.rebind_edges(indexed_edges_df, pre_index_edges_df))
         else:
             added_edge_index = False
 
@@ -1412,6 +1463,9 @@ def _chain_impl(
                 g_out = self.nodes(final_nodes_df, g._node).edges(final_edges_df, edge=original_edge)
             else:
                 g_out = g.nodes(final_nodes_df).edges(final_edges_df)
+
+            if synthesized_empty_edges:
+                g_out = self.nodes(final_nodes_df, g._node)
 
             if g_out._edges is not None and len(g_out._edges) > 0:
                 concat_fn = df_concat(engine_concrete)

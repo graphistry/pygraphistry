@@ -137,6 +137,7 @@ CALL_KNOWN_UNCOVERED: dict[str, str] = {
     "order_by": "row sort; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
     "unwind": "list explode; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
     "group_by": "grouped aggregation; native on polars chain, NIE via call()/DAG executor; not asserted via call(). TODO.",
+    "fill_empty_row": "ungrouped-aggregate identity fill; compiler-emitted (cypher lowering), native on all engines, exercised via the post-aggregate WHERE cypher cases; not asserted via call(). TODO.",
     "search_any": "cross-column search marker (viz-filter L2); exercised as a labeled subject via test_search_any_op_all_engines (chain call surface, oracle pins + 4-engine parity-or-NIE), not via a direct call() consistency label.",
     "count_table": "count(*) short-circuit fast path (table height / source-mask sum); native frame op emitted by the cypher lowering, exercised as a labeled subject via _ROW_OP_CASES + the count_all_nodes/edges cypher cases, not via a direct call() consistency label. TODO.",
     "semi_apply_mark": "correlated EXISTS-mark; NATIVE on polars (viz-filter L1), exercised implicitly by the matrix EXISTS cypher cases; no direct labeled subject.",
@@ -194,6 +195,7 @@ CALL_KNOWN_UNCOVERED: dict[str, str] = {
 # they're tracked on the call() axis.) Fails CI if a NEW op lands unasserted and unwaived ----
 
 ROW_OP_KNOWN_UNCOVERED: dict[str, str] = {
+    "fill_empty_row": "ungrouped-aggregate identity fill; native on pandas/cuDF/polars, exercised (and mutation-killed) via the post-aggregate WHERE cypher cases in test_aggregate_identity_row_semantics.py; no labeled rowop subject in this matrix.",
     # honest NIE — correlated-subquery ops with no native polars lowering (_try_native_row_op returns None)
     "semi_apply_mark": "native single-join-alias polars lowering (viz-filter L1); multi-alias correlation still declines NIE; exercised via cypher EXISTS cases, no labeled rowop subject.",
     "anti_semi_apply": "native single-join-alias polars lowering (viz-filter L1); multi-alias correlation still declines NIE; exercised via cypher NOT-EXISTS case, no labeled rowop subject.",

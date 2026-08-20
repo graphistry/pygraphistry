@@ -1,4 +1,4 @@
-from typing import Set, Union
+from typing import Any, Dict, Set, Union
 from typing_extensions import Literal
 
 
@@ -16,3 +16,7 @@ output_types_json: Set[OutputTypeJson] = {"json"}
 
 OutputTypeAll = Union[OutputTypeGraph, OutputTypeDf, OutputTypeJson]
 output_types_all = output_types_graph.union(output_types_df).union(output_types_json)
+
+
+# Reader kwargs forwarded to the client-side csv reader; values are heterogeneous by nature
+DFImportArgs = Dict[str, Any]

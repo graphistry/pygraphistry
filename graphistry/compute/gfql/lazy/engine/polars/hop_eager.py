@@ -1,10 +1,9 @@
-"""Native Polars hop() — Phase 1, vectorized.
+"""Native Polars hop() — Phase 1.
 
 Supports forward/reverse/undirected, integer hops + to_fixed_point, default and
 return_as_wave_front seed semantics, edge/source/destination match predicates, and
-target_wave_front (chain reverse pass). Vectorization-first: BFS frontier/visited/allowed sets
-are polars frames advanced by semi/anti joins — no per-element Python work, no
-``.to_list()``/``is_in(python_list)`` ping-pong; each hop is one big join. Parity-or-NIE:
+target_wave_front (chain reverse pass). BFS frontier/visited/allowed sets are polars frames
+advanced by semi/anti joins. Parity-or-NIE:
 pandas is the oracle; not-yet-ported features (hop labeling, min_hops>1 outside the chain
 policy, output_min/max slicing, *_query, prune_to_endpoints, include_zero_hop_seed) raise
 NotImplementedError.
@@ -69,8 +68,8 @@ def _build_hop_pairs(
     frame: "PolarsT", direction: str, src: str, dst: str,
     node_dtype: "pl.DataType", FROM: str, TO: str, EID: str,
 ) -> "PolarsT":
-    """Directed-(FROM,TO,EID) builder with join-key dtype aligned (polars won't coerce int/float
-    join keys like pandas). `frame` = edge-id frame, eager or lazy; select/concat identical on both."""
+    """Directed-(FROM,TO,EID) builder with join-key dtype aligned. `frame` = edge-id frame,
+    eager or lazy; select/concat identical on both."""
     import polars as pl
 
     def _p(s: str, d: str) -> "PolarsT":
@@ -81,6 +80,40 @@ def _build_hop_pairs(
     if direction == "reverse":
         return _p(dst, src)
     return pl.concat([_p(src, dst), _p(dst, src)], how="vertical_relaxed")
+
+
+def _ids_an_endpoint_may_resolve_to(
+    all_nodes: "pl.DataFrame", target_wave_front: "Optional[pl.DataFrame]", node_col: str,
+) -> "pl.Series":
+    """The bound node table's ids, widened by any target wavefront (pandas' base_target_nodes)."""
+    import polars as pl
+
+    ids = all_nodes.get_column(node_col)
+    if target_wave_front is not None and node_col in target_wave_front.columns:
+        ids = pl.concat([ids, target_wave_front.get_column(node_col).cast(ids.dtype)])
+    return ids
+
+
+def _keep_edges_with_both_endpoints_resolvable(
+    edges_idx: "PolarsT", src: str, dst: str, node_dtype: "pl.DataType",
+    resolvable_ids: "pl.Series",
+) -> "PolarsT":
+    """`.implode()` makes the id series ONE membership collection; bare `is_in` is deprecated.
+
+    A NULL endpoint resolves iff the id universe holds a NULL id: `is_in` answers NULL for a
+    NULL input (dropped by `filter`), where the pandas/cuDF `isin` this mirrors answers True.
+    """
+    import polars as pl
+
+    universe = resolvable_ids.implode()
+    a_null_id_is_resolvable = resolvable_ids.null_count() > 0
+
+    def _resolvable(endpoint_col: str) -> "pl.Expr":
+        endpoint = pl.col(endpoint_col).cast(node_dtype)
+        member = endpoint.is_in(universe)
+        return (member | endpoint.is_null()) if a_null_id_is_resolvable else member
+
+    return edges_idx.filter(_resolvable(src) & _resolvable(dst))
 
 
 def _min_hops_labeled_node_output(
@@ -141,6 +174,11 @@ def hop_polars(
             '"forward" (default), "reverse", "undirected"'
         )
 
+    # Resolves BEFORE _unsupported so contradictions raise; import is function-local (cycle).
+    from graphistry.compute.hop import resolve_hop_bounds
+    resolved_max_hops, _resolved_min_hops, _out_min, _out_max = resolve_hop_bounds(
+        hops, min_hops, max_hops, output_min_hops, output_max_hops, to_fixed_point)
+
     _unsupported(
         # min_hops>1 is NATIVE fwd/rev with finite max_hops, but ONLY in the CHAIN context
         # (min_hops_label_policy=True): the layered walk + NON-anti-joined BFS port pandas'
@@ -159,10 +197,16 @@ def hop_polars(
         # decline (NIE): min_hops>1 runs the NON-anti-joined revisit BFS whose labels come from
         # the layered backward walk (hop.py:676-778), a different rule not yet ported.
         label_node_hops=label_node_hops if (min_hops is not None and min_hops > 1) else None,
-        # decline (NIE): label_edge_hops stays deferred at every shape — with labels on, the
-        # pandas edge output DUPLICATES an undirected edge traversed in both directions (one row
-        # per labeled traversal; 448/4800 differential cases). Reproducing that row duplication
-        # would bake a questionable pandas artifact into polars; #1741 needs only node labels.
+        # decline (NIE): label_edge_hops stays deferred at every shape.
+        # ITS ORIGINAL REASON IS GONE: "with labels on, the pandas edge output
+        # DUPLICATES an undirected edge traversed in both directions (one row per labeled
+        # traversal; 448/4800 differential cases)" — that duplication was a missing dedup on
+        # the first labeled hop and is fixed; a re-run of the same differential (2879 shapes,
+        # direction x hops x seeds) now shows 0 divergences between the labeled and unlabeled
+        # pandas edge multiset, down from 628. So there is no longer a questionable artifact to
+        # bake in. The decline is KEPT because lifting it is now a FEATURE, not a gate removal:
+        # this engine has no edge-label output path at all, and node labels are all that is needed.
+        # Whoever adds it inherits a clean pandas oracle.
         label_edge_hops=label_edge_hops,
         label_seeds=(label_seeds or None) if (min_hops is not None and min_hops > 1) else None,
         source_node_query=source_node_query,
@@ -192,68 +236,66 @@ def hop_polars(
     if edge_match is not None:
         edges = filter_by_dict_polars(edges, edge_match)
 
-    resolved_max_hops = max_hops if max_hops is not None else hops
-    if to_fixed_point:
-        resolved_max_hops = None
-    elif not isinstance(resolved_max_hops, int):
-        raise ValueError(
-            f"Must provide integer hops when to_fixed_point is False, received: {resolved_max_hops}"
-        )
-
+    # resolved_max_hops comes from the shared resolver above (None == run-to-closure).
     FROM, TO, NID, EID, edges_idx, synth_eid, node_dtype = _hop_setup_columns(
         edges, all_nodes, node_col, g._edge)
+
+    serves_single_bounded_hop = (
+        not to_fixed_point and resolved_max_hops == 1
+        and not (label_node_hops is not None or label_edge_hops is not None or label_seeds)
+        and not (min_hops is not None and min_hops > 1 and direction in ("forward", "reverse")))
+
+    resolvable_ids = (
+        _ids_an_endpoint_may_resolve_to(all_nodes, target_wave_front, node_col)
+        if self._nodes is not None else None)
+    if resolvable_ids is not None and not serves_single_bounded_hop:
+        edges_idx = _keep_edges_with_both_endpoints_resolvable(
+            edges_idx, src, dst, node_dtype, resolvable_ids)
+
     pairs = _build_hop_pairs(edges_idx, direction, src, dst, node_dtype, FROM, TO, EID)
 
     def _idframe(df: "pl.DataFrame", col: str) -> "pl.DataFrame":
         return df.select(pl.col(col).cast(node_dtype).alias(NID)).unique()
 
-    # --- SINGLE BOUNDED HOP (the dominant case — every chain edge): ONE lazy plan, ONE
-    # collect_all on the active target (GPU: edge table read/transferred once -- the
-    # collect-once path, formerly the separate hop.py twin). Placed BEFORE the eager gate
-    # construction: the seed/gate/target id-frame .unique()s must stay INSIDE the lazy plan
-    # (eagerly materializing them over chain wavefronts measurably regressed large-edge
-    # runs -- A/B twice). Multi-hop/min_hops/to_fixed_point use the eager loop below: the
-    # early-break + revisit bookkeeping need per-hop materialization, and for hops>=2 an
-    # unrolled lazy plan recomputes the big edge-join per hop (polars CSE doesn't dedup it).
-    if (not to_fixed_point and resolved_max_hops == 1
-            and not (label_node_hops is not None or label_edge_hops is not None or label_seeds)
-            and not (min_hops is not None and min_hops > 1 and direction in ("forward", "reverse"))):
+    # Must stay ABOVE the eager gate construction: the id-frame .unique()s stay inside the lazy plan.
+    if serves_single_bounded_hop:
         from graphistry.compute.gfql.lazy import collect_all
-        edges_lf = edges_idx.lazy()
-        pairs_lf = _build_hop_pairs(edges_lf, direction, src, dst, node_dtype, FROM, TO, EID)
 
         def _idframe_lf(lf: "pl.LazyFrame", col: str) -> "pl.LazyFrame":
-            """Id frame for a SEMI-JOIN KEY side only — deliberately NOT deduplicated.
-
-            Every consumer below (`allowed_source_lf`, `allowed_dest_lf`, `target_final_lf`,
-            `frontier_lf`) is the key side of a `how="semi"` join, and a semi-join emits a
-            row iff >=1 match exists — duplicate keys cannot change the result, and unlike an
-            inner join it cannot multiply rows either. `frontier_lf` is also the LEFT side of
-            one semi-join, whose output then feeds another as the key side; duplicates stay
-            harmless the whole way. So `.unique()` here is a full hash pass over the node-id
-            column bought for nothing: on an unfiltered hop the key side IS the node table,
-            making it O(N) work inside a query whose answer is O(degree) -- and this path
-            builds two such frames per hop.
-
-            Anything that needs a *distinct* id set must apply its own `.unique()`.
-            """
+            """Key side of a semi-join only — deliberately NOT deduplicated (duplicate keys
+            cannot change a semi-join result); callers needing distinct ids apply their own
+            `.unique()`."""
             return lf.select(pl.col(col).cast(node_dtype).alias(NID))
 
-        allowed_source_lf = (
-            _idframe_lf(filter_by_dict_polars(nodes if nodes is not None else all_nodes,
-                                              source_node_match).lazy(), node_col)
-            if source_node_match is not None else None
-        )
+        allowed_source_lf = None
+        if source_node_match is not None:
+            source_filter_domain = all_nodes
+            only_seeds_can_be_sources = nodes is not None
+            if only_seeds_can_be_sources:
+                source_filter_domain = all_nodes.join(
+                    _idframe(nodes, node_col).rename({NID: node_col}), on=node_col, how="semi")
+            allowed_source_lf = _idframe_lf(
+                filter_by_dict_polars(source_filter_domain, source_node_match).lazy(), node_col)
         allowed_dest_lf = (
             _idframe_lf(filter_by_dict_polars(all_nodes, destination_node_match).lazy(), node_col)
             if destination_node_match is not None else None
         )
         target_final_lf = (_idframe_lf(target_wave_front.lazy(), node_col)
                            if target_wave_front is not None else None)
+        resolvable_lf = (
+            resolvable_ids.cast(node_dtype).alias(NID).to_frame().lazy()
+            if resolvable_ids is not None else None)
         frontier_lf = _idframe_lf((nodes if nodes is not None else all_nodes).lazy(), node_col)
+        if resolvable_lf is not None and nodes is not None:
+            # Only caller seeds can name an id the node table lacks.
+            frontier_lf = frontier_lf.join(resolvable_lf, on=NID, how="semi")
         if allowed_source_lf is not None:
             frontier_lf = frontier_lf.join(allowed_source_lf, on=NID, how="semi")
+        edges_lf = edges_idx.lazy()
+        pairs_lf = _build_hop_pairs(edges_lf, direction, src, dst, node_dtype, FROM, TO, EID)
         hop_edges_lf = pairs_lf.join(frontier_lf.rename({NID: FROM}), on=FROM, how="semi")
+        if resolvable_lf is not None:
+            hop_edges_lf = hop_edges_lf.join(resolvable_lf.rename({NID: TO}), on=TO, how="semi")
         if target_final_lf is not None:   # single hop IS the last hop -> final gate only
             hop_edges_lf = hop_edges_lf.join(target_final_lf.rename({NID: TO}), on=TO, how="semi")
         if allowed_dest_lf is not None:
@@ -276,10 +318,16 @@ def hop_polars(
         out_edges_c, out_nodes_c = collect_all([out_edges_lf, out_nodes_lf])
         return g.nodes(out_nodes_c, node_col).edges(out_edges_c, src, dst)
 
-    allowed_source = (
-        _idframe(filter_by_dict_polars(nodes if (nodes is not None and not to_fixed_point and resolved_max_hops == 1) else all_nodes, source_node_match), node_col)
-        if source_node_match is not None else None
-    )
+    allowed_source = None
+    if source_node_match is not None:
+        source_filter_domain = all_nodes
+        only_seeds_can_be_sources = (
+            nodes is not None and not to_fixed_point and resolved_max_hops == 1)
+        if only_seeds_can_be_sources:
+            source_filter_domain = all_nodes.join(
+                _idframe(nodes, node_col).rename({NID: node_col}), on=node_col, how="semi")
+        allowed_source = _idframe(
+            filter_by_dict_polars(source_filter_domain, source_node_match), node_col)
     allowed_dest = (
         _idframe(filter_by_dict_polars(all_nodes, destination_node_match), node_col)
         if destination_node_match is not None else None
@@ -312,12 +360,13 @@ def hop_polars(
 
     empty_ids = all_nodes.select(pl.col(node_col).cast(node_dtype).alias(NID)).clear()
 
-    # Hop labeling (#1741) — plain (non-min_hops) BFS only. pandas labels a node with the hop at
-    # which the ANTI-JOINED wavefront first discovers it (hop.py:581-603 over new_node_ids), i.e.
-    # its shortest-path distance; that is exactly `new_frontier` here. Seeds are already in
-    # `visited_nodes` after the first iteration, so a seed re-reached by a backtracking undirected
-    # walk stays UNLABELED (null) — the divergence #1741 is about. label_seeds writes hop 0 for
-    # seeds instead. Edges take the hop that first traversed them (hop.py:555-557), min-aggregated.
+    # Hop labeling — plain (non-min_hops) BFS only. Labels come from every DESTINATION of the
+    # hop (`cand`), first-wins against `label_seen_nodes` — NOT from `new_frontier`, which is
+    # anti-joined against `visited_nodes` and drives traversal only. That matches pandas
+    # (hop.py:540 new_node_ids = all TO ids), so under fwd/rev a seed re-entered at hop 1 IS
+    # labeled 1. Only undirected pre-seeds `label_seen_nodes` with the seeds, leaving a seed
+    # re-reached by backtracking UNLABELED (null); label_seeds writes hop 0 for seeds instead.
+    # Edges take the hop that first traversed them (hop.py:555-557), min-aggregated.
     track_node_hops = (label_node_hops is not None or label_seeds) and not min_hops_active
     node_hop_frames = []                 # list[DataFrame[NID, NHOP]]
     label_seen_nodes = empty_ids         # first-wins guard for node labels
@@ -378,7 +427,7 @@ def hop_polars(
             # fwd/rev: pandas labels EVERY destination of the hop, first-wins (hop.py:540
             # new_node_ids = all TO ids) — so a seed re-entered at hop 1 IS labeled 1.
             # undirected: the same destinations minus everything already VISITED, so a seed
-            # re-reached by backtracking along the edge it arrived on stays unlabeled (#1741).
+            # re-reached by backtracking along the edge it arrived on stays unlabeled.
             fresh = cand.join(label_seen_nodes, on=NID, how="anti")
             if fresh.height > 0:
                 node_hop_frames.append(fresh.with_columns(pl.lit(current_hop, dtype=pl.Int64).alias(NHOP)))
@@ -387,9 +436,18 @@ def hop_polars(
         if min_hops_active:
             # Advance with ALL destinations (revisits, hop.py:620) so a cycle-re-entered node
             # re-traverses its edges, but terminate once the cumulative reachable set stops
-            # growing (hop.py:617). max_reached_hop (set above when the hop had any edge) is then
-            # the closure hop the 3-case gate compares to min_hops.
-            if new_frontier.height == 0:
+            # growing. max_reached_hop (set above when the hop had any edge) is then the closure
+            # hop the 3-case gate compares to min_hops.
+            # That closure break must NOT fire while the min_hops lower bound is still
+            # unsatisfied -- a cycle saturates its node set yet keeps admitting longer walks, and
+            # breaking there froze max_reached_hop below min_hops so the gate emptied the result.
+            # Mirrors the pandas deferral (hop.py, `min_bound_unmet`) so the 400-case chain
+            # min_hops parity holds; bounded by resolved_max_hops, and `frontier = cand` empty
+            # still exits at the top-of-loop height check, so the loop always terminates.
+            if new_frontier.height == 0 and not (
+                min_hops is not None and max_reached_hop < min_hops
+                and resolved_max_hops is not None
+            ):
                 break
             frontier = cand
         else:
@@ -438,7 +496,10 @@ def hop_polars(
                 valid_edge_frames = []
                 for level in range(max_edge_hop, 0, -1):
                     lvl = edge_rec.filter(pl.col(HOP) == level)
-                    reaching = lvl.join(current_targets.rename({NID: TO}), on=TO, how="semi")
+                    # An edge at >= min_hops ends a qualifying walk itself; only sub-min levels feed one.
+                    level_is_goal = level >= min_hops  # paired with hop.py, fixes #1944
+                    reaching = lvl if level_is_goal else lvl.join(
+                        current_targets.rename({NID: TO}), on=TO, how="semi")
                     valid_edge_frames.append(reaching.select(pl.col(EID)))
                     current_targets = reaching.select(pl.col(FROM).alias(NID)).unique()
                     valid_node = pl.concat([valid_node, current_targets], how="vertical_relaxed").unique(subset=[NID])
@@ -469,6 +530,22 @@ def hop_polars(
     out_edges = edges_idx.join(visited_edges, on=EID, how="semi")
     if synth_eid:
         out_edges = out_edges.drop(EID)
+
+    # Same rule as pandas' undirected_rediscovered_seed_ids: keep a seed only on edge-disjoint reach.
+    if (direction == "undirected" and return_as_wave_front and nodes is not None
+            and not (not to_fixed_point and resolved_max_hops is not None
+                     and resolved_max_hops <= 1)):
+        from graphistry.compute.hop import undirected_rediscovered_seed_ids
+        seed_id_list = seed.get_column(NID).to_list()
+        keep_seed_ids = undirected_rediscovered_seed_ids(
+            out_edges.get_column(src).to_list(), out_edges.get_column(dst).to_list(),
+            seed_id_list,
+        )
+        drop_seed_ids = [s for s in set(seed_id_list) if s not in keep_seed_ids]
+        if drop_seed_ids:
+            # dtype pinned: polars will not coerce is_in operands, so inference matches nothing.
+            visited_nodes = visited_nodes.filter(
+                ~pl.col(NID).is_in(pl.Series(drop_seed_ids, dtype=node_dtype)))
 
     # Final node set: reached ∪ (edge endpoints, unless wavefront-with-seeds).
     needed = visited_nodes

@@ -1,3 +1,10 @@
+"""shortestPath parity pins.
+
+Conformance note (#1903 item 6): openCypher drops the row when a PLAIN-MATCH
+shortestPath finds no path; only OPTIONAL MATCH null-extends. The disconnected
+cases here therefore spell the LDBC IC13 idiom with OPTIONAL MATCH (as the LDBC
+reference query itself does), keeping the null-row plumbing these tests pin.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -90,8 +97,8 @@ def test_string_cypher_executes_shortest_path_reverse_direction_length_projectio
         """
         MATCH
             (person1:Person {id: 'p3'}),
-            (person2:Person {id: 'p1'}),
-            path = shortestPath((person1)<-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p1'})
+        OPTIONAL MATCH path = shortestPath((person1)<-[:KNOWS*]-(person2))
         RETURN length(path) AS shortestPathLength
         """,
     )
@@ -120,8 +127,8 @@ def test_string_cypher_executes_shortest_path_endpoint_projection_with_length() 
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p3'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p3'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN person1.id AS person1Id, person2.id AS person2Id, length(path) AS shortestPathLength
         """,
     )
@@ -152,8 +159,8 @@ def test_string_cypher_executes_shortest_path_disconnected_endpoint_projection_w
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p3'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p3'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN person1.id AS person1Id, person2.id AS person2Id, length(path) AS shortestPathLength, path IS NULL AS noPath
         """,
     )
@@ -184,8 +191,8 @@ def test_string_cypher_executes_shortest_path_with_length_stage_and_order_by() -
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p3'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p3'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         WITH person1.id AS person1Id, person2.id AS person2Id, length(path) AS shortestPathLength
         RETURN person1Id, person2Id, shortestPathLength
         ORDER BY shortestPathLength
@@ -218,8 +225,8 @@ def test_string_cypher_executes_shortest_path_disconnected_with_is_null_stage() 
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p3'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p3'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         WITH path IS NULL AS noPath
         RETURN noPath
         """,
@@ -249,8 +256,8 @@ def test_string_cypher_executes_shortest_path_disconnected_with_length_stage() -
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p3'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p3'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         WITH length(path) AS shortestPathLength
         RETURN shortestPathLength
         """,
@@ -280,8 +287,8 @@ def test_string_cypher_executes_shortest_path_disconnected_with_endpoint_project
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p3'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p3'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         WITH person1.id AS person1Id, person2.id AS person2Id, length(path) AS shortestPathLength, path IS NULL AS noPath
         RETURN person1Id, person2Id, shortestPathLength, noPath
         """,
@@ -313,8 +320,8 @@ def test_string_cypher_executes_bounded_shortest_path_disconnected_with_length_s
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p3'}),
-            path = shortestPath((person1)-[:KNOWS*1..3]-(person2))
+            (person2:Person {id: 'p3'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*1..3]-(person2))
         WITH length(path) AS shortestPathLength
         RETURN shortestPathLength
         """,
@@ -344,8 +351,8 @@ def test_string_cypher_executes_shortest_path_disconnected_with_case_stage() -> 
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p3'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p3'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         WITH CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
         RETURN shortestPathLength
         """,
@@ -375,8 +382,8 @@ def test_string_cypher_executes_reverse_shortest_path_disconnected_with_case_sta
         """
         MATCH
             (person1:Person {id: 'p3'}),
-            (person2:Person {id: 'p1'}),
-            path = shortestPath((person1)<-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p1'})
+        OPTIONAL MATCH path = shortestPath((person1)<-[:KNOWS*]-(person2))
         WITH CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
         RETURN shortestPathLength
         """,
@@ -406,8 +413,8 @@ def test_string_cypher_executes_reverse_shortest_path_with_endpoint_and_case_sta
         """
         MATCH
             (person1:Person {id: 'p3'}),
-            (person2:Person {id: 'p1'}),
-            path = shortestPath((person1)<-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p1'})
+        OPTIONAL MATCH path = shortestPath((person1)<-[:KNOWS*]-(person2))
         WITH person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
         RETURN person2Id, shortestPathLength
         """,
@@ -439,8 +446,8 @@ def test_string_cypher_executes_shortest_path_zero_hop_length() -> None:
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p1'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p1'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN length(path) AS shortestPathLength
         """,
     )
@@ -469,8 +476,8 @@ def test_string_cypher_executes_shortest_path_zero_hop_case_and_is_null() -> Non
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p1'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p1'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN
             CASE path IS NULL
                 WHEN true THEN -1
@@ -506,8 +513,8 @@ def test_string_cypher_executes_shortest_path_zero_hop_with_length_stage() -> No
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p1'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p1'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         WITH length(path) AS shortestPathLength
         RETURN shortestPathLength
         """,
@@ -537,8 +544,8 @@ def test_string_cypher_executes_reverse_shortest_path_zero_hop_case_stage() -> N
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p1'}),
-            path = shortestPath((person1)<-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p1'})
+        OPTIONAL MATCH path = shortestPath((person1)<-[:KNOWS*]-(person2))
         WITH CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
         RETURN shortestPathLength
         """,
@@ -568,8 +575,8 @@ def test_string_cypher_executes_shortest_path_on_cyclic_graph_with_multiple_shor
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p4'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p4'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN length(path) AS shortestPathLength
         """,
     )
@@ -598,8 +605,8 @@ def test_string_cypher_executes_shortest_path_stage_on_cyclic_graph_with_multipl
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p4'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p4'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         WITH person1.id AS person1Id, person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
         RETURN person1Id, person2Id, shortestPathLength
         """,
@@ -631,8 +638,8 @@ def test_string_cypher_executes_bounded_shortest_path_on_cyclic_graph_with_multi
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p4'}),
-            path = shortestPath((person1)-[:KNOWS*1..3]-(person2))
+            (person2:Person {id: 'p4'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*1..3]-(person2))
         RETURN length(path) AS shortestPathLength
         """,
     )
@@ -661,8 +668,8 @@ def test_string_cypher_executes_bounded_shortest_path_on_self_loop_without_dupli
         """
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p1'}),
-            path = shortestPath((person1)-[:KNOWS*1..3]-(person2))
+            (person2:Person {id: 'p1'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*1..3]-(person2))
         RETURN CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
         """,
     )
@@ -691,9 +698,9 @@ def test_string_cypher_executes_multirow_shortest_path_pairs_without_zero_hop_co
         """
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p3', 'p4']
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         WITH person1.id AS person1Id, person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
         RETURN person1Id, person2Id, shortestPathLength
         ORDER BY person1Id, person2Id
@@ -729,9 +736,9 @@ def test_string_cypher_executes_multirow_bounded_shortest_path_pairs_without_end
         """
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)-[:KNOWS*1..2]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p3', 'p4']
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*1..2]-(person2))
         WITH person1.id AS person1Id, person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
         RETURN person1Id, person2Id, shortestPathLength
         ORDER BY person1Id, person2Id
@@ -767,9 +774,9 @@ def test_string_cypher_executes_multirow_disconnected_shortest_path_endpoint_pro
         """
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p5']
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN person1.id AS person1Id, person2.id AS person2Id, length(path) AS shortestPathLength, path IS NULL AS noPath
         ORDER BY person1Id, person2Id
         """,
@@ -802,9 +809,9 @@ def test_string_cypher_executes_multirow_disconnected_shortest_path_case_stage()
         """
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p5']
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         WITH person1.id AS person1Id, person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
         RETURN person1Id, person2Id, shortestPathLength
         ORDER BY person1Id, person2Id
@@ -838,9 +845,9 @@ def test_string_cypher_executes_multirow_bounded_disconnected_shortest_path_endp
         """
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)-[:KNOWS*1..2]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p5']
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*1..2]-(person2))
         RETURN person1.id AS person1Id, person2.id AS person2Id, length(path) AS shortestPathLength, path IS NULL AS noPath
         ORDER BY person1Id, person2Id
         """,
@@ -873,9 +880,9 @@ def test_string_cypher_executes_multirow_bounded_disconnected_shortest_path_case
         """
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)-[:KNOWS*1..2]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p5']
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*1..2]-(person2))
         WITH person1.id AS person1Id, person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
         RETURN person1Id, person2Id, shortestPathLength
         ORDER BY person1Id, person2Id
@@ -909,9 +916,9 @@ def test_string_cypher_executes_multirow_disconnected_reverse_shortest_path_endp
         """
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)<-[:KNOWS*]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p5'] AND person2.id IN ['p1', 'p2']
+        OPTIONAL MATCH path = shortestPath((person1)<-[:KNOWS*]-(person2))
         RETURN person1.id AS person1Id, person2.id AS person2Id, length(path) AS shortestPathLength, path IS NULL AS noPath
         ORDER BY person1Id, person2Id
         """,
@@ -944,9 +951,9 @@ def test_string_cypher_executes_multirow_disconnected_reverse_shortest_path_case
         """
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)<-[:KNOWS*]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p5'] AND person2.id IN ['p1', 'p2']
+        OPTIONAL MATCH path = shortestPath((person1)<-[:KNOWS*]-(person2))
         WITH person1.id AS person1Id, person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
         RETURN person1Id, person2Id, shortestPathLength
         ORDER BY person1Id, person2Id
@@ -980,9 +987,9 @@ def test_string_cypher_executes_multirow_shortest_path_is_null_ordering() -> Non
         """
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p3', 'p5']
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN person1.id AS person1Id, person2.id AS person2Id, path IS NULL AS noPath
         ORDER BY noPath, person1Id, person2Id
         """,
@@ -1017,9 +1024,9 @@ def test_string_cypher_executes_multirow_bounded_shortest_path_is_null_stage_ord
         """
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)-[:KNOWS*1..2]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p3', 'p4', 'p5']
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*1..2]-(person2))
         WITH person1.id AS person1Id, person2.id AS person2Id, path IS NULL AS noPath
         RETURN person1Id, person2Id, noPath
         ORDER BY noPath, person1Id, person2Id
@@ -1057,9 +1064,9 @@ def test_string_cypher_executes_multirow_reverse_shortest_path_is_null_stage_ord
         """
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)<-[:KNOWS*]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p3', 'p5'] AND person2.id IN ['p1', 'p2']
+        OPTIONAL MATCH path = shortestPath((person1)<-[:KNOWS*]-(person2))
         WITH person1.id AS person1Id, person2.id AS person2Id, path IS NULL AS noPath
         RETURN person1Id, person2Id, noPath
         ORDER BY noPath, person1Id, person2Id
@@ -1175,8 +1182,8 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
         query="""
         MATCH
             (person1:Person {id: $person1Id}),
-            (person2:Person {id: $person2Id}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: $person2Id})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN
             CASE path IS NULL
                 WHEN true THEN -1
@@ -1192,8 +1199,8 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
         query="""
         MATCH
             (person1:Person {id: $person1Id}),
-            (person2:Person {id: $person2Id}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: $person2Id})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN
             CASE path IS NULL
                 WHEN true THEN -1
@@ -1209,8 +1216,8 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
         query="""
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p3'}),
-            path = shortestPath((person1)-[:KNOWS*1..3]-(person2))
+            (person2:Person {id: 'p3'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*1..3]-(person2))
         RETURN length(path) AS shortestPathLength
         """,
         expected_rows=[{"shortestPathLength": 2}],
@@ -1221,8 +1228,8 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
         query="""
         MATCH
             (person1:Person {id: 'p3'}),
-            (person2:Person {id: 'p1'}),
-            path = shortestPath((person1)<-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p1'})
+        OPTIONAL MATCH path = shortestPath((person1)<-[:KNOWS*]-(person2))
         RETURN length(path) AS shortestPathLength
         """,
         expected_rows=[{"shortestPathLength": 2}],
@@ -1233,9 +1240,9 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
         query="""
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)-[:KNOWS*1..2]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p3', 'p4']
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*1..2]-(person2))
         WITH person1.id AS person1Id, person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
         RETURN person1Id, person2Id, shortestPathLength
         ORDER BY person1Id, person2Id
@@ -1253,8 +1260,8 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
         query="""
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p3'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p3'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN path IS NULL AS noPath
         """,
         expected_rows=[{"noPath": True}],
@@ -1265,8 +1272,8 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
         query="""
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p3'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p3'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN path IS NULL AS noPath
         """,
         expected_rows=[{"noPath": False}],
@@ -1277,8 +1284,8 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
         query="""
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p3'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p3'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN length(path) AS shortestPathLength
         """,
         expected_rows=[{"shortestPathLength": None}],
@@ -1289,8 +1296,8 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
         query="""
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p1'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p1'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN
             CASE path IS NULL
                 WHEN true THEN -1
@@ -1306,8 +1313,8 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
         query="""
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p4'}),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person {id: 'p4'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN length(path) AS shortestPathLength
         """,
         expected_rows=[{"shortestPathLength": 2}],
@@ -1318,8 +1325,8 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
         query="""
         MATCH
             (person1:Person {id: 'p1'}),
-            (person2:Person {id: 'p1'}),
-            path = shortestPath((person1)-[:KNOWS*1..3]-(person2))
+            (person2:Person {id: 'p1'})
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*1..3]-(person2))
         RETURN CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
         """,
         expected_rows=[{"shortestPathLength": 1}],
@@ -1330,9 +1337,9 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
         query="""
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p3', 'p4']
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         WITH person1.id AS person1Id, person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
         RETURN person1Id, person2Id, shortestPathLength
         ORDER BY person1Id, person2Id
@@ -1350,9 +1357,9 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
         query="""
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p5']
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN person1.id AS person1Id, person2.id AS person2Id, length(path) AS shortestPathLength, path IS NULL AS noPath
         ORDER BY person1Id, person2Id
         """,
@@ -1367,9 +1374,9 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
         query="""
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)<-[:KNOWS*]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p5'] AND person2.id IN ['p1', 'p2']
+        OPTIONAL MATCH path = shortestPath((person1)<-[:KNOWS*]-(person2))
         WITH person1.id AS person1Id, person2.id AS person2Id, CASE path IS NULL WHEN true THEN -1 ELSE length(path) END AS shortestPathLength
         RETURN person1Id, person2Id, shortestPathLength
         ORDER BY person1Id, person2Id
@@ -1385,9 +1392,9 @@ _PARITY_EXEC_CASES: tuple[_ExecParityCase, ...] = (
         query="""
         MATCH
             (person1:Person),
-            (person2:Person),
-            path = shortestPath((person1)-[:KNOWS*]-(person2))
+            (person2:Person)
         WHERE person1.id IN ['p1', 'p2'] AND person2.id IN ['p3', 'p5']
+        OPTIONAL MATCH path = shortestPath((person1)-[:KNOWS*]-(person2))
         RETURN person1.id AS person1Id, person2.id AS person2Id, path IS NULL AS noPath
         ORDER BY noPath, person1Id, person2Id
         """,

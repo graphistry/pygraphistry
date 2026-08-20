@@ -173,6 +173,8 @@ class DegreeFact:
     hi: int
     backend: IndexBackend
     engine: Engine
+    #: ``|{e : src(e) == dst(e)}|``; None = unknown, which consumers must not read as 0.
+    self_loops: Optional[int] = None
     type_column: Optional[str] = None
     type_value: Optional[PartitionValue] = None
     fingerprint: FrameFingerprint = field(compare=False, default=(-1, (), ""))
@@ -284,24 +286,42 @@ class GfqlIndexRegistry:
         props.pop(column, None)
         return replace(self, node_props=props)
 
-    def rebind_edges(self, new_edges: DataFrameT) -> "GfqlIndexRegistry":
-        """Re-point the EDGE adjacency indexes' identity guard at ``new_edges``.
+    def rebind_edges(self, new_edges: DataFrameT, old_edges: DataFrameT) -> "GfqlIndexRegistry":
+        """Migrate the EDGE adjacency indexes' identity guard from ``old_edges`` to
+        ``new_edges``.
 
-        Caller contract: ``new_edges`` was produced by a transform that preserves
-        the indexed src/dst columns by value (same rows, same order) — e.g. a shallow
-        copy that merely ADDS an unrelated column. The chain executor does exactly
-        this when it attaches its synthetic per-edge id (chain.py), which otherwise
-        breaks the ``source_ref is df`` identity guard and forces a full scan. The
-        CSR arrays stay valid (row positions unchanged); we only swap the strong-ref
-        so ``get_valid`` recognizes the live frame. NODE_ID is left untouched (node
-        materialization may legitimately change node rows).
+        Caller contract: ``new_edges`` was derived FROM ``old_edges`` by a transform
+        that preserves the indexed src/dst columns by value (same rows, same order) —
+        e.g. a shallow copy that merely ADDS an unrelated column. The chain executor
+        does exactly this when it attaches its synthetic per-edge id (chain.py), which
+        otherwise breaks the ``source_ref is df`` identity guard and forces a full
+        scan. The CSR arrays stay valid (row positions unchanged); we only swap the
+        strong-ref so ``get_valid`` recognizes the live frame. NODE_ID is left
+        untouched (node materialization may legitimately change node rows).
 
-        ENFORCED (O(1), engine-portable): the swap happens only when ``new_edges``
-        still matches the index's structural fingerprint (row count + bound cols +
-        engine) and actually carries the indexed columns; on any mismatch the edge
-        index is DROPPED (safe miss -> scan path) instead of re-pointed at a frame
-        it wasn't built over. Value-level preservation remains the caller's promise —
-        checking it would be the O(E) scan this path exists to avoid."""
+        ENFORCED engine-portably, and BOTH halves are required:
+
+        1. LINEAGE — the index must still be VALID for ``old_edges``, the
+           exact ``get_valid`` contract (identity + fingerprint + engine). Without
+           this a caller launders a stale index onto a frame the index was never
+           built over: after a user's ordinary ``g.edges(other_frame)`` the identity
+           guard has already missed, yet a same-row-count frame re-passes the
+           structural check below — silent wrong answers on both engines, including
+           a plain ``df.sort_values`` permutation of the SAME edge set. An index that
+           fails this is NOT ours to discard (it still describes its own frame — e.g.
+           a foreign-engine index, or the user's pre-rebind frame): it is left in
+           place, un-migrated, so ``get_valid`` misses it on the new frame (safe scan)
+           while ``show_indexes``/``gfql_explain`` can still report it as resident and
+           stale rather than absent.
+        2. STRUCTURE — ``new_edges`` must still match the index's fingerprint (row
+           count + bound cols + engine) and actually carry the indexed columns. Here
+           the caller DID own the index and broke its own derivation contract, so the
+           entry is DROPPED (safe miss -> scan) rather than re-pointed.
+
+        Value-level preservation across the derivation remains the caller's promise —
+        checking it would be the O(E) scan this path exists to avoid — but the caller
+        can now only make that promise about a frame the index was demonstrably live
+        for."""
         new = dict(self.indexes)
         for kind in (EDGE_OUT_ADJ, EDGE_IN_ADJ):
             idx = new.get(kind)
@@ -310,8 +330,15 @@ class GfqlIndexRegistry:
             if not isinstance(idx, AdjacencyIndex):  # defensive; also narrows for mypy
                 new.pop(kind, None)
                 continue
-            ok = idx.fingerprint == frame_fingerprint(
-                new_edges, tuple(idx.fingerprint[1]), idx.engine)
+            cols = tuple(idx.fingerprint[1])
+            # Only an index that is LIVE for the frame being augmented may migrate.
+            if not (
+                idx.source_ref is not None
+                and idx.source_ref is old_edges
+                and self.get_valid(kind, old_edges, cols, idx.engine) is idx
+            ):
+                continue  # someone else's lineage -> leave untouched (get_valid will miss)
+            ok = idx.fingerprint == frame_fingerprint(new_edges, cols, idx.engine)
             if ok:
                 try:
                     colnames = set(new_edges.columns)

@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional, Sequence, TYPE_CHECKING, Union
 from graphistry.compute.ast import ASTEdge
 from graphistry.compute.typing import DataFrameT, DomainT
+from graphistry.compute.gfql.identifiers import WALK_CURRENT_COL, WALK_FROM_COL, WALK_TO_COL
 from .edge_semantics import EdgeSemantics
 from .df_utils import (
     concat_frames,
@@ -24,14 +25,14 @@ def bfs_reachability(edge_pairs: DataFrameT, start_nodes: Union[Sequence[Any], D
     result = domain_to_frame(edge_pairs, start_domain, '__node__')
     result[hop_col] = 0
     visited_idx = start_domain
-    frontier = result[['__node__']].rename(columns={'__node__': '__from__'})
+    frontier = result[['__node__']].rename(columns={'__node__': WALK_FROM_COL})
 
     for hop in range(1, max_hops + 1):
         if len(frontier) == 0:
             break
         next_df = (
-            edge_pairs.merge(frontier, on='__from__', how='inner')[['__to__']]
-            .rename(columns={'__to__': '__node__'})
+            edge_pairs.merge(frontier, on=WALK_FROM_COL, how='inner')[[WALK_TO_COL]]
+            .rename(columns={WALK_TO_COL: '__node__'})
             .drop_duplicates()
         )
         candidate_nodes = series_values(next_df['__node__'])
@@ -41,7 +42,7 @@ def bfs_reachability(edge_pairs: DataFrameT, start_nodes: Union[Sequence[Any], D
         new_nodes = domain_to_frame(edge_pairs, new_node_ids, '__node__')
         new_nodes[hop_col] = hop
         visited_idx = domain_union(visited_idx, new_node_ids)
-        frontier = new_nodes[['__node__']].rename(columns={'__node__': '__from__'})
+        frontier = new_nodes[['__node__']].rename(columns={'__node__': WALK_FROM_COL})
 
         merged = concat_frames([result, new_nodes])
         if merged is None:
@@ -73,11 +74,11 @@ def walk_edge_state(executor: "DFSamePathExecutor", edge_indices: Sequence[int],
                 next_state = (
                     edge_pairs.merge(
                         current_state,
-                        left_on="__from__",
-                        right_on="__current__",
+                        left_on=WALK_FROM_COL,
+                        right_on=WALK_CURRENT_COL,
                         how="inner",
-                    )[["__to__"] + label_list]
-                    .rename(columns={"__to__": "__current__"})
+                    )[[WALK_TO_COL] + label_list]
+                    .rename(columns={WALK_TO_COL: WALK_CURRENT_COL})
                     .drop_duplicates()
                 )
                 if len(next_state) == 0:
@@ -99,14 +100,14 @@ def walk_edge_state(executor: "DFSamePathExecutor", edge_indices: Sequence[int],
         join_col, result_col = sem.join_cols(src_col, dst_col)
         if sem.is_undirected:
             next1 = (
-                edges_df.merge(state_df, left_on=src_col, right_on="__current__", how="inner")
+                edges_df.merge(state_df, left_on=src_col, right_on=WALK_CURRENT_COL, how="inner")
                 [[dst_col] + label_list]
-                .rename(columns={dst_col: "__current__"})
+                .rename(columns={dst_col: WALK_CURRENT_COL})
             )
             next2 = (
-                edges_df.merge(state_df, left_on=dst_col, right_on="__current__", how="inner")
+                edges_df.merge(state_df, left_on=dst_col, right_on=WALK_CURRENT_COL, how="inner")
                 [[src_col] + label_list]
-                .rename(columns={src_col: "__current__"})
+                .rename(columns={src_col: WALK_CURRENT_COL})
             )
             merged = concat_frames([next1, next2])
             if merged is None:
@@ -116,9 +117,9 @@ def walk_edge_state(executor: "DFSamePathExecutor", edge_indices: Sequence[int],
             continue
 
         state_df = (
-            edges_df.merge(state_df, left_on=join_col, right_on="__current__", how="inner")
+            edges_df.merge(state_df, left_on=join_col, right_on=WALK_CURRENT_COL, how="inner")
             [[result_col] + label_list]
-            .rename(columns={result_col: "__current__"})
+            .rename(columns={result_col: WALK_CURRENT_COL})
             .drop_duplicates()
         )
     return state_df

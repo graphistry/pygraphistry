@@ -180,15 +180,15 @@ def test_polars_cartesian_binding_rows_raw_meaningful_cols():
 
 
 def test_polars_cartesian_alias_name_collides_with_property():
-    """A node property named the same as a MATCH alias is shadowed by the leaked
-    named-op flag (``alias.alias = True``) on BOTH engines — polars mirrors the
-    pandas quirk exactly rather than surfacing the real property value."""
+    """A node property named the same as a MATCH alias used to be shadowed by the leaked
+    named-op flag (``alias.alias = True``) on BOTH engines; the cartesian builders now
+    unshadow it (#1911 defect-4), so the real property values surface identically."""
     nodes = pd.DataFrame({"id": [0, 1, 2], "kind": ["a", "b", "a"], "a": [10, 20, 30], "b": [1, 2, 3]})
     g = graphistry.nodes(nodes, "id").edges(pd.DataFrame({"s": [0], "d": [1]}), "s", "d")
     q = "MATCH (a {kind: 'a'}), (b {kind: 'b'}) RETURN a.id AS ai, a.a AS aa, b.id AS bi, b.b AS bb"
     rpd = g.gfql(q, engine="pandas")._nodes.reset_index(drop=True)
     rpl = g.gfql(q, engine="polars")._nodes.to_pandas().reset_index(drop=True)
-    assert list(rpd["aa"]) == [True, True] and list(rpd["bb"]) == [True, True]  # flag, not 10/30
+    assert sorted(rpd["aa"]) == [10, 30] and list(rpd["bb"]) == [2, 2]  # user values, not the flag
     pd.testing.assert_frame_equal(
         rpd.sort_values(["ai", "bi"]).reset_index(drop=True),
         rpl[rpd.columns.tolist()].sort_values(["ai", "bi"]).reset_index(drop=True),
@@ -278,27 +278,26 @@ def _undirected_chain_graph():
 
 
 def test_polars_undirected_varlen_min1_backtrack_and_multiplicity_pins():
-    """Undirected `-[*1..k]-` binding table (min_hops == 1) — pin the EXACT pandas
-    oracle semantics, not just parity, so a future drift on either engine is caught:
+    """Undirected `-[*1..k]-` binding table (min_hops == 1) — pin the openCypher
+    TRAIL oracle (#1903, matches the pandas twin exactly):
 
-    * immediate-backtrack avoidance (0->1->0 excluded, so `WHERE NOT a = b` on a chain
-      never re-reaches the start via a single edge),
-    * pandas' edge multiplicity (each non-loop edge contributes each directed
-      orientation TWICE), so a length-1 pair appears x2 and a length-2 pair appears x4.
+    * one row per distinct edge sequence (each undirected edge binds each
+      orientation ONCE — the old x2/x4 step_pairs doubling was a walk artifact),
+    * same-edge immediate backtrack (0-1-0 via one edge) is excluded because a
+      relationship binds at most once per path — not by a node heuristic.
     """
     g = _undirected_chain_graph()
-    # length-1 pairs appear x2, length-2 pairs appear x4 (pandas step_pairs doubling).
     q = "MATCH (a)-[*1..2]-(b) WHERE NOT a = b RETURN a.id AS ai, b.id AS bi"
     rpl = g.gfql(q, engine="polars")._nodes.to_pandas()
     counts = rpl.groupby(["ai", "bi"]).size().to_dict()
-    # 1-hop neighbours (both orientations), each doubled
-    assert counts[(0, 1)] == 2 and counts[(1, 0)] == 2
-    assert counts[(1, 2)] == 2 and counts[(2, 1)] == 2
-    assert counts[(2, 3)] == 2 and counts[(3, 2)] == 2
-    # 2-hop reaches (backtrack-free), each x4
-    assert counts[(0, 2)] == 4 and counts[(2, 0)] == 4
-    assert counts[(1, 3)] == 4 and counts[(3, 1)] == 4
-    # backtrack pairs (a==b via 0->1->0) are excluded -> no (0,0)/(1,1)/... rows here
+    # 1-hop neighbours, once per orientation
+    assert counts[(0, 1)] == 1 and counts[(1, 0)] == 1
+    assert counts[(1, 2)] == 1 and counts[(2, 1)] == 1
+    assert counts[(2, 3)] == 1 and counts[(3, 2)] == 1
+    # 2-hop reaches (distinct edges), once each
+    assert counts[(0, 2)] == 1 and counts[(2, 0)] == 1
+    assert counts[(1, 3)] == 1 and counts[(3, 1)] == 1
+    # same-edge backtrack pairs (a==b via one edge) are excluded
     assert (0, 0) not in counts and (1, 1) not in counts
     # and it exactly matches the pandas oracle
     _assert_parity(q)
@@ -543,37 +542,27 @@ def test_polars_unbounded_varlen_path_multiplicity_matches_pandas():
     )
 
 
-def test_polars_unbounded_varlen_cycle_raises_same_error_as_pandas():
-    """A cycle reachable from the seed means infinitely many paths. Pandas raises
-    E108 ('require terminating variable-length segments'); polars must raise the
-    SAME diagnosis, never truncate to a subtly different answer.
-
-    Asserts the CLASS and `.code` are engine-INDEPENDENT, not just that polars carries
-    some code of its own. An earlier version pinned `errs['polars'].code == E108` and so
-    passed while the two engines actually disagreed — pandas re-wraps the kernel error as
-    GFQLTypeError(E303) via `execute_call`, polars ran the native kernel before that
-    wrapper and leaked the raw GFQLValidationError(E108). Callers switch on `.code`, so
-    a per-engine code is a real divergence; the E108 text survives inside the message."""
+def test_polars_unbounded_varlen_cycle_pandas_serves_polars_declines():
+    """A cycle reachable from the seed no longer means infinitely many TRAILS:
+    each relationship binds once per path (#1903), so pandas now SERVES the
+    unbounded walk on a 3-cycle -- 3 trails per seed (e.g. from 0: e0; e0e1;
+    e0e1e2), 9 total. polars' node-frontier depth probe cannot see trail
+    exhaustion yet, so it still raises the terminating-segments error -- the
+    pinned #1903 residual (parity-or-error, never a different number)."""
     from graphistry.compute.exceptions import GFQLValidationError
 
     nodes = pd.DataFrame({"id": [0, 1, 2]})
     edges = pd.DataFrame({"s": [0, 1, 2], "d": [1, 2, 0], "type": ["R"] * 3})  # 3-cycle
     g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
     q = "MATCH (a)-[*]->(b) RETURN count(*) AS c"
-    errs = {}
-    for engine in ("pandas", "polars"):
-        with pytest.raises(GFQLValidationError) as exc:
-            g.gfql(q, engine=engine)
-        errs[engine] = exc.value
-    assert type(errs["polars"]) is type(errs["pandas"]), (
-        f"exception class differs by engine: {type(errs['polars'])} vs {type(errs['pandas'])}")
-    assert errs["polars"].code == errs["pandas"].code, (
-        f"error code differs by engine: {errs['polars'].code} vs {errs['pandas'].code}")
-    for engine in ("pandas", "polars"):
-        assert (
-            "Cypher multi-alias row bindings currently require terminating "
-            "variable-length segments"
-        ) in str(errs[engine])
+    served = g.gfql(q, engine="pandas")._nodes
+    assert int(served["c"].iloc[0]) == 9  # hand-computed trail oracle
+    with pytest.raises(GFQLValidationError) as exc:
+        g.gfql(q, engine="polars")
+    assert (
+        "Cypher multi-alias row bindings currently require terminating "
+        "variable-length segments"
+    ) in str(exc.value)
 
 
 def test_polars_unbounded_varlen_cycle_bound_is_the_reachable_set_not_the_graph():

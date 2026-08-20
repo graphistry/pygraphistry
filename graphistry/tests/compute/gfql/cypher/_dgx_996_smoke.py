@@ -1,5 +1,5 @@
 """
-Smoke test for #996: CASE x WHEN null on DGX.
+Smoke test for #996: OPTIONAL-arm null flag via CASE WHEN r IS NULL on DGX (conformed #1900).
 Run inside RAPIDS container:
   docker run --rm --gpus all -v /checkout:/work -w /work \
     --entrypoint /opt/conda/bin/python \
@@ -34,7 +34,7 @@ query = (
     "MATCH (m:Message)<-[:REPLY_OF]-(c:Comment)-[:HAS_CREATOR]->(p:Person) "
     "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:Person)-[r:KNOWS]-(p) "
     "RETURN c.id AS commentId, p.id AS replyAuthorId, "
-    "CASE r WHEN null THEN false ELSE true END AS knows "
+    "CASE WHEN r IS NULL THEN false ELSE true END AS knows "
     "ORDER BY commentId"
 )
 

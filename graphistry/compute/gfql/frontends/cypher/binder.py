@@ -35,9 +35,12 @@ from graphistry.compute.gfql.cypher.ast import (
     WherePredicate,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.gfql.cypher.reentry.naming import REENTRY_HIDDEN_COLUMN_PREFIX
+from graphistry.compute.gfql.identifiers import INTERNAL_COLUMN_SUFFIX
 from graphistry.compute.gfql.ir.bound_ir import BoundIR, BoundQueryPart, BoundVariable, ScopeFrame, SemanticTable
 from graphistry.compute.gfql.ir.compilation import GraphSchemaCatalog, PlanContext
 from graphistry.compute.gfql.ir.logical_plan import RowSchema
+from graphistry.compute.gfql.row.entity_props import LABEL_FLAG_PREFIX
 from graphistry.compute.gfql.ir.types import BoundPredicate, EdgeRef, ListType, LogicalType, NodeRef, PathType, ScalarType
 
 CypherAST = Union[CypherQuery, CypherUnionQuery, CypherGraphQuery]
@@ -1740,7 +1743,8 @@ def _entity_kind_from_logical_type(logical_type: LogicalType) -> Literal["node",
 
 
 def _is_hidden_reentry_property(property_name: str) -> bool:
-    return property_name.startswith("__cypher_reentry_") and property_name.endswith("__")
+    return (property_name.startswith(REENTRY_HIDDEN_COLUMN_PREFIX)
+            and property_name.endswith(INTERNAL_COLUMN_SUFFIX))
 
 
 def _strict_schema_mode(state: _BindState) -> bool:
@@ -1749,9 +1753,9 @@ def _strict_schema_mode(state: _BindState) -> bool:
 
 def _catalog_node_labels(catalog: GraphSchemaCatalog) -> Tuple[str, ...]:
     labels = sorted(
-        str(column).split("label__", 1)[1]
+        str(column).split(LABEL_FLAG_PREFIX, 1)[1]
         for column in catalog.node_columns
-        if str(column).startswith("label__")
+        if str(column).startswith(LABEL_FLAG_PREFIX)
     )
     return tuple(labels)
 
@@ -1761,9 +1765,9 @@ def _catalog_edge_types(catalog: GraphSchemaCatalog) -> Tuple[str, ...]:
     if isinstance(metadata_types, (list, tuple, set, frozenset)):
         return tuple(sorted(str(value) for value in metadata_types))
     types = sorted(
-        str(column).split("label__", 1)[1]
+        str(column).split(LABEL_FLAG_PREFIX, 1)[1]
         for column in catalog.edge_columns
-        if str(column).startswith("label__")
+        if str(column).startswith(LABEL_FLAG_PREFIX)
     )
     return tuple(types)
 
@@ -1951,12 +1955,18 @@ def _missing_property_in_schema_error(
 
 
 def _unresolved_name_error(identifier: str, visible_scope: Mapping[str, BoundVariable]) -> GFQLValidationError:
+    # The flagged name may be one the user DID bind earlier, so the suggestion must list scope.
+    visible = sorted(visible_scope.keys())
     return GFQLValidationError(
         ErrorCode.E204,
         "Unresolved identifier in binder scope",
         field="identifier",
         value=identifier,
-        suggestion="Introduce the alias in MATCH/WITH before referencing it.",
+        suggestion=(
+            "Introduce the alias in MATCH/WITH before referencing it. Visible in this scope: "
+            + (", ".join(visible) if visible else "(none)")
+            + "."
+        ),
         visible_scope=sorted(visible_scope.keys()),
         language="cypher",
     )

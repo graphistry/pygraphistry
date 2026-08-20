@@ -941,7 +941,7 @@ def test_rebind_edges_revalidates_after_shallow_augmentation():
     aug = gi._edges.copy(deep=False)
     aug["__synthetic_id__"] = aug.index
     assert reg.get_valid(EDGE_OUT_ADJ, aug, ("src", "dst"), _E.PANDAS) is None  # identity miss
-    reg2 = reg.rebind_edges(aug)
+    reg2 = reg.rebind_edges(aug, gi._edges)
     assert reg2.get_valid(EDGE_OUT_ADJ, aug, ("src", "dst"), _E.PANDAS) is not None  # now valid
 
 
@@ -960,18 +960,18 @@ def test_rebind_edges_drops_index_on_fingerprint_mismatch():
 
     # row count changed -> both edge indexes dropped, never mis-bound
     fewer = gi._edges.iloc[:-1].copy(deep=False)
-    reg2 = reg.rebind_edges(fewer)
+    reg2 = reg.rebind_edges(fewer, gi._edges)
     assert not reg2.has(EDGE_OUT_ADJ) and not reg2.has(EDGE_IN_ADJ)
 
     # indexed column renamed away -> dropped
     renamed = gi._edges.rename(columns={"dst": "dst2"})
-    reg3 = reg.rebind_edges(renamed)
+    reg3 = reg.rebind_edges(renamed, gi._edges)
     assert not reg3.has(EDGE_OUT_ADJ) and not reg3.has(EDGE_IN_ADJ)
 
     # same-shape shallow augmentation still rebinds (the intended use)
     aug = gi._edges.copy(deep=False)
     aug["__synthetic_id__"] = aug.index
-    reg4 = reg.rebind_edges(aug)
+    reg4 = reg.rebind_edges(aug, gi._edges)
     assert reg4.has(EDGE_OUT_ADJ) and reg4.has(EDGE_IN_ADJ)
 
 
@@ -1295,16 +1295,40 @@ def test_both_sides_of_the_edge_mask_cost_boundary_agree(typed_graph, engine, sh
     # test exists for, and it holds on nodes as well as edges.
     assert node_ids(candidate) == node_ids(whole_column), f"[{shape}] node sets differ"
 
-    # Against the scan we compare only the nodes the scan also produces. There is a
-    # PRE-EXISTING indexed-vs-scan divergence, unrelated to this PR and present identically
-    # on master 84be35fb: for an undirected to_fixed_point wavefront hop the indexed path
-    # keeps the SEED in `_nodes` while the scan drops it when the walk never returns to it
-    # (edges are identical). Asserting equality here would encode that bug as expected; this
-    # asserts the indexed result is a superset and that any excess is exactly the seed.
-    seed_ids = set(seeds["id"].to_list() if hasattr(seeds["id"], "to_list") else seeds["id"].tolist())
-    extra = node_ids(candidate) - node_ids(scan)
-    assert not (node_ids(scan) - node_ids(candidate)), f"[{shape}] indexed path LOST nodes"
-    assert extra <= seed_ids, f"[{shape}] indexed path gained non-seed nodes: {sorted(extra)[:5]}"
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+@pytest.mark.parametrize("shape", [
+    "one_hop",
+    "two_hop",
+    "fixed_point",
+    pytest.param("undirected", marks=pytest.mark.xfail(strict=True, reason=(
+        "known divergence: for an undirected to_fixed_point wave-front hop the indexed path "
+        "keeps the SEED in `_nodes` while the scan drops it when the walk never returns to it "
+        "(edges are identical; 1957 indexed node rows vs 1956 scanned). Strict, so it flips "
+        "the moment the wave-front seed handling is unified."))),
+])
+def test_indexed_wavefront_node_set_matches_the_scan(typed_graph, engine, shape):
+    """The index must not change WHICH NODES a wave-front hop reports, only how fast it
+    gets there — the scan is the oracle."""
+    from graphistry.Engine import Engine as _E, df_to_engine
+
+    g = typed_graph
+    if engine == "polars":
+        g = g.edges(df_to_engine(g._edges, _E.POLARS), "src", "dst").nodes(
+            df_to_engine(g._nodes, _E.POLARS), "id")
+    gi = g.gfql_index_all(engine=engine)
+    seeds = g._nodes[:1] if engine == "pandas" else g._nodes.head(1)
+    kw = dict(one_hop=dict(hops=1, direction="forward"),
+              two_hop=dict(hops=2, direction="forward"),
+              fixed_point=dict(to_fixed_point=True, direction="forward"),
+              undirected=dict(to_fixed_point=True, direction="undirected"))[shape]
+    kwargs = dict(return_as_wave_front=True, edge_match={"etype": 1}, engine=engine, **kw)
+
+    def node_ids(gg):
+        s = gg._nodes["id"]
+        return set(s.to_list() if hasattr(s, "to_list") else s.tolist())
+
+    assert node_ids(gi.hop(nodes=seeds, **kwargs)) == node_ids(g.hop(nodes=seeds, **kwargs))
 
 
 @pytest.mark.parametrize("engine", _cpu_engines())
@@ -1833,3 +1857,254 @@ class TestIndexAutoPreservesPolarsFrames:
         assert isinstance(gi._edges, pd.DataFrame)
         from graphistry.compute.gfql.index import show_indexes
         assert set(show_indexes(gi)["engine"]) == {"pandas"}
+
+
+# ---- #1913: a STALE adjacency index must not survive an .edges() rebind ---------------
+# Root cause: both chain executors attach a synthetic per-edge id column and then called
+# ``registry.rebind_edges()`` UNCONDITIONALLY. rebind_edges validated only the NEW frame's
+# structural fingerprint (row count + bound cols + engine), never that the index was still
+# live for the frame it was augmenting. So after an ordinary ``g.edges(other_frame)`` -- the
+# identity guard having ALREADY missed -- a same-row-count frame re-passed the structural
+# check and a CSR built over the OLD edges was re-marked valid for the NEW ones: silent
+# wrong answers on pandas and polars, including a plain ``df.sort_values`` permutation of
+# the SAME edge set. Shipped in 0.58.0 (9b121e4fb, 129d72cb4).
+#
+# The contract these pins hold: staleness always falls back to the scan (still correct),
+# never a re-pointed index -- while the executor's own shallow augmentation of a frame the
+# index IS live for keeps engaging.
+
+_I1913_NN = 4000
+_I1913_2HOP = [n({"id": 0}), e_forward(), n(), e_forward(), n()]
+_I1913_VARLEN = [n({"id": 0}), e_forward(min_hops=1, max_hops=3), n()]
+
+
+def _i1913_conv(df, engine):
+    if engine == "polars":
+        import polars as pl
+        return pl.from_pandas(df)
+    return df
+
+
+def _i1913_ids(g, ops, engine):
+    # Result frame type follows the SERVING engine, not the requested one (a
+    # cudf/polars-gpu request can hand back a polars Series), and the three
+    # Series types spell this differently: polars/pandas `to_list`, cudf
+    # `to_arrow().to_pylist()` -- cudf HAS `tolist` but it raises on purpose.
+    ids = g.gfql(ops, engine=engine)._nodes["id"]
+    # cudf's to_list AND tolist both raise on purpose (host-transfer guard), so
+    # attribute probing cannot discriminate -- sniff the module, as dtypes.py does.
+    if type(ids).__module__.startswith("cudf"):
+        return sorted(ids.to_arrow().to_pylist())
+    if hasattr(ids, "to_list"):  # polars, pandas
+        return sorted(ids.to_list())
+    return sorted(ids.tolist())
+
+
+def _i1913_frames(nn=_I1913_NN):
+    """A path graph 0->1->...->nn-1 (2-hop from 0 is unambiguous: [0, 1, 2])."""
+    ndf = pd.DataFrame({"id": list(range(nn))})
+    edf = pd.DataFrame({"s": list(range(nn - 1)), "d": list(range(1, nn))})
+    return ndf, edf
+
+
+def _i1913_indexed(ndf, edf, engine):
+    g = graphistry.nodes(_i1913_conv(ndf, engine), "id").edges(_i1913_conv(edf, engine), "s", "d")
+    return g.gfql_index_all(engine=engine)
+
+
+# GPU lanes PROVEN affected by #1913 (dgx: cuDF and polars-gpu both returned the
+# stale-index answer pre-fix, correct post-fix), so these two correctness pins run
+# the full ENGINES matrix. On a box with cudf importable but no device they fail
+# like every other cudf-parameterized test here; the dgx sweep is their real gate.
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("ops", [_I1913_2HOP, _I1913_VARLEN], ids=["two-hop", "var-length"])
+def test_rebind_to_different_values_does_not_resurrect_the_index(engine, ops):
+    """SAME row count, DIFFERENT edges: the reported silent-wrong repro. Multi-hop and
+    variable-length shapes both, since the single-hop seed never went through the rebind."""
+    ndf, edf = _i1913_frames()
+    rng = np.random.default_rng(0)
+    perm = rng.permutation(_I1913_NN)
+    other = pd.DataFrame({"s": perm[:-1], "d": perm[1:]})
+    assert len(other) == len(edf)
+
+    oracle = _i1913_ids(
+        graphistry.nodes(_i1913_conv(ndf, engine), "id").edges(_i1913_conv(other, engine), "s", "d"),
+        ops, engine)
+    gi = _i1913_indexed(ndf, edf, engine)
+    _i1913_ids(gi, ops, engine)  # warm: build + engage over the ORIGINAL edges
+    rebound = gi.edges(_i1913_conv(other, engine), "s", "d")
+    assert _i1913_ids(rebound, ops, engine) == oracle
+
+
+# GPU lanes PROVEN affected by #1913 (dgx: cuDF and polars-gpu both returned the
+# stale-index answer pre-fix, correct post-fix), so these two correctness pins run
+# the full ENGINES matrix. On a box with cudf importable but no device they fail
+# like every other cudf-parameterized test here; the dgx sweep is their real gate.
+@pytest.mark.parametrize("engine", ENGINES)
+def test_rebind_to_a_row_permutation_does_not_resurrect_the_index(engine):
+    """``df.sort_values(...)`` is an ordinary user action and preserves the edge SET, so
+    every structural check passes -- yet the CSR's row positions are now meaningless."""
+    ndf, edf = _i1913_frames()
+    permuted = edf.sort_values("d", ascending=False).reset_index(drop=True)
+
+    oracle = _i1913_ids(
+        graphistry.nodes(_i1913_conv(ndf, engine), "id").edges(_i1913_conv(permuted, engine), "s", "d"),
+        _I1913_2HOP, engine)
+    assert oracle == [0, 1, 2]  # hand oracle: a permutation cannot change the answer
+    gi = _i1913_indexed(ndf, edf, engine)
+    _i1913_ids(gi, _I1913_2HOP, engine)
+    rebound = gi.edges(_i1913_conv(permuted, engine), "s", "d")
+    assert _i1913_ids(rebound, _I1913_2HOP, engine) == oracle
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_rebind_to_a_different_row_count_stays_correct(engine):
+    """The case the structural fingerprint already caught -- pinned so the #1913 guard
+    cannot be 'simplified' into dropping the row-count check it subsumes."""
+    ndf, edf = _i1913_frames()
+    fewer = edf.iloc[:-500].reset_index(drop=True)
+
+    oracle = _i1913_ids(
+        graphistry.nodes(_i1913_conv(ndf, engine), "id").edges(_i1913_conv(fewer, engine), "s", "d"),
+        _I1913_2HOP, engine)
+    gi = _i1913_indexed(ndf, edf, engine)
+    _i1913_ids(gi, _I1913_2HOP, engine)
+    assert _i1913_ids(gi.edges(_i1913_conv(fewer, engine), "s", "d"), _I1913_2HOP, engine) == oracle
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_shallow_augmentation_rebind_stays_correct(engine):
+    """``E.assign(w=...)`` / a deep copy preserve the src/dst values, so these were CORRECT
+    before the fix -- pinned so the guard cannot regress them into wrong answers either.
+
+    They are now served by the SCAN: a caller-supplied frame carries no promise that its
+    values were preserved, and no structural check can tell ``E.copy(deep=True)`` from a
+    same-shaped different edge set. Correctness first; the executor's own augmentation
+    still engages -- see the engagement pin below.
+    """
+    ndf, edf = _i1913_frames()
+    for label, aug in (("assign", edf.assign(w=1)), ("deep-copy", edf.copy(deep=True))):
+        aug_e = _i1913_conv(aug, engine)
+        oracle = _i1913_ids(
+            graphistry.nodes(_i1913_conv(ndf, engine), "id").edges(aug_e, "s", "d"),
+            _I1913_2HOP, engine)
+        assert oracle == [0, 1, 2], label
+        gi = _i1913_indexed(ndf, edf, engine)
+        _i1913_ids(gi, _I1913_2HOP, engine)
+        assert _i1913_ids(gi.edges(aug_e, "s", "d"), _I1913_2HOP, engine) == oracle, label
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_i1913_guard_keeps_the_executor_rebind_engaging(typed_graph, engine):
+    """WHAT THE GUARD MUST NOT COST: the chain's own synthetic-edge-id augmentation is
+    derived from a frame the index IS live for, so it still migrates and the seeded hop is
+    served from the index rather than the scan. Engagement, not just correctness --
+    a fix that disabled the index everywhere would 'pass' every correctness pin above.
+    (The GPU lanes of the same assertion are already carried by
+    ``test_chain_typed_edge_engages_index`` / ``test_chain_untyped_engages_index``.)"""
+    from graphistry.compute.gfql.index import index_trace
+
+    gi = typed_graph.gfql_index_all(engine=engine)
+    rep = gi.gfql_explain(_TYPED_CHAIN, index_policy="use", engine=engine)
+    assert rep["used_index"] is True, (engine, rep)
+    with index_trace() as steps:
+        gi.gfql(_TYPED_CHAIN, index_policy="use", engine=engine)
+    assert any(step["path"] == "index" for step in steps), (engine, steps)
+
+
+def test_rebind_edges_refuses_an_index_already_stale_for_the_augmented_frame():
+    """THE GAP the two older rebind tests miss: both start from an index that is ALREADY
+    VALID for the frame being augmented. Here the index is live for ``edf`` while the
+    frame handed over descends from ``other`` -- same row count, same columns, different
+    edges. The migration must refuse, and must not corrupt the entry it declined."""
+    from graphistry.Engine import Engine as _E
+    from graphistry.compute.gfql.index import get_registry
+    from graphistry.compute.gfql.index.registry import EDGE_IN_ADJ, EDGE_OUT_ADJ
+
+    rng = np.random.default_rng(4)
+    edf = pd.DataFrame({"src": rng.integers(0, 100, 500), "dst": rng.integers(0, 100, 500)})
+    other = pd.DataFrame({"src": rng.integers(0, 100, 500), "dst": rng.integers(0, 100, 500)})
+    ndf = pd.DataFrame({"id": np.arange(100)})
+    gi = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all(engine="pandas")
+    reg = get_registry(gi)
+
+    aug = other.copy(deep=False)          # exactly what the chain executor builds...
+    aug["__synthetic_id__"] = aug.index   # ...but from a frame the index never saw
+    reg2 = reg.rebind_edges(aug, other)
+    for kind in (EDGE_OUT_ADJ, EDGE_IN_ADJ):
+        assert reg2.get_valid(kind, aug, ("src", "dst"), _E.PANDAS) is None, kind
+        # left un-migrated rather than dropped: it still truthfully describes `edf`, so
+        # show_indexes/gfql_explain can report it as resident-and-stale, not absent
+        assert reg2.get_valid(kind, gi._edges, ("src", "dst"), _E.PANDAS) is not None, kind
+
+
+def test_rebind_edges_leaves_index_resident_after_in_place_shape_mutation():
+    """Lineage is get_valid, not bare identity: a frame mutated OUT OF SHAPE in place
+    (documented undefined behavior) still passes the ``source_ref is old_edges`` identity
+    test, but the index is no longer valid for it. The migration must refuse AND leave
+    the entry resident (reported stale, never silently migrated or dropped)."""
+    from graphistry.Engine import Engine as _E
+    from graphistry.compute.gfql.index import get_registry
+    from graphistry.compute.gfql.index.registry import EDGE_IN_ADJ, EDGE_OUT_ADJ
+
+    rng = np.random.default_rng(5)
+    edf = pd.DataFrame({"src": rng.integers(0, 50, 200), "dst": rng.integers(0, 50, 200)})
+    ndf = pd.DataFrame({"id": np.arange(50)})
+    gi = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all(engine="pandas")
+    reg = get_registry(gi)
+    live_edges = gi._edges
+
+    live_edges.loc[len(live_edges)] = [0, 1]      # in-place shape mutation: row count changed
+    aug = live_edges.copy(deep=False)
+    aug["__synthetic_id__"] = aug.index
+    reg2 = reg.rebind_edges(aug, live_edges)
+    for kind in (EDGE_OUT_ADJ, EDGE_IN_ADJ):
+        assert kind in reg2.indexes, f"{kind}: stale entry was dropped, not left resident"
+        assert reg2.get_valid(kind, aug, ("src", "dst"), _E.PANDAS) is None, kind
+
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+def test_documented_recovery_from_in_place_mutation(engine):
+    """The recovery matrix named in ``ComputeMixin.gfql``'s docstring, after in-place edits
+    to BOTH indexed columns (documented undefined behavior).
+
+    ``gfql_clear_caches()`` is asserted to NOT recover: it empties process-lifetime memos and
+    says so, while the index registry is graph-keyed state living on the Plottable. The
+    ``gfql()`` docstring used to name it as a recovery; it now names these three instead."""
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+
+    ndf, edf = _i1913_frames()
+    nf, ef = _i1913_conv(ndf, engine), _i1913_conv(edf, engine)
+    gi = graphistry.nodes(nf, "id").edges(ef, "s", "d").gfql_index_all(engine=engine)
+    _i1913_ids(gi, _I1913_2HOP, engine)  # warm
+
+    if engine == "pandas":
+        ef.loc[0, "d"] = 2000
+        ef.loc[1999, "s"] = 2000
+        ef.loc[1999, "d"] = 3000
+    else:
+        import polars as pl  # polars-only arm; this test also runs on pandas-only installs
+        s, d = ef["s"].to_list(), ef["d"].to_list()
+        d[0] = 2000
+        s[1999] = 2000
+        d[1999] = 3000
+        ef.replace_column(ef.columns.index("s"), pl.Series("s", s))
+        ef.replace_column(ef.columns.index("d"), pl.Series("d", d))
+
+    mutated = ef.to_pandas() if engine == "polars" else ef.copy(deep=True)
+    oracle = _i1913_ids(
+        graphistry.nodes(_i1913_conv(ndf, engine), "id").edges(_i1913_conv(mutated, engine), "s", "d"),
+        _I1913_2HOP, engine)
+    assert oracle == [0, 2000, 2001, 3000]  # hand oracle for the rewired path
+
+    gfql_clear_caches()
+    assert _i1913_ids(gi, _I1913_2HOP, engine) != oracle, (
+        "gfql_clear_caches() is documented NOT to touch graph-keyed state; if it starts "
+        "clearing index registries, update BOTH docstrings and this pin together")
+
+    fresh = ef.clone() if engine == "polars" else ef.copy(deep=True)
+    assert _i1913_ids(gi.edges(fresh, "s", "d"), _I1913_2HOP, engine) == oracle
+    dropped = gi.drop_index("edge_out_adj").drop_index("edge_in_adj")
+    assert _i1913_ids(dropped, _I1913_2HOP, engine) == oracle
+    brand_new = graphistry.nodes(nf, "id").edges(ef, "s", "d")
+    assert _i1913_ids(brand_new, _I1913_2HOP, engine) == oracle

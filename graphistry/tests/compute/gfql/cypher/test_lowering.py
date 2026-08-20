@@ -11,7 +11,7 @@ from graphistry.Engine import Engine
 
 from graphistry.compute.ast import ASTCall, ASTNode, ASTEdge, ASTEdgeForward, ASTEdgeReverse, ASTEdgeUndirected
 from graphistry.compute.chain import Chain
-from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError, GFQLSyntaxError, GFQLTypeError, GFQLValidationError
 from graphistry.compute.predicates.is_in import IsIn
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, col, compare
 from graphistry.compute.gfql.cypher import (
@@ -72,7 +72,7 @@ from graphistry.compute.gfql_fast_paths import (
     _filter_nodes_for_fast_count,
     _connected_join_two_star_split_residuals,
     _dense_int_domain_interval,
-    _edge_cols_bounds_within,
+    _edge_cols_bounds_scan,
     _two_hop_equal_domain_dense_total,
 )
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
@@ -3000,8 +3000,12 @@ def test_issue_1411_connected_join_property_projection_shape() -> None:
         "ORDER BY friendId"
     )
 
+    # openCypher relationship uniqueness (#1903 item 4): friend=p1 would have
+    # to REBIND person's own IS_LOCATED_IN edge across pattern elements, so
+    # only p2 (its own edge) matches -- the old expectation pinned the
+    # cross-element edge reuse. (LDBC's reference queries add friend <> person
+    # precisely because Neo4j excludes the same-edge rebind, not the node.)
     assert result._nodes.to_dict(orient="records") == [
-        {"friendId": "p1", "friendFirstName": "Seed", "cityName": "City"},
         {"friendId": "p2", "friendFirstName": "Friend", "cityName": "City"},
     ]
 
@@ -3788,7 +3792,9 @@ def test_string_cypher_simple_case_does_not_match_bool_to_int() -> None:
 
 
 def test_string_cypher_simple_case_when_null_matches_null_value() -> None:
-    """CASE x WHEN null THEN 'yes' ELSE 'no' END — x is null → 'yes'."""
+    """openCypher simple CASE uses '=': null = null is null, so `WHEN null`
+    NEVER matches -- every row (null subject included) falls to ELSE
+    (conformed #1900; Neo4j: use `CASE WHEN x IS NULL` for null flags)."""
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b"], "val": [None, "v"]}),
         pd.DataFrame({"s": [], "d": []}),
@@ -3797,7 +3803,7 @@ def test_string_cypher_simple_case_when_null_matches_null_value() -> None:
         "MATCH (n) RETURN n.id AS id, CASE n.val WHEN null THEN 'yes' ELSE 'no' END AS out ORDER BY id"
     )
     rows = result._nodes.to_dict(orient="records")
-    assert {"id": "a", "out": "yes"} in rows   # null → matches null arm
+    assert {"id": "a", "out": "no"} in rows    # null subject → WHEN null does NOT match → ELSE
     assert {"id": "b", "out": "no"} in rows    # non-null → falls to ELSE
 
 
@@ -3814,7 +3820,8 @@ def test_string_cypher_simple_case_when_null_non_null_not_matched() -> None:
 
 
 def test_string_cypher_simple_case_when_null_all_null() -> None:
-    """All rows null → all match the null arm."""
+    """All rows null → NONE match (`WHEN null` uses '='; null = null is null,
+    openCypher) -- every row takes ELSE (conformed #1900)."""
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b"], "val": [None, None]}),
         pd.DataFrame({"s": [], "d": []}),
@@ -3823,11 +3830,12 @@ def test_string_cypher_simple_case_when_null_all_null() -> None:
         "MATCH (n) RETURN n.id AS id, CASE n.val WHEN null THEN 1 ELSE 0 END AS out ORDER BY id"
     )
     for row in result._nodes.to_dict(orient="records"):
-        assert row["out"] == 1
+        assert row["out"] == 0
 
 
 def test_string_cypher_simple_case_when_null_mixed_series() -> None:
-    """Mixed series: some null, some non-null, some other value."""
+    """Mixed series: `WHEN null` never matches (openCypher '=' semantics,
+    conformed #1900) -- null and non-null rows alike take ELSE."""
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c"], "val": [None, "x", None]}),
         pd.DataFrame({"s": [], "d": []}),
@@ -3836,11 +3844,12 @@ def test_string_cypher_simple_case_when_null_mixed_series() -> None:
         "MATCH (n) RETURN n.id AS id, CASE n.val WHEN null THEN 'null' ELSE 'set' END AS out ORDER BY id"
     )
     rows = {r["id"]: r["out"] for r in result._nodes.to_dict(orient="records")}
-    assert rows == {"a": "null", "b": "set", "c": "null"}
+    assert rows == {"a": "set", "b": "set", "c": "set"}
 
 
 def test_string_cypher_simple_case_when_null_no_else() -> None:
-    """CASE x WHEN null THEN 'y' END — no ELSE; non-null should yield null."""
+    """CASE x WHEN null THEN 'y' END with no ELSE: `WHEN null` never matches
+    (openCypher '='; conformed #1900), so EVERY row yields null."""
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b"], "val": [None, "v"]}),
         pd.DataFrame({"s": [], "d": []}),
@@ -3849,8 +3858,8 @@ def test_string_cypher_simple_case_when_null_no_else() -> None:
         "MATCH (n) RETURN n.id AS id, CASE n.val WHEN null THEN 'hit' END AS out ORDER BY id"
     )
     rows = {r["id"]: r["out"] for r in result._nodes.to_dict(orient="records")}
-    assert rows["a"] == "hit"
-    assert rows["b"] is None or (isinstance(rows["b"], float) and rows["b"] != rows["b"])
+    for key in ("a", "b"):
+        assert rows[key] is None or (isinstance(rows[key], float) and rows[key] != rows[key])
 
 
 def test_string_cypher_simple_case_non_null_comparison_unaffected() -> None:
@@ -3867,7 +3876,8 @@ def test_string_cypher_simple_case_non_null_comparison_unaffected() -> None:
 
 
 def test_string_cypher_simple_case_when_null_first_arm_then_value_arm() -> None:
-    """Multiple arms: first is null, second is a value."""
+    """Multiple arms: the null arm never matches (openCypher '='; conformed
+    #1900) -- the null subject falls past it to ELSE; value arms unaffected."""
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c"], "val": [None, "x", "y"]}),
         pd.DataFrame({"s": [], "d": []}),
@@ -3876,7 +3886,7 @@ def test_string_cypher_simple_case_when_null_first_arm_then_value_arm() -> None:
         "MATCH (n) RETURN n.id AS id, CASE n.val WHEN null THEN 'N' WHEN 'x' THEN 'X' ELSE 'E' END AS out ORDER BY id"
     )
     rows = {r["id"]: r["out"] for r in result._nodes.to_dict(orient="records")}
-    assert rows == {"a": "N", "b": "X", "c": "E"}
+    assert rows == {"a": "E", "b": "X", "c": "E"}
 
 
 def test_string_cypher_supports_generic_match_where_chained_comparison() -> None:
@@ -4195,9 +4205,13 @@ def test_string_cypher_failfast_optional_match_collect_null_whole_row_return_bou
 
     with pytest.raises(GFQLValidationError) as exc_info:
         graph.gfql("MATCH (n) OPTIONAL MATCH (n)-[:NOT_EXIST]->(x) RETURN n, collect(x)")
+    # #1891: the connected optional-match lowering now owns this boundary --
+    # a whole-row alias next to an aggregate is a typed decline (serving it
+    # would drop the entity column).
     assert exc_info.value.code == ErrorCode.E108
     assert exc_info.value.context["field"] == "return"
-    assert exc_info.value.context["value"] == "x"
+    assert exc_info.value.context["value"] == ["n", "collect(x)"]
+    assert "whole-row alias projections alongside aggregates" in exc_info.value.message
 
 
 def test_string_cypher_failfast_optional_match_collect_null_whole_row_with_boundary() -> None:
@@ -4789,11 +4803,13 @@ def test_string_cypher_executes_cross_alias_or_on_two_hop_fanout_topology() -> N
     "WHERE b.x = 1",  # simple WHERE
     "WHERE b.x = 1 OR b IS NULL",  # WHERE with OR (the Earley-admitted shape)
 ])
-def test_string_cypher_rejects_optional_match_seed_only_projection(where_clause: str) -> None:
-    # The existing OPTIONAL-MATCH-projection validator gates this shape
-    # regardless of whether/how WHERE is structured.  Locks that the OR
-    # variant doesn't slip past the validator into a silent wrong-rows
-    # path — the gate fires identically across all three WHERE shapes.
+def test_string_cypher_optional_match_seed_projection_null_extends(where_clause: str) -> None:
+    # #1891: the single-node-seed shape is now served by the connected
+    # optional-match left-join lowering (it used to be a typed gate).
+    # openCypher: a1 matches b1 (b1.x = 1 satisfies every WHERE variant);
+    # a2 has no match and MUST be kept null-extended — identically across
+    # all three WHERE shapes (WHERE inside OPTIONAL filters matches, never
+    # drops rows).
     graph = _mk_graph(
         pd.DataFrame({
             "id":       ["a1", "a2", "b1"],
@@ -4804,15 +4820,21 @@ def test_string_cypher_rejects_optional_match_seed_only_projection(where_clause:
         pd.DataFrame({"s": ["a1"], "d": ["b1"]}),
     )
 
-    # Pin the specific substring of the seed-only-projection validator
-    # so the test cannot accidentally pass on a different OPTIONAL-MATCH
-    # error site (the lowering layer has 6+ distinct error messages
-    # mentioning "OPTIONAL MATCH" — they're not interchangeable).
-    with pytest.raises(GFQLValidationError, match="seed alias are not yet supported"):
-        graph.gfql(
-            f"MATCH (a:A) OPTIONAL MATCH (a)-->(b:B) {where_clause} "
-            "RETURN a.id AS a_id, b.id AS b_id"
-        )
+    result = graph.gfql(
+        f"MATCH (a:A) OPTIONAL MATCH (a)-->(b:B) {where_clause} "
+        "RETURN a.id AS a_id, b.id AS b_id"
+    )
+    rows = sorted(
+        (
+            {k: (None if pd.isna(v) else v) for k, v in row.items()}
+            for row in result._nodes.to_dict(orient="records")
+        ),
+        key=lambda row: str(row["a_id"]),
+    )
+    assert rows == [
+        {"a_id": "a1", "b_id": "b1"},
+        {"a_id": "a2", "b_id": None},
+    ]
 
 
 def test_string_cypher_executes_mixed_type_or_with_null_safe_semantics() -> None:
@@ -6106,7 +6128,12 @@ def test_string_cypher_failfast_rejects_with_stage_unsound_relationship_multipli
 @pytest.mark.parametrize(
     "query",
     [
-        "MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:NonExistent RETURN r",
+        # optional-arm WHERE + mixed seed/optional whole rows: served when the
+        # arm matches, but the unmatched case (num=999) cannot null-extend the
+        # multi-alias whole-row projection -- honest decline (#1891 regression
+        # fix serves the optional-only projection twin, see
+        # test_optional_match_semantics.py section E)
+        "MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m.num = 999 RETURN n, m",
         "MATCH (a:A), (c:C) OPTIONAL MATCH (a)-->(b)-->(c) RETURN b",
     ],
 )
@@ -6135,6 +6162,42 @@ def test_string_cypher_failfast_rejects_optional_match_null_extension_shapes_wit
         graph.gfql(query)
 
     assert exc_info.value.code == ErrorCode.E108
+
+
+def test_string_cypher_optional_arm_label_where_serves_edge_projection() -> None:
+    """#1891 regression fix: an optional-arm label WHERE null-extends instead
+    of gating -- matched arm projects the edge, unmatched arm keeps the seed
+    row with r = null, and a missing label follows the standard absent-name
+    contract (same as plain MATCH): strict raises, the warn default null-extends."""
+    graph = _mk_graph(
+        pd.DataFrame(
+            {
+                "id": ["s", "a", "b", "c"],
+                "label__Single": [True, False, False, False],
+                "label__A": [False, True, False, False],
+                "label__B": [False, False, True, False],
+                "label__C": [False, False, False, True],
+                "num": [None, 42, 46, None],
+            }
+        ),
+        pd.DataFrame(
+            {
+                "s": ["s", "s", "a", "b"],
+                "d": ["a", "b", "c", "b"],
+                "type": ["REL", "REL", "REL", "LOOP"],
+            }
+        ),
+    )
+
+    matched = graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:A RETURN r")
+    assert entity_text_records(matched, {"r": "edges"}) == [{"r": "[:REL]"}]
+    unmatched = graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:Single RETURN r")
+    assert entity_text_records(unmatched, {"r": "edges"}) == [{"r": None}]
+    with pytest.raises(GFQLSchemaError):
+        graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:NonExistent RETURN r",
+                   strict=True)
+    absent = graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:NonExistent RETURN r")
+    assert entity_text_records(absent, {"r": "edges"}) == [{"r": None}]
 
 
 def test_string_cypher_failfast_rejects_graph_backed_unwind_after_with_as_validation_error() -> None:
@@ -6498,7 +6561,13 @@ def test_string_cypher_executes_undirected_fixed_point_relationship_pattern_on_c
 
     result = graph.gfql("MATCH (a {id: 'a'})-[:R*]-(b) RETURN b.id AS id ORDER BY id")
 
-    assert result._nodes.to_dict(orient="records") == [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+    # #1906: the row lane now rides the same trail-filtered bindings as its count twin
+    # instead of the deduped node set. On the triangle a-b, b-c, c-a the trails from `a`
+    # are: [e_ab] -> b, [e_ca] -> c, [e_ab, e_bc] -> c, [e_ca, e_bc] -> b,
+    # [e_ab, e_bc, e_ca] -> a, [e_ca, e_bc, e_ab] -> a == 6 rows, 2 per endpoint.
+    assert result._nodes.to_dict(orient="records") == [
+        {"id": "a"}, {"id": "a"}, {"id": "b"}, {"id": "b"}, {"id": "c"}, {"id": "c"}
+    ]
 
 
 @pytest.mark.parametrize(
@@ -7903,9 +7972,13 @@ def test_string_cypher_supports_bound_optional_match_whole_row_with_scalar_proje
 
     result = graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:T]->(b) RETURN b, b.id + '!' AS label")
 
-    # OPTIONAL-MATCH null-fill path still renders whole entities as text (the
-    # structured #1650 flip is gated off for reentry; unification is a follow-up).
+    # Null-fill emits the #1650 flattened whole-entity columns; the unmatched
+    # seed's null-extension row is null across them and the scalar projection.
     assert result._nodes.to_dict(orient="records") == [
+        {"b.id": "b", "label": "b!"},
+        {"b.id": None, "label": None},
+    ]
+    assert entity_text_records(result, {"b": "nodes"}) == [
         {"b": "()", "label": "b!"},
         {"b": None, "label": None},
     ]
@@ -7927,8 +8000,16 @@ def test_string_cypher_supports_bound_optional_match_mixed_null_and_non_null_row
 
     result = graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:T]->() RETURN type(r) AS tr")
 
+    # #1891: the connected left-join lowering surfaces the unmatched row's
+    # null as NaN (pandas join fill), where the old null-fill path built a
+    # literal None -- normalize; the contract is null-vs-'T', not the
+    # engine's null spelling.
+    rows = [
+        {k: (None if pd.isna(v) else v) for k, v in row.items()}
+        for row in result._nodes.to_dict(orient="records")
+    ]
     assert sorted(
-        result._nodes.to_dict(orient="records"),
+        rows,
         key=lambda row: (row["tr"] is None, str(row["tr"])),
     ) == [
         {"tr": "T"},
@@ -7944,24 +8025,30 @@ def test_string_cypher_preserves_bound_optional_match_row_order_for_optional_ali
 
     result = graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:T]->() RETURN type(r) AS tr")
 
-    assert result._nodes.to_dict(orient="records") == [
+    # NaN-vs-None normalization: see the mixed-rows test above (#1891).
+    assert [
+        {k: (None if pd.isna(v) else v) for k, v in row.items()}
+        for row in result._nodes.to_dict(orient="records")
+    ] == [
         {"tr": None},
         {"tr": "T"},
         {"tr": None},
     ]
 
 
-def test_string_cypher_rejects_bound_optional_match_seed_only_projection() -> None:
+def test_string_cypher_bound_optional_match_seed_only_projection_keeps_all_seeds() -> None:
+    # #1891: formerly a typed gate ("bound seed alias"); the connected
+    # left-join lowering now serves it -- every seed keeps exactly one row
+    # (b's arm matches, a's and c's are null-extended, which a seed-only
+    # projection cannot show but must not drop).
     graph = _mk_graph(
         pd.DataFrame({"id": ["a", "b", "c"]}),
         pd.DataFrame({"s": ["b"], "d": ["c"], "type": ["T"]}),
     )
 
-    with pytest.raises(GFQLValidationError) as exc_info:
-        graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:T]->() RETURN a.id AS id")
+    result = graph.gfql("MATCH (a) OPTIONAL MATCH (a)-[r:T]->() RETURN a.id AS id")
 
-    assert exc_info.value.code == ErrorCode.E108
-    assert "bound seed alias" in exc_info.value.message
+    assert sorted(result._nodes["id"].tolist()) == ["a", "b", "c"]
 
 
 def test_string_cypher_supports_label_expression_on_null_with_reserved_keyword_labels() -> None:
@@ -10568,12 +10655,6 @@ def test_string_cypher_executes_undirected_multihop_row_bindings_on_cudf() -> No
             None,
             "do not yet support variable-length relationship aliases",
         ),
-        (
-            _mk_multihop_row_binding_cycle_graph,
-            "MATCH (a:A)-[:R*0..]->(b) RETURN a.id AS aid, b.id AS bid",
-            None,
-            "currently require terminating variable-length segments",
-        ),
     ],
 )
 def test_string_cypher_failfast_rejects_remaining_unsupported_multihop_row_bindings(
@@ -10584,6 +10665,19 @@ def test_string_cypher_failfast_rejects_remaining_unsupported_multihop_row_bindi
 ) -> None:
     with pytest.raises(GFQLValidationError, match=match):
         graph_factory().gfql(query, params=params)
+
+
+def test_string_cypher_executes_unbounded_cycle_trail_termination() -> None:
+    """#1903: trail semantics bound an unbounded walk on a cycle (each edge
+    binds once per path), so `[*0..]` on a 2-cycle now SERVES on pandas:
+    zero-hop (a,a); e0 -> (a,b); e0,e1 -> (a,a); a third hop would reuse e0.
+    (polars' node-frontier probe still declines the reachable cycle -- its
+    terminating-segments error is the pinned #1903 residual.)"""
+    result = _mk_multihop_row_binding_cycle_graph().gfql(
+        "MATCH (a:A)-[:R*0..]->(b) RETURN a.id AS aid, b.id AS bid"
+    )
+    got = sorted((r["aid"], r["bid"]) for r in result._nodes.to_dict(orient="records"))
+    assert got == [("a", "a"), ("a", "a"), ("a", "b")]
 
 
 def test_compile_cypher_records_reentry_plan_for_multi_whole_row_prefix() -> None:
@@ -13155,8 +13249,11 @@ def test_multi_alias_undirected_self_loop() -> None:
     )
     records = _to_pandas_df(result._nodes).to_dict(orient="records")
     # Self-loop in undirected traversal matches both directions → 2 rows for the self-loop.
-    # KNOWS edge: 1 row with fid=2. Total: 3 rows.
-    assert len(records) == 3, f"Expected 3 rows (self-loop×2 + KNOWS), got {records}"
+    # openCypher (#1903 addendum A-1): a self-loop's two undirected
+    # orientations are the SAME relationship binding -> ONE row for the
+    # self-loop (the old x2 pinned the orientation-flip double-count).
+    # KNOWS edge: 1 row with fid=2. Total: 2 rows.
+    assert len(records) == 2, f"Expected 2 rows (self-loop + KNOWS), got {records}"
     assert records[0]["w"] == 10  # KNOWS edge first (weight 10)
     assert records[0]["fid"] == 2
     assert all(r["fid"] == 1 for r in records[1:]), f"Self-loop rows should reference self, got {records}"
@@ -13623,14 +13720,21 @@ def test_gfql_executes_count_distinct_missing_property_as_zero() -> None:
     )
 
 
-def test_cypher_to_gfql_rejects_multi_source_aggregate_expr() -> None:
-    with pytest.raises(GFQLValidationError) as exc_info:
-        cypher_to_gfql("MATCH (a)-[r]->(b) RETURN a.id AS a_id, max(b.score) AS max_b")
+def test_cypher_to_gfql_serves_cross_alias_sole_insensitive_aggregate() -> None:
+    """Previously an E108 rejection: a sole multiplicity-insensitive aggregate
+    (max) over one alias grouped by another's property now lowers onto binding
+    rows. Oracle: edges 1->{2,3}, 2->{3}; max(b.score) is 30 for both groups."""
+    cypher_to_gfql("MATCH (a)-[r]->(b) RETURN a.id AS a_id, max(b.score) AS max_b")
 
-    assert exc_info.value.code == ErrorCode.E108
-    assert exc_info.value.context["field"] == "return"
-    assert exc_info.value.context["value"] == "b.score"
-    assert "value: 'b.score'" in str(exc_info.value)
+    g = _mk_graph(
+        pd.DataFrame({"id": [1, 2, 3], "score": [10.0, 20.0, 30.0]}),
+        pd.DataFrame({"s": [1, 1, 2], "d": [2, 3, 3]}),
+    )
+    out = g.gfql("MATCH (a)-[r]->(b) RETURN a.id AS a_id, max(b.score) AS max_b ORDER BY a_id")._nodes
+    assert out.to_dict("records") == [
+        {"a_id": 1, "max_b": 30.0},
+        {"a_id": 2, "max_b": 30.0},
+    ]
 
 
 def test_gfql_executes_top_level_quantifier_expression() -> None:
@@ -15465,9 +15569,12 @@ def _real_bool_shape_graph() -> Plottable:
     [
         # `bool` counts as numeric to the live validator, so a string value against a bool
         # column must stay residual rather than push into a type error.
+        # #1905 TRAIL: the fixture is a 4-cycle, out-degree 1 per node, so the two arms
+        # can only bind ONE relationship twice -- 0 bindings for every predicate (the old
+        # n=2/n=3 counted (r, r)); 0 rows is this lane's empty-aggregate convention.
         ("p.flag = 'yes'", []),
-        ("p.flag = true", [{"n": 2}]),
-        ("p.age >= 26", [{"n": 3}]),
+        ("p.flag = true", []),
+        ("p.age >= 26", []),
     ],
 )
 def test_connected_join_bool_column_matches_validator(predicate: str, expected: Any) -> None:
@@ -15496,7 +15603,9 @@ def test_connected_join_out_of_range_int_still_reports_range_error(predicate: st
 
 @pytest.mark.parametrize(
     "predicate,expected",
-    [("p.iv > 1", []), ("p.iv >= 1", []), ("p.iv <> 1", [{"n": 8}]), ("p.iv = 1", [])],
+    # #1905 TRAIL: p1 and p2 each have out-degree 2, so each contributes 2*1 = 2
+    # ordered pairs of DISTINCT relationships, not 2*2 = 4 -- n = 4, not 8.
+    [("p.iv > 1", []), ("p.iv >= 1", []), ("p.iv <> 1", [{"n": 4}]), ("p.iv = 1", [])],
 )
 def test_connected_join_interval_column_matches_master(predicate: str, expected: Any) -> None:
     # `interval[int64, right]` contains "int": classified numeric, a comparison pushed onto
@@ -15526,12 +15635,15 @@ def _real_labelled_inline_graph() -> Plottable:
         # Merging onto an existing STRING inline value wraps it with comparison.eq, which
         # serializes to {'type':'EQ'} -- a tag from_json binds to the numeric-only EQ, so the
         # executor raises when it rehydrates. Don't create that shape; stay residual.
-        ("{nick:'aa'}", "friend.nick = 'aa'", [{"n": 1}]),
+        # #1905 TRAIL: `person` is pinned to p1, so its arm binds edge p1->c1; every
+        # predicate below also selects p1 as `friend`, whose arm would bind that SAME
+        # relationship -- illegal, so 0 bindings (the old n=1 counted it).
+        ("{nick:'aa'}", "friend.nick = 'aa'", []),
         ("{nick:'aa'}", "friend.nick = 'bb'", []),
         # A different property never merges, and a numeric inline value rehydrates fine.
-        ("{nick:'aa'}", "friend.age > 20", [{"n": 1}]),
-        ("{age:30}", "friend.age > 20", [{"n": 1}]),
-        ("{}", "friend.nick = 'aa'", [{"n": 1}]),
+        ("{nick:'aa'}", "friend.age > 20", []),
+        ("{age:30}", "friend.age > 20", []),
+        ("{}", "friend.nick = 'aa'", []),
     ],
 )
 def test_connected_join_inline_string_property_merge_matches_master(
@@ -15566,12 +15678,15 @@ def _real_string_merge_graph() -> Plottable:
         # filter_dict is mutated as earlier atoms push, so a previously-pushed string
         # predicate must not green-light merging a raw string behind it. Checking only the
         # existing side made this order-dependent.
-        ("p.name CONTAINS 'al' AND p.name = 'alice'", [{"n": 4}]),
-        ("p.name STARTS WITH 'al' AND p.name = 'alice'", [{"n": 4}]),
-        ("p.name CONTAINS 'a' AND p.name CONTAINS 'l'", [{"n": 8}]),
-        ("p.name CONTAINS 'al'", [{"n": 4}]),
+        # #1905 TRAIL: each person has out-degree 2, so 2*1 = 2 ordered pairs of
+        # DISTINCT relationships per matching person (was 2*2 = 4, which counted (r, r)):
+        # 1 person -> 2, and the two-person `CONTAINS 'a' AND CONTAINS 'l'` row -> 4.
+        ("p.name CONTAINS 'al' AND p.name = 'alice'", [{"n": 2}]),
+        ("p.name STARTS WITH 'al' AND p.name = 'alice'", [{"n": 2}]),
+        ("p.name CONTAINS 'a' AND p.name CONTAINS 'l'", [{"n": 4}]),
+        ("p.name CONTAINS 'al'", [{"n": 2}]),
         # Numeric merges are representable and must still push.
-        ("p.age > 20 AND p.age = 30", [{"n": 4}]),
+        ("p.age > 20 AND p.age = 30", [{"n": 2}]),
     ],
 )
 def test_connected_join_string_predicate_merge_matches_cypher(predicate: str, expected: Any) -> None:
@@ -15593,8 +15708,14 @@ def _real_pandas_bool_graph() -> Plottable:
         # The gate reads the source frame but the executor filters a joined one, where an
         # unmatched row introduces NaN and pandas widens bool -> object: numeric to the gate,
         # string to the validator. Declining keeps the residual's answer.
-        ("p.flag > 0", [{"n": 2}]),
-        ("p.flag >= 1", [{"n": 2}]),
+        # openCypher (#1900): ORDERING a boolean against a number is an
+        # incomparable cross-type comparison -> null, so `flag > 0` /
+        # `flag >= 1` match NO rows (the old n=2 pinned the bool-as-int
+        # coercion bug); equality forms stay served. The empty frame (vs the
+        # openCypher identity row n=0) is the connected-join lane's known
+        # empty-aggregate synthesis gap (BUG-4 family), pinned as-is.
+        ("p.flag > 0", []),
+        ("p.flag >= 1", []),
         ("p.flag <> 0", [{"n": 2}]),
         ("p.flag = 1", [{"n": 2}]),
         ("p.flag = true", [{"n": 2}]),
@@ -15655,8 +15776,11 @@ def _real_edge_alias_graph() -> Plottable:
         "s_col": pd.Series(["a", "b", "c", "d"], dtype=object),
         "i_col": pd.Series([1, 2, 3, 4], dtype="int64"),
     })
+    # n1 has out-degree 2 so a two-arm binding exists at all under TRAIL (#1905);
+    # every other node keeps out-degree 1.
     edges = pd.DataFrame({
-        "s": ["n1", "n2", "n3"], "d": ["n2", "n3", "n4"], "w": pd.Series([1, 2, 3], dtype="int64"),
+        "s": ["n1", "n2", "n3", "n1"], "d": ["n2", "n3", "n4", "n3"],
+        "w": pd.Series([1, 2, 3, 4], dtype="int64"),
     })
     return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
 
@@ -15783,7 +15907,9 @@ def test_connected_join_empty_node_bool_aggregate_matches_nonempty(bv_dtype: str
 
 def test_connected_join_non_empty_edge_alias_aggregate_answers() -> None:
     query = "MATCH (p)-[e1]->(q), (p)-[e2]->(r) WHERE e1.w > 0 RETURN count(p) AS n"
-    assert _real_edge_alias_graph().gfql(query)._nodes.to_dict(orient="records") == [{"n": 3}]
+    # #1905 TRAIL: only n1 has two out-edges -> 2*1 = 2 ordered pairs of DISTINCT
+    # relationships (the old n=3 counted each node's single edge against itself).
+    assert _real_edge_alias_graph().gfql(query)._nodes.to_dict(orient="records") == [{"n": 2}]
 
 
 def test_object_column_holds_non_strings_fails_closed_when_unreadable() -> None:
@@ -15992,7 +16118,13 @@ def test_node_dtypes_for_pushdown_on_polars_matches_the_full_conversion() -> Non
 
 @pytest.mark.parametrize(
     "predicate,expected",
-    [("p.flag > 0", [{"n": 4}]), ("p.flag = true", [{"n": 4}]), ("p.age >= 2", [{"n": 4}])],
+    # #1900: bool-vs-number ordering is incomparable -> null (0 rows); the old
+    # n=4 for `p.flag > 0` pinned the coercion bug (empty frame vs identity row
+    # n=0 = the lane's known empty-aggregate gap, BUG-4 family). Equality/
+    # numeric unchanged.
+    # #1905 TRAIL: `a` and `b` each have out-degree 2 -> 2*1 = 2 ordered pairs of
+    # DISTINCT relationships (was 2*2 = 4, which counted (r, r)).
+    [("p.flag > 0", []), ("p.flag = true", [{"n": 2}]), ("p.age >= 2", [{"n": 2}])],
 )
 def test_connected_join_polars_nullable_columns_match_master(predicate: str, expected: Any) -> None:
     pl = pytest.importorskip("polars")
@@ -16039,9 +16171,11 @@ def test_arrow_table_nodes_match_master_results() -> None:
         out = g.gfql(query)._nodes
         return out.to_dicts() if hasattr(out, "to_dicts") else out.to_dict(orient="records")
 
+    # #1905 TRAIL: `a` and `b` each have out-degree 2 -> 2*1 = 2 ordered pairs of
+    # DISTINCT relationships per matching node (was 2*2 = 4).
     assert run("p.name = 5") == []
-    assert run("p.name = 'ann'") == [{"n": 4}]
-    assert run("p.age >= 40") == [{"n": 4}]
+    assert run("p.name = 'ann'") == [{"n": 2}]
+    assert run("p.age >= 40") == [{"n": 2}]
 
 
 def test_connected_join_dtype_classes_defers_to_the_live_validator() -> None:
@@ -16152,12 +16286,14 @@ def test_polars_dtype_classifier_fallback_arms(monkeypatch: Any) -> None:
     "predicate,expected",
     [
         # Decimal materializes to pandas object, so ordering must not push; the residual answers.
-        ("p.age > 25", [{"n": 8}]),
-        ("p.age >= 26", [{"n": 8}]),
-        ("p.age != 26", [{"n": 8}]),
-        ("p.age = 26", [{"n": 4}]),
+        # #1905 TRAIL: p1/p2/p3 each have out-degree 2 -> 2*1 = 2 ordered pairs of
+        # DISTINCT relationships per matching person (was 2*2 = 4); 2 matches -> 4, 1 -> 2.
+        ("p.age > 25", [{"n": 4}]),
+        ("p.age >= 26", [{"n": 4}]),
+        ("p.age != 26", [{"n": 4}]),
+        ("p.age = 26", [{"n": 2}]),
         # A plain polars numeric column materializes to int64 and must still push and answer.
-        ("p.n2 >= 26", [{"n": 8}]),
+        ("p.n2 >= 26", [{"n": 4}]),
     ],
 )
 def test_connected_join_polars_decimal_matches_master(predicate: str, expected: Any) -> None:
@@ -16603,6 +16739,39 @@ def test_t6_connected_comma_two_star_direct_count_preserves_multiplicity(engine:
 
     result = graph.gfql(query, engine=engine)
     assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPersons": 4}]
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_two_star_grouped_count_keyed_on_the_node_id_column(engine: str) -> None:
+    """Group key IS the node-id column: the lookup must read the key series, not
+    select the id column twice (pandas died -- KeyError before the one-pass
+    construction, a duplicate-column ValueError after -- while polars served it).
+    Direct call pins ENGAGEMENT; gfql pins the end-to-end value."""
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes = pd.DataFrame({
+        "id": [0, 1, 10, 11, 20],
+        "node_type": ["Person", "Person", "City", "City", "Interest"],
+        "city": [None, None, "London", "Paris", None],
+    })
+    edges = pd.DataFrame({
+        "s": [0, 0, 1, 1, 0, 1],
+        "d": [20, 10, 20, 11, 11, 10],
+        "rel": ["HAS_INTEREST", "LIVES_IN", "HAS_INTEREST", "LIVES_IN", "LIVES_IN", "LIVES_IN"],
+    })
+    query = (
+        "MATCH (p {node_type:'Person'})-[{rel:'HAS_INTEREST'}]->(i {node_type:'Interest'}), "
+        "(p)-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+        "RETURN c.id AS x, count(p) AS n"
+    )
+    graph = _mk_graph(nodes, edges)
+    plan = _compiled_connected_join_plan(query)
+    direct = _connected_join_two_star_fast_grouped_count(graph, plan, engine=Engine(engine))
+    assert direct is not None
+    expected = [{"x": 10, "n": 2}, {"x": 11, "n": 2}]
+    assert sorted(_to_pandas_df(direct).to_dict(orient="records"), key=lambda r: r["x"]) == expected
+    result = graph.gfql(query, engine=engine)
+    assert sorted(_to_pandas_df(result._nodes).to_dict(orient="records"), key=lambda r: r["x"]) == expected
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
@@ -17136,17 +17305,28 @@ def test_t2_two_hop_count_fast_path_empty_count_returns_zero() -> None:
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
-def test_t5_two_hop_equal_domain_degree_cache_reuses_counts(engine: str) -> None:
+def test_t5_two_hop_count_recovers_via_clear_caches_after_mutation_1825(engine: str) -> None:
+    """#1825 under the bound-frame immutability contract: in-place mutation is
+    UB, and the SUPPORTED recovery recipe (gfql_clear_caches) must restore a
+    fresh answer -- which the old memo made impossible (setattr'd onto the
+    caller keyed by id(): unregistered, unflushable, the BLOCKER-1 pattern this
+    file forbids). STRING ids on purpose: dense-integer-id graphs are served by
+    the dense kernel before the degree-counts path, so an int-id fixture cannot
+    catch a regression here (a false "fixed").
+
+    Per-caller setattr channels stay forbidden (they evade clear_caches);
+    cross-call reuse belongs to REGISTERED caches or the fingerprint-validated
+    index layer."""
     if engine == "polars":
         pytest.importorskip("polars")
     nodes = pd.DataFrame({
-        "id": [0, 1, 2, 3],
-        "node_type": ["Person", "Person", "Person", "City"],
+        "id": ["n0", "n1", "n2", "n3", "n9"],
+        "node_type": ["Person", "Person", "Person", "Person", "City"],
     })
     edges = pd.DataFrame({
-        "s": [0, 0, 1, 1, 2, 2, 3],
-        "d": [1, 1, 2, 3, 0, 3, 0],
-        "rel": ["FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "FOLLOWS", "LIKES", "FOLLOWS"],
+        "s": ["n0", "n1", "n1"],
+        "d": ["n1", "n2", "n3"],
+        "rel": ["FOLLOWS", "FOLLOWS", "FOLLOWS"],
     })
     query = (
         "MATCH (a {node_type:'Person'})-[{rel:'FOLLOWS'}]->(b {node_type:'Person'})"
@@ -17158,18 +17338,16 @@ def test_t5_two_hop_equal_domain_degree_cache_reuses_counts(engine: str) -> None
 
     first = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
     assert first is not None
-    assert _to_pandas_df(first._nodes).to_dict(orient="records") == [{"numPaths": 5}]
+    assert _to_pandas_df(first._nodes).to_dict(orient="records") == [{"numPaths": 2}]
 
-    cache = getattr(graph, "_gfql_two_hop_equal_domain_degree_counts_cache")
-    assert isinstance(cache, dict)
-    assert len(cache) == 1
-    cached_counts = next(iter(cache.values()))
-
+    edges.loc[1, "rel"] = "BLOCKS"  # in-place mutation: contract violation...
+    from graphistry.compute.gfql_unified import gfql_clear_caches
+    gfql_clear_caches()  # ...and the supported recovery recipe
     second = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
     assert second is not None
-    assert _to_pandas_df(second._nodes).to_dict(orient="records") == [{"numPaths": 5}]
-    assert len(cache) == 1
-    assert next(iter(cache.values())) is cached_counts
+    assert _to_pandas_df(second._nodes).to_dict(orient="records") == [{"numPaths": 1}], (
+        "stale count after mutation + gfql_clear_caches -- an UNREGISTERED memo is back")
+    assert getattr(graph, "_gfql_two_hop_equal_domain_degree_counts_cache", None) is None
 
 
 # ---------------------------------------------------------------------------
@@ -17209,7 +17387,7 @@ def _t6_dense_frames() -> Tuple[pd.DataFrame, pd.DataFrame]:
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
-def test_t6_dense_domain_kernel_serves_equal_domain_count_and_skips_memo(
+def test_t6_dense_domain_kernel_serves_equal_domain_count_and_skips_semi_join(
     engine: str, monkeypatch: Any
 ) -> None:
     if engine == "polars":
@@ -17217,13 +17395,13 @@ def test_t6_dense_domain_kernel_serves_equal_domain_count_and_skips_memo(
     graph = _mk_graph(*_t6_dense_frames())
     compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
 
-    # LANE PIN: when the dense kernel serves, the memoized degree-count path is
+    # LANE PIN: when the dense kernel serves, the semi-join degree-count path is
     # never entered -- prove it by making that path explode.
     def _boom(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("dense kernel must serve this shape; memo path was entered")
+        raise AssertionError("dense kernel must serve this shape; degree-count path was entered")
 
     monkeypatch.setattr(
-        gfql_fast_paths_module, "_two_hop_cached_equal_domain_degree_counts", _boom
+        gfql_fast_paths_module, "_two_hop_equal_domain_degree_counts", _boom
     )
     result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
     assert result is not None
@@ -17385,7 +17563,7 @@ def test_t6_dense_total_declines_non_integer_edge_cols(engine: str) -> None:
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
-def test_t6_edge_cols_bounds_within_empty_frame_declines(engine: str) -> None:
+def test_t6_edge_cols_bounds_scan_empty_frame_declines(engine: str) -> None:
     # The kernel declines empty edge frames before the bounds proof, so the helper's
     # own empty guard (it must stay safe standalone) is pinned directly.
     if engine == "polars":
@@ -17394,16 +17572,16 @@ def test_t6_edge_cols_bounds_within_empty_frame_declines(engine: str) -> None:
                              "d": pd.Series([], dtype="int64")})
     if engine == "polars":
         import polars as pl
-        assert _edge_cols_bounds_within(
+        assert _edge_cols_bounds_scan(
             pl.from_pandas(empty_pd), "s", "d", 0, 3, engine=Engine.POLARS
-        ) is False
+        )[0] is False
     else:
-        assert _edge_cols_bounds_within(
+        assert _edge_cols_bounds_scan(
             empty_pd, "s", "d", 0, 3, engine=Engine.PANDAS
-        ) is False
+        )[0] is False
 
 
-def test_t6_edge_cols_bounds_within_null_mask_declines() -> None:
+def test_t6_edge_cols_bounds_scan_null_mask_declines() -> None:
     # cudf rides the pandas/cudf arm with a plain numpy dtype PLUS a ``null_count``
     # attribute (the null mask is separate). Emulate that series shape CPU-side so the
     # null-mask decline is pinned without a GPU.
@@ -17422,9 +17600,62 @@ def test_t6_edge_cols_bounds_within_null_mask_declines() -> None:
 
     # engine=CUDF: the null guard is engine-dispatched now (a numpy-int pandas
     # series cannot hold NA, so only the cuDF arm reads null_count).
-    assert _edge_cols_bounds_within(
+    assert _edge_cols_bounds_scan(
         cast(Any, _NullMaskedFrame()), "s", "d", 0, 3, engine=Engine.CUDF
-    ) is False
+    )[0] is False
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+def test_t6_edge_cols_bounds_scan_reports_self_loops_only_where_it_rides_the_scan(
+    engine: str,
+) -> None:
+    # The scan's SECOND value is the #1905 correction, and it is a by-product claim:
+    # polars gets it out of the fused reduction select it already runs, pandas/cudf
+    # report None ("not computed") because their per-column reductions have no pass
+    # for it to ride. Both sides are pinned so the kernel's two routes stay honest.
+    nodes, edges = _t6_dense_frames()
+    loops_edges = pd.concat(
+        [edges, pd.DataFrame({"s": [1, 2], "d": [1, 2], "rel": ["FOLLOWS", "FOLLOWS"]})],
+        ignore_index=True,
+    )
+    _dom, edom, eng = _t6b_helper_frames(engine, nodes, loops_edges)
+    proven, loops = _edge_cols_bounds_scan(edom, "s", "d", 0, 3, engine=eng)
+    assert proven is True
+    assert loops == (2 if engine == "polars" else None)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("n_loops", [0, 1, 3])
+def test_t6_dense_kernel_identical_whether_scan_or_kernel_counts_self_loops(
+    engine: str, n_loops: int, monkeypatch: Any
+) -> None:
+    # VALUE IDENTITY across the two counting routes: the scan's by-product count and
+    # the kernel's own fused block-loop count must agree exactly, self-loops or none.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    nodes, edges = _t6_dense_frames()
+    if n_loops:
+        ids = [1, 2, 3][:n_loops]
+        edges = pd.concat(
+            [edges, pd.DataFrame({"s": ids, "d": ids, "rel": ["FOLLOWS"] * n_loops})],
+            ignore_index=True,
+        )
+    dom, edom, eng = _t6b_helper_frames(engine, nodes, edges)
+    served = _two_hop_equal_domain_dense_total(
+        dom, edom, node_col="id", src_col="s", dst_col="d", engine=eng)
+
+    real = gfql_fast_paths_module._edge_cols_bounds_scan
+
+    def no_by_product(*args: Any, **kw: Any) -> Any:
+        return real(*args, **kw)[0], None
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_scan", no_by_product)
+    in_kernel = _two_hop_equal_domain_dense_total(
+        dom, edom, node_col="id", src_col="s", dst_col="d", engine=eng)
+    assert served == in_kernel
+    # 8 two-hop paths on the loop-free base; each self-loop at b adds indeg(b)+outdeg(b)
+    # legal pairs and exactly ONE illegal (r, r) the correction must drop.
+    assert served == {0: 8, 1: 13, 3: 18}[n_loops]
 
 
 class _T6ArrayNamespaceSpy:
@@ -17563,9 +17794,9 @@ def test_t6_dense_total_table_budget_boundary_lanes(engine: str, monkeypatch: An
 
 def test_t6_dense_gather_elision_matches_degree_oracle() -> None:
     # Round-3 algebra pin: the gather-sum form must equal the O(paths) oracle
-    # (sum over middle nodes of indeg*outdeg) on a duplicate-heavy random graph
-    # -- multi-edges and self-loops included -- for both the raw (lo == 0) and
-    # shifted (lo far from 0) lanes.
+    # (sum over middle nodes of indeg*outdeg, less the self-loops the product pairs
+    # with themselves -- TRAIL, #1905) on a duplicate-heavy random graph, for both
+    # the raw (lo == 0) and shifted (lo far from 0) lanes.
     import numpy as np
     from graphistry.compute import gfql_fast_paths as fp
 
@@ -17581,10 +17812,68 @@ def test_t6_dense_gather_elision_matches_degree_oracle() -> None:
             np.arange(n_nodes) + base, fill_value=0)
         outdeg = edges.groupby("s").size().reindex(
             np.arange(n_nodes) + base, fill_value=0)
-        oracle = int((indeg * outdeg).sum())
+        oracle = int((indeg * outdeg).sum()) - int((edges["s"] == edges["d"]).sum())
         total = fp._two_hop_equal_domain_dense_total(
             nodes, edges, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS)
         assert total == oracle
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("base", [0, 10**7])
+@pytest.mark.parametrize("self_loop_rows", [0, 137])
+def test_t6_dense_total_multi_block_matches_single_block(
+    engine: str, base: int, self_loop_rows: int, monkeypatch: Any
+) -> None:
+    # The self-loop correction rides a BLOCKED pass now (#1905 cost fix), so every
+    # fixture above -- all far under one block -- exercises only the single-block
+    # arm. Cross the block boundary and pin BOTH arms against each other and against
+    # the degree oracle, on the raw lane (base 0, fused gather + compare) and the
+    # shifted lane (base far from 0, standalone compare), with and without self-loops.
+    # A block-boundary bug would double-count or drop whole blocks, which only a
+    # multi-block frame can see.
+    if engine == "polars":
+        pytest.importorskip("polars")
+    import numpy as np
+    from graphistry.compute import gfql_fast_paths as fp
+
+    block = fp._TWO_HOP_SELF_LOOP_BLOCK
+    n_edges = 2 * block + 251  # >= 3 blocks, last one partial
+    rng = np.random.default_rng(1905)
+    n_nodes = 500
+    src = rng.integers(0, n_nodes, size=n_edges)
+    dst = rng.integers(0, n_nodes, size=n_edges)
+    dst[src == dst] = (dst[src == dst] + 1) % n_nodes  # start self-loop-free
+    if self_loop_rows:
+        # Spread the self-loops across every block, including the partial tail.
+        pos = rng.choice(n_edges, size=self_loop_rows, replace=False)
+        dst[pos] = src[pos]
+    nodes_pd = pd.DataFrame({"id": np.arange(n_nodes) + base})
+    edges_pd = pd.DataFrame({"s": src + base, "d": dst + base})
+
+    indeg = edges_pd.groupby("d").size().reindex(np.arange(n_nodes) + base, fill_value=0)
+    outdeg = edges_pd.groupby("s").size().reindex(np.arange(n_nodes) + base, fill_value=0)
+    oracle = int((indeg * outdeg).sum()) - self_loop_rows
+    assert int((edges_pd["s"] == edges_pd["d"]).sum()) == self_loop_rows
+
+    if engine == "polars":
+        import polars as pl
+        dom: Any = pl.from_pandas(nodes_pd)
+        edom: Any = pl.from_pandas(edges_pd)
+        eng = Engine.POLARS
+    else:
+        dom, edom = nodes_pd, edges_pd
+        eng = Engine.PANDAS
+
+    def run() -> Any:
+        return fp._two_hop_equal_domain_dense_total(
+            dom, edom, node_col="id", src_col="s", dst_col="d", engine=eng)
+
+    multi_block = run()
+    assert multi_block == oracle
+    # Same frame through the single-block arm (block wider than the frame): the two
+    # arms are two spellings of one reduction, so they must agree exactly.
+    monkeypatch.setattr(fp, "_TWO_HOP_SELF_LOOP_BLOCK", n_edges + 1)
+    assert run() == multi_block
 
 
 @pytest.mark.parametrize("engine", ["pandas", "polars", "cudf"])
@@ -17785,13 +18074,13 @@ def test_t6_col_stats_skip_bounds_scan_both_sides(
         graph = graph.gfql_index_col_stats(engine=engine)
 
     calls: List[str] = []
-    real = gfql_fast_paths_module._edge_cols_bounds_within
+    real = gfql_fast_paths_module._edge_cols_bounds_scan
 
     def spy(*args: Any, **kw: Any) -> Any:
         calls.append("scan")
         return real(*args, **kw)
 
-    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_within", spy)
+    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_scan", spy)
     compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
     result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
     assert result is not None
@@ -17815,13 +18104,13 @@ def test_t6_col_stats_conservative_miss_falls_back_to_scan(
     graph = _mk_h3_graph(engine, nodes_pd, edges_wide).gfql_index_col_stats(engine=engine)
 
     calls: List[str] = []
-    real = gfql_fast_paths_module._edge_cols_bounds_within
+    real = gfql_fast_paths_module._edge_cols_bounds_scan
 
     def spy(*args: Any, **kw: Any) -> Any:
         calls.append("scan")
         return real(*args, **kw)
 
-    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_within", spy)
+    monkeypatch.setattr(gfql_fast_paths_module, "_edge_cols_bounds_scan", spy)
     compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
     result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine=engine)
     assert result is not None
@@ -18365,10 +18654,10 @@ def test_t6_per_type_request_raises_when_unusable() -> None:
         graph.gfql_index_col_stats(node_type_column="not_a_column")
 
 
-def test_t6_decline_keeps_memo_path_reachable() -> None:
-    # The T5 memo graph has an out-of-domain FOLLOWS endpoint (a City), so the
-    # dense kernel must DECLINE there and the memo must populate exactly as before
-    # (T5 pins the reuse; this pins the reachability under the new seam).
+def test_t6_decline_keeps_degree_count_path_reachable(monkeypatch: Any) -> None:
+    # This graph has an out-of-domain FOLLOWS endpoint (a City), so the dense
+    # kernel must DECLINE and the semi-join degree-count path must answer --
+    # reachability pinned by a spy, no cross-call state involved (#1825).
     nodes = pd.DataFrame({
         "id": [0, 1, 2, 3],
         "node_type": ["Person", "Person", "Person", "City"],
@@ -18380,12 +18669,18 @@ def test_t6_decline_keeps_memo_path_reachable() -> None:
     })
     graph = _mk_graph(nodes, edges)
     compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
+    calls: List[int] = []
+    real = gfql_fast_paths_module._two_hop_equal_domain_degree_counts
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(gfql_fast_paths_module, "_two_hop_equal_domain_degree_counts", spy)
     result = _execute_two_hop_count_fast_path(graph, compiled.chain, engine="pandas")
     assert result is not None
     assert _to_pandas_df(result._nodes).to_dict(orient="records") == [{"numPaths": 5}]
-    assert isinstance(
-        getattr(graph, "_gfql_two_hop_equal_domain_degree_counts_cache", None), dict
-    )
+    assert calls, "degree-count path was not reached on the dense-kernel decline"
 
 
 # ---------------------------------------------------------------------------
@@ -18403,12 +18698,15 @@ def test_t6_decline_keeps_memo_path_reachable() -> None:
 def _t6b_two_hop_oracle(nodes_pd: pd.DataFrame, edges_pd: pd.DataFrame) -> int:
     """Independent two-hop count(*) reference: domain-restrict the FOLLOWS edges to
     Person x Person, then self merge-join on the middle node. Multiplicative over
-    duplicate edges and self-loops by construction (every edge ROW joins)."""
+    duplicate edges; openCypher TRAIL semantics (#1905) forbid binding one
+    relationship twice, so the pairs where the join matched an edge ROW to itself
+    (only reachable through a self-loop) are dropped."""
     dom = set(nodes_pd.loc[nodes_pd["node_type"] == "Person", "id"].tolist())
     e = edges_pd[edges_pd["rel"] == "FOLLOWS"]
-    e = e[e["s"].isin(dom) & e["d"].isin(dom)][["s", "d"]]
+    e = e[e["s"].isin(dom) & e["d"].isin(dom)][["s", "d"]].reset_index(drop=True)
+    e = e.assign(eid=range(len(e)))
     joined = e.merge(e, left_on="d", right_on="s", suffixes=("_ab", "_bd"))
-    return int(len(joined))
+    return int((joined["eid_ab"] != joined["eid_bd"]).sum())
 
 
 def _t6b_require_cudf_kernel_runtime() -> None:
@@ -18435,7 +18733,8 @@ def _t6b_graph_for(engine: str, nodes_pd: pd.DataFrame, edges_pd: pd.DataFrame) 
 def _t6b_selfloop_multi_frames() -> Tuple[pd.DataFrame, pd.DataFrame]:
     # Duplicate edges (0->1 twice), self-loops (1->1 twice, 2->2 once), and a cycle
     # closer (2->0). indeg = {0: 1, 1: 4, 2: 2}; outdeg = {0: 2, 1: 3, 2: 2};
-    # sum indeg*outdeg = 1*2 + 4*3 + 2*2 = 18.
+    # sum indeg*outdeg = 1*2 + 4*3 + 2*2 = 18, minus the 3 self-loops that the
+    # product pairs with themselves (TRAIL, #1905) = 15.
     nodes = pd.DataFrame({"id": [0, 1, 2], "node_type": ["Person"] * 3})
     edges = pd.DataFrame({
         "s": [0, 0, 1, 1, 1, 2, 2],
@@ -18463,11 +18762,11 @@ def test_t6b_engine_matrix_kernel_vs_forced_decline_parity(
     engine: str, fixture: str, monkeypatch: Any
 ) -> None:
     # (a) + (c): kernel-served vs forced-decline value parity per engine, and both
-    # equal the independent merge-join oracle -- including multiplicative counting
-    # over self-loops and duplicate edges.
+    # equal the independent merge-join oracle -- multiplicative over duplicate
+    # edges, trail-exact over self-loops (#1905).
     nodes, edges = _t6_dense_frames() if fixture == "dense" else _t6b_selfloop_multi_frames()
     expected = _t6b_two_hop_oracle(nodes, edges)
-    assert expected == {"dense": 8, "selfloop_multi": 18}[fixture]  # oracle self-pin
+    assert expected == {"dense": 8, "selfloop_multi": 15}[fixture]  # oracle self-pin
     compiled = cast(CompiledCypherQuery, compile_cypher(_T6_DENSE_Q8_QUERY))
 
     kernel_returns: List[Any] = []
@@ -18535,7 +18834,7 @@ def test_t6b_dtype_matrix_nullable_int64_declines_and_reason_is_pinned() -> None
         nodes_ext, edges, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
     ) is None
     # Seam 2: bounds proof rejects extension endpoint columns.
-    assert _edge_cols_bounds_within(edges_ext, "s", "d", 0, 3, engine=Engine.PANDAS) is False
+    assert _edge_cols_bounds_scan(edges_ext, "s", "d", 0, 3, engine=Engine.PANDAS)[0] is False
     assert _two_hop_equal_domain_dense_total(
         nodes, edges_ext, node_col="id", src_col="s", dst_col="d", engine=Engine.PANDAS
     ) is None
@@ -18553,7 +18852,7 @@ def test_t6b_dtype_matrix_float_ids_decline(engine: str) -> None:
     assert _two_hop_equal_domain_dense_total(
         dom_f, _edom_f, node_col="id", src_col="s", dst_col="d", engine=eng
     ) is None
-    assert _edge_cols_bounds_within(edom_f2, "s", "d", 0, 3, engine=eng) is False
+    assert _edge_cols_bounds_scan(edom_f2, "s", "d", 0, 3, engine=eng)[0] is False
     assert _two_hop_equal_domain_dense_total(
         dom_i, edom_f2, node_col="id", src_col="s", dst_col="d", engine=eng
     ) is None
@@ -18830,8 +19129,8 @@ def test_h3_fused_two_hop_count_serves_distinct_edge_domains(engine: str, monkey
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_h3_fused_two_hop_count_never_reached_by_equal_domain_shape(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """EQUAL-DOMAIN NO-REGRESSION GUARD (structural). The equal-domain shape is served by the
-    memoized degree-count branch; routing it through the fused lane would trade a cross-call
-    cache hit for a replan. Assert the fused lane is not even CALLED."""
+    dense kernel or the semi-join degree-count branch, both cheaper than the fused lane's
+    replan. Assert the fused lane is not even CALLED."""
     nodes, edges = _mk_h3_base_data()
     oracle = _h3_records(_mk_graph(nodes, edges).gfql(_H3_EQUAL_DOMAIN_QUERY, engine="pandas"))
     graph = _mk_h3_graph(engine, nodes, edges)
@@ -18843,29 +19142,23 @@ def test_h3_fused_two_hop_count_never_reached_by_equal_domain_shape(engine: str,
     assert _h3_records(result) == oracle == [{"numPaths": 7}]
 
 
-_H3_DEGREE_MEMO_ATTR = "_gfql_two_hop_equal_domain_degree_counts_cache"
-
-
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
-def test_h3_equal_domain_two_hop_count_memo_miss_matches_memo_hit(engine: str) -> None:
-    """The equal-domain degree counts are memoized on the Plottable, so a FIRST call runs a
-    different branch (compute the two degree frames) than every later call on the same frames
-    (read them back). Both branches are pinned here rather than assumed: engagement is asserted
-    via the memo attribute (absent before, one entry after), and the memo-MISS answer, the
-    memo-HIT answer and a never-warmed Plottable's answer must all equal the pandas oracle.
+def test_h3_equal_domain_two_hop_count_repeat_matches_one_shot(engine: str) -> None:
+    """Repeated calls on one Plottable, and a never-reused Plottable, must all
+    equal the pandas oracle -- there is no cross-call memo to diverge them
+    (#1825 removed it: warm == one-shot is now an identity, pinned anyway so a
+    reintroduced memo has to face this test).
 
-    The base graph's Person ids are relabeled with a GAP (4 -> 6) so the T6 dense-domain
-    kernel provably declines (interval != id set) and the memoized degree-count lane -- the
-    lane this test pins -- is actually the one that answers. Same topology, same count."""
+    The base graph's Person ids are relabeled with a GAP (4 -> 6) so the T6
+    dense-domain kernel provably declines and the semi-join degree-count lane
+    is the one that answers."""
     nodes, edges = _mk_h3_base_data()
     nodes = nodes.assign(id=nodes["id"].replace(4, 6))
     edges = edges.assign(s=edges["s"].replace(4, 6), d=edges["d"].replace(4, 6))
     oracle = _h3_records(_mk_graph(nodes, edges).gfql(_H3_EQUAL_DOMAIN_QUERY, engine="pandas"))
 
     graph = _mk_h3_graph(engine, nodes, edges)
-    assert not getattr(graph, _H3_DEGREE_MEMO_ATTR, None), "memo must start empty"
     cold = _h3_records(graph.gfql(_H3_EQUAL_DOMAIN_QUERY, engine=engine))
-    assert len(getattr(graph, _H3_DEGREE_MEMO_ATTR, {}) or {}) == 1, "memo lane was not reached"
     warm = _h3_records(graph.gfql(_H3_EQUAL_DOMAIN_QUERY, engine=engine))
 
     unwarmed = _mk_h3_graph(engine, nodes, edges)
@@ -19926,8 +20219,8 @@ def test_issue_1472_independent_optional_arms_preserve_per_row_nulls(optional_cl
         "MATCH (m:M) "
         f"{optional_clauses} "
         "RETURN m.id AS mid, "
-        "CASE a WHEN null THEN 'no-a' ELSE a.id END AS aid, "
-        "CASE b WHEN null THEN 'no-b' ELSE b.id END AS bid "
+        "CASE WHEN a IS NULL THEN 'no-a' ELSE a.id END AS aid, "
+        "CASE WHEN b IS NULL THEN 'no-b' ELSE b.id END AS bid "
         "ORDER BY mid, aid, bid"
     )
 
@@ -20350,7 +20643,7 @@ def test_issue_996_connected_match_optional_match_case_edge_alias() -> None:
     """
     IS7 shape: MATCH (m)<-[:R]-(c)-[:H]->(p)
                OPTIONAL MATCH (m)-[:H]->(a)-[r:K]-(p)
-               RETURN ..., CASE r WHEN null THEN false ELSE true END AS knows
+               RETURN ..., CASE WHEN r IS NULL THEN false ELSE true END AS knows
 
     Left-join semantics: all (m,c,p) rows preserved; r=null when OPTIONAL arm misses.
     """
@@ -20371,7 +20664,7 @@ def test_issue_996_connected_match_optional_match_case_edge_alias() -> None:
         "MATCH (m:Message)<-[:REPLY_OF]-(c:Comment)-[:HAS_CREATOR]->(p:Person) "
         "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:Person)-[r:KNOWS]-(p) "
         "RETURN c.id AS commentId, p.id AS replyAuthorId, "
-        "CASE r WHEN null THEN false ELSE true END AS knows "
+        "CASE WHEN r IS NULL THEN false ELSE true END AS knows "
         "ORDER BY commentId"
     )
 
@@ -20403,7 +20696,7 @@ def test_issue_996_connected_match_optional_match_no_rows_match() -> None:
     result = g.gfql(
         "MATCH (x:N)-[:T]->(y:N) "
         "OPTIONAL MATCH (x)-[:MISSING]->(z:N) "
-        "RETURN x.id AS xid, CASE z WHEN null THEN 'none' ELSE 'found' END AS found"
+        "RETURN x.id AS xid, CASE WHEN z IS NULL THEN 'none' ELSE 'found' END AS found"
     )
     rows = result._nodes[["xid", "found"]].to_dict(orient="records")
     assert rows == [{"xid": "a", "found": "none"}]
@@ -20443,7 +20736,7 @@ def test_issue_996_connected_match_optional_match_order_by_optional_col() -> Non
     result = g.gfql(
         "MATCH (m:Message)<-[:REPLY_OF]-(c:Comment)-[:HAS_CREATOR]->(p:Person) "
         "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:Person)-[r:KNOWS]-(p) "
-        "RETURN c.id AS cid, CASE r WHEN null THEN false ELSE true END AS knows "
+        "RETURN c.id AS cid, CASE WHEN r IS NULL THEN false ELSE true END AS knows "
         "ORDER BY cid"
     )
     rows = result._nodes[["cid", "knows"]].to_dict(orient="records")
@@ -20753,7 +21046,7 @@ def test_issue_1488_optional_match_seeds_shared_first_alias_before_materializati
     result = g.gfql(
         "MATCH (m:M {id: $mid})<-[:REPLY_OF]-(c:C)-[:HAS_CREATOR]->(p:P) "
         "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:A)-[r:KNOWS]-(p) "
-        "RETURN c.id AS cid, CASE r WHEN null THEN false ELSE true END AS knows",
+        "RETURN c.id AS cid, CASE WHEN r IS NULL THEN false ELSE true END AS knows",
         params={"mid": "m1"},
     )
 
@@ -20780,7 +21073,7 @@ def test_issue_1052_optional_match_semijoin_filters_opt_arm() -> None:
     result = g.gfql(
         "MATCH (m:Message {id: $mid})<-[:REPLY_OF]-(c:Comment)-[:HAS_CREATOR]->(p:Person) "
         "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:Person)-[r:KNOWS]-(p) "
-        "RETURN c.id AS cid, CASE r WHEN null THEN false ELSE true END AS knows "
+        "RETURN c.id AS cid, CASE WHEN r IS NULL THEN false ELSE true END AS knows "
         "ORDER BY cid",
         params={"mid": "m1"},
     )
@@ -20871,8 +21164,8 @@ def test_issue_1052_semijoin_multi_arm_second_arm_null_when_first_misses() -> No
         "OPTIONAL MATCH (m)-[:H]->(a:A) "
         "OPTIONAL MATCH (a)-[:K]->(p:P) "
         "RETURN c.id AS cid, "
-        "CASE a WHEN null THEN 'no-a' ELSE 'has-a' END AS a_status, "
-        "CASE p WHEN null THEN 'no-p' ELSE 'has-p' END AS p_status"
+        "CASE WHEN a IS NULL THEN 'no-a' ELSE 'has-a' END AS a_status, "
+        "CASE WHEN p IS NULL THEN 'no-p' ELSE 'has-p' END AS p_status"
     )
     rows = result._nodes[["cid", "a_status", "p_status"]].to_dict(orient="records")
     assert len(rows) == 1
@@ -20900,7 +21193,7 @@ def test_issue_1052_semijoin_edge_alias_synthesis_after_filter() -> None:
         "MATCH (m:M {id: $mid})-[:H]->(a:A) "
         "OPTIONAL MATCH (a)-[r:K]->(p:P) "
         "RETURN m.id AS mid, p.id AS pid, "
-        "CASE r WHEN null THEN false ELSE true END AS knows",
+        "CASE WHEN r IS NULL THEN false ELSE true END AS knows",
         params={"mid": "m1"},
     )
     rows = result._nodes[["mid", "pid", "knows"]].to_dict(orient="records")
@@ -20940,7 +21233,7 @@ def test_issue_1052_semijoin_no_bleed_from_unscoped_opt_rows() -> None:
         "MATCH (m:M {id: $mid})<-[:REPLY_OF]-(c:C)-[:HAS_CREATOR]->(p:P) "
         "OPTIONAL MATCH (m)-[:HAS_CREATOR]->(a:A)-[r:KNOWS]-(p) "
         "RETURN c.id AS cid, p.id AS pid, "
-        "CASE r WHEN null THEN false ELSE true END AS knows "
+        "CASE WHEN r IS NULL THEN false ELSE true END AS knows "
         "ORDER BY cid",
         params={"mid": "m1"},
     )

@@ -10,6 +10,7 @@ class ErrorCode:
     - E1xx: Syntax errors (structural issues)
     - E2xx: Type errors (type mismatches)
     - E3xx: Schema errors (data-related issues)
+    - E4xx: Remote transport/response errors
     """
 
     # Syntax errors (E1xx)
@@ -21,6 +22,7 @@ class ErrorCode:
     E106 = "empty-chain"
     E107 = "invalid-cypher-syntax"
     E108 = "unsupported-cypher-query"
+    E109 = "output-requires-let-query"
 
     # Type errors (E2xx)
     E201 = "type-mismatch"
@@ -34,6 +36,13 @@ class ErrorCode:
     E302 = "incompatible-column-type"
     E303 = "invalid-node-reference"
     E304 = "invalid-edge-reference"
+    E305 = "graph-not-bound"
+
+    # Remote transport/response errors (E4xx)
+    E401 = "remote-request-failed"
+    E402 = "remote-response-malformed"
+    E403 = "remote-format-lossy"
+    E404 = "remote-unsupported-frames"
 
     # Graph constructor errors (E150-E159)
     E150 = "duplicate-graph-binding"
@@ -123,4 +132,13 @@ class GFQLTypeError(GFQLValidationError):
 
 class GFQLSchemaError(GFQLValidationError):
     """Schema validation errors (column existence, type compatibility)."""
+    pass
+
+
+class GFQLRemoteError(GFQLValidationError, ValueError):
+    """Remote call failed or returned a response the client cannot use.
+
+    Also a ``ValueError`` so callers written against the previous untyped
+    remote errors keep working.
+    """
     pass

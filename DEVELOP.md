@@ -168,6 +168,49 @@ Do **not** raise a cap with `--update-baseline` to make a new finding go away.
 Lowering caps after fixing debt is the intended use; commit the code change and
 the baseline update together.
 
+### Comment Density Guard
+
+`bin/lint.sh` (the same `python-lint-types` matrix lane as the type-hygiene
+guard) runs `bin/ci_comment_density_guard.py`, a stdlib-only `tokenize` + `ast`
+check over `graphistry/`. It enforces the "Encoding: names, tests, and
+structure — not prose" rules in `agents/skills/review/SKILL.md`, which were the
+last rule class on that stack still enforced only by human review.
+
+| Check | What it flags |
+|---|---|
+| `comment-block` | a run of 2+ adjacent full-line `#` comments (3+ for a Sphinx `#:` run) |
+| `perf-claim` | performance / complexity / benchmark vocabulary in a comment or docstring |
+| `issue-rationale` | a standalone comment or a docstring citing `#<issue>` as the explanation |
+
+`comment-block` is a form rule and reads `#` comments only. `perf-claim` and
+`issue-rationale` are content rules — the claim does not become admissible by
+moving into a docstring — so they read docstrings too. Tests are exempt from
+`comment-block` and `issue-rationale` (a test may explain its oracle) but not
+from `perf-claim`: measurement belongs in pyg-bench wherever it is written.
+
+The line limit is 127, so a constraint that genuinely cannot be expressed by a
+name or a test fits on one line. `regress` and `A/B` count only next to
+performance vocabulary (they also name correctness concepts), and a comment that
+points at `pyg-bench` is a pointer to the measurement rather than a claim.
+
+Enforcement is a **per-file count ratchet** against
+`bin/ci_comment_density_baseline.json`, exactly like the type-hygiene guard.
+
+```bash
+./bin/ci_comment_density_guard.py             # what CI runs
+./bin/ci_comment_density_guard.py --report    # totals per check
+./bin/ci_comment_density_guard.py --list comment-block
+./bin/ci_comment_density_guard.py --strict    # show files that improved; time to retighten
+```
+
+The fix is almost never a suppression: extract a helper whose NAME states the
+rule, or write the test whose NAME states it. When a comment genuinely earns its
+place and still cannot fit, annotate it:
+
+```python
+# guard-ok: comment-block -- openCypher 9.1 §4.2 wording, quoted verbatim
+```
+
 ### GFQL Cache Registry
 
 Every process-lifetime cache in `graphistry/compute/gfql/**` registers itself in
@@ -205,12 +248,31 @@ Ruff additionally rejects `getattr(x, "const")` / `setattr(x, "const", v)`
 
 ### GPU CI
 
-GPU CI can be manually triggered by core dev team members:
+**Today, no CI lane executes cuDF.** `ci.yml` never sets `TEST_CUDF` and no lane
+installs `cudf`, and `ci-gpu.yml` is disabled: its jobs are gated on the
+`GRAPHISTRY_ENABLE_GPU_PUBLIC` repository variable (unset), it needs the
+`gpu_public` self-hosted runner, and a `gpu-disabled-guard` job hard-fails any
+manual trigger. So a `TEST_CUDF=1` receipt is **developer-local evidence only** --
+a cuDF-gated test can contradict the CPU contract, or rot outright, and stay green
+on master indefinitely. Treat a GPU claim in a PR as unprotected until a GPU lane
+exists: re-run it yourself rather than trusting the last receipt.
+
+`bin/ci_gpu_gate_audit.py` (lane `gpu-gate-audit`) keeps the size of that gap
+visible: it counts the cuDF gates, requires each to be attributable (a `reason=`
+naming `TEST_CUDF`, so `pytest -rs` names what was not run rather than reporting a
+bare `s`) and to actually read the flag from the environment, and cross-checks this note against
+whether any workflow sets `TEST_CUDF`. Wiring a real GPU lane retires the note;
+deleting the note without wiring a lane fails the audit. The audit is static -- it
+proves the gates are well formed, never that the gated assertions hold.
+
+GPU CI can be manually triggered by core dev team members, once the lane is
+re-enabled:
 
 1. Push intended changes to protected branches `gpu-public` or `master`
 2. Manually trigger action [ci-gpu](https://github.com/graphistry/pygraphistry/actions/workflows/ci-gpu.yml) on one of the above branches
 
-GPU tests can also be run locally via `./docker/test-gpu-local.sh` .
+GPU tests can also be run locally via `./docker/test-gpu-local.sh` , or directly
+with `TEST_CUDF=1 pytest ...` on a RAPIDS-equipped box.
 
 ## Debugging Tips
 

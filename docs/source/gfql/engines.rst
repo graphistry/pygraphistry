@@ -44,19 +44,20 @@ than silently bridge), and the GPU engines only pay off on larger work. On CPU,
 Polars wins the common graph-query shapes (traversal,
 ``WHERE``/``ORDER``, aggregation) — see *When not to use Polars* below.
 
-.. warning::
-   **Already a Polars user? Pass** ``engine='polars'`` **— the default does not.** With the
-   default ``engine='auto'``, a graph built from ``polars.DataFrame`` is **silently coerced to
-   pandas** (``auto`` resolves to ``cudf`` for cuDF input and ``pandas`` for everything else,
-   *including Polars*; it never selects the Polars engine). To stay native end-to-end, pass
-   ``engine='polars'`` explicitly:
+.. note::
+   **Already a Polars user? The default now keeps you native.** With the default
+   ``engine='auto'``, a graph whose bound frames are all ``polars.DataFrame`` runs on the
+   Polars engine and returns Polars frames. If the query uses a shape the Polars engine
+   declines, GFQL falls back to pandas for that call — so ``auto`` is native *when it can
+   be*, and pandas otherwise. Pass ``engine='polars'`` explicitly when you want a decline
+   to raise instead of silently falling back:
 
    .. code-block:: python
 
       import polars as pl, graphistry
       g = graphistry.edges(edges_pl, 'src', 'dst').nodes(nodes_pl, 'id')  # polars frames
-      out = g.gfql(query)                    # auto -> coerced to PANDAS (out._nodes is pandas!)
-      out = g.gfql(query, engine='polars')   # native Polars in and out (out._nodes is polars)
+      out = g.gfql(query)                    # auto -> native Polars (out._nodes is polars)
+      out = g.gfql(query, engine='polars')   # same, but a declined shape raises
 
 .. note::
    **Result frames match the engine.** With ``engine='polars'`` or ``'polars-gpu'`` the
@@ -97,8 +98,12 @@ The four engines
      - explicit
      - The Polars fused plan executed on GPU (cudf_polars); fastest on heavy multi-hop.
 
-``engine='auto'`` resolves to ``cudf`` for cuDF input and ``pandas`` otherwise. **AUTO
-never selects Polars or Polars-GPU** — they are explicit opt-in (see *Why opt-in?* below).
+``engine='auto'`` follows the input frames: Polars frames run on ``polars``, cuDF frames on
+``cudf``, everything else on ``pandas``. Two AUTO fast paths go further — all-Polars frames
+are tried on ``polars``, and all-cuDF frames are tried on ``polars-gpu`` when a GPU collect
+probes usable — each falling back to ``pandas`` / ``cudf`` respectively if the query uses a
+shape that engine declines. Passing the engine explicitly turns those declines into errors
+instead of a fallback (see *What auto does* below).
 
 How the engines compare
 -----------------------
@@ -300,17 +305,18 @@ The build frame type and the run engine are independent — GFQL coerces the inp
 frames to the engine you ask for. A pandas graph runs on ``engine='polars'``, a
 Polars graph runs on ``engine='pandas'``, and so on. The only cost is a
 **one-time convert** of the input frames at the start of the call; the query then
-runs fully on the chosen engine. Note that ``engine='auto'`` (the default)
-resolves to ``cudf`` for cuDF input and ``pandas`` for everything else — **it
-never selects Polars or Polars-GPU**, so those two are always an explicit opt-in.
+runs fully on the chosen engine. Note that ``engine='auto'`` (the default) follows
+the input frames — Polars frames run natively on ``polars``, cuDF frames on
+``cudf`` (or ``polars-gpu`` when that GPU path probes usable), everything else on
+``pandas`` — falling back to ``pandas`` / ``cudf`` only for query shapes the native
+engine declines.
 
 .. tip::
    For selective, seeded traversal, build the CSR adjacency index once with
    ``g.gfql_index_all()`` (or ``index_policy=``) — it works on all four engines
-   and turns the O(E) scan into an O(degree) gather. **Polars frames currently need
-   the engine passed explicitly** — ``g.gfql_index_all(engine='polars')`` — because an
-   AUTO build swaps Polars frames to pandas (fix tracked in PR #1767).
-   See :doc:`index_adjacency`.
+   and turns the O(E) scan into an O(degree) gather. An AUTO build on Polars frames now
+   keeps them native, so ``g.gfql_index_all()`` and ``g.gfql_index_all(engine='polars')``
+   build the same index. See :doc:`index_adjacency`.
 
 .. _gfql-offengine-calls:
 
@@ -524,17 +530,27 @@ Then change one keyword — your existing graph and query are unchanged:
    g.gfql("MATCH (a)-[e]->(b) RETURN b", engine='polars')      # CPU columnar
    g.gfql("MATCH (a)-[e]->(b) RETURN b", engine='polars-gpu')  # same plan on GPU
 
-Why opt-in?
------------
+What auto does
+--------------
 
-Polars and Polars-GPU are explicit (``engine='polars'`` / ``'polars-gpu'``; ``auto`` never
-picks them). The main reason is robustness, not speed: a few exotic Cypher features still
-require ``engine='pandas'`` and are **rejected before execution** rather than silently
-bridge, so auto-selecting Polars would turn queries that work today on pandas into hard
-errors. (Performance is rarely the
-downside — CPU Polars wins common graph queries past small/interactive sizes; only
-trivially small operations favor pandas, immaterially.) Opting in keeps the default
-behavior unchanged and guarantees a working result.
+``auto`` prefers the native engine for your frames and keeps a safety net. A few exotic
+Cypher features still require ``engine='pandas'``: the Polars engine **declines them before
+execution** rather than silently bridging. Under ``auto`` that decline is caught and the
+call is re-served on ``pandas`` (all-cuDF frames decline back to ``cudf``), so a query that
+works today keeps working while everything the native engine does support stays native.
+
+Pass the engine explicitly when you would rather know: ``engine='polars'`` /
+``'polars-gpu'`` raise ``NotImplementedError`` on a declined shape instead of falling back,
+which is what you want in a benchmark or a pipeline that must not silently change engines.
+``engine='polars-gpu'`` is additionally GPU-or-error and never quietly runs on CPU.
+
+Performance is rarely the downside — CPU Polars wins common graph queries past
+small/interactive sizes; only trivially small operations favor pandas, immaterially.
+
+.. note::
+   Non-GFQL surfaces (layouts, plotting, featurization) still consume Polars frames as an
+   *input format* and compute in pandas, so ``auto`` coerces there. The native-under-auto
+   behavior described above is specific to GFQL query execution.
 
 See also
 --------

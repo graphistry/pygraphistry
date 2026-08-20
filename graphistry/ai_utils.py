@@ -280,10 +280,10 @@ def infer_graph(
     if node not in df.columns:
         df[node] = numeric_indices
 
-    NDF = res._nodes
-    NDF[BATCH] = 0
-    EDF = res._edges
-    EDF[BATCH] = 0
+    # Owned copies via assign: writing through res._nodes/_edges mutates the
+    # fitted graph's bound frames (bound-frame immutability contract).
+    NDF = res._nodes.assign(**{BATCH: 0})
+    EDF = res._edges.assign(**{BATCH: 0})
     src = res._source
     dst = res._destination
 

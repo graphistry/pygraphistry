@@ -20,6 +20,12 @@ an explicit reason when their stack is absent -- run the GPU lane on a GPU box
 skipped GPU param states its own boundary in the pytest report rather than passing quietly.
 Deliberately does NOT use ``available_nonpandas_engines()``: that helper SHRINKS the parametrization
 silently when a stack is missing, so a lane can vanish without any signal.
+
+THE BOOLEAN LANE at the bottom of this file pins the documented ``sum``/``avg``-over-BOOLEAN
+extension as VALUES AND RETURN TYPES. Values alone were already uniform; the return types were not
+(polars answered ``sum``/``count`` with ``UInt32``, pandas and cuDF with ``int64``), and cuDF
+answered ``sum`` over a group with no non-null values with NULL where Cypher says 0 -- a VALUE
+divergence that only an exercised GPU arm could find.
 """
 import datetime
 
@@ -268,10 +274,13 @@ def test_polars_native_null_dtype_column_follows_the_all_null_contract(engine):
     edges = pl.DataFrame({"src": [0, 1], "dst": [1, 2]})
     assert nodes.schema["nul"] == pl.Null
     g = graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
-    got = _run(g, "MATCH (n) RETURN n.grp AS grp, sum(n.nul) AS s, avg(n.nul) AS a ORDER BY grp",
-               engine)
+    query = "MATCH (n) RETURN n.grp AS grp, sum(n.nul) AS s, avg(n.nul) AS a ORDER BY grp"
+    got = _run(g, query, engine)
     assert got == ("ok", [(("grp", "x"), ("s", ("num", 0.0)), ("a", None)),
                           (("grp", "y"), ("s", ("num", 0.0)), ("a", None))]), got
+    # The substituted 0 is a LITERAL, not a kernel answer, so it carries whatever dtype the
+    # literal was built with -- a bare `pl.lit(0)` is Int32, a width pandas/cuDF never produce.
+    assert _dtype_kind(g.gfql(query, engine=engine)._nodes, "s") == "int64"
 
 
 @pytest.mark.parametrize("engine", ALL_ENGINES)
@@ -282,9 +291,14 @@ def test_all_null_column_sums_to_zero_and_averages_to_null(engine):
     on dtype (pandas) or raise for both str and null dtypes (polars)."""
     _require_engine(engine)
     g = _graph()
-    got = _run(g, "MATCH (n) RETURN n.grp AS grp, sum(n.allnull_col) AS s, avg(n.allnull_col) AS a ORDER BY grp", engine)
+    query = ("MATCH (n) RETURN n.grp AS grp, sum(n.allnull_col) AS s, avg(n.allnull_col) AS a "
+             "ORDER BY grp")
+    got = _run(g, query, engine)
     assert got == ("ok", [(("grp", "x"), ("s", ("num", 0.0)), ("a", None)),
                           (("grp", "y"), ("s", ("num", 0.0)), ("a", None))]), got
+    # Same substituted-literal dtype question as the polars-native Null column above, reached by
+    # the OTHER branch: this column arrives typed (an all-None pandas object column lands String).
+    assert _dtype_kind(g.gfql(query, engine=engine)._nodes, "s") == "int64"
 
 
 @pytest.mark.parametrize("engine", ALL_ENGINES)
@@ -510,6 +524,362 @@ def test_all_null_substitution_values_follow_cypher():
     assert numeric_agg_all_null_value("sum") == 0
     assert numeric_agg_all_null_value("avg") is None
     assert numeric_agg_all_null_value("mean") is None
+
+
+def test_empty_group_aggregation_sets_cover_both_distinct_spellings():
+    """Cypher's non-null empty-group answers: count/sum -> 0, collect -> []. A set holding
+    only the plain spelling would leave the ``*_distinct`` output unfilled (NULL, wrong)."""
+    from graphistry.compute.gfql.agg_types import (
+        CYPHER_EMPTY_LIST_EMPTY_GROUP_AGGREGATIONS,
+        CYPHER_ZERO_EMPTY_GROUP_AGGREGATIONS,
+    )
+    assert CYPHER_ZERO_EMPTY_GROUP_AGGREGATIONS == {"count", "count_distinct", "sum"}
+    assert CYPHER_EMPTY_LIST_EMPTY_GROUP_AGGREGATIONS == {"collect", "collect_distinct"}
+    assert not (
+        CYPHER_ZERO_EMPTY_GROUP_AGGREGATIONS & CYPHER_EMPTY_LIST_EMPTY_GROUP_AGGREGATIONS
+    )
+
+
+# --------------------------------------------------------------------------------------
+# The BOOLEAN extension: sum/avg over BOOLEAN, pinned as VALUES **and** RETURN TYPES
+# --------------------------------------------------------------------------------------
+
+#: The contract (agg_types.py): sum -> INTEGER, avg -> FLOAT, min/max -> BOOLEAN, count -> INTEGER.
+_BOOL_RESULT_DTYPES = {"s": "int64", "a": "float64", "mn": "bool", "mx": "bool", "c": "int64"}
+
+_BOOL_AGGS = ("sum(n.flag) AS s, avg(n.flag) AS a, min(n.flag) AS mn, "
+              "max(n.flag) AS mx, count(n.flag) AS c")
+
+#: The four rows the return-type gap and the min/max-as-AND/OR misreading both surface on.
+#: `all_null` is the discriminating one: a logical fold answers min->true / max->false there
+#: (the conventional AND/OR empty identities), and every engine answers NULL.
+_BOOL_ROWS = {
+    "mixed":     ([True, False, True], {"s": 2, "a": 2.0 / 3.0, "mn": False, "mx": True, "c": 3}),
+    "with_null": ([True, None, False], {"s": 1, "a": 0.5, "mn": False, "mx": True, "c": 2}),
+    "all_null":  ([None, None], {"s": 0, "a": None, "mn": None, "mx": None, "c": 0}),
+    "all_true":  ([True, True], {"s": 2, "a": 1.0, "mn": True, "mx": True, "c": 2}),
+    "all_false": ([False, False], {"s": 0, "a": 0.0, "mn": False, "mx": False, "c": 2}),
+}
+
+
+def _bool_graph(values):
+    """Nullable ``boolean``, not numpy ``bool``: the contract's null rows are unrepresentable in a
+    numpy bool column, and the nullable dtype is what survives the trip to polars and cuDF."""
+    nodes = pd.DataFrame({"id": list(range(len(values))), "grp": ["x"] * len(values),
+                          "flag": pd.array(values, dtype="boolean")})
+    edges = pd.DataFrame({"src": [0], "dst": [0]})
+    return graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+
+
+def _dtype_kind(df, col):
+    """Engine-neutral dtype label: ``int64`` / ``float64`` / ``bool``, else the raw spelling.
+
+    Collapses ONLY the nullability spelling -- pandas ``Int64``/``boolean``, polars
+    ``Int64``/``Boolean``, cuDF ``int64``/``bool`` all name the same contract type, and which of
+    them a column lands on is the separate nullable-merge axis (#1796 BU1). WIDTH and SIGNEDNESS
+    are deliberately NOT collapsed, so polars' ``UInt32`` reports as ``UInt32`` and fails.
+    """
+    raw = str(df.schema[col]) if "polars" in type(df).__module__ else str(df[col].dtype)
+    lowered = raw.lower()
+    if lowered == "int64":
+        return "int64"
+    if lowered == "float64":
+        return "float64"
+    if lowered in {"bool", "boolean"}:
+        return "bool"
+    return raw
+
+
+def _scalar(df, col):
+    """The single aggregate row's value, normalized to a python scalar with NULL as ``None``.
+
+    Per-value, NOT ``df.where(df.notna(), None)``: py3.13 pandas renders a missing value as ``nan``
+    where 3.12 gave ``None``, and this lane is ABOUT null behaviour, so the null test is explicit.
+    """
+    if "polars" in type(df).__module__:
+        value = df.to_dicts()[0][col]
+    else:
+        value = df[col].iloc[0]
+        if value is pd.NA:
+            value = None
+    if hasattr(value, "item") and not isinstance(value, bool):
+        value = value.item()
+    if isinstance(value, float) and value != value:
+        value = None
+    return value
+
+
+def _rows(df):
+    """Records with NULL as ``None`` on every engine, normalized PER VALUE.
+
+    Not ``df.where(df.notna(), None)``: that reshapes the frame and, on py3.13 pandas, renders a
+    missing value as ``nan`` rather than ``None`` -- the exact distinction this lane tests.
+    """
+    if "polars" in type(df).__module__:
+        records = df.to_dicts()
+    else:
+        if hasattr(df, "to_pandas"):   # cudf
+            df = df.to_pandas()
+        records = df.to_dict("records")
+    out = []
+    for record in records:
+        row = {}
+        for key, value in record.items():
+            if value is pd.NA:
+                value = None
+            if hasattr(value, "item") and not isinstance(value, bool):
+                value = value.item()
+            row[key] = None if isinstance(value, float) and value != value else value
+        out.append(row)
+    return out
+
+
+def _assert_bool_contract(df, expected):
+    """VALUES and DTYPES together: values alone already agreed across engines before this lane."""
+    for col, want in expected.items():
+        got = _scalar(df, col)
+        if want is None:
+            assert got is None, f"{col}: expected NULL, got {got!r}"
+        elif isinstance(want, bool):
+            # `is` on the identity, not `==`: True == 1 would let an integer min/max pass.
+            assert isinstance(got, bool) and got == want, f"{col}: expected {want!r}, got {got!r}"
+        elif isinstance(want, float):
+            assert abs(got - want) < 1e-9, f"{col}: expected {want!r}, got {got!r}"
+        else:
+            assert got == want and not isinstance(got, bool), f"{col}: expected {want!r}, got {got!r}"
+        assert _dtype_kind(df, col) == _BOOL_RESULT_DTYPES[col], (
+            f"{col}: dtype {_dtype_kind(df, col)!r} != contract {_BOOL_RESULT_DTYPES[col]!r}")
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("row", sorted(_BOOL_ROWS))
+@pytest.mark.parametrize("grouped", [True, False])
+def test_boolean_aggregate_values_and_return_types(engine, row, grouped, request):
+    """sum -> INTEGER(int64), avg -> FLOAT(float64), min/max -> BOOLEAN, count -> INTEGER(int64),
+    identically on every engine. Polars used to answer sum/count with ``UInt32``: the same value
+    behind a different return type, which is exactly the cross-engine divergence class the
+    aggregate type contract exists to close."""
+    _require_engine(engine)
+    values, expected = _BOOL_ROWS[row]
+    query = (f"MATCH (n) RETURN n.grp AS grp, {_BOOL_AGGS} ORDER BY grp" if grouped
+             else f"MATCH (n) RETURN {_BOOL_AGGS}")
+    out = _bool_graph(values).gfql(query, engine=engine)._nodes
+    assert len(out) == 1, out
+    _assert_bool_contract(out, expected)
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_boolean_min_max_are_an_ordering_not_a_logical_fold(engine):
+    """``min == AND`` / ``max == OR`` is a DERIVATION from ``false < true``, not a definition, and
+    it predicts the wrong answer on the empty fold: AND over zero elements is conventionally
+    ``true`` and OR over zero elements ``false``, while every engine answers NULL. Pinned as the
+    ordering instead -- the same one ``ORDER BY`` gives booleans."""
+    _require_engine(engine)
+    out = _bool_graph([None, None]).gfql(
+        f"MATCH (n) RETURN {_BOOL_AGGS}", engine=engine)._nodes
+    assert _scalar(out, "mn") is None, "min over no non-null values must be NULL, not the AND identity true"
+    assert _scalar(out, "mx") is None, "max over no non-null values must be NULL, not the OR identity false"
+    ordered = _bool_graph([True, False, True]).gfql(
+        f"MATCH (n) RETURN {_BOOL_AGGS}", engine=engine)._nodes
+    assert _scalar(ordered, "mn") is False and _scalar(ordered, "mx") is True
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_boolean_sum_over_zero_rows_is_cypher_zero_not_sql_null(engine):
+    """Cypher's ``sum()`` returns **0** over zero rows where SQL's returns NULL, and its ``avg()``
+    returns null; both engines already matched Cypher, so this is conformance rather than a
+    compromise. The 0-row shape reaches it by a DIFFERENT route than the all-null column above --
+    the ungrouped-aggregate identity row, not the aggregate kernel."""
+    _require_engine(engine)
+    out = _bool_graph([True, False, True]).gfql(
+        f"MATCH (n) WHERE n.id > 9999 RETURN {_BOOL_AGGS}", engine=engine)._nodes
+    assert len(out) == 1, out
+    assert _scalar(out, "s") == 0 and _scalar(out, "c") == 0
+    assert _dtype_kind(out, "s") == "int64" and _dtype_kind(out, "c") == "int64"
+    for col in ("a", "mn", "mx"):
+        assert _scalar(out, col) is None, col
+    # The identity row carries no type evidence for the NULL columns (`avg`/`min`/`max` land on
+    # pandas `object` / polars `Null`), so their dtypes are NOT asserted here. That gap is not
+    # boolean-specific -- `avg` over an empty INTEGER column loses its dtype the same way -- and
+    # is registered on the per-engine semantics matrix rather than pinned to today's behaviour.
+
+
+@pytest.mark.parametrize("engine", ["polars", "cudf", "polars-gpu"])
+@pytest.mark.parametrize("row", sorted(_BOOL_ROWS))
+def test_boolean_aggregate_return_types_match_the_pandas_oracle(engine, row):
+    """The differential form of the lane above: every engine's boolean aggregate must land on the
+    SAME dtype kind as pandas, so a future engine-local dtype drift fails here even if someone
+    edits the contract table."""
+    _require_engine(engine)
+    values, _ = _BOOL_ROWS[row]
+    query = f"MATCH (n) RETURN n.grp AS grp, {_BOOL_AGGS} ORDER BY grp"
+    oracle = _bool_graph(values).gfql(query, engine="pandas")._nodes
+    got = _bool_graph(values).gfql(query, engine=engine)._nodes
+    for col in _BOOL_RESULT_DTYPES:
+        assert _dtype_kind(got, col) == _dtype_kind(oracle, col), col
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_count_returns_integer_on_every_input_type(engine):
+    """``count()`` is INTEGER in Cypher for ANY input. Polars answered it ``UInt32`` for every
+    dtype while pandas/cuDF answered ``int64``, so aligning it is wider than the boolean rule --
+    but it is the same divergence and the same direction."""
+    _require_engine(engine)
+    g = _graph()
+    out = g.gfql(
+        "MATCH (n) RETURN n.grp AS grp, count(n.int_col) AS ci, count(n.str_col) AS cs, "
+        "count(n.bool_col) AS cb, count(DISTINCT n.str_col) AS cd, count(*) AS ca ORDER BY grp",
+        engine=engine)._nodes
+    for col in ("ci", "cs", "cb", "cd", "ca"):
+        assert _dtype_kind(out, col) == "int64", f"{col}: {_dtype_kind(out, col)}"
+
+
+def _bool_fast_path_graph():
+    """Fast-path shape with TWO cities, the second of which has only null flags -- the group whose
+    ``sum`` cuDF answers NULL and Cypher answers 0. A single-city graph never produces that group,
+    so it cannot exercise the repair."""
+    nodes = pd.DataFrame({
+        "id": [0, 1, 2, 3, 10, 11],
+        "node_type": ["Person"] * 4 + ["City"] * 2,
+        "age": [20, 30, 40, 50, None, None],
+        "flag": pd.array([True, False, None, None, None, None], dtype="boolean"),
+        "allnull": [None] * 6,
+        "city": [None] * 4 + ["LA", "NYC"],
+    })
+    edges = pd.DataFrame({"s": [0, 1, 2, 3], "d": [11, 11, 10, 10], "rel": ["LIVES_IN"] * 4})
+    return graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+
+
+_BOOL_FAST_PATH_HEAD = (
+    "MATCH (p {node_type:'Person'})-[{rel:'LIVES_IN'}]->(c {node_type:'City'}) "
+    "RETURN c.city AS city, ")
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_fast_path_boolean_aggregate_follows_the_same_contract(engine):
+    """The OLAP fast path reimplements the aggregates on both engine branches, so without its own
+    conformance the SAME boolean query would answer with a different return type depending on
+    whether it happened to match the fast-path shape. The LA group has no non-null flag: its
+    ``sum`` is Cypher's 0, which cuDF's kernel answers NULL."""
+    _require_engine(engine)
+    g = _bool_fast_path_graph()
+    entered, _ = _run_watching_fast_path(g, _fast_path_query("sum", "p.flag"), engine)
+    assert entered, "fast path not engaged -- this lane would not be exercising its aggregates"
+    out = g.gfql(
+        _BOOL_FAST_PATH_HEAD + "sum(p.flag) AS s, avg(p.flag) AS a, count(p.flag) AS c "
+        "ORDER BY city", engine=engine)._nodes
+    rows = _rows(out)
+    assert rows[0]["city"] == "LA" and rows[1]["city"] == "NYC"
+    assert rows[0]["s"] == 0 and rows[0]["a"] is None and rows[0]["c"] == 0
+    assert rows[1]["s"] == 1 and abs(rows[1]["a"] - 0.5) < 1e-9 and rows[1]["c"] == 2
+    assert _dtype_kind(out, "s") == "int64" and _dtype_kind(out, "a") == "float64"
+    assert _dtype_kind(out, "c") == "int64"
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+def test_fast_path_eager_polars_twin_conforms_when_the_fused_lane_declines(engine):
+    """The fast path has THREE polars aggregate formulations -- a fused lazy lane, a
+    ``value_counts`` plan for a low-cardinality pure ``count(*)``, and the eager twin the other two
+    decline to. All three must land on the same return types, or which one a query happens to
+    route to becomes observable. An all-null aggregate input declines the fused lane, so this
+    query reaches the eager twin with the other aggregates still on it."""
+    _require_engine(engine)
+    out = _bool_fast_path_graph().gfql(
+        _BOOL_FAST_PATH_HEAD + "sum(p.allnull) AS z, count(*) AS n, count(p.age) AS ca, "
+        "sum(p.flag) AS s ORDER BY city", engine=engine)._nodes
+    for col in ("z", "n", "ca", "s"):
+        assert _dtype_kind(out, col) == "int64", f"{col}: {_dtype_kind(out, col)}"
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_fast_path_pure_count_star_returns_integer(engine):
+    """A single-key pure ``count(*)`` over statically-bounded-low inputs takes a ``value_counts``
+    formulation that skips the aggregate expressions entirely, so it needs its own conformance --
+    it answered ``UInt32`` while the ``group_by`` formulation beside it answered ``int64``, which
+    made the two lanes value-identical but NOT type-identical."""
+    _require_engine(engine)
+    out = _bool_fast_path_graph().gfql(
+        _BOOL_FAST_PATH_HEAD + "count(*) AS n ORDER BY city", engine=engine)._nodes
+    assert _dtype_kind(out, "n") == "int64", _dtype_kind(out, "n")
+    assert [row["n"] for row in _rows(out)] == [2, 2]
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_fast_path_count_star_beside_another_aggregate_returns_integer(engine):
+    """The ``value_counts`` plan above serves a PURE ``count(*)`` only, so a ``count(*)`` sharing
+    its RETURN with another aggregate reaches the fused lane's own ``pl.len()`` instead -- a
+    fourth count formulation, and one the pure-count test cannot reach."""
+    _require_engine(engine)
+    out = _bool_fast_path_graph().gfql(
+        _BOOL_FAST_PATH_HEAD + "count(*) AS n, sum(p.age) AS s, count(p.flag) AS cf "
+        "ORDER BY city", engine=engine)._nodes
+    for col in ("n", "cf"):
+        assert _dtype_kind(out, col) == "int64", f"{col}: {_dtype_kind(out, col)}"
+    assert [row["n"] for row in _rows(out)] == [2, 2]
+
+
+def test_boolean_result_contract_is_the_one_in_agg_types():
+    """The table above is a RESTATEMENT of the shipped contract, so a change to one that is not a
+    change to the other is a drift this catches rather than a silent disagreement."""
+    from graphistry.compute.gfql.agg_types import agg_result_is_integer
+    for func, alias in [("sum", "s"), ("count", "c")]:
+        assert agg_result_is_integer(func, True), func
+        assert _BOOL_RESULT_DTYPES[alias] == "int64"
+    for func in ("avg", "mean", "min", "max"):
+        assert not agg_result_is_integer(func, True), func
+    assert agg_result_is_integer("count_distinct", False)
+    # sum is INTEGER only BECAUSE the input is boolean -- a numeric sum keeps its own width
+    assert not agg_result_is_integer("sum", False)
+
+
+def test_polars_agg_result_cast_fires_only_where_polars_misses_the_contract():
+    """The cast is scoped, not blanket: widening a FLOAT sum or a DURATION sum to Int64 would be a
+    silent wrong answer, so the helper must decline everything except the two INTEGER cells."""
+    from graphistry.compute.gfql.agg_types import polars_agg_result_cast as cast_to
+    assert cast_to("sum", pl.Boolean) == pl.Int64
+    assert cast_to("count", pl.Boolean) == pl.Int64
+    assert cast_to("count", pl.String) == pl.Int64          # count is INTEGER over ANY input
+    assert cast_to("count", None) == pl.Int64               # count(*) has no input column
+    assert cast_to("count_distinct", pl.Float64) == pl.Int64
+    assert cast_to("sum", pl.Int64) is None                 # polars already sums ints to Int64
+    assert cast_to("sum", pl.Int8) is None
+    assert cast_to("sum", pl.Float64) is None               # FLOAT sum must stay FLOAT
+    assert cast_to("sum", pl.Duration) is None              # DURATION sum must stay DURATION
+    assert cast_to("sum", None) is None
+    assert cast_to("avg", pl.Boolean) is None
+    assert cast_to("mean", pl.Boolean) is None
+    assert cast_to("min", pl.Boolean) is None
+    assert cast_to("max", pl.Boolean) is None
+    assert cast_to("collect", pl.Boolean) is None
+
+
+def test_polars_all_null_literal_is_a_typed_integer_zero():
+    """A bare ``pl.lit(0)`` is ``Int32`` -- a width neither pandas nor cuDF ever produces, so the
+    all-null substitution would reintroduce the very dtype divergence the cast above removes."""
+    from graphistry.compute.gfql.agg_types import polars_all_null_agg_literal
+    frame = pl.DataFrame({"x": [1]}).select(polars_all_null_agg_literal("sum", "s"),
+                                            polars_all_null_agg_literal("avg", "a"))
+    assert frame.schema["s"] == pl.Int64, frame.schema
+    assert frame["s"][0] == 0
+    assert frame["a"][0] is None
+
+
+def test_pandas_agg_kernel_null_fill_repairs_only_sum():
+    """Cypher's ``sum()`` never answers null, so a null kernel answer is a bug to repair; ``avg``
+    and ``min``/``max`` DO answer null and must not be filled, or an all-null group would silently
+    report 0 for an average."""
+    from graphistry.compute.gfql.agg_types import pandas_agg_kernel_null_fill as fill
+    assert fill("sum", pd.Series([1, 2], dtype="Int64")) == 0
+    assert fill("sum", pd.Series([True], dtype="boolean")) == 0
+    assert fill("sum", pd.Series([1.0])) == 0
+    assert fill("avg", pd.Series([1, 2])) is None
+    assert fill("mean", pd.Series([1, 2])) is None
+    assert fill("min", pd.Series([True])) is None
+    assert fill("max", pd.Series([True])) is None
+    assert fill("count", pd.Series([1])) is None
+    assert fill("collect", pd.Series([1])) is None
+    # object columns keep the existing bool-retype route rather than gaining a second one
+    assert fill("sum", pd.Series([True, None], dtype="object")) is None
 
 
 def test_numeric_only_aggregation_set_covers_both_spellings():

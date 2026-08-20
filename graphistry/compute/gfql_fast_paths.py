@@ -11,13 +11,14 @@ no back-edge into gfql_unified (the .chain import is a leaf-ward edge, cycle-fre
 from dataclasses import replace
 import pandas as pd
 from types import MappingProxyType
-from typing import Any, Dict, List, Literal, Mapping, Optional, Protocol, Sequence, Set, Tuple, TYPE_CHECKING, Union, cast
+from typing import Any, Dict, Final, List, Literal, Mapping, Optional, Protocol, Sequence, Set, Tuple, TYPE_CHECKING, Union, cast
 from graphistry.Plottable import Plottable
 
 if TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.gfql.index.api import ColStatsOutcome
     from graphistry.compute.gfql.index.registry import ColStatsFact, DegreeFact, PartitionValue
+    from graphistry.compute.typing import ArrayLike, ArrayNamespace
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
 from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
@@ -44,8 +45,12 @@ from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.agg_types import (
     GFQL_NUMERIC_ONLY_AGGREGATIONS,
     numeric_agg_all_null_value,
+    pandas_agg_kernel_null_fill,
     pandas_dtype_is_numeric_for_agg,
     pandas_non_numeric_agg_dtype,
+    pandas_object_series_is_bool_like,
+    polars_all_null_agg_literal,
+    polars_conform_agg_dtype,
     polars_non_numeric_agg_dtype,
     raise_non_numeric_aggregation,
 )
@@ -94,7 +99,8 @@ from graphistry.compute.gfql.physical_planner import PhysicalPlanner
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
 from graphistry.compute.gfql.search_any import search_any_mask
-from graphistry.compute.typing import DataFrameT, SeriesT, NodeDtypes
+from graphistry.compute.typing import DataFrameT, FilterDict, SeriesT, NodeDtypes
+from graphistry.compute.gfql.lazy import collect as _lazy_collect, collect_all as _lazy_collect_all
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
@@ -126,6 +132,13 @@ def _is_connected_fast_single_hop(edge_op: ASTEdge) -> bool:
 
 
 _CACHE_MISSING = object()
+
+#: Scratch column names of the two-hop count lanes. Internal to this module: the lanes
+#: decline rather than answer when a caller's edge frame already carries one.
+_TWO_HOP_IN_COUNT_COL: Final[str] = "__in_count__"
+_TWO_HOP_OUT_COUNT_COL: Final[str] = "__out_count__"
+_TWO_HOP_SELF_LOOP_COL: Final[str] = "__self_loops__"
+_TWO_HOP_SCALAR_COL: Final[str] = "__two_hop_scalar__"
 
 
 def _connected_join_filter_value_cache_key(value: Any) -> Optional[Tuple[str, str]]:
@@ -207,25 +220,19 @@ def _filter_project(
 ) -> DataFrameT:
     """filter_by_dict with an optional column projection, on every engine.
 
-    WHEN to project is a STATIC plan property, not a cost decision: a caller
-    passes ``project`` iff its plan provably reads only those columns (e.g. a
-    count-shaped fast path reads only node id and edge endpoint columns). That
-    admission rule is sufficient because both arms are monotone — projection is
-    never more expensive than the plain filter (on polars this REQUIRES the
-    small-frame eager gate below: the lazy plan carries a fixed per-call cost
-    that a small frame cannot amortize — receipted q8@20k floor trip):
+    WHEN to project is a STATIC plan property: a caller passes ``project`` iff its
+    plan provably reads only those columns (e.g. a count-shaped fast path reads
+    only node id and edge endpoint columns).
 
     - polars: the SAME validated expr (built against the full schema) runs as
       one lazy filter+select, so the engine gathers only the requested columns.
     - pandas/cudf: the boolean mask is built without materializing anything
       (``filter_mask_by_dict`` — same column resolution, same typed errors),
-      then ``.loc[mask, project]`` gathers only the requested columns: identical
-      mask work, strictly fewer gathered columns than the full filter.
+      then ``.loc[mask, project]`` gathers only the requested columns.
 
     The filter may reference projected-away columns in every arm.
     ``project=None`` is byte-identical to the plain filter. Contract with
-    columns: AT LEAST ``project`` post-filter -- and exactly ``project`` once the
-    frame is large enough that narrowing pays (the polars small-frame arm skips
+    columns: AT LEAST ``project`` post-filter (the polars small-frame arm skips
     narrowing entirely; pandas/cudf mask+loc is narrow at every size).
     """
     if engine in POLARS_ENGINES:
@@ -234,16 +241,13 @@ def _filter_project(
         if project is None:
             return cast(DataFrameT, frame.filter(expr) if expr is not None else frame)
         if len(frame) < _PROJECT_LAZY_MIN_ROWS:
-            # Small frame: EVERY extra polars op carries fixed overhead that small
-            # frames cannot amortize (receipted twice: the lazy plan tripped the
-            # q8@20k floor, and even eager+select re-tripped it), so skip narrowing
-            # entirely -- byte-identical to the pre-projection path. Contract here
-            # is AT LEAST the projected columns; consumers must tolerate extras.
+            # Small frame: skip narrowing -- byte-identical to the pre-projection path.
+            # Contract here is AT LEAST the projected columns; consumers must tolerate extras.
             return cast(DataFrameT, frame.filter(expr) if expr is not None else frame)
         lf = frame.lazy()  # engine seam: polars frame rides DataFrameT
         if expr is not None:
             lf = lf.filter(expr)
-        return cast(DataFrameT, lf.select(list(project)).collect())
+        return cast(DataFrameT, _lazy_collect(lf.select(list(project))))
     if project is None:
         return filter_by_dict(frame, match, engine=EngineAbstract(engine.value))
     if not match:
@@ -540,70 +544,49 @@ def _connected_join_cached_second_arm_group_rows(  # pragma: no cover - polars-o
     return cast(DataFrameT, right_rows)
 
 
-def _two_hop_cached_equal_domain_degree_counts(
-    base_graph: Plottable,
-    nodes_obj: DataFrameT,
-    edges_obj: DataFrameT,
+def _two_hop_equal_domain_degree_counts(
     domain_nodes: DataFrameT,
     edge_domain: DataFrameT,
     *,
-    node_match: Optional[dict],
-    edge_match: Optional[dict],
     node_col: str,
     src_col: str,
     dst_col: str,
     engine: Engine,
-) -> Optional[Tuple[DataFrameT, DataFrameT]]:
-    node_key = _connected_join_simple_filter_cache_key(node_match)
-    edge_key = _connected_join_simple_filter_cache_key(edge_match)
-    if node_key is None or edge_key is None:
-        return None
+) -> Tuple[DataFrameT, DataFrameT, int]:
+    """In/out degree frames + trail-illegal self-loop count over the equal-domain edges.
 
-    cache_attr = "_gfql_two_hop_equal_domain_degree_counts_cache"
-    cache = getattr(base_graph, cache_attr, None)
-    if not isinstance(cache, dict):
-        cache = {}
-        try:
-            setattr(base_graph, cache_attr, cache)
-        except Exception:
-            cache = None
-    full_key = (id(nodes_obj), id(edges_obj), engine.value, node_col, src_col, dst_col, node_key, edge_key)
-    if cache is not None and full_key in cache:
-        return cast(Tuple[DataFrameT, DataFrameT], cache[full_key])
+    The third value is ``|{e in the domain-restricted edges : src(e) == dst(e)}|``.
+    On the EQUAL-domain shape that count IS the whole relationship-uniqueness
+    correction: one relationship can serve both hops only as a self-loop, and the
+    single domain covers all three node roles.
 
-    # Declared ONCE so neither arm needs a call-site ``cast``: the polars arm produces
-    # ``pl.DataFrame`` and the pandas/cuDF arm produces ``pd.DataFrame``, and ``DataFrameT`` is
-    # pinned to pandas at checking time (graphistry/compute/typing.py). One localized ignore on
-    # the polars assignment replaces four casts; the values are untouched either way.
-    counts: Tuple[DataFrameT, DataFrameT]
+    PURE -- no memo. A memo keyed by ``id()`` of the caller's Plottable answers STALE
+    after an in-place frame mutation; cross-call reuse belongs in the DECLARED index
+    layer, whose identity+fingerprint contract invalidates on rebind and reshape.
+    """
+    counts: Tuple[DataFrameT, DataFrameT, int]
     if engine in POLARS_ENGINES:
         import polars as pl
-        # MEMO-MISS lane: ONE lazy plan for both degree arms. Eagerly this materialized the
-        # whole filtered edge frame (every edge column attached) and grouped it twice; lazily
-        # polars pushes the src/dst projection into the semi-joins and shares the filtered
-        # sub-plan across the two collects. Same algebra, same values -- and the memo HIT
-        # above returns before reaching here, so a warm call is byte-for-byte unaffected.
-        domain_ids = domain_nodes.lazy().select(node_col).unique()
+        domain_ids = domain_nodes.lazy().select(node_col)
         filtered_edges = (
             edge_domain.lazy()
             .join(domain_ids, left_on=src_col, right_on=node_col, how="semi")
             .join(domain_ids, left_on=dst_col, right_on=node_col, how="semi")
         )
-        in_counts, out_counts = pl.collect_all([
-            filtered_edges.group_by(dst_col).len("__in_count__"),
-            filtered_edges.group_by(src_col).len("__out_count__"),
+        in_counts, out_counts, loops = _lazy_collect_all([
+            filtered_edges.group_by(dst_col).len(_TWO_HOP_IN_COUNT_COL),
+            filtered_edges.group_by(src_col).len(_TWO_HOP_OUT_COUNT_COL),
+            filtered_edges.select((pl.col(src_col) == pl.col(dst_col)).sum().alias(_TWO_HOP_SELF_LOOP_COL)),
         ])
-        counts = (in_counts, out_counts)  # polars frames; DataFrameT pins pandas
+        counts = (in_counts, out_counts, int(loops.item() or 0))  # type: ignore[assignment]  # polars frames; DataFrameT pins pandas
     else:
         domain_ids = domain_nodes[node_col].drop_duplicates()
         filtered_edges = edge_domain[edge_domain[src_col].isin(domain_ids) & edge_domain[dst_col].isin(domain_ids)]
         counts = (
-            filtered_edges.groupby(dst_col, sort=False).size().reset_index(name="__in_count__"),
-            filtered_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__"),
+            filtered_edges.groupby(dst_col, sort=False).size().reset_index(name=_TWO_HOP_IN_COUNT_COL),
+            filtered_edges.groupby(src_col, sort=False).size().reset_index(name=_TWO_HOP_OUT_COUNT_COL),
+            int((filtered_edges[src_col] == filtered_edges[dst_col]).sum()),
         )
-
-    if cache is not None:
-        cache[full_key] = counts
     return counts
 
 
@@ -712,11 +695,10 @@ def _connected_join_apply_node_residuals(
 ) -> DataFrameT:
     """Filter a fast-path node frame by single-alias post-join residual expressions.
 
-    Fast lane (polars): the residual is lowered by the SAME native polars row lowering the
+    Native lane (polars): the residual is lowered by the SAME native polars row lowering the
     fallback's ``where_rows`` chain would use (``_residual_polars_expr``), so it becomes one
-    ``frame.filter(expr)`` with no chain dispatch (the where_rows chain costs ~1.7ms/alias,
-    the dominant cost of the residual OLAP fast path). Whatever that lowering declines falls
-    back to the chain below, so semantics never diverge — the fast lane's accept set, its
+    ``frame.filter(expr)`` with no chain dispatch. Whatever that lowering declines falls
+    back to the chain below, so semantics never diverge — the native lane's accept set, its
     decline set and its answers are the fallback's, by construction.
 
     ALL-OR-NOTHING per alias: one untranslatable expr sends the WHOLE group to the fallback
@@ -810,7 +792,7 @@ def _connected_join_two_star_fused_polars(
     shared key) and the right arm's second-leaf semi-join when the unique-keyed
     group-property lookup subsumes it. The subsumption proofs, plan shapes, and
     boundary parity are pinned in test_residual_polars_native.py (plan-shape pins
-    + both-sides differential); measured effects live in pyg-bench receipts.
+    + both-sides differential).
     """
     import polars as pl
     from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_expr_by_dict_polars
@@ -870,7 +852,7 @@ def _connected_join_two_star_fused_polars(
         [pl.col(src_col).alias(shared_alias)] + [pl.col(key) for key in output_group_keys]
     )
     joined_lf = right_rows_lf.join(left_counts_lf, on=shared_alias, how="inner")
-    # One collect on the hot path; boundary-only plans collect only on the empty match (receipts in pyg-bench).
+    # One collect; boundary-only plans collect only on the empty match.
     if output_group_keys and limit_value != 0:
         # LIMIT != 0 keeps out_df empty <=> joined empty; LIMIT 0 takes the eager tail (pinned).
         out_lf = joined_lf.group_by(output_group_keys, maintain_order=True).agg(
@@ -885,12 +867,12 @@ def _connected_join_two_star_fused_polars(
             out_lf = out_lf.head(limit_value)
         if select_items is not None:
             out_lf = out_lf.select([pl.col(s_col).alias(d_col) for s_col, d_col in select_items])
-        out_df = out_lf.collect()
+        out_df = _lazy_collect(out_lf)
         if len(out_df) == 0:
             # 0x0 frame, matching the eager generic branch (pinned).
             out_df = out_df.select([])
     else:
-        joined = joined_lf.collect()
+        joined = _lazy_collect(joined_lf)
         if len(joined) == 0:
             # Empty-match parity probe: eager-lane left counts (WITH the shared-domain
             # restriction) decide n=0 single-row vs 0x0 frame (pinned).
@@ -901,7 +883,7 @@ def _connected_join_two_star_fused_polars(
                     .join(shared_ids_lf, left_on=src_col, right_on=node_col, how="semi")
                     .group_by(src_col)
                     .len("__left_count__")
-                    .collect()
+                    .pipe(_lazy_collect)
                 )
                 emit_zero_row = (
                     len(left_counts_df) > 0
@@ -1365,12 +1347,18 @@ def _connected_join_two_star_fast_grouped_count(
         lookup_key = "__gfql_fast_second_leaf_id__"
         prop_cols = []
         for _, prop in group_prop_refs:
-            if prop not in prop_cols:
+            # A group prop naming the node-id column reads the key series, exactly like the grouped-aggregate lookup below: selecting it twice yields a duplicate-column frame whose per-column reads are frames, not series.
+            if prop != node_col and prop not in prop_cols:
                 prop_cols.append(prop)
-        second_lookup = second_leaf_nodes[[node_col] + prop_cols].drop_duplicates(subset=[node_col]).rename(columns={node_col: lookup_key})
+        second_lookup_src = second_leaf_nodes[[node_col] + prop_cols].drop_duplicates(subset=[node_col])
+        # ONE frame construction, not rename()-then-per-column writes (twin of the
+        # grouped-aggregate lookup below): column-by-column writes leave the frame
+        # unconsolidated and the merge pays per-block take + vstack for it (#1918).
+        projected: Dict[str, SeriesT] = {lookup_key: second_lookup_src[node_col]}
         for out_col, prop in group_prop_refs:
-            second_lookup[out_col] = second_lookup[prop]
-        right_base = right_base.merge(second_lookup[[lookup_key] + output_group_keys], left_on=dst_col, right_on=lookup_key, how="inner")
+            projected[out_col] = projected[lookup_key] if prop == node_col else second_lookup_src[prop]
+        second_lookup = df_cons(engine)(projected)
+        right_base = right_base.merge(second_lookup, left_on=dst_col, right_on=lookup_key, how="inner")
     right_rows = right_base[[src_col] + output_group_keys].rename(columns={src_col: shared_alias})
     joined = right_rows.merge(left_counts, on=shared_alias, how="inner")
     if len(joined) == 0:
@@ -1544,6 +1532,172 @@ def _connected_join_two_star_fast_rows(
     return cast(DataFrameT, left_rows.merge(right_rows, on=shared_alias, how="inner"))
 
 
+def _self_loop_rows(
+    edges: DataFrameT,
+    *,
+    src_col: str,
+    dst_col: str,
+    engine: Engine,
+) -> DataFrameT:
+    """The ``src == dst`` rows of ``edges``. NULL endpoints drop: ``null == null`` is False."""
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        pl_edges: "pl.DataFrame" = edges  # engine seam: polars frame rides engine-agnostic DataFrameT
+        return pl_edges.filter(pl.col(src_col) == pl.col(dst_col))
+    return cast(DataFrameT, edges[edges[src_col] == edges[dst_col]])
+
+
+def _self_loops_in_domains_polars(
+    loops: "pl.DataFrame",
+    domains: Sequence["pl.DataFrame"],
+    *,
+    node_col: str,
+    src_col: str,
+) -> int:
+    """Polars arm of ``_self_loops_in_domains`` -- fully typed, no ignores."""
+    for domain in domains:
+        if loops.height == 0:
+            return 0
+        loops = loops.join(
+            domain.select(node_col).unique(),
+            left_on=src_col, right_on=node_col, how="semi",
+        )
+    return loops.height
+
+
+def _self_loops_in_domains_indexable(
+    loops: DataFrameT,
+    domains: Sequence[DataFrameT],
+    *,
+    node_col: str,
+    src_col: str,
+) -> int:
+    """cudf arm of ``_self_loops_in_domains`` -- device-side hashing, no host round-trip."""
+    for domain in domains:
+        if len(loops) == 0:
+            return 0
+        loops = loops[loops[src_col].isin(domain[node_col])]
+    return int(len(loops))
+
+
+#: Unique-loop-value count up to which the pandas arm probes each value with one
+#: vectorized equality scan instead of hashing a whole domain column (pinned).
+_SELF_LOOP_PROBE_LIMIT: Final[int] = 16
+
+
+def _self_loops_in_domains_pandas(
+    loops: DataFrameT,
+    domains: Sequence[DataFrameT],
+    *,
+    node_col: str,
+    src_col: str,
+) -> int:
+    """pandas arm of ``_self_loops_in_domains``.
+
+    Never hashes a domain column: self-loop rows are few, so membership is answered
+    by per-value equality scans (or, past the probe limit, by hashing the loop side).
+    """
+    loop_vals = loops[src_col]
+    for domain in domains:
+        if len(loop_vals) == 0:
+            return 0
+        domain_arr = domain[node_col].to_numpy()
+        unique_vals = pd.unique(loop_vals.to_numpy())
+        if len(unique_vals) <= _SELF_LOOP_PROBE_LIMIT:
+            present = [value for value in unique_vals if (domain_arr == value).any()]
+        else:
+            domain_series = pd.Series(domain_arr)
+            present = list(pd.unique(domain_series[domain_series.isin(unique_vals)]))
+        loop_vals = loop_vals[loop_vals.isin(present)]
+    return int(len(loop_vals))
+
+
+def _self_loops_in_domains(
+    loops: DataFrameT,
+    domains: Sequence[DataFrameT],
+    *,
+    node_col: str,
+    src_col: str,
+    engine: Engine,
+) -> int:
+    """``|{e in loops : src(e) is in EVERY domain}|``, given the self-loop rows."""
+    if engine in POLARS_ENGINES:
+        pl_loops: "pl.DataFrame" = loops  # engine seam: polars frame rides engine-agnostic DataFrameT
+        pl_domains: Sequence["pl.DataFrame"] = domains  # engine seam: polars frames ride engine-agnostic DataFrameT
+        return _self_loops_in_domains_polars(
+            pl_loops, pl_domains, node_col=node_col, src_col=src_col)
+    if engine == Engine.PANDAS:
+        return _self_loops_in_domains_pandas(
+            loops, domains, node_col=node_col, src_col=src_col)
+    return _self_loops_in_domains_indexable(
+        loops, domains, node_col=node_col, src_col=src_col)
+
+
+def _self_loops_in_all_domains(
+    edges: DataFrameT,
+    domains: Sequence[DataFrameT],
+    *,
+    node_col: str,
+    src_col: str,
+    dst_col: str,
+    engine: Engine,
+) -> int:
+    """``|{e : src(e) == dst(e) == v and v is in EVERY domain}|``.
+
+    NULL endpoints never count: ``null == null`` is False on all three engines.
+    """
+    loops = _self_loop_rows(edges, src_col=src_col, dst_col=dst_col, engine=engine)
+    return _self_loops_in_domains(loops, domains, node_col=node_col, src_col=src_col, engine=engine)
+
+
+def _edges_passing_both_relationship_filters(
+    edges_obj: DataFrameT,
+    first_match: Optional[FilterDict],
+    second_match: Optional[FilterDict],
+    *,
+    src_col: str,
+    dst_col: str,
+    engine: Engine,
+) -> DataFrameT:
+    """Base edges passing BOTH arms' relationship filters, projected to endpoints."""
+    both = _filter_project(df_to_engine(edges_obj, engine), first_match, None, engine=engine)
+    return _filter_project(both, second_match, [src_col, dst_col], engine=engine)
+
+
+def _two_hop_trail_illegal_pairs(
+    edges_obj: DataFrameT,
+    start_nodes: DataFrameT,
+    middle_nodes: DataFrameT,
+    end_nodes: DataFrameT,
+    first_edges: DataFrameT,
+    first_match: Optional[FilterDict],
+    second_match: Optional[FilterDict],
+    *,
+    node_col: str,
+    src_col: str,
+    dst_col: str,
+    engine: Engine,
+) -> int:
+    """Two-hop bindings the degree product counts but relationship uniqueness forbids.
+
+    A binding is illegal iff both hops bind the SAME relationship, which under
+    ``dst(r1) == src(r2) == b`` forces a self-loop at ``b`` passing both relationship
+    filters with ``b`` in all three node domains: exactly one illegal pair per such
+    edge, and none at all on a self-loop-free edge domain.
+    """
+    loops = _self_loop_rows(first_edges, src_col=src_col, dst_col=dst_col, engine=engine)
+    if len(loops) == 0:
+        return 0
+    if first_match != second_match:
+        loops = _self_loop_rows(
+            _edges_passing_both_relationship_filters(
+                edges_obj, first_match, second_match, src_col=src_col, dst_col=dst_col, engine=engine),
+            src_col=src_col, dst_col=dst_col, engine=engine)
+    return _self_loops_in_domains(
+        loops, (start_nodes, middle_nodes, end_nodes),
+        node_col=node_col, src_col=src_col, engine=engine)
+
+
 def _filter_nodes_for_fast_count(nodes: DataFrameT, filter_dict: Optional[dict], *, engine: Engine) -> DataFrameT:
     if engine in POLARS_ENGINES:
         from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
@@ -1575,8 +1729,9 @@ def _two_hop_count_alias(chain: Chain) -> Optional[str]:
     return alias
 
 
-_TWO_HOP_IN_COUNT_COL = "__in_count__"
-_TWO_HOP_OUT_COUNT_COL = "__out_count__"
+def _polars_scalar_int(frame: "pl.DataFrame") -> int:
+    """One-cell polars frame -> int; an EMPTY sink reads as 0 (count over no rows)."""
+    return 0 if frame.height == 0 else int(frame.item() or 0)
 
 
 def _two_hop_count_fused_polars(
@@ -1590,6 +1745,7 @@ def _two_hop_count_fused_polars(
     src_col: str,
     dst_col: str,
     alias: str,
+    illegal_pairs: Optional[int] = 0,
 ) -> Optional[DataFrameT]:
     """FUSED lazy lane for the DISTINCT-DOMAIN two-hop count:
     ``MATCH (a)-[]->(b)-[]->(c) RETURN count(*)`` where the three node domains and/or
@@ -1602,39 +1758,49 @@ def _two_hop_count_fused_polars(
     degree-count arms, 1 degree-product sum) as ONE lazy plan lets polars push the
     src/dst projection into the semi-joins and collect once.
 
-    NOT a GPU change: like the eager twin (and like the fused two-star lane), this
-    collects on CPU polars for both POLARS and POLARS_GPU.
+    Collects on the ACTIVE execution target (#1824): CPU for POLARS, the
+    GPU-or-error engine for POLARS_GPU -- a non-GPU-executable plan raises NIE,
+    which the dispatch records as a decline and the chain route answers.
 
     Algebra is character-identical to the eager twin -- the same semi-joins, the same
     ``group_by().len()``, the same ``(in*out).sum().fill_null(0).cast(Int64)`` -- so the
     value is identical, including openCypher's count-over-no-rows 0 on an empty match.
     Returns None to DECLINE (non-eager polars input, reserved count-column collision)
     so the caller falls through to the eager twin rather than answering differently.
+
+    ``illegal_pairs`` is the relationship-uniqueness correction. An int is subtracted as
+    given; ``None`` asks this lane to derive it, which it can do ONLY when both hops read
+    the SAME filtered edge frame -- then the illegal ``(r, r)`` pairs are exactly the
+    self-loops at nodes in all three domains. It DECLINES ``None`` on distinct frames.
     """
     import polars as pl
 
     frames = (start_nodes, middle_nodes, end_nodes, first_edges, second_edges)
     if not all(isinstance(frame, pl.DataFrame) for frame in frames):
         # LazyFrame (or a non-polars frame) input: the eager twin owns those. Schema
-        # probes on a LazyFrame warn and cost, and a non-polars frame has no .lazy().
+        # probes on a LazyFrame warn, and a non-polars frame has no .lazy().
         return None
     for edge_frame in (first_edges, second_edges):
         if _TWO_HOP_IN_COUNT_COL in edge_frame.columns or _TWO_HOP_OUT_COUNT_COL in edge_frame.columns:
             # DEFENSIVE decline: an edge column already carrying a degree-counter name.
-            # Measured on polars 1.42 both lanes still agree (group_by().len() replaces the
+            # On polars 1.42 both lanes still agree (group_by().len() replaces the
             # column, and projection pushdown drops it), but whether a name collision
             # survives projection pushdown is a polars-version-dependent detail and the
             # eager twin answers this shape correctly -- so hand it back rather than bet.
             return None
 
+    correction_needs_both_relationship_filters = illegal_pairs is None and second_edges is not first_edges
+    if correction_needs_both_relationship_filters:
+        return None
+
     lf_first: "pl.LazyFrame" = first_edges.lazy()
     lf_second: "pl.LazyFrame" = lf_first if second_edges is first_edges else second_edges.lazy()
 
     def ids_of(frame: DataFrameT) -> "pl.LazyFrame":
-        return cast("pl.DataFrame", frame).lazy().select(node_col).unique()
+        pl_frame: "pl.DataFrame" = frame  # engine seam: polars frame rides engine-agnostic DataFrameT
+        return pl_frame.lazy().select(node_col)
 
-    # Reuse the SAME sub-plan when the caller aliased the frames (equal filter dicts),
-    # so the optimizer sees one node scan instead of three.
+    # Reuse the SAME sub-plan when the caller aliased the frames (equal filter dicts).
     start_ids = ids_of(start_nodes)
     middle_ids = start_ids if middle_nodes is start_nodes else ids_of(middle_nodes)
     end_ids = (
@@ -1659,6 +1825,26 @@ def _two_hop_count_fused_polars(
         .group_by(src_col)
         .len(_TWO_HOP_OUT_COUNT_COL)
     )
+    if illegal_pairs is None:
+        self_loops_in_all_domains_lf = (
+            lf_first
+            .filter(pl.col(src_col) == pl.col(dst_col))
+            .join(start_ids, left_on=src_col, right_on=node_col, how="semi")
+            .join(middle_ids, left_on=src_col, right_on=node_col, how="semi")
+            .join(end_ids, left_on=src_col, right_on=node_col, how="semi")
+            .select(pl.len().alias(_TWO_HOP_SCALAR_COL))
+        )
+        product_lf = (
+            in_counts
+            .join(out_counts, left_on=dst_col, right_on=src_col, how="inner")
+            .select((pl.col(_TWO_HOP_IN_COUNT_COL) * pl.col(_TWO_HOP_OUT_COUNT_COL))
+                    .sum().fill_null(0).alias(_TWO_HOP_SCALAR_COL))
+        )
+        product_df, loops_df = _lazy_collect_all([product_lf, self_loops_in_all_domains_lf])
+        total = _polars_scalar_int(product_df) - _polars_scalar_int(loops_df)
+        counted: "pl.DataFrame" = pl.DataFrame({alias: [total]}, schema={alias: pl.Int64})
+        return counted  # engine seam: polars frame rides engine-agnostic DataFrameT
+
     total_lf = (
         in_counts
         .join(out_counts, left_on=dst_col, right_on=src_col, how="inner")
@@ -1666,11 +1852,12 @@ def _two_hop_count_fused_polars(
             # `.cast(pl.Int64)` below is `pl.Expr.cast` -- a polars RUNTIME dtype conversion,
             # not `typing.cast`. The hygiene guard matches any call named `cast`, so the
             # suppression rides the line the guard reports (the head of the chained call).
-            (pl.col(_TWO_HOP_IN_COUNT_COL) * pl.col(_TWO_HOP_OUT_COUNT_COL))  # hygiene-ok: explicit-cast -- polars dtype cast
-            .sum().fill_null(0).cast(pl.Int64).alias(alias)
+            ((pl.col(_TWO_HOP_IN_COUNT_COL) * pl.col(_TWO_HOP_OUT_COUNT_COL))  # hygiene-ok: explicit-cast -- polars dtype cast
+             .sum().fill_null(0) - illegal_pairs)
+            .cast(pl.Int64).alias(alias)
         )
     )
-    return cast(DataFrameT, total_lf.collect())
+    return cast(DataFrameT, _lazy_collect(total_lf))
 
 
 def _two_hop_count_binding_ops(chain: Chain) -> Optional[Tuple[ASTNode, ASTEdge, ASTNode, ASTEdge, ASTNode]]:
@@ -1701,11 +1888,6 @@ def _property_ref(expr: Any, valid_aliases: Sequence[str]) -> Optional[Tuple[str
 
 _GROUPED_AGG_LOOKUP_KEY_FMT = "__gfql_t3_{alias}_id__"
 
-# Both bounds are needed: group_by has a flat coordination cost only at low group
-# cardinality, value_counts has none but scales worse with input rows, so neither
-# bound alone is sound. Fixed from a crossover sweep BEFORE the formulation was
-# validated on any query -- a threshold chosen after seeing verdicts is
-# unfalsifiable. Sweep and crossover points: pyg-bench.
 _LOWCARD_COUNT_MAX_GROUPS = 32
 _LOWCARD_COUNT_MAX_INPUT_ROWS = 100_000
 
@@ -1717,7 +1899,7 @@ def _low_cardinality_pure_count_key(
     """``(group_key, out_alias)`` iff this is a single-key, pure ``count(*)`` aggregate.
 
     Pure ``count(*)`` is the ONLY aggregate the alternative formulation below can express,
-    and the only one measured value-identical to ``pl.len()``. Anything else -- a second
+    and the only one value-identical to ``pl.len()``. Anything else -- a second
     group key, a second aggregate, ``avg``/``sum``/``min``/``max``, or a ``count`` over a
     named property (which counts NON-NULL values, not rows) -- declines here.
 
@@ -1752,12 +1934,13 @@ def _low_cardinality_pure_count_plan(
     is a decline away from zero.
 
     The two formulations are VALUE-IDENTICAL wherever this admits -- same key rows, same
-    counts, same ``UInt32`` count dtype, same treatment of null / NaN / empty-input keys --
+    counts, same INTEGER count dtype (both conformed off agg_types), same treatment of
+    null / NaN / empty-input keys --
     and the caller's gate has already made the following ``sort`` TOTAL over the output
-    rows, so neither formulation's internal row order can reach the answer. They differ
-    only in COST, which is why this is a routing decision and not a semantic one.
+    rows, so neither formulation's internal row order can reach the answer. Choosing
+    between them is a routing decision, not a semantic one.
 
-    THE BOUNDS ARE STATIC, O(1) IN THE DATA, AND THEY ARE UPPER BOUNDS:
+    THE BOUNDS ARE STATIC AND THEY ARE UPPER BOUNDS:
 
     * **group cardinality <= height of the alias node frame supplying the group key.**
       The group key column is produced by an inner join that reads ``prop`` out of that one
@@ -1769,15 +1952,11 @@ def _low_cardinality_pure_count_plan(
       the eager twin does not -- so the bound only holds once the sole property join is
       known to be non-multiplying. Hence the two structural conditions below: exactly one
       alias may carry properties, and its node ids must be unique. That uniqueness check
-      runs on a frame already known to be <= ``_LOWCARD_COUNT_MAX_GROUPS`` rows, so it is
-      bounded work regardless of graph size.
+      runs on a frame already known to be <= ``_LOWCARD_COUNT_MAX_GROUPS`` rows.
 
-    BOTH BOUNDS ARE LOOSE IN THE SAFE DIRECTION. A loose bound over-estimates, so it can
-    only make this DECLINE a shape the alternative would have served -- it can never route
-    a high-cardinality or high-row aggregate into the wrong formulation, which is the
-    failure that would matter (that formulation is 2.7 ms slower on a ~20,000-group
-    aggregate). The cost of looseness is a forgone speedup: a 7,117-row City frame carrying
-    only 3 distinct countries declines here, because an O(1) height bound cannot see the 3.
+    BOTH BOUNDS ARE LOOSE IN THE SAFE DIRECTION: over-estimating can only make this DECLINE
+    a shape the alternative would have served, never route a high-cardinality or high-row
+    aggregate into the wrong formulation.
 
     DECLINES: a non-single-key or non-pure-``count(*)`` aggregate; a group key not supplied
     by exactly one alias; a second alias also contributing property columns (the row bound
@@ -1817,7 +1996,9 @@ def _low_cardinality_pure_count_plan(
 
     # ``name=`` (polars >= 1.0, and the declared floor is 1.29) keeps the count column out
     # of a rename, so a group key literally named ``count`` is served rather than crashing.
-    return work_lf.select(pl.col(group_key).value_counts(name=out_alias)).unnest(group_key)
+    counts = work_lf.select(pl.col(group_key).value_counts(name=out_alias)).unnest(group_key)
+    return counts.with_columns(
+        polars_conform_agg_dtype(pl.col(out_alias), "count", None, out_alias))
 
 
 def _single_hop_grouped_aggregate_fused_polars(
@@ -1858,17 +2039,18 @@ def _single_hop_grouped_aggregate_fused_polars(
     null-largest ordering is pinned in the sort.
 
     ONE aggregate shape has a second, value-identical polars formulation: see
-    :func:`_low_cardinality_pure_count_plan`. It is chosen only when static O(1) bounds
-    prove both the group cardinality and the aggregate input rows are low, and it declines
-    to this ``group_by`` everywhere else.
+    :func:`_low_cardinality_pure_count_plan`. It is chosen only when static bounds prove
+    both the group cardinality and the aggregate input rows are low, and it declines to
+    this ``group_by`` everywhere else.
 
-    NOT a GPU change: like the eager twin and the fused two-star lane, it collects on CPU
-    polars for both POLARS and POLARS_GPU.
+    Collects on the ACTIVE execution target (#1824): CPU for POLARS, the GPU-or-error
+    engine for POLARS_GPU (NIE on a non-GPU-executable plan; dispatch declines to the
+    chain route).
 
     DECLINES (returns None; the caller falls through to the untouched eager twin, so a
     decline can never answer differently):
 
-    * a non-eager-polars input frame -- LazyFrame schema probes warn and cost, and a
+    * a non-eager-polars input frame -- LazyFrame schema probes warn, and a
       non-polars frame has no polars ``.lazy()``;
     * a needed property column missing from its alias' node frame. The eager twin
       discovers this mid-chain and returns ``None`` from the whole fast path, so this
@@ -1942,16 +2124,19 @@ def _single_hop_grouped_aggregate_fused_polars(
                 or polars_non_numeric_agg_dtype(agg_dtype) is not None
             ):
                 return None
+        result_dtype = prop_dtypes.get(expr_col) if expr_col is not None else None
         if func == "count" and expr_col is None:
-            agg_exprs.append(pl.len().alias(out_alias))
+            agg_exprs.append(polars_conform_agg_dtype(pl.len(), func, None, out_alias))
         elif expr_col is None:
             return None
         elif func == "count":
-            agg_exprs.append(pl.col(expr_col).count().alias(out_alias))
+            agg_exprs.append(
+                polars_conform_agg_dtype(pl.col(expr_col).count(), func, result_dtype, out_alias))
         elif func == "avg":
             agg_exprs.append(pl.col(expr_col).mean().alias(out_alias))
         elif func == "sum":
-            agg_exprs.append(pl.col(expr_col).sum().alias(out_alias))
+            agg_exprs.append(
+                polars_conform_agg_dtype(pl.col(expr_col).sum(), func, result_dtype, out_alias))
         elif func == "min":
             agg_exprs.append(pl.col(expr_col).min().alias(out_alias))
         elif func == "max":
@@ -1965,10 +2150,8 @@ def _single_hop_grouped_aggregate_fused_polars(
     # keeps (null endpoint ids match neither), and row MULTIPLICITY is identical too --
     # a semi-join never multiplies, and the inner join's multiplication on duplicate
     # node ids happens with or without the semi-join in front of it. So the semi-join is
-    # emitted ONLY for an endpoint with no property join (e.g. the count(*) side of
-    # graph-bench q4), where it is the sole membership restriction. Profiled one-shot on
-    # the 20k graph-benchmark (diagnosis-only, local CPU): the two redundant semi-joins
-    # were 1.7ms of q3's 3.5ms fused collect -- polars 1.42 does not eliminate them.
+    # emitted ONLY for an endpoint with no property join, where it is the sole membership
+    # restriction.
     work_lf: "pl.LazyFrame" = edges.lazy()
     for alias, node_frame, edge_col in (
         (start_alias, start_nodes, src_col),
@@ -2022,7 +2205,59 @@ def _single_hop_grouped_aggregate_fused_polars(
     )
     if limit_value is not None:
         out_lf = out_lf.head(limit_value)
-    return cast(DataFrameT, out_lf.collect())
+    return cast(DataFrameT, _lazy_collect(out_lf))
+
+
+def _has_edge_destination_disambiguated_nodes(
+    nodes: DataFrameT,
+    start_nodes: DataFrameT,
+    edges: DataFrameT,
+    *,
+    node_col: str,
+    src_col: str,
+    dst_col: str,
+    label_col: str,
+    engine: Engine,
+) -> Optional[DataFrameT]:
+    """HAS_<Label> destination disambiguation for the single-hop fast path.
+
+    Twin of pandas ``RowPipelineMixin._gfql_disambiguate_has_edge_destination_nodes`` at
+    its pipeline position: the candidate destination set is the base node rows whose id is
+    a dst of a (filtered) edge leaving a (filtered) start node; iff those candidate ids
+    COLLIDE, the destination domain narrows to the ``label__<Label>``-true rows of the
+    full node table. Returns the narrowed node frame, or None for "no narrowing" (unique
+    candidates — pandas does not narrow there either, even on a duplicate-id table)."""
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        tbl_dup = bool(_lazy_collect(
+            nodes.lazy()  # type: ignore[union-attr]
+            .select(pl.col(node_col).is_duplicated().any())
+        ).item())
+        if not tbl_dup:
+            return None
+        start_ids = start_nodes.lazy().select(node_col).unique()  # type: ignore[union-attr]
+        cand_ids = (
+            edges.lazy()  # type: ignore[union-attr]
+            .join(start_ids, left_on=src_col, right_on=node_col, how="semi")
+            .select(pl.col(dst_col).alias(node_col))
+            .unique()
+        )
+        cand_dup = bool(_lazy_collect(
+            nodes.lazy()  # type: ignore[union-attr]
+            .join(cand_ids, on=node_col, how="semi")
+            .select(pl.col(node_col).is_duplicated().any())
+        ).item())
+        if not cand_dup:
+            return None
+        return nodes.filter(pl.col(label_col).fill_null(False).cast(pl.Boolean))  # type: ignore[union-attr]
+    if not bool(nodes[node_col].duplicated(keep=False).any()):
+        return None
+    start_ids = start_nodes[node_col].drop_duplicates()
+    cand_ids = edges.loc[edges[src_col].isin(start_ids), dst_col].drop_duplicates()
+    cand = nodes[nodes[node_col].isin(cand_ids)]
+    if not bool(cand[node_col].duplicated(keep=False).any()):
+        return None
+    return nodes[nodes[label_col].fillna(False).astype(bool)]
 
 
 def _execute_single_hop_grouped_aggregate_fast_path(
@@ -2030,7 +2265,11 @@ def _execute_single_hop_grouped_aggregate_fast_path(
     chain: Chain,
     *,
     engine: Union[EngineAbstract, str],
+    reentry_start_nodes: Optional[DataFrameT] = None,
 ) -> Optional[Plottable]:
+    if reentry_start_nodes is not None:
+        # seed comes from filter_dicts alone; engaging would widen a carried WITH..MATCH seed
+        return None
     ops = list(chain.chain)
     if len(ops) not in (3, 4, 5) or not all(isinstance(op, ASTCall) for op in ops):
         return None
@@ -2150,6 +2389,12 @@ def _execute_single_hop_grouped_aggregate_fast_path(
     if node_col not in nodes_obj.columns or src_col not in edges_obj.columns or dst_col not in edges_obj.columns:
         return None
 
+    output_name_collides_with_edge_endpoint = any(
+        out_col in (src_col, dst_col) for out_col in with_items
+    )
+    if output_name_collides_with_edge_endpoint:
+        return None
+
     nodes = cast(DataFrameT, nodes_obj)
     needed_by_alias: Dict[str, List[Tuple[str, str]]] = {start_alias: [], end_alias: []}
     for out_col, ref in with_items.items():
@@ -2169,6 +2414,26 @@ def _execute_single_hop_grouped_aggregate_fast_path(
     start_nodes = _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], start_op.filter_dict), engine=requested_engine, project=start_proj)
     end_nodes = _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], end_op.filter_dict), engine=requested_engine, project=end_proj)
     edges = _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], edge_op.edge_match), engine=requested_engine, project=edge_proj)
+
+    # Unlabeled HAS_<Label> destinations on a duplicate-id table must narrow BEFORE the
+    # property joins (they join by node id, so a colliding id attaches every same-id row);
+    # same conditional as pandas' `_gfql_disambiguate_has_edge_destination_nodes` oracle.
+    from graphistry.compute.gfql.row.pipeline import RowPipelineMixin  # narrowing oracle (#1739)
+    dis_label_col = RowPipelineMixin._gfql_has_edge_destination_label_col(edge_op, nodes.columns)
+    if (
+        dis_label_col is not None
+        and not RowPipelineMixin._gfql_node_filter_has_label(end_op.filter_dict)
+    ):
+        narrowed = _has_edge_destination_disambiguated_nodes(
+            nodes, start_nodes, edges,
+            node_col=node_col, src_col=src_col, dst_col=dst_col,
+            label_col=dis_label_col, engine=requested_engine,
+        )
+        if narrowed is not None:
+            end_nodes = _filter_project(
+                narrowed, cast(Optional[dict], end_op.filter_dict), end_proj,
+                engine=requested_engine,
+            )
 
     fused_out: Optional[DataFrameT] = None
     if requested_engine in POLARS_ENGINES:
@@ -2244,26 +2509,29 @@ def _execute_single_hop_grouped_aggregate_fast_path(
             # guard here the exact same query answers differently depending on whether it
             # matched the fast-path shape.
             if func in GFQL_NUMERIC_ONLY_AGGREGATIONS and expr_alias is not None:
-                # Dtype first, data second -- see the row-pipeline twin: only a column the schema
-                # already rejects is worth the O(n) null scan.
+                # Dtype first, data second -- see the row-pipeline twin: the null scan runs only
+                # on a column the schema already rejects.
                 dtype_label = polars_non_numeric_agg_dtype(work_schema.get(expr_alias))
                 if work_schema.get(expr_alias) == pl.Null or (
                     dtype_label is not None
                     and work.height > 0
                     and work[expr_alias].null_count() == work.height
                 ):
-                    agg_exprs.append(pl.lit(numeric_agg_all_null_value(func)).alias(alias))
+                    agg_exprs.append(polars_all_null_agg_literal(func, alias))
                     continue
                 if dtype_label is not None:
                     raise_non_numeric_aggregation(func, expr_alias, dtype_label, alias)
+            agg_dtype = work_schema.get(expr_alias) if expr_alias is not None else None
             if func == "count" and (expr_alias is None or with_items[expr_alias][1] is None):
-                agg_exprs.append(pl.len().alias(alias))
+                agg_exprs.append(polars_conform_agg_dtype(pl.len(), func, None, alias))
             elif func == "count" and expr_alias is not None:
-                agg_exprs.append(pl.col(expr_alias).count().alias(alias))
+                agg_exprs.append(
+                    polars_conform_agg_dtype(pl.col(expr_alias).count(), func, agg_dtype, alias))
             elif func == "avg" and expr_alias is not None:
                 agg_exprs.append(pl.col(expr_alias).mean().alias(alias))
             elif func == "sum" and expr_alias is not None:
-                agg_exprs.append(pl.col(expr_alias).sum().alias(alias))
+                agg_exprs.append(
+                    polars_conform_agg_dtype(pl.col(expr_alias).sum(), func, agg_dtype, alias))
             elif func == "min" and expr_alias is not None:
                 agg_exprs.append(pl.col(expr_alias).min().alias(alias))
             elif func == "max" and expr_alias is not None:
@@ -2299,10 +2567,15 @@ def _execute_single_hop_grouped_aggregate_fast_path(
                 if prop != node_col and prop not in prop_cols:
                     prop_cols.append(prop)
             lookup_key = f"__gfql_t3_{alias}_id__"
-            lookup = node_df[[node_col] + prop_cols].drop_duplicates(subset=[node_col]).copy()
+            src_df = node_df[[node_col] + prop_cols].drop_duplicates(subset=[node_col])
+            # ONE frame construction, keyed away from node_col so an output named like the
+            # node-id column (`a.id AS id`) survives instead of clobbering the key.
+            projected: Dict[str, SeriesT] = {lookup_key: src_df[node_col]}
+            for prop in prop_cols:
+                projected[prop] = src_df[prop]
             for out_col, prop in props:
-                lookup[out_col] = lookup[prop]
-            lookup = lookup.rename(columns={node_col: lookup_key})
+                projected[out_col] = projected[lookup_key] if prop == node_col else projected[prop]
+            lookup = df_cons(requested_engine)(projected)
             return cast(DataFrameT, work_df.merge(lookup, left_on=edge_col, right_on=lookup_key, how="inner"))
 
         work = cast(DataFrameT, work)
@@ -2339,6 +2612,13 @@ def _execute_single_hop_grouped_aggregate_fast_path(
                 agg_df = grouped[expr_alias].mean().reset_index(name=alias)
             elif func == "sum" and expr_alias is not None:
                 agg_df = grouped[expr_alias].sum().reset_index(name=alias)
+                if pandas_object_series_is_bool_like(work[expr_alias]):
+                    # Twin of the row-pipeline group_by sum(bool) numeric retype.
+                    agg_df = agg_df.assign(**{alias: pd.to_numeric(agg_df[alias])})  # bool sums as int (#1821)
+                null_fill = pandas_agg_kernel_null_fill(func, work[expr_alias])
+                if null_fill is not None:
+                    # Twin of the row-pipeline sum() null repair: cypher sum() never answers null.
+                    agg_df = agg_df.assign(**{alias: agg_df[alias].fillna(null_fill)})
             elif func == "min" and expr_alias is not None:
                 agg_df = grouped[expr_alias].min().reset_index(name=alias)
             elif func == "max" and expr_alias is not None:
@@ -2437,7 +2717,7 @@ def _dense_int_domain_interval(
 
     Dense means: integer dtype, no nulls, and ``n_unique == hi - lo + 1`` -- so
     interval membership (``lo <= x <= hi``) IS set membership. That equivalence is
-    what lets a caller replace a hash semi-join against the id set with an O(1)-space
+    what lets a caller replace a hash semi-join against the id set with a
     bounds proof (see ``_two_hop_equal_domain_dense_total``). Engine-polymorphic
     dispatcher over the typed per-engine helpers above; anything unprovable declines
     with None.
@@ -2449,7 +2729,7 @@ def _dense_int_domain_interval(
 
 
 def _bounds_within_indexable(s: SeriesT, lo: int, hi: int, *, engine: Engine) -> bool:
-    """pandas/cudf arm of ``_edge_cols_bounds_within`` (numpy-dtype series)."""
+    """pandas/cudf arm of ``_edge_cols_bounds_scan`` (numpy-dtype series)."""
     import numpy as np
     dtype = s.dtype
     if not isinstance(dtype, np.dtype) or dtype.kind not in "iu":
@@ -2467,21 +2747,19 @@ def _edge_cols_bounds_polars(
     dst_col: str,
     lo: int,
     hi: int,
-) -> bool:
-    """Polars arm of ``_edge_cols_bounds_within`` -- fully typed, no ignores.
+) -> Tuple[bool, int]:
+    """Polars arm of ``_edge_cols_bounds_scan`` -- fully typed, no ignores.
 
-    Fuses all six reductions (min/max/null_count per column) into ONE ``select`` so
-    the engine computes them in a single parallel pass over the edge frame -- the
-    per-Series chain it replaces cost ~2x at 2.4M edges (two O(E) passes serialized
-    per column).
+    All seven reductions (min/max/null_count per endpoint column, plus the self-loop
+    count) go in ONE ``select``, so the bounds proof and the count read the same rows.
     """
     import polars as pl
     schema = frame.schema
     for col in (src_col, dst_col):
         if not schema[col].is_integer():
-            return False
+            return False, 0
     if len(frame) == 0:
-        return False
+        return False, 0
     stats = frame.select(
         pl.col(src_col).min().alias("__smin__"),
         pl.col(src_col).max().alias("__smax__"),
@@ -2489,15 +2767,17 @@ def _edge_cols_bounds_polars(
         pl.col(dst_col).min().alias("__dmin__"),
         pl.col(dst_col).max().alias("__dmax__"),
         pl.col(dst_col).null_count().alias("__dnull__"),
+        (pl.col(src_col) == pl.col(dst_col)).sum().alias(_TWO_HOP_SELF_LOOP_COL),
     )
-    smin, smax, snull, dmin, dmax, dnull = stats.row(0)
+    smin, smax, snull, dmin, dmax, dnull, loops = stats.row(0)
     if snull != 0 or dnull != 0:
-        return False
-    return (int(smin) >= lo and int(smax) <= hi
-            and int(dmin) >= lo and int(dmax) <= hi)
+        return False, 0
+    within = (int(smin) >= lo and int(smax) <= hi
+              and int(dmin) >= lo and int(dmax) <= hi)
+    return within, int(loops or 0)
 
 
-def _edge_cols_bounds_within(
+def _edge_cols_bounds_scan(
     frame: DataFrameT,
     src_col: str,
     dst_col: str,
@@ -2505,18 +2785,22 @@ def _edge_cols_bounds_within(
     hi: int,
     *,
     engine: Engine,
-) -> bool:
-    """True iff BOTH endpoint columns are integer, null-free, non-empty and bounded by [lo, hi].
+) -> Tuple[bool, Optional[int]]:
+    """``(bounds proven, self-loop count)`` for the endpoint columns.
 
-    Engine dispatcher over the typed arms above: polars keeps its fused single-select
-    shape; pandas/cudf keep per-column reductions (each is already one C/device call
-    and fusing buys nothing there).
+    The first value is True iff BOTH endpoint columns are integer, null-free,
+    non-empty and bounded by [lo, hi]. The second is the number of ``src == dst``
+    rows when this scan produced it as a by-product, else None ("not computed" --
+    the caller then counts them itself).
+
+    Engine dispatcher over the typed arms above: the polars arm answers the count
+    from its fused select, the pandas/cudf arm returns None.
     """
     if engine in POLARS_ENGINES:
         pl_frame: "pl.DataFrame" = frame  # engine seam: polars frame rides engine-agnostic DataFrameT
         return _edge_cols_bounds_polars(pl_frame, src_col, dst_col, lo, hi)
     return (_bounds_within_indexable(frame[src_col], lo, hi, engine=engine)
-            and _bounds_within_indexable(frame[dst_col], lo, hi, engine=engine))
+            and _bounds_within_indexable(frame[dst_col], lo, hi, engine=engine)), None
 
 
 def _facts_prove_bounds(
@@ -2531,8 +2815,8 @@ def _facts_prove_bounds(
     True is always sound (full-frame bounds contain every subset's bounds; zero
     nulls on the frame means zero nulls on any subset), while False may be
     over-cautious (the subset can satisfy the claim even when the full frame
-    does not). A False therefore costs at most the O(E) scan it would have
-    skipped; it can never change an answer, and it never declines."""
+    does not). A False falls back to the scan; it can never change an answer,
+    and it never declines."""
     if facts is None:
         return False
     for fact in facts:
@@ -2578,6 +2862,66 @@ def _dense_interval_from_fact(fact: Optional["ColStatsFact"]) -> Optional[Tuple[
     return int(fact.min_val), int(fact.max_val)
 
 
+#: Rows per block of the gather / self-loop reductions below. Every value partitions the
+#: SAME reduction, so every value is value-identical (pinned).
+_TWO_HOP_SELF_LOOP_BLOCK: Final[int] = 1 << 17
+
+
+def _self_loop_count(
+    src_arr: "ArrayLike", dst_arr: "ArrayLike", *, xp: "ArrayNamespace", blocked: bool
+) -> int:
+    """``|{e : src(e) == dst(e)}|`` -- the bindings relationship uniqueness forbids.
+
+    ``blocked`` partitions the reduction; host backends pass True, device backends False.
+    """
+    n = int(src_arr.shape[0])
+    if not blocked or n <= _TWO_HOP_SELF_LOOP_BLOCK:
+        return int(xp.count_nonzero(src_arr == dst_arr))
+    loops = 0
+    for i in range(0, n, _TWO_HOP_SELF_LOOP_BLOCK):
+        j = i + _TWO_HOP_SELF_LOOP_BLOCK
+        loops += int(xp.count_nonzero(src_arr[i:j] == dst_arr[i:j]))
+    return loops
+
+
+def _gather_sum(in_counts: "ArrayLike", src_arr: "ArrayLike", *, blocked: bool) -> int:
+    """``sum_e in_counts[src(e)]`` -- the degree product, uncorrected.
+
+    For callers that already KNOW the self-loop count (a degree fact, or the bounds
+    scan that produced it), so the gather never reads dst.
+    """
+    n = int(src_arr.shape[0])
+    if not blocked or n <= _TWO_HOP_SELF_LOOP_BLOCK:
+        return int(in_counts[src_arr].sum())
+    total = 0
+    for i in range(0, n, _TWO_HOP_SELF_LOOP_BLOCK):
+        total += int(in_counts[src_arr[i:i + _TWO_HOP_SELF_LOOP_BLOCK]].sum())
+    return total
+
+
+def _gather_sum_and_self_loops(
+    in_counts: "ArrayLike", src_arr: "ArrayLike", dst_arr: "ArrayLike",
+    *, xp: "ArrayNamespace", blocked: bool,
+) -> Tuple[int, int]:
+    """``(sum_e in_counts[src(e)], self-loop count)`` over ONE partition of the rows.
+
+    Value-identical to ``_gather_sum`` paired with ``_self_loop_count`` by construction:
+    a sum and a count over the same partition of the same rows (pinned).
+    """
+    n = int(src_arr.shape[0])
+    if not blocked or n <= _TWO_HOP_SELF_LOOP_BLOCK:
+        return (int(in_counts[src_arr].sum()),
+                int(xp.count_nonzero(src_arr == dst_arr)))
+    total = 0
+    loops = 0
+    for i in range(0, n, _TWO_HOP_SELF_LOOP_BLOCK):
+        j = i + _TWO_HOP_SELF_LOOP_BLOCK
+        block = src_arr[i:j]
+        total += int(in_counts[block].sum())
+        loops += int(xp.count_nonzero(block == dst_arr[i:j]))
+    return total, loops
+
+
 def _two_hop_equal_domain_dense_total(
     domain_nodes: DataFrameT,
     edge_domain: DataFrameT,
@@ -2594,28 +2938,25 @@ def _two_hop_equal_domain_dense_total(
 
     The equal-domain branch of ``_execute_two_hop_count_fast_path`` restricts the
     rel-filtered edges to domain x domain (two semi-joins on polars, two ``isin``
-    masks on pandas/cuDF) before counting per-node degrees -- and that restriction,
-    not the counting, dominates the lane (profiled on the 20k graph-benchmark q8:
-    ~5.3ms of the ~9.3ms one-shot polars call at 249k edges; the same two group_bys
-    without the semi-joins cost 2.1ms).
+    masks on pandas/cuDF) before counting per-node degrees.
 
     When ``_dense_int_domain_interval`` proves the domain ids form a dense integer
     interval [lo, hi] and BOTH endpoint columns are integer, null-free and bounded
     by [lo, hi], every endpoint is in-domain by interval arithmetic: the semi-joins
-    are the identity, and the degree product collapses to one O(E) ``bincount``
-    plus one O(E) gather-sum (``sum_b indeg(b)*outdeg(b) == sum_e indeg(src(e))``;
+    are the identity, and the degree product collapses to one ``bincount``
+    plus one gather-sum (``sum_b indeg(b)*outdeg(b) == sum_e indeg(src(e))``;
     oracle-pinned in test_lowering.py).
     Dense type-partitioned integer ids are the idiomatic multi-table graph encoding
-    (offset-based global ids), so the proof is cheap (a handful of O(E) min/max
-    reductions, no allocation) and admission is a data property, not a query hack.
+    (offset-based global ids), so admission is a data property, not a query hack.
 
     Returns the exact ``count(*)`` total, or None to DECLINE (any guard fails,
     including an empty edge frame) so the caller's existing semi-join / memo path
     answers instead. Value-identical by construction when admitted:
     ``sum_b indeg(b) * outdeg(b)`` over the SAME filtered edge multiset the
-    semi-join plan would count -- multi-edges and self-loops included, and the
-    inner join on the middle node is subsumed because out-of-domain middles cannot
-    exist under the proof (a zero on either side contributes zero to the sum).
+    semi-join plan would count, minus the pairs relationship uniqueness forbids (one
+    per self-loop); multi-edges are included, and the inner join on the middle
+    node is subsumed because out-of-domain middles cannot exist under the proof (a
+    zero on either side contributes zero to the sum).
 
     Engine note: arrays ride the index module's polymorphic helpers
     (``array_namespace`` / ``col_to_array``) -- numpy host for pandas/polars(-gpu),
@@ -2633,9 +2974,12 @@ def _two_hop_equal_domain_dense_total(
     if interval is None:
         return None
     lo, hi = interval
+    scanned_self_loops: Optional[int] = None
     if not _facts_prove_bounds(edge_endpoint_facts, lo, hi):
-        # Fact miss or insufficient: fall back to the O(E) scan -- never decline on facts.
-        if not _edge_cols_bounds_within(edge_domain, src_col, dst_col, lo, hi, engine=engine):
+        # Fact miss or insufficient: fall back to the scan -- never decline on facts.
+        proven, scanned_self_loops = _edge_cols_bounds_scan(
+            edge_domain, src_col, dst_col, lo, hi, engine=engine)
+        if not proven:
             return None
 
     from graphistry.compute.gfql.index.engine_arrays import array_namespace, col_to_array
@@ -2644,41 +2988,50 @@ def _two_hop_equal_domain_dense_total(
     n = hi - lo + 1
     table_budget = 4 * len(edge_domain) + 1024
     if n > table_budget:
-        # MEMORY guard, not a tuning knob: the count tables are O(domain), the path
-        # they replace is O(edges). A domain far wider than the edge count (huge node
-        # space, sparse rel) would allocate tables the semi-join path never needs --
-        # decline and let it answer.
+        # MEMORY guard: a domain far wider than the edge count (huge node space, sparse
+        # rel) would allocate count tables the semi-join path never needs -- decline.
         return None
-    if degree_fact is not None and degree_fact.lo <= lo and degree_fact.hi >= hi:
-        # Precomputed degrees answer the SAME degree product with no per-query pass
-        # over the edges: sum_e indeg(src(e)) == sum_v indeg(v)*outdeg(v). O(N) instead
-        # of an O(E) bincount plus gather. The interval must match exactly -- the arrays
-        # are indexed by id - lo, so a different interval indexes the wrong slots.
+    if (
+        degree_fact is not None and degree_fact.lo <= lo and degree_fact.hi >= hi
+        and degree_fact.self_loops is not None
+    ):
+        # Precomputed degrees answer the SAME degree product without touching the edges:
+        # sum_e indeg(src(e)) == sum_v indeg(v)*outdeg(v). The interval must match exactly
+        # -- the arrays are indexed by id - lo, so a different interval indexes wrong slots.
         # Slice to the domain the caller proved. Endpoints outside [lo, hi] cannot
         # exist here -- that is exactly what _facts_prove_bounds established -- so the
         # slice loses no edge, and nodes outside the domain must not be counted.
         a, b = lo - degree_fact.lo, hi - degree_fact.lo + 1
-        return int(xp.dot(degree_fact.indeg[a:b], degree_fact.outdeg[a:b]))
+        return int(xp.dot(degree_fact.indeg[a:b], degree_fact.outdeg[a:b])) - degree_fact.self_loops
     src_arr = col_to_array(edge_domain, src_col, engine)
     dst_arr = col_to_array(edge_domain, dst_col, engine)
-    # bincount emits platform int64 counts; inputs are integer dtype by proof, so no
-    # astype copies here (a copying astype measurably dominated the kernel at 2.5M edges).
+    blocked = _backend == "numpy"
+    # bincount emits platform int64 counts; inputs are integer dtype by proof, so no astype.
     if 0 <= lo and hi + 1 <= table_budget:
         # Shift elision: raw arrays, table of hi+1; bounds proof keeps [0, lo) all-zero (pinned).
         in_counts = xp.bincount(dst_arr, minlength=hi + 1)
-        total = in_counts[src_arr].sum()
+        if scanned_self_loops is None:
+            total, self_loops = _gather_sum_and_self_loops(
+                in_counts, src_arr, dst_arr, xp=xp, blocked=blocked)
+        else:
+            self_loops = scanned_self_loops
+            total = _gather_sum(in_counts, src_arr, blocked=blocked)
     elif src_arr.dtype == dst_arr.dtype:
         # Shifted lane through ONE scratch buffer; gather runs strictly after the bincount (pinned).
+        self_loops = (scanned_self_loops if scanned_self_loops is not None
+                      else _self_loop_count(src_arr, dst_arr, xp=xp, blocked=blocked))
         buf = xp.empty(src_arr.shape[0], dtype=src_arr.dtype)
         xp.subtract(dst_arr, lo, out=buf)
         in_counts = xp.bincount(buf, minlength=n)
         xp.subtract(src_arr, lo, out=buf)
-        total = in_counts[buf].sum()
+        total = int(in_counts[buf].sum())
     else:
         # Mixed endpoint dtypes: plain shift, no cross-dtype scratch buffer (pinned).
+        self_loops = (scanned_self_loops if scanned_self_loops is not None
+                      else _self_loop_count(src_arr, dst_arr, xp=xp, blocked=blocked))
         in_counts = xp.bincount(dst_arr - lo, minlength=n)
-        total = in_counts[src_arr - lo].sum()
-    return int(total)
+        total = int(in_counts[src_arr - lo].sum())
+    return total - self_loops
 
 
 def _execute_two_hop_count_fast_path(
@@ -2686,7 +3039,11 @@ def _execute_two_hop_count_fast_path(
     chain: Chain,
     *,
     engine: Union[EngineAbstract, str],
+    reentry_start_nodes: Optional[DataFrameT] = None,
 ) -> Optional[Plottable]:
+    if reentry_start_nodes is not None:
+        # same seed-blindness as the grouped-aggregate path above
+        return None
     alias = _two_hop_count_alias(chain)
     if alias is None:
         return None
@@ -2724,15 +3081,18 @@ def _execute_two_hop_count_fast_path(
         if end_op.filter_dict == start_op.filter_dict
         else _connected_join_cached_node_filter(base_graph, nodes, cast(Optional[dict], end_op.filter_dict), engine=requested_engine, project=node_proj)
     )
-    first_edges = _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], first_edge.edge_match), engine=requested_engine, project=edge_proj)
+    edges_frame = cast(DataFrameT, edges_obj)
+    first_match = cast(Optional[FilterDict], first_edge.edge_match)
+    second_match = cast(Optional[FilterDict], second_edge.edge_match)
+    first_edges = _connected_join_cached_edge_filter(base_graph, edges_frame, first_match, engine=requested_engine, project=edge_proj)
     reuse_single_edge_domain = (
         start_op.filter_dict == middle_op.filter_dict == end_op.filter_dict
-        and first_edge.edge_match == second_edge.edge_match
+        and first_match == second_match
     )
     second_edges = (
         first_edges
-        if first_edge.edge_match == second_edge.edge_match
-        else _connected_join_cached_edge_filter(base_graph, cast(DataFrameT, edges_obj), cast(Optional[dict], second_edge.edge_match), engine=requested_engine, project=edge_proj)
+        if first_match == second_match
+        else _connected_join_cached_edge_filter(base_graph, edges_frame, second_match, engine=requested_engine, project=edge_proj)
     )
 
     if reuse_single_edge_domain:
@@ -2740,8 +3100,7 @@ def _execute_two_hop_count_fast_path(
         # dense integer interval that provably contains every filtered edge endpoint,
         # the domain semi-joins are the identity and the degree product is two
         # bincounts. Declines (None) keep the memoized semi-join path below untouched;
-        # when it serves, no cross-call memo is needed -- the kernel is cheaper than a
-        # memo HIT's count-join, so one-shot and warm calls converge.
+        # when it serves, no cross-call memo is needed.
         from graphistry.compute.gfql.index.api import get_registry, record_col_stats_decision
         _reg = get_registry(base_graph)
 
@@ -2767,7 +3126,7 @@ def _execute_two_hop_count_fast_path(
         # all node types and the domain is a strict subset of the node frame.
         # Partition facts restore both claims per label, keyed by the single
         # equality the typed pattern lowers to. Whole-frame facts stay the
-        # fallback; a miss anywhere costs the scan, never an answer.
+        # fallback; a miss anywhere falls back to the scan, never an answer.
         _edge_part = _partition_key_from_match(first_edge.edge_match)
         _src_fact = _dst_fact = None
         if _edge_part is not None:
@@ -2833,6 +3192,23 @@ def _execute_two_hop_count_fast_path(
             out._edges = df_cons(requested_engine)()
             return out
 
+    shared_edge_domain = second_edges is first_edges
+    counting_lane_derives_correction = reuse_single_edge_domain or (
+        requested_engine in POLARS_ENGINES and shared_edge_domain)
+    illegal_pairs = 0 if counting_lane_derives_correction else _two_hop_trail_illegal_pairs(
+        edges_frame,
+        start_nodes,
+        middle_nodes,
+        end_nodes,
+        first_edges,
+        first_match,
+        second_match,
+        node_col=node_col,
+        src_col=src_col,
+        dst_col=dst_col,
+        engine=requested_engine,
+    )
+
     fused_total: Optional[DataFrameT] = None
     if requested_engine in POLARS_ENGINES and not reuse_single_edge_domain:
         # Distinct-domain shape: ONE lazy plan instead of five eager collects.
@@ -2849,6 +3225,7 @@ def _execute_two_hop_count_fast_path(
             src_col=src_col,
             dst_col=dst_col,
             alias=alias,
+            illegal_pairs=None if shared_edge_domain else illegal_pairs,
         )
 
     if fused_total is not None:
@@ -2856,87 +3233,66 @@ def _execute_two_hop_count_fast_path(
     elif requested_engine in POLARS_ENGINES:
         import polars as pl
         if reuse_single_edge_domain:
-            cached_counts = _two_hop_cached_equal_domain_degree_counts(
-                base_graph,
-                nodes,
-                cast(DataFrameT, edges_obj),
+            in_counts, out_counts, illegal_pairs = _two_hop_equal_domain_degree_counts(
                 start_nodes,
                 first_edges,
-                node_match=cast(Optional[dict], start_op.filter_dict),
-                edge_match=cast(Optional[dict], first_edge.edge_match),
                 node_col=node_col,
                 src_col=src_col,
                 dst_col=dst_col,
                 engine=requested_engine,
             )
-            if cached_counts is None:
-                domain_ids = start_nodes.select(node_col).unique()
-                domain_edges = (
-                    first_edges
-                    .join(domain_ids, left_on=src_col, right_on=node_col, how="semi")
-                    .join(domain_ids, left_on=dst_col, right_on=node_col, how="semi")
-                )
-                in_counts = domain_edges.group_by(dst_col).len("__in_count__")
-                out_counts = domain_edges.group_by(src_col).len("__out_count__")
-            else:
-                in_counts, out_counts = cached_counts
         else:
             start_ids = start_nodes.select(node_col).unique()
             middle_ids = middle_nodes.select(node_col).unique()
             end_ids = end_nodes.select(node_col).unique()
+            if shared_edge_domain:
+                illegal_pairs = _self_loops_in_all_domains(
+                    first_edges, (start_nodes, middle_nodes, end_nodes),
+                    node_col=node_col, src_col=src_col, dst_col=dst_col, engine=requested_engine)
             in_counts = (
                 first_edges
                 .join(start_ids, left_on=src_col, right_on=node_col, how="semi")
                 .join(middle_ids, left_on=dst_col, right_on=node_col, how="semi")
                 .group_by(dst_col)
-                .len("__in_count__")
+                .len(_TWO_HOP_IN_COUNT_COL)
             )
             out_counts = (
                 second_edges
                 .join(middle_ids, left_on=src_col, right_on=node_col, how="semi")
                 .join(end_ids, left_on=dst_col, right_on=node_col, how="semi")
                 .group_by(src_col)
-                .len("__out_count__")
+                .len(_TWO_HOP_OUT_COUNT_COL)
             )
         total_df = (
             in_counts
             .join(out_counts, left_on=dst_col, right_on=src_col, how="inner")
-            .select((pl.col("__in_count__") * pl.col("__out_count__")).sum().fill_null(0).cast(pl.Int64).alias(alias))
+            .select(
+                ((pl.col(_TWO_HOP_IN_COUNT_COL) * pl.col(_TWO_HOP_OUT_COUNT_COL)).sum().fill_null(0) - illegal_pairs)
+                .cast(pl.Int64).alias(alias)  # hygiene-ok: explicit-cast -- polars dtype cast
+            )
         )
         out_nodes = cast(DataFrameT, total_df)
     else:
         if reuse_single_edge_domain:
-            cached_counts = _two_hop_cached_equal_domain_degree_counts(
-                base_graph,
-                nodes,
-                cast(DataFrameT, edges_obj),
+            in_counts, out_counts, illegal_pairs = _two_hop_equal_domain_degree_counts(
                 start_nodes,
                 first_edges,
-                node_match=cast(Optional[dict], start_op.filter_dict),
-                edge_match=cast(Optional[dict], first_edge.edge_match),
                 node_col=node_col,
                 src_col=src_col,
                 dst_col=dst_col,
                 engine=requested_engine,
             )
-            if cached_counts is None:
-                domain_ids = start_nodes[node_col].drop_duplicates()
-                domain_edges = first_edges[first_edges[src_col].isin(domain_ids) & first_edges[dst_col].isin(domain_ids)]
-                in_counts = domain_edges.groupby(dst_col, sort=False).size().reset_index(name="__in_count__")
-                out_counts = domain_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__")
-            else:
-                in_counts, out_counts = cached_counts
         else:
             start_ids = start_nodes[node_col].drop_duplicates()
             middle_ids = middle_nodes[node_col].drop_duplicates()
             end_ids = end_nodes[node_col].drop_duplicates()
             in_edges = first_edges[first_edges[src_col].isin(start_ids) & first_edges[dst_col].isin(middle_ids)]
             out_edges = second_edges[second_edges[src_col].isin(middle_ids) & second_edges[dst_col].isin(end_ids)]
-            in_counts = in_edges.groupby(dst_col, sort=False).size().reset_index(name="__in_count__")
-            out_counts = out_edges.groupby(src_col, sort=False).size().reset_index(name="__out_count__")
+            in_counts = in_edges.groupby(dst_col, sort=False).size().reset_index(name=_TWO_HOP_IN_COUNT_COL)
+            out_counts = out_edges.groupby(src_col, sort=False).size().reset_index(name=_TWO_HOP_OUT_COUNT_COL)
         joined = in_counts.merge(out_counts, left_on=dst_col, right_on=src_col, how="inner")
-        total = int((joined["__in_count__"] * joined["__out_count__"]).sum()) if len(joined) else 0
-        out_nodes = df_to_engine(pd.DataFrame({alias: [total]}), requested_engine)
+        total = int((joined[_TWO_HOP_IN_COUNT_COL] * joined[_TWO_HOP_OUT_COUNT_COL]).sum()) if len(joined) else 0
+        out_nodes = df_to_engine(pd.DataFrame({alias: [total - illegal_pairs]}), requested_engine)
 
     out = base_graph.bind()
     out._nodes = out_nodes
@@ -3188,8 +3544,7 @@ def _execute_seeded_typed_hop_fast_path(
     assert projection is not None  # narrowed by the gate above
     # Lean projection: p_rows already IS the RETURN-alias (destination) node set.
     # Tag with the alias and reuse apply_result_projection for the exact
-    # column-order/flatten semantics — all on a handful of rows, so seeded cypher
-    # stays sub-ms (vs the ~25ms rows-pivot pipeline on the full graph).
+    # column-order/flatten semantics.
     if is_polars:
         import polars as pl
         tagged = p_rows.with_columns(pl.lit(True).alias(projection.alias))

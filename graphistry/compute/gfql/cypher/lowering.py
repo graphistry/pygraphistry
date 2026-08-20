@@ -63,6 +63,15 @@ from graphistry.compute.predicates.is_in import is_in
 from graphistry.compute.predicates.logical import all_of
 from graphistry.compute.predicates.str import contains as str_contains, endswith, fullmatch, never_match, startswith
 from graphistry.compute.gfql.cypher.parser import _mask_quoted_backticked_and_commented_for_scan
+from graphistry.compute.gfql.cypher.aggregate_bindings import (
+    is_multiplicity_sensitive_aggregate as _is_multiplicity_sensitive_aggregate,
+    requires_aggregate_bindings as _requires_aggregate_bindings,
+)
+from graphistry.compute.gfql.cypher.aggregate_identity import (
+    aggregate_identity_value,
+    apply_ungrouped_aggregate_identity,
+    identity_row_after_paging,
+)
 from graphistry.compute.gfql.language_defs import GFQL_AGGREGATION_FUNCTIONS
 from graphistry.compute.gfql.expr_parser import (
     BinaryOp,
@@ -146,9 +155,18 @@ from graphistry.compute.gfql.temporal.folding import (
     fold_temporal_constructor_ast,
     rewrite_temporal_constructors_in_expr,
 )
-from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN, WhereComparison, col, compare, where_to_row_expr
-from graphistry.compute.gfql.cypher.reentry import naming as _reentry_naming
-from graphistry.compute.gfql.cypher.reentry import scope as _reentry_scope
+from graphistry.compute.gfql.row.entity_props import LABEL_FLAG_PREFIX
+from graphistry.compute.gfql.same_path_types import (
+    EDGE_IDENTITY_COLUMN,
+    NODE_IDENTITY_COLUMN,
+    WhereComparison,
+    col,
+    compare,
+    where_to_row_expr,
+)
+from graphistry.compute.gfql.cypher.reentry import naming as _reentry_naming, scope as _reentry_scope
+from graphistry.compute.gfql.cypher.ast import CypherParams
+from graphistry.compute.gfql.identifiers import shortest_path_hops_column
 
 
 @dataclass(frozen=True)
@@ -494,6 +512,7 @@ _CYPHER_CHAINED_COMPARISON_RE = re.compile(
     re.DOTALL,
 )
 _CYPHER_AGGREGATES = frozenset({"count", "sum", "min", "max", "avg", "collect"})
+_CYPHER_UNSUPPORTED_AGGREGATES = frozenset({"stdev", "stdevp", "percentilecont", "percentiledisc"})
 _CYPHER_BARE_WHERE_GROUPED_ALIAS_RE = re.compile(r"^\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)$")
 
 
@@ -1032,6 +1051,11 @@ def _validate_cypher_expr_constraints(
         )
 
     def _enter(current: ExprNode) -> None:
+        if isinstance(current, FunctionCall) and current.name.lower() in _CYPHER_UNSUPPORTED_AGGREGATES:
+            _raise(
+                "Cypher aggregate function is not supported by the local compiler "
+                f"(supported: {', '.join(sorted(_CYPHER_AGGREGATES))})"
+            )
         if isinstance(current, ExprLiteral) and isinstance(current.value, int) and not isinstance(current.value, bool):
             if current.value < _CYPHER_INT64_MIN or current.value > _CYPHER_INT64_MAX:
                 _raise("Cypher integer literal is out of the supported 64-bit range")
@@ -1269,7 +1293,7 @@ def _connected_join_alias_identity_expr(
             return PropertyAccessExpr(_rewrite(node_in.value), node_in.property)
         if isinstance(node_in, Identifier) and "." not in node_in.name and node_in.name in alias_targets:
             target = alias_targets[node_in.name]
-            prop = NODE_IDENTITY_COLUMN if isinstance(target, ASTNode) else "__gfql_edge_index_0__"
+            prop = NODE_IDENTITY_COLUMN if isinstance(target, ASTNode) else EDGE_IDENTITY_COLUMN
             return PropertyAccessExpr(Identifier(node_in.name), prop)
         return _rebuild_expr_node(node_in, rewrite=_rewrite, error_context="connected join identity rewrite")
 
@@ -2051,6 +2075,28 @@ def _aggregate_spec_from_function_call(
     )
 
 
+def _aggregate_shape_needs_null_extension_this_lowering_lacks(
+    item_aggregate_specs: Sequence[Optional["_AggregateSpec"]],
+    item_post_aggregate_plans: Sequence[Optional[Tuple[List["_AggregateSpec"], "_PostAggregateExprPlan"]]],
+) -> bool:
+    """Grouped shapes (their group rows vanish) or ``count(*)`` (the null row itself counts)."""
+    has_group_keys = any(
+        spec is None and plan_entry is None
+        for spec, plan_entry in zip(item_aggregate_specs, item_post_aggregate_plans)
+    )
+    all_aggregate_specs = [spec for spec in item_aggregate_specs if spec is not None] + [
+        inner_spec
+        for plan_entry in item_post_aggregate_plans
+        if plan_entry is not None
+        for inner_spec in plan_entry[0]
+    ]
+    has_count_star = any(
+        spec.func == "count" and spec.expr_text is None and not spec.distinct
+        for spec in all_aggregate_specs
+    )
+    return has_group_keys or has_count_star
+
+
 def _post_aggregate_expr_plan(
     item: ReturnItem,
     *,
@@ -2115,15 +2161,10 @@ def _post_aggregate_expr_plan(
 
 
 def _empty_aggregate_row(aggregate_specs: Sequence[_AggregateSpec]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
-    for agg_spec in aggregate_specs:
-        if agg_spec.func in {"count"}:
-            out[agg_spec.output_name] = 0
-        elif agg_spec.func == "collect":
-            out[agg_spec.output_name] = []
-        else:
-            out[agg_spec.output_name] = None
-    return out
+    return {
+        agg_spec.output_name: aggregate_identity_value(agg_spec.func)
+        for agg_spec in aggregate_specs
+    }
 
 
 class _SyntheticRowGraph:
@@ -2283,7 +2324,7 @@ def _clause_has_mixed_aggregate_item(
     an aggregate in ONE expression (e.g. ``me.age + count(you.age)``). Such compound
     cross-source items have ambiguous multiplicity and must keep the conservative
     fail-fast; a clean split (``c.city`` and ``avg(p.age)`` as separate items) does
-    not trip this (#1273 / rejects-unsound-multi-source-overlap contract)."""
+    not trip this (rejects-unsound-multi-source-overlap contract)."""
     return_clause = query.return_
     exprs: List[Tuple[str, int, int]] = []
     if return_clause is not None:
@@ -2338,7 +2379,7 @@ def _binding_prop_alias_set(
     alias_targets: Mapping[str, ASTObject],
     params: Optional[Mapping[str, Any]],
 ) -> Optional[List[str]]:
-    """#1711 projection-pushdown: node aliases whose PROPERTIES are referenced by
+    """Projection-pushdown: node aliases whose PROPERTIES are referenced by
     the RETURN/ORDER BY, so the binding builders can skip property joins for the
     rest (e.g. ``count(*)`` needs none; ``count(a)`` needs only a's bare id column).
 
@@ -2367,7 +2408,7 @@ def _binding_prop_alias_set(
 
     # A repeated node alias (e.g. `MATCH (n)-[:LOOP]->(n)`) enforces n==n via hidden
     # bound-identity columns (`n.__gfql_node_id__`) that a RETURN-text walk can't see —
-    # skipping n's property join would drop them. Bail on any repeat (#1490).
+    # skipping n's property join would drop them. Bail on any repeat.
     try:
         node_vars = [
             el.variable
@@ -2507,16 +2548,6 @@ def _validate_aggregate_expr_scope(
     )
 
 
-def _is_multiplicity_sensitive_aggregate(agg_spec: _AggregateSpec) -> bool:
-    if agg_spec.func in {"sum", "avg"}:
-        return True
-    if agg_spec.func == "collect":
-        return True
-    if agg_spec.func == "count":
-        return not agg_spec.distinct
-    return False
-
-
 def _collect_aggregate_specs_for_clause(
     clause: ReturnClause,
     *,
@@ -2542,19 +2573,109 @@ def _collect_aggregate_specs_for_clause(
     return aggregate_specs
 
 
-def _requires_relationship_multiplicity_bindings(
-    *,
-    aggregate_specs: Sequence[_AggregateSpec],
-    relationship_count: int,
-) -> bool:
-    return relationship_count > 0 and any(
-        _is_multiplicity_sensitive_aggregate(spec)
-        for spec in aggregate_specs
-    )
-
-
 def _match_relationship_count(clause: MatchClause) -> int:
     return sum(1 for element in _match_pattern_elements(clause) if isinstance(element, RelationshipPattern))
+
+
+def _binds_one_route_per_pair_undirected(clause: MatchClause) -> bool:
+    """Undirected unbounded arm under shortestPath/allShortestPaths, whose one-route-per-
+    endpoint-pair cardinality binding rows cannot reproduce. Plain ``-[*]-`` is not one."""
+    kinds = _match_pattern_alias_kinds(clause)
+    for index, pattern in enumerate(clause.patterns):
+        if index < len(kinds) and kinds[index] == "pattern":
+            continue
+        for element in pattern:
+            if isinstance(element, RelationshipPattern) and (
+                getattr(element, "to_fixed_point", False)
+                and element.direction == "undirected"
+            ):
+                return True
+    return False
+
+
+def _forces_relationship_multiplicity_projection_bindings(
+    query: CypherQuery,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    relationship_count: int,
+    items: Sequence[ReturnItem],
+    order_by: Optional[OrderByClause],
+) -> bool:
+    """Non-aggregate projections over relationship patterns run on binding rows:
+    the per-alias node table collapses row multiplicity (bag semantics).
+
+    Scope: every projected/ordered expression must be either alias-free or a
+    bare ``node_alias.prop`` ref -- whole-row refs, edge-alias refs, and
+    function-wrapped alias refs (``keys(r)``, entity markers) keep the
+    conservative source-table path; variable-length arms are excluded."""
+    if relationship_count <= 0 or not alias_targets:
+        return False
+    if any(clause.optional for clause in query.matches):
+        return False
+    if not all(isinstance(target, (ASTNode, ASTEdge)) for target in alias_targets.values()):
+        return False
+    if any(_binds_one_route_per_pair_undirected(clause) for clause in query.matches):
+        return False
+    texts = [item.expression.text for item in items]
+    if order_by is not None:
+        texts.extend(order_item.expression.text for order_item in order_by.items)
+    saw_node_prop_ref = False
+    referenced_aliases: Set[str] = set()
+    for text in texts:
+        stripped = text.strip()
+        if stripped == "*" or stripped in alias_targets:
+            return False
+        tokens = {
+            tok for tok in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", stripped)
+            if tok in alias_targets
+        }
+        if not tokens:
+            continue
+        bare = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)\.[A-Za-z_][A-Za-z0-9_]*", stripped)
+        if bare is None or bare.group(1) not in alias_targets:
+            return False
+        if not isinstance(alias_targets[bare.group(1)], ASTNode):
+            return False
+        referenced_aliases.add(bare.group(1))
+        saw_node_prop_ref = True
+    if not saw_node_prop_ref:
+        return False
+    if _seeded_typed_hop_reduction_is_value_correct(
+        query, alias_targets=alias_targets, referenced_aliases=referenced_aliases
+    ):
+        return False
+    return True
+
+
+def _seeded_typed_hop_reduction_is_value_correct(
+    query: CypherQuery,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    referenced_aliases: AbstractSet[str],
+) -> bool:
+    """A selectively-seeded single-hop pattern projecting only destination props, which
+    the seeded typed-hop fast path already answers without binding rows."""
+    if len(query.matches) != 1 or len(query.matches[0].patterns) != 1:
+        return False
+    pattern = query.matches[0].patterns[0]
+    if not (
+        len(pattern) == 3
+        and isinstance(pattern[0], NodePattern)
+        and isinstance(pattern[1], RelationshipPattern)
+        and pattern[1].min_hops is None
+        and pattern[1].max_hops is None
+        and not getattr(pattern[1], "to_fixed_point", False)
+        and isinstance(pattern[2], NodePattern)
+    ):
+        return False
+    seed_alias = pattern[0].variable
+    dest_alias = pattern[2].variable
+    seed_target = alias_targets.get(seed_alias) if seed_alias is not None else None
+    seed_filter = getattr(seed_target, "filter_dict", None)
+    has_selective_seed = seed_filter is not None and any(
+        not str(key).startswith(LABEL_FLAG_PREFIX) for key in seed_filter
+    )
+    return has_selective_seed and dest_alias is not None and referenced_aliases <= {dest_alias}
 
 
 def _is_pure_count_star_shortcircuit(
@@ -2703,6 +2824,42 @@ def _return_references_optional_only_alias(
         if referenced & optional_only_aliases:
             return True
     return False
+
+
+def _return_references_only_bound_aliases(
+    query: CypherQuery,
+    *,
+    alias_targets: Mapping[str, ASTObject],
+    params: Optional[CypherParams] = None,
+    bound_nullable_aliases: Optional[AbstractSet[str]] = None,
+) -> bool:
+    """True when every RETURN item references only non-optional-bound aliases."""
+    if not any(clause.optional for clause in query.matches) or not any(not clause.optional for clause in query.matches):
+        return False
+    bound_aliases = {
+        alias
+        for clause in query.matches
+        if not clause.optional
+        for alias in _match_clause_aliases_raw(clause)
+    }
+    if bound_nullable_aliases:
+        bound_aliases -= set(bound_nullable_aliases)
+    if not bound_aliases:
+        return False
+    for item in query.return_.items:
+        if item.expression.text == "*":
+            return False
+        referenced = _expr_match_aliases(
+            item.expression.text,
+            alias_targets=alias_targets,
+            params=params,
+            field=query.return_.kind,
+            line=item.span.line,
+            column=item.span.column,
+        )
+        if not referenced or not referenced <= bound_aliases:
+            return False
+    return True
 
 
 def _where_uses_optional_only_label_predicate(
@@ -2957,10 +3114,13 @@ def _filter_dict_from_entries(
     for entry in properties:
         if isinstance(entry.value, ExpressionText):
             continue
-        out[entry.key] = _resolve_literal(
-            entry.value,
-            params=params,
-            field=f"{field_prefix}.{entry.key}",
+        out[entry.key] = _predicate_value(
+            "==",
+            _resolve_literal(
+                entry.value,
+                params=params,
+                field=f"{field_prefix}.{entry.key}",
+            ),
         )
     return out or None
 
@@ -3792,6 +3952,13 @@ def _set_target_filter_dict(target: ASTObject, filter_dict: Dict[str, Any]) -> N
 
 
 def _predicate_value(op: str, value: Any) -> Any:
+    if isinstance(value, (list, tuple, set, frozenset, dict)):
+        # openCypher (#1905): a scalar property is never EQUAL to a list/map, and a
+        # filter_dict list means membership -- so `= $list` must not push as one.
+        if op == "==":
+            return never_match()
+        if op == "!=":
+            return notna()
     if op == "==":
         return value
     if op == "!=":
@@ -3853,6 +4020,39 @@ def _alias_table(
     )
 
 
+def _reject_order_by_aggregate(
+    item: Any,  # hygiene-ok: explicit-any -- OrderByItem, imported only under TYPE_CHECKING here
+    *,
+    expr_text: str,
+    params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- Cypher params mapping, module-wide idiom
+) -> None:
+    """openCypher (and Neo4j) reject an aggregate INTRODUCED by ORDER BY: the sort
+    runs after aggregation, so there is nothing left to aggregate over. Raised at
+    compile time as GFQLValidationError [unsupported-cypher-query] on BOTH engines
+    (#1909 item 4). Callers pass the expression AFTER rewriting projected outputs,
+    so `ORDER BY count(*)` / `ORDER BY age + count(*)` alongside `count(*) AS cnt`
+    still resolve to the projected column and are unaffected."""
+    try:
+        node = _parse_row_expr(
+            expr_text,
+            params=params,
+            allow_missing_params=True,
+            field="order_by",
+            line=item.span.line,
+            column=item.span.column,
+        )
+    except GFQLValidationError:
+        return
+    if _contains_aggregate_call(node):
+        raise _unsupported(
+            "Cypher ORDER BY cannot introduce an aggregate function; project it in RETURN/WITH and order by that output",
+            field="order_by",
+            value=item.expression.text,
+            line=item.span.line,
+            column=item.span.column,
+        )
+
+
 def _lower_order_by_clause(
     clause: OrderByClause,
     *,
@@ -3865,6 +4065,7 @@ def _lower_order_by_clause(
     keys: List[Tuple[str, str]] = []
     projection_output_names = _projection._projection_output_names(plan)
     for item in clause.items:
+        _reject_order_by_aggregate(item, expr_text=item.expression.text, params=params)
         try:
             alias_name, prop = _projection._projection_ref_from_expr(
                 item.expression.text,
@@ -3919,7 +4120,7 @@ def _lower_order_by_clause(
                         "ORDER BY expressions must reference the active RETURN/WITH source alias",
                         field="order_by",
                         value=item.expression.text,
-                        suggestion=f"Use columns from alias '{plan.source_alias}' only in this phase.",
+                        suggestion=f"Use columns from alias '{plan.source_alias}' only in this phase, or project the property as an output alias and order by that (e.g. RETURN {item.expression.text} AS sort_key ... ORDER BY sort_key), which sorts with openCypher null placement.",
                         line=item.span.line,
                         column=item.span.column,
                         language="cypher",
@@ -3955,7 +4156,7 @@ def _lower_order_by_clause(
                     "ORDER BY expressions must reference the active RETURN/WITH source alias",
                     field="order_by",
                     value=item.expression.text,
-                    suggestion=f"Use columns from alias '{plan.source_alias}' only in this phase.",
+                    suggestion=f"Use columns from alias '{plan.source_alias}' only in this phase, or project the property as an output alias and order by that (e.g. RETURN {item.expression.text} AS sort_key ... ORDER BY sort_key), which sorts with openCypher null placement.",
                     line=item.span.line,
                     column=item.span.column,
                     language="cypher",
@@ -4025,6 +4226,7 @@ def _lower_order_by_outputs(
                 line=item.span.line,
                 column=item.span.column,
             )
+            _reject_order_by_aggregate(item, expr_text=order_key, params=params)
         if order_key not in available_columns:
             node = _parse_row_expr(
                 order_key,
@@ -4076,6 +4278,23 @@ def _append_page_ops_values(
                 )
             )
         )
+
+
+def _query_page_value(
+    clause: Optional[Any],  # hygiene-ok: explicit-any -- SkipClause | LimitClause, structurally identical
+    *,
+    params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- Cypher params mapping, module-wide idiom
+    field: str,
+) -> Optional[int]:
+    if clause is None:
+        return None
+    return _resolve_page_value(
+        clause.value,
+        params=params,
+        field=field,
+        line=clause.span.line,
+        column=clause.span.column,
+    )
 
 
 def _append_page_ops(
@@ -4223,6 +4442,36 @@ def _lift_search_any_from_row_where(
     return new_text, calls
 
 
+def _append_shortest_path_plain_match_filter(
+    row_steps: List[ASTObject],
+    *,
+    query: CypherQuery,
+    params: Optional[Mapping[str, Any]],  # hygiene-ok: explicit-any -- Cypher params mapping, module-wide idiom
+    binding_rows_active: bool,
+) -> None:
+    """openCypher: a PLAIN-MATCH shortestPath with no path drops the row; only
+    OPTIONAL MATCH null-extends. The SP binding runtime left-joins (per-pair
+    null hops), so plain MATCH filters null-hop rows out here."""
+    if not binding_rows_active or not _query_has_shortest_path_patterns(query):
+        return
+    if any(clause.optional for clause in query.matches):
+        return
+    for spec in _shortest_path_alias_specs(query).values():
+        if spec.end_alias is None:
+            continue
+        expr_text = f"{spec.end_alias}.{spec.hop_column} IS NOT NULL"
+        row_steps.append(
+            where_rows(
+                expr=_row_expr_arg(
+                    ExpressionText(text=expr_text, span=query.return_.span),
+                    params=params,
+                    alias_targets={},
+                    field="where",
+                )
+            )
+        )
+
+
 def _append_match_row_where(
     row_steps: List[ASTObject],
     *,
@@ -4321,8 +4570,22 @@ def _lower_projection_chain(
             if not _projection._can_lower_multi_alias_projection_bindings(plan, alias_targets=alias_targets):
                 raise _multi_alias_exc
 
+    merged_match = _merged_match_clause(query)
+    force_multiplicity_bindings = (
+        plan.all_source_aliases is None
+        and not plan.whole_row_output_names
+        and _forces_relationship_multiplicity_projection_bindings(
+            query,
+            alias_targets=alias_targets,
+            relationship_count=_match_relationship_count(merged_match) if merged_match is not None else 0,
+            items=query.return_.items,
+            order_by=query.order_by,
+        )
+    )
     allowed_match_aliases = ({plan.source_alias} | plan.all_source_aliases | binding_row_aliases) if plan.all_source_aliases is not None else binding_row_aliases
-    if plan.all_source_aliases is not None or pre_scope_binding_row_aliases or lowered.row_pre_filters:
+    if force_multiplicity_bindings:
+        allowed_match_aliases = allowed_match_aliases | set(alias_targets.keys())
+    if plan.all_source_aliases is not None or force_multiplicity_bindings or pre_scope_binding_row_aliases or lowered.row_pre_filters:
         row_steps: List[ASTObject] = [rows(binding_ops=serialize_binding_ops(lowered.query))]
     else:
         row_steps = [rows(table=plan.table, source=plan.source_alias)]
@@ -4333,6 +4596,12 @@ def _lower_projection_chain(
         active_alias=plan.source_alias,
         allowed_match_aliases=(allowed_match_aliases | pre_scope_binding_row_aliases) or None,
         params=params,
+    )
+    _append_shortest_path_plain_match_filter(
+        row_steps,
+        query=query,
+        params=params,
+        binding_rows_active=bool(binding_row_aliases),
     )
 
     if not plan.whole_row_output_names:
@@ -4377,7 +4646,7 @@ def _build_initial_row_scope(
         params=params,
         alias_targets=alias_targets,
     )
-    # Admit first-stage multi-alias non-aggregate WITH projections (shape A, #1273)
+    # Admit first-stage multi-alias non-aggregate WITH projections (shape A)
     # by routing through the bindings-row path when multiple MATCH node aliases are
     # referenced together in scalar expressions.
     stage_has_aggregates = bool(stage_aggregate_specs)
@@ -4410,7 +4679,7 @@ def _build_initial_row_scope(
         ):
             binding_row_aliases.update(stage_non_aggregate_refs)
     # For connected non-cartesian MATCH, allow first-stage multi-whole-row node
-    # projections to use bindings rows (#880 / #1393).
+    # projections to use bindings rows.
     if not binding_row_aliases:
         binding_row_aliases.update(
             _binding_row_aliases_for_multi_alias_whole_row_node_projection(
@@ -4419,9 +4688,24 @@ def _build_initial_row_scope(
                 alias_targets=alias_targets,
             )
         )
-    if _requires_relationship_multiplicity_bindings(
+    if (
+        not binding_row_aliases
+        and not stage_has_aggregates
+        and _forces_relationship_multiplicity_projection_bindings(
+            query,
+            alias_targets=alias_targets,
+            relationship_count=relationship_count,
+            items=stage_clause.items,
+            order_by=stage_order_by,
+        )
+    ):
+        binding_row_aliases = set(alias_targets.keys())
+    if _requires_aggregate_bindings(
         aggregate_specs=stage_aggregate_specs,
         relationship_count=relationship_count,
+        clause=stage_clause,
+        alias_targets=alias_targets,
+        params=params,
     ):
         return_has_whole_row_alias = any(
             item.expression.text in alias_targets
@@ -4511,6 +4795,12 @@ def _build_initial_row_scope(
         active_alias=active_match_alias,
         allowed_match_aliases=binding_row_aliases or None,
         params=params,
+    )
+    _append_shortest_path_plain_match_filter(
+        row_steps,
+        query=query,
+        params=params,
+        binding_rows_active=bool(binding_row_aliases),
     )
 
     unwind_aliases: Set[str] = set()
@@ -4632,7 +4922,7 @@ def _lower_match_alias_stage(
     elif scope.allowed_match_aliases and plan.projection_items:
         # Mixed case: whole-row aliases + scalar items on a bindings-row table.
         # Use extend mode to add scalar columns without dropping the existing
-        # alias-prefixed bindings columns (#880).
+        # alias-prefixed bindings columns.
         row_steps.append(with_(plan.projection_items, extend=True))
     if stage.clause.distinct:
         row_steps.append(distinct())
@@ -4757,7 +5047,7 @@ def _lower_match_alias_aggregate_stage(
     projection_fn = with_ if stage.clause.kind == "with" else return_
     # On the bindings-row path (allowed_match_aliases populated), the row
     # table preserves per-row multiplicity from the MATCH, so relationship-
-    # count aggregation guards do not apply (#880).
+    # count aggregation guards do not apply.
     if not scope.allowed_match_aliases:
         _reject_unsound_relationship_multiplicity_aggregates_common(
             aggregate_specs=aggregate_specs,
@@ -5379,7 +5669,17 @@ def _lower_row_only_sequence_with_scope(
         stage_steps, scope = _lower_row_column_stage(item, scope=scope, params=params)
         row_steps.extend(stage_steps)
 
-    return CompiledCypherQuery(Chain(row_steps), seed_rows=seed_rows, procedure_call=procedure_call)
+    empty_result_row = apply_ungrouped_aggregate_identity(row_steps)
+    return CompiledCypherQuery(
+        Chain(row_steps),
+        seed_rows=seed_rows,
+        procedure_call=procedure_call,
+        post_processing=_normalize_post_processing(
+            CompiledCypherPostProcessing(
+                empty_result_row=empty_result_row,
+            )
+        ),
+    )
 
 
 def _lower_row_only_sequence(
@@ -5962,7 +6262,7 @@ def _shortest_path_relationship_hop_columns(clause: MatchClause) -> Dict[Tuple[i
             if isinstance(element, RelationshipPattern):
                 span = element.span
                 out[(span.line, span.column, span.end_line, span.end_column, span.start_pos, span.end_pos)] = (
-                    f"__cypher_shortest_path_hops__{alias}"
+                    shortest_path_hops_column(alias)
                 )
     return out
 
@@ -6073,6 +6373,87 @@ def _reject_variable_length_path_alias_references(
         ),
         include_reentry_wheres=True,
     )
+
+
+def _pattern_entity_alias_kinds(query: CypherQuery) -> Dict[str, str]:
+    """Leading-MATCH alias -> entity kind ("node" / "edge" / "path").
+
+    Deliberately excludes ``reentry_matches``: those run AFTER the WITH stages, so a
+    reentry pattern alias is a CONSUMER of a WITH output (``WITH a AS x MATCH (x)-->(b)``),
+    not a competing binding the WITH could shadow.
+    """
+    kinds: Dict[str, str] = {}
+    for clause in query.matches:
+        for alias in clause.pattern_aliases or ():
+            if isinstance(alias, str):
+                kinds[alias] = "path"
+        for pattern in clause.patterns:
+            for element in pattern:
+                variable = getattr(element, "variable", None)
+                if not isinstance(variable, str):
+                    continue
+                kinds[variable] = "edge" if isinstance(element, RelationshipPattern) else "node"
+    return kinds
+
+
+def _entity_alias_kinds_not_shadowed_by_unwind(query: CypherQuery) -> Dict[str, str]:
+    """Pattern entity aliases, minus those an UNWIND rebinds to a scalar."""
+    pattern_aliases = _pattern_entity_alias_kinds(query)
+    for unwind_clause in query.unwinds:
+        pattern_aliases.pop(unwind_clause.alias, None)
+    return pattern_aliases
+
+
+def _reject_with_rebind_onto_live_alias(query: CypherQuery) -> None:
+    """Decline ``WITH x AS y`` when ``y`` also names a MATCH pattern alias.
+
+    openCypher WITH projections are SIMULTANEOUS and open a new scope, so ``WITH a AS b``
+    rebinds ``b`` to ``a``'s entity and ``WITH a AS b, b AS a`` swaps them. Local lowering
+    has no whole-entity alias renaming at all -- ``WITH a AS fresh`` already declines with
+    "Unknown Cypher alias 'fresh'" -- but when the target name is also a pattern alias,
+    nothing declined: downstream resolution reads the query-global pattern binding, so the
+    renamed alias took its ROWS from the source and its PROPERTIES from the shadowed
+    pattern alias. Decline rather than answer wrongly, as the fresh-name case already does.
+
+    Scope-narrowing does NOT re-open the name: ``WITH a WITH a AS b`` is legal openCypher
+    (the first WITH drops ``b``) but lowering's ``alias_targets`` is query-global, so ``b``
+    still resolves to the pattern binding there too -- hence the guard keys off the pattern
+    aliases of the whole query, not the per-stage live set.
+    """
+    pattern_aliases = _entity_alias_kinds_not_shadowed_by_unwind(query)
+    if not pattern_aliases:
+        return
+    for stage in query.with_stages:
+        clause = stage.clause
+        if clause.kind != "with":
+            continue
+        for item in clause.items:
+            source = item.expression.text.strip()
+            source_kind = pattern_aliases.get(source)
+            if source_kind is None:
+                # Not a bare entity alias: a scalar column, which openCypher lets shadow freely.
+                continue
+            if item.alias is None or item.alias == source:
+                continue
+            if pattern_aliases.get(item.alias) != source_kind:
+                # Cross-kind rebinds are the binder's; a fresh name already declines downstream.
+                continue
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "Cypher WITH cannot yet rebind an entity alias onto another alias bound by the "
+                "MATCH pattern in the local compiler",
+                field=f"{clause.kind}.items",
+                value=f"{source} AS {item.alias}",
+                suggestion=(
+                    f"openCypher WITH projections are simultaneous, so '{source} AS {item.alias}' "
+                    f"would rebind '{item.alias}' to '{source}'. Carry the alias unrenamed "
+                    f"(WITH {source}) and project its properties, or rename to a name that no "
+                    f"MATCH pattern binds."
+                ),
+                line=item.span.line,
+                column=item.span.column,
+                language="cypher",
+            )
 
 
 def _reject_variable_length_relationship_alias_path_carriers(
@@ -6372,6 +6753,7 @@ def lower_match_query(
     query = normalizer.rewrite_shortest_path(query)
     _reject_unsupported_where_expr_forms(query)
     _reject_variable_length_path_alias_references(query, params=params)
+    _reject_with_rebind_onto_live_alias(query)
     merged_match = _merged_match_clause(query)
     if merged_match is None:
         raise _unsupported(
@@ -6471,6 +6853,16 @@ def lower_match_query(
                     if row_predicate_expr is not None:
                         row_where_predicates.append(row_predicate_expr)
                         continue
+                from graphistry.compute.gfql.same_path_types import SUPPORTED_WHERE_OPS as _SP_OPS
+                if predicate.op not in _SP_OPS:
+                    # The same-path WHERE carries comparisons only; anything else declines.
+                    raise _unsupported(
+                        f"Cypher cross-property '{predicate.op}' predicates between two aliases are not yet supported in the local compiler",
+                        field="where",
+                        value=predicate.op,
+                        line=predicate.span.line,
+                        column=predicate.span.column,
+                    )
                 where_out.append(
                     compare(
                         col(cast(PropertyRef, predicate.left).alias, cast(PropertyRef, predicate.left).property),
@@ -6479,6 +6871,11 @@ def lower_match_query(
                     )
                 )
                 continue
+            if _is_zoned_iso_temporal_comparison(predicate):
+                zoned_row_expr = _row_where_predicate_text(predicate)
+                if zoned_row_expr is not None:
+                    row_where_predicates.append(zoned_row_expr)
+                    continue
             _apply_literal_where(
                 alias_targets,
                 left=cast(PropertyRef, predicate.left),
@@ -6535,6 +6932,23 @@ def _render_row_where_operand_text(value: Union[PropertyRef, CypherLiteral]) -> 
     return str(value)
 
 
+_ZONED_ISO_TEMPORAL_TEXT_RE = re.compile(
+    r"^(?:\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?|\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)"
+    r"(?:Z|[+-]\d{2}:?\d{2})$"
+)
+
+
+def _is_zoned_iso_temporal_comparison(predicate: WherePredicate) -> bool:
+    """Comparison against tz-suffixed ISO temporal TEXT: keep it a ``where_rows``
+    residual. Pushed down, the raw pandas compare raises on a naive datetime
+    column and its equality silently matches zero rows; the row pipeline's
+    temporal path compares instants on both column shapes."""
+    if predicate.op not in {"==", "!=", "<>", "<", "<=", ">", ">="}:
+        return False
+    right = predicate.right
+    return isinstance(right, str) and _ZONED_ISO_TEMPORAL_TEXT_RE.match(right) is not None
+
+
 def _row_where_predicate_text(predicate: WherePredicate) -> Optional[str]:
     if isinstance(predicate.left, LabelRef):
         return None
@@ -6576,7 +6990,7 @@ def _distinct_aggregate_expr_text(
                 line=agg_spec.span_line,
                 column=agg_spec.span_column,
             )
-        return "__gfql_edge_index_0__"
+        return EDGE_IDENTITY_COLUMN
     return expr_text
 
 
@@ -6642,7 +7056,7 @@ def _whole_row_group_key_expr(
     if isinstance(target, ASTNode):
         return NODE_IDENTITY_COLUMN
     if isinstance(target, ASTEdge):
-        return "__gfql_edge_index_0__"
+        return EDGE_IDENTITY_COLUMN
     raise _unsupported(
         "Cypher aggregate whole-row grouping requires a node or edge alias",
         field=field,
@@ -6701,9 +7115,12 @@ def _lower_general_row_projection(
 
     binding_row_aliases = _binding_row_aliases_for_match(query.match, alias_targets=alias_targets)
     forced_binding_row_aliases = False
-    if _requires_relationship_multiplicity_bindings(
+    if _requires_aggregate_bindings(
         aggregate_specs=aggregate_specs,
         relationship_count=relationship_count,
+        clause=query.return_,
+        alias_targets=alias_targets,
+        params=params,
     ):
         base_active_alias: Optional[str] = None
         can_force_bindings = True
@@ -6780,13 +7197,12 @@ def _lower_general_row_projection(
                     continue
                 if len(refs) > 1 or (len(refs) == 1 and base_active_alias not in refs):
                     # An aggregate over a pattern alias other than the projection's
-                    # active alias. Two sound, benchmark-relevant shapes are routed to
-                    # the bindings-row table (which materializes every alias, one row
-                    # per matched path); everything else keeps the conservative
-                    # fail-fast (the misleading "one MATCH" error is the residual).
-                    #   (a) #1708: `count(<bare node alias>)` — "matched paths binding
+                    # active alias. Two sound shapes route to the bindings-row table
+                    # (which materializes every alias, one row per matched path);
+                    # everything else keeps the conservative fail-fast.
+                    #   (a): `count(<bare node alias>)` — "matched paths binding
                     #       this node per group" (graph-bench q1 top-k in-degree).
-                    #   (b) #1273: a CLEAN grouped aggregate `func(<alias>.<prop>)`
+                    #   (b): a CLEAN grouped aggregate `func(<alias>.<prop>)`
                     #       (avg/sum/min/max/count) grouped by another alias's property
                     #       (graph-bench q3/q4: `RETURN c.city, avg(p.age)`) — a
                     #       standard GROUP BY, sound on the per-path bindings rows.
@@ -6794,7 +7210,7 @@ def _lower_general_row_projection(
                     # item MIXES a non-aggregate ref with an aggregate in one
                     # expression (`me.age + count(you.age)`), the cross-source
                     # multiplicity is ambiguous — keep the fail-fast (the
-                    # rejects-unsound-multi-source-overlap contract, #1273 tests).
+                    # rejects-unsound-multi-source-overlap contract tests).
                     agg_arg = (agg_spec.expr_text or "").strip()
                     prop_ref = _projection_ref_from_expr_safe(agg_arg, alias_targets)
                     prop_alias = prop_ref[0] if prop_ref is not None else None
@@ -6823,6 +7239,21 @@ def _lower_general_row_projection(
         if can_force_bindings:
             binding_row_aliases = set(alias_targets.keys())
             forced_binding_row_aliases = True
+    if (
+        not forced_binding_row_aliases
+        and not binding_row_aliases
+        and not aggregate_specs
+        and not post_aggregate_items
+        and _forces_relationship_multiplicity_projection_bindings(
+            query,
+            alias_targets=alias_targets,
+            relationship_count=relationship_count,
+            items=query.return_.items,
+            order_by=query.order_by,
+        )
+    ):
+        binding_row_aliases = set(alias_targets.keys())
+        forced_binding_row_aliases = True
     if not forced_binding_row_aliases:
         binding_row_aliases = _apply_bound_scope_membership(
             binding_row_aliases,
@@ -6869,6 +7300,12 @@ def _lower_general_row_projection(
         active_alias=active_match_alias,
         allowed_match_aliases=binding_row_aliases or None,
         params=params,
+    )
+    _append_shortest_path_plain_match_filter(
+        row_steps,
+        query=query,
+        params=params,
+        binding_rows_active=bool(binding_row_aliases),
     )
 
     unwind_aliases: Set[str] = set()
@@ -7275,7 +7712,14 @@ def _lower_general_row_projection(
         if query.return_.distinct:
             row_steps.append(distinct())
 
-    if empty_result_row is None and binding_row_aliases and _query_has_shortest_path_patterns(query):
+    if (
+        empty_result_row is None
+        and binding_row_aliases
+        and _query_has_shortest_path_patterns(query)
+        and any(clause.optional for clause in query.matches)
+    ):
+        # openCypher: only OPTIONAL MATCH null-extends an unreachable
+        # shortestPath; a plain MATCH emits NO row.
         from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter
 
         shortest_specs = _shortest_path_alias_specs(query)
@@ -7301,6 +7745,11 @@ def _lower_general_row_projection(
             )
         )
     _append_page_ops(row_steps, query=query, params=params)
+    empty_result_row = identity_row_after_paging(
+        empty_result_row,
+        skip_value=_query_page_value(query.skip, params=params, field="skip"),
+        limit_value=_query_page_value(query.limit, params=params, field="limit"),
+    )
     exec_steps = row_steps if binding_row_aliases else lowered.query + row_steps
     return CompiledCypherQuery(
         Chain(exec_steps, where=[] if binding_row_aliases else lowered.where),
@@ -7624,6 +8073,29 @@ def _compile_graph_bindings(
     return tuple(compiled)
 
 
+def _clause_has_variable_length_relationship(clause: MatchClause) -> bool:
+    for pat in clause.patterns:
+        for el in pat:
+            if isinstance(el, RelationshipPattern) and (
+                el.min_hops is not None or el.max_hops is not None
+                or el.to_fixed_point
+            ):
+                return True
+    return False
+
+
+def _clause_repeats_a_node_alias(clause: MatchClause) -> bool:
+    """A self-loop like ``(a)-[r]-(a)``: per-clause ``_alias_target`` cannot represent it."""
+    seen_nodes: Set[str] = set()
+    for pat in clause.patterns:
+        for el in pat:
+            if isinstance(el, NodePattern) and el.variable is not None:
+                if el.variable in seen_nodes:
+                    return True
+                seen_nodes.add(el.variable)
+    return False
+
+
 def _is_connected_optional_match_query(query: CypherQuery) -> bool:
     """Detect: 1 non-optional MATCH + 1-or-more OPTIONAL MATCH clauses.
 
@@ -7639,31 +8111,13 @@ def _is_connected_optional_match_query(query: CypherQuery) -> bool:
         return False
     if query.with_stages or query.unwinds or query.call is not None or query.row_sequence:
         return False
-    first = query.matches[0]
-    has_relationship = any(
-        isinstance(el, RelationshipPattern)
-        for pat in first.patterns
-        for el in pat
-    )
-    # For single-node first MATCH, only take this path when there are 3+
-    # matches (multiple optionals) because projection_planning already handles
-    # the 2-match single-node optional-null-fill path.
-    if not has_relationship and len(query.matches) == 2:
+    base_match_is_comma_separated_patterns = len(query.matches[0].patterns) > 1
+    if base_match_is_comma_separated_patterns:
         return False
-    # Reject comma-separated base MATCH patterns (e.g., (a:A), (b:B)) — the
-    # binding_ops mechanism requires a single connected path.
-    if len(first.patterns) > 1:
+    if any(_clause_has_variable_length_relationship(m) for m in query.matches[1:]):
         return False
-    # Reject optional clauses with variable-length relationships — binding_ops
-    # can handle them for the base chain but the join semantics are untested.
-    for m in query.matches[1:]:
-        for pat in m.patterns:
-            for el in pat:
-                if isinstance(el, RelationshipPattern) and (
-                    el.min_hops is not None or el.max_hops is not None
-                    or (el.to_fixed_point if hasattr(el, "to_fixed_point") else False)
-                ):
-                    return False
+    if any(_clause_repeats_a_node_alias(m) for m in query.matches):
+        return False
     return True
 
 
@@ -7920,9 +8374,8 @@ def _connected_join_pushable_value(
     Pushdown is an optimization: anything not exactly representable must stay a
     `where_rows` residual rather than push a filter that means something else.
 
-    - `None` is unrepresentable: `_filter_dict_to_json` drops null-valued entries, so a
-      pushed `nick = null` would vanish on the executor's serialization round-trip and
-      silently return unfiltered rows.
+    - `None` pushes down to a `filter_dict` equality, not to the three-valued-logic
+      comparison Cypher specifies for `nick = null`; the residual owns that meaning.
     - Ordering/inequality ops lower to `NumericASTPredicate`, which admits only int/float
       (`bool` is an `int` subclass but is not a numeric column predicate), so pushing a
       string or bool would raise where the residual answers correctly.
@@ -7949,6 +8402,9 @@ def _connected_join_pushable_value(
     ):
         # The 64-bit literal guard lives on the row-expr path, so pushing an out-of-range
         # int would evade it and reach pandas, which overflows with a raw OverflowError.
+        return False
+    if isinstance(resolved, str) and _ZONED_ISO_TEMPORAL_TEXT_RE.match(resolved) is not None:
+        # tz-suffixed ISO temporal text string-compares wrongly when pushed; the residual compares instants.
         return False
     if op in _CONNECTED_JOIN_STRING_OPS:
         if not isinstance(resolved, str):
@@ -8536,6 +8992,11 @@ def _apply_where_to_ops(
                 )
             )
             continue
+        if _is_zoned_iso_temporal_comparison(predicate):
+            zoned_row_expr = _row_where_predicate_text(predicate)
+            if zoned_row_expr is not None:
+                row_expr_filters.append(ExpressionText(text=zoned_row_expr, span=predicate.span))
+                continue
         _apply_literal_where(
             alias_targets,
             left=cast(PropertyRef, predicate.left),
@@ -8551,12 +9012,17 @@ def _compile_connected_optional_match(
     *,
     params: Optional[Mapping[str, Any]] = None,
     semantic_entity_kinds: Optional[Mapping[str, Literal["node", "edge", "scalar"]]] = None,
-) -> CompiledCypherQuery:
+    post_join_row_filter: Optional[ExpressionText] = None,
+) -> Optional[CompiledCypherQuery]:
     """Compile a MATCH + N OPTIONAL MATCH query.
 
     Lowers each clause independently, builds one arm per OPTIONAL MATCH for
     chained left-outer-joins at runtime, and delegates RETURN / ORDER BY /
     SKIP / LIMIT to the standard row pipeline.
+
+    Returns None to DEFER to the general lowering for sub-shapes it serves
+    better (post-aggregate expressions; the 2-match single-node-seed
+    whole-row null-fill path).
     """
     from graphistry.compute.gfql.cypher import projection_planning as _projection
 
@@ -8668,29 +9134,106 @@ def _compile_connected_optional_match(
     except GFQLValidationError:
         active = next(iter(combined_alias_targets)) if combined_alias_targets else None
 
-    plan = _projection._build_projection_plan(
-        query.return_,
-        alias_targets=combined_alias_targets,
-        active_alias=active,
-        params=params,
-        semantic_entity_kinds=semantic_entity_kinds,
-    )
-
-    post_join_ops: List[ASTObject] = []
-    if not plan.whole_row_output_names:
-        post_join_ops.append(return_(plan.projection_items))
-    if query.return_.distinct:
-        post_join_ops.append(distinct())
-    if query.order_by is not None:
-        post_join_ops.append(
-            _lower_order_by_clause(
-                query.order_by,
-                plan=plan,
-                alias_targets=combined_alias_targets,
-                params=params,
+    item_aggregate_specs = [
+        _aggregate_spec(item, params=params, alias_targets=combined_alias_targets)
+        for item in query.return_.items
+    ]
+    return_aggregate_specs = [spec for spec in item_aggregate_specs if spec is not None]
+    if any(
+        spec is None
+        and _post_aggregate_expr_plan(item, params=params, alias_targets=combined_alias_targets) is not None
+        for item, spec in zip(query.return_.items, item_aggregate_specs)
+    ):
+        return None
+    has_aggregates = bool(return_aggregate_specs)
+    if has_aggregates:
+        if any(item.expression.text in combined_alias_targets for item in query.return_.items):
+            raise _unsupported(
+                "Cypher whole-row alias projections alongside aggregates are not yet supported for MATCH ... OPTIONAL MATCH in the local compiler",
+                field=query.return_.kind,
+                value=[item.expression.text for item in query.return_.items],
+                line=query.return_.span.line,
+                column=query.return_.span.column,
             )
+        if any(
+            spec.distinct and spec.expr_text is not None and spec.expr_text in combined_alias_targets
+            for spec in return_aggregate_specs
+        ):
+            raise _unsupported(
+                "Cypher DISTINCT aggregates over whole node/edge aliases are not yet supported for MATCH ... OPTIONAL MATCH in the local compiler",
+                field=query.return_.kind,
+                value=[item.expression.text for item in query.return_.items],
+                line=query.return_.span.line,
+                column=query.return_.span.column,
+            )
+        final_stage = ProjectionStage(
+            clause=query.return_,
+            where=None,
+            order_by=query.order_by,
+            skip=query.skip,
+            limit=query.limit,
+            span=query.return_.span,
         )
-    _append_page_ops(post_join_ops, query=query, params=params)
+        agg_scope = _StageScope(
+            mode="match_alias",
+            alias_targets=dict(combined_alias_targets),
+            active_alias=active,
+            row_columns=set(),
+            projected_columns={},
+            seed_rows=False,
+            relationship_count=0,
+            allowed_match_aliases=set(combined_alias_targets),
+        )
+        post_join_ops, _agg_scope, _agg_projection = _lower_match_alias_stage(
+            final_stage,
+            scope=agg_scope,
+            params=params,
+            final_stage=True,
+            semantic_entity_kinds=semantic_entity_kinds,
+        )
+    else:
+        plan = _projection._build_projection_plan(
+            query.return_,
+            alias_targets=combined_alias_targets,
+            active_alias=active,
+            params=params,
+            semantic_entity_kinds=semantic_entity_kinds,
+        )
+        served_by_general_optional_null_fill = (
+            plan.whole_row_output_names
+            and len(query.matches) == 2
+            and _single_node_seed_alias(query.matches[0]) is not None
+        )
+        if served_by_general_optional_null_fill:
+            return None
+
+        post_join_ops = []
+        if not plan.whole_row_output_names:
+            post_join_ops.append(return_(plan.projection_items))
+        if query.return_.distinct:
+            post_join_ops.append(distinct())
+        if query.order_by is not None:
+            post_join_ops.append(
+                _lower_order_by_clause(
+                    query.order_by,
+                    plan=plan,
+                    alias_targets=combined_alias_targets,
+                    params=params,
+                )
+            )
+        _append_page_ops(post_join_ops, query=query, params=params)
+    if post_join_row_filter is not None:
+        post_join_ops = [
+            where_rows(
+                expr=_row_expr_arg(
+                    post_join_row_filter,
+                    params=params,
+                    alias_targets={},
+                    field="where",
+                )
+            ),
+            *post_join_ops,
+        ]
     query_graph = QueryGraph(
         components=[
             _connected_component_from_pattern(
@@ -8865,9 +9408,10 @@ def compile_cypher_query(
             output_names = _cypher_return_output_names(branch.return_)
             if branch_output_names is None:
                 branch_output_names = output_names
-            elif output_names != branch_output_names:
+            elif sorted(output_names) != sorted(branch_output_names):
+                # Same names in a different ORDER align by name at execution; only a different multiset errors.
                 raise _unsupported(
-                    "Cypher UNION branches must project the same output names in the same order",
+                    "Cypher UNION branches must project the same output names",
                     field="union",
                     value={"expected": branch_output_names, "actual": output_names},
                     line=branch.return_.span.line,
@@ -8936,10 +9480,11 @@ def compile_cypher_query(
     normalizer = ASTNormalizer()
     query = normalizer.rewrite_shortest_path(query)
     _reject_variable_length_path_alias_references(query, params=params)
+    _reject_with_rebind_onto_live_alias(query)
 
     # Re-bind after normalization so scope and semantic metadata reflect the
     # lowered query shape consumed by downstream lowering decisions.
-    # #1357: strict alias/name-resolution is now the runtime default for the
+    # Strict alias/name-resolution is the runtime default for the
     # post-normalize bind pass so alias-scope enforcement is centralized at
     # binder time (validator/runtime parity).
     bound_ir = FrontendBinder().bind(query, PlanContext(), strict_name_resolution=True)
@@ -8953,21 +9498,24 @@ def compile_cypher_query(
         params=params,
     )
     if query.reentry_matches:
-        # #1341: when the trailing MATCH only re-binds carried whole-row aliases
-        # (e.g. LDBC SNB IC1 ``shortestPath((p)-[:KNOWS*]-(friend))``), the WITH
-        # stage is a no-op. Flatten the reentry into a single MATCH so the
-        # supported single-MATCH paths (including two-endpoint shortestPath)
-        # handle it directly.
         from graphistry.compute.gfql.cypher.reentry.flatten import (
             flatten_carried_endpoint_rebind,
         )
 
         flattened = flatten_carried_endpoint_rebind(query)
         if flattened is not None:
-            # ``flatten_carried_endpoint_rebind`` returns a query with
-            # ``reentry_matches=()``, so the recursive call cannot re-enter
-            # this branch — recursion terminates after one step.
             return compile_cypher_query(flattened, params=params)
+        from graphistry.compute.gfql.cypher.reentry.flatten import (
+            flatten_pure_carry_optional_reentry,
+        )
+
+        flattened_optional = flatten_pure_carry_optional_reentry(query)
+        if (
+            flattened_optional is not None
+            and _is_connected_optional_match_query(flattened_optional)
+            and not _query_has_shortest_path_patterns(flattened_optional)
+        ):
+            return compile_cypher_query(flattened_optional, params=params)
         from graphistry.compute.gfql.cypher.reentry import compiletime as _reentry_compiletime
 
         return _attach_graph_context(_reentry_compiletime._compile_bounded_reentry_query(query, params=params))
@@ -8994,12 +9542,46 @@ def compile_cypher_query(
             )
         )
     if _is_connected_optional_match_query(query):
-        return _attach_graph_context(
-            _compile_connected_optional_match(
-                query,
-                params=params,
-                semantic_entity_kinds=bound_context.entity_kinds,
-            )
+        compiled_connected_optional = _compile_connected_optional_match(
+            query,
+            params=params,
+            semantic_entity_kinds=bound_context.entity_kinds,
+        )
+        if compiled_connected_optional is not None:
+            return _attach_graph_context(compiled_connected_optional)
+    if query.with_stages and query.matches and not any(m.optional for m in query.matches):
+        from graphistry.compute.gfql.cypher.reentry.flatten import (
+            flatten_pure_carry_terminal_with_nonoptional,
+        )
+
+        flattened_nonoptional = flatten_pure_carry_terminal_with_nonoptional(query)
+        if flattened_nonoptional is not None:
+            return compile_cypher_query(flattened_nonoptional, params=params)
+    if query.with_stages and any(m.optional for m in query.matches):
+        from graphistry.compute.gfql.cypher.reentry.flatten import (
+            flatten_terminal_with_over_optional,
+        )
+
+        flattened_terminal = flatten_terminal_with_over_optional(query)
+        if flattened_terminal is not None:
+            flattened_query, stage_row_filter = flattened_terminal
+            if _is_connected_optional_match_query(flattened_query):
+                compiled_flattened = _compile_connected_optional_match(
+                    flattened_query,
+                    params=params,
+                    semantic_entity_kinds=bound_context.entity_kinds,
+                    post_join_row_filter=stage_row_filter,
+                )
+                if compiled_flattened is not None:
+                    return _attach_graph_context(compiled_flattened)
+            if stage_row_filter is None:
+                return compile_cypher_query(flattened_query, params=params)
+        raise _unsupported(
+            "Cypher WITH pipelines after OPTIONAL MATCH are only supported for pure bare-alias carries (optionally with WHERE) or a terminal WITH passed through unchanged by RETURN; other stage shapes would drop or corrupt null-extended rows in the local compiler",
+            field="with",
+            value=[item.expression.text for item in query.with_stages[0].clause.items],
+            line=query.with_stages[0].span.line,
+            column=query.with_stages[0].span.column,
         )
 
     merged_match = _merged_match_clause(query)
@@ -9078,12 +9660,21 @@ def compile_cypher_query(
             row_steps.extend(stage_steps)
 
         empty_result_row: Optional[Dict[str, Any]] = None
-        if binding_row_aliases and _query_has_shortest_path_patterns(query) and result_projection is None:
+        if (
+            binding_row_aliases
+            and _query_has_shortest_path_patterns(query)
+            and result_projection is None
+            and any(clause.optional for clause in query.matches)
+        ):
+            # openCypher: unreachable shortestPath null-extends only under
+            # OPTIONAL MATCH; plain MATCH drops the row.
             empty_result_row = _shortest_path_empty_result_row_for_row_steps(
                 row_steps=row_steps,
                 specs=_shortest_path_alias_specs(query),
                 alias_targets=alias_targets,
             )
+        if empty_result_row is None and result_projection is None:
+            empty_result_row = apply_ungrouped_aggregate_identity(row_steps)
 
         return _attach_graph_context(CompiledCypherQuery(
             Chain(row_steps if binding_row_aliases else lowered.query + row_steps, where=lowered.where),
@@ -9125,11 +9716,29 @@ def compile_cypher_query(
             duplicated_aliases=duplicated_aliases,
             params=params,
         )
-        has_aggregates = any(
-            _aggregate_spec(item, params=params, alias_targets=alias_targets) is not None
-            or _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets) is not None
+        item_aggregate_specs = [
+            _aggregate_spec(item, params=params, alias_targets=alias_targets)
             for item in query.return_.items
+        ]
+        item_post_aggregate_plans = [
+            _post_aggregate_expr_plan(item, params=params, alias_targets=alias_targets)
+            for item in query.return_.items
+        ]
+        has_aggregates = any(spec is not None for spec in item_aggregate_specs) or any(
+            plan_entry is not None for plan_entry in item_post_aggregate_plans
         )
+        if has_aggregates and any(m.optional for m in query.matches[1:]):
+            if _aggregate_shape_needs_null_extension_this_lowering_lacks(
+                item_aggregate_specs,
+                item_post_aggregate_plans,
+            ):
+                raise _unsupported(
+                    "Cypher aggregates over MATCH ... OPTIONAL MATCH are not yet supported for this optional-arm shape in the local compiler (this lowering has no null-extension and would drop unmatched rows)",
+                    field=query.return_.kind,
+                    value=[item.expression.text for item in query.return_.items],
+                    line=query.return_.span.line,
+                    column=query.return_.span.column,
+                )
         if not has_aggregates:
             try:
                 active = _active_match_alias(
@@ -9164,19 +9773,6 @@ def compile_cypher_query(
                         return _attach_graph_context(_lower_general())
                     raise _multi_alias_exc2
             seed_alias = _single_node_seed_alias(query.matches[0]) if len(query.matches) == 2 else None
-            if (
-                seed_alias is not None
-                and query.matches[0].optional is False
-                and query.matches[1].optional is True
-                and plan.source_alias == seed_alias
-            ):
-                raise _unsupported(
-                    "Cypher MATCH ... OPTIONAL MATCH projections that return only the bound seed alias are not yet supported in the local compiler",
-                    field=query.return_.kind,
-                    value=[item.expression.text for item in query.return_.items],
-                    line=query.return_.span.line,
-                    column=query.return_.span.column,
-                )
             empty_result_row = (
                 _projection._empty_optional_projection_row(
                     plan,
@@ -9228,6 +9824,31 @@ def compile_cypher_query(
                         line=query.return_.span.line,
                         column=query.return_.span.column,
                     )
+            elif optional_null_fill is None and _return_references_only_bound_aliases(
+                query,
+                alias_targets=alias_targets,
+                params=params,
+                bound_nullable_aliases=bound_context.nullable_aliases,
+            ):
+                optional_projection_row_guard = _projection._optional_projection_row_guard_plan(
+                    query,
+                    params=params,
+                )
+            optional_arm_has_no_null_extension_mechanism = (
+                len(query.matches) >= 2
+                and any(m.optional for m in query.matches)
+                and empty_result_row is None
+                and optional_null_fill is None
+                and optional_projection_row_guard is None
+            )
+            if optional_arm_has_no_null_extension_mechanism:
+                raise _unsupported(
+                    "Cypher OPTIONAL MATCH null-extension is not yet supported for this optional-arm shape in the local compiler (this lowering would drop unmatched rows)",
+                    field=query.return_.kind,
+                    value=[item.expression.text for item in query.return_.items],
+                    line=query.return_.span.line,
+                    column=query.return_.span.column,
+                )
             return _attach_graph_context(CompiledCypherQuery(
                 Chain(
                     _lower_projection_chain(

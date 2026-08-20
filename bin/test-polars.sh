@@ -46,6 +46,39 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_conformance_ledger.py
     graphistry/tests/compute/gfql/test_polars_nan_clean.py
     graphistry/tests/compute/gfql/test_optional_match_polars_frames.py
+    graphistry/tests/compute/gfql/test_optional_match_semantics.py
+    graphistry/tests/compute/gfql/test_optional_match_with_pipeline_boundaries.py
+    graphistry/tests/compute/gfql/test_row_multiplicity_semantics.py
+    graphistry/tests/compute/gfql/test_aggregate_identity_row_semantics.py
+    graphistry/tests/compute/gfql/test_numeric_conformance_semantics.py
+    # engine-parametrized absent-name strictness: the polars params of the level matrix
+    # (0-rows / null-column / 3VL) only ever run here
+    graphistry/tests/compute/gfql/test_strictness_levels.py
+    graphistry/tests/compute/gfql/test_path_trail_semantics.py
+    # #1911 alias-scoping pins: every case is parametrized pandas AND polars, and the
+    # polars params (WITH-rebind decline parity, edge-identity collision crash) only run here
+    graphistry/tests/compute/gfql/test_alias_scoping_semantics.py
+    # #1712 reentry-carry seed pins: no module-level importorskip (pandas params run in
+    # test-gfql-core), but the polars params — native carry restriction + the typed
+    # scalar-carry declines — only ever run here
+    graphistry/tests/compute/gfql/test_reentry_carry_seed_restriction.py
+    graphistry/tests/compute/gfql/test_count_and_param_semantics.py
+    graphistry/tests/compute/gfql/row/test_row_pipeline_boundaries.py
+    graphistry/tests/compute/gfql/test_unary_op_surface.py
+    graphistry/tests/compute/gfql/test_hop_boundary_matrix.py
+    graphistry/tests/compute/gfql/test_hop_semantics_pins.py
+    # #1918 round-011 hop() pins: every case is parametrized pandas AND polars, and the
+    # polars params (bound validation, hops=None run-to-closure, edges-only node output)
+    # only ever run in this lane
+    graphistry/tests/compute/gfql/test_hop_semantics_1918.py
+    # #1882/#1913-f4/#1879 crash-family pins: the polars params (filter helpers on polars
+    # frames, polars prune_self_edges, nodes-only typed-decline advice) only run here
+    graphistry/tests/compute/gfql/test_crash_family_1882_1879.py
+    # the polars param here asserts remote execution DECLINES polars frames pre-request
+    graphistry/tests/compute/test_remote_csv_fidelity.py
+    # #1889 validate-vs-execute agreement: the polars params (both-frames-None used to raise
+    # an empty-message AssertionError in ensure_nodes_polars) only ever run in this lane
+    graphistry/tests/compute/gfql/test_validate_execute_agreement_1889.py
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
     graphistry/tests/compute/gfql/test_seeded_typed_hop_fastpath.py
     graphistry/tests/compute/gfql/test_residual_polars_native.py
@@ -54,8 +87,16 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_single_alias_cache_key.py
     graphistry/tests/compute/gfql/test_semi_join_key_frame.py
     graphistry/tests/compute/gfql/test_fast_path_engagement.py
+    graphistry/tests/compute/gfql/test_known_cross_engine_divergences.py
+    graphistry/tests/compute/gfql/test_decline_guidance_cross_engine.py
+    graphistry/tests/compute/gfql/test_endpoint_closure_matrix.py
+    graphistry/tests/compute/gfql/test_gfql_unified_routing_contracts.py
+    graphistry/tests/compute/gfql/test_hop_kernel_contracts.py
+    graphistry/tests/compute/gfql/test_polars_dtype_classifier_contracts.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_fused_polars.py
     graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_lowcard_count.py
+    # engine-parametrized (pandas/polars); the polars params only ever run here
+    graphistry/tests/compute/gfql/cypher/test_grouped_aggregate_cross_alias.py
     # module-level `importorskip("polars")` files that previously ran in no lane at all
     graphistry/tests/compute/gfql/test_engine_polars_narrow_combine.py
     graphistry/tests/compute/gfql/test_engine_polars_semi_key_dedup.py
@@ -67,16 +108,38 @@ POLARS_TEST_FILES=(
     # pandas lanes, but their polars/polars-gpu parameters are skipped there for want of the
     # wheel, so the polars lane is the only place those parameters can execute
     graphistry/tests/compute/gfql/test_const_fold_engine_parity.py
+    # #1915 temporal/UNION pins: every case is parametrized pandas AND polars, and the
+    # polars params (Z-suffix text-temporal compare, IN [datetime(...)], mixed-type UNION
+    # decline) only run here
+    graphistry/tests/compute/gfql/test_temporal_and_union_semantics_1915.py
+    # #1915 B-5/B-7/B-8/A-4 + #1880 temporal-half pins: the polars cells (literal
+    # temporal fold, temporal-vs-string parse-or-E302, union name alignment) only run here
+    graphistry/tests/compute/gfql/test_temporal_leak_family_1915.py
+    # #1934 incomparable-ordering-null pins: the polars typed-decline cells only run here
+    graphistry/tests/compute/gfql/test_incomparable_ordering_null_1934.py
+    # #1937 split-month duration scaling: every case is parametrized pandas AND polars,
+    # and the polars params only run here
+    graphistry/tests/compute/gfql/test_duration_month_division_1937.py
     graphistry/tests/compute/gfql/index/test_indexed_bindings.py
     graphistry/tests/compute/gfql/test_reentry_caller_graph_immutability.py
     graphistry/tests/compute/gfql/test_rewrite_param_discard.py
+    # #1804 rows(alias_prefilters=...) native honouring: the polars params (and the typed
+    # NIE decline) only ever run here
+    graphistry/tests/compute/gfql/test_engine_polars_alias_prefilters.py
+    # #1739 HAS_<Label> dup-id disambiguation on the grouped-aggregate fast path: the
+    # polars params only ever run here
+    graphistry/tests/compute/gfql/test_has_label_dup_id_fast_path.py
     graphistry/tests/compute/test_engine_coercion.py
+    graphistry/tests/compute/test_let_binding_contracts.py
     # index tests exercise the seeded-index hook in the polars hop entry (hop.py) — without
     # them the hook dominates the now-thin file and trips its per-file coverage floor
     graphistry/tests/compute/gfql/index/test_index.py
+    # every cell is polars-only: the indexed-vs-scan EXISTS/NOT EXISTS agreement matrix
+    graphistry/tests/compute/gfql/index/test_exists_pattern_index_agreement.py
     # engine-agnostic frame/series primitives (graphistry/Engine.py) — the polars branches of
     # these dispatch helpers are only measured when this lane covers graphistry (see cov widen below)
     graphistry/tests/test_engine_frame_helpers.py
+    graphistry/tests/test_public_apis_do_not_mutate_inputs.py
 )
 
 # PARALLELISM. The py3.12 cell of this lane is the coverage cell and has repeatedly run out

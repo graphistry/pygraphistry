@@ -60,6 +60,7 @@ DIFFERENTIAL_CORPUS = [
     "MATCH (a)-[:R*]->(b) RETURN b",
     "MATCH p = shortestPath((a:X)-[:R*1..4]->(b:Y)) RETURN p",
     "MATCH (a)-[:R*2..]->(b) RETURN b",
+    "MATCH (a)-[:R*..4]->(b) RETURN b",  # open LOWER bound = 1..4 (#1903 item 8)
     "MATCH (a)-[:R]->(b), (b)-[:S]->(c) RETURN a, c",
     "OPTIONAL MATCH (n)-[r]->(m) RETURN n, m",
     "MATCH (n) MATCH (m) RETURN n, m",
@@ -158,7 +159,6 @@ REJECTED_CORPUS = [
     "MATCH (n) RETURN",
     "MATCH (n)-[r->-(m) RETURN n",
     "WHERE n.x = 1 RETURN n",  # WHERE without MATCH (rejected post-parse)
-    "MATCH (a)-[:R*..4]->(b) RETURN b",  # open LOWER hop bound is not in the grammar
 ]
 
 
