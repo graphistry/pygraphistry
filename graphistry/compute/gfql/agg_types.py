@@ -135,8 +135,7 @@ def polars_conform_agg_dtype(expr: "pl.Expr", func: str, input_dtype: "Optional[
     if target is None:
         return expr.alias(alias)
     if func == "sum" and input_dtype == pl.Boolean:
-        # cudf-polars 26.02 can turn sum(Boolean).cast(Int64) zero into null.
-        # Fill Cypher's required zero before the cast so CPU and GPU agree.
+        # Preserve Cypher's Boolean-sum zero when cudf-polars 26.02 returns null before cast.
         expr = expr.fill_null(0)
     return expr.cast(target).alias(alias)  # hygiene-ok: explicit-cast -- polars dtype conversion
 
