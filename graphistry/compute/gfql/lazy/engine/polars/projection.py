@@ -5,9 +5,9 @@ rendering doesn't depress the pandas gfql coverage audit. Parity-or-NIE: no pand
 differential parity vs pandas is the release gate. The #1650 default (``structured=True``)
 FLATTENS whole-entity ``RETURN n`` to ``{output}.{field}`` columns natively for ANY dtype
 (float/temporal/nested just become columns, no rendering). Legacy display-string rendering
-(``structured=False``) is native only for single-entity int/string/bool nodes (boolean
-``label__*`` flags included); float/temporal/nested entity text, multi-entity, edges, and
-exotic expressions raise NotImplementedError.
+(``structured=False``) is native for int/string/bool node entities, including multi-node
+binding rows (boolean ``label__*`` flags included); float/temporal/nested entity text, edge
+entities, and exotic expressions raise NotImplementedError.
 """
 from __future__ import annotations
 
@@ -280,8 +280,8 @@ def apply_result_projection_polars(
 
     ``structured=True`` (#1650 default): flatten whole-entity returns to ``{output}.{field}``
     columns (any dtype, near-free). ``structured=False``: legacy Cypher display string, native
-    for int/string/bool single-entity nodes with boolean ``label__*`` flags. Multi-entity
-    bindings, edge entity-text, and (text mode) float/temporal/nested columns are not yet
+    for int/string/bool node entities, including multi-node binding rows, with boolean
+    ``label__*`` flags. Edge entity-text and (text mode) float/temporal/nested columns are not yet
     native → raise rather than secretly run the pandas renderer.
     """
     rows_df = result._nodes
@@ -290,7 +290,7 @@ def apply_result_projection_polars(
         return native
     raise NotImplementedError(
         "polars engine does not yet natively render this cypher result projection "
-        "(whole-entity RETURN over float/temporal/nested/multi-entity columns); "
+        "(unsupported node entity text, edge entities, or exotic expressions); "
         "use engine='pandas' or engine='cudf' for this query "
         "(no silent fallback; parity-or-error by design)"
     )
