@@ -22,7 +22,7 @@ options:
 
     distances = g.gfql(
         "CALL graphistry.std.sssp.write("
-        "{out_col: 'cost_from_a', params: {source: 'a', weight: 'cost'}})"
+        "{out_col: 'cost_from_a', params: {source: 'a', weight: 'weight'}})"
     )
 
 The input graph is unchanged. Explicitly bound nodes, including isolated
