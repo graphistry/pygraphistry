@@ -273,14 +273,20 @@ def test_cypher_whole_entity_return_pandas_answers():
 
 
 @polars_only
-def test_cypher_whole_entity_return_polars_current_nie():
-    # AUDIT NOTE (F-04): this graph is all-int64/str, yet the decline message
-    # blames "float/temporal/nested/label/multi-entity columns" -- the gate
-    # fires on data its message does not describe. When the gate is fixed or
-    # narrowed, flip this pin to a row-level parity assertion vs pandas.
-    g = _graph("polars")
-    with pytest.raises(NotImplementedError, match="cypher result projection"):
-        g.gfql("MATCH (a)-[e]->(b) RETURN a, b", engine="polars")
+def test_cypher_whole_entity_return_polars_parity_with_pandas():
+    # Was AUDIT NOTE (F-04): this all-int64/str graph declined with a message
+    # blaming "float/temporal/nested/label/multi-entity columns" -- the gate fired
+    # on data its message did not describe. The multi-entity half of that gate is
+    # gone (the projector reads binding rows now), so this is the row-level parity
+    # assertion the audit note asked for once the gate was narrowed.
+    query = "MATCH (a)-[e]->(b) RETURN a, b"
+    got = _pd(_graph("polars").gfql(query, engine="polars")._nodes)
+    want = _pd(_graph("pandas").gfql(query, engine="pandas")._nodes)
+    assert list(got.columns) == list(want.columns)
+    assert len(got) == len(want)
+    key = list(want.columns)
+    assert (sorted(map(tuple, got[key].values.tolist()))
+            == sorted(map(tuple, want[key].values.tolist())))
 
 
 # ================================================================ T-07 greens
