@@ -7,6 +7,7 @@ logger = setup_logger(__name__)
 #TODO use new importer when it lands (this is copied from umap_utils)
 def lazy_cudf_import():
     try:
+        # scoped, not global: a bare filterwarnings here mutes every later warning in the process
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
             import cudf  # type: ignore

@@ -224,12 +224,16 @@ def _validate_filter_dict(
     collect_all: bool = False
 ) -> List[GFQLSchemaError]:
     """Validate filter dictionary against dataframe schema."""
+    from graphistry.compute.gfql.strictness import absent_filter_key_is_lenient
+
     errors = []
     for col, val in filter_dict.items():
         try:
             try:
                 resolved_col, resolved_val = resolve_filter_column(df, col, val)
             except GFQLSchemaError:
+                if absent_filter_key_is_lenient(col, val, context=f"{context} dataframe"):
+                    continue  # resolves to null at execution; nothing to type-check
                 error = GFQLSchemaError(
                     ErrorCode.E301,
                     f'Column "{col}" does not exist in {context} dataframe',
@@ -244,6 +248,8 @@ def _validate_filter_dict(
 
             # Check column exists
             if resolved_col not in columns:
+                if absent_filter_key_is_lenient(col, val, context=f"{context} dataframe"):
+                    continue
                 error = GFQLSchemaError(
                     ErrorCode.E301,
                     f'Column "{col}" does not exist in {context} dataframe',

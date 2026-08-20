@@ -14,7 +14,8 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar, 
 
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.str import Contains, Endswith, Fullmatch, Match, Startswith
-from graphistry.compute.filter_by_dict import resolve_filter_column
+from graphistry.compute.filter_by_dict import resolve_filter_column_or_absent
+from graphistry.compute.gfql.strictness import absent_column_matches
 from .dtypes import is_numeric as _dtype_numeric, is_stringlike as _dtype_stringlike
 
 if TYPE_CHECKING:
@@ -433,7 +434,12 @@ def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_d
         return _schema_memo[0].get(name)
 
     for col, val in filter_dict.items():
-        resolved_col, resolved_val = resolve_filter_column(df, col, val)
+        resolved = resolve_filter_column_or_absent(df, col, val)
+        if resolved is None:
+            if not absent_column_matches(val):
+                return pl.lit(False)  # absent column is all-null; 3VL never matches (#1916)
+            continue
+        resolved_col, resolved_val = resolved
         if isinstance(resolved_val, ASTPredicate):
             if _is_cross_type_predicate(df, resolved_col, resolved_val):
                 # numeric-vs-string comparison -> polars ComputeError; decline (NIE).

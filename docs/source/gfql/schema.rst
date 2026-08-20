@@ -92,9 +92,14 @@ Schema Objects
 
 ``GraphSchema(node_types, edge_types, strict=True, ...)``
   Groups node/edge contracts and adapts them to the internal
-  ``GraphSchemaCatalog`` used by binder/preflight validation. ``strict=False``
-  makes schema-bound ``g.gfql_validate(...)`` permissive by default; callers can
-  still override per call with ``g.gfql_validate(..., strict=True)``. A physical
+  ``GraphSchemaCatalog`` used by binder/preflight validation. ``strict`` accepts a
+  strictness level -- ``"strict"`` (raise), ``"warn"``, ``"quiet"`` -- or the legacy
+  booleans (``True`` is ``"strict"``, ``False`` is ``"quiet"``). It sets the default for
+  both ``g.gfql_validate(...)`` and ``g.gfql(...)`` on the bound graph; callers can still
+  override per call with ``strict=``. A name the schema does not declare is treated as a
+  typo and raises at every level, while a declared name this instance happens to lack
+  resolves to null -- the narrow-subgraph case. Without a bound schema the default level is
+  ``"warn"``. A physical
   node property column must have the same logical type for every node type that
   declares it, and a physical edge property column must have the same logical
   type for every edge type that declares it. Use separate column names when two
