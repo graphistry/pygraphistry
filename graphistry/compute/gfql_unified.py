@@ -2435,9 +2435,8 @@ def gfql(self: Plottable,
                 shortest_path_backend=shortest_path_backend,
             )
 
-    # engine inference, cuDF arm (owner-directed policy addition, 2026-08-02; supersedes the
-    # earlier "AUTO never selects polars-gpu" doctrine for THIS arm only): when every bound
-    # frame is cuDF AND the cudf-polars GPU target is GENUINELY usable (probed once per
+    # engine inference, cuDF arm: when every bound frame is cuDF AND the cudf-polars
+    # GPU target is GENUINELY usable (probed once per
     # process — polars imports, cudf + cudf_polars installed, and a real GPU collect
     # succeeds; see lazy.polars_gpu_available), prefer the native lazy polars engine on its
     # GPU execution target over the legacy CUDF path. Both serve cudf->cudf: inputs cross
