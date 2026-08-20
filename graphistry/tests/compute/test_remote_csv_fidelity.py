@@ -309,6 +309,16 @@ def test_dtype_only_import_args_still_warn_about_na_substitution() -> None:
     assert 'dtype inference' not in msg
 
 
+def test_explicitly_restating_a_default_counts_as_governing_that_axis() -> None:
+    from graphistry.compute.remote_df_io import resolve_csv_import_args
+
+    with pytest.warns(UserWarning) as rec:
+        resolve_csv_import_args({'na_filter': True}, "gfql_remote")
+    msg = lossy_warning(rec)
+    assert 'NA substitution' not in msg
+    assert 'dtype inference' in msg
+
+
 def test_na_only_import_args_still_warn_about_dtype_inference() -> None:
     from graphistry.compute.remote_df_io import resolve_csv_import_args
 
