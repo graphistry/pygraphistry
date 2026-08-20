@@ -1295,16 +1295,40 @@ def test_both_sides_of_the_edge_mask_cost_boundary_agree(typed_graph, engine, sh
     # test exists for, and it holds on nodes as well as edges.
     assert node_ids(candidate) == node_ids(whole_column), f"[{shape}] node sets differ"
 
-    # Against the scan we compare only the nodes the scan also produces. There is a
-    # PRE-EXISTING indexed-vs-scan divergence, unrelated to this PR and present identically
-    # on master 84be35fb: for an undirected to_fixed_point wavefront hop the indexed path
-    # keeps the SEED in `_nodes` while the scan drops it when the walk never returns to it
-    # (edges are identical). Asserting equality here would encode that bug as expected; this
-    # asserts the indexed result is a superset and that any excess is exactly the seed.
-    seed_ids = set(seeds["id"].to_list() if hasattr(seeds["id"], "to_list") else seeds["id"].tolist())
-    extra = node_ids(candidate) - node_ids(scan)
-    assert not (node_ids(scan) - node_ids(candidate)), f"[{shape}] indexed path LOST nodes"
-    assert extra <= seed_ids, f"[{shape}] indexed path gained non-seed nodes: {sorted(extra)[:5]}"
+
+@pytest.mark.parametrize("engine", _cpu_engines())
+@pytest.mark.parametrize("shape", [
+    "one_hop",
+    "two_hop",
+    "fixed_point",
+    pytest.param("undirected", marks=pytest.mark.xfail(strict=True, reason=(
+        "known divergence: for an undirected to_fixed_point wave-front hop the indexed path "
+        "keeps the SEED in `_nodes` while the scan drops it when the walk never returns to it "
+        "(edges are identical; 1957 indexed node rows vs 1956 scanned). Strict, so it flips "
+        "the moment the wave-front seed handling is unified."))),
+])
+def test_indexed_wavefront_node_set_matches_the_scan(typed_graph, engine, shape):
+    """The index must not change WHICH NODES a wave-front hop reports, only how fast it
+    gets there — the scan is the oracle."""
+    from graphistry.Engine import Engine as _E, df_to_engine
+
+    g = typed_graph
+    if engine == "polars":
+        g = g.edges(df_to_engine(g._edges, _E.POLARS), "src", "dst").nodes(
+            df_to_engine(g._nodes, _E.POLARS), "id")
+    gi = g.gfql_index_all(engine=engine)
+    seeds = g._nodes[:1] if engine == "pandas" else g._nodes.head(1)
+    kw = dict(one_hop=dict(hops=1, direction="forward"),
+              two_hop=dict(hops=2, direction="forward"),
+              fixed_point=dict(to_fixed_point=True, direction="forward"),
+              undirected=dict(to_fixed_point=True, direction="undirected"))[shape]
+    kwargs = dict(return_as_wave_front=True, edge_match={"etype": 1}, engine=engine, **kw)
+
+    def node_ids(gg):
+        s = gg._nodes["id"]
+        return set(s.to_list() if hasattr(s, "to_list") else s.tolist())
+
+    assert node_ids(gi.hop(nodes=seeds, **kwargs)) == node_ids(g.hop(nodes=seeds, **kwargs))
 
 
 @pytest.mark.parametrize("engine", _cpu_engines())
