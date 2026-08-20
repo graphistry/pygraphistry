@@ -374,12 +374,13 @@ def hop_polars(
 
     empty_ids = all_nodes.select(pl.col(node_col).cast(node_dtype).alias(NID)).clear()
 
-    # Hop labeling — plain (non-min_hops) BFS only. pandas labels a node with the hop at
-    # which the ANTI-JOINED wavefront first discovers it (hop.py:581-603 over new_node_ids), i.e.
-    # its shortest-path distance; that is exactly `new_frontier` here. Seeds are already in
-    # `visited_nodes` after the first iteration, so a seed re-reached by a backtracking undirected
-    # walk stays UNLABELED (null) — that is the divergence. label_seeds writes hop 0 for
-    # seeds instead. Edges take the hop that first traversed them (hop.py:555-557), min-aggregated.
+    # Hop labeling — plain (non-min_hops) BFS only. Labels come from every DESTINATION of the
+    # hop (`cand`), first-wins against `label_seen_nodes` — NOT from `new_frontier`, which is
+    # anti-joined against `visited_nodes` and drives traversal only. That matches pandas
+    # (hop.py:540 new_node_ids = all TO ids), so under fwd/rev a seed re-entered at hop 1 IS
+    # labeled 1. Only undirected pre-seeds `label_seen_nodes` with the seeds, leaving a seed
+    # re-reached by backtracking UNLABELED (null); label_seeds writes hop 0 for seeds instead.
+    # Edges take the hop that first traversed them (hop.py:555-557), min-aggregated.
     track_node_hops = (label_node_hops is not None or label_seeds) and not min_hops_active
     node_hop_frames = []                 # list[DataFrame[NID, NHOP]]
     label_seen_nodes = empty_ids         # first-wins guard for node labels
