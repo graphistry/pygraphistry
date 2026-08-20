@@ -19,26 +19,29 @@ What is checkable without a reference turns out to be most of what matters:
 
 A `fail` here marks the cell `validation_failed` and its timing is not published.
 """
+
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Dict, Mapping, Tuple
+
+from graphistry.compute.typing import DataFrameT, SeriesT
 
 from ._dfops import concat_frames, df_cons, gather, to_host_int
 
 
-def _ok(**extra: Any) -> dict[str, Any]:
+def _ok(**extra: object) -> Dict[str, object]:
     return {"status": "ok", **extra}
 
 
-def _fail(reason: str, **extra: Any) -> dict[str, Any]:
+def _fail(reason: str, **extra: object) -> Dict[str, object]:
     return {"status": "fail", "reason": reason, **extra}
 
 
-def _both_directions(edges: Any, src: str, dst: str, vec: Any):
+def _both_directions(edges: DataFrameT, src: str, dst: str, vec: SeriesT) -> Tuple[SeriesT, SeriesT]:
     return gather(vec, edges[src]), gather(vec, edges[dst])
 
 
-def validate_wcc(labels: Any, prepared: Mapping[str, Any]) -> dict[str, Any]:
+def validate_wcc(labels: SeriesT, prepared: Mapping[str, object]) -> Dict[str, object]:
     edges = prepared["edges"]
     ls, ld = _both_directions(edges, "src", "dst", labels)
     if to_host_int((ls != ld).sum()) != 0:
@@ -48,9 +51,7 @@ def validate_wcc(labels: Any, prepared: Mapping[str, Any]) -> dict[str, Any]:
     if to_host_int((gather(labels, labels) != labels).sum()) != 0:
         return _fail("a component label is not a fixed point (label[label[v]] != label[v])")
 
-    # LDBC semantics: the label IS the minimum vertex id of its component. This
-    # is only assertable because dense_renumber is monotone, so dense order and
-    # original order agree -- no reference output needed.
+    # Monotone renumbering preserves LDBC minimum-ID component labels.
     from ._dfops import arange
 
     vids = arange(edges, len(labels), "int64")
@@ -62,7 +63,7 @@ def validate_wcc(labels: Any, prepared: Mapping[str, Any]) -> dict[str, Any]:
     return _ok(components=int(len(mins)))
 
 
-def validate_pagerank(pr: Any, prepared: Mapping[str, Any]) -> dict[str, Any]:
+def validate_pagerank(pr: SeriesT, prepared: Mapping[str, object]) -> Dict[str, object]:
     total = float(pr.sum())
     if abs(total - 1.0) > 1e-9:
         return _fail(f"mass not conserved: sum={total!r}")
@@ -71,21 +72,20 @@ def validate_pagerank(pr: Any, prepared: Mapping[str, Any]) -> dict[str, Any]:
     return _ok(mass=round(total, 12), max_rank=float(pr.max()))
 
 
-def validate_cdlp(labels: Any, prepared: Mapping[str, Any]) -> dict[str, Any]:
+def validate_cdlp(labels: SeriesT, prepared: Mapping[str, object]) -> Dict[str, object]:
     v_count = prepared["vertices"]
     if to_host_int(((labels < 0) | (labels >= v_count)).sum()) != 0:
         return _fail("label outside the vertex id range")
     return _ok(communities=int(labels.nunique()))
 
 
-def validate_sssp(dist: Any, prepared: Mapping[str, Any]) -> dict[str, Any]:
+def validate_sssp(dist: SeriesT, prepared: Mapping[str, object]) -> Dict[str, object]:
     edges = prepared["edges"]
     source = prepared["sssp_source"]
     if float(dist.iloc[source]) != 0.0:
         return _fail(f"dist[source]={float(dist.iloc[source])!r}, expected 0")
 
-    # Triangle inequality: no edge may offer a cheaper route than the recorded
-    # distance. One masked pass over E; finite-only so inf - inf never appears.
+    # Check finite distances only so infinity subtraction cannot mask violations.
     ds = gather(dist, edges["src"])
     dd = gather(dist, edges["dst"])
     w = edges["w"].reset_index(drop=True)
@@ -99,7 +99,7 @@ def validate_sssp(dist: Any, prepared: Mapping[str, Any]) -> dict[str, Any]:
     return _ok(reached=reached, unreachable=int(prepared["vertices"]) - reached)
 
 
-def validate_mis(in_set: Any, prepared: Mapping[str, Any]) -> dict[str, Any]:
+def validate_mis(in_set: SeriesT, prepared: Mapping[str, object]) -> Dict[str, object]:
     edges = prepared["edges"]
     a, b = _both_directions(edges, "src", "dst", in_set)
     if to_host_int((a & b).sum()) != 0:
@@ -132,7 +132,7 @@ _VALIDATORS = {
 }
 
 
-def validate_result(kernel: str, result: Any, prepared: Mapping[str, Any]) -> dict[str, Any]:
+def validate_result(kernel: str, result: SeriesT, prepared: Mapping[str, object]) -> Dict[str, object]:
     fn = _VALIDATORS.get(kernel)
     if fn is None:
         return {"status": "skipped", "reason": f"no validator for {kernel!r}"}

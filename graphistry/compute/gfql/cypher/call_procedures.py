@@ -156,10 +156,7 @@ def _resolve_procedure_definition(call: CallClause) -> _ProcedureDefinition:
     algorithm = algorithm_parts[0]
 
     if backend_name == "std":
-        # `std` in the standard-library sense: our own engine-agnostic kernels,
-        # no optional third-party dependency, running on whichever engine holds
-        # the frames. Deliberately not named after the LDBC benchmark that
-        # motivated them -- that would imply a conformance audit we do not have.
+        # std selects built-in engine-agnostic kernels without optional dependencies.
         if algorithm not in _STD_COMPUTE_ALGS:
             raise _unsupported_call(
                 "Unsupported graphistry.std.* procedure in the local compiler",
@@ -391,8 +388,7 @@ def _source_value_columns(definition: _ProcedureDefinition) -> Tuple[str, ...]:
         return (definition.algorithm,)
 
     if definition.backend == "std":
-        # The output column is the registry's name for the algorithm, not the
-        # algorithm name: wcc writes `component`, sssp writes `distance`.
+        # Registry output names differ from algorithm names for WCC and SSSP.
         assert definition.algorithm is not None
         from graphistry.compute.algorithms.registry import output_column
 

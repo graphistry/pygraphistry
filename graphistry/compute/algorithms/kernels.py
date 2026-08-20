@@ -21,9 +21,12 @@ tolerance while LDBC fixes the iteration count, cuGraph has no label propagation
 at all, and neither has a usable MIS. cuGraph is used as an *oracle* for WCC and
 SSSP, where it is exact.
 """
+
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
+
+from graphistry.compute.typing import DataFrameT, SeriesT
 
 from ._dfops import (
     SHIFT32,
@@ -50,7 +53,7 @@ class ConvergenceError(RuntimeError):
     """A kernel hit its iteration cap without converging."""
 
 
-def _sorted_copies(edges: Any, src: str, dst: str) -> tuple[Any, Any]:
+def _sorted_copies(edges: DataFrameT, src: str, dst: str) -> tuple[DataFrameT, DataFrameT]:
     """Two sorted copies of the edge frame: by src and by dst.
 
     Costs 2x the edge frame resident (16.8 GB at E=1.05B, int32) and buys free
@@ -64,8 +67,8 @@ def _sorted_copies(edges: Any, src: str, dst: str) -> tuple[Any, Any]:
 
 
 def _sym_min(
-    by_src: Any, by_dst: Any, src: str, dst: str, vec: Any, v_count: int, chunks: int
-) -> Any:
+    by_src: DataFrameT, by_dst: DataFrameT, src: str, dst: str, vec: SeriesT, v_count: int, chunks: int
+) -> Optional[DataFrameT]:
     """min over the undirected neighborhood, without materializing 2E rows.
 
     For a vertex range [a,b) every out-edge is a contiguous slice of the
@@ -79,17 +82,11 @@ def _sym_min(
         eb = slice_by_key(by_dst, dst, a, b)
         if len(ea):
             outs.append(
-                df_cons(ea, {"v": ea[src], "p": gather(vec, ea[dst])})
-                .groupby("v", sort=False)["p"]
-                .min()
-                .reset_index()
+                df_cons(ea, {"v": ea[src], "p": gather(vec, ea[dst])}).groupby("v", sort=False)["p"].min().reset_index()
             )
         if len(eb):
             outs.append(
-                df_cons(eb, {"v": eb[dst], "p": gather(vec, eb[src])})
-                .groupby("v", sort=False)["p"]
-                .min()
-                .reset_index()
+                df_cons(eb, {"v": eb[dst], "p": gather(vec, eb[src])}).groupby("v", sort=False)["p"].min().reset_index()
             )
     res = concat_frames(outs)
     if res is None:
@@ -98,14 +95,14 @@ def _sym_min(
     return res.groupby("v", sort=False)["p"].min().reset_index()
 
 
-def wcc(edges: Any, src: str, dst: str, v_count: int, chunks: int = 1, max_iter: int = 1000) -> Any:
+def wcc(edges: DataFrameT, src: str, dst: str, v_count: int, chunks: int = 1, max_iter: int = 1000) -> SeriesT:
     """Weakly connected components, LDBC label = min original vertex id.
 
     Shiloach-Vishkin min-label propagation with pointer jumping. Because
     `dense_renumber` is monotone, the dense min-label IS the min original id, so
     the LDBC label semantics can be asserted directly with no reference output.
 
-    Pointer jumping is what makes this O(log V) rather than O(diameter) -- it is
+    Pointer jumping reduces dependence on path diameter; this is
     the difference between ~6 iterations and hundreds on a long-path graph.
     """
     by_src, by_dst = _sorted_copies(edges, src, dst)
@@ -127,14 +124,14 @@ def wcc(edges: Any, src: str, dst: str, v_count: int, chunks: int = 1, max_iter:
 
 
 def pagerank(
-    edges: Any,
+    edges: DataFrameT,
     src: str,
     dst: str,
     v_count: int,
     iterations: int = 10,
     damping: float = 0.85,
     chunks: int = 1,
-) -> Any:
+) -> SeriesT:
     """LDBC PageRank: FIXED iteration count, dangling mass redistributed uniformly.
 
     There is deliberately no early exit. With d=0.85 and K=10, d^K ~ 0.197, so a
@@ -162,12 +159,7 @@ def pagerank(
         for lo, hi in chunk_bounds(len(by_dst), chunks):
             e = rows(by_dst, lo, hi)
             msg = gather(contrib, e[src])
-            outs.append(
-                df_cons(e, {"v": e[dst], "m": msg})
-                .groupby("v", sort=False)["m"]
-                .sum()
-                .reset_index()
-            )
+            outs.append(df_cons(e, {"v": e[dst], "m": msg}).groupby("v", sort=False)["m"].sum().reset_index())
         res = concat_frames(outs)
         if res is not None and chunks > 1:
             # Row-chunking by dst can split a dst group across a boundary.
@@ -185,13 +177,13 @@ def pagerank(
 
 
 def cdlp(
-    edges: Any,
+    edges: DataFrameT,
     src: str,
     dst: str,
     v_count: int,
     iterations: int = 10,
     chunks: int = 1,
-) -> Any:
+) -> SeriesT:
     """LDBC community detection by label propagation.
 
     Synchronous, fixed iteration count, undirected, MULTISET semantics (parallel
@@ -201,7 +193,7 @@ def cdlp(
     The tie-break is done by maximizing a packed key `count*2^32 + (LMAX-label)`
     in a single groupby-max. That maximizes count and, among equal counts,
     minimizes label -- replacing a global `sort_values` that costs ~17 GB at
-    graph500-26 (~34 GB with cuDF's sort overhead) with one O(V)-output pass.
+    graph500-26 (~34 GB with cuDF's sort overhead) with a vertex-sized output pass.
     Being order-independent, it is also bitwise deterministic across engines.
 
     No early exit: synchronous label propagation can oscillate with period 2, so
@@ -242,7 +234,7 @@ def cdlp(
 
 
 def sssp(
-    edges: Any,
+    edges: DataFrameT,
     src: str,
     dst: str,
     weight: str,
@@ -250,7 +242,7 @@ def sssp(
     source: int,
     chunks: int = 1,
     max_iter: Optional[int] = None,
-) -> Any:
+) -> SeriesT:
     """Weighted single-source shortest path, frontier Bellman-Ford.
 
     Relaxation is gather + boolean mask, not a per-hop hash join against the
@@ -279,16 +271,16 @@ def sssp(
             if len(e) == 0:
                 continue
             nd = gather(dist, e[src]) + e[weight].reset_index(drop=True).astype("float32")
-            outs.append(
-                df_cons(e, {"v": e[dst], "d": nd}).groupby("v", sort=False)["d"].min().reset_index()
-            )
+            outs.append(df_cons(e, {"v": e[dst], "d": nd}).groupby("v", sort=False)["d"].min().reset_index())
         res = concat_frames(outs)
         if res is None:
             return dist
         res = res.groupby("v", sort=False)["d"].min().reset_index()
 
         cur = gather(dist, res["v"])
-        improved = res[(res["d"].reset_index(drop=True) < cur).values if not is_cudf(res) else (res["d"].reset_index(drop=True) < cur)]
+        improved = res[
+            (res["d"].reset_index(drop=True) < cur).values if not is_cudf(res) else (res["d"].reset_index(drop=True) < cur)
+        ]
         if len(improved) == 0:
             return dist
         dist = align(edges, v_count, improved, "v", "d", dist).astype("float32")
@@ -298,7 +290,7 @@ def sssp(
     raise ConvergenceError(f"sssp did not settle in {cap} iterations")
 
 
-def make_weights(edges: Any, src: str, dst: str) -> Any:
+def make_weights(edges: DataFrameT, src: str, dst: str) -> SeriesT:
     """Deterministic integer edge weights in [1, 255] as float32.
 
     Pure integer arithmetic in uint64 so both engines produce bitwise identical
@@ -312,9 +304,14 @@ def make_weights(edges: Any, src: str, dst: str) -> Any:
 
 
 def mis(
-    edges: Any, src: str, dst: str, v_count: int, seed: int = 0x5EED, chunks: int = 1,
+    edges: DataFrameT,
+    src: str,
+    dst: str,
+    v_count: int,
+    seed: int = 0x5EED,
+    chunks: int = 1,
     max_rounds: int = 200,
-) -> Any:
+) -> SeriesT:
     """Maximal independent set, Luby's algorithm.
 
     NOTE: MIS is not one of the six official LDBC Graphalytics kernels
@@ -324,7 +321,7 @@ def mis(
 
     Priority is a packed `(hash32, vertex_id)` giving a STRICT TOTAL ORDER, so
     there are no ties, so at least one vertex joins per active component per
-    round -- termination is guaranteed, in O(log V) rounds expected. The uint64
+    round. The uint64
     hash wraps identically on both engines, making the result bitwise
     reproducible; that is what substitutes for the missing reference output.
 
@@ -340,7 +337,7 @@ def mis(
     zero = full(edges, v_count, 0, "int64")
     deg = align(edges, v_count, deg_s, src, "__deg", zero) + align(edges, v_count, deg_d, dst, "__deg", zero)
 
-    in_set = deg == 0          # isolated vertices are in the set
+    in_set = deg == 0  # isolated vertices are in the set
     active = ~in_set
     uint_max = u64((1 << 64) - 1)
 
@@ -368,8 +365,8 @@ def mis(
 
 
 def _sym_min_active(
-    by_src: Any, by_dst: Any, src: str, dst: str, vec: Any, active: Any, v_count: int, chunks: int
-) -> Any:
+    by_src: DataFrameT, by_dst: DataFrameT, src: str, dst: str, vec: SeriesT, active: SeriesT, v_count: int, chunks: int
+) -> Optional[DataFrameT]:
     """min of `vec` over ACTIVE undirected neighbours, chunked by vertex range."""
     outs = []
     for a, b in vertex_ranges(v_count, chunks):
@@ -382,18 +379,15 @@ def _sym_min_active(
             if len(e) == 0:
                 continue
             outs.append(
-                df_cons(e, {"v": e[key], "p": gather(vec, e[other])})
-                .groupby("v", sort=False)["p"]
-                .min()
-                .reset_index()
+                df_cons(e, {"v": e[key], "p": gather(vec, e[other])}).groupby("v", sort=False)["p"].min().reset_index()
             )
     res = concat_frames(outs)
     return None if res is None else res.groupby("v", sort=False)["p"].min().reset_index()
 
 
 def _sym_any(
-    by_src: Any, by_dst: Any, src: str, dst: str, flag: Any, v_count: int, chunks: int
-) -> Any:
+    by_src: DataFrameT, by_dst: DataFrameT, src: str, dst: str, flag: SeriesT, v_count: int, chunks: int
+) -> Optional[DataFrameT]:
     """1 where any undirected neighbour has `flag` set."""
     outs = []
     for a, b in vertex_ranges(v_count, chunks):

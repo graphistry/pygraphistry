@@ -5,21 +5,23 @@ dependency and run on whatever engine the frames already use. That is the
 distinction from `graphistry.cugraph.*` / `graphistry.igraph.*` / `graphistry.nx.*`,
 which are named for the backend library doing the work and require it installed.
 
-Deliberately NOT named after the benchmark that motivated them. "Graphalytics"
-is LDBC's benchmark name; putting it in a shipped public API would imply an
+Deliberately NOT named after the external workload that motivated them. "Graphalytics"
+is LDBC's external workload name; putting it in a shipped public API would imply an
 endorsement and a conformance audit we do not have, and would read oddly for a
 user who just wants label propagation. Conformance belongs in the docs and
 tests, not the identifier.
 """
+
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Mapping, Tuple
+from typing import Callable, Dict, Mapping, Tuple
+
+from graphistry.compute.typing import DataFrameT, SeriesT
 
 from . import kernels as _k
 
-# algorithm -> (output column, default options). Output naming follows the
-# existing plugin convention: one node-attribute column written back.
-STD_ALGS: Dict[str, Tuple[str, Dict[str, Any]]] = {
+# Algorithm -> output column and default options, following plugin naming.
+STD_ALGS: Dict[str, Tuple[str, Dict[str, object]]] = {
     "wcc": ("component", {}),
     "pagerank": ("pagerank", {"iterations": 10, "damping": 0.85}),
     "cdlp": ("cdlp", {"iterations": 10}),
@@ -30,12 +32,13 @@ STD_ALGS: Dict[str, Tuple[str, Dict[str, Any]]] = {
 STD_COMPUTE_ALGS: Tuple[str, ...] = tuple(STD_ALGS)
 
 # Result dtypes, for the GFQL planner's schema effects.
-STD_FLOAT_ALGS = frozenset({"pagerank", "sssp"})
-STD_INT_ALGS = frozenset({"wcc", "cdlp"})
+STD_FLOAT64_ALGS = frozenset({"pagerank"})
+STD_FLOAT32_ALGS = frozenset({"sssp"})
+STD_LABEL_ALGS = frozenset({"wcc", "cdlp"})
 STD_BOOL_ALGS = frozenset({"mis"})
 
 
-def _dispatch(alg: str) -> Callable[..., Any]:
+def _dispatch(alg: str) -> Callable[..., SeriesT]:
     return {
         "wcc": _k.wcc,
         "pagerank": _k.pagerank,
@@ -45,8 +48,7 @@ def _dispatch(alg: str) -> Callable[..., Any]:
     }[alg]
 
 
-def run(edges: Any, src: str, dst: str, v_count: int, alg: str,
-        options: Mapping[str, Any] | None = None) -> Any:
+def run(edges: DataFrameT, src: str, dst: str, v_count: int, alg: str, options: Mapping[str, object] | None = None) -> SeriesT:
     """Run a std kernel, merging caller options over the defaults."""
     if alg not in STD_ALGS:
         raise KeyError(f"unknown graphistry.std procedure {alg!r}; known: {list(STD_ALGS)}")
@@ -55,13 +57,11 @@ def run(edges: Any, src: str, dst: str, v_count: int, alg: str,
     fn = _dispatch(alg)
 
     if alg == "sssp":
-        # SSSP needs a weight column and a source; both are its own parameters
-        # rather than graph-wide state, so they are supplied here.
+        # Weight and source are SSSP parameters rather than graph-wide state.
         weight = opts.pop("weight", None)
         if weight is None:
             weight = "__std_w"
-            edges = edges.assign(**{weight: _k.make_weights(edges, src, dst)}) \
-                if hasattr(edges, "assign") else edges
+            edges = edges.assign(**{weight: _k.make_weights(edges, src, dst)}) if hasattr(edges, "assign") else edges
         source = opts.pop("source", 0)
         return fn(edges, src, dst, weight, v_count, source=source, **opts)
 

@@ -656,10 +656,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         },
         description='Run built-in engine-agnostic graph algorithms (wcc, pagerank, cdlp, sssp, mis)',
         schema_effects=_schema_effects(
-            # Output column defaults to the registry's name for the algorithm,
-            # not the algorithm name itself: wcc writes `component`, mis writes `mis`.
-            # Deferred import: the registry pulls in the kernels, and this module
-            # is imported while validating every query.
+            # Resolve registry output names lazily to avoid a validation import cycle.
             adds_node_cols=lambda p: [
                 p.get('out_col')
                 or __import__(

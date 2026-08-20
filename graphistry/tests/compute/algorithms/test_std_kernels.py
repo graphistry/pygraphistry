@@ -1,6 +1,6 @@
 """Correctness gates for the Graphalytics kernels.
 
-Three tiers, cheapest first (this is step 1 of the benchmark's fail-fast order):
+Three tiers in fail-fast order:
 
 1. Toy graphs with hand-computed answers -- catches semantics bugs (the dangling
    term, CDLP's tie-break, multiset counting, MIS isolated-vertex handling).
@@ -12,6 +12,7 @@ Three tiers, cheapest first (this is step 1 of the benchmark's fail-fast order):
    original index, so a misaligned `df_cons` silently produced NaN. It only
    showed up once chunking was switched on.
 """
+
 from __future__ import annotations
 
 from collections import Counter
