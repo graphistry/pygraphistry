@@ -1384,9 +1384,11 @@ def _fast_path_execution_target(
 ) -> "ExecutionTarget":
     """Lazy-collect target for a Cypher fast path: GPU only when ``polars-gpu`` was requested.
 
-    ``Engine.POLARS_GPU`` is never produced by ``resolve_engine`` from ``AUTO``, so comparing
-    the requested value IS the "did the caller ask for GPU" test and needs no graph. An
-    explicit request runs on GPU or raises; it is never quietly served on CPU.
+    Comparing the requested value IS the "did the caller ask for GPU" test, and needs no
+    graph: ``resolve_engine`` never produces ``Engine.POLARS_GPU`` from ``AUTO``, and the
+    AUTO cuDF route that does target GPU re-enters ``gfql`` with the engine already pinned
+    to ``polars-gpu``, so it arrives here as an explicit request. A request for GPU runs on
+    GPU or raises; it is never quietly served on CPU.
     """
     from graphistry.compute.gfql.lazy import ExecutionTarget
     requested = engine.value if isinstance(engine, (Engine, EngineAbstract)) else engine
@@ -2465,9 +2467,8 @@ def _gfql_with_strictness(
                 shortest_path_backend=shortest_path_backend,
             )
 
-    # engine inference, cuDF arm (owner-directed policy addition, 2026-08-02; supersedes the
-    # earlier "AUTO never selects polars-gpu" doctrine for THIS arm only): when every bound
-    # frame is cuDF AND the cudf-polars GPU target is GENUINELY usable (probed once per
+    # engine inference, cuDF arm: when every bound frame is cuDF AND the cudf-polars
+    # GPU target is GENUINELY usable (probed once per
     # process — polars imports, cudf + cudf_polars installed, and a real GPU collect
     # succeeds; see lazy.polars_gpu_available), prefer the native lazy polars engine on its
     # GPU execution target over the legacy CUDF path. Both serve cudf->cudf: inputs cross

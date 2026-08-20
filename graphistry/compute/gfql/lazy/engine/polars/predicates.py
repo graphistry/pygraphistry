@@ -417,9 +417,12 @@ def filter_by_dict_polars(df: "PolarsFrameT", filter_dict: "Optional[Dict[str, A
 def filter_expr_by_dict_polars(df: "Union[pl.DataFrame, pl.LazyFrame]", filter_dict: "Optional[Dict[str, Any]]") -> "Optional[pl.Expr]":
     """Build the combined boolean ``pl.Expr`` filter_by_dict_polars would apply, or None
     for an empty/absent filter dict. ``df`` supplies the schema for column/dtype
-    resolution only — callers may apply the expr to a LazyFrame over the same schema
-    (the fused connected-join lane), with identical semantics incl. the same typed
-    error/NIE contract for unsupported shapes."""
+    resolution, plus one row-count carve-out: an EMPTY eager ``pl.DataFrame`` (height 0)
+    skips the scalar-equality typed-error/temporal-parse block, so it can return a plain
+    ``==`` expr where a LazyFrame over the same schema raises GFQLSchemaError(E302).
+    Otherwise callers may apply the expr to a LazyFrame over the same schema (the fused
+    connected-join lane), with identical semantics incl. the same typed error/NIE contract
+    for unsupported shapes."""
     import polars as pl
 
     if not filter_dict:
