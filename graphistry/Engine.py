@@ -31,7 +31,10 @@ class Engine(Enum):
     POLARS = 'polars'
     # GPU execution TARGET of the lazy Polars engine (cudf_polars): frames stay
     # ``pl.DataFrame`` (handled exactly like POLARS in all frame ops); only the
-    # lazy ``.collect()`` runs on GPU. Explicit opt-in only — AUTO never selects it.
+    # lazy ``.collect()`` runs on GPU. ``resolve_engine`` never RETURNS this for
+    # AUTO. ``gfql`` still reaches it under AUTO by a separate route that re-enters
+    # with an explicit engine when every bound frame is cuDF and a GPU collect
+    # probes usable; that route declines back to the legacy CUDF path.
     POLARS_GPU = 'polars-gpu'
 
 # Engines whose frames use the polars API (unique/with_columns/...) rather than the

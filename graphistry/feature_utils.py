@@ -2576,13 +2576,14 @@ class FeatureMixin(ComputeMixin):
         :param encode: encoding for KBinsDiscretizer, can be one of
                 `onehot`, `onehot-dense`, `ordinal`, default 'ordinal'
         :param strategy: strategy for KBinsDiscretizer, can be one of
-                `uniform`, `quantile`, `kmeans`, default 'quantile'
+                `uniform`, `quantile`, `kmeans`, default 'uniform'
         :param n_quantiles: if use_scaler = "quantile", sets the number of quantiles, default=100
         :param output_distribution: if use_scaler="quantile"|"robust", 
                 choose from ["normal", "uniform"]
         :param dbscan: whether to run DBSCAN, default False.
         :param min_dist: DBSCAN eps parameter, default 0.5.
-        :param min_samples: DBSCAN min_samples parameter, default 5.
+        :param min_samples: DBSCAN min_samples parameter, default 1. Note that
+                min_samples=1 makes every point a core point, so nothing is labeled noise.
         :param keep_n_decimals: number of decimals to keep                
         :param remove_node_column: whether to remove node column so it is
                 not featurized, default True.

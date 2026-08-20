@@ -1098,19 +1098,19 @@ Arrange nodes in a circular layout.
    * - sort_by
      - string or list[string]
      - No
-     - Node column(s) for sort order
+     - Accepted but currently has no effect; circle order is always by node id
    * - ascending
      - boolean or list[boolean]
      - No
-     - Sort direction
+     - Accepted but currently has no effect
    * - na_position
      - string
      - No
-     - ``'first'`` or ``'last'``
+     - ``'first'`` or ``'last'``; accepted but currently has no effect
    * - ignore_index
      - boolean
      - No
-     - Whether to ignore index during sort
+     - Accepted but currently has no effect
    * - engine
      - string
      - No
