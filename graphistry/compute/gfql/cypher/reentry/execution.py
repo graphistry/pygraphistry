@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union, cast
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 
 from graphistry.Engine import (
     EngineAbstract,
@@ -259,8 +259,15 @@ def _optional_reentry_carried_null_rows(
     )
     if not carried_columns:
         return None
+    # OPTIONAL MATCH cannot unbind an alias the prefix bound; the keys stay the scalars.
+    copied_columns = carried_columns + _carried_entity_columns(
+        prefix_df,
+        result_columns=result_columns,
+        reentry_plan=reentry_plan,
+        exclude=set(carried_columns),
+    )
 
-    prefix_records = _records_for_columns(prefix_df, carried_columns)
+    prefix_records = _records_for_columns(prefix_df, copied_columns)
     prefix_keys = [_optional_reentry_key(record, carried_columns) for record in prefix_records]
     if len(set(prefix_keys)) != len(prefix_keys):
         return None
@@ -280,10 +287,31 @@ def _optional_reentry_carried_null_rows(
     fill_rows: List[CypherFillRow] = []
     for record in missing_records:
         row = dict(null_row)
-        for col in carried_columns:
+        for col in copied_columns:
             row[col] = record[col]
         fill_rows.append(row)
     return fill_rows
+
+
+def _carried_entity_columns(
+    prefix_df: DataFrameT,
+    *,
+    result_columns: Set[str],
+    reentry_plan: ReentryPlan,
+    exclude: Set[str],
+) -> Tuple[str, ...]:
+    """Flat ``alias.prop`` columns of the carried whole-entity aliases, in prefix order."""
+    prefixes = tuple(f"{alias.output_name}." for alias in reentry_plan.aliases)
+    if not prefixes:
+        return ()
+    return tuple(
+        str(col)
+        for col in prefix_df.columns
+        if isinstance(col, str)
+        and col.startswith(prefixes)
+        and col in result_columns
+        and col not in exclude
+    )
 
 
 def _optional_reentry_key(
