@@ -1,6 +1,6 @@
 """Contract tests for explicit engines on remote compute calls."""
 
-from typing import Any
+from typing import Any, Optional
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -21,7 +21,7 @@ class Posted(Exception):
     """Stop a test after the request reaches the mocked transport."""
 
 
-def mock_plottable(dataset_id: str | None = None) -> MagicMock:
+def mock_plottable(dataset_id: Optional[str] = None) -> MagicMock:
     """Build the minimum graph state used by both remote entry points."""
     graph = MagicMock()
     graph._dataset_id = dataset_id
