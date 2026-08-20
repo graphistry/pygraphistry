@@ -82,6 +82,10 @@ def resolve_filter_column(df: DataFrameT, col: str, val: Any) -> Tuple[str, Any]
         if "type" in df.columns and not _looks_like_edge_dataframe(df):
             return "type", label
 
+    # mirror of the rewrite above, for frames carrying labels as per-label boolean columns
+    if col in ("type", "labels") and isinstance(val, str) and f"label__{val}" in df.columns:
+        return f"label__{val}", True
+
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 
     raise GFQLSchemaError(

@@ -49,6 +49,19 @@ def normalize_strict_level(value: StrictInput) -> Optional[StrictLevel]:
     )
 
 
+def _declared_level(value: StrictInput) -> Optional[StrictLevel]:
+    """``normalize_strict_level`` for a value read OFF a bound schema.
+
+    An unrecognized value is treated as unset rather than rejected: only the
+    caller's own ``strict=`` argument is worth failing loudly over, and duck-typed
+    schema objects must not turn every query into a TypeError.
+    """
+    try:
+        return normalize_strict_level(value)
+    except ValueError:
+        return None
+
+
 def strict_level_to_bool(level: StrictLevel) -> bool:
     """Legacy boolean view for callers that only know strict-vs-loose."""
     return level == "strict"
@@ -67,27 +80,37 @@ def schema_declared_names(g: Optional[Plottable]) -> Optional[FrozenSet[str]]:
         return None
 
     names: Set[str] = set()
-    for attr in ("node_types", "edge_types"):
-        for entry in getattr(schema, attr, ()) or ():
-            for name in getattr(entry, "properties", {}) or {}:
+    for type_attr in ("node_types", "edge_types"):
+        entries = getattr(schema, type_attr, ())
+        if not isinstance(entries, (list, tuple)):
+            continue  # duck-typed/partial schema object: nothing declared to judge against
+        for entry in entries:
+            properties = getattr(entry, "properties", None)
+            for name in properties if isinstance(properties, Mapping) else ():
                 names.add(str(name))
             entry_name = getattr(entry, "name", None)
             if isinstance(entry_name, str):
                 names.add(entry_name)
                 names.add(f"label__{entry_name}")
-            for label in getattr(entry, "labels", ()) or ():
-                names.add(str(label))
+            for label in _string_members(getattr(entry, "labels", ())):
+                names.add(label)
                 names.add(f"label__{label}")
-            for column in getattr(entry, "columns", ()) or ():
-                names.add(str(column))
-    for attr in ("node_id_column", "edge_source_column", "edge_destination_column"):
-        column = getattr(schema, attr, None)
-        if isinstance(column, str):
-            names.add(column)
+            for column in _string_members(getattr(entry, "columns", ())):
+                names.add(column)
+    for column_attr in ("node_id_column", "edge_source_column", "edge_destination_column"):
+        bound_column = getattr(schema, column_attr, None)
+        if isinstance(bound_column, str):
+            names.add(bound_column)
     if not names:
         # A schema object that declares no names cannot disambiguate anything.
         return None
     return frozenset(names)
+
+
+def _string_members(value: StrictInput) -> Tuple[str, ...]:
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return tuple(str(item) for item in value)
+    return ()
 
 
 def resolve_strict_level(g: Optional[Plottable], *, strict: StrictInput = None) -> StrictLevel:
@@ -97,12 +120,14 @@ def resolve_strict_level(g: Optional[Plottable], *, strict: StrictInput = None) 
         return explicit
     schema = getattr(g, "_gfql_schema", None) if g is not None else None
     if schema is not None:
-        schema_strict = getattr(schema, "strict", None)
-        if schema_strict is not None:
-            return normalize_strict_level(schema_strict) or DEFAULT_STRICT_LEVEL
+        declared = _declared_level(getattr(schema, "strict", None))
+        if declared is not None:
+            return declared
         metadata = getattr(schema, "metadata", None)
         if isinstance(metadata, Mapping) and "strict" in metadata:
-            return normalize_strict_level(metadata["strict"]) or DEFAULT_STRICT_LEVEL
+            declared = _declared_level(metadata["strict"])
+            if declared is not None:
+                return declared
     return DEFAULT_STRICT_LEVEL
 
 
@@ -152,10 +177,16 @@ def is_internal_plumbing_name(name: str) -> bool:
     return bare.startswith("__") or bare.startswith("label__")
 
 
+#: Columns cypher label matching resolves onto; structural, never declared properties.
+LABEL_CARRIER_COLUMNS = frozenset({"type", "labels"})
+
+
 def name_is_schema_typo(name: str) -> bool:
     """True when a bound schema exists and does not declare ``name``."""
     scope = _SCOPE.get()
     if scope is None or scope.declared is None:
+        return False
+    if name in LABEL_CARRIER_COLUMNS or is_internal_plumbing_name(name):
         return False
     bare = name.rsplit(".", 1)[-1].rsplit(":", 1)[-1]
     return name not in scope.declared and bare not in scope.declared
@@ -209,6 +240,8 @@ def absent_filter_key_is_lenient(
     """
     if col.startswith("label__") and val is True:
         return absent_name_is_lenient(col[len("label__"):], kind="label", context=context)
+    if col in LABEL_CARRIER_COLUMNS and isinstance(val, str):
+        return absent_name_is_lenient(val, kind="label", context=context)
     return absent_name_is_lenient(col, kind="column", context=context)
 
 

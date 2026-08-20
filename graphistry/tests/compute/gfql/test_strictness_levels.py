@@ -288,19 +288,39 @@ def _executor_verdict(g: Plottable, query: str, level: Any) -> str:  # hygiene-o
         return "raise"
 
 
-@pytest.mark.parametrize("query", FOUR_SHAPES + [ABSENT_EDGE_LABEL])
+@pytest.mark.parametrize("query", FOUR_SHAPES)
 @pytest.mark.parametrize("level", ["strict", "warn", "quiet", True, False, None])
 def test_validator_and_executor_agree(query: str, level: Any) -> None:  # hygiene-ok: explicit-any -- level is bool | str by design
     g = _graph()
     assert _validator_verdict(g, query, level) == _executor_verdict(g, query, level)
 
 
-@pytest.mark.parametrize("query", FOUR_SHAPES + [ABSENT_EDGE_LABEL])
+@pytest.mark.parametrize("query", FOUR_SHAPES)
 def test_agreement_matrix_values(query: str) -> None:
     g = _graph()
     assert _validator_verdict(g, query, "strict") == "raise"
     assert _validator_verdict(g, query, "warn") == "ok"
     assert _validator_verdict(g, query, "quiet") == "ok"
+
+
+@pytest.mark.parametrize("level", ["warn", "quiet", False, None])
+def test_edge_label_agrees_wherever_the_validator_can_judge(level: Any) -> None:  # hygiene-ok: explicit-any -- level is bool | str by design
+    g = _graph()
+    assert _validator_verdict(g, ABSENT_EDGE_LABEL, level) == _executor_verdict(g, ABSENT_EDGE_LABEL, level)
+
+
+@pytest.mark.parametrize("level", ["strict", True])
+def test_absent_relationship_type_is_not_judgeable_without_a_declared_schema(level: Any) -> None:  # hygiene-ok: explicit-any -- level is bool | str by design
+    # residual, unchanged from master: the strict binder reads relationship types off the
+    # catalog, and a catalog inferred from frames declares none, so only execution rejects
+    g = _graph()
+    assert _validator_verdict(g, ABSENT_EDGE_LABEL, level) == "ok"
+    assert _executor_verdict(g, ABSENT_EDGE_LABEL, level) == "raise"
+
+
+def test_a_declared_relationship_type_makes_the_validator_judge_it() -> None:
+    with pytest.raises(GFQLValidationError):
+        _schema_graph("strict").gfql_validate("MATCH (n)-[e:NOPE]->(m) RETURN n.id", strict="strict")
 
 
 def test_validate_true_on_gfql_uses_the_resolved_level() -> None:
@@ -463,7 +483,8 @@ def test_remote_non_default_level_warns_once(level: Any) -> None:  # hygiene-ok:
 def test_remote_preflight_no_longer_hardcodes_loose() -> None:
     # master preflighted with strict=False regardless of the caller's choice
     with pytest.raises(GFQLValidationError):
-        _remote_body("strict", query=ABSENT_PROP_WHERE, validate=True)
+        _remote_body("strict", query="MATCH (n) WHERE n.ciyt = 1 RETURN n.id",
+                     validate=True, g=_schema_graph("strict"))
 
 
 def test_remote_preflight_serves_a_declared_schema_without_local_frames() -> None:

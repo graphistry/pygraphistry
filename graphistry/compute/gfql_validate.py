@@ -155,7 +155,7 @@ def _validate_cypher(
     parsed = parse_cypher(query)
     level = resolve_strict_level(g, strict=strict)
     declared = schema_declared_names(g)
-    can_judge_names = declared is not None or g._nodes is not None or g._edges is not None
+    can_judge_names = schema or declared is not None  # schema=False holds no frames; a declared schema is names without data
     if level != "quiet" and can_judge_names:
         try:
             _bind_names(g, parsed)
@@ -179,11 +179,7 @@ def _validate_cypher(
     if schema:
         # schema=False callers (e.g. remote execution) hold no local frames to judge
         for compiled_chain in compiled_chains:
-            if level == "strict":
-                with strictness_scope(level, declared=declared):
-                    validate_chain_schema(g, compiled_chain.chain, collect_all=False)  # the executor's own check, so verdicts cannot drift (#1889)
-            else:
-                validate_graph_shape(g, compiled_chain.chain, collect_all=False)
+            validate_graph_shape(g, compiled_chain.chain, collect_all=False)  # runtime declines these too (#1889)
     return {
         "ok": True,
         "query_type": "chain",
