@@ -13,17 +13,19 @@ from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
 from .chain_fast_paths import _seeded_typed_hop_pandas_cudf, _tag_fast_path_aliases
 from graphistry.compute.validate.validate_schema import validate_chain_schema, validate_graph_shape
+from graphistry.compute.gfql.strictness import StrictInput
 from graphistry.compute.gfql.same_path_types import (
     WhereComparison,
     normalize_where_entries,
     parse_where_json,
     where_to_json,
 )
-from .gfql.policy import PolicyContext, PolicyException
+from .gfql.policy import PolicyContext, PolicyException, PolicyFunction
 from .gfql.policy.stats import extract_graph_stats
 from graphistry.otel import otel_traced, otel_detail_enabled
 
 if TYPE_CHECKING:
+    from .execution_context import ExecutionContext
     from graphistry.compute.exceptions import GFQLSchemaError, GFQLValidationError
     from graphistry.compute.gfql.index.handoff import IndexedBindingsHandoff
 
@@ -1018,7 +1020,8 @@ def chain(
     validate_schema: bool = True,
     policy=None,
     context=None,
-    start_nodes: Optional[DataFrameT] = None
+    start_nodes: Optional[DataFrameT] = None,
+    strict: StrictInput = None,
 ) -> Plottable:
     """
     Chain a list of ASTObject (node/edge) traversal operations
@@ -1035,10 +1038,33 @@ def chain(
     :param policy: Optional policy dict for hooks
     :param context: Optional ExecutionContext for tracking execution state
     :param start_nodes: Optional node wavefront for the first traversal step
+    :param strict: Absent-name strictness: ``"strict"`` raises, ``"warn"`` (default) warns
+        once per absent name and resolves it to null, ``"quiet"`` resolves silently.
+        ``True``/``False`` map to ``"strict"``/``"quiet"``. ``None`` consults
+        ``bind(schema=...)``, then the ``"warn"`` default.
 
     :returns: Plotter
     :rtype: Plotter
     """
+    from graphistry.compute.gfql.strictness import (
+        resolve_strict_level, schema_declared_names, strictness_scope)
+
+    with strictness_scope(
+        resolve_strict_level(self, strict=strict), declared=schema_declared_names(self)
+    ):
+        return _chain_with_strictness(
+            self, ops, engine, validate_schema, policy, context, start_nodes)
+
+
+def _chain_with_strictness(
+    self: Plottable,
+    ops: Union[List[ASTObject], Chain],
+    engine: Union[EngineAbstract, str],
+    validate_schema: bool,
+    policy: Optional[Dict[str, PolicyFunction]],
+    context: Optional['ExecutionContext'],
+    start_nodes: Optional[DataFrameT],
+) -> Plottable:
     if context is None:
         from .execution_context import ExecutionContext
         context = ExecutionContext()

@@ -94,6 +94,7 @@ from graphistry.compute.util.generate_safe_column_name import (
 from graphistry.compute.gfql.identifiers import EDGE_INDEX_BASE
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
+from graphistry.compute.gfql.strictness import StrictInput, StrictLevel
 from graphistry.otel import otel_traced, otel_detail_enabled
 
 logger = setup_logger(__name__)
@@ -2387,7 +2388,8 @@ def gfql(self: Plottable,
          language: Optional[Literal["cypher", "gremlin"]] = None,
          params: Optional[CypherParams] = None,
          validate: bool = False,
-         shortest_path_backend: str = "auto") -> Plottable:
+         shortest_path_backend: str = "auto",
+         strict: StrictInput = None) -> Plottable:
     """
     Execute a GFQL query - either a chain or a DAG
 
@@ -2406,9 +2408,39 @@ def gfql(self: Plottable,
         ``"igraph"`` (require igraph, raise if missing), ``"cugraph"`` (require cugraph,
         raise if missing), or ``"bfs"`` (always use DataFrame BFS). ``"auto"`` tries
         cugraph on CUDF engine, igraph on pandas, falls back to BFS silently.
+    :param strict: Absent-label/property strictness: ``"strict"`` raises, ``"warn"``
+        (default) warns once per absent name and resolves it to null (openCypher),
+        ``"quiet"`` resolves silently. ``True``/``False`` map to ``"strict"``/``"quiet"``.
+        ``None`` consults ``bind(schema=...)``, then the ``"warn"`` default.
     :returns: Resulting Plottable
     :rtype: Plottable
     """
+    from graphistry.compute.gfql.strictness import (
+        resolve_strict_level, schema_declared_names, strictness_scope)
+
+    with strictness_scope(
+        resolve_strict_level(self, strict=strict), declared=schema_declared_names(self)
+    ) as _strictness:
+        return _gfql_with_strictness(
+            self, query, engine=engine, output=output, policy=policy, where=where,
+            language=language, params=params, validate=validate,
+            shortest_path_backend=shortest_path_backend, strict=_strictness.level)
+
+
+def _gfql_with_strictness(
+    self: Plottable,
+    query: GFQLQuery,
+    *,
+    engine: Union[EngineAbstract, str],
+    output: Optional[str],
+    policy: Optional[Dict[str, PolicyFunction]],
+    where: Optional[Sequence[WhereComparison]],
+    language: Optional[Literal["cypher", "gremlin"]],
+    params: Optional[CypherParams],
+    validate: bool,
+    shortest_path_backend: str,
+    strict: StrictLevel,
+) -> Plottable:
     if _policied_auto_serves_via_pandas_until_the_polars_route_emits_hooks(engine, policy, self):
         engine = Engine.PANDAS.value
 
@@ -2546,7 +2578,7 @@ def gfql(self: Plottable,
                     where=where_param,
                     language=language,
                     params=params,
-                    strict=True,
+                    strict=strict,
                     schema=True,
                     collect_all=False,
                 )

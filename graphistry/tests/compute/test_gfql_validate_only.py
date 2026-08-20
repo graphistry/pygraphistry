@@ -58,10 +58,16 @@ def test_gfql_validate_cypher_success():
     assert report["diagnostics"] == []
 
 
-def test_gfql_validate_cypher_default_reports_schema_errors():
+def test_gfql_validate_cypher_default_is_warn_not_error():
+    g = _mk_graph()
+    report = g.gfql_validate("MATCH (p:Employee) RETURN p.name AS name")
+    assert report["ok"] is True
+
+
+def test_gfql_validate_cypher_strict_reports_schema_errors():
     g = _mk_graph()
     with pytest.raises(GFQLValidationError) as exc_info:
-        g.gfql_validate("MATCH (p:Employee) RETURN p.name AS name")
+        g.gfql_validate("MATCH (p:Employee) RETURN p.name AS name", strict=True)
     assert exc_info.value.code == ErrorCode.E301
 
 

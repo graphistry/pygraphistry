@@ -16,6 +16,8 @@ from graphistry.compute.ast import ASTLet, ASTObject
 from graphistry.compute.chain import Chain
 from graphistry.compute.gfql.cypher.lowering import compile_cypher_query
 from graphistry.compute.gfql.cypher.parser import parse_cypher
+from graphistry.compute.gfql.strictness import (
+    DEFAULT_STRICT_LEVEL, StrictInput, resolve_strict_level, schema_declared_names, strictness_scope)
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
 from graphistry.io.metadata import deserialize_plottable_metadata
 from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError
@@ -143,7 +145,10 @@ def chain_remote_generic(
     params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
     output: Optional[str] = None,
     df_import_args: Optional[DFImportArgs] = None,
+    strict: StrictInput = None,
 ) -> Union[Plottable, pd.DataFrame]:
+
+    strict_level = resolve_strict_level(self, strict=strict)
 
     if not api_token:
         self._pygraphistry.refresh()
@@ -218,14 +223,16 @@ def chain_remote_generic(
         )
 
     if validate:
-        gfql_preflight_validate(
-            self,
-            chain,
-            params=params,
-            strict=False,
-            collect_all=False,
-            schema=False,
-        )
+        declared = schema_declared_names(self)  # a declared schema is names without data (#1916)
+        with strictness_scope(strict_level, declared=declared):
+            gfql_preflight_validate(
+                self,
+                chain,
+                params=params,
+                strict=strict_level,
+                collect_all=False,
+                schema=False,
+            )
 
     if not dataset_id:
         dataset_id = self._dataset_id
@@ -268,6 +275,16 @@ def chain_remote_generic(
     if df_export_args is not None:
         request_body["df_export_args"] = df_export_args
     request_body["engine"] = engine_str
+    request_body["strictness"] = strict_level
+    if strict_level != DEFAULT_STRICT_LEVEL:
+        warnings.warn(
+            f"gfql_remote() is requesting strictness={strict_level!r}. Servers that do not "
+            "read the strictness field apply their own default, so absent labels/properties "
+            "may still be reported differently than requested. Upgrade to a server that reads "
+            "strictness for end-to-end parity.",
+            UserWarning,
+            stacklevel=2,
+        )
     if persist:
         request_body["persist"] = persist
 
@@ -457,6 +474,7 @@ def chain_remote_shape(
     df_import_args: Optional[DFImportArgs] = None,
     params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
     output: Optional[str] = None,
+    strict: StrictInput = None,
 ) -> pd.DataFrame:
     """
     Like chain_remote(), except instead of returning a Plottable, returns a pd.DataFrame of the shape of the resulting graph.
@@ -507,6 +525,7 @@ def chain_remote_shape(
         params=params,
         output=output,
         df_import_args=df_import_args,
+        strict=strict,
     )
     assert isinstance(out_df, pd.DataFrame)
     return out_df
@@ -527,6 +546,7 @@ def chain_remote(
     params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
     output: Optional[str] = None,
     df_import_args: Optional[DFImportArgs] = None,
+    strict: StrictInput = None,
 ) -> Plottable:
     """Remotely run GFQL chain query on a remote dataset.
     
@@ -620,6 +640,7 @@ def chain_remote(
         params=params,
         output=output,
         df_import_args=df_import_args,
+        strict=strict,
     )
     assert isinstance(g, Plottable)
     return g
