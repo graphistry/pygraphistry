@@ -922,9 +922,9 @@ jobs:
         python -B -m pytest -vv -n auto "${parity_tests[@]}"
 
   gpu-gate-audit:
+    # Ungated: a guard against a silent coverage gap must not itself be conditionally
+    # silent, and the path filters do not cover every file it cross-checks.
     name: gpu-gate-audit
-    needs: [changes]
-    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.docs == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
