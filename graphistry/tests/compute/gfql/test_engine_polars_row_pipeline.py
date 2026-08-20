@@ -79,6 +79,8 @@ SUPPORTED = [
 # Row ops lowered to NATIVE polars (no pandas): select/with_/return_ projection (property/
 # arith/comparison/boolean/literal), order_by, group_by (count/sum/avg/min/max), unwind.
 NATIVE_LOWERED = [
+    # whole-row multi-entity render: the projector reads each alias's binding-row columns
+    "MATCH (n)-[e]->(m) RETURN n, m",
     "MATCH (n) RETURN n.val",
     "MATCH (n) RETURN n.val AS v, n.kind",
     "MATCH (n) RETURN n.val, n.name",
@@ -125,7 +127,6 @@ NATIVE_LOWERED = [
 # lowered via rows(binding_ops) are native.
 DEFERRED = [
     "MATCH (n)-[e]->(m) WHERE n.val < m.val RETURN n, m",   # cross-entity WHERE
-    "MATCH (n)-[e]->(m) RETURN n, m",                       # whole-row multi-entity render
     # whole-entity collect: agg arg is the __node_entity__(n) whole-entity token (not the bare
     # identity sentinel), whose native list-of-entities representation isn't ported yet -> NIE.
     "MATCH (n) RETURN collect(n) AS xs",

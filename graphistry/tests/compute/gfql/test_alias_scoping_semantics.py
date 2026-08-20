@@ -191,10 +191,15 @@ def test_with_non_rebind_shapes_are_unaffected(query: str, expected, engine: str
 @pytest.mark.parametrize("engine", ENGINES)
 def test_terminal_return_rename_onto_live_alias_still_works(engine: str) -> None:
     """CONTROL: a terminal `RETURN a AS b` only names an output column -- no later clause
-    resolves against it -- so it must keep working on both engines."""
+    resolves against it -- so it must keep working on both engines.
+
+    The KNOWS bag is a->b, b->c, a->c, c->d, so the a-side is [a, b, a, c] and Alice
+    appears twice. This used to expect the 3-name node set; the sibling property spelling
+    (`WITH a.name AS b RETURN b`, in test_with_non_rebind_shapes_are_unaffected) already
+    expected the 4-row bag, and whole-entity projection now agrees with it."""
     rows = _run(PEOPLE_NODES, PEOPLE_EDGES,
                 "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN a AS b", engine)
-    assert sorted(r["b.name"] for r in rows) == ["Alice", "Bob", "Carol"]
+    assert sorted(r["b.name"] for r in rows) == ["Alice", "Alice", "Bob", "Carol"]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
