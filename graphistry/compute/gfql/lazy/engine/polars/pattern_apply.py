@@ -193,10 +193,16 @@ def _pattern_alias_keys_polars(
                 _eng = _Engine.POLARS_GPU if _active_target() == _ExecutionTarget.GPU else _Engine.POLARS
                 _mk = adjacency_membership_keys(_reg, _mdir, base_graph._edges, (_src, _dst), _eng)
                 # Both endpoints must be nodes, so BOTH directions' keys need covering.
-                _cover = _mk if _mdir == "undirected" else adjacency_membership_keys(
-                    _reg, "undirected", base_graph._edges, (_src, _dst), _eng
+                _opp: HopDirection = "reverse" if _mdir == "forward" else "forward"
+                _cover = None if _mdir == "undirected" else adjacency_membership_keys(
+                    _reg, _opp, base_graph._edges, (_src, _dst), _eng
                 )
-                if _mk is not None and _cover is not None and _nodes_cover_keys(base_graph, node_id, _cover):
+                _needed = [k for k in (_mk, _cover) if k is not None]
+                if (
+                    _mk is not None
+                    and (_mdir == "undirected" or _cover is not None)
+                    and all(_nodes_cover_keys(base_graph, node_id, k) for k in _needed)
+                ):
                     return pl.DataFrame({node_id: pl.Series(node_id, _np.asarray(_mk))})
     if neq:
         # EXISTS { (n)--(m) WHERE m <> n } — for the single-edge shape, endpoint
