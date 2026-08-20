@@ -168,6 +168,36 @@ def test_absent_property_is_not_null_matches_no_row(engine: str) -> None:
     assert rows == []
 
 
+ABSENT_PROP_OR_EXPR = "MATCH (n) WHERE n.t = 'a' OR n.nope_col = 1 RETURN n.id AS id"
+ABSENT_PROP_NOT_EXPR = "MATCH (n) WHERE NOT n.nope_col = 1 RETURN n.id AS id"
+
+
+@pytest.mark.parametrize("level", ["warn", "quiet"])
+def test_absent_property_in_a_row_expression_is_null_not_false(level: str) -> None:
+    # `null OR true` is true, so the t='a' disjunct still carries its two rows
+    assert len(_rows(_graph().gfql(ABSENT_PROP_OR_EXPR, strict=level))) == 2
+
+
+@pytest.mark.parametrize("level", ["warn", "quiet"])
+def test_negating_an_absent_property_still_matches_nothing(level: str) -> None:
+    # `NOT null` is null, not true
+    assert _rows(_graph().gfql(ABSENT_PROP_NOT_EXPR, strict=level)) == []
+
+
+@pytest.mark.parametrize("query", [ABSENT_PROP_OR_EXPR, ABSENT_PROP_NOT_EXPR])
+def test_row_expression_absent_property_raises_under_strict(query: str) -> None:
+    # master served these leniently while its own validator rejected them
+    with pytest.raises(GFQLSchemaError):
+        _graph().gfql(query, strict="strict")
+
+
+@pytest.mark.parametrize("query", [ABSENT_PROP_OR_EXPR, ABSENT_PROP_NOT_EXPR])
+@pytest.mark.parametrize("level", ["strict", "warn", "quiet"])
+def test_row_expression_validator_and_executor_agree(query: str, level: str) -> None:
+    g = _graph()
+    assert _validator_verdict(g, query, level) == _executor_verdict(g, query, level)
+
+
 def test_present_column_absent_value_is_unchanged() -> None:
     # scope discipline: only ABSENT names change; a present column keeps its semantics
     assert _rows(_graph().gfql("MATCH (n) WHERE n.t = 'zzz' RETURN n.id AS id", strict="warn")) == []
