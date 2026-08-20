@@ -504,3 +504,32 @@ def test_remote_preflight_accepts_declared_name_absent_from_the_instance() -> No
     g._dataset_id = "ds"
     body = _remote_body("strict", query="MATCH (n) WHERE n.city = 1 RETURN n.id", validate=True, g=g)
     assert body["strictness"] == "strict"
+
+
+def test_leniency_does_not_swallow_errors_unrelated_to_absence() -> None:
+    """Only an absent column is leniency-eligible.
+
+    A frame with integer column names makes ``resolve_filter_column`` raise
+    ``TypeError`` while building its own suggestion string. That is a real error,
+    not an absent key, so it must surface at every level rather than be reported
+    to the caller as "column is absent".
+    """
+    import warnings
+
+    import pandas as pd
+
+    from graphistry.compute.filter_by_dict import resolve_filter_column_or_absent
+    from graphistry.compute.gfql.strictness import strictness_scope
+
+    df = pd.DataFrame({0: [1, 2], 1: [3, 4]})
+
+    for level in ("strict", "warn", "quiet"):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with pytest.raises(TypeError):
+                with strictness_scope(level):  # type: ignore[arg-type]
+                    resolve_filter_column_or_absent(df, "missing", 1, context="nodes")
+        absent_warnings = [w for w in caught if "is absent" in str(w.message)]
+        assert absent_warnings == [], (
+            f"level={level} reported an unrelated TypeError as an absent column"
+        )

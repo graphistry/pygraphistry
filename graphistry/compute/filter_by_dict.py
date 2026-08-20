@@ -40,7 +40,7 @@ def _normalize_labels_cell(value: Any) -> Tuple[Any, ...]:
         return ()
     try:
         marker = pd.isna(value)
-    except Exception:
+    except GFQLSchemaError:  # only an absent column is leniency-eligible; other errors are real
         marker = False
     if isinstance(marker, bool) and marker:
         return ()
@@ -106,11 +106,12 @@ def resolve_filter_column_or_absent(
 ) -> Optional[Tuple[str, Any]]:  # hygiene-ok: explicit-any -- mirrors resolve_filter_column's heterogeneous value contract
     """``resolve_filter_column``, but ``None`` when the resolved strictness level
     says an absent column resolves to null rather than raising."""
+    from graphistry.compute.exceptions import GFQLSchemaError
     from graphistry.compute.gfql.strictness import absent_filter_key_is_lenient
 
     try:
         return resolve_filter_column(df, col, val)
-    except Exception:
+    except GFQLSchemaError:  # only an absent column is leniency-eligible; other errors are real
         if absent_filter_key_is_lenient(col, val, context=context):
             return None
         raise
