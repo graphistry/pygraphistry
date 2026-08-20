@@ -95,3 +95,29 @@ def test_reexports_from_compute_gfql(monkeypatch: pytest.MonkeyPatch) -> None:
     assert pkg_default() is False
     monkeypatch.setenv(STRICT_SCHEMA_ENV, "true")
     assert pkg_default() is True
+
+
+def test_strict_schema_env_does_not_change_absent_label_behavior(monkeypatch) -> None:
+    """The documented env var is inert: all three states give the identical error."""
+    import pandas as pd
+    import graphistry
+    from graphistry.compute.exceptions import GFQLSchemaError
+
+    g = (graphistry
+         .nodes(pd.DataFrame({"id": [0, 1]}), "id")
+         .edges(pd.DataFrame({"s": [0], "d": [1]}), "s", "d"))
+
+    codes = []
+    for value in (None, "0", "1"):
+        if value is None:
+            monkeypatch.delenv("GRAPHISTRY_GFQL_STRICT_SCHEMA", raising=False)
+        else:
+            monkeypatch.setenv("GRAPHISTRY_GFQL_STRICT_SCHEMA", value)
+        try:
+            g.gfql("MATCH (n:Nope) RETURN n.id", engine="pandas")
+            codes.append("answered")
+        except GFQLSchemaError as err:
+            codes.append(err.code)
+
+    assert len(set(codes)) == 1, f"env var changed behavior: {codes}"
+    assert codes[0] != "answered"

@@ -32,6 +32,8 @@ from graphistry.compute.gfql.row.order_expr import (
 from graphistry.compute.gfql.agg_types import (
     GFQL_NUMERIC_ONLY_AGGREGATIONS,
     numeric_agg_all_null_value,
+    pandas_agg_kernel_null_fill,
+    pandas_conform_agg_dtype,
     pandas_dtype_is_numeric_for_agg,
     pandas_non_numeric_agg_dtype,
     pandas_object_series_is_bool_like,
@@ -5613,6 +5615,13 @@ class RowPipelineMixin:
                     if func == "sum" and pandas_object_series_is_bool_like(table_df[expr_col]):
                         # The object-dtype kernel returns a lone-row group as the raw bool.
                         agg_df = agg_df.assign(**{alias: pd.to_numeric(agg_df[alias])})  # bool sums as int (#1821)
+                    null_fill = pandas_agg_kernel_null_fill(func, table_df[expr_col])
+                    if null_fill is not None:
+                        # cypher sum() never answers null; cuDF's grouped sum does (agg_types.py)
+                        agg_df = agg_df.assign(**{alias: agg_df[alias].fillna(null_fill)})
+                    agg_df = agg_df.assign(**{alias: pandas_conform_agg_dtype(
+                        agg_df[alias], func,
+                        str(table_df[expr_col].dtype).lower() in {"bool", "boolean"})})
 
             out_df = out_df.merge(agg_df, on=key_cols, how="left", sort=False)
             if func in {"collect", "collect_distinct"}:
