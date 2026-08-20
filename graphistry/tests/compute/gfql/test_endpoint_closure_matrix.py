@@ -1308,6 +1308,40 @@ def test_the_null_endpoint_contract_holds_on_string_ids(engine):
     assert _scalar(g.gfql("MATCH (a)-[x]-(b) RETURN count(*) AS c", engine=engine), "c") == [4]
 
 
+# --- AXIS: the #1658 index-backed route, which is a separate kernel from the scan -------------
+
+#: Hand-walked from NULLEP: seed 2 is the node both null-endpoint edges touch, and 0's only
+#: in-edge and 2's only out-edge are the refused ones.
+_INDEXED_NULL_ORACLE = [
+    (0.0, "forward", {(0.0, 1.0)}),
+    (2.0, "forward", set()),              # 2's only out-edge is (2,NULL)
+    (0.0, "reverse", set()),              # 0 has no in-edge at all
+    (2.0, "reverse", {(1.0, 2.0)}),       # (NULL,2) refused
+    (0.0, "undirected", {(0.0, 1.0)}),
+    (2.0, "undirected", {(1.0, 2.0)}),    # both (NULL,2) and (2,NULL) refused
+]
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("seed,direction,want", _INDEXED_NULL_ORACLE)
+def test_the_index_backed_route_answers_the_null_contract_too(engine, seed, direction, want):
+    """The CSR gather is built from the RAW edge frame and is a different kernel from the scan,
+    so it needs its own cells: it must serve (or decline to) the same answer, never emit an
+    edge whose endpoint is NULL."""
+    _require_engine(engine)
+    from graphistry.compute.gfql.index import gfql_index_edges
+
+    try:
+        g = gfql_index_edges(_bind(engine, NULL_ENDPOINT_NODES, NULL_ENDPOINT_EDGES))
+        out = g.hop(nodes=_seed(engine, [seed]), hops=1, direction=direction, engine=engine)
+    except Exception as ex:
+        reason = gpu_environment_reason(ex)
+        if reason is None:
+            raise
+        pytest.skip(f"index-backed lane needs a working GPU runtime: {reason}")
+    assert _pairs_with_nulls_named(out) == want
+
+
 # --- DOCUMENTED BOUNDARY: what the contract deliberately does NOT reach --------------------
 
 @pytest.mark.parametrize("engine", ALL_ENGINES)
