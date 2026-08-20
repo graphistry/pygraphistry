@@ -131,6 +131,8 @@ POLARS_TEST_FILES=(
     # index tests exercise the seeded-index hook in the polars hop entry (hop.py) — without
     # them the hook dominates the now-thin file and trips its per-file coverage floor
     graphistry/tests/compute/gfql/index/test_index.py
+    # every cell is polars-only: the indexed-vs-scan EXISTS/NOT EXISTS agreement matrix
+    graphistry/tests/compute/gfql/index/test_exists_pattern_index_agreement.py
     # engine-agnostic frame/series primitives (graphistry/Engine.py) — the polars branches of
     # these dispatch helpers are only measured when this lane covers graphistry (see cov widen below)
     graphistry/tests/test_engine_frame_helpers.py
