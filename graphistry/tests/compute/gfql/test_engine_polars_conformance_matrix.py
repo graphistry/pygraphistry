@@ -858,8 +858,8 @@ _CALL_CONSISTENCY_FNS = ["get_degrees", "hypergraph", "limit"]
 
 def _call_exercised_functions():
     """call()-safelist names this matrix exercises (importable for the ledger): the consistency
-    test drives _CALL_CONSISTENCY_FNS; the degree trio also has dedicated conformance tests."""
-    return set(_CALL_CONSISTENCY_FNS) | {"get_degrees", "get_indegrees", "get_outdegrees"}
+    test drives _CALL_CONSISTENCY_FNS; the degree trio and compute_std have dedicated tests."""
+    return set(_CALL_CONSISTENCY_FNS) | {"compute_std", "get_degrees", "get_indegrees", "get_outdegrees"}
 
 
 def _rowop_exercised():
@@ -886,6 +886,14 @@ def test_conformance_call_chain_vs_dag_consistent(fn):
     chain = _run(g, chain_q, "polars")
     dag = _run(g, let({"a": (call(fn, params) if params else call(fn))}), "polars")
     assert_surfaces_agree(chain, dag, f"call '{fn}' chain-vs-dag")
+
+
+def test_conformance_compute_std_call_chain_vs_dag_consistent():
+    g = _graph(3)
+    params = {"alg": "wcc"}
+    chain = _run(g, [call("compute_std", params)], "polars")
+    dag = _run(g, let({"a": call("compute_std", params)}), "polars")
+    assert_surfaces_agree(chain, dag, "call 'compute_std' chain-vs-dag")
 
 
 # ---- generative predicate fuzz across surfaces (verify-not-trust: broad, seeded) ----
