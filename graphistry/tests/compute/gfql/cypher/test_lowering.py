@@ -6167,8 +6167,8 @@ def test_string_cypher_failfast_rejects_optional_match_null_extension_shapes_wit
 def test_string_cypher_optional_arm_label_where_serves_edge_projection() -> None:
     """#1891 regression fix: an optional-arm label WHERE null-extends instead
     of gating -- matched arm projects the edge, unmatched arm keeps the seed
-    row with r = null, and a missing label follows the standard
-    column-not-found contract (same as plain MATCH)."""
+    row with r = null, and a missing label follows the standard absent-name
+    contract (same as plain MATCH): strict raises, the warn default null-extends."""
     graph = _mk_graph(
         pd.DataFrame(
             {
@@ -6194,7 +6194,10 @@ def test_string_cypher_optional_arm_label_where_serves_edge_projection() -> None
     unmatched = graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:Single RETURN r")
     assert entity_text_records(unmatched, {"r": "edges"}) == [{"r": None}]
     with pytest.raises(GFQLSchemaError):
-        graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:NonExistent RETURN r")
+        graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:NonExistent RETURN r",
+                   strict=True)
+    absent = graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:NonExistent RETURN r")
+    assert entity_text_records(absent, {"r": "edges"}) == [{"r": None}]
 
 
 def test_string_cypher_failfast_rejects_graph_backed_unwind_after_with_as_validation_error() -> None:

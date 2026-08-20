@@ -302,5 +302,5 @@ class TestEdgeCases:
                 )
 
         kwargs = mock_validate.call_args.kwargs
-        assert kwargs["strict"] is False
+        assert kwargs["strict"] == "warn"
         assert kwargs["schema"] is False
