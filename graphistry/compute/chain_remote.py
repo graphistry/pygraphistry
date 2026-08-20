@@ -544,13 +544,13 @@ def chain_remote(
     :param output_type: Whether to return nodes and edges ("all", default), Plottable with just nodes ("nodes"), or Plottable with just edges ("edges"). For just a dataframe of the resultant graph shape (output_type="shape"), use instead chain_remote_shape().
     :type output_type: OutputType
 
-    :param format: What format to fetch results. We recommend a columnar format such as parquet, which it defaults to when output_type is not shape. ``'csv'`` is untyped on the wire and is refused unless ``df_import_args`` is supplied.
+    :param format: What format to fetch results. We recommend a columnar format such as parquet, which it defaults to when output_type is not shape. ``'csv'`` is untyped on the wire: the client re-infers dtypes and can rewrite values, so it warns and serves. Pass ``df_import_args`` to control the reader.
     :type format: Optional[FormatType]
 
     :param df_export_args: When server parses data, any additional parameters to pass in.
     :type df_export_args: Optional[Dict, str, Any]]
 
-    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Required to use ``format='csv'`` at all: csv is untyped on the wire, so without explicit reader control the client would re-infer dtypes and can rewrite values. Prefer ``format='parquet'``, which is faithful and needs no reader args.
+    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Optional; without it csv dtypes are re-inferred from text, which can rewrite values (``'007'`` -> ``7.0``) and break the returned graph's own node/edge id join. Supplying it takes explicit control and silences the warning. Prefer ``format='parquet'``, which is faithful and needs no reader args.
     :type df_import_args: Optional[Dict[str, Any]]
 
     :param node_col_subset: When server returns nodes, what property subset to return. Defaults to all.
