@@ -41,6 +41,10 @@ POLARS_TEST_FILES=(
     # native polars aggregate guard and the raw-polars-exception wrap are exercised
     graphistry/tests/compute/gfql/test_aggregate_type_contract.py
     graphistry/tests/compute/gfql/test_engine_polars_conformance_matrix.py
+    # #1985 size()/quantifier/comprehension declines: every case is parametrized pandas AND
+    # polars, and the polars params (native size() lowering must keep declining a
+    # non-sequence operand) only ever run here
+    graphistry/tests/compute/gfql/test_size_nonlist_decline_1985.py
     graphistry/tests/compute/gfql/test_polars_string_predicate_nonstring.py
     graphistry/tests/compute/gfql/cypher/test_order_by_null_placement.py
     graphistry/tests/compute/gfql/test_conformance_ledger.py
