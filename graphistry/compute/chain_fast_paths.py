@@ -286,8 +286,8 @@ def _seeded_typed_hop_pandas_cudf(
         # the dest filter, dangling-edge drop and final-node selection on the small
         # candidate/edge frames. Selecting from nodes_df keeps only real nodes, so the
         # endpoint-in-nodes check subsumes the old NaN-endpoint guard. Membership sets
-        # are dropna()'d: pandas .isin matches NaN<->NaN, but the general branch's BFS
-        # joins never join on null keys, so a null id/endpoint must not link.
+        # are dropna()'d: pandas .isin matches NaN<->NaN, but a NULL id is not an
+        # identity, so a null id/endpoint must not link.
         cand = nodes_df[
             nodes_df[node].isin(edges[src].dropna()) | nodes_df[node].isin(edges[dst].dropna())
         ].drop_duplicates(subset=[node])
@@ -329,8 +329,8 @@ def _seeded_typed_return_dst_pandas_cudf(
     # id-first seed reduction: filter by the id column first (int/unique -> ~1 row)
     # so any remaining object filters (label__X->type) run on the tiny survivor
     # frame, never materializing an object column over the whole node table.
-    # Membership sets are dropna()'d: pandas .isin matches NaN<->NaN, but the full
-    # pipeline's joins never join on null keys, so a null id/endpoint must not link.
+    # Membership sets are dropna()'d: pandas .isin matches NaN<->NaN, but a NULL id is
+    # not an identity, so a null id/endpoint must not link.
     ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction)
     seed_nodes = edges = dstn = None
     if ctx is not None:
@@ -401,8 +401,8 @@ def _seeded_typed_return_dst_polars(
     from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
 
     # from-side seed: reduce the node frame to the seed rows, take their ids.
-    # Membership sets are drop_nulls()'d (null ids/endpoints never link, matching
-    # the full pipeline's joins) and passed via .implode() (Series-arg is_in is
+    # Membership sets are drop_nulls()'d (a NULL id is not an identity, so null
+    # ids/endpoints never link) and passed via .implode() (Series-arg is_in is
     # deprecated in polars 1.42, see polars#22149).
     ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction)
     seed_nodes = edges = dstn = None

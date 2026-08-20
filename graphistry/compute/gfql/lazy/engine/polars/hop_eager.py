@@ -107,24 +107,29 @@ def _ids_an_endpoint_may_resolve_to(
     return ids
 
 
+def drop_null_endpoint_edges(edges_idx: "PolarsT", src: str, dst: str) -> "PolarsT":
+    """NULL endpoint contract: a NULL id is not an identity, so an edge with a NULL endpoint
+    participates in no traversal, from either side. Twin of ``hop.py``'s pandas/cuDF helper."""
+    import polars as pl
+
+    return edges_idx.filter(pl.col(src).is_not_null() & pl.col(dst).is_not_null())
+
+
 def _keep_edges_with_both_endpoints_resolvable(
     edges_idx: "PolarsT", src: str, dst: str, node_dtype: "pl.DataType",
     resolvable_ids: "pl.Series",
 ) -> "PolarsT":
     """`.implode()` makes the id series ONE membership collection; bare `is_in` is deprecated.
 
-    A NULL endpoint resolves iff the id universe holds a NULL id: `is_in` answers NULL for a
-    NULL input (dropped by `filter`), where the pandas/cuDF `isin` this mirrors answers True.
-    """
+    Endpoints reaching here are non-NULL (``drop_null_endpoint_edges`` ran first), and a NULL
+    id in ``resolvable_ids`` is not an identity, so ``is_in``'s NULL-never-matches answer IS
+    the contract -- no null-aware widening."""
     import polars as pl
 
     universe = resolvable_ids.implode()
-    a_null_id_is_resolvable = resolvable_ids.null_count() > 0
 
     def _resolvable(endpoint_col: str) -> "pl.Expr":
-        endpoint = pl.col(endpoint_col).cast(node_dtype)
-        member = endpoint.is_in(universe)
-        return (member | endpoint.is_null()) if a_null_id_is_resolvable else member
+        return pl.col(endpoint_col).cast(node_dtype).is_in(universe)
 
     return edges_idx.filter(_resolvable(src) & _resolvable(dst))
 
@@ -252,6 +257,7 @@ def hop_polars(
     # resolved_max_hops comes from the shared resolver above (None == run-to-closure).
     FROM, TO, NID, EID, edges_idx, synth_eid, node_dtype = _hop_setup_columns(
         edges, all_nodes, node_col, g._edge)
+    edges_idx = drop_null_endpoint_edges(edges_idx, src, dst)
 
     serves_single_bounded_hop = (
         not to_fixed_point and resolved_max_hops == 1

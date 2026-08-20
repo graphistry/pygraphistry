@@ -430,6 +430,18 @@ def hop(self: Plottable,
         if EDGE_ID not in edges_indexed.columns:
             raise ValueError(f"Edge binding column '{EDGE_ID}' (from g._edge='{g2._edge}') not found in edges. Available columns: {list(edges_indexed.columns)}")
 
+    def _drop_null_endpoint_edges(frame: DataFrameT) -> DataFrameT:
+        """NULL endpoint contract: a NULL id is not an identity, so an edge with a NULL
+        endpoint participates in no traversal, from either side. Scanned before filtered so
+        the overwhelmingly common null-free edge table keeps its frame without a copy."""
+        src_null = frame[source_col].isna()
+        dst_null = frame[destination_col].isna()
+        if not (bool(src_null.any()) or bool(dst_null.any())):
+            return frame
+        return frame[~(src_null | dst_null)]
+
+    edges_indexed = _drop_null_endpoint_edges(edges_indexed)
+
     def resolve_label_col(requested: Optional[str], df, default_base: str) -> Optional[str]:
         if requested is None:
             return generate_safe_column_name(default_base, df, prefix='__gfqlhop_', suffix='__')
