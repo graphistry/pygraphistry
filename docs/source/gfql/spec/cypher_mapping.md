@@ -449,12 +449,35 @@ Boolean"*); GFQL accepts it because summing an indicator column is idiomatic in 
 surface GFQL also serves, and every engine already agrees on the answer. `sum` over a boolean
 counts the true values; `avg` gives their fraction.
 
+The extension is a strict **superset**: it only accepts input Cypher rejects outright, so no
+Cypher-valid query changes meaning under it.
+
 Any other input type **raises**. This is stricter than earlier releases, where a string column
 returned its *concatenation* on pandas and leaked a raw polars error on polars — wrong in two
 different directions.
 
 Empty and all-null inputs follow Cypher rather than SQL: `sum` returns **0**, `avg` returns
-**null**.
+**null**. This is conformance, not a compromise — SQL's `SUM` returns NULL over zero rows and
+Cypher's returns 0, and every GFQL engine already matched Cypher on both.
+
+### Aggregates over `BOOLEAN`: return types
+
+Values *and* return types are pinned, identically on pandas, polars, cuDF and polars-gpu:
+
+| Aggregate | Returns | Definition |
+|-----------|---------|------------|
+| `sum(BOOLEAN)` | `INTEGER` (int64) | count of `true`, nulls skipped; **0** over zero non-null values |
+| `avg(BOOLEAN)` | `FLOAT` (float64) | `true_count / non_null_count`; **null** over zero non-null values |
+| `min(BOOLEAN)` | `BOOLEAN` | standard boolean ordering `false < true`; **null** over zero non-null values |
+| `max(BOOLEAN)` | `BOOLEAN` | standard boolean ordering `false < true`; **null** over zero non-null values |
+| `count(BOOLEAN)` | `INTEGER` (int64) | non-null count |
+
+`min`/`max` are an **ordering**, not a logical fold. `min == AND` and `max == OR` follow from
+`false < true` on populated input, but they disagree on the empty one: the conventional identity of
+`AND` over zero elements is `true` and of `OR` over zero elements is `false`, while GFQL — like
+`ORDER BY`, which already orders booleans this way — answers **null**.
+
+`count` returns `INTEGER` for every input type, not only `BOOLEAN`.
 
 ## Key Differences
 

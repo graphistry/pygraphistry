@@ -45,9 +45,12 @@ from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.agg_types import (
     GFQL_NUMERIC_ONLY_AGGREGATIONS,
     numeric_agg_all_null_value,
+    pandas_agg_kernel_null_fill,
     pandas_dtype_is_numeric_for_agg,
     pandas_non_numeric_agg_dtype,
     pandas_object_series_is_bool_like,
+    polars_all_null_agg_literal,
+    polars_conform_agg_dtype,
     polars_non_numeric_agg_dtype,
     raise_non_numeric_aggregation,
 )
@@ -1931,7 +1934,8 @@ def _low_cardinality_pure_count_plan(
     is a decline away from zero.
 
     The two formulations are VALUE-IDENTICAL wherever this admits -- same key rows, same
-    counts, same ``UInt32`` count dtype, same treatment of null / NaN / empty-input keys --
+    counts, same INTEGER count dtype (both conformed off agg_types), same treatment of
+    null / NaN / empty-input keys --
     and the caller's gate has already made the following ``sort`` TOTAL over the output
     rows, so neither formulation's internal row order can reach the answer. Choosing
     between them is a routing decision, not a semantic one.
@@ -1992,7 +1996,9 @@ def _low_cardinality_pure_count_plan(
 
     # ``name=`` (polars >= 1.0, and the declared floor is 1.29) keeps the count column out
     # of a rename, so a group key literally named ``count`` is served rather than crashing.
-    return work_lf.select(pl.col(group_key).value_counts(name=out_alias)).unnest(group_key)
+    counts = work_lf.select(pl.col(group_key).value_counts(name=out_alias)).unnest(group_key)
+    return counts.with_columns(
+        polars_conform_agg_dtype(pl.col(out_alias), "count", None, out_alias))
 
 
 def _single_hop_grouped_aggregate_fused_polars(
@@ -2118,16 +2124,19 @@ def _single_hop_grouped_aggregate_fused_polars(
                 or polars_non_numeric_agg_dtype(agg_dtype) is not None
             ):
                 return None
+        result_dtype = prop_dtypes.get(expr_col) if expr_col is not None else None
         if func == "count" and expr_col is None:
-            agg_exprs.append(pl.len().alias(out_alias))
+            agg_exprs.append(polars_conform_agg_dtype(pl.len(), func, None, out_alias))
         elif expr_col is None:
             return None
         elif func == "count":
-            agg_exprs.append(pl.col(expr_col).count().alias(out_alias))
+            agg_exprs.append(
+                polars_conform_agg_dtype(pl.col(expr_col).count(), func, result_dtype, out_alias))
         elif func == "avg":
             agg_exprs.append(pl.col(expr_col).mean().alias(out_alias))
         elif func == "sum":
-            agg_exprs.append(pl.col(expr_col).sum().alias(out_alias))
+            agg_exprs.append(
+                polars_conform_agg_dtype(pl.col(expr_col).sum(), func, result_dtype, out_alias))
         elif func == "min":
             agg_exprs.append(pl.col(expr_col).min().alias(out_alias))
         elif func == "max":
@@ -2508,18 +2517,21 @@ def _execute_single_hop_grouped_aggregate_fast_path(
                     and work.height > 0
                     and work[expr_alias].null_count() == work.height
                 ):
-                    agg_exprs.append(pl.lit(numeric_agg_all_null_value(func)).alias(alias))
+                    agg_exprs.append(polars_all_null_agg_literal(func, alias))
                     continue
                 if dtype_label is not None:
                     raise_non_numeric_aggregation(func, expr_alias, dtype_label, alias)
+            agg_dtype = work_schema.get(expr_alias) if expr_alias is not None else None
             if func == "count" and (expr_alias is None or with_items[expr_alias][1] is None):
-                agg_exprs.append(pl.len().alias(alias))
+                agg_exprs.append(polars_conform_agg_dtype(pl.len(), func, None, alias))
             elif func == "count" and expr_alias is not None:
-                agg_exprs.append(pl.col(expr_alias).count().alias(alias))
+                agg_exprs.append(
+                    polars_conform_agg_dtype(pl.col(expr_alias).count(), func, agg_dtype, alias))
             elif func == "avg" and expr_alias is not None:
                 agg_exprs.append(pl.col(expr_alias).mean().alias(alias))
             elif func == "sum" and expr_alias is not None:
-                agg_exprs.append(pl.col(expr_alias).sum().alias(alias))
+                agg_exprs.append(
+                    polars_conform_agg_dtype(pl.col(expr_alias).sum(), func, agg_dtype, alias))
             elif func == "min" and expr_alias is not None:
                 agg_exprs.append(pl.col(expr_alias).min().alias(alias))
             elif func == "max" and expr_alias is not None:
@@ -2603,6 +2615,10 @@ def _execute_single_hop_grouped_aggregate_fast_path(
                 if pandas_object_series_is_bool_like(work[expr_alias]):
                     # Twin of the row-pipeline group_by sum(bool) numeric retype.
                     agg_df = agg_df.assign(**{alias: pd.to_numeric(agg_df[alias])})  # bool sums as int (#1821)
+                null_fill = pandas_agg_kernel_null_fill(func, work[expr_alias])
+                if null_fill is not None:
+                    # Twin of the row-pipeline sum() null repair: cypher sum() never answers null.
+                    agg_df = agg_df.assign(**{alias: agg_df[alias].fillna(null_fill)})
             elif func == "min" and expr_alias is not None:
                 agg_df = grouped[expr_alias].min().reset_index(name=alias)
             elif func == "max" and expr_alias is not None:
