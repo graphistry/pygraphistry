@@ -41,6 +41,8 @@ from graphistry.utils.json import JSONVal
 from graphistry.compute.gfql.agg_types import (
     GFQL_NUMERIC_ONLY_AGGREGATIONS,
     numeric_agg_all_null_value,
+    polars_all_null_agg_literal,
+    polars_conform_agg_dtype,
     polars_non_numeric_agg_dtype,
     raise_non_numeric_aggregation,
 )
@@ -1394,7 +1396,7 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     import polars as pl
     func = func.lower()
     if func == "count" and (expr is None or expr == "*"):
-        return pl.len().alias(alias)
+        return polars_conform_agg_dtype(pl.len(), func, None, alias)
     if not isinstance(expr, str) or expr not in columns:
         return None
     col = pl.col(expr)
@@ -1422,7 +1424,7 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
         if dtype == pl.Null:
             # all-null by construction: `sum`/`mean` are unsupported on `null` dtype in polars,
             # while cypher says 0 / null.
-            return pl.lit(numeric_agg_all_null_value(func)).alias(alias)
+            return polars_all_null_agg_literal(func, alias)
         dtype_label = polars_non_numeric_agg_dtype(dtype)
         if dtype_label is not None:
             # An ALL-NULL column carries no type evidence, so it is never a type error: cypher
@@ -1430,14 +1432,14 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
             # and pandas already did (an all-None pandas object column arrives here typed
             # `String`). Both would otherwise raise -- `sum`/`mean` are unsupported on `str`.
             if is_all_null is not None and is_all_null(expr):
-                return pl.lit(numeric_agg_all_null_value(func)).alias(alias)
+                return polars_all_null_agg_literal(func, alias)
             # Raise, don't return None: None is an NIE-decline that falls back to the pandas
             # kernel, which would then ANSWER the same wrong-typed query.
             raise_non_numeric_aggregation(func, expr, dtype_label, alias)
     if func == "count":
-        return col.count().alias(alias)
+        return polars_conform_agg_dtype(col.count(), func, dtype, alias)
     if func == "sum":
-        return col.sum().alias(alias)
+        return polars_conform_agg_dtype(col.sum(), func, dtype, alias)
     if func in ("avg", "mean"):
         return col.mean().alias(alias)
     if func == "min":
@@ -1447,7 +1449,7 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     if func == "count_distinct":
         # count(DISTINCT x) drops nulls (pandas nunique(dropna=True)); polars n_unique() counts
         # null, so drop_nulls first.
-        return col.drop_nulls().n_unique().alias(alias)
+        return polars_conform_agg_dtype(col.drop_nulls().n_unique(), func, dtype, alias)
     if func == "collect":
         # collect(x) drops nulls, keeps within-group row order (pandas row/pipeline.py:4552-4582:
         # ~isna() then agg(list)). Inside group_by(maintain_order=True).agg a multi-valued expr
