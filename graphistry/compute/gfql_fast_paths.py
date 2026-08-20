@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from graphistry.compute.typing import ArrayLike, ArrayNamespace
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
 from graphistry.util import setup_logger
-from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
+from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall, serialize_binding_ops
 from .chain import Chain, chain as chain_impl
 from .gfql.query_types import GFQLQuery
 from .chain_let import chain_let as chain_let_impl
@@ -3300,6 +3300,30 @@ def _execute_two_hop_count_fast_path(
     return out
 
 
+#: Join key for the seeded typed-hop bag expansion; never a user column.
+_SEEDED_BAG_KEY = "__gfql_seeded_bag_key__"
+
+
+def _seeded_typed_hop_bag_rows(
+    dst_rows: DataFrameT, edges: DataFrameT, *, to_col: str, node: str, is_polars: bool,
+) -> DataFrameT:
+    """One destination-node row per matched edge (openCypher bag), not the node set.
+
+    ``dst_rows`` is deduped by ``node`` and ``edges`` already drops the dangling
+    ones, so this re-expands exactly the multiplicity the dedup removed."""
+    # Equal heights means the dedup removed nothing (the two sides cover each other).
+    if len(edges) == len(dst_rows):
+        return dst_rows
+    if is_polars:
+        import polars as pl
+        keys = edges.select(pl.col(to_col).alias(_SEEDED_BAG_KEY))  # type: ignore[union-attr]
+        keyed = dst_rows.with_columns(pl.col(node).alias(_SEEDED_BAG_KEY))  # type: ignore[union-attr]
+        return keys.join(keyed, on=_SEEDED_BAG_KEY, how="inner").drop(_SEEDED_BAG_KEY)  # type: ignore[no-any-return]
+    keys = edges[[to_col]].rename(columns={to_col: _SEEDED_BAG_KEY}).reset_index(drop=True)  # type: ignore[union-attr]
+    joined = keys.merge(dst_rows, left_on=_SEEDED_BAG_KEY, right_on=node, how="inner")
+    return joined.drop(columns=[_SEEDED_BAG_KEY]).reset_index(drop=True)  # type: ignore[no-any-return]
+
+
 def _execute_seeded_typed_hop_fast_path(
     base_graph: Plottable,
     compiled_query: CompiledCypherQuery,
@@ -3397,7 +3421,16 @@ def _execute_seeded_typed_hop_fast_path(
     # source node (n0) — the forward seeded shape MATCH (m {id})-[:T]->(p) RETURN p.
     # Other alias/seed placements (e.g. reverse patterns where the seed is on the
     # RETURN node) fall back to the full path.
-    return_alias = projection.alias if projection is not None else str((call.params or {}).get("source", ""))
+    call_params = call.params or {}
+    # `binding_ops` is the same seeded shape lowered to one row per matched EDGE.
+    binding_ops = call_params.get("binding_ops")
+    bag_rows = isinstance(binding_ops, list)
+    if bag_rows:
+        if projection is not None or serialize_binding_ops(ops[:3]) != binding_ops:
+            return None
+        return_alias = n2._name or ""
+    else:
+        return_alias = projection.alias if projection is not None else str(call_params.get("source", ""))
     if n2._name != return_alias:
         return None
     select_items: Optional[list] = None
@@ -3484,6 +3517,11 @@ def _execute_seeded_typed_hop_fast_path(
         hop_details=[{"hop": 1}] if index_ctx is not None else None,
     )
     p_rows, _edges = dst_res
+    if bag_rows:
+        p_rows = _seeded_typed_hop_bag_rows(
+            p_rows, _edges,
+            to_col=dst if direction == "forward" else src, node=node, is_polars=is_polars,
+        )
     if select_items is not None:
         # Lean property projection (IS5 shape): the deduped destination rows carry
         # the raw property columns — rename/select directly, same values the
