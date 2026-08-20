@@ -26,11 +26,15 @@ def partitioned_layout(
     """    
     :param partition_offsets: {'dx', 'dy', 'x', 'y'} => <partition> => float
     :type partition_offsets: Dict[str, Dict[int, float]]
-    :param layout_alg: Layout algorithm to be applied if partition_key column does not already exist; GPU defaults to fa2_layout, CPU defaults to igraph fr
+    :param layout_alg: Layout algorithm used to position nodes within each partition. When
+        None, the default depends on ``bulk_mode``: under ``bulk_mode=True`` (the default)
+        both CPU and GPU use fa2_layout; under ``bulk_mode=False`` CPU uses igraph ``fr``
+        and GPU uses cugraph ``force_atlas2``.
     :type layout_alg: Optional[Union[str, Callable[[Plottable], Plottable]]]
     :param layout_params: Parameters for the layout algorithm
     :type layout_params: Optional[Dict[str, Any]]
-    :param partition_key: The partition key; defaults to the layout_alg
+    :param partition_key: Name of the existing node column holding the partition id; must
+        already be present on the node table. Defaults to the literal ``'partition'``.
     :type partition_key: str
     :param bulk_mode: Whether to apply layout in bulk mode
     :type bulk_mode: bool

@@ -185,7 +185,8 @@ def lazy_import_has_min_dependancy():
         return False, e
     except Exception as e:
         logger.warn('Unexpected exn during lazy import', exc_info=e)
-        return False, e, None
+        # 2-tuple on every path: callers unpack two values.
+        return False, e
 
 def assert_imported_text():
     has_dependancy_text_, import_text_exn, _ = lazy_sentence_transformers_import()

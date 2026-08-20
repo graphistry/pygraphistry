@@ -1383,9 +1383,11 @@ def _fast_path_execution_target(
 ) -> "ExecutionTarget":
     """Lazy-collect target for a Cypher fast path: GPU only when ``polars-gpu`` was requested.
 
-    ``Engine.POLARS_GPU`` is never produced by ``resolve_engine`` from ``AUTO``, so comparing
-    the requested value IS the "did the caller ask for GPU" test and needs no graph. An
-    explicit request runs on GPU or raises; it is never quietly served on CPU.
+    Comparing the requested value IS the "did the caller ask for GPU" test, and needs no
+    graph: ``resolve_engine`` never produces ``Engine.POLARS_GPU`` from ``AUTO``, and the
+    AUTO cuDF route that does target GPU re-enters ``gfql`` with the engine already pinned
+    to ``polars-gpu``, so it arrives here as an explicit request. A request for GPU runs on
+    GPU or raises; it is never quietly served on CPU.
     """
     from graphistry.compute.gfql.lazy import ExecutionTarget
     requested = engine.value if isinstance(engine, (Engine, EngineAbstract)) else engine

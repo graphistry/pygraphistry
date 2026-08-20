@@ -462,7 +462,10 @@ Cypher's returns 0, and every GFQL engine already matched Cypher on both.
 
 ### Aggregates over `BOOLEAN`: return types
 
-Values *and* return types are pinned, identically on pandas, polars, cuDF and polars-gpu:
+Values *and* return types are specified identically for pandas, polars, cuDF and polars-gpu.
+The conformance suite is parametrized over all four, but only pandas, polars and cuDF are
+**executed today** — the polars-gpu arm skips for want of `cudf_polars` (RAPIDS 26.02+), so
+that arm is specified and not yet verified:
 
 | Aggregate | Returns | Definition |
 |-----------|---------|------------|
