@@ -17,6 +17,10 @@ surface                     declines (no defined size)  still serves (has a size
 ``WHERE size(x) = k``       int column                  list column
 ==========================  ==========================  ==============================
 
+The decline fires on EVIDENCE, not on dtype alone: a column with no non-null cell (an empty
+zero-row intermediate, an all-null column) proves nothing about its element type — an empty
+``collect()`` is still a list — so those answer null (or no rows) instead of being refused.
+
 Every serving expectation is hand-computed from the fixtures below; ``size()`` over a
 string column is CHARACTER length (openCypher), which all three engines already served and
 which this decline must not touch. No engine is used as another engine's oracle.
@@ -163,6 +167,56 @@ class TestSizeKeepsServingWhatHasASize:
         g = _graph(engine, STRINGS)
         assert _run(g, f"MATCH (n) RETURN size({literal}) AS z", "z", engine) == (
             "values", [expected] * 3)
+
+
+class TestUnknownElementTypeAnswersRatherThanDeclining:
+    """A column with no non-null cell is UNKNOWN, not proven non-sequence — an empty
+    ``collect()`` is still a list, so these must answer rather than be refused on dtype."""
+
+    @pytest.mark.parametrize("engine", ENGINES)
+    def test_size_of_all_null_float_column_is_null_not_the_row_count(self, engine: str) -> None:
+        nodes = pd.DataFrame({"id": [0, 1, 2], "v": [float("nan")] * 3})
+        g = _graph(engine, nodes)
+        outcome = _run(g, "MATCH (n) RETURN size(n.v) AS z", "z", engine)
+        if engine == "polars":
+            _assert_declines(outcome, engine, "size(all-null float)")
+        else:
+            assert outcome == ("values", [None, None, None])
+
+    @pytest.mark.parametrize("engine", ENGINES)
+    def test_size_of_int_column_over_a_zero_row_table_serves_no_rows(self, engine: str) -> None:
+        nodes = pd.DataFrame({"id": pd.Series([], dtype="int64"),
+                              "age": pd.Series([], dtype="int64")})
+        edges = pd.DataFrame({"s": pd.Series([], dtype="int64"),
+                              "d": pd.Series([], dtype="int64")})
+        if engine == "polars":
+            g = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "s", "d")
+        elif engine == "cudf":
+            cudf = pytest.importorskip("cudf")
+            g = graphistry.nodes(cudf.from_pandas(nodes), "id").edges(
+                cudf.from_pandas(edges), "s", "d")
+        else:
+            g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+        outcome = _run(g, "MATCH (n) RETURN size(n.age) AS z", "z", engine)
+        if engine == "polars":
+            _assert_declines(outcome, engine, "size(int) over 0 rows")
+        else:
+            assert outcome == ("values", [])
+
+    @pytest.mark.parametrize("engine", ["pandas", pytest.param("cudf", marks=cudf_only)])
+    def test_size_of_comprehension_over_an_empty_collect_is_zero(self, engine: str) -> None:
+        """An OPTIONAL MATCH that binds nothing collects to ``[]``, whose size is 0."""
+        nodes = pd.DataFrame({"id": ["n1"]})
+        edges = pd.DataFrame({"s": [], "d": [], "type": []})
+        if engine == "cudf":
+            cudf = pytest.importorskip("cudf")
+            g = graphistry.nodes(cudf.from_pandas(nodes), "id").edges(
+                cudf.from_pandas(edges), "s", "d")
+        else:
+            g = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
+        query = ("MATCH (n) OPTIONAL MATCH (n)-[r]->(m) "
+                 "RETURN size([x IN collect(r) WHERE x <> null]) AS cn")
+        assert _run(g, query, "cn", engine) == ("values", [0])
 
 
 class TestQuantifiersOverNonSequenceColumnDecline:
