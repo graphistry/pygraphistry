@@ -237,15 +237,48 @@ def test_scale_duration_multiplies_every_group() -> None:
     assert _scale_duration((0, 0, _SECOND_NS), 3.0, divide=True) == "PT0.333333333S"
 
 
-def test_scale_duration_declines_a_fractional_month_result() -> None:
-    """Half a month has no fixed length, so the fold must decline rather than round."""
-    assert _scale_duration((1, 0, 0), 2.0, divide=True) is None
-    assert _scale_duration((1, 0, 0), 0.5, divide=False) is None
+def test_scale_duration_spills_a_fractional_month_at_the_average_month() -> None:
+    """Half a month is 15.2184375 days (30.436875 / 2), which then spills into time."""
+    assert _scale_duration((1, 0, 0), 2.0, divide=True) == "P15DT5H14M33S"
+    assert _scale_duration((1, 0, 0), 0.5, divide=False) == "P15DT5H14M33S"
+    assert _scale_duration((1, 0, 0), 3.0, divide=True) == "P10DT3H29M42S"
+
+
+def test_scale_duration_keeps_whole_months_as_months() -> None:
+    """The average month is used ONLY where a month must actually be split: a result
+    that is whole in month-space stays in month-space, exact rather than approximate."""
     assert _scale_duration((2, 0, 0), 2.0, divide=True) == "P1M"
+    assert _scale_duration((12, 0, 0), 2.0, divide=True) == "P6M"
+    assert _scale_duration((1, 0, 0), 1.0, divide=True) == "P1M"
 
 
-def test_scale_duration_rounds_the_seconds_group_to_whole_nanoseconds() -> None:
+def test_scale_duration_truncates_the_month_group_toward_zero() -> None:
+    """int() toward zero, so the month remainder carries the sign of the result and a
+    negative scale mirrors its positive twin instead of spilling a whole extra month."""
+    assert _scale_duration((1, 0, 0), -2.0, divide=True) == "P-15DT-5H-14M-33S"
+    assert _scale_duration((-1, 0, 0), 2.0, divide=True) == "P-15DT-5H-14M-33S"
+    assert _scale_duration((-1, 0, 0), -2.0, divide=True) == "P15DT5H14M33S"
+    assert _scale_duration((3, 0, 0), 2.0, divide=True) == "P1M15DT5H14M33S"
+    assert _scale_duration((-3, 0, 0), 2.0, divide=True) == "P-1M-15DT-5H-14M-33S"
+
+
+def test_scale_duration_does_not_round_trip_through_a_split_month() -> None:
+    """ACCEPTED, not a bug: the average month is one-way, so halving and doubling a
+    month lands on days+time, never back on P1M. Do not 'fix' this into month-space."""
+    half = _scale_duration((1, 0, 0), 2.0, divide=True)
+    assert half == "P15DT5H14M33S"
+    assert _scale_duration(parse_duration_calendar_components(half) or (0, 0, 0), 2.0, divide=False) == (
+        "P30DT10H29M6S"
+    )
+
+
+def test_scale_duration_truncates_the_seconds_group_to_whole_nanoseconds() -> None:
+    """Truncation toward zero at every cascade step, so a third of two seconds is
+    ...666S and not ...667S, and the negative twin truncates the same way."""
     assert _scale_duration((0, 0, 1), 3.0, divide=True) == "PT0S"
+    assert _scale_duration((0, 0, 2 * _SECOND_NS), 3.0, divide=True) == "PT0.666666666S"
+    assert _scale_duration((0, 0, 2 * _SECOND_NS), -3.0, divide=True) == "PT-0.666666666S"
+    assert _scale_duration((0, 0, 8 * _SECOND_NS), 9.0, divide=True) == "PT0.888888888S"
 
 
 # ===========================================================================
@@ -338,9 +371,26 @@ def test_shift_declines_when_the_shifted_year_leaves_the_representable_range() -
         ("PT18H", "*", 2, "PT36H"),
         ("P2DT2H", "*", 2, "P4DT4H"),
         ("P3D", "*", 1.5, "P4DT12H"),
+        # ... but a month that has to be SPLIT resolves at the average month of
+        # 30.436875 days, spilling months -> days -> time rather than declining.
+        ("P1M", "/", 2, "P15DT5H14M33S"),
+        ("P1M", "*", 0.5, "P15DT5H14M33S"),
+        ("P1M", "/", -2, "P-15DT-5H-14M-33S"),
+        ("P1M", "*", -0.5, "P-15DT-5H-14M-33S"),
+        ("-P1M", "/", 2, "P-15DT-5H-14M-33S"),
+        ("P1M2D", "/", 2, "P16DT5H14M33S"),
+        ("P1Y1M", "/", 2, "P6M15DT5H14M33S"),
+        ("P1M", "/", 4, "P7DT14H37M16.5S"),
+        ("P1M", "*", 1.5, "P1M15DT5H14M33S"),
+        # A month that divides evenly is still exact in month-space.
+        ("P1M", "/", 1, "P1M"),
+        ("P2M", "/", 2, "P1M"),
+        ("P1Y", "/", 2, "P6M"),
+        ("P1M", "*", 2, "P2M"),
         # <number> * <duration> commutes
         (2, "*", "P1D", "P2D"),
         (0.5, "*", "P1D", "PT12H"),
+        (0.5, "*", "P1M", "P15DT5H14M33S"),
     ],
 )
 def test_fold_temporal_arithmetic_folds(left: Any, op: str, right: Any, expected: str) -> None:
@@ -377,9 +427,6 @@ def test_fold_temporal_arithmetic_folds(left: Any, op: str, right: Any, expected
         # served as PT0S (pinned in the fold table above) -- declining it left
         # Python's `str * 0` to emit the empty string.
         ("P1D", "/", 0),
-        # A fractional month result has no fixed length.
-        ("P1M", "*", 0.5),
-        ("P1M", "/", 2),
         # The left operand is not a parseable temporal.
         ("foo", "+", "P1D"),
         ("P1D", "+", "foo"),
