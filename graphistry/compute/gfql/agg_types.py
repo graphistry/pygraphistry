@@ -129,9 +129,15 @@ def polars_agg_result_cast(func: str, input_dtype: "Optional[pl.DataType]") -> "
 def polars_conform_agg_dtype(expr: "pl.Expr", func: str, input_dtype: "Optional[pl.DataType]",
                              alias: str) -> "pl.Expr":
     """Land a polars aggregate on its CONTRACT dtype rather than on its kernel dtype."""
+    import polars as pl
+
     target = polars_agg_result_cast(func, input_dtype)
     if target is None:
         return expr.alias(alias)
+    if func == "sum" and input_dtype == pl.Boolean:
+        # cudf-polars 26.02 can turn sum(Boolean).cast(Int64) zero into null.
+        # Fill Cypher's required zero before the cast so CPU and GPU agree.
+        expr = expr.fill_null(0)
     return expr.cast(target).alias(alias)  # hygiene-ok: explicit-cast -- polars dtype conversion
 
 
