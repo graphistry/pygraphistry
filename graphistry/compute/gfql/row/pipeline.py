@@ -1581,10 +1581,13 @@ class RowPipelineMixin:
                 if is_null_scalar(inner):
                     return True, None
                 if hasattr(inner, "astype"):
+                    # Never fall through to len(series): that is the containing frame's height.
                     try:
                         return True, series_sequence_len(inner)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        raise ValueError(
+                            "unsupported row expression: size() requires list/string input"
+                        ) from exc
                 try:
                     return True, len(inner)
                 except Exception:
@@ -1916,8 +1919,10 @@ class RowPipelineMixin:
             list_null_mask = self._gfql_null_mask(base, base[list_col])
             try:
                 total_series = series_sequence_len(base[list_col])
-            except Exception:
-                total_series = self._gfql_broadcast_scalar(base, pd.NA)
+            except Exception as exc:
+                raise ValueError(
+                    f"unsupported row expression: {str(node.fn).lower()}() requires list/string input"
+                ) from exc
             if hasattr(total_series, "where"):
                 total_series = total_series.where(~list_null_mask, 0).fillna(0)
             base = base.assign(**{total_col: total_series})
@@ -2000,8 +2005,10 @@ class RowPipelineMixin:
             null_mask = self._gfql_null_mask(base, base[list_col])
             try:
                 lengths = series_sequence_len(base[list_col])
-            except Exception:
-                lengths = self._gfql_broadcast_scalar(base, pd.NA)
+            except Exception as exc:
+                raise ValueError(
+                    "unsupported row expression: list comprehension requires list/string input"
+                ) from exc
             if hasattr(lengths, "fillna"):
                 lengths = lengths.fillna(0)
             base = base.assign(**{len_col: lengths})
