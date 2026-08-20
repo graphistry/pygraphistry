@@ -7,8 +7,9 @@ logger = setup_logger(__name__)
 #TODO use new importer when it lands (this is copied from umap_utils)
 def lazy_cudf_import():
     try:
-        warnings.filterwarnings("ignore")
-        import cudf  # type: ignore
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            import cudf  # type: ignore
 
         # cudf >= 26.02 removed DataFrame.from_pandas() and Series.from_pandas().
         # Restore them so existing call sites keep working across RAPIDS versions.
@@ -27,7 +28,6 @@ def lazy_cudf_import():
 
 def lazy_cuml_import():
     try:
-        warnings.filterwarnings("ignore")
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
             import cuml  # type: ignore

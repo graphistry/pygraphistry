@@ -71,6 +71,12 @@ def bound_graph():
     return g
 
 
+def lossy_warning(rec) -> str:
+    hits = [str(w.message) for w in rec if 'df_import_args' in str(w.message)]
+    assert len(hits) == 1, [str(w.message) for w in rec]
+    return hits[0]
+
+
 def norm(df: pd.DataFrame):
     return [
         {k: (None if isinstance(v, float) and v != v else v) for k, v in rec.items()}
@@ -106,6 +112,29 @@ class TestGfqlRemoteCsvFidelity:
             out = bound_graph().gfql_remote_shape([n()], format='csv', api_token='t')
         assert mock_post.called
         assert out is not None
+
+    @patch('graphistry.compute.chain_remote.requests.post')
+    def test_gfql_remote_csv_warns_and_serves_when_import_args_govern_nothing(self, mock_post):
+        mock_post.return_value = mock_response(build_zip('csv'))
+        with pytest.warns(UserWarning) as rec:
+            out = bound_graph().gfql_remote(
+                [n()], format='csv', api_token='t', df_import_args={'sep': ','}
+            )
+        assert 'dtype inference' in lossy_warning(rec)
+        assert mock_post.called
+        assert pd.api.types.is_numeric_dtype(out._nodes['id'])
+        assert out._nodes['name'].isna().sum() == 2
+
+    @patch('graphistry.compute.chain_remote.requests.post')
+    def test_gfql_remote_csv_warns_and_serves_on_empty_import_args(self, mock_post):
+        mock_post.return_value = mock_response(build_zip('csv'))
+        with pytest.warns(UserWarning) as rec:
+            out = bound_graph().gfql_remote(
+                [n()], format='csv', api_token='t', df_import_args={}
+            )
+        assert 'NA substitution' in lossy_warning(rec)
+        assert mock_post.called
+        assert list(out._nodes['id'])[:2] == [7.0, 8.0]
 
     @patch('graphistry.compute.chain_remote.requests.post')
     def test_gfql_remote_csv_rejects_non_dict_import_args(self, mock_post):
@@ -161,14 +190,18 @@ class TestGfqlRemoteCsvFidelity:
 
     @skip_gpu
     @patch('graphistry.compute.chain_remote.requests.post')
-    def test_gfql_remote_csv_declines_on_cudf_graph(self, mock_post):
+    def test_gfql_remote_csv_warns_and_serves_on_cudf_graph(self, mock_post):
         import cudf
         mock_post.return_value = mock_response(build_zip('csv'))
         g = graphistry.edges(cudf.from_pandas(EDGES), 's', 'd').nodes(cudf.from_pandas(NODES), 'id')
         g._dataset_id = 'ds_test'
-        with pytest.raises(ValueError):
-            g.gfql_remote([n()], format='csv', api_token='t')
-        assert not mock_post.called
+        with pytest.warns(UserWarning) as rec:
+            out = g.gfql_remote([n()], format='csv', api_token='t')
+        msg = lossy_warning(rec)
+        assert 'parquet' in msg
+        assert mock_post.called
+        assert out._nodes is not None
+        assert len(out._nodes) == len(NODES)
 
     @skip_gpu
     @patch('graphistry.compute.chain_remote.requests.post')
@@ -235,13 +268,73 @@ def test_missing_import_args_warns_and_yields_inferring_reader() -> None:
     assert 'parquet' in str(rec[0].message)
 
 
-def test_supplied_import_args_do_not_warn() -> None:
+def test_import_args_governing_both_axes_do_not_warn() -> None:
     import warnings as _w
     from graphistry.compute.remote_df_io import resolve_csv_import_args
 
     with _w.catch_warnings():
         _w.simplefilter("error")
-        assert resolve_csv_import_args({'dtype': str}, "gfql_remote") == {'dtype': str}
+        assert resolve_csv_import_args(FAITHFUL_ARGS, "gfql_remote") == FAITHFUL_ARGS
+
+
+def test_converters_govern_both_axes_and_do_not_warn() -> None:
+    import warnings as _w
+    from graphistry.compute.remote_df_io import resolve_csv_import_args
+
+    args = {'converters': {'id': str}}
+    with _w.catch_warnings():
+        _w.simplefilter("error")
+        assert resolve_csv_import_args(args, "gfql_remote") == args
+
+
+@pytest.mark.parametrize('args', [{}, {'sep': ','}, {'nrows': 10, 'engine': 'c'}])
+def test_import_args_governing_neither_axis_warn_about_both(args) -> None:
+    from graphistry.compute.remote_df_io import resolve_csv_import_args
+
+    with pytest.warns(UserWarning) as rec:
+        assert resolve_csv_import_args(dict(args), "gfql_remote") == args
+    msg = lossy_warning(rec)
+    assert 'dtype inference' in msg
+    assert 'NA substitution' in msg
+    assert 'parquet' in msg
+
+
+def test_dtype_only_import_args_still_warn_about_na_substitution() -> None:
+    from graphistry.compute.remote_df_io import resolve_csv_import_args
+
+    with pytest.warns(UserWarning) as rec:
+        resolve_csv_import_args({'dtype': str}, "gfql_remote")
+    msg = lossy_warning(rec)
+    assert 'NA substitution' in msg
+    assert 'dtype inference' not in msg
+
+
+def test_na_only_import_args_still_warn_about_dtype_inference() -> None:
+    from graphistry.compute.remote_df_io import resolve_csv_import_args
+
+    with pytest.warns(UserWarning) as rec:
+        resolve_csv_import_args({'keep_default_na': False, 'na_values': []}, "gfql_remote")
+    msg = lossy_warning(rec)
+    assert 'dtype inference' in msg
+    assert 'NA substitution' not in msg
+
+
+def test_each_warned_axis_names_a_real_rewrite_pandas_performs() -> None:
+    from io import StringIO
+
+    csv = pd.DataFrame({'id': ['007', '08'], 'name': ['NA', 'x']}).to_csv(index=False)
+
+    dtype_only = pd.read_csv(StringIO(csv), dtype=str)
+    assert list(dtype_only['id']) == ['007', '08']
+    assert dtype_only['name'].isna().sum() == 1
+
+    na_only = pd.read_csv(StringIO(csv), keep_default_na=False, na_values=[])
+    assert list(na_only['name']) == ['NA', 'x']
+    assert list(na_only['id']) == [7, 8]
+
+    both = pd.read_csv(StringIO(csv), dtype=str, keep_default_na=False, na_values=[])
+    assert list(both['id']) == ['007', '08']
+    assert list(both['name']) == ['NA', 'x']
 
 
 def test_non_dict_import_args_is_a_typed_gfql_error() -> None:
