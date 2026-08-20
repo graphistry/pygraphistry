@@ -493,14 +493,6 @@ def test_expression_over_a_carried_alias_declines_as_irreproducible(engine):
 
 
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
-@pytest.mark.xfail(
-    strict=True,
-    reason="KNOWN WRONG (pandas and cuDF agree it is wrong, and disagree on "
-           "how): the null-extended row for an unmatched carried row leaves "
-           "the whole-entity carried alias NULL instead of the node it is "
-           "still bound to. cuDF additionally renders the NULL boolean columns "
-           "as False. Predates #1897 -- byte-identical at base 21167e08.",
-)
 def test_whole_entity_carried_alias_keeps_its_values_on_the_null_extended_row(engine):
     """`WITH a AS p, a.id AS pid` binds p for every carried row. OPTIONAL MATCH
     cannot unbind it, so a2's null-extended row must still carry a2's own node
