@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 from graphistry.utils.json import JSONVal
 from graphistry.compute.gfql.index.types import HopDirection
+from graphistry.compute.typing import ArrayLike
 
 from graphistry.Plottable import Plottable
 
@@ -107,6 +108,26 @@ def rows_binding_ops_polars(
     return _rewrap(g, lookup)
 
 
+def _nodes_cover_keys(base_graph: Plottable, node_id: str, keys: ArrayLike) -> bool:
+    """True when every id in ``keys`` (the index's edge-endpoint keys) is present in the
+    node table — the precondition under which edge-derived membership equals the scan's
+    node-table-intersected answer. False (decline) on a missing/lazy/mistyped node table,
+    a null id, or any backend the keys cannot be compared against natively."""
+    import polars as pl
+    import numpy as np
+    nodes = base_graph._nodes
+    if nodes is None or is_lazy(nodes) or node_id not in nodes.columns:
+        return False
+    try:
+        key_frame = pl.DataFrame({node_id: pl.Series(node_id, np.asarray(keys))})
+        node_col = nodes.select(node_id)  # type: ignore[union-attr]  # eager polars frame, guarded above
+        if key_frame.get_column(node_id).null_count() > 0 or node_col.get_column(node_id).null_count() > 0:
+            return False
+        return key_frame.join(node_col, on=node_id, how="anti").height == 0
+    except Exception:
+        return False
+
+
 def _pattern_alias_keys_polars(
     g: Plottable, binding_ops: Sequence[Dict[str, JSONVal]], alias: str, neq: Optional[Sequence[str]] = None
 ) -> Optional["pl.DataFrame"]:
@@ -139,10 +160,13 @@ def _pattern_alias_keys_polars(
     # edge filters, no drop-self neq) -> participating nodes == "has an edge in this
     # direction" = CSR adjacency membership. Skips the O(E) chain_polars below.
     # Strict guard; anything richer (filters/neq/multi-hop) falls through unchanged.
+    # Repeated endpoint alias means SELF-LOOP, which adjacency membership cannot
+    # express, so that shape must not take this path.
     from graphistry.compute.gfql.index import get_index_policy
     if (
         neq is None
         and get_index_policy(g) != "off"
+        and n0._name != n2._name
         and not n0.filter_dict and not n2.filter_dict
         and not edge_op.edge_match
         and edge_op.edge_query is None
@@ -168,7 +192,17 @@ def _pattern_alias_keys_polars(
             if isinstance(_src, str) and isinstance(_dst, str):
                 _eng = _Engine.POLARS_GPU if _active_target() == _ExecutionTarget.GPU else _Engine.POLARS
                 _mk = adjacency_membership_keys(_reg, _mdir, base_graph._edges, (_src, _dst), _eng)
-                if _mk is not None:
+                # Both endpoints must be nodes, so BOTH directions' keys need covering.
+                _opp: HopDirection = "reverse" if _mdir == "forward" else "forward"
+                _cover = None if _mdir == "undirected" else adjacency_membership_keys(
+                    _reg, _opp, base_graph._edges, (_src, _dst), _eng
+                )
+                _needed = [k for k in (_mk, _cover) if k is not None]
+                if (
+                    _mk is not None
+                    and (_mdir == "undirected" or _cover is not None)
+                    and all(_nodes_cover_keys(base_graph, node_id, k) for k in _needed)
+                ):
                     return pl.DataFrame({node_id: pl.Series(node_id, _np.asarray(_mk))})
     if neq:
         # EXISTS { (n)--(m) WHERE m <> n } — for the single-edge shape, endpoint
