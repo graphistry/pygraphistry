@@ -310,12 +310,20 @@ def test_edge_label_agrees_wherever_the_validator_can_judge(level: Any) -> None:
 
 
 @pytest.mark.parametrize("level", ["strict", True])
-def test_absent_relationship_type_is_not_judgeable_without_a_declared_schema(level: Any) -> None:  # hygiene-ok: explicit-any -- level is bool | str by design
-    # residual, unchanged from master: the strict binder reads relationship types off the
-    # catalog, and a catalog inferred from frames declares none, so only execution rejects
+def test_absent_relationship_type_without_a_carrier_agrees_under_strict(level: Any) -> None:  # hygiene-ok: explicit-any -- level is bool | str by design
     g = _graph()
-    assert _validator_verdict(g, ABSENT_EDGE_LABEL, level) == "ok"
+    assert _validator_verdict(g, ABSENT_EDGE_LABEL, level) == "raise"
     assert _executor_verdict(g, ABSENT_EDGE_LABEL, level) == "raise"
+
+
+@pytest.mark.parametrize("level", ["strict", True])
+def test_generic_relationship_type_carrier_remains_unjudgeable_without_a_scan(level: Any) -> None:  # hygiene-ok: explicit-any -- level is bool | str by design
+    g = _graph()
+    assert isinstance(g._edges, pd.DataFrame)
+    g = g.edges(g._edges.assign(type=["KNOWS", "KNOWS"]), "s", "d")
+
+    assert _validator_verdict(g, ABSENT_EDGE_LABEL, level) == "ok"
+    assert _executor_verdict(g, ABSENT_EDGE_LABEL, level) == "ok"
 
 
 def test_a_declared_relationship_type_makes_the_validator_judge_it() -> None:
