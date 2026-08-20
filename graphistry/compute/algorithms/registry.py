@@ -38,14 +38,17 @@ STD_LABEL_ALGS = frozenset({"wcc", "cdlp"})
 STD_BOOL_ALGS = frozenset({"mis"})
 
 
+_STD_RUNNERS: Dict[str, Callable[..., SeriesT]] = {
+    "wcc": _k.wcc,
+    "pagerank": _k.pagerank,
+    "cdlp": _k.cdlp,
+    "sssp": _k.sssp,
+    "mis": _k.mis,
+}
+
+
 def _dispatch(alg: str) -> Callable[..., SeriesT]:
-    return {
-        "wcc": _k.wcc,
-        "pagerank": _k.pagerank,
-        "cdlp": _k.cdlp,
-        "sssp": _k.sssp,
-        "mis": _k.mis,
-    }[alg]
+    return _STD_RUNNERS[alg]
 
 
 def run(edges: DataFrameT, src: str, dst: str, v_count: int, alg: str, options: Mapping[str, object] | None = None) -> SeriesT:

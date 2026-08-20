@@ -31,6 +31,8 @@ def compute_std(
         raise ValueError(f"unknown graphistry.std procedure {alg!r}; known: {sorted(STD_ALGS)}")
     g = self.materialize_nodes()
     src, dst, node = g._source, g._destination, g._node
+    if src is None or dst is None or node is None:
+        raise ValueError("graphistry.std requires source, destination, and node bindings")
     options = dict(params or {})
     edge_columns = [src, dst]
     if alg == "sssp" and options.get("weight") is not None:

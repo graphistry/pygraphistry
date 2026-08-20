@@ -22,7 +22,7 @@ Banned in kernels: `.apply`, `groupby().apply`, `idxmin`/`idxmax`, `mode()`,
 from __future__ import annotations
 
 from types import ModuleType
-from typing import Iterator, Mapping, Optional, Sequence, Tuple
+from typing import Iterator, Mapping, Optional, Sequence, SupportsInt, Tuple
 
 import pandas as pd
 
@@ -53,12 +53,12 @@ def df_cons(template: DataFrameT, data: Mapping[str, object]) -> DataFrameT:
 
 def concat_frames(frames: Sequence[Optional[DataFrameT]]) -> Optional[DataFrameT]:
     """Concatenate, dropping the index. Empty-safe."""
-    frames = [f for f in frames if f is not None and len(f) > 0]
-    if not frames:
+    nonempty = [frame for frame in frames if frame is not None and len(frame) > 0]
+    if not nonempty:
         return None
-    if len(frames) == 1:
-        return frames[0].reset_index(drop=True)
-    return _mod(frames[0]).concat(frames, ignore_index=True)
+    if len(nonempty) == 1:
+        return nonempty[0].reset_index(drop=True)
+    return _mod(nonempty[0]).concat(nonempty, ignore_index=True)
 
 
 def gather(vec: SeriesT, idx: SeriesT) -> SeriesT:
@@ -101,7 +101,7 @@ def arange(template: DataFrameT, n: int, dtype: str = "int32") -> SeriesT:
     return pd.Series(np.arange(n, dtype=dtype))
 
 
-def to_host_int(value: object) -> int:
+def to_host_int(value: SupportsInt) -> int:
     """Scalar reduction result -> Python int, on either engine."""
     return int(value)
 

@@ -22,11 +22,17 @@ A `fail` here marks the cell `validation_failed` and its timing is not published
 
 from __future__ import annotations
 
-from typing import Dict, Mapping, Tuple
+from typing import Dict, Tuple, TypedDict
 
 from graphistry.compute.typing import DataFrameT, SeriesT
 
 from ._dfops import concat_frames, df_cons, gather, to_host_int
+
+
+class PreparedGraph(TypedDict, total=False):
+    edges: DataFrameT
+    vertices: int
+    sssp_source: int
 
 
 def _ok(**extra: object) -> Dict[str, object]:
@@ -41,7 +47,7 @@ def _both_directions(edges: DataFrameT, src: str, dst: str, vec: SeriesT) -> Tup
     return gather(vec, edges[src]), gather(vec, edges[dst])
 
 
-def validate_wcc(labels: SeriesT, prepared: Mapping[str, object]) -> Dict[str, object]:
+def validate_wcc(labels: SeriesT, prepared: PreparedGraph) -> Dict[str, object]:
     edges = prepared["edges"]
     ls, ld = _both_directions(edges, "src", "dst", labels)
     if to_host_int((ls != ld).sum()) != 0:
@@ -63,7 +69,7 @@ def validate_wcc(labels: SeriesT, prepared: Mapping[str, object]) -> Dict[str, o
     return _ok(components=int(len(mins)))
 
 
-def validate_pagerank(pr: SeriesT, prepared: Mapping[str, object]) -> Dict[str, object]:
+def validate_pagerank(pr: SeriesT, prepared: PreparedGraph) -> Dict[str, object]:
     total = float(pr.sum())
     if abs(total - 1.0) > 1e-9:
         return _fail(f"mass not conserved: sum={total!r}")
@@ -72,14 +78,14 @@ def validate_pagerank(pr: SeriesT, prepared: Mapping[str, object]) -> Dict[str, 
     return _ok(mass=round(total, 12), max_rank=float(pr.max()))
 
 
-def validate_cdlp(labels: SeriesT, prepared: Mapping[str, object]) -> Dict[str, object]:
+def validate_cdlp(labels: SeriesT, prepared: PreparedGraph) -> Dict[str, object]:
     v_count = prepared["vertices"]
     if to_host_int(((labels < 0) | (labels >= v_count)).sum()) != 0:
         return _fail("label outside the vertex id range")
     return _ok(communities=int(labels.nunique()))
 
 
-def validate_sssp(dist: SeriesT, prepared: Mapping[str, object]) -> Dict[str, object]:
+def validate_sssp(dist: SeriesT, prepared: PreparedGraph) -> Dict[str, object]:
     edges = prepared["edges"]
     source = prepared["sssp_source"]
     if float(dist.iloc[source]) != 0.0:
@@ -99,7 +105,7 @@ def validate_sssp(dist: SeriesT, prepared: Mapping[str, object]) -> Dict[str, ob
     return _ok(reached=reached, unreachable=int(prepared["vertices"]) - reached)
 
 
-def validate_mis(in_set: SeriesT, prepared: Mapping[str, object]) -> Dict[str, object]:
+def validate_mis(in_set: SeriesT, prepared: PreparedGraph) -> Dict[str, object]:
     edges = prepared["edges"]
     a, b = _both_directions(edges, "src", "dst", in_set)
     if to_host_int((a & b).sum()) != 0:
@@ -132,7 +138,7 @@ _VALIDATORS = {
 }
 
 
-def validate_result(kernel: str, result: SeriesT, prepared: Mapping[str, object]) -> Dict[str, object]:
+def validate_result(kernel: str, result: SeriesT, prepared: PreparedGraph) -> Dict[str, object]:
     fn = _VALIDATORS.get(kernel)
     if fn is None:
         return {"status": "skipped", "reason": f"no validator for {kernel!r}"}
