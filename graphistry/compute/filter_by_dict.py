@@ -40,7 +40,7 @@ def _normalize_labels_cell(value: Any) -> Tuple[Any, ...]:
         return ()
     try:
         marker = pd.isna(value)
-    except GFQLSchemaError:  # only an absent column is leniency-eligible; other errors are real
+    except Exception:
         marker = False
     if isinstance(marker, bool) and marker:
         return ()
