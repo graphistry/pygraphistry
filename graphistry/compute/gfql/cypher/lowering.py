@@ -2677,9 +2677,17 @@ def _whole_row_aliases_needing_bag_multiplicity(
     already performs (and whose binding-row frame carries sibling-alias columns a lone
     whole-row output does not functionally determine). Empty for a carry into re-entry,
     whose trailing MATCH cannot yet separate matched from unmatched rows on a duplicated
-    prefix.
+    prefix. Empty for a variable-length arm, whose per-path relationship-uniqueness bag is
+    the walk expansion rather than the edge bag this lane counts.
     """
     if query.return_.distinct or query.carries_to_reentry:
+        return frozenset()
+    if any(
+        _is_variable_length_relationship_pattern(element)
+        for clause in query.matches
+        for element in _match_pattern_elements(clause)
+        if isinstance(element, RelationshipPattern)
+    ):
         return frozenset()
     return frozenset(plan.whole_row_sources.values())
 

@@ -185,6 +185,28 @@ def test_property_projection_bag_unchanged(engine):
     assert _bag(_run("MATCH (a)-->(b) RETURN b.id AS x", engine), "x") == [2, 3, 3, 4]
 
 
+@pytest.mark.parametrize("engine", ["pandas", pytest.param("polars", marks=polars_only)])
+def test_variable_length_whole_entity_projection_unchanged(engine):
+    """A variable-length arm keeps the node-set lane. Its openCypher bag is the
+    relationship-unique WALK expansion, not the edge bag this lane counts, so widening it
+    here would swap one unvalidated answer for another. Pins the scope of the lane switch.
+
+    Fixture C: edges p0->p1, p1->p2, p2->p4, p1->p0. The backtracked seed p0 is reachable
+    at distance 2 but its hop label is null, so the aliased node set is exactly p1 and p2
+    (the same answer as before the lane switch). cuDF is excluded: it answers
+    ['p0','p1','p2'] here on master too -- a pre-existing variable-length alias-gate
+    divergence this projection change neither causes nor touches."""
+    edges = pd.DataFrame({"s": ["p0", "p1", "p2", "p1"], "d": ["p1", "p2", "p4", "p0"]})
+    if engine == "polars":
+        g = graphistry.edges(pl.from_pandas(edges), "s", "d").materialize_nodes(engine="polars")
+    else:
+        g = graphistry.edges(edges, "s", "d").materialize_nodes()
+    out = g.gfql("MATCH (a {id: 'p0'})-[*1..2]-(b) RETURN b", engine=engine)._nodes
+    if hasattr(out, "to_pandas"):
+        out = out.to_pandas()
+    assert sorted(out["b.id"].tolist()) == ["p1", "p2"]
+
+
 @pytest.mark.parametrize("engine", ENGINES)
 def test_whole_entity_carry_into_reentry_unchanged(engine):
     """A whole-row WITH carry feeds a trailing MATCH, which cannot yet tell matched
