@@ -472,9 +472,9 @@ def chain_remote_shape(
     validate: bool = True,
     persist: bool = False,
     df_import_args: Optional[DFImportArgs] = None,
-    strict: StrictInput = None,
     params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
     output: Optional[str] = None,
+    strict: StrictInput = None,
 ) -> pd.DataFrame:
     """
     Like chain_remote(), except instead of returning a Plottable, returns a pd.DataFrame of the shape of the resulting graph.
