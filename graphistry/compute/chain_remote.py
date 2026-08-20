@@ -570,7 +570,7 @@ def chain_remote(
     :param df_export_args: When server parses data, any additional parameters to pass in.
     :type df_export_args: Optional[Dict, str, Any]]
 
-    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Optional; without it csv dtypes are re-inferred from text, which can rewrite values (``'007'`` -> ``7.0``) and break the returned graph's own node/edge id join. Supplying it takes explicit control and silences the warning. Prefer ``format='parquet'``, which is faithful and needs no reader args.
+    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Optional; without it csv dtypes are re-inferred from text, which can rewrite values (``'007'`` -> ``7.0``) and break the returned graph's own node/edge id join. The warning names each lossy axis your kwargs do not govern, and clears only once they govern both: dtype inference (``dtype``/``converters``) and NA substitution (``keep_default_na``/``na_values``/``na_filter``/``converters``). Prefer ``format='parquet'``, which is faithful and needs no reader args.
     :type df_import_args: Optional[Dict[str, Any]]
 
     :param node_col_subset: When server returns nodes, what property subset to return. Defaults to all.

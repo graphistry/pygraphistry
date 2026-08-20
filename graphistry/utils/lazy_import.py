@@ -29,7 +29,6 @@ def lazy_cudf_import():
 
 def lazy_cuml_import():
     try:
-        warnings.filterwarnings("ignore")
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
             import cuml  # type: ignore
