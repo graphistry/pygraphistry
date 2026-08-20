@@ -5,7 +5,7 @@ No CI lane installs cudf or sets ``TEST_CUDF``, so every cuDF-gated test is
 developer-local evidence only. This guard makes that gap loud rather than silent:
 
 1. every cuDF gate must be attributable -- a ``reason=`` naming ``TEST_CUDF``, so
-   ``pytest -rs`` on any CPU lane names what was not run;
+   ``pytest -rs`` names what was not run rather than reporting a bare ``s``;
 2. every cuDF gate must read the flag from the environment, so a gate cannot
    quietly become a constant;
 3. ``DEVELOP.md`` must carry the unprotected-receipts note exactly while no

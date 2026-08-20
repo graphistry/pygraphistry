@@ -259,8 +259,8 @@ exists: re-run it yourself rather than trusting the last receipt.
 
 `bin/ci_gpu_gate_audit.py` (lane `gpu-gate-audit`) keeps the size of that gap
 visible: it counts the cuDF gates, requires each to be attributable (a `reason=`
-naming `TEST_CUDF`, so `pytest -rs` on a CPU lane names what was not run) and to
-actually read the flag from the environment, and cross-checks this note against
+naming `TEST_CUDF`, so `pytest -rs` names what was not run rather than reporting a
+bare `s`) and to actually read the flag from the environment, and cross-checks this note against
 whether any workflow sets `TEST_CUDF`. Wiring a real GPU lane retires the note;
 deleting the note without wiring a lane fails the audit. The audit is static -- it
 proves the gates are well formed, never that the gated assertions hold.
