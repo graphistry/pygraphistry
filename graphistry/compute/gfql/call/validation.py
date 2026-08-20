@@ -646,6 +646,29 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         schema_effects=_schema_effects(adds_node_cols=lambda p: [p.get('out_col', p['alg'])]),
     ),
 
+    'compute_std': _safelist_entry(
+        {'alg', 'out_col', 'params'},
+        required_params={'alg'},
+        param_validators={
+            'alg': is_string,
+            'out_col': is_string_or_none,
+            'params': is_dict,
+        },
+        description='Run built-in engine-agnostic graph algorithms (wcc, pagerank, cdlp, sssp, mis)',
+        schema_effects=_schema_effects(
+            # Output column defaults to the registry's name for the algorithm,
+            # not the algorithm name itself: wcc writes `component`, mis writes `mis`.
+            # Deferred import: the registry pulls in the kernels, and this module
+            # is imported while validating every query.
+            adds_node_cols=lambda p: [
+                p.get('out_col')
+                or __import__(
+                    'graphistry.compute.algorithms.registry', fromlist=['output_column']
+                ).output_column(p['alg'])
+            ]
+        ),
+    ),
+
     'compute_igraph': _safelist_entry(
         {'alg', 'out_col', 'directed', 'use_vids', 'params'},
         required_params={'alg'},
