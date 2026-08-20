@@ -231,13 +231,10 @@ def test_duplicate_node_rows_are_deduped_when_an_endpoint_is_backfilled(engine):
         f"duplicate node rows survived the backfill: {nodes_pdf['id'].tolist()}")
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "PRE-EXISTING cross-engine divergence (reproduces at 86013f4, before the #1895 "
-    "remediation): the pandas hop de-dups its output node table by id, the polars hop "
-    "does not, so duplicate node rows survive on polars. Not introduced here; pinned "
-    "executable so the fix flips an xfail."))
 @pytest.mark.parametrize("engine", ["polars"])
 def test_duplicate_node_rows_are_deduped_on_polars_too(engine):
+    """The polars node output is a semi-join, which emits every matching input row;
+    without the pandas-matching epilogue a duplicated input id survives as two rows."""
     out = _dup_node_graph(engine).hop(engine=engine)
     nodes_pdf = to_pandas_any(out._nodes)
     assert nodes_pdf["id"].tolist() == sorted(set(nodes_pdf["id"].tolist()))

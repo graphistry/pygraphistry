@@ -32,6 +32,19 @@ def _unsupported(**kwargs: Any) -> None:
         )
 
 
+def _dedup_output_node_rows(
+    out_nodes: "pl.DataFrame", out_edges: "pl.DataFrame", node_col: str
+) -> "pl.DataFrame":
+    """One output node row per id, matching pandas' edge-guarded hop epilogue.
+
+    The node output is a semi-join against the input table, which emits every
+    matching row, so a duplicated input id survives as two rows here where pandas
+    emits one. Guarded on ``out_edges`` exactly as pandas guards its drop_duplicates."""
+    if out_edges.height == 0:
+        return out_nodes
+    return out_nodes.unique(subset=[node_col], keep="first", maintain_order=True)
+
+
 def ensure_nodes_polars(g: Plottable) -> Plottable:
     """Materialize a polars node table from edges when absent (native — avoids the
     pandas-idiom ``materialize_nodes`` path, which uses drop_duplicates/reset_index)."""
@@ -316,6 +329,7 @@ def hop_polars(
             needed_lf = pl.concat([needed_lf, endpoints_lf], how="vertical_relaxed").unique(subset=[NID])
         out_nodes_lf = all_nodes.lazy().join(needed_lf.rename({NID: node_col}), on=node_col, how="semi")
         out_edges_c, out_nodes_c = collect_all([out_edges_lf, out_nodes_lf])
+        out_nodes_c = _dedup_output_node_rows(out_nodes_c, out_edges_c, node_col)
         return g.nodes(out_nodes_c, node_col).edges(out_edges_c, src, dst)
 
     allowed_source = None
@@ -557,6 +571,7 @@ def hop_polars(
         out_nodes = _min_hops_labeled_node_output(all_nodes, needed, reached_for_attrs, node_col, NID)
     else:
         out_nodes = all_nodes.join(needed.rename({NID: node_col}), on=node_col, how="semi")
+    out_nodes = _dedup_output_node_rows(out_nodes, out_edges, node_col)
 
     if track_node_hops and label_node_hops is not None:
         node_labels = (
