@@ -48,7 +48,9 @@ def _is_pandas_like(df: Optional[DataFrameT]) -> bool:
 
 
 def resolve_remote_engine(
-    engine: EngineAbstractType, g_or_df: Any, api_name: str
+    engine: EngineAbstractType,
+    g_or_df: Any,  # hygiene-ok: explicit-any -- mirrors resolve_input_engine graph-or-frame input
+    api_name: str,
 ) -> Engine:
     """Resolve a supported remote engine before auth, upload, or transport.
 
