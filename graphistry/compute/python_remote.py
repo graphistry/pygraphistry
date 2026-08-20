@@ -9,10 +9,13 @@ import textwrap
 import pandas as pd
 import requests
 
-from graphistry.Engine import Engine, EngineAbstractType, resolve_input_engine
+from graphistry.Engine import EngineAbstractType
 from graphistry.Plottable import Plottable
 from graphistry.compute.remote_df_io import (
-    require_supported_frame_library, resolve_csv_reader, validate_csv_import_args)
+    require_supported_frame_library,
+    resolve_csv_reader,
+    resolve_remote_engine,
+    validate_csv_import_args)
 from graphistry.compute.remote_response import (
     decode_json_body,
     decode_json_result,
@@ -132,6 +135,9 @@ def python_remote_generic(
 
     validate_csv_import_args(df_import_args, "python_remote")
     frame_lib = require_supported_frame_library(self._nodes, self._edges, "python_remote")
+    engine_str = resolve_remote_engine(engine, self, "python_remote").value
+
+    assert format in ["json", "csv", "parquet"], f"format should be 'json', 'csv', or 'parquet', got: {format}"
 
     if validate:
         if not validate_python_str(code):
@@ -150,16 +156,6 @@ def python_remote_generic(
     
     if not dataset_id:
         raise ValueError("Missing dataset_id; either pass in, or call on g2=g1.plot(render='g') in api=3 mode ahead of time")
-    
-    assert format in ["json", "csv", "parquet"], f"format should be 'json', 'csv', or 'parquet', got: {format}"
-
-    # Resolve engine: auto -> pandas/cudf based on graph DataFrame type
-    engine_resolved = resolve_input_engine(engine, self)
-    if engine_resolved not in [Engine.PANDAS, Engine.CUDF]:
-        raise ValueError(f"Remote Python execution only supports 'pandas' or 'cudf' engines (or 'auto' which resolves to one of them). "
-                       f"Got engine='{engine}' which resolved to '{engine_resolved.value}'. "
-                       f"Dask engines are not supported for remote execution.")
-    engine_str = engine_resolved.value
 
     # TODO remove auto-indent when server updated
     # workaround parsing bug by indenting each line by 4 spaces
