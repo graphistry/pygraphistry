@@ -93,6 +93,25 @@ def resolve_filter_column(df: DataFrameT, col: str, val: Any) -> Tuple[str, Any]
     )
 
 
+def resolve_filter_column_or_absent(
+    df: DataFrameT,
+    col: str,
+    val: Any,  # hygiene-ok: explicit-any -- filter values are heterogeneous by contract
+    *,
+    context: Optional[str] = None,
+) -> Optional[Tuple[str, Any]]:  # hygiene-ok: explicit-any -- mirrors resolve_filter_column's heterogeneous value contract
+    """``resolve_filter_column``, but ``None`` when the resolved strictness level
+    says an absent column resolves to null rather than raising."""
+    from graphistry.compute.gfql.strictness import absent_filter_key_is_lenient
+
+    try:
+        return resolve_filter_column(df, col, val)
+    except Exception:
+        if absent_filter_key_is_lenient(col, val, context=context):
+            return None
+        raise
+
+
 def filter_by_dict(df: DataFrameT, filter_dict: Optional[dict] = None, engine: Union[EngineAbstract, str] = EngineAbstract.AUTO) -> DataFrameT:
     """
     return df where rows match all values in filter_dict
@@ -125,10 +144,17 @@ def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any]) -> SeriesT:
     """
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
 
+    from graphistry.compute.gfql.strictness import absent_column_matches
+
     predicates: Dict[str, Tuple[str, ASTPredicate]] = {}
     concrete_filters: Dict[str, Tuple[str, Any]] = {}
+    absent_never_matches = False
     for col, val in filter_dict.items():
-        resolved_col, resolved_val = resolve_filter_column(df, col, val)
+        resolved = resolve_filter_column_or_absent(df, col, val)
+        if resolved is None:
+            absent_never_matches = absent_never_matches or not absent_column_matches(val)
+            continue
+        resolved_col, resolved_val = resolved
 
         # Type checking for non-predicate values
         if not isinstance(resolved_val, ASTPredicate):
@@ -190,7 +216,9 @@ def filter_mask_by_dict(df: DataFrameT, filter_dict: Dict[str, Any]) -> SeriesT:
 
             predicates[col] = (resolved_col, resolved_val)
 
-    hits = df[[]].assign(x=True).x
+    hits = df[[]].assign(x=False if absent_never_matches else True).x
+    if absent_never_matches:
+        return hits
     if concrete_filters:
         for original_col, (resolved_col, resolved_val) in concrete_filters.items():
             if original_col.startswith("label__") and resolved_col == "labels" and isinstance(resolved_val, str):

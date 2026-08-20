@@ -950,6 +950,29 @@ class RowPipelineMixin:
             out = (~out.astype("boolean")).where(~out.isna(), pd.NA)
         return out.reset_index(drop=True)
 
+    @staticmethod
+    def _gfql_report_absent_property(name: str) -> None:
+        """Route an absent row-expression property through the shared strictness
+        resolution: raise under ``strict``, warn once under ``warn``."""
+        from graphistry.compute.gfql.strictness import (
+            absent_name_is_lenient,
+            is_internal_plumbing_name,
+        )
+
+        if is_internal_plumbing_name(name):
+            return
+        if absent_name_is_lenient(name, kind="property", context="row table"):
+            return
+        from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+
+        raise GFQLSchemaError(
+            ErrorCode.E301,
+            f'Property "{name}" does not exist in row table',
+            field=name,
+            value=name,
+            suggestion='Pass strict="warn" (default) to resolve absent properties to null',
+        )
+
     def _gfql_eval_expr_ast(self, table_df: Any, node: Any) -> Tuple[bool, Any]:
         parser_bundle = _gfql_expr_runtime_parser_bundle()
         if parser_bundle is None:
@@ -1097,6 +1120,7 @@ class RowPipelineMixin:
                     binding_col = f"{alias_name}.{node.property}"
                     if binding_col in table_df.columns:
                         return True, table_df[binding_col]
+                    self._gfql_report_absent_property(binding_col)
                     return True, self._gfql_broadcast_scalar(table_df, pd.NA)
                 has_bound_graph_table = (
                     (self._node is not None and self._node in table_df.columns)
@@ -1120,6 +1144,8 @@ class RowPipelineMixin:
                         if hasattr(prop_value, "where"):
                             prop_value = self._gfql_mask_fill(prop_value, alias_mask != True, None)  # noqa: E712
                         return True, prop_value
+                    if node.property not in table_df.columns:
+                        self._gfql_report_absent_property(f"{alias_name}.{node.property}")
                     prop_value = (
                         table_df[node.property]
                         if node.property in table_df.columns
