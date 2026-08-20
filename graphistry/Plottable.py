@@ -561,6 +561,7 @@ class Plottable(Protocol):
         validate: bool = True,
         persist: bool = False,
         df_import_args: Optional[DFImportArgs] = None,
+        strict: Any = None,  # hygiene-ok: explicit-any -- bool | strictness level | None; see gfql.strictness.StrictInput
     ) -> 'Plottable':
         """
         chain is Union[List[ASTObject], Chain]
@@ -582,6 +583,7 @@ class Plottable(Protocol):
         df_import_args: Optional[DFImportArgs] = None,
         params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
         output: Optional[str] = None,
+        strict: Any = None,  # hygiene-ok: explicit-any -- bool | strictness level | None; see gfql.strictness.StrictInput
     ) -> pd.DataFrame:
         """
         chain is Union[List[ASTObject], Chain]
@@ -602,6 +604,9 @@ class Plottable(Protocol):
         validate: bool = True,
         persist: bool = False,
         df_import_args: Optional[DFImportArgs] = None,
+        params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars
+        output: Optional[str] = None,
+        strict: Any = None,  # hygiene-ok: explicit-any -- bool | strictness level | None; see gfql.strictness.StrictInput
     ) -> 'Plottable':
         """
         chain is Union[List[ASTObject], Chain]
@@ -623,6 +628,7 @@ class Plottable(Protocol):
         df_import_args: Optional[DFImportArgs] = None,
         params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
         output: Optional[str] = None,
+        strict: Any = None,  # hygiene-ok: explicit-any -- bool | strictness level | None; see gfql.strictness.StrictInput
     ) -> pd.DataFrame:
         """
         chain is Union[List[ASTObject], Chain]

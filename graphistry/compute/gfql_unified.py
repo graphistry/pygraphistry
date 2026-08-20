@@ -94,6 +94,7 @@ from graphistry.compute.util.generate_safe_column_name import (
 from graphistry.compute.gfql.identifiers import EDGE_INDEX_BASE
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
+from graphistry.compute.gfql.strictness import StrictInput, StrictLevel
 from graphistry.otel import otel_traced, otel_detail_enabled
 
 logger = setup_logger(__name__)
@@ -1383,9 +1384,11 @@ def _fast_path_execution_target(
 ) -> "ExecutionTarget":
     """Lazy-collect target for a Cypher fast path: GPU only when ``polars-gpu`` was requested.
 
-    ``Engine.POLARS_GPU`` is never produced by ``resolve_engine`` from ``AUTO``, so comparing
-    the requested value IS the "did the caller ask for GPU" test and needs no graph. An
-    explicit request runs on GPU or raises; it is never quietly served on CPU.
+    Comparing the requested value IS the "did the caller ask for GPU" test, and needs no
+    graph: ``resolve_engine`` never produces ``Engine.POLARS_GPU`` from ``AUTO``, and the
+    AUTO cuDF route that does target GPU re-enters ``gfql`` with the engine already pinned
+    to ``polars-gpu``, so it arrives here as an explicit request. A request for GPU runs on
+    GPU or raises; it is never quietly served on CPU.
     """
     from graphistry.compute.gfql.lazy import ExecutionTarget
     requested = engine.value if isinstance(engine, (Engine, EngineAbstract)) else engine
@@ -2387,7 +2390,8 @@ def gfql(self: Plottable,
          language: Optional[Literal["cypher", "gremlin"]] = None,
          params: Optional[CypherParams] = None,
          validate: bool = False,
-         shortest_path_backend: str = "auto") -> Plottable:
+         shortest_path_backend: str = "auto",
+         strict: StrictInput = None) -> Plottable:
     """
     Execute a GFQL query - either a chain or a DAG
 
@@ -2406,9 +2410,39 @@ def gfql(self: Plottable,
         ``"igraph"`` (require igraph, raise if missing), ``"cugraph"`` (require cugraph,
         raise if missing), or ``"bfs"`` (always use DataFrame BFS). ``"auto"`` tries
         cugraph on CUDF engine, igraph on pandas, falls back to BFS silently.
+    :param strict: Absent-label/property strictness: ``"strict"`` raises, ``"warn"``
+        (default) warns once per absent name and resolves it to null (openCypher),
+        ``"quiet"`` resolves silently. ``True``/``False`` map to ``"strict"``/``"quiet"``.
+        ``None`` consults ``bind(schema=...)``, then the ``"warn"`` default.
     :returns: Resulting Plottable
     :rtype: Plottable
     """
+    from graphistry.compute.gfql.strictness import (
+        resolve_strict_level, schema_declared_names, strictness_scope)
+
+    with strictness_scope(
+        resolve_strict_level(self, strict=strict), declared=schema_declared_names(self)
+    ) as _strictness:
+        return _gfql_with_strictness(
+            self, query, engine=engine, output=output, policy=policy, where=where,
+            language=language, params=params, validate=validate,
+            shortest_path_backend=shortest_path_backend, strict=_strictness.level)
+
+
+def _gfql_with_strictness(
+    self: Plottable,
+    query: GFQLQuery,
+    *,
+    engine: Union[EngineAbstract, str],
+    output: Optional[str],
+    policy: Optional[Dict[str, PolicyFunction]],
+    where: Optional[Sequence[WhereComparison]],
+    language: Optional[Literal["cypher", "gremlin"]],
+    params: Optional[CypherParams],
+    validate: bool,
+    shortest_path_backend: str,
+    strict: StrictLevel,
+) -> Plottable:
     if _policied_auto_serves_via_pandas_until_the_polars_route_emits_hooks(engine, policy, self):
         engine = Engine.PANDAS.value
 
@@ -2433,9 +2467,8 @@ def gfql(self: Plottable,
                 shortest_path_backend=shortest_path_backend,
             )
 
-    # engine inference, cuDF arm (owner-directed policy addition, 2026-08-02; supersedes the
-    # earlier "AUTO never selects polars-gpu" doctrine for THIS arm only): when every bound
-    # frame is cuDF AND the cudf-polars GPU target is GENUINELY usable (probed once per
+    # engine inference, cuDF arm: when every bound frame is cuDF AND the cudf-polars
+    # GPU target is GENUINELY usable (probed once per
     # process — polars imports, cudf + cudf_polars installed, and a real GPU collect
     # succeeds; see lazy.polars_gpu_available), prefer the native lazy polars engine on its
     # GPU execution target over the legacy CUDF path. Both serve cudf->cudf: inputs cross
@@ -2546,7 +2579,7 @@ def gfql(self: Plottable,
                     where=where_param,
                     language=language,
                     params=params,
-                    strict=True,
+                    strict=strict,
                     schema=True,
                     collect_all=False,
                 )

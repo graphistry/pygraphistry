@@ -78,9 +78,10 @@ def circle_layout(
     Arranges nodes in a circular layout
 
     If partition_by and and bounding_box df are provided, do as multiple circles
-    
-    Each circle is sorted, by default by degree
-    
+
+    Node order around each circle is by node id (within partition), always. See the
+    ``sort_by`` note below.
+
     The ring radius is set to circumscribe the bounding box of the nodes
 
     Parameters
@@ -98,19 +99,27 @@ def circle_layout(
     :param point_spacing: The distance between nodes within a ring, along the circumference. Defaults to ring_spacing * 0.1 if not provided.
     :type point_spacing: Optional[float]
 
-    :param partition_by: Column name or list of column names to sort nodes by. Defaults to None, in which case no sorting is applied.
+    :param partition_by: Column name or list of column names to partition nodes by, laying
+        out one circle per partition. Defaults to None, in which case a single circle is used.
     :type partition_by: Optional[Union[str, List[str]]]
 
-    :param sort_by: Column name or list of column names to sort nodes by. Defaults to None, in which case sorting is by degree, in-degree, outdegree.
+    :param sort_by: Currently has NO effect on the layout. Node order around each circle is
+        always determined by node id (within partition); the sort this parameter performs is
+        discarded by that ordering before any position is assigned. Passing a column that
+        does not exist still raises KeyError, and leaving it None additionally attaches
+        degree columns (``degree``, ``degree_in``, ``degree_out``) to the output nodes.
     :type sort_by: Optional[Union[str, List[str]]]
 
-    :param ascending: Whether to sort ascending or descending.
+    :param ascending: Currently has NO effect on the layout; consumed only by the discarded
+        sort described under ``sort_by``.
     :type ascending: Union[bool, List[bool]]
 
-    :param na_position: Where to position NaNs in the sorting order. Defaults to 'last'.
+    :param na_position: Currently has NO effect on the layout; consumed only by the discarded
+        sort described under ``sort_by``. Defaults to 'last'.
     :type na_position: str
 
-    :param ignore_index: Whether to ignore the index when sorting. Defaults to True.
+    :param ignore_index: Currently has NO effect on the layout; consumed only by the discarded
+        sort described under ``sort_by``. Defaults to True.
     :type ignore_index: bool
 
     :param engine: The engine to use for computations (either 'pandas' or 'cudf'). Defaults to EngineAbstract.AUTO.

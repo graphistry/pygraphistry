@@ -100,7 +100,7 @@ def python_remote_generic(
     :param validate: Whether to locally test code, and if uploading data, the data. Default true.
     :type validate: bool
 
-    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Optional; without it csv dtypes are re-inferred from text, which can rewrite values (``'007'`` -> ``7.0``) and break the returned graph's own node/edge id join. Supplying it takes explicit control and silences the warning. Prefer ``format='parquet'``, which is faithful and needs no reader args.
+    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Optional; without it csv dtypes are re-inferred from text, which can rewrite values (``'007'`` -> ``7.0``) and break the returned graph's own node/edge id join. The warning names each lossy axis your kwargs do not govern, and clears only once they govern both: dtype inference (``dtype``/``converters``) and NA substitution (``keep_default_na``/``na_values``/``na_filter``/``converters``). Prefer ``format='parquet'``, which is faithful and needs no reader args.
     :type df_import_args: Optional[Dict[str, Any]]
 
     **Example: Upload data and count the results**
@@ -316,7 +316,7 @@ def python_remote_g(
     :param validate: Whether to locally test code, and if uploading data, the data. Default true.
     :type validate: bool
 
-    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Optional; without it csv dtypes are re-inferred from text, which can rewrite values and break the returned graph's own node/edge id join. Supplying it takes explicit control and silences the warning. Prefer ``format='parquet'``, which is faithful and needs no reader args.
+    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Optional; without it csv dtypes are re-inferred from text, which can rewrite values and break the returned graph's own node/edge id join. The warning names each lossy axis your kwargs do not govern, and clears only once they govern both: dtype inference (``dtype``/``converters``) and NA substitution (``keep_default_na``/``na_values``/``na_filter``/``converters``). Prefer ``format='parquet'``, which is faithful and needs no reader args.
     :type df_import_args: Optional[Dict[str, Any]]
 
     **Example: Upload data and count the results**
@@ -402,7 +402,7 @@ def python_remote_table(
     :param validate: Whether to locally test code, and if uploading data, the data. Default true.
     :type validate: bool
 
-    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Optional; without it csv dtypes are re-inferred from text, which can rewrite values and break the returned graph's own node/edge id join. Supplying it takes explicit control and silences the warning. Prefer ``format='parquet'``, which is faithful and needs no reader args.
+    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Optional; without it csv dtypes are re-inferred from text, which can rewrite values and break the returned graph's own node/edge id join. The warning names each lossy axis your kwargs do not govern, and clears only once they govern both: dtype inference (``dtype``/``converters``) and NA substitution (``keep_default_na``/``na_values``/``na_filter``/``converters``). Prefer ``format='parquet'``, which is faithful and needs no reader args.
     :type df_import_args: Optional[Dict[str, Any]]
 
     **Example: Upload data and count the results**
