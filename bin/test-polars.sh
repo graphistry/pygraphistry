@@ -55,6 +55,9 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_row_multiplicity_semantics.py
     graphistry/tests/compute/gfql/test_aggregate_identity_row_semantics.py
     graphistry/tests/compute/gfql/test_numeric_conformance_semantics.py
+    # engine-parametrized absent-name strictness: the polars params of the level matrix
+    # (0-rows / null-column / 3VL) only ever run here
+    graphistry/tests/compute/gfql/test_strictness_levels.py
     graphistry/tests/compute/gfql/test_path_trail_semantics.py
     # #1911 alias-scoping pins: every case is parametrized pandas AND polars, and the
     # polars params (WITH-rebind decline parity, edge-identity collision crash) only run here

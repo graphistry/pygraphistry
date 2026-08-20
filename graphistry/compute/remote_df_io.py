@@ -2,23 +2,35 @@
 
 CSV is an untyped wire format: the server writes text and the client cannot
 recover the original dtypes from it, so a bare reader re-infers them. Callers
-are warned, and may pass explicit reader kwargs to take control. ``parquet``
-carries an Arrow schema and is the faithful default.
+are warned unless their reader kwargs govern both lossy axes -- dtype inference
+and NA substitution -- which are independent: ``dtype=str`` still turns ``'NA'``
+into ``NaN``, and ``keep_default_na=False`` still turns ``'007'`` into ``7``.
+``parquet`` carries an Arrow schema and is the faithful default.
 """
 from inspect import getmodule
 import warnings
-from typing import BinaryIO, Callable, Optional
+from typing import BinaryIO, Callable, List, Optional
 
 from graphistry.compute.exceptions import ErrorCode, GFQLRemoteError
 from graphistry.compute.typing import DataFrameT
 from graphistry.models.compute.chain_remote import DFImportArgs
 
 
-CSV_LOSSY_WARNING = (
-    "format='csv' is untyped on the wire: the client re-infers dtypes from text and can "
-    "rewrite values ('007' -> 7.0, '08' -> 8.0, and 'NA'/''/'null' -> NaN). "
+CSV_DTYPE_KWARGS = frozenset({'converters', 'dtype'})
+CSV_NA_KWARGS = frozenset({'converters', 'keep_default_na', 'na_filter', 'na_values'})
+
+CSV_DTYPE_AXIS_WARNING = (
+    "dtype inference is left to the reader, which retypes text ('007' -> 7.0, '08' -> 8.0); "
+    "govern it with a " + " or ".join(sorted(CSV_DTYPE_KWARGS)) + " reader kwarg"
+)
+CSV_NA_AXIS_WARNING = (
+    "NA substitution is left to the reader, which blanks the pandas NA vocabulary "
+    "('NA'/''/'null' -> NaN); govern it with a "
+    + ", ".join(sorted(CSV_NA_KWARGS)) + " reader kwarg"
+)
+CSV_LOSSY_REMEDY = (
     "format='parquet' (the default) carries an Arrow schema and is faithful. "
-    "To control the csv reader yourself, pass df_import_args, e.g. "
+    "For a faithful csv read pass df_import_args, e.g. "
     "df_import_args={'dtype': str, 'keep_default_na': False, 'na_values': []}."
 )
 
@@ -77,22 +89,42 @@ def validate_csv_import_args(
         )
 
 
+def ungoverned_csv_axes(df_import_args: Optional[DFImportArgs]) -> List[str]:
+    """Name the lossy csv axes the caller's reader kwargs do not govern.
+
+    :param df_import_args: Caller-supplied reader kwargs, or ``None``.
+    :return: Zero, one, or two axis descriptions; empty means the read is under caller control.
+    """
+    keys = set(df_import_args or {})
+    axes: List[str] = []
+    if not (keys & CSV_DTYPE_KWARGS):
+        axes.append(CSV_DTYPE_AXIS_WARNING)
+    if not (keys & CSV_NA_KWARGS):
+        axes.append(CSV_NA_AXIS_WARNING)
+    return axes
+
+
 def resolve_csv_import_args(
     df_import_args: Optional[DFImportArgs],
     api_name: str,
 ) -> DFImportArgs:
-    """Resolve csv reader kwargs, warning when the caller left decoding to inference.
+    """Resolve csv reader kwargs, warning per lossy axis the caller left to inference.
 
     :param df_import_args: Caller-supplied reader kwargs; ``None`` means none supplied.
     :param api_name: Public entry point named in the message.
     :return: Reader kwargs to apply.
     :raises GFQLRemoteError: When ``df_import_args`` is supplied but is not a dict.
     """
-    if df_import_args is None:
-        warnings.warn(f"{api_name}: {CSV_LOSSY_WARNING}", UserWarning, stacklevel=3)
-        return {}
     validate_csv_import_args(df_import_args, api_name)
-    return df_import_args
+    axes = ungoverned_csv_axes(df_import_args)
+    if axes:
+        warnings.warn(
+            f"{api_name}: format='csv' is untyped on the wire and this read is not fully "
+            f"under your control: {'; '.join(axes)}. {CSV_LOSSY_REMEDY}",
+            UserWarning,
+            stacklevel=3,
+        )
+    return {} if df_import_args is None else df_import_args
 
 
 def resolve_csv_reader(

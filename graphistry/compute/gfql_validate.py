@@ -19,6 +19,14 @@ from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.frontends.cypher.binder import FrontendBinder
 from graphistry.compute.gfql.ir.compilation import GraphSchemaCatalog, PlanContext
 from graphistry.compute.gfql.query_types import GFQLQuery
+from graphistry.compute.gfql.strictness import (
+    StrictInput,
+    absent_name_is_lenient,
+    resolve_strict_level,
+    schema_declared_names,
+    strict_level_to_bool,
+    strictness_scope,
+)
 from graphistry.compute.gfql.same_path_types import (
     WhereComparison,
     normalize_where_entries,
@@ -122,18 +130,18 @@ def _build_schema_catalog(g: Plottable, *, strict: Optional[bool]) -> GraphSchem
     )
 
 
-def _resolve_strict_mode(g: Plottable, *, strict: Optional[bool]) -> bool:
-    if strict is not None:
-        return bool(strict)
-    bound_schema = getattr(g, "_gfql_schema", None)
-    if bound_schema is not None:
-        schema_strict = getattr(bound_schema, "strict", None)
-        if schema_strict is not None:
-            return bool(schema_strict)
-        metadata = getattr(bound_schema, "metadata", None)
-        if isinstance(metadata, Mapping) and "strict" in metadata:
-            return bool(metadata["strict"])
-    return True
+def _resolve_strict_mode(g: Plottable, *, strict: StrictInput) -> bool:
+    """Legacy boolean view of the shared level resolution."""
+    return strict_level_to_bool(resolve_strict_level(g, strict=strict))
+
+
+def _bind_names(g: Plottable, parsed: Any) -> None:  # hygiene-ok: explicit-any -- parsed is the cypher parser's AST root
+    """Strict name resolution against the bound schema, or this instance's columns."""
+    FrontendBinder().bind(
+        parsed,
+        PlanContext(catalog=_build_schema_catalog(g, strict=True)),
+        strict_name_resolution=True,
+    )
 
 
 def _validate_cypher(
@@ -141,14 +149,22 @@ def _validate_cypher(
     query: str,
     *,
     params: Optional[Mapping[str, Any]],
-    strict: Optional[bool],
+    strict: StrictInput,
     schema: bool = True,
 ) -> Dict[str, Any]:
     parsed = parse_cypher(query)
-    strict_mode = _resolve_strict_mode(g, strict=strict)
-    if strict_mode:
-        strict_ctx = PlanContext(catalog=_build_schema_catalog(g, strict=strict))
-        FrontendBinder().bind(parsed, strict_ctx, strict_name_resolution=True)
+    level = resolve_strict_level(g, strict=strict)
+    declared = schema_declared_names(g)
+    can_judge_names = schema or declared is not None  # schema=False holds no frames; a declared schema is names without data
+    if level != "quiet" and can_judge_names:
+        try:
+            _bind_names(g, parsed)
+        except GFQLValidationError as exc:
+            ctx: Mapping[str, object] = exc.context or {}
+            name = str(ctx.get("value") or ctx.get("field") or "")
+            with strictness_scope(level, declared=declared):
+                if not absent_name_is_lenient(name, kind="name", context="query"):
+                    raise
     compiled = compile_cypher_query(parsed, params=params)
     compiled_kind: Literal["query", "union", "graph"] = "query"
     if isinstance(compiled, CompiledCypherUnionQuery):
@@ -386,7 +402,7 @@ def gfql_validate(
     where: Optional[Sequence[WhereComparison]] = None,
     language: Optional[Literal["cypher", "gremlin"]] = None,
     params: Optional[Mapping[str, Any]] = None,
-    strict: Optional[bool] = None,
+    strict: StrictInput = None,
     collect_all: bool = False,
     schema: bool = True,
 ) -> Dict[str, Any]:
@@ -394,6 +410,10 @@ def gfql_validate(
 
     Raises structured GFQL exceptions on validation failures and never dispatches
     query execution operators.
+
+    :param strict: Absent-name strictness -- ``"strict"`` raises, ``"warn"`` (default)
+        warns once per absent name, ``"quiet"`` is silent. ``True``/``False`` map to
+        ``"strict"``/``"quiet"``; ``None`` consults ``bind(schema=...)`` then the default.
     """
     try:
         if isinstance(query, str):

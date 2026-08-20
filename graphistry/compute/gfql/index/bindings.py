@@ -117,12 +117,15 @@ def _filter_compatible(frame: DataFrameT, filter_dict: Optional[dict]) -> bool:
     from graphistry.compute.filter_by_dict import (
         _is_numeric_dtype_safe,
         _is_string_dtype_safe,
-        resolve_filter_column,
+        resolve_filter_column_or_absent,
     )
 
     try:
         for col, value in filter_dict.items():
-            resolved, resolved_value = resolve_filter_column(frame, col, value)
+            resolved_pair = resolve_filter_column_or_absent(frame, col, value)
+            if resolved_pair is None:
+                return False  # absent name; the canonical path applies the 3VL verdict (#1916)
+            resolved, resolved_value = resolved_pair
             series = (
                 frame.get_column(resolved)  # type: ignore[operator]
                 if "polars" in type(frame).__module__
