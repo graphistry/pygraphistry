@@ -6409,14 +6409,13 @@ def _reject_with_rebind_onto_live_alias(query: CypherQuery) -> None:
             continue
         for item in clause.items:
             source = item.expression.text.strip()
-            source_kind = pattern_aliases.get(source)
-            if source_kind is None:
+            if source not in pattern_aliases:
                 # Not a bare entity alias: a scalar column, which openCypher lets shadow freely.
                 continue
             if item.alias is None or item.alias == source:
                 continue
-            if pattern_aliases.get(item.alias) != source_kind:
-                # Cross-kind rebinds are the binder's; a fresh name already declines downstream.
+            if item.alias not in pattern_aliases:
+                # A fresh name or reentry consumer is not a competing pattern binding.
                 continue
             raise GFQLValidationError(
                 ErrorCode.E108,
