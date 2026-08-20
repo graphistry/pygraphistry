@@ -155,7 +155,6 @@ from graphistry.compute.gfql.temporal.folding import (
     fold_temporal_constructor_ast,
     rewrite_temporal_constructors_in_expr,
 )
-from graphistry.compute.gfql.row.entity_props import LABEL_FLAG_PREFIX
 from graphistry.compute.gfql.same_path_types import (
     EDGE_IDENTITY_COLUMN,
     NODE_IDENTITY_COLUMN,
@@ -2593,6 +2592,22 @@ def _binds_one_route_per_pair_undirected(clause: MatchClause) -> bool:
     return False
 
 
+def _sole_leading_optional_match(query: CypherQuery) -> bool:
+    """One OPTIONAL MATCH with nothing bound before it: no row can go unmatched.
+
+    Over the single empty incoming row, such a clause either matches (and is a plain
+    MATCH, so binding rows are sound) or matches nothing (and the empty-result-row
+    null extension emits the one null row, without ever consulting binding rows)."""
+    return (
+        len(query.matches) == 1
+        and query.matches[0].optional
+        and not query.reentry_matches
+        and not query.with_stages
+        and not query.unwinds
+        and query.call is None
+    )
+
+
 def _forces_relationship_multiplicity_projection_bindings(
     query: CypherQuery,
     *,
@@ -2610,7 +2625,7 @@ def _forces_relationship_multiplicity_projection_bindings(
     conservative source-table path; variable-length arms are excluded."""
     if relationship_count <= 0 or not alias_targets:
         return False
-    if any(clause.optional for clause in query.matches):
+    if any(clause.optional for clause in query.matches) and not _sole_leading_optional_match(query):
         return False
     if not all(isinstance(target, (ASTNode, ASTEdge)) for target in alias_targets.values()):
         return False
@@ -2640,42 +2655,7 @@ def _forces_relationship_multiplicity_projection_bindings(
         saw_node_prop_ref = True
     if not saw_node_prop_ref:
         return False
-    if _seeded_typed_hop_reduction_is_value_correct(
-        query, alias_targets=alias_targets, referenced_aliases=referenced_aliases
-    ):
-        return False
     return True
-
-
-def _seeded_typed_hop_reduction_is_value_correct(
-    query: CypherQuery,
-    *,
-    alias_targets: Mapping[str, ASTObject],
-    referenced_aliases: AbstractSet[str],
-) -> bool:
-    """A selectively-seeded single-hop pattern projecting only destination props, which
-    the seeded typed-hop fast path already answers without binding rows."""
-    if len(query.matches) != 1 or len(query.matches[0].patterns) != 1:
-        return False
-    pattern = query.matches[0].patterns[0]
-    if not (
-        len(pattern) == 3
-        and isinstance(pattern[0], NodePattern)
-        and isinstance(pattern[1], RelationshipPattern)
-        and pattern[1].min_hops is None
-        and pattern[1].max_hops is None
-        and not getattr(pattern[1], "to_fixed_point", False)
-        and isinstance(pattern[2], NodePattern)
-    ):
-        return False
-    seed_alias = pattern[0].variable
-    dest_alias = pattern[2].variable
-    seed_target = alias_targets.get(seed_alias) if seed_alias is not None else None
-    seed_filter = getattr(seed_target, "filter_dict", None)
-    has_selective_seed = seed_filter is not None and any(
-        not str(key).startswith(LABEL_FLAG_PREFIX) for key in seed_filter
-    )
-    return has_selective_seed and dest_alias is not None and referenced_aliases <= {dest_alias}
 
 
 def _is_pure_count_star_shortcircuit(
