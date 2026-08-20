@@ -3538,11 +3538,13 @@ def _execute_seeded_typed_hop_fast_path(
             # dtypes like nullable Int64/StringDtype, categoricals) declines to the
             # full path rather than risk a silent dtype divergence.
             import numpy as np
-            # The upcast above is a PANDAS pivot artifact. cuDF's rows-pivot keeps
-            # the source dtypes (verified: int64 stays int64, bool stays bool), so
-            # applying the pandas casts there would diverge from its own canonical
-            # path. The dtype-class decline guard still applies to both.
-            is_cudf_rows = "cudf" in type(p_rows).__module__
+            # The upcast above is a PANDAS rows-pivot artifact, so it applies only where
+            # the canonical path IS that pivot: cuDF's pivot keeps the source dtypes, and
+            # an INDEXED bag lowering is served by the indexed connected-bindings kernel,
+            # which never pivots (int64/bool, as polars and cuDF already answer).
+            # The dtype-class decline guard still applies to all of them.
+            canonical_keeps_source_dtypes = (
+                "cudf" in type(p_rows).__module__ or (bag_rows and index_ctx is not None))
             casts: Dict[str, str] = {}
             for out_name, prop in select_items:
                 if prop == node:
@@ -3553,10 +3555,10 @@ def _execute_seeded_typed_hop_fast_path(
                 if not isinstance(d, np.dtype):
                     return None
                 if d == np.dtype(bool):
-                    if not is_cudf_rows:
+                    if not canonical_keeps_source_dtypes:
                         casts[out_name] = "object"
                 elif d.kind in "iuf":
-                    if not is_cudf_rows:
+                    if not canonical_keeps_source_dtypes:
                         casts[out_name] = "float64"
                 elif d.kind != "O":
                     return None
