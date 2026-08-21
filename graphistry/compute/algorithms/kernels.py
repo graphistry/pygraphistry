@@ -164,13 +164,13 @@ def _pagerank_cudf_fast(
     stopping: Literal["convergence", "fixed_iterations"],
 ) -> tuple[SeriesT, bool]:
     """CuPy fast path with reusable dense buffers and fused atomic scatter."""
-    xp = array_namespace(edges)
+    import cupy as xp
     src_values = series_to_array(edges[src])
     dst_values = series_to_array(edges[dst])
     out_weight_values = series_to_array(out_weight)
     teleport_values = series_to_array(teleport)
     initial_values = series_to_array(initial)
-    dangling_weights = series_to_array(is_dangling).astype(xp.float64, copy=False)
+    dangling_weights = xp.asarray(series_to_array(is_dangling), dtype=xp.float64)
     weight_values = series_to_array(edges[weight].reset_index(drop=True).astype("float64")) if weight is not None else None
     weighted = weight_values is not None
     weight_parameter = "const double* edge_weight," if weighted else ""
@@ -214,7 +214,7 @@ def _pagerank_cudf_fast(
     )
     inflow = xp.empty(v_count, dtype=xp.float64)
     next_values = xp.empty(v_count, dtype=xp.float64)
-    edge_count = int(src_values.size)
+    edge_count = int(src_values.shape[0])
     edge_count_arg = xp.uint64(edge_count)
     threads = 256
     blocks = min(65535, max(1, (edge_count + threads - 1) // threads))
@@ -541,7 +541,7 @@ def pagerank(
 
     if weight is None:
         if use_cudf_fast:
-            xp = array_namespace(edges)
+            import cupy as xp
             computed_out = series_from_array(
                 edges,
                 xp.bincount(series_to_array(edges[src]), minlength=v_count).astype(xp.float64, copy=False),
@@ -568,7 +568,7 @@ def pagerank(
         if to_host_int(invalid_weight.sum()) != 0:
             raise ValueError("pagerank edge weights must be finite and non-negative")
         if use_cudf_fast:
-            xp = array_namespace(edges)
+            import cupy as xp
             computed_out = series_from_array(
                 edges,
                 xp.bincount(
