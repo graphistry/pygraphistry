@@ -222,9 +222,9 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
     if name == "size" and len(args) == 1:
         # size(x): #chars (String) or #elements (List) — different polars ops, so gate by output
         # dtype. str.len_chars == pandas str.len (code points); list.len parity; null/empty
-        # preserved — parity-verified. Numeric/Categorical/unknown decline (NIE): pandas size()
-        # over a non-sequence Series returns the ROW COUNT (quirk we refuse to replicate), and
-        # Categorical .str raises in polars only.
+        # preserved — parity-verified. Numeric/Categorical/unknown decline (NIE), matching the
+        # pandas/cuDF kernel, which declines size() over a non-sequence Series; Categorical .str
+        # raises in polars only.
         dt = _expr_output_dtype(args[0])
         if dt == pl.String:
             return args[0].str.len_chars()
