@@ -101,8 +101,7 @@ def test_pagerank_cugraph_compatible_signature_defaults():
     assert {name: signature.parameters[name].default for name in expected} == expected
 
 
-def test_pagerank_weighted_personalized_matches_networkx():
-    nx = pytest.importorskip("networkx")
+def test_pagerank_weighted_personalized_matches_linear_system():
     edges = _edges([0, 0, 1, 2], [1, 2, 2, 0], [2.0, 1.0, 3.0, 4.0])
     personalization = pd.Series([0.7, 0.1, 0.1, 0.1])
     nstart = pd.Series([0.0, 1.0, 0.0, 0.0])
@@ -123,21 +122,20 @@ def test_pagerank_weighted_personalized_matches_networkx():
         weight="w",
     )
 
-    graph = nx.DiGraph()
-    graph.add_nodes_from(range(4))
-    for row in edges.itertuples(index=False):
-        graph.add_edge(row.s, row.d, weight=row.w)
-    ref = nx.pagerank(
-        graph,
-        alpha=0.85,
-        personalization={i: float(v) for i, v in enumerate(personalization)},
-        nstart={i: float(v) for i, v in enumerate(nstart)},
-        max_iter=1000,
-        tol=1.0e-12 / 4,
-        weight="weight",
+    transition = np.array(
+        [
+            [0.0, 2.0 / 3.0, 1.0 / 3.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+            list(personalization),
+        ]
+    )
+    ref = np.linalg.solve(
+        np.eye(4) - 0.85 * transition.T,
+        (1.0 - 0.85) * personalization.to_numpy(),
     )
     assert [float(value) for value in got] == pytest.approx(
-        [ref[i] for i in range(4)], rel=1.0e-12, abs=1.0e-15
+        list(ref), rel=1.0e-12, abs=1.0e-15
     )
 
 
