@@ -16,7 +16,9 @@ Three tiers in fail-fast order:
 from __future__ import annotations
 
 import inspect
+import sys
 from collections import Counter
+from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -263,6 +265,150 @@ def test_pagerank_auto_memory_preflight(monkeypatch):
     assert K._pagerank_auto_uses_fast(edges, 3, False, 1) is False
     monkeypatch.setattr(K, "_pagerank_available_bytes", lambda _: None)
     assert K._pagerank_auto_uses_fast(edges, 3, False, 1) is False
+
+
+def test_pagerank_iteration_rejects_mass_drift():
+    initial = pd.Series([1.0])
+
+    def bad_step(current):
+        return current, 1.5, 0.0
+
+    with pytest.raises(AssertionError, match="mass not conserved"):
+        K._pagerank_iterations(initial, bad_step, 1, 1.0e-5, "convergence")
+
+
+def test_pagerank_gpu_memory_estimate_without_gpu(monkeypatch):
+    edges = _edges([0, 1, 2, 2], [1, 2, 0, 1])
+    monkeypatch.setattr(K, "is_cudf", lambda _: True)
+
+    fixed = 64 * 1024 * 1024
+    assert K._pagerank_fast_estimated_bytes(edges, 3, False) == fixed + 96 * 3
+    assert K._pagerank_fast_estimated_bytes(edges, 3, True) == fixed + 96 * 3 + 16 * len(edges)
+
+
+def test_pagerank_cgroup_available_bytes_contract(tmp_path):
+    limit_path = tmp_path / "limit"
+    current_path = tmp_path / "current"
+
+    limit_path.write_text("1000", encoding="utf-8")
+    current_path.write_text("250", encoding="utf-8")
+    assert K._pagerank_cgroup_available_bytes(str(limit_path), str(current_path)) == 750
+
+    limit_path.write_text("max", encoding="utf-8")
+    assert K._pagerank_cgroup_available_bytes(str(limit_path), str(current_path)) is None
+
+    limit_path.write_text("invalid", encoding="utf-8")
+    assert K._pagerank_cgroup_available_bytes(str(limit_path), str(current_path)) is None
+
+    limit_path.write_text(str(1 << 60), encoding="utf-8")
+    current_path.write_text("0", encoding="utf-8")
+    assert K._pagerank_cgroup_available_bytes(str(limit_path), str(current_path)) is None
+
+    limit_path.write_text("100", encoding="utf-8")
+    current_path.write_text("-1", encoding="utf-8")
+    assert K._pagerank_cgroup_available_bytes(str(limit_path), str(current_path)) is None
+
+
+def test_pagerank_host_available_bytes_contract(monkeypatch):
+    values = {"SC_AVPHYS_PAGES": 10, "SC_PAGE_SIZE": 100}
+    monkeypatch.setattr(K.os, "sysconf", lambda name: values[name])
+    monkeypatch.setattr(
+        K,
+        "_pagerank_cgroup_available_bytes",
+        lambda limit_path, _current_path: 300 if limit_path.endswith("memory.max") else None,
+    )
+    assert K._pagerank_host_available_bytes() == 300
+
+    def unavailable(_name):
+        raise OSError("sysconf unavailable")
+
+    monkeypatch.setattr(K.os, "sysconf", unavailable)
+    monkeypatch.setattr(K, "_pagerank_cgroup_available_bytes", lambda *_: None)
+    assert K._pagerank_host_available_bytes() is None
+
+
+def test_pagerank_gpu_available_bytes_probe_without_gpu(monkeypatch):
+    fake_cupy = ModuleType("cupy")
+    fake_cupy.__dict__["cuda"] = SimpleNamespace(
+        Device=lambda: SimpleNamespace(mem_info=(123, 456))
+    )
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+    monkeypatch.setattr(K, "is_cudf", lambda _: True)
+    assert K._pagerank_available_bytes(object()) == 123
+
+    class BrokenDevice:
+        def __init__(self):
+            raise RuntimeError("probe failed")
+
+    fake_cupy.__dict__["cuda"] = SimpleNamespace(Device=BrokenDevice)
+    assert K._pagerank_available_bytes(object()) is None
+
+
+def test_dfops_lazy_gpu_dispatch_without_gpu(monkeypatch):
+    fake_cupy = ModuleType("cupy")
+    fake_cupy.__dict__.update(
+        {"stack": lambda values: values, "asnumpy": lambda values: values}
+    )
+    fake_cudf = ModuleType("cudf")
+    fake_cudf.__dict__["Series"] = lambda values: ("cudf-series", values)
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+    monkeypatch.setitem(sys.modules, "cudf", fake_cudf)
+    monkeypatch.setattr(D, "is_cudf", lambda _: True)
+
+    values = np.array([1.0, 2.0])
+
+    class FakeSeries:
+        pass
+
+    series = FakeSeries()
+    series.values = values
+    assert D.array_namespace(object()) is fake_cupy
+    assert D.series_to_array(series) is values
+    assert D.series_from_array(object(), values) == ("cudf-series", values)
+    assert D.to_host_floats([]) == ()
+
+    fake_scalar = type("FakeCupyScalar", (float,), {"__module__": "cupy"})
+    assert D.to_host_floats([fake_scalar(1.25), fake_scalar(2.5)]) == (1.25, 2.5)
+
+
+def test_pagerank_fast_dispatches_cudf_backend_without_gpu(monkeypatch):
+    edges = _edges([0], [1])
+    vectors = [pd.Series([0.5, 0.5]) for _ in range(4)]
+    expected = (pd.Series([0.25, 0.75]), True)
+    received = []
+
+    def cudf_fast(*args):
+        received.append(args)
+        return expected
+
+    monkeypatch.setattr(K, "is_cudf", lambda _: True)
+    monkeypatch.setattr(K, "_pagerank_cudf_fast", cudf_fast)
+    actual = K._pagerank_fast(
+        edges,
+        "s",
+        "d",
+        2,
+        None,
+        vectors[0],
+        vectors[1],
+        vectors[2],
+        vectors[3],
+        0.85,
+        100,
+        1.0e-5,
+        "convergence",
+    )
+
+    assert actual is expected
+    assert len(received) == 1
+    args = received[0]
+    assert args[0] is edges
+    assert args[1:5] == ("s", "d", 2, None)
+    assert all(
+        actual_vector is expected_vector
+        for actual_vector, expected_vector in zip(args[5:9], vectors)
+    )
+    assert args[9:] == (0.85, 100, 1.0e-5, "convergence")
 
 
 def test_cdlp_tie_breaks_to_smallest_label_and_oscillates():
