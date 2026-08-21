@@ -14,6 +14,7 @@ from typing_extensions import TypedDict
 # Runtime import (not TYPE_CHECKING): AggSpec is a pure typing Union of builtins (engine-
 # neutral wire type), and it keeps _GroupByParams introspectable (get_type_hints) at runtime.
 from graphistry.compute.gfql.call.support import AggSpec
+from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.gfql.index.bindings import IndexedBindingsState
     from .dtypes import PolarsFrame, PolarsT
-from .hop_eager import drop_null_endpoint_edges, ensure_nodes_polars
+from .hop_eager import ensure_nodes_polars
 from .dtypes import is_lazy, colnames, endpoint_ids
 from .degrees import get_degrees_polars, get_indegrees_polars, get_outdegrees_polars
 from .predicates import filter_by_dict_polars

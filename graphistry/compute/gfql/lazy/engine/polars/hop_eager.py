@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 from graphistry.Plottable import Plottable
+from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 from graphistry.compute.util import generate_safe_column_name
 from .dtypes import endpoint_ids
 from .predicates import filter_by_dict_polars
@@ -107,23 +108,11 @@ def _ids_an_endpoint_may_resolve_to(
     return ids
 
 
-def drop_null_endpoint_edges(edges_idx: "PolarsT", src: str, dst: str) -> "PolarsT":
-    """NULL endpoint contract: a NULL id is not an identity, so an edge with a NULL endpoint
-    participates in no traversal, from either side. Twin of ``hop.py``'s pandas/cuDF helper."""
-    import polars as pl
-
-    return edges_idx.filter(pl.col(src).is_not_null() & pl.col(dst).is_not_null())
-
-
 def _keep_edges_with_both_endpoints_resolvable(
     edges_idx: "PolarsT", src: str, dst: str, node_dtype: "pl.DataType",
     resolvable_ids: "pl.Series",
 ) -> "PolarsT":
-    """`.implode()` makes the id series ONE membership collection; bare `is_in` is deprecated.
-
-    Endpoints reaching here are non-NULL (``drop_null_endpoint_edges`` ran first), and a NULL
-    id in ``resolvable_ids`` is not an identity, so ``is_in``'s NULL-never-matches answer IS
-    the contract -- no null-aware widening."""
+    """Filter both endpoints against the non-null identity universe."""
     import polars as pl
 
     universe = resolvable_ids.implode()

@@ -943,8 +943,9 @@ def _try_chain_fast_path(
     concat = df_concat(engine_concrete)
     if unconstrained:
         # No node filter to reduce by: validate BOTH endpoints against the full
-        # node table (the full path drops dangling edges via its joins). dropna
-        # because a NULL id is not an identity; .isin would match NaN<->NaN.
+        # node table (the full path drops dangling edges via its joins). dropna so
+        # a NaN node id can't validate a NaN endpoint — .isin treats NaN as
+        # matchable but the BFS joins never match NaN<->NaN.
         node_ids = g._nodes[node].dropna()
         edges = g._edges[g._edges[src].isin(node_ids) & g._edges[dst].isin(node_ids)]
         if e1.edge_match:
