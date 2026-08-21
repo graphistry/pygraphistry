@@ -2615,6 +2615,7 @@ def _forces_relationship_multiplicity_projection_bindings(
     relationship_count: int,
     items: Sequence[ReturnItem],
     order_by: Optional[OrderByClause],
+    bag_preserving_whole_row_aliases: AbstractSet[str] = frozenset(),
 ) -> bool:
     """Non-aggregate projections over relationship patterns run on binding rows:
     the per-alias node table collapses row multiplicity (bag semantics).
@@ -2638,6 +2639,10 @@ def _forces_relationship_multiplicity_projection_bindings(
     referenced_aliases: Set[str] = set()
     for text in texts:
         stripped = text.strip()
+        if stripped in bag_preserving_whole_row_aliases and isinstance(alias_targets.get(stripped), ASTNode):
+            referenced_aliases.add(stripped)
+            saw_node_prop_ref = True
+            continue
         if stripped == "*" or stripped in alias_targets:
             return False
         tokens = {
@@ -2656,6 +2661,24 @@ def _forces_relationship_multiplicity_projection_bindings(
     if not saw_node_prop_ref:
         return False
     return True
+
+
+def _bag_preserving_whole_row_aliases(
+    query: CypherQuery,
+    *,
+    plan: "_ProjectionPlan",
+) -> AbstractSet[str]:
+    """Return whole-row aliases that may use relationship binding rows."""
+    if query.return_.distinct or query.return_is_reentry_carry:
+        return frozenset()
+    if any(
+        _is_variable_length_relationship_pattern(element)
+        for clause in query.matches
+        for element in _match_pattern_elements(clause)
+        if isinstance(element, RelationshipPattern)
+    ):
+        return frozenset()
+    return frozenset(plan.whole_row_sources.values())
 
 
 def _is_pure_count_star_shortcircuit(
@@ -4553,13 +4576,13 @@ def _lower_projection_chain(
     merged_match = _merged_match_clause(query)
     force_multiplicity_bindings = (
         plan.all_source_aliases is None
-        and not plan.whole_row_output_names
         and _forces_relationship_multiplicity_projection_bindings(
             query,
             alias_targets=alias_targets,
             relationship_count=_match_relationship_count(merged_match) if merged_match is not None else 0,
             items=query.return_.items,
             order_by=query.order_by,
+            bag_preserving_whole_row_aliases=_bag_preserving_whole_row_aliases(query, plan=plan),
         )
     )
     allowed_match_aliases = ({plan.source_alias} | plan.all_source_aliases | binding_row_aliases) if plan.all_source_aliases is not None else binding_row_aliases
