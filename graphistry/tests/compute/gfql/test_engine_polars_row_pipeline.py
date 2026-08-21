@@ -79,7 +79,6 @@ SUPPORTED = [
 # Row ops lowered to NATIVE polars (no pandas): select/with_/return_ projection (property/
 # arith/comparison/boolean/literal), order_by, group_by (count/sum/avg/min/max), unwind.
 NATIVE_LOWERED = [
-    # whole-row multi-entity render: the projector reads each alias's binding-row columns
     "MATCH (n)-[e]->(m) RETURN n, m",
     "MATCH (n) RETURN n.val",
     "MATCH (n) RETURN n.val AS v, n.kind",

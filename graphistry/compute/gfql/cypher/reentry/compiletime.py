@@ -332,7 +332,7 @@ def _compile_bounded_reentry_query(
         limit=prefix_stage.limit,
         trailing_semicolon=False,
         reentry_unwinds=(),
-        carries_to_reentry=True,
+        return_is_reentry_carry=True,
     )
     prefix_compiled = compile_cypher_query(prefix_query, params=params)
     if not isinstance(prefix_compiled, CompiledCypherQuery):

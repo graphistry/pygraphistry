@@ -29,6 +29,7 @@ import pytest
 
 import graphistry
 from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected
+from graphistry.tests.compute.gfql.polars_test_utils import typed_frame_sig
 from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.predicates.is_in import IsIn
 
@@ -274,19 +275,10 @@ def test_cypher_whole_entity_return_pandas_answers():
 
 @polars_only
 def test_cypher_whole_entity_return_polars_parity_with_pandas():
-    # Was AUDIT NOTE (F-04): this all-int64/str graph declined with a message
-    # blaming "float/temporal/nested/label/multi-entity columns" -- the gate fired
-    # on data its message did not describe. The multi-entity half of that gate is
-    # gone (the projector reads binding rows now), so this is the row-level parity
-    # assertion the audit note asked for once the gate was narrowed.
     query = "MATCH (a)-[e]->(b) RETURN a, b"
     got = _pd(_graph("polars").gfql(query, engine="polars")._nodes)
     want = _pd(_graph("pandas").gfql(query, engine="pandas")._nodes)
-    assert list(got.columns) == list(want.columns)
-    assert len(got) == len(want)
-    key = list(want.columns)
-    assert (sorted(map(tuple, got[key].values.tolist()))
-            == sorted(map(tuple, want[key].values.tolist())))
+    assert typed_frame_sig(got) == typed_frame_sig(want)
 
 
 # ================================================================ T-07 greens
