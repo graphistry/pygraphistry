@@ -123,10 +123,6 @@ def test_pair_projection_control_unchanged(engine):
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_whole_row_endpoint_projection_multiplicity(engine):
-    """`RETURN b` (whole entity) over the same match is a 4-row bag: b is bound
-    twice to node 3 (from node 1 and from node 2). Was the #1899 residual strict
-    xfail; the whole-row lane now joins binding rows. Full oracle coverage lives
-    in test_whole_entity_projection_bag_1994.py."""
     df = _run("MATCH (a)-->(b) RETURN b", engine)
     assert len(df) == 4
     assert _bag(df, "b.id") == [2, 3, 3, 4]

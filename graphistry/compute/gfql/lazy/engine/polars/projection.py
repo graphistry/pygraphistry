@@ -11,12 +11,15 @@ entities, and exotic expressions raise NotImplementedError.
 """
 from __future__ import annotations
 
+import typing
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+from typing_extensions import Literal, TypedDict
 
 from graphistry.Plottable import Plottable
+from graphistry.compute.gfql.cypher.projection_columns import alias_field_sources
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.gfql.cypher.lowering import ResultProjectionPlan
 
@@ -29,11 +32,17 @@ from graphistry.compute.gfql.row.entity_props import (
 )
 
 
+class _PolarsWholeRowProjectionMeta(TypedDict):
+    table: Literal["nodes", "edges"]
+    alias: str
+    id_column: str
+    ids: pl.Series
+
+
 @dataclass(frozen=True)
 class _AliasView:
-    """One alias's rows under bare field names, plus ``field -> source column`` in the original."""
     frame: pl.DataFrame
-    columns: Dict[str, str]
+    columns: typing.Mapping[str, str]
 
 
 def _has_temporal_constructor_text(rows_df: pl.DataFrame, col: str) -> bool:
@@ -57,7 +66,7 @@ def _has_temporal_constructor_text(rows_df: pl.DataFrame, col: str) -> bool:
         return False
 
 
-def _native_scalar_text_expr(col: str, dtype: Any) -> Optional[Any]:
+def _native_scalar_text_expr(col: str, dtype: pl.DataType) -> typing.Optional[pl.Expr]:
     """Per-dtype cypher value rendering as a polars expression, or None to bail. Matches the
     pandas entity renderer for safe scalars: ints raw, bools lowercased, strings single-quoted
     with ``\\``→``\\\\`` then ``'``→``\\'``. Floats (scientific/NaN repr diverges from pandas),
@@ -74,40 +83,24 @@ def _native_scalar_text_expr(col: str, dtype: Any) -> Optional[Any]:
     return None
 
 
-def _alias_view_polars(rows_df: pl.DataFrame, alias: str) -> Optional[_AliasView]:
-    """Per-alias un-prefixed view of a row frame, plus field -> source-column map.
-
-    polars edition of the pandas ``_projection_alias_rows``. A binding-row frame binds several
-    aliases at once and spells each entity's fields ``{alias}.{field}`` alongside a bare
-    ``{alias}`` id marker; every projection helper below wants the single-entity shape (bare
-    field names). The view is a plain ``select`` of existing columns (Arrow buffers are shared,
-    so no data is copied) and stays row-aligned with ``rows_df``; ``columns`` maps each view
-    field back to its column in ``rows_df`` so the emitted expressions can be selected from the
-    original frame.
-    """
+def _alias_view_polars(rows_df: pl.DataFrame, alias: str) -> typing.Optional[_AliasView]:
     import polars as pl
 
-    prefix = f"{alias}."
-    prefixed = [str(c) for c in rows_df.columns if str(c).startswith(prefix)]
-    if not prefixed:
-        if alias not in rows_df.columns:
-            return None
-        return _AliasView(frame=rows_df, columns={str(c): str(c) for c in rows_df.columns})
-    columns = {c[len(prefix):]: c for c in prefixed}
-    if alias in rows_df.columns:
-        columns.setdefault(alias, alias)
-    if alias not in columns:
+    field_sources = alias_field_sources(rows_df.columns, alias)
+    if field_sources is None:
         return None
-    frame = rows_df.select([pl.col(src).alias(field) for field, src in columns.items()])
-    return _AliasView(frame=frame, columns=columns)
+    if all(field == source for field, source in field_sources.items()):
+        return _AliasView(frame=rows_df, columns=field_sources)
+    frame = rows_df.select(
+        [pl.col(source).alias(field) for field, source in field_sources.items()]
+    )
+    return _AliasView(frame=frame, columns=field_sources)
 
 
-def _native_node_entity_text_expr(view: _AliasView, alias: str, exclude: Any) -> Optional[Any]:
-    """Native ``(:Label {prop: val, ...})`` node entity text; ``None`` → caller raises.
-
-    Reads field names/dtypes off the un-prefixed ``view`` but emits ``pl.col`` against the
-    original frame's column names, so multi-entity binding rows render as well as single-entity
-    ones."""
+def _native_node_entity_text_expr(
+    view: _AliasView, alias: str, exclude: typing.Sequence[str]
+) -> typing.Optional[pl.Expr]:
+    """Render a native node entity expression from one alias view."""
     import polars as pl
 
     rows_df = view.frame
@@ -158,13 +151,14 @@ def _native_node_entity_text_expr(view: _AliasView, alias: str, exclude: Any) ->
     return pl.when(_c(alias).is_null()).then(None).otherwise(rendered)
 
 
-def _flat_entity_exprs_polars(view: _AliasView, projection: ResultProjectionPlan, source_alias: str, output_name: str, id_column: Optional[str]) -> Optional[List[pl.Expr]]:
-    """Structured (flattened) whole-entity projection (#1650), polars edition. Mirrors pandas
-    ``_flat_entity_columns`` exactly (same field selection + ordering via the shared
-    ``_flat_entity_field_names``): one ``{output}.{field}`` column per field, read off the
-    alias view's source column so single-entity and multi-entity binding rows both render.
-    Works for ANY dtype (float/temporal/nested just become columns), covering cases entity-text
-    defers."""
+def _flat_entity_exprs_polars(
+    view: _AliasView,
+    projection: ResultProjectionPlan,
+    source_alias: str,
+    output_name: str,
+    id_column: typing.Optional[str],
+) -> typing.Optional[typing.Sequence[pl.Expr]]:
+    """Flatten one alias view into projected Polars expressions."""
     import polars as pl
     from dataclasses import replace
     from graphistry.compute.gfql.cypher.result_postprocess import _flat_entity_field_names
@@ -183,19 +177,14 @@ def _flat_entity_exprs_polars(view: _AliasView, projection: ResultProjectionPlan
 
 
 def _record_entity_meta(
-    entity_meta: Dict[str, Dict[str, Any]],
+    entity_meta: typing.MutableMapping[str, _PolarsWholeRowProjectionMeta],
     view: _AliasView,
     projection: ResultProjectionPlan,
     source_alias: str,
     output_name: str,
-    id_column: Optional[str],
+    id_column: typing.Optional[str],
 ) -> None:
-    """Record whole-entity projection metadata for one column, mirroring the pandas projector.
-
-    ``view.frame`` is this alias's rows under bare field names and stays row-aligned with the
-    projected output, so ``view.frame[id_column]`` is the carried alias's id column on both the
-    single-entity and the multi-entity binding shape. Snapshot (``.clone()``) the id column so
-    downstream reentry recovery never aliases a later-mutated working frame (see #1356)."""
+    """Record row-aligned identity metadata for one whole-entity output."""
     rows_df = view.frame
     if id_column is None or id_column not in rows_df.columns:  # pragma: no cover - defensive: node re-entry always carries the id column
         return
@@ -207,19 +196,19 @@ def _record_entity_meta(
     }
 
 
-def _try_native_projection(result: Plottable, rows_df: pl.DataFrame, projection: ResultProjectionPlan, structured: bool) -> Optional[Plottable]:
+def _try_native_projection(
+    result: Plottable,
+    rows_df: pl.DataFrame,
+    projection: ResultProjectionPlan,
+    structured: bool,
+) -> typing.Optional[Plottable]:
     """Native projection for property/expr columns already in the polars row table + structured-
     flat or entity-text whole-entity returns; None → caller raises NIE."""
     import polars as pl
 
-    exprs = []
-    # Whole-entity projection metadata side-channel (#1273 WITH->MATCH re-entry): mirror the
-    # pandas projector (result_postprocess._apply_result_projection_pandas), which records the
-    # carried alias's id column so the bounded-reentry executor can recover carried node
-    # identities. Without it a WITH-projected node alias feeding a trailing MATCH declines.
-    entity_meta: Dict[str, Dict[str, Any]] = {}
+    exprs: typing.List[pl.Expr] = []
+    entity_meta: typing.MutableMapping[str, _PolarsWholeRowProjectionMeta] = {}
     id_column = result._node
-    # Property/expr source names are alias-relative ("id" is "{alias}.id" on binding rows).
     primary = _alias_view_polars(rows_df, projection.alias)
     primary_columns = primary.columns if primary is not None else {}
     for column in projection.columns:
@@ -231,8 +220,6 @@ def _try_native_projection(result: Plottable, rows_df: pl.DataFrame, projection:
             if view is None:
                 return None
             if structured:
-                # #1650 default: flatten to {output}.{field} (near-free, any dtype);
-                # text fallback only for synthesized-absent rows.
                 flat = _flat_entity_exprs_polars(view, projection, source_alias, column.output_name, id_column)
                 if flat is not None:
                     exprs.extend(flat)

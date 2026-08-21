@@ -327,8 +327,7 @@ class CypherQuery:
     reentry_unwinds: Tuple[UnwindClause, ...] = ()
     graph_bindings: Tuple[GraphBinding, ...] = ()
     use: Optional[UseClause] = None
-    # True when this query's RETURN is a WITH carry into a trailing MATCH, not a user result.
-    carries_to_reentry: bool = False
+    return_is_reentry_carry: bool = False
 
     @property
     def match(self) -> Optional[MatchClause]:

@@ -2615,7 +2615,7 @@ def _forces_relationship_multiplicity_projection_bindings(
     relationship_count: int,
     items: Sequence[ReturnItem],
     order_by: Optional[OrderByClause],
-    whole_row_node_refs: AbstractSet[str] = frozenset(),
+    bag_preserving_whole_row_aliases: AbstractSet[str] = frozenset(),
 ) -> bool:
     """Non-aggregate projections over relationship patterns run on binding rows:
     the per-alias node table collapses row multiplicity (bag semantics).
@@ -2623,10 +2623,7 @@ def _forces_relationship_multiplicity_projection_bindings(
     Scope: every projected/ordered expression must be either alias-free or a
     bare ``node_alias.prop`` ref -- whole-row refs, edge-alias refs, and
     function-wrapped alias refs (``keys(r)``, entity markers) keep the
-    conservative source-table path; variable-length arms are excluded.
-
-    ``whole_row_node_refs`` admits the named bare node-alias refs (whole-entity
-    projections) as multiplicity-carrying refs instead of vetoing."""
+    conservative source-table path; variable-length arms are excluded."""
     if relationship_count <= 0 or not alias_targets:
         return False
     if any(clause.optional for clause in query.matches) and not _sole_leading_optional_match(query):
@@ -2642,7 +2639,7 @@ def _forces_relationship_multiplicity_projection_bindings(
     referenced_aliases: Set[str] = set()
     for text in texts:
         stripped = text.strip()
-        if stripped in whole_row_node_refs and isinstance(alias_targets.get(stripped), ASTNode):
+        if stripped in bag_preserving_whole_row_aliases and isinstance(alias_targets.get(stripped), ASTNode):
             referenced_aliases.add(stripped)
             saw_node_prop_ref = True
             continue
@@ -2666,21 +2663,13 @@ def _forces_relationship_multiplicity_projection_bindings(
     return True
 
 
-def _whole_row_aliases_needing_bag_multiplicity(
+def _bag_preserving_whole_row_aliases(
     query: CypherQuery,
     *,
     plan: "_ProjectionPlan",
 ) -> AbstractSet[str]:
-    """Whole-entity outputs whose row multiplicity the binding-row lane must preserve.
-
-    Empty under DISTINCT, which asks for exactly the dedup the per-alias node table
-    already performs (and whose binding-row frame carries sibling-alias columns a lone
-    whole-row output does not functionally determine). Empty for a carry into re-entry,
-    whose trailing MATCH cannot yet separate matched from unmatched rows on a duplicated
-    prefix. Empty for a variable-length arm, whose per-path relationship-uniqueness bag is
-    the walk expansion rather than the edge bag this lane counts.
-    """
-    if query.return_.distinct or query.carries_to_reentry:
+    """Return whole-row aliases that may use relationship binding rows."""
+    if query.return_.distinct or query.return_is_reentry_carry:
         return frozenset()
     if any(
         _is_variable_length_relationship_pattern(element)
@@ -4593,7 +4582,7 @@ def _lower_projection_chain(
             relationship_count=_match_relationship_count(merged_match) if merged_match is not None else 0,
             items=query.return_.items,
             order_by=query.order_by,
-            whole_row_node_refs=_whole_row_aliases_needing_bag_multiplicity(query, plan=plan),
+            bag_preserving_whole_row_aliases=_bag_preserving_whole_row_aliases(query, plan=plan),
         )
     )
     allowed_match_aliases = ({plan.source_alias} | plan.all_source_aliases | binding_row_aliases) if plan.all_source_aliases is not None else binding_row_aliases
