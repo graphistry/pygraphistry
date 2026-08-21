@@ -839,7 +839,7 @@ def test_binder_strict_schema_checks_expr_tree_where_property_refs() -> None:
 def test_binder_strict_schema_rejects_missing_relationship_property_in_match_pattern() -> None:
     ctx = _strict_catalog_ctx(
         node_columns=["id", "label__Person"],
-        edge_columns=["src", "dst", "since"],
+        edge_columns=["src", "dst", "type", "since"],
     )
     with pytest.raises(GFQLValidationError) as exc_info:
         FrontendBinder().bind(
