@@ -15,6 +15,7 @@ from graphistry.otel import otel_traced, otel_detail_enabled
 from .filter_by_dict import filter_by_dict
 from graphistry.Engine import safe_merge
 from .typing import DataFrameT, DomainT, SeriesT
+from .endpoint_utils import drop_null_endpoint_edges
 from .dataframe_utils import column_frame, column_values
 from .util import generate_safe_column_name
 
@@ -429,6 +430,8 @@ def hop(self: Plottable,
         EDGE_ID = g2._edge
         if EDGE_ID not in edges_indexed.columns:
             raise ValueError(f"Edge binding column '{EDGE_ID}' (from g._edge='{g2._edge}') not found in edges. Available columns: {list(edges_indexed.columns)}")
+
+    edges_indexed = drop_null_endpoint_edges(edges_indexed, source_col, destination_col)
 
     def resolve_label_col(requested: Optional[str], df, default_base: str) -> Optional[str]:
         if requested is None:

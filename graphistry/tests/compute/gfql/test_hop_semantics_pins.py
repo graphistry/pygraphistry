@@ -29,6 +29,7 @@ import pytest
 
 import graphistry
 from graphistry.compute.ast import n, e_forward, e_reverse, e_undirected
+from graphistry.tests.compute.gfql.polars_test_utils import typed_frame_sig
 from graphistry.compute.exceptions import GFQLValidationError
 from graphistry.compute.predicates.is_in import IsIn
 
@@ -273,14 +274,11 @@ def test_cypher_whole_entity_return_pandas_answers():
 
 
 @polars_only
-def test_cypher_whole_entity_return_polars_current_nie():
-    # AUDIT NOTE (F-04): this graph is all-int64/str, yet the decline message
-    # blames "float/temporal/nested/label/multi-entity columns" -- the gate
-    # fires on data its message does not describe. When the gate is fixed or
-    # narrowed, flip this pin to a row-level parity assertion vs pandas.
-    g = _graph("polars")
-    with pytest.raises(NotImplementedError, match="cypher result projection"):
-        g.gfql("MATCH (a)-[e]->(b) RETURN a, b", engine="polars")
+def test_cypher_whole_entity_return_polars_parity_with_pandas():
+    query = "MATCH (a)-[e]->(b) RETURN a, b"
+    got = _pd(_graph("polars").gfql(query, engine="polars")._nodes)
+    want = _pd(_graph("pandas").gfql(query, engine="pandas")._nodes)
+    assert typed_frame_sig(got) == typed_frame_sig(want)
 
 
 # ================================================================ T-07 greens
