@@ -240,8 +240,11 @@ def schema_effect_for_procedure_output(
             if algorithm in STD_LABEL_ALGS
             else _STRING
         )
+        properties = _typed_properties(value_columns, logical_type)
+        if algorithm == "pagerank" and len(value_columns) > 1:
+            properties.update(_typed_properties(value_columns[1:], _BOOL))
         return SchemaEffect(
-            adds_node_properties=_typed_properties(value_columns, logical_type),
+            adds_node_properties=properties,
             confidence="declared",
         )
     if not value_columns:

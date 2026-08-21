@@ -58,9 +58,9 @@ Algorithms and options
        in each component.
    * - ``pagerank``
      - ``pagerank``
-     - ``iterations`` (10), ``damping`` (0.85), ``chunks``
-     - Directed PageRank with a fixed iteration count and redistributed
-       dangling mass.
+     - cuGraph-compatible controls plus ``weight``, ``chunks``, ``stopping``
+     - Directed, optionally weighted PageRank. Convergence is the default;
+       fixed-iteration execution is explicit.
    * - ``cdlp``
      - ``cdlp``
      - ``iterations`` (10), ``chunks``
@@ -76,6 +76,52 @@ Algorithms and options
      - ``seed``, ``chunks``, ``max_rounds``
      - A deterministic-seed maximal independent set. Self-loops are ignored;
        isolated nodes are included.
+
+PageRank compatibility and extras
+---------------------------------
+
+The standard PageRank procedure uses the cuGraph parameter names and defaults:
+``alpha=0.85``, ``personalization=None``,
+``precomputed_vertex_out_weight=None``, ``max_iter=100``, ``tol=1e-5``,
+``nstart=None``, ``dangling=None``, and ``fail_on_nonconvergence=True``.
+Convergence uses the cuGraph criterion: the L1 difference between successive
+rank vectors is less than the vertex count times ``tol``. As in cuGraph,
+``dangling`` is accepted for compatibility and ignored.
+
+``personalization`` and ``nstart`` use ``vertex`` / ``values`` pairs;
+``precomputed_vertex_out_weight`` uses ``vertex`` / ``sums`` pairs. Direct
+Python calls accept pandas or cuDF frames. GFQL also accepts a node-ID-to-value
+map or a list of records. IDs are in the graph's original ID space, and omitted
+vertices receive zero for personalization/start values. Missing precomputed
+out sums are computed normally.
+
+Pass ``weight`` as an edge-column name. When omitted, the graph's bound edge
+weight is used; without either, every edge has weight 1. ``chunks`` controls
+dataframe chunking without changing the result.
+
+By default PageRank raises when ``max_iter`` is exhausted. Set
+``fail_on_nonconvergence: false`` to keep the last iterate. The Graphistry extra
+``converged_col`` then writes the solver status as a boolean node column:
+
+.. code-block:: python
+
+    attempted = g.gfql(
+        "CALL graphistry.std.pagerank.write({params: {"
+        "max_iter: 20, fail_on_nonconvergence: false, "
+        "converged_col: 'pr_converged'}})"
+    )
+
+For the LDBC Graphalytics fixed-K workload, select fixed mode explicitly:
+
+.. code-block:: python
+
+    fixed_ten = g.gfql(
+        "CALL graphistry.std.pagerank.write({params: {"
+        "stopping: 'fixed_iterations', max_iter: 10}})"
+    )
+
+The legacy extras ``iterations`` and ``damping`` remain aliases for fixed-mode
+``max_iter`` and ``alpha`` respectively.
 
 SSSP IDs and weights
 --------------------

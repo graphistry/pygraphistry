@@ -109,3 +109,81 @@ def test_call_result_matches_the_direct_kernel():
 
     assert list(got["component"]) == ref
     assert got["component"].min() == got["id"].min()
+
+
+def _pagerank_compat_graph() -> object:
+    edges = pd.DataFrame({
+        "s": ["a", "a", "b", "c"],
+        "d": ["b", "c", "c", "a"],
+        "w": [2.0, 1.0, 3.0, 4.0],
+    })
+    nodes = pd.DataFrame({"id": ["a", "b", "c", "d"]})
+    return (
+        graphistry.edges(edges, "s", "d")
+        .nodes(nodes, "id")
+        .bind(edge_weight="w")
+    )
+
+
+def test_pagerank_cugraph_inputs_match_direct_and_gfql() -> None:
+    from graphistry.compute.algorithms.compute import compute_std
+
+    graph = _pagerank_compat_graph()
+    direct = compute_std(
+        graph,
+        "pagerank",
+        params={
+            "personalization": pd.DataFrame({
+                "vertex": ["a", "d"],
+                "values": [0.8, 0.2],
+            }),
+            "nstart": {"a": 1.0},
+            "precomputed_vertex_out_weight": [
+                {"vertex": "a", "sums": 3.0},
+                {"vertex": "b", "sums": 3.0},
+                {"vertex": "c", "sums": 4.0},
+            ],
+            "max_iter": 1,
+            "tol": 1.0e-30,
+            "fail_on_nonconvergence": False,
+            "converged_col": "pr_converged",
+        },
+    )
+    query = (
+        "CALL graphistry.std.pagerank.write({params: {"
+        "max_iter: 1, tol: 1e-30, fail_on_nonconvergence: false, "
+        "converged_col: 'pr_converged', "
+        "personalization: [{vertex: 'a', values: 0.8}, "
+        "{vertex: 'd', values: 0.2}], nstart: {a: 1.0}, "
+        "precomputed_vertex_out_weight: [{vertex: 'a', sums: 3.0}, "
+        "{vertex: 'b', sums: 3.0}, {vertex: 'c', sums: 4.0}]}})"
+    )
+    via_gfql = graph.gfql(query)
+
+    columns = ["id", "pagerank", "pr_converged"]
+    pd.testing.assert_frame_equal(direct._nodes[columns], via_gfql._nodes[columns])
+    got = via_gfql._nodes.set_index("id")
+    assert got["pagerank"].to_dict() == pytest.approx({
+        "a": 0.12,
+        "b": 0.85 * 2.0 / 3.0,
+        "c": 0.85 / 3.0,
+        "d": 0.03,
+    })
+    assert not bool(got["pr_converged"].any())
+
+
+def test_pagerank_vector_and_converged_column_validation() -> None:
+    from graphistry.compute.algorithms.compute import compute_std
+
+    graph = _pagerank_compat_graph()
+    with pytest.raises(ValueError, match="unknown graph vertex"):
+        compute_std(
+            graph,
+            "pagerank",
+            params={"personalization": {"missing": 1.0}},
+        )
+    with pytest.raises(
+        ValueError,
+        match="requires fail_on_nonconvergence=False",
+    ):
+        compute_std(graph, "pagerank", params={"converged_col": "converged"})

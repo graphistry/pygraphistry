@@ -14,7 +14,7 @@ tests, not the identifier.
 
 from __future__ import annotations
 
-from typing import Callable, Dict, Mapping, Tuple
+from typing import Callable, Dict, Mapping, Tuple, Union
 
 from graphistry.compute.typing import DataFrameT, SeriesT
 
@@ -23,7 +23,19 @@ from . import kernels as _k
 # Algorithm -> output column and default options, following plugin naming.
 STD_ALGS: Dict[str, Tuple[str, Dict[str, object]]] = {
     "wcc": ("component", {}),
-    "pagerank": ("pagerank", {"iterations": 10, "damping": 0.85}),
+    "pagerank": (
+        "pagerank",
+        {
+            "alpha": 0.85,
+            "personalization": None,
+            "precomputed_vertex_out_weight": None,
+            "max_iter": 100,
+            "tol": 1.0e-5,
+            "nstart": None,
+            "dangling": None,
+            "fail_on_nonconvergence": True,
+        },
+    ),
     "cdlp": ("cdlp", {"iterations": 10}),
     "sssp": ("distance", {}),
     "mis": ("mis", {"seed": 0x5EED}),
@@ -37,8 +49,10 @@ STD_FLOAT32_ALGS = frozenset({"sssp"})
 STD_LABEL_ALGS = frozenset({"wcc", "cdlp"})
 STD_BOOL_ALGS = frozenset({"mis"})
 
+AlgorithmResult = Union[SeriesT, Tuple[SeriesT, bool]]
 
-_STD_RUNNERS: Dict[str, Callable[..., SeriesT]] = {
+
+_STD_RUNNERS: Dict[str, Callable[..., AlgorithmResult]] = {
     "wcc": _k.wcc,
     "pagerank": _k.pagerank,
     "cdlp": _k.cdlp,
@@ -47,14 +61,23 @@ _STD_RUNNERS: Dict[str, Callable[..., SeriesT]] = {
 }
 
 
-def _dispatch(alg: str) -> Callable[..., SeriesT]:
+def _dispatch(alg: str) -> Callable[..., AlgorithmResult]:
     return _STD_RUNNERS[alg]
 
 
-def run(edges: DataFrameT, src: str, dst: str, v_count: int, alg: str, options: Mapping[str, object] | None = None) -> SeriesT:
+def run(
+    edges: DataFrameT,
+    src: str,
+    dst: str,
+    v_count: int,
+    alg: str,
+    options: Mapping[str, object] | None = None,
+) -> AlgorithmResult:
     """Run a std kernel, merging caller options over the defaults."""
     if alg not in STD_ALGS:
-        raise KeyError(f"unknown graphistry.std procedure {alg!r}; known: {list(STD_ALGS)}")
+        raise KeyError(
+            f"unknown graphistry.std procedure {alg!r}; known: {list(STD_ALGS)}"
+        )
     _out_col, defaults = STD_ALGS[alg]
     opts = {**defaults, **dict(options or {})}
     fn = _dispatch(alg)
@@ -64,7 +87,11 @@ def run(edges: DataFrameT, src: str, dst: str, v_count: int, alg: str, options: 
         weight = opts.pop("weight", None)
         if weight is None:
             weight = "__std_w"
-            edges = edges.assign(**{weight: _k.make_weights(edges, src, dst)}) if hasattr(edges, "assign") else edges
+            edges = (
+                edges.assign(**{weight: _k.make_weights(edges, src, dst)})
+                if hasattr(edges, "assign")
+                else edges
+            )
         source = opts.pop("source", 0)
         return fn(edges, src, dst, weight, v_count, source=source, **opts)
 

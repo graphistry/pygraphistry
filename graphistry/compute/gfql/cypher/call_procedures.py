@@ -350,6 +350,13 @@ def _normalized_value_columns(
         if len(value_cols) > 1:
             _raise_multi_column_out_col(call_params["out_col"])
         value_cols[0] = cast(str, call_params["out_col"])
+    if definition.backend == "std" and definition.algorithm == "pagerank":
+        params = call_params.get("params")
+        converged_col = (
+            params.get("converged_col") if isinstance(params, Mapping) else None
+        )
+        if isinstance(converged_col, str):
+            value_cols.append(converged_col)
     return tuple(value_cols)
 
 

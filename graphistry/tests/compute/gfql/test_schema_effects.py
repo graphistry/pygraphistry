@@ -173,6 +173,20 @@ def test_cypher_std_write_updates_bound_schema_with_truthful_type(query: str, co
     assert enriched._gfql_schema.node_types[0].properties[column] == logical_type
 
 
+def test_cypher_std_pagerank_convergence_column_is_bool() -> None:
+    enriched = _bound_graph().gfql(
+        "CALL graphistry.std.pagerank.write({params: {"
+        "max_iter: 1, tol: 1e-30, fail_on_nonconvergence: false, "
+        "converged_col: 'pr_converged'}})"
+    )
+
+    _assert_node_property_validates(enriched, "pagerank")
+    _assert_node_property_validates(enriched, "pr_converged")
+    properties = enriched._gfql_schema.node_types[0].properties
+    assert properties["pagerank"] == ScalarType("float64")
+    assert properties["pr_converged"] == ScalarType("bool")
+
+
 def test_cypher_cugraph_edge_write_updates_bound_schema_for_next_validation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

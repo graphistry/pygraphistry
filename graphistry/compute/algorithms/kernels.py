@@ -15,16 +15,15 @@ Three formulation decisions carry the entire memory budget at 1B edges:
 3. CDLP's "most frequent label, ties to smallest" is a single groupby-max over a
    packed key, not a global sort.
 
-Four of the five kernels are hand-written rather than delegated because cuGraph
-and igraph do not implement the LDBC semantics: PageRank there runs to a
-tolerance while LDBC fixes the iteration count, cuGraph has no label propagation
-at all, and neither has a usable MIS. cuGraph is used as an *oracle* for WCC and
-SSSP, where it is exact.
+The kernels are hand-written so one implementation can run on pandas and cuDF.
+PageRank supports both cuGraph-compatible convergence and the fixed-iteration
+LDBC workload; the other algorithms retain their documented standard-library
+semantics without requiring an optional graph backend.
 """
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional, Union
 
 from graphistry.compute.typing import DataFrameT, SeriesT
 
@@ -128,52 +127,152 @@ def pagerank(
     src: str,
     dst: str,
     v_count: int,
-    iterations: int = 10,
-    damping: float = 0.85,
+    alpha: float = 0.85,
+    personalization: Optional[SeriesT] = None,
+    precomputed_vertex_out_weight: Optional[SeriesT] = None,
+    max_iter: int = 100,
+    tol: float = 1.0e-5,
+    nstart: Optional[SeriesT] = None,
+    dangling: object = None,
+    fail_on_nonconvergence: bool = True,
+    *,
+    weight: Optional[str] = None,
     chunks: int = 1,
-) -> SeriesT:
-    """LDBC PageRank: FIXED iteration count, dangling mass redistributed uniformly.
+    stopping: Literal["convergence", "fixed_iterations"] = "convergence",
+    iterations: Optional[int] = None,
+    damping: Optional[float] = None,
+) -> Union[SeriesT, tuple[SeriesT, bool]]:
+    """PageRank with cuGraph-compatible controls and portable dataframe extras."""
+    if v_count == 0:
+        empty = full(edges, 0, 0.0, "float64")
+        return (empty, True) if not fail_on_nonconvergence else empty
+    if damping is not None:
+        if alpha != 0.85 and alpha != damping:
+            raise ValueError("pagerank alpha and damping aliases disagree")
+        alpha = damping
+    if iterations is not None:
+        if max_iter != 100 and max_iter != iterations:
+            raise ValueError("pagerank max_iter and iterations aliases disagree")
+        max_iter = iterations
+        stopping = "fixed_iterations"
+    if stopping not in ("convergence", "fixed_iterations"):
+        raise ValueError("pagerank stopping must be 'convergence' or 'fixed_iterations'")
+    if not 0.0 < float(alpha) < 1.0:
+        raise ValueError("pagerank alpha must be greater than 0 and less than 1")
+    if stopping == "convergence" and max_iter <= 0:
+        max_iter = 100
+    elif max_iter < 0:
+        raise ValueError("pagerank max_iter must be non-negative in fixed mode")
+    if tol == 0.0:
+        tol = 1.0e-5
+    if tol < 0.0:
+        raise ValueError("pagerank tol must be non-negative")
 
-    There is deliberately no early exit. With d=0.85 and K=10, d^K ~ 0.197, so a
-    fixed-K vector differs materially from a converged one -- which is exactly
-    why `cugraph.pagerank` and `igraph.pagerank` cannot serve as oracles here.
+    def normalized(values: Optional[SeriesT], name: str) -> SeriesT:
+        if values is None:
+            return full(edges, v_count, 1.0 / v_count, "float64")
+        out = values.reset_index(drop=True).astype("float64")
+        if len(out) != v_count:
+            raise ValueError(f"pagerank {name} must have one value per vertex")
+        invalid = (out != out) | (out < 0.0) | (out == float("inf"))
+        if to_host_int(invalid.sum()) != 0:
+            raise ValueError(f"pagerank {name} values must be finite and non-negative")
+        total = float(out.sum())
+        if total <= 0.0:
+            raise ValueError(f"pagerank {name} values must have a positive sum")
+        return out / total
 
-    Chunking is by DST so partial results are key-disjoint and the combine is a
-    concat rather than a second groupby.
-    """
     _, by_dst = _sorted_copies(edges, src, dst)
+    if weight is None:
+        sums = edges.groupby(src, sort=False).size().reset_index(name="__out")
+        computed_out = align(
+            edges, v_count, sums, src, "__out", full(edges, v_count, 0.0, "float64")
+        )
+    else:
+        if weight not in edges.columns:
+            raise ValueError(f"pagerank weight column {weight!r} is missing")
+        edge_weight = edges[weight].reset_index(drop=True).astype("float64")
+        invalid_weight = (
+            (edge_weight != edge_weight)
+            | (edge_weight < 0.0)
+            | (edge_weight == float("inf"))
+        )
+        if to_host_int(invalid_weight.sum()) != 0:
+            raise ValueError("pagerank edge weights must be finite and non-negative")
+        sums = (
+            df_cons(edges, {src: edges[src], "__out": edge_weight})
+            .groupby(src, sort=False)["__out"]
+            .sum()
+            .reset_index()
+        )
+        computed_out = align(
+            edges, v_count, sums, src, "__out", full(edges, v_count, 0.0, "float64")
+        )
 
-    deg = edges.groupby(src, sort=False).size().reset_index(name="__deg")
-    outdeg = align(edges, v_count, deg, src, "__deg", full(edges, v_count, 0, "int64"))
-    dangling = outdeg == 0
+    out_weight = computed_out
+    if precomputed_vertex_out_weight is not None:
+        supplied = precomputed_vertex_out_weight.reset_index(drop=True).astype("float64")
+        if len(supplied) != v_count:
+            raise ValueError(
+                "pagerank precomputed_vertex_out_weight must have one value per vertex"
+            )
+        present = supplied == supplied
+        invalid_out = present & ((supplied < 0.0) | (supplied == float("inf")))
+        if to_host_int(invalid_out.sum()) != 0:
+            raise ValueError(
+                "pagerank precomputed out weights must be finite and non-negative"
+            )
+        out_weight = supplied.where(present, computed_out)
 
-    pr = full(edges, v_count, 1.0 / v_count, "float64")
-    d = float(damping)
+    is_dangling = out_weight == 0.0
+    if to_host_int(((computed_out > 0.0) & is_dangling).sum()) != 0:
+        raise ValueError(
+            "pagerank precomputed out weight is zero for a vertex with outgoing weight"
+        )
 
-    for _ in range(iterations):
-        safe_deg = outdeg.where(~dangling, 1)
-        contrib = (pr / safe_deg).where(~dangling, 0.0)
-        dang = float(pr.where(dangling, 0.0).sum())
+    teleport = normalized(personalization, "personalization")
+    pr = normalized(nstart, "nstart")
+    d = float(alpha)
+    converged = False
+    _ = dangling
+
+    for _iteration in range(max_iter):
+        safe_out = out_weight.where(~is_dangling, 1.0)
+        contrib = (pr / safe_out).where(~is_dangling, 0.0)
+        dangling_mass = float(pr.where(is_dangling, 0.0).sum())
 
         outs = []
         for lo, hi in chunk_bounds(len(by_dst), chunks):
             e = rows(by_dst, lo, hi)
             msg = gather(contrib, e[src])
-            outs.append(df_cons(e, {"v": e[dst], "m": msg}).groupby("v", sort=False)["m"].sum().reset_index())
+            if weight is not None:
+                msg = msg * e[weight].reset_index(drop=True)
+            outs.append(
+                df_cons(e, {"v": e[dst], "m": msg})
+                .groupby("v", sort=False)["m"]
+                .sum()
+                .reset_index()
+            )
         res = concat_frames(outs)
         if res is not None and chunks > 1:
-            # Row-chunking by dst can split a dst group across a boundary.
             res = res.groupby("v", sort=False)["m"].sum().reset_index()
-        inflow = align(edges, v_count, res, "v", "m", full(edges, v_count, 0.0, "float64"))
-
-        pr = (1.0 - d) / v_count + d * (inflow + dang / v_count)
-
-        # Mass conservation is a free bug detector for the dangling term.
-        total = float(pr.sum())
+        inflow = align(
+            edges, v_count, res, "v", "m", full(edges, v_count, 0.0, "float64")
+        )
+        new = (1.0 - d) * teleport + d * (inflow + dangling_mass * teleport)
+        total = float(new.sum())
         if abs(total - 1.0) > 1e-9:
             raise AssertionError(f"pagerank mass not conserved: sum={total!r}")
+        converged = float(abs(new - pr).sum()) < v_count * float(tol)
+        pr = new
+        if stopping == "convergence" and converged:
+            return (pr, True) if not fail_on_nonconvergence else pr
 
-    return pr
+    if stopping == "fixed_iterations":
+        return (pr, converged) if not fail_on_nonconvergence else pr
+    if fail_on_nonconvergence:
+        raise ConvergenceError(f"pagerank did not converge in {max_iter} iterations")
+    return pr, False
 
 
 def cdlp(

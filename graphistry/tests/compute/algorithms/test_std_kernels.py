@@ -15,6 +15,7 @@ Three tiers in fail-fast order:
 
 from __future__ import annotations
 
+import inspect
 from collections import Counter
 
 import numpy as np
@@ -83,6 +84,91 @@ def test_pagerank_matches_hand_computation_with_dangling():
     assert float(pr.sum()) == pytest.approx(1.0, abs=1e-12)
     for got, want in zip(pr, ref):
         assert float(got) == pytest.approx(want, rel=1e-12)
+
+
+def test_pagerank_cugraph_compatible_signature_defaults():
+    signature = inspect.signature(K.pagerank)
+    expected = {
+        "alpha": 0.85,
+        "personalization": None,
+        "precomputed_vertex_out_weight": None,
+        "max_iter": 100,
+        "tol": 1.0e-5,
+        "nstart": None,
+        "dangling": None,
+        "fail_on_nonconvergence": True,
+    }
+    assert {name: signature.parameters[name].default for name in expected} == expected
+
+
+def test_pagerank_weighted_personalized_matches_networkx():
+    nx = pytest.importorskip("networkx")
+    edges = _edges([0, 0, 1, 2], [1, 2, 2, 0], [2.0, 1.0, 3.0, 4.0])
+    personalization = pd.Series([0.7, 0.1, 0.1, 0.1])
+    nstart = pd.Series([0.0, 1.0, 0.0, 0.0])
+    out_weight = pd.Series([3.0, 3.0, 4.0, np.nan])
+
+    got = K.pagerank(
+        edges,
+        "s",
+        "d",
+        4,
+        alpha=0.85,
+        personalization=personalization,
+        precomputed_vertex_out_weight=out_weight,
+        max_iter=1000,
+        tol=1.0e-12,
+        nstart=nstart,
+        dangling={"ignored": 1.0},
+        weight="w",
+    )
+
+    graph = nx.DiGraph()
+    graph.add_nodes_from(range(4))
+    for row in edges.itertuples(index=False):
+        graph.add_edge(row.s, row.d, weight=row.w)
+    ref = nx.pagerank(
+        graph,
+        alpha=0.85,
+        personalization={i: float(v) for i, v in enumerate(personalization)},
+        nstart={i: float(v) for i, v in enumerate(nstart)},
+        max_iter=1000,
+        tol=1.0e-12,
+        weight="weight",
+    )
+    assert [float(value) for value in got] == pytest.approx(
+        [ref[i] for i in range(4)], rel=1.0e-12, abs=1.0e-15
+    )
+
+
+def test_pagerank_nonconvergence_policy_and_fixed_alias():
+    edges = _edges([0, 1], [1, 2])
+    with pytest.raises(K.ConvergenceError):
+        K.pagerank(edges, "s", "d", 3, max_iter=1, tol=1.0e-30)
+
+    ranks, converged = K.pagerank(
+        edges,
+        "s",
+        "d",
+        3,
+        max_iter=1,
+        tol=1.0e-30,
+        fail_on_nonconvergence=False,
+    )
+    assert converged is False
+    assert float(ranks.sum()) == pytest.approx(1.0)
+
+    legacy = K.pagerank(edges, "s", "d", 3, iterations=10, damping=0.85)
+    explicit = K.pagerank(
+        edges,
+        "s",
+        "d",
+        3,
+        max_iter=10,
+        alpha=0.85,
+        stopping="fixed_iterations",
+    )
+    assert list(legacy) == pytest.approx(list(explicit), rel=1.0e-15)
 
 
 def test_cdlp_tie_breaks_to_smallest_label_and_oscillates():
