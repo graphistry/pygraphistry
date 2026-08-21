@@ -23,14 +23,15 @@ semantics without requiring an optional graph backend.
 
 from __future__ import annotations
 
-from typing import Literal, Optional, Union
+from typing import Callable, Literal, Optional, Union
 
-from graphistry.compute.typing import DataFrameT, SeriesT
+from graphistry.compute.typing import ArrayLike, DataFrameT, SeriesT
 
 from ._dfops import (
     SHIFT32,
     align,
     arange,
+    array_namespace,
     chunk_bounds,
     concat_frames,
     df_cons,
@@ -40,8 +41,11 @@ from ._dfops import (
     is_cudf,
     mask_rows,
     rows,
+    series_from_array,
+    series_to_array,
     slice_by_key,
     splitmix64,
+    to_host_floats,
     to_host_int,
     u64,
     vertex_ranges,
@@ -122,6 +126,136 @@ def wcc(edges: DataFrameT, src: str, dst: str, v_count: int, chunks: int = 1, ma
     raise ConvergenceError(f"wcc did not converge in {max_iter} iterations")
 
 
+def _pagerank_iterations(
+    initial: ArrayLike,
+    step: Callable[[ArrayLike], tuple[ArrayLike, float, float]],
+    max_iter: int,
+    tol: float,
+    stopping: Literal["convergence", "fixed_iterations"],
+) -> tuple[ArrayLike, bool]:
+    """Run the common PageRank convergence and mass policy for either backend."""
+    current = initial
+    converged = False
+    for _iteration in range(max_iter):
+        new, total, delta = step(current)
+        if abs(total - 1.0) > 1e-9:
+            raise AssertionError(f"pagerank mass not conserved: sum={total!r}")
+        converged = delta < float(tol)
+        current = new
+        if stopping == "convergence" and converged:
+            break
+    return current, converged
+
+
+def _pagerank_fast(
+    edges: DataFrameT,
+    src: str,
+    dst: str,
+    v_count: int,
+    weight: Optional[str],
+    out_weight: SeriesT,
+    is_dangling: SeriesT,
+    teleport: SeriesT,
+    initial: SeriesT,
+    damping: float,
+    max_iter: int,
+    tol: float,
+    stopping: Literal["convergence", "fixed_iterations"],
+) -> tuple[SeriesT, bool]:
+    """Backend-native dense reduction without dataframe materialization."""
+    xp = array_namespace(edges)
+    src_values = series_to_array(edges[src])
+    dst_values = series_to_array(edges[dst])
+    weight_values = (
+        series_to_array(edges[weight].reset_index(drop=True).astype("float64"))
+        if weight is not None
+        else None
+    )
+    dangling_mask = series_to_array(is_dangling)
+    safe_out = series_to_array(out_weight.where(~is_dangling, 1.0))
+    teleport_values = series_to_array(teleport)
+    initial_values = series_to_array(initial)
+
+    def step(current: ArrayLike) -> tuple[ArrayLike, float, float]:
+        contribution = xp.where(
+            dangling_mask, 0.0, xp.divide(current, safe_out)
+        )
+        messages = contribution[src_values]
+        if weight_values is not None:
+            messages = xp.multiply(messages, weight_values)
+        inflow = xp.bincount(dst_values, weights=messages, minlength=v_count)
+        dangling_mass = xp.multiply(current, dangling_mask).sum()
+        new = xp.multiply(teleport_values, 1.0 - damping) + xp.multiply(
+            inflow + xp.multiply(teleport_values, dangling_mass), damping
+        )
+        total, delta = to_host_floats(
+            (new.sum(), xp.absolute(new - current).sum())
+        )
+        return new, total, delta
+
+    result, converged = _pagerank_iterations(
+        initial_values, step, max_iter, tol, stopping
+    )
+    return series_from_array(edges, result), converged
+
+
+def _pagerank_bounded(
+    edges: DataFrameT,
+    src: str,
+    dst: str,
+    v_count: int,
+    weight: Optional[str],
+    chunks: int,
+    out_weight: SeriesT,
+    is_dangling: SeriesT,
+    teleport: SeriesT,
+    initial: SeriesT,
+    damping: float,
+    max_iter: int,
+    tol: float,
+    stopping: Literal["convergence", "fixed_iterations"],
+) -> tuple[SeriesT, bool]:
+    """Chunkable dataframe path retained for explicit bounded-memory use."""
+    by_dst = edges.sort_values(dst).reset_index(drop=True)
+    safe_out = out_weight.where(~is_dangling, 1.0)
+
+    def step(current: SeriesT) -> tuple[SeriesT, float, float]:
+        contribution = (current / safe_out).where(~is_dangling, 0.0)
+        dangling_mass = float(current.where(is_dangling, 0.0).sum())
+
+        outs = []
+        for lo, hi in chunk_bounds(len(by_dst), chunks):
+            edge_chunk = rows(by_dst, lo, hi)
+            messages = gather(contribution, edge_chunk[src])
+            if weight is not None:
+                messages = messages * edge_chunk[weight].reset_index(drop=True)
+            outs.append(
+                df_cons(edge_chunk, {"v": edge_chunk[dst], "m": messages})
+                .groupby("v", sort=False)["m"]
+                .sum()
+                .reset_index()
+            )
+        reduced = concat_frames(outs)
+        if reduced is not None and chunks > 1:
+            reduced = (
+                reduced.groupby("v", sort=False)["m"].sum().reset_index()
+            )
+        inflow = align(
+            edges,
+            v_count,
+            reduced,
+            "v",
+            "m",
+            full(edges, v_count, 0.0, "float64"),
+        )
+        new = (1.0 - damping) * teleport + damping * (
+            inflow + dangling_mass * teleport
+        )
+        return new, float(new.sum()), float(abs(new - current).sum())
+
+    return _pagerank_iterations(initial, step, max_iter, tol, stopping)
+
+
 def pagerank(
     edges: DataFrameT,
     src: str,
@@ -141,8 +275,9 @@ def pagerank(
     stopping: Literal["convergence", "fixed_iterations"] = "convergence",
     iterations: Optional[int] = None,
     damping: Optional[float] = None,
+    method: Literal["auto", "fast", "bounded"] = "auto",
 ) -> Union[SeriesT, tuple[SeriesT, bool]]:
-    """PageRank with cuGraph-compatible controls and portable dataframe extras."""
+    """PageRank with cuGraph-compatible controls and fast/bounded extras."""
     if v_count == 0:
         empty = full(edges, 0, 0.0, "float64")
         return (empty, True) if not fail_on_nonconvergence else empty
@@ -157,6 +292,10 @@ def pagerank(
         stopping = "fixed_iterations"
     if stopping not in ("convergence", "fixed_iterations"):
         raise ValueError("pagerank stopping must be 'convergence' or 'fixed_iterations'")
+    if method not in ("auto", "fast", "bounded"):
+        raise ValueError("pagerank method must be 'auto', 'fast', or 'bounded'")
+    if method == "fast" and chunks != 1:
+        raise ValueError("pagerank method='fast' requires chunks=1")
     if not 0.0 < float(alpha) < 1.0:
         raise ValueError("pagerank alpha must be greater than 0 and less than 1")
     if stopping == "convergence" and max_iter <= 0:
@@ -182,7 +321,6 @@ def pagerank(
             raise ValueError(f"pagerank {name} values must have a positive sum")
         return out / total
 
-    _, by_dst = _sorted_copies(edges, src, dst)
     if weight is None:
         sums = edges.groupby(src, sort=False).size().reset_index(name="__out")
         computed_out = align(
@@ -233,43 +371,44 @@ def pagerank(
     teleport = normalized(personalization, "personalization")
     pr = normalized(nstart, "nstart")
     d = float(alpha)
-    converged = False
     _ = dangling
 
-    for _iteration in range(max_iter):
-        safe_out = out_weight.where(~is_dangling, 1.0)
-        contrib = (pr / safe_out).where(~is_dangling, 0.0)
-        dangling_mass = float(pr.where(is_dangling, 0.0).sum())
-
-        outs = []
-        for lo, hi in chunk_bounds(len(by_dst), chunks):
-            e = rows(by_dst, lo, hi)
-            msg = gather(contrib, e[src])
-            if weight is not None:
-                msg = msg * e[weight].reset_index(drop=True)
-            outs.append(
-                df_cons(e, {"v": e[dst], "m": msg})
-                .groupby("v", sort=False)["m"]
-                .sum()
-                .reset_index()
-            )
-        res = concat_frames(outs)
-        if res is not None and chunks > 1:
-            res = res.groupby("v", sort=False)["m"].sum().reset_index()
-        inflow = align(
-            edges, v_count, res, "v", "m", full(edges, v_count, 0.0, "float64")
+    use_fast = method == "fast" or (method == "auto" and chunks == 1)
+    if use_fast:
+        pr, converged = _pagerank_fast(
+            edges,
+            src,
+            dst,
+            v_count,
+            weight,
+            out_weight,
+            is_dangling,
+            teleport,
+            pr,
+            d,
+            max_iter,
+            tol,
+            stopping,
         )
-        new = (1.0 - d) * teleport + d * (inflow + dangling_mass * teleport)
-        total = float(new.sum())
-        if abs(total - 1.0) > 1e-9:
-            raise AssertionError(f"pagerank mass not conserved: sum={total!r}")
-        # Unit-mass ranks make public cuGraph tolerance equivalent to L1 delta < tol.
-        converged = float(abs(new - pr).sum()) < float(tol)
-        pr = new
-        if stopping == "convergence" and converged:
-            return (pr, True) if not fail_on_nonconvergence else pr
+    else:
+        pr, converged = _pagerank_bounded(
+            edges,
+            src,
+            dst,
+            v_count,
+            weight,
+            chunks,
+            out_weight,
+            is_dangling,
+            teleport,
+            pr,
+            d,
+            max_iter,
+            tol,
+            stopping,
+        )
 
-    if stopping == "fixed_iterations":
+    if stopping == "fixed_iterations" or converged:
         return (pr, converged) if not fail_on_nonconvergence else pr
     if fail_on_nonconvergence:
         raise ConvergenceError(f"pagerank did not converge in {max_iter} iterations")

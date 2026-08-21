@@ -137,6 +137,16 @@ class ArrayNamespace(Protocol):
     def subtract(self, a: Any, b: Any, out: "Optional[ArrayLike]" = None) -> ArrayLike:  # hygiene-ok: explicit-any -- ufunc accepts array|scalar operands (numpy/cupy)
         ...
 
+    def multiply(self, a: ArrayLike, b: Union[ArrayLike, float]) -> ArrayLike:
+        ...
+
+    def divide(self, a: ArrayLike, b: Union[ArrayLike, float]) -> ArrayLike:
+        ...
+
+    def absolute(self, a: ArrayLike) -> ArrayLike:
+        ...
+
+
     def argsort(self, a: ArrayLike) -> ArrayLike:
         ...
 

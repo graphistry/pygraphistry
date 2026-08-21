@@ -147,12 +147,13 @@ def test_pagerank_cugraph_inputs_match_direct_and_gfql() -> None:
             "tol": 1.0e-30,
             "fail_on_nonconvergence": False,
             "converged_col": "pr_converged",
+            "method": "fast",
         },
     )
     query = (
         "CALL graphistry.std.pagerank.write({params: {"
         "max_iter: 1, tol: 1e-30, fail_on_nonconvergence: false, "
-        "converged_col: 'pr_converged', "
+        "converged_col: 'pr_converged', method: 'fast', "
         "personalization: [{vertex: 'a', values: 0.8}, "
         "{vertex: 'd', values: 0.2}], nstart: {a: 1.0}, "
         "precomputed_vertex_out_weight: [{vertex: 'a', sums: 3.0}, "

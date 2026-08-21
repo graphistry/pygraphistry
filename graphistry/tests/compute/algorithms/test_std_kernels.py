@@ -99,9 +99,11 @@ def test_pagerank_cugraph_compatible_signature_defaults():
         "fail_on_nonconvergence": True,
     }
     assert {name: signature.parameters[name].default for name in expected} == expected
+    assert signature.parameters["method"].default == "auto"
 
 
-def test_pagerank_weighted_personalized_matches_linear_system():
+@pytest.mark.parametrize("method", ["fast", "bounded"])
+def test_pagerank_weighted_personalized_matches_linear_system(method):
     edges = _edges([0, 0, 1, 2], [1, 2, 2, 0], [2.0, 1.0, 3.0, 4.0])
     personalization = pd.Series([0.7, 0.1, 0.1, 0.1])
     nstart = pd.Series([0.0, 1.0, 0.0, 0.0])
@@ -120,6 +122,7 @@ def test_pagerank_weighted_personalized_matches_linear_system():
         nstart=nstart,
         dangling={"ignored": 1.0},
         weight="w",
+        method=method,
     )
 
     transition = np.array(
@@ -184,6 +187,20 @@ def test_pagerank_tolerance_is_on_unit_mass_rank_scale():
     # First-step L1 delta is 0.01683: above tol, but below V * tol (=1).
     assert converged is False
     assert float(ranks.sum()) == pytest.approx(1.0)
+
+
+def test_pagerank_method_validation_and_chunk_contract():
+    edges = _edges([0, 1], [1, 2])
+    with pytest.raises(ValueError, match="method must be"):
+        K.pagerank(
+            edges,
+            "s",
+            "d",
+            3,
+            method="unknown",  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="requires chunks=1"):
+        K.pagerank(edges, "s", "d", 3, method="fast", chunks=2)
 
 
 def test_cdlp_tie_breaks_to_smallest_label_and_oscillates():
@@ -335,14 +352,22 @@ def test_chunked_equals_unchunked_exactly(kernel):
 
 
 def test_pagerank_chunking_drift_is_float_noise_only():
-    """PageRank is the one kernel compared by tolerance: float64 summation is
-    not associative, so chunk boundaries shift the last bits (~1e-16). Every
-    other kernel is integer or exact-float32 and must match bitwise."""
+    """Fast, bounded, and chunked reductions differ only by float noise."""
     dense, _, v_count = _random_graph(7, 400, 3000)
-    a = K.pagerank(dense, "s", "d", v_count, chunks=1).values
-    b = K.pagerank(dense, "s", "d", v_count, chunks=4).values
-    rel = np.max(np.abs(a - b) / np.maximum(np.abs(a), 1e-30))
-    assert rel < 1e-12, f"chunking drift {rel:.3e} is larger than float noise"
+    auto_fast = K.pagerank(dense, "s", "d", v_count, chunks=1).values
+    explicit_fast = K.pagerank(
+        dense, "s", "d", v_count, method="fast"
+    ).values
+    bounded = K.pagerank(
+        dense, "s", "d", v_count, method="bounded"
+    ).values
+    auto_chunked = K.pagerank(dense, "s", "d", v_count, chunks=4).values
+    assert np.array_equal(auto_fast, explicit_fast)
+    for candidate in (bounded, auto_chunked):
+        rel = np.max(
+            np.abs(auto_fast - candidate) / np.maximum(np.abs(auto_fast), 1e-30)
+        )
+        assert rel < 1e-12, f"PageRank drift {rel:.3e} exceeds float noise"
 
 
 # --------------------------------------------------------------------------

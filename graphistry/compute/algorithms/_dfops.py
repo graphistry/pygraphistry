@@ -22,11 +22,11 @@ Banned in kernels: `.apply`, `groupby().apply`, `idxmin`/`idxmax`, `mode()`,
 from __future__ import annotations
 
 from types import ModuleType
-from typing import Iterator, Mapping, Optional, Sequence, SupportsInt, Tuple
+from typing import Iterator, Mapping, Optional, Sequence, SupportsFloat, SupportsInt, Tuple
 
 import pandas as pd
 
-from graphistry.compute.typing import DataFrameT, SeriesT
+from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT, SeriesT
 
 # 2**32, as a plain Python int. Used for bit-packing via arithmetic.
 SHIFT32 = 1 << 32
@@ -35,6 +35,44 @@ SHIFT32 = 1 << 32
 def is_cudf(obj: object) -> bool:
     """True when obj belongs to cudf, without importing cudf on CPU-only hosts."""
     return type(obj).__module__.split(".")[0] == "cudf"
+
+
+def array_namespace(template: object) -> ArrayNamespace:
+    """NumPy or CuPy for the dataframe or Series engine holding the template."""
+    if is_cudf(template):
+        import cupy
+
+        return cupy
+    import numpy
+
+    return numpy  # type: ignore[return-value]
+
+
+def series_to_array(series: SeriesT) -> ArrayLike:
+    """A host or device array view of a dense positional Series."""
+    if is_cudf(series):
+        return series.values
+    return series.to_numpy()
+
+
+def series_from_array(template: object, values: ArrayLike) -> SeriesT:
+    """Build a default-index Series on the same engine as the template."""
+    if is_cudf(template):
+        import cudf
+
+        return cudf.Series(values)
+    return pd.Series(values)
+
+
+def to_host_floats(values: Sequence[SupportsFloat]) -> tuple[float, ...]:
+    """Transfer several backend scalars together, requiring one GPU sync."""
+    if not values:
+        return ()
+    if type(values[0]).__module__.split(".")[0] == "cupy":
+        import cupy
+
+        return tuple(float(value) for value in cupy.asnumpy(cupy.stack(values)))
+    return tuple(float(value) for value in values)
 
 
 def _mod(frame: DataFrameT) -> ModuleType:
