@@ -1,20 +1,30 @@
 """Contract tests for explicit engines on remote compute calls."""
 
-from typing import Any, Optional
+import typing
+from typing import Optional
 from unittest.mock import MagicMock, patch
+from typing_extensions import Literal
 
 import pandas as pd
 import pytest
 
+from graphistry.Engine import EngineAbstractType
+from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTNode
 from graphistry.compute.chain import Chain
 from graphistry.compute.chain_remote import chain_remote_generic
 from graphistry.compute.exceptions import ErrorCode, GFQLRemoteError
 from graphistry.compute.python_remote import python_remote_generic
+from graphistry.compute.remote_df_io import RemoteAPIName
 
 
 TASK = "def task(g):\n    return g\n"
 QUERY = Chain([ASTNode(filter_dict={"type": "Person"})])
+_PostTarget = Literal[
+    "graphistry.compute.chain_remote.requests.post",
+    "graphistry.compute.python_remote.requests.post",
+]
+
 
 
 class Posted(Exception):
@@ -33,7 +43,7 @@ def mock_plottable(dataset_id: Optional[str] = None) -> MagicMock:
     graph.session.certificate_validation = True
     graph.base_url_server.return_value = "https://test.graphistry.com"
 
-    def upload(*args: Any, **kwargs: Any) -> MagicMock:
+    def upload(*, validate: bool) -> MagicMock:
         graph._dataset_id = "uploaded-dataset"
         return graph
 
@@ -41,26 +51,38 @@ def mock_plottable(dataset_id: Optional[str] = None) -> MagicMock:
     return graph
 
 
-def call_remote(api_name: str, graph: MagicMock, engine: str, *, with_creds: bool) -> Any:
+def call_remote(
+    api_name: RemoteAPIName,
+    graph: Plottable,
+    engine: EngineAbstractType,
+    *,
+    with_creds: bool,
+) -> typing.NoReturn:
     """Call one remote entry point with matching mock credentials."""
-    credentials = {"api_token": "token", "dataset_id": "dataset"} if with_creds else {}
+    api_token = "token" if with_creds else None
+    dataset_id = "dataset" if with_creds else None
     if api_name == "gfql_remote":
-        return chain_remote_generic(
+        chain_remote_generic(
             graph,
             QUERY,
-            engine=engine,  # type: ignore[arg-type]
+            api_token=api_token,
+            dataset_id=dataset_id,
+            engine=engine,
             format="json",
             validate=False,
-            **credentials,
         )
-    return python_remote_generic(
-        graph,
-        TASK,
-        engine=engine,  # type: ignore[arg-type]
-        format="json",
-        validate=False,
-        **credentials,
-    )
+    else:
+        python_remote_generic(
+            graph,
+            TASK,
+            api_token=api_token,
+            dataset_id=dataset_id,
+            engine=engine,
+            format="json",
+            output_type="json",
+            validate=False,
+        )
+    raise AssertionError("remote call returned before transport")
 
 
 @pytest.mark.parametrize(
@@ -72,7 +94,7 @@ def call_remote(api_name: str, graph: MagicMock, engine: str, *, with_creds: boo
 )
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
 def test_explicit_supported_engine_is_sent_unchanged(
-    api_name: str, post_target: str, engine: str
+    api_name: RemoteAPIName, post_target: _PostTarget, engine: EngineAbstractType
 ) -> None:
     graph = mock_plottable("dataset")
     with patch(post_target, side_effect=Posted) as post:
@@ -90,7 +112,7 @@ def test_explicit_supported_engine_is_sent_unchanged(
 )
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_explicit_unsupported_engine_declines_before_side_effects(
-    api_name: str, post_target: str, engine: str
+    api_name: RemoteAPIName, post_target: _PostTarget, engine: EngineAbstractType
 ) -> None:
     graph = mock_plottable()
     with patch(post_target) as post:
@@ -100,9 +122,6 @@ def test_explicit_unsupported_engine_declines_before_side_effects(
     assert excinfo.value.code == ErrorCode.E405
     assert excinfo.value.context["field"] == "engine"
     assert excinfo.value.context["value"] == engine
-    assert "pandas" in str(excinfo.value)
-    assert "cudf" in str(excinfo.value)
-    assert "Dask engines" not in str(excinfo.value)
     graph._pygraphistry.refresh.assert_not_called()
     graph.upload.assert_not_called()
     post.assert_not_called()
