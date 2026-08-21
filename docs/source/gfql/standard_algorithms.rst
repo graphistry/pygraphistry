@@ -84,9 +84,11 @@ The standard PageRank procedure uses the cuGraph parameter names and defaults:
 ``alpha=0.85``, ``personalization=None``,
 ``precomputed_vertex_out_weight=None``, ``max_iter=100``, ``tol=1e-5``,
 ``nstart=None``, ``dangling=None``, and ``fail_on_nonconvergence=True``.
-Convergence uses the cuGraph criterion: the L1 difference between successive
-rank vectors is less than the vertex count times ``tol``. As in cuGraph,
-``dangling`` is accepted for compatibility and ignored.
+On the returned unit-mass rank scale, convergence occurs when the L1 difference
+between successive rank vectors is less than ``tol``. This matches the public
+cuGraph API's observed stopping behavior; its lower-level ``V * epsilon``
+description uses an internally vertex-scaled error. As in cuGraph, ``dangling``
+is accepted for compatibility and ignored.
 
 ``personalization`` and ``nstart`` use ``vertex`` / ``values`` pairs;
 ``precomputed_vertex_out_weight`` uses ``vertex`` / ``sums`` pairs. Direct

@@ -263,7 +263,8 @@ def pagerank(
         total = float(new.sum())
         if abs(total - 1.0) > 1e-9:
             raise AssertionError(f"pagerank mass not conserved: sum={total!r}")
-        converged = float(abs(new - pr).sum()) < v_count * float(tol)
+        # Unit-mass ranks make public cuGraph tolerance equivalent to L1 delta < tol.
+        converged = float(abs(new - pr).sum()) < float(tol)
         pr = new
         if stopping == "convergence" and converged:
             return (pr, True) if not fail_on_nonconvergence else pr

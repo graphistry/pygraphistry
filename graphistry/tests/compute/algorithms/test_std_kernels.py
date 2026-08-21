@@ -133,7 +133,7 @@ def test_pagerank_weighted_personalized_matches_networkx():
         personalization={i: float(v) for i, v in enumerate(personalization)},
         nstart={i: float(v) for i, v in enumerate(nstart)},
         max_iter=1000,
-        tol=1.0e-12,
+        tol=1.0e-12 / 4,
         weight="weight",
     )
     assert [float(value) for value in got] == pytest.approx(
@@ -169,6 +169,23 @@ def test_pagerank_nonconvergence_policy_and_fixed_alias():
         stopping="fixed_iterations",
     )
     assert list(legacy) == pytest.approx(list(explicit), rel=1.0e-15)
+
+
+def test_pagerank_tolerance_is_on_unit_mass_rank_scale():
+    edges = _edges([0], [1])
+    ranks, converged = K.pagerank(
+        edges,
+        "s",
+        "d",
+        100,
+        max_iter=1,
+        tol=0.01,
+        fail_on_nonconvergence=False,
+    )
+
+    # First-step L1 delta is 0.01683: above tol, but below V * tol (=1).
+    assert converged is False
+    assert float(ranks.sum()) == pytest.approx(1.0)
 
 
 def test_cdlp_tie_breaks_to_smallest_label_and_oscillates():
