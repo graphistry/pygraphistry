@@ -25,7 +25,7 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
 from graphistry.compute.gfql.cypher.api import compile_cypher
 
 pl = pytest.importorskip("polars")
@@ -477,11 +477,15 @@ def test_cross_kind_entity_rebinds_decline_at_compile_time(query: str, value: st
 @pytest.mark.parametrize("engine", ENGINES)
 def test_scalar_rebind_stays_an_error(engine: str) -> None:
     query = "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a.name AS b RETURN b.name AS t"
-    with pytest.raises(Exception) as exc_info:
-        _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
-    assert type(exc_info.value).__name__ in (
-        "GFQLTypeError", "GFQLValidationError", "NotImplementedError"
-    )
+    if engine == "pandas":
+        with pytest.raises(GFQLTypeError) as exc_info:
+            _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
+        assert exc_info.value.code == ErrorCode.E303
+        assert exc_info.value.context["field"] == "function"
+        assert exc_info.value.context["value"] == "select"
+    else:
+        with pytest.raises(NotImplementedError):
+            _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
 
 
 @pytest.mark.parametrize("engine", ENGINES)

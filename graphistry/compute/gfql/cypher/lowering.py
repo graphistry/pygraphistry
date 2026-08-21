@@ -6415,7 +6415,6 @@ def _reject_with_rebind_onto_live_alias(query: CypherQuery) -> None:
             if item.alias is None or item.alias == source:
                 continue
             if item.alias not in pattern_aliases:
-                # A fresh name or reentry consumer is not a competing pattern binding.
                 continue
             raise GFQLValidationError(
                 ErrorCode.E108,
