@@ -25,7 +25,8 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
+from graphistry.compute.gfql.cypher.api import compile_cypher
 
 pl = pytest.importorskip("polars")
 
@@ -191,10 +192,15 @@ def test_with_non_rebind_shapes_are_unaffected(query: str, expected, engine: str
 @pytest.mark.parametrize("engine", ENGINES)
 def test_terminal_return_rename_onto_live_alias_still_works(engine: str) -> None:
     """CONTROL: a terminal `RETURN a AS b` only names an output column -- no later clause
-    resolves against it -- so it must keep working on both engines."""
+    resolves against it -- so it must keep working on both engines.
+
+    The KNOWS bag is a->b, b->c, a->c, c->d, so the a-side is [a, b, a, c] and Alice
+    appears twice. This used to expect the 3-name node set; the sibling property spelling
+    (`WITH a.name AS b RETURN b`, in test_with_non_rebind_shapes_are_unaffected) already
+    expected the 4-row bag, and whole-entity projection now agrees with it."""
     rows = _run(PEOPLE_NODES, PEOPLE_EDGES,
                 "MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN a AS b", engine)
-    assert sorted(r["b.name"] for r in rows) == ["Alice", "Bob", "Carol"]
+    assert sorted(r["b.name"] for r in rows) == ["Alice", "Alice", "Bob", "Carol"]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -451,21 +457,40 @@ def test_with_rebind_edge_alias_onto_edge_alias_declines(engine: str) -> None:
     assert exc_info.value.context["value"] == "r AS q"
 
 
+@pytest.mark.parametrize(
+    ("query", "value"),
+    [
+        (
+            "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a AS r RETURN r.type AS t",
+            "a AS r",
+        ),
+        (
+            "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH r AS b RETURN b.w AS t",
+            "r AS b",
+        ),
+    ],
+    ids=["node_onto_edge", "edge_onto_node"],
+)
+def test_cross_kind_entity_rebinds_decline_at_compile_time(query: str, value: str) -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        compile_cypher(query)
+    assert exc_info.value.code == ErrorCode.E108
+    assert "rebind an entity alias" in str(exc_info.value)
+    assert exc_info.value.context["value"] == value
+
+
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.parametrize("query", [
-    # node alias onto an edge-alias name and the reverse: outside the guard's
-    # same-kind scope, but they must stay ERRORS (never a silent split-read).
-    "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a AS r RETURN r.type AS t",
-    "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH r AS b RETURN b.w AS t",
-    # a property read off a scalar rebind is a type error, not the shadowed entity
-    "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a.name AS b RETURN b.name AS t",
-], ids=["node_onto_edge", "edge_onto_node", "scalar_then_property"])
-def test_cross_kind_and_scalar_rebinds_stay_errors(query: str, engine: str) -> None:
-    with pytest.raises(Exception) as exc_info:
-        _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
-    assert type(exc_info.value).__name__ in (
-        "GFQLTypeError", "GFQLValidationError", "NotImplementedError"
-    )
+def test_scalar_rebind_stays_an_error(engine: str) -> None:
+    query = "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a.name AS b RETURN b.name AS t"
+    if engine == "pandas":
+        with pytest.raises(GFQLTypeError) as exc_info:
+            _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
+        assert exc_info.value.code == ErrorCode.E303
+        assert exc_info.value.context["field"] == "function"
+        assert exc_info.value.context["value"] == "select"
+    else:
+        with pytest.raises(NotImplementedError):
+            _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
 
 
 @pytest.mark.parametrize("engine", ENGINES)

@@ -4,20 +4,21 @@ Pins the three levels, the bool mapping, the validator/executor agreement matrix
 schema-declared typo-vs-narrow-instance disambiguation, and the remote wire field.
 """
 
+import typing
+import warnings
 from typing import Any, Dict, List, Optional
 from unittest import mock
-import warnings
 
 import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.Plottable import Plottable
 from graphistry.compute.chain_remote import chain_remote_generic
 from graphistry.compute.exceptions import GFQLSchemaError, GFQLValidationError
 from graphistry.compute.gfql.strictness import (
     DEFAULT_STRICT_LEVEL,
     UNSCOPED_STRICT_LEVEL,
+    StrictLevel,
     absent_column_matches,
     normalize_strict_level,
     resolve_strict_level,
@@ -25,8 +26,8 @@ from graphistry.compute.gfql.strictness import (
     strict_level_to_bool,
 )
 from graphistry.compute.gfql_validate import gfql_validate
+from graphistry.Plottable import Plottable
 from graphistry.schema import EdgeType, GraphSchema, NodeType
-
 
 ABSENT_LABEL = "MATCH (n:Nope) RETURN n.id AS id"
 ABSENT_PROP_RETURN = "MATCH (n) RETURN n.nope_col AS c"
@@ -35,6 +36,8 @@ ABSENT_PROP_PATTERN = "MATCH (n {nope_col: 1}) RETURN n.id AS id"
 ABSENT_EDGE_LABEL = "MATCH (n)-[e:NOPE]->(m) RETURN n.id AS id"
 
 FOUR_SHAPES = [ABSENT_LABEL, ABSENT_PROP_RETURN, ABSENT_PROP_WHERE, ABSENT_PROP_PATTERN]
+
+_StrictTestLevel = typing.Union[StrictLevel, bool]
 
 
 ENGINES = ("pandas", "polars", "cudf")
@@ -310,12 +313,20 @@ def test_edge_label_agrees_wherever_the_validator_can_judge(level: Any) -> None:
 
 
 @pytest.mark.parametrize("level", ["strict", True])
-def test_absent_relationship_type_is_not_judgeable_without_a_declared_schema(level: Any) -> None:  # hygiene-ok: explicit-any -- level is bool | str by design
-    # residual, unchanged from master: the strict binder reads relationship types off the
-    # catalog, and a catalog inferred from frames declares none, so only execution rejects
+def test_absent_relationship_type_without_a_carrier_agrees_under_strict(level: _StrictTestLevel) -> None:
     g = _graph()
-    assert _validator_verdict(g, ABSENT_EDGE_LABEL, level) == "ok"
+    assert _validator_verdict(g, ABSENT_EDGE_LABEL, level) == "raise"
     assert _executor_verdict(g, ABSENT_EDGE_LABEL, level) == "raise"
+
+
+@pytest.mark.parametrize("level", ["strict", True])
+def test_generic_relationship_type_carrier_remains_unjudgeable_without_a_scan(level: _StrictTestLevel) -> None:
+    g = _graph()
+    assert isinstance(g._edges, pd.DataFrame)
+    g = g.edges(g._edges.assign(type=["KNOWS", "KNOWS"]), "s", "d")
+
+    assert _validator_verdict(g, ABSENT_EDGE_LABEL, level) == "ok"
+    assert _executor_verdict(g, ABSENT_EDGE_LABEL, level) == "ok"
 
 
 def test_a_declared_relationship_type_makes_the_validator_judge_it() -> None:
@@ -417,7 +428,7 @@ def test_lazy_cudf_import_leaves_the_global_warning_filters_intact() -> None:
 # ---------------------------------------------------------------------------
 
 def test_absent_column_matches_only_is_na() -> None:
-    from graphistry.compute.predicates.comparison import isna, notna, gt
+    from graphistry.compute.predicates.comparison import gt, isna, notna
 
     assert absent_column_matches(isna()) is True
     assert absent_column_matches(notna()) is False

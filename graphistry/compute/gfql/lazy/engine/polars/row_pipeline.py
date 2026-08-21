@@ -1954,11 +1954,9 @@ def binding_rows_polars(
             seed_nodes = seed_nodes.join(seed_ids_lf, on=node_id, how="semi")
         # L4 pushdown twin of pandas `_gfql_connected_bindings_state`'s seed prefilter
         seed_nodes = _apply_alias_prefilters_polars(seed_nodes, first_op._name, alias_prefilters)  # honoured, never dropped (#1804)
-        # The whole generic builder works in LazyFrames (`nodes_lf` / `edges_lf` above);
-        # `filter_by_dict_polars` is frame-polymorphic at runtime but declares the eager
-        # type, so pin the path bag lazy here instead of leaving every downstream lazy
-        # op to fight an eager inference.
-        state: pl.LazyFrame = seed_nodes.select(pl.col(node_id).alias(WALK_CURRENT_COL))  # type: ignore[assignment]
+        state = seed_nodes.select(
+            pl.col(node_id).alias(WALK_CURRENT_COL)
+        ).unique(subset=[WALK_CURRENT_COL], maintain_order=True)
         alias_frames: Dict[str, pl.LazyFrame] = {}
         node_aliases: List[str] = []
         first_alias = first_op._name
