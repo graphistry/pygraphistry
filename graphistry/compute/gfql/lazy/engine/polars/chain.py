@@ -14,6 +14,7 @@ from typing_extensions import TypedDict
 # Runtime import (not TYPE_CHECKING): AggSpec is a pure typing Union of builtins (engine-
 # neutral wire type), and it keeps _GroupByParams introspectable (get_type_hints) at runtime.
 from graphistry.compute.gfql.call.support import AggSpec
+from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
@@ -1009,7 +1010,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             ncol, scol, dcol = gf._node, gf._source, gf._destination
             assert ncol is not None and scol is not None and dcol is not None
             gf, restore = _align_edge_endpoints(gf, ncol, scol, dcol)
-            edges = gf._edges
+            edges = drop_null_endpoint_edges(gf._edges, scol, dcol)
             n_from, n_to = (n0, n2) if e1.direction != "reverse" else (n2, n0)
             all_ids = gf._nodes.select(pl.col(ncol))
 

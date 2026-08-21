@@ -39,6 +39,39 @@ Graphs consist of node and edge dataframes:
   - Edge destination attribute: `g._destination` (e.g., "destination", "to")
 - GFQL infers nodes from edge references when only edges are provided
 
+#### NULL Node IDs and Edge Endpoints
+
+**A NULL id is not an identity.** An edge whose source or destination is NULL matches no
+pattern edge, on every surface (`hop`, chains, Cypher rows, Cypher aggregates), from either
+direction, and whether or not the node table holds a row with a NULL id. A NULL seed id
+likewise resolves to no node.
+
+This follows openCypher's three-valued logic: `null = null` evaluates to UNKNOWN rather than
+TRUE, so an endpoint that cannot be shown equal to any node identity binds nothing. It is also
+the only reading under which a result is self-consistent — a linkable NULL endpoint makes
+`MATCH (a)-[x]-(b) RETURN count(*)` disagree with the edges the same pattern returns, and lets
+a result frame carry an edge whose endpoint has no node row.
+
+The rule constrains endpoint **resolution** only:
+
+- A node row with a NULL id is still a row. `MATCH (a) RETURN count(*)` counts it, and
+  attribute predicates still apply to it.
+- `OPTIONAL MATCH` still produces NULL **bindings** for an unmatched optional pattern. Those
+  are result values, not edge endpoints.
+- Nothing is rejected: a NULL endpoint is a well-formed input that matches nothing, not an
+  error. There is no error code for it.
+- `get_degrees` / `get_indegrees` / `get_outdegrees` are raw edge-row tallies, not pattern
+  matches, so they still count a NULL-endpoint edge on whichever endpoint is an identity. A
+  degree column can therefore exceed the number of edges a pattern will match at that node.
+
+<!-- doc-test: skip -->
+```python
+# nodes id = [0, 1, 2, NULL];  edges (0,1) (1,2) (NULL,2) (2,NULL)
+g.gfql([n(), e_undirected(), n()])            # edges (0,1) and (1,2); nodes {0, 1, 2}
+g.gfql('MATCH (a)-[x]-(b) RETURN count(*)')   # 4  -- two edges, two orientations each
+g.gfql('MATCH (a) RETURN count(*)')           # 4  -- the NULL-id node row is still a row
+```
+
 #### GFQL Programs
 
 GFQL programs are declarative graph-to-graph transformations:

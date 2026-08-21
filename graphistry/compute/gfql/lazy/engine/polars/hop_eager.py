@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 from graphistry.Plottable import Plottable
+from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 from graphistry.compute.util import generate_safe_column_name
 from .dtypes import endpoint_ids
 from .predicates import filter_by_dict_polars
@@ -111,20 +112,13 @@ def _keep_edges_with_both_endpoints_resolvable(
     edges_idx: "PolarsT", src: str, dst: str, node_dtype: "pl.DataType",
     resolvable_ids: "pl.Series",
 ) -> "PolarsT":
-    """`.implode()` makes the id series ONE membership collection; bare `is_in` is deprecated.
-
-    A NULL endpoint resolves iff the id universe holds a NULL id: `is_in` answers NULL for a
-    NULL input (dropped by `filter`), where the pandas/cuDF `isin` this mirrors answers True.
-    """
+    """Filter both endpoints against the non-null identity universe."""
     import polars as pl
 
     universe = resolvable_ids.implode()
-    a_null_id_is_resolvable = resolvable_ids.null_count() > 0
 
     def _resolvable(endpoint_col: str) -> "pl.Expr":
-        endpoint = pl.col(endpoint_col).cast(node_dtype)
-        member = endpoint.is_in(universe)
-        return (member | endpoint.is_null()) if a_null_id_is_resolvable else member
+        return pl.col(endpoint_col).cast(node_dtype).is_in(universe)
 
     return edges_idx.filter(_resolvable(src) & _resolvable(dst))
 
@@ -252,6 +246,7 @@ def hop_polars(
     # resolved_max_hops comes from the shared resolver above (None == run-to-closure).
     FROM, TO, NID, EID, edges_idx, synth_eid, node_dtype = _hop_setup_columns(
         edges, all_nodes, node_col, g._edge)
+    edges_idx = drop_null_endpoint_edges(edges_idx, src, dst)
 
     serves_single_bounded_hop = (
         not to_fixed_point and resolved_max_hops == 1
