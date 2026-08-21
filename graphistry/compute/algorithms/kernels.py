@@ -23,6 +23,7 @@ semantics without requiring an optional graph backend.
 
 from __future__ import annotations
 
+import os
 from typing import Callable, Literal, Optional, Union
 
 from graphistry.compute.typing import ArrayLike, DataFrameT, SeriesT
@@ -384,6 +385,89 @@ def _pagerank_bounded(
     return _pagerank_iterations(initial, step, max_iter, tol, stopping)
 
 
+_PAGERANK_AUTO_FIXED_BYTES = 64 * 1024 * 1024
+_PAGERANK_AUTO_HEADROOM_DIVISOR = 2
+
+
+def _pagerank_fast_estimated_bytes(
+    edges: DataFrameT, v_count: int, weighted: bool
+) -> int:
+    """Conservative peak scratch estimate calibrated against matched runs."""
+    edge_count = len(edges)
+    if is_cudf(edges):
+        vertex_bytes = 96 * v_count
+        edge_bytes = 16 * edge_count if weighted else 0
+    else:
+        vertex_bytes = 64 * v_count
+        edge_bytes = (24 if weighted else 8) * edge_count
+    return _PAGERANK_AUTO_FIXED_BYTES + vertex_bytes + edge_bytes
+
+
+def _pagerank_cgroup_available_bytes(
+    limit_path: str, current_path: str
+) -> Optional[int]:
+    try:
+        with open(limit_path, encoding="utf-8") as limit_file:
+            limit_text = limit_file.read().strip()
+        if limit_text == "max":
+            return None
+        with open(current_path, encoding="utf-8") as current_file:
+            current_text = current_file.read().strip()
+        limit = int(limit_text)
+        current = int(current_text)
+    except (OSError, ValueError):
+        return None
+    if limit <= 0 or limit >= 1 << 60 or current < 0:
+        return None
+    return max(0, limit - current)
+
+
+def _pagerank_host_available_bytes() -> Optional[int]:
+    candidates = []
+    try:
+        pages = int(os.sysconf("SC_AVPHYS_PAGES"))
+        page_size = int(os.sysconf("SC_PAGE_SIZE"))
+        if pages > 0 and page_size > 0:
+            candidates.append(pages * page_size)
+    except (AttributeError, OSError, TypeError, ValueError):
+        pass
+    for limit_path, current_path in (
+        ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current"),
+        (
+            "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+            "/sys/fs/cgroup/memory/memory.usage_in_bytes",
+        ),
+    ):
+        remaining = _pagerank_cgroup_available_bytes(limit_path, current_path)
+        if remaining is not None:
+            candidates.append(remaining)
+    return min(candidates) if candidates else None
+
+
+def _pagerank_available_bytes(edges: DataFrameT) -> Optional[int]:
+    if is_cudf(edges):
+        try:
+            import cupy
+
+            free_bytes, _ = cupy.cuda.Device().mem_info
+            return int(free_bytes)
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+            return None
+    return _pagerank_host_available_bytes()
+
+
+def _pagerank_auto_uses_fast(
+    edges: DataFrameT, v_count: int, weighted: bool, chunks: int
+) -> bool:
+    if chunks != 1:
+        return False
+    available = _pagerank_available_bytes(edges)
+    if available is None or available <= 0:
+        return False
+    estimate = _pagerank_fast_estimated_bytes(edges, v_count, weighted)
+    return estimate <= available // _PAGERANK_AUTO_HEADROOM_DIVISOR
+
+
 def pagerank(
     edges: DataFrameT,
     src: str,
@@ -449,7 +533,10 @@ def pagerank(
             raise ValueError(f"pagerank {name} values must have a positive sum")
         return out / total
 
-    use_fast = method == "fast" or (method == "auto" and chunks == 1)
+    use_fast = method == "fast" or (
+        method == "auto"
+        and _pagerank_auto_uses_fast(edges, v_count, weight is not None, chunks)
+    )
     use_cudf_fast = use_fast and is_cudf(edges)
 
     if weight is None:

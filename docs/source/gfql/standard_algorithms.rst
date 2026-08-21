@@ -101,12 +101,13 @@ Pass ``weight`` as an edge-column name. When omitted, the graph's bound edge
 weight is used; without either, every edge has weight 1. ``chunks`` controls
 dataframe chunking without changing the result.
 
-``method='auto'`` is the default. It uses a backend-native NumPy or CuPy array
-reduction when ``chunks=1``, avoiding per-iteration dataframe sorting and
-groupby materialization on both CPU and GPU. Set ``method='bounded'`` to retain
-the chunkable dataframe path when peak memory is the priority. Explicit
-``method='fast'`` requires ``chunks=1``; setting ``chunks`` above one makes
-``auto`` select ``bounded``.
+``method='auto'`` is the default. With ``chunks=1``, it uses a conservative
+preflight estimate and selects the backend-native NumPy or CuPy fast path only
+when its estimated peak scratch is at most half the detected free host/device
+memory. Unknown or tighter memory falls back to the dataframe path. Explicit
+``method='fast'`` bypasses the estimate and requires ``chunks=1``. Set
+``method='bounded'`` with ``chunks>1`` for the strongest explicit peak-memory
+control; setting ``chunks`` above one also makes ``auto`` select ``bounded``.
 
 By default PageRank raises when ``max_iter`` is exhausted. Set
 ``fail_on_nonconvergence: false`` to keep the last iterate. The Graphistry extra

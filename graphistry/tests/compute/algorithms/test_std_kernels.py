@@ -247,6 +247,24 @@ def test_pagerank_method_validation_and_chunk_contract():
         K.pagerank(edges, "s", "d", 3, method="fast", chunks=2)
 
 
+def test_pagerank_auto_memory_preflight(monkeypatch):
+    edges = _edges([0, 1, 2, 2], [1, 2, 0, 1])
+    fixed = 64 * 1024 * 1024
+    unweighted = K._pagerank_fast_estimated_bytes(edges, 3, False)
+    weighted = K._pagerank_fast_estimated_bytes(edges, 3, True)
+    assert unweighted == fixed + 64 * 3 + 8 * len(edges)
+    assert weighted == fixed + 64 * 3 + 24 * len(edges)
+
+    monkeypatch.setattr(K, "_pagerank_available_bytes", lambda _: 2 * unweighted)
+    assert K._pagerank_auto_uses_fast(edges, 3, False, 1) is True
+    assert K._pagerank_auto_uses_fast(edges, 3, False, 2) is False
+
+    monkeypatch.setattr(K, "_pagerank_available_bytes", lambda _: 2 * unweighted - 1)
+    assert K._pagerank_auto_uses_fast(edges, 3, False, 1) is False
+    monkeypatch.setattr(K, "_pagerank_available_bytes", lambda _: None)
+    assert K._pagerank_auto_uses_fast(edges, 3, False, 1) is False
+
+
 def test_cdlp_tie_breaks_to_smallest_label_and_oscillates():
     """Star 0--{1,2,3}: vertex 0 sees a 3-way tie and must pick the smallest.
 
@@ -395,8 +413,9 @@ def test_chunked_equals_unchunked_exactly(kernel):
     assert np.array_equal(run(1).values, run(4).values)
 
 
-def test_pagerank_chunking_drift_is_float_noise_only():
+def test_pagerank_chunking_drift_is_float_noise_only(monkeypatch):
     """Fast, bounded, and chunked reductions differ only by float noise."""
+    monkeypatch.setattr(K, "_pagerank_available_bytes", lambda _: 1 << 60)
     dense, _, v_count = _random_graph(7, 400, 3000)
     auto_fast = K.pagerank(dense, "s", "d", v_count, chunks=1).values
     explicit_fast = K.pagerank(
