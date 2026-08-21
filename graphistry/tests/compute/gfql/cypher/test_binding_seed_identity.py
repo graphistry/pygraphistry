@@ -1,41 +1,55 @@
-"""Generic binding rows use node ids as identities.
+"""Generic binding rows use node ids as identities."""
+from __future__ import annotations
 
-Duplicate physical node rows do not add nodes or relationships. Match rows come
-from relationship rows, including parallel relationships.
-"""
-from typing import Dict
+import typing
 
 import pandas as pd
 import pytest
+from typing_extensions import Literal
 
 import graphistry
 import graphistry.compute.gfql_unified as gfql_unified
+from graphistry.Engine import Engine, EngineAbstractType, df_to_engine
+from graphistry.Plottable import Plottable
+from graphistry.compute.chain import Chain
+from graphistry.compute.typing import DataFrameT
+from graphistry.tests.compute.gfql.polars_test_utils import engine_skip_reason, to_pandas_any
 
 
-try:
-    import cudf
+_GFQLEngine = Literal["pandas", "polars", "cudf", "polars-gpu"]
+_ENGINES: typing.Tuple[_GFQLEngine, ...] = ("pandas", "polars", "cudf", "polars-gpu")
 
-    HAS_CUDF = True
-except ImportError:
-    HAS_CUDF = False
-
-
-try:
-    import polars as pl
-
-    HAS_POLARS = True
-except ImportError:
-    HAS_POLARS = False
+def _bind(nodes: pd.DataFrame, edges: pd.DataFrame, engine: _GFQLEngine) -> Plottable:
+    resolved_engine = Engine(engine)
+    return graphistry.nodes(df_to_engine(nodes, resolved_engine), "id").edges(
+        df_to_engine(edges, resolved_engine), "s", "d"
+    )
 
 
-ENGINES = [
-    "pandas",
-    pytest.param("cudf", marks=pytest.mark.skipif(not HAS_CUDF, reason="cudf not installed")),
-    pytest.param("polars", marks=pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")),
-]
+def _smoke(engine: _GFQLEngine) -> Plottable:
+    nodes = pd.DataFrame({"id": [1, 2]})
+    edges = pd.DataFrame({"s": [1], "d": [2]})
+    return _bind(nodes, edges, engine).gfql("MATCH (n) RETURN n.id AS id", engine=engine)
 
 
-def _run_generic(engine: str, *, parallel_edge: bool) -> Dict[str, int]:
+def _require_engine(engine: _GFQLEngine) -> None:
+    skip_reason = engine_skip_reason(engine, lambda: _smoke(engine))
+    if skip_reason is not None:
+        pytest.skip(skip_reason)
+
+
+def _disable_fast_path(
+    base_graph: Plottable,
+    chain: Chain,
+    *,
+    engine: EngineAbstractType,
+    reentry_start_nodes: typing.Optional[DataFrameT] = None,
+) -> typing.Optional[Plottable]:
+    _ = base_graph, chain, engine, reentry_start_nodes
+    return None
+
+
+def _run_generic(engine: _GFQLEngine, *, parallel_edge: bool) -> typing.Mapping[str, int]:
     nodes = pd.DataFrame({
         "id": [1, 2, 3, 4, 5, 6, 7, 8, 1, 2],
         "kind": ["P", "P", "P", "P", "C", "C", "C", "C", "P", "P"],
@@ -51,28 +65,19 @@ def _run_generic(engine: str, *, parallel_edge: bool) -> Dict[str, int]:
             ignore_index=True,
         )
 
-    if engine == "cudf":
-        graph = graphistry.nodes(cudf.from_pandas(nodes), "id").edges(
-            cudf.from_pandas(edges), "s", "d"
-        )
-    elif engine == "polars":
-        graph = graphistry.nodes(pl.from_pandas(nodes), "id").edges(
-            pl.from_pandas(edges), "s", "d"
-        )
-    else:
-        graph = graphistry.nodes(nodes, "id").edges(edges, "s", "d")
-
-    result = graph.gfql(
+    _require_engine(engine)
+    graph = _bind(nodes, edges, engine)
+    result_frame = graph.gfql(
         "MATCH (p {kind:'P'})-->(c {kind:'C'}) "
         "RETURN c.city AS city, count(*) AS n ORDER BY city ASC",
         engine=engine,
     )._nodes
-    if hasattr(result, "to_pandas"):
-        result = result.to_pandas()
-    return {str(row.city): int(row.n) for row in result.itertuples(index=False)}
+    pandas_frame = to_pandas_any(result_frame)
+    assert isinstance(pandas_frame, pd.DataFrame)
+    return {str(row.city): int(row.n) for row in pandas_frame.itertuples(index=False)}
 
 
-@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("engine", _ENGINES)
 @pytest.mark.parametrize(
     "parallel_edge,expected",
     [
@@ -81,9 +86,9 @@ def _run_generic(engine: str, *, parallel_edge: bool) -> Dict[str, int]:
     ],
 )
 def test_generic_binding_seed_ids_are_identities(
-    engine: str, parallel_edge: bool, expected: Dict[str, int], monkeypatch: pytest.MonkeyPatch
+    engine: _GFQLEngine, parallel_edge: bool, expected: typing.Mapping[str, int], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        gfql_unified, "_execute_single_hop_grouped_aggregate_fast_path", lambda *args, **kwargs: None
+        gfql_unified, "_execute_single_hop_grouped_aggregate_fast_path", _disable_fast_path
     )
     assert _run_generic(engine, parallel_edge=parallel_edge) == expected
