@@ -3426,9 +3426,10 @@ def _execute_seeded_typed_hop_fast_path(
     binding_ops = call_params.get("binding_ops")
     bag_rows = isinstance(binding_ops, list)
     if bag_rows:
-        if projection is not None or serialize_binding_ops(ops[:3]) != binding_ops:
+        if serialize_binding_ops(ops[:3]) != binding_ops:
             return None
-        return_alias = n2._name or ""
+        # A whole-row RETURN lowers to this same bag shape; the projection branch below serves it.
+        return_alias = projection.alias if projection is not None else (n2._name or "")
     else:
         return_alias = projection.alias if projection is not None else str(call_params.get("source", ""))
     if n2._name != return_alias:
@@ -3522,6 +3523,8 @@ def _execute_seeded_typed_hop_fast_path(
             p_rows, _edges,
             to_col=dst if direction == "forward" else src, node=node, is_polars=is_polars,
         )
+        if projection is not None and len(p_rows) == 0:
+            return None  # zero-row dtype (empty pivot upcasts int -> float64) stays the full path's
     if select_items is not None:
         # Lean property projection (IS5 shape): the deduped destination rows carry
         # the raw property columns — rename/select directly, same values the

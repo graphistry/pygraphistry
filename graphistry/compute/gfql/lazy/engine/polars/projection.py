@@ -5,12 +5,13 @@ rendering doesn't depress the pandas gfql coverage audit. Parity-or-NIE: no pand
 differential parity vs pandas is the release gate. The #1650 default (``structured=True``)
 FLATTENS whole-entity ``RETURN n`` to ``{output}.{field}`` columns natively for ANY dtype
 (float/temporal/nested just become columns, no rendering). Legacy display-string rendering
-(``structured=False``) is native only for single-entity int/string/bool nodes (boolean
-``label__*`` flags included); float/temporal/nested entity text, multi-entity, edges, and
-exotic expressions raise NotImplementedError.
+(``structured=False``) is native for int/string/bool node entities, including multi-node
+binding rows (boolean ``label__*`` flags included); float/temporal/nested entity text, edge
+entities, and exotic expressions raise NotImplementedError.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from graphistry.Plottable import Plottable
@@ -26,6 +27,13 @@ from graphistry.compute.gfql.row.entity_props import (
     NODE_INTERNAL_COLS,
     label_flag_columns,
 )
+
+
+@dataclass(frozen=True)
+class _AliasView:
+    """One alias's rows under bare field names, plus ``field -> source column`` in the original."""
+    frame: pl.DataFrame
+    columns: Dict[str, str]
 
 
 def _has_temporal_constructor_text(rows_df: pl.DataFrame, col: str) -> bool:
@@ -66,18 +74,50 @@ def _native_scalar_text_expr(col: str, dtype: Any) -> Optional[Any]:
     return None
 
 
-def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Optional[Any]:
-    """Native ``(:Label {prop: val, ...})`` node entity text; ``None`` → caller raises."""
+def _alias_view_polars(rows_df: pl.DataFrame, alias: str) -> Optional[_AliasView]:
+    """Per-alias un-prefixed view of a row frame, plus field -> source-column map.
+
+    polars edition of the pandas ``_projection_alias_rows``. A binding-row frame binds several
+    aliases at once and spells each entity's fields ``{alias}.{field}`` alongside a bare
+    ``{alias}`` id marker; every projection helper below wants the single-entity shape (bare
+    field names). The view is a plain ``select`` of existing columns (Arrow buffers are shared,
+    so no data is copied) and stays row-aligned with ``rows_df``; ``columns`` maps each view
+    field back to its column in ``rows_df`` so the emitted expressions can be selected from the
+    original frame.
+    """
     import polars as pl
 
+    prefix = f"{alias}."
+    prefixed = [str(c) for c in rows_df.columns if str(c).startswith(prefix)]
+    if not prefixed:
+        if alias not in rows_df.columns:
+            return None
+        return _AliasView(frame=rows_df, columns={str(c): str(c) for c in rows_df.columns})
+    columns = {c[len(prefix):]: c for c in prefixed}
+    if alias in rows_df.columns:
+        columns.setdefault(alias, alias)
+    if alias not in columns:
+        return None
+    frame = rows_df.select([pl.col(src).alias(field) for field, src in columns.items()])
+    return _AliasView(frame=frame, columns=columns)
+
+
+def _native_node_entity_text_expr(view: _AliasView, alias: str, exclude: Any) -> Optional[Any]:
+    """Native ``(:Label {prop: val, ...})`` node entity text; ``None`` → caller raises.
+
+    Reads field names/dtypes off the un-prefixed ``view`` but emits ``pl.col`` against the
+    original frame's column names, so multi-entity binding rows render as well as single-entity
+    ones."""
+    import polars as pl
+
+    rows_df = view.frame
     cols = list(rows_df.columns)
-    if alias not in cols:
-        return None
-    single_entity_untyped_rows = (
-        not any(str(c).startswith(f"{alias}.") for c in cols) and "type" not in cols
-    )
-    if not single_entity_untyped_rows:
-        return None
+    if alias not in cols or "type" in cols:
+        return None  # typed (edge-ish) rows -> defer (NIE)
+
+    def _c(field: str) -> pl.Expr:
+        return pl.col(view.columns.get(field, field))
+
     from .dtypes import is_int
     schema = rows_df.schema
     excluded = set(str(c) for c in (exclude or ()))
@@ -93,17 +133,17 @@ def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Opt
         return None  # non-boolean label flags -> defer (NIE)
     labels = (
         pl.concat_str([
-            pl.when(pl.col(c).fill_null(False)).then(pl.lit(":" + label_name)).otherwise(pl.lit(""))
+            pl.when(_c(c).fill_null(False)).then(pl.lit(":" + label_name)).otherwise(pl.lit(""))
             for c, label_name in label_cols
         ], separator="")
         if label_cols else pl.lit("")
     )
     segments = []
     for col in prop_cols:
-        val = _native_scalar_text_expr(col, schema[col])
+        val = _native_scalar_text_expr(view.columns.get(col, col), schema[col])
         if val is None:
             return None
-        segments.append(pl.when(pl.col(col).is_null()).then(None).otherwise(pl.lit(f"{col}: ") + val))
+        segments.append(pl.when(_c(col).is_null()).then(None).otherwise(pl.lit(f"{col}: ") + val))
     if not segments:
         rendered = pl.lit("(") + labels + pl.lit(")")
     else:
@@ -115,39 +155,36 @@ def _native_node_entity_text_expr(rows_df: Any, alias: str, exclude: Any) -> Opt
     # Nullify absent (OPTIONAL-MATCH miss) rows — alias marker is null there and an absent
     # entity must render null, not "()" (mirrors pandas _nullify_missing_alias_rows); a real
     # property-less node keeps "()".
-    return pl.when(pl.col(alias).is_null()).then(None).otherwise(rendered)
+    return pl.when(_c(alias).is_null()).then(None).otherwise(rendered)
 
 
-def _flat_entity_exprs_polars(rows_df: pl.DataFrame, projection: ResultProjectionPlan, source_alias: str, output_name: str, id_column: Optional[str]) -> Optional[List[pl.Expr]]:
+def _flat_entity_exprs_polars(view: _AliasView, projection: ResultProjectionPlan, source_alias: str, output_name: str, id_column: Optional[str]) -> Optional[List[pl.Expr]]:
     """Structured (flattened) whole-entity projection (#1650), polars edition. Mirrors pandas
     ``_flat_entity_columns`` exactly (same field selection + ordering via the shared
-    ``_flat_entity_field_names``): one ``pl.col(field).alias("{output}.{field}")`` per field.
-    Single-entity only (None on multi-entity prefixed columns or absent fields). Works for ANY
-    dtype (float/temporal/nested just become columns), covering cases entity-text defers."""
+    ``_flat_entity_field_names``): one ``{output}.{field}`` column per field, read off the
+    alias view's source column so single-entity and multi-entity binding rows both render.
+    Works for ANY dtype (float/temporal/nested just become columns), covering cases entity-text
+    defers."""
     import polars as pl
     from dataclasses import replace
     from graphistry.compute.gfql.cypher.result_postprocess import _flat_entity_field_names
 
-    cols = list(rows_df.columns)
-    if source_alias not in cols:
-        return None
-    if any(str(c).startswith(f"{source_alias}.") for c in cols):
-        return None  # multi-entity binding -> defer (NIE), matches the text path
     source_projection = projection if source_alias == projection.alias else replace(projection, alias=source_alias)
-    fields = _flat_entity_field_names(rows_df, source_projection, id_column)
+    fields = _flat_entity_field_names(view.frame, source_projection, id_column)
     if not fields:
         return None  # synthesized absent entity -> caller falls back to text
     out = []
     for field in fields:
-        if field not in cols:
+        src = view.columns.get(field)
+        if src is None:
             return None
-        out.append(pl.col(field).alias(f"{output_name}.{field}"))
+        out.append(pl.col(src).alias(f"{output_name}.{field}"))
     return out
 
 
 def _record_entity_meta(
     entity_meta: Dict[str, Dict[str, Any]],
-    rows_df: pl.DataFrame,
+    view: _AliasView,
     projection: ResultProjectionPlan,
     source_alias: str,
     output_name: str,
@@ -155,11 +192,11 @@ def _record_entity_meta(
 ) -> None:
     """Record whole-entity projection metadata for one column, mirroring the pandas projector.
 
-    ``_try_native_projection`` reaches this only in the single-entity branch (flat exprs and the
-    entity-text path both decline multi-entity prefixed columns), so ``rows_df`` is the aligned
-    source frame and ``rows_df[id_column]`` is the carried alias's id column, row-aligned with the
-    projected output. Snapshot (``.clone()``) the id column so downstream reentry recovery never
-    aliases a later-mutated working frame (see #1356)."""
+    ``view.frame`` is this alias's rows under bare field names and stays row-aligned with the
+    projected output, so ``view.frame[id_column]`` is the carried alias's id column on both the
+    single-entity and the multi-entity binding shape. Snapshot (``.clone()``) the id column so
+    downstream reentry recovery never aliases a later-mutated working frame (see #1356)."""
+    rows_df = view.frame
     if id_column is None or id_column not in rows_df.columns:  # pragma: no cover - defensive: node re-entry always carries the id column
         return
     entity_meta[output_name] = {
@@ -182,26 +219,34 @@ def _try_native_projection(result: Plottable, rows_df: pl.DataFrame, projection:
     # identities. Without it a WITH-projected node alias feeding a trailing MATCH declines.
     entity_meta: Dict[str, Dict[str, Any]] = {}
     id_column = result._node
+    # Property/expr source names are alias-relative ("id" is "{alias}.id" on binding rows).
+    primary = _alias_view_polars(rows_df, projection.alias)
+    primary_columns = primary.columns if primary is not None else {}
     for column in projection.columns:
         if column.kind == "whole_row":
             if projection.table != "nodes":
                 return None  # edge entity rendering -> defer (NIE)
             source_alias = column.source_name or projection.alias
+            view = _alias_view_polars(rows_df, source_alias)
+            if view is None:
+                return None
             if structured:
                 # #1650 default: flatten to {output}.{field} (near-free, any dtype);
                 # text fallback only for synthesized-absent rows.
-                flat = _flat_entity_exprs_polars(rows_df, projection, source_alias, column.output_name, id_column)
+                flat = _flat_entity_exprs_polars(view, projection, source_alias, column.output_name, id_column)
                 if flat is not None:
                     exprs.extend(flat)
-                    _record_entity_meta(entity_meta, rows_df, projection, source_alias, column.output_name, id_column)
+                    _record_entity_meta(entity_meta, view, projection, source_alias, column.output_name, id_column)
                     continue
-            ent = _native_node_entity_text_expr(rows_df, source_alias, projection.exclude_columns)
+            ent = _native_node_entity_text_expr(view, source_alias, projection.exclude_columns)
             if ent is None:
                 return None
             exprs.append(ent.alias(column.output_name))
-            _record_entity_meta(entity_meta, rows_df, projection, source_alias, column.output_name, id_column)
+            _record_entity_meta(entity_meta, view, projection, source_alias, column.output_name, id_column)
             continue
         src = column.source_name
+        if src is not None:
+            src = primary_columns.get(src, src)
         if src is None or src not in rows_df.columns:
             return None  # expression needing evaluation / missing -> defer (NIE)
         dtype = rows_df.schema[src]
@@ -235,8 +280,8 @@ def apply_result_projection_polars(
 
     ``structured=True`` (#1650 default): flatten whole-entity returns to ``{output}.{field}``
     columns (any dtype, near-free). ``structured=False``: legacy Cypher display string, native
-    for int/string/bool single-entity nodes with boolean ``label__*`` flags. Multi-entity
-    bindings, edge entity-text, and (text mode) float/temporal/nested columns are not yet
+    for int/string/bool node entities, including multi-node binding rows, with boolean
+    ``label__*`` flags. Edge entity-text and (text mode) float/temporal/nested columns are not yet
     native → raise rather than secretly run the pandas renderer.
     """
     rows_df = result._nodes
@@ -245,7 +290,7 @@ def apply_result_projection_polars(
         return native
     raise NotImplementedError(
         "polars engine does not yet natively render this cypher result projection "
-        "(whole-entity RETURN over float/temporal/nested/multi-entity columns); "
+        "(unsupported node entity text, edge entities, or exotic expressions); "
         "use engine='pandas' or engine='cudf' for this query "
         "(no silent fallback; parity-or-error by design)"
     )
