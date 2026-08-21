@@ -58,7 +58,7 @@ Algorithms and options
        in each component.
    * - ``pagerank``
      - ``pagerank``
-     - cuGraph-compatible controls plus ``weight``, ``chunks``, ``stopping``
+     - cuGraph controls plus ``weight``, ``method``, ``chunks``, ``stopping``
      - Directed, optionally weighted PageRank. Convergence is the default;
        fixed-iteration execution is explicit.
    * - ``cdlp``
@@ -100,6 +100,14 @@ out sums are computed normally.
 Pass ``weight`` as an edge-column name. When omitted, the graph's bound edge
 weight is used; without either, every edge has weight 1. ``chunks`` controls
 dataframe chunking without changing the result.
+
+``method='auto'`` is the default. With ``chunks=1``, it uses a conservative
+preflight estimate and selects the backend-native NumPy or CuPy fast path only
+when its estimated peak scratch is at most half the detected free host/device
+memory. Unknown or tighter memory falls back to the dataframe path. Explicit
+``method='fast'`` bypasses the estimate and requires ``chunks=1``. Set
+``method='bounded'`` with ``chunks>1`` for the strongest explicit peak-memory
+control; setting ``chunks`` above one also makes ``auto`` select ``bounded``.
 
 By default PageRank raises when ``max_iter`` is exhausted. Set
 ``fail_on_nonconvergence: false`` to keep the last iterate. The Graphistry extra
