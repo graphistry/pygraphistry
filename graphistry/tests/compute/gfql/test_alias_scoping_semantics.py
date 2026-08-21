@@ -25,7 +25,8 @@ import pandas as pd
 import pytest
 
 import graphistry
-from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
+from graphistry.compute.gfql.cypher.api import compile_cypher
 
 pl = pytest.importorskip("polars")
 
@@ -456,21 +457,40 @@ def test_with_rebind_edge_alias_onto_edge_alias_declines(engine: str) -> None:
     assert exc_info.value.context["value"] == "r AS q"
 
 
+@pytest.mark.parametrize(
+    ("query", "value"),
+    [
+        (
+            "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a AS r RETURN r.type AS t",
+            "a AS r",
+        ),
+        (
+            "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH r AS b RETURN b.w AS t",
+            "r AS b",
+        ),
+    ],
+    ids=["node_onto_edge", "edge_onto_node"],
+)
+def test_cross_kind_entity_rebinds_decline_at_compile_time(query: str, value: str) -> None:
+    with pytest.raises(GFQLValidationError) as exc_info:
+        compile_cypher(query)
+    assert exc_info.value.code == ErrorCode.E108
+    assert "rebind an entity alias" in str(exc_info.value)
+    assert exc_info.value.context["value"] == value
+
+
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.parametrize("query", [
-    # node alias onto an edge-alias name and the reverse: outside the guard's
-    # same-kind scope, but they must stay ERRORS (never a silent split-read).
-    "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a AS r RETURN r.type AS t",
-    "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH r AS b RETURN b.w AS t",
-    # a property read off a scalar rebind is a type error, not the shadowed entity
-    "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a.name AS b RETURN b.name AS t",
-], ids=["node_onto_edge", "edge_onto_node", "scalar_then_property"])
-def test_cross_kind_and_scalar_rebinds_stay_errors(query: str, engine: str) -> None:
-    with pytest.raises(Exception) as exc_info:
-        _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
-    assert type(exc_info.value).__name__ in (
-        "GFQLTypeError", "GFQLValidationError", "NotImplementedError"
-    )
+def test_scalar_rebind_stays_an_error(engine: str) -> None:
+    query = "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a.name AS b RETURN b.name AS t"
+    if engine == "pandas":
+        with pytest.raises(GFQLTypeError) as exc_info:
+            _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
+        assert exc_info.value.code == ErrorCode.E303
+        assert exc_info.value.context["field"] == "function"
+        assert exc_info.value.context["value"] == "select"
+    else:
+        with pytest.raises(NotImplementedError):
+            _run(PEOPLE_NODES, PEOPLE_EDGES, query, engine)
 
 
 @pytest.mark.parametrize("engine", ENGINES)
