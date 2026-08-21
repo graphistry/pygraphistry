@@ -53,6 +53,9 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_optional_match_semantics.py
     graphistry/tests/compute/gfql/test_optional_match_with_pipeline_boundaries.py
     graphistry/tests/compute/gfql/test_row_multiplicity_semantics.py
+    # whole-entity RETURN bag multiplicity: engine-parametrized pandas/polars/cudf, and the
+    # polars params (multi-entity binding-row rendering) only ever run here
+    graphistry/tests/compute/gfql/test_whole_entity_projection_bag_1994.py
     graphistry/tests/compute/gfql/test_aggregate_identity_row_semantics.py
     graphistry/tests/compute/gfql/test_numeric_conformance_semantics.py
     # engine-parametrized absent-name strictness: the polars params of the level matrix
@@ -62,6 +65,7 @@ POLARS_TEST_FILES=(
     # #1911 alias-scoping pins: every case is parametrized pandas AND polars, and the
     # polars params (WITH-rebind decline parity, edge-identity collision crash) only run here
     graphistry/tests/compute/gfql/test_alias_scoping_semantics.py
+    graphistry/tests/compute/gfql/cypher/test_binding_seed_identity.py
     # #1712 reentry-carry seed pins: no module-level importorskip (pandas params run in
     # test-gfql-core), but the polars params — native carry restriction + the typed
     # scalar-carry declines — only ever run here

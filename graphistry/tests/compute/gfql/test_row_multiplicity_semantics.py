@@ -122,13 +122,10 @@ def test_pair_projection_control_unchanged(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.xfail(strict=True, reason="#1899 residual: whole-row endpoint projection still "
-                   "collapses multiplicity (b bound twice to node 3 must yield two rows)")
-def test_whole_row_endpoint_projection_multiplicity_residual(engine):
-    """Residual pin: `RETURN b` (whole entity) over the same match should be a
-    4-row bag (node 3 twice). Flip when the whole-row lane joins binding rows."""
+def test_whole_row_endpoint_projection_multiplicity(engine):
     df = _run("MATCH (a)-->(b) RETURN b", engine)
     assert len(df) == 4
+    assert _bag(df, "b.id") == [2, 3, 3, 4]
 
 
 # ===========================================================================

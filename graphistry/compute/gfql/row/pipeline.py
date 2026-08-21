@@ -4057,7 +4057,12 @@ class RowPipelineMixin:
         first_nodes = self._gfql_apply_alias_prefilter(
             first_nodes, first_alias, alias_prefilters
         )
-        state_df = first_nodes[[node_id_col]].copy().rename(columns={node_id_col: WALK_CURRENT_COL})
+        state_df = (
+            first_nodes[[node_id_col]]
+            .drop_duplicates(subset=[node_id_col], keep="first")
+            .copy()
+            .rename(columns={node_id_col: WALK_CURRENT_COL})
+        )
         alias_frames: Dict[str, DataFrameT] = {}
         if isinstance(first_alias, str):
             state_df[first_alias] = state_df[WALK_CURRENT_COL]
