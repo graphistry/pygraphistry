@@ -105,8 +105,9 @@ def _native_node_entity_text_expr(
 
     rows_df = view.frame
     cols = list(rows_df.columns)
-    if alias not in cols or "type" in cols:
-        return None  # typed (edge-ish) rows -> defer (NIE)
+    has_node_entity_shape = alias in cols and "type" not in cols
+    if not has_node_entity_shape:
+        return None
 
     def _c(field: str) -> pl.Expr:
         return pl.col(view.columns.get(field, field))
