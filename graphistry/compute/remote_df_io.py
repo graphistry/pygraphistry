@@ -9,8 +9,9 @@ into ``NaN``, and ``keep_default_na=False`` still turns ``'007'`` into ``7``.
 """
 from inspect import getmodule
 import warnings
-from typing import BinaryIO, Callable, List, Optional
+from typing import Any, BinaryIO, Callable, List, Optional
 
+from graphistry.Engine import Engine, EngineAbstractType, resolve_input_engine
 from graphistry.compute.exceptions import ErrorCode, GFQLRemoteError
 from graphistry.compute.typing import DataFrameT
 from graphistry.models.compute.chain_remote import DFImportArgs
@@ -44,6 +45,34 @@ def _frame_type_name(df: Optional[DataFrameT]) -> str:
 def _is_pandas_like(df: Optional[DataFrameT]) -> bool:
     import pandas as pd
     return df is None or isinstance(df, pd.DataFrame) or 'unittest.mock' in str(type(df))
+
+
+def resolve_remote_engine(
+    engine: EngineAbstractType,
+    g_or_df: Any,  # hygiene-ok: explicit-any -- mirrors resolve_input_engine graph-or-frame input
+    api_name: str,
+) -> Engine:
+    """Resolve a supported remote engine before auth, upload, or transport.
+
+    :param engine: Requested engine or ``auto``.
+    :param g_or_df: Graph or frame used to resolve ``auto``.
+    :param api_name: Public entry point named in the error message.
+    :return: A pandas or cudf engine.
+    :raises GFQLRemoteError: When the resolved engine is not supported remotely.
+    """
+    resolved = resolve_input_engine(engine, g_or_df)
+    if resolved in (Engine.PANDAS, Engine.CUDF):
+        return resolved
+
+    requested = getattr(engine, "value", engine)
+    raise GFQLRemoteError(
+        ErrorCode.E405,
+        f"{api_name}: remote execution supports only 'pandas' and 'cudf' engines; "
+        f"requested {requested!r}, which resolved to {resolved.value!r}.",
+        field="engine",
+        value=requested,
+        suggestion="Use engine='pandas', engine='cudf', or engine='auto' with supported frames.",
+    )
 
 
 def require_supported_frame_library(
