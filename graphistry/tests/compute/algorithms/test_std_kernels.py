@@ -142,6 +142,50 @@ def test_pagerank_weighted_personalized_matches_linear_system(method):
     )
 
 
+@pytest.mark.skipif(__import__("os").environ.get("TEST_CUDF") != "1", reason="cuDF tests need TEST_CUDF=1")
+def test_pagerank_cudf_fast_matches_pandas_full_controls():
+    cudf = pytest.importorskip("cudf")
+    edges = _edges([0, 0, 1, 2], [1, 2, 2, 0], [2.0, 1.0, 0.0, 4.0])
+    gpu_edges = cudf.from_pandas(edges)
+
+    expected_unweighted = K.pagerank(edges[["s", "d"]], "s", "d", 4, method="fast")
+    actual_unweighted = K.pagerank(gpu_edges[["s", "d"]], "s", "d", 4, method="fast")
+    assert actual_unweighted.to_pandas().to_numpy() == pytest.approx(expected_unweighted.to_numpy(), rel=1.0e-12, abs=1.0e-15)
+
+    personalization = pd.Series([0.7, 0.1, 0.1, 0.1])
+    nstart = pd.Series([0.0, 1.0, 0.0, 0.0])
+    out_weight = pd.Series([3.0, 0.0, 4.0, np.nan])
+    expected_weighted = K.pagerank(
+        edges,
+        "s",
+        "d",
+        4,
+        alpha=0.85,
+        personalization=personalization,
+        precomputed_vertex_out_weight=out_weight,
+        max_iter=1000,
+        tol=1.0e-12,
+        nstart=nstart,
+        weight="w",
+        method="fast",
+    )
+    actual_weighted = K.pagerank(
+        gpu_edges,
+        "s",
+        "d",
+        4,
+        alpha=0.85,
+        personalization=cudf.from_pandas(personalization),
+        precomputed_vertex_out_weight=cudf.from_pandas(out_weight),
+        max_iter=1000,
+        tol=1.0e-12,
+        nstart=cudf.from_pandas(nstart),
+        weight="w",
+        method="fast",
+    )
+    assert actual_weighted.to_pandas().to_numpy() == pytest.approx(expected_weighted.to_numpy(), rel=1.0e-12, abs=1.0e-15)
+
+
 def test_pagerank_nonconvergence_policy_and_fixed_alias():
     edges = _edges([0, 1], [1, 2])
     with pytest.raises(K.ConvergenceError):

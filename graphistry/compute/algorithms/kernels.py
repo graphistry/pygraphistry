@@ -147,6 +147,118 @@ def _pagerank_iterations(
     return current, converged
 
 
+def _pagerank_cudf_fast(
+    edges: DataFrameT,
+    src: str,
+    dst: str,
+    v_count: int,
+    weight: Optional[str],
+    out_weight: SeriesT,
+    is_dangling: SeriesT,
+    teleport: SeriesT,
+    initial: SeriesT,
+    damping: float,
+    max_iter: int,
+    tol: float,
+    stopping: Literal["convergence", "fixed_iterations"],
+) -> tuple[SeriesT, bool]:
+    """CuPy fast path with reusable dense buffers and fused atomic scatter."""
+    xp = array_namespace(edges)
+    src_values = series_to_array(edges[src])
+    dst_values = series_to_array(edges[dst])
+    out_weight_values = series_to_array(out_weight)
+    teleport_values = series_to_array(teleport)
+    initial_values = series_to_array(initial)
+    dangling_weights = series_to_array(is_dangling).astype(xp.float64, copy=False)
+    weight_values = series_to_array(edges[weight].reset_index(drop=True).astype("float64")) if weight is not None else None
+    weighted = weight_values is not None
+    weight_parameter = "const double* edge_weight," if weighted else ""
+    weight_factor = " * edge_weight[edge]" if weighted else ""
+    kernel_name = "graphistry_pagerank_scatter_weighted" if weighted else "graphistry_pagerank_scatter_unweighted"
+    scatter = xp.RawKernel(
+        f"""
+        extern "C" __global__
+        void {kernel_name}(
+            const int* src,
+            const int* dst,
+            const double* ranks,
+            const double* out_weight,
+            {weight_parameter}
+            double* inflow,
+            const unsigned long long edge_count
+        ) {{
+            unsigned long long edge =
+                (unsigned long long) blockDim.x * blockIdx.x + threadIdx.x;
+            const unsigned long long stride =
+                (unsigned long long) blockDim.x * gridDim.x;
+            for (; edge < edge_count; edge += stride) {{
+                const int source = src[edge];
+                const double denominator = out_weight[source];
+                if (denominator > 0.0) {{
+                    atomicAdd(
+                        &inflow[dst[edge]],
+                        (ranks[source] / denominator){weight_factor}
+                    );
+                }}
+            }}
+        }}
+        """,
+        kernel_name,
+    )
+    rank_update = xp.ElementwiseKernel(
+        "float64 inflow, float64 teleport, float64 dangling_mass, float64 alpha",
+        "float64 rank",
+        "rank = (1.0 - alpha) * teleport + alpha * (inflow + dangling_mass * teleport)",
+        "graphistry_pagerank_rank_update",
+    )
+    inflow = xp.empty(v_count, dtype=xp.float64)
+    next_values = xp.empty(v_count, dtype=xp.float64)
+    edge_count = int(src_values.size)
+    edge_count_arg = xp.uint64(edge_count)
+    threads = 256
+    blocks = min(65535, max(1, (edge_count + threads - 1) // threads))
+
+    def step(current: ArrayLike) -> tuple[ArrayLike, float, float]:
+        nonlocal next_values
+        inflow.fill(0.0)
+        args = (
+            (
+                src_values,
+                dst_values,
+                current,
+                out_weight_values,
+                weight_values,
+                inflow,
+                edge_count_arg,
+            )
+            if weighted
+            else (
+                src_values,
+                dst_values,
+                current,
+                out_weight_values,
+                inflow,
+                edge_count_arg,
+            )
+        )
+        scatter((blocks,), (threads,), args)
+        dangling_mass = xp.dot(current, dangling_weights)
+        rank_update(
+            inflow,
+            teleport_values,
+            dangling_mass,
+            damping,
+            next_values,
+        )
+        new = next_values
+        total, delta = to_host_floats((new.sum(), xp.absolute(new - current).sum()))
+        next_values = current
+        return new, total, delta
+
+    result, converged = _pagerank_iterations(initial_values, step, max_iter, tol, stopping)
+    return series_from_array(edges, result), converged
+
+
 def _pagerank_fast(
     edges: DataFrameT,
     src: str,
@@ -163,6 +275,22 @@ def _pagerank_fast(
     stopping: Literal["convergence", "fixed_iterations"],
 ) -> tuple[SeriesT, bool]:
     """Backend-native dense reduction without dataframe materialization."""
+    if is_cudf(edges):
+        return _pagerank_cudf_fast(
+            edges,
+            src,
+            dst,
+            v_count,
+            weight,
+            out_weight,
+            is_dangling,
+            teleport,
+            initial,
+            damping,
+            max_iter,
+            tol,
+            stopping,
+        )
     xp = array_namespace(edges)
     src_values = series_to_array(edges[src])
     dst_values = series_to_array(edges[dst])
@@ -321,11 +449,26 @@ def pagerank(
             raise ValueError(f"pagerank {name} values must have a positive sum")
         return out / total
 
+    use_fast = method == "fast" or (method == "auto" and chunks == 1)
+    use_cudf_fast = use_fast and is_cudf(edges)
+
     if weight is None:
-        sums = edges.groupby(src, sort=False).size().reset_index(name="__out")
-        computed_out = align(
-            edges, v_count, sums, src, "__out", full(edges, v_count, 0.0, "float64")
-        )
+        if use_cudf_fast:
+            xp = array_namespace(edges)
+            computed_out = series_from_array(
+                edges,
+                xp.bincount(series_to_array(edges[src]), minlength=v_count).astype(xp.float64, copy=False),
+            )
+        else:
+            sums = edges.groupby(src, sort=False).size().reset_index(name="__out")
+            computed_out = align(
+                edges,
+                v_count,
+                sums,
+                src,
+                "__out",
+                full(edges, v_count, 0.0, "float64"),
+            )
     else:
         if weight not in edges.columns:
             raise ValueError(f"pagerank weight column {weight!r} is missing")
@@ -337,15 +480,31 @@ def pagerank(
         )
         if to_host_int(invalid_weight.sum()) != 0:
             raise ValueError("pagerank edge weights must be finite and non-negative")
-        sums = (
-            df_cons(edges, {src: edges[src], "__out": edge_weight})
-            .groupby(src, sort=False)["__out"]
-            .sum()
-            .reset_index()
-        )
-        computed_out = align(
-            edges, v_count, sums, src, "__out", full(edges, v_count, 0.0, "float64")
-        )
+        if use_cudf_fast:
+            xp = array_namespace(edges)
+            computed_out = series_from_array(
+                edges,
+                xp.bincount(
+                    series_to_array(edges[src]),
+                    weights=series_to_array(edge_weight),
+                    minlength=v_count,
+                ).astype(xp.float64, copy=False),
+            )
+        else:
+            sums = (
+                df_cons(edges, {src: edges[src], "__out": edge_weight})
+                .groupby(src, sort=False)["__out"]
+                .sum()
+                .reset_index()
+            )
+            computed_out = align(
+                edges,
+                v_count,
+                sums,
+                src,
+                "__out",
+                full(edges, v_count, 0.0, "float64"),
+            )
 
     out_weight = computed_out
     if precomputed_vertex_out_weight is not None:
@@ -373,7 +532,6 @@ def pagerank(
     d = float(alpha)
     _ = dangling
 
-    use_fast = method == "fast" or (method == "auto" and chunks == 1)
     if use_fast:
         pr, converged = _pagerank_fast(
             edges,
