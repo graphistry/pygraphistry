@@ -148,11 +148,11 @@ def circle_layout(
     to_arr = s_to_arr(engine_concrete)
     cons = df_cons(engine_concrete)
 
-    num_nodes = len(self._nodes)
+    g = self.materialize_nodes()
+    num_nodes = len(g._nodes)
     if num_nodes == 0:
         return self
 
-    g = self.materialize_nodes()
     g = g.nodes(g._nodes.reset_index(drop=True))
 
     # Optional sorting (if 'by' is specified)
@@ -215,6 +215,8 @@ def circle_layout(
             assert len(bounding_box) == 4, f'Invalid bounding box: {bounding_box}, types: {[type(val) for val in bounding_box]}'
             center_x, center_y, width, height = bounding_box
         else:
+            if 'x' not in g._nodes.columns or 'y' not in g._nodes.columns:
+                raise ValueError('circle_layout requires either bounding_box= or existing x/y node positions')
             node_min_x = g._nodes['x'].min()
             node_max_x = g._nodes['x'].max()
             node_min_y = g._nodes['y'].min()
@@ -243,8 +245,15 @@ def circle_layout(
 
             assert isinstance(bounding_box, cons), f'Invalid bounding box type, expected {cons}, got {type(bounding_box)}'
 
+            bounding_box_keyed = bounding_box.rename(columns={'partition_key': partition_by})
+            if partition_by in bounding_box_keyed.columns:
+                key_col = bounding_box_keyed[partition_by]
+                duplicated_keys = key_col[key_col.duplicated()]
+                if len(duplicated_keys) > 0:
+                    raise ValueError(f'bounding_box has duplicate partition_key values: {sorted(set(to_arr(duplicated_keys)))}')
+
             nodes_with_partitions = g._nodes.merge(
-                bounding_box.rename(columns={'partition_key': partition_by}),
+                bounding_box_keyed,
                 how='left',
                 on=partition_columns
             ).sort_values(by=partition_columns).reset_index(drop=True)
