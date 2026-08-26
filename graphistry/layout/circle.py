@@ -148,12 +148,12 @@ def circle_layout(
     to_arr = s_to_arr(engine_concrete)
     cons = df_cons(engine_concrete)
 
-    num_nodes = len(self._nodes)
-    if num_nodes == 0:
-        return self
-
     g = self.materialize_nodes()
     g = g.nodes(g._nodes.reset_index(drop=True))
+
+    num_nodes = len(g._nodes)
+    if num_nodes == 0:
+        return g
 
     # Optional sorting (if 'by' is specified)
 
