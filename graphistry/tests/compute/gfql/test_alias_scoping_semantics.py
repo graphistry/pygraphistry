@@ -21,6 +21,8 @@ Four defects, all pinned on BOTH engines with hand-computed openCypher oracles:
 Discriminating controls from the probe are pinned alongside each fix so a future
 regression cannot pass by repairing only one side.
 """
+from typing import Literal
+
 import pandas as pd
 import pytest
 
@@ -457,30 +459,26 @@ def test_with_rebind_edge_alias_onto_edge_alias_declines(engine: str) -> None:
     assert exc_info.value.context["value"] == "r AS q"
 
 
-@pytest.mark.parametrize(
-    ("query", "value"),
-    [
-        (
-            "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a AS r RETURN r.type AS t",
-            "a AS r",
-        ),
-        (
-            "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH r AS b RETURN b.w AS t",
-            "r AS b",
-        ),
-    ],
-    ids=["node_onto_edge", "edge_onto_node"],
-)
-def test_cross_kind_entity_rebinds_decline_at_compile_time(query: str, value: str) -> None:
+def test_node_onto_edge_entity_rebind_declines_at_compile_time() -> None:
+    query = "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a AS r RETURN r.type AS t"
     with pytest.raises(GFQLValidationError) as exc_info:
         compile_cypher(query)
     assert exc_info.value.code == ErrorCode.E108
     assert "rebind an entity alias" in str(exc_info.value)
-    assert exc_info.value.context["value"] == value
+    assert exc_info.value.context["value"] == "a AS r"
+
+
+def test_edge_onto_node_entity_rebind_declines_at_compile_time() -> None:
+    query = "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH r AS b RETURN b.w AS t"
+    with pytest.raises(GFQLValidationError) as exc_info:
+        compile_cypher(query)
+    assert exc_info.value.code == ErrorCode.E108
+    assert "rebind an entity alias" in str(exc_info.value)
+    assert exc_info.value.context["value"] == "r AS b"
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_scalar_rebind_stays_an_error(engine: str) -> None:
+def test_scalar_rebind_stays_an_error(engine: Literal["pandas", "polars"]) -> None:
     query = "MATCH (a:Person)-[r:KNOWS]->(b:Person) WITH a.name AS b RETURN b.name AS t"
     if engine == "pandas":
         with pytest.raises(GFQLTypeError) as exc_info:
