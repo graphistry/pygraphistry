@@ -39,12 +39,13 @@ Graphs consist of node and edge dataframes:
   - Edge destination attribute: `g._destination` (e.g., "destination", "to")
 - GFQL infers nodes from edge references when only edges are provided
 
-#### NULL Node IDs and Edge Endpoints
+#### NULL Identity Resolution and Edge Endpoints
 
-**A NULL id is not an identity.** An edge whose source or destination is NULL matches no
-pattern edge, on every surface (`hop`, chains, Cypher rows, Cypher aggregates), from either
-direction, and whether or not the node table holds a row with a NULL id. A NULL seed id
-likewise resolves to no node.
+**A NULL id is not a graph identity.** A source row with NULL in a bound node-id or
+edge-endpoint column does not define that identity. An edge whose source or destination is
+NULL therefore matches no pattern edge, on every surface (`hop`, chains, Cypher rows, Cypher
+aggregates), from either direction, and whether or not the node table holds a row with a NULL
+id. A NULL seed id likewise resolves to no node.
 
 This follows openCypher's three-valued logic: `null = null` evaluates to UNKNOWN rather than
 TRUE, so an endpoint that cannot be shown equal to any node identity binds nothing. It is also
@@ -52,14 +53,16 @@ the only reading under which a result is self-consistent — a linkable NULL end
 `MATCH (a)-[x]-(b) RETURN count(*)` disagree with the edges the same pattern returns, and lets
 a result frame carry an edge whose endpoint has no node row.
 
-The rule constrains endpoint **resolution** only:
+The rule constrains identity and endpoint **resolution**. It does not define a new input
+validation policy:
 
-- A node row with a NULL id is still a row. `MATCH (a) RETURN count(*)` counts it, and
-  attribute predicates still apply to it.
+- Existing permissive DataFrame ingestion and node-only row scans remain unchanged for
+  compatibility. That pass-through behavior does not make NULL a valid node identity and is
+  outside this endpoint-resolution contract.
 - `OPTIONAL MATCH` still produces NULL **bindings** for an unmatched optional pattern. Those
-  are result values, not edge endpoints.
-- Nothing is rejected: a NULL endpoint is a well-formed input that matches nothing, not an
-  error. There is no error code for it.
+  are result values, not source graph identities or edge endpoints.
+- This release does not add an error for NULL source identity values. Pattern matching and
+  traversal tolerate them by treating them as unresolved.
 - `get_degrees` / `get_indegrees` / `get_outdegrees` are raw edge-row tallies, not pattern
   matches, so they still count a NULL-endpoint edge on whichever endpoint is an identity. A
   degree column can therefore exceed the number of edges a pattern will match at that node.
@@ -69,7 +72,6 @@ The rule constrains endpoint **resolution** only:
 # nodes id = [0, 1, 2, NULL];  edges (0,1) (1,2) (NULL,2) (2,NULL)
 g.gfql([n(), e_undirected(), n()])            # edges (0,1) and (1,2); nodes {0, 1, 2}
 g.gfql('MATCH (a)-[x]-(b) RETURN count(*)')   # 4  -- two edges, two orientations each
-g.gfql('MATCH (a) RETURN count(*)')           # 4  -- the NULL-id node row is still a row
 ```
 
 #### GFQL Programs
