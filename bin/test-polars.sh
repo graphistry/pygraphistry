@@ -53,6 +53,9 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_optional_match_semantics.py
     graphistry/tests/compute/gfql/test_optional_match_with_pipeline_boundaries.py
     graphistry/tests/compute/gfql/test_row_multiplicity_semantics.py
+    # whole-entity RETURN bag multiplicity: engine-parametrized pandas/polars/cudf, and the
+    # polars params (multi-entity binding-row rendering) only ever run here
+    graphistry/tests/compute/gfql/test_whole_entity_projection_bag_1994.py
     graphistry/tests/compute/gfql/test_aggregate_identity_row_semantics.py
     graphistry/tests/compute/gfql/test_numeric_conformance_semantics.py
     # engine-parametrized absent-name strictness: the polars params of the level matrix

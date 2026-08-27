@@ -5,6 +5,7 @@ import typing
 from graphistry.Engine import is_polars_df
 from graphistry.compute.typing import DataFrameT
 
+# Preserve the caller's pandas/cuDF/Polars frame flavor; DataFrameT is pandas-only in type checks.
 EndpointFrameT = typing.TypeVar("EndpointFrameT")
 
 
