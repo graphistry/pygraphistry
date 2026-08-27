@@ -4,15 +4,16 @@ Pins the three levels, the bool mapping, the validator/executor agreement matrix
 schema-declared typo-vs-narrow-instance disambiguation, and the remote wire field.
 """
 
-import typing
-import warnings
 from typing import Any, Dict, List, Optional
 from unittest import mock
+import typing
+import warnings
 
 import pandas as pd
 import pytest
 
 import graphistry
+from graphistry.Plottable import Plottable
 from graphistry.compute.chain_remote import chain_remote_generic
 from graphistry.compute.exceptions import GFQLSchemaError, GFQLValidationError
 from graphistry.compute.gfql.strictness import (
@@ -26,8 +27,8 @@ from graphistry.compute.gfql.strictness import (
     strict_level_to_bool,
 )
 from graphistry.compute.gfql_validate import gfql_validate
-from graphistry.Plottable import Plottable
 from graphistry.schema import EdgeType, GraphSchema, NodeType
+
 
 ABSENT_LABEL = "MATCH (n:Nope) RETURN n.id AS id"
 ABSENT_PROP_RETURN = "MATCH (n) RETURN n.nope_col AS c"

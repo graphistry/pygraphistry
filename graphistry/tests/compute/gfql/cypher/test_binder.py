@@ -853,3 +853,24 @@ def test_binder_strict_schema_rejects_missing_relationship_property_in_match_pat
     assert "weight" in err.context["value"]
     assert "disable strict mode" not in err.context["suggestion"]
     assert err.context["suggestion"] == "Use properties that exist in edge schema columns or extend the schema catalog."
+
+
+def test_binder_strict_schema_empty_declared_relationship_catalog_rejects_type() -> None:
+    ctx = PlanContext(
+        catalog=GraphSchemaCatalog.from_schema_parts(
+            node_columns=["id"],
+            edge_columns=["src", "dst", "type"],
+            metadata={"strict": True, "edge_types": ()},
+        )
+    )
+    with pytest.raises(GFQLValidationError) as exc_info:
+        FrontendBinder().bind(
+            parse_cypher("MATCH (a)-[r:NOPE]->(b) RETURN r"),
+            ctx,
+            strict_name_resolution=True,
+        )
+    err = exc_info.value
+    assert err.code == ErrorCode.E301
+    assert err.context["relationship_type"] == "NOPE"
+    assert err.context["available_relationship_types"] == ()
+    assert err.context["field"].endswith(".types")
