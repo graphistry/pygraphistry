@@ -1,7 +1,7 @@
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union, cast, overload
 from typing_extensions import Literal
 from graphistry.privacy import Mode, ModeAction
-from graphistry.utils.requests import log_requests_error
+from graphistry.utils.requests import log_requests_error, switch_org_request, OrgSwitchError, OrgSwitchIdpChallenge
 from graphistry.plugins_types.hypergraph import HypergraphResult
 from graphistry.plugins_types.gexf_types import GexfEdgeViz, GexfNodeViz, GexfParseEngine
 from graphistry.client_session import (
@@ -2551,10 +2551,8 @@ class GraphistryClient(AuthManagerProtocol):
             extra,
         )
 
-    def _switch_org_url(self, org_name):
-        hostname = self.session.hostname
-        protocol = self.session.protocol
-        return "{}://{}/api/v2/o/{}/switch/".format(protocol, hostname, org_name)
+    def _base_url(self) -> str:
+        return "{}://{}".format(self.session.protocol, self.session.hostname)
 
 
     def layout_settings(self, 
@@ -2699,42 +2697,14 @@ class GraphistryClient(AuthManagerProtocol):
         self.session.personal_key_secret = value.strip()
 
     def switch_org(self, value: str):
-        # print(self._switch_org_url(value))
-        response = requests.post(
-            self._switch_org_url(value),
-            data={'slug': value},
-            headers=inject_trace_headers({'Authorization': f'Bearer {self.api_token()}'}),
-            verify=self.session.certificate_validation,
-        )
-        log_requests_error(response)
-        result = self._handle_api_response(response)
+        org_name = value.strip()
+        try:
+            switch_org_request(self._base_url(), org_name, self.api_token(), self.session.certificate_validation)
+        except (OrgSwitchError, OrgSwitchIdpChallenge) as exc:
+            raise Exception(str(exc))
 
-        if result is True:
-            # Server-side quirk: for an org the caller is a plain member of
-            # (not owner/admin) that has its own SSO IDP configured, the
-            # switch endpoint still returns status=='OK' but does NOT
-            # actually switch -- it instead returns an SSO challenge
-            # (data['idp']) requiring a fresh org-scoped SSO login before the
-            # switch is honored. Treating that as success would silently
-            # leave the caller on their previous org.
-            try:
-                data = response.json().get('data', {})
-            except Exception:
-                data = {}
-            if isinstance(data, dict) and data.get('idp'):
-                idp_names = list(data['idp'].keys())
-                raise Exception(
-                    "Switching to organization '{}' requires SSO re-authentication "
-                    "(idp: {}) -- the server did not actually switch. Complete the "
-                    "auth_url in the response's data['idp'], or use "
-                    "sso_login(org_name='{}') instead of switch_org().".format(
-                        value.strip(), idp_names, value.strip()
-                    )
-                )
-            self.session.org_name = value.strip()
-            logger.info("Switched to organization: {}".format(value.strip()))
-        else:  # print the error message
-            raise Exception(result)
+        self.session.org_name = org_name
+        logger.info("Switched to organization: {}".format(org_name))
 
     def _handle_api_response(self, response):
         try:

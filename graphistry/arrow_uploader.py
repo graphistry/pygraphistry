@@ -16,7 +16,7 @@ from .io.metadata import (
 
 from .exceptions import TokenExpireException
 from .validate.validate_encodings import validate_encodings
-from .utils.requests import log_requests_error
+from .utils.requests import log_requests_error, switch_org_request, OrgSwitchError, OrgSwitchIdpChallenge
 from .util import setup_logger
 from graphistry.models.types import ValidationParam
 logger = setup_logger(__name__)
@@ -239,36 +239,21 @@ class ArrowUploader:
         if last == (org_name, token):
             return
         try:
-            switch_url = f"{self.server_base_path}/api/v2/o/{org_name}/switch/"
-            response = requests.post(
-                switch_url,
-                data={'slug': org_name},
-                headers=inject_trace_headers({'Authorization': f'Bearer {token}'}),
-                verify=self.certificate_validation,
-            )
-            log_requests_error(response)
-            if not (200 <= response.status_code < 300):
-                logger.warning(
-                    "Org switch to %s failed with HTTP %s; not recording switch",
-                    org_name, response.status_code
-                )
-                return
-            try:
-                body = response.json().get('data', {})
-            except Exception:
-                body = {}
-            if isinstance(body, dict) and body.get('idp'):
-                logger.warning(
-                    "Org switch to %s returned an SSO challenge; not recording switch",
-                    org_name
-                )
-                return
-            self._client_session._last_switched_org_token = (org_name, token)
-            from .pygraphistry import PyGraphistry
-            if PyGraphistry.session is self._client_session:
-                PyGraphistry.session._last_switched_org_token = (org_name, token)
+            switch_org_request(self.server_base_path, org_name, token, self.certificate_validation)
+        except OrgSwitchError as exc:
+            logger.warning("%s; not recording switch", exc)
+            return
+        except OrgSwitchIdpChallenge as exc:
+            logger.warning("%s; not recording switch", exc)
+            return
         except Exception as exc:
             logger.warning("Failed to switch organization %s: %s", org_name, exc)
+            return
+
+        self._client_session._last_switched_org_token = (org_name, token)
+        from .pygraphistry import PyGraphistry
+        if PyGraphistry.session is self._client_session:
+            PyGraphistry.session._last_switched_org_token = (org_name, token)
 
 
     def login(self, username, password, org_name=None):
