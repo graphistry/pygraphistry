@@ -1,4 +1,6 @@
 import json
+from typing import Any, Dict
+
 import requests
 
 from graphistry.otel import inject_trace_headers
@@ -20,7 +22,7 @@ def log_requests_error(resp: requests.Response) -> None:
 class OrgSwitchError(Exception):
     """Org switch endpoint responded with a non-2xx status or a non-OK body status."""
 
-    def __init__(self, org_name: str, status_code: int, detail: str = ''):
+    def __init__(self, org_name: str, status_code: int, detail: str = '') -> None:
         self.org_name = org_name
         self.status_code = status_code
         self.detail = detail
@@ -39,7 +41,7 @@ class OrgSwitchIdpChallenge(Exception):
     caller on their previous org.
     """
 
-    def __init__(self, org_name: str, idp: dict):
+    def __init__(self, org_name: str, idp: Dict[str, Any]) -> None:  # hygiene-ok: explicit-any -- idp is arbitrary server-provided JSON
         self.org_name = org_name
         self.idp = idp
         super().__init__(
