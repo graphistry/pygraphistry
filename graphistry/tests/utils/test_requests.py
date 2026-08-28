@@ -9,6 +9,7 @@ except ImportError:  # pragma: no cover - fallback for stdlib-only envs
 
 from graphistry.arrow_uploader import ArrowUploader
 from graphistry.client_session import ClientSession
+from graphistry.utils import requests as switch_org_requests_module
 from graphistry.utils.requests import (
     OrgSwitchError,
     OrgSwitchIdpChallenge,
@@ -32,7 +33,7 @@ class FakeResponse(object):
 
 
 class TestSwitchOrgRequest(unittest.TestCase):
-    @mock.patch("graphistry.utils.requests.requests.post")
+    @mock.patch.object(switch_org_requests_module.requests, "post")
     def test_success(self, mock_post):
         mock_post.return_value = FakeResponse(200, {"status": "OK", "data": []})
         # Should not raise
@@ -43,7 +44,7 @@ class TestSwitchOrgRequest(unittest.TestCase):
         assert kwargs["headers"]["Authorization"] == "Bearer tok"
         assert kwargs["verify"] is True
 
-    @mock.patch("graphistry.utils.requests.requests.post")
+    @mock.patch.object(switch_org_requests_module.requests, "post")
     def test_http_error_status(self, mock_post):
         mock_post.return_value = FakeResponse(404, {"status": "Failed", "message": "not found"})
         with self.assertRaises(OrgSwitchError) as cm:
@@ -52,7 +53,7 @@ class TestSwitchOrgRequest(unittest.TestCase):
         assert cm.exception.org_name == "no-such-org"
         assert "404" in str(cm.exception)
 
-    @mock.patch("graphistry.utils.requests.requests.post")
+    @mock.patch.object(switch_org_requests_module.requests, "post")
     def test_body_status_not_ok_with_detail(self, mock_post):
         mock_post.return_value = FakeResponse(200, {"status": "Failed", "message": "not permitted"})
         with self.assertRaises(OrgSwitchError) as cm:
@@ -60,7 +61,7 @@ class TestSwitchOrgRequest(unittest.TestCase):
         assert cm.exception.detail == "not permitted"
         assert "not permitted" in str(cm.exception)
 
-    @mock.patch("graphistry.utils.requests.requests.post")
+    @mock.patch.object(switch_org_requests_module.requests, "post")
     def test_unparseable_json_body_treated_as_failure(self, mock_post):
         mock_post.return_value = FakeResponse(200, None, raise_on_json=True)
         with self.assertRaises(OrgSwitchError) as cm:
@@ -68,7 +69,7 @@ class TestSwitchOrgRequest(unittest.TestCase):
         # falls back to body={} -> status missing -> not 'OK'
         assert cm.exception.detail == ""
 
-    @mock.patch("graphistry.utils.requests.requests.post")
+    @mock.patch.object(switch_org_requests_module.requests, "post")
     def test_idp_challenge(self, mock_post):
         idp = {"auth_url": "https://sso-idp-host/authorize?state=xxx"}
         mock_post.return_value = FakeResponse(
