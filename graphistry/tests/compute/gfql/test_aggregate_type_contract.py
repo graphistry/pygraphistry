@@ -853,6 +853,25 @@ def test_polars_agg_result_cast_fires_only_where_polars_misses_the_contract():
     assert cast_to("collect", pl.Boolean) is None
 
 
+def test_polars_boolean_sum_null_fill_is_scoped_to_exact_boundary():
+    """Only Boolean ``sum`` repairs a null aggregate result to Cypher's zero."""
+    from graphistry.compute.gfql.agg_types import polars_conform_agg_dtype as conform
+
+    source = pl.DataFrame({"one": [1]})
+
+    boolean_sum = source.select(conform(pl.lit(None), "sum", pl.Boolean, "out"))
+    assert boolean_sum.schema["out"] == pl.Int64
+    assert boolean_sum["out"][0] == 0
+
+    boolean_count = source.select(conform(pl.lit(None), "count", pl.Boolean, "out"))
+    assert boolean_count.schema["out"] == pl.Int64
+    assert boolean_count["out"][0] is None
+
+    integer_sum = source.select(conform(pl.lit(None), "sum", pl.Int64, "out"))
+    assert integer_sum.schema["out"] == pl.Null
+    assert integer_sum["out"][0] is None
+
+
 def test_polars_all_null_literal_is_a_typed_integer_zero():
     """A bare ``pl.lit(0)`` is ``Int32`` -- a width neither pandas nor cuDF ever produces, so the
     all-null substitution would reintroduce the very dtype divergence the cast above removes."""
