@@ -2699,7 +2699,9 @@ class GraphistryClient(AuthManagerProtocol):
     def switch_org(self, value: str):
         org_name = value.strip()
         try:
-            switch_org_request(self._base_url(), org_name, self.api_token(), self.session.certificate_validation)
+            switch_org_request(
+                self._base_url(), org_name, self.api_token(), self.session.certificate_validation  # type: ignore[arg-type]
+            )
         except (OrgSwitchError, OrgSwitchIdpChallenge) as exc:
             raise Exception(str(exc))
 
