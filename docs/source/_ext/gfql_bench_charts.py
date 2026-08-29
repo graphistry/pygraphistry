@@ -22,7 +22,8 @@ from __future__ import annotations
 import argparse
 import os
 from collections import OrderedDict
-from typing import Dict, List, NamedTuple, Optional, Sequence
+from collections.abc import Sequence
+from typing import NamedTuple
 
 from gfql_bench_data import BENCHMARKS_JSON, JSONObject, format_cell, load
 
@@ -66,8 +67,8 @@ class Bar(NamedTuple):
 
     label: str
     tone: str
-    value: Optional[str]
-    ratio: Optional[str] = None
+    value: str | None
+    ratio: str | None = None
     note: str = ''
 
 
@@ -78,7 +79,7 @@ class Chart(NamedTuple):
     foot: str
 
 
-CHARTS = OrderedDict((
+CHARTS: dict[str, Chart] = OrderedDict((
     ('twitter_pipeline.svg', Chart(
         title='Twitter: 81,306 nodes / 2.4M edges',
         subtitle='Warm pipeline \u2014 search, PageRank, search \u2014 on the resident '
@@ -86,13 +87,12 @@ CHARTS = OrderedDict((
         bars=(
             Bar('Neo4j + GDS', 'neo', 'pagerank.twitter.neo4j_gds'),
             Bar('GFQL Cypher on CPU (pandas + igraph)', 'cpu',
-                'pagerank.twitter.gfql_cpu', 'pagerank.twitter.gfql_cpu_vs_neo4j_gds',
-                'faster than Neo4j + GDS'),
+                'pagerank.twitter.gfql_cpu'),
             Bar('GFQL Cypher on GPU (cuDF + cuGraph)', 'gpu',
-                'pagerank.twitter.gfql_gpu', 'pagerank.twitter.gfql_gpu_vs_neo4j_gds',
-                'faster than Neo4j + GDS'),
+                'pagerank.twitter.gfql_gpu', 'pagerank.twitter.gfql_gpu_vs_gfql_cpu',
+                'faster than the GFQL CPU path'),
         ),
-        foot='All three arms select the same nodes: Jaccard 0.97 or better on every pair.',
+        foot='Direct timings use different profiles; only the GFQL GPU/CPU ratio is valid.',
     )),
     ('gplus_pipeline.svg', Chart(
         title='GPlus: 107,614 nodes / 30M edges',
@@ -107,7 +107,7 @@ CHARTS = OrderedDict((
         foot='Neo4j lost its Bolt connection mid-transaction on the first warmup '
              'iteration; no GPlus figure exists.',
     )),
-))  # type: Dict[str, Chart]
+))
 
 
 class ChartError(Exception):
@@ -203,13 +203,13 @@ def render(name: str, payload: JSONObject) -> str:
     return '\n'.join(out) + '\n'
 
 
-def rendered(payload: Optional[JSONObject] = None) -> Dict[str, str]:
+def rendered(payload: JSONObject | None = None) -> dict[str, str]:
     """Every chart, keyed by file name, rendered from the vendored artifact."""
     data = payload if payload is not None else load(BENCHMARKS_JSON)
     return OrderedDict((name, render(name, data)) for name in CHARTS)
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out-dir', default=CHART_DIR)
     parser.add_argument('--write', action='store_true',
@@ -219,10 +219,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.write:
         os.makedirs(args.out_dir, exist_ok=True)
 
-    stale = []  # type: List[str]
+    stale: list[str] = []
     for name, svg in rendered().items():
         path = os.path.join(args.out_dir, name)
-        current = None  # type: Optional[str]
+        current: str | None = None
         if os.path.exists(path):
             with open(path, encoding='utf-8') as handle:
                 current = handle.read()

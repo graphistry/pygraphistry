@@ -18,6 +18,7 @@ import json
 import os
 import re
 import sys
+from collections.abc import Iterator
 
 import pytest
 
@@ -33,23 +34,23 @@ BENCH_REF = re.compile(r':(bench|bench-diag):`([^`]+)`')
 
 
 @pytest.fixture(scope='module')
-def payload():
+def payload() -> bench.JSONObject:
     return bench.load(bench.BENCHMARKS_JSON)
 
 
 @pytest.fixture(scope='module')
-def contract():
+def contract() -> bench.JSONObject:
     return bench.load(bench.CONTRACT_JSON)
 
 
-def _rst_sources():
+def _rst_sources() -> Iterator[str]:
     for root, _dirs, files in os.walk(SOURCE_DIR):
         for name in files:
             if name.endswith('.rst') or name.endswith('.md'):
                 yield os.path.join(root, name)
 
 
-def _references():
+def _references() -> Iterator[tuple[str, str, bool]]:
     """(path, key, is_diagnostic) for every benchmark reference in the docs."""
     for path in sorted(_rst_sources()):
         with open(path, encoding='utf-8') as handle:
@@ -135,7 +136,11 @@ def test_a_caveated_number_without_its_caveat_is_rejected(payload, contract):
     assert 'carries no disclosure' in str(excinfo.value)
 
 
-def _use(key, diagnostic=False, today=None):
+def _use(
+    key: str,
+    diagnostic: bool = False,
+    today: datetime.date | None = None,
+) -> list[str]:
     """Reference a benchmark key the way a page does, and report what broke.
 
     Deliberately does not go through Sphinx: the decision lives in the stdlib-only
@@ -181,6 +186,115 @@ def test_an_artifact_from_another_contract_version_is_rejected(payload, contract
     with pytest.raises(bench.BenchDataError) as excinfo:
         bench.reverify(broken, contract)
     assert 'contract_version' in str(excinfo.value)
+
+
+def _ratio_key(payload: bench.JSONObject) -> str:
+    cells = payload['cells']
+    assert isinstance(cells, dict)
+    return next(
+        key for key, cell in sorted(cells.items())
+        if isinstance(cell, dict) and cell.get('unit') == 'x')
+
+
+def test_a_negative_value_is_rejected(
+    payload: bench.JSONObject,
+    contract: bench.JSONObject,
+) -> None:
+    broken = json.loads(json.dumps(payload))
+    key = sorted(broken['cells'])[0]
+    broken['cells'][key]['value'] = -1
+    with pytest.raises(bench.BenchDataError) as excinfo:
+        bench.reverify(broken, contract)
+    assert 'finite non-negative number' in str(excinfo.value)
+
+
+def test_a_ratio_without_two_distinct_published_operands_is_rejected(
+    payload: bench.JSONObject,
+    contract: bench.JSONObject,
+) -> None:
+    broken = json.loads(json.dumps(payload))
+    key = _ratio_key(payload)
+    broken['cells'][key]['operands'] = [key, key]
+    with pytest.raises(bench.BenchDataError) as excinfo:
+        bench.reverify(broken, contract)
+    assert 'exactly two distinct cell keys' in str(excinfo.value)
+
+
+def test_a_ratio_over_an_unpublished_operand_is_rejected(
+    payload: bench.JSONObject,
+    contract: bench.JSONObject,
+) -> None:
+    broken = json.loads(json.dumps(payload))
+    key = _ratio_key(payload)
+    broken['cells'][key]['operands'][0] = 'missing.operand'
+    with pytest.raises(bench.BenchDataError) as excinfo:
+        bench.reverify(broken, contract)
+    assert 'operands name unpublished cells' in str(excinfo.value)
+
+
+def test_a_ratio_across_measurement_profiles_is_rejected(
+    payload: bench.JSONObject,
+    contract: bench.JSONObject,
+) -> None:
+    broken = json.loads(json.dumps(payload))
+    key = _ratio_key(payload)
+    operand = broken['cells'][key]['operands'][0]
+    broken['cells'][operand]['measurement_profile'] = 'different-profile'
+    with pytest.raises(bench.BenchDataError) as excinfo:
+        bench.reverify(broken, contract)
+    assert 'share one non-empty measurement_profile' in str(excinfo.value)
+
+
+def test_a_derived_cell_cannot_be_more_quotable_than_an_operand(
+    payload: bench.JSONObject,
+    contract: bench.JSONObject,
+) -> None:
+    broken = json.loads(json.dumps(payload))
+    key = _ratio_key(payload)
+    operand = broken['cells'][key]['operands'][0]
+    broken['cells'][operand]['board_quotable'] = False
+    with pytest.raises(bench.BenchDataError) as excinfo:
+        bench.reverify(broken, contract)
+    assert 'more quotable than an operand' in str(excinfo.value)
+
+
+def test_a_derived_cell_cannot_be_more_comparable_than_an_operand(
+    payload: bench.JSONObject,
+    contract: bench.JSONObject,
+) -> None:
+    broken = json.loads(json.dumps(payload))
+    key = _ratio_key(payload)
+    operand = broken['cells'][key]['operands'][0]
+    broken['cells'][operand]['comparison_allowed'] = False
+    broken['cells'][operand]['board_quotable'] = False
+    broken['cells'][operand]['disclosures'].append('comparison withdrawn')
+    with pytest.raises(bench.BenchDataError) as excinfo:
+        bench.reverify(broken, contract)
+    assert 'more comparable than an operand' in str(excinfo.value)
+
+
+def test_operand_disclosures_travel_to_the_derived_cell(
+    payload: bench.JSONObject,
+    contract: bench.JSONObject,
+) -> None:
+    broken = json.loads(json.dumps(payload))
+    key = _ratio_key(payload)
+    operand = broken['cells'][key]['operands'][0]
+    broken['cells'][operand]['disclosures'].append('new operand caveat')
+    with pytest.raises(bench.BenchDataError) as excinfo:
+        bench.reverify(broken, contract)
+    assert 'operand disclosure did not travel' in str(excinfo.value)
+
+
+def test_cross_profile_ratios_stay_unpublished(payload: bench.JSONObject) -> None:
+    cells = payload['cells']
+    assert isinstance(cells, dict)
+    assert 'pagerank.twitter.gfql_cpu_vs_neo4j_gds' not in cells
+    assert 'pagerank.twitter.gfql_gpu_vs_neo4j_gds' not in cells
+    assert not any(
+        key.startswith('graphbench.') and key.endswith('.polars_vs_kuzu')
+        for key in cells
+    )
 
 
 def test_every_chart_matches_the_published_numbers():

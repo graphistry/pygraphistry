@@ -1,5 +1,5 @@
-GFQL Cypher Benchmark: CPU/GPU DataFrames vs Neo4j
-==================================================
+GFQL Cypher Filter + PageRank Benchmark
+========================================
 
 .. image:: _static/gfql-mascot.png
    :alt: GFQL mascot
@@ -7,8 +7,8 @@ GFQL Cypher Benchmark: CPU/GPU DataFrames vs Neo4j
    :align: right
 
 Run Cypher graph queries and analytics directly on Python dataframes —
-no database required. This benchmark compares **Graphistry's local Cypher**
-(CPU and GPU) against **Neo4j + GDS** on the same end-to-end pipeline.
+no database required. This benchmark reports **Graphistry's local Cypher**
+(CPU and GPU) and **Neo4j + GDS** timings for the same pipeline shape.
 
 .. list-table::
    :header-rows: 1
@@ -18,26 +18,28 @@ no database required. This benchmark compares **Graphistry's local Cypher**
      - Neo4j + GDS
      - GFQL Cypher (CPU)
      - GFQL Cypher (GPU)
-     - GPU vs Neo4j
+     - GFQL GPU vs CPU
    * - **Twitter** (81,306 nodes / 2.4M edges)
      - :bench:`pagerank.twitter.neo4j_gds`
      - :bench:`pagerank.twitter.gfql_cpu`
      - :bench:`pagerank.twitter.gfql_gpu`
-     - :bench:`pagerank.twitter.gfql_gpu_vs_neo4j_gds`
+     - :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu`
    * - **GPlus** (107,614 nodes / 30M edges)
-     - *did not complete in time*
+     - *did not complete*
      - :bench:`pagerank.gplus.gfql_cpu`
      - :bench:`pagerank.gplus.gfql_gpu`
-     - *no ratio exists*
+     - :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu`
 
-Warm pipeline time — search, PageRank, search — on the resident graph.
+Warm pipeline time — search, PageRank, search. The GFQL arms retain resident frames;
+the Neo4j arm performs server round trips and rebuilds its GDS projection for every
+timed iteration. Those are different measurement profiles, so the direct timings are
+reported without a GFQL-vs-Neo4j speedup ratio.
 
-On Twitter the CPU path alone is :bench:`pagerank.twitter.gfql_cpu_vs_neo4j_gds` faster
-than Neo4j + GDS, before any GPU is involved. Moving the same query text to the GPU adds
-another :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu`; on the 30M-edge GPlus graph the
-GPU is :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu` faster than the CPU path.
+Within the shared resident GFQL profile, moving the same query text to the GPU is
+:bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu` faster on Twitter and
+:bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu` faster on the 30M-edge GPlus graph.
 
-On GPlus, Neo4j fails to finish in time.
+On GPlus, Neo4j did not complete the measured pipeline.
 
 The pipeline
 ------------
@@ -81,21 +83,22 @@ The same pipeline shape, different backends:
 The Neo4j equivalent requires ~30 lines of Cypher + GDS projection + batched
 writes (see :ref:`neo4j-analog` below).
 
-Twitter (2.4M edges): exact 3-way comparison
---------------------------------------------
+Twitter (2.4M edges): reported pipeline timings
+------------------------------------------------
 
 .. image:: _static/filter_pagerank/twitter_pipeline.svg
    :alt: Twitter warm pipeline time: Neo4j + GDS 11.72s, GFQL Cypher CPU 1.58s, GFQL Cypher GPU 0.24s
 
 - **Neo4j + GDS**: :bench:`pagerank.twitter.neo4j_gds`
 
-- **GFQL Cypher on CPU** (pandas + igraph): :bench:`pagerank.twitter.gfql_cpu` —
-  :bench:`pagerank.twitter.gfql_cpu_vs_neo4j_gds` faster than Neo4j + GDS on the same
-  host, with no GPU involved
+- **GFQL Cypher on CPU** (pandas + igraph): :bench:`pagerank.twitter.gfql_cpu`
 
 - **GFQL Cypher on GPU** (cuDF + cuGraph): :bench:`pagerank.twitter.gfql_gpu` —
-  :bench:`pagerank.twitter.gfql_gpu_vs_neo4j_gds` faster than Neo4j + GDS, and
-  :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu` faster than the CPU path
+  :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu` faster than the GFQL CPU path
+
+The Neo4j timing includes a per-iteration projection rebuild, while both GFQL timings
+reuse resident frames. The three direct values describe those pipelines; they do not
+support a cross-profile speedup claim.
 
 
 GPlus (30M edges): larger graph
@@ -118,13 +121,10 @@ seconds.
 Why this matters
 ----------------
 
-The CPU path already beats Neo4j without a GPU. You get Cypher-style graph
-search + PageRank directly on your dataframe, no database to stand up or
-maintain.
-
-The GPU path accelerates everything — ETL, search, and analytics — because
-``cudf`` and ``cugraph`` are drop-in replacements for ``pandas`` and ``igraph``
-under the same GFQL Cypher surface.
+The benchmark shows one GFQL query surface over pandas + igraph and cuDF + cuGraph.
+Within that shared resident in-process profile, the GPU arm is faster on both graphs.
+The Neo4j timing remains useful as a disclosed pipeline reference, but its different
+projection and round-trip budget prevents an engine-speedup claim.
 
 .. _neo4j-analog:
 

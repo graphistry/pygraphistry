@@ -19,13 +19,13 @@ import json
 import math
 import os
 import re
-from typing import Dict, List, Optional, Union
+from typing import Union
 
 #: A decoded JSON document.
 JSONValue = Union[
-    None, bool, int, float, str, List["JSONValue"], Dict[str, "JSONValue"]
+    None, bool, int, float, str, list["JSONValue"], dict[str, "JSONValue"]
 ]
-JSONObject = Dict[str, JSONValue]
+JSONObject = dict[str, JSONValue]
 
 #: ``_ext`` and ``_data`` are siblings under ``docs/source``.
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '_data')
@@ -43,10 +43,10 @@ def _obj(value: JSONValue, where: str) -> JSONObject:
     return value
 
 
-def _strings(value: JSONValue, where: str) -> List[str]:
+def _strings(value: JSONValue, where: str) -> list[str]:
     if not isinstance(value, list):
         raise BenchDataError('{}: expected an array of strings'.format(where))
-    out = []  # type: List[str]
+    out: list[str] = []
     for item in value:
         if not isinstance(item, str) or not item:
             raise BenchDataError('{}: entries must be non-empty strings'.format(where))
@@ -65,7 +65,7 @@ def load(path: str) -> JSONObject:
 
 def reverify(payload: JSONObject, contract: JSONObject) -> None:
     """Check the artifact against the contract document, before anything renders."""
-    problems = []  # type: List[str]
+    problems: list[str] = []
 
     expected_version = contract.get('contract_version')
     if payload.get('contract_version') != expected_version:
@@ -136,6 +136,9 @@ def reverify(payload: JSONObject, contract: JSONObject) -> None:
             problems.append('cells.{}: unknown unit {!r}'.format(key, cell['unit']))
         if not isinstance(cell['engine'], str) or not cell['engine']:
             problems.append('cells.{}: engine is not named'.format(key))
+        profile = cell['measurement_profile']
+        if not isinstance(profile, str) or not profile:
+            problems.append('cells.{}: measurement_profile is not named'.format(key))
         quotable = cell['board_quotable']
         comparable = cell['comparison_allowed']
         if not isinstance(quotable, bool) or not isinstance(comparable, bool):
@@ -145,6 +148,9 @@ def reverify(payload: JSONObject, contract: JSONObject) -> None:
         if not isinstance(disclosures, list):
             problems.append('cells.{}: disclosures must be an array'.format(key))
             disclosures = []
+        elif any(not isinstance(item, str) or not item for item in disclosures):
+            problems.append(
+                'cells.{}: disclosures must contain non-empty strings'.format(key))
         if quotable and not comparable:
             problems.append('cells.{}: board_quotable but not comparison_allowed'.format(key))
         if quotable and cell['status'] != 'ok':
@@ -155,14 +161,84 @@ def reverify(payload: JSONObject, contract: JSONObject) -> None:
             problems.append('cells.{}: a ratio over figures never established as comparable'.format(key))
         value = cell['value']
         decimals = cell['decimals']
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
-            problems.append('cells.{}: value is not a finite number'.format(key))
+        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(float(value)) or value < 0):
+            problems.append('cells.{}: value is not a finite non-negative number'.format(key))
             continue
         if not isinstance(decimals, int) or isinstance(decimals, bool) or not 0 <= decimals <= max_decimals:
             problems.append('cells.{}: decimals out of range'.format(key))
             continue
         if round(float(value), decimals) != float(value):
             problems.append('cells.{}: value is not rounded to its own decimals'.format(key))
+
+    # Derived-cell checks intentionally run after every cell's local shape was checked:
+    # a ratio may name a cell that sorts after it, and key order must not change trust.
+    for key in sorted(cells):
+        cell = cells[key]
+        if not isinstance(cell, dict):
+            continue
+        has_operands = 'operands' in cell
+        if cell.get('unit') != 'x' and not has_operands:
+            continue
+        raw_operands = cell.get('operands')
+        if not isinstance(raw_operands, list):
+            problems.append('cells.{}: operands must be an array'.format(key))
+            continue
+        operand_keys: list[str] = []
+        for raw_operand in raw_operands:
+            if isinstance(raw_operand, str) and raw_operand:
+                operand_keys.append(raw_operand)
+        if len(operand_keys) != 2 or len(raw_operands) != 2 or len(set(operand_keys)) != 2:
+            problems.append(
+                'cells.{}: operands must be exactly two distinct cell keys'.format(key))
+            continue
+        operand_cells: list[JSONObject] = []
+        missing_operands: list[str] = []
+        for operand_key in operand_keys:
+            operand = cells.get(operand_key)
+            if isinstance(operand, dict):
+                operand_cells.append(operand)
+            else:
+                missing_operands.append(operand_key)
+        if missing_operands:
+            problems.append(
+                'cells.{}: operands name unpublished cells {}'.format(
+                    key, ', '.join(sorted(missing_operands))))
+            continue
+
+        raw_profiles = [cell.get('measurement_profile')] + [
+            operand.get('measurement_profile') for operand in operand_cells
+        ]
+        profiles = [
+            profile for profile in raw_profiles
+            if isinstance(profile, str) and profile
+        ]
+        if len(profiles) != 3 or len(set(profiles)) != 1:
+            problems.append(
+                'cells.{}: ratio and operands must share one non-empty '
+                'measurement_profile'.format(key))
+
+        if cell.get('board_quotable') is True and any(
+                operand.get('board_quotable') is not True for operand in operand_cells):
+            problems.append(
+                'cells.{}: derived cell is more quotable than an operand'.format(key))
+        if cell.get('comparison_allowed') is True and any(
+                operand.get('comparison_allowed') is not True for operand in operand_cells):
+            problems.append(
+                'cells.{}: derived cell is more comparable than an operand'.format(key))
+
+        derived_disclosures = cell.get('disclosures')
+        if not isinstance(derived_disclosures, list):
+            continue
+        for operand in operand_cells:
+            operand_disclosures = operand.get('disclosures')
+            if not isinstance(operand_disclosures, list):
+                continue
+            for disclosure in operand_disclosures:
+                if disclosure not in derived_disclosures:
+                    problems.append(
+                        'cells.{}: operand disclosure did not travel to derived cell'.format(
+                            key))
 
     if problems:
         raise BenchDataError(
@@ -176,10 +252,10 @@ class State:
     def __init__(self, payload: JSONObject, today: datetime.date) -> None:
         self.payload = payload
         self.today = today
-        self.problems = []  # type: List[str]
-        self.refs = {}  # type: Dict[str, List[str]]
-        self.provenance = {}  # type: Dict[str, List[str]]
-        self.disclosed = []  # type: List[str]
+        self.problems: list[str] = []
+        self.refs: dict[str, list[str]] = {}
+        self.provenance: dict[str, list[str]] = {}
+        self.disclosed: list[str] = []
 
         policy = _obj(payload.get('policy'), 'policy')
         max_age = policy.get('max_age_days')
@@ -196,15 +272,15 @@ class State:
         if docname in self.disclosed:
             self.disclosed.remove(docname)
 
-    def cell(self, key: str) -> Optional[JSONObject]:
+    def cell(self, key: str) -> JSONObject | None:
         raw = self.cells.get(key)
         return raw if isinstance(raw, dict) else None
 
-    def run(self, run_id: str) -> Optional[JSONObject]:
+    def run(self, run_id: str) -> JSONObject | None:
         raw = self.runs.get(run_id)
         return raw if isinstance(raw, dict) else None
 
-    def age_days(self, run_id: str) -> Optional[int]:
+    def age_days(self, run_id: str) -> int | None:
         run = self.run(run_id)
         if run is None:
             return None
@@ -228,7 +304,7 @@ def format_cell(cell: JSONObject) -> str:
 
 
 def check_reference(state: State, key: str, docname: str, lineno: int,
-                    diagnostic: bool) -> Optional[JSONObject]:
+                    diagnostic: bool) -> JSONObject | None:
     """Decide whether this page may print this number, AT THE POINT OF USE.
 
     Returns the cell to render, or None when there is nothing publishable. Every
@@ -290,7 +366,7 @@ def audit_pages(state: State) -> None:
                        '".. bench-disclosures::" block'.format(docname))
 
 
-def load_state(today: Optional[datetime.date] = None) -> State:
+def load_state(today: datetime.date | None = None) -> State:
     """Load the vendored artifact, re-verify it, and return the render-time state."""
     payload = load(BENCHMARKS_JSON)
     contract = load(CONTRACT_JSON)
