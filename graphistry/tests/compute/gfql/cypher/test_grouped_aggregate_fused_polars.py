@@ -42,6 +42,7 @@ against the eager twin for that reason, and says so.
 from __future__ import annotations
 
 import itertools
+import typing
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -333,6 +334,20 @@ def _probe_fused(monkeypatch: pytest.MonkeyPatch) -> List[bool]:
     return calls
 
 
+_PolarsEngine = typing.Literal["polars", "polars-gpu"]
+
+
+def _require_fused_service(
+    engine: _PolarsEngine, calls: Sequence[bool], context: str
+) -> None:
+    observed = list(calls)
+    if engine == "polars-gpu" and observed == [False]:
+        pytest.xfail(
+            "#1997: cudf-polars cannot execute this fused plan; GPU fallback values passed"
+        )
+    assert observed == [True], f"{context}: fused lane must serve on {engine}; got {observed}"
+
+
 def _force_eager(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin the eager twin as the oracle arm for the differential."""
     monkeypatch.setattr(
@@ -370,7 +385,7 @@ def _probe_fast_path(monkeypatch: pytest.MonkeyPatch) -> List[bool]:
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 @pytest.mark.parametrize("label,query", _SERVED_SHAPES, ids=[s[0] for s in _SERVED_SHAPES])
 def test_grouped_aggregate_fused_polars_serves_total_order_shapes(
-    engine: str, label: str, query: str, monkeypatch: pytest.MonkeyPatch
+    engine: _PolarsEngine, label: str, query: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Every shape whose ORDER BY names all group keys is SERVED, and answers what pandas
     answers -- row order included."""
@@ -381,8 +396,8 @@ def test_grouped_aggregate_fused_polars_serves_total_order_shapes(
     calls = _probe_fused(monkeypatch)
     result = _records(graph.gfql(query, engine=engine))
 
-    assert calls == [True], f"{label}: fused lane must serve on {engine}"
     assert result == oracle, f"{label}: fused lane diverged from the pandas oracle"
+    _require_fused_service(engine, calls, label)
 
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
@@ -446,7 +461,7 @@ def test_grouped_aggregate_fused_polars_is_never_reached_by_dataframe_engines(
 @pytest.mark.parametrize("graph_name", sorted(_GRAPHS))
 @pytest.mark.parametrize("label,query", _SERVED_SHAPES, ids=[s[0] for s in _SERVED_SHAPES])
 def test_grouped_aggregate_fused_polars_matches_eager_twin_and_pandas(
-    engine: str, graph_name: str, label: str, query: str, monkeypatch: pytest.MonkeyPatch
+    engine: _PolarsEngine, graph_name: str, label: str, query: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """DIFFERENTIAL: fused == eager twin == pandas oracle, ORDER-SENSITIVELY, and the fused
     lane really ran (otherwise the comparison is vacuous).
@@ -463,10 +478,10 @@ def test_grouped_aggregate_fused_polars_matches_eager_twin_and_pandas(
     calls = _probe_fused(monkeypatch)
     fused = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
 
-    assert calls == [True], f"{graph_name}/{label}: lane did not serve -- differential vacuous"
     assert fused == eager, f"{graph_name}/{label}: fused lane diverged from the eager twin"
     if graph_name not in ("dup_node_rows", "dup_start_node_rows"):
         assert fused == oracle, f"{graph_name}/{label}: fused lane diverged from pandas"
+    _require_fused_service(engine, calls, f"{graph_name}/{label}")
 
 
 @pytest.mark.parametrize("graph_name,query,fused_rows,pandas_rows", [
@@ -692,7 +707,7 @@ def test_grouped_aggregate_fused_polars_supports_min_and_max_through_the_ast_sur
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_grouped_aggregate_fused_polars_node_key_named_like_the_source_column(
-    engine: str, monkeypatch: pytest.MonkeyPatch
+    engine: _PolarsEngine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The node key may share its name with the edge SOURCE column -- that name then appears
     on both sides of the semi-join and of the property lookup."""
@@ -705,13 +720,13 @@ def test_grouped_aggregate_fused_polars_node_key_named_like_the_source_column(
     result = _records(
         _graph(engine, nodes, edges, node_key="s").gfql(Q_COUNT_STAR, engine=engine))
 
-    assert calls == [True]
     assert result == oracle
+    _require_fused_service(engine, calls, "node key/source-column collision")
 
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_grouped_aggregate_fused_polars_empty_match_returns_no_groups(
-    engine: str, monkeypatch: pytest.MonkeyPatch
+    engine: _PolarsEngine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An empty match produces no GROUPS (unlike a bare ``count(*)``, which openCypher counts
     as 0 over no rows -- that shape is served by a different fast path)."""
@@ -721,8 +736,8 @@ def test_grouped_aggregate_fused_polars_empty_match_returns_no_groups(
     calls = _probe_fused(monkeypatch)
     result = _records(_graph(engine, nodes, edges).gfql(Q_COUNT_STAR, engine=engine))
 
-    assert calls == [True]
     assert result == oracle == (["city", "n"], [])
+    _require_fused_service(engine, calls, "empty match")
 
 
 def _null_group_key_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -739,7 +754,7 @@ def _null_group_key_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
     ("MATCH (p)-[{rel:'L'}]->(c) RETURN c.city AS city, count(*) AS n ORDER BY city DESC", None),
 ])
 def test_grouped_aggregate_fused_polars_places_nulls_the_opencypher_way(
-    engine: str, query: str, expected_first_city: Optional[str],
+    engine: _PolarsEngine, query: str, expected_first_city: Optional[str],
     monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """openCypher orders NULL as the LARGEST value: last on ASC, first on DESC. polars
@@ -751,14 +766,14 @@ def test_grouped_aggregate_fused_polars_places_nulls_the_opencypher_way(
     calls = _probe_fused(monkeypatch)
     result = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
 
-    assert calls == [True]
     assert result == oracle
     assert result[1][0]["city"] == expected_first_city
+    _require_fused_service(engine, calls, "null group-key ordering")
 
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_grouped_aggregate_fused_polars_null_aggregate_value_ordering(
-    engine: str, monkeypatch: pytest.MonkeyPatch
+    engine: _PolarsEngine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Same null-largest rule on the AGGREGATE column, where the null comes from averaging an
     all-null group -- and with LIMIT, so getting it wrong returns a different ROW."""
@@ -770,8 +785,8 @@ def test_grouped_aggregate_fused_polars_null_aggregate_value_ordering(
     calls = _probe_fused(monkeypatch)
     result = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
 
-    assert calls == [True]
     assert result == oracle
+    _require_fused_service(engine, calls, "null aggregate ordering")
 
 
 # ------------------------------------------------------- the benchmark shapes themselves
@@ -812,7 +827,7 @@ def _gb_shaped_graph() -> Tuple[pd.DataFrame, pd.DataFrame]:
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 @pytest.mark.parametrize("label,query", _GB_SHAPES, ids=[s[0] for s in _GB_SHAPES])
 def test_grouped_aggregate_fused_polars_serves_the_graph_benchmark_shapes(
-    engine: str, label: str, query: str, monkeypatch: pytest.MonkeyPatch
+    engine: _PolarsEngine, label: str, query: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """STRUCTURAL LOCK-IN for the three benchmark cells this lane exists to move: q1, q3 and
     q4 must be SERVED (not merely fast) and must answer what pandas answers."""
@@ -822,8 +837,8 @@ def test_grouped_aggregate_fused_polars_serves_the_graph_benchmark_shapes(
     calls = _probe_fused(monkeypatch)
     result = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
 
-    assert calls == [True], f"{label}: the benchmark shape must be served by the fused lane"
     assert result == oracle
+    _require_fused_service(engine, calls, label)
 
 
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])

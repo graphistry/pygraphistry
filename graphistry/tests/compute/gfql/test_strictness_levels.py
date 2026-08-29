@@ -27,6 +27,7 @@ from graphistry.compute.gfql.strictness import (
     strict_level_to_bool,
 )
 from graphistry.compute.gfql_validate import gfql_validate
+from graphistry.tests.compute.gfql.polars_test_utils import engine_skip_reason
 from graphistry.schema import EdgeType, GraphSchema, NodeType
 
 
@@ -54,6 +55,19 @@ def _graph(engine: str = "pandas") -> Plottable:
         cudf = pytest.importorskip("cudf")
         nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
     return graphistry.edges(edges, "s", "d").nodes(nodes, "id")
+
+
+def _polars_gpu_graph() -> Plottable:
+    graph = _graph("polars")
+    reason = engine_skip_reason(
+        "polars-gpu",
+        lambda: graph.gfql(
+            "MATCH (n) RETURN n.id AS id", engine="polars-gpu", strict="quiet"
+        ),
+    )
+    if reason is not None:
+        pytest.skip(reason)
+    return graph
 
 
 def _norm(value: Any) -> Any:  # hygiene-ok: explicit-any -- row cells are heterogeneous
@@ -157,6 +171,46 @@ def test_absent_property_in_pattern_is_zero_rows(engine: str, level: str) -> Non
 @pytest.mark.parametrize("level", ["warn", "quiet"])
 def test_absent_property_in_return_is_null_column(engine: str, level: str) -> None:
     assert _rows(_graph(engine).gfql(ABSENT_PROP_RETURN, strict=level)) == [{"c": None}] * 3
+
+
+@pytest.mark.parametrize("level", ["warn", "quiet"])
+def test_polars_gpu_absent_label_is_zero_rows(level: StrictLevel) -> None:
+    graph = _polars_gpu_graph()
+    assert _rows(
+        graph.gfql(ABSENT_LABEL, engine="polars-gpu", strict=level)
+    ) == []
+
+
+@pytest.mark.parametrize("level", ["warn", "quiet"])
+def test_polars_gpu_absent_return_property_is_null(level: StrictLevel) -> None:
+    graph = _polars_gpu_graph()
+    assert _rows(
+        graph.gfql(ABSENT_PROP_RETURN, engine="polars-gpu", strict=level)
+    ) == [{"c": None}] * 3
+
+
+@pytest.mark.parametrize("query", FOUR_SHAPES)
+def test_polars_gpu_strict_absent_names_raise(query: str) -> None:
+    with pytest.raises(GFQLSchemaError):
+        _polars_gpu_graph().gfql(
+            query, engine="polars-gpu", strict="strict"
+        )
+
+
+@pytest.mark.parametrize("query", FOUR_SHAPES)
+def test_polars_gpu_warns_once_for_absent_names(query: str) -> None:
+    messages = _gfql_warnings(
+        _polars_gpu_graph(), query, engine="polars-gpu", strict="warn"
+    )
+    assert len(messages) == 1
+
+
+@pytest.mark.parametrize("query", FOUR_SHAPES)
+def test_polars_gpu_quiet_emits_no_warning(query: str) -> None:
+    messages = _gfql_warnings(
+        _polars_gpu_graph(), query, engine="polars-gpu", strict="quiet"
+    )
+    assert messages == []
 
 
 @pytest.mark.parametrize("engine", ENGINES)
