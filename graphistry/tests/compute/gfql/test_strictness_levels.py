@@ -189,6 +189,15 @@ def test_polars_gpu_absent_return_property_is_null(level: StrictLevel) -> None:
     ) == [{"c": None}] * 3
 
 
+@pytest.mark.parametrize("level", ["warn", "quiet"])
+@pytest.mark.parametrize("query", [ABSENT_PROP_WHERE, ABSENT_PROP_PATTERN])
+def test_polars_gpu_absent_property_predicates_are_zero_rows(
+    level: StrictLevel, query: str
+) -> None:
+    graph = _polars_gpu_graph()
+    assert _rows(graph.gfql(query, engine="polars-gpu", strict=level)) == []
+
+
 @pytest.mark.parametrize("query", FOUR_SHAPES)
 def test_polars_gpu_strict_absent_names_raise(query: str) -> None:
     with pytest.raises(GFQLSchemaError):
