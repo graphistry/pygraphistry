@@ -49,10 +49,10 @@ def _obj(value: JSONValue, where: str) -> JSONObject:
     return value
 
 
-def _strings(value: JSONValue, where: str) -> list[str]:
+def _strings(value: JSONValue, where: str) -> typing.List[str]:
     if not isinstance(value, list):
         raise BenchDataError('{}: expected an array of strings'.format(where))
-    out: list[str] = []
+    out: typing.List[str] = []
     for item in value:
         if not isinstance(item, str) or not item:
             raise BenchDataError('{}: entries must be non-empty strings'.format(where))
@@ -71,7 +71,7 @@ def load(path: str) -> JSONObject:
 
 def reverify(payload: JSONObject, contract: JSONObject) -> None:
     """Check the artifact against the contract document, before anything renders."""
-    problems: list[str] = []
+    problems: typing.List[str] = []
 
     expected_version = contract.get('contract_version')
     if payload.get('contract_version') != expected_version:
@@ -190,7 +190,7 @@ def reverify(payload: JSONObject, contract: JSONObject) -> None:
         if not isinstance(raw_operands, list):
             problems.append('cells.{}: operands must be an array'.format(key))
             continue
-        operand_keys: list[str] = []
+        operand_keys: typing.List[str] = []
         for raw_operand in raw_operands:
             if isinstance(raw_operand, str) and raw_operand:
                 operand_keys.append(raw_operand)
@@ -198,8 +198,8 @@ def reverify(payload: JSONObject, contract: JSONObject) -> None:
             problems.append(
                 'cells.{}: operands must be exactly two distinct cell keys'.format(key))
             continue
-        operand_cells: list[JSONObject] = []
-        missing_operands: list[str] = []
+        operand_cells: typing.List[JSONObject] = []
+        missing_operands: typing.List[str] = []
         for operand_key in operand_keys:
             operand = cells.get(operand_key)
             if isinstance(operand, dict):
@@ -258,10 +258,10 @@ class State:
     def __init__(self, payload: JSONObject, today: datetime.date) -> None:
         self.payload = payload
         self.today = today
-        self.problems: list[str] = []
-        self.refs: dict[str, list[str]] = {}
-        self.provenance: dict[str, list[str]] = {}
-        self.disclosed: list[str] = []
+        self.problems: typing.List[str] = []
+        self.refs: typing.Dict[str, typing.List[str]] = {}
+        self.provenance: typing.Dict[str, typing.List[str]] = {}
+        self.disclosed: typing.List[str] = []
 
         policy = _obj(payload.get('policy'), 'policy')
         max_age = policy.get('max_age_days')
@@ -278,15 +278,15 @@ class State:
         if docname in self.disclosed:
             self.disclosed.remove(docname)
 
-    def cell(self, key: str) -> JSONObject | None:
+    def cell(self, key: str) -> typing.Optional[JSONObject]:
         raw = self.cells.get(key)
         return raw if isinstance(raw, dict) else None
 
-    def run(self, run_id: str) -> JSONObject | None:
+    def run(self, run_id: str) -> typing.Optional[JSONObject]:
         raw = self.runs.get(run_id)
         return raw if isinstance(raw, dict) else None
 
-    def age_days(self, run_id: str) -> int | None:
+    def age_days(self, run_id: str) -> typing.Optional[int]:
         run = self.run(run_id)
         if run is None:
             return None
@@ -310,7 +310,7 @@ def format_cell(cell: JSONObject) -> str:
 
 
 def check_reference(state: State, key: str, docname: str, lineno: int,
-                    diagnostic: bool) -> JSONObject | None:
+                    diagnostic: bool) -> typing.Optional[JSONObject]:
     """Decide whether this page may print this number, AT THE POINT OF USE.
 
     Returns the cell to render, or None when there is nothing publishable. Every
@@ -372,7 +372,7 @@ def audit_pages(state: State) -> None:
                        '".. bench-disclosures::" block'.format(docname))
 
 
-def load_state(today: datetime.date | None = None) -> State:
+def load_state(today: typing.Optional[datetime.date] = None) -> State:
     """Load the vendored artifact, re-verify it, and return the render-time state."""
     payload = load(BENCHMARKS_JSON)
     contract = load(CONTRACT_JSON)
