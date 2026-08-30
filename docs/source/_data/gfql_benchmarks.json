@@ -807,6 +807,21 @@
       "value": 13.3,
       "workload": "filter -> PageRank -> filter, gplus \u2014 GFQL GPU (cuDF + cuGraph) vs GFQL CPU (pandas + igraph)"
     },
+    "pagerank.gplus.neo4j_gds": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 2,
+      "disclosures": [
+        "The Neo4j arm writes marker properties during both filter stages and rebuilds its GDS projection per timed iteration; the paired GFQL arm retains resident frames and writes nothing. Twelve position-balanced slots (six per arm) produced exact selected-node parity, but the measurement profiles differ, so this is a direct pipeline time and no GFQL-vs-Neo4j ratio is published."
+      ],
+      "engine": "Neo4j + GDS",
+      "measurement_profile": "filter-pagerank-server-roundtrip-projection-per-iteration",
+      "run": "filter-pagerank-gplus-locked-20260830",
+      "status": "ok",
+      "unit": "s",
+      "value": 354.47,
+      "workload": "filter -> PageRank -> filter, gplus \u2014 Neo4j + GDS"
+    },
     "pagerank.twitter.gfql_cpu": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -897,8 +912,8 @@
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-07-30T22:17:18Z",
-  "generated_by": "graphistry/pyg-bench 8c21853a scripts/export_docs_numbers.py",
+  "generated_at": "2026-08-30T17:33:55Z",
+  "generated_by": "graphistry/pyg-bench 1ccda07c scripts/export_docs_numbers.py",
   "policy": {
     "literal_allowlist": {},
     "managed_docs": [
@@ -934,6 +949,21 @@
       "reps": "graph loaded once, then 2 warmups + 5 timed runs per arm on the resident graph; median",
       "row_validation": "Every arm records the node id set its pipeline selected, captured outside the timed region. Comparability is the Jaccard index of those sets against a 0.95 threshold declared before the run: Twitter CPU/GPU 0.991, CPU/Neo4j 0.974, GPU/Neo4j 0.972; GPlus CPU/GPU 0.951.",
       "runtime": "graphistry/test-rapids-official:26.02-gfql-polars with python-igraph 1.0.0; cuDF 26.2.1, cuGraph 26.2.0, pandas 2.3.3; Neo4j 2026.02.2 + graph-data-science in Docker on the same host"
+    },
+    "filter-pagerank-gplus-locked-20260830": {
+      "artifact": "results/gplus-locked-baseline-20260830",
+      "competitor": "Neo4j + GDS",
+      "competitor_version": "neo4j:2026.02.2 with the graph-data-science plugin",
+      "dataset": "SNAP gplus_combined (107,614 nodes / 30,494,866 edges; 398,930,514 bytes; sha256 492b7a63ec7816cac6aa0466be8521a0528cb1df2ca7f0b554ad746adc6bbbee)",
+      "host": "dgx-spark (NVIDIA GB10, driver 580.173.02), 20 CPU",
+      "measured_at": "2026-08-30",
+      "perf_lock_held": true,
+      "pyg_bench_commit": "736f1b8fc219a23f38d5e32e5e291932ec2aaf2f",
+      "pygraphistry_commit": "76dc3f30242c2b956b5a7e133a32fb80495ef9e3",
+      "quiet_host": true,
+      "reps": "12 position-balanced slots, six per arm; each slot 2 warmups + 11 timed runs; median of slot medians",
+      "row_validation": "All 12 selected-node sets had Jaccard 1.0 against the reference (gate 0.95); every slot passed typed result, exact run-contract, and load/self-spike validation; the committed aggregate exactly recomputes from all slots.",
+      "runtime": "graphistry/test-rapids-official:26.02-gfql-polars; GFQL Python 3.13.12, pandas 2.3.3, python-igraph 1.0.0; Neo4j 2026.02.2 + graph-data-science with Python client 3.12.3 on the same host"
     },
     "graphbench-q1q9-100k-20260726": {
       "artifact": "results/graphbench-matched-q1q9-20260726/gb100k",

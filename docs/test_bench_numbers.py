@@ -291,6 +291,8 @@ def test_cross_profile_ratios_stay_unpublished(payload: bench.JSONObject) -> Non
     assert isinstance(cells, dict)
     assert 'pagerank.twitter.gfql_cpu_vs_neo4j_gds' not in cells
     assert 'pagerank.twitter.gfql_gpu_vs_neo4j_gds' not in cells
+    assert 'pagerank.gplus.gfql_cpu_vs_neo4j_gds' not in cells
+    assert 'pagerank.gplus.gfql_gpu_vs_neo4j_gds' not in cells
     assert not any(
         key.startswith('graphbench.') and key.endswith('.polars_vs_kuzu')
         for key in cells

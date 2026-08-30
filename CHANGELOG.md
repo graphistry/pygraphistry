@@ -9,6 +9,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
 ### Fixed
+- **The 30M-edge GPlus filter/PageRank page now reports the completed Neo4j + GDS lane**: a locked twelve-slot follow-up produced a direct 354.47 s median-of-slot-medians with exact selected-node parity. The page and regenerated chart read the value from the vendored pyg-bench document. They publish no GFQL-vs-Neo4j ratio because Neo4j includes server round trips and a per-iteration GDS projection rebuild while GFQL retains resident frames.
 - **GFQL benchmark docs now enforce the benchmark contract v3 boundary**: the vendored pyg-bench artifact and contract suppress invalid cross-profile ratios. Filter/PageRank no longer divides resident in-process GFQL timings by a per-iteration Neo4j projection rebuild, and the GraphBench q1–q9 board no longer divides reused GFQL bindings by Kuzu's execute-text-per-call profile or treats cache-contaminated q8 values as results. The pages and generated charts retain direct timings and same-profile ratios only, and independently re-verify ratio operands, profiles, disclosure propagation, and derived-cell strength before rendering.
 
 ### Added

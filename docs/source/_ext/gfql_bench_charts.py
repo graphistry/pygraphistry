@@ -82,8 +82,7 @@ class Chart(NamedTuple):
 CHARTS: dict[str, Chart] = OrderedDict((
     ('twitter_pipeline.svg', Chart(
         title='Twitter: 81,306 nodes / 2.4M edges',
-        subtitle='Warm pipeline \u2014 search, PageRank, search \u2014 on the resident '
-                 'graph. Lower is better.',
+        subtitle='Warm pipeline \u2014 search, PageRank, search. Lower is better.',
         bars=(
             Bar('Neo4j + GDS', 'neo', 'pagerank.twitter.neo4j_gds'),
             Bar('GFQL Cypher on CPU (pandas + igraph)', 'cpu',
@@ -96,16 +95,14 @@ CHARTS: dict[str, Chart] = OrderedDict((
     )),
     ('gplus_pipeline.svg', Chart(
         title='GPlus: 107,614 nodes / 30M edges',
-        subtitle='Warm pipeline \u2014 search, PageRank, search \u2014 on the resident '
-                 'graph. Lower is better.',
+        subtitle='Warm pipeline \u2014 search, PageRank, search. Lower is better.',
         bars=(
-            Bar('Neo4j + GDS', 'neo', None, None, 'did not complete \u2014 no timing exists'),
+            Bar('Neo4j + GDS', 'neo', 'pagerank.gplus.neo4j_gds'),
             Bar('GFQL Cypher on CPU (pandas + igraph)', 'cpu', 'pagerank.gplus.gfql_cpu'),
             Bar('GFQL Cypher on GPU (cuDF + cuGraph)', 'gpu', 'pagerank.gplus.gfql_gpu',
                 'pagerank.gplus.gfql_gpu_vs_gfql_cpu', 'faster than the CPU path'),
         ),
-        foot='Neo4j lost its Bolt connection mid-transaction on the first warmup '
-             'iteration; no GPlus figure exists.',
+        foot='Direct timings use different profiles; only the GFQL GPU/CPU ratio is valid.',
     )),
 ))
 

@@ -25,7 +25,7 @@ no database required. This benchmark reports **Graphistry's local Cypher**
      - :bench:`pagerank.twitter.gfql_gpu`
      - :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu`
    * - **GPlus** (107,614 nodes / 30M edges)
-     - *did not complete*
+     - :bench:`pagerank.gplus.neo4j_gds`
      - :bench:`pagerank.gplus.gfql_cpu`
      - :bench:`pagerank.gplus.gfql_gpu`
      - :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu`
@@ -39,7 +39,8 @@ Within the shared resident GFQL profile, moving the same query text to the GPU i
 :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu` faster on Twitter and
 :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu` faster on the 30M-edge GPlus graph.
 
-On GPlus, Neo4j did not complete the measured pipeline.
+On GPlus, the locked follow-up completed all twelve position-balanced slots and
+reports the direct Neo4j + GDS pipeline time.
 
 The pipeline
 ------------
@@ -105,15 +106,16 @@ GPlus (30M edges): larger graph
 -------------------------------
 
 .. image:: _static/filter_pagerank/gplus_pipeline.svg
-   :alt: GPlus warm pipeline time: Neo4j + GDS did not complete, GFQL Cypher CPU 32.10s, GFQL Cypher GPU 2.42s
+   :alt: GPlus warm pipeline time: Neo4j + GDS 354.47s, GFQL Cypher CPU 32.10s, GFQL Cypher GPU 2.42s
 
-- **Neo4j + GDS**: did not complete. Neo4j imported the graph, then lost its Bolt
-  connection mid-transaction while clearing marker properties across 30M relationships,
-  on the first warmup iteration. No timed run was ever reached, so there is no GPlus
-  Neo4j figure — not even a lower bound — and no GPlus ratio against one.
+- **Neo4j + GDS**: :bench:`pagerank.gplus.neo4j_gds` — the locked follow-up ran
+  six slots after the earlier incomplete attempt
 - **GFQL Cypher on CPU** (pandas + igraph): :bench:`pagerank.gplus.gfql_cpu`
 - **GFQL Cypher on GPU** (cuDF + cuGraph): :bench:`pagerank.gplus.gfql_gpu` —
   :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu` faster than the CPU path
+
+The Neo4j result includes server round trips and a projection rebuild per timed
+iteration. The GFQL results retain resident frames, so no cross-profile ratio is valid.
 
 GPlus is 12x the edges of the Twitter graph, and the GPU pipeline still answers in
 seconds.
