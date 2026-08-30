@@ -19,13 +19,19 @@ import json
 import math
 import os
 import re
-from typing import Union
+import typing
 
 #: A decoded JSON document.
-JSONValue = Union[
-    None, bool, int, float, str, list["JSONValue"], dict[str, "JSONValue"]
+JSONValue = typing.Union[
+    None,
+    bool,
+    int,
+    float,
+    str,
+    typing.List["JSONValue"],
+    typing.Dict[str, "JSONValue"],
 ]
-JSONObject = dict[str, JSONValue]
+JSONObject = typing.Dict[str, JSONValue]
 
 #: ``_ext`` and ``_data`` are siblings under ``docs/source``.
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '_data')
