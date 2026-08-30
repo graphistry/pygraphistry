@@ -141,6 +141,7 @@ def test_hypergraph_auto_bridges_under_polars():
 
 
 def test_compound_graph_call_auto_returns_polars():
+    pytest.importorskip("igraph", reason="PageRank CALL requires optional python-igraph")
     g = _selfedge_graph()
     query = (
         "GRAPH g1 = GRAPH { MATCH (n)-[e]-(m) } "
