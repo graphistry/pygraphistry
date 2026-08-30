@@ -34,6 +34,7 @@ from graphistry.compute.gfql.same_path_types import (
     parse_where_json,
 )
 from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+from graphistry.compute.engine_coercion import ensure_engine_match
 from graphistry.compute.gfql.cypher.ast import CypherParams
 from graphistry.compute.gfql.cypher.parser import parse_cypher
 from graphistry.compute.gfql.exec_context import attach_row_exec_context, clear_row_exec_context
@@ -62,7 +63,7 @@ from graphistry.compute.gfql.cypher.reentry.execution import (
     reentry_validation_error as _reentry_validation_error,
     union_scalar_reentry_results as _union_scalar_reentry_results,
 )
-from graphistry.compute.gfql.cypher.call_procedures import execute_cypher_call
+from graphistry.compute.gfql.cypher.call_procedures import CompiledCypherProcedureCall, execute_cypher_call
 from graphistry.compute.gfql.cypher.result_postprocess import (
     apply_result_projection,
     entity_projection_meta_entry as _entity_projection_meta_entry,
@@ -985,7 +986,7 @@ def _execute_graph_constructor_compiled(
     base_graph: Plottable,
     chain: Chain,
     *,
-    procedure_call: Any = None,
+    procedure_call: Optional[CompiledCypherProcedureCall] = None,
     graph_residual_filters: Tuple[CompiledGraphResidualFilter, ...] = (),
     engine: Union[EngineAbstract, str],
     policy: Optional[PolicyDict],
@@ -993,7 +994,12 @@ def _execute_graph_constructor_compiled(
 ) -> Plottable:
     """Execute a compiled graph constructor (MATCH-based or CALL-based)."""
     if procedure_call is not None:
-        return execute_cypher_call(base_graph, procedure_call)
+        result = execute_cypher_call(base_graph, procedure_call)
+        requested_engine = resolve_engine(
+            engine if isinstance(engine, EngineAbstract) else EngineAbstract(engine),
+            base_graph,
+        )
+        return ensure_engine_match(result, requested_engine)
     filtered_graph = _apply_graph_residual_filters(
         base_graph, graph_residual_filters, engine=engine
     )

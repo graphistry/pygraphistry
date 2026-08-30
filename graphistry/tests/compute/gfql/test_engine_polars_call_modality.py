@@ -140,6 +140,23 @@ def test_hypergraph_auto_bridges_under_polars():
     assert len(out._nodes) > 0 and len(out._edges) > 0
 
 
+def test_compound_graph_call_auto_returns_polars():
+    g = _selfedge_graph()
+    query = (
+        "GRAPH g1 = GRAPH { MATCH (n)-[e]-(m) } "
+        "GRAPH { USE g1 CALL graphistry.igraph.pagerank.write() }"
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        out = g.gfql(query, engine="polars")
+        oracle = g.gfql(query, engine="pandas")
+    assert out._nodes is not None and out._edges is not None
+    assert "polars" in type(out._nodes).__module__
+    assert "polars" in type(out._edges).__module__
+    assert _val_sig(out._nodes) == _val_sig(oracle._nodes)
+    assert _val_sig(out._edges) == _val_sig(oracle._edges)
+
+
 # --------------------------------------------------------------------------- strict decline
 def test_prune_self_edges_strict_declines():
     """call_mode='strict' declines the off-engine bridge with NotImplementedError (no hidden
