@@ -102,7 +102,7 @@ CHARTS: dict[str, Chart] = OrderedDict((
             Bar('GFQL Cypher on GPU (cuDF + cuGraph)', 'gpu', 'pagerank.gplus.gfql_gpu',
                 'pagerank.gplus.gfql_gpu_vs_gfql_cpu', 'faster than the CPU path'),
         ),
-        foot='Direct timings use different profiles; only the GFQL GPU/CPU ratio is valid.',
+        foot='Direct timings span runs/profiles; only the GFQL GPU/CPU ratio is valid.',
     )),
 ))
 

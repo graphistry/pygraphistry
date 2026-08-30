@@ -15,5 +15,5 @@
 <text class="a" x="17" y="209">GFQL Cypher on GPU (cuDF + cuGraph)</text>
 <path class="gpu" d="M16 218H17a4 4 0 0 1 4 4V238a4 4 0 0 1 -4 4H16Z"/>
 <text x="31" y="235"><tspan class="n">2.42 s</tspan><tspan class="a" dx="11">13.3x faster than the CPU path</tspan></text>
-<text class="m" x="16" y="279">Direct timings use different profiles; only the GFQL GPU/CPU ratio is valid.</text>
+<text class="m" x="16" y="279">Direct timings span runs/profiles; only the GFQL GPU/CPU ratio is valid.</text>
 </g></svg>

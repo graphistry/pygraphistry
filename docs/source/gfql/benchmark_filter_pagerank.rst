@@ -114,8 +114,10 @@ GPlus (30M edges): larger graph
 - **GFQL Cypher on GPU** (cuDF + cuGraph): :bench:`pagerank.gplus.gfql_gpu` —
   :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu` faster than the CPU path
 
-The Neo4j result includes server round trips and a projection rebuild per timed
-iteration. The GFQL results retain resident frames, so no cross-profile ratio is valid.
+The Neo4j result comes from a later locked follow-up; the displayed GFQL results
+remain from the original run. Neo4j includes server round trips and a projection
+rebuild per timed iteration, while GFQL retains resident frames. The values span
+both runs and measurement profiles, so no GFQL-vs-Neo4j ratio is valid.
 
 GPlus is 12x the edges of the Twitter graph, and the GPU pipeline still answers in
 seconds.
