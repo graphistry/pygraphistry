@@ -225,4 +225,6 @@ Every figure is printed from ``docs/source/_data/gfql_benchmarks.json`` (pyg-ben
 
 .. bench-provenance:: filter-pagerank-20260728
 
+.. bench-provenance:: filter-pagerank-gplus-locked-20260830
+
 .. bench-disclosures::
