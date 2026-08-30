@@ -18,7 +18,7 @@ import json
 import os
 import re
 import sys
-from collections.abc import Iterator
+import typing
 
 import pytest
 
@@ -43,14 +43,14 @@ def contract() -> bench.JSONObject:
     return bench.load(bench.CONTRACT_JSON)
 
 
-def _rst_sources() -> Iterator[str]:
+def _rst_sources() -> typing.Iterator[str]:
     for root, _dirs, files in os.walk(SOURCE_DIR):
         for name in files:
             if name.endswith('.rst') or name.endswith('.md'):
                 yield os.path.join(root, name)
 
 
-def _references() -> Iterator[tuple[str, str, bool]]:
+def _references() -> typing.Iterator[typing.Tuple[str, str, bool]]:
     """(path, key, is_diagnostic) for every benchmark reference in the docs."""
     for path in sorted(_rst_sources()):
         with open(path, encoding='utf-8') as handle:
@@ -139,8 +139,8 @@ def test_a_caveated_number_without_its_caveat_is_rejected(payload, contract):
 def _use(
     key: str,
     diagnostic: bool = False,
-    today: datetime.date | None = None,
-) -> list[str]:
+    today: typing.Optional[datetime.date] = None,
+) -> typing.List[str]:
     """Reference a benchmark key the way a page does, and report what broke.
 
     Deliberately does not go through Sphinx: the decision lives in the stdlib-only
