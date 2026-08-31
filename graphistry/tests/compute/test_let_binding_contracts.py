@@ -292,9 +292,11 @@ def test_nested_let_cycle_through_an_enclosing_binding_is_a_coded_error(engine: 
 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_binding_schema_failure_keeps_its_gfql_error_type(engine: str) -> None:
+    # strict= selects the level that still rejects an absent column; warn resolves it to null
     with pytest.raises(GFQLSchemaError) as exc_info:
         _graph(engine).gfql(
-            ASTLet({"x": n({"nosuchcol": 1}), "y": n({})}), output="x", engine=engine
+            ASTLet({"x": n({"nosuchcol": 1}), "y": n({})}), output="x", engine=engine,
+            strict=True,
         )
     assert exc_info.value.code == ErrorCode.E301
 

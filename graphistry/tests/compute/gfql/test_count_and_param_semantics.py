@@ -317,12 +317,10 @@ def test_undirected_unbounded_declines_typed_on_polars() -> None:
 # residuals -- pinned so they stop being invisible
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#1905: a node label absent from the graph schema hard-errors "
-           "[column-not-found]; openCypher treats a missing label as matching nothing "
-           "(0 rows). Needs an owner decision: strict-schema vs missing-as-absent.",
-)
+# WAS a strict xfail for #1905 ("a node label absent from the graph schema hard-errors
+# [column-not-found]; openCypher treats a missing label as matching nothing"). The owner
+# decision it waited on landed in #1916: strictness levels, defaulting to warn, under which
+# an absent name resolves to null. Un-xfailed; the oracles below are UNCHANGED.
 @pytest.mark.parametrize("query", [
     "MATCH (n:Nope) RETURN n.id AS id",
     "MATCH (n) WHERE n:Nope RETURN n.id AS id",
@@ -331,13 +329,7 @@ def test_nonexistent_node_label_should_be_zero_rows(query: str) -> None:
     assert _rows(_param_graph("pandas").gfql(query)) == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="#1905: a nonexistent label on an OPTIONAL arm hard-errors [column-not-found]; "
-           "openCypher null-extends the mandatory rows instead. Same owner decision. "
-           "The raised error's available-columns list also leaks the binder's alias "
-           "marker column.",
-)
+# WAS a strict xfail for #1905 (same owner decision as above); resolved by #1916.
 def test_nonexistent_optional_arm_label_should_null_extend() -> None:
     rows = _rows(_param_graph("pandas").gfql(
         "MATCH (a)-->(b) OPTIONAL MATCH (a)-->(c:Nope) RETURN a.id AS a, c.id AS c"

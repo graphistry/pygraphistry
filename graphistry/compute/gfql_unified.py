@@ -7,7 +7,7 @@ import re
 import threading
 import pandas as pd
 from types import MappingProxyType
-from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, TYPE_CHECKING, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Sequence, Set, Tuple, TYPE_CHECKING, TypeVar, Union, cast
 from graphistry.Plottable import Plottable
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, is_polars_df, is_series_like, resolve_engine, series_to_pylist
 from graphistry.util import setup_logger
@@ -61,6 +61,7 @@ from graphistry.compute.gfql.cypher.reentry.execution import (
     compiled_query_scalar_reentry_state as _compiled_query_scalar_reentry_state,
     freeform_broadcast_row_to_nodes as _freeform_broadcast_row_to_nodes,
     reentry_validation_error as _reentry_validation_error,
+    restrict_connected_join_rows_to_reentry_seed as _restrict_connected_join_rows_to_reentry_seed,
     union_scalar_reentry_results as _union_scalar_reentry_results,
 )
 from graphistry.compute.gfql.cypher.call_procedures import CompiledCypherProcedureCall, execute_cypher_call
@@ -94,6 +95,7 @@ from graphistry.compute.util.generate_safe_column_name import (
 from graphistry.compute.gfql.identifiers import EDGE_INDEX_BASE
 from graphistry.compute.validate.validate_schema import validate_chain_schema
 from graphistry.compute.gfql_validate import gfql_validate as gfql_preflight_validate
+from graphistry.compute.gfql.strictness import StrictInput, StrictLevel
 from graphistry.otel import otel_traced, otel_detail_enabled
 
 logger = setup_logger(__name__)
@@ -744,6 +746,8 @@ def _apply_connected_match_join(
     engine: Union[EngineAbstract, str],
     policy: Optional[PolicyDict],
     context: ExecutionContext,
+    start_nodes: Optional[DataFrameT] = None,
+    reentry_alias: Optional[str] = None,
 ) -> Plottable:
     from graphistry.compute.ast import ASTCall, ASTNode as _ASTNode, serialize_binding_ops
 
@@ -757,6 +761,11 @@ def _apply_connected_match_join(
     # recomputes instead of returning a stale cached answer (BLOCKER 1).
     cache_store: Dict[str, Any] = {}
 
+    for pattern_chain in plan.pattern_chains:
+        _reject_node_alias_shadowing_id_binding(
+            base_graph, pattern_chain, include_edge_endpoint_aliases=True
+        )
+
     trail_identity_col = _trail_edge_identity_col(base_graph)
     trail_arms = _connected_join_trail_arms(plan, identity_col=trail_identity_col)
     arms_may_share_an_edge = trail_arms is not None
@@ -769,10 +778,14 @@ def _apply_connected_match_join(
             base_graph, engine=requested_engine, identity_col=trail_identity_col
         )
 
-    # Both two-star fast paths emit the raw arm product, so they serve disjoint arms only.
+    # Both two-star fast paths serve only disjoint, unseeded arms (their seeds are filter_dicts-only)
     fast_grouped_count = (
-        None if arms_may_share_an_edge
-        else _connected_join_two_star_fast_grouped_count(base_graph, plan, engine=requested_engine, cache_store=cache_store)
+        None if arms_may_share_an_edge or start_nodes is not None
+        else _run_fast_path_on_requested_target(
+            engine,
+            lambda: _connected_join_two_star_fast_grouped_count(
+                base_graph, plan, engine=requested_engine, cache_store=cache_store),
+        )[0]
     )
     if fast_grouped_count is not None:
         out = base_graph.bind()
@@ -781,8 +794,12 @@ def _apply_connected_match_join(
         return out
 
     fast_rows = (
-        None if arms_may_share_an_edge
-        else _connected_join_two_star_fast_rows(base_graph, plan, engine=requested_engine, cache_store=cache_store)
+        None if arms_may_share_an_edge or start_nodes is not None
+        else _run_fast_path_on_requested_target(
+            engine,
+            lambda: _connected_join_two_star_fast_rows(
+                base_graph, plan, engine=requested_engine, cache_store=cache_store),
+        )[0]
     )
     if fast_rows is not None:
         if len(fast_rows) == 0:
@@ -888,6 +905,14 @@ def _apply_connected_match_join(
                            else joined_rows.drop(columns=drop_columns))
     joined_rows = _joined_hidden_scalar_columns(joined_rows)
     joined_rows = _joined_alias_columns(joined_rows)
+    if start_nodes is not None:
+        # the arms above re-matched from the whole graph; narrow to the carried seeds
+        joined_rows = _restrict_connected_join_rows_to_reentry_seed(
+            joined_rows,
+            start_nodes=start_nodes,
+            reentry_alias=reentry_alias,
+            node_col=node_col,
+        )
     joined_plottable = base_graph.bind()
     joined_plottable._nodes = joined_rows
     joined_plottable._edges = df_ctor()
@@ -1165,7 +1190,12 @@ def _concat_union_branch_rows(
     concat: Callable[..., DataFrameT],
 ) -> DataFrameT:
     """Row-concat UNION branch frames without letting a branch's dtype rewrite another's values."""
-    frames = list(row_frames)
+    # UNION aligns columns by NAME (Neo4j); the output keeps the first branch's order.
+    first_columns = list(row_frames[0].columns)
+    frames = [
+        frame if list(frame.columns) == first_columns else frame[first_columns]
+        for frame in row_frames
+    ]
     non_empty = [frame for frame in frames if len(frame) > 0]
     if non_empty and len(non_empty) != len(frames):
         # A 0-row branch contributes no rows, and its dtype must not drag the union supertype.
@@ -1355,12 +1385,48 @@ def _policied_auto_serves_via_pandas_until_the_polars_route_emits_hooks(
     )
 
 
-def _fast_path_execution_target_ignoring_requested_engine(
+def _fast_path_execution_target(
     engine: Union[EngineAbstract, Engine, str],
 ) -> "ExecutionTarget":
-    """Not GPU until every fast-path arm is GPU-or-decline (#1824)."""
+    """Lazy-collect target for a Cypher fast path: GPU only when ``polars-gpu`` was requested.
+
+    Comparing the requested value IS the "did the caller ask for GPU" test, and needs no
+    graph: ``resolve_engine`` never produces ``Engine.POLARS_GPU`` from ``AUTO``, and the
+    AUTO cuDF route that does target GPU re-enters ``gfql`` with the engine already pinned
+    to ``polars-gpu``, so it arrives here as an explicit request. A request for GPU runs on
+    GPU or raises; it is never quietly served on CPU.
+    """
     from graphistry.compute.gfql.lazy import ExecutionTarget
-    return ExecutionTarget.CPU
+    requested = engine.value if isinstance(engine, (Engine, EngineAbstract)) else engine
+    return ExecutionTarget.GPU if requested == Engine.POLARS_GPU.value else ExecutionTarget.CPU
+
+
+_FastPathOut = TypeVar("_FastPathOut")
+
+
+def _run_fast_path_on_requested_target(
+    engine: Union[EngineAbstract, Engine, str],
+    run: Callable[[], Optional[_FastPathOut]],
+) -> Tuple[Optional[_FastPathOut], str]:
+    """Run one Cypher fast path with its lazy collects on the requested engine's target.
+
+    ONE seam for every fast-path arm so the arms cannot drift onto different targets. Returns
+    ``(result, reason)``; a ``None`` result is a decline the caller falls back from. On the GPU
+    target a non-GPU-executable plan surfaces as ``NotImplementedError`` (``lazy._gpu_raise``)
+    and is converted to a decline, so the caller's generic route re-runs the shape on the SAME
+    GPU target -- which itself is GPU-or-raise, never a silent CPU answer. On the CPU target a
+    ``NotImplementedError`` is a real bug and propagates.
+    """
+    from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
+    target = _fast_path_execution_target(engine)
+    try:
+        with target_mode(target):
+            out = run()
+    except NotImplementedError:
+        if target != ExecutionTarget.GPU:
+            raise
+        return None, "declined; plan not GPU-executable, generic route answers"
+    return out, ("served" if out is not None else "declined; caller falls back")
 
 
 def _execute_compiled_query_via_physical_plan(
@@ -1384,6 +1450,11 @@ def _execute_compiled_query_via_physical_plan(
             engine=engine,
             policy=policy,
             context=context,
+            start_nodes=start_nodes,
+            reentry_alias=(
+                None if compiled_query.reentry_plan is None
+                else compiled_query.reentry_plan.reentry_alias_name
+            ),
         )
 
     if connected_optional_match is not None:
@@ -1400,33 +1471,25 @@ def _execute_compiled_query_via_physical_plan(
         # this is where the decision is consumed, it is one place instead of N return
         # paths, and it cannot be bypassed the way patching a directly-imported name is.
         from graphistry.compute.gfql.index.api import record_fast_path_decision
-        from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
-        _fp_target = _fast_path_execution_target_ignoring_requested_engine(engine)
 
         _FastPathName = Literal["single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop"]
 
         def _try_fast(path_name: _FastPathName, run: Callable[[], Optional[Plottable]]) -> Optional[Plottable]:
-            try:
-                with target_mode(_fp_target):
-                    out = run()
-                reason = "served" if out is not None else "declined; caller falls back"
-            except NotImplementedError:
-                if _fp_target != ExecutionTarget.GPU:
-                    raise
-                out = None
-                reason = "declined; plan not GPU-executable, chain route answers"
+            out, reason = _run_fast_path_on_requested_target(engine, run)
             record_fast_path_decision(
                 path=path_name, engine=engine, served=out is not None, reason=reason)
             return out
 
         fast_grouped = _try_fast(
             "single_hop_grouped_aggregate",
-            lambda: _execute_single_hop_grouped_aggregate_fast_path(base_graph, compiled_query.chain, engine=engine))
+            lambda: _execute_single_hop_grouped_aggregate_fast_path(
+                base_graph, compiled_query.chain, engine=engine, reentry_start_nodes=start_nodes))
         if fast_grouped is not None:
             return fast_grouped
         fast_count = _try_fast(
             "two_hop_count",
-            lambda: _execute_two_hop_count_fast_path(base_graph, compiled_query.chain, engine=engine))
+            lambda: _execute_two_hop_count_fast_path(
+                base_graph, compiled_query.chain, engine=engine, reentry_start_nodes=start_nodes))
         if fast_count is not None:
             return fast_count
         fast_hop = _try_fast(
@@ -1519,6 +1582,9 @@ def _execute_compiled_query_chain_non_union(
             compiled_query=compiled_query,
             engine=engine,
         )
+    _reject_node_alias_shadowing_id_binding(
+        base_graph, compiled_query.chain, include_edge_endpoint_aliases=True
+    )
 
     # #1712: a bounded-reentry main chain that is a binding-ops row pipeline
     # (rows(binding_ops) -> group_by -> ...) must seed its first alias from the
@@ -2330,7 +2396,8 @@ def gfql(self: Plottable,
          language: Optional[Literal["cypher", "gremlin"]] = None,
          params: Optional[CypherParams] = None,
          validate: bool = False,
-         shortest_path_backend: str = "auto") -> Plottable:
+         shortest_path_backend: str = "auto",
+         strict: StrictInput = None) -> Plottable:
     """
     Execute a GFQL query - either a chain or a DAG
 
@@ -2349,9 +2416,39 @@ def gfql(self: Plottable,
         ``"igraph"`` (require igraph, raise if missing), ``"cugraph"`` (require cugraph,
         raise if missing), or ``"bfs"`` (always use DataFrame BFS). ``"auto"`` tries
         cugraph on CUDF engine, igraph on pandas, falls back to BFS silently.
+    :param strict: Absent-label/property strictness: ``"strict"`` raises, ``"warn"``
+        (default) warns once per absent name and resolves it to null (openCypher),
+        ``"quiet"`` resolves silently. ``True``/``False`` map to ``"strict"``/``"quiet"``.
+        ``None`` consults ``bind(schema=...)``, then the ``"warn"`` default.
     :returns: Resulting Plottable
     :rtype: Plottable
     """
+    from graphistry.compute.gfql.strictness import (
+        resolve_strict_level, schema_declared_names, strictness_scope)
+
+    with strictness_scope(
+        resolve_strict_level(self, strict=strict), declared=schema_declared_names(self)
+    ) as _strictness:
+        return _gfql_with_strictness(
+            self, query, engine=engine, output=output, policy=policy, where=where,
+            language=language, params=params, validate=validate,
+            shortest_path_backend=shortest_path_backend, strict=_strictness.level)
+
+
+def _gfql_with_strictness(
+    self: Plottable,
+    query: GFQLQuery,
+    *,
+    engine: Union[EngineAbstract, str],
+    output: Optional[str],
+    policy: Optional[Dict[str, PolicyFunction]],
+    where: Optional[Sequence[WhereComparison]],
+    language: Optional[Literal["cypher", "gremlin"]],
+    params: Optional[CypherParams],
+    validate: bool,
+    shortest_path_backend: str,
+    strict: StrictLevel,
+) -> Plottable:
     if _policied_auto_serves_via_pandas_until_the_polars_route_emits_hooks(engine, policy, self):
         engine = Engine.PANDAS.value
 
@@ -2376,9 +2473,8 @@ def gfql(self: Plottable,
                 shortest_path_backend=shortest_path_backend,
             )
 
-    # engine inference, cuDF arm (owner-directed policy addition, 2026-08-02; supersedes the
-    # earlier "AUTO never selects polars-gpu" doctrine for THIS arm only): when every bound
-    # frame is cuDF AND the cudf-polars GPU target is GENUINELY usable (probed once per
+    # engine inference, cuDF arm: when every bound frame is cuDF AND the cudf-polars
+    # GPU target is GENUINELY usable (probed once per
     # process — polars imports, cudf + cudf_polars installed, and a real GPU collect
     # succeeds; see lazy.polars_gpu_available), prefer the native lazy polars engine on its
     # GPU execution target over the legacy CUDF path. Both serve cudf->cudf: inputs cross
@@ -2489,7 +2585,7 @@ def gfql(self: Plottable,
                     where=where_param,
                     language=language,
                     params=params,
-                    strict=True,
+                    strict=strict,
                     schema=True,
                     collect_all=False,
                 )
@@ -2660,7 +2756,9 @@ def gfql(self: Plottable,
             context.policy_depth = policy_depth
 
 
-def _reject_node_alias_shadowing_id_binding(g: Plottable, chain_obj: Chain) -> None:
+def _reject_node_alias_shadowing_id_binding(
+    g: Plottable, chain_obj: Chain, *, include_edge_endpoint_aliases: bool = False
+) -> None:
     """Typed decline for a node alias named after the node-ID binding column.
 
     The alias marker is stamped as ``<alias> = True``, so an alias equal to the node-id
@@ -2669,10 +2767,12 @@ def _reject_node_alias_shadowing_id_binding(g: Plottable, chain_obj: Chain) -> N
     polars answered ``True``. Neither is a usable result; decline the same way on both.
     """
     node_id = getattr(g, "_node", None)
-    if not isinstance(node_id, str):
-        return
+    endpoint_cols = {
+        col for col in (getattr(g, "_source", None), getattr(g, "_destination", None))
+        if isinstance(col, str)
+    }
     for op in chain_obj.chain:
-        if isinstance(op, ASTNode) and getattr(op, "_name", None) == node_id:
+        if isinstance(node_id, str) and isinstance(op, ASTNode) and getattr(op, "_name", None) == node_id:
             raise GFQLValidationError(
                 ErrorCode.E108,
                 "A node alias cannot be named after the node-ID binding column",
@@ -2681,6 +2781,23 @@ def _reject_node_alias_shadowing_id_binding(g: Plottable, chain_obj: Chain) -> N
                 suggestion=(
                     f"The alias flag is materialized as a column named '{node_id}', which would "
                     f"overwrite the node-ID binding. Rename the alias."
+                ),
+            )
+        # Cypher-only decline; raw GFQL chains keep their documented overwrite parity.
+        if (
+            include_edge_endpoint_aliases
+            and isinstance(op, ASTEdge)
+            and getattr(op, "_name", None) in endpoint_cols
+        ):
+            raise GFQLValidationError(
+                ErrorCode.E108,
+                "An edge alias cannot be named after an edge endpoint binding column",
+                field="chain.name",
+                value=getattr(op, "_name", None),
+                suggestion=(
+                    "The alias flag is materialized as a column named like the edge "
+                    "source/destination binding, which would overwrite the endpoints. "
+                    "Rename the alias."
                 ),
             )
 

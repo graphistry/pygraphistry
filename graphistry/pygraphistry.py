@@ -122,7 +122,7 @@ class GraphistryClient(AuthManagerProtocol):
     def authenticate(self) -> None:
         """Authenticate via already provided configuration.
         This is called once automatically per session when uploading and rendering a visualization.
-        If token_refresh_ms > 0 (defaults to 10min), this starts an automatic refresh loop.
+        The JWT token is refreshed on plot() calls; there is no background refresh loop.
         Note that a manual .login() is still required every 24hr by default.
         """
 
@@ -146,7 +146,7 @@ class GraphistryClient(AuthManagerProtocol):
     relogin: Callable[[], str] = not_implemented_thunk  # Will be updated after class initialization
 
     def login(self, username: str, password: str, org_name: Optional[str] = None, fail_silent: bool = False) -> str:
-        """Authenticate and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
+        """Authenticate and set token for reuse (api=3). The token is refreshed on plot() calls.
         By default, must be reinvoked within 24hr.
 
         Note: Hub keeps a separate “active organization” slot (defaulting to the personal org) that powers
@@ -183,7 +183,7 @@ class GraphistryClient(AuthManagerProtocol):
         return token
 
     def pkey_login(self, personal_key_id: str, personal_key_secret: str, org_name: Optional[str] = None, fail_silent: bool = False) -> str:
-        """Authenticate with personal key/secret and set token for reuse (api=3). If token_refresh_ms (default: 10min), auto-refreshes token.
+        """Authenticate with personal key/secret and set token for reuse (api=3). The token is refreshed on plot() calls.
         By default, must be reinvoked within 24hr."""
 
         if self.session.store_token_creds_in_memory:
@@ -640,8 +640,6 @@ class GraphistryClient(AuthManagerProtocol):
         :type bolt: Union[dict, Any]
         :param protocol: Protocol used to contact visualization server, defaults to "https".
         :type protocol: Optional[str]
-        :param token_refresh_ms: Ignored for now; JWT token auto-refreshed on plot() calls.
-        :type token_refresh_ms: int
         :param store_token_creds_in_memory: Store username/password in-memory for JWT token refreshes (Token-originated have a hard limit, so always-on requires creds somewhere)
         :type store_token_creds_in_memory: Optional[bool]
         :param client_protocol_hostname: Override protocol and host shown in browser. Defaults to protocol/server or envvar GRAPHISTRY_CLIENT_PROTOCOL_HOSTNAME.
@@ -940,7 +938,7 @@ class GraphistryClient(AuthManagerProtocol):
         and the renderable result Plotter. Hypergraphs reveal relationships between rows and between column values.
         This transform is useful for lists of events, samples, relationships, and other structured high-dimensional data.
 
-        Specify local compute engine by passing `engine='pandas'`, 'cudf', 'dask', 'dask_cudf' (default: 'pandas').
+        Specify local compute engine by passing `engine='pandas'`, 'cudf', 'dask', 'dask_cudf' (default: 'auto', which selects the engine from the input dataframe type).
         If events are not in that engine's format, they will be converted into it.
 
         The transform creates a node for every unique value in the entity_types columns (default: all columns).
@@ -1462,7 +1460,7 @@ class GraphistryClient(AuthManagerProtocol):
         :param for_default: Use encoding for when no user override is set. Default on.
         :type for_default: Optional[bool]
 
-        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default off.
         :type for_current: Optional[bool]
 
         :returns: Plotter
@@ -1536,7 +1534,7 @@ class GraphistryClient(AuthManagerProtocol):
         :param for_default: Use encoding for when no user override is set. Default on.
         :type for_default: Optional[bool]
 
-        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default off.
         :type for_current: Optional[bool]
 
         :returns: Plotter
@@ -1577,7 +1575,7 @@ class GraphistryClient(AuthManagerProtocol):
         :param for_default: Use encoding for when no user override is set. Default on.
         :type for_default: Optional[bool]
 
-        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default off.
         :type for_current: Optional[bool]
 
         :returns: Plotter
@@ -1659,7 +1657,7 @@ class GraphistryClient(AuthManagerProtocol):
         :param for_default: Use encoding for when no user override is set. Default on.
         :type for_default: Optional[bool]
 
-        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default off.
         :type for_current: Optional[bool]
 
         :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)
@@ -1744,7 +1742,7 @@ class GraphistryClient(AuthManagerProtocol):
         :param for_default: Use encoding for when no user override is set. Default on.
         :type for_default: Optional[bool]
 
-        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default on.
+        :param for_current: Use encoding as currently active. Clearing the active encoding resets it to default, which may be different. Default off.
         :type for_current: Optional[bool]
 
         :param as_text: Values should instead be treated as raw strings, instead of icons and images. (Default False.)

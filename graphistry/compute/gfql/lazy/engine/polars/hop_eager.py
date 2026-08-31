@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 from graphistry.Plottable import Plottable
+from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 from graphistry.compute.util import generate_safe_column_name
 from .dtypes import endpoint_ids
 from .predicates import filter_by_dict_polars
@@ -30,6 +31,19 @@ def _unsupported(**kwargs: Any) -> None:
             + ", ".join(sorted(unsupported))
             + ". Use engine='pandas' or extend graphistry/compute/gfql/lazy/engine/polars/hop_eager.py."
         )
+
+
+def _dedup_output_node_rows(
+    out_nodes: "pl.DataFrame", out_edges: "pl.DataFrame", node_col: str
+) -> "pl.DataFrame":
+    """One output node row per id, matching pandas' edge-guarded hop epilogue.
+
+    The node output is a semi-join against the input table, which emits every
+    matching row, so a duplicated input id survives as two rows here where pandas
+    emits one. Guarded on ``out_edges`` exactly as pandas guards its drop_duplicates."""
+    if out_edges.height == 0:
+        return out_nodes
+    return out_nodes.unique(subset=[node_col], keep="first", maintain_order=True)
 
 
 def ensure_nodes_polars(g: Plottable) -> Plottable:
@@ -98,20 +112,13 @@ def _keep_edges_with_both_endpoints_resolvable(
     edges_idx: "PolarsT", src: str, dst: str, node_dtype: "pl.DataType",
     resolvable_ids: "pl.Series",
 ) -> "PolarsT":
-    """`.implode()` makes the id series ONE membership collection; bare `is_in` is deprecated.
-
-    A NULL endpoint resolves iff the id universe holds a NULL id: `is_in` answers NULL for a
-    NULL input (dropped by `filter`), where the pandas/cuDF `isin` this mirrors answers True.
-    """
+    """Filter both endpoints against the non-null identity universe."""
     import polars as pl
 
     universe = resolvable_ids.implode()
-    a_null_id_is_resolvable = resolvable_ids.null_count() > 0
 
     def _resolvable(endpoint_col: str) -> "pl.Expr":
-        endpoint = pl.col(endpoint_col).cast(node_dtype)
-        member = endpoint.is_in(universe)
-        return (member | endpoint.is_null()) if a_null_id_is_resolvable else member
+        return pl.col(endpoint_col).cast(node_dtype).is_in(universe)
 
     return edges_idx.filter(_resolvable(src) & _resolvable(dst))
 
@@ -239,6 +246,7 @@ def hop_polars(
     # resolved_max_hops comes from the shared resolver above (None == run-to-closure).
     FROM, TO, NID, EID, edges_idx, synth_eid, node_dtype = _hop_setup_columns(
         edges, all_nodes, node_col, g._edge)
+    edges_idx = drop_null_endpoint_edges(edges_idx, src, dst)
 
     serves_single_bounded_hop = (
         not to_fixed_point and resolved_max_hops == 1
@@ -316,6 +324,7 @@ def hop_polars(
             needed_lf = pl.concat([needed_lf, endpoints_lf], how="vertical_relaxed").unique(subset=[NID])
         out_nodes_lf = all_nodes.lazy().join(needed_lf.rename({NID: node_col}), on=node_col, how="semi")
         out_edges_c, out_nodes_c = collect_all([out_edges_lf, out_nodes_lf])
+        out_nodes_c = _dedup_output_node_rows(out_nodes_c, out_edges_c, node_col)
         return g.nodes(out_nodes_c, node_col).edges(out_edges_c, src, dst)
 
     allowed_source = None
@@ -360,12 +369,13 @@ def hop_polars(
 
     empty_ids = all_nodes.select(pl.col(node_col).cast(node_dtype).alias(NID)).clear()
 
-    # Hop labeling — plain (non-min_hops) BFS only. pandas labels a node with the hop at
-    # which the ANTI-JOINED wavefront first discovers it (hop.py:581-603 over new_node_ids), i.e.
-    # its shortest-path distance; that is exactly `new_frontier` here. Seeds are already in
-    # `visited_nodes` after the first iteration, so a seed re-reached by a backtracking undirected
-    # walk stays UNLABELED (null) — that is the divergence. label_seeds writes hop 0 for
-    # seeds instead. Edges take the hop that first traversed them (hop.py:555-557), min-aggregated.
+    # Hop labeling — plain (non-min_hops) BFS only. Labels come from every DESTINATION of the
+    # hop (`cand`), first-wins against `label_seen_nodes` — NOT from `new_frontier`, which is
+    # anti-joined against `visited_nodes` and drives traversal only. That matches pandas
+    # (hop.py:540 new_node_ids = all TO ids), so under fwd/rev a seed re-entered at hop 1 IS
+    # labeled 1. Only undirected pre-seeds `label_seen_nodes` with the seeds, leaving a seed
+    # re-reached by backtracking UNLABELED (null); label_seeds writes hop 0 for seeds instead.
+    # Edges take the hop that first traversed them (hop.py:555-557), min-aggregated.
     track_node_hops = (label_node_hops is not None or label_seeds) and not min_hops_active
     node_hop_frames = []                 # list[DataFrame[NID, NHOP]]
     label_seen_nodes = empty_ids         # first-wins guard for node labels
@@ -495,7 +505,10 @@ def hop_polars(
                 valid_edge_frames = []
                 for level in range(max_edge_hop, 0, -1):
                     lvl = edge_rec.filter(pl.col(HOP) == level)
-                    reaching = lvl.join(current_targets.rename({NID: TO}), on=TO, how="semi")
+                    # An edge at >= min_hops ends a qualifying walk itself; only sub-min levels feed one.
+                    level_is_goal = level >= min_hops  # paired with hop.py, fixes #1944
+                    reaching = lvl if level_is_goal else lvl.join(
+                        current_targets.rename({NID: TO}), on=TO, how="semi")
                     valid_edge_frames.append(reaching.select(pl.col(EID)))
                     current_targets = reaching.select(pl.col(FROM).alias(NID)).unique()
                     valid_node = pl.concat([valid_node, current_targets], how="vertical_relaxed").unique(subset=[NID])
@@ -554,6 +567,7 @@ def hop_polars(
         out_nodes = _min_hops_labeled_node_output(all_nodes, needed, reached_for_attrs, node_col, NID)
     else:
         out_nodes = all_nodes.join(needed.rename({NID: node_col}), on=node_col, how="semi")
+    out_nodes = _dedup_output_node_rows(out_nodes, out_edges, node_col)
 
     if track_node_hops and label_node_hops is not None:
         node_labels = (

@@ -28,6 +28,7 @@ import pytest
 
 import graphistry
 from graphistry.compute.ast import n, e_forward, e_undirected
+from graphistry.compute.exceptions import GFQLValidationError
 
 from .polars_test_utils import (
     edge_pair_set, gpu_environment_reason, node_id_set, to_pandas_any,
@@ -1025,24 +1026,18 @@ def test_undirected_zero_hop_seed_under_an_output_window_labels_before_it_strips
     assert node_id_set(out) == set()
 
 
-# --- AXIS: a NULL endpoint id, and the NULL node row that backs it -----------------------------
-#
-# Round 6. Membership is the gate's whole implementation, and the engines disagree about NULL:
-# pandas/cuDF ``isin`` answers True for NULL-in-{..., NULL}; polars ``is_in`` answers NULL, and
-# ``filter`` drops a NULL predicate. So the gate can silently over-filter on polars alone.
-#
-# NULLEP nodes: ids 0, 1, 2, and a fourth row whose id is NULL.
-# NULLEP edges: (0,1), (1,2), (NULL,2).
-# EVERY endpoint -- NULL included -- has a node row, so the graph is CLOSED end to end and the
-# gate must remove nothing. Hand-walked undirected walk from seed 0 with hops=3:
-#     hop 1: 0 --(0,1)--> 1        reaches 1
-#     hop 2: 1 --(1,2)--> 2        reaches 2
-#     hop 3: 2 --(NULL,2)--> NULL  reaches NULL
-# so all three edges are traversed and the answer is the whole graph.
-
 NULL_ENDPOINT_NODES = pd.DataFrame({"id": [0.0, 1.0, 2.0, None]})
-NULL_ENDPOINT_EDGES = pd.DataFrame({"s": [0.0, 1.0, None], "d": [1.0, 2.0, 2.0]})
-_NULL_ENDPOINT_CLOSED = {(0.0, 1.0), (1.0, 2.0), ("NULL", 2.0)}
+NULL_ENDPOINT_EDGES = pd.DataFrame({"s": [0.0, 1.0, None, 2.0], "d": [1.0, 2.0, 2.0, None]})
+_NULL_ENDPOINT_MATCHED = {(0.0, 1.0), (1.0, 2.0)}
+_NULL_ENDPOINT_REACHED = {0.0, 1.0, 2.0}
+
+NULL_FREE_TWIN_NODES = pd.DataFrame({"id": [0.0, 1.0, 2.0, 3.0]})
+NULL_FREE_TWIN_EDGES = pd.DataFrame({"s": [0.0, 1.0, 3.0, 2.0], "d": [1.0, 2.0, 2.0, 3.0]})
+_NULL_FREE_TWIN_MATCHED = {(0.0, 1.0), (1.0, 2.0), (3.0, 2.0), (2.0, 3.0)}
+
+NULL_STR_NODES = pd.DataFrame({"id": ["a", "b", "c", None]})
+NULL_STR_EDGES = pd.DataFrame({"s": ["a", "b", None, "c"], "d": ["b", "c", "c", None]})
+_NULL_STR_MATCHED = {("a", "b"), ("b", "c")}
 
 
 def _pairs_with_nulls_named(g):
@@ -1052,84 +1047,9 @@ def _pairs_with_nulls_named(g):
         return set()
 
     def _v(x):
-        return "NULL" if pd.isna(x) else float(x)
+        return "NULL" if pd.isna(x) else x
 
     return {(_v(a), _v(b)) for a, b in zip(df[g._source].tolist(), df[g._destination].tolist())}
-
-
-@pytest.mark.parametrize("engine", ALL_ENGINES)
-def test_a_null_endpoint_backed_by_a_null_node_row_survives_the_gate(engine):
-    """The bound-table side. A NULL endpoint id resolves to the NULL node row, so the closed
-    graph comes back whole. REGRESSION PIN: red on the polars arm before the round-6 fix to
-    ``_keep_edges_with_both_endpoints_resolvable`` (it answered 2 edges where pandas, cuDF and
-    the merge-base 526976e91 all answer 3)."""
-    _require_engine(engine)
-    out = _bind(engine, NULL_ENDPOINT_NODES, NULL_ENDPOINT_EDGES).hop(
-        nodes=_seed(engine, [0.0]), hops=3, direction="undirected", engine=engine)
-    assert _pairs_with_nulls_named(out) == _NULL_ENDPOINT_CLOSED
-
-
-@pytest.mark.parametrize("engine", ALL_ENGINES)
-def test_a_null_endpoint_survives_the_vacuously_closed_synthesized_table(engine):
-    """The synthesized-table side of the same fixture: with no node table bound the id universe
-    is built FROM the endpoints, so it holds the NULL too and the gate must still remove nothing.
-    Same hand-walked answer as the bound case.
-
-    CONTROL, not a pin (round 7 re-derivation): round 6 justified this cell against the
-    ``node_table_bound = True`` mutation, but its own null-aware fix made that mutation
-    equivalent on the polars hop -- forcing the gate on now leaves the whole gfql suite
-    byte-identical (93 failures either way). Kept as the vacuous-closure oracle it is."""
-    _require_engine(engine)
-    out = _edges_only(engine, NULL_ENDPOINT_EDGES).hop(
-        nodes=_seed(engine, [0.0]), hops=3, direction="undirected", engine=engine)
-    assert _pairs_with_nulls_named(out) == _NULL_ENDPOINT_CLOSED
-
-
-def test_the_synthesized_table_does_not_gate_a_null_endpoint_on_the_polars_chain():
-    """The polars single-hop chain fast path reaches the same question through a semi-JOIN, and
-    a polars join never matches NULL to NULL -- so ``node_table_bound`` there is load-bearing,
-    not the no-op the round-5 audit called it: forcing the gate on drops (NULL,2).
-
-    Hand-walked ``(n)-[e]->(n)`` over NULLEP: an unconstrained forward pattern selects every
-    edge, so all three come back. (pandas and cuDF answer {(0,1),(1,2)} on this SURFACE -- a
-    pre-existing chain divergence, identical at the merge-base 526976e91 and unrelated to the
-    #1888 gate, so it is reported rather than pinned here.)"""
-    out = _edges_only("polars", NULL_ENDPOINT_EDGES).gfql([n(), e_forward(), n()], engine="polars")
-    assert _pairs_with_nulls_named(out) == _NULL_ENDPOINT_CLOSED
-
-
-# --- AXIS: the rest of the NULL surface, past the one site round 6 fixed ----------------------
-#
-# Round 7. Membership is null-blind on polars in MORE than the hop gate: the hop's node-output
-# epilogue and the chain's endpoint gates are semi-JOINs, and a polars join never matches NULL
-# to NULL either. Each cell below is the SAME NULLEP fixture, hand-walked, on a surface the
-# contract at the top of this file names. Strict xfails carry the measured wrong answer.
-
-_NULL_NODE_ROW_POLARS_XFAIL = pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "polars hop keeps the (NULL,2) edge but its node-output semi-join "
-    "(all_nodes.join(needed, how='semi')) never matches NULL to NULL, so the kept edge's NULL "
-    "endpoint has NO node row -- the output is not endpoint-closed. Measured identical at the "
-    "merge base 526976e91, so pre-existing, not this PR; #1888's fix reached the edge arm only."))
-
-_CHAIN_NULL_XFAIL = pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "the chain surface answers the NULL-endpoint question differently from hop(): on the SAME "
-    "bound closed graph hop() keeps all three edges and an undirected chain returns two. pandas "
-    "and cuDF do this at the merge base too; the polars arm XPASSes at 526976e91 (it answered 3 "
-    "before #1888 attached a null-blind semi-join gate to the chain fast path)."))
-
-_CYPHER_COUNT_POLARS_XFAIL = pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "polars counts 4 where pandas/cuDF count 6: the two orientations of the NULL-endpoint edge "
-    "are lost in the chain's null-blind endpoint semi-joins. Pre-existing at 526976e91."))
-
-_SYNTH_CHAIN_NULL_XFAIL = pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "pandas/cuDF gate a NULL endpoint out of a SYNTHESIZED (vacuously closed) node table, "
-    "answering 2 where polars answers the contract's 3. Pre-existing at 526976e91; round 6 "
-    "reported this in a docstring, this cell pins it."))
-
-
-def _engines(**per_engine_mark):
-    return [pytest.param(e, marks=per_engine_mark[e]) if e in per_engine_mark else e
-            for e in ALL_ENGINES]
 
 
 def _ids_with_nulls_named(g):
@@ -1137,50 +1057,193 @@ def _ids_with_nulls_named(g):
     df = to_pandas_any(g._nodes)
     if df is None or len(df) == 0:
         return set()
-    return {"NULL" if pd.isna(x) else float(x) for x in df[g._node].tolist()}
+    return {"NULL" if pd.isna(x) else x for x in df[g._node].tolist()}
 
 
-@pytest.mark.parametrize("engine", _engines(polars=_NULL_NODE_ROW_POLARS_XFAIL))
-def test_the_kept_null_endpoint_edge_also_gets_its_node_row(engine):
-    """Round 6 pinned that the (NULL,2) edge survives; nothing pinned that its NULL endpoint
-    still has a node row. Same hand-walked undirected walk from seed 0 (0->1->2->NULL): the
-    whole closed graph comes back, so the node set is every id in the bound table."""
+def _scalar(g, col):
+    return to_pandas_any(g._nodes)[col].tolist()
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_a_null_edge_endpoint_matches_nothing_on_a_direct_hop(engine):
     _require_engine(engine)
     out = _bind(engine, NULL_ENDPOINT_NODES, NULL_ENDPOINT_EDGES).hop(
-        nodes=_seed(engine, [0.0]), hops=3, direction="undirected", engine=engine)
-    assert _pairs_with_nulls_named(out) == _NULL_ENDPOINT_CLOSED
-    assert _ids_with_nulls_named(out) == {0.0, 1.0, 2.0, "NULL"}
+        nodes=_seed(engine, [0.0]), hops=4, direction="undirected", engine=engine)
+    assert _pairs_with_nulls_named(out) == _NULL_ENDPOINT_MATCHED
+    assert _ids_with_nulls_named(out) == _NULL_ENDPOINT_REACHED
 
 
-@_CHAIN_NULL_XFAIL
+_SYNTH_NULL_ORACLE = [
+    ("float_undirected", NULL_ENDPOINT_EDGES, 0.0, "undirected", _NULL_ENDPOINT_MATCHED),
+    ("float_forward", NULL_ENDPOINT_EDGES, 0.0, "forward", {(0.0, 1.0), (1.0, 2.0)}),
+    ("float_reverse_from_2", NULL_ENDPOINT_EDGES, 2.0, "reverse", _NULL_ENDPOINT_MATCHED),
+    ("float_forward_from_2", NULL_ENDPOINT_EDGES, 2.0, "forward", set()),
+    ("str_undirected", NULL_STR_EDGES, "a", "undirected", _NULL_STR_MATCHED),
+    ("str_reverse_from_c", NULL_STR_EDGES, "c", "reverse", _NULL_STR_MATCHED),
+]
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("label,edges,seed,direction,want", _SYNTH_NULL_ORACLE)
+def test_a_null_edge_endpoint_matches_nothing_on_the_synthesized_table(
+    engine, label, edges, seed, direction, want
+):
+    _require_engine(engine)
+    out = _edges_only(engine, edges).hop(
+        nodes=_seed(engine, [seed]), hops=4, direction=direction, engine=engine)
+    assert _pairs_with_nulls_named(out) == want, label
+    assert "NULL" not in _ids_with_nulls_named(out), label
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("direction,want", [
+    ("forward", set()),
+    ("reverse", {(1.0, 2.0)}),
+])
+def test_each_null_endpoint_side_is_dropped_on_its_own(engine, direction, want):
+    _require_engine(engine)
+    out = _bind(engine, NULL_ENDPOINT_NODES, NULL_ENDPOINT_EDGES).hop(
+        nodes=_seed(engine, [2.0]), hops=1, direction=direction, engine=engine)
+    assert _pairs_with_nulls_named(out) == want
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_a_null_seed_id_reaches_nothing(engine):
+    _require_engine(engine)
+    out = _bind(engine, NULL_ENDPOINT_NODES, NULL_ENDPOINT_EDGES).hop(
+        nodes=_seed(engine, [None]), hops=2, direction="undirected", engine=engine)
+    assert _pairs_with_nulls_named(out) == set()
+    assert _ids_with_nulls_named(out) == set()
+
+
 @pytest.mark.parametrize("engine", ALL_ENGINES)
 def test_the_chain_answers_the_same_null_endpoint_question_as_hop(engine):
-    """One rule on every surface: NULLEP is closed end to end (the NULL endpoint has its own
-    node row), so an unconstrained undirected chain selects every edge -- the same three the
-    direct hop returns."""
     _require_engine(engine)
     out = _bind(engine, NULL_ENDPOINT_NODES, NULL_ENDPOINT_EDGES).gfql(
         [n(), e_undirected(), n()], engine=engine)
-    assert _pairs_with_nulls_named(out) == _NULL_ENDPOINT_CLOSED
+    assert _pairs_with_nulls_named(out) == _NULL_ENDPOINT_MATCHED
+    assert _ids_with_nulls_named(out) == _NULL_ENDPOINT_REACHED
 
 
-@pytest.mark.parametrize("engine", _engines(polars=_CYPHER_COUNT_POLARS_XFAIL))
-def test_cypher_undirected_count_counts_the_null_endpoint_edge(engine):
-    """Cypher count(*) is one of the surfaces the matrix header names. An undirected pattern
-    matches each of the three closed edges in both orientations, so the hand count is 3*2 = 6.
-    (Control: the same query over the NULL-free 3-edge graph answers 6 on all three engines.)"""
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_naming_the_ops_does_not_change_the_null_endpoint_answer(engine):
+    _require_engine(engine)
+    g = _bind(engine, NULL_ENDPOINT_NODES, NULL_ENDPOINT_EDGES)
+    unnamed = g.gfql([n(), e_undirected(), n()], engine=engine)
+    named = g.gfql([n(name="a"), e_undirected(name="x"), n(name="b")], engine=engine)
+    assert _pairs_with_nulls_named(named) == _pairs_with_nulls_named(unnamed)
+    assert _pairs_with_nulls_named(named) == _NULL_ENDPOINT_MATCHED
+
+
+_CHAIN_NULL_ORACLE = [
+    ("bound_float", NULL_ENDPOINT_NODES, NULL_ENDPOINT_EDGES, _NULL_ENDPOINT_MATCHED),
+    ("synth_float", None, NULL_ENDPOINT_EDGES, _NULL_ENDPOINT_MATCHED),
+    ("bound_str", NULL_STR_NODES, NULL_STR_EDGES, _NULL_STR_MATCHED),
+    ("synth_str", None, NULL_STR_EDGES, _NULL_STR_MATCHED),
+]
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("edge_op", [e_forward, e_undirected])
+@pytest.mark.parametrize("label,nodes,edges,want", _CHAIN_NULL_ORACLE)
+def test_the_chain_gates_a_null_endpoint_bound_or_synthesized(
+    engine, edge_op, label, nodes, edges, want
+):
+    _require_engine(engine)
+    g = (_edges_only(engine, edges) if nodes is None else _bind(engine, nodes, edges))
+    out = g.gfql([n(), edge_op(), n()], engine=engine)
+    assert _pairs_with_nulls_named(out) == want, label
+    assert "NULL" not in _ids_with_nulls_named(out), label
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("query,want", [
+    ("MATCH (a)-[x]-(b) RETURN count(*) AS c", 4),
+    ("MATCH (a)-[x]->(b) RETURN count(*) AS c", 2),
+])
+def test_cypher_count_counts_only_matchable_edges(engine, query, want):
+    _require_engine(engine)
+    out = _bind(engine, NULL_ENDPOINT_NODES, NULL_ENDPOINT_EDGES).gfql(query, engine=engine)
+    assert _scalar(out, "c") == [want]
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.xfail(
+    strict=False,
+    raises=(AssertionError, GFQLValidationError),
+    reason="#1995 follow-up: NULL-id source-row validity is outside endpoint resolution",
+)
+def test_current_node_only_scan_preserves_a_null_id_source_row(engine):
     _require_engine(engine)
     out = _bind(engine, NULL_ENDPOINT_NODES, NULL_ENDPOINT_EDGES).gfql(
-        "MATCH (a)-[x]-(b) RETURN count(*) AS c", engine=engine)
-    assert to_pandas_any(out._nodes)["c"].tolist() == [6]
+        "MATCH (a) RETURN count(*) AS c", engine=engine)
+    assert _scalar(out, "c") == [4]
 
 
-@_SYNTH_CHAIN_NULL_XFAIL
-@pytest.mark.parametrize("engine", ["pandas", "cudf"])
-def test_the_synthesized_chain_is_not_gated_for_a_null_endpoint(engine):
-    """The pandas/cuDF counterpart of the polars cell above -- same query, same hand-walked
-    answer. With no node table bound the id universe is built from the endpoints, so it holds
-    the NULL: vacuously closed, and an unconstrained forward pattern selects all three edges."""
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("surface", ["hop", "chain"])
+def test_no_output_frame_references_a_node_it_does_not_carry(engine, surface):
     _require_engine(engine)
-    out = _edges_only(engine, NULL_ENDPOINT_EDGES).gfql([n(), e_forward(), n()], engine=engine)
-    assert _pairs_with_nulls_named(out) == _NULL_ENDPOINT_CLOSED
+    g = _bind(engine, NULL_ENDPOINT_NODES, NULL_ENDPOINT_EDGES)
+    out = (g.hop(nodes=_seed(engine, [0.0]), hops=4, direction="undirected", engine=engine)
+           if surface == "hop" else g.gfql([n(), e_undirected(), n()], engine=engine))
+    ids = _ids_with_nulls_named(out)
+    endpoints = {i for pair in _pairs_with_nulls_named(out) for i in pair}
+    assert endpoints <= ids, f"edge endpoints with no node row: {endpoints - ids}"
+    assert "NULL" not in endpoints
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_the_null_free_twin_matches_every_edge(engine):
+    _require_engine(engine)
+    g = _bind(engine, NULL_FREE_TWIN_NODES, NULL_FREE_TWIN_EDGES)
+    out = g.hop(nodes=_seed(engine, [0.0]), hops=4, direction="undirected", engine=engine)
+    assert _pairs_with_nulls_named(out) == _NULL_FREE_TWIN_MATCHED
+    assert _ids_with_nulls_named(out) == {0.0, 1.0, 2.0, 3.0}
+    assert _pairs_with_nulls_named(
+        g.gfql([n(), e_undirected(), n()], engine=engine)) == _NULL_FREE_TWIN_MATCHED
+    assert _scalar(g.gfql("MATCH (a)-[x]-(b) RETURN count(*) AS c", engine=engine), "c") == [8]
+    assert _scalar(g.gfql("MATCH (a)-[x]->(b) RETURN count(*) AS c", engine=engine), "c") == [4]
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_the_null_endpoint_contract_holds_on_string_ids(engine):
+    _require_engine(engine)
+    g = _bind(engine, NULL_STR_NODES, NULL_STR_EDGES)
+    out = g.hop(nodes=_seed(engine, ["a"]), hops=4, direction="undirected", engine=engine)
+    assert _pairs_with_nulls_named(out) == _NULL_STR_MATCHED
+    assert _ids_with_nulls_named(out) == {"a", "b", "c"}
+    assert _pairs_with_nulls_named(
+        g.gfql([n(), e_forward(), n()], engine=engine)) == _NULL_STR_MATCHED
+    assert _scalar(g.gfql("MATCH (a)-[x]-(b) RETURN count(*) AS c", engine=engine), "c") == [4]
+
+
+_INDEXED_NULL_ORACLE = [
+    (0.0, "forward", {(0.0, 1.0)}),
+    (2.0, "forward", set()),
+    (0.0, "reverse", set()),
+    (2.0, "reverse", {(1.0, 2.0)}),
+    (0.0, "undirected", {(0.0, 1.0)}),
+    (2.0, "undirected", {(1.0, 2.0)}),
+]
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+@pytest.mark.parametrize("seed,direction,want", _INDEXED_NULL_ORACLE)
+def test_the_index_backed_route_answers_the_null_contract_too(engine, seed, direction, want):
+    _require_engine(engine)
+    from graphistry.compute.gfql.index import gfql_index_edges
+
+    g = gfql_index_edges(_bind(engine, NULL_ENDPOINT_NODES, NULL_ENDPOINT_EDGES))
+    out = g.hop(nodes=_seed(engine, [seed]), hops=1, direction=direction, engine=engine)
+    assert _pairs_with_nulls_named(out) == want
+
+
+@pytest.mark.parametrize("engine", ALL_ENGINES)
+def test_get_degrees_counts_raw_edge_rows_not_matchable_edges(engine):
+    _require_engine(engine)
+    out = _bind(engine, NULL_ENDPOINT_NODES, NULL_ENDPOINT_EDGES).get_degrees()
+    rows = to_pandas_any(out._nodes)
+    got = {("NULL" if pd.isna(r["id"]) else r["id"]):
+           (int(r["degree_in"]), int(r["degree_out"])) for _, r in rows.iterrows()}
+    assert got == {0.0: (0, 1), 1.0: (1, 1), 2.0: (2, 1), "NULL": (0, 0)}

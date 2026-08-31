@@ -14,15 +14,21 @@ from graphistry.compute.gfql.expr_parser import (
     _rebuild_expr_node,
 )
 from graphistry.compute.gfql.temporal.durations import (
+    _AVERAGE_NANOS_PER_MONTH,
     _NANOS_PER_DAY,
     _fold_duration_function_call,
     format_duration_calendar_components,
     parse_duration_calendar_components,
 )
+from graphistry.compute.gfql.language_defs import (
+    GFQL_COMPARISON_BINARY_OPS,
+    GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS,
+)
 from graphistry.compute.gfql.temporal.rendering import _render_temporal_arg
 from graphistry.compute.gfql.temporal.truncation import _fold_temporal_truncate_call
 from graphistry.compute.gfql.temporal.values import (
     _TemporalValue,
+    _days_from_civil,
     _days_in_month,
     _format_localdatetime_parts,
     _format_localtime_parts,
@@ -130,21 +136,96 @@ def _shift_temporal_value(value: _TemporalValue, months: int, days: int, time_na
     return rendered
 
 
-def _scale_duration(components: tuple[int, int, int], factor: float, divide: bool) -> Optional[str]:
-    """Scale each duration group IN PLACE: the time group never migrates into days
-    (PT18H * 2 is PT36H, and date + PT36H is a no-op while date + P1DT12H is not);
-    only a fractional day result spills into time (P1D / 2 is PT12H)."""
+def _scale_duration(components: tuple[int, int, int], factor: float, divide: bool) -> str:
+    """Scale each duration group IN PLACE, then cascade DOWNWARD whatever no longer fits
+    that group: a fractional month becomes days at the average month of 30.436875 days,
+    and a fractional day becomes time (P1M / 2 is P15DT5H14M33S, P1D / 2 is PT12H).
+    Nothing ever migrates UP -- the time group stays put (PT18H * 2 is PT36H, and date +
+    PT36H is a no-op while date + P1DT12H is not) and days are never re-absorbed into
+    months, whose length varies. Each group TRUNCATES toward zero and hands the exact
+    remainder down, so negatives mirror their positive twin and PT2S / 3 is
+    PT0.666666666S, not ...667S. A result that is whole in month-space keeps its months
+    (P2M / 2 is P1M), so the average month is used only where a month must actually be
+    split -- and there scaling stops round-tripping: (P1M / 2) * 2 is P30DT10H29M6S."""
     months, days, time_nanos = components
     scaled_months = (months / factor) if divide else (months * factor)
-    if scaled_months != int(scaled_months):
-        return None
-    scaled_days = (days / factor) if divide else (days * factor)
+    whole_months = int(scaled_months)
+    month_spill_days = _AVERAGE_NANOS_PER_MONTH * (scaled_months - whole_months) / _NANOS_PER_DAY
+    scaled_days = ((days / factor) if divide else (days * factor)) + month_spill_days
     whole_days = int(scaled_days)
-    day_spill_nanos = (scaled_days - whole_days) * _NANOS_PER_DAY
+    day_spill_nanos = _NANOS_PER_DAY * (scaled_days - whole_days)
     scaled_time = (time_nanos / factor) if divide else (time_nanos * factor)
     return format_duration_calendar_components(
-        int(scaled_months), whole_days, int(round(scaled_time + day_spill_nanos))
+        whole_months, whole_days, int(scaled_time + day_spill_nanos)
     )
+
+
+_TZ_OFFSET_PREFIX_RE = re.compile(r"^(Z|[+-]\d{2}:\d{2}(?::\d{2})?)")
+
+_NANOS_PER_SECOND = 1_000_000_000
+
+
+def _temporal_instant_key(value: _TemporalValue) -> Optional[tuple[str, int]]:
+    """(temporal kind, instant nanoseconds) for a parsed temporal literal.
+
+    Zoned kinds normalize to UTC ("compared on a global timeline"); a bare
+    ``[zone]`` suffix with no resolvable offset returns None (no fold)."""
+    offset_nanos = 0
+    if value.kind in {"datetime", "time"}:
+        match = _TZ_OFFSET_PREFIX_RE.match(value.tz_suffix or "")
+        if match is None:
+            return None
+        token = match.group(1)
+        if token != "Z":
+            sign = -1 if token[0] == "-" else 1
+            seconds = int(token[1:3]) * 3600 + int(token[4:6]) * 60
+            if len(token) > 6:
+                seconds += int(token[7:9])
+            offset_nanos = sign * seconds * _NANOS_PER_SECOND
+    days = 0
+    if value.date_value is not None:
+        days = _days_from_civil(value.date_value.year, value.date_value.month, value.date_value.day)
+    civil_nanos = (
+        days * _NANOS_PER_DAY
+        + (value.hour * 3600 + value.minute * 60 + value.second) * _NANOS_PER_SECOND
+        + value.nanosecond
+    )
+    return (value.kind, civil_nanos - offset_nanos)
+
+
+def _fold_temporal_comparison(node: BinaryOp) -> Optional[Literal]:
+    """Constant-fold ``<temporal literal> <cmp> <temporal literal>``.
+
+    openCypher CIP2016-06-14: zoned values compare on the UTC global timeline
+    (same instant under different offsets IS equal), while values of different
+    temporal types are never equal (`=` false) and are incomparable for
+    ordering (`<` etc. null). Both engines otherwise diverge here — pandas
+    instant-compared across types, polars compared rendered text."""
+    cmp_fn = GFQL_COMPARISON_BINARY_OPS.get(str(node.op))
+    if cmp_fn is None:
+        return None
+    if not (isinstance(node.left, Literal) and isinstance(node.right, Literal)):
+        return None
+    if not (isinstance(node.left.value, str) and isinstance(node.right.value, str)):
+        return None
+    try:
+        left_value = _parse_temporal_value(node.left.value)
+        right_value = _parse_temporal_value(node.right.value)
+    except ValueError:
+        return None
+    if left_value is None or right_value is None:
+        return None
+    left_key = _temporal_instant_key(left_value)
+    right_key = _temporal_instant_key(right_value)
+    if left_key is None or right_key is None:
+        return None
+    if left_key[0] != right_key[0]:
+        if str(node.op) == "=":
+            return Literal(False)
+        if str(node.op) in GFQL_INEQUALITY_EQUALITY_COMPARISON_BINARY_OPS:
+            return Literal(True)
+        return Literal(None)
+    return Literal(bool(cmp_fn(left_key[1], right_key[1])))
 
 
 def _fold_temporal_arithmetic(node: BinaryOp) -> Optional[Literal]:
@@ -184,14 +265,12 @@ def _fold_temporal_arithmetic(node: BinaryOp) -> Optional[Literal]:
             # Multiplying by zero is PT0S; only DIVISION by zero declines.
             if factor is None or (factor == 0 and op == "/"):
                 return None
-            scaled = _scale_duration(left_duration, factor, divide=(op == "/"))
-            return None if scaled is None else Literal(scaled)
+            return Literal(_scale_duration(left_duration, factor, divide=(op == "/")))
         if right_duration is not None and left_duration is None and op == "*":
             factor = _number_of(left_value)
             if factor is None:
                 return None
-            scaled = _scale_duration(right_duration, factor, divide=False)
-            return None if scaled is None else Literal(scaled)
+            return Literal(_scale_duration(right_duration, factor, divide=False))
         return None
 
     sign = -1 if op == "-" else 1
@@ -328,6 +407,9 @@ def fold_temporal_constructor_ast(node: ExprNode) -> ExprNode:
             arithmetic = _fold_temporal_arithmetic(rebuilt)
             if arithmetic is not None:
                 return arithmetic
+            comparison = _fold_temporal_comparison(rebuilt)
+            if comparison is not None:
+                return comparison
         return rebuilt
 
     return _fold(node)

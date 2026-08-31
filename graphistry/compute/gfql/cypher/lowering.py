@@ -155,7 +155,6 @@ from graphistry.compute.gfql.temporal.folding import (
     fold_temporal_constructor_ast,
     rewrite_temporal_constructors_in_expr,
 )
-from graphistry.compute.gfql.row.entity_props import LABEL_FLAG_PREFIX
 from graphistry.compute.gfql.same_path_types import (
     EDGE_IDENTITY_COLUMN,
     NODE_IDENTITY_COLUMN,
@@ -2593,6 +2592,22 @@ def _binds_one_route_per_pair_undirected(clause: MatchClause) -> bool:
     return False
 
 
+def _sole_leading_optional_match(query: CypherQuery) -> bool:
+    """One OPTIONAL MATCH with nothing bound before it: no row can go unmatched.
+
+    Over the single empty incoming row, such a clause either matches (and is a plain
+    MATCH, so binding rows are sound) or matches nothing (and the empty-result-row
+    null extension emits the one null row, without ever consulting binding rows)."""
+    return (
+        len(query.matches) == 1
+        and query.matches[0].optional
+        and not query.reentry_matches
+        and not query.with_stages
+        and not query.unwinds
+        and query.call is None
+    )
+
+
 def _forces_relationship_multiplicity_projection_bindings(
     query: CypherQuery,
     *,
@@ -2600,6 +2615,7 @@ def _forces_relationship_multiplicity_projection_bindings(
     relationship_count: int,
     items: Sequence[ReturnItem],
     order_by: Optional[OrderByClause],
+    bag_preserving_whole_row_aliases: AbstractSet[str] = frozenset(),
 ) -> bool:
     """Non-aggregate projections over relationship patterns run on binding rows:
     the per-alias node table collapses row multiplicity (bag semantics).
@@ -2610,7 +2626,7 @@ def _forces_relationship_multiplicity_projection_bindings(
     conservative source-table path; variable-length arms are excluded."""
     if relationship_count <= 0 or not alias_targets:
         return False
-    if any(clause.optional for clause in query.matches):
+    if any(clause.optional for clause in query.matches) and not _sole_leading_optional_match(query):
         return False
     if not all(isinstance(target, (ASTNode, ASTEdge)) for target in alias_targets.values()):
         return False
@@ -2623,6 +2639,10 @@ def _forces_relationship_multiplicity_projection_bindings(
     referenced_aliases: Set[str] = set()
     for text in texts:
         stripped = text.strip()
+        if stripped in bag_preserving_whole_row_aliases and isinstance(alias_targets.get(stripped), ASTNode):
+            referenced_aliases.add(stripped)
+            saw_node_prop_ref = True
+            continue
         if stripped == "*" or stripped in alias_targets:
             return False
         tokens = {
@@ -2640,42 +2660,25 @@ def _forces_relationship_multiplicity_projection_bindings(
         saw_node_prop_ref = True
     if not saw_node_prop_ref:
         return False
-    if _seeded_typed_hop_reduction_is_value_correct(
-        query, alias_targets=alias_targets, referenced_aliases=referenced_aliases
-    ):
-        return False
     return True
 
 
-def _seeded_typed_hop_reduction_is_value_correct(
+def _bag_preserving_whole_row_aliases(
     query: CypherQuery,
     *,
-    alias_targets: Mapping[str, ASTObject],
-    referenced_aliases: AbstractSet[str],
-) -> bool:
-    """A selectively-seeded single-hop pattern projecting only destination props, which
-    the seeded typed-hop fast path already answers without binding rows."""
-    if len(query.matches) != 1 or len(query.matches[0].patterns) != 1:
-        return False
-    pattern = query.matches[0].patterns[0]
-    if not (
-        len(pattern) == 3
-        and isinstance(pattern[0], NodePattern)
-        and isinstance(pattern[1], RelationshipPattern)
-        and pattern[1].min_hops is None
-        and pattern[1].max_hops is None
-        and not getattr(pattern[1], "to_fixed_point", False)
-        and isinstance(pattern[2], NodePattern)
+    plan: "_ProjectionPlan",
+) -> AbstractSet[str]:
+    """Return whole-row aliases that may use relationship binding rows."""
+    if query.return_.distinct or query.return_is_reentry_carry:
+        return frozenset()
+    if any(
+        _is_variable_length_relationship_pattern(element)
+        for clause in query.matches
+        for element in _match_pattern_elements(clause)
+        if isinstance(element, RelationshipPattern)
     ):
-        return False
-    seed_alias = pattern[0].variable
-    dest_alias = pattern[2].variable
-    seed_target = alias_targets.get(seed_alias) if seed_alias is not None else None
-    seed_filter = getattr(seed_target, "filter_dict", None)
-    has_selective_seed = seed_filter is not None and any(
-        not str(key).startswith(LABEL_FLAG_PREFIX) for key in seed_filter
-    )
-    return has_selective_seed and dest_alias is not None and referenced_aliases <= {dest_alias}
+        return frozenset()
+    return frozenset(plan.whole_row_sources.values())
 
 
 def _is_pure_count_star_shortcircuit(
@@ -4573,13 +4576,13 @@ def _lower_projection_chain(
     merged_match = _merged_match_clause(query)
     force_multiplicity_bindings = (
         plan.all_source_aliases is None
-        and not plan.whole_row_output_names
         and _forces_relationship_multiplicity_projection_bindings(
             query,
             alias_targets=alias_targets,
             relationship_count=_match_relationship_count(merged_match) if merged_match is not None else 0,
             items=query.return_.items,
             order_by=query.order_by,
+            bag_preserving_whole_row_aliases=_bag_preserving_whole_row_aliases(query, plan=plan),
         )
     )
     allowed_match_aliases = ({plan.source_alias} | plan.all_source_aliases | binding_row_aliases) if plan.all_source_aliases is not None else binding_row_aliases
@@ -6429,14 +6432,12 @@ def _reject_with_rebind_onto_live_alias(query: CypherQuery) -> None:
             continue
         for item in clause.items:
             source = item.expression.text.strip()
-            source_kind = pattern_aliases.get(source)
-            if source_kind is None:
+            if source not in pattern_aliases:
                 # Not a bare entity alias: a scalar column, which openCypher lets shadow freely.
                 continue
             if item.alias is None or item.alias == source:
                 continue
-            if pattern_aliases.get(item.alias) != source_kind:
-                # Cross-kind rebinds are the binder's; a fresh name already declines downstream.
+            if item.alias not in pattern_aliases:
                 continue
             raise GFQLValidationError(
                 ErrorCode.E108,
@@ -6871,6 +6872,11 @@ def lower_match_query(
                     )
                 )
                 continue
+            if _is_zoned_iso_temporal_comparison(predicate):
+                zoned_row_expr = _row_where_predicate_text(predicate)
+                if zoned_row_expr is not None:
+                    row_where_predicates.append(zoned_row_expr)
+                    continue
             _apply_literal_where(
                 alias_targets,
                 left=cast(PropertyRef, predicate.left),
@@ -6925,6 +6931,23 @@ def _render_row_where_operand_text(value: Union[PropertyRef, CypherLiteral]) -> 
     if isinstance(value, str):
         return render_cypher_string_literal(value)
     return str(value)
+
+
+_ZONED_ISO_TEMPORAL_TEXT_RE = re.compile(
+    r"^(?:\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?|\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)"
+    r"(?:Z|[+-]\d{2}:?\d{2})$"
+)
+
+
+def _is_zoned_iso_temporal_comparison(predicate: WherePredicate) -> bool:
+    """Comparison against tz-suffixed ISO temporal TEXT: keep it a ``where_rows``
+    residual. Pushed down, the raw pandas compare raises on a naive datetime
+    column and its equality silently matches zero rows; the row pipeline's
+    temporal path compares instants on both column shapes."""
+    if predicate.op not in {"==", "!=", "<>", "<", "<=", ">", ">="}:
+        return False
+    right = predicate.right
+    return isinstance(right, str) and _ZONED_ISO_TEMPORAL_TEXT_RE.match(right) is not None
 
 
 def _row_where_predicate_text(predicate: WherePredicate) -> Optional[str]:
@@ -8352,9 +8375,8 @@ def _connected_join_pushable_value(
     Pushdown is an optimization: anything not exactly representable must stay a
     `where_rows` residual rather than push a filter that means something else.
 
-    - `None` is unrepresentable: `_filter_dict_to_json` drops null-valued entries, so a
-      pushed `nick = null` would vanish on the executor's serialization round-trip and
-      silently return unfiltered rows.
+    - `None` pushes down to a `filter_dict` equality, not to the three-valued-logic
+      comparison Cypher specifies for `nick = null`; the residual owns that meaning.
     - Ordering/inequality ops lower to `NumericASTPredicate`, which admits only int/float
       (`bool` is an `int` subclass but is not a numeric column predicate), so pushing a
       string or bool would raise where the residual answers correctly.
@@ -8381,6 +8403,9 @@ def _connected_join_pushable_value(
     ):
         # The 64-bit literal guard lives on the row-expr path, so pushing an out-of-range
         # int would evade it and reach pandas, which overflows with a raw OverflowError.
+        return False
+    if isinstance(resolved, str) and _ZONED_ISO_TEMPORAL_TEXT_RE.match(resolved) is not None:
+        # tz-suffixed ISO temporal text string-compares wrongly when pushed; the residual compares instants.
         return False
     if op in _CONNECTED_JOIN_STRING_OPS:
         if not isinstance(resolved, str):
@@ -8968,6 +8993,11 @@ def _apply_where_to_ops(
                 )
             )
             continue
+        if _is_zoned_iso_temporal_comparison(predicate):
+            zoned_row_expr = _row_where_predicate_text(predicate)
+            if zoned_row_expr is not None:
+                row_expr_filters.append(ExpressionText(text=zoned_row_expr, span=predicate.span))
+                continue
         _apply_literal_where(
             alias_targets,
             left=cast(PropertyRef, predicate.left),
@@ -9379,9 +9409,10 @@ def compile_cypher_query(
             output_names = _cypher_return_output_names(branch.return_)
             if branch_output_names is None:
                 branch_output_names = output_names
-            elif output_names != branch_output_names:
+            elif sorted(output_names) != sorted(branch_output_names):
+                # Same names in a different ORDER align by name at execution; only a different multiset errors.
                 raise _unsupported(
-                    "Cypher UNION branches must project the same output names in the same order",
+                    "Cypher UNION branches must project the same output names",
                     field="union",
                     value={"expected": branch_output_names, "actual": output_names},
                     line=branch.return_.span.line,

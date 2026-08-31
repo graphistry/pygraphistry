@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union, cast
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union, cast
 
 from graphistry.Engine import (
     EngineAbstract,
@@ -259,8 +259,15 @@ def _optional_reentry_carried_null_rows(
     )
     if not carried_columns:
         return None
+    # OPTIONAL MATCH cannot unbind an alias the prefix bound; the keys stay the scalars.
+    copied_columns = carried_columns + _carried_entity_columns(
+        prefix_df,
+        result_columns=result_columns,
+        reentry_plan=reentry_plan,
+        exclude=set(carried_columns),
+    )
 
-    prefix_records = _records_for_columns(prefix_df, carried_columns)
+    prefix_records = _records_for_columns(prefix_df, copied_columns)
     prefix_keys = [_optional_reentry_key(record, carried_columns) for record in prefix_records]
     if len(set(prefix_keys)) != len(prefix_keys):
         return None
@@ -280,10 +287,31 @@ def _optional_reentry_carried_null_rows(
     fill_rows: List[CypherFillRow] = []
     for record in missing_records:
         row = dict(null_row)
-        for col in carried_columns:
+        for col in copied_columns:
             row[col] = record[col]
         fill_rows.append(row)
     return fill_rows
+
+
+def _carried_entity_columns(
+    prefix_df: DataFrameT,
+    *,
+    result_columns: Set[str],
+    reentry_plan: ReentryPlan,
+    exclude: Set[str],
+) -> Tuple[str, ...]:
+    """Flat ``alias.prop`` columns of the carried whole-entity aliases, in prefix order."""
+    prefixes = tuple(f"{alias.output_name}." for alias in reentry_plan.aliases)
+    if not prefixes:
+        return ()
+    return tuple(
+        str(col)
+        for col in prefix_df.columns
+        if isinstance(col, str)
+        and col.startswith(prefixes)
+        and col in result_columns
+        and col not in exclude
+    )
 
 
 def _optional_reentry_key(
@@ -308,6 +336,46 @@ def _optional_reentry_key_value(value: CypherFillValue) -> CypherFillValue:
     except (TypeError, ValueError):
         return value
     return value
+
+
+def restrict_connected_join_rows_to_reentry_seed(
+    joined_rows: DataFrameT,
+    *,
+    start_nodes: DataFrameT,
+    reentry_alias: Optional[str],
+    node_col: str,
+) -> DataFrameT:
+    """Keep only comma-pattern join rows whose reentry alias is a carried seed id.
+
+    The connected comma-pattern join re-matches every arm from the whole graph, so a
+    ``WITH p MATCH (p)-..., (p)-...`` suffix must be narrowed back to the carried ``p``
+    rows here; seeds are non-null by construction (``aligned_reentry_rows``)."""
+    if reentry_alias is None or node_col not in start_nodes.columns:
+        raise reentry_validation_error(
+            "Cypher MATCH after WITH could not recover the carried seed ids for the connected comma-pattern join",
+            value=reentry_alias,
+            suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
+        )
+    alias_col = next(
+        (
+            col
+            for col in (reentry_alias, f"{reentry_alias}.{node_col}")
+            if col in joined_rows.columns
+        ),
+        None,
+    )
+    if alias_col is None:
+        raise reentry_validation_error(
+            "Cypher MATCH after WITH could not recover the carried alias binding column from the connected comma-pattern join",
+            value=reentry_alias,
+            suggestion=REENTRY_WHOLE_ROW_SUGGESTION,
+        )
+    seed_ids = start_nodes[node_col]
+    if _is_polars_df(joined_rows):
+        import polars as pl
+        seed_values = seed_ids.to_list() if hasattr(seed_ids, "to_list") else list(seed_ids)
+        return joined_rows.filter(pl.col(alias_col).is_in(seed_values))  # type: ignore[attr-defined]
+    return joined_rows[joined_rows[alias_col].isin(seed_ids)]
 
 
 def compiled_query_reentry_state(

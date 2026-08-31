@@ -5,13 +5,43 @@ from typing import Any, Callable, Optional, Union
 import zipfile
 from typing_extensions import Literal
 import ast
+import textwrap
 import pandas as pd
 import requests
 
-from graphistry.Engine import Engine, EngineAbstractType, resolve_input_engine
+from graphistry.Engine import EngineAbstractType
 from graphistry.Plottable import Plottable
-from graphistry.models.compute.chain_remote import FormatType, OutputTypeAll, OutputTypeDf
+from graphistry.compute.remote_df_io import (
+    require_supported_frame_library,
+    resolve_csv_reader,
+    resolve_remote_engine,
+    validate_csv_import_args)
+from graphistry.compute.remote_response import (
+    decode_json_body,
+    decode_json_result,
+    error_document_error,
+    raise_for_remote_error,
+    require_json_result_keys,
+    select_zip_member,
+)
+from graphistry.models.compute.chain_remote import DFImportArgs, FormatType, OutputTypeAll, OutputTypeDf
 from graphistry.otel import inject_trace_headers
+
+
+def normalize_task_code(code: Union[str, Callable[..., object]]) -> str:
+    """Normalize a callable or source string to a parseable top-level ``def task`` source."""
+
+    if callable(code):
+        code_str = inspect.getsource(code)
+        old_name = code.__name__
+        if old_name != "task":
+            code_str = code_str.replace(f"def {old_name}", "def task", 1)
+        code = code_str
+
+    assert code is not None and isinstance(code, str), f"Expected code to be a string, received type: {type(code)}"
+
+    # Source from a nested def, or written as an indented literal, does not parse as-is.
+    return textwrap.dedent(code)
 
 
 def validate_python_str(code: str) -> bool:
@@ -42,7 +72,8 @@ def python_remote_generic(
     output_type: Optional[OutputTypeAll] = 'json',
     engine: EngineAbstractType = 'auto',
     run_label: Optional[str] = None,
-    validate: bool = True
+    validate: bool = True,
+    df_import_args: Optional[DFImportArgs] = None,
 ) -> Union[Plottable, pd.DataFrame, Any]:
     """Remotely run Python code on a remote dataset.
     
@@ -57,7 +88,7 @@ def python_remote_generic(
     :param dataset_id: Optional dataset_id. If not provided, will fallback to self._dataset_id. If not defined, will upload current data, store that dataset_id, and run code against that.
     :type dataset_id: Optional[str]
 
-    :param format: What format to fetch results. Defaults to 'json'. We recommend a columnar format such as parquet.
+    :param format: What format to fetch results. Defaults to 'json'. We recommend a columnar format such as parquet. ``'csv'`` is untyped on the wire: the client re-infers dtypes and can rewrite values, so it warns and serves. Pass ``df_import_args`` to control the reader.
     :type format: Optional[FormatType]
 
     :param output_type: What shape of output to fetch. Defaults to 'json'. Options include 'nodes', 'edges', 'all' (both), 'table', 'shape', and 'json'.
@@ -71,6 +102,9 @@ def python_remote_generic(
 
     :param validate: Whether to locally test code, and if uploading data, the data. Default true.
     :type validate: bool
+
+    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Optional; without it csv dtypes are re-inferred from text, which can rewrite values (``'007'`` -> ``7.0``) and break the returned graph's own node/edge id join. The warning names each lossy axis your kwargs do not govern, and clears only once they govern both: dtype inference (``dtype``/``converters``) and NA substitution (``keep_default_na``/``na_values``/``na_filter``/``converters``). Prefer ``format='parquet'``, which is faithful and needs no reader args.
+    :type df_import_args: Optional[Dict[str, Any]]
 
     **Example: Upload data and count the results**
         ::
@@ -97,13 +131,13 @@ def python_remote_generic(
             print(f'num_edges: {num_edges}')
     """
 
-    if callable(code):
-        if code.__name__ != "task":
-            code_str = inspect.getsource(code)
-            old_name = code.__name__
-            code = code_str.replace(f"def {old_name}", "def task", 1)
+    code = normalize_task_code(code)
 
-    assert code is not None and isinstance(code, str), f"Expected code to be a string, received type: {type(code)}"
+    validate_csv_import_args(df_import_args, "python_remote")
+    frame_lib = require_supported_frame_library(self._nodes, self._edges, "python_remote")
+    engine_str = resolve_remote_engine(engine, self, "python_remote").value
+
+    assert format in ["json", "csv", "parquet"], f"format should be 'json', 'csv', or 'parquet', got: {format}"
 
     if validate:
         if not validate_python_str(code):
@@ -122,16 +156,6 @@ def python_remote_generic(
     
     if not dataset_id:
         raise ValueError("Missing dataset_id; either pass in, or call on g2=g1.plot(render='g') in api=3 mode ahead of time")
-    
-    assert format in ["json", "csv", "parquet"], f"format should be 'json', 'csv', or 'parquet', got: {format}"
-
-    # Resolve engine: auto -> pandas/cudf based on graph DataFrame type
-    engine_resolved = resolve_input_engine(engine, self)
-    if engine_resolved not in [Engine.PANDAS, Engine.CUDF]:
-        raise ValueError(f"Remote Python execution only supports 'pandas' or 'cudf' engines (or 'auto' which resolves to one of them). "
-                       f"Got engine='{engine}' which resolved to '{engine_resolved.value}'. "
-                       f"Dask engines are not supported for remote execution.")
-    engine_str = engine_resolved.value
 
     # TODO remove auto-indent when server updated
     # workaround parsing bug by indenting each line by 4 spaces
@@ -156,37 +180,25 @@ def python_remote_generic(
 
     response = requests.post(url, headers=headers, json=request_body, verify=self.session.certificate_validation)
 
-    # Enhanced error handling for GFQL validation errors
-    if not response.ok:
-        try:
-            # Try to parse JSON error response for more details
-            if response.headers.get('content-type', '').startswith('application/json'):
-                error_data = response.json()
-                error_msg = error_data.get('error', str(error_data))
-                raise ValueError(f"GFQL remote operation failed: {error_msg} (HTTP {response.status_code})")
-        except ValueError:
-            # Re-raise ValueError (which includes our custom message)
-            raise
-        except Exception:
-            # Fall back to default error handling for other JSON parsing errors
-            pass
-        response.raise_for_status()
+    raise_for_remote_error(response, "Remote Python operation")
 
-    if self._edges is None or isinstance(self._edges, pd.DataFrame):
-        df_cons = pd.DataFrame
-        read_csv = pd.read_csv
-        read_parquet = pd.read_parquet
-    elif 'cudf.core.dataframe' in str(getmodule(self._edges)):
+    # Library was resolved pre-request; reuse it so the two cannot drift.
+    if frame_lib == "cudf":
         import cudf
         df_cons = cudf.DataFrame
         read_csv = cudf.read_csv
         read_parquet = cudf.read_parquet
     else:
-        raise ValueError(f"Unknown self._edges type, expected cudf/pandas DataFrame: {type(self._edges)}")
+        df_cons = pd.DataFrame
+        read_csv = pd.read_csv
+        read_parquet = pd.read_parquet
+
+    if format == "csv":
+        read_csv = resolve_csv_reader(read_csv, df_import_args, "python_remote")
 
     if output_type == "shape":
         if format == "json":
-            return pd.DataFrame(response.json())
+            return pd.DataFrame(decode_json_result(response, "Remote Python operation"))
         elif format == "csv":
             return read_csv(BytesIO(response.content))
         elif format == "parquet":
@@ -196,42 +208,28 @@ def python_remote_generic(
     elif output_type == "all" and format in ["csv", "parquet"]:
         zip_buffer = BytesIO(response.content)
         try:
-            with zipfile.ZipFile(zip_buffer, "r") as zip_ref:
-                nodes_file = [f for f in zip_ref.namelist() if "nodes" in f][0]
-                edges_file = [f for f in zip_ref.namelist() if "edges" in f][0]
-
-                nodes_data = zip_ref.read(nodes_file)
-                edges_data = zip_ref.read(edges_file)
-
-                if len(nodes_data) > 0:
-                    nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
-                else:
-                    nodes_df = df_cons()
-
-                if len(edges_data) > 0:
-                    edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
-                else:
-                    edges_df = df_cons()
-
-                return self.edges(edges_df).nodes(nodes_df)
+            zip_ref_cm = zipfile.ZipFile(zip_buffer, "r")
         except zipfile.BadZipFile as e:
-            # Handle case where response is not a zip file (e.g., error response)
-            try:
-                # Try to parse as JSON error response
-                if response.headers.get('content-type', '').startswith('application/json'):
-                    error_data = response.json()
-                    error_msg = error_data.get('error', str(error_data))
-                    raise ValueError(f"GFQL remote operation failed: {error_msg} (Expected zip file but got JSON error)")
-                else:
-                    # Try to decode as text for better error context
-                    try:
-                        error_text = response.content.decode('utf-8')[:500]  # First 500 chars
-                        raise ValueError(f"GFQL remote operation failed: Expected zip file but received: {error_text}")
-                    except UnicodeDecodeError:
-                        raise ValueError(f"GFQL remote operation failed: Expected zip file but received invalid data (HTTP {response.status_code})")
-            except Exception:
-                # Fallback: re-raise original BadZipFile with more context
-                raise ValueError(f"GFQL remote operation failed: {str(e)} - Response may be an error message instead of expected zip file")
+            raise error_document_error(response, "Remote Python operation", "a zip archive") from e
+        with zip_ref_cm as zip_ref:
+            names = zip_ref.namelist()
+            nodes_file = select_zip_member(names, "nodes", "Remote Python operation")
+            edges_file = select_zip_member(names, "edges", "Remote Python operation")
+
+            nodes_data = zip_ref.read(nodes_file)
+            edges_data = zip_ref.read(edges_file)
+
+            if len(nodes_data) > 0:
+                nodes_df = read_parquet(BytesIO(nodes_data)) if format == "parquet" else read_csv(BytesIO(nodes_data))
+            else:
+                nodes_df = df_cons()
+
+            if len(edges_data) > 0:
+                edges_df = read_parquet(BytesIO(edges_data)) if format == "parquet" else read_csv(BytesIO(edges_data))
+            else:
+                edges_df = df_cons()
+
+            return self.edges(edges_df).nodes(nodes_df)
     elif output_type in ["nodes", "edges", "table"] and format in ["csv", "parquet"]:
         data = BytesIO(response.content)
         if len(response.content) > 0:
@@ -249,8 +247,12 @@ def python_remote_generic(
         elif output_type == "table":
             return df
     elif format == "json":
-        o = response.json()
+        if output_type == "json":
+            # A task's own return value is the result here, error-shaped documents included.
+            return decode_json_body(response, "Remote Python operation")
+        o = decode_json_result(response, "Remote Python operation")
         if output_type == "all":
+            o = require_json_result_keys(o, ['nodes', 'edges'], response, "Remote Python operation")
             return self.edges(df_cons(o['edges'])).nodes(df_cons(o['nodes']))
         elif output_type == "nodes":
             out = self.nodes(df_cons(o))
@@ -262,8 +264,6 @@ def python_remote_generic(
             return out
         elif output_type == "table":
             return df_cons(o)
-        elif output_type == "json":
-            return o
         else:
             raise ValueError(f"JSON format read with unexpected output_type: {output_type}")
     else:
@@ -281,7 +281,8 @@ def python_remote_g(
     output_type: Optional[OutputTypeAll] = 'all',
     engine: EngineAbstractType = 'auto',
     run_label: Optional[str] = None,
-    validate: bool = True
+    validate: bool = True,
+    df_import_args: Optional[DFImportArgs] = None,
 ) -> Plottable:
     """Remotely run Python code on a remote dataset that returns a Plottable
     
@@ -296,7 +297,7 @@ def python_remote_g(
     :param dataset_id: Optional dataset_id. If not provided, will fallback to self._dataset_id. If not defined, will upload current data, store that dataset_id, and run code against that.
     :type dataset_id: Optional[str]
 
-    :param format: What format to fetch results. Defaults to 'parquet'.
+    :param format: What format to fetch results. Defaults to 'parquet'. ``'csv'`` is untyped on the wire: the client re-infers dtypes and can rewrite values, so it warns and serves. Pass ``df_import_args`` to control the reader.
     :type format: Optional[FormatType]
 
     :param output_type: What shape of output to fetch. Defaults to 'all'. Options include 'nodes', 'edges', 'all' (both). For other variants, see python_remote_shape and python_remote_json.
@@ -310,6 +311,9 @@ def python_remote_g(
 
     :param validate: Whether to locally test code, and if uploading data, the data. Default true.
     :type validate: bool
+
+    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Optional; without it csv dtypes are re-inferred from text, which can rewrite values and break the returned graph's own node/edge id join. The warning names each lossy axis your kwargs do not govern, and clears only once they govern both: dtype inference (``dtype``/``converters``) and NA substitution (``keep_default_na``/``na_values``/``na_filter``/``converters``). Prefer ``format='parquet'``, which is faithful and needs no reader args.
+    :type df_import_args: Optional[Dict[str, Any]]
 
     **Example: Upload data and count the results**
         ::
@@ -345,7 +349,8 @@ def python_remote_g(
         output_type=output_type,
         engine=engine,
         run_label=run_label,
-        validate=validate
+        validate=validate,
+        df_import_args=df_import_args,
     )
 
     assert isinstance(out, Plottable), f"Expected Plottable, got: {type(out)}"
@@ -362,7 +367,8 @@ def python_remote_table(
     output_type: Optional[OutputTypeDf] = 'table',
     engine: EngineAbstractType = 'auto',
     run_label: Optional[str] = None,
-    validate: bool = True
+    validate: bool = True,
+    df_import_args: Optional[DFImportArgs] = None,
 ) -> pd.DataFrame:
     """Remotely run Python code on a remote dataset that returns a table
     
@@ -377,7 +383,7 @@ def python_remote_table(
     :param dataset_id: Optional dataset_id. If not provided, will fallback to self._dataset_id. If not defined, will upload current data, store that dataset_id, and run code against that.
     :type dataset_id: Optional[str]
 
-    :param format: What format to fetch results. Defaults to 'parquet'.
+    :param format: What format to fetch results. Defaults to 'parquet'. ``'csv'`` is untyped on the wire: the client re-infers dtypes and can rewrite values, so it warns and serves. Pass ``df_import_args`` to control the reader.
     :type format: Optional[FormatType]
 
     :param output_type: What shape of output to fetch. Defaults to 'table'. Options include 'table', 'nodes', and 'edges'.
@@ -391,6 +397,9 @@ def python_remote_table(
 
     :param validate: Whether to locally test code, and if uploading data, the data. Default true.
     :type validate: bool
+
+    :param df_import_args: Reader kwargs the client applies when decoding a ``format='csv'`` response. Optional; without it csv dtypes are re-inferred from text, which can rewrite values and break the returned graph's own node/edge id join. The warning names each lossy axis your kwargs do not govern, and clears only once they govern both: dtype inference (``dtype``/``converters``) and NA substitution (``keep_default_na``/``na_values``/``na_filter``/``converters``). Prefer ``format='parquet'``, which is faithful and needs no reader args.
+    :type df_import_args: Optional[Dict[str, Any]]
 
     **Example: Upload data and count the results**
         ::
@@ -426,7 +435,8 @@ def python_remote_table(
         output_type=output_type,
         engine=engine,
         run_label=run_label,
-        validate=validate
+        validate=validate,
+        df_import_args=df_import_args,
     )
 
     assert isinstance(out, pd.DataFrame), f"Expected pd.DataFrame, got: {type(out)}"

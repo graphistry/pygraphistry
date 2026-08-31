@@ -22,7 +22,7 @@ from graphistry.compute.dataframe_utils import concat_frames
 from graphistry.compute.gfql.call.support import AggSpec
 from graphistry.compute.gfql.row import frame_ops as row_frame_ops
 from graphistry.compute.gfql.row.prefilter import AliasPrefilters
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, SeriesT
 from graphistry.utils.json import JSONVal
 from graphistry.compute.gfql.row.order_expr import (
     extract_temporal_duration_sort_ast,
@@ -32,6 +32,8 @@ from graphistry.compute.gfql.row.order_expr import (
 from graphistry.compute.gfql.agg_types import (
     GFQL_NUMERIC_ONLY_AGGREGATIONS,
     numeric_agg_all_null_value,
+    pandas_agg_kernel_null_fill,
+    pandas_conform_agg_dtype,
     pandas_dtype_is_numeric_for_agg,
     pandas_non_numeric_agg_dtype,
     pandas_object_series_is_bool_like,
@@ -81,6 +83,7 @@ from graphistry.compute.gfql.identifiers import (
     WALK_PREV_COL,
     WALK_TO_COL,
     is_shortest_path_hops_column,
+    shadow_restore_column,
     trail_column_name,
 )
 from graphistry.compute.util import generate_safe_column_name
@@ -949,6 +952,29 @@ class RowPipelineMixin:
             out = (~out.astype("boolean")).where(~out.isna(), pd.NA)
         return out.reset_index(drop=True)
 
+    @staticmethod
+    def _gfql_report_absent_property(name: str) -> None:
+        """Route an absent row-expression property through the shared strictness
+        resolution: raise under ``strict``, warn once under ``warn``."""
+        from graphistry.compute.gfql.strictness import (
+            absent_name_is_lenient,
+            is_internal_plumbing_name,
+        )
+
+        if is_internal_plumbing_name(name):
+            return
+        if absent_name_is_lenient(name, kind="property", context="row table"):
+            return
+        from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+
+        raise GFQLSchemaError(
+            ErrorCode.E301,
+            f'Property "{name}" does not exist in row table',
+            field=name,
+            value=name,
+            suggestion='Pass strict="warn" (default) to resolve absent properties to null',
+        )
+
     def _gfql_eval_expr_ast(self, table_df: Any, node: Any) -> Tuple[bool, Any]:
         parser_bundle = _gfql_expr_runtime_parser_bundle()
         if parser_bundle is None:
@@ -1081,6 +1107,11 @@ class RowPipelineMixin:
         if isinstance(node, PropertyAccessExpr):
             if isinstance(node.value, Identifier):
                 alias_name = node.value.name
+                if alias_name == node.property:
+                    restore_col = shadow_restore_column(alias_name)
+                    if restore_col in table_df.columns:
+                        # the alias marker overwrote this same-named user column; rows() re-keyed it
+                        return True, table_df[restore_col]
                 if "." not in alias_name and RowPipelineMixin._gfql_has_bindings_alias_prefix(table_df, alias_name):
                     if node.property == NODE_IDENTITY_COLUMN:
                         node_id = self._gfql_node_id_column()
@@ -1091,6 +1122,7 @@ class RowPipelineMixin:
                     binding_col = f"{alias_name}.{node.property}"
                     if binding_col in table_df.columns:
                         return True, table_df[binding_col]
+                    self._gfql_report_absent_property(binding_col)
                     return True, self._gfql_broadcast_scalar(table_df, pd.NA)
                 has_bound_graph_table = (
                     (self._node is not None and self._node in table_df.columns)
@@ -1114,6 +1146,8 @@ class RowPipelineMixin:
                         if hasattr(prop_value, "where"):
                             prop_value = self._gfql_mask_fill(prop_value, alias_mask != True, None)  # noqa: E712
                         return True, prop_value
+                    if node.property not in table_df.columns:
+                        self._gfql_report_absent_property(f"{alias_name}.{node.property}")
                     prop_value = (
                         table_df[node.property]
                         if node.property in table_df.columns
@@ -1575,8 +1609,14 @@ class RowPipelineMixin:
                 if hasattr(inner, "astype"):
                     try:
                         return True, series_sequence_len(inner)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        # Never fall through to len(series): that is the frame's height.
+                        if not RowPipelineMixin._gfql_series_holds_no_typed_cell(inner):
+                            raise ValueError(
+                                "unsupported row expression: size() requires list/string input"
+                            ) from exc
+                        if len(inner) > 0:
+                            return True, self._gfql_broadcast_scalar(table_df, None)
                 try:
                     return True, len(inner)
                 except Exception:
@@ -1908,7 +1948,11 @@ class RowPipelineMixin:
             list_null_mask = self._gfql_null_mask(base, base[list_col])
             try:
                 total_series = series_sequence_len(base[list_col])
-            except Exception:
+            except Exception as exc:
+                if not RowPipelineMixin._gfql_series_holds_no_typed_cell(base[list_col]):
+                    raise ValueError(
+                        f"unsupported row expression: {str(node.fn).lower()}() requires list/string input"
+                    ) from exc
                 total_series = self._gfql_broadcast_scalar(base, pd.NA)
             if hasattr(total_series, "where"):
                 total_series = total_series.where(~list_null_mask, 0).fillna(0)
@@ -1992,7 +2036,11 @@ class RowPipelineMixin:
             null_mask = self._gfql_null_mask(base, base[list_col])
             try:
                 lengths = series_sequence_len(base[list_col])
-            except Exception:
+            except Exception as exc:
+                if not RowPipelineMixin._gfql_series_holds_no_typed_cell(base[list_col]):
+                    raise ValueError(
+                        "unsupported row expression: list comprehension requires list/string input"
+                    ) from exc
                 lengths = self._gfql_broadcast_scalar(base, pd.NA)
             if hasattr(lengths, "fillna"):
                 lengths = lengths.fillna(0)
@@ -2390,6 +2438,22 @@ class RowPipelineMixin:
         raise ValueError(
             f"unsupported row expression: property access requires a graph element alias, entity value, or map in {expr!r}"
         )
+
+    @staticmethod
+    def _gfql_series_holds_no_typed_cell(series: SeriesT) -> bool:
+        """No non-null cell exists, so the element type is unknown rather than wrong.
+
+        An empty column (a zero-row intermediate) or an all-null one carries no evidence
+        that its values are not sequences, so a sequence op over it must not be refused on
+        dtype alone — an empty ``collect()`` is still a list.
+        """
+        if len(series) == 0:
+            return True
+        isna = getattr(series, "isna", None)
+        if isna is None:
+            return False
+        null_mask = isna()
+        return hasattr(null_mask, "all") and bool(null_mask.all())
 
     @staticmethod
     def _gfql_series_is_list_like(series: Any) -> bool:
@@ -3993,7 +4057,12 @@ class RowPipelineMixin:
         first_nodes = self._gfql_apply_alias_prefilter(
             first_nodes, first_alias, alias_prefilters
         )
-        state_df = first_nodes[[node_id_col]].copy().rename(columns={node_id_col: WALK_CURRENT_COL})
+        state_df = (
+            first_nodes[[node_id_col]]
+            .drop_duplicates(subset=[node_id_col], keep="first")
+            .copy()
+            .rename(columns={node_id_col: WALK_CURRENT_COL})
+        )
         alias_frames: Dict[str, DataFrameT] = {}
         if isinstance(first_alias, str):
             state_df[first_alias] = state_df[WALK_CURRENT_COL]
@@ -4606,7 +4675,12 @@ class RowPipelineMixin:
             )
 
             if isinstance(alias, str):
-                frame = self._gfql_node_alias_lookup_frame(matched_nodes, str(node_id), alias)
+                # Same marker shadowing as the connected path, keyed on the node id.
+                lookup_source = self._gfql_unshadow_alias_marker_column(
+                    matched_nodes, alias, base_nodes, str(node_id)
+                )
+                assert lookup_source is not None  # non-None in, non-None out
+                frame = self._gfql_node_alias_lookup_frame(lookup_source, str(node_id), alias)
             else:
                 anon_col = RowPipelineMixin._gfql_fresh_col_name(matched_nodes.columns, f"__gfql_binding_node_{idx}__")
                 frame = matched_nodes[[node_id]].copy().rename(columns={node_id: anon_col})
@@ -5576,6 +5650,13 @@ class RowPipelineMixin:
                     if func == "sum" and pandas_object_series_is_bool_like(table_df[expr_col]):
                         # The object-dtype kernel returns a lone-row group as the raw bool.
                         agg_df = agg_df.assign(**{alias: pd.to_numeric(agg_df[alias])})  # bool sums as int (#1821)
+                    null_fill = pandas_agg_kernel_null_fill(func, table_df[expr_col])
+                    if null_fill is not None:
+                        # cypher sum() never answers null; cuDF's grouped sum does (agg_types.py)
+                        agg_df = agg_df.assign(**{alias: agg_df[alias].fillna(null_fill)})
+                    agg_df = agg_df.assign(**{alias: pandas_conform_agg_dtype(
+                        agg_df[alias], func,
+                        str(table_df[expr_col].dtype).lower() in {"bool", "boolean"})})
 
             out_df = out_df.merge(agg_df, on=key_cols, how="left", sort=False)
             if func in {"collect", "collect_distinct"}:
