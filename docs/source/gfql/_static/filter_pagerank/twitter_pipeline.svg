@@ -4,16 +4,16 @@
 <g class="c">
 <rect width="720" height="290" fill="var(--surface)"/>
 <text class="t" x="16" y="28">Twitter: 81,306 nodes / 2.4M edges</text>
-<text class="s" x="16" y="49">Warm pipeline — search, PageRank, search — on the resident graph. Lower is better.</text>
+<text class="s" x="16" y="49">Warm pipeline — search, PageRank, search. Lower is better.</text>
 <rect x="16" y="74" width="1" height="172" fill="var(--rule)"/>
 <text class="a" x="17" y="85">Neo4j + GDS</text>
 <path class="neo" d="M16 94H436a4 4 0 0 1 4 4V114a4 4 0 0 1 -4 4H16Z"/>
 <text x="450" y="111"><tspan class="n">11.72 s</tspan></text>
 <text class="a" x="17" y="147">GFQL Cypher on CPU (pandas + igraph)</text>
 <path class="cpu" d="M16 156H69.2a4 4 0 0 1 4 4V176a4 4 0 0 1 -4 4H16Z"/>
-<text x="83.2" y="173"><tspan class="n">1.58 s</tspan><tspan class="a" dx="11">7.4x faster than Neo4j + GDS</tspan></text>
+<text x="83.2" y="173"><tspan class="n">1.58 s</tspan></text>
 <text class="a" x="17" y="209">GFQL Cypher on GPU (cuDF + cuGraph)</text>
 <path class="gpu" d="M16 218H20.7a4 4 0 0 1 4 4V238a4 4 0 0 1 -4 4H16Z"/>
-<text x="34.7" y="235"><tspan class="n">0.24 s</tspan><tspan class="a" dx="11">49.5x faster than Neo4j + GDS</tspan></text>
-<text class="m" x="16" y="279">All three arms select the same nodes: Jaccard 0.97 or better on every pair.</text>
+<text x="34.7" y="235"><tspan class="n">0.24 s</tspan><tspan class="a" dx="11">6.7x faster than the GFQL CPU path</tspan></text>
+<text class="m" x="16" y="279">Direct timings use different profiles; only the GFQL GPU/CPU ratio is valid.</text>
 </g></svg>
