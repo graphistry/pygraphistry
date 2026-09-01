@@ -154,8 +154,9 @@ POLARS_TEST_FILES=(
 # of its CI budget; xdist is the lever that does not require a workflow edit (pytest-xdist is
 # already in the [test] extra, and test-gfql-core already runs `-n auto` under --cov, so
 # coverage+xdist is an established combination in this repo).
-#   * worker spec `auto` = os.cpu_count(): 4 on a GitHub-hosted ubuntu-latest runner, and it
-#     scales DOWN on a 2-vCPU runner where a fixed `-n 4` could be slower than serial.
+#   * worker spec `auto` = os.cpu_count(): currently 2 on a standard GitHub-hosted
+#     ubuntu-latest runner. It scales with the runner while avoiding a fixed worker count
+#     that could oversubscribe smaller runners.
 #   * --maxprocesses caps the count so a 24-core dev box does not fan out 24 polars processes
 #     that then oversubscribe polars' own thread pool.
 #   * --dist load (xdist's default) balances per test. `loadfile` was measured too: it is
