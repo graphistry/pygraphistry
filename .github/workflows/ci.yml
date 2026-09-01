@@ -1593,7 +1593,9 @@ jobs:
     needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The py3.12 coverage cell takes ~9m40s on a 2-vCPU hosted runner before
+    # setup, the coverage audit, and artifact upload; keep deterministic margin.
+    timeout-minutes: 15
 
     strategy:
       matrix:
