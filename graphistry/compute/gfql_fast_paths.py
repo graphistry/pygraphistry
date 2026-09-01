@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from graphistry.compute.typing import ArrayLike, ArrayNamespace
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
 from graphistry.util import setup_logger
-from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
+from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall, serialize_binding_ops
 from .chain import Chain, chain as chain_impl
 from .gfql.query_types import GFQLQuery
 from .chain_let import chain_let as chain_let_impl
@@ -45,9 +45,12 @@ from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
 from graphistry.compute.gfql.agg_types import (
     GFQL_NUMERIC_ONLY_AGGREGATIONS,
     numeric_agg_all_null_value,
+    pandas_agg_kernel_null_fill,
     pandas_dtype_is_numeric_for_agg,
     pandas_non_numeric_agg_dtype,
     pandas_object_series_is_bool_like,
+    polars_all_null_agg_literal,
+    polars_conform_agg_dtype,
     polars_non_numeric_agg_dtype,
     raise_non_numeric_aggregation,
 )
@@ -1931,7 +1934,8 @@ def _low_cardinality_pure_count_plan(
     is a decline away from zero.
 
     The two formulations are VALUE-IDENTICAL wherever this admits -- same key rows, same
-    counts, same ``UInt32`` count dtype, same treatment of null / NaN / empty-input keys --
+    counts, same INTEGER count dtype (both conformed off agg_types), same treatment of
+    null / NaN / empty-input keys --
     and the caller's gate has already made the following ``sort`` TOTAL over the output
     rows, so neither formulation's internal row order can reach the answer. Choosing
     between them is a routing decision, not a semantic one.
@@ -1992,7 +1996,9 @@ def _low_cardinality_pure_count_plan(
 
     # ``name=`` (polars >= 1.0, and the declared floor is 1.29) keeps the count column out
     # of a rename, so a group key literally named ``count`` is served rather than crashing.
-    return work_lf.select(pl.col(group_key).value_counts(name=out_alias)).unnest(group_key)
+    counts = work_lf.select(pl.col(group_key).value_counts(name=out_alias)).unnest(group_key)
+    return counts.with_columns(
+        polars_conform_agg_dtype(pl.col(out_alias), "count", None, out_alias))
 
 
 def _single_hop_grouped_aggregate_fused_polars(
@@ -2118,16 +2124,19 @@ def _single_hop_grouped_aggregate_fused_polars(
                 or polars_non_numeric_agg_dtype(agg_dtype) is not None
             ):
                 return None
+        result_dtype = prop_dtypes.get(expr_col) if expr_col is not None else None
         if func == "count" and expr_col is None:
-            agg_exprs.append(pl.len().alias(out_alias))
+            agg_exprs.append(polars_conform_agg_dtype(pl.len(), func, None, out_alias))
         elif expr_col is None:
             return None
         elif func == "count":
-            agg_exprs.append(pl.col(expr_col).count().alias(out_alias))
+            agg_exprs.append(
+                polars_conform_agg_dtype(pl.col(expr_col).count(), func, result_dtype, out_alias))
         elif func == "avg":
             agg_exprs.append(pl.col(expr_col).mean().alias(out_alias))
         elif func == "sum":
-            agg_exprs.append(pl.col(expr_col).sum().alias(out_alias))
+            agg_exprs.append(
+                polars_conform_agg_dtype(pl.col(expr_col).sum(), func, result_dtype, out_alias))
         elif func == "min":
             agg_exprs.append(pl.col(expr_col).min().alias(out_alias))
         elif func == "max":
@@ -2256,7 +2265,11 @@ def _execute_single_hop_grouped_aggregate_fast_path(
     chain: Chain,
     *,
     engine: Union[EngineAbstract, str],
+    reentry_start_nodes: Optional[DataFrameT] = None,
 ) -> Optional[Plottable]:
+    if reentry_start_nodes is not None:
+        # seed comes from filter_dicts alone; engaging would widen a carried WITH..MATCH seed
+        return None
     ops = list(chain.chain)
     if len(ops) not in (3, 4, 5) or not all(isinstance(op, ASTCall) for op in ops):
         return None
@@ -2504,18 +2517,21 @@ def _execute_single_hop_grouped_aggregate_fast_path(
                     and work.height > 0
                     and work[expr_alias].null_count() == work.height
                 ):
-                    agg_exprs.append(pl.lit(numeric_agg_all_null_value(func)).alias(alias))
+                    agg_exprs.append(polars_all_null_agg_literal(func, alias))
                     continue
                 if dtype_label is not None:
                     raise_non_numeric_aggregation(func, expr_alias, dtype_label, alias)
+            agg_dtype = work_schema.get(expr_alias) if expr_alias is not None else None
             if func == "count" and (expr_alias is None or with_items[expr_alias][1] is None):
-                agg_exprs.append(pl.len().alias(alias))
+                agg_exprs.append(polars_conform_agg_dtype(pl.len(), func, None, alias))
             elif func == "count" and expr_alias is not None:
-                agg_exprs.append(pl.col(expr_alias).count().alias(alias))
+                agg_exprs.append(
+                    polars_conform_agg_dtype(pl.col(expr_alias).count(), func, agg_dtype, alias))
             elif func == "avg" and expr_alias is not None:
                 agg_exprs.append(pl.col(expr_alias).mean().alias(alias))
             elif func == "sum" and expr_alias is not None:
-                agg_exprs.append(pl.col(expr_alias).sum().alias(alias))
+                agg_exprs.append(
+                    polars_conform_agg_dtype(pl.col(expr_alias).sum(), func, agg_dtype, alias))
             elif func == "min" and expr_alias is not None:
                 agg_exprs.append(pl.col(expr_alias).min().alias(alias))
             elif func == "max" and expr_alias is not None:
@@ -2599,6 +2615,10 @@ def _execute_single_hop_grouped_aggregate_fast_path(
                 if pandas_object_series_is_bool_like(work[expr_alias]):
                     # Twin of the row-pipeline group_by sum(bool) numeric retype.
                     agg_df = agg_df.assign(**{alias: pd.to_numeric(agg_df[alias])})  # bool sums as int (#1821)
+                null_fill = pandas_agg_kernel_null_fill(func, work[expr_alias])
+                if null_fill is not None:
+                    # Twin of the row-pipeline sum() null repair: cypher sum() never answers null.
+                    agg_df = agg_df.assign(**{alias: agg_df[alias].fillna(null_fill)})
             elif func == "min" and expr_alias is not None:
                 agg_df = grouped[expr_alias].min().reset_index(name=alias)
             elif func == "max" and expr_alias is not None:
@@ -3019,7 +3039,11 @@ def _execute_two_hop_count_fast_path(
     chain: Chain,
     *,
     engine: Union[EngineAbstract, str],
+    reentry_start_nodes: Optional[DataFrameT] = None,
 ) -> Optional[Plottable]:
+    if reentry_start_nodes is not None:
+        # same seed-blindness as the grouped-aggregate path above
+        return None
     alias = _two_hop_count_alias(chain)
     if alias is None:
         return None
@@ -3276,6 +3300,30 @@ def _execute_two_hop_count_fast_path(
     return out
 
 
+#: Join key for the seeded typed-hop bag expansion; never a user column.
+_SEEDED_BAG_KEY = "__gfql_seeded_bag_key__"
+
+
+def _seeded_typed_hop_bag_rows(
+    dst_rows: DataFrameT, edges: DataFrameT, *, to_col: str, node: str, is_polars: bool,
+) -> DataFrameT:
+    """One destination-node row per matched edge (openCypher bag), not the node set.
+
+    ``dst_rows`` is deduped by ``node`` and ``edges`` already drops the dangling
+    ones, so this re-expands exactly the multiplicity the dedup removed."""
+    # Equal heights means the dedup removed nothing (the two sides cover each other).
+    if len(edges) == len(dst_rows):
+        return dst_rows
+    if is_polars:
+        import polars as pl
+        keys = edges.select(pl.col(to_col).alias(_SEEDED_BAG_KEY))  # type: ignore[union-attr]
+        keyed = dst_rows.with_columns(pl.col(node).alias(_SEEDED_BAG_KEY))  # type: ignore[union-attr]
+        return keys.join(keyed, on=_SEEDED_BAG_KEY, how="inner").drop(_SEEDED_BAG_KEY)  # type: ignore[no-any-return]
+    keys = edges[[to_col]].rename(columns={to_col: _SEEDED_BAG_KEY}).reset_index(drop=True)  # type: ignore[union-attr]
+    joined = keys.merge(dst_rows, left_on=_SEEDED_BAG_KEY, right_on=node, how="inner")
+    return joined.drop(columns=[_SEEDED_BAG_KEY]).reset_index(drop=True)  # type: ignore[no-any-return]
+
+
 def _execute_seeded_typed_hop_fast_path(
     base_graph: Plottable,
     compiled_query: CompiledCypherQuery,
@@ -3373,7 +3421,16 @@ def _execute_seeded_typed_hop_fast_path(
     # source node (n0) — the forward seeded shape MATCH (m {id})-[:T]->(p) RETURN p.
     # Other alias/seed placements (e.g. reverse patterns where the seed is on the
     # RETURN node) fall back to the full path.
-    return_alias = projection.alias if projection is not None else str((call.params or {}).get("source", ""))
+    call_params = call.params or {}
+    # `binding_ops` is the same seeded shape lowered to one row per matched EDGE.
+    binding_ops = call_params.get("binding_ops")
+    bag_rows = isinstance(binding_ops, list)
+    if bag_rows:
+        if serialize_binding_ops(ops[:3]) != binding_ops:
+            return None
+        return_alias = projection.alias if projection is not None else (n2._name or "")
+    else:
+        return_alias = projection.alias if projection is not None else str(call_params.get("source", ""))
     if n2._name != return_alias:
         return None
     select_items: Optional[list] = None
@@ -3460,6 +3517,13 @@ def _execute_seeded_typed_hop_fast_path(
         hop_details=[{"hop": 1}] if index_ctx is not None else None,
     )
     p_rows, _edges = dst_res
+    if bag_rows:
+        p_rows = _seeded_typed_hop_bag_rows(
+            p_rows, _edges,
+            to_col=dst if direction == "forward" else src, node=node, is_polars=is_polars,
+        )
+        if projection is not None and len(p_rows) == 0:
+            return None
     if select_items is not None:
         # Lean property projection (IS5 shape): the deduped destination rows carry
         # the raw property columns — rename/select directly, same values the
@@ -3476,11 +3540,13 @@ def _execute_seeded_typed_hop_fast_path(
             # dtypes like nullable Int64/StringDtype, categoricals) declines to the
             # full path rather than risk a silent dtype divergence.
             import numpy as np
-            # The upcast above is a PANDAS pivot artifact. cuDF's rows-pivot keeps
-            # the source dtypes (verified: int64 stays int64, bool stays bool), so
-            # applying the pandas casts there would diverge from its own canonical
-            # path. The dtype-class decline guard still applies to both.
-            is_cudf_rows = "cudf" in type(p_rows).__module__
+            # The upcast above is a PANDAS rows-pivot artifact, so it applies only where
+            # the canonical path IS that pivot: cuDF's pivot keeps the source dtypes, and
+            # an INDEXED bag lowering is served by the indexed connected-bindings kernel,
+            # which never pivots (int64/bool, as polars and cuDF already answer).
+            # The dtype-class decline guard still applies to all of them.
+            canonical_keeps_source_dtypes = (
+                "cudf" in type(p_rows).__module__ or (bag_rows and index_ctx is not None))
             casts: Dict[str, str] = {}
             for out_name, prop in select_items:
                 if prop == node:
@@ -3491,10 +3557,10 @@ def _execute_seeded_typed_hop_fast_path(
                 if not isinstance(d, np.dtype):
                     return None
                 if d == np.dtype(bool):
-                    if not is_cudf_rows:
+                    if not canonical_keeps_source_dtypes:
                         casts[out_name] = "object"
                 elif d.kind in "iuf":
-                    if not is_cudf_rows:
+                    if not canonical_keeps_source_dtypes:
                         casts[out_name] = "float64"
                 elif d.kind != "O":
                     return None

@@ -109,6 +109,11 @@ CORPUS = [
     # NaN from a FUNCTION / division result (AST inference missed these; output-dtype
     # guard catches them — polars NaN-as-largest would otherwise leak)
     "RETURN abs(0.0 / 0.0) > 1 AS a, coalesce(0.0 / 0.0, 0.0) > 1 AS b",
+    # literal temporal comparison now constant-folds to the CIP2016-06-14 instant
+    # semantics on BOTH engines (was a polars NIE decline); parity + oracle-checked
+    "RETURN time({hour: 10, timezone: '+01:00'}) > time({hour: 9, timezone: '+00:00'}) AS x",
+    "RETURN date({year: 1984, month: 10, day: 12}) < date({year: 1985, month: 5, day: 6}) AS x",
+    "RETURN datetime('2020-01-02T05:00:00+05:00') = datetime('2020-01-02T00:00:00Z') AS x",
     "MATCH (n) RETURN n.val > 50 AS big, n.kind",
     "MATCH (n) RETURN n.val >= 50 AND n.val <= 80 AS mid",
     # Kleene 3-valued booleans over bare null literals — must not crash on Null dtype (polars
@@ -180,10 +185,6 @@ DEFERRED = [
     # a value/null), so the lowering must decline rather than crash
     "MATCH (n) RETURN n.val > 'a' AS x",
     "MATCH (n) WHERE n.val < 'z' RETURN n.id",
-    # ISO temporal comparison: cypher time()/date()/datetime() lower to ISO strings;
-    # polars would compare them lexicographically (wrong across timezones) -> NIE
-    "RETURN time({hour: 10, timezone: '+01:00'}) > time({hour: 9, timezone: '+00:00'}) AS x",
-    "RETURN date({year: 1984, month: 10, day: 12}) < date({year: 1985, month: 5, day: 6}) AS x",
     # temporal arithmetic: duration(...) lowers to an ISO string literal, so
     # a.time + duration(...) must NOT silently become string concatenation
     "MATCH (n) RETURN n.val + duration({minutes: 6}) AS t",

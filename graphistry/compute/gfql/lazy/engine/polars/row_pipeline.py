@@ -41,6 +41,8 @@ from graphistry.utils.json import JSONVal
 from graphistry.compute.gfql.agg_types import (
     GFQL_NUMERIC_ONLY_AGGREGATIONS,
     numeric_agg_all_null_value,
+    polars_all_null_agg_literal,
+    polars_conform_agg_dtype,
     polars_non_numeric_agg_dtype,
     raise_non_numeric_aggregation,
 )
@@ -220,9 +222,9 @@ def _lower_function(node: FunctionCall, columns: Sequence[str]) -> Optional[pl.E
     if name == "size" and len(args) == 1:
         # size(x): #chars (String) or #elements (List) — different polars ops, so gate by output
         # dtype. str.len_chars == pandas str.len (code points); list.len parity; null/empty
-        # preserved — parity-verified. Numeric/Categorical/unknown decline (NIE): pandas size()
-        # over a non-sequence Series returns the ROW COUNT (quirk we refuse to replicate), and
-        # Categorical .str raises in polars only.
+        # preserved — parity-verified. Numeric/Categorical/unknown decline (NIE), matching the
+        # pandas/cuDF kernel, which declines size() over a non-sequence Series; Categorical .str
+        # raises in polars only.
         dt = _expr_output_dtype(args[0])
         if dt == pl.String:
             return args[0].str.len_chars()
@@ -1394,7 +1396,7 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     import polars as pl
     func = func.lower()
     if func == "count" and (expr is None or expr == "*"):
-        return pl.len().alias(alias)
+        return polars_conform_agg_dtype(pl.len(), func, None, alias)
     if not isinstance(expr, str) or expr not in columns:
         return None
     col = pl.col(expr)
@@ -1422,7 +1424,7 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
         if dtype == pl.Null:
             # all-null by construction: `sum`/`mean` are unsupported on `null` dtype in polars,
             # while cypher says 0 / null.
-            return pl.lit(numeric_agg_all_null_value(func)).alias(alias)
+            return polars_all_null_agg_literal(func, alias)
         dtype_label = polars_non_numeric_agg_dtype(dtype)
         if dtype_label is not None:
             # An ALL-NULL column carries no type evidence, so it is never a type error: cypher
@@ -1430,14 +1432,14 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
             # and pandas already did (an all-None pandas object column arrives here typed
             # `String`). Both would otherwise raise -- `sum`/`mean` are unsupported on `str`.
             if is_all_null is not None and is_all_null(expr):
-                return pl.lit(numeric_agg_all_null_value(func)).alias(alias)
+                return polars_all_null_agg_literal(func, alias)
             # Raise, don't return None: None is an NIE-decline that falls back to the pandas
             # kernel, which would then ANSWER the same wrong-typed query.
             raise_non_numeric_aggregation(func, expr, dtype_label, alias)
     if func == "count":
-        return col.count().alias(alias)
+        return polars_conform_agg_dtype(col.count(), func, dtype, alias)
     if func == "sum":
-        return col.sum().alias(alias)
+        return polars_conform_agg_dtype(col.sum(), func, dtype, alias)
     if func in ("avg", "mean"):
         return col.mean().alias(alias)
     if func == "min":
@@ -1447,7 +1449,7 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     if func == "count_distinct":
         # count(DISTINCT x) drops nulls (pandas nunique(dropna=True)); polars n_unique() counts
         # null, so drop_nulls first.
-        return col.drop_nulls().n_unique().alias(alias)
+        return polars_conform_agg_dtype(col.drop_nulls().n_unique(), func, dtype, alias)
     if func == "collect":
         # collect(x) drops nulls, keeps within-group row order (pandas row/pipeline.py:4552-4582:
         # ~isna() then agg(list)). Inside group_by(maintain_order=True).agg a multi-valued expr
@@ -1649,15 +1651,14 @@ def _cartesian_node_bindings_polars(
         # L4 pushdown twin of pandas `_gfql_cartesian_node_bindings_row_table`
         matched = _apply_alias_prefilters_polars(matched, alias, alias_prefilters)  # honoured, never dropped (#1804)
         cols = matched.collect_schema().names()
-        # prop_cols excludes node_id and any real column named == alias: the pandas
-        # node execute() leaks a boolean FLAG into a column named ``alias``
-        # (shadowing a same-named real property), which the lookup frame surfaces
-        # as ``alias.alias = True``. Reproduce that exactly.
+        # prop_cols excludes node_id and any real column named == alias; that column is
+        # emitted once below as ``alias.alias``: the real user values when the column
+        # exists (unshadow parity with pandas), else the flag ``True``.
         prop_cols = [c for c in cols if c != node_id and c != alias]
         exprs = [
             pl.col(node_id).alias(alias),
             pl.col(node_id).alias(f"{alias}.{node_id}"),
-            pl.lit(True).alias(f"{alias}.{alias}"),
+            (pl.col(alias) if alias in cols else pl.lit(True)).alias(f"{alias}.{alias}"),
         ]
         exprs.extend(pl.col(c).alias(f"{alias}.{c}") for c in prop_cols)
         per_alias.append(matched.select(exprs))
@@ -1953,11 +1954,9 @@ def binding_rows_polars(
             seed_nodes = seed_nodes.join(seed_ids_lf, on=node_id, how="semi")
         # L4 pushdown twin of pandas `_gfql_connected_bindings_state`'s seed prefilter
         seed_nodes = _apply_alias_prefilters_polars(seed_nodes, first_op._name, alias_prefilters)  # honoured, never dropped (#1804)
-        # The whole generic builder works in LazyFrames (`nodes_lf` / `edges_lf` above);
-        # `filter_by_dict_polars` is frame-polymorphic at runtime but declares the eager
-        # type, so pin the path bag lazy here instead of leaving every downstream lazy
-        # op to fight an eager inference.
-        state: pl.LazyFrame = seed_nodes.select(pl.col(node_id).alias(WALK_CURRENT_COL))  # type: ignore[assignment]
+        state = seed_nodes.select(
+            pl.col(node_id).alias(WALK_CURRENT_COL)
+        ).unique(subset=[WALK_CURRENT_COL], maintain_order=True)
         alias_frames: Dict[str, pl.LazyFrame] = {}
         node_aliases: List[str] = []
         first_alias = first_op._name

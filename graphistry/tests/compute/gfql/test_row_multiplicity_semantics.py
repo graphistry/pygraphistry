@@ -122,13 +122,10 @@ def test_pair_projection_control_unchanged(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.xfail(strict=True, reason="#1899 residual: whole-row endpoint projection still "
-                   "collapses multiplicity (b bound twice to node 3 must yield two rows)")
-def test_whole_row_endpoint_projection_multiplicity_residual(engine):
-    """Residual pin: `RETURN b` (whole entity) over the same match should be a
-    4-row bag (node 3 twice). Flip when the whole-row lane joins binding rows."""
+def test_whole_row_endpoint_projection_multiplicity(engine):
     df = _run("MATCH (a)-->(b) RETURN b", engine)
     assert len(df) == 4
+    assert _bag(df, "b.id") == [2, 3, 3, 4]
 
 
 # ===========================================================================
@@ -352,10 +349,9 @@ def test_polars_nonintegral_float_endpoint_declines_typed():
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.xfail(strict=True, reason="#1899 residual: leading OPTIONAL MATCH single-endpoint "
-                   "projection still collapses bag multiplicity (guarded off binding rows to "
-                   "protect null extension); expected [1, 1, 2, 3]")
-def test_leading_optional_match_multiplicity_residual(engine):
+def test_leading_optional_match_keeps_multiplicity(engine):
+    """A leading OPTIONAL MATCH binds nothing before it, so nothing can go
+    unmatched and it is a plain MATCH for row purposes: same [1, 1, 2, 3] bag."""
     assert _bag(_run("OPTIONAL MATCH (a)-->(b) RETURN a.id AS x", engine), "x") == [1, 1, 2, 3]
 
 
@@ -368,9 +364,9 @@ def test_optional_match_no_match_null_extension_preserved(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.xfail(strict=True, reason="#1899 residual: the seeded typed-hop fast path dedupes "
-                   "parallel edges; Ann has two edges to Bob so b.id must be [2, 2]")
-def test_seeded_parallel_edge_multiplicity_residual(engine):
+def test_seeded_parallel_edge_multiplicity(engine):
+    """A selective seed does not change bag semantics: Ann has two edges to Bob,
+    so the seeded hop is [2, 2], the same bag the unseeded control below keeps."""
     edges = pd.DataFrame({"s": [1, 1, 2, 3], "d": [2, 2, 3, 4]})
     assert _bag(_run("MATCH (a {name: 'Ann'})-->(b) RETURN b.id AS x", engine, edges=edges), "x") == [2, 2]
 

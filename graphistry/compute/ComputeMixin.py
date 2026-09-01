@@ -11,6 +11,7 @@ from .chain import Chain, chain as chain_base
 from .chain_let import chain_let as chain_let_base
 from .gfql_unified import gfql as gfql_base
 from .gfql_validate import gfql_validate as gfql_validate_base
+from .gfql.strictness import StrictInput
 from .chain_remote import (
     chain_remote as chain_remote_base,
     chain_remote_shape as chain_remote_shape_base
@@ -20,7 +21,7 @@ from .python_remote import (
     python_remote_table as python_remote_table_base,
     python_remote_json as python_remote_json_base
 )
-from graphistry.models.compute.chain_remote import OutputTypeGraph, FormatType
+from graphistry.models.compute.chain_remote import DFImportArgs, OutputTypeGraph, FormatType
 from .collapse import collapse_by
 from .hop import hop as hop_base
 from .filter_by_dict import (
@@ -829,8 +830,10 @@ class ComputeMixin(Plottable):
         engine: EngineAbstractType = 'auto',
         validate: bool = True,
         persist: bool = False,
-        params: Optional[Dict[str, Any]] = None,
+        df_import_args: Optional[DFImportArgs] = None,
+        params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
         output: Optional[str] = None,
+        strict: StrictInput = None,
     ) -> Plottable:
         """Run GFQL query remotely.
 
@@ -846,6 +849,8 @@ class ComputeMixin(Plottable):
             Cypher string (compiled locally before sending).
         :param params: Optional parameter dict for Cypher string queries
             (e.g., ``params={"val": 10}`` for ``$val`` references).
+        :param strict: Absent-label/property strictness for the local preflight, also sent
+            to the server as the ``strictness`` request field; see :meth:`gfql`.
 
         Example::
 
@@ -866,7 +871,7 @@ class ComputeMixin(Plottable):
         return chain_remote_base(
             self, chain, api_token, dataset_id, output_type, format,
             df_export_args, node_col_subset, edge_col_subset, engine, validate, persist,
-            params=params, output=output,
+            params=params, output=output, df_import_args=df_import_args, strict=strict,
         )
     
     def gfql_remote_shape(
@@ -880,18 +885,29 @@ class ComputeMixin(Plottable):
         edge_col_subset: Optional[List[str]] = None,
         engine: EngineAbstractType = 'auto',
         validate: bool = True,
-        persist: bool = False
+        persist: bool = False,
+        df_import_args: Optional[DFImportArgs] = None,
+        params: Optional[Dict[str, Any]] = None,  # hygiene-ok: explicit-any -- Cypher params are heterogeneous JSON scalars, matching gfql_remote()
+        output: Optional[str] = None,
+        strict: StrictInput = None,
     ) -> pd.DataFrame:
         """Get shape metadata for remote GFQL query execution.
 
         This is the remote shape version of :meth:`gfql`. Returns metadata about the
         resulting graph without downloading the full data.
 
+        :param params: Optional parameter dict for Cypher string queries
+            (e.g., ``params={"cutoff": 10}`` for ``$cutoff`` references).
+        :param output: Optional Let/DAG binding name to return; requires a Let/DAG query.
+        :param strict: Absent-name strictness sent to the server as ``strictness``;
+            see :meth:`gfql`.
+
         See :meth:`chain_remote_shape` for detailed documentation (chain_remote_shape is deprecated).
         """
         return chain_remote_shape_base(
             self, chain, api_token, dataset_id, format, df_export_args,
-            node_col_subset, edge_col_subset, engine, validate, persist
+            node_col_subset, edge_col_subset, engine, validate, persist,
+            df_import_args=df_import_args, params=params, output=output, strict=strict,
         )
 
     def python_remote_g(self, *args, **kwargs) -> Any:

@@ -2428,8 +2428,8 @@ def test_lower_match_query_executes_bracketless_relationship_and_label_where() -
     )
     result = _mk_graph(nodes, edges).gfql(chain)
 
-    assert result._nodes[["id", "type", "score"]].to_dict(orient="records") == [
-        {"id": "t1", "type": "TextNode", "score": 7}
+    assert result._nodes[["i.id", "i.type", "i.score"]].to_dict(orient="records") == [
+        {"i.id": "t1", "i.type": "TextNode", "i.score": 7}
     ]
 
 
@@ -2445,8 +2445,8 @@ def test_lower_match_query_executes_bracketless_relationship_with_labeled_alias_
     chain = cypher_to_gfql("MATCH (a)-->(b:Foo) RETURN b")
     result = _mk_graph(nodes, edges).gfql(chain)
 
-    assert result._nodes[["id", "type"]].to_dict(orient="records") == [
-        {"id": "b", "type": "Foo"}
+    assert result._nodes[["b.id", "b.type"]].to_dict(orient="records") == [
+        {"b.id": "b", "b.type": "Foo"}
     ]
 
 
@@ -6167,8 +6167,8 @@ def test_string_cypher_failfast_rejects_optional_match_null_extension_shapes_wit
 def test_string_cypher_optional_arm_label_where_serves_edge_projection() -> None:
     """#1891 regression fix: an optional-arm label WHERE null-extends instead
     of gating -- matched arm projects the edge, unmatched arm keeps the seed
-    row with r = null, and a missing label follows the standard
-    column-not-found contract (same as plain MATCH)."""
+    row with r = null, and a missing label follows the standard absent-name
+    contract (same as plain MATCH): strict raises, the warn default null-extends."""
     graph = _mk_graph(
         pd.DataFrame(
             {
@@ -6194,7 +6194,10 @@ def test_string_cypher_optional_arm_label_where_serves_edge_projection() -> None
     unmatched = graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:Single RETURN r")
     assert entity_text_records(unmatched, {"r": "edges"}) == [{"r": None}]
     with pytest.raises(GFQLSchemaError):
-        graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:NonExistent RETURN r")
+        graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:NonExistent RETURN r",
+                   strict=True)
+    absent = graph.gfql("MATCH (n:Single) OPTIONAL MATCH (n)-[r]-(m) WHERE m:NonExistent RETURN r")
+    assert entity_text_records(absent, {"r": "edges"}) == [{"r": None}]
 
 
 def test_string_cypher_failfast_rejects_graph_backed_unwind_after_with_as_validation_error() -> None:
@@ -6400,12 +6403,17 @@ def test_string_cypher_with_unwind_reentry_progresses_past_parser_to_row_scope_b
         "RETURN foaf"
     )
 
-    with pytest.raises(GFQLValidationError) as exc_info:
-        compile_cypher(query)
+    g = _mk_graph(
+        pd.DataFrame({"id": ["s1", "b1", "c1"], "label__S": [True, False, False],
+                      "label__B": [False, True, False], "label__C": [False, False, True]}),
+        pd.DataFrame({"s": ["s1", "b1"], "d": ["b1", "c1"], "type": ["X", "Y"]}),
+    )
+    with pytest.raises(GFQLSchemaError) as exc_info:
+        g.gfql(query)
 
-    assert exc_info.value.code == ErrorCode.E108
-    assert "one MATCH source alias at a time" in exc_info.value.message
-    assert "#1273" in exc_info.value.message
+    assert exc_info.value.code == ErrorCode.E301
+    assert exc_info.value.context.get("field") == "where_rows.root"
+    assert exc_info.value.context.get("value") == "root"
 
 
 def test_string_cypher_rejects_with_unwind_reentry_when_unwind_source_is_not_collected_alias() -> None:

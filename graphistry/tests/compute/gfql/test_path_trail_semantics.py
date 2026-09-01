@@ -337,10 +337,9 @@ def test_grouped_agg_lane_consistent(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.xfail(strict=True, reason="#1903 addendum A-2 residual: the seeded typed-hop "
-                   "lane (fast path AND its fallback) projects the destination NODE SET -- "
-                   "parallel edges from a unique seed collapse ([1,2] vs bag [1,1,2])")
-def test_seeded_parallel_edge_multiplicity_residual(engine):
+def test_seeded_parallel_edge_multiplicity(engine):
+    """The seeded typed-hop lane keeps trail multiplicity: two parallel 0->1 edges
+    are two rows, so the destination bag is [1, 1, 2] and not the node set [1, 2]."""
     nodes = pd.DataFrame({"id": [0, 1, 2], "kind": ["a", "b", "b"]})
     edges = pd.DataFrame({"s": [0, 0, 0], "d": [1, 1, 2], "type": ["KNOWS"] * 3})
     if engine == "polars":

@@ -79,6 +79,35 @@ def trace_chain_schema(
     return snapshots
 
 
+def validate_graph_shape(
+    g: Plottable,
+    ops: Optional[Union[List[ASTObject], 'Chain']] = None,
+    collect_all: bool = False,
+) -> List[GFQLSchemaError]:
+    """Check whether the graph shape can answer the query at all.
+
+    Shared by the validator and the executors so both report the same verdict.
+    """
+    errors: List[GFQLSchemaError] = []
+
+    if g._nodes is None and g._edges is None:
+        errors.append(GFQLSchemaError(
+            ErrorCode.E305,
+            'Cannot query graph: neither nodes nor edges are bound',
+            suggestion='Bind data with g.nodes(df, node) and/or g.edges(df, source, destination)'
+        ))
+    elif g._edges is None and any(isinstance(op, ASTEdge) for op in _coerce_chain_ops(ops or [])):
+        errors.append(GFQLSchemaError(
+            ErrorCode.E304,
+            'Cannot traverse edges: graph has no edges bound',
+            suggestion='Bind edges via g.edges(df, source, destination), or use a node-only pattern'
+        ))
+
+    if errors and not collect_all:
+        raise errors[0]
+    return errors
+
+
 def validate_chain_schema(
     g: Plottable,
     ops: Union[List[ASTObject], 'Chain'],
@@ -105,7 +134,7 @@ def validate_chain_schema(
     """
     chain_ops = _coerce_chain_ops(ops)
 
-    errors: List[GFQLSchemaError] = []
+    errors: List[GFQLSchemaError] = validate_graph_shape(g, chain_ops, collect_all=collect_all)
 
     # Get available columns
     node_columns = set(g._nodes.columns) if g._nodes is not None else set()
@@ -195,12 +224,16 @@ def _validate_filter_dict(
     collect_all: bool = False
 ) -> List[GFQLSchemaError]:
     """Validate filter dictionary against dataframe schema."""
+    from graphistry.compute.gfql.strictness import absent_filter_key_is_lenient
+
     errors = []
     for col, val in filter_dict.items():
         try:
             try:
                 resolved_col, resolved_val = resolve_filter_column(df, col, val)
             except GFQLSchemaError:
+                if absent_filter_key_is_lenient(col, val, context=f"{context} dataframe"):
+                    continue  # resolves to null at execution; nothing to type-check
                 error = GFQLSchemaError(
                     ErrorCode.E301,
                     f'Column "{col}" does not exist in {context} dataframe',
@@ -215,6 +248,8 @@ def _validate_filter_dict(
 
             # Check column exists
             if resolved_col not in columns:
+                if absent_filter_key_is_lenient(col, val, context=f"{context} dataframe"):
+                    continue
                 error = GFQLSchemaError(
                     ErrorCode.E301,
                     f'Column "{col}" does not exist in {context} dataframe',

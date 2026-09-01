@@ -64,6 +64,11 @@ NOT_POLARS_GATED: Dict[str, str] = {
         "test_const_fold_engine_parity.py, which IS in the lane -- and is what caught the "
         "engine-blind key in the first place"
     ),
+    "graphistry/tests/compute/test_remote_engine_contract.py": (
+        "remote preflight contract only: 'polars' and 'polars-gpu' are plain engine strings "
+        "that must be rejected before upload or POST; the module imports no polars runtime "
+        "and builds no polars frame, so every test runs in the ordinary core lanes"
+    ),
     "graphistry/tests/compute/gfql/index/test_index_gpu_edge_match.py": (
         "cudf/GPU-gated (module-level importorskip('cudf') + skipif no GPU), not polars-gated; "
         "belongs to the separate GPU-lane gap, and the polars CPU lane could not run it"

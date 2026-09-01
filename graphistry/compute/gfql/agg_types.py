@@ -34,8 +34,28 @@ THE CONTRACT (openCypher / Neo4j, verified against two independent implementatio
 DELIBERATE GFQL EXTENSION, not an oversight: ``sum``/``avg`` over BOOLEAN is a type error in
 Neo4j ("expected Float, Integer or Duration but was Boolean") but is accepted here on every
 engine, because summing an indicator column is idiomatic in the dataframe surface GFQL also
-serves and both engines already agreed on it. It is recorded here so the divergence is a choice
-with a reason rather than an accident.
+serves and both engines already agreed on it. It is a strict SUPERSET -- no Cypher-valid query
+changes meaning -- so the only cost is documenting it, which the aggregates docs now do.
+
+THE BOOLEAN RETURN-TYPE CONTRACT (adopted 2026-07-28; values AND dtypes, on every engine)::
+
+    sum(BOOLEAN)   -> INTEGER (int64)   count of true, nulls skipped; 0 over zero non-null
+    avg(BOOLEAN)   -> FLOAT   (float64) true_count / non_null_count; NULL over zero non-null
+    min(BOOLEAN)   -> BOOLEAN           ordering false < true; NULL over zero non-null
+    max(BOOLEAN)   -> BOOLEAN           ordering false < true; NULL over zero non-null
+    count(BOOLEAN) -> INTEGER (int64)   non-null count
+
+``min``/``max`` are stated as ORDERING, not as a logical fold. ``min == AND`` / ``max == OR`` is a
+DERIVATION from ``false < true`` and it gets the empty case backwards: the conventional identity of
+AND over zero elements is ``true`` and of OR over zero elements is ``false``, but every engine here
+answers NULL -- the same answer ``ORDER BY`` already gives, and the same answer ``min``/``max`` give
+over any other empty input.
+
+``sum -> 0`` over zero rows is CONFORMANCE, not a compromise: Cypher's ``sum()`` returns 0 where
+SQL's returns NULL, and Cypher's ``avg()`` returns null; the engines here already match Cypher on
+both. Pinning the DTYPES is what was still missing -- polars answered ``sum(BOOLEAN)`` and every
+``count()`` with ``UInt32`` while pandas/cuDF answered ``int64``, so the values agreed and the
+return types did not.
 
 Each engine classifies its OWN dtypes (a pandas dtype and a polars ``DataType`` are not
 comparable) and then funnels into the one raiser below, so the diagnostic text, the error class
@@ -72,6 +92,60 @@ CYPHER_ZERO_EMPTY_GROUP_AGGREGATIONS: Final[FrozenSet[str]] = frozenset(
 CYPHER_EMPTY_LIST_EMPTY_GROUP_AGGREGATIONS: Final[FrozenSet[str]] = frozenset(
     {"collect", "collect_distinct"}
 )
+
+#: Aggregates whose Cypher return type is INTEGER for EVERY input type.
+CYPHER_INTEGER_RESULT_AGGREGATIONS: Final[FrozenSet[str]] = frozenset(
+    {"count", "count_distinct"}
+)
+
+
+def agg_result_is_integer(func: str, input_is_boolean: bool) -> bool:
+    """True when this aggregate's return type is INTEGER (int64) on this input.
+
+    ``count``/``count_distinct`` are INTEGER over ANY input. ``sum`` is INTEGER over BOOLEAN --
+    the documented extension counts the true values, so its result is a count, not a boolean.
+    ``avg`` stays FLOAT and ``min``/``max`` stay BOOLEAN, so neither is retyped here.
+    """
+    if func in CYPHER_INTEGER_RESULT_AGGREGATIONS:
+        return True
+    return func == "sum" and input_is_boolean
+
+
+def polars_agg_result_cast(func: str, input_dtype: "Optional[pl.DataType]") -> "Optional[pl.DataType]":
+    """The dtype polars' own aggregate kernel does NOT produce, or ``None`` when it conforms.
+
+    Polars answers EVERY ``count()`` with ``UInt32`` and ``sum()`` over ``Boolean`` with ``UInt32``,
+    where pandas and cuDF answer ``int64`` -- the values agree and the return types do not, which is
+    the divergence class the aggregate type contract exists to close. Every OTHER numeric input
+    already sums to ``Int64``/``Float64``/``Duration`` on polars, so the ``sum`` half of this cast
+    can only fire on a boolean column; the ``count`` half is input-independent on both sides.
+    """
+    import polars as pl
+
+    is_boolean = input_dtype is not None and input_dtype == pl.Boolean
+    return pl.Int64 if agg_result_is_integer(func, is_boolean) else None
+
+
+def polars_conform_agg_dtype(expr: "pl.Expr", func: str, input_dtype: "Optional[pl.DataType]",
+                             alias: str) -> "pl.Expr":
+    """Land a polars aggregate on its CONTRACT dtype rather than on its kernel dtype."""
+    import polars as pl
+
+    target = polars_agg_result_cast(func, input_dtype)
+    if target is None:
+        return expr.alias(alias)
+    if func == "sum" and input_dtype == pl.Boolean:
+        expr = expr.fill_null(0)
+    return expr.cast(target).alias(alias)  # hygiene-ok: explicit-cast -- polars dtype conversion
+
+
+def polars_all_null_agg_literal(func: str, alias: str) -> "pl.Expr":
+    """Cypher's all-null answer as a TYPED literal: a bare ``pl.lit(0)`` is ``Int32``, which
+    neither pandas nor cuDF ever produces for a ``sum``."""
+    import polars as pl
+
+    value = numeric_agg_all_null_value(func)
+    return pl.lit(value, dtype=pl.Int64 if value is not None else None).alias(alias)
 
 
 def _describe_agg_input(column: str, alias: Optional[str]) -> str:
@@ -119,6 +193,43 @@ def numeric_agg_all_null_value(func: str) -> Optional[int]:
     polars raises for both ``str`` and ``null`` dtypes. One substitution, one answer.
     """
     return 0 if func == "sum" else None
+
+
+#: Integer widths a pandas/cuDF aggregate may land on that the INTEGER contract widens to int64.
+_NARROW_INTEGER_DTYPES: Final[FrozenSet[str]] = frozenset(
+    {"int8", "int16", "int32", "uint8", "uint16", "uint32"}
+)
+
+
+def pandas_conform_agg_dtype(result: "SeriesT", func: str, input_is_boolean: bool) -> "SeriesT":
+    """Widen a pandas/cuDF aggregate whose kernel answered narrower than the INTEGER contract.
+
+    cuDF's grouped ``nunique`` answers ``int32`` where pandas answers ``int64`` -- the same value
+    behind a different return type, on an aggregate Cypher declares INTEGER. Only the narrow
+    integer widths are eligible: ``int64``/``Int64`` are already the contract, and a float, boolean
+    or object result must never be retyped by this.
+    """
+    if not agg_result_is_integer(func, input_is_boolean):
+        return result
+    if str(getattr(result, "dtype", "")).lower() not in _NARROW_INTEGER_DTYPES:
+        return result
+    return result.astype("int64")  # hygiene-ok: explicit-cast -- dataframe dtype conversion
+
+
+def pandas_agg_kernel_null_fill(func: str, series: "SeriesT") -> Optional[int]:
+    """The value a pandas/cuDF aggregate kernel's NULL answer must be repaired to, else ``None``.
+
+    Cypher's ``sum()`` never returns null -- 0 is its zero-row answer -- but cuDF's grouped ``sum``
+    over a group with no non-null values answers ``<NA>``, on boolean AND on ``Int64``/``float64``,
+    where pandas answers 0. The two engines therefore disagreed on a VALUE, not merely a dtype, on
+    exactly the all-null row. Applied to the kernel's OUTPUT, so it repairs the per-group answer
+    that :func:`numeric_agg_all_null_value` (a whole-column pre-substitution) cannot see.
+    """
+    if func != "sum":
+        return None
+    if str(getattr(series, "dtype", "")).lower() == "object":
+        return None  # untyped kernel answer; the object-bool retype already owns this column
+    return 0
 
 
 def pandas_dtype_is_numeric_for_agg(series: "SeriesT") -> bool:
