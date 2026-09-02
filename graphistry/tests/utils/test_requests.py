@@ -97,7 +97,7 @@ class TestArrowUploaderSwitchOrg(unittest.TestCase):
 
     def test_skips_when_already_switched(self):
         au = self._uploader()
-        au._client_session._last_switched_org_token = ("my-org", "tok")
+        au._client_session.mark_org_verified("tok", "my-org")
         with mock.patch("graphistry.arrow_uploader.switch_org_request") as mock_req:
             au._switch_org("my-org", "tok")
         mock_req.assert_not_called()
@@ -107,7 +107,7 @@ class TestArrowUploaderSwitchOrg(unittest.TestCase):
         with mock.patch("graphistry.arrow_uploader.switch_org_request") as mock_req:
             au._switch_org("my-org", "tok")
         mock_req.assert_called_once_with(au.server_base_path, "my-org", "tok", au.certificate_validation)
-        assert au._client_session._last_switched_org_token == ("my-org", "tok")
+        assert au._client_session.is_org_verified("tok", "my-org")
 
     def test_org_switch_error_does_not_record(self):
         au = self._uploader()
@@ -116,7 +116,7 @@ class TestArrowUploaderSwitchOrg(unittest.TestCase):
             side_effect=OrgSwitchError("my-org", 404),
         ):
             au._switch_org("my-org", "tok")
-        assert au._client_session._last_switched_org_token is None
+        assert au._client_session._verified_org_tokens == {}
 
     def test_idp_challenge_does_not_record(self):
         au = self._uploader()
@@ -125,7 +125,7 @@ class TestArrowUploaderSwitchOrg(unittest.TestCase):
             side_effect=OrgSwitchIdpChallenge("my-org", {"auth_url": "https://x"}),
         ):
             au._switch_org("my-org", "tok")
-        assert au._client_session._last_switched_org_token is None
+        assert au._client_session._verified_org_tokens == {}
 
     def test_generic_exception_does_not_record(self):
         au = self._uploader()
@@ -134,7 +134,7 @@ class TestArrowUploaderSwitchOrg(unittest.TestCase):
             side_effect=RuntimeError("boom"),
         ):
             au._switch_org("my-org", "tok")
-        assert au._client_session._last_switched_org_token is None
+        assert au._client_session._verified_org_tokens == {}
 
 
 if __name__ == "__main__":

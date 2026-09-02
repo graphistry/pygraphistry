@@ -217,26 +217,10 @@ class ArrowUploader:
         self.__certificate_validation = certificate_validation
 
 
-    ########################################################################3
-
-    # @property
-    # def sso_state(self) -> str:
-    #     return getattr(self, '__sso_state', "")
-
-    ########################################################################3
-
-    # @property
-    # def sso_auth_url(self) -> str:
-    #     return getattr(self, '__sso_auth_url')
-
-    ########################################################################3
-
-
     def _switch_org(self, org_name: Optional[str], token: Optional[str]) -> None:
         if not org_name or not token:
             return
-        last = self._client_session._last_switched_org_token
-        if last == (org_name, token):
+        if self._client_session.is_org_verified(token, org_name):
             return
         try:
             switch_org_request(self.server_base_path, org_name, token, self.certificate_validation)
@@ -250,10 +234,10 @@ class ArrowUploader:
             logger.warning("Failed to switch organization %s: %s", org_name, exc)
             return
 
-        self._client_session._last_switched_org_token = (org_name, token)
+        self._client_session.mark_org_verified(token, org_name)
         from .pygraphistry import PyGraphistry
         if PyGraphistry.session is self._client_session:
-            PyGraphistry.session._last_switched_org_token = (org_name, token)
+            PyGraphistry.session.mark_org_verified(token, org_name)
 
 
     def login(self, username, password, org_name=None):
@@ -311,8 +295,7 @@ class ArrowUploader:
                 if not logged_in_org_name:  # no active_organization in JWT payload
                     raise Exception("You are not authorized to the organization '{}', or server does not support organization, please omit org_name parameter".format(org_name))
                 else:
-                    # if JWT response with org_name different than the pass in org_name
-                    # => org_name not found and return default organization (currently is personal org)
+                    # JWT's active org differs from the requested org_name -> treat as not found.
                     if logged_in_org_name != org_name:
                         raise Exception("Login Organization is not found in your organization")
 
@@ -465,12 +448,7 @@ class ArrowUploader:
             active_org = data.get('active_organization')
             slug = active_org.get('slug') if isinstance(active_org, dict) else None
 
-            # Defense-in-depth: nexus's SSO claim-to-org resolver can (bug)
-            # bind a user to the reserved site-wide sentinel org (slug
-            # 'SITE') when an IdP org claim happens to case-insensitively
-            # match it. No dataset can ever be created under that org (server
-            # rejects with 403), so treat it the same as "no org bound" and
-            # fall through to the JWT-derived personal-org fallback below.
+            # Defense-in-depth: treat the reserved site-wide sentinel org ('SITE') as unbound -- no dataset can ever be created under it.
             if isinstance(slug, str) and slug.upper() == 'SITE':
                 logger.warning(
                     "SSO returned active_organization=%r, the reserved "
@@ -482,10 +460,7 @@ class ArrowUploader:
                 slug = None
 
             if slug:
-                # Layer 1: server-bound active_organization. Caller's intent
-                # (self.org_name from register(org_name=...) or session) must
-                # MATCH or be ABSENT. Symmetric with _finalize_login's strict
-                # check for username/password (line ~309-316).
+                # Layer 1: server-bound active_organization -- caller's intent (self.org_name) must MATCH or be ABSENT.
                 if self.org_name and self.org_name != slug:
                     raise Exception(
                         f"SSO returned active_organization={slug!r}, but caller "
@@ -498,11 +473,7 @@ class ArrowUploader:
                 self.org_name = slug
                 self._switch_org(slug, token_value)
             elif self.org_name:
-                # Layer 2: caller-supplied, server silent. Preserve caller
-                # intent — subsequent authenticated requests will validate org
-                # membership lazily. WARNING because the asymmetric outcome
-                # (caller asked, server didn't bind) is operationally
-                # interesting and worth investigating per-org SSO config.
+                # Layer 2: caller-supplied, server silent -- preserve caller intent; membership validates lazily on later requests.
                 logger.warning(
                     "SSO did not bind active_organization but caller requested "
                     "org_name=%s; preserving caller value. Subsequent requests "
@@ -511,9 +482,7 @@ class ArrowUploader:
                     self.org_name
                 )
             else:
-                # Layer 3: caller didn't ask, server didn't bind. Try
-                # server-confirmed personal-org fallback for first-login UX.
-                # See _personal_org_from_api for the trust-chain rationale.
+                # Layer 3: caller didn't ask, server didn't bind -- try the server-confirmed personal-org fallback (see _personal_org_from_api).
                 fallback = self._personal_org_from_api(token_value)
                 if fallback:
                     logger.info(
@@ -531,7 +500,8 @@ class ArrowUploader:
                     )
 
         except Exception as e:
-            logger.error('Unexpected SSO authentication error: %s', out, exc_info=True)
+            # debug, not error: fires on every routine "not ready yet" poll, not just genuine failures -- error level would spam the console.
+            logger.debug('SSO token poll did not complete: %s', out, exc_info=True)
             raise e
             
         return self

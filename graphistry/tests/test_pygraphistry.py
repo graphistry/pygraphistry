@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 
+import base64
+import json
+import time
+from typing import Optional
 import unittest, pytest
 try:
     from mock import patch  # type: ignore
@@ -86,7 +90,7 @@ def test_refresh_skips_switch_when_cached(mock_refresh):
     client = graphistry.client()
     client.session.org_name = "mock-org"
     client.api_token("tok123")
-    client.session._last_switched_org_token = ("mock-org", "tok123")
+    client.session.mark_org_verified("tok123", "mock-org")
 
     with patch.object(client, "switch_org") as mock_switch:
         client.refresh()
@@ -103,7 +107,7 @@ def test_refresh_switches_when_org_changes(mock_refresh):
     client = graphistry.client()
     client.session.org_name = "new-org"
     client.api_token("tok123")
-    client.session._last_switched_org_token = ("old-org", "tok123")
+    client.session.mark_org_verified("tok123", "old-org")
 
     with patch.object(client, "switch_org") as mock_switch:
         client.refresh()
@@ -114,7 +118,7 @@ def test_refresh_switches_when_org_changes(mock_refresh):
 def test_maybe_switch_org_cached_pair_skips():
     client = graphistry.client()
     client.api_token("tok123")
-    client.session._last_switched_org_token = ("mock-org", "tok123")
+    client.session.mark_org_verified("tok123", "mock-org")
 
     with patch.object(client, "switch_org") as mock_switch:
         client._maybe_switch_org("mock-org")
@@ -125,7 +129,7 @@ def test_maybe_switch_org_cached_pair_skips():
 def test_maybe_switch_org_new_token_switches():
     client = graphistry.client()
     client.api_token("tok123")
-    client.session._last_switched_org_token = ("mock-org", "old-token")
+    client.session.mark_org_verified("old-token", "mock-org")
 
     with patch.object(client, "switch_org") as mock_switch:
         client._maybe_switch_org("mock-org")
@@ -136,12 +140,59 @@ def test_maybe_switch_org_new_token_switches():
 def test_maybe_switch_org_new_org_switches():
     client = graphistry.client()
     client.api_token("tok123")
-    client.session._last_switched_org_token = ("other-org", "tok123")
+    client.session.mark_org_verified("tok123", "other-org")
 
     with patch.object(client, "switch_org") as mock_switch:
         client._maybe_switch_org("mock-org")
 
     mock_switch.assert_called_once_with("mock-org")
+
+
+def _fake_jwt(exp: Optional[float] = None) -> str:
+    """Minimal unsigned-looking JWT with an optional exp claim, for exercising
+    ClientSession's exp-aware verified-org cache without a real server."""
+    header = base64.urlsafe_b64encode(b'{"alg":"none"}').rstrip(b"=").decode()
+    payload = {} if exp is None else {"exp": exp}
+    body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+    return f"{header}.{body}.sig"
+
+
+def test_switch_org_reuses_earlier_verified_token_for_different_org():
+    """Org A was SSO-verified under token1; a later SSO login to org B mints
+    token2 (now active). Switching back to org A should swap token1 back in
+    locally instead of hitting the server, since token1 hasn't expired."""
+    client = graphistry.client()
+    token1 = _fake_jwt(exp=time.time() + 3600)
+    token2 = _fake_jwt(exp=time.time() + 3600)
+
+    client.api_token(token1)
+    client.session.mark_org_verified(token1, "org-a")
+
+    client.api_token(token2)
+    client.session.mark_org_verified(token2, "org-b")
+
+    with patch("graphistry.pygraphistry.switch_org_request") as mock_req:
+        client.switch_org("org-a")
+
+    mock_req.assert_not_called()
+    assert client.api_token() == token1
+    assert client.session.org_name == "org-a"
+
+
+def test_switch_org_does_not_reuse_expired_cached_token():
+    client = graphistry.client()
+    expired_token = _fake_jwt(exp=time.time() - 10)
+    active_token = _fake_jwt(exp=time.time() + 3600)
+
+    client.api_token(expired_token)
+    client.session.mark_org_verified(expired_token, "org-a")
+    client.api_token(active_token)
+
+    with patch("graphistry.pygraphistry.switch_org_request") as mock_req:
+        client.switch_org("org-a")
+
+    mock_req.assert_called_once()
+    assert client.api_token() == active_token
 
 
 class FakeRequestResponse(object):

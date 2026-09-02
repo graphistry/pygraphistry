@@ -1,4 +1,6 @@
+import base64
 import os
+import time
 from dataclasses import is_dataclass, replace
 from typing import Any, Optional, Literal, cast, Protocol, TypedDict, Dict, MutableMapping, Type, TypeVar, Union, overload, Iterator, Tuple
 from functools import lru_cache
@@ -31,6 +33,27 @@ config_paths = [
     os.path.join(os.path.expanduser("~"), ".pygraphistry"),
     os.environ.get("PYGRAPHISTRY_CONFIG", ""),  # user-override path
 ]
+
+
+def _jwt_exp(token: str) -> Optional[float]:
+    """Best-effort read of a JWT's "exp" claim, without verifying its signature --
+    the token is already trusted (this client received it from the server over
+    the auth flow it just completed); this only reads a claim out of a token
+    it already holds, never validates one from an untrusted source."""
+    try:
+        payload_b64 = token.split(".")[1]
+        padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded))
+        exp = payload.get("exp")
+        return float(exp) if exp is not None else None
+    except Exception:
+        return None
+
+
+def _jwt_expired(token: str) -> bool:
+    exp = _jwt_exp(token)
+    # No readable exp claim -> not expired by this check; let the server reject it if it's actually stale.
+    return exp is not None and exp <= time.time()
 
 
 class ClientSession:
@@ -79,6 +102,8 @@ class ClientSession:
 
         self.idp_name: Optional[str] = None
         self.sso_state: Optional[str] = None
+        # org_name the in-flight SSO login was initiated for: self.org_name still holds the previous org until the switch is confirmed.
+        self.sso_requested_org_name: Optional[str] = None
 
         self.personal_key: Optional[str] = None
         self.personal_key_id: Optional[str] = None
@@ -96,8 +121,37 @@ class ClientSession:
 
         # TODO: Migrate to a pattern like Kusto or Spanner
         self._bolt_driver: Optional[Any] = None
-        # Tracks the last (org_slug, jwt_token) we successfully switched to on the Hub server
-        self._last_switched_org_token: Optional[Tuple[str, str]] = None
+        # Per-org token cache (org_name -> (token, exp)) so re-switching to any previously verified org skips the server round trip until that token's own exp passes.
+        self._verified_org_tokens: Dict[str, Tuple[str, Optional[float]]] = {}
+
+    def is_org_verified(self, token: Optional[str], org_name: str) -> bool:
+        """Has org_name already been switched-to under this exact, still-unexpired token?"""
+        if not token:
+            return False
+        entry = self._verified_org_tokens.get(org_name)
+        return entry is not None and entry[0] == token and not _jwt_expired(token)
+
+    def mark_org_verified(self, token: Optional[str], org_name: str) -> None:
+        """Record org_name as switched-to under this token."""
+        if not token:
+            return
+        self._verified_org_tokens[org_name] = (token, _jwt_exp(token))
+
+    def get_verified_token(self, org_name: str) -> Optional[str]:
+        """Return a still-unexpired token previously verified for org_name, if any.
+
+        May differ from the currently-active token (e.g. a later SSO login
+        for a different org minted a new one) -- callers that use this to
+        skip a switch should swap it in as the active token.
+        """
+        entry = self._verified_org_tokens.get(org_name)
+        if entry is None:
+            return None
+        token, _exp = entry
+        if _jwt_expired(token):
+            del self._verified_org_tokens[org_name]
+            return None
+        return token
 
     def copy(self) -> "ClientSession":
         """
