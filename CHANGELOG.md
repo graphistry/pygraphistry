@@ -22,6 +22,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Changed
 
 * GFQL: the wavefront seed-rediscovery rule moved out of `hop.py` into `graphistry/compute/gfql/seed_rediscovery.py` (pandas/cuDF) and `graphistry/compute/gfql/lazy/engine/polars/seed_rediscovery.py` (polars); `undirected_rediscovered_seed_ids` (an internal helper) is gone.
+### Docs
+
+- **GFQL docs navigation is split into a short start path and two hubs**: `gfql/index` now lists four Start Here pages, a Performance and Benchmarks hub (`gfql/perf/index`), a Language Reference hub (`gfql/reference/index`), and the developer specs. No page moved, so existing URLs are unchanged; the previously unlisted `gfql/loading_graph_data` page joins the reference hub.
+- **The GFQL benchmark pages state the result first and consolidate caveats**: `gfql/benchmark_filter_pagerank` and `gfql/benchmark_graphframes` open with the measured outcome and the engine to use, keep every number unchanged, and move measurement rules into one "Method and limits" section per page. GraphFrames literals were re-verified against `gfql/_static/graphframes/results.json`; the filter/PageRank page still prints from the vendored pyg-bench artifact.
 
 ## [0.59.0 - 2026-08-31]
 
