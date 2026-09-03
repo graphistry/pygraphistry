@@ -14,7 +14,7 @@ from .io.metadata import (
     serialize_edge_encodings
 )
 
-from .exceptions import TokenExpireException
+from .exceptions import TokenExpireException, SsoPendingException
 from .validate.validate_encodings import validate_encodings
 from .utils.requests import log_requests_error, switch_org_request, OrgSwitchError, OrgSwitchIdpChallenge
 from .util import setup_logger
@@ -434,10 +434,12 @@ class ArrowUploader:
             json_response = out.json()
             self.token = None
             if 'status' not in json_response:
-                raise Exception(out.text)
+                # Unrecognized body (proxy error page, DRF detail, ...): retryable, not fatal.
+                raise SsoPendingException(out.text)
 
             if json_response['status'] != 'OK':
-                raise Exception(json_response.get('message', out.text))
+                # Normal "not ready yet" answer while the browser login is in flight.
+                raise SsoPendingException(json_response.get('message', out.text))
 
             data = json_response.get('data', {})
             token_value = data.get('token')

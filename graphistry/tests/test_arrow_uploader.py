@@ -8,6 +8,7 @@ except ImportError:  # pragma: no cover - fallback for stdlib-only envs
 
 from graphistry import ArrowUploader
 from graphistry.pygraphistry import PyGraphistry
+from graphistry.exceptions import SsoPendingException
 
 # TODO mock requests for testing actual effectful code
 
@@ -471,6 +472,31 @@ class TestArrowUploader_Comms(unittest.TestCase):
         assert au.token == '123'
         assert au.org_name == 'mock-org'
         mock_switch.assert_called_once_with('mock-org', '123')
+
+    @mock.patch('requests.get')
+    def test_sso_get_token_state_not_ready_raises_pending(self, mock_get):
+        # The endpoint answers status != OK on every poll until the browser
+        # login completes. Must be typed retryable, not a generic failure --
+        # the poll loop keys off SsoPendingException to keep waiting.
+        mock_get.return_value = self._mock_response(
+            json_data={'status': 'Failed', 'message': 'State is invalid'}
+        )
+
+        au = ArrowUploader()
+
+        with self.assertRaises(SsoPendingException) as cm:
+            au.sso_get_token(state='not-ready-yet')
+        assert 'State is invalid' in str(cm.exception)
+
+    @mock.patch('requests.get')
+    def test_sso_get_token_status_less_body_raises_pending(self, mock_get):
+        # Proxy/DRF error body with no 'status' key: also retryable.
+        mock_get.return_value = self._mock_response(json_data={'detail': 'Not found.'})
+
+        au = ArrowUploader()
+
+        with self.assertRaises(SsoPendingException):
+            au.sso_get_token(state='ignored')
 
     @mock.patch('requests.get')
     def test_sso_get_token_missing_active_organization_no_caller_org(self, mock_get):

@@ -11,7 +11,8 @@ except ImportError:  # pragma: no cover - stdlib fallback
     from unittest.mock import patch
 import graphistry
 
-from graphistry.pygraphistry import PyGraphistry, GraphistryClient
+from graphistry.pygraphistry import PyGraphistry, GraphistryClient, SSO_POLL_MAX_CONSECUTIVE_ERRORS
+from graphistry.exceptions import SsoPendingException
 from graphistry.messages import (
     MSG_REGISTER_MISSING_PASSWORD,
     MSG_REGISTER_MISSING_USERNAME,
@@ -170,6 +171,7 @@ def test_switch_org_reuses_earlier_verified_token_for_different_org():
 
     client.api_token(token2)
     client.session.mark_org_verified(token2, "org-b")
+    client.session._is_authenticated = True
 
     with patch("graphistry.pygraphistry.switch_org_request") as mock_req:
         client.switch_org("org-a")
@@ -177,6 +179,9 @@ def test_switch_org_reuses_earlier_verified_token_for_different_org():
     mock_req.assert_not_called()
     assert client.api_token() == token1
     assert client.session.org_name == "org-a"
+    # Swapping in an already-verified token must not de-authenticate the session,
+    # else the next authenticate() refreshes and undoes the skipped round trip.
+    assert client.session._is_authenticated is True
 
 
 def test_switch_org_does_not_reuse_expired_cached_token():
@@ -193,6 +198,127 @@ def test_switch_org_does_not_reuse_expired_cached_token():
 
     mock_req.assert_called_once()
     assert client.api_token() == active_token
+
+
+class TestSsoPollErrorHandling:
+    """_handle_auth_url's polling loop: keep waiting on SsoPendingException and
+    network blips, propagate permanent errors."""
+
+    def _client(self):
+        client = graphistry.client()
+        client.session.sso_state = "state-123"
+        return client
+
+    def test_pending_state_keeps_polling_until_login_completes(self):
+        # The token endpoint answers "State is invalid" on every poll until the
+        # user finishes the browser login -- that is the normal wait, not a failure.
+        outcomes = [
+            SsoPendingException("State is invalid"),
+            SsoPendingException("State is invalid"),
+            SsoPendingException("State is invalid"),
+            SsoPendingException("State is invalid"),
+            ("tok-final", "org-a"),
+        ]
+
+        def _poll():
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        client = self._client()
+        with patch.object(client, "_sso_get_token", side_effect=_poll) as mock_get:
+            with patch("graphistry.pygraphistry.time.sleep"):
+                with patch.object(client, "api_token", return_value="tok-final"):
+                    with patch.object(client, "_maybe_switch_org"):
+                        out = client._handle_auth_url("http://auth", 30, None)
+
+        # More pending polls than the network-error budget: pending must not be capped.
+        assert mock_get.call_count == 5
+        assert out == "tok-final"
+
+    def test_pending_state_stops_at_timeout(self):
+        client = self._client()
+        with patch.object(
+            client, "_sso_get_token",
+            side_effect=SsoPendingException("State is invalid")
+        ):
+            with patch("graphistry.pygraphistry.time.sleep"):
+                out = client._handle_auth_url("http://auth", 3, None)
+
+        assert out is None
+
+    def test_status_less_body_is_treated_as_pending(self):
+        # A proxy/DRF error body with no 'status' key must not abort the login.
+        outcomes = [
+            SsoPendingException('{"detail": "Not found."}'),
+            ("tok-final", "org-a"),
+        ]
+
+        def _poll():
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        client = self._client()
+        with patch.object(client, "_sso_get_token", side_effect=_poll):
+            with patch("graphistry.pygraphistry.time.sleep"):
+                with patch.object(client, "api_token", return_value="tok-final"):
+                    with patch.object(client, "_maybe_switch_org"):
+                        out = client._handle_auth_url("http://auth", 30, None)
+
+        assert out == "tok-final"
+
+    def test_permanent_error_propagates_instead_of_timing_out(self):
+        client = self._client()
+        boom = Exception("SSO returned active_organization='org-b', but caller requested org_name='org-a'")
+
+        with patch.object(client, "_sso_get_token", side_effect=boom) as mock_get:
+            with patch("graphistry.pygraphistry.time.sleep"):
+                with pytest.raises(Exception) as excinfo:
+                    client._handle_auth_url("http://auth", 30, None)
+
+        assert "active_organization" in str(excinfo.value)
+        # Failed on the first poll rather than spinning out the full timeout.
+        assert mock_get.call_count == 1
+
+    def test_transient_network_error_is_retried_then_succeeds(self):
+        client = self._client()
+        import requests as _requests
+        outcomes = [
+            _requests.exceptions.ConnectionError("reset"),
+            ("tok-final", "org-a"),
+        ]
+
+        def _poll():
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with patch.object(client, "_sso_get_token", side_effect=_poll):
+            with patch("graphistry.pygraphistry.time.sleep"):
+                with patch.object(client, "api_token", return_value="tok-final"):
+                    with patch.object(client, "_maybe_switch_org"):
+                        out = client._handle_auth_url("http://auth", 30, None)
+
+        assert out == "tok-final"
+        assert client.session.org_name == "org-a"
+
+    def test_sustained_network_errors_give_up_before_timeout(self):
+        client = self._client()
+        import requests as _requests
+
+        with patch.object(
+            client, "_sso_get_token",
+            side_effect=_requests.exceptions.ConnectionError("down")
+        ) as mock_get:
+            with patch("graphistry.pygraphistry.time.sleep"):
+                with pytest.raises(_requests.exceptions.ConnectionError):
+                    client._handle_auth_url("http://auth", 300, None)
+
+        assert mock_get.call_count == SSO_POLL_MAX_CONSECUTIVE_ERRORS + 1
 
 
 class FakeRequestResponse(object):

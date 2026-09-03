@@ -33,7 +33,7 @@ from . import util
 from . import bolt_util
 from .plotter import Plotter
 from .util import in_databricks, setup_logger, in_ipython
-from .exceptions import SsoRetrieveTokenTimeoutException, TokenExpireException, SsoStateInvalidException
+from .exceptions import SsoRetrieveTokenTimeoutException, TokenExpireException, SsoStateInvalidException, SsoPendingException
 
 from .messages import (
     MSG_REGISTER_MISSING_PASSWORD,
@@ -50,6 +50,10 @@ logger = setup_logger(__name__)
 ###############################################################################
 
 SSO_GET_TOKEN_ELAPSE_SECONDS = 50
+
+# Consecutive network-level failures tolerated while polling for the SSO token
+# before giving up; a sustained outage should not wait out the whole sso_timeout.
+SSO_POLL_MAX_CONSECUTIVE_ERRORS = 3
 
 _client_mode_enabled = False
 _is_client_mode_warned = False
@@ -310,13 +314,29 @@ class GraphistryClient(AuthManagerProtocol):
             time.sleep(1)
             elapsed_time = 1
             token = None
+            consecutive_poll_errors = 0
 
             while True:
                 try:
                     token, org_name = self._sso_get_token()
+                    consecutive_poll_errors = 0
                 except SsoStateInvalidException:
                     raise
-                except Exception as exc:
+                except SsoPendingException as exc:
+                    # Browser login still in flight; keep waiting until sso_timeout.
+                    logger.debug("SSO token not ready yet: %s", exc)
+                    token = None
+                    org_name = None
+                except (requests.exceptions.RequestException, ValueError) as exc:
+                    # ValueError covers both json and simplejson decode errors.
+                    # Retry network/parse blips; permanent errors (org mismatch) propagate.
+                    consecutive_poll_errors += 1
+                    if consecutive_poll_errors > SSO_POLL_MAX_CONSECUTIVE_ERRORS:
+                        logger.error(
+                            "Repeated network errors polling SSO token (%s consecutive): %s",
+                            consecutive_poll_errors, exc
+                        )
+                        raise
                     logger.debug("Transient error polling SSO token, will retry: %s", exc)
                     token = None
                     org_name = None
@@ -425,7 +445,11 @@ class GraphistryClient(AuthManagerProtocol):
             )
             self.api_token(token)
             self.session._is_authenticated = True
-            self._maybe_switch_org(self.session.org_name)
+            refreshed_org = self.session.org_name
+            if token and refreshed_org and self.session.get_verified_token(refreshed_org):
+                # Refresh reissues under the same org context; carry the grant to the new token.
+                self.session.mark_org_verified(token, refreshed_org)
+            self._maybe_switch_org(refreshed_org)
             return self.api_token()
         except Exception as e:
 
@@ -2706,7 +2730,8 @@ class GraphistryClient(AuthManagerProtocol):
         # Fast path 2: an earlier, still-unexpired token already verified org_name (now superseded as active by a later SSO login elsewhere) -- swap it back in.
         cached_token = self.session.get_verified_token(org_name)
         if cached_token:
-            self.api_token(cached_token)
+            # Direct assign: api_token()'s setter would clear _is_authenticated and force a needless refresh().
+            self.session.api_token = cached_token
             self.session.org_name = org_name
             logger.debug("Reusing previously-verified token for organization %s; skipping request.", org_name)
             return
