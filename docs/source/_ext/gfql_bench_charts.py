@@ -250,6 +250,7 @@ class GFChart(NamedTuple):
 GF_CHARTS: dict[str, GFChart] = OrderedDict((
     ('livejournal_tasks.svg', GFChart('lj', 'LiveJournal: 3,997,962 nodes / 34,681,189 edges', 42)),
     ('orkut_tasks.svg', GFChart('orkut', 'Orkut: 3,072,441 nodes / 117,185,083 edges', 162)),
+    ('friendster_tasks.svg', GFChart('friendster', 'Friendster: 65,608,366 nodes / 1,806,067,135 edges', 148)),
 ))
 
 
