@@ -6,19 +6,29 @@ GFQL vs Apache Spark GraphFrames on One Node
    :width: 160px
    :align: right
 
-On one machine, GFQL answers graph filters and k-hop traversals 1.3x to 43x
-faster than Apache Spark GraphFrames. The CPU engine alone wins every one of
-those cells. For whole-graph PageRank, use the GFQL GPU engine: it is 10x to
-15x faster than GraphFrames. The GFQL CPU PageRank path (igraph) is slower
-than GraphFrames.
+This page benchmarks GFQL against Apache Spark GraphFrames on one machine.
+GFQL is Graphistry's open-source graph query language: Cypher and Python
+chains that run in-process on dataframes, with no database or cluster.
+GraphFrames is Spark's graph library, run here on ``local[*]`` (a single-node
+JVM using all cores). The workload is four tasks on two graphs, LiveJournal
+(35M edges) and Orkut (117M edges). GFQL is faster than GraphFrames in seven of
+the eight cells with the CPU engine alone. Graph filters and k-hop traversals
+run 1.3x to 43x faster. The exception is whole-graph PageRank on CPU, where
+GraphFrames beats GFQL's igraph path. On that task the GFQL GPU engine is 10x
+to 15x faster than GraphFrames. Use GFQL on CPU for filters and traversals,
+and on GPU for PageRank.
 
-The workloads are four tasks on two SNAP graphs: LiveJournal (35M edges) and
-Orkut (117M edges). GFQL runs with ``engine="polars"`` (CPU) and
-``engine="polars-gpu"`` (GPU). GraphFrames runs on Spark ``local[*]``, a
-single-node JVM using all cores. Every cell is the median of 5 timed runs
-after 2 warmups, and every task returns the same result size on all three
-systems. One cell, LiveJournal GPU PageRank, is the median of 3 runs after 1
-warmup. See :ref:`graphframes-method` for the full measurement rules.
+.. image:: _static/graphframes/livejournal_tasks.svg
+   :alt: LiveJournal task times: GFQL CPU and GPU versus GraphFrames for filter, 1-hop, 2-hop, and PageRank
+
+.. image:: _static/graphframes/orkut_tasks.svg
+   :alt: Orkut task times: GFQL CPU and GPU versus GraphFrames for filter, 1-hop, 2-hop, and PageRank
+
+GFQL runs with ``engine="polars"`` (CPU) and ``engine="polars-gpu"`` (GPU).
+Every cell is the median of 5 timed runs after 2 warmups, and every task
+returns the same result size on all three systems. One cell, LiveJournal GPU
+PageRank, is the median of 3 runs after 1 warmup. See
+:ref:`graphframes-method` for the full measurement rules.
 
 LiveJournal (35M edges)
 -----------------------

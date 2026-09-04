@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="568" viewBox="0 0 720 568" role="img" aria-label="LiveJournal: 3,997,962 nodes / 34,681,189 edges">
+<title>LiveJournal: 3,997,962 nodes / 34,681,189 edges</title>
+<style>.c{--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--ink3:#78776f;--rule:#dcdbd6;--track:#f0efec;--neo:#eb6834;--cpu:#2a78d6;--gpu:#1baf7a}@media (prefers-color-scheme:dark){.c{--surface:#1a1a19;--ink:#ffffff;--ink2:#c3c2b7;--ink3:#908f86;--rule:#3b3a37;--track:#262523;--neo:#d95926;--cpu:#3987e5;--gpu:#199e70}}.c text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}.t{font-size:17px;font-weight:600;fill:var(--ink)}.s{font-size:12.5px;fill:var(--ink2)}.n{font-size:13px;font-weight:600;fill:var(--ink)}.a{font-size:12.5px;fill:var(--ink2)}.m{font-size:12.5px;fill:var(--ink3)}.neo{fill:var(--neo)}.cpu{fill:var(--cpu)}.gpu{fill:var(--gpu)}</style>
+<g class="c">
+<rect width="720" height="568" fill="var(--surface)"/>
+<text class="t" x="16" y="28">LiveJournal: 3,997,962 nodes / 34,681,189 edges</text>
+<text class="s" x="16" y="49">Median of 5 after 2 warmups; same result size on every system. Lower is better.</text>
+<text class="n" x="16" y="89">filter: degree &gt;= 42</text>
+<rect x="193" y="96" width="1" height="84" fill="var(--rule)"/>
+<text class="a" x="26" y="116">GFQL polars (CPU)</text>
+<path class="cpu" d="M194 103H197a4 4 0 0 1 4 4V117a4 4 0 0 1 -4 4H194Z"/>
+<text x="209" y="116"><tspan class="n">2.1ms</tspan><tspan class="a" dx="9">43.0x faster</tspan></text>
+<text class="a" x="26" y="144">GFQL polars-gpu (GPU)</text>
+<path class="gpu" d="M194 131H198a4 4 0 0 1 4 4V145a4 4 0 0 1 -4 4H194Z"/>
+<text x="210" y="144"><tspan class="n">2.4ms</tspan><tspan class="a" dx="9">37.7x faster</tspan></text>
+<text class="a" x="26" y="172">GraphFrames local[*]</text>
+<path class="neo" d="M194 159H490a4 4 0 0 1 4 4V173a4 4 0 0 1 -4 4H194Z"/>
+<text x="502" y="172"><tspan class="n">90.4ms</tspan></text>
+<text class="n" x="16" y="205">1-hop from 50 seeds</text>
+<rect x="193" y="212" width="1" height="84" fill="var(--rule)"/>
+<text class="a" x="26" y="232">GFQL polars (CPU)</text>
+<path class="cpu" d="M194 219H240a4 4 0 0 1 4 4V233a4 4 0 0 1 -4 4H194Z"/>
+<text x="252" y="232"><tspan class="n">236.8ms</tspan><tspan class="a" dx="9">6.0x faster</tspan></text>
+<text class="a" x="26" y="260">GFQL polars-gpu (GPU)</text>
+<path class="gpu" d="M194 247H230.4a4 4 0 0 1 4 4V261a4 4 0 0 1 -4 4H194Z"/>
+<text x="242.4" y="260"><tspan class="n">191.4ms</tspan><tspan class="a" dx="9">7.4x faster</tspan></text>
+<text class="a" x="26" y="288">GraphFrames local[*]</text>
+<path class="neo" d="M194 275H490a4 4 0 0 1 4 4V289a4 4 0 0 1 -4 4H194Z"/>
+<text x="502" y="288"><tspan class="n">1421.7ms</tspan></text>
+<text class="n" x="16" y="321">2-hop from 50 seeds</text>
+<rect x="193" y="328" width="1" height="84" fill="var(--rule)"/>
+<text class="a" x="26" y="348">GFQL polars (CPU)</text>
+<path class="cpu" d="M194 335H329.8a4 4 0 0 1 4 4V349a4 4 0 0 1 -4 4H194Z"/>
+<text x="341.8" y="348"><tspan class="n">1669.3ms</tspan><tspan class="a" dx="9">2.1x faster</tspan></text>
+<text class="a" x="26" y="376">GFQL polars-gpu (GPU)</text>
+<path class="gpu" d="M194 363H319.1a4 4 0 0 1 4 4V377a4 4 0 0 1 -4 4H194Z"/>
+<text x="331.1" y="376"><tspan class="n">1542.1ms</tspan><tspan class="a" dx="9">2.3x faster</tspan></text>
+<text class="a" x="26" y="404">GraphFrames local[*]</text>
+<path class="neo" d="M194 391H490a4 4 0 0 1 4 4V405a4 4 0 0 1 -4 4H194Z"/>
+<text x="502" y="404"><tspan class="n">3583.3ms</tspan></text>
+<text class="n" x="16" y="437">PageRank, full graph</text>
+<rect x="193" y="444" width="1" height="84" fill="var(--rule)"/>
+<text class="a" x="26" y="464">GFQL polars (CPU)</text>
+<path class="cpu" d="M194 451H490a4 4 0 0 1 4 4V465a4 4 0 0 1 -4 4H194Z"/>
+<text x="502" y="464"><tspan class="n">49.3s</tspan><tspan class="a" dx="9">0.33x (slower)</tspan></text>
+<text class="a" x="26" y="492">GFQL polars-gpu (GPU)</text>
+<path class="gpu" d="M194 479H196.8a4 4 0 0 1 4 4V493a4 4 0 0 1 -4 4H194Z"/>
+<text x="208.8" y="492"><tspan class="n">1.11s</tspan><tspan class="a" dx="9">14.7x faster</tspan></text>
+<text class="a" x="26" y="520">GraphFrames local[*]</text>
+<path class="neo" d="M194 507H289.4a4 4 0 0 1 4 4V521a4 4 0 0 1 -4 4H194Z"/>
+<text x="301.4" y="520"><tspan class="n">16.3s</tspan></text>
+<text class="m" x="16" y="557">Bars are scaled per task. dgx-spark, single node; Spark local[*] over all cores.</text>
+</g></svg>

@@ -7,6 +7,9 @@ hand-drawn: every bar length and every figure printed on them comes from a cell 
 committed file differs, so a chart cannot go on asserting a number the artifact no longer
 publishes - which is exactly how withdrawn figures survived on this page as glyph paths.
 
+The GraphFrames task charts render the same way from
+``docs/source/gfql/_static/graphframes/results.json``.
+
 Regenerate after vendoring a new artifact::
 
     python3 docs/source/_ext/gfql_bench_charts.py --write
@@ -31,6 +34,12 @@ from gfql_bench_data import BENCHMARKS_JSON, JSONObject, format_cell, load
 CHART_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     'gfql', '_static', 'filter_pagerank')
+
+#: The GraphFrames comparison renders from its own saved results, next to its charts.
+GRAPHFRAMES_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'gfql', '_static', 'graphframes')
+GRAPHFRAMES_RESULTS_JSON = os.path.join(GRAPHFRAMES_DIR, 'results.json')
 
 WIDTH = 720
 PAD = 16
@@ -200,25 +209,144 @@ def render(name: str, payload: JSONObject) -> str:
     return '\n'.join(out) + '\n'
 
 
+
+#: GraphFrames task charts: one per dataset, four task groups, three systems per group.
+#: Bars are scaled per task (the slowest system fills the row) because task times span
+#: five orders of magnitude; every bar prints its own value, and every GFQL bar prints
+#: its own ratio against GraphFrames, so no visual comparison is made across tasks.
+GF_LABEL_W = 178
+GF_BAR_MAX = 300
+GF_GROUP_HEAD = 24
+GF_BAR_ROW = 28
+GF_BAR_H = 18
+GF_GROUP_GAP = 8
+GF_TASKS = (
+    ('filter', 'filter: degree >= {threshold}'),
+    ('hop1', '1-hop from 50 seeds'),
+    ('hop2', '2-hop from 50 seeds'),
+    ('pagerank', 'PageRank, full graph'),
+)
+GF_SYSTEMS = (
+    ('gfql-polars', 'GFQL polars (CPU)', 'cpu'),
+    ('gfql-polars-gpu', 'GFQL polars-gpu (GPU)', 'gpu'),
+    ('graphframes', 'GraphFrames local[*]', 'neo'),
+)
+GF_CHARTS: dict[str, tuple[str, str, int]] = OrderedDict((
+    ('livejournal_tasks.svg', ('lj', 'LiveJournal', 42)),
+    ('orkut_tasks.svg', ('orkut', 'Orkut', 162)),
+))
+
+
+def _gf_time(task: str, ms: float) -> str:
+    if task == 'pagerank':
+        seconds = ms / 1000.0
+        return '{:.2f}s'.format(seconds) if seconds < 10 else '{:.1f}s'.format(seconds)
+    return '{:.1f}ms'.format(ms)
+
+
+def _gf_ratio(system_ms: float, graphframes_ms: float) -> str:
+    ratio = graphframes_ms / system_ms
+    if ratio >= 1:
+        return '{:.1f}x faster'.format(ratio)
+    return '{:.2f}x (slower)'.format(ratio)
+
+
+def _gf_dataset(results: JSONObject, key: str) -> JSONObject:
+    dataset = results.get(key)
+    if not isinstance(dataset, dict):
+        raise ChartError('{} has no dataset {!r}'.format(
+            os.path.basename(GRAPHFRAMES_RESULTS_JSON), key))
+    return dataset
+
+
+def _gf_median_ms(dataset: JSONObject, task: str, system: str) -> float:
+    tasks = dataset.get('tasks')
+    arms = tasks.get(task) if isinstance(tasks, dict) else None
+    arm = arms.get(system) if isinstance(arms, dict) else None
+    value = arm.get('median_ms') if isinstance(arm, dict) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ChartError('{}.{}.{} has no median_ms'.format(
+            dataset.get('name', '?'), task, system))
+    return float(value)
+
+
+def render_graphframes(name: str, results: JSONObject) -> str:
+    """Render one GraphFrames task chart to SVG text."""
+    key, label, threshold = GF_CHARTS[name]
+    dataset = _gf_dataset(results, key)
+    edges = dataset.get('n_edges')
+    nodes_ = dataset.get('n_nodes')
+    title = '{}: {:,} nodes / {:,} edges'.format(label, int(nodes_), int(edges))
+    subtitle = 'Median of 5 after 2 warmups; same result size on every system. Lower is better.'
+    group_h = GF_GROUP_HEAD + GF_BAR_ROW * len(GF_SYSTEMS) + GF_GROUP_GAP
+    height = HEADER_H + group_h * len(GF_TASKS) + FOOT_H
+    out = [
+        '<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}"'
+        ' role="img" aria-label="{}">'.format(WIDTH, height, WIDTH, height, _esc(title)),
+        '<title>{}</title>'.format(_esc(title)),
+        '<style>{}</style>'.format(STYLE),
+        '<g class="c">',
+        '<rect width="{}" height="{}" fill="var(--surface)"/>'.format(WIDTH, height),
+        '<text class="t" x="{}" y="28">{}</text>'.format(PAD, _esc(title)),
+        '<text class="s" x="{}" y="49">{}</text>'.format(PAD, _esc(subtitle)),
+    ]
+    bar_x = PAD + GF_LABEL_W
+    for group_index, (task, task_label) in enumerate(GF_TASKS):
+        group_top = HEADER_H + group_index * group_h
+        out.append('<text class="n" x="{}" y="{}">{}</text>'.format(
+            PAD, group_top + 15, _esc(task_label.format(threshold=threshold))))
+        times = {system: _gf_median_ms(dataset, task, system) for system, _, _ in GF_SYSTEMS}
+        slowest = max(times.values())
+        graphframes_ms = times['graphframes']
+        out.append('<rect x="{}" y="{}" width="1" height="{}" fill="var(--rule)"/>'.format(
+            bar_x - 1, group_top + GF_GROUP_HEAD - 2, GF_BAR_ROW * len(GF_SYSTEMS)))
+        for row_index, (system, system_label, tone) in enumerate(GF_SYSTEMS):
+            row_top = group_top + GF_GROUP_HEAD + row_index * GF_BAR_ROW
+            bar_top = row_top + (GF_BAR_ROW - GF_BAR_H) / 2
+            out.append('<text class="a" x="{}" y="{}">{}</text>'.format(
+                PAD + 10, row_top + 18, _esc(system_label)))
+            width = max(MIN_BAR, GF_BAR_MAX * times[system] / slowest)
+            out.append('<path class="{}" d="{}"/>'.format(
+                tone, _bar_path(bar_x, bar_top, width, GF_BAR_H)))
+            spans = ['<tspan class="n">{}</tspan>'.format(_esc(_gf_time(task, times[system])))]
+            if system != 'graphframes':
+                spans.append('<tspan class="a" dx="9">{}</tspan>'.format(
+                    _esc(_gf_ratio(times[system], graphframes_ms))))
+            out.append('<text x="{}" y="{}">{}</text>'.format(
+                _num(bar_x + width + 8), row_top + 18, ''.join(spans)))
+    out.append('<text class="m" x="{}" y="{}">{}</text>'.format(
+        PAD, height - 11,
+        _esc('Bars are scaled per task. dgx-spark, single node; Spark local[*] over all cores.')))
+    out.append('</g></svg>')
+    return '\n'.join(out) + '\n'
+
+
+def chart_path(name: str) -> str:
+    """Where the committed copy of a chart lives."""
+    if name in GF_CHARTS:
+        return os.path.join(GRAPHFRAMES_DIR, name)
+    return os.path.join(CHART_DIR, name)
+
+
 def rendered(payload: JSONObject | None = None) -> dict[str, str]:
     """Every chart, keyed by file name, rendered from the vendored artifact."""
     data = payload if payload is not None else load(BENCHMARKS_JSON)
-    return OrderedDict((name, render(name, data)) for name in CHARTS)
+    charts = OrderedDict((name, render(name, data)) for name in CHARTS)
+    results = load(GRAPHFRAMES_RESULTS_JSON)
+    for name in GF_CHARTS:
+        charts[name] = render_graphframes(name, results)
+    return charts
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--out-dir', default=CHART_DIR)
     parser.add_argument('--write', action='store_true',
                         help='rewrite the charts; without it, only report what is stale')
     args = parser.parse_args(argv)
 
-    if args.write:
-        os.makedirs(args.out_dir, exist_ok=True)
-
     stale: list[str] = []
     for name, svg in rendered().items():
-        path = os.path.join(args.out_dir, name)
+        path = chart_path(name)
         current: str | None = None
         if os.path.exists(path):
             with open(path, encoding='utf-8') as handle:
@@ -227,6 +355,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             continue
         stale.append(name)
         if args.write:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, 'w', encoding='utf-8') as handle:
                 handle.write(svg)
             print('[wrote] {}'.format(path))
@@ -234,7 +363,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     for name in stale:
         print('[stale] {}'.format(name))
-    print('{} of {} charts differ from the published numbers'.format(len(stale), len(CHARTS)))
+    print('{} of {} charts differ from the published numbers'.format(
+        len(stale), len(CHARTS) + len(GF_CHARTS)))
     return 1 if stale else 0
 
 
