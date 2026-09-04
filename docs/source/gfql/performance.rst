@@ -58,178 +58,16 @@ interest side, which GFQL's Cypher path does not yet do.
 The 20,000-person board
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-.. list-table::
-   :header-rows: 1
-   :widths: 8 8 12 12 12 16 16 16
-
-   * - Query
-     - Rows
-     - Kuzu
-     - Memgraph
-     - Neo4j
-     - GFQL ``pandas``
-     - GFQL ``polars``
-     - GFQL ``polars-gpu``
-   * - q1
-     - 3
-     - :bench:`graphbench.20k.q1.kuzu`
-     - :bench:`graphbench.20k.q1.memgraph`
-     - :bench:`graphbench.20k.q1.neo4j`
-     - :bench:`graphbench.20k.q1.pandas`
-     - :bench:`graphbench.20k.q1.polars`
-     - :bench:`graphbench.20k.q1.polars_gpu`
-   * - q2
-     - 1
-     - :bench:`graphbench.20k.q2.kuzu`
-     - :bench:`graphbench.20k.q2.memgraph`
-     - :bench:`graphbench.20k.q2.neo4j`
-     - :bench:`graphbench.20k.q2.pandas`
-     - :bench:`graphbench.20k.q2.polars`
-     - :bench:`graphbench.20k.q2.polars_gpu`
-   * - q3
-     - 5
-     - :bench:`graphbench.20k.q3.kuzu`
-     - :bench:`graphbench.20k.q3.memgraph`
-     - :bench:`graphbench.20k.q3.neo4j`
-     - :bench:`graphbench.20k.q3.pandas`
-     - :bench:`graphbench.20k.q3.polars`
-     - :bench:`graphbench.20k.q3.polars_gpu`
-   * - q4
-     - 2
-     - :bench:`graphbench.20k.q4.kuzu`
-     - :bench:`graphbench.20k.q4.memgraph`
-     - :bench:`graphbench.20k.q4.neo4j`
-     - :bench:`graphbench.20k.q4.pandas`
-     - :bench:`graphbench.20k.q4.polars`
-     - :bench:`graphbench.20k.q4.polars_gpu`
-   * - q5
-     - 1
-     - :bench:`graphbench.20k.q5.kuzu`
-     - :bench:`graphbench.20k.q5.memgraph`
-     - :bench:`graphbench.20k.q5.neo4j`
-     - :bench:`graphbench.20k.q5.pandas`
-     - :bench:`graphbench.20k.q5.polars`
-     - :bench:`graphbench.20k.q5.polars_gpu`
-   * - q6
-     - 5
-     - :bench:`graphbench.20k.q6.kuzu`
-     - :bench:`graphbench.20k.q6.memgraph`
-     - :bench:`graphbench.20k.q6.neo4j`
-     - :bench:`graphbench.20k.q6.pandas`
-     - :bench:`graphbench.20k.q6.polars`
-     - :bench:`graphbench.20k.q6.polars_gpu`
-   * - q7
-     - 1
-     - :bench:`graphbench.20k.q7.kuzu`
-     - :bench:`graphbench.20k.q7.memgraph`
-     - :bench:`graphbench.20k.q7.neo4j`
-     - :bench:`graphbench.20k.q7.pandas`
-     - :bench:`graphbench.20k.q7.polars`
-     - :bench:`graphbench.20k.q7.polars_gpu`
-   * - q8
-     - 1
-     - :bench:`graphbench.20k.q8.kuzu`
-     - :bench:`graphbench.20k.q8.memgraph`
-     - :bench:`graphbench.20k.q8.neo4j`
-     - :bench:`graphbench.20k.q8.pandas`
-     - :bench:`graphbench.20k.q8.polars`
-     - :bench:`graphbench.20k.q8.polars_gpu`
-   * - q9
-     - 1
-     - :bench:`graphbench.20k.q9.kuzu`
-     - :bench:`graphbench.20k.q9.memgraph`
-     - :bench:`graphbench.20k.q9.neo4j`
-     - :bench:`graphbench.20k.q9.pandas`
-     - :bench:`graphbench.20k.q9.polars`
-     - :bench:`graphbench.20k.q9.polars_gpu`
+.. bench-board:: graphbench.20k
+   :rows: q1,q2,q3,q4,q5,q6,q7,q8,q9
+   :columns: kuzu=Kuzu, memgraph=Memgraph, neo4j=Neo4j, pandas=GFQL pandas, polars=GFQL polars, polars_gpu=GFQL polars-gpu
 
 The 100,000-person board
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. list-table::
-   :header-rows: 1
-   :widths: 8 8 12 12 12 16 16 16
-
-   * - Query
-     - Rows
-     - Kuzu
-     - Memgraph
-     - Neo4j
-     - GFQL ``pandas``
-     - GFQL ``polars``
-     - GFQL ``polars-gpu``
-   * - q1
-     - 3
-     - :bench:`graphbench.100k.q1.kuzu`
-     - :bench:`graphbench.100k.q1.memgraph`
-     - :bench:`graphbench.100k.q1.neo4j`
-     - :bench:`graphbench.100k.q1.pandas`
-     - :bench:`graphbench.100k.q1.polars`
-     - :bench:`graphbench.100k.q1.polars_gpu`
-   * - q2
-     - 1
-     - :bench:`graphbench.100k.q2.kuzu`
-     - :bench:`graphbench.100k.q2.memgraph`
-     - :bench:`graphbench.100k.q2.neo4j`
-     - :bench:`graphbench.100k.q2.pandas`
-     - :bench:`graphbench.100k.q2.polars`
-     - :bench:`graphbench.100k.q2.polars_gpu`
-   * - q3
-     - 5
-     - :bench:`graphbench.100k.q3.kuzu`
-     - :bench:`graphbench.100k.q3.memgraph`
-     - :bench:`graphbench.100k.q3.neo4j`
-     - :bench:`graphbench.100k.q3.pandas`
-     - :bench:`graphbench.100k.q3.polars`
-     - :bench:`graphbench.100k.q3.polars_gpu`
-   * - q4
-     - 3
-     - :bench:`graphbench.100k.q4.kuzu`
-     - :bench:`graphbench.100k.q4.memgraph`
-     - :bench:`graphbench.100k.q4.neo4j`
-     - :bench:`graphbench.100k.q4.pandas`
-     - :bench:`graphbench.100k.q4.polars`
-     - :bench:`graphbench.100k.q4.polars_gpu`
-   * - q5
-     - 1
-     - :bench:`graphbench.100k.q5.kuzu`
-     - :bench:`graphbench.100k.q5.memgraph`
-     - :bench:`graphbench.100k.q5.neo4j`
-     - :bench:`graphbench.100k.q5.pandas`
-     - :bench:`graphbench.100k.q5.polars`
-     - :bench:`graphbench.100k.q5.polars_gpu`
-   * - q6
-     - 5
-     - :bench:`graphbench.100k.q6.kuzu`
-     - :bench:`graphbench.100k.q6.memgraph`
-     - :bench:`graphbench.100k.q6.neo4j`
-     - :bench:`graphbench.100k.q6.pandas`
-     - :bench:`graphbench.100k.q6.polars`
-     - :bench:`graphbench.100k.q6.polars_gpu`
-   * - q7
-     - 1
-     - :bench:`graphbench.100k.q7.kuzu`
-     - :bench:`graphbench.100k.q7.memgraph`
-     - :bench:`graphbench.100k.q7.neo4j`
-     - :bench:`graphbench.100k.q7.pandas`
-     - :bench:`graphbench.100k.q7.polars`
-     - :bench:`graphbench.100k.q7.polars_gpu`
-   * - q8
-     - 1
-     - :bench:`graphbench.100k.q8.kuzu`
-     - :bench:`graphbench.100k.q8.memgraph`
-     - :bench:`graphbench.100k.q8.neo4j`
-     - :bench:`graphbench.100k.q8.pandas`
-     - :bench:`graphbench.100k.q8.polars`
-     - :bench:`graphbench.100k.q8.polars_gpu`
-   * - q9
-     - 1
-     - :bench:`graphbench.100k.q9.kuzu`
-     - :bench:`graphbench.100k.q9.memgraph`
-     - :bench:`graphbench.100k.q9.neo4j`
-     - :bench:`graphbench.100k.q9.pandas`
-     - :bench:`graphbench.100k.q9.polars`
-     - :bench:`graphbench.100k.q9.polars_gpu`
+.. bench-board:: graphbench.100k
+   :rows: q1,q2,q3,q4,q5,q6,q7,q8,q9
+   :columns: kuzu=Kuzu, memgraph=Memgraph, neo4j=Neo4j, pandas=GFQL pandas, polars=GFQL polars, polars_gpu=GFQL polars-gpu
 
 .. _gfql-snb-aligned:
 
@@ -251,78 +89,18 @@ point lookups.
 SF0.1
 ~~~~~
 
-.. list-table::
-   :header-rows: 1
-   :widths: 24 19 19 19 19
-
-   * - Query
-     - GFQL ``polars``
-     - Kuzu
-     - Neo4j
-     - Memgraph
-   * - seed lookup
-     - :bench:`snb.sf01.seed_lookup.gfql_polars`
-     - :bench:`snb.sf01.seed_lookup.kuzu`
-     - :bench:`snb.sf01.seed_lookup.neo4j`
-     - :bench:`snb.sf01.seed_lookup.memgraph`
-   * - message content
-     - :bench:`snb.sf01.message_content.gfql_polars`
-     - :bench:`snb.sf01.message_content.kuzu`
-     - :bench:`snb.sf01.message_content.neo4j`
-     - :bench:`snb.sf01.message_content.memgraph`
-   * - message creator
-     - :bench:`snb.sf01.message_creator.gfql_polars`
-     - :bench:`snb.sf01.message_creator.kuzu`
-     - :bench:`snb.sf01.message_creator.neo4j`
-     - :bench:`snb.sf01.message_creator.memgraph`
-   * - recent replies
-     - :bench:`snb.sf01.recent_replies.gfql_polars`
-     - :bench:`snb.sf01.recent_replies.kuzu`
-     - :bench:`snb.sf01.recent_replies.neo4j`
-     - :bench:`snb.sf01.recent_replies.memgraph`
-   * - message replies (GFQL and Kuzu only)
-     - :bench:`snb.sf01.message_replies.gfql_polars`
-     - :bench:`snb.sf01.message_replies.kuzu`
-     -
-     -
-   * - new topics (GFQL and Kuzu only)
-     - :bench:`snb.sf01.new_topics.gfql_polars`
-     - :bench:`snb.sf01.new_topics.kuzu`
-     -
-     -
+.. bench-board:: snb.sf01
+   :rows: seed_lookup,message_content,message_creator,recent_replies,message_replies,new_topics
+   :columns: gfql_polars=GFQL polars, kuzu=Kuzu, neo4j=Neo4j, memgraph=Memgraph
+   :row-labels: seed_lookup=seed lookup; message_content=message content; message_creator=message creator; recent_replies=recent replies; message_replies=message replies (GFQL and Kuzu only); new_topics=new topics (GFQL and Kuzu only)
 
 SF1
 ~~~
 
-.. list-table::
-   :header-rows: 1
-   :widths: 24 19 19 19 19
-
-   * - Query
-     - GFQL ``polars``
-     - Kuzu
-     - Neo4j
-     - Memgraph
-   * - seed lookup
-     - :bench:`snb.sf1.seed_lookup.gfql_polars`
-     - :bench:`snb.sf1.seed_lookup.kuzu`
-     - :bench:`snb.sf1.seed_lookup.neo4j`
-     - :bench:`snb.sf1.seed_lookup.memgraph`
-   * - message content
-     - :bench:`snb.sf1.message_content.gfql_polars`
-     - :bench:`snb.sf1.message_content.kuzu`
-     - :bench:`snb.sf1.message_content.neo4j`
-     - :bench:`snb.sf1.message_content.memgraph`
-   * - message creator
-     - :bench:`snb.sf1.message_creator.gfql_polars`
-     - :bench:`snb.sf1.message_creator.kuzu`
-     - :bench:`snb.sf1.message_creator.neo4j`
-     - :bench:`snb.sf1.message_creator.memgraph`
-   * - new topics (GFQL and Kuzu only)
-     - :bench:`snb.sf1.new_topics.gfql_polars`
-     - :bench:`snb.sf1.new_topics.kuzu`
-     -
-     -
+.. bench-board:: snb.sf1
+   :rows: seed_lookup,message_content,message_creator,new_topics
+   :columns: gfql_polars=GFQL polars, kuzu=Kuzu, neo4j=Neo4j, memgraph=Memgraph
+   :row-labels: seed_lookup=seed lookup; message_content=message content; message_creator=message creator; recent_replies=recent replies; message_replies=message replies (GFQL and Kuzu only); new_topics=new topics (GFQL and Kuzu only)
 
 Neo4j and Memgraph use a reduced adapter for one query, and one parameter returns zero
 rows; those cells are excluded rather than estimated. SF10 was not run.
