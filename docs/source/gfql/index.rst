@@ -15,13 +15,14 @@ compile to vectorized dataframe operations, so one machine handles graphs of
 Where to start
 --------------
 
-- **New to GFQL**: :doc:`about` (10 minutes), then :doc:`quick`, then the
-  :doc:`case study <benchmark_filter_pagerank>`.
-- **Coming from Cypher**: :doc:`cypher`, then :doc:`spec/cypher_mapping`.
+- **New to GFQL**: :doc:`about` (10 minutes), :doc:`overview`, then the
+  :doc:`speedup case study <benchmark_filter_pagerank>`.
+- **Coming from Cypher**: :doc:`cypher` and :doc:`quick`, then
+  :doc:`spec/cypher_mapping`.
 - **Need speed**: :doc:`engines` picks the engine. ``engine='polars'`` is the
   one-keyword CPU speedup; :doc:`performance` covers GPU and remote GPU.
 - **Start from known nodes**: :doc:`indexing` and :doc:`index_adjacency` make
-  seeded lookups cost O(degree) instead of O(E).
+  lookups from known nodes cost O(degree) instead of O(E).
 
 .. toctree::
    :maxdepth: 1
@@ -29,9 +30,7 @@ Where to start
 
    about
    overview
-   quick
-   cypher
-   Case Study: Cypher + PageRank vs Neo4j <benchmark_filter_pagerank>
+   Speedup Case Study: vs Neo4j <benchmark_filter_pagerank>
 
 .. toctree::
    :maxdepth: 1
