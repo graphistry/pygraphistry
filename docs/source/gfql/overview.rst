@@ -22,21 +22,21 @@ Why GFQL?
 
 GFQL is an in-process graph query language for the compute tier. With it you can:
 
-- **Graph search**: Easily and efficiently query and filter nodes and edges using a familiar syntax.
-- **Avoid External Infrastructure**: Avoid calls to external infrastructures and eliminate the need for extra databases.
-- **Use Existing Workflows**: Integrate with your current Python data science tools and libraries.
-- **Achieve High Performance**: Utilize GPU acceleration for massive speedups in graph processing.
-- **Simplify Graph Analytics**: Write expressive and concise graph queries in Python.
+- **Query graphs where the data already is**: nodes and edges are pandas, Polars, cuDF, or
+  Apache Arrow dataframes. No database to install or load.
+- **Write graph search in a familiar syntax**: Cypher strings or composable Python chains.
+- **Run the same query on CPU or GPU**: one keyword switches between pandas, Polars,
+  cuDF, and Polars-GPU, with identical results.
+- **Scale on one machine**: columnar, vectorized execution over graphs of 100M+ edges.
+- **Stay in the Python workflow**: results are dataframes, so PyGraphistry visualization,
+  ML, and the rest of the PyData stack apply directly.
+- **Move work to a remote GPU** when the data or the hardware lives elsewhere.
 
-Key Features
-~~~~~~~~~~~~~
-
-- **Dataframe-Native Integration**: Works directly with Pandas, Polars, cuDF, and Apache Arrow dataframes.
-- **High Performance**: Optimized for both CPU and GPU execution, capable of processing billions of edges.
-- **Ease of Use**: Install via `pip` and start querying without the need for external databases.
-- **Visualization**: Integrated with PyGraphistry for GPU-accelerated graph visualization.
-- **Flexibility**: Suitable for a wide range of applications, including cybersecurity, fraud detection, financial analysis, and more.
-- **Architectural Freedom**: Use GFQL with your dataframes on your local CPU/GPU, or offload to a remote GPU cluster.
+Typical uses include cybersecurity, fraud detection, financial analysis, and knowledge
+graphs. The engine design is described in the blog post
+`Cypher on Polars: a CPU and GPU graph engine <https://www.graphistry.com/blog/cypher-on-polars-cpu-gpu-graph-engine>`_;
+the original launch post is
+`GFQL, OpenTelemetry, and more in PyGraphistry 2.40 <https://www.graphistry.com/blog/graphistry-2-40-53-gfql-opentelemetry-load-time-encoding-fixes-and-more>`_.
 
 Installation Guide
 ~~~~~~~~~~~~~~~~~~~
@@ -56,14 +56,14 @@ Key GFQL Concepts
 
 GFQL works on the same graphs as the rest of the PyGraphistry library. The operations run on top of the dataframe engine of your choice, with initial support for Pandas dataframes (CPU) and cuDF dataframes (GPU). 
 
-- **Nodes and Edges**: Represented using dataframes, making integration with Pandas and cuDF seamless
+- **Nodes and Edges**: Represented using dataframes, so they integrate directly with pandas and cuDF
 - **Cypher strings**: Write queries as Cypher strings — ``g.gfql("MATCH (n) WHERE n.score > 5 RETURN n")``
 - **Native chains**: Or compose queries as Python objects — ``g.gfql([n({"score": gt(5)})])``
 - **Predicates**: Apply conditions to filter nodes and edges based on their properties, reusing the optimized native operations of the underlying dataframe engine
 - **Same-path constraints (WHERE)**: Relate attributes across steps in a chain using `where`
 - **Row pipelines (`MATCH ... RETURN` style)**: Move from graph pattern matches to tabular results with `rows()`, `where_rows()`, `return_()`, `order_by()`, `group_by()`, `skip()`, and `limit()`
 - **Result kinds**: Some stages keep you in graph state, while row-pipeline stages and row-returning local Cypher `CALL` queries move you into row state
-- **GPU & CPU vectorization**: GFQL automatically leverages GPU acceleration and in-memory columnar processing for massive speedups on your queries
+- **GPU & CPU vectorization**: GFQL automatically uses GPU acceleration and in-memory columnar processing for massive speedups on your queries
 - **Optional remote mode**: Bind to remote data or upload it quickly as Arrow, and run your same Python and GFQL queries on remote GPU resources when available
 
 Choosing Entry Points And Result Kinds
@@ -318,7 +318,7 @@ Key advantages of GFQL Let:
 - **GPU preservation**: All operations maintain GPU acceleration when available
 - **Clean semantics**: Express complex graph analyses as clear, declarative DAGs
 
-Leveraging GPU Acceleration
+Using GPU Acceleration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 GFQL runs the same query on four interchangeable engines, all returning identical results: ``pandas`` (CPU, default), ``polars`` (CPU columnar — often an order of magnitude faster on query-heavy workloads, **no GPU**), ``cudf`` (NVIDIA GPU), and ``polars-gpu`` (NVIDIA GPU). ``engine='auto'`` follows the input frames — **a Polars-frame graph runs natively on Polars under the default** — resolving to ``cudf`` for cuDF input and ``pandas`` otherwise; an all-cuDF graph is additionally tried on ``polars-gpu`` when that GPU path probes usable. A query shape the native engine declines falls back to ``pandas`` (or ``cudf``); pass the engine explicitly to get an error instead of a fallback. Neither engine silently bridges mid-query: ``polars-gpu`` is GPU-or-error, and unsupported Polars/Cypher shapes are declined during validation, compilation, or planning — before execution — so the fallback re-runs the query from the start on pandas rather than half-executing. See :doc:`Choosing an Engine <engines>` for the decision matrix and benchmarks.
