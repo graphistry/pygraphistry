@@ -12,9 +12,8 @@ known statically, so the safety contract is same answer or pre-execution error,
 not silent fallback. Pick the engine that fits your hardware and workload; nothing
 else changes.
 
-.. note::
-   **New to GFQL?** This page assumes you already have a graph ``g`` and a ``query``. If not,
-   build one first — see :doc:`about` (10 Minutes to GFQL).
+This page assumes you already have a graph ``g`` and a ``query``; if not, start with
+:doc:`about`.
 
 The one-line speedup
 --------------------
@@ -44,26 +43,23 @@ than silently bridge), and the GPU engines only pay off on larger work. On CPU,
 Polars wins the common graph-query shapes (traversal,
 ``WHERE``/``ORDER``, aggregation) — see *When not to use Polars* below.
 
-.. note::
-   **Already a Polars user? The default now keeps you native.** With the default
-   ``engine='auto'``, a graph whose bound frames are all ``polars.DataFrame`` runs on the
-   Polars engine and returns Polars frames. If the query uses a shape the Polars engine
-   declines, GFQL falls back to pandas for that call — so ``auto`` is native *when it can
-   be*, and pandas otherwise. Pass ``engine='polars'`` explicitly when you want a decline
-   to raise instead of silently falling back:
+**Already a Polars user?** With the default ``engine='auto'``, a graph whose bound frames
+are all ``polars.DataFrame`` runs on the Polars engine and returns Polars frames. If the
+query uses a shape the Polars engine declines, ``auto`` falls back to pandas for that call.
+Pass ``engine='polars'`` when a decline should raise instead:
 
-   .. code-block:: python
+.. doc-test: skip
 
-      import polars as pl, graphistry
-      g = graphistry.edges(edges_pl, 'src', 'dst').nodes(nodes_pl, 'id')  # polars frames
-      out = g.gfql(query)                    # auto -> native Polars (out._nodes is polars)
-      out = g.gfql(query, engine='polars')   # same, but a declined shape raises
+.. code-block:: python
 
-.. note::
-   **Result frames match the engine.** With ``engine='polars'`` or ``'polars-gpu'`` the
-   output is Polars — ``result._nodes`` and ``result._edges`` are ``polars.DataFrame`` (and
-   ``cudf.DataFrame`` for ``engine='cudf'``). If downstream code is pandas-specific (``.iloc``,
-   ``.loc``, ``groupby().apply()``), call ``result._nodes.to_pandas()`` to convert back.
+   import polars as pl, graphistry
+   g = graphistry.edges(edges_pl, 'src', 'dst').nodes(nodes_pl, 'id')  # polars frames
+   out = g.gfql(query)                    # auto -> native Polars (out._nodes is polars)
+   out = g.gfql(query, engine='polars')   # same, but a declined shape raises
+
+**Result frames match the engine.** With ``engine='polars'`` or ``'polars-gpu'`` the output
+frames are Polars, and ``cudf.DataFrame`` for ``engine='cudf'``. Pandas-only downstream code
+(``.iloc``, ``groupby().apply()``) gets a pandas frame with ``result._nodes.to_pandas()``.
 
 The four engines
 ----------------
@@ -137,50 +133,45 @@ you already have, in your own process. There is no server to stand up, no ETL to
 projection step, no cluster to size. The query, the analytic, and the scoring stay in one
 pipeline over one set of frames.
 
-The table says what you get when the query runs there instead of somewhere else. The
-measured comparison, with its lane and its provenance, is on the :doc:`performance` page.
+The table names the concrete change for each system and where the measured comparison
+lives. Every figure on those pages renders from a committed pyg-bench artifact.
 
 .. list-table::
    :header-rows: 1
-   :widths: 18 40 42
+   :widths: 16 30 54
 
    * - Coming from
-     - Written in Cypher today?
-     - What GFQL gives you
+     - What changes
+     - What you gain, and where it is measured
    * - **Neo4j + GDS**
-     - Yes — GFQL accepts the same ``MATCH ... RETURN`` shapes.
-     - Filter → PageRank → filter runs as one in-process call: no graph projection, no
-       write-back, no round trip. The pipeline and its reproducer are in
-       :doc:`benchmark_filter_pagerank`.
+     - Same ``MATCH ... RETURN`` Cypher; no server, no GDS projection, no write-back.
+     - One in-process call runs filter, PageRank, and filter over resident frames, on CPU
+       or GPU. The measured pipeline times against Neo4j + GDS on the 30M-edge GPlus graph
+       are in :doc:`benchmark_filter_pagerank`.
+   * - **Memgraph**
+     - Same Cypher; no server round trip.
+     - Point lookups are Memgraph's strength: on the SNB-derived point queries the graph
+       databases, Memgraph first, beat GFQL. GFQL's wins are bulk shapes: traversals from
+       seed sets and global aggregates. See :doc:`performance`.
    * - **Kuzu**
-     - Yes.
-     - The measured q1–q9 board is against embedded Kuzu; see
-       :ref:`gfql-vs-kuzu-board` for the lane, the per-query numbers, and the losses. The
-       GFQL side queries a frame that is already in memory — nothing to load, nothing to
-       index first.
+     - Same Cypher; query the frame already in memory, nothing to load or index first.
+     - The q1–q9 board on :doc:`performance` is the measured comparison, per query, with
+       the losses shown.
    * - **LadybugDB**
-     - Yes.
-     - The same dataframe-native path: in-process, GPU-capable, no separate store. Polars
-       streaming (``GFQL_POLARS_CPU_STREAMING=1``) and the cudf-polars streaming executor
-       (``GFQL_POLARS_GPU_EXECUTOR=streaming``) spill query intermediates and results
-       beyond RAM.
+     - Same dataframe-native path, in process.
+     - Polars streaming (``GFQL_POLARS_CPU_STREAMING=1``) and the cudf-polars streaming
+       executor (``GFQL_POLARS_GPU_EXECUTOR=streaming``) spill intermediates and results
+       beyond RAM. Scan-shaped queries are measured on :doc:`performance`.
    * - **networkx**
-     - No — GFQL adds a declarative query language over the same graph.
-     - Columnar CPU execution and a one-keyword move to GPU, on frames rather than Python
-       objects.
+     - A declarative query language over the graph, on frames instead of Python objects.
+     - Columnar CPU execution and a one-keyword move to GPU.
    * - **igraph**
-     - No.
-     - igraph is the CPU PageRank backend *inside* GFQL, so you keep it and gain the query
-       layer, the Polars engines, and the GPU path.
+     - Nothing to give up: igraph is GFQL's CPU PageRank backend.
+     - The query layer, the Polars engines, and the GPU path on top of igraph analytics.
    * - **Spark GraphFrames**
-     - No — GFQL is Cypher; GraphFrames is a DataFrame API.
-     - Single-node execution with interactive latency and no cluster to provision or tune.
-       The measured head-to-head, with its committed raw results, is in
-       :doc:`benchmark_graphframes`.
-   * - **PuppyGraph**
-     - Yes.
-     - GPU and CPU graph **analytics** — PageRank, centrality, community — on the pulled
-       subgraph, in the same pipeline as the query.
+     - Cypher instead of a DataFrame API; single node, no cluster.
+     - Interactive latency for filters and traversals on CPU, and GPU PageRank. The
+       head-to-head, with committed results, is :doc:`benchmark_graphframes`.
 
 Route by shape: **selective** seeded lookups favor the GFQL resident index, **scan and
 aggregate** volume favors Polars, and **bulk** frontier expansion and full pipelines favor
@@ -253,7 +244,7 @@ row count from one join) raw ``cudf`` leads and ``polars-gpu`` slips as its in-m
 GPU executor comes under memory pressure. Prefer ``cudf`` for that regime.
 
 **[F4] Polars-GPU is GPU-or-error.** It never silently falls back to CPU and reports the
-result as a GPU run (see *Honesty* below).
+result as a GPU run (see *Parity and fallback rules* below).
 
 **[F5] Selective traversal is an indexing problem, not an engine choice.** A seeded ``hop``
 from a few nodes is fastest with the opt-in **CSR adjacency index** (``g.gfql_index_all()`` /
@@ -476,12 +467,12 @@ Three cases, stated so you can route around them:
   ``WHERE``, some temporal/entity-text forms). GFQL rejects those shapes during
   validation, compilation, or planning before query execution and points at
   ``engine='pandas'`` — it **never** silently bridges Polars to pandas, because that would
-  misreport pandas performance as Polars (see *Honesty*).
+  misreport pandas performance as Polars (see *Parity and fallback rules*).
 - **One extreme materialization (a huge output row count):** prefer ``cudf`` over
   ``polars-gpu`` (footnote F3).
 
-Parity and honesty
-------------------
+Parity and fallback rules
+-------------------------
 
 - **Identical results across engines.** Differential parity — every engine's output must match
   the pandas oracle — is a release gate, exercised across forward/reverse/undirected, 1-3 hop,

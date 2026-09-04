@@ -1,5 +1,5 @@
-Seeded Traversal Indexes (CSR Adjacency)
-========================================
+Adjacency Index: Fast Lookups from Known Nodes
+==============================================
 
 A **seeded** graph query starts from a known set of nodes — "the neighbors of these
 50 accounts", "2 hops out from this device" — rather than scanning the whole graph.
@@ -123,8 +123,8 @@ nothing it cannot trace to a committed artifact. Reproducers:
 ``benchmarks/gfql/index_takeover_bench.py``, ``benchmarks/gfql/index_vs_dbs.py``,
 ``benchmarks/gfql/index_vs_kuzu_prepared.py``.
 
-Honesty and cost
-----------------
+Cost and fallback
+-----------------
 
 - **Build cost** is one ``O(E log E)`` sort, amortized over subsequent queries.
   ``index_policy='auto'`` only builds when the planner predicts a selective query will
