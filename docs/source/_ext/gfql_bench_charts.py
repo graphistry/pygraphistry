@@ -7,8 +7,8 @@ hand-drawn: every bar length and every figure printed on them comes from a cell 
 committed file differs, so a chart cannot go on asserting a number the artifact no longer
 publishes - which is exactly how withdrawn figures survived on this page as glyph paths.
 
-The GraphFrames task charts render the same way from
-``docs/source/gfql/_static/graphframes/results.json``.
+The GraphFrames task charts render the same way from the ``graphframes.*`` cells of the
+same artifact, once pyg-bench publishes the ladder.
 
 Regenerate after vendoring a new artifact::
 
@@ -35,11 +35,10 @@ CHART_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     'gfql', '_static', 'filter_pagerank')
 
-#: The GraphFrames comparison renders from its own saved results, next to its charts.
+#: The GraphFrames task charts live next to their page's other static assets.
 GRAPHFRAMES_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     'gfql', '_static', 'graphframes')
-GRAPHFRAMES_RESULTS_JSON = os.path.join(GRAPHFRAMES_DIR, 'results.json')
 
 WIDTH = 720
 PAD = 16
@@ -214,12 +213,16 @@ def render(name: str, payload: JSONObject) -> str:
 #: Bars are scaled per task (the slowest system fills the row) because task times span
 #: five orders of magnitude; every bar prints its own value, and every GFQL bar prints
 #: its own ratio against GraphFrames, so no visual comparison is made across tasks.
+#: Every figure is a published cell of ``graphframes.<dataset>.<task>.<system>``; a
+#: ``..._kernel`` component cell, when published, shades the PageRank solver's share of
+#: the bar in the full tone and the rest of the query in the light tone.
 GF_LABEL_W = 178
 GF_BAR_MAX = 300
 GF_GROUP_HEAD = 24
 GF_BAR_ROW = 28
 GF_BAR_H = 18
 GF_GROUP_GAP = 8
+GF_PREFIX = 'graphframes'
 GF_TASKS = (
     ('filter', 'filter: degree >= {threshold}'),
     ('hop1', '1-hop from 50 seeds'),
@@ -227,78 +230,103 @@ GF_TASKS = (
     ('pagerank', 'PageRank, full graph'),
 )
 GF_SYSTEMS = (
-    ('gfql-polars', 'GFQL polars (CPU)', 'cpu'),
-    ('gfql-polars-gpu', 'GFQL polars-gpu (GPU)', 'gpu'),
+    ('gfql_polars', 'GFQL polars (CPU)', 'cpu'),
+    ('gfql_polars_gpu', 'GFQL polars-gpu (GPU)', 'gpu'),
     ('graphframes', 'GraphFrames local[*]', 'neo'),
 )
-GF_CHARTS: dict[str, tuple[str, str, int]] = OrderedDict((
-    ('livejournal_tasks.svg', ('lj', 'LiveJournal', 42)),
-    ('orkut_tasks.svg', ('orkut', 'Orkut', 162)),
+GF_BASELINE = 'graphframes'
+
+
+class GFChart(NamedTuple):
+    dataset: str          #: key segment in the published cells
+    title: str            #: dataset label with its cardinalities (dataset facts, not timings)
+    threshold: int        #: the filter task's degree threshold, printed in the task label
+
+
+GF_CHARTS: dict[str, GFChart] = OrderedDict((
+    ('livejournal_tasks.svg', GFChart('lj', 'LiveJournal: 3,997,962 nodes / 34,681,189 edges', 42)),
+    ('orkut_tasks.svg', GFChart('orkut', 'Orkut: 3,072,441 nodes / 117,185,083 edges', 162)),
 ))
 
 
-def _gf_time(task: str, ms: float) -> str:
-    if task == 'pagerank':
-        seconds = ms / 1000.0
-        return '{:.2f}s'.format(seconds) if seconds < 10 else '{:.1f}s'.format(seconds)
-    return '{:.1f}ms'.format(ms)
+def gf_cell_key(dataset: str, task: str, system: str) -> str:
+    return '{}.{}.{}.{}'.format(GF_PREFIX, dataset, task, system)
 
 
-def _gf_ratio(system_ms: float, graphframes_ms: float) -> str:
-    ratio = graphframes_ms / system_ms
-    if ratio >= 1:
-        return '{:.1f}x faster'.format(ratio)
-    return '{:.2f}x (slower)'.format(ratio)
+def gf_published(payload: JSONObject) -> bool:
+    """Whether the artifact publishes the GraphFrames ladder at all."""
+    cells = payload.get('cells')
+    return isinstance(cells, dict) and any(k.startswith(GF_PREFIX + '.') for k in cells)
 
 
-def _gf_dataset(results: JSONObject, key: str) -> JSONObject:
-    dataset = results.get(key)
-    if not isinstance(dataset, dict):
-        raise ChartError('{} has no dataset {!r}'.format(
-            os.path.basename(GRAPHFRAMES_RESULTS_JSON), key))
-    return dataset
+def gf_cell_keys(payload: JSONObject) -> list[str]:
+    """Every published cell the GraphFrames charts draw."""
+    cells = payload.get('cells')
+    if not isinstance(cells, dict):
+        return []
+    keys: list[str] = []
+    for chart in GF_CHARTS.values():
+        for task, _ in GF_TASKS:
+            for system, _, _ in GF_SYSTEMS:
+                key = gf_cell_key(chart.dataset, task, system)
+                for candidate in (key, key + '_kernel', key + '_vs_' + GF_BASELINE):
+                    if candidate in cells:
+                        keys.append(candidate)
+    return keys
 
 
-def _gf_median_ms(dataset: JSONObject, task: str, system: str) -> float:
-    tasks = dataset.get('tasks')
-    arms = tasks.get(task) if isinstance(tasks, dict) else None
-    arm = arms.get(system) if isinstance(arms, dict) else None
-    value = arm.get('median_ms') if isinstance(arm, dict) else None
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ChartError('{}.{}.{} has no median_ms'.format(
-            dataset.get('name', '?'), task, system))
+def _gf_optional(payload: JSONObject, key: str) -> JSONObject | None:
+    cells = payload.get('cells')
+    cell = cells.get(key) if isinstance(cells, dict) else None
+    return cell if isinstance(cell, dict) else None
+
+
+def _gf_ms(cell: JSONObject, key: str) -> float:
+    value = cell.get('value')
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or cell.get('unit') != 'ms':
+        raise ChartError('{!r} is not a millisecond figure'.format(key))
     return float(value)
 
 
-def render_graphframes(name: str, results: JSONObject) -> str:
-    """Render one GraphFrames task chart to SVG text."""
-    key, label, threshold = GF_CHARTS[name]
-    dataset = _gf_dataset(results, key)
-    edges = dataset.get('n_edges')
-    nodes_ = dataset.get('n_nodes')
-    title = '{}: {:,} nodes / {:,} edges'.format(label, int(nodes_), int(edges))
-    subtitle = ('Median of 5 after 2 warmups; same result size on every system. '
-                'Lower is better.')
+def _gf_ratio_text(ratio: JSONObject) -> str:
+    text = format_cell(ratio)
+    value = ratio['value']
+    assert isinstance(value, (int, float))
+    return '{} faster than GraphFrames'.format(text) if value >= 1 else \
+        '{} of GraphFrames’ speed (slower)'.format(text)
+
+
+def render_graphframes(name: str, payload: JSONObject) -> str:
+    """Render one GraphFrames task chart from the published ladder cells."""
+    chart = GF_CHARTS[name]
+    subtitle = ('Median of 5 after 2 warmups; same result size on every system unless '
+                'marked. Lower is better.')
     group_h = GF_GROUP_HEAD + GF_BAR_ROW * len(GF_SYSTEMS) + GF_GROUP_GAP
     height = HEADER_H + group_h * len(GF_TASKS) + FOOT_H
     out = [
         '<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}"'
-        ' role="img" aria-label="{}">'.format(WIDTH, height, WIDTH, height, _esc(title)),
-        '<title>{}</title>'.format(_esc(title)),
+        ' role="img" aria-label="{}">'.format(WIDTH, height, WIDTH, height, _esc(chart.title)),
+        '<title>{}</title>'.format(_esc(chart.title)),
         '<style>{}</style>'.format(STYLE),
         '<g class="c">',
         '<rect width="{}" height="{}" fill="var(--surface)"/>'.format(WIDTH, height),
-        '<text class="t" x="{}" y="28">{}</text>'.format(PAD, _esc(title)),
+        '<text class="t" x="{}" y="28">{}</text>'.format(PAD, _esc(chart.title)),
         '<text class="s" x="{}" y="49">{}</text>'.format(PAD, _esc(subtitle)),
     ]
     bar_x = PAD + GF_LABEL_W
+    drawn = 0
+    shaded = False
     for group_index, (task, task_label) in enumerate(GF_TASKS):
         group_top = HEADER_H + group_index * group_h
         out.append('<text class="n" x="{}" y="{}">{}</text>'.format(
-            PAD, group_top + 15, _esc(task_label.format(threshold=threshold))))
-        times = {system: _gf_median_ms(dataset, task, system) for system, _, _ in GF_SYSTEMS}
-        slowest = max(times.values())
-        graphframes_ms = times['graphframes']
+            PAD, group_top + 15, _esc(task_label.format(threshold=chart.threshold))))
+        rows: dict[str, tuple[JSONObject, float]] = {}
+        for system, _, _ in GF_SYSTEMS:
+            key = gf_cell_key(chart.dataset, task, system)
+            cell = _gf_optional(payload, key)
+            if cell is not None:
+                rows[system] = (cell, _gf_ms(cell, key))
+        slowest = max((ms for _, ms in rows.values()), default=0.0)
         out.append('<rect x="{}" y="{}" width="1" height="{}" fill="var(--rule)"/>'.format(
             bar_x - 1, group_top + GF_GROUP_HEAD - 2, GF_BAR_ROW * len(GF_SYSTEMS)))
         for row_index, (system, system_label, tone) in enumerate(GF_SYSTEMS):
@@ -306,19 +334,48 @@ def render_graphframes(name: str, results: JSONObject) -> str:
             bar_top = row_top + (GF_BAR_ROW - GF_BAR_H) / 2
             out.append('<text class="a" x="{}" y="{}">{}</text>'.format(
                 PAD + 10, row_top + 18, _esc(system_label)))
-            width = max(MIN_BAR, GF_BAR_MAX * times[system] / slowest)
-            out.append('<path class="{}" d="{}"/>'.format(
-                tone, _bar_path(bar_x, bar_top, width, GF_BAR_H)))
-            spans = ['<tspan class="n">{}</tspan>'.format(_esc(_gf_time(task, times[system])))]
-            if system != 'graphframes':
+            if system not in rows:
+                out.append('<text class="m" x="{}" y="{}">not measured</text>'.format(
+                    _num(bar_x + 8), row_top + 18))
+                continue
+            cell, ms = rows[system]
+            key = gf_cell_key(chart.dataset, task, system)
+            width = max(MIN_BAR, GF_BAR_MAX * ms / slowest)
+            kernel = _gf_optional(payload, key + '_kernel')
+            if kernel is not None:
+                kernel_ms = _gf_ms(kernel, key + '_kernel')
+                if kernel_ms > ms:
+                    raise ChartError('{!r} exceeds its query time'.format(key + '_kernel'))
+                out.append('<path class="{}" opacity="0.4" d="{}"/>'.format(
+                    tone, _bar_path(bar_x, bar_top, width, GF_BAR_H)))
+                out.append('<rect class="{}" x="{}" y="{}" width="{}" height="{}"/>'.format(
+                    tone, _num(bar_x), _num(bar_top),
+                    _num(max(MIN_BAR, GF_BAR_MAX * kernel_ms / slowest)), GF_BAR_H))
+                shaded = True
+            else:
+                out.append('<path class="{}" d="{}"/>'.format(
+                    tone, _bar_path(bar_x, bar_top, width, GF_BAR_H)))
+            drawn += 1
+            spans = ['<tspan class="n">{}</tspan>'.format(_esc(format_cell(cell)))]
+            if kernel is not None:
+                spans.append('<tspan class="a" dx="7">{}</tspan>'.format(
+                    _esc('(solver {})'.format(format_cell(kernel)))))
+            ratio = _gf_optional(payload, key + '_vs_' + GF_BASELINE)
+            if ratio is not None:
                 spans.append('<tspan class="a" dx="9">{}</tspan>'.format(
-                    _esc(_gf_ratio(times[system], graphframes_ms))))
+                    _esc(_gf_ratio_text(ratio))))
+            elif cell.get('status') != 'ok' or not cell.get('comparison_allowed'):
+                spans.append('<tspan class="a" dx="9">diagnostic: result size differs</tspan>')
             out.append('<text x="{}" y="{}">{}</text>'.format(
                 _num(bar_x + width + 8), row_top + 18, ''.join(spans)))
-    out.append('<text class="m" x="{}" y="{}">{}</text>'.format(
-        PAD, height - 11,
-        _esc('Bars are scaled per task. dgx-spark, single node; '
-             'Spark local[*] over all cores.')))
+    if drawn == 0:
+        raise ChartError('{} draws no published cell for dataset {!r}'.format(
+            name, chart.dataset))
+    foot = 'Bars are scaled per task. dgx-spark, single node; Spark local[*] over all cores.'
+    if shaded:
+        foot = ('Bars are scaled per task; on PageRank the solid part is the solver alone, '
+                'the light part the rest of the query. Single node; Spark local[*].')
+    out.append('<text class="m" x="{}" y="{}">{}</text>'.format(PAD, height - 11, _esc(foot)))
     out.append('</g></svg>')
     return '\n'.join(out) + '\n'
 
@@ -334,9 +391,9 @@ def rendered(payload: JSONObject | None = None) -> dict[str, str]:
     """Every chart, keyed by file name, rendered from the vendored artifact."""
     data = payload if payload is not None else load(BENCHMARKS_JSON)
     charts = OrderedDict((name, render(name, data)) for name in CHARTS)
-    results = load(GRAPHFRAMES_RESULTS_JSON)
-    for name in GF_CHARTS:
-        charts[name] = render_graphframes(name, results)
+    if gf_published(data):
+        for name in GF_CHARTS:
+            charts[name] = render_graphframes(name, data)
     return charts
 
 
