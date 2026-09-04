@@ -38,6 +38,43 @@ def test_vectorized_equals_reference_on_random_multigraphs(ids):
         assert vectorized(src, dst, seeds) == reference(src, dst, seeds), (src, dst, seeds)
 
 
+def test_long_pendant_paths_take_the_csr_frontier_path_and_agree():
+    """A path far longer than the scan-round budget exercises the CSR branches of both rules."""
+    from graphistry.compute import hop as hop_module
+    k = 40 * hop_module._SCAN_ROUNDS
+    src = list(range(k))
+    dst = list(range(1, k + 1))
+    # seeds at both ends share the component (rule A over > _SCAN_ROUNDS BFS levels);
+    # peeling the path is > _SCAN_ROUNDS rounds (rule B); a triangle hung on the far end
+    # keeps one seed on a cycle.
+    src += [k, k + 1, k + 2]
+    dst += [k + 1, k + 2, k]
+    seeds = [0, k // 2, k + 1]
+    assert vectorized(src, dst, seeds) == reference(src, dst, seeds) == {0, k // 2, k + 1}
+    lone = vectorized(src[:k], dst[:k], [5])
+    assert lone == reference(src[:k], dst[:k], [5]) == set()
+
+
+def test_sparse_integer_ids_are_factorized_not_indexed_directly():
+    big = 10 ** 12
+    src = [big, big + 1, big + 2]
+    dst = [big + 1, big + 2, big]
+    assert vectorized(src, dst, [big + 2]) == {big + 2}
+    assert vectorized(np.array(src), np.array(dst), np.array([big])) == {big}
+
+
+def test_float_ids_take_the_reference_path():
+    src = [0.5, 1.5, 2.5]
+    dst = [1.5, 2.5, 0.5]
+    assert vectorized(src, dst, [0.5]) == reference(src, dst, [0.5]) == {0.5}
+    assert vectorized(np.array(src), np.array(dst), np.array([9.0])) == set()
+
+
+def test_seeds_only_in_the_seed_list_never_survive():
+    assert vectorized([1, 2], [2, 1], [7]) == set()
+    assert vectorized(np.array([1, 2]), np.array([2, 1]), np.array([7, 1])) == {1}
+
+
 def test_accepts_numpy_arrays_and_returns_plain_ids():
     src = np.array([0, 1, 2, 5], dtype=np.int64)
     dst = np.array([1, 2, 0, 6], dtype=np.int64)
