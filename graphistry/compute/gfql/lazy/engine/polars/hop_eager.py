@@ -548,7 +548,7 @@ def hop_polars(
         seed_id_list = seed.get_column(NID).to_list()
         keep_seed_ids = undirected_rediscovered_seed_ids(
             out_edges.get_column(src).to_numpy(), out_edges.get_column(dst).to_numpy(),
-            seed_id_list,
+            seed.get_column(NID).to_numpy(),
         )
         drop_seed_ids = [s for s in set(seed_id_list) if s not in keep_seed_ids]
         if drop_seed_ids:
