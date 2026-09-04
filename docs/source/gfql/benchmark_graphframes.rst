@@ -11,12 +11,13 @@ GFQL is Graphistry's open-source graph query language: Cypher and Python
 chains that run in-process on dataframes, with no database or cluster.
 GraphFrames is Spark's graph library, run here on ``local[*]`` (a single-node
 JVM using all cores). The workload is four tasks on two graphs, LiveJournal
-(35M edges) and Orkut (117M edges). GFQL is faster than GraphFrames in seven of
-the eight cells with the CPU engine alone. Graph filters and k-hop traversals
-run 1.3x to 43x faster. The exception is whole-graph PageRank on CPU, where
-GraphFrames beats GFQL's igraph path. On that task the GFQL GPU engine is 10x
-to 15x faster than GraphFrames. Use GFQL on CPU for filters and traversals,
-and on GPU for PageRank.
+(35M edges) and Orkut (117M edges). GFQL's best engine is faster than
+GraphFrames in all eight cells. The CPU engine alone is faster in six of the
+eight: graph filters and k-hop traversals run 1.3x to 43x faster. The two
+exceptions are whole-graph PageRank on CPU, where GraphFrames beats GFQL's
+igraph path. On that task the GFQL GPU engine is 10x to 15x faster than
+GraphFrames. Use GFQL on CPU for filters and traversals, and on GPU for
+PageRank.
 
 .. image:: _static/graphframes/livejournal_tasks.svg
    :alt: LiveJournal task times: GFQL CPU and GPU versus GraphFrames for filter, 1-hop, 2-hop, and PageRank
