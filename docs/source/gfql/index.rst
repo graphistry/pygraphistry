@@ -15,7 +15,8 @@ compile to vectorized dataframe operations, so one machine handles graphs of
 Where to start
 --------------
 
-- **New to GFQL**: :doc:`about` (10 minutes), then :doc:`quick`.
+- **New to GFQL**: :doc:`about` (10 minutes), then :doc:`quick`, then the
+  :doc:`case study <benchmark_filter_pagerank>`.
 - **Coming from Cypher**: :doc:`cypher`, then :doc:`spec/cypher_mapping`.
 - **Need speed**: :doc:`engines` picks the engine. ``engine='polars'`` is the
   one-keyword CPU speedup; :doc:`performance` covers GPU and remote GPU.
@@ -30,6 +31,7 @@ Where to start
    overview
    quick
    cypher
+   Case Study: Cypher + PageRank vs Neo4j <benchmark_filter_pagerank>
 
 .. toctree::
    :maxdepth: 1

@@ -912,8 +912,8 @@
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-08-30T17:33:55Z",
-  "generated_by": "graphistry/pyg-bench 1ccda07c scripts/export_docs_numbers.py",
+  "generated_at": "2026-09-04T00:02:28Z",
+  "generated_by": "graphistry/pyg-bench c0e15bb2 scripts/export_docs_numbers.py",
   "policy": {
     "literal_allowlist": {},
     "managed_docs": [
@@ -948,7 +948,7 @@
       "quiet_host": true,
       "reps": "graph loaded once, then 2 warmups + 5 timed runs per arm on the resident graph; median",
       "row_validation": "Every arm records the node id set its pipeline selected, captured outside the timed region. Comparability is the Jaccard index of those sets against a 0.95 threshold declared before the run: Twitter CPU/GPU 0.991, CPU/Neo4j 0.974, GPU/Neo4j 0.972; GPlus CPU/GPU 0.951.",
-      "runtime": "graphistry/test-rapids-official:26.02-gfql-polars with python-igraph 1.0.0; cuDF 26.2.1, cuGraph 26.2.0, pandas 2.3.3; Neo4j 2026.02.2 + graph-data-science in Docker on the same host"
+      "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13) with python-igraph 1.0.0; cuDF 26.2.1, cuGraph 26.2.0, pandas 2.3.3; Neo4j 2026.02.2 + graph-data-science in Docker on the same host; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
     },
     "filter-pagerank-gplus-locked-20260830": {
       "artifact": "results/gplus-locked-baseline-20260830",
@@ -963,7 +963,7 @@
       "quiet_host": true,
       "reps": "12 position-balanced slots, six per arm; each slot 2 warmups + 11 timed runs; median of slot medians",
       "row_validation": "All 12 selected-node sets had Jaccard 1.0 against the reference (gate 0.95); every slot passed typed result, exact run-contract, and load/self-spike validation; the committed aggregate exactly recomputes from all slots.",
-      "runtime": "graphistry/test-rapids-official:26.02-gfql-polars; GFQL Python 3.13.12, pandas 2.3.3, python-igraph 1.0.0; Neo4j 2026.02.2 + graph-data-science with Python client 3.12.3 on the same host"
+      "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13); GFQL Python 3.13.12, pandas 2.3.3, python-igraph 1.0.0; Neo4j 2026.02.2 + graph-data-science with Python client 3.12.3 on the same host; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
     },
     "graphbench-q1q9-100k-20260726": {
       "artifact": "results/graphbench-matched-q1q9-20260726/gb100k",
@@ -978,7 +978,7 @@
       "quiet_host": true,
       "reps": "2 warmups + 5 timed runs per slot; slot median, then median across 4 position-balanced slots (K G G K K G G K)",
       "row_validation": "every cell emits a canonical, column-order-independent row set; a GFQL cell is only publishable when its rows equal Kuzu's on every slot",
-      "runtime": "graphistry/test-rapids-official:26.02-gfql-polars, polars 1.35.2; Kuzu in a host venv on CPU"
+      "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13), polars 1.35.2; Kuzu in a host venv on CPU; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
     },
     "graphbench-q1q9-20k-20260726": {
       "artifact": "results/graphbench-matched-q1q9-20260726/gb20k",
@@ -993,7 +993,7 @@
       "quiet_host": true,
       "reps": "3 warmups + 7 timed runs per slot; slot median, then median across 4 position-balanced slots (K G I I G K K G I I G K)",
       "row_validation": "every cell emits a canonical, column-order-independent row set; a GFQL cell is only publishable when its rows equal Kuzu's on every slot",
-      "runtime": "graphistry/test-rapids-official:26.02-gfql-polars, polars 1.35.2; Kuzu in a host venv on CPU"
+      "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13), polars 1.35.2; Kuzu in a host venv on CPU; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
     },
     "snb-is3-single-query-20260727": {
       "artifact": "results/is3-single-query-r{1,2,3} and results/is3-twopass-base-r{1,2,3}",
@@ -1008,7 +1008,7 @@
       "quiet_host": true,
       "reps": "3 repetitions of configs/suites/ab-is1-is7-sf1-polars.yaml, each already a median of 5 measured repeats after 1 warmup; median across repetitions",
       "row_validation": "920/920 rows, value-identical to the independently derived expected fixture in all 3 repetitions",
-      "runtime": "graphistry/test-rapids-official:26.02-gfql-polars, polars 1.35.2"
+      "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13), polars 1.35.2; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
     }
   },
   "schema_version": 1

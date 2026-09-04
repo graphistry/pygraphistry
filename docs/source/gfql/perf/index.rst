@@ -9,8 +9,10 @@ engine comparisons. :doc:`../indexing` and :doc:`../index_adjacency` speed up
 queries that start from known nodes. :doc:`../remote` runs the same queries on
 a Graphistry server GPU.
 
-The two benchmark pages compare GFQL with Neo4j + GDS and with Apache Spark
-GraphFrames on one machine.
+The :doc:`../benchmark_graphframes` page compares GFQL with Apache Spark
+GraphFrames on one machine. The Start Here
+:doc:`case study <../benchmark_filter_pagerank>` compares one Cypher + PageRank
+pipeline with Neo4j + GDS.
 
 .. toctree::
    :maxdepth: 1
@@ -20,5 +22,4 @@ GraphFrames on one machine.
    Pay-As-You-Go Resident Indexing <../indexing>
    Seeded Traversal Indexes <../index_adjacency>
    ../remote
-   Benchmark: Filter + PageRank vs Neo4j + GDS <../benchmark_filter_pagerank>
    Benchmark: vs Spark GraphFrames <../benchmark_graphframes>
