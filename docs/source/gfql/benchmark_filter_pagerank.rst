@@ -144,7 +144,7 @@ Method and limits
   the locked lane's set; the GPlus GPU arm is at 0.91 against CPU and is
   therefore diagnostic-only (see the caveats below).
 - **Timing**: warm runs after warm-up (2 warm-ups, 5 timed runs, median). The
-  GFQL arms were measured at the 0.59.0 release commit; the Twitter Neo4j arm
+  GFQL arms were measured at the release commit named in the Measurement block; the Twitter Neo4j arm
   is the 2026-07-28 measurement, and the GPlus Neo4j time comes from a later
   locked run of twelve position-balanced slots on one machine. The Measurement
   block below records every run.
