@@ -1,19 +1,22 @@
-GFQL Cypher Filter + PageRank Benchmark
-========================================
+Case Study: Cypher + PageRank Pipeline, GFQL vs Neo4j + GDS
+============================================================
 
 .. image:: _static/gfql-mascot.png
    :alt: GFQL mascot
    :width: 160px
    :align: right
 
-One ``g.gfql(...)`` call runs a three-stage pipeline (filter, PageRank, filter)
-on a dataframe already loaded in Python. On the 30M-edge GPlus graph, the GFQL
-GPU path finishes in :bench:`pagerank.gplus.gfql_gpu` and the GFQL CPU path in
-:bench:`pagerank.gplus.gfql_cpu`. The same pipeline on Neo4j + Graph Data
-Science (GDS) takes :bench:`pagerank.gplus.neo4j_gds`. Use the GPU engine for
-this workload when one is available. It is
-:bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu` faster than the CPU engine on
-GPlus and :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu` faster on Twitter.
+This case study runs one three-stage graph pipeline, filter, PageRank, filter,
+on two systems. GFQL is Graphistry's open-source graph query language: Cypher
+that executes in-process on Python dataframes with no database. Neo4j + Graph
+Data Science (GDS) is the graph database and its analytics library. On both
+graphs, Twitter (2.4M edges) and GPlus (30M edges), GFQL finished the pipeline
+faster than Neo4j + GDS, on CPU and on GPU. On GPlus the GFQL GPU path takes
+:bench:`pagerank.gplus.gfql_gpu`, the GFQL CPU path
+:bench:`pagerank.gplus.gfql_cpu`, and Neo4j + GDS
+:bench:`pagerank.gplus.neo4j_gds`. Use the GPU engine when one is available:
+it is :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu` faster than the CPU engine
+on GPlus and :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu` faster on Twitter.
 
 .. list-table::
    :header-rows: 1
@@ -35,10 +38,6 @@ GPlus and :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu` faster on Twitter.
      - :bench:`pagerank.gplus.gfql_gpu`
      - :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu`
 
-Each time is the warm end-to-end pipeline. The Neo4j and GFQL columns are
-direct pipeline times under different profiles, so the table gives no
-GFQL-to-Neo4j ratio. See :ref:`pagerank-method`.
-
 .. image:: _static/filter_pagerank/twitter_pipeline.svg
    :alt: Twitter warm pipeline time: Neo4j + GDS 11.72s, GFQL Cypher CPU 1.58s, GFQL Cypher GPU 0.24s
 
@@ -47,6 +46,10 @@ GFQL-to-Neo4j ratio. See :ref:`pagerank-method`.
 
 The pipeline
 ------------
+
+A three-phase graph pipeline: filter, run PageRank, filter again. The query is
+standard Cypher extended with GFQL's graph pipeline syntax. Each ``GRAPH { }``
+block takes a graph in and passes a graph on.
 
 .. code-block:: python
 
@@ -82,8 +85,8 @@ The query does not change between engines:
 - **CPU**: ``engine="pandas"``, ``backend="igraph"``
 - **GPU**: ``engine="cudf"``, ``backend="cugraph"``
 
-Each ``GRAPH { }`` block takes a graph as input and returns a graph. Intermediate
-graphs stay in Arrow, pandas, or cuDF memory in the same Python process. GFQL
+Intermediate graphs stay in Arrow, pandas, or cuDF memory in the same Python
+process. GFQL
 returns the same result on every engine or rejects the query before execution;
 see :doc:`engines` for the parity rules.
 
@@ -137,12 +140,13 @@ Method and limits
   node set.
 - **Timing**: warm runs after warm-up. The GPlus Neo4j time comes from a
   later locked run of twelve position-balanced slots on one machine; the
-  provenance blocks below name each run.
+  Measurement block below records both runs.
 - **Profiles differ**: GFQL reuses frames already resident in Python. Neo4j
   includes server round trips, writes marker properties in both filter stages,
   and rebuilds the GDS in-memory projection on every timed iteration. The
   Neo4j column is therefore a direct pipeline time, not an engine-primitive
-  time, and no GFQL-vs-Neo4j ratio is published.
+  time. The page states which system finished first but publishes no
+  GFQL-vs-Neo4j ratio.
 - **Comparable ratio**: the GPU-vs-CPU column compares the same GFQL query and
   the same profile, so that ratio is published.
 - **Scope**: for the four-engine CPU/GPU comparison and engine choice, see
@@ -157,8 +161,5 @@ Provenance
 Every figure on this page is printed from ``docs/source/_data/gfql_benchmarks.json``,
 which pyg-bench publishes.
 
-.. bench-provenance:: filter-pagerank-20260728
-
-.. bench-provenance:: filter-pagerank-gplus-locked-20260830
-
-.. bench-disclosures::
+.. bench-provenance:: filter-pagerank-20260728 filter-pagerank-gplus-locked-20260830
+   :disclosures:

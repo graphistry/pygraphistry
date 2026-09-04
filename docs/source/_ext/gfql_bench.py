@@ -25,7 +25,7 @@ import datetime
 from typing import Dict, List, Optional, Tuple
 
 from docutils import nodes
-from docutils.parsers.rst import Directive
+from docutils.parsers.rst import Directive, directives
 from docutils.parsers.rst.states import Inliner
 from sphinx.application import Sphinx
 from sphinx.environment import BuildEnvironment
@@ -79,11 +79,20 @@ def _bench_role(diagnostic: bool):
 
 
 class BenchProvenance(Directive):
-    """Render the run record behind the numbers on this page."""
+    """Render the run records behind the numbers on this page as one block.
+
+    Several run ids may be given; the block then keeps only the fields a reader compares
+    across runs. A field whose value is the same in every run is shown once, and a field
+    that differs is shown per run, keyed by that run's measurement date. The
+    ``:disclosures:`` flag folds every disclosure attached to a number this page prints
+    into the same block, in place of a separate ``bench-disclosures``.
+    """
 
     required_arguments = 1
-    optional_arguments = 0
+    optional_arguments = 8
+    final_argument_whitespace = False
     has_content = False
+    option_spec = {'disclosures': directives.flag}
 
     FIELDS = [
         ('measured_at', 'Measured'),
@@ -97,19 +106,37 @@ class BenchProvenance(Directive):
         ('row_validation', 'Result validation'),
         ('competitor_version', 'Competitor version'),
     ]
+    MERGED_FIELDS = [
+        ('measured_at', 'Measured'),
+        ('host', 'Host'),
+        ('reps', 'Repetitions'),
+        ('runtime', 'Runtime'),
+        ('dataset', 'Dataset'),
+        ('row_validation', 'Result validation'),
+    ]
 
     def run(self) -> List[nodes.Node]:
         state = _state()
         docname = self.state.document.settings.env.docname
-        run_id = self.arguments[0].strip()
-        state.provenance.setdefault(docname, []).append(run_id)
-        run = state.run(run_id)
-        if run is None:
-            message = '{}: no run {!r} in the published artifact'.format(docname, run_id)
-            state.fail(message)
-            logger.warning('[gfql-bench] %s', message)
-            return []
-        return [_admonition('Measurement', _fields(run, self.FIELDS))]
+        runs = []  # type: List[JSONObject]
+        for argument in self.arguments:
+            run_id = argument.strip()
+            state.provenance.setdefault(docname, []).append(run_id)
+            run = state.run(run_id)
+            if run is None:
+                message = '{}: no run {!r} in the published artifact'.format(docname, run_id)
+                state.fail(message)
+                logger.warning('[gfql-bench] %s', message)
+                return []
+            runs.append(run)
+        spec = self.FIELDS if len(runs) == 1 else self.MERGED_FIELDS
+        field_list = _merged_fields(runs, spec)
+        if 'disclosures' in self.options:
+            state.disclosed.append(docname)
+            disclosures = _disclosures(state, docname)
+            if disclosures:
+                field_list += _field('Caveats', _bullets(disclosures))
+        return [_admonition('Measurement', field_list)]
 
 
 class BenchDisclosures(Directive):
@@ -123,26 +150,67 @@ class BenchDisclosures(Directive):
         state = _state()
         docname = self.state.document.settings.env.docname
         state.disclosed.append(docname)
-
-        seen = []  # type: List[str]
-        for key in state.refs.get(docname, []):
-            cell = state.cell(key)
-            if cell is None:
-                continue
-            raw = cell.get('disclosures')
-            if not isinstance(raw, list):
-                continue
-            for item in raw:
-                if isinstance(item, str) and item and item not in seen:
-                    seen.append(item)
+        seen = _disclosures(state, docname)
         if not seen:
             return []
-        bullets = nodes.bullet_list()
-        for item in seen:
-            entry = nodes.list_item()
-            entry += nodes.paragraph(text=item)
-            bullets += entry
-        return [_admonition('About these measurements', bullets)]
+        return [_admonition('About these measurements', _bullets(seen))]
+
+
+def _disclosures(state: State, docname: str) -> List[str]:
+    seen = []  # type: List[str]
+    for key in state.refs.get(docname, []):
+        cell = state.cell(key)
+        if cell is None:
+            continue
+        raw = cell.get('disclosures')
+        if not isinstance(raw, list):
+            continue
+        for item in raw:
+            if isinstance(item, str) and item and item not in seen:
+                seen.append(item)
+    return seen
+
+
+def _bullets(items: List[str]) -> nodes.bullet_list:
+    bullets = nodes.bullet_list()
+    for item in items:
+        entry = nodes.list_item()
+        entry += nodes.paragraph(text=item)
+        bullets += entry
+    return bullets
+
+
+def _field(label: str, body_content: nodes.Element) -> nodes.field:
+    field = nodes.field()
+    field += nodes.field_name(text=label)
+    body = nodes.field_body()
+    body += body_content
+    field += body
+    return field
+
+
+def _merged_fields(runs: List[JSONObject], spec: List[Tuple[str, str]]) -> nodes.field_list:
+    field_list = nodes.field_list()
+    for key, label in spec:
+        values = []  # type: List[Tuple[str, str]]
+        for run in runs:
+            value = run.get(key)
+            if isinstance(value, str) and value:
+                values.append((str(run.get('measured_at', '')), value))
+        if not values:
+            continue
+        distinct = []  # type: List[str]
+        for _, value in values:
+            if value not in distinct:
+                distinct.append(value)
+        if len(distinct) == 1:
+            field_list += _field(label, nodes.paragraph(text=distinct[0]))
+        elif key == 'measured_at':
+            field_list += _field(label, nodes.paragraph(text=' and '.join(distinct)))
+        else:
+            field_list += _field(label, _bullets(
+                ['{}: {}'.format(date, value) for date, value in values]))
+    return field_list
 
 
 def _fields(run: JSONObject, spec: List[Tuple[str, str]]) -> nodes.field_list:

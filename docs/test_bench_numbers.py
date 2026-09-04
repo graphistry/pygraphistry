@@ -309,7 +309,7 @@ def test_every_chart_matches_the_published_numbers():
     """
     stale = []
     for name, svg in charts.rendered().items():
-        path = os.path.join(charts.CHART_DIR, name)
+        path = charts.chart_path(name)
         if not os.path.exists(path):
             stale.append('{} is missing'.format(name))
             continue
