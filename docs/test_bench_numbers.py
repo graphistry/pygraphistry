@@ -345,6 +345,72 @@ def test_a_chart_over_an_unpublished_cell_fails(payload):
     assert 'does not publish' in str(excinfo.value)
 
 
+def _gf_payload(payload, kernel=True, gpu=True):
+    """A copy of the vendored artifact carrying a synthetic GraphFrames ladder for lj."""
+    synthetic = json.loads(json.dumps(payload))
+    for key in [k for k in synthetic['cells'] if k.startswith('graphframes')]:
+        del synthetic['cells'][key]  # the synthetic ladder replaces any vendored one
+    run = 'graphframes-ladder-test'
+    synthetic['runs'][run] = dict(next(iter(payload['runs'].values())))
+
+    def cell(key, value, unit='ms', **extra):
+        base = {'run': run, 'workload': key, 'engine': 'x',
+                'measurement_profile': 'graphframes-tasks-warm-resident', 'value': value,
+                'unit': unit, 'decimals': 1, 'status': 'ok', 'comparison_allowed': True,
+                'board_quotable': True, 'disclosures': []}
+        base.update(extra)
+        synthetic['cells'][key] = base
+
+    for task, cpu, gf in (('filter', 2.0, 90.0), ('hop1', 200.0, 1400.0),
+                          ('pagerank', 3000.0, 16000.0)):
+        cell('graphframes.lj.{}.gfql_polars'.format(task), cpu)
+        cell('graphframes.lj.{}.graphframes'.format(task), gf)
+        cell('graphframes.lj.{}.gfql_polars_vs_graphframes'.format(task), gf / cpu, 'x')
+        if gpu:
+            cell('graphframes.lj.{}.gfql_polars_gpu'.format(task), cpu / 2)
+    if kernel:
+        cell('graphframes.lj.pagerank.gfql_polars_kernel', 2100.0, status='ok',
+             comparison_allowed=False, board_quotable=False)
+    return synthetic
+
+
+def test_graphframes_charts_are_skipped_until_the_ladder_is_published(payload):
+    if charts.gf_published(payload):
+        pytest.skip('the vendored artifact publishes the ladder')
+    assert not any(name in charts.rendered(payload) for name in charts.GF_CHARTS)
+
+
+def test_graphframes_chart_shades_the_kernel_inside_the_query_bar(payload):
+    svg = charts.render_graphframes('livejournal_tasks.svg', _gf_payload(payload))
+    assert '3000.0 ms' in svg and '(solver 2100.0 ms)' in svg
+    assert 'opacity="0.4"' in svg, 'the query bar is drawn light behind the solid kernel bar'
+    assert '5.3x faster than GraphFrames' in svg
+    assert 'solid part is the solver alone' in svg
+    # Orkut has no synthetic cells: its chart refuses rather than drawing an empty frame.
+    with pytest.raises(charts.ChartError, match='draws no published cell'):
+        charts.render_graphframes('orkut_tasks.svg', _gf_payload(payload))
+
+
+def test_graphframes_chart_marks_an_unmeasured_system_without_a_bar(payload):
+    svg = charts.render_graphframes('livejournal_tasks.svg', _gf_payload(payload, gpu=False))
+    assert svg.count('not measured') == 3 + 3  # GPU on three tasks + hop2 for all three
+    assert 'opacity="0.4"' in svg
+
+
+def test_graphframes_chart_refuses_a_kernel_above_its_query(payload):
+    synthetic = _gf_payload(payload)
+    synthetic['cells']['graphframes.lj.pagerank.gfql_polars_kernel']['value'] = 3000.1
+    with pytest.raises(charts.ChartError, match='exceeds its query time'):
+        charts.render_graphframes('livejournal_tasks.svg', synthetic)
+
+
+def test_graphframes_charts_draw_only_published_cells(payload):
+    if not charts.gf_published(payload):
+        pytest.skip('the vendored artifact publishes no ladder yet')
+    keys = charts.gf_cell_keys(payload)
+    assert keys and all(key in payload['cells'] for key in keys)
+
+
 def test_the_chart_renderer_stays_importable_without_sphinx():
     with open(os.path.join(SOURCE_DIR, '_ext', 'gfql_bench_charts.py'), encoding='utf-8') as f:
         source = f.read()
