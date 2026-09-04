@@ -79,19 +79,24 @@ workload, run on the SF0.1 and SF1 datasets without the official LDBC driver. Th
 internal evidence, not an official LDBC result. All four engines ran under one timing
 contract with exact result parity. Times are milliseconds.
 
-Kuzu, Neo4j, and Memgraph are all faster than GFQL on every universal cell, and
-Memgraph is fastest in every row. These are point lookups and small results, where a
-database's index and per-call floor beat GFQL's per-call compile and row pipeline.
-GFQL's strengths are the bulk shapes above and on the :doc:`speedup case study
-<benchmark_filter_pagerank>`; choose a database when the workload is dominated by
-point lookups.
+Kuzu, Neo4j, and Memgraph are faster than GFQL on every point-lookup row, and Memgraph
+is fastest on most. The GFQL columns run with resident indexes built once before the
+timed runs (``gfql_index_all`` plus node property indexes), the same footing as the
+databases' primary-key and label indexes. The index engages on the hop-shaped rows
+(message replies, recent replies) and the cost there drops by 2.5x to 3x; on the pure
+point lookups it does not engage, and what remains is a fixed per-call cost in the
+chain pipeline of about 20 ms on the pandas and polars engines
+(`#2027 <https://github.com/graphistry/pygraphistry/issues/2027>`_) against a database's
+sub-millisecond index probe. GFQL's strengths are the bulk shapes above and on the
+:doc:`speedup case study <benchmark_filter_pagerank>`; choose a database when the
+workload is dominated by point lookups.
 
 SF0.1
 ~~~~~
 
 .. bench-board:: snb.sf01
    :rows: seed_lookup,message_content,message_creator,recent_replies,message_replies,new_topics
-   :columns: gfql_polars=GFQL polars, kuzu=Kuzu, neo4j=Neo4j, memgraph=Memgraph
+   :columns: gfql_polars_idx=GFQL polars, gfql_pandas_idx=GFQL pandas, kuzu=Kuzu, neo4j=Neo4j, memgraph=Memgraph
    :row-labels: seed_lookup=seed lookup; message_content=message content; message_creator=message creator; recent_replies=recent replies; message_replies=message replies (GFQL and Kuzu only); new_topics=new topics (GFQL and Kuzu only)
 
 SF1
@@ -99,7 +104,7 @@ SF1
 
 .. bench-board:: snb.sf1
    :rows: seed_lookup,message_content,message_creator,new_topics
-   :columns: gfql_polars=GFQL polars, kuzu=Kuzu, neo4j=Neo4j, memgraph=Memgraph
+   :columns: gfql_polars_idx=GFQL polars, gfql_pandas_idx=GFQL pandas, kuzu=Kuzu, neo4j=Neo4j, memgraph=Memgraph
    :row-labels: seed_lookup=seed lookup; message_content=message content; message_creator=message creator; recent_replies=recent replies; message_replies=message replies (GFQL and Kuzu only); new_topics=new topics (GFQL and Kuzu only)
 
 Neo4j and Memgraph use a reduced adapter for one query, and one parameter returns zero
@@ -143,7 +148,7 @@ Every figure on this page is printed from ``docs/source/_data/gfql_benchmarks.js
 which pyg-bench publishes. The documentation build and ``docs/test_bench_numbers.py``
 reject missing, stale, or unpublished values.
 
-.. bench-provenance:: graphbench-q1q9-20k-20260904 graphbench-q1q9-100k-20260904 snb-aligned-release-20260902
+.. bench-provenance:: graphbench-q1q9-20k-20260904 graphbench-q1q9-100k-20260904 snb-aligned-release-20260902 snb-aligned-indexed-20260904
    :disclosures:
 
 Next steps
