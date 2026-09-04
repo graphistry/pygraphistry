@@ -161,6 +161,106 @@ class BenchProvenance(Directive):
         return [_admonition('Measurement', field_list)]
 
 
+class BenchBoard(Directive):
+    """A results table from published cells with the fastest cell per row in bold.
+
+    ::
+
+        .. bench-board:: graphbench.100k
+           :rows: q1,q2,q3
+           :columns: kuzu=Kuzu, polars=GFQL polars
+           :diagnostic: gfql_polars_059
+           :units: ms
+
+    Every cell is ``<prefix>.<row>.<column-key>`` looked up through the same gate as the
+    ``:bench:`` role (a column named under ``:diagnostic:`` goes through ``:bench-diag:``).
+    A missing cell renders as a dash, is not a candidate for fastest, and is not an error:
+    a database that cannot run a query has no number. The last column names the fastest
+    system on the row, so a win or a loss is read off without comparing digits.
+    """
+
+    required_arguments = 1
+    optional_arguments = 0
+    has_content = False
+    option_spec = {
+        'rows': directives.unchanged_required,
+        'columns': directives.unchanged_required,
+        'diagnostic': directives.unchanged,
+        'row-labels': directives.unchanged,
+    }
+
+    def run(self) -> List[nodes.Node]:
+        state = _state()
+        docname = self.state.document.settings.env.docname
+        prefix = self.arguments[0].strip()
+        rows = [r.strip() for r in self.options['rows'].split(',') if r.strip()]
+        columns = []  # type: List[Tuple[str, str]]
+        for item in self.options['columns'].split(','):
+            key, _, label = item.partition('=')
+            columns.append((key.strip(), (label or key).strip()))
+        diagnostic = {c.strip() for c in self.options.get('diagnostic', '').split(',') if c.strip()}
+        labels = {}  # type: Dict[str, str]
+        for item in self.options.get('row-labels', '').split(';'):
+            key, _, label = item.partition('=')
+            if key.strip():
+                labels[key.strip()] = label.strip()
+        before = len(state.problems)
+        table = nodes.table()
+        tgroup = nodes.tgroup(cols=len(columns) + 2)
+        table += tgroup
+        for _ in range(len(columns) + 2):
+            tgroup += nodes.colspec(colwidth=1)
+        thead = nodes.thead()
+        tgroup += thead
+        thead += _row([nodes.paragraph(text=t) for t in ['Query'] + [c[1] for c in columns] + ['Fastest']])
+        tbody = nodes.tbody()
+        tgroup += tbody
+        for row in rows:
+            cells = []  # type: List[Tuple[str, Optional[JSONObject]]]
+            for key, _ in columns:
+                cell_key = '{}.{}.{}'.format(prefix, row, key)
+                cell = state.cell(cell_key)
+                if cell is None:
+                    cells.append((key, None))
+                    continue
+                cells.append((key, check_reference(state, cell_key, docname, self.lineno, key in diagnostic)))
+            values = [(key, cell['value']) for key, cell in cells
+                      if cell is not None and isinstance(cell['value'], (int, float)) and key not in diagnostic]
+            fastest = min(values, key=lambda kv: kv[1])[0] if values else None
+            entries = [nodes.paragraph(text=labels.get(row, row))]
+            for key, cell in cells:
+                if cell is None:
+                    entries.append(nodes.paragraph(text='\u2014'))
+                    continue
+                text = format_cell(cell)
+                if key in diagnostic:
+                    text += ' (diagnostic)'
+                literal = nodes.literal(text, text)
+                para = nodes.paragraph()
+                if key == fastest and len(values) > 1:
+                    strong = nodes.strong()
+                    strong += literal
+                    para += strong
+                else:
+                    para += literal
+                entries.append(para)
+            fastest_label = dict(columns).get(fastest, '') if fastest and len(values) > 1 else '\u2014'
+            entries.append(nodes.paragraph(text=fastest_label))
+            tbody += _row(entries)
+        for message in state.problems[before:]:
+            logger.warning('[gfql-bench] %s', message)
+        return [table]
+
+
+def _row(entries: List[nodes.Node]) -> nodes.row:
+    row = nodes.row()
+    for entry in entries:
+        cell = nodes.entry()
+        cell += entry
+        row += cell
+    return row
+
+
 class BenchDisclosures(Directive):
     """Render every disclosure attached to a number this page prints."""
 
@@ -290,6 +390,7 @@ def setup(app: Sphinx) -> Dict[str, object]:
     app.add_role('bench-tally', _tally_role)
     app.add_directive('bench-provenance', BenchProvenance)
     app.add_directive('bench-disclosures', BenchDisclosures)
+    app.add_directive('bench-board', BenchBoard)
     app.connect('builder-inited', _on_builder_inited)
     app.connect('env-purge-doc', _on_purge)
     app.connect('build-finished', _on_build_finished)
