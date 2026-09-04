@@ -3642,8 +3642,8 @@
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-09-04T17:58:54Z",
-  "generated_by": "graphistry/pyg-bench 895c308d scripts/export_docs_numbers.py",
+  "generated_at": "2026-09-04T18:07:12Z",
+  "generated_by": "graphistry/pyg-bench a0d9ee2a scripts/export_docs_numbers.py",
   "policy": {
     "drift_waivers": {
       "snb-is3-single-query-20260727": "Diagnostic-only probe (comparison_allowed false) at pygraphistry 233b64c8; kept for the IS3 single-query versus two-pass note, never quoted as a result."
@@ -3741,7 +3741,7 @@
       "quiet_host": true,
       "reps": "each system loads once and stays resident; 2 warmups + 5 timed runs per task, median; GraphFrames PageRank 20 iterations",
       "row_validation": "every task records the materialized result size (node count of the filter / k-hop ball, scored vertex count for PageRank); a cell is comparable only when every system on that dataset and task reports the same size, else it is published as a direct, diagnostic-only time",
-      "runtime": "GFQL in graphistry/test-rapids-official:26.02-gfql-polars (RAPIDS 26.02, Python 3.13, polars 1.42, cuDF/cuGraph 26.2) under dgx-guard safe_run (RMM 80 GB, host floor 20 GB); GraphFrames on host PySpark 3.5.3 + graphframes assembly jar, OpenJDK 1.8.0_492"
+      "runtime": "GFQL in graphistry/test-rapids-official:26.02-gfql-polars (RAPIDS 26.02, Python 3.13, polars 1.42, cuDF/cuGraph 26.2) under dgx-guard safe_run (RMM 80 GB, 100 GB for the Friendster rung; host floor 20 GB); GraphFrames on host PySpark 3.5.3 + graphframes assembly jar, OpenJDK 1.8.0_492"
     },
     "graphframes-ladder-20260904": {
       "artifact": "results/graphframes-ladder-20260904 (one receipted rung directory per dataset x system x task group; fix2024/ holds the #2024-head hop rungs; stale-attempts/ the breached ones)",
@@ -3756,7 +3756,7 @@
       "quiet_host": true,
       "reps": "each system loads once and stays resident; 2 warmups + 5 timed runs per task, median; GraphFrames PageRank 20 iterations",
       "row_validation": "every task records the materialized result size (node count of the filter / k-hop ball, scored vertex count for PageRank); a cell is comparable only when every system on that dataset and task reports the same size, else it is published as a direct, diagnostic-only time",
-      "runtime": "GFQL in graphistry/test-rapids-official:26.02-gfql-polars (RAPIDS 26.02, Python 3.13, polars 1.42, cuDF/cuGraph 26.2) under dgx-guard safe_run (RMM 80 GB, host floor 20 GB); GraphFrames on host PySpark 3.5.3 + graphframes assembly jar, OpenJDK 1.8.0_492"
+      "runtime": "GFQL in graphistry/test-rapids-official:26.02-gfql-polars (RAPIDS 26.02, Python 3.13, polars 1.42, cuDF/cuGraph 26.2) under dgx-guard safe_run (RMM 80 GB, 100 GB for the Friendster rung; host floor 20 GB); GraphFrames on host PySpark 3.5.3 + graphframes assembly jar, OpenJDK 1.8.0_492"
     },
     "snb-aligned-release-20260902": {
       "artifact": "results/snb-aligned-release-20260902",
