@@ -34,6 +34,8 @@ from sphinx.util import logging as sphinx_logging
 
 from gfql_bench_data import (
     BenchDataError,
+    format_tally,
+    tally,
     JSONObject,
     State,
     audit_pages,
@@ -76,6 +78,26 @@ def _bench_role(diagnostic: bool):
         return [nodes.literal(rawtext, text)], []
 
     return role
+
+
+def _tally_role(name: str, rawtext: str, text: str, lineno: int, inliner: Inliner,
+                options=None, content=None) -> RoleResult:
+    """``:bench-tally:`<prefix>|<engine>|<competitor>``` -> "N of M" from published cells."""
+    state = _state()
+    docname = inliner.document.settings.env.docname
+    parts = [part.strip() for part in text.split('|')]
+    before = len(state.problems)
+    result = None
+    if len(parts) != 3 or not all(parts):
+        state.fail('{}:{}: bench-tally expects <prefix>|<engine>|<competitor>, got {!r}'.format(
+            docname, lineno, text))
+    else:
+        result = tally(state, parts[0], parts[1], parts[2], docname, lineno)
+    for message in state.problems[before:]:
+        logger.warning('[gfql-bench] %s', message)
+    if result is None:
+        return [nodes.strong(rawtext, '[MISSING BENCHMARK TALLY: {}]'.format(text))], []
+    return [nodes.Text(format_tally(*result))], []
 
 
 class BenchProvenance(Directive):
@@ -265,6 +287,7 @@ def _on_build_finished(app: Sphinx, exception: Optional[Exception]) -> None:
 def setup(app: Sphinx) -> Dict[str, object]:
     app.add_role('bench', _bench_role(diagnostic=False))
     app.add_role('bench-diag', _bench_role(diagnostic=True))
+    app.add_role('bench-tally', _tally_role)
     app.add_directive('bench-provenance', BenchProvenance)
     app.add_directive('bench-disclosures', BenchDisclosures)
     app.connect('builder-inited', _on_builder_inited)
