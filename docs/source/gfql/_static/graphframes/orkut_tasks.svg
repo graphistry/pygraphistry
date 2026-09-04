@@ -41,13 +41,15 @@
 <text class="n" x="16" y="437">PageRank, full graph</text>
 <rect x="193" y="444" width="1" height="84" fill="var(--rule)"/>
 <text class="a" x="26" y="464">GFQL polars (CPU)</text>
-<text class="m" x="202" y="464">not measured</text>
+<path class="cpu" opacity="0.4" d="M194 451H490a4 4 0 0 1 4 4V465a4 4 0 0 1 -4 4H194Z"/>
+<rect class="cpu" x="194" y="451" width="13.8" height="18"/>
+<text x="502" y="464"><tspan class="n">170865.5 ms</tspan><tspan class="a" dx="7">(solver 7834.5 ms)</tspan><tspan class="a" dx="9">0.2x of GraphFrames’ speed (slower)</tspan></text>
 <text class="a" x="26" y="492">GFQL polars-gpu (GPU)</text>
-<path class="gpu" opacity="0.4" d="M194 479H214.1a4 4 0 0 1 4 4V493a4 4 0 0 1 -4 4H194Z"/>
+<path class="gpu" opacity="0.4" d="M194 479H195a4 4 0 0 1 4 4V493a4 4 0 0 1 -4 4H194Z"/>
 <rect class="gpu" x="194" y="479" width="5" height="18"/>
-<text x="226.1" y="492"><tspan class="n">2795.7 ms</tspan><tspan class="a" dx="7">(solver 151.4 ms)</tspan><tspan class="a" dx="9">12.5x faster than GraphFrames</tspan></text>
+<text x="207" y="492"><tspan class="n">2795.7 ms</tspan><tspan class="a" dx="7">(solver 151.4 ms)</tspan><tspan class="a" dx="9">12.5x faster than GraphFrames</tspan></text>
 <text class="a" x="26" y="520">GraphFrames local[*]</text>
-<path class="neo" d="M194 507H490a4 4 0 0 1 4 4V521a4 4 0 0 1 -4 4H194Z"/>
-<text x="502" y="520"><tspan class="n">34860.7 ms</tspan></text>
+<path class="neo" d="M194 507H251.2a4 4 0 0 1 4 4V521a4 4 0 0 1 -4 4H194Z"/>
+<text x="263.2" y="520"><tspan class="n">34860.7 ms</tspan></text>
 <text class="m" x="16" y="557">Bars are scaled per task; on PageRank the solid part is the solver alone, the light part the rest of the query. Single node; Spark local[*].</text>
 </g></svg>
