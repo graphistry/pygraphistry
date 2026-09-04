@@ -10,7 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Tests
 
-* GFQL: `test_gfql_latency_contract.py` pins the low-latency contract for basic Cypher shapes on a wide 300k-node, 30-object-column table across pandas, polars and cuDF: a seeded typed hop with projections or a whole-entity return must be served by a fast path and cost at most 12x the native chain form; the node-only seeded lookup with projections is a recorded gap (strict xfail) so closing it flips the pin.
+* GFQL: `test_gfql_latency_contract.py` pins the low-latency contract for basic Cypher shapes on a wide 300k-node, 30-object-column table across pandas, polars and cuDF: a seeded typed hop with projections or a whole-entity return must be served by a fast path and cost at most 12x the plain frame ops for the same lookup (an id mask plus one join), measured interleaved; the node-only seeded lookup with projections is a recorded gap (strict xfail) so closing it flips the pin.
 
 ### Fixed
 
