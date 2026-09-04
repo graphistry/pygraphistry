@@ -3076,6 +3076,21 @@
       "value": 11.72,
       "workload": "filter -> PageRank -> filter, twitter \u2014 Neo4j + GDS"
     },
+    "snb.sf01.message_content.gfql_pandas_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_pandas_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 10.059,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-content"
+    },
     "snb.sf01.message_content.gfql_polars": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -3090,6 +3105,21 @@
       "unit": "ms",
       "value": 2.91,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-content"
+    },
+    "snb.sf01.message_content.gfql_polars_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_polars_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 3.591,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-content"
     },
     "snb.sf01.message_content.kuzu": {
       "board_quotable": true,
@@ -3139,6 +3169,21 @@
       "value": 2.26,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-content"
     },
+    "snb.sf01.message_creator.gfql_pandas_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_pandas_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 26.569,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-creator"
+    },
     "snb.sf01.message_creator.gfql_polars": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -3153,6 +3198,21 @@
       "unit": "ms",
       "value": 20.352,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-creator"
+    },
+    "snb.sf01.message_creator.gfql_polars_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_polars_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 16.078,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-creator"
     },
     "snb.sf01.message_creator.kuzu": {
       "board_quotable": true,
@@ -3202,6 +3262,21 @@
       "value": 2.63,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-creator"
     },
+    "snb.sf01.message_replies.gfql_pandas_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_pandas_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 13.847,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-replies"
+    },
     "snb.sf01.message_replies.gfql_polars": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -3216,6 +3291,21 @@
       "unit": "ms",
       "value": 48.017,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-replies"
+    },
+    "snb.sf01.message_replies.gfql_polars_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_polars_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 14.668,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-replies"
     },
     "snb.sf01.message_replies.kuzu": {
       "board_quotable": true,
@@ -3233,6 +3323,21 @@
       "value": 23.904,
       "workload": "LDBC SNB-derived aligned queries sf0.1 message-replies"
     },
+    "snb.sf01.new_topics.gfql_pandas_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_pandas_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 70.391,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 new-topics"
+    },
     "snb.sf01.new_topics.gfql_polars": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -3247,6 +3352,21 @@
       "unit": "ms",
       "value": 45.86,
       "workload": "LDBC SNB-derived aligned queries sf0.1 new-topics"
+    },
+    "snb.sf01.new_topics.gfql_polars_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_polars_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 43.151,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 new-topics"
     },
     "snb.sf01.new_topics.kuzu": {
       "board_quotable": true,
@@ -3264,6 +3384,21 @@
       "value": 47.198,
       "workload": "LDBC SNB-derived aligned queries sf0.1 new-topics"
     },
+    "snb.sf01.recent_replies.gfql_pandas_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_pandas_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 47.5,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 recent-replies"
+    },
     "snb.sf01.recent_replies.gfql_polars": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -3278,6 +3413,21 @@
       "unit": "ms",
       "value": 84.978,
       "workload": "LDBC SNB-derived aligned queries sf0.1 recent-replies"
+    },
+    "snb.sf01.recent_replies.gfql_polars_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_polars_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 32.129,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 recent-replies"
     },
     "snb.sf01.recent_replies.kuzu": {
       "board_quotable": true,
@@ -3327,6 +3477,21 @@
       "value": 7.454,
       "workload": "LDBC SNB-derived aligned queries sf0.1 recent-replies"
     },
+    "snb.sf01.seed_lookup.gfql_pandas_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_pandas_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 30.118,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 seed-lookup"
+    },
     "snb.sf01.seed_lookup.gfql_polars": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -3341,6 +3506,21 @@
       "unit": "ms",
       "value": 26.706,
       "workload": "LDBC SNB-derived aligned queries sf0.1 seed-lookup"
+    },
+    "snb.sf01.seed_lookup.gfql_polars_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_polars_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 21.817,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 seed-lookup"
     },
     "snb.sf01.seed_lookup.kuzu": {
       "board_quotable": true,
@@ -3390,6 +3570,38 @@
       "value": 3.497,
       "workload": "LDBC SNB-derived aligned queries sf0.1 seed-lookup"
     },
+    "snb.sf01.tag_cooccurrence.gfql_pandas_idx": {
+      "board_quotable": false,
+      "comparison_allowed": false,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "tag-cooccurrence: not comparable with the four-engine board (parity, eligibility, or cardinality differs from the release GFQL arm)."
+      ],
+      "engine": "gfql_pandas_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "result_mismatch",
+      "unit": "ms",
+      "value": 59.065,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 tag-cooccurrence"
+    },
+    "snb.sf01.tag_cooccurrence.gfql_polars_idx": {
+      "board_quotable": false,
+      "comparison_allowed": false,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "tag-cooccurrence: not comparable with the four-engine board (parity, eligibility, or cardinality differs from the release GFQL arm)."
+      ],
+      "engine": "gfql_polars_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "result_mismatch",
+      "unit": "ms",
+      "value": 30.222,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 tag-cooccurrence"
+    },
     "snb.sf1.is3.single_query.polars": {
       "board_quotable": false,
       "comparison_allowed": false,
@@ -3420,6 +3632,21 @@
       "value": 75.22,
       "workload": "LDBC SNB IS3 (SF1), superseded two-pass adapter form"
     },
+    "snb.sf1.message_content.gfql_pandas_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_pandas_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 67.631,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 message-content"
+    },
     "snb.sf1.message_content.gfql_polars": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -3434,6 +3661,21 @@
       "unit": "ms",
       "value": 3.556,
       "workload": "LDBC SNB-derived aligned queries sf1 message-content"
+    },
+    "snb.sf1.message_content.gfql_polars_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_polars_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 4.251,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 message-content"
     },
     "snb.sf1.message_content.kuzu": {
       "board_quotable": true,
@@ -3483,6 +3725,21 @@
       "value": 2.435,
       "workload": "LDBC SNB-derived aligned queries sf1 message-content"
     },
+    "snb.sf1.message_creator.gfql_pandas_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_pandas_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 344.293,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 message-creator"
+    },
     "snb.sf1.message_creator.gfql_polars": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -3497,6 +3754,21 @@
       "unit": "ms",
       "value": 78.38,
       "workload": "LDBC SNB-derived aligned queries sf1 message-creator"
+    },
+    "snb.sf1.message_creator.gfql_polars_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_polars_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 43.607,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 message-creator"
     },
     "snb.sf1.message_creator.kuzu": {
       "board_quotable": true,
@@ -3546,6 +3818,21 @@
       "value": 1.671,
       "workload": "LDBC SNB-derived aligned queries sf1 message-creator"
     },
+    "snb.sf1.new_topics.gfql_pandas_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_pandas_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 571.088,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 new-topics"
+    },
     "snb.sf1.new_topics.gfql_polars": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -3560,6 +3847,21 @@
       "unit": "ms",
       "value": 201.442,
       "workload": "LDBC SNB-derived aligned queries sf1 new-topics"
+    },
+    "snb.sf1.new_topics.gfql_polars_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_polars_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 163.878,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 new-topics"
     },
     "snb.sf1.new_topics.kuzu": {
       "board_quotable": true,
@@ -3577,6 +3879,21 @@
       "value": 223.715,
       "workload": "LDBC SNB-derived aligned queries sf1 new-topics"
     },
+    "snb.sf1.seed_lookup.gfql_pandas_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_pandas_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 359.515,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 seed-lookup"
+    },
     "snb.sf1.seed_lookup.gfql_polars": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -3591,6 +3908,21 @@
       "unit": "ms",
       "value": 89.161,
       "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
+    },
+    "snb.sf1.seed_lookup.gfql_polars_idx": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+      ],
+      "engine": "gfql_polars_idx",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-indexed-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 45.793,
+      "workload": "SNB-derived matched queries (GFQL, resident indexes) sf1 seed-lookup"
     },
     "snb.sf1.seed_lookup.kuzu": {
       "board_quotable": true,
@@ -3642,8 +3974,8 @@
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-09-04T19:01:47Z",
-  "generated_by": "graphistry/pyg-bench 5e6e96c7 scripts/export_docs_numbers.py",
+  "generated_at": "2026-09-04T19:24:23Z",
+  "generated_by": "graphistry/pyg-bench f6269134 scripts/export_docs_numbers.py",
   "policy": {
     "accepted_regressions": [],
     "drift_waivers": {
@@ -3759,6 +4091,21 @@
       "reps": "each system loads once and stays resident; 2 warmups + 5 timed runs per task, median; GraphFrames PageRank 20 iterations",
       "row_validation": "every task records the materialized result size (node count of the filter / k-hop ball, scored vertex count for PageRank); a cell is comparable only when every system on that dataset and task reports the same size, else it is published as a direct, diagnostic-only time",
       "runtime": "GFQL in graphistry/test-rapids-official:26.02-gfql-polars (RAPIDS 26.02, Python 3.13, polars 1.42, cuDF/cuGraph 26.2) under dgx-guard safe_run (RMM 80 GB, 100 GB for the Friendster rung; host floor 20 GB); GraphFrames on host PySpark 3.5.3 + graphframes assembly jar, OpenJDK 1.8.0_492"
+    },
+    "snb-aligned-indexed-20260904": {
+      "artifact": "results/snb-aligned-indexed-20260904 (per-engine r1..r3 receipts + aggregate.json, built with the release lane's own tools); the polars arm's receipts/aggregate come from the release lane tools, the pandas arm's from scripts/aggregate_snb_arm_runs.py (the release receipt contract accepts only the Polars arm)",
+      "competitor": "none in this run (the competitor columns are the 2026-09-02 release board's)",
+      "competitor_version": "n/a",
+      "dataset": "LDBC SNB Interactive SF0.1 and SF1, derived matched query shapes (the release board's parameters)",
+      "host": "dgx-spark (NVIDIA GB10), 20 CPU",
+      "measured_at": "2026-09-04",
+      "perf_lock_held": true,
+      "pyg_bench_commit": "1ee6135",
+      "pygraphistry_commit": "3fb216dd",
+      "quiet_host": true,
+      "reps": "2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs; median of the three run medians",
+      "row_validation": "exact result parity per query against the suite's expected rows in every run; a cell is comparable only when its cardinalities equal the release GFQL arm's for the same query",
+      "runtime": "GFQL polars / pandas on CPU in a uv Python 3.12 container, gfql_index: use with node property indexes (auto) and per-query engagement verification; same host, lock and contract as the 2026-09-02 four-engine board"
     },
     "snb-aligned-release-20260902": {
       "artifact": "results/snb-aligned-release-20260902",
