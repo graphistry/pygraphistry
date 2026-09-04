@@ -1,15 +1,19 @@
 Language Reference
 ==================
 
-Reference pages for the GFQL query language: filtering, projection,
-predicates, built-in calls, policies, validation modes, and wire formats.
+Reference pages for the GFQL query language: the quick reference and Cypher
+syntax guide, then filtering, projection, predicates, built-in calls,
+policies, validation modes, and wire formats.
 
-For a guided introduction, see :doc:`../about`. For the formal specification,
-see :doc:`../spec/index`.
+For a guided introduction, see :doc:`../about`. For the formal language
+specification, wire protocol, and embedding contracts, see
+:doc:`../spec/index`.
 
 .. toctree::
    :maxdepth: 1
 
+   ../quick
+   ../cypher
    ../where
    ../return
    ../predicates/quick

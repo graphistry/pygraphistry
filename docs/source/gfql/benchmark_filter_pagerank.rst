@@ -1,5 +1,5 @@
-Case Study: Cypher + PageRank Pipeline, GFQL vs Neo4j + GDS
-============================================================
+Speedup Case Study: Cypher + PageRank, GFQL vs Neo4j + GDS
+===========================================================
 
 .. image:: _static/gfql-mascot.png
    :alt: GFQL mascot
