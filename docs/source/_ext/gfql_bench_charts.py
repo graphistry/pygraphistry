@@ -277,7 +277,8 @@ def render_graphframes(name: str, results: JSONObject) -> str:
     edges = dataset.get('n_edges')
     nodes_ = dataset.get('n_nodes')
     title = '{}: {:,} nodes / {:,} edges'.format(label, int(nodes_), int(edges))
-    subtitle = 'Median of 5 after 2 warmups; same result size on every system. Lower is better.'
+    subtitle = ('Median of 5 after 2 warmups; same result size on every system. '
+                'Lower is better.')
     group_h = GF_GROUP_HEAD + GF_BAR_ROW * len(GF_SYSTEMS) + GF_GROUP_GAP
     height = HEADER_H + group_h * len(GF_TASKS) + FOOT_H
     out = [
@@ -316,7 +317,8 @@ def render_graphframes(name: str, results: JSONObject) -> str:
                 _num(bar_x + width + 8), row_top + 18, ''.join(spans)))
     out.append('<text class="m" x="{}" y="{}">{}</text>'.format(
         PAD, height - 11,
-        _esc('Bars are scaled per task. dgx-spark, single node; Spark local[*] over all cores.')))
+        _esc('Bars are scaled per task. dgx-spark, single node; '
+             'Spark local[*] over all cores.')))
     out.append('</g></svg>')
     return '\n'.join(out) + '\n'
 
