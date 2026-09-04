@@ -6,102 +6,110 @@ GFQL vs Apache Spark GraphFrames on One Node
    :width: 160px
    :align: right
 
-This page benchmarks GFQL against Apache Spark GraphFrames on one machine.
-GFQL is Graphistry's open-source graph query language: Cypher and Python
-chains that run in-process on dataframes, with no database or cluster.
-GraphFrames is Spark's graph library, run here on ``local[*]`` (a single-node
-JVM using all cores). The workload is four tasks on two graphs, LiveJournal
-(35M edges) and Orkut (117M edges). GFQL's best engine is faster than
-GraphFrames in all eight cells. The CPU engine alone is faster in six of the
-eight: graph filters and k-hop traversals run 1.3x to 43x faster. The two
-exceptions are whole-graph PageRank on CPU, where GraphFrames beats GFQL's
-igraph path. On that task the GFQL GPU engine is 10x to 15x faster than
-GraphFrames. Use GFQL on CPU for filters and traversals, and on GPU for
-PageRank.
+This page compares GFQL with Apache Spark GraphFrames on one machine. GFQL is
+Graphistry's open-source graph query language: Cypher and Python chains that run
+in-process on dataframes, with no database or cluster. GraphFrames is Spark's graph
+library, run here on ``local[*]``, a single-node JVM using all cores. The workload is
+four tasks on two SNAP graphs, LiveJournal and Orkut, with Friendster as the
+larger-than-memory rung the ladder climbs next. Every number below renders from a
+committed pyg-bench receipt; the Measurement block at the end names the runs, hosts, and
+commits.
+
+**Where it stands.** On whole-graph PageRank, GFQL on the GPU is
+:bench:`graphframes.lj.pagerank.gfql_polars_gpu_vs_graphframes` faster than GraphFrames
+on LiveJournal and :bench:`graphframes.orkut.pagerank.gfql_polars_gpu_vs_graphframes` on
+Orkut, and the PageRank solver itself is a small part of that GFQL time (the shaded
+bars). The GFQL filter and k-hop rows on this page are the released code's, and they
+carry a loss: the released undirected multi-hop path is ~30x slower than it was in June
+because of a per-edge Python loop
+(`#2023 <https://github.com/graphistry/pygraphistry/issues/2023>`_). The fix is under
+review (`#2024 <https://github.com/graphistry/pygraphistry/pull/2024>`_); the filter and
+hop rows are re-measured against it when it lands, and Friendster runs after that.
 
 .. image:: _static/graphframes/livejournal_tasks.svg
-   :alt: LiveJournal task times: GFQL CPU and GPU versus GraphFrames for filter, 1-hop, 2-hop, and PageRank
+   :alt: LiveJournal task times: GFQL and GraphFrames for filter, 1-hop, 2-hop, and PageRank, with the PageRank solver time shaded inside the GFQL bar
 
 .. image:: _static/graphframes/orkut_tasks.svg
-   :alt: Orkut task times: GFQL CPU and GPU versus GraphFrames for filter, 1-hop, 2-hop, and PageRank
+   :alt: Orkut task times: GFQL and GraphFrames for filter, 1-hop, 2-hop, and PageRank, with the PageRank solver time shaded inside the GFQL bar
 
-GFQL runs with ``engine="polars"`` (CPU) and ``engine="polars-gpu"`` (GPU).
-Every cell is the median of 5 timed runs after 2 warmups, and every task
-returns the same result size on all three systems. One cell, LiveJournal GPU
-PageRank, is the median of 3 runs after 1 warmup. See
-:ref:`graphframes-method` for the full measurement rules.
+GFQL binds each graph from a lazy Polars scan of the edge parquet and runs the filter
+and hop tasks with ``engine="polars"`` under the Polars CPU streaming collect, or with
+``engine="polars-gpu"`` under the cudf-polars streaming executor. PageRank re-binds an
+eager cuDF copy outside the timer and calls cuGraph. Every cell is the median of 5 timed
+runs after 2 warmups, and every task returns the same result size on every system that
+ran it. Times are milliseconds unless marked; lower is better.
 
-LiveJournal (35M edges)
------------------------
+LiveJournal
+-----------
 
 .. list-table::
    :header-rows: 1
-   :widths: 26 18 18 18 20
+   :widths: 24 19 19 19 19
 
    * - Task
      - GFQL polars (CPU)
      - GFQL polars-gpu (GPU)
      - GraphFrames (local[*])
-     - Best GFQL vs GraphFrames
+     - GFQL GPU vs GraphFrames
    * - **filter** (degree >= 42)
-     - 2.1ms
-     - 2.4ms
-     - 90.4ms
-     - 43x
+     - :bench-diag:`graphframes_059.lj.filter.gfql_polars`
+     - :bench-diag:`graphframes_059.lj.filter.gfql_polars_gpu`
+     - :bench:`graphframes.lj.filter.graphframes`
+     - pending #2024
    * - **1-hop** (50 seeds)
-     - 236.8ms
-     - 191.4ms
-     - 1421.7ms
-     - 7.4x
+     - :bench-diag:`graphframes_059.lj.hop1.gfql_polars`
+     - :bench-diag:`graphframes_059.lj.hop1.gfql_polars_gpu`
+     - :bench:`graphframes.lj.hop1.graphframes`
+     - pending #2024
    * - **2-hop** (50 seeds)
-     - 1669.3ms
-     - 1542.1ms
-     - 3583.3ms
-     - 2.3x
+     - :bench-diag:`graphframes_059.lj.hop2.gfql_polars`
+     - :bench-diag:`graphframes_059.lj.hop2.gfql_polars_gpu`
+     - :bench:`graphframes.lj.hop2.graphframes`
+     - pending #2024
    * - **PageRank** (full graph)
-     - 49.3s
-     - 1.11s
-     - 16.3s
-     - 14.7x (GPU); CPU is 0.33x
+     - not measured (CPU PageRank routes through igraph)
+     - :bench:`graphframes.lj.pagerank.gfql_polars_gpu` (solver :bench-diag:`graphframes.lj.pagerank.gfql_polars_gpu_kernel`)
+     - :bench:`graphframes.lj.pagerank.graphframes`
+     - :bench:`graphframes.lj.pagerank.gfql_polars_gpu_vs_graphframes`
 
-Cold load of the SNAP file: 2.4s for GFQL, 10.3s for GraphFrames.
+The GFQL filter and hop cells are marked diagnostic: they are the released code with
+#2023 in it, kept as the before-state rather than quoted as GFQL's number. The 2-hop
+row is the loss; GraphFrames is faster there today.
 
-Orkut (117M edges)
-------------------
+Orkut
+-----
 
 .. list-table::
    :header-rows: 1
-   :widths: 26 18 18 18 20
+   :widths: 24 19 19 19 19
 
    * - Task
      - GFQL polars (CPU)
      - GFQL polars-gpu (GPU)
      - GraphFrames (local[*])
-     - Best GFQL vs GraphFrames
+     - GFQL GPU vs GraphFrames
    * - **filter** (degree >= 162)
-     - 1.7ms
-     - 2.0ms
-     - 70.6ms
-     - 42x
+     - pending #2024
+     - pending #2024
+     - :bench:`graphframes.orkut.filter.graphframes`
+     - pending #2024
    * - **1-hop** (50 seeds)
-     - 562.9ms
-     - 442.0ms
-     - 3826.6ms
-     - 8.7x
+     - pending #2024
+     - pending #2024
+     - :bench:`graphframes.orkut.hop1.graphframes`
+     - pending #2024
    * - **2-hop** (50 seeds)
-     - 9439.8ms
-     - 8860.2ms
-     - 11582.9ms
-     - 1.3x
+     - pending #2024
+     - pending #2024
+     - :bench:`graphframes.orkut.hop2.graphframes`
+     - pending #2024
    * - **PageRank** (full graph)
-     - 160.1s
-     - 3.50s
-     - 36.8s
-     - 10.5x (GPU); CPU is 0.23x
+     - not measured
+     - :bench:`graphframes.orkut.pagerank.gfql_polars_gpu` (solver :bench-diag:`graphframes.orkut.pagerank.gfql_polars_gpu_kernel`)
+     - :bench:`graphframes.orkut.pagerank.graphframes`
+     - :bench:`graphframes.orkut.pagerank.gfql_polars_gpu_vs_graphframes`
 
-Cold load: 5.1s for GFQL, 14.7s for GraphFrames.
-
-Result sizes are identical across the three systems for every task:
+Result sizes agree across the systems that ran each task, as recorded in the receipts:
 
 .. list-table::
    :header-rows: 1
@@ -126,22 +134,22 @@ Result sizes are identical across the three systems for every task:
 Which engine to use
 -------------------
 
-- **Filter and traversal**: use GFQL on CPU. The GPU changes these times
-  little, because at these result sizes data movement, not compute, sets the
-  floor. Spark's per-query scheduling and shuffle cost dominates its time.
-- **Whole-graph PageRank**: use GFQL on GPU (``engine="polars-gpu"``, cugraph).
-- **PageRank without a GPU**: GFQL routes the CPU path through single-threaded
-  igraph. It is 3x to 4x slower than GraphFrames at these sizes, and the gap
-  grows with graph size. Use it for convenience, not for speed.
+- **Whole-graph PageRank**: use GFQL on GPU (``engine="polars-gpu"``, cuGraph). The
+  solver is a small share of the GFQL time; the rest is the conversion of the edge
+  frame and the join of scores back onto the nodes, which is where the next gains are.
+- **Filter and traversal**: the CPU engine is the right choice once #2024 lands; the
+  released undirected multi-hop path carries the #2023 loss above. The GPU streaming
+  executor does not help these tasks at these sizes.
+- **PageRank without a GPU**: GFQL routes the CPU path through single-threaded igraph.
+  It is not measured on this page; use it for convenience, not for speed.
 - **Larger than one node's memory**: see :ref:`graphframes-friendster`.
 
 The tasks
 ---------
 
-**filter**: keep nodes with ``degree >= threshold``. SNAP graphs have no
-attributes, so both systems compute ``degree`` during cold load. The load time
-carries that cost, not the query. The shared threshold makes the filter
-identical across systems.
+**filter**: keep nodes with ``degree >= threshold``. SNAP graphs have no attributes,
+so both systems compute ``degree`` during load. The load carries that cost, not the
+query. The shared threshold makes the filter identical across systems.
 
 .. doc-test: skip
 
@@ -155,8 +163,8 @@ identical across systems.
    # GraphFrames
    gf.degrees.filter("degree >= 42").count()
 
-**1-hop** and **2-hop**: undirected expansion from a fixed set of 50
-high-degree seed nodes.
+**1-hop** and **2-hop**: undirected expansion from a fixed set of 50 high-degree seed
+nodes.
 
 .. doc-test: skip
 
@@ -166,94 +174,78 @@ high-degree seed nodes.
    from graphistry import n, e_undirected
    g.gfql([n(filter_dict={'id': is_in(seeds)}), e_undirected(hops=1), n()], engine="polars")
 
-GraphFrames has no k-hop primitive. Its ``bfs`` finds shortest paths between
-predicates and ``find`` matches a fixed motif. The Spark side therefore expands
-with one iterated undirected edge join per hop and ends in ``.count()``.
+GraphFrames has no k-hop primitive. Its ``bfs`` finds shortest paths between predicates
+and ``find`` matches a fixed motif. The Spark side therefore expands with one iterated
+undirected edge join per hop and ends in ``.count()``.
 
-**PageRank**: full graph, damping 0.85. GFQL CPU calls
-``g.compute_igraph('pagerank')``. GFQL GPU calls
-``g.compute_cugraph('pagerank')``. GraphFrames calls
-``gf.pageRank(resetProbability=0.15, maxIter=20)``. The three engines return
-the same vertex set and the same ranking. On LiveJournal, pairwise Spearman rho
-is 1.00 and the top-100 overlap is 100 of 100
-(``_static/graphframes/bench_graphframes_pagerank_parity.json``).
+**PageRank**: full graph, damping 0.85. GFQL GPU calls
+``g.compute_cugraph('pagerank')`` on an eager cuDF copy of the graph. GraphFrames calls
+``gf.pageRank(resetProbability=0.15, maxIter=20)``. Both return the full vertex set. The
+shaded part of a GFQL PageRank bar is the cuGraph solver alone on a graph object built
+outside the timer; the light part is the rest of the query.
 
 .. _graphframes-friendster:
 
-Friendster (1.8B edges): not measured
--------------------------------------
+Friendster (1.8B edges): next rung
+----------------------------------
 
 Friendster has 1,806,067,135 edges and 65,608,366 nodes
-(`SNAP <https://snap.stanford.edu/data/com-Friendster.html>`_). No system
-completed a task on the test node (about 120 GB unified memory):
+(`SNAP <https://snap.stanford.edu/data/com-Friendster.html>`_). The eager harness that
+produced the earlier version of this page could not load it on the test node (about 120
+GB unified memory): a pandas edge frame plus a second pass for degrees exceeds physical
+RAM, a direct cuDF read exceeds the unified pool, and a 90 GB Spark driver heap swaps.
 
-- **GFQL polars (CPU)**: the harness loads the full edge list into a pandas
-  frame (about 29 GB) and makes a second pass for degrees. This exceeds physical
-  RAM before the query runs.
-- **GFQL polars-gpu (GPU)**: a direct cudf edge read also exceeds the roughly 120 GB
-  unified memory pool.
-- **GraphFrames (local[*])**: a 90 GB driver heap swaps and does not finish in
-  usable time.
-
-This is a limit of the eager in-memory harness, not a measured engine limit.
-GFQL has two opt-in larger-than-memory paths that this benchmark did not use.
-``GFQL_POLARS_CPU_STREAMING=1`` selects the Polars streaming engine, which
-spills to disk. ``GFQL_POLARS_GPU_EXECUTOR=streaming`` selects the cudf-polars
-streaming executor for results larger than device memory. Both need a lazy
-source such as ``pl.scan_parquet`` instead of an eager ``pandas.read_parquet``.
-Measuring that path at 1.8B edges is follow-up work.
+The ladder now binds from ``pl.scan_parquet`` and collects through GFQL's streaming
+paths (``GFQL_POLARS_CPU_STREAMING=1`` for the Polars streaming engine,
+``GFQL_POLARS_GPU_EXECUTOR=streaming`` for the cudf-polars streaming executor), with a
+peak-memory receipt at every rung. LiveJournal and Orkut are the rungs on this page.
+Friendster is not measured yet: its 2-hop from hub seeds would spend hours in the #2023
+loop at the released code, so it runs after #2024 lands. GraphFrames on ``local[*]``
+stays the boundary it hit above.
 
 .. _graphframes-method:
 
 Method and limits
 -----------------
 
-- **Scope**: single node, in memory. ``local[*]`` is Spark's single-node mode.
-  A cluster amortizes scheduling and shuffle cost across machines and changes
-  the trade-off at larger scale. Use a Spark cluster when the data already
-  lives there or the graph exceeds one node's memory, including the streaming
-  paths above.
-- **Timing**: median of 5 runs after 2 warmups per cell. LiveJournal GPU
-  PageRank is median of 3 after 1 warmup, rerun after a transient GPU fault.
-  Cold load is timed once, separately.
+- **Scope**: single node, in memory. ``local[*]`` is Spark's single-node mode. A cluster
+  amortizes scheduling and shuffle cost across machines and changes the trade-off at
+  larger scale. Use a Spark cluster when the data already lives there or the graph
+  exceeds one node's memory.
+- **Timing**: median of 5 runs after 2 warmups per cell, each system loaded once and
+  resident across iterations. Load is not timed.
 - **Materialization**: Spark is lazy, so every task ends in ``.count()`` or
-  ``.vertices.count()``. GFQL materializes with ``len(_nodes)`` or
-  ``len(_edges)``.
-- **Conversion cost**: GFQL holds edges as pandas and converts to Polars inside
-  the timed region on each call. This counts against GFQL.
-- **PageRank convergence**: GraphFrames runs a fixed ``maxIter=20``. igraph
-  stops at ``eps=1e-3`` and cugraph at ``tol=1e-5``. Times compare
-  wall-clock to a usable ranking; the rankings agree as shown above.
-- **Result parity**: each task returns the same result size on all systems
-  (table above). A mismatch is treated as a bug, not a result.
-- **Run order**: all GFQL cells ran in one block, then all GraphFrames cells,
-  on a shared machine. Only medians are kept.
-- **Errors**: each (system, task) cell records a status on error or OOM and the
-  matrix continues. Missing pyspark, graphframes, or GPU skips the cell.
-- **Environment**: ``dgx-spark`` (GB10 GPU, about 120 GB unified memory);
-  GraphFrames ``0.8.4-spark3.5-s_2.12``; PySpark ``3.5.1``.
+  ``.vertices.count()``. GFQL materializes with ``len(_nodes)``.
+- **Comparability**: a task is comparable only when every system reports the same
+  result size; a cell that disagrees is published as a direct time with a disclosure.
+  Cells marked diagnostic are never quoted as GFQL's number.
+- **PageRank convergence**: GraphFrames runs a fixed ``maxIter=20``; cuGraph runs to
+  its default tolerance. Times compare wall-clock to a usable ranking.
+- **Receipts**: one rung at a time under a host lock, after two clean checks five
+  minutes apart; a load monitor samples the host every second and a classifier
+  invalidates the rung if a process outside the benchmark ran during it. Invalidated
+  attempts stay in the package under ``stale-attempts/``; one Orkut GraphFrames rung is
+  valid by reclassification after the classifier learned that Spark's own shutdown
+  cleanup is the benchmark's process (``RECLASSIFIED.txt`` in the rung).
+- **Harness**: the GFQL ladder harness and every receipt live in pyg-bench; the
+  GraphFrames baseline is ``benchmarks/gfql/bench_graphframes.py --systems graphframes``
+  in this repository, run from a host Spark with the GraphFrames assembly jar.
 
-Reproduce
----------
+Provenance
+----------
 
-This page renders saved results from ``_static/graphframes/results.json``. The
-harness is ``benchmarks/gfql/bench_graphframes.py`` (design notes in
-``benchmarks/gfql/bench_graphframes_DESIGN.md``). From ``benchmarks/gfql/``,
-with the GraphFrames jar on the Spark classpath via ``GRAPHFRAMES_JAR``:
+Every figure on this page is printed from ``docs/source/_data/gfql_benchmarks.json``,
+which pyg-bench publishes. The documentation build and ``docs/test_bench_numbers.py``
+reject missing, stale, or unpublished values.
 
-.. code-block:: bash
-
-   python bench_graphframes.py --dataset lj \
-       --systems gfql-polars,gfql-polars-gpu,graphframes \
-       --tasks filter,hop1,hop2,pagerank \
-       --filter-threshold 42 --warmups 2 --iters 5
-
-Orkut uses ``--dataset orkut --filter-threshold 162``.
+.. bench-provenance:: graphframes-ladder-20260904 graphframes-ladder-059-hops-20260904
+   :disclosures:
 
 See also
 --------
 
 - :doc:`engines`: choosing pandas, Polars, cuDF, or Polars-GPU
 - :doc:`benchmark_filter_pagerank`: GFQL CPU/GPU vs Neo4j + GDS
+- :doc:`performance`: the q1–q9 boards against Kuzu, Memgraph, and Neo4j
 - :doc:`cypher`: Cypher syntax through ``g.gfql("MATCH ...")``
 - :doc:`overview`: GFQL design and features
