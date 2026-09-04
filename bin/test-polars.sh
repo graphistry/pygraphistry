@@ -79,6 +79,7 @@ POLARS_TEST_FILES=(
     # polars params (bound validation, hops=None run-to-closure, edges-only node output)
     # only ever run in this lane
     graphistry/tests/compute/gfql/test_hop_semantics_1918.py
+    graphistry/tests/compute/gfql/test_node_dtypes_memo_2029.py
     # #1882/#1913-f4/#1879 crash-family pins: the polars params (filter helpers on polars
     # frames, polars prune_self_edges, nodes-only typed-decline advice) only run here
     graphistry/tests/compute/gfql/test_crash_family_1882_1879.py

@@ -5,8 +5,14 @@ All notable changes to the PyGraphistry are documented in this file. The PyGraph
 The changelog format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and all PyGraphistry-specific breaking changes are explictly noted here.
 
-## [0.59.0 - 2026-08-31]
+## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
+
+### Fixed
+
+* GFQL: every Cypher string query re-read the node table's dtypes to build its compile-cache key, and that read scans the values of every `object` column (the string-content gate for predicate pushdown). On a wide pandas node table this cost more than the query it keyed: an SNB SF0.1 seeded lookup on 327k nodes × 27 object columns spent 105 ms of 106 ms there. The read is now memoized per node frame (identity plus a length/columns fingerprint, the resident indexes' contract) and cleared by `gfql_clear_caches()`; the same lookup now takes 2 ms (#2029).
+
+## [0.59.0 - 2026-08-31]
 
 ### Breaking
 
