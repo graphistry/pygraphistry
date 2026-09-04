@@ -34,10 +34,7 @@ CYPHER: Dict[str, str] = {
     ),
 }
 # Shapes no fast path serves yet; strict so the fix that closes one flips the pin.
-SERVED_GAPS: Dict[Tuple[str, str], str] = {
-    (engine, "node_only_props"): "no fast path serves a node-only seeded lookup with projections"
-    for engine in ENGINES
-}
+SERVED_GAPS: Dict[Tuple[str, str], str] = {}
 
 
 def _wide_object_column_graph() -> Tuple[pd.DataFrame, pd.DataFrame]:

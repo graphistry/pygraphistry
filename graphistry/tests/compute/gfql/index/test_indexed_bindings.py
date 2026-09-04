@@ -1116,9 +1116,11 @@ def test_use_policy_sparse_serves_dense_declines(
             "type": ["X"] * len(src),
         }
     )
+    # two hops: the seeded typed-hop fast path serves a one-hop two-alias RETURN first
+    # (no cardinality gate of its own), so the connected-bindings gate needs a longer path
     query = (
-        "MATCH (a {kind:'seed'})-[:X]->(b) "
-        "RETURN a.id AS a, b.id AS b ORDER BY a, b"
+        "MATCH (a {kind:'seed'})-[:X]->(b)-[:X]->(c) "
+        "RETURN a.id AS a, c.id AS c ORDER BY a, c"
     )
     for dense, expected_reason in [(False, "served"), (True, "cost_frontier")]:
         kinds = ["seed"] * n_nodes if dense else ["seed"] + ["noise"] * (n_nodes - 1)

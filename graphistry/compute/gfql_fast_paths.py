@@ -3324,6 +3324,242 @@ def _seeded_typed_hop_bag_rows(
     return joined.drop(columns=[_SEEDED_BAG_KEY]).reset_index(drop=True)  # type: ignore[no-any-return]
 
 
+def _pivot_parity_casts(
+    rows: DataFrameT, items: Sequence[Tuple[str, str]], node: str, *, keep_source_dtypes: bool,
+) -> Optional[Dict[str, str]]:
+    """Per-output casts that reproduce the pandas rows-pivot dtypes (int/float -> float64,
+    bool -> object) for a lean projection; None for a dtype class the pivot parity does
+    not cover (datetimes, extension dtypes), which must take the full path."""
+    import numpy as np
+    casts: Dict[str, str] = {}
+    for out_name, prop in items:
+        if prop == node:
+            continue
+        d = rows[prop].dtype
+        if isinstance(d, pd.StringDtype):
+            continue
+        if not isinstance(d, np.dtype):
+            return None
+        if d == np.dtype(bool):
+            if not keep_source_dtypes:
+                casts[out_name] = "object"
+        elif d.kind in "iuf":
+            if not keep_source_dtypes:
+                casts[out_name] = "float64"
+        elif d.kind != "O":
+            return None
+    return casts
+
+
+def _seeded_typed_hop_two_alias_frame(
+    seed_rows: DataFrameT, dst_rows: DataFrameT, edges: DataFrameT,
+    select_items: Sequence[Tuple[str, str, str]], *, from_col: str, to_col: str, node: str,
+    is_polars: bool, keep_source_dtypes: bool,
+) -> Optional[DataFrameT]:
+    """One row per matched edge with properties of BOTH pattern aliases: the edge endpoints
+    look up the seed rows (from side) and the destination rows (to side)."""
+    key_from, key_to = f"{_SEEDED_BAG_KEY}from", f"{_SEEDED_BAG_KEY}to"
+    seed_props = [prop for _, side, prop in select_items if side == "seed" and prop != node]
+    dst_props = [prop for _, side, prop in select_items if side == "dst" and prop != node]
+
+    def _col(side: str, prop: str) -> str:
+        if prop == node:
+            return key_from if side == "seed" else key_to
+        return f"{_SEEDED_BAG_KEY}{side}.{prop}"
+
+    if is_polars:
+        import polars as pl
+        joined = edges.select([pl.col(from_col).alias(key_from), pl.col(to_col).alias(key_to)])
+        for side, rows, key, props in (("seed", seed_rows, key_from, seed_props),
+                                       ("dst", dst_rows, key_to, dst_props)):
+            side_key = f"{_SEEDED_BAG_KEY}{side}.{node}"
+            lookup = rows.select([pl.col(node).alias(side_key)]
+                                 + [pl.col(c).alias(_col(side, c)) for c in dict.fromkeys(props)])
+            joined = joined.join(lookup, left_on=key, right_on=side_key, how="inner")
+        return joined.select([pl.col(_col(side, prop)).alias(out) for out, side, prop in select_items])
+    joined = edges[[from_col, to_col]].reset_index(drop=True)
+    joined.columns = [key_from, key_to]
+    for side, rows, key, props in (("seed", seed_rows, key_from, seed_props),
+                                   ("dst", dst_rows, key_to, dst_props)):
+        side_key = f"{_SEEDED_BAG_KEY}{side}.{node}"
+        cols = list(dict.fromkeys(props))
+        lookup = rows[[node] + cols].copy()
+        lookup.columns = [side_key] + [_col(side, c) for c in cols]
+        joined = joined.merge(lookup, left_on=key, right_on=side_key, how="inner")
+    # only the destination alias rides the rows pivot; the seed alias and the node id keep their dtypes
+    casts = _pivot_parity_casts(
+        joined, [(out, _col(side, prop)) for out, side, prop in select_items
+                 if prop != node and side == "dst"],
+        node, keep_source_dtypes=keep_source_dtypes and len(joined) > 0,
+    )
+    if casts is None:
+        return None
+    # column-wise assembly: cuDF cannot select one source column twice
+    out_frame = type(joined)({out: joined[_col(side, prop)] for out, side, prop in select_items})
+    for out_name, target in casts.items():
+        out_frame[out_name] = out_frame[out_name].astype(target)
+    return out_frame.reset_index(drop=True)
+
+
+def _node_lookup_scan_reason(
+    base_graph: Plottable, node: str, n0f: Dict[str, object], nid_ctx: object,
+) -> str:
+    """Why a seeded node lookup scanned: policy off, no index, a stale one, or the
+    property index's cost gate."""
+    from graphistry.compute.gfql.index import get_index_policy, get_registry
+    from graphistry.compute.gfql.index.registry import NODE_ID
+    if get_index_policy(base_graph) == "off":
+        return "index_policy_off"
+    registry = get_registry(base_graph)
+    if registry.is_empty():
+        return "index_missing"
+    if node in n0f:
+        return "index_stale" if registry.get(NODE_ID) is not None and nid_ctx is None else "index_missing"
+    indexed = [c for c in registry.node_prop_cols() if c in n0f]
+    if not indexed:
+        return "index_missing"
+    return "cost_gate" if any(registry.get_node_prop_valid(c, base_graph._nodes, _frame_engine_of(base_graph._nodes)) is not None for c in indexed) else "index_stale"
+
+
+def _frame_engine_of(frame: DataFrameT) -> Engine:
+    from graphistry.compute.chain_fast_paths import _frame_engine
+    engine = _frame_engine(frame)
+    assert engine is not None
+    return engine
+
+
+def _execute_seeded_node_lookup_fast_path(
+    base_graph: Plottable,
+    compiled_query: CompiledCypherQuery,
+    physical_plan: "PhysicalPlan",
+    *,
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+    start_nodes: Optional[DataFrameT] = None,
+) -> Optional[Plottable]:
+    """Fast path for a seeded single-node pattern — ``MATCH (p {id}) RETURN p`` or
+    ``RETURN p.a AS x, p.b`` — resolving the seed through the resident node-id or
+    node-property index (else one scalar scan) and projecting the matched rows directly.
+    Same side-channel declines as the seeded typed hop; value-identical to the full path
+    (row order may differ)."""
+    if start_nodes is not None or policy or compiled_query.chain.where:
+        return None
+    if compiled_query.empty_result_row is not None:
+        return None
+    if compiled_query.execution_extras is not None and (
+        compiled_query.execution_extras.connected_match_join is not None
+        or compiled_query.execution_extras.connected_optional_match is not None
+    ):
+        return None
+    requested_engine = resolve_engine(engine, base_graph)  # type: ignore[arg-type]  # str engines resolve at runtime
+    if requested_engine not in (Engine.PANDAS, Engine.CUDF, Engine.POLARS, Engine.POLARS_GPU):
+        return None
+    projection = compiled_query.result_projection
+    ops = list(compiled_query.chain.chain)
+    select_op: Optional[ASTCall] = None
+    suffix_ops: List[ASTCall] = []
+    if projection is not None:
+        proj_cols = projection.columns
+        if projection.table != "nodes" or len(proj_cols) != 1 or proj_cols[0].kind != "whole_row":
+            return None
+        if len(ops) != 2:
+            return None
+    else:
+        if len(ops) < 3 or not isinstance(ops[2], ASTCall) or ops[2].function != "select":
+            return None
+        select_op = ops[2]
+        suffix_ops = [op for op in ops[3:] if isinstance(op, ASTCall)]
+        if len(suffix_ops) != len(ops) - 3 or any(
+            op.function not in ("distinct", "order_by", "skip", "limit") for op in suffix_ops
+        ):
+            return None
+    n0, call = ops[0], ops[1]
+    if not (isinstance(n0, ASTNode) and isinstance(call, ASTCall)) or call.function != "rows":
+        return None
+    if getattr(n0, "query", None) is not None:
+        return None
+    call_params = call.params or {}
+    if call_params.get("binding_ops") is not None or call_params.get("table", "nodes") != "nodes":
+        return None
+    alias = projection.alias if projection is not None else str(call_params.get("source", ""))
+    if not alias or n0._name != alias:
+        return None
+    node = base_graph._node
+    nodes_frame = base_graph._nodes
+    if node is None or nodes_frame is None:
+        return None
+    if not (n0.filter_dict and any(not str(k).startswith("label__") for k in n0.filter_dict)):
+        return None  # n0 must carry a selective (non-label) seed
+    from graphistry.Engine import is_polars_df
+    from graphistry.compute.chain_fast_paths import (
+        _resident_node_id_index, _seed_node_rows, _seeded_scalar_filters,
+    )
+    is_polars = is_polars_df(nodes_frame)
+    if base_graph._edges is not None and is_polars != is_polars_df(base_graph._edges):
+        return None
+    if (requested_engine in (Engine.POLARS, Engine.POLARS_GPU)) != is_polars:
+        return None
+    if is_polars:
+        import polars as pl
+        if not isinstance(nodes_frame, pl.DataFrame):
+            return None  # LazyFrame: the full lazy pipeline owns it
+    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_frame)
+    if n0f is None or not n0f:
+        return None
+    select_items: Optional[List[Tuple[str, str]]] = None
+    if select_op is not None:
+        raw_items = (select_op.params or {}).get("items")
+        if not raw_items or not isinstance(raw_items, (list, tuple)):
+            return None
+        nodes_frame_cols = set(map(str, nodes_frame.columns))
+        prefix = f"{alias}."
+        select_items = []
+        for it in raw_items:
+            if not (isinstance(it, (list, tuple)) and len(it) == 2):
+                return None
+            out_name, src_ref = str(it[0]), str(it[1])
+            if not src_ref.startswith(prefix):
+                return None
+            prop = src_ref[len(prefix):]
+            if "." in prop or prop not in nodes_frame_cols:
+                return None
+            select_items.append((out_name, prop))
+    from graphistry.compute.gfql.index.api import _record_indexed_traversal
+    nid_ctx = _resident_node_id_index(base_graph, nodes_frame, node)
+    rows, how = _seed_node_rows(base_graph, nodes_frame, n0f, node, nid_ctx, n0.filter_dict)
+    _record_indexed_traversal(
+        seam="node_lookup",
+        engine=requested_engine,
+        served=how != "scan",
+        reason="served" if how != "scan" else _node_lookup_scan_reason(base_graph, node, n0f, nid_ctx),
+        hop_count=0,
+        public_seed_scan=node not in n0f,
+    )
+    if select_items is not None:
+        if is_polars:
+            import polars as pl
+            out_frame = rows.select([pl.col(prop).alias(out) for out, prop in select_items])
+        else:
+            # column-wise assembly: cuDF cannot select one source column twice
+            out_frame = type(rows)({out: rows[prop] for out, prop in select_items}).reset_index(drop=True)
+        out = base_graph.bind()
+        out._nodes = out_frame
+        edges = base_graph._edges
+        if edges is not None:
+            out._edges = edges.head(0) if is_polars else edges.head(0).reset_index(drop=True)
+        if suffix_ops:
+            return chain_impl(out, suffix_ops, engine=engine, policy=policy, context=context)
+        return out
+    assert projection is not None
+    if is_polars:
+        import polars as pl
+        tagged = rows.with_columns(pl.lit(True).alias(projection.alias))
+    else:
+        tagged = rows.assign(**{projection.alias: True})
+    return apply_result_projection(base_graph.nodes(tagged), projection)
+
+
 def _execute_seeded_typed_hop_fast_path(
     base_graph: Plottable,
     compiled_query: CompiledCypherQuery,
@@ -3442,19 +3678,25 @@ def _execute_seeded_typed_hop_fast_path(
         if nodes_frame_cols is None:
             return None
         prefix = f"{return_alias}."
+        # a bag lowering may project from both aliases: the seed rows are already held
+        seed_alias = n0._name if bag_rows and n0._name and n0._name != return_alias else None
+        seed_prefix = None if seed_alias is None else f"{seed_alias}."
         select_items = []
         for it in raw_items:
             if not (isinstance(it, (list, tuple)) and len(it) == 2):
                 return None
             out_name, src_ref = str(it[0]), str(it[1])
-            # only same-alias property refs; the bare property must exist on the
-            # node frame (absent -> full path's null/error semantics must apply)
-            if not src_ref.startswith(prefix):
+            # the bare property must exist on the node frame (absent -> full path's
+            # null/error semantics must apply)
+            if src_ref.startswith(prefix):
+                side, prop = "dst", src_ref[len(prefix):]
+            elif seed_prefix is not None and src_ref.startswith(seed_prefix):
+                side, prop = "seed", src_ref[len(seed_prefix):]
+            else:
                 return None
-            prop = src_ref[len(prefix):]
             if "." in prop or prop not in nodes_frame_cols:
                 return None
-            select_items.append((out_name, prop))
+            select_items.append((out_name, side, prop))
     if not (n0.filter_dict and any(not str(k).startswith("label__") for k in n0.filter_dict)):
         return None  # n0 must carry a selective (non-label) seed
     direction = e1.direction
@@ -3496,6 +3738,7 @@ def _execute_seeded_typed_hop_fast_path(
             else "index_stale"
         )
     helper = _seeded_typed_return_dst_polars if is_polars else _seeded_typed_return_dst_pandas_cudf
+    wants_seed = select_items is not None and any(side == "seed" for _, side, _ in select_items)
     dst_res = helper(base_graph, n0, n2, e1, src, dst, node, direction)
     if dst_res is None:
         _record_indexed_traversal(
@@ -3516,7 +3759,26 @@ def _execute_seeded_typed_hop_fast_path(
         public_seed_scan=node not in cast(Dict[str, Any], n0.filter_dict),
         hop_details=[{"hop": 1}] if index_ctx is not None else None,
     )
-    p_rows, _edges = dst_res
+    p_rows, _edges, seed_rows, kernel_admits = dst_res
+    # the canonical bag path keeps source dtypes only where the indexed kernel serves it
+    canonical_keeps_source_dtypes = "cudf" in type(p_rows).__module__ or (bag_rows and kernel_admits)
+    if wants_seed:
+        assert select_items is not None
+        out_frame = _seeded_typed_hop_two_alias_frame(
+            seed_rows, p_rows, _edges, select_items,
+            from_col=src if direction == "forward" else dst,
+            to_col=dst if direction == "forward" else src,
+            node=node, is_polars=is_polars,
+            keep_source_dtypes=canonical_keeps_source_dtypes,
+        )
+        if out_frame is None:
+            return None
+        out = base_graph.bind()
+        out._nodes = out_frame
+        out._edges = _edges.head(0) if is_polars else _edges.head(0).reset_index(drop=True)
+        if suffix_ops:
+            return chain_impl(out, suffix_ops, engine=engine, policy=policy, context=context)
+        return out
     if bag_rows:
         p_rows = _seeded_typed_hop_bag_rows(
             p_rows, _edges,
@@ -3531,41 +3793,16 @@ def _execute_seeded_typed_hop_fast_path(
         # value-identical contract).
         if is_polars:
             import polars as pl
-            out_frame = p_rows.select([pl.col(prop).alias(out) for out, prop in select_items])
+            out_frame = p_rows.select([pl.col(prop).alias(out) for out, _, prop in select_items])
         else:
-            # dtype parity with the full path: non-id properties ride the rows-pivot,
-            # which upcasts int/float -> float64 and bool -> object; the node-id
-            # property passes through the pivot key and keeps its dtype. Any dtype
-            # class not verified against the pivot (datetimes, pandas extension
-            # dtypes like nullable Int64/StringDtype, categoricals) declines to the
-            # full path rather than risk a silent dtype divergence.
-            import numpy as np
-            # The upcast above is a PANDAS rows-pivot artifact, so it applies only where
-            # the canonical path IS that pivot: cuDF's pivot keeps the source dtypes, and
-            # an INDEXED bag lowering is served by the indexed connected-bindings kernel,
-            # which never pivots (int64/bool, as polars and cuDF already answer).
-            # The dtype-class decline guard still applies to all of them.
-            canonical_keeps_source_dtypes = (
-                "cudf" in type(p_rows).__module__ or (bag_rows and index_ctx is not None))
-            casts: Dict[str, str] = {}
-            for out_name, prop in select_items:
-                if prop == node:
-                    continue
-                d = p_rows[prop].dtype
-                if isinstance(d, pd.StringDtype):
-                    continue  # pandas>=3 default str dtype: pivot preserves it (verified parity)
-                if not isinstance(d, np.dtype):
-                    return None
-                if d == np.dtype(bool):
-                    if not canonical_keeps_source_dtypes:
-                        casts[out_name] = "object"
-                elif d.kind in "iuf":
-                    if not canonical_keeps_source_dtypes:
-                        casts[out_name] = "float64"
-                elif d.kind != "O":
-                    return None
-            out_frame = p_rows[[prop for _, prop in select_items]].copy()
-            out_frame.columns = [out for out, _ in select_items]
+            casts = _pivot_parity_casts(
+                p_rows, [(out, prop) for out, _, prop in select_items], node,
+                keep_source_dtypes=canonical_keeps_source_dtypes and len(p_rows) > 0,
+            )
+            if casts is None:
+                return None
+            # column-wise assembly: cuDF cannot select one source column twice
+            out_frame = type(p_rows)({out: p_rows[prop] for out, _, prop in select_items})
             for out_name, target in casts.items():
                 out_frame[out_name] = out_frame[out_name].astype(target)
         out = base_graph.bind()

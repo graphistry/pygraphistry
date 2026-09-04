@@ -615,6 +615,7 @@ def _apply_connected_optional_match(
 from .gfql_fast_paths import (
     _connected_join_two_star_fast_grouped_count,
     _connected_join_two_star_fast_rows,
+    _execute_seeded_node_lookup_fast_path,
     _execute_seeded_typed_hop_fast_path,
     _execute_single_hop_grouped_aggregate_fast_path,
     _execute_two_hop_count_fast_path,
@@ -1472,7 +1473,8 @@ def _execute_compiled_query_via_physical_plan(
         # paths, and it cannot be bypassed the way patching a directly-imported name is.
         from graphistry.compute.gfql.index.api import record_fast_path_decision
 
-        _FastPathName = Literal["single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop"]
+        _FastPathName = Literal[
+            "single_hop_grouped_aggregate", "two_hop_count", "seeded_typed_hop", "seeded_node_lookup"]
 
         def _try_fast(path_name: _FastPathName, run: Callable[[], Optional[Plottable]]) -> Optional[Plottable]:
             out, reason = _run_fast_path_on_requested_target(engine, run)
@@ -1499,6 +1501,13 @@ def _execute_compiled_query_via_physical_plan(
                 engine=engine, policy=policy, context=context, start_nodes=start_nodes))
         if fast_hop is not None:
             return fast_hop
+        fast_lookup = _try_fast(
+            "seeded_node_lookup",
+            lambda: _execute_seeded_node_lookup_fast_path(
+                base_graph, compiled_query, physical_plan,
+                engine=engine, policy=policy, context=context, start_nodes=start_nodes))
+        if fast_lookup is not None:
+            return fast_lookup
         return _execute_compiled_query_chain_non_union(
             base_graph,
             compiled_query=compiled_query,
