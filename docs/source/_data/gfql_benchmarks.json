@@ -4340,8 +4340,8 @@
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-09-04T22:44:34Z",
-  "generated_by": "graphistry/pyg-bench 6ed12f1b scripts/export_docs_numbers.py",
+  "generated_at": "2026-09-04T22:49:12Z",
+  "generated_by": "graphistry/pyg-bench d70caf55 scripts/export_docs_numbers.py",
   "policy": {
     "accepted_regressions": [],
     "drift_waivers": {
@@ -4452,7 +4452,7 @@
       "host": "dgx-spark (NVIDIA GB10), 20 CPU",
       "measured_at": "2026-09-04",
       "perf_lock_held": true,
-      "pyg_bench_commit": "f626913 (fix2024 rungs; the runner gained the optional HOST_GB address-space cap after 0f8e213, the bench script is unchanged, sha256 in each rung's runner-sha256.txt)",
+      "pyg_bench_commit": "f626913 for the batch C/D rungs (fix2024/lj-polars, orkut-polars, lj-polars-pagerank, orkut-polars-pagerank, friendster-polars-hop2-nocap); the earlier fix2024 rungs record 9757665 and the 0.59 rungs 0f8e213 in their SOURCE_COMMITS; the runner gained the optional HOST_GB address-space cap after 0f8e213 and the bench script is unchanged (sha256 in each rung's runner-sha256.txt)",
       "pygraphistry_commit": "e951e9a2c",
       "quiet_host": true,
       "reps": "each system loads once and stays resident; 2 warmups + 5 timed runs per task, median; GraphFrames PageRank 20 iterations",
