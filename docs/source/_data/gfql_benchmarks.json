@@ -2124,6 +2124,118 @@
       "value": 2.9,
       "workload": "graph-benchmark 20k q9 \u2014 GFQL-polars vs GFQL-pandas"
     },
+    "graphframes.friendster.filter.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 3111.7,
+      "workload": "GraphFrames tasks Friendster filter"
+    },
+    "graphframes.friendster.hop1.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 6123.4,
+      "workload": "GraphFrames tasks Friendster hop1"
+    },
+    "graphframes.lj.filter.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 26.1,
+      "workload": "GraphFrames tasks LiveJournal filter"
+    },
+    "graphframes.lj.filter.gfql_polars_gpu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars-gpu",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 27.1,
+      "workload": "GraphFrames tasks LiveJournal filter"
+    },
+    "graphframes.lj.filter.gfql_polars_gpu_vs_graphframes": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "graphframes",
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars-gpu",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "operands": [
+        "graphframes.lj.filter.gfql_polars_gpu",
+        "graphframes.lj.filter.graphframes"
+      ],
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "x",
+      "value": 3.0,
+      "workload": "GraphFrames tasks LiveJournal filter \u2014 gfql-polars-gpu vs graphframes"
+    },
+    "graphframes.lj.filter.gfql_polars_vs_graphframes": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "graphframes",
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "operands": [
+        "graphframes.lj.filter.gfql_polars",
+        "graphframes.lj.filter.graphframes"
+      ],
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "x",
+      "value": 3.1,
+      "workload": "GraphFrames tasks LiveJournal filter \u2014 gfql-polars vs graphframes"
+    },
     "graphframes.lj.filter.graphframes": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -2131,7 +2243,8 @@
       "decimals": 1,
       "disclosures": [
         "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
-        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit 840a780), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd)."
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
@@ -2141,6 +2254,84 @@
       "value": 80.4,
       "workload": "GraphFrames tasks LiveJournal filter"
     },
+    "graphframes.lj.hop1.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 219.7,
+      "workload": "GraphFrames tasks LiveJournal hop1"
+    },
+    "graphframes.lj.hop1.gfql_polars_gpu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars-gpu",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 1159.6,
+      "workload": "GraphFrames tasks LiveJournal hop1"
+    },
+    "graphframes.lj.hop1.gfql_polars_gpu_vs_graphframes": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "graphframes",
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars-gpu",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "operands": [
+        "graphframes.lj.hop1.gfql_polars_gpu",
+        "graphframes.lj.hop1.graphframes"
+      ],
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "x",
+      "value": 1.3,
+      "workload": "GraphFrames tasks LiveJournal hop1 \u2014 gfql-polars-gpu vs graphframes"
+    },
+    "graphframes.lj.hop1.gfql_polars_vs_graphframes": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "graphframes",
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "operands": [
+        "graphframes.lj.hop1.gfql_polars",
+        "graphframes.lj.hop1.graphframes"
+      ],
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "x",
+      "value": 6.6,
+      "workload": "GraphFrames tasks LiveJournal hop1 \u2014 gfql-polars vs graphframes"
+    },
     "graphframes.lj.hop1.graphframes": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -2148,7 +2339,8 @@
       "decimals": 1,
       "disclosures": [
         "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
-        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit 840a780), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd)."
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
@@ -2158,6 +2350,84 @@
       "value": 1460.2,
       "workload": "GraphFrames tasks LiveJournal hop1"
     },
+    "graphframes.lj.hop2.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 6478.3,
+      "workload": "GraphFrames tasks LiveJournal hop2"
+    },
+    "graphframes.lj.hop2.gfql_polars_gpu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars-gpu",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 7162.5,
+      "workload": "GraphFrames tasks LiveJournal hop2"
+    },
+    "graphframes.lj.hop2.gfql_polars_gpu_vs_graphframes": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "graphframes",
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars-gpu",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "operands": [
+        "graphframes.lj.hop2.gfql_polars_gpu",
+        "graphframes.lj.hop2.graphframes"
+      ],
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "x",
+      "value": 0.5,
+      "workload": "GraphFrames tasks LiveJournal hop2 \u2014 gfql-polars-gpu vs graphframes"
+    },
+    "graphframes.lj.hop2.gfql_polars_vs_graphframes": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "graphframes",
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "operands": [
+        "graphframes.lj.hop2.gfql_polars",
+        "graphframes.lj.hop2.graphframes"
+      ],
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "x",
+      "value": 0.5,
+      "workload": "GraphFrames tasks LiveJournal hop2 \u2014 gfql-polars vs graphframes"
+    },
     "graphframes.lj.hop2.graphframes": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -2165,7 +2435,8 @@
       "decimals": 1,
       "disclosures": [
         "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
-        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit 840a780), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd)."
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
@@ -2181,7 +2452,8 @@
       "decimals": 1,
       "disclosures": [
         "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
-        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit 840a780), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd)."
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
       ],
       "engine": "gfql-polars-gpu",
       "measurement_profile": "graphframes-tasks-warm-resident",
@@ -2197,7 +2469,8 @@
       "decimals": 1,
       "disclosures": [
         "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
-        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit 840a780), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison.",
         "Component of graphframes.lj.pagerank.gfql_polars_gpu: the PageRank solver alone on a graph object built outside the timer; the parent time adds the conversion and the join of scores back onto the nodes."
       ],
       "engine": "gfql-polars-gpu",
@@ -2215,7 +2488,8 @@
       "decimals": 1,
       "disclosures": [
         "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
-        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit 840a780), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd)."
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
       ],
       "engine": "gfql-polars-gpu",
       "measurement_profile": "graphframes-tasks-warm-resident",
@@ -2236,7 +2510,8 @@
       "decimals": 1,
       "disclosures": [
         "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
-        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit 840a780), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd)."
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
@@ -2246,6 +2521,84 @@
       "value": 16311.2,
       "workload": "GraphFrames tasks LiveJournal pagerank"
     },
+    "graphframes.orkut.filter.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 59.4,
+      "workload": "GraphFrames tasks Orkut filter"
+    },
+    "graphframes.orkut.filter.gfql_polars_gpu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars-gpu",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 62.6,
+      "workload": "GraphFrames tasks Orkut filter"
+    },
+    "graphframes.orkut.filter.gfql_polars_gpu_vs_graphframes": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "graphframes",
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars-gpu",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "operands": [
+        "graphframes.orkut.filter.gfql_polars_gpu",
+        "graphframes.orkut.filter.graphframes"
+      ],
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "x",
+      "value": 1.1,
+      "workload": "GraphFrames tasks Orkut filter \u2014 gfql-polars-gpu vs graphframes"
+    },
+    "graphframes.orkut.filter.gfql_polars_vs_graphframes": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "graphframes",
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "operands": [
+        "graphframes.orkut.filter.gfql_polars",
+        "graphframes.orkut.filter.graphframes"
+      ],
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "x",
+      "value": 1.1,
+      "workload": "GraphFrames tasks Orkut filter \u2014 gfql-polars vs graphframes"
+    },
     "graphframes.orkut.filter.graphframes": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -2253,7 +2606,8 @@
       "decimals": 1,
       "disclosures": [
         "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
-        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit 840a780), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd)."
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
@@ -2263,6 +2617,84 @@
       "value": 66.1,
       "workload": "GraphFrames tasks Orkut filter"
     },
+    "graphframes.orkut.hop1.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 514.0,
+      "workload": "GraphFrames tasks Orkut hop1"
+    },
+    "graphframes.orkut.hop1.gfql_polars_gpu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars-gpu",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 4037.1,
+      "workload": "GraphFrames tasks Orkut hop1"
+    },
+    "graphframes.orkut.hop1.gfql_polars_gpu_vs_graphframes": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "graphframes",
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars-gpu",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "operands": [
+        "graphframes.orkut.hop1.gfql_polars_gpu",
+        "graphframes.orkut.hop1.graphframes"
+      ],
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "x",
+      "value": 0.9,
+      "workload": "GraphFrames tasks Orkut hop1 \u2014 gfql-polars-gpu vs graphframes"
+    },
+    "graphframes.orkut.hop1.gfql_polars_vs_graphframes": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "graphframes",
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "operands": [
+        "graphframes.orkut.hop1.gfql_polars",
+        "graphframes.orkut.hop1.graphframes"
+      ],
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "x",
+      "value": 7.1,
+      "workload": "GraphFrames tasks Orkut hop1 \u2014 gfql-polars vs graphframes"
+    },
     "graphframes.orkut.hop1.graphframes": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -2270,7 +2702,8 @@
       "decimals": 1,
       "disclosures": [
         "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
-        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit 840a780), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd)."
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
@@ -2280,6 +2713,84 @@
       "value": 3632.2,
       "workload": "GraphFrames tasks Orkut hop1"
     },
+    "graphframes.orkut.hop2.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 27348.3,
+      "workload": "GraphFrames tasks Orkut hop2"
+    },
+    "graphframes.orkut.hop2.gfql_polars_gpu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars-gpu",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "ms",
+      "value": 33852.9,
+      "workload": "GraphFrames tasks Orkut hop2"
+    },
+    "graphframes.orkut.hop2.gfql_polars_gpu_vs_graphframes": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "graphframes",
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars-gpu",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "operands": [
+        "graphframes.orkut.hop2.gfql_polars_gpu",
+        "graphframes.orkut.hop2.graphframes"
+      ],
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "x",
+      "value": 0.3,
+      "workload": "GraphFrames tasks Orkut hop2 \u2014 gfql-polars-gpu vs graphframes"
+    },
+    "graphframes.orkut.hop2.gfql_polars_vs_graphframes": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "graphframes",
+      "decimals": 1,
+      "disclosures": [
+        "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
+      ],
+      "engine": "gfql-polars",
+      "measurement_profile": "graphframes-tasks-warm-resident",
+      "operands": [
+        "graphframes.orkut.hop2.gfql_polars",
+        "graphframes.orkut.hop2.graphframes"
+      ],
+      "run": "graphframes-ladder-20260904",
+      "status": "ok",
+      "unit": "x",
+      "value": 0.4,
+      "workload": "GraphFrames tasks Orkut hop2 \u2014 gfql-polars vs graphframes"
+    },
     "graphframes.orkut.hop2.graphframes": {
       "board_quotable": true,
       "comparison_allowed": true,
@@ -2287,7 +2798,8 @@
       "decimals": 1,
       "disclosures": [
         "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
-        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit 840a780), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd)."
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
@@ -2303,7 +2815,8 @@
       "decimals": 1,
       "disclosures": [
         "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
-        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit 840a780), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd)."
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
       ],
       "engine": "gfql-polars-gpu",
       "measurement_profile": "graphframes-tasks-warm-resident",
@@ -2319,7 +2832,8 @@
       "decimals": 1,
       "disclosures": [
         "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
-        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit 840a780), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison.",
         "Component of graphframes.orkut.pagerank.gfql_polars_gpu: the PageRank solver alone on a graph object built outside the timer; the parent time adds the conversion and the join of scores back onto the nodes."
       ],
       "engine": "gfql-polars-gpu",
@@ -2337,7 +2851,8 @@
       "decimals": 1,
       "disclosures": [
         "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
-        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit 840a780), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd)."
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
       ],
       "engine": "gfql-polars-gpu",
       "measurement_profile": "graphframes-tasks-warm-resident",
@@ -2358,7 +2873,8 @@
       "decimals": 1,
       "disclosures": [
         "Single node (dgx-spark, NVIDIA GB10 unified memory, 20 CPU); GraphFrames on Spark local[*] over all cores with a 90g driver, PySpark 3.5.3; GFQL binds the graph from a lazy Polars scan and its filter and hop rows run under the Polars CPU streaming collect or the cudf-polars streaming executor; PageRank rows re-bind an eager cuDF copy outside the timer.",
-        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit 840a780), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd)."
+        "GFQL filter and hop rows were measured at the head of pull request #2024 (commit e951e9a), the fix for issue #2023 (a per-edge Python loop that made undirected multi-hop ~30x slower at 0.59.0); it had not landed on master when measured. GFQL PageRank rows and the GraphFrames rows were measured at 0.59.0 (3fb216dd).",
+        "Friendster (1.8B edges) ran filter and 1-hop only, on the Polars CPU streaming lane: peak resident memory reached 106 GB of the 119 GB host after 1-hop, and the Orkut receipt (17 GB peak on 2-hop for 117M edges) projects 2-hop past the host, so 2-hop and PageRank were not attempted; GraphFrames on local[*] did not run on Friendster (a 90 GB driver heap swapped in the earlier eager attempt). Friendster rows are direct times with no comparison."
       ],
       "engine": "graphframes",
       "measurement_profile": "graphframes-tasks-warm-resident",
@@ -3126,8 +3642,8 @@
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-09-04T15:58:17Z",
-  "generated_by": "graphistry/pyg-bench 5a1a1663 scripts/export_docs_numbers.py",
+  "generated_at": "2026-09-04T17:58:54Z",
+  "generated_by": "graphistry/pyg-bench 895c308d scripts/export_docs_numbers.py",
   "policy": {
     "drift_waivers": {
       "snb-is3-single-query-20260727": "Diagnostic-only probe (comparison_allowed false) at pygraphistry 233b64c8; kept for the IS3 single-query versus two-pass note, never quoted as a result."
@@ -3216,7 +3732,7 @@
       "artifact": "results/graphframes-ladder-20260904 (one receipted rung directory per dataset x system x task group; fix2024/ holds the #2024-head hop rungs; stale-attempts/ the breached ones)",
       "competitor": "Apache Spark GraphFrames",
       "competitor_version": "graphframes assembly jar 1a4826bc (sha256 in each rung's SOURCE_COMMITS) on PySpark 3.5.3, OpenJDK 1.8.0_492, Spark local[*]",
-      "dataset": "SNAP com-LiveJournal (3,997,962 nodes / 34,681,189 edges), com-Orkut (3,072,441 nodes / 117,185,083 edges), com-Friendster (1,806,067,135 edges) as parquet edge lists; 50 highest-degree seeds; filter thresholds 42 / 162 / dataset 90th percentile",
+      "dataset": "SNAP com-LiveJournal (3,997,962 nodes / 34,681,189 edges), com-Orkut (3,072,441 nodes / 117,185,083 edges), com-Friendster (65,608,366 nodes / 1,806,067,135 edges) as parquet edge lists; 50 highest-degree seeds; filter thresholds 42 / 162 / 148 (Friendster: the 90th degree percentile)",
       "host": "dgx-spark (NVIDIA GB10), 20 CPU",
       "measured_at": "2026-09-04",
       "perf_lock_held": true,
@@ -3231,12 +3747,12 @@
       "artifact": "results/graphframes-ladder-20260904 (one receipted rung directory per dataset x system x task group; fix2024/ holds the #2024-head hop rungs; stale-attempts/ the breached ones)",
       "competitor": "Apache Spark GraphFrames",
       "competitor_version": "graphframes assembly jar 1a4826bc (sha256 in each rung's SOURCE_COMMITS) on PySpark 3.5.3, OpenJDK 1.8.0_492, Spark local[*]",
-      "dataset": "SNAP com-LiveJournal (3,997,962 nodes / 34,681,189 edges), com-Orkut (3,072,441 nodes / 117,185,083 edges), com-Friendster (1,806,067,135 edges) as parquet edge lists; 50 highest-degree seeds; filter thresholds 42 / 162 / dataset 90th percentile",
+      "dataset": "SNAP com-LiveJournal (3,997,962 nodes / 34,681,189 edges), com-Orkut (3,072,441 nodes / 117,185,083 edges), com-Friendster (65,608,366 nodes / 1,806,067,135 edges) as parquet edge lists; 50 highest-degree seeds; filter thresholds 42 / 162 / 148 (Friendster: the 90th degree percentile)",
       "host": "dgx-spark (NVIDIA GB10), 20 CPU",
       "measured_at": "2026-09-04",
       "perf_lock_held": true,
       "pyg_bench_commit": "0f8e213",
-      "pygraphistry_commit": "840a780",
+      "pygraphistry_commit": "e951e9a",
       "quiet_host": true,
       "reps": "each system loads once and stays resident; 2 warmups + 5 timed runs per task, median; GraphFrames PageRank 20 iterations",
       "row_validation": "every task records the materialized result size (node count of the filter / k-hop ball, scored vertex count for PageRank); a cell is comparable only when every system on that dataset and task reports the same size, else it is published as a direct, diagnostic-only time",

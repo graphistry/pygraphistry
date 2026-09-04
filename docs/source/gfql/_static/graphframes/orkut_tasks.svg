@@ -8,30 +8,36 @@
 <text class="n" x="16" y="89">filter: degree &gt;= 162</text>
 <rect x="193" y="96" width="1" height="84" fill="var(--rule)"/>
 <text class="a" x="26" y="116">GFQL polars (CPU)</text>
-<text class="m" x="202" y="116">not measured</text>
+<path class="cpu" d="M194 103H459.6a4 4 0 0 1 4 4V117a4 4 0 0 1 -4 4H194Z"/>
+<text x="471.6" y="116"><tspan class="n">59.4 ms</tspan><tspan class="a" dx="9">1.1x faster than GraphFrames</tspan></text>
 <text class="a" x="26" y="144">GFQL polars-gpu (GPU)</text>
-<text class="m" x="202" y="144">not measured</text>
+<path class="gpu" d="M194 131H474.1a4 4 0 0 1 4 4V145a4 4 0 0 1 -4 4H194Z"/>
+<text x="486.1" y="144"><tspan class="n">62.6 ms</tspan><tspan class="a" dx="9">1.1x faster than GraphFrames</tspan></text>
 <text class="a" x="26" y="172">GraphFrames local[*]</text>
 <path class="neo" d="M194 159H490a4 4 0 0 1 4 4V173a4 4 0 0 1 -4 4H194Z"/>
 <text x="502" y="172"><tspan class="n">66.1 ms</tspan></text>
 <text class="n" x="16" y="205">1-hop from 50 seeds</text>
 <rect x="193" y="212" width="1" height="84" fill="var(--rule)"/>
 <text class="a" x="26" y="232">GFQL polars (CPU)</text>
-<text class="m" x="202" y="232">not measured</text>
+<path class="cpu" d="M194 219H228.2a4 4 0 0 1 4 4V233a4 4 0 0 1 -4 4H194Z"/>
+<text x="240.2" y="232"><tspan class="n">514.0 ms</tspan><tspan class="a" dx="9">7.1x faster than GraphFrames</tspan></text>
 <text class="a" x="26" y="260">GFQL polars-gpu (GPU)</text>
-<text class="m" x="202" y="260">not measured</text>
+<path class="gpu" d="M194 247H490a4 4 0 0 1 4 4V261a4 4 0 0 1 -4 4H194Z"/>
+<text x="502" y="260"><tspan class="n">4037.1 ms</tspan><tspan class="a" dx="9">0.9x of GraphFrames’ speed (slower)</tspan></text>
 <text class="a" x="26" y="288">GraphFrames local[*]</text>
-<path class="neo" d="M194 275H490a4 4 0 0 1 4 4V289a4 4 0 0 1 -4 4H194Z"/>
-<text x="502" y="288"><tspan class="n">3632.2 ms</tspan></text>
+<path class="neo" d="M194 275H459.9a4 4 0 0 1 4 4V289a4 4 0 0 1 -4 4H194Z"/>
+<text x="471.9" y="288"><tspan class="n">3632.2 ms</tspan></text>
 <text class="n" x="16" y="321">2-hop from 50 seeds</text>
 <rect x="193" y="328" width="1" height="84" fill="var(--rule)"/>
 <text class="a" x="26" y="348">GFQL polars (CPU)</text>
-<text class="m" x="202" y="348">not measured</text>
+<path class="cpu" d="M194 335H432.4a4 4 0 0 1 4 4V349a4 4 0 0 1 -4 4H194Z"/>
+<text x="444.4" y="348"><tspan class="n">27348.3 ms</tspan><tspan class="a" dx="9">0.4x of GraphFrames’ speed (slower)</tspan></text>
 <text class="a" x="26" y="376">GFQL polars-gpu (GPU)</text>
-<text class="m" x="202" y="376">not measured</text>
+<path class="gpu" d="M194 363H490a4 4 0 0 1 4 4V377a4 4 0 0 1 -4 4H194Z"/>
+<text x="502" y="376"><tspan class="n">33852.9 ms</tspan><tspan class="a" dx="9">0.3x of GraphFrames’ speed (slower)</tspan></text>
 <text class="a" x="26" y="404">GraphFrames local[*]</text>
-<path class="neo" d="M194 391H490a4 4 0 0 1 4 4V405a4 4 0 0 1 -4 4H194Z"/>
-<text x="502" y="404"><tspan class="n">10885.8 ms</tspan></text>
+<path class="neo" d="M194 391H286.5a4 4 0 0 1 4 4V405a4 4 0 0 1 -4 4H194Z"/>
+<text x="298.5" y="404"><tspan class="n">10885.8 ms</tspan></text>
 <text class="n" x="16" y="437">PageRank, full graph</text>
 <rect x="193" y="444" width="1" height="84" fill="var(--rule)"/>
 <text class="a" x="26" y="464">GFQL polars (CPU)</text>
