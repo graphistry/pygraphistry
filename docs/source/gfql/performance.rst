@@ -14,8 +14,8 @@ GFQL runs the same query on ``pandas`` (the default), ``polars`` (CPU), ``cudf``
 (NVIDIA GPU), or ``polars-gpu``. Each engine returns the same rows, or GFQL reports an
 error before execution instead of changing engines. On the q1–q9 boards below, the
 Polars engine is faster than pandas on :bench-tally:`graphbench.100k|polars|pandas`
-queries at 100,000 people, by up to :bench:`graphbench.100k.q5.polars_vs_pandas`
-(q5). See :doc:`engines` for the selection guide.
+queries at 100,000 people, by up to :bench:`graphbench.100k.q6.polars_vs_pandas`
+(q6). See :doc:`engines` for the selection guide.
 
 .. doc-test: skip
 
@@ -34,9 +34,14 @@ filter records, and count two-hop paths on synthetic social graphs with 20,000 a
 100,000 people. Every cell passed result-row validation against every other engine.
 Times are milliseconds; lower is better.
 
-GFQL binds the graph cold inside every timed run. Kuzu compiles the query text on each
-call. Memgraph and Neo4j answer over Bolt with their default plan caches. These are
-direct times under those profiles, not cross-engine speedup ratios.
+GFQL binds the graph cold inside every timed run; the ``polars-gpu`` column runs the
+same fused plan on the GPU. Kuzu compiles the query text on each call. Memgraph and
+Neo4j answer over Bolt with their default plan caches. These are direct times under
+those profiles, not cross-engine speedup ratios. At these sizes the queries are
+millisecond-scale, so the GPU engine wins some and loses others to the CPU engine:
+:bench-tally:`graphbench.100k|polars_gpu|polars` at 100,000 people. Its widest loss is
+q8 at 100,000 people, :bench:`graphbench.100k.q8.polars_gpu` against
+:bench:`graphbench.100k.q8.polars` on the CPU.
 
 At 20,000 people, GFQL Polars is faster than Kuzu on
 :bench-tally:`graphbench.20k|polars|kuzu` queries, than Memgraph on
@@ -44,16 +49,18 @@ At 20,000 people, GFQL Polars is faster than Kuzu on
 :bench-tally:`graphbench.20k|polars|neo4j`. At 100,000 people the counts are
 :bench-tally:`graphbench.100k|polars|kuzu` (Kuzu),
 :bench-tally:`graphbench.100k|polars|memgraph` (Memgraph), and
-:bench-tally:`graphbench.100k|polars|neo4j` (Neo4j). Memgraph wins q5, q6, and q7 at
-100,000 people: its planner starts from the ten-node interest side, which GFQL's
-Cypher path does not yet do.
+:bench-tally:`graphbench.100k|polars|neo4j` (Neo4j). Kuzu wins q4 at 20,000 people and
+q8 at 100,000 people; the artifact's compare tables classify both as ties because the
+per-slot medians overlap. Memgraph wins q3 and q6 at 20,000 people and q5, q6, and q7 at
+100,000 people, where Neo4j also wins q5: their planners start from the ten-node
+interest side, which GFQL's Cypher path does not yet do.
 
 The 20,000-person board
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 .. list-table::
    :header-rows: 1
-   :widths: 8 10 14 14 14 20 20
+   :widths: 8 8 12 12 12 16 16 16
 
    * - Query
      - Rows
@@ -62,6 +69,7 @@ The 20,000-person board
      - Neo4j
      - GFQL ``pandas``
      - GFQL ``polars``
+     - GFQL ``polars-gpu``
    * - q1
      - 3
      - :bench:`graphbench.20k.q1.kuzu`
@@ -69,6 +77,7 @@ The 20,000-person board
      - :bench:`graphbench.20k.q1.neo4j`
      - :bench:`graphbench.20k.q1.pandas`
      - :bench:`graphbench.20k.q1.polars`
+     - :bench:`graphbench.20k.q1.polars_gpu`
    * - q2
      - 1
      - :bench:`graphbench.20k.q2.kuzu`
@@ -76,6 +85,7 @@ The 20,000-person board
      - :bench:`graphbench.20k.q2.neo4j`
      - :bench:`graphbench.20k.q2.pandas`
      - :bench:`graphbench.20k.q2.polars`
+     - :bench:`graphbench.20k.q2.polars_gpu`
    * - q3
      - 5
      - :bench:`graphbench.20k.q3.kuzu`
@@ -83,6 +93,7 @@ The 20,000-person board
      - :bench:`graphbench.20k.q3.neo4j`
      - :bench:`graphbench.20k.q3.pandas`
      - :bench:`graphbench.20k.q3.polars`
+     - :bench:`graphbench.20k.q3.polars_gpu`
    * - q4
      - 2
      - :bench:`graphbench.20k.q4.kuzu`
@@ -90,6 +101,7 @@ The 20,000-person board
      - :bench:`graphbench.20k.q4.neo4j`
      - :bench:`graphbench.20k.q4.pandas`
      - :bench:`graphbench.20k.q4.polars`
+     - :bench:`graphbench.20k.q4.polars_gpu`
    * - q5
      - 1
      - :bench:`graphbench.20k.q5.kuzu`
@@ -97,6 +109,7 @@ The 20,000-person board
      - :bench:`graphbench.20k.q5.neo4j`
      - :bench:`graphbench.20k.q5.pandas`
      - :bench:`graphbench.20k.q5.polars`
+     - :bench:`graphbench.20k.q5.polars_gpu`
    * - q6
      - 5
      - :bench:`graphbench.20k.q6.kuzu`
@@ -104,6 +117,7 @@ The 20,000-person board
      - :bench:`graphbench.20k.q6.neo4j`
      - :bench:`graphbench.20k.q6.pandas`
      - :bench:`graphbench.20k.q6.polars`
+     - :bench:`graphbench.20k.q6.polars_gpu`
    * - q7
      - 1
      - :bench:`graphbench.20k.q7.kuzu`
@@ -111,6 +125,7 @@ The 20,000-person board
      - :bench:`graphbench.20k.q7.neo4j`
      - :bench:`graphbench.20k.q7.pandas`
      - :bench:`graphbench.20k.q7.polars`
+     - :bench:`graphbench.20k.q7.polars_gpu`
    * - q8
      - 1
      - :bench:`graphbench.20k.q8.kuzu`
@@ -118,6 +133,7 @@ The 20,000-person board
      - :bench:`graphbench.20k.q8.neo4j`
      - :bench:`graphbench.20k.q8.pandas`
      - :bench:`graphbench.20k.q8.polars`
+     - :bench:`graphbench.20k.q8.polars_gpu`
    * - q9
      - 1
      - :bench:`graphbench.20k.q9.kuzu`
@@ -125,13 +141,14 @@ The 20,000-person board
      - :bench:`graphbench.20k.q9.neo4j`
      - :bench:`graphbench.20k.q9.pandas`
      - :bench:`graphbench.20k.q9.polars`
+     - :bench:`graphbench.20k.q9.polars_gpu`
 
 The 100,000-person board
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. list-table::
    :header-rows: 1
-   :widths: 8 10 14 14 14 20 20
+   :widths: 8 8 12 12 12 16 16 16
 
    * - Query
      - Rows
@@ -140,6 +157,7 @@ The 100,000-person board
      - Neo4j
      - GFQL ``pandas``
      - GFQL ``polars``
+     - GFQL ``polars-gpu``
    * - q1
      - 3
      - :bench:`graphbench.100k.q1.kuzu`
@@ -147,6 +165,7 @@ The 100,000-person board
      - :bench:`graphbench.100k.q1.neo4j`
      - :bench:`graphbench.100k.q1.pandas`
      - :bench:`graphbench.100k.q1.polars`
+     - :bench:`graphbench.100k.q1.polars_gpu`
    * - q2
      - 1
      - :bench:`graphbench.100k.q2.kuzu`
@@ -154,6 +173,7 @@ The 100,000-person board
      - :bench:`graphbench.100k.q2.neo4j`
      - :bench:`graphbench.100k.q2.pandas`
      - :bench:`graphbench.100k.q2.polars`
+     - :bench:`graphbench.100k.q2.polars_gpu`
    * - q3
      - 5
      - :bench:`graphbench.100k.q3.kuzu`
@@ -161,6 +181,7 @@ The 100,000-person board
      - :bench:`graphbench.100k.q3.neo4j`
      - :bench:`graphbench.100k.q3.pandas`
      - :bench:`graphbench.100k.q3.polars`
+     - :bench:`graphbench.100k.q3.polars_gpu`
    * - q4
      - 3
      - :bench:`graphbench.100k.q4.kuzu`
@@ -168,6 +189,7 @@ The 100,000-person board
      - :bench:`graphbench.100k.q4.neo4j`
      - :bench:`graphbench.100k.q4.pandas`
      - :bench:`graphbench.100k.q4.polars`
+     - :bench:`graphbench.100k.q4.polars_gpu`
    * - q5
      - 1
      - :bench:`graphbench.100k.q5.kuzu`
@@ -175,6 +197,7 @@ The 100,000-person board
      - :bench:`graphbench.100k.q5.neo4j`
      - :bench:`graphbench.100k.q5.pandas`
      - :bench:`graphbench.100k.q5.polars`
+     - :bench:`graphbench.100k.q5.polars_gpu`
    * - q6
      - 5
      - :bench:`graphbench.100k.q6.kuzu`
@@ -182,6 +205,7 @@ The 100,000-person board
      - :bench:`graphbench.100k.q6.neo4j`
      - :bench:`graphbench.100k.q6.pandas`
      - :bench:`graphbench.100k.q6.polars`
+     - :bench:`graphbench.100k.q6.polars_gpu`
    * - q7
      - 1
      - :bench:`graphbench.100k.q7.kuzu`
@@ -189,6 +213,7 @@ The 100,000-person board
      - :bench:`graphbench.100k.q7.neo4j`
      - :bench:`graphbench.100k.q7.pandas`
      - :bench:`graphbench.100k.q7.polars`
+     - :bench:`graphbench.100k.q7.polars_gpu`
    * - q8
      - 1
      - :bench:`graphbench.100k.q8.kuzu`
@@ -196,6 +221,7 @@ The 100,000-person board
      - :bench:`graphbench.100k.q8.neo4j`
      - :bench:`graphbench.100k.q8.pandas`
      - :bench:`graphbench.100k.q8.polars`
+     - :bench:`graphbench.100k.q8.polars_gpu`
    * - q9
      - 1
      - :bench:`graphbench.100k.q9.kuzu`
@@ -203,6 +229,7 @@ The 100,000-person board
      - :bench:`graphbench.100k.q9.neo4j`
      - :bench:`graphbench.100k.q9.pandas`
      - :bench:`graphbench.100k.q9.polars`
+     - :bench:`graphbench.100k.q9.polars_gpu`
 
 .. _gfql-snb-aligned:
 
@@ -338,7 +365,7 @@ Every figure on this page is printed from ``docs/source/_data/gfql_benchmarks.js
 which pyg-bench publishes. The documentation build and ``docs/test_bench_numbers.py``
 reject missing, stale, or unpublished values.
 
-.. bench-provenance:: graphbench-q1q9-20k-20260813 graphbench-q1q9-100k-20260813 snb-aligned-release-20260902
+.. bench-provenance:: graphbench-q1q9-20k-20260904 graphbench-q1q9-100k-20260904 snb-aligned-release-20260902
    :disclosures:
 
 Next steps
