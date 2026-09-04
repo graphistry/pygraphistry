@@ -108,10 +108,10 @@ CHARTS: dict[str, Chart] = OrderedDict((
         bars=(
             Bar('Neo4j + GDS', 'neo', 'pagerank.gplus.neo4j_gds'),
             Bar('GFQL Cypher on CPU (pandas + igraph)', 'cpu', 'pagerank.gplus.gfql_cpu'),
-            Bar('GFQL Cypher on GPU (cuDF + cuGraph)', 'gpu', 'pagerank.gplus.gfql_gpu',
-                'pagerank.gplus.gfql_gpu_vs_gfql_cpu', 'faster than the CPU path'),
+            Bar('GFQL Cypher on GPU (cuDF + cuGraph), diagnostic', 'gpu',
+                'pagerank.gplus.gfql_gpu'),
         ),
-        foot='Direct timings span runs/profiles; only the GFQL GPU/CPU ratio is valid.',
+        foot='Direct timings span runs/profiles; the GPU arm selects a different node set.',
     )),
 ))
 

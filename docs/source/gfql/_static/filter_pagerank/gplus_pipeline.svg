@@ -10,10 +10,10 @@
 <path class="neo" d="M16 94H436a4 4 0 0 1 4 4V114a4 4 0 0 1 -4 4H16Z"/>
 <text x="450" y="111"><tspan class="n">354.47 s</tspan></text>
 <text class="a" x="17" y="147">GFQL Cypher on CPU (pandas + igraph)</text>
-<path class="cpu" d="M16 156H50.4a4 4 0 0 1 4 4V176a4 4 0 0 1 -4 4H16Z"/>
-<text x="64.4" y="173"><tspan class="n">32.10 s</tspan></text>
-<text class="a" x="17" y="209">GFQL Cypher on GPU (cuDF + cuGraph)</text>
+<path class="cpu" d="M16 156H52.8a4 4 0 0 1 4 4V176a4 4 0 0 1 -4 4H16Z"/>
+<text x="66.8" y="173"><tspan class="n">34.11 s</tspan></text>
+<text class="a" x="17" y="209">GFQL Cypher on GPU (cuDF + cuGraph), diagnostic</text>
 <path class="gpu" d="M16 218H17a4 4 0 0 1 4 4V238a4 4 0 0 1 -4 4H16Z"/>
-<text x="31" y="235"><tspan class="n">2.42 s</tspan><tspan class="a" dx="11">13.3x faster than the CPU path</tspan></text>
-<text class="m" x="16" y="279">Direct timings span runs/profiles; only the GFQL GPU/CPU ratio is valid.</text>
+<text x="31" y="235"><tspan class="n">2.47 s</tspan></text>
+<text class="m" x="16" y="279">Direct timings span runs/profiles; the GPU arm selects a different node set.</text>
 </g></svg>

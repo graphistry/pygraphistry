@@ -10,13 +10,16 @@ This case study runs one three-stage graph pipeline, filter, PageRank, filter,
 on two systems. GFQL is Graphistry's open-source graph query language: Cypher
 that executes in-process on Python dataframes with no database. Neo4j + Graph
 Data Science (GDS) is the graph database and its analytics library. On both
-graphs, Twitter (2.4M edges) and GPlus (30M edges), GFQL finished the pipeline
-faster than Neo4j + GDS, on CPU and on GPU. On GPlus the GFQL GPU path takes
-:bench:`pagerank.gplus.gfql_gpu`, the GFQL CPU path
-:bench:`pagerank.gplus.gfql_cpu`, and Neo4j + GDS
-:bench:`pagerank.gplus.neo4j_gds`. Use the GPU engine when one is available:
-it is :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu` faster than the CPU engine
-on GPlus and :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu` faster on Twitter.
+graphs, Twitter (2.4M edges) and GPlus (30M edges), GFQL on CPU finished the
+pipeline faster than Neo4j + GDS while selecting the same nodes. On GPlus the
+GFQL CPU path takes :bench:`pagerank.gplus.gfql_cpu` and Neo4j + GDS
+:bench:`pagerank.gplus.neo4j_gds`. On Twitter the GFQL GPU path is
+:bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu` faster than the CPU path
+(:bench:`pagerank.twitter.gfql_gpu` versus :bench:`pagerank.twitter.gfql_cpu`).
+On GPlus the GPU path takes :bench-diag:`pagerank.gplus.gfql_gpu`, but its
+cuGraph PageRank selects a different node set than igraph at the 0.9995
+cutoff, so that time is a diagnostic and no GPU-vs-CPU ratio is published
+for GPlus.
 
 .. list-table::
    :header-rows: 1
@@ -35,14 +38,14 @@ on GPlus and :bench:`pagerank.twitter.gfql_gpu_vs_gfql_cpu` faster on Twitter.
    * - **GPlus** (107,614 nodes / 30M edges)
      - :bench:`pagerank.gplus.neo4j_gds`
      - :bench:`pagerank.gplus.gfql_cpu`
-     - :bench:`pagerank.gplus.gfql_gpu`
-     - :bench:`pagerank.gplus.gfql_gpu_vs_gfql_cpu`
+     - :bench-diag:`pagerank.gplus.gfql_gpu`
+     - not published (selection differs)
 
 .. image:: _static/filter_pagerank/twitter_pipeline.svg
-   :alt: Twitter warm pipeline time: Neo4j + GDS 11.72s, GFQL Cypher CPU 1.58s, GFQL Cypher GPU 0.24s
+   :alt: Twitter warm pipeline time: Neo4j + GDS 11.72 s, GFQL Cypher CPU 2.62 s, GFQL Cypher GPU 0.23 s
 
 .. image:: _static/filter_pagerank/gplus_pipeline.svg
-   :alt: GPlus warm pipeline time: Neo4j + GDS 354.47s, GFQL Cypher CPU 32.10s, GFQL Cypher GPU 2.42s
+   :alt: GPlus warm pipeline time: Neo4j + GDS 354.47 s, GFQL Cypher CPU 34.11 s, GFQL Cypher GPU 2.47 s (diagnostic)
 
 The pipeline
 ------------
@@ -136,11 +139,15 @@ Method and limits
 -----------------
 
 - **Workload**: one pipeline (filter, PageRank, filter) on two SNAP graphs.
-  In the GPlus locked run, the Neo4j and GFQL arms selected exactly the same
-  node set.
-- **Timing**: warm runs after warm-up. The GPlus Neo4j time comes from a
-  later locked run of twelve position-balanced slots on one machine; the
-  Measurement block below records both runs.
+  Selected-node parity is measured (Jaccard, gate 0.95): on Twitter the GFQL
+  CPU arm matches Neo4j at 0.9999; on GPlus the GFQL CPU arm selects exactly
+  the locked lane's set; the GPlus GPU arm is at 0.91 against CPU and is
+  therefore diagnostic-only (see the caveats below).
+- **Timing**: warm runs after warm-up (2 warm-ups, 5 timed runs, median). The
+  GFQL arms were measured at the 0.59.0 release commit; the Twitter Neo4j arm
+  is the 2026-07-28 measurement, and the GPlus Neo4j time comes from a later
+  locked run of twelve position-balanced slots on one machine. The Measurement
+  block below records every run.
 - **Profiles differ**: GFQL reuses frames already resident in Python. Neo4j
   includes server round trips, writes marker properties in both filter stages,
   and rebuilds the GDS in-memory projection on every timed iteration. The
@@ -161,5 +168,5 @@ Provenance
 Every figure on this page is printed from ``docs/source/_data/gfql_benchmarks.json``,
 which pyg-bench publishes.
 
-.. bench-provenance:: filter-pagerank-20260728 filter-pagerank-gplus-locked-20260830
+.. bench-provenance:: filter-pagerank-059-20260904 filter-pagerank-gplus-locked-20260830
    :disclosures:
