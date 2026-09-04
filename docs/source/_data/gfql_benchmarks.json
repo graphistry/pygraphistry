@@ -8,10 +8,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-20260726",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 153.16,
+      "value": 151.3,
+      "workload": "graph-benchmark 100k q1"
+    },
+    "graphbench.100k.q1.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 655.5,
+      "workload": "graph-benchmark 100k q1"
+    },
+    "graphbench.100k.q1.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 680.72,
       "workload": "graph-benchmark 100k q1"
     },
     "graphbench.100k.q1.pandas": {
@@ -21,11 +49,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 199.43,
+      "value": 173.86,
       "workload": "graph-benchmark 100k q1"
     },
     "graphbench.100k.q1.polars": {
@@ -35,12 +63,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 42.14,
+      "value": 26.49,
       "workload": "graph-benchmark 100k q1"
+    },
+    "graphbench.100k.q1.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.100k.q1.polars",
+        "graphbench.100k.q1.pandas"
+      ],
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 6.6,
+      "workload": "graph-benchmark 100k q1 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q2.kuzu": {
       "board_quotable": true,
@@ -50,10 +95,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-20260726",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 281.91,
+      "value": 279.17,
+      "workload": "graph-benchmark 100k q2"
+    },
+    "graphbench.100k.q2.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 468.94,
+      "workload": "graph-benchmark 100k q2"
+    },
+    "graphbench.100k.q2.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 632.7,
       "workload": "graph-benchmark 100k q2"
     },
     "graphbench.100k.q2.pandas": {
@@ -63,11 +136,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 208.88,
+      "value": 183.72,
       "workload": "graph-benchmark 100k q2"
     },
     "graphbench.100k.q2.polars": {
@@ -77,12 +150,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 55.76,
+      "value": 38.84,
       "workload": "graph-benchmark 100k q2"
+    },
+    "graphbench.100k.q2.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.100k.q2.polars",
+        "graphbench.100k.q2.pandas"
+      ],
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 4.7,
+      "workload": "graph-benchmark 100k q2 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q3.kuzu": {
       "board_quotable": true,
@@ -92,10 +182,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-20260726",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 28.76,
+      "value": 34.16,
+      "workload": "graph-benchmark 100k q3"
+    },
+    "graphbench.100k.q3.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 30.17,
+      "workload": "graph-benchmark 100k q3"
+    },
+    "graphbench.100k.q3.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 51.14,
       "workload": "graph-benchmark 100k q3"
     },
     "graphbench.100k.q3.pandas": {
@@ -105,11 +223,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 73.72,
+      "value": 76.29,
       "workload": "graph-benchmark 100k q3"
     },
     "graphbench.100k.q3.polars": {
@@ -119,12 +237,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 14.74,
+      "value": 9.9,
       "workload": "graph-benchmark 100k q3"
+    },
+    "graphbench.100k.q3.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.100k.q3.polars",
+        "graphbench.100k.q3.pandas"
+      ],
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 7.7,
+      "workload": "graph-benchmark 100k q3 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q4.kuzu": {
       "board_quotable": true,
@@ -134,10 +269,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-20260726",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 11.56,
+      "value": 13.78,
+      "workload": "graph-benchmark 100k q4"
+    },
+    "graphbench.100k.q4.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 37.64,
+      "workload": "graph-benchmark 100k q4"
+    },
+    "graphbench.100k.q4.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 63.76,
       "workload": "graph-benchmark 100k q4"
     },
     "graphbench.100k.q4.pandas": {
@@ -147,11 +310,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 64.09,
+      "value": 69.28,
       "workload": "graph-benchmark 100k q4"
     },
     "graphbench.100k.q4.polars": {
@@ -161,12 +324,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 12.13,
+      "value": 10.15,
       "workload": "graph-benchmark 100k q4"
+    },
+    "graphbench.100k.q4.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.100k.q4.polars",
+        "graphbench.100k.q4.pandas"
+      ],
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 6.8,
+      "workload": "graph-benchmark 100k q4 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q5.kuzu": {
       "board_quotable": true,
@@ -176,10 +356,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-20260726",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 12.88,
+      "value": 12.54,
+      "workload": "graph-benchmark 100k q5"
+    },
+    "graphbench.100k.q5.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 3.95,
+      "workload": "graph-benchmark 100k q5"
+    },
+    "graphbench.100k.q5.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 8.96,
       "workload": "graph-benchmark 100k q5"
     },
     "graphbench.100k.q5.pandas": {
@@ -189,11 +397,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 410.05,
+      "value": 411.6,
       "workload": "graph-benchmark 100k q5"
     },
     "graphbench.100k.q5.polars": {
@@ -203,12 +411,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 17.52,
+      "value": 11.33,
       "workload": "graph-benchmark 100k q5"
+    },
+    "graphbench.100k.q5.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.100k.q5.polars",
+        "graphbench.100k.q5.pandas"
+      ],
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 36.3,
+      "workload": "graph-benchmark 100k q5 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q6.kuzu": {
       "board_quotable": true,
@@ -218,10 +443,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-20260726",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 20.73,
+      "value": 24.42,
+      "workload": "graph-benchmark 100k q6"
+    },
+    "graphbench.100k.q6.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 5.14,
+      "workload": "graph-benchmark 100k q6"
+    },
+    "graphbench.100k.q6.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 22.94,
       "workload": "graph-benchmark 100k q6"
     },
     "graphbench.100k.q6.pandas": {
@@ -231,11 +484,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 412.3,
+      "value": 410.3,
       "workload": "graph-benchmark 100k q6"
     },
     "graphbench.100k.q6.polars": {
@@ -245,12 +498,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 21.99,
+      "value": 12.24,
       "workload": "graph-benchmark 100k q6"
+    },
+    "graphbench.100k.q6.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.100k.q6.polars",
+        "graphbench.100k.q6.pandas"
+      ],
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 33.5,
+      "workload": "graph-benchmark 100k q6 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q7.kuzu": {
       "board_quotable": true,
@@ -260,10 +530,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-20260726",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 8.85,
+      "value": 9.57,
+      "workload": "graph-benchmark 100k q7"
+    },
+    "graphbench.100k.q7.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 3.74,
+      "workload": "graph-benchmark 100k q7"
+    },
+    "graphbench.100k.q7.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 140.18,
       "workload": "graph-benchmark 100k q7"
     },
     "graphbench.100k.q7.pandas": {
@@ -273,11 +571,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 119.63,
+      "value": 120.63,
       "workload": "graph-benchmark 100k q7"
     },
     "graphbench.100k.q7.polars": {
@@ -287,12 +585,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 16.12,
+      "value": 6.94,
       "workload": "graph-benchmark 100k q7"
+    },
+    "graphbench.100k.q7.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.100k.q7.polars",
+        "graphbench.100k.q7.pandas"
+      ],
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 17.4,
+      "workload": "graph-benchmark 100k q7 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q8.kuzu": {
       "board_quotable": true,
@@ -302,43 +617,84 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-20260726",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 9.76,
+      "value": 13.45,
+      "workload": "graph-benchmark 100k q8"
+    },
+    "graphbench.100k.q8.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 7316.46,
+      "workload": "graph-benchmark 100k q8"
+    },
+    "graphbench.100k.q8.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 3766.74,
       "workload": "graph-benchmark 100k q8"
     },
     "graphbench.100k.q8.pandas": {
-      "board_quotable": false,
-      "comparison_allowed": false,
+      "board_quotable": true,
+      "comparison_allowed": true,
       "competitor": "kuzu",
       "decimals": 2,
-      "disclosures": [
-        "Measured with a harness that reused ONE Plottable across iterations, so pygraphistry's cross-call degree-count memo (pygraphistry #1825) made every timed run a cache HIT. One-shot, the same query is 8.89 ms at 20k and 34.11 ms at 100k on polars -- a LOSS to Kuzu, not a win. Re-measured in results/graphbench-q8-binding-20260729/; the memo hits ALL engines, so the pandas figure is flattered too."
-      ],
+      "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 91.6,
+      "value": 88.78,
       "workload": "graph-benchmark 100k q8"
     },
     "graphbench.100k.q8.polars": {
-      "board_quotable": false,
-      "comparison_allowed": false,
+      "board_quotable": true,
+      "comparison_allowed": true,
       "competitor": "kuzu",
       "decimals": 2,
-      "disclosures": [
-        "Measured with a harness that reused ONE Plottable across iterations, so pygraphistry's cross-call degree-count memo (pygraphistry #1825) made every timed run a cache HIT. One-shot, the same query is 8.89 ms at 20k and 34.11 ms at 100k on polars -- a LOSS to Kuzu, not a win. Re-measured in results/graphbench-q8-binding-20260729/; the memo hits ALL engines, so the pandas figure is flattered too."
-      ],
+      "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 5.06,
+      "value": 13.6,
       "workload": "graph-benchmark 100k q8"
+    },
+    "graphbench.100k.q8.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.100k.q8.polars",
+        "graphbench.100k.q8.pandas"
+      ],
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 6.5,
+      "workload": "graph-benchmark 100k q8 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.100k.q9.kuzu": {
       "board_quotable": true,
@@ -348,10 +704,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-100k-20260726",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 84.06,
+      "value": 84.32,
+      "workload": "graph-benchmark 100k q9"
+    },
+    "graphbench.100k.q9.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 6199.8,
+      "workload": "graph-benchmark 100k q9"
+    },
+    "graphbench.100k.q9.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 4843.46,
       "workload": "graph-benchmark 100k q9"
     },
     "graphbench.100k.q9.pandas": {
@@ -361,11 +745,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 212.0,
+      "value": 162.06,
       "workload": "graph-benchmark 100k q9"
     },
     "graphbench.100k.q9.polars": {
@@ -375,12 +759,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-100k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-100k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 66.61,
+      "value": 36.33,
       "workload": "graph-benchmark 100k q9"
+    },
+    "graphbench.100k.q9.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.100k.q9.polars",
+        "graphbench.100k.q9.pandas"
+      ],
+      "run": "graphbench-q1q9-100k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 4.5,
+      "workload": "graph-benchmark 100k q9 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q1.kuzu": {
       "board_quotable": true,
@@ -390,10 +791,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-20260726",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 14.51,
+      "value": 15.77,
+      "workload": "graph-benchmark 20k q1"
+    },
+    "graphbench.20k.q1.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 66.08,
+      "workload": "graph-benchmark 20k q1"
+    },
+    "graphbench.20k.q1.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 74.5,
       "workload": "graph-benchmark 20k q1"
     },
     "graphbench.20k.q1.pandas": {
@@ -403,11 +832,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 35.46,
+      "value": 27.6,
       "workload": "graph-benchmark 20k q1"
     },
     "graphbench.20k.q1.polars": {
@@ -417,12 +846,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 13.13,
+      "value": 7.34,
       "workload": "graph-benchmark 20k q1"
+    },
+    "graphbench.20k.q1.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.20k.q1.polars",
+        "graphbench.20k.q1.pandas"
+      ],
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 3.8,
+      "workload": "graph-benchmark 20k q1 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q2.kuzu": {
       "board_quotable": true,
@@ -432,10 +878,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-20260726",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 31.62,
+      "value": 41.03,
+      "workload": "graph-benchmark 20k q2"
+    },
+    "graphbench.20k.q2.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 44.41,
+      "workload": "graph-benchmark 20k q2"
+    },
+    "graphbench.20k.q2.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 67.74,
       "workload": "graph-benchmark 20k q2"
     },
     "graphbench.20k.q2.pandas": {
@@ -445,11 +919,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 38.05,
+      "value": 30.16,
       "workload": "graph-benchmark 20k q2"
     },
     "graphbench.20k.q2.polars": {
@@ -459,12 +933,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 17.59,
+      "value": 11.05,
       "workload": "graph-benchmark 20k q2"
+    },
+    "graphbench.20k.q2.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.20k.q2.polars",
+        "graphbench.20k.q2.pandas"
+      ],
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 2.7,
+      "workload": "graph-benchmark 20k q2 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q3.kuzu": {
       "board_quotable": true,
@@ -474,10 +965,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-20260726",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 5.94,
+      "value": 5.68,
+      "workload": "graph-benchmark 20k q3"
+    },
+    "graphbench.20k.q3.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 4.16,
+      "workload": "graph-benchmark 20k q3"
+    },
+    "graphbench.20k.q3.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 8.31,
       "workload": "graph-benchmark 20k q3"
     },
     "graphbench.20k.q3.pandas": {
@@ -487,11 +1006,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 11.68,
+      "value": 11.32,
       "workload": "graph-benchmark 20k q3"
     },
     "graphbench.20k.q3.polars": {
@@ -501,12 +1020,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 7.66,
+      "value": 4.69,
       "workload": "graph-benchmark 20k q3"
+    },
+    "graphbench.20k.q3.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.20k.q3.polars",
+        "graphbench.20k.q3.pandas"
+      ],
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 2.4,
+      "workload": "graph-benchmark 20k q3 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q4.kuzu": {
       "board_quotable": true,
@@ -516,10 +1052,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-20260726",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 3.42,
+      "value": 3.18,
+      "workload": "graph-benchmark 20k q4"
+    },
+    "graphbench.20k.q4.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 6.38,
+      "workload": "graph-benchmark 20k q4"
+    },
+    "graphbench.20k.q4.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 11.54,
       "workload": "graph-benchmark 20k q4"
     },
     "graphbench.20k.q4.pandas": {
@@ -529,11 +1093,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 9.45,
+      "value": 9.84,
       "workload": "graph-benchmark 20k q4"
     },
     "graphbench.20k.q4.polars": {
@@ -543,12 +1107,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 6.04,
+      "value": 3.23,
       "workload": "graph-benchmark 20k q4"
+    },
+    "graphbench.20k.q4.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.20k.q4.polars",
+        "graphbench.20k.q4.pandas"
+      ],
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 3.0,
+      "workload": "graph-benchmark 20k q4 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q5.kuzu": {
       "board_quotable": true,
@@ -558,10 +1139,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-20260726",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 5.75,
+      "value": 5.18,
+      "workload": "graph-benchmark 20k q5"
+    },
+    "graphbench.20k.q5.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 4.63,
+      "workload": "graph-benchmark 20k q5"
+    },
+    "graphbench.20k.q5.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 18.33,
       "workload": "graph-benchmark 20k q5"
     },
     "graphbench.20k.q5.pandas": {
@@ -571,11 +1180,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 81.03,
+      "value": 79.44,
       "workload": "graph-benchmark 20k q5"
     },
     "graphbench.20k.q5.polars": {
@@ -585,12 +1194,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 8.9,
+      "value": 4.2,
       "workload": "graph-benchmark 20k q5"
+    },
+    "graphbench.20k.q5.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.20k.q5.polars",
+        "graphbench.20k.q5.pandas"
+      ],
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 18.9,
+      "workload": "graph-benchmark 20k q5 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q6.kuzu": {
       "board_quotable": true,
@@ -600,10 +1226,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-20260726",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 8.23,
+      "value": 8.67,
+      "workload": "graph-benchmark 20k q6"
+    },
+    "graphbench.20k.q6.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 4.85,
+      "workload": "graph-benchmark 20k q6"
+    },
+    "graphbench.20k.q6.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 20.99,
       "workload": "graph-benchmark 20k q6"
     },
     "graphbench.20k.q6.pandas": {
@@ -613,11 +1267,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 81.25,
+      "value": 79.42,
       "workload": "graph-benchmark 20k q6"
     },
     "graphbench.20k.q6.polars": {
@@ -627,12 +1281,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 10.43,
+      "value": 4.79,
       "workload": "graph-benchmark 20k q6"
+    },
+    "graphbench.20k.q6.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.20k.q6.polars",
+        "graphbench.20k.q6.pandas"
+      ],
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 16.6,
+      "workload": "graph-benchmark 20k q6 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q7.kuzu": {
       "board_quotable": true,
@@ -642,10 +1313,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-20260726",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 5.19,
+      "value": 5.13,
+      "workload": "graph-benchmark 20k q7"
+    },
+    "graphbench.20k.q7.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 5.39,
+      "workload": "graph-benchmark 20k q7"
+    },
+    "graphbench.20k.q7.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 15.14,
       "workload": "graph-benchmark 20k q7"
     },
     "graphbench.20k.q7.pandas": {
@@ -655,11 +1354,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 19.97,
+      "value": 19.52,
       "workload": "graph-benchmark 20k q7"
     },
     "graphbench.20k.q7.polars": {
@@ -669,12 +1368,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 10.16,
+      "value": 3.25,
       "workload": "graph-benchmark 20k q7"
+    },
+    "graphbench.20k.q7.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.20k.q7.polars",
+        "graphbench.20k.q7.pandas"
+      ],
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 6.0,
+      "workload": "graph-benchmark 20k q7 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q8.kuzu": {
       "board_quotable": true,
@@ -684,43 +1400,84 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-20260726",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 2.52,
+      "value": 2.69,
+      "workload": "graph-benchmark 20k q8"
+    },
+    "graphbench.20k.q8.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 198.8,
+      "workload": "graph-benchmark 20k q8"
+    },
+    "graphbench.20k.q8.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 198.71,
       "workload": "graph-benchmark 20k q8"
     },
     "graphbench.20k.q8.pandas": {
-      "board_quotable": false,
-      "comparison_allowed": false,
+      "board_quotable": true,
+      "comparison_allowed": true,
       "competitor": "kuzu",
       "decimals": 2,
-      "disclosures": [
-        "Measured with a harness that reused ONE Plottable across iterations, so pygraphistry's cross-call degree-count memo (pygraphistry #1825) made every timed run a cache HIT. One-shot, the same query is 8.89 ms at 20k and 34.11 ms at 100k on polars -- a LOSS to Kuzu, not a win. Re-measured in results/graphbench-q8-binding-20260729/; the memo hits ALL engines, so the pandas figure is flattered too."
-      ],
+      "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 10.46,
+      "value": 11.5,
       "workload": "graph-benchmark 20k q8"
     },
     "graphbench.20k.q8.polars": {
-      "board_quotable": false,
-      "comparison_allowed": false,
+      "board_quotable": true,
+      "comparison_allowed": true,
       "competitor": "kuzu",
       "decimals": 2,
-      "disclosures": [
-        "Measured with a harness that reused ONE Plottable across iterations, so pygraphistry's cross-call degree-count memo (pygraphistry #1825) made every timed run a cache HIT. One-shot, the same query is 8.89 ms at 20k and 34.11 ms at 100k on polars -- a LOSS to Kuzu, not a win. Re-measured in results/graphbench-q8-binding-20260729/; the memo hits ALL engines, so the pandas figure is flattered too."
-      ],
+      "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 2.07,
+      "value": 2.08,
       "workload": "graph-benchmark 20k q8"
+    },
+    "graphbench.20k.q8.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.20k.q8.polars",
+        "graphbench.20k.q8.pandas"
+      ],
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 5.5,
+      "workload": "graph-benchmark 20k q8 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "graphbench.20k.q9.kuzu": {
       "board_quotable": true,
@@ -730,10 +1487,38 @@
       "disclosures": [],
       "engine": "kuzu",
       "measurement_profile": "graphbench-kuzu-execute-text-per-call",
-      "run": "graphbench-q1q9-20k-20260726",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 10.85,
+      "value": 10.68,
+      "workload": "graph-benchmark 20k q9"
+    },
+    "graphbench.20k.q9.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "memgraph",
+      "measurement_profile": "graphbench-memgraph-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 124.91,
+      "workload": "graph-benchmark 20k q9"
+    },
+    "graphbench.20k.q9.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 2,
+      "disclosures": [],
+      "engine": "neo4j",
+      "measurement_profile": "graphbench-neo4j-bolt-text-keyed-plan-cache",
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "ms",
+      "value": 422.29,
       "workload": "graph-benchmark 20k q9"
     },
     "graphbench.20k.q9.pandas": {
@@ -743,11 +1528,11 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "pandas",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 28.29,
+      "value": 22.35,
       "workload": "graph-benchmark 20k q9"
     },
     "graphbench.20k.q9.polars": {
@@ -757,12 +1542,29 @@
       "decimals": 2,
       "disclosures": [],
       "engine": "polars",
-      "measurement_profile": "graphbench-reused-binding",
-      "run": "graphbench-q1q9-20k-20260726",
+      "measurement_profile": "graphbench-cold-binding",
+      "run": "graphbench-q1q9-20k-20260813",
       "status": "ok",
       "unit": "ms",
-      "value": 13.83,
+      "value": 8.81,
       "workload": "graph-benchmark 20k q9"
+    },
+    "graphbench.20k.q9.polars_vs_pandas": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 1,
+      "disclosures": [],
+      "engine": "polars",
+      "measurement_profile": "graphbench-cold-binding",
+      "operands": [
+        "graphbench.20k.q9.polars",
+        "graphbench.20k.q9.pandas"
+      ],
+      "run": "graphbench-q1q9-20k-20260813",
+      "status": "ok",
+      "unit": "x",
+      "value": 2.5,
+      "workload": "graph-benchmark 20k q9 \u2014 GFQL-polars vs GFQL-pandas"
     },
     "pagerank.gplus.gfql_cpu": {
       "board_quotable": true,
@@ -880,6 +1682,320 @@
       "value": 11.72,
       "workload": "filter -> PageRank -> filter, twitter \u2014 Neo4j + GDS"
     },
+    "snb.sf01.message_content.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 2.91,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-content"
+    },
+    "snb.sf01.message_content.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.717,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-content"
+    },
+    "snb.sf01.message_content.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "memgraph",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.486,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-content"
+    },
+    "snb.sf01.message_content.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "neo4j",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 2.26,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-content"
+    },
+    "snb.sf01.message_creator.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 20.352,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-creator"
+    },
+    "snb.sf01.message_creator.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 1.433,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-creator"
+    },
+    "snb.sf01.message_creator.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "memgraph",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.603,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-creator"
+    },
+    "snb.sf01.message_creator.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "neo4j",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 2.63,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-creator"
+    },
+    "snb.sf01.message_replies.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 48.017,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-replies"
+    },
+    "snb.sf01.message_replies.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 23.904,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 message-replies"
+    },
+    "snb.sf01.new_topics.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 45.86,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 new-topics"
+    },
+    "snb.sf01.new_topics.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 47.198,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 new-topics"
+    },
+    "snb.sf01.recent_replies.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 84.978,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 recent-replies"
+    },
+    "snb.sf01.recent_replies.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 32.407,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 recent-replies"
+    },
+    "snb.sf01.recent_replies.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "memgraph",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 4.342,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 recent-replies"
+    },
+    "snb.sf01.recent_replies.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "neo4j",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 7.454,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 recent-replies"
+    },
+    "snb.sf01.seed_lookup.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 26.706,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 seed-lookup"
+    },
+    "snb.sf01.seed_lookup.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 2.329,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 seed-lookup"
+    },
+    "snb.sf01.seed_lookup.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "memgraph",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.592,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 seed-lookup"
+    },
+    "snb.sf01.seed_lookup.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "neo4j",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 3.497,
+      "workload": "LDBC SNB-derived aligned queries sf0.1 seed-lookup"
+    },
     "snb.sf1.is3.single_query.polars": {
       "board_quotable": false,
       "comparison_allowed": false,
@@ -909,12 +2025,238 @@
       "unit": "ms",
       "value": 75.22,
       "workload": "LDBC SNB IS3 (SF1), superseded two-pass adapter form"
+    },
+    "snb.sf1.message_content.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 3.556,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-content"
+    },
+    "snb.sf1.message_content.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.674,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-content"
+    },
+    "snb.sf1.message_content.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "memgraph",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.293,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-content"
+    },
+    "snb.sf1.message_content.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "neo4j",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 2.435,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-content"
+    },
+    "snb.sf1.message_creator.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 78.38,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-creator"
+    },
+    "snb.sf1.message_creator.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 1.509,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-creator"
+    },
+    "snb.sf1.message_creator.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "memgraph",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.308,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-creator"
+    },
+    "snb.sf1.message_creator.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "neo4j",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 1.671,
+      "workload": "LDBC SNB-derived aligned queries sf1 message-creator"
+    },
+    "snb.sf1.new_topics.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 201.442,
+      "workload": "LDBC SNB-derived aligned queries sf1 new-topics"
+    },
+    "snb.sf1.new_topics.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 223.715,
+      "workload": "LDBC SNB-derived aligned queries sf1 new-topics"
+    },
+    "snb.sf1.seed_lookup.gfql_polars": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "gfql_polars",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 89.161,
+      "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
+    },
+    "snb.sf1.seed_lookup.kuzu": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "kuzu",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "kuzu",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 2.517,
+      "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
+    },
+    "snb.sf1.seed_lookup.memgraph": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "memgraph",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "memgraph",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 0.523,
+      "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
+    },
+    "snb.sf1.seed_lookup.neo4j": {
+      "board_quotable": true,
+      "comparison_allowed": true,
+      "competitor": "neo4j",
+      "decimals": 3,
+      "disclosures": [
+        "Matched SNB-derived query shapes on the SNB Interactive dataset, run without the official LDBC driver; this is internal evidence, not an audited or official LDBC result. Each engine ran under the same timing contract with exact result parity, and the three graph databases are faster than GFQL on every universal point-lookup cell."
+      ],
+      "engine": "neo4j",
+      "measurement_profile": "snb-interactive-warm-repeated-query",
+      "run": "snb-aligned-release-20260902",
+      "status": "ok",
+      "unit": "ms",
+      "value": 2.884,
+      "workload": "LDBC SNB-derived aligned queries sf1 seed-lookup"
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-09-04T00:02:28Z",
-  "generated_by": "graphistry/pyg-bench c0e15bb2 scripts/export_docs_numbers.py",
+  "generated_at": "2026-09-04T05:28:48Z",
+  "generated_by": "graphistry/pyg-bench 3beae394 scripts/export_docs_numbers.py",
   "policy": {
+    "drift_waivers": {
+      "filter-pagerank-20260728": "GFQL CPU/GPU arms measured at pygraphistry 49db91cc (411 graphistry/compute commits before 0.59.0); the Neo4j GPlus arm was re-measured in the locked 2026-08-30 lane. A release-commit re-measurement of the GFQL arms is tracked.",
+      "graphbench-q1q9-100k-20260813": "Relaned board measured at release-candidate pygraphistry 4d301b18 (274 graphistry/compute commits before 0.59.0). A release-commit re-measurement with a polars-gpu column is tracked; publish this board with its provenance until then.",
+      "graphbench-q1q9-20k-20260813": "Relaned board measured at release-candidate pygraphistry 4d301b18 (274 graphistry/compute commits before 0.59.0). A release-commit re-measurement with a polars-gpu column is tracked; publish this board with its provenance until then.",
+      "snb-is3-single-query-20260727": "Diagnostic-only probe (comparison_allowed false) at pygraphistry 233b64c8; kept for the IS3 single-query versus two-pass note, never quoted as a result."
+    },
     "literal_allowlist": {},
     "managed_docs": [
       "gfql/performance.rst",
@@ -965,35 +2307,50 @@
       "row_validation": "All 12 selected-node sets had Jaccard 1.0 against the reference (gate 0.95); every slot passed typed result, exact run-contract, and load/self-spike validation; the committed aggregate exactly recomputes from all slots.",
       "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13); GFQL Python 3.13.12, pandas 2.3.3, python-igraph 1.0.0; Neo4j 2026.02.2 + graph-data-science with Python client 3.12.3 on the same host; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
     },
-    "graphbench-q1q9-100k-20260726": {
-      "artifact": "results/graphbench-matched-q1q9-20260726/gb100k",
-      "competitor": "Kuzu",
-      "competitor_version": "0.11.3 (embedded, CPU)",
+    "graphbench-q1q9-100k-20260813": {
+      "artifact": "results/graphbench-board-relane-20260813/100k with results/graphbench-memgraph-20260812 and results/graphbench-neo4j-20260812",
+      "competitor": "Kuzu, Memgraph, Neo4j",
+      "competitor_version": "Kuzu 0.11.3 (embedded, CPU); Memgraph 2.18.1 (Docker); Neo4j 5 community (Docker)",
       "dataset": "prrao87 graph-benchmark, 100,000 persons / 2,417,738 FOLLOWS / 2,775,195 edges",
       "host": "dgx-spark (NVIDIA GB10), 20 CPU",
-      "measured_at": "2026-07-26",
+      "measured_at": "2026-08-13",
       "perf_lock_held": true,
-      "pyg_bench_commit": "47f94ba",
-      "pygraphistry_commit": "84be35fb",
+      "pyg_bench_commit": "8ee0dee9",
+      "pygraphistry_commit": "4d301b18",
       "quiet_host": true,
-      "reps": "2 warmups + 5 timed runs per slot; slot median, then median across 4 position-balanced slots (K G G K K G G K)",
-      "row_validation": "every cell emits a canonical, column-order-independent row set; a GFQL cell is only publishable when its rows equal Kuzu's on every slot",
-      "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13), polars 1.35.2; Kuzu in a host venv on CPU; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
+      "reps": "GFQL and Kuzu: 3 warmups then timed runs per slot, 4 position-balanced slots per engine (G/K), slot median then median across slots; GFQL binds the graph cold in every timed run (bind time included). Memgraph and Neo4j: 4 slots each of 7 timed runs over Bolt on 2026-08-12, values matched to the GFQL board.",
+      "row_validation": "every cell emits a canonical, column-order-independent row set; a GFQL cell is publishable only when its rows equal every competitor's on every slot",
+      "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13), polars 1.35.2; Kuzu 0.11.3 in a host venv on CPU; Memgraph 2.18.1 and Neo4j 5 community in Docker on the same host; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
     },
-    "graphbench-q1q9-20k-20260726": {
-      "artifact": "results/graphbench-matched-q1q9-20260726/gb20k",
-      "competitor": "Kuzu",
-      "competitor_version": "0.11.3 (embedded, CPU)",
+    "graphbench-q1q9-20k-20260813": {
+      "artifact": "results/graphbench-board-relane-20260813/20k with results/graphbench-memgraph-20260812 and results/graphbench-neo4j-20260812",
+      "competitor": "Kuzu, Memgraph, Neo4j",
+      "competitor_version": "Kuzu 0.11.3 (embedded, CPU); Memgraph 2.18.1 (Docker); Neo4j 5 community (Docker)",
       "dataset": "prrao87 graph-benchmark, 20,000 persons / 199,939 FOLLOWS / 260,107 edges",
       "host": "dgx-spark (NVIDIA GB10), 20 CPU",
-      "measured_at": "2026-07-26",
+      "measured_at": "2026-08-12",
       "perf_lock_held": true,
-      "pyg_bench_commit": "47f94ba",
-      "pygraphistry_commit": "84be35fb",
+      "pyg_bench_commit": "8ee0dee9",
+      "pygraphistry_commit": "4d301b18",
       "quiet_host": true,
-      "reps": "3 warmups + 7 timed runs per slot; slot median, then median across 4 position-balanced slots (K G I I G K K G I I G K)",
-      "row_validation": "every cell emits a canonical, column-order-independent row set; a GFQL cell is only publishable when its rows equal Kuzu's on every slot",
-      "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13), polars 1.35.2; Kuzu in a host venv on CPU; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
+      "reps": "GFQL and Kuzu: 3 warmups then timed runs per slot, 4 position-balanced slots per engine (G/K), slot median then median across slots; GFQL binds the graph cold in every timed run (bind time included). Memgraph and Neo4j: 4 slots each of 7 timed runs over Bolt on 2026-08-12, values matched to the GFQL board.",
+      "row_validation": "every cell emits a canonical, column-order-independent row set; a GFQL cell is publishable only when its rows equal every competitor's on every slot",
+      "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13), polars 1.35.2; Kuzu 0.11.3 in a host venv on CPU; Memgraph 2.18.1 and Neo4j 5 community in Docker on the same host; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
+    },
+    "snb-aligned-release-20260902": {
+      "artifact": "results/snb-aligned-release-20260902",
+      "competitor": "Kuzu, Neo4j, Memgraph",
+      "competitor_version": "Kuzu 0.11.3; Neo4j 5 community; Memgraph 2.18.1",
+      "dataset": "LDBC SNB Interactive SF0.1 and SF1, derived matched query shapes (SF10 is a capability boundary and is excluded)",
+      "host": "dgx-spark (NVIDIA GB10), 20 CPU",
+      "measured_at": "2026-09-02",
+      "perf_lock_held": true,
+      "pyg_bench_commit": "15a6f3a7",
+      "pygraphistry_commit": "3fb216dd",
+      "quiet_host": true,
+      "reps": "2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs; median of the three run medians",
+      "row_validation": "exact result parity for every measured query across all engines; cells with zero rows, reduced adapters, or missing queries are excluded",
+      "runtime": "GFQL Polars on CPU in a uv Python 3.12 container; Kuzu 0.11.3; Memgraph 2.18.1 (Docker); Neo4j 5 community (Docker); all on the same host"
     },
     "snb-is3-single-query-20260727": {
       "artifact": "results/is3-single-query-r{1,2,3} and results/is3-twopass-base-r{1,2,3}",

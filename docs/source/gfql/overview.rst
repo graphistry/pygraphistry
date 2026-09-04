@@ -32,6 +32,13 @@ GFQL is an in-process graph query language for the compute tier. With it you can
   ML, and the rest of the PyData stack apply directly.
 - **Move work to a remote GPU** when the data or the hardware lives elsewhere.
 
+On CPU alone, GFQL's Polars engine is faster than Kuzu, Memgraph, and Neo4j on most of
+the nine graph-benchmark analytics queries at both graph sizes, and the GPU engines are
+faster still on heavy work; the graph databases win the SNB-derived point lookups. The
+per-query boards, with every loss shown, are on :doc:`performance`, and a full filter,
+PageRank, filter pipeline against Neo4j + GDS is the :doc:`speedup case study
+<benchmark_filter_pagerank>`.
+
 Typical uses include cybersecurity, fraud detection, financial analysis, and knowledge
 graphs. The engine design is described in the blog post
 `Cypher on Polars: a CPU and GPU graph engine <https://www.graphistry.com/blog/cypher-on-polars-cpu-gpu-graph-engine>`_;
