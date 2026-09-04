@@ -3642,9 +3642,10 @@
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-09-04T18:07:12Z",
-  "generated_by": "graphistry/pyg-bench a0d9ee2a scripts/export_docs_numbers.py",
+  "generated_at": "2026-09-04T19:01:47Z",
+  "generated_by": "graphistry/pyg-bench 5e6e96c7 scripts/export_docs_numbers.py",
   "policy": {
+    "accepted_regressions": [],
     "drift_waivers": {
       "snb-is3-single-query-20260727": "Diagnostic-only probe (comparison_allowed false) at pygraphistry 233b64c8; kept for the IS3 single-query versus two-pass note, never quoted as a result."
     },
@@ -3665,7 +3666,8 @@
       "performance.rst"
     ],
     "max_age_days": 60,
-    "max_compute_commit_drift": 12
+    "max_compute_commit_drift": 12,
+    "max_unexplained_regression_pct": 25
   },
   "runs": {
     "filter-pagerank-059-20260904": {
