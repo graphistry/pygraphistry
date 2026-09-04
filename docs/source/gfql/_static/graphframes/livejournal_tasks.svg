@@ -8,30 +8,36 @@
 <text class="n" x="16" y="89">filter: degree &gt;= 42</text>
 <rect x="193" y="96" width="1" height="84" fill="var(--rule)"/>
 <text class="a" x="26" y="116">GFQL polars (CPU)</text>
-<text class="m" x="202" y="116">not measured</text>
+<path class="cpu" opacity="0.4" d="M194 103H290.7a4 4 0 0 1 4 4V117a4 4 0 0 1 -4 4H194Z"/>
+<text x="302.7" y="116"><tspan class="n">27.0 ms</tspan><tspan class="a" dx="9">diagnostic: released code, #2023</tspan></text>
 <text class="a" x="26" y="144">GFQL polars-gpu (GPU)</text>
-<text class="m" x="202" y="144">not measured</text>
+<path class="gpu" opacity="0.4" d="M194 131H294.1a4 4 0 0 1 4 4V145a4 4 0 0 1 -4 4H194Z"/>
+<text x="306.1" y="144"><tspan class="n">27.9 ms</tspan><tspan class="a" dx="9">diagnostic: released code, #2023</tspan></text>
 <text class="a" x="26" y="172">GraphFrames local[*]</text>
 <path class="neo" d="M194 159H490a4 4 0 0 1 4 4V173a4 4 0 0 1 -4 4H194Z"/>
 <text x="502" y="172"><tspan class="n">80.4 ms</tspan></text>
 <text class="n" x="16" y="205">1-hop from 50 seeds</text>
 <rect x="193" y="212" width="1" height="84" fill="var(--rule)"/>
 <text class="a" x="26" y="232">GFQL polars (CPU)</text>
-<text class="m" x="202" y="232">not measured</text>
+<path class="cpu" opacity="0.4" d="M194 219H235.7a4 4 0 0 1 4 4V233a4 4 0 0 1 -4 4H194Z"/>
+<text x="247.7" y="232"><tspan class="n">222.2 ms</tspan><tspan class="a" dx="9">diagnostic: released code, #2023</tspan></text>
 <text class="a" x="26" y="260">GFQL polars-gpu (GPU)</text>
-<text class="m" x="202" y="260">not measured</text>
+<path class="gpu" opacity="0.4" d="M194 247H431.3a4 4 0 0 1 4 4V261a4 4 0 0 1 -4 4H194Z"/>
+<text x="443.3" y="260"><tspan class="n">1174.4 ms</tspan><tspan class="a" dx="9">diagnostic: released code, #2023</tspan></text>
 <text class="a" x="26" y="288">GraphFrames local[*]</text>
 <path class="neo" d="M194 275H490a4 4 0 0 1 4 4V289a4 4 0 0 1 -4 4H194Z"/>
 <text x="502" y="288"><tspan class="n">1460.2 ms</tspan></text>
 <text class="n" x="16" y="321">2-hop from 50 seeds</text>
 <rect x="193" y="328" width="1" height="84" fill="var(--rule)"/>
 <text class="a" x="26" y="348">GFQL polars (CPU)</text>
-<text class="m" x="202" y="348">not measured</text>
+<path class="cpu" opacity="0.4" d="M194 335H490a4 4 0 0 1 4 4V349a4 4 0 0 1 -4 4H194Z"/>
+<text x="502" y="348"><tspan class="n">64273.1 ms</tspan><tspan class="a" dx="9">diagnostic: released code, #2023</tspan></text>
 <text class="a" x="26" y="376">GFQL polars-gpu (GPU)</text>
-<text class="m" x="202" y="376">not measured</text>
+<path class="gpu" opacity="0.4" d="M194 363H485a4 4 0 0 1 4 4V377a4 4 0 0 1 -4 4H194Z"/>
+<text x="497" y="376"><tspan class="n">63202.1 ms</tspan><tspan class="a" dx="9">diagnostic: released code, #2023</tspan></text>
 <text class="a" x="26" y="404">GraphFrames local[*]</text>
-<path class="neo" d="M194 391H490a4 4 0 0 1 4 4V405a4 4 0 0 1 -4 4H194Z"/>
-<text x="502" y="404"><tspan class="n">3475.8 ms</tspan></text>
+<path class="neo" d="M194 391H206.2a4 4 0 0 1 4 4V405a4 4 0 0 1 -4 4H194Z"/>
+<text x="218.2" y="404"><tspan class="n">3475.8 ms</tspan></text>
 <text class="n" x="16" y="437">PageRank, full graph</text>
 <rect x="193" y="444" width="1" height="84" fill="var(--rule)"/>
 <text class="a" x="26" y="464">GFQL polars (CPU)</text>
@@ -43,5 +49,5 @@
 <text class="a" x="26" y="520">GraphFrames local[*]</text>
 <path class="neo" d="M194 507H490a4 4 0 0 1 4 4V521a4 4 0 0 1 -4 4H194Z"/>
 <text x="502" y="520"><tspan class="n">16311.2 ms</tspan></text>
-<text class="m" x="16" y="557">Bars are scaled per task; on PageRank the solid part is the solver alone, the light part the rest of the query. Single node; Spark local[*].</text>
+<text class="m" x="16" y="557">Bars are scaled per task; on PageRank the solid part is the solver alone, the light part the rest of the query. Single node; Spark local[*]. Light bars marked diagnostic are the released code with #2023 in it.</text>
 </g></svg>

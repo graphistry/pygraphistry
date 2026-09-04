@@ -235,6 +235,10 @@ GF_SYSTEMS = (
     ('graphframes', 'GraphFrames local[*]', 'neo'),
 )
 GF_BASELINE = 'graphframes'
+#: A run published under this prefix holds the same tasks measured on code with a known
+#: defect, kept as the before-state; the chart draws it lighter and says so.
+GF_DIAG_PREFIX = 'graphframes_059'
+GF_DIAG_NOTE = 'diagnostic: released code, #2023'
 
 
 class GFChart(NamedTuple):
@@ -269,7 +273,8 @@ def gf_cell_keys(payload: JSONObject) -> list[str]:
         for task, _ in GF_TASKS:
             for system, _, _ in GF_SYSTEMS:
                 key = gf_cell_key(chart.dataset, task, system)
-                for candidate in (key, key + '_kernel', key + '_vs_' + GF_BASELINE):
+                diag = '{}.{}.{}.{}'.format(GF_DIAG_PREFIX, chart.dataset, task, system)
+                for candidate in (key, key + '_kernel', key + '_vs_' + GF_BASELINE, diag):
                     if candidate in cells:
                         keys.append(candidate)
     return keys
@@ -316,14 +321,22 @@ def render_graphframes(name: str, payload: JSONObject) -> str:
     bar_x = PAD + GF_LABEL_W
     drawn = 0
     shaded = False
+    diagnostic_drawn = False
     for group_index, (task, task_label) in enumerate(GF_TASKS):
         group_top = HEADER_H + group_index * group_h
         out.append('<text class="n" x="{}" y="{}">{}</text>'.format(
             PAD, group_top + 15, _esc(task_label.format(threshold=chart.threshold))))
         rows: dict[str, tuple[JSONObject, float]] = {}
+        diagnostic: set[str] = set()
         for system, _, _ in GF_SYSTEMS:
             key = gf_cell_key(chart.dataset, task, system)
             cell = _gf_optional(payload, key)
+            if cell is None:
+                diag_key = '{}.{}.{}.{}'.format(GF_DIAG_PREFIX, chart.dataset, task, system)
+                cell = _gf_optional(payload, diag_key)
+                if cell is not None:
+                    diagnostic.add(system)
+                    key = diag_key
             if cell is not None:
                 rows[system] = (cell, _gf_ms(cell, key))
         slowest = max((ms for _, ms in rows.values()), default=0.0)
@@ -341,6 +354,16 @@ def render_graphframes(name: str, payload: JSONObject) -> str:
             cell, ms = rows[system]
             key = gf_cell_key(chart.dataset, task, system)
             width = max(MIN_BAR, GF_BAR_MAX * ms / slowest)
+            if system in diagnostic:
+                diagnostic_drawn = True
+                out.append('<path class="{}" opacity="0.4" d="{}"/>'.format(
+                    tone, _bar_path(bar_x, bar_top, width, GF_BAR_H)))
+                out.append('<text x="{}" y="{}"><tspan class="n">{}</tspan>'
+                           '<tspan class="a" dx="9">{}</tspan></text>'.format(
+                               _num(bar_x + width + 8), row_top + 18,
+                               _esc(format_cell(cell)), _esc(GF_DIAG_NOTE)))
+                drawn += 1
+                continue
             kernel = _gf_optional(payload, key + '_kernel')
             if kernel is not None:
                 kernel_ms = _gf_ms(kernel, key + '_kernel')
@@ -375,6 +398,8 @@ def render_graphframes(name: str, payload: JSONObject) -> str:
     if shaded:
         foot = ('Bars are scaled per task; on PageRank the solid part is the solver alone, '
                 'the light part the rest of the query. Single node; Spark local[*].')
+    if diagnostic_drawn:
+        foot += " Light bars marked diagnostic are the released code with #2023 in it." 
     out.append('<text class="m" x="{}" y="{}">{}</text>'.format(PAD, height - 11, _esc(foot)))
     out.append('</g></svg>')
     return '\n'.join(out) + '\n'
