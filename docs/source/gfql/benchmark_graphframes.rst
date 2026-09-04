@@ -20,7 +20,7 @@ commits.
 :bench:`graphframes.friendster.filter.gfql_polars`, a 1-hop from 50 hub seeds in
 :bench:`graphframes.friendster.hop1.gfql_polars`, and a 2-hop in
 :bench:`graphframes.friendster.hop2.gfql_polars` on the CPU streaming path, with resident
-memory peaking at 106 GB of the 119 GB host; the GPU path stops at the 1-hop, PageRank
+memory peaking at 103.6 GiB of the 119 GiB host; the GPU path stops at the 1-hop, PageRank
 does not fit on either path, and GraphFrames on ``local[*]`` did not load the graph at
 all. Below that ceiling the picture is mixed and both sides are printed: on whole-graph
 PageRank GFQL on the GPU is
@@ -261,17 +261,18 @@ The harness binds from ``pl.scan_parquet`` and collects through GFQL's streaming
 (``GFQL_POLARS_CPU_STREAMING=1`` for the Polars streaming engine,
 ``GFQL_POLARS_GPU_EXECUTOR=streaming`` for the cudf-polars streaming executor), with a
 peak-memory receipt at every size. On Friendster the CPU streaming run loaded the graph
-(scan plus degree pass in about 20 seconds, 56 GB resident), answered the degree filter
-and the 1-hop from 50 hub seeds (table above), and peaked at 106 GB resident after the
+(scan plus degree pass in about 20 seconds, 55.0 GiB resident), answered the degree filter
+and the 1-hop from 50 hub seeds (table above), and peaked at 103.6 GiB resident after the
 1-hop; a second run answered the 2-hop, a 15,878,312-node ball, in
-:bench:`graphframes.friendster.hop2.gfql_polars` at 69.5 GB resident. The streaming
+:bench:`graphframes.friendster.hop2.gfql_polars` at 67.9 GiB resident. The streaming
 collect keeps the load out of memory, but the traversal still materializes the edges it
 touches, and that is where the GPU path stops: the cudf-polars streaming executor
-completed the degree filter, then the memory guard ended the run during the 1-hop at 106
-GB resident, so the GPU column has no Friendster cell. Whole-graph PageRank does not fit
+completed the degree filter at 103.8 GiB resident, then the watchdog ended the run during
+the 1-hop when host free memory fell to 17 GB against its 20 GB floor, so the GPU column
+has no Friendster cell. Whole-graph PageRank does not fit
 on either path: the GPU preflight refused it (an estimated 87 GB peak against an 80 GB
-budget), and the CPU path was not attempted because its Orkut row already projects the
-igraph conversion past the host at fifteen times the edges. That is the single-server
+budget), and the CPU path was not attempted: its Orkut row peaked at 29.9 GiB resident
+for 117M edges, and Friendster has fifteen times the edges. That is the single-server
 ceiling this page measured. GraphFrames on ``local[*]`` stays at the boundary it hit
 above.
 
