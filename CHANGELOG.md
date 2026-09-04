@@ -25,7 +25,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Docs
 
 - **GFQL docs navigation is split into a short start path and two hubs**: `gfql/index` now lists four Start Here pages, a Performance and Benchmarks hub (`gfql/perf/index`), a Language Reference hub (`gfql/reference/index`), and the developer specs. No page moved, so existing URLs are unchanged; the previously unlisted `gfql/loading_graph_data` page joins the reference hub.
-- **The GFQL benchmark pages state the result first and consolidate caveats**: `gfql/benchmark_filter_pagerank` and `gfql/benchmark_graphframes` open with the measured outcome and the engine to use, keep every number unchanged, and move measurement rules into one "Method and limits" section per page. GraphFrames literals were re-verified against `gfql/_static/graphframes/results.json`; the filter/PageRank page still prints from the vendored pyg-bench artifact.
+- **The GFQL benchmark pages state the result first and consolidate caveats**: `gfql/benchmark_filter_pagerank` (now titled as a case study and listed under Start Here) and `gfql/benchmark_graphframes` open with what the page compares and the measured outcome, keep every number unchanged, and move measurement rules into one "Method and limits" section per page. The GraphFrames page gains per-task bar charts rendered from `gfql/_static/graphframes/results.json` by the same generator and sync test as the Neo4j charts. The `bench-provenance` directive now accepts several run ids and renders one Measurement block with caveats folded in; run provenance strings name the RAPIDS base image (pyg-bench #220).
+- **GFQL overview states the positioning up front**: `gfql/overview` says GFQL is the only open-source in-process Cypher on dataframes and frames it against the columnar engines readers already know. An empty hidden toctree that rendered the page as a folder is gone.
 
 ## [0.59.0 - 2026-08-31]
 

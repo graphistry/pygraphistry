@@ -9,15 +9,22 @@ Overview of GFQL
 
 New to GFQL, the open source dataframe-native graph query language? This article overviews the gaps it fills, special features like GPU accelerations, and where to go next.
 
+GFQL is the only open-source Cypher implementation that runs in-process on
+dataframes, with no database to install, load, or keep in sync. It brings the
+columnar, vectorized execution model that DuckDB and ClickHouse made standard
+for analytics to graph pattern matching. A query compiles to batched dataframe
+operations over Arrow-backed columns on pandas, Polars, or NVIDIA cuDF. The
+same query therefore runs on a laptop CPU or on a GPU.
+
 
 Why GFQL?
 ~~~~~~~~~~~
 
-GFQL addresses a critical gap in the data community by providing an in-process graph query language that operates at the compute tier. This means you can:
+GFQL is an in-process graph query language for the compute tier. With it you can:
 
 - **Graph search**: Easily and efficiently query and filter nodes and edges using a familiar syntax.
 - **Avoid External Infrastructure**: Avoid calls to external infrastructures and eliminate the need for extra databases.
-- **Leverage Existing Workflows**: Integrate with your current Python data science tools and libraries.
+- **Use Existing Workflows**: Integrate with your current Python data science tools and libraries.
 - **Achieve High Performance**: Utilize GPU acceleration for massive speedups in graph processing.
 - **Simplify Graph Analytics**: Write expressive and concise graph queries in Python.
 
@@ -27,14 +34,12 @@ Key Features
 - **Dataframe-Native Integration**: Works directly with Pandas, Polars, cuDF, and Apache Arrow dataframes.
 - **High Performance**: Optimized for both CPU and GPU execution, capable of processing billions of edges.
 - **Ease of Use**: Install via `pip` and start querying without the need for external databases.
-- **Seamless Visualization**: Integrated with PyGraphistry for GPU-accelerated graph visualization.
+- **Visualization**: Integrated with PyGraphistry for GPU-accelerated graph visualization.
 - **Flexibility**: Suitable for a wide range of applications, including cybersecurity, fraud detection, financial analysis, and more.
 - **Architectural Freedom**: Use GFQL with your dataframes on your local CPU/GPU, or offload to a remote GPU cluster.
 
 Installation Guide
 ~~~~~~~~~~~~~~~~~~~
-.. toctree::
-   :hidden:
 
 GFQL is built into pygraphistry:
 
