@@ -4,8 +4,7 @@ Graph hop/traversal operations for PyGraphistry.
 NOTE: Excluded from pyre (.pyre_configuration) - hop() complexity causes hang. Use mypy.
 """
 import os
-from typing import Any, Callable, Dict, Hashable, List, Optional, Sequence, Set, Tuple, TYPE_CHECKING, Union, cast
-import numpy as np
+from typing import Any, Callable, Dict, Hashable, List, Optional, Set, Tuple, TYPE_CHECKING, Union, cast
 import pandas as pd
 
 from graphistry.Engine import (
@@ -18,6 +17,7 @@ from graphistry.Engine import safe_merge
 from .typing import DataFrameT, DomainT, SeriesT
 from .endpoint_utils import drop_null_endpoint_edges
 from .dataframe_utils import column_frame, column_values
+from .gfql.seed_rediscovery import rediscovered_seed_ids
 from .util import generate_safe_column_name
 
 
@@ -119,322 +119,6 @@ def _host_list(series: SeriesT) -> List[Hashable]:
     if hasattr(series, "tolist"):
         return cast(List[Hashable], series.tolist())
     return cast(List[Hashable], series.to_list())
-
-
-def _host_array(series: SeriesT) -> Union["np.ndarray", List[Hashable]]:
-    """Column -> host numpy array (cuDF copies to host); falls back to a python list."""
-    try:
-        return series.to_numpy()
-    except Exception:
-        return _host_list(series)
-
-
-IdSequence = Union[Sequence[Hashable], "np.ndarray"]
-
-
-def undirected_rediscovered_seed_ids(
-    edge_sources: IdSequence,
-    edge_destinations: IdSequence,
-    seed_ids: IdSequence,
-) -> Set[Hashable]:
-    """Seeds an undirected wavefront legitimately RE-ENCOUNTERS.
-
-    ``return_as_wave_front=True`` documents "exclude starting node(s) in return, returning
-    only encountered nodes". A seed counts as encountered only when a walk that never REUSES
-    AN EDGE arrives back at it -- coming back along the edge you left by is the trip home, not
-    a discovery. That is the contract pinned by ``tests/compute/test_hop.py``: on the acyclic
-    path ``a-b-c-d-e`` seeded at ``{a}`` the answer excludes ``a`` (returning needs edge ``ab``
-    twice), while seeded at ``{a, b}`` it INCLUDES ``a``, which seed ``b`` reaches over ``ab``
-    on a one-edge walk that reuses nothing. Same rule, two different answers.
-
-    A seed ``s`` is re-encountered by an edge-disjoint walk of SOME length iff either
-
-      (A) its component holds another seed ``s'`` -- the shortest ``s'``->``s`` path is simple,
-          hence reuses no edge; or
-      (B) ``s`` lies on a cycle -- go around it.
-
-    (A) is a component scan; (B) is the 2-core, peeling nodes of degree <= 1. Degree counts
-    EDGE ROWS, not distinct neighbours, so two PARALLEL edges between ``u`` and ``v`` correctly
-    leave both on a length-2 cycle. Self-loops are length-1 cycles.
-
-    Takes id sequences or host arrays (never a frame), so pandas/cuDF and polars can all call
-    it. Works in numpy over factorized ids (multi-source BFS from the seeds for (A), batched
-    leaf peeling for (B)); ids numpy cannot order fall back to
-    ``_undirected_rediscovered_seed_ids_reference``, which this is pinned equal to on random
-    multigraphs. NOTE it is LENGTH-BLIND: it answers "some length", so a bounded hop
-    whose window is shorter than the cycle back to the seed still keeps that seed.
-    """
-    seeds: Set[Hashable] = set(seed_ids.tolist() if isinstance(seed_ids, np.ndarray) else seed_ids)
-    if not seeds or len(edge_sources) == 0:
-        return set()
-    factorized = _factorize_ids(edge_sources, edge_destinations, seeds)
-    if factorized is None:
-        return _undirected_rediscovered_seed_ids_reference(
-            list(edge_sources), list(edge_destinations), list(seeds))
-    ids, u, v, seed_idx, n = factorized
-    chosen = np.zeros(n, dtype=bool)
-    chosen[_seeds_sharing_a_component(u, v, seed_idx, n)] = True
-    chosen[_cycle_node_indices(u, v, n)] = True
-    is_seed = np.zeros(n, dtype=bool)
-    is_seed[seed_idx] = True
-    return set(ids[chosen & is_seed].tolist())
-
-
-def _factorize_ids(edge_sources: IdSequence, edge_destinations: IdSequence, seeds: Set[Hashable]
-                   ) -> Optional[Tuple["np.ndarray", "np.ndarray", "np.ndarray", "np.ndarray", int]]:
-    """(ids, u, v, seed_idx, n): endpoint and seed ids as dense indices, or None to fall back.
-
-    Non-negative integer ids that are already dense index themselves (no sort); anything else
-    goes through ``np.unique``. Python sequences become object arrays so numpy never coerces
-    ids across types (0 and "a" must not become "0" and "a"); a seed list is cast to the edge
-    dtype only when the cast round-trips. Ids numpy cannot order return None.
-    """
-    def as_ids(values: IdSequence) -> "np.ndarray":
-        return values if isinstance(values, np.ndarray) else np.asarray(values, dtype=object)
-
-    src, dst, seed_arr = as_ids(edge_sources), as_ids(edge_destinations), as_ids(list(seeds))
-    if src.dtype.kind in 'iu' and dst.dtype.kind in 'iu' and seed_arr.dtype.kind == 'O':
-        try:
-            cast_seeds = seed_arr.astype(src.dtype)
-            if (cast_seeds.astype(object) == seed_arr).all():
-                seed_arr = cast_seeds
-        except (TypeError, ValueError, OverflowError):
-            pass
-    kinds = {arr.dtype.kind for arr in (src, dst, seed_arr)}
-    if kinds & {'f', 'c'}:
-        return None  # NaN identity differs between numpy and python sets
-    m = len(src)
-    if kinds <= {'i', 'u'}:
-        lo = min(int(src.min()), int(dst.min()), int(seed_arr.min()) if len(seed_arr) else 0)
-        hi = max(int(src.max()), int(dst.max()), int(seed_arr.max()) if len(seed_arr) else 0)
-        if lo >= 0 and hi < 4 * (2 * m + len(seed_arr)) + 1024:
-            n = hi + 1
-            return (np.arange(n), src.astype(np.int64), dst.astype(np.int64),
-                    np.unique(seed_arr.astype(np.int64)), n)
-    if 'O' in kinds or len(kinds) > 1:
-        src, dst, seed_arr = (arr.astype(object) for arr in (src, dst, seed_arr))
-    try:
-        ids, inv = np.unique(np.concatenate([src, dst, seed_arr]), return_inverse=True)
-    except (TypeError, ValueError):
-        return None
-    inv = np.asarray(inv).ravel()
-    return ids, inv[:m], inv[m:2 * m], np.unique(inv[2 * m:]), len(ids)
-
-
-#: Rounds of whole-edge-list scans before switching to CSR frontiers (long pendant paths,
-#: to_fixed_point walks far from their seeds).
-_SCAN_ROUNDS = 24
-
-
-def _csr(u: "np.ndarray", v: "np.ndarray", n: int) -> Tuple["np.ndarray", "np.ndarray", "np.ndarray", "np.ndarray"]:
-    ends = np.concatenate([u, v])
-    order = np.argsort(ends, kind='stable')
-    deg_all = np.bincount(ends, minlength=n)
-    indptr = np.zeros(n + 1, dtype=np.int64)
-    np.cumsum(deg_all, out=indptr[1:])
-    return np.concatenate([v, u])[order], np.concatenate([np.arange(len(u))] * 2)[order], deg_all, indptr
-
-
-def _csr_incident(csr: Tuple["np.ndarray", "np.ndarray", "np.ndarray", "np.ndarray"], nodes: "np.ndarray"
-                  ) -> Tuple["np.ndarray", "np.ndarray", "np.ndarray"]:
-    """(node, neighbour, edge id) for every CSR slot of ``nodes``."""
-    nbr, eid_of, deg_all, indptr = csr
-    counts = deg_all[nodes]
-    total = int(counts.sum())
-    if total == 0:
-        empty = np.empty(0, dtype=np.int64)
-        return empty, empty, empty
-    slots = np.repeat(indptr[nodes], counts) + np.arange(total) - np.repeat(np.cumsum(counts) - counts, counts)
-    return np.repeat(nodes, counts), nbr[slots], eid_of[slots]
-
-
-def _seeds_sharing_a_component(u: "np.ndarray", v: "np.ndarray", seed_idx: "np.ndarray", n: int) -> "np.ndarray":
-    """Seed indices whose component holds another seed (rule A)."""
-    label = np.full(n, -1, dtype=np.int64)
-    label[seed_idx] = seed_idx
-    frontier = np.zeros(n, dtype=bool)
-    frontier[seed_idx] = True
-    rounds = 0
-    csr = None
-    while True:
-        if csr is None:
-            eu = frontier[u] & (label[v] < 0)
-            ev = frontier[v] & (label[u] < 0)
-            if not (eu.any() or ev.any()):
-                break
-            frontier = np.zeros(n, dtype=bool)
-            label[v[eu]] = label[u[eu]]
-            frontier[v[eu]] = True
-            label[u[ev]] = label[v[ev]]
-            frontier[u[ev]] = True
-            rounds += 1
-            if rounds >= _SCAN_ROUNDS:
-                csr = _csr(u, v, n)
-                frontier_nodes = np.flatnonzero(frontier)
-        else:
-            src_nodes, nb, _ = _csr_incident(csr, frontier_nodes)
-            fresh = label[nb] < 0
-            if not fresh.any():
-                break
-            label[nb[fresh]] = label[src_nodes[fresh]]
-            frontier_nodes = np.unique(nb[fresh])
-    lu, lv = label[u], label[v]
-    meet = (lu >= 0) & (lv >= 0) & (lu != lv)
-    rank = np.full(n, -1, dtype=np.int64)
-    rank[seed_idx] = np.arange(len(seed_idx))
-    root = _union_roots(rank[lu[meet]], rank[lv[meet]], len(seed_idx))
-    shared = np.bincount(root, minlength=len(seed_idx))[root] > 1
-    return seed_idx[shared]
-
-
-def _union_roots(a: "np.ndarray", b: "np.ndarray", k: int) -> "np.ndarray":
-    """Component root of each of ``k`` items under the unions ``(a[i], b[i])``: hook the larger
-    root under the smaller, then pointer-jump, until nothing moves."""
-    parent = np.arange(k)
-    while True:
-        pa, pb = parent[a], parent[b]
-        differ = pa != pb
-        if not differ.any():
-            return parent
-        np.minimum.at(parent, np.maximum(pa, pb)[differ], np.minimum(pa, pb)[differ])
-        while True:
-            jumped = parent[parent]
-            if np.array_equal(jumped, parent):
-                break
-            parent = jumped
-
-
-def _cycle_node_indices(u: "np.ndarray", v: "np.ndarray", n: int) -> "np.ndarray":
-    """Nodes on a self-loop or in the multigraph 2-core (rule B), by batched leaf peeling."""
-    loops = u == v
-    alive = ~loops
-    deg = np.bincount(u[alive], minlength=n) + np.bincount(v[alive], minlength=n)
-    touched = deg > 0
-    removed = np.zeros(n, dtype=bool)
-    cand = touched & (deg <= 1)
-    rounds = 0
-    csr = None
-    while cand.any():
-        removed |= cand
-        gone = alive & (cand[u] | cand[v])
-        alive &= ~gone
-        deg -= np.bincount(u[gone], minlength=n) + np.bincount(v[gone], minlength=n)
-        cand = touched & ~removed & (deg <= 1)
-        rounds += 1
-        if rounds >= _SCAN_ROUNDS:
-            break
-    if cand.any():  # a long pendant path: continue on CSR frontiers
-        csr = _csr(u, v, n)
-        nodes = np.flatnonzero(cand)
-        while nodes.size:
-            removed[nodes] = True
-            _, _, eids = _csr_incident(csr, nodes)
-            eids = np.unique(eids[alive[eids]])
-            alive[eids] = False
-            np.subtract.at(deg, u[eids], 1)
-            np.subtract.at(deg, v[eids], 1)
-            nbrs = np.unique(np.concatenate([u[eids], v[eids]]))
-            nodes = nbrs[(deg[nbrs] <= 1) & ~removed[nbrs]]
-    in_core = touched & ~removed
-    in_core[u[loops]] = True
-    return np.flatnonzero(in_core)
-
-
-def _undirected_rediscovered_seed_ids_reference(
-    edge_sources: List[Hashable],
-    edge_destinations: List[Hashable],
-    seed_ids: List[Hashable],
-) -> Set[Hashable]:
-    """Reference (pure-Python) form of ``undirected_rediscovered_seed_ids``; see it for the rule.
-
-    Kept as the fallback for id domains numpy cannot factorize (mixed, unorderable types) and
-    as the oracle its numpy twin is pinned against.
-
-    ``return_as_wave_front=True`` documents "exclude starting node(s) in return, returning
-    only encountered nodes". A seed counts as encountered only when a walk that never REUSES
-    AN EDGE arrives back at it -- coming back along the edge you left by is the trip home, not
-    a discovery. That is the contract pinned by ``tests/compute/test_hop.py``: on the acyclic
-    path ``a-b-c-d-e`` seeded at ``{a}`` the answer excludes ``a`` (returning needs edge ``ab``
-    twice), while seeded at ``{a, b}`` it INCLUDES ``a``, which seed ``b`` reaches over ``ab``
-    on a one-edge walk that reuses nothing. Same rule, two different answers.
-
-    A seed ``s`` is re-encountered by an edge-disjoint walk of SOME length iff either
-
-      (A) its component holds another seed ``s'`` -- the shortest ``s'``->``s`` path is simple,
-          hence reuses no edge; or
-      (B) ``s`` lies on a cycle -- go around it.
-
-    (A) is a component scan; (B) is the 2-core, peeling nodes of degree <= 1. Degree counts
-    EDGE ROWS, not distinct neighbours, so two PARALLEL edges between ``u`` and ``v`` correctly
-    leave both on a length-2 cycle; the set-based adjacency this replaces collapsed them and
-    dropped such seeds. Self-loops are length-1 cycles.
-
-    Takes plain id SEQUENCES, not a frame, so pandas/cuDF and polars can both call it without
-    a ``to_pandas()`` bridge (the polars test lane ships no pyarrow).
-
-    Verified equal to brute-force edge-disjoint-walk enumeration on 6000 random multigraphs
-    (see the hop-semantics pins). NOTE it is LENGTH-BLIND: it answers "some length", so a bounded hop
-    whose window is shorter than the cycle back to the seed still keeps that seed. Both arms
-    share that limit; narrowing it needs shortest-cycle-through-a-vertex.
-    """
-    seeds = set(seed_ids)
-    src, dst = edge_sources, edge_destinations
-    if not seeds or not src:
-        return set()
-
-    # (A) components holding more than one seed
-    adjacency: Dict[Hashable, Set[Hashable]] = {}
-    for u, v in zip(src, dst):
-        adjacency.setdefault(u, set()).add(v)
-        adjacency.setdefault(v, set()).add(u)
-    keep: Set[Hashable] = set()
-    seen: Set[Hashable] = set()
-    for seed in seeds:
-        if seed in seen:
-            continue
-        stack, component = [seed], set()  # type: List[Hashable], Set[Hashable]
-        while stack:
-            current = stack.pop()
-            if current in component:
-                continue
-            component.add(current)
-            seen.add(current)
-            for neighbor in adjacency.get(current, set()):
-                if neighbor not in component:
-                    stack.append(neighbor)
-        component_seeds = component & seeds
-        if len(component_seeds) > 1:
-            keep.update(component_seeds)
-
-    # (B) cycle nodes: self-loops, plus the multigraph 2-core
-    loop_nodes = {u for u, v in zip(src, dst) if u == v}
-    simple = [(u, v) for u, v in zip(src, dst) if u != v]
-    incident: Dict[Hashable, Set[int]] = {}
-    endpoints: Dict[int, Tuple[Hashable, Hashable]] = {}
-    for eid, (u, v) in enumerate(simple):
-        endpoints[eid] = (u, v)
-        incident.setdefault(u, set()).add(eid)
-        incident.setdefault(v, set()).add(eid)
-    removed: Set[Hashable] = set()
-    queue = [node for node, eids in incident.items() if len(eids) <= 1]
-    while queue:
-        current = queue.pop()
-        if current in removed or len(incident.get(current, set())) > 1:
-            continue
-        removed.add(current)
-        for eid in list(incident.get(current, set())):
-            u, v = endpoints[eid]
-            other = v if u == current else u
-            if other in removed:
-                continue
-            incident[other].discard(eid)
-            if len(incident[other]) <= 1:
-                queue.append(other)
-        incident[current] = set()
-    cycle_nodes = loop_nodes | {
-        node for node, eids in incident.items() if eids and node not in removed
-    }
-    return (keep | cycle_nodes) & seeds
 
 
 def _reached_node_ids(matches_nodes: Optional[DataFrameT], node_col: str) -> Set[Hashable]:
@@ -1506,22 +1190,15 @@ def hop(self: Plottable,
         )
         # A one-edge window is edge-disjoint by construction, so reached alone is already exact.
         if direction == 'undirected' and not single_edge_window:
-            keep_seed_ids = undirected_rediscovered_seed_ids(
-                _host_array(final_edges[source_col]),
-                _host_array(final_edges[destination_col]),
-                _host_array(column_values(wavefront_seed_ids_df, node_col)),
-            )
-            if keep_seed_ids:
-                if matches_nodes is None or len(matches_nodes) == 0:
-                    keep_seed_ids = set()
-                else:
-                    keep_seed_ids &= set(_host_list(column_values(matches_nodes, node_col)))
-            seed_mask = g_out._nodes[node_col].isin(column_values(wavefront_seed_ids_df, node_col))
-            if keep_seed_ids:
-                keep_mask = g_out._nodes[node_col].isin(list(keep_seed_ids))
-                filtered_nodes = g_out._nodes[~seed_mask | keep_mask]
+            keep_seeds = rediscovered_seed_ids(
+                final_edges, source_col, destination_col, wavefront_seed_ids_df, node_col)
+            if matches_nodes is None or len(matches_nodes) == 0:
+                keep_seeds = keep_seeds.iloc[:0]
             else:
-                filtered_nodes = g_out._nodes[~seed_mask]
+                keep_seeds = keep_seeds[keep_seeds[node_col].isin(column_values(matches_nodes, node_col))]
+            seed_mask = g_out._nodes[node_col].isin(column_values(wavefront_seed_ids_df, node_col))
+            keep_mask = g_out._nodes[node_col].isin(column_values(keep_seeds, node_col))
+            filtered_nodes = g_out._nodes[~seed_mask | keep_mask]
         else:
             seeds_not_reached_df = wavefront_seed_ids_df
             if matches_nodes is not None and node_col in matches_nodes.columns:
