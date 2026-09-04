@@ -1573,41 +1573,26 @@
       "disclosures": [],
       "engine": "GFQL CPU (pandas + igraph)",
       "measurement_profile": "filter-pagerank-resident-in-process",
-      "run": "filter-pagerank-20260728",
+      "run": "filter-pagerank-059-20260904",
       "status": "ok",
       "unit": "s",
-      "value": 32.1,
+      "value": 34.11,
       "workload": "filter -> PageRank -> filter, gplus \u2014 GFQL CPU (pandas + igraph)"
     },
     "pagerank.gplus.gfql_gpu": {
-      "board_quotable": true,
-      "comparison_allowed": true,
+      "board_quotable": false,
+      "comparison_allowed": false,
       "decimals": 2,
-      "disclosures": [],
+      "disclosures": [
+        "Its selected-node set differs from the GFQL CPU (pandas + igraph) arm's on gplus (Jaccard 0.91065, gate 0.95); this is a direct pipeline time, not a comparison."
+      ],
       "engine": "GFQL GPU (cuDF + cuGraph)",
       "measurement_profile": "filter-pagerank-resident-in-process",
-      "run": "filter-pagerank-20260728",
+      "run": "filter-pagerank-059-20260904",
       "status": "ok",
       "unit": "s",
-      "value": 2.42,
+      "value": 2.47,
       "workload": "filter -> PageRank -> filter, gplus \u2014 GFQL GPU (cuDF + cuGraph)"
-    },
-    "pagerank.gplus.gfql_gpu_vs_gfql_cpu": {
-      "board_quotable": true,
-      "comparison_allowed": true,
-      "decimals": 1,
-      "disclosures": [],
-      "engine": "GFQL GPU (cuDF + cuGraph)",
-      "measurement_profile": "filter-pagerank-resident-in-process",
-      "operands": [
-        "pagerank.gplus.gfql_gpu",
-        "pagerank.gplus.gfql_cpu"
-      ],
-      "run": "filter-pagerank-20260728",
-      "status": "ok",
-      "unit": "x",
-      "value": 13.3,
-      "workload": "filter -> PageRank -> filter, gplus \u2014 GFQL GPU (cuDF + cuGraph) vs GFQL CPU (pandas + igraph)"
     },
     "pagerank.gplus.neo4j_gds": {
       "board_quotable": true,
@@ -1631,10 +1616,10 @@
       "disclosures": [],
       "engine": "GFQL CPU (pandas + igraph)",
       "measurement_profile": "filter-pagerank-resident-in-process",
-      "run": "filter-pagerank-20260728",
+      "run": "filter-pagerank-059-20260904",
       "status": "ok",
       "unit": "s",
-      "value": 1.58,
+      "value": 2.62,
       "workload": "filter -> PageRank -> filter, twitter \u2014 GFQL CPU (pandas + igraph)"
     },
     "pagerank.twitter.gfql_gpu": {
@@ -1644,10 +1629,10 @@
       "disclosures": [],
       "engine": "GFQL GPU (cuDF + cuGraph)",
       "measurement_profile": "filter-pagerank-resident-in-process",
-      "run": "filter-pagerank-20260728",
+      "run": "filter-pagerank-059-20260904",
       "status": "ok",
       "unit": "s",
-      "value": 0.24,
+      "value": 0.23,
       "workload": "filter -> PageRank -> filter, twitter \u2014 GFQL GPU (cuDF + cuGraph)"
     },
     "pagerank.twitter.gfql_gpu_vs_gfql_cpu": {
@@ -1661,10 +1646,10 @@
         "pagerank.twitter.gfql_gpu",
         "pagerank.twitter.gfql_cpu"
       ],
-      "run": "filter-pagerank-20260728",
+      "run": "filter-pagerank-059-20260904",
       "status": "ok",
       "unit": "x",
-      "value": 6.7,
+      "value": 11.3,
       "workload": "filter -> PageRank -> filter, twitter \u2014 GFQL GPU (cuDF + cuGraph) vs GFQL CPU (pandas + igraph)"
     },
     "pagerank.twitter.neo4j_gds": {
@@ -1672,11 +1657,12 @@
       "comparison_allowed": true,
       "decimals": 2,
       "disclosures": [
-        "In the Neo4j arm each filter stage writes a marker property onto every matched node and relationship, 32 seeds per batch, and GDS scores an explicitly symmetrised projection; the GDS in-memory projection is rebuilt per timed iteration while the GFQL arms retain their resident frames. The GFQL arms materialise a subgraph and write nothing. The figure is a pipeline time, not an engine-primitive time."
+        "In the Neo4j arm each filter stage writes a marker property onto every matched node and relationship, 32 seeds per batch, and GDS scores an explicitly symmetrised projection; the GDS in-memory projection is rebuilt per timed iteration while the GFQL arms retain their resident frames. The GFQL arms materialise a subgraph and write nothing. The figure is a pipeline time, not an engine-primitive time.",
+        "The Twitter Neo4j + GDS arm was measured on 2026-07-28 and is reused unchanged; the GFQL arms were re-measured on 2026-09-04 at PyGraphistry 0.59.0 under the pinned PageRank contract."
       ],
       "engine": "Neo4j + GDS",
       "measurement_profile": "filter-pagerank-server-roundtrip-projection-per-iteration",
-      "run": "filter-pagerank-20260728",
+      "run": "filter-pagerank-059-20260904",
       "status": "ok",
       "unit": "s",
       "value": 11.72,
@@ -2248,11 +2234,10 @@
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-09-04T05:28:48Z",
-  "generated_by": "graphistry/pyg-bench 3beae394 scripts/export_docs_numbers.py",
+  "generated_at": "2026-09-04T06:03:03Z",
+  "generated_by": "graphistry/pyg-bench 48a65e2d scripts/export_docs_numbers.py",
   "policy": {
     "drift_waivers": {
-      "filter-pagerank-20260728": "GFQL CPU/GPU arms measured at pygraphistry 49db91cc (411 graphistry/compute commits before 0.59.0); the Neo4j GPlus arm was re-measured in the locked 2026-08-30 lane. A release-commit re-measurement of the GFQL arms is tracked.",
       "graphbench-q1q9-100k-20260813": "Relaned board measured at release-candidate pygraphistry 4d301b18 (274 graphistry/compute commits before 0.59.0). A release-commit re-measurement with a polars-gpu column is tracked; publish this board with its provenance until then.",
       "graphbench-q1q9-20k-20260813": "Relaned board measured at release-candidate pygraphistry 4d301b18 (274 graphistry/compute commits before 0.59.0). A release-commit re-measurement with a polars-gpu column is tracked; publish this board with its provenance until then.",
       "snb-is3-single-query-20260727": "Diagnostic-only probe (comparison_allowed false) at pygraphistry 233b64c8; kept for the IS3 single-query versus two-pass note, never quoted as a result."
@@ -2277,20 +2262,20 @@
     "max_compute_commit_drift": 12
   },
   "runs": {
-    "filter-pagerank-20260728": {
-      "artifact": "results/filter-pagerank-20260728",
+    "filter-pagerank-059-20260904": {
+      "artifact": "results/filter-pagerank-059-20260904 (GFQL arms) with the Twitter Neo4j arm copied from results/filter-pagerank-20260728",
       "competitor": "Neo4j + GDS",
       "competitor_version": "neo4j:2026.02.2 with the graph-data-science plugin",
       "dataset": "SNAP twitter_combined (81,306 nodes / 2,420,766 edges) and gplus_combined (107,614 nodes / 30,494,866 edges); sha256 of each source file is recorded in the arm artifacts",
-      "host": "dgx-spark (NVIDIA GB10, driver 580.126.09), 20 CPU",
-      "measured_at": "2026-07-28",
+      "host": "dgx-spark (NVIDIA GB10), 20 CPU",
+      "measured_at": "2026-09-04",
       "perf_lock_held": true,
-      "pyg_bench_commit": "85c92022 plus benchmarks/filter_pagerank as added in this commit",
-      "pygraphistry_commit": "49db91cc",
+      "pyg_bench_commit": "7426456",
+      "pygraphistry_commit": "3fb216dd",
       "quiet_host": true,
-      "reps": "graph loaded once, then 2 warmups + 5 timed runs per arm on the resident graph; median",
-      "row_validation": "Every arm records the node id set its pipeline selected, captured outside the timed region. Comparability is the Jaccard index of those sets against a 0.95 threshold declared before the run: Twitter CPU/GPU 0.991, CPU/Neo4j 0.974, GPU/Neo4j 0.972; GPlus CPU/GPU 0.951.",
-      "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13) with python-igraph 1.0.0; cuDF 26.2.1, cuGraph 26.2.0, pandas 2.3.3; Neo4j 2026.02.2 + graph-data-science in Docker on the same host; benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
+      "reps": "GFQL arms: graph loaded once, then 2 warmups + 5 timed runs per arm on the resident graph, median; Twitter Neo4j + GDS arm carried over unchanged from the 2026-07-28 lane (2 warmups + 5 timed runs)",
+      "row_validation": "Every arm records the node id set its pipeline selected, captured outside the timed region. Comparability is the Jaccard index of those sets against a 0.95 threshold declared before the run; values are in summary.json (Twitter CPU/Neo4j 0.9999).",
+      "runtime": "RAPIDS 26.02 (NVIDIA nvcr.io/nvidia/rapidsai/base:26.02-cuda12-py3.13 image, Python 3.13) with python-igraph 1.0.0; cuDF 26.2.1, cuGraph 26.2.0, pandas 2.3.3; PageRank contract pinned (undirected, damping 0.85, cuGraph max_iter 100 / tol 1e-6); Twitter Neo4j 2026.02.2 + graph-data-science in Docker on the same host (2026-07-28); benchmark image graphistry/test-rapids-official:26.02-gfql-polars"
     },
     "filter-pagerank-gplus-locked-20260830": {
       "artifact": "results/gplus-locked-baseline-20260830",
