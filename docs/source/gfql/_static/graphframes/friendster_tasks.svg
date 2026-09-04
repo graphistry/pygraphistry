@@ -26,7 +26,8 @@
 <text class="n" x="16" y="321">2-hop from 50 seeds</text>
 <rect x="193" y="328" width="1" height="84" fill="var(--rule)"/>
 <text class="a" x="26" y="348">GFQL polars (CPU)</text>
-<text class="m" x="202" y="348">not measured</text>
+<path class="cpu" d="M194 335H490a4 4 0 0 1 4 4V349a4 4 0 0 1 -4 4H194Z"/>
+<text x="502" y="348"><tspan class="n">164890.2 ms</tspan></text>
 <text class="a" x="26" y="376">GFQL polars-gpu (GPU)</text>
 <text class="m" x="202" y="376">not measured</text>
 <text class="a" x="26" y="404">GraphFrames local[*]</text>

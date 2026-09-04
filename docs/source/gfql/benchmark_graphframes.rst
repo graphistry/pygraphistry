@@ -17,16 +17,22 @@ commits.
 
 **Where it stands.** The single-server ceiling measured here is Friendster:
 1,806,067,135 edges bound from a lazy Polars scan, a degree filter in
-:bench:`graphframes.friendster.filter.gfql_polars` and a 1-hop from 50 hub seeds in
-:bench:`graphframes.friendster.hop1.gfql_polars` on the CPU streaming path, with resident
-memory peaking at 106 GB of the 119 GB host; a 2-hop does not fit, and GraphFrames on
-``local[*]`` did not load the graph at all. Below that ceiling the picture is mixed and
-both sides are printed: on whole-graph PageRank GFQL on the GPU is
+:bench:`graphframes.friendster.filter.gfql_polars`, a 1-hop from 50 hub seeds in
+:bench:`graphframes.friendster.hop1.gfql_polars`, and a 2-hop in
+:bench:`graphframes.friendster.hop2.gfql_polars` on the CPU streaming path, with resident
+memory peaking at 106 GB of the 119 GB host; the GPU path stops at the 1-hop, PageRank
+does not fit on either path, and GraphFrames on ``local[*]`` did not load the graph at
+all. Below that ceiling the picture is mixed and both sides are printed: on whole-graph
+PageRank GFQL on the GPU is
 :bench:`graphframes.lj.pagerank.gfql_polars_gpu_vs_graphframes` faster than GraphFrames
 on LiveJournal and :bench:`graphframes.orkut.pagerank.gfql_polars_gpu_vs_graphframes` on
-Orkut, and the solver is a small part of that time (the shaded bars); on degree filters
-and 1-hop the CPU engine is faster on both graphs; on 2-hop GraphFrames wins on both
-(:bench:`graphframes.lj.hop2.gfql_polars_vs_graphframes` and
+Orkut, while GFQL on the CPU loses PageRank on both
+(:bench:`graphframes.lj.pagerank.gfql_polars_vs_graphframes` and
+:bench:`graphframes.orkut.pagerank.gfql_polars_vs_graphframes` of GraphFrames' speed):
+on both paths the solver is a small part of the time (the shaded bars) and the rest is
+the conversion into the solver's graph and the join of scores back onto the nodes; on
+degree filters and 1-hop the CPU engine is faster on both graphs; on 2-hop GraphFrames
+wins on both (:bench:`graphframes.lj.hop2.gfql_polars_vs_graphframes` and
 :bench:`graphframes.orkut.hop2.gfql_polars_vs_graphframes` of its speed). The GFQL
 filter and hop rows were measured at the head of the fix for
 `#2023 <https://github.com/graphistry/pygraphistry/issues/2023>`_
@@ -41,14 +47,17 @@ measured); the released code's LiveJournal 2-hop was
    :alt: Orkut task times: GFQL and GraphFrames for filter, 1-hop, 2-hop, and PageRank, with the PageRank solver time shaded inside the GFQL bar
 
 .. image:: _static/graphframes/friendster_tasks.svg
-   :alt: Friendster task times: GFQL CPU streaming filter and 1-hop; 2-hop, PageRank, and GraphFrames not measured
+   :alt: Friendster task times: GFQL CPU streaming filter, 1-hop, and 2-hop; PageRank and GraphFrames not measured
 
 GFQL binds each graph from a lazy Polars scan of the edge parquet and runs the filter
 and hop tasks with ``engine="polars"`` under the Polars CPU streaming collect, or with
 ``engine="polars-gpu"`` under the cudf-polars streaming executor. PageRank re-binds an
-eager cuDF copy outside the timer and calls cuGraph. Every cell is the median of 5 timed
-runs after 2 warmups, and every task returns the same result size on every system that
-ran it. Times are milliseconds unless marked; lower is better.
+eager copy outside the timer and calls cuGraph on the GPU or igraph on the CPU. The
+streaming collect is not a tax: with the same commit and protocol the eager collect
+matched it on filter and 2-hop and was slower on 1-hop (the receipts are named in the
+Measurement block). Every cell is the median of 5 timed runs after 2 warmups, and every
+task returns the same result size on every system that ran it. Times are milliseconds
+unless marked; lower is better.
 
 LiveJournal
 -----------
@@ -78,10 +87,10 @@ LiveJournal
      - :bench:`graphframes.lj.hop2.graphframes`
      - :bench:`graphframes.lj.hop2.gfql_polars_vs_graphframes` (GraphFrames wins)
    * - **PageRank** (full graph)
-     - not measured (CPU PageRank routes through igraph)
+     - :bench:`graphframes.lj.pagerank.gfql_polars`; solver :bench-diag:`graphframes.lj.pagerank.gfql_polars_kernel`
      - :bench:`graphframes.lj.pagerank.gfql_polars_gpu`; solver :bench-diag:`graphframes.lj.pagerank.gfql_polars_gpu_kernel`
      - :bench:`graphframes.lj.pagerank.graphframes`
-     - GPU: :bench:`graphframes.lj.pagerank.gfql_polars_gpu_vs_graphframes`
+     - GPU: :bench:`graphframes.lj.pagerank.gfql_polars_gpu_vs_graphframes`; CPU: :bench:`graphframes.lj.pagerank.gfql_polars_vs_graphframes` (GraphFrames wins)
 
 The GPU streaming executor is slower than the CPU streaming collect on both hops here
 (:bench:`graphframes.lj.hop1.gfql_polars_gpu` against
@@ -116,15 +125,16 @@ Orkut
      - :bench:`graphframes.orkut.hop2.graphframes`
      - :bench:`graphframes.orkut.hop2.gfql_polars_vs_graphframes` (GraphFrames wins)
    * - **PageRank** (full graph)
-     - not measured
+     - :bench:`graphframes.orkut.pagerank.gfql_polars`; solver :bench-diag:`graphframes.orkut.pagerank.gfql_polars_kernel`
      - :bench:`graphframes.orkut.pagerank.gfql_polars_gpu`; solver :bench-diag:`graphframes.orkut.pagerank.gfql_polars_gpu_kernel`
      - :bench:`graphframes.orkut.pagerank.graphframes`
-     - GPU: :bench:`graphframes.orkut.pagerank.gfql_polars_gpu_vs_graphframes`
+     - GPU: :bench:`graphframes.orkut.pagerank.gfql_polars_gpu_vs_graphframes`; CPU: :bench:`graphframes.orkut.pagerank.gfql_polars_vs_graphframes` (GraphFrames wins)
 
 Friendster
 ----------
 
-One attempt, on the Polars CPU streaming path; no other system ran.
+On the Polars CPU streaming path; the GPU path stopped at the 1-hop and no other system
+ran (see :ref:`graphframes-friendster`).
 
 .. list-table::
    :header-rows: 1
@@ -139,7 +149,10 @@ One attempt, on the Polars CPU streaming path; no other system ran.
    * - **1-hop** (50 seeds)
      - :bench:`graphframes.friendster.hop1.gfql_polars`
      - 166,615 nodes
-   * - **2-hop**, **PageRank**
+   * - **2-hop** (50 seeds)
+     - :bench:`graphframes.friendster.hop2.gfql_polars`
+     - 15,878,312 nodes
+   * - **PageRank**
      - not attempted
      - see :ref:`graphframes-friendster`
 
@@ -167,7 +180,7 @@ Result sizes agree across the systems that ran each task, as recorded in the rec
    * - Friendster (GFQL only)
      - 6,585,312
      - 166,615
-     - not attempted
+     - 15,878,312
      - not attempted
 
 Which engine to use
@@ -182,8 +195,13 @@ Which engine to use
 - **2-hop from hub seeds**: GraphFrames wins on both graphs today. GFQL's cost is the
   wavefront seed-rediscovery rule evaluated over the traversed ball; #2024 removed the
   interpreter loop, and the remaining gap is the rule itself.
-- **PageRank without a GPU**: GFQL routes the CPU path through single-threaded igraph.
-  It is not measured on this page; use it for convenience, not for speed.
+- **PageRank without a GPU**: GFQL routes the CPU path through igraph, and loses to
+  GraphFrames on both graphs. The igraph solver itself is
+  :bench-diag:`graphframes.lj.pagerank.gfql_polars_kernel` of the
+  :bench:`graphframes.lj.pagerank.gfql_polars` LiveJournal row; the rest is the
+  conversion into igraph and the join-back, tracked in
+  `#2032 <https://github.com/graphistry/pygraphistry/issues/2032>`_. Use the CPU path
+  for convenience, not for speed.
 - **Larger than one node's memory**: see :ref:`graphframes-friendster`.
 
 The tasks
@@ -221,10 +239,12 @@ and ``find`` matches a fixed motif. The Spark side therefore expands with one it
 undirected edge join per hop and ends in ``.count()``.
 
 **PageRank**: full graph, damping 0.85. GFQL GPU calls
-``g.compute_cugraph('pagerank')`` on an eager cuDF copy of the graph. GraphFrames calls
-``gf.pageRank(resetProbability=0.15, maxIter=20)``. Both return the full vertex set. The
-shaded part of a GFQL PageRank bar is the cuGraph solver alone on a graph object built
-outside the timer; the light part is the rest of the query.
+``g.compute_cugraph('pagerank')`` on an eager cuDF copy of the graph; GFQL CPU calls
+``g.compute_igraph('pagerank')`` on an eager pandas copy. GraphFrames calls
+``gf.pageRank(resetProbability=0.15, maxIter=20)``. All return the full vertex set. The
+shaded part of a GFQL PageRank bar is the solver alone (cuGraph or igraph) on a graph
+object built outside the timer; the light part is the rest of the query, which is the
+conversion into that graph object and the join of scores back onto the nodes.
 
 .. _graphframes-friendster:
 
@@ -243,11 +263,17 @@ The harness binds from ``pl.scan_parquet`` and collects through GFQL's streaming
 peak-memory receipt at every size. On Friendster the CPU streaming run loaded the graph
 (scan plus degree pass in about 20 seconds, 56 GB resident), answered the degree filter
 and the 1-hop from 50 hub seeds (table above), and peaked at 106 GB resident after the
-1-hop. The Orkut receipt puts 2-hop at 17 GB for 117M edges, and the 2-hop ball from hub
-seeds grows with the graph, so 2-hop and PageRank were not attempted: the streaming
+1-hop; a second run answered the 2-hop, a 15,878,312-node ball, in
+:bench:`graphframes.friendster.hop2.gfql_polars` at 69.5 GB resident. The streaming
 collect keeps the load out of memory, but the traversal still materializes the edges it
-touches. That is the single-server ceiling this page measured. GraphFrames on
-``local[*]`` stays at the boundary it hit above.
+touches, and that is where the GPU path stops: the cudf-polars streaming executor
+completed the degree filter, then the memory guard ended the run during the 1-hop at 106
+GB resident, so the GPU column has no Friendster cell. Whole-graph PageRank does not fit
+on either path: the GPU preflight refused it (an estimated 87 GB peak against an 80 GB
+budget), and the CPU path was not attempted because its Orkut row already projects the
+igraph conversion past the host at fifteen times the edges. That is the single-server
+ceiling this page measured. GraphFrames on ``local[*]`` stays at the boundary it hit
+above.
 
 .. _graphframes-method:
 
