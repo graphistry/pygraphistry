@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="568" viewBox="0 0 720 568" role="img" aria-label="Friendster: 65,608,366 nodes / 1,806,067,135 edges">
+<title>Friendster: 65,608,366 nodes / 1,806,067,135 edges</title>
+<style>.c{--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--ink3:#78776f;--rule:#dcdbd6;--track:#f0efec;--neo:#eb6834;--cpu:#2a78d6;--gpu:#1baf7a}@media (prefers-color-scheme:dark){.c{--surface:#1a1a19;--ink:#ffffff;--ink2:#c3c2b7;--ink3:#908f86;--rule:#3b3a37;--track:#262523;--neo:#d95926;--cpu:#3987e5;--gpu:#199e70}}.c text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}.t{font-size:17px;font-weight:600;fill:var(--ink)}.s{font-size:12.5px;fill:var(--ink2)}.n{font-size:13px;font-weight:600;fill:var(--ink)}.a{font-size:12.5px;fill:var(--ink2)}.m{font-size:12.5px;fill:var(--ink3)}.neo{fill:var(--neo)}.cpu{fill:var(--cpu)}.gpu{fill:var(--gpu)}</style>
+<g class="c">
+<rect width="720" height="568" fill="var(--surface)"/>
+<text class="t" x="16" y="28">Friendster: 65,608,366 nodes / 1,806,067,135 edges</text>
+<text class="s" x="16" y="49">Median of 5 after 2 warmups; same result size on every system unless marked. Lower is better.</text>
+<text class="n" x="16" y="89">filter: degree &gt;= 148</text>
+<rect x="193" y="96" width="1" height="84" fill="var(--rule)"/>
+<text class="a" x="26" y="116">GFQL polars (CPU)</text>
+<path class="cpu" d="M194 103H490a4 4 0 0 1 4 4V117a4 4 0 0 1 -4 4H194Z"/>
+<text x="502" y="116"><tspan class="n">3111.7 ms</tspan></text>
+<text class="a" x="26" y="144">GFQL polars-gpu (GPU)</text>
+<text class="m" x="202" y="144">not measured</text>
+<text class="a" x="26" y="172">GraphFrames local[*]</text>
+<text class="m" x="202" y="172">not measured</text>
+<text class="n" x="16" y="205">1-hop from 50 seeds</text>
+<rect x="193" y="212" width="1" height="84" fill="var(--rule)"/>
+<text class="a" x="26" y="232">GFQL polars (CPU)</text>
+<path class="cpu" d="M194 219H490a4 4 0 0 1 4 4V233a4 4 0 0 1 -4 4H194Z"/>
+<text x="502" y="232"><tspan class="n">6123.4 ms</tspan></text>
+<text class="a" x="26" y="260">GFQL polars-gpu (GPU)</text>
+<text class="m" x="202" y="260">not measured</text>
+<text class="a" x="26" y="288">GraphFrames local[*]</text>
+<text class="m" x="202" y="288">not measured</text>
+<text class="n" x="16" y="321">2-hop from 50 seeds</text>
+<rect x="193" y="328" width="1" height="84" fill="var(--rule)"/>
+<text class="a" x="26" y="348">GFQL polars (CPU)</text>
+<text class="m" x="202" y="348">not measured</text>
+<text class="a" x="26" y="376">GFQL polars-gpu (GPU)</text>
+<text class="m" x="202" y="376">not measured</text>
+<text class="a" x="26" y="404">GraphFrames local[*]</text>
+<text class="m" x="202" y="404">not measured</text>
+<text class="n" x="16" y="437">PageRank, full graph</text>
+<rect x="193" y="444" width="1" height="84" fill="var(--rule)"/>
+<text class="a" x="26" y="464">GFQL polars (CPU)</text>
+<text class="m" x="202" y="464">not measured</text>
+<text class="a" x="26" y="492">GFQL polars-gpu (GPU)</text>
+<text class="m" x="202" y="492">not measured</text>
+<text class="a" x="26" y="520">GraphFrames local[*]</text>
+<text class="m" x="202" y="520">not measured</text>
+<text class="m" x="16" y="557">Bars are scaled per task. dgx-spark, single node; Spark local[*] over all cores.</text>
+</g></svg>
