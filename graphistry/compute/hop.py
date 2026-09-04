@@ -535,11 +535,12 @@ def hop(self: Plottable,
         elif direction == 'reverse':
             pairs = _build_pairs(g2._destination, g2._source)
         else:
+            # both orientations, as the polars twin does; consumers dedup on EDGE_ID
             pairs = concat(
                 [_build_pairs(g2._source, g2._destination), _build_pairs(g2._destination, g2._source)],
                 ignore_index=True,
                 sort=False,
-            ).drop_duplicates(subset=[FROM_COL, TO_COL, EDGE_ID])
+            )
 
     if fast_path_enabled and not skip_full_loop:
         frontier_ids = _domain_unique(traversal_seeds[node_col])
