@@ -391,6 +391,17 @@ def test_graphframes_chart_shades_the_kernel_inside_the_query_bar(payload):
         charts.render_graphframes('orkut_tasks.svg', _gf_payload(payload))
 
 
+def test_graphframes_chart_draws_diagnostic_prefix_cells_lighter_and_labelled(payload):
+    synthetic = _gf_payload(payload, gpu=False)
+    cell = dict(synthetic['cells']['graphframes.lj.filter.gfql_polars'])
+    cell.update({'value': 27.0, 'board_quotable': False, 'comparison_allowed': False})
+    synthetic['cells']['graphframes_059.lj.hop2.gfql_polars'] = cell
+    svg = charts.render_graphframes('livejournal_tasks.svg', synthetic)
+    assert '27.0 ms' in svg and charts.GF_DIAG_NOTE in svg
+    assert 'released code with #2023' in svg
+    assert svg.count('not measured') == 3 + 2  # GPU on three tasks + hop2 GPU/GraphFrames
+
+
 def test_graphframes_chart_marks_an_unmeasured_system_without_a_bar(payload):
     svg = charts.render_graphframes('livejournal_tasks.svg', _gf_payload(payload, gpu=False))
     assert svg.count('not measured') == 3 + 3  # GPU on three tasks + hop2 for all three
