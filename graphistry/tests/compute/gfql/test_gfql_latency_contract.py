@@ -87,7 +87,7 @@ SHAPES = {
         [n({"id": PERSON})], 12.0),
 }
 
-# Known contract gaps (T2.10.2 in plans/gfql-benchmark-numbers/plan.md); strict so a fix flips the pin.
+# Known contract gaps; strict so the fix that closes one flips the pin.
 SERVED_GAPS = {
     (engine, "node-only seed + props"): "no fast path serves a node-only seeded lookup with projections"
     for engine in ENGINES
