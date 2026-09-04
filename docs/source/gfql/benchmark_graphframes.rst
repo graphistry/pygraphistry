@@ -11,11 +11,11 @@ Graphistry's open-source graph query language: Cypher and Python chains that run
 in-process on dataframes, with no database or cluster. GraphFrames is Spark's graph
 library, run here on ``local[*]``, a single-node JVM using all cores. The workload is
 four tasks on two SNAP graphs, LiveJournal and Orkut, with Friendster as the
-larger-than-memory rung the ladder climbs next. Every number below renders from a
+larger-than-memory size measured last. Every number below renders from a
 committed pyg-bench receipt; the Measurement block at the end names the runs, hosts, and
 commits.
 
-**Where it stands.** The single-server ceiling this ladder measured is Friendster:
+**Where it stands.** The single-server ceiling measured here is Friendster:
 1,806,067,135 edges bound from a lazy Polars scan, a degree filter in
 :bench:`graphframes.friendster.filter.gfql_polars` and a 1-hop from 50 hub seeds in
 :bench:`graphframes.friendster.hop1.gfql_polars` on the CPU streaming path, with resident
@@ -124,7 +124,7 @@ Orkut
 Friendster
 ----------
 
-One rung, one attempt, on the Polars CPU streaming path; no other system ran.
+One attempt, on the Polars CPU streaming path; no other system ran.
 
 .. list-table::
    :header-rows: 1
@@ -237,10 +237,10 @@ produced the earlier version of this page could not load it on the test node (ab
 GB unified memory): a pandas edge frame plus a second pass for degrees exceeds physical
 RAM, a direct cuDF read exceeds the unified pool, and a 90 GB Spark driver heap swaps.
 
-The ladder binds from ``pl.scan_parquet`` and collects through GFQL's streaming paths
+The harness binds from ``pl.scan_parquet`` and collects through GFQL's streaming paths
 (``GFQL_POLARS_CPU_STREAMING=1`` for the Polars streaming engine,
 ``GFQL_POLARS_GPU_EXECUTOR=streaming`` for the cudf-polars streaming executor), with a
-peak-memory receipt at every rung. On Friendster the CPU streaming rung loaded the graph
+peak-memory receipt at every size. On Friendster the CPU streaming run loaded the graph
 (scan plus degree pass in about 20 seconds, 56 GB resident), answered the degree filter
 and the 1-hop from 50 hub seeds (table above), and peaked at 106 GB resident after the
 1-hop. The Orkut receipt puts 2-hop at 17 GB for 117M edges, and the 2-hop ball from hub
@@ -267,13 +267,13 @@ Method and limits
   Cells marked diagnostic are never quoted as GFQL's number.
 - **PageRank convergence**: GraphFrames runs a fixed ``maxIter=20``; cuGraph runs to
   its default tolerance. Times compare wall-clock to a usable ranking.
-- **Receipts**: one rung at a time under a host lock, after two clean checks five
+- **Receipts**: one run at a time under a host lock, after two clean checks five
   minutes apart; a load monitor samples the host every second and a classifier
-  invalidates the rung if a process outside the benchmark ran during it. Invalidated
-  attempts stay in the package under ``stale-attempts/``; one Orkut GraphFrames rung is
+  invalidates the run if a process outside the benchmark ran during it. Invalidated
+  attempts stay in the package under ``stale-attempts/``; one Orkut GraphFrames run is
   valid by reclassification after the classifier learned that Spark's own shutdown
-  cleanup is the benchmark's process (``RECLASSIFIED.txt`` in the rung).
-- **Harness**: the GFQL ladder harness and every receipt live in pyg-bench; the
+  cleanup is the benchmark's process (``RECLASSIFIED.txt`` in that run's directory).
+- **Harness**: the GFQL streaming harness and every receipt live in pyg-bench; the
   GraphFrames baseline is ``benchmarks/gfql/bench_graphframes.py --systems graphframes``
   in this repository, run from a host Spark with the GraphFrames assembly jar.
 

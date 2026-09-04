@@ -11,8 +11,8 @@ Choose an engine
 ----------------
 
 GFQL runs the same query on ``pandas`` (the default), ``polars`` (CPU), ``cudf``
-(NVIDIA GPU), or ``polars-gpu``. Each engine returns the same rows, or GFQL reports an
-error before execution instead of changing engines. On the q1–q9 boards below, the
+(NVIDIA GPU), or ``polars-gpu``, and every engine returns the same rows. On the q1–q9
+boards below, the
 Polars engine is faster than pandas on :bench-tally:`graphbench.100k|polars|pandas`
 queries at 100,000 people, by up to :bench:`graphbench.100k.q6.polars_vs_pandas`
 (q6). See :doc:`engines` for the selection guide.
