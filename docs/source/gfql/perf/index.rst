@@ -18,7 +18,7 @@ pipeline with Neo4j + GDS.
    :maxdepth: 1
 
    Choosing an Engine <../engines>
-   CPU and GPU Acceleration <../performance>
+   Measured Performance <../performance>
    Indexing Guide <../indexing>
    Adjacency Index for Lookups from Known Nodes <../index_adjacency>
    ../remote
