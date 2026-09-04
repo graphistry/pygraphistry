@@ -3974,11 +3974,12 @@
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-09-04T19:24:23Z",
-  "generated_by": "graphistry/pyg-bench f6269134 scripts/export_docs_numbers.py",
+  "generated_at": "2026-09-04T19:32:04Z",
+  "generated_by": "graphistry/pyg-bench 1dd7ed62 scripts/export_docs_numbers.py",
   "policy": {
     "accepted_regressions": [],
     "drift_waivers": {
+      "filter-pagerank-gplus-locked-20260830": "Competitor-only cells: this run publishes the Neo4j + GDS GPlus pipeline time (pagerank.gplus.neo4j_gds), which does not depend on graphistry/compute; the GFQL GPlus arms are re-measured at 0.59.0 in filter-pagerank-059-20260904. Re-measure Neo4j only when its own version or the pipeline contract changes.",
       "snb-is3-single-query-20260727": "Diagnostic-only probe (comparison_allowed false) at pygraphistry 233b64c8; kept for the IS3 single-query versus two-pass note, never quoted as a result."
     },
     "literal_allowlist": {},
