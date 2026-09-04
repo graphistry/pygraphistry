@@ -93,7 +93,7 @@ def run(engine: str, src, dst, seeds) -> Set[Hashable]:
         out = pandas_rule(edges, "s", "d", seed_df, "id")
         return set(out["id"].tolist())
     if engine == "cudf":
-        out = pandas_rule(cudf.DataFrame.from_pandas(edges), "s", "d", cudf.DataFrame.from_pandas(seed_df), "id")
+        out = pandas_rule(cudf.from_pandas(edges), "s", "d", cudf.from_pandas(seed_df), "id")
         assert out.__class__.__module__.startswith("cudf"), "the rule must stay on the GPU frame"
         return set(out.to_pandas()["id"].tolist())
     out = polars_rule(pl.from_pandas(edges), "s", "d", pl.from_pandas(seed_df), "id")
