@@ -79,7 +79,7 @@ LiveJournal
      - :bench:`graphframes.lj.hop2.gfql_polars_vs_graphframes` (GraphFrames wins)
    * - **PageRank** (full graph)
      - not measured (CPU PageRank routes through igraph)
-     - :bench:`graphframes.lj.pagerank.gfql_polars_gpu` (solver :bench-diag:`graphframes.lj.pagerank.gfql_polars_gpu_kernel`)
+     - :bench:`graphframes.lj.pagerank.gfql_polars_gpu`; solver :bench-diag:`graphframes.lj.pagerank.gfql_polars_gpu_kernel`
      - :bench:`graphframes.lj.pagerank.graphframes`
      - GPU: :bench:`graphframes.lj.pagerank.gfql_polars_gpu_vs_graphframes`
 
@@ -117,7 +117,7 @@ Orkut
      - :bench:`graphframes.orkut.hop2.gfql_polars_vs_graphframes` (GraphFrames wins)
    * - **PageRank** (full graph)
      - not measured
-     - :bench:`graphframes.orkut.pagerank.gfql_polars_gpu` (solver :bench-diag:`graphframes.orkut.pagerank.gfql_polars_gpu_kernel`)
+     - :bench:`graphframes.orkut.pagerank.gfql_polars_gpu`; solver :bench-diag:`graphframes.orkut.pagerank.gfql_polars_gpu_kernel`
      - :bench:`graphframes.orkut.pagerank.graphframes`
      - GPU: :bench:`graphframes.orkut.pagerank.gfql_polars_gpu_vs_graphframes`
 
