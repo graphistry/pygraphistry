@@ -638,6 +638,14 @@ def test_fast_path_still_fires_policy_hooks():
 _FAST_NOOP_POLICY = {'preload': lambda ctx: None}  # any hook -> full (non-fast) path
 
 
+def _cudf_at_least_26() -> bool:
+    try:
+        import cudf
+    except ImportError:
+        return False
+    return int(str(cudf.__version__).split(".")[0]) >= 26
+
+
 def _cudf_or_skip():
     if not (os.environ.get("TEST_CUDF") == "1"):
         pytest.skip("cuDF lane: set TEST_CUDF=1 (e.g. on dgx-spark)")
@@ -649,8 +657,8 @@ def _fast_graph(engine):
     edges = pd.DataFrame({'s': [0, 1, 2, 3, 0], 'd': [1, 2, 3, 4, 2], 'w': [5, 6, 7, 8, 9]})
     if engine == "cudf":
         cudf = _cudf_or_skip()
-        nodes = cudf.DataFrame.from_pandas(nodes)
-        edges = cudf.DataFrame.from_pandas(edges)
+        nodes = cudf.from_pandas(nodes)
+        edges = cudf.from_pandas(edges)
     return CGFull().nodes(nodes, 'v').edges(edges, 's', 'd')
 
 
@@ -711,10 +719,15 @@ _BYPASS_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
 ]
 
 
+_CUDF_26_DIVERGENT = {"prune_endpoints_fwd", "prune_endpoints_rev"}  # graphistry/pygraphistry#2043
+
+
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
 @pytest.mark.parametrize("label,build", _FAST_SHAPES + _BYPASS_SHAPES,
                          ids=[s[0] for s in _FAST_SHAPES + _BYPASS_SHAPES])
-def test_fast_path_differential_parity_vs_full_path(engine, label, build):
+def test_fast_path_differential_parity_vs_full_path(engine, label, build, request):
+    if engine == "cudf" and label in _CUDF_26_DIVERGENT and _cudf_at_least_26():
+        request.applymarker(pytest.mark.xfail(strict=True, reason="graphistry/pygraphistry#2043"))
     """Fast path output == full (policy-forced BFS) path output, by node/edge SET,
     for every accelerated shape AND every bypass shape, on pandas and cuDF.
 
@@ -1239,7 +1252,7 @@ def test_fast_path_drops_edges_to_absent_nodes(engine):
     edges = pd.DataFrame({'s': [0, 1], 'd': [1, 99]})  # 99 absent from nodes
     if engine == "cudf":
         cudf = _cudf_or_skip()
-        nodes, edges = cudf.DataFrame.from_pandas(nodes), cudf.DataFrame.from_pandas(edges)
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
     g = CGFull().nodes(nodes, 'v').edges(edges, 's', 'd')
     for q in ([n(), e_forward(hops=1), n()],
               [n(), e_reverse(hops=1), n()],
@@ -1260,7 +1273,7 @@ def test_fast_path_drops_nan_endpoint_edges(engine):
     edges = pd.DataFrame({'s': [0.0, 1.0], 'd': [1.0, np.nan]})  # NaN destination endpoint
     if engine == "cudf":
         cudf = _cudf_or_skip()
-        nodes, edges = cudf.DataFrame.from_pandas(nodes), cudf.DataFrame.from_pandas(edges)
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
     g = CGFull().nodes(nodes, 'v').edges(edges, 's', 'd')
     for q in ([n(), e_forward(hops=1), n()], [n(), e_reverse(hops=1), n()]):
         assert _setsig(g.gfql(q)) == _setsig(g.gfql(q, policy=_FAST_NOOP_POLICY)), \
@@ -1268,14 +1281,16 @@ def test_fast_path_drops_nan_endpoint_edges(engine):
 
 
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
-def test_fast_path_dedups_duplicate_node_ids_on_hop(engine):
+def test_fast_path_dedups_duplicate_node_ids_on_hop(engine, request):
+    if engine == "cudf" and _cudf_at_least_26():
+        request.applymarker(pytest.mark.xfail(strict=True, reason="graphistry/pygraphistry#2043"))
     """A malformed node table with duplicate ids must not make the 1-hop fast path
     diverge from the full path (which collapses dup rows via its merge)."""
     nodes = pd.DataFrame({'v': [0, 0, 1, 2], 'attr': [1, 1, 2, 3]})
     edges = pd.DataFrame({'s': [0, 1], 'd': [1, 2]})
     if engine == "cudf":
         cudf = _cudf_or_skip()
-        nodes, edges = cudf.DataFrame.from_pandas(nodes), cudf.DataFrame.from_pandas(edges)
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
     g = CGFull().nodes(nodes, 'v').edges(edges, 's', 'd')
     q = [n(), e_forward(hops=1), n()]
     assert _setsig(g.gfql(q)) == _setsig(g.gfql(q, policy=_FAST_NOOP_POLICY))

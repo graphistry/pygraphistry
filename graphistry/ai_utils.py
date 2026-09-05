@@ -501,8 +501,8 @@ def infer_self_graph(res: Plottable,
     if was_cudf:
         import cudf
         if isinstance(df, pd.DataFrame):
-            df = cudf.DataFrame.from_pandas(df)
+            df = cudf.from_pandas(df)  # pragma: no cover - cudf-only, covered by the GPU run
         if isinstance(new_edges_df, pd.DataFrame):
-            new_edges_df = cudf.DataFrame.from_pandas(new_edges_df)
+            new_edges_df = cudf.from_pandas(new_edges_df)  # pragma: no cover - cudf-only, covered by the GPU run
 
     return hydrate_graph(res, df, new_edges_df, node, src, dst, emb_orig, X_orig, y_orig)
