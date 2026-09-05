@@ -185,3 +185,15 @@ def test_incompatible_scalar_filter_preserves_structured_schema_error(location, 
     with pytest.raises(GFQLSchemaError) as full:
         g.gfql(ops, engine="polars", index_policy="use")
     assert fast.value.code == full.value.code == "incompatible-column-type"
+
+
+def test_seeded_chain_with_start_nodes_never_takes_the_native_lane(monkeypatch):
+    g = _graph()
+    served = _spy_served(monkeypatch)
+    seeds = g._nodes.filter(pl.col("key") == 4)
+    out = chain_polars.chain_polars(g, _NAMED_TYPED_HOP, start_nodes=seeds)
+    assert served == []
+    monkeypatch.setattr(chain_polars, "_try_seeded_chain_polars", lambda *args: None)
+    full = chain_polars.chain_polars(g, _NAMED_TYPED_HOP, start_nodes=seeds)
+    assert_frame_equal(out._nodes, full._nodes)
+    assert_frame_equal(out._edges, full._edges)
