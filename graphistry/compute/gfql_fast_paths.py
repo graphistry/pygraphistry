@@ -3356,20 +3356,23 @@ def _seeded_typed_hop_two_alias_frame(
     select_items: Sequence[Tuple[str, str, str]], *, from_col: str, to_col: str, node: str,
     is_polars: bool, keep_source_dtypes: bool,
 ) -> Optional[DataFrameT]:
-    """One row per matched edge with properties of BOTH pattern aliases: the edge endpoints
-    look up the seed rows (from side) and the destination rows (to side)."""
+    """One row per matched edge with properties of ANY pattern alias: the edge's own
+    columns ride along, and its endpoints look up the seed rows (from side) and the
+    destination rows (to side)."""
     key_from, key_to = f"{_SEEDED_BAG_KEY}from", f"{_SEEDED_BAG_KEY}to"
     seed_props = [prop for _, side, prop in select_items if side == "seed" and prop != node]
     dst_props = [prop for _, side, prop in select_items if side == "dst" and prop != node]
+    edge_props = list(dict.fromkeys(prop for _, side, prop in select_items if side == "edge"))
 
     def _col(side: str, prop: str) -> str:
-        if prop == node:
+        if side != "edge" and prop == node:
             return key_from if side == "seed" else key_to
         return f"{_SEEDED_BAG_KEY}{side}.{prop}"
 
     if is_polars:
         import polars as pl
-        joined = edges.select([pl.col(from_col).alias(key_from), pl.col(to_col).alias(key_to)])
+        joined = edges.select([pl.col(from_col).alias(key_from), pl.col(to_col).alias(key_to)]
+                              + [pl.col(c).alias(_col("edge", c)) for c in edge_props])
         for side, rows, key, props in (("seed", seed_rows, key_from, seed_props),
                                        ("dst", dst_rows, key_to, dst_props)):
             side_key = f"{_SEEDED_BAG_KEY}{side}.{node}"
@@ -3377,8 +3380,8 @@ def _seeded_typed_hop_two_alias_frame(
                                  + [pl.col(c).alias(_col(side, c)) for c in dict.fromkeys(props)])
             joined = joined.join(lookup, left_on=key, right_on=side_key, how="inner")
         return joined.select([pl.col(_col(side, prop)).alias(out) for out, side, prop in select_items])
-    joined = edges[[from_col, to_col]].reset_index(drop=True)
-    joined.columns = [key_from, key_to]
+    joined = edges[[from_col, to_col] + edge_props].reset_index(drop=True)
+    joined.columns = [key_from, key_to] + [_col("edge", c) for c in edge_props]
     for side, rows, key, props in (("seed", seed_rows, key_from, seed_props),
                                    ("dst", dst_rows, key_to, dst_props)):
         side_key = f"{_SEEDED_BAG_KEY}{side}.{node}"
@@ -3386,7 +3389,7 @@ def _seeded_typed_hop_two_alias_frame(
         lookup = rows[[node] + cols].copy()
         lookup.columns = [side_key] + [_col(side, c) for c in cols]
         joined = joined.merge(lookup, left_on=key, right_on=side_key, how="inner")
-    # only the destination alias rides the rows pivot; the seed alias and the node id keep their dtypes
+    # only the destination alias rides the rows pivot; the seed alias, the edge alias and the node id keep their dtypes
     casts = _pivot_parity_casts(
         joined, [(out, _col(side, prop)) for out, side, prop in select_items
                  if prop != node and side == "dst"],
@@ -3678,23 +3681,29 @@ def _execute_seeded_typed_hop_fast_path(
         if nodes_frame_cols is None:
             return None
         prefix = f"{return_alias}."
-        # a bag lowering may project from both aliases: the seed rows are already held
+        # a bag lowering may project from every alias of the hop: the seed rows and the
+        # matched edges are already held
         seed_alias = n0._name if bag_rows and n0._name and n0._name != return_alias else None
         seed_prefix = None if seed_alias is None else f"{seed_alias}."
+        edge_alias = e1._name if bag_rows and e1._name and e1._name not in (return_alias, seed_alias) else None
+        edge_prefix = None if edge_alias is None else f"{edge_alias}."
+        edges_frame_cols: Set[str] = set() if base_graph._edges is None else set(map(str, base_graph._edges.columns))
         select_items = []
         for it in raw_items:
             if not (isinstance(it, (list, tuple)) and len(it) == 2):
                 return None
             out_name, src_ref = str(it[0]), str(it[1])
-            # the bare property must exist on the node frame (absent -> full path's
+            # the bare property must exist on its frame (absent -> full path's
             # null/error semantics must apply)
             if src_ref.startswith(prefix):
-                side, prop = "dst", src_ref[len(prefix):]
+                side, prop, cols = "dst", src_ref[len(prefix):], nodes_frame_cols
             elif seed_prefix is not None and src_ref.startswith(seed_prefix):
-                side, prop = "seed", src_ref[len(seed_prefix):]
+                side, prop, cols = "seed", src_ref[len(seed_prefix):], nodes_frame_cols
+            elif edge_prefix is not None and src_ref.startswith(edge_prefix):
+                side, prop, cols = "edge", src_ref[len(edge_prefix):], edges_frame_cols
             else:
                 return None
-            if "." in prop or prop not in nodes_frame_cols:
+            if "." in prop or prop not in cols:
                 return None
             select_items.append((out_name, side, prop))
     if not (n0.filter_dict and any(not str(k).startswith("label__") for k in n0.filter_dict)):
@@ -3738,7 +3747,7 @@ def _execute_seeded_typed_hop_fast_path(
             else "index_stale"
         )
     helper = _seeded_typed_return_dst_polars if is_polars else _seeded_typed_return_dst_pandas_cudf
-    wants_seed = select_items is not None and any(side == "seed" for _, side, _ in select_items)
+    wants_multi_alias = select_items is not None and any(side != "dst" for _, side, _ in select_items)
     dst_res = helper(base_graph, n0, n2, e1, src, dst, node, direction)
     if dst_res is None:
         _record_indexed_traversal(
@@ -3762,7 +3771,7 @@ def _execute_seeded_typed_hop_fast_path(
     p_rows, _edges, seed_rows, kernel_admits = dst_res
     # the canonical bag path keeps source dtypes only where the indexed kernel serves it
     canonical_keeps_source_dtypes = "cudf" in type(p_rows).__module__ or (bag_rows and kernel_admits)
-    if wants_seed:
+    if wants_multi_alias:
         assert select_items is not None
         out_frame = _seeded_typed_hop_two_alias_frame(
             seed_rows, p_rows, _edges, select_items,

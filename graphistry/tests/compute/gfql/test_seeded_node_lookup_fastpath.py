@@ -41,6 +41,7 @@ def _frames(n_persons=300, n_messages=900, seed=0):
     edges = pd.DataFrame({
         "src": np.arange(n_persons, n_persons + n_messages),
         "dst": rng.integers(0, n_persons, n_messages), "type": "HAS_CREATOR",
+        "w": rng.integers(0, 100, n_messages), "eflag": rng.integers(0, 2, n_messages).astype(bool),
     })
     # parallel edges keep openCypher bag multiplicity honest
     edges = pd.concat([edges, edges.iloc[:5]], ignore_index=True)
@@ -205,6 +206,11 @@ TWO_ALIAS_SHAPES = [
     ("MATCH (m:Message {score: 42})-[:HAS_CREATOR]->(p:Person) RETURN m.id AS mid, p.score AS ps, p.flag AS pf", "non-binding seed, int + bool"),
     ("MATCH (m:Message {id: 301})-[:HAS_CREATOR]->(p:Person) RETURN m.id AS mid, p.id AS pid", "parallel edges"),
     ("MATCH (m:Message {id: 305})-[:HAS_CREATOR]->(p:Person) RETURN m.id AS mid, p.age AS age ORDER BY age LIMIT 1", "order/limit"),
+    ("MATCH (m:Message {id: 305})-[r:HAS_CREATOR]->(p:Person) RETURN m.id AS mid, r.w AS w, r.eflag AS ef, r.type AS rt, p.age AS age", "all three aliases"),
+    ("MATCH (m:Message {id: 305})-[r:HAS_CREATOR]->(p:Person) RETURN r.w AS w, r.src AS s, r.dst AS d", "edge alias only, incl. endpoints"),
+    ("MATCH (m:Message {id: 305})-[r:HAS_CREATOR]->(p:Person) RETURN m.id, m.score, m.flag, m.firstName, r.w, r.eflag, r.type, p.id, p.firstName, p.age, p.score, p.flag", "twelve properties across three aliases"),
+    ("MATCH (m:Message {id: 301})-[r:HAS_CREATOR]->(p:Person) RETURN m.id AS mid, r.w AS w, p.id AS pid", "parallel edges, edge prop distinguishes rows"),
+    ("MATCH (m:Message {id: 999999})-[r:HAS_CREATOR]->(p:Person) RETURN r.w AS w, p.age AS age", "no match with an edge prop"),
     ("MATCH (m:Message {id: 999999})-[:HAS_CREATOR]->(p:Person) RETURN m.id AS mid, p.age AS age", "no match"),
     ("MATCH (p:Person)<-[:HAS_CREATOR]-(m:Message {id: 305}) RETURN m.id AS mid, p.age AS age", "reverse pattern, seed on return side"),
 ]
@@ -371,3 +377,31 @@ def test_node_lookup_served_under_policy_off_is_not_reported_as_an_index(engine)
                for s in steps), steps
     off = gi.gfql_explain(q, engine=engine, index_policy="off")
     assert off["used_index"] is False and off["decision_code"] == "policy_off", off
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_edge_alias_properties_engage_with_one_row_per_matched_edge(engine):
+    g = _graph(engine)
+    q = "MATCH (m:Message {id: 301})-[r:HAS_CREATOR]->(p:Person) RETURN m.id AS mid, r.w AS w, p.id AS pid"
+    got = _assert_parity(g, engine, q, "seeded_typed_hop")
+    _, edges = _frames()
+    assert sorted(got["w"].tolist()) == sorted(edges[edges["src"] == 301]["w"].tolist())
+    assert len(got) == 2, "the duplicated edge yields two rows with the same edge props"
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("q,label", [
+    ("MATCH (m:Message {id: 305})-[:HAS_CREATOR]->(p:Person)-[:HAS_CREATOR]->(q) RETURN m.id AS a, p.id AS b, q.id AS c", "two hops"),
+    ("MATCH (m:Message {id: 305})-[r:HAS_CREATOR]->(p:Person) RETURN r.nosuch AS x", "absent edge property"),
+])
+def test_typed_hop_declines_beyond_one_hop_or_unknown_edge_property_with_parity(engine, q, label):
+    g = _graph(engine)
+    try:
+        fast = _run(g, engine, q, True)
+    except Exception as exc:  # noqa: BLE001
+        with pytest.raises(type(exc)):
+            _run(g, engine, q, False)
+        return
+    full = _run(g, engine, q, False)
+    pd.testing.assert_frame_equal(_canon(fast), _canon(full))
+    assert fast_path_decisions(g, q, engine=engine).get("seeded_typed_hop") is not True, label
