@@ -1,7 +1,7 @@
 .. _gfql-indexing:
 
-Pay-As-You-Go Resident Indexing
-===============================
+Indexing Guide: Build Once, Query Faster
+========================================
 
 GFQL runs without any indexes: every query is a vectorized scan over your dataframes.
 When your workload is **seeded** — "expand from these 50 accounts", "look up this id and
@@ -9,7 +9,7 @@ hop out" — you can opt into **resident indexes**: build them once with one cal
 seeded queries reuse them automatically after that. This page is the user guide to that
 lifecycle: what the indexes are, what engages them, when they go stale, and what they cost.
 For the planner policy knobs and competitive benchmarks, see
-:doc:`Seeded Traversal Indexes <index_adjacency>`.
+:doc:`Adjacency Index <index_adjacency>`.
 
 .. doc-test: skip
 
@@ -127,7 +127,7 @@ When several indexed columns appear in one seed predicate, the planner gathers o
 **most selective** one (estimated for free from the index's own offsets) and applies
 the remaining predicates to those candidates, so results never depend on which index
 happens to be resident. As with every kind, a missing, stale, or cost-gated-out index
-simply falls back to the scan.
+falls back to the scan.
 
 What uses the index today
 -------------------------
@@ -224,7 +224,7 @@ only when they trace to a committed benchmark artifact.
 See also
 --------
 
-- :doc:`Seeded Traversal Indexes <index_adjacency>` — the planner (``index_policy``),
+- :doc:`Adjacency Index <index_adjacency>` — the planner (``index_policy``),
   Cypher DDL / wire protocol forms, and the index cost model.
 - :doc:`engines` — choosing pandas / Polars / cuDF / Polars-GPU.
 - :doc:`performance` — the vectorization + GPU design behind GFQL.

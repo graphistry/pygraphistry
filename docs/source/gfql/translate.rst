@@ -8,9 +8,9 @@ This guide provides a comparison between **SQL**, **Pandas**, **Cypher**, and **
 Introduction
 ------------
 
-GFQL (GraphFrame Query Language) is designed to be intuitive for users familiar with SQL, Cypher, or dataframe like Pandas and Spark. By comparing equivalent queries across these languages, you can quickly grasp GFQL's syntax, benefits, and start utilizing its powerful graph querying capabilities within your workflows.
+GFQL (GraphFrame Query Language) is designed to be intuitive for users familiar with SQL, Cypher, or dataframe like Pandas and Spark. By comparing equivalent queries across these languages, you can quickly grasp GFQL's syntax, benefits, and start utilizing its useful graph querying capabilities within your workflows.
 
-GFQL operates on graph DataFrames - graphs represented as node and edge DataFrames. This DataFrame-native approach enables seamless integration with the PyData ecosystem and natural vectorization for both CPU and GPU processing.
+GFQL operates on graph DataFrames - graphs represented as node and edge DataFrames. This DataFrame-native approach enables direct integration with the PyData ecosystem and natural vectorization for both CPU and GPU processing.
 
 GFQL accepts both **native chain syntax** (``g.gfql([n(), e(), n()])``) and
 **Cypher strings** (``g.gfql("MATCH ...")``). Most examples below show both
@@ -608,7 +608,7 @@ Time-Windowed Graph Analytics
 
 - **SQL** and **Pandas**: These versions incorrectly simplify to a two-hop relationships; for multihop scenarios, refer to :ref:`all-paths`.
 
-- **GFQL**: Utilizes the ``chain`` method to filter edges between ``"Alice"`` and ``"Bob"`` based on a timestamp within the last 7 days. This approach allows for multihop relationships as it leverages the graph's structure, and further using cuDF for GPU acceleration when available.
+- **GFQL**: Utilizes the ``chain`` method to filter edges between ``"Alice"`` and ``"Bob"`` based on a timestamp within the last 7 days. This approach allows for multihop relationships as it uses the graph's structure, and further using cuDF for GPU acceleration when available.
 
 
 ---
@@ -700,7 +700,7 @@ This example builds on the previous one, showing how **GFQL** handles parallel e
 
 - **In CPU environments**, the bulk processing model accelerates query execution algorithmically and takes advantage of hardware parallelism, improving efficiency.
   
-- **In GPU mode**, GFQL **natively parallelizes** pathfinding, further leveraging hardware acceleration to process multiple paths concurrently and quickly, making it highly efficient for large-scale graph traversals.
+- **In GPU mode**, GFQL **natively parallelizes** pathfinding, further using hardware acceleration to process multiple paths concurrently and quickly, making it highly efficient for large-scale graph traversals.
 
 ---
 
@@ -782,6 +782,6 @@ Additional Resources
 Conclusion
 ----------
 
-GFQL bridges the gap between traditional querying languages and graph analytics. By translating queries from SQL, Pandas, and Cypher into GFQL, you can leverage powerful graph queries within your Python workflows.
+GFQL bridges the gap between traditional querying languages and graph analytics. By translating queries from SQL, Pandas, and Cypher into GFQL, you can use useful graph queries within your Python workflows.
 
 Start exploring GFQL today and unlock new insights from your graph data!
