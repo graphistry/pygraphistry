@@ -3703,6 +3703,10 @@ def _execute_seeded_typed_hop_fast_path(
         edge_alias = e1._name if bag_rows and e1._name and e1._name not in (return_alias, seed_alias) else None
         edge_prefix = None if edge_alias is None else f"{edge_alias}."
         edges_frame_cols: Set[str] = set() if base_graph._edges is None else set(map(str, base_graph._edges.columns))
+        if e1._name is not None and e1._name in edges_frame_cols:
+            return None  # an alias that shadows an edge column keeps the full path's collision contract
+        if any(alias in nodes_frame_cols for alias in (n0._name, return_alias) if alias is not None):
+            return None
         select_items = []
         for it in raw_items:
             if not (isinstance(it, (list, tuple)) and len(it) == 2):

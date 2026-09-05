@@ -405,3 +405,25 @@ def test_typed_hop_declines_beyond_one_hop_or_unknown_edge_property_with_parity(
     full = _run(g, engine, q, False)
     pd.testing.assert_frame_equal(_canon(fast), _canon(full))
     assert fast_path_decisions(g, q, engine=engine).get("seeded_typed_hop") is not True, label
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("q,label", [
+    ("MATCH (m:Message {id: 305})-[type:HAS_CREATOR]->(p:Person) RETURN type.type AS t, p.age AS a", "edge alias = edge column it filters"),
+    ("MATCH (m:Message {id: 305})-[w:HAS_CREATOR]->(p:Person) RETURN w.w AS x, p.age AS a", "edge alias = edge property column"),
+    ("MATCH (m:Message {id: 305})-[eflag:HAS_CREATOR]->(p:Person) RETURN p.age AS a", "edge alias = edge column, not projected"),
+    ("MATCH (m:Message {id: 305})-[:HAS_CREATOR]->(type:Person) RETURN type.age AS a", "destination alias = node column"),
+    ("MATCH (score:Message {id: 305})-[:HAS_CREATOR]->(p:Person) RETURN p.age AS a", "seed alias = node column"),
+    ("MATCH (m:Message {id: 305})-[type:HAS_CREATOR]->(p:Person) RETURN p", "edge alias = edge column, whole-row RETURN"),
+])
+def test_typed_hop_declines_alias_column_collisions_with_parity(engine, q, label):
+    g = _graph(engine)
+    try:
+        fast = _run(g, engine, q, True)
+    except Exception as exc:  # noqa: BLE001
+        with pytest.raises(type(exc)):
+            _run(g, engine, q, False)
+        return
+    full = _run(g, engine, q, False)
+    pd.testing.assert_frame_equal(_canon(fast), _canon(full))
+    assert fast_path_decisions(g, q, engine=engine).get("seeded_typed_hop") is not True, label
