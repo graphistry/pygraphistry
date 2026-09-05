@@ -18,6 +18,7 @@ from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
+from graphistry.compute.chain_fast_paths import _single_node_rows_via_index_or_filter, _try_seeded_chain_polars
 
 if TYPE_CHECKING:
     import polars as pl
@@ -897,7 +898,8 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         g0 = ensure_nodes_polars(self)
         nc = g0._node
         assert nc is not None
-        nodes = filter_by_dict_polars(g0._nodes, op0.filter_dict)
+        from graphistry.Engine import EngineAbstract
+        nodes = _single_node_rows_via_index_or_filter(g0, op0, EngineAbstract.POLARS)
         if start_nodes is not None:
             from graphistry.Engine import Engine as _E, df_to_engine as _d2e
             seed = _align_seed_dtype(_d2e(start_nodes, _E.POLARS), nc, g0._nodes)
@@ -1000,6 +1002,11 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             )
             if _idxed0 is not None:
                 return _idxed0
+
+    if start_nodes is None:
+        seeded = _try_seeded_chain_polars(self, ops)
+        if seeded is not None:
+            return seeded
 
     if start_nodes is None and len(ops) == 3 and _fp_node(ops[0]) and _plain_edge(ops[1]) and _fp_node(ops[2]):
         n0, e1, n2 = ops

@@ -14,7 +14,7 @@ reductions rather than next to `_try_chain_fast_path`.
 from typing import Any, Dict, Literal, Optional, Sequence, Tuple, TYPE_CHECKING, Union, cast
 
 from graphistry.Plottable import Plottable
-from .ast import ASTNode, ASTEdge, Direction
+from .ast import ASTObject, ASTNode, ASTEdge, Direction
 from .typing import ArrayLike, ArrayNamespace, DataFrameT, SeriesT
 
 if TYPE_CHECKING:
@@ -181,6 +181,7 @@ def _ids_to_key_array(
 def _index_node_rows(
     nid: "NodeIdIndex", ids: Union["SeriesT", Sequence[Any]],
     xp: ArrayNamespace, engine: "Engine", nodes_df: DataFrameT,
+    preserve_input_order: bool = False,
 ) -> Optional[DataFrameT]:
     """Node rows whose id is in ``ids`` via the resident node-id index (positional
     gather; row order is id-sorted, covered by the value-identical contract)."""
@@ -189,7 +190,8 @@ def _index_node_rows(
     arr = _ids_to_key_array(ids, nid.keys_sorted, xp)
     if arr is None:
         return None
-    return take_rows(nodes_df, lookup_node_rows(nid, arr, xp), engine)
+    positions = lookup_node_rows(nid, arr, xp)
+    return take_rows(nodes_df, xp.sort(positions) if preserve_input_order else positions, engine)
 
 
 def _frame_engine(df: DataFrameT) -> Optional["Engine"]:
@@ -307,6 +309,7 @@ def _single_node_rows_via_index_or_filter(
 def _index_edge_rows(
     adj: "AdjacencyIndex", ids: Union["SeriesT", Sequence[Any]],
     xp: ArrayNamespace, engine: "Engine", edges_df: DataFrameT,
+    preserve_input_order: bool = False,
 ) -> Optional[DataFrameT]:
     """Edge rows incident to ``ids`` on the indexed side via the CSR adjacency
     (searchsorted gather; replaces the O(E) isin scan)."""
@@ -316,7 +319,7 @@ def _index_edge_rows(
     if arr is None:
         return None
     rows, _ = lookup_edge_rows(adj, arr, xp)
-    return take_rows(edges_df, rows, engine)
+    return take_rows(edges_df, xp.sort(rows) if preserve_input_order else rows, engine)
 
 
 def _indexed_kernel_admits(
@@ -500,6 +503,8 @@ def _seeded_typed_return_dst_pandas_cudf(
 def _seeded_typed_return_dst_polars(
     g: Plottable, n0: ASTNode, n2: ASTNode, e1: ASTEdge,
     src: str, dst: str, node: str, direction: Direction,
+    preserve_input_order: bool = False,
+    index_ctx: Optional[Tuple["NodeIdIndex", "AdjacencyIndex", ArrayNamespace, "Engine"]] = None,
 ) -> Optional[SeededReturn]:
     """#1755 polars analog of _seeded_typed_return_dst_pandas_cudf: same seed-first
     reduction (seed out-edges -> typed-edge filter -> destination nodes) expressed
@@ -508,6 +513,7 @@ def _seeded_typed_return_dst_polars(
     to the full lazy pipeline. Value-identical node set to the full path for the
     covered shape (scalar filters, directed, single hop); row order may differ."""
     import polars as pl
+    from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
     if direction == "undirected":
         return None
     nodes_df, edges_df = g._nodes, g._edges
@@ -527,34 +533,101 @@ def _seeded_typed_return_dst_polars(
     # Membership sets are drop_nulls()'d (null ids/endpoints never link, matching
     # the full pipeline's joins) and passed via .implode() (Series-arg is_in is
     # deprecated in polars 1.42, see polars#22149).
-    ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction)
+    ctx = index_ctx if index_ctx is not None else _resident_seed_indexes(
+        g, nodes_df, edges_df, node, src, dst, direction)
     nid_ctx = (ctx[0], ctx[2], ctx[3]) if ctx is not None else _resident_node_id_index(g, nodes_df, node)
     seed_nodes, how = _seed_node_rows(g, nodes_df, n0f, node, nid_ctx, n0.filter_dict)
     edges = dstn = None
     kernel_admits = False
     if ctx is not None:
         nid, adj, xp, idx_engine = ctx
-        edges = _index_edge_rows(adj, seed_nodes.get_column(node), xp, idx_engine, edges_df)
+        edges = _index_edge_rows(
+            adj, seed_nodes.get_column(node), xp, idx_engine, edges_df,
+            preserve_input_order=preserve_input_order)
         kernel_admits = _indexed_kernel_admits(
             seed_nodes, edges, n0f, node, how, ctx, len(nodes_df), len(edges_df))
         if edges is not None:
-            for k, v in ef.items():
-                edges = edges.filter(pl.col(k) == v)
+            edges = filter_by_dict_polars(edges, e1.edge_match)
             dstn = _index_node_rows(nid, edges.get_column(to_col), xp, idx_engine, nodes_df)
     if dstn is None:
         from_ids = seed_nodes.get_column(node).drop_nulls()
         if from_ids.len() == 0:
             return nodes_df.clear(), edges_df.clear(), seed_nodes, kernel_admits
         edges = edges_df.filter(pl.col(from_col).is_in(from_ids.implode()))
-        for k, v in ef.items():  # typed edge on the reduced frontier
-            edges = edges.filter(pl.col(k) == v)
+        edges = filter_by_dict_polars(edges, e1.edge_match)
         dst_ids = edges.get_column(to_col).drop_nulls().unique()
         dstn = nodes_df.filter(pl.col(node).is_in(dst_ids.implode()))
     assert edges is not None and dstn is not None  # both branches above assign
-    for k, v in n2f.items():  # destination-node filter
-        dstn = dstn.filter(pl.col(k) == v)
+    dstn = filter_by_dict_polars(dstn, n2.filter_dict)
     # drop dangling edges + dedup destination nodes (mirror the pandas tail)
     keep_ids = dstn.get_column(node).drop_nulls()
     edges = edges.filter(pl.col(to_col).is_in(keep_ids.implode()))
     dstn = dstn.filter(pl.col(node).is_in(edges.get_column(to_col).implode())).unique(subset=[node], maintain_order=True)
     return dstn, edges, seed_nodes, kernel_admits
+
+
+def _try_seeded_chain_polars(g: Plottable, ops: Sequence[ASTObject]) -> Optional[Plottable]:
+    """Serve a native directed scalar hop through the resident seed indexes, preserving
+    Polars table order and aliases; declines (None) without valid resident indexes."""
+    import polars as pl
+    from graphistry.compute.gfql.index.api import _record_indexed_traversal
+    if len(ops) != 3:
+        return None
+    n0, e1, n2 = ops
+    if not isinstance(n0, ASTNode) or not isinstance(n2, ASTNode) or not isinstance(e1, ASTEdge):
+        return None
+    if (n0.query is not None or n2.query is not None or not n0.filter_dict
+            or not e1.is_simple_single_hop() or e1.direction not in ("forward", "reverse")
+            or e1.source_node_match is not None or e1.destination_node_match is not None
+            or e1.source_node_query is not None or e1.destination_node_query is not None
+            or e1.edge_query is not None or e1.include_zero_hop_seed or e1.prune_to_endpoints):
+        return None
+    nodes, edges = g._nodes, g._edges
+    node, src, dst = g._node, g._source, g._destination
+    if (not isinstance(nodes, pl.DataFrame) or not isinstance(edges, pl.DataFrame)
+            or node is None or src is None or dst is None):
+        return None
+    if nodes.schema[node] != edges.schema[src] or nodes.schema[node] != edges.schema[dst]:
+        return None
+    aliases = [op._name for op in ops if op._name is not None]
+    if len(aliases) != len(set(aliases)):
+        return None
+    if any(name in nodes.columns for name in (n0._name, n2._name) if name is not None):
+        return None
+    if e1._name is not None and e1._name in edges.columns:
+        return None
+    ctx = _resident_seed_indexes(g, nodes, edges, node, src, dst, e1.direction)
+    if ctx is None:
+        return None
+    reduced = _seeded_typed_return_dst_polars(
+        g, n0, n2, e1, src, dst, node, e1.direction, preserve_input_order=True, index_ctx=ctx)
+    if reduced is None:
+        return None
+    _, kept_edges, _, _ = reduced
+    if not isinstance(kept_edges, pl.DataFrame):
+        return None
+    endpoint_ids = pl.concat([kept_edges.get_column(src), kept_edges.get_column(dst)]).drop_nulls().unique()
+    nid_ctx = _resident_node_id_index(g, nodes, node)
+    result_nodes = None
+    if nid_ctx is not None:
+        nid, xp, engine = nid_ctx
+        result_nodes = _index_node_rows(nid, endpoint_ids, xp, engine, nodes, preserve_input_order=True)
+    if result_nodes is None:
+        result_nodes = nodes.filter(pl.col(node).is_in(endpoint_ids.implode()))
+        if result_nodes.get_column(node).n_unique() != result_nodes.height:
+            return None
+    if not isinstance(result_nodes, pl.DataFrame):
+        return None
+    from_col, to_col = (src, dst) if e1.direction == "forward" else (dst, src)
+    flags = [
+        pl.col(node).is_in(kept_edges.get_column(endpoint).implode()).fill_null(False).alias(name)
+        for name, endpoint in ((n0._name, from_col), (n2._name, to_col)) if name is not None
+    ]
+    if flags:
+        result_nodes = result_nodes.with_columns(flags)
+    if e1._name is not None:
+        kept_edges = kept_edges.with_columns(pl.lit(True).alias(e1._name))
+    _record_indexed_traversal(
+        seam="native_seeded_hop", engine=ctx[3], served=True, reason="served", hop_count=1,
+        public_seed_scan=node not in n0.filter_dict, hop_details=[{"hop": 1}])
+    return g.nodes(result_nodes).edges(kept_edges)
