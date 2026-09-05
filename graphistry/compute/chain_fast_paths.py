@@ -626,22 +626,34 @@ def _seeded_typed_return_dst_polars(
     return dstn, edges, seed_nodes, kernel_admits
 
 
+def polars_seeded_lane_admits(ops: Sequence[ASTObject]) -> bool:
+    """Whether the polars seeded lane's shape gate admits ``ops``: a 3-op directed simple
+    single hop whose seed node carries a filter, with no node queries, endpoint matches,
+    endpoint or edge queries, zero-hop seed or endpoint pruning. The dispatcher calls this
+    first; the frame conditions (polars frames, matching id dtypes, valid resident indexes,
+    scalar-only filters, no colliding aliases) are decided by the body and can still decline
+    an admitted shape."""
+    if len(ops) != 3:
+        return False
+    n0, e1, n2 = ops
+    if not (isinstance(n0, ASTNode) and isinstance(n2, ASTNode) and isinstance(e1, ASTEdge)):
+        return False
+    return not (n0.query is not None or n2.query is not None or not n0.filter_dict
+                or not e1.is_simple_single_hop() or e1.direction not in ("forward", "reverse")
+                or e1.source_node_match is not None or e1.destination_node_match is not None
+                or e1.source_node_query is not None or e1.destination_node_query is not None
+                or e1.edge_query is not None or e1.include_zero_hop_seed or e1.prune_to_endpoints)
+
+
 def _try_seeded_chain_polars(g: Plottable, ops: Sequence[ASTObject]) -> Optional[Plottable]:
     """Serve a native directed scalar hop through the resident seed indexes, preserving
     Polars table order and aliases; declines (None) without valid resident indexes."""
     import polars as pl
     from graphistry.compute.gfql.index.api import _record_indexed_traversal
-    if len(ops) != 3:
+    if not polars_seeded_lane_admits(ops):
         return None
     n0, e1, n2 = ops
-    if not isinstance(n0, ASTNode) or not isinstance(n2, ASTNode) or not isinstance(e1, ASTEdge):
-        return None
-    if (n0.query is not None or n2.query is not None or not n0.filter_dict
-            or not e1.is_simple_single_hop() or e1.direction not in ("forward", "reverse")
-            or e1.source_node_match is not None or e1.destination_node_match is not None
-            or e1.source_node_query is not None or e1.destination_node_query is not None
-            or e1.edge_query is not None or e1.include_zero_hop_seed or e1.prune_to_endpoints):
-        return None
+    assert isinstance(n0, ASTNode) and isinstance(e1, ASTEdge) and isinstance(n2, ASTNode) and n0.filter_dict  # the predicate admitted this shape
     nodes, edges = g._nodes, g._edges
     node, src, dst = g._node, g._source, g._destination
     if (not isinstance(nodes, pl.DataFrame) or not isinstance(edges, pl.DataFrame)
