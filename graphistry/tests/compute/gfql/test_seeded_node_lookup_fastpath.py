@@ -207,7 +207,7 @@ TWO_ALIAS_SHAPES = [
     ("MATCH (m:Message {id: 301})-[:HAS_CREATOR]->(p:Person) RETURN m.id AS mid, p.id AS pid", "parallel edges"),
     ("MATCH (m:Message {id: 305})-[:HAS_CREATOR]->(p:Person) RETURN m.id AS mid, p.age AS age ORDER BY age LIMIT 1", "order/limit"),
     ("MATCH (m:Message {id: 305})-[r:HAS_CREATOR]->(p:Person) RETURN m.id AS mid, r.w AS w, r.eflag AS ef, r.type AS rt, p.age AS age", "all three aliases"),
-    ("MATCH (m:Message {id: 305})-[r:HAS_CREATOR]->(p:Person) RETURN r.w AS w, r.src AS s, r.dst AS d", "edge alias only, incl. endpoints"),
+    ("MATCH (m:Message {id: 305})-[r:HAS_CREATOR]->(p:Person) RETURN r.w AS w, r.eflag AS f, r.type AS t", "edge alias only"),
     ("MATCH (m:Message {id: 305})-[r:HAS_CREATOR]->(p:Person) RETURN m.id, m.score, m.flag, m.firstName, r.w, r.eflag, r.type, p.id, p.firstName, p.age, p.score, p.flag", "twelve properties across three aliases"),
     ("MATCH (m:Message {id: 301})-[r:HAS_CREATOR]->(p:Person) RETURN m.id AS mid, r.w AS w, p.id AS pid", "parallel edges, edge prop distinguishes rows"),
     ("MATCH (m:Message {id: 999999})-[r:HAS_CREATOR]->(p:Person) RETURN r.w AS w, p.age AS age", "no match with an edge prop"),
@@ -393,6 +393,7 @@ def test_edge_alias_properties_engage_with_one_row_per_matched_edge(engine):
 @pytest.mark.parametrize("q,label", [
     ("MATCH (m:Message {id: 305})-[:HAS_CREATOR]->(p:Person)-[:HAS_CREATOR]->(q) RETURN m.id AS a, p.id AS b, q.id AS c", "two hops"),
     ("MATCH (m:Message {id: 305})-[r:HAS_CREATOR]->(p:Person) RETURN r.nosuch AS x", "absent edge property"),
+    ("MATCH (m:Message {id: 305})-[r:HAS_CREATOR]->(p:Person) RETURN r.src AS s, p.age AS a", "endpoint binding as an edge property"),
 ])
 def test_typed_hop_declines_beyond_one_hop_or_unknown_edge_property_with_parity(engine, q, label):
     g = _graph(engine)
@@ -427,3 +428,38 @@ def test_typed_hop_declines_alias_column_collisions_with_parity(engine, q, label
     full = _run(g, engine, q, False)
     pd.testing.assert_frame_equal(_canon(fast), _canon(full))
     assert fast_path_decisions(g, q, engine=engine).get("seeded_typed_hop") is not True, label
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("seed", range(12))
+def test_random_projection_shapes_match_the_full_path(engine, seed):
+    """Random-shape differential: aliases, property subsets from any side, seed value (hit or miss)
+    and an optional suffix; every generated query must agree with the full path."""
+    import random
+    rng = random.Random(seed)
+    g = _graph(engine, indexed=bool(seed % 2))
+    node_props = ["id", "firstName", "age", "flag", "score"]
+    edge_props = ["w", "eflag", "type", "src", "dst"]
+    seed_id = rng.choice([301, 305, 310, 999999])
+    items = []
+    for alias, props in (("m", node_props), ("r", edge_props), ("p", node_props)):
+        for prop in rng.sample(props, rng.randint(0, 3)):
+            items.append(f"{alias}.{prop} AS {alias}_{prop}")
+    if not items:
+        items = ["p.id AS p_id"]
+    rng.shuffle(items)
+    suffix = rng.choice(["", " ORDER BY " + items[0].split(" AS ")[1], " LIMIT 1", " ORDER BY " + items[-1].split(" AS ")[1] + " LIMIT 2"])
+    q = f"MATCH (m:Message {{id: {seed_id}}})-[r:HAS_CREATOR]->(p:Person) RETURN {', '.join(items)}{suffix}"
+    try:
+        fast = _run(g, engine, q, True)
+    except NotImplementedError:
+        assert engine == "polars", q  # polars declines some row-op shapes by design: both routes must
+        with pytest.raises(NotImplementedError):
+            _run(g, engine, q, False)
+        return
+    try:
+        full = _run(g, engine, q, False)
+    except NotImplementedError:
+        assert engine == "polars", q
+        full = _run(_graph("pandas", indexed=bool(seed % 2)), "pandas", q, False)  # cross-engine oracle
+    pd.testing.assert_frame_equal(_canon(fast), _canon(full), check_dtype=engine != "polars"), q

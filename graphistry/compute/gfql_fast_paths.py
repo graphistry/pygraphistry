@@ -3723,6 +3723,8 @@ def _execute_seeded_typed_hop_fast_path(
                 side, prop, cols = "seed", src_ref[len(seed_prefix):], nodes_frame_cols
             elif edge_prefix is not None and src_ref.startswith(edge_prefix):
                 side, prop, cols = "edge", src_ref[len(edge_prefix):], edges_frame_cols
+                if prop in (base_graph._source, base_graph._destination):
+                    return None  # endpoint bindings are not edge properties on the full path (absent -> null)
             else:
                 return None
             if "." in prop or prop not in cols:
