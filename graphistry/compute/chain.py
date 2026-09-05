@@ -11,7 +11,11 @@ from graphistry.utils.json import JSONVal
 from .ast import ASTObject, ASTNode, ASTEdge, ASTCall, Direction, from_json as ASTObject_from_json, serialize_binding_ops
 from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
-from .chain_fast_paths import _seeded_typed_hop_pandas_cudf, _tag_fast_path_aliases
+from .chain_fast_paths import (
+    _seeded_typed_hop_pandas_cudf,
+    _single_node_rows_via_index_or_filter,
+    _tag_fast_path_aliases,
+)
 from graphistry.compute.validate.validate_schema import validate_chain_schema, validate_graph_shape
 from graphistry.compute.gfql.strictness import StrictInput
 from graphistry.compute.gfql.same_path_types import (
@@ -856,12 +860,25 @@ def _try_chain_fast_path(
 
     if len(ops) == 1:
         n0 = ops[0]
-        if not (isinstance(n0, ASTNode) and n0._name is None and n0.query is None):
+        if not (isinstance(n0, ASTNode) and n0.query is None):
             return None
         g = _materialize_fast_path_graph()
         if g._nodes is None:
             return None
-        nodes = filter_by_dict(g._nodes, n0.filter_dict, engine_abs) if n0.filter_dict else g._nodes
+        nodes = _single_node_rows_via_index_or_filter(g, n0, engine_abs)
+        if n0._name is not None:
+            alias_was_column = n0._name in nodes.columns
+            if alias_was_column:
+                nodes = nodes.drop(columns=[n0._name])
+            nodes = nodes.assign(**{n0._name: True})
+            other_columns = [c for c in nodes.columns if c != n0._name]
+            if g._node in other_columns:
+                other_columns = [g._node, *[c for c in other_columns if c != g._node]]
+            if alias_was_column:
+                nodes = nodes[[*other_columns, n0._name]]
+            else:
+                nodes = nodes[[*other_columns[:1], n0._name, *other_columns[1:]]]
+            nodes = nodes.reset_index(drop=True)
         edges = g._edges.iloc[0:0] if g._edges is not None else None
         return g.nodes(nodes).edges(edges) if edges is not None else g.nodes(nodes)
 
@@ -926,20 +943,6 @@ def _try_chain_fast_path(
         # corrupts its own node reduction, the fast path tags after reducing. TO-side
         # collisions keep parity (pinned in tests) and stay served. Decline; never serve.
         return None
-    if (alias_n0 is not None or alias_e1 is not None or alias_n2 is not None) \
-            and direction != "undirected" and g._nodes is not None and g._edges is not None:
-        # DEFER TO THE INDEX when one would ACTUALLY serve. A resident index is
-        # policy-controlled and can beat this scan-based path, and it is what serves named
-        # patterns today, so taking them here would SHADOW it.
-        # `_resident_seed_indexes` is the right question: it returns None unless BOTH
-        # indexes are VALID for these exact frames (fingerprint + identity via get_valid).
-        # A registry-presence / policy check is NOT equivalent — `get_registry` returns a
-        # non-None registry even when nothing is indexed, so that spelling declines on every
-        # query and silently turns this whole optimization into a no-op (measured: the win
-        # went to exactly 0). Re-measure the win, not just the suite, after touching this.
-        from .chain_fast_paths import _resident_seed_indexes
-        if _resident_seed_indexes(g, g._nodes, g._edges, node, src, dst, direction) is not None:
-            return None
     concat = df_concat(engine_concrete)
     if unconstrained:
         # No node filter to reduce by: validate BOTH endpoints against the full

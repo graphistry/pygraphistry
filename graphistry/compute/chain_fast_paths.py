@@ -18,7 +18,7 @@ from .ast import ASTNode, ASTEdge, Direction
 from .typing import ArrayLike, ArrayNamespace, DataFrameT, SeriesT
 
 if TYPE_CHECKING:
-    from graphistry.Engine import Engine
+    from graphistry.Engine import Engine, EngineAbstract
     from graphistry.compute.gfql.index.registry import AdjacencyIndex, NodeIdIndex
 
 
@@ -61,10 +61,21 @@ def _tag_fast_path_aliases(
     if alias_n2 is not None:
         node_flags[alias_n2] = nodes[node].isin(edges[to_col])
     if node_flags:
+        colliding_node_flags = [name for name in node_flags if name in nodes.columns]
+        new_node_flags = [name for name in node_flags if name not in nodes.columns]
+        if colliding_node_flags:
+            nodes = nodes.drop(columns=colliding_node_flags)
         nodes = nodes.assign(**node_flags)
+        rest = [c for c in nodes.columns if c != node and c not in node_flags]
+        nodes = nodes[[node, *new_node_flags, *rest, *colliding_node_flags]].reset_index(drop=True)
     if alias_e1 is not None:
-        edge_flags: Dict[str, bool] = {alias_e1: True}
-        edges = edges.assign(**edge_flags)
+        alias_was_column = alias_e1 in edges.columns
+        if alias_was_column:
+            edges = edges.drop(columns=[alias_e1])
+        edges = edges.assign(**{alias_e1: True})
+        if not alias_was_column:
+            edges = edges[[alias_e1, *[c for c in edges.columns if c != alias_e1]]]
+        edges = edges.reset_index(drop=True)
 
     return res.nodes(nodes).edges(edges)
 
@@ -275,6 +286,24 @@ def _seed_node_rows(
     return _filter_frame(seed, filter_dict if filter_dict is not None else n0f, engine), how
 
 
+def _single_node_rows_via_index_or_filter(
+    g: Plottable, n0: ASTNode, engine_abs: "EngineAbstract",
+) -> DataFrameT:
+    """Resolve a single node op through a resident index or the canonical filter."""
+    from .filter_by_dict import filter_by_dict
+    nodes_df = g._nodes
+    assert nodes_df is not None
+    if not n0.filter_dict:
+        return nodes_df
+    node = g._node
+    n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df) if node is not None else None
+    if node is not None and n0f:
+        nid_ctx = _resident_node_id_index(g, nodes_df, node)
+        rows, _ = _seed_node_rows(g, nodes_df, n0f, node, nid_ctx, n0.filter_dict)
+        return rows
+    return filter_by_dict(nodes_df, n0.filter_dict, engine_abs)
+
+
 def _index_edge_rows(
     adj: "AdjacencyIndex", ids: Union["SeriesT", Sequence[Any]],
     xp: ArrayNamespace, engine: "Engine", edges_df: DataFrameT,
@@ -359,16 +388,7 @@ def _seeded_typed_hop_pandas_cudf(
     seed_nodes = edges = cand = None
     if ctx is not None:
         nid, adj, xp, idx_engine = ctx
-        if node in n0f:
-            seed_nodes = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
-        if seed_nodes is not None:
-            for k, v in n0f.items():
-                if k != node:
-                    seed_nodes = seed_nodes[seed_nodes[k] == v]
-        else:
-            seed_nodes = nodes_df
-            for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
-                seed_nodes = seed_nodes[seed_nodes[k] == v]
+        seed_nodes, _ = _seed_node_rows(g, nodes_df, n0f, node, (nid, xp, idx_engine), n0.filter_dict)
         edges = _index_edge_rows(adj, seed_nodes[node], xp, idx_engine, edges_df)
         if edges is not None:
             if ef:
