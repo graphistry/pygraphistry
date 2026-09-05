@@ -20816,8 +20816,8 @@ def _mk_issue_1395_reply_author_ic8_graph(*, cudf_mode: bool = False) -> _Cypher
     if cudf_mode:
         pytest.importorskip("cudf")
         import cudf  # type: ignore
-        nodes = cudf.DataFrame.from_pandas(nodes)
-        edges = cudf.DataFrame.from_pandas(edges)
+        nodes = cudf.from_pandas(nodes)
+        edges = cudf.from_pandas(edges)
     return _mk_graph(nodes, edges)
 
 
