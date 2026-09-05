@@ -2768,7 +2768,9 @@ def _gfql_with_strictness(
 def _reject_node_alias_shadowing_id_binding(
     g: Plottable, chain_obj: Chain, *, include_edge_endpoint_aliases: bool = False
 ) -> None:
-    """Typed decline for a node alias named after the node-ID binding column.
+    """Typed decline for an alias named after a binding column: a node alias equal to the
+    node-ID binding, and (native chains and Cypher alike) an edge alias equal to the source,
+    destination or edge-ID binding.
 
     The alias marker is stamped as ``<alias> = True``, so an alias equal to the node-id
     column overwrites the ids themselves: pandas then died with a raw
@@ -2777,7 +2779,7 @@ def _reject_node_alias_shadowing_id_binding(
     """
     node_id = getattr(g, "_node", None)
     endpoint_cols = {
-        col for col in (getattr(g, "_source", None), getattr(g, "_destination", None))
+        col for col in (getattr(g, "_source", None), getattr(g, "_destination", None), getattr(g, "_edge", None))
         if isinstance(col, str)
     }
     for op in chain_obj.chain:
@@ -2792,7 +2794,6 @@ def _reject_node_alias_shadowing_id_binding(
                     f"overwrite the node-ID binding. Rename the alias."
                 ),
             )
-        # Cypher-only decline; raw GFQL chains keep their documented overwrite parity.
         if (
             include_edge_endpoint_aliases
             and isinstance(op, ASTEdge)
@@ -2805,7 +2806,7 @@ def _reject_node_alias_shadowing_id_binding(
                 value=getattr(op, "_name", None),
                 suggestion=(
                     "The alias flag is materialized as a column named like the edge "
-                    "source/destination binding, which would overwrite the endpoints. "
+                    "source, destination or edge-ID binding, which would overwrite it. "
                     "Rename the alias."
                 ),
             )
@@ -2819,7 +2820,7 @@ def _chain_dispatch(
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
-    _reject_node_alias_shadowing_id_binding(g, chain_obj)
+    _reject_node_alias_shadowing_id_binding(g, chain_obj, include_edge_endpoint_aliases=True)
     engine_name = engine.value if hasattr(engine, "value") else str(engine)
     if chain_obj.where and engine_name in (Engine.POLARS.value, Engine.POLARS_GPU.value):
         # Cross-entity / same-path WHERE routes through DFSamePathExecutor

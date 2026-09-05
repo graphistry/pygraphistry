@@ -1021,9 +1021,8 @@ def test_fast_path_named_datetime_categorical_columns_ride_along():
 _ALIAS_SHADOW_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
     ("node_alias_shadows_node_data_col", lambda: [n(name='attr'), e_forward(hops=1), n()]),
     ("edge_alias_shadows_edge_data_col", lambda: [n(), e_forward(hops=1, name='w'), n()]),
-    # TO-side binding columns keep parity (the from-side ones do not, see xfail below)
-    ("edge_alias_shadows_dst_binding_fwd", lambda: [n(), e_forward(hops=1, name='d'), n()]),
-    ("edge_alias_shadows_src_binding_rev", lambda: [n(), e_reverse(hops=1, name='s'), n()]),
+    # edge aliases named like the source/destination/edge-id bindings are rejected before
+    # execution on both routes (#2050), pinned below
     # cross-frame names are NOT collisions: nodes have no 'w', edges have no 'v'
     ("node_alias_named_like_edge_col", lambda: [n(name='w'), e_forward(hops=1), n()]),
     ("edge_alias_named_like_node_id", lambda: [n(), e_forward(hops=1, name='v'), n()]),
@@ -1042,6 +1041,22 @@ def test_fast_path_alias_shadowing_column_matches_full_path(label, build):
     full = g.gfql(build(), policy=_FAST_NOOP_POLICY)
     _assert_full_frame_value_parity(fast._nodes, full._nodes, ['v'])
     _assert_full_frame_value_parity(fast._edges, full._edges, ['w'])
+
+
+@pytest.mark.parametrize("build", [
+    lambda: [n(), e_forward(hops=1, name='d'), n()],
+    lambda: [n(), e_reverse(hops=1, name='s'), n()],
+], ids=["fwd_alias_is_dst_binding", "rev_alias_is_src_binding"])
+def test_edge_alias_named_like_a_to_side_binding_is_rejected_on_both_routes(build):
+    """An edge alias equal to the hop's TO-side binding used to be served with the marker
+    overwriting the endpoint column on both routes (#2050); it is now the same typed decline
+    as the FROM-side and node-id collisions, before either route runs."""
+    from graphistry.compute.exceptions import GFQLValidationError
+    g = _fast_graph("pandas")
+    with pytest.raises(GFQLValidationError):
+        g.gfql(build())
+    with pytest.raises(GFQLValidationError):
+        g.gfql(build(), policy=_FAST_NOOP_POLICY)
 
 
 @pytest.mark.parametrize("build", [

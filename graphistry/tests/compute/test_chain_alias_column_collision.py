@@ -95,7 +95,6 @@ def test_multi_hop_collisions_match_the_control_alias(engine, shape):
 
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("alias", ["s", "d", "eid"])
-@pytest.mark.xfail(strict=True, reason="graphistry/pygraphistry#2050")
 def test_alias_named_like_a_binding_column_is_rejected_before_execution(engine, alias):
     from graphistry.compute.exceptions import GFQLValidationError
     with pytest.raises(GFQLValidationError):
