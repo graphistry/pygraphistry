@@ -270,3 +270,104 @@ def test_seed_matching_several_nodes_projects_each_seed(engine):
     seeds = raw_nodes[(raw_nodes["type"] == "Message") & (raw_nodes["id"] % 7 == 3)]["id"]
     oracle = raw_edges[raw_edges["src"].isin(seeds)][["src", "dst"]]
     assert sorted(zip(got["mid"].tolist(), got["pid"].tolist())) == sorted(zip(oracle["src"], oracle["dst"]))
+
+
+# ---- boundary pins on the other side of each admission check (owner review of #2035) ----
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("q,label", [
+    ("MATCH (p:Person {id: 7}) RETURN p ORDER BY p.age LIMIT 1", "whole row + suffix"),
+    ("MATCH (p:Person {id: 7}) RETURN p.age + 1 AS x", "expression item"),
+    ("MATCH (p:Person {id: 7}) RETURN p.age AS a, p AS whole", "property and whole row"),
+])
+def test_node_lookup_declines_shapes_outside_its_projection_contract(engine, q, label):
+    g = _graph(engine)
+    fast, full = _run(g, engine, q, True), _run(g, engine, q, False)
+    pd.testing.assert_frame_equal(_canon(fast), _canon(full))
+    assert fast_path_decisions(g, q, engine=engine).get("seeded_node_lookup") is not True, label
+
+
+def test_node_lookup_declines_lazyframe_nodes_with_parity():
+    pl = pytest.importorskip("polars")
+    g = _graph("polars")
+    lazy = g.nodes(g._nodes.lazy())
+    q = "MATCH (p:Person {id: 7}) RETURN p.age AS age"
+    fast, full = _run(lazy, "polars", q, True), _run(lazy, "polars", q, False)
+    pd.testing.assert_frame_equal(_canon(fast), _canon(full))
+    assert fast_path_decisions(lazy, q, engine="polars").get("seeded_node_lookup") is not True
+    assert isinstance(g._nodes, pl.DataFrame)
+
+
+def test_node_lookup_declines_when_the_requested_engine_is_not_the_frames_engine():
+    pytest.importorskip("polars")
+    g = _graph("polars")
+    q = "MATCH (p:Person {id: 7}) RETURN p.age AS age"
+    fast, full = _run(g, "pandas", q, True), _run(g, "pandas", q, False)
+    pd.testing.assert_frame_equal(_canon(fast), _canon(full))
+    assert fast_path_decisions(g, q, engine="pandas").get("seeded_node_lookup") is not True
+
+
+def _lookup_step(report):
+    steps = [s for s in report["steps"] if s.get("seam") == "node_lookup"]
+    assert len(steps) == 1, report["steps"]
+    return steps[0]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_node_lookup_explains_why_it_scanned(engine):
+    q = "MATCH (p:Person {id: 7}) RETURN p.age AS age"
+    g = _graph(engine)
+    missing = _lookup_step(g.gfql_explain(q, engine=engine, index_policy="use"))
+    assert (missing["served"], missing["reason"]) == (False, "index_missing")
+    gi = _graph(engine, indexed=True)
+    served = _lookup_step(gi.gfql_explain(q, engine=engine, index_policy="use"))
+    assert (served["served"], served["reason"]) == (True, "served")
+    off = gi.gfql_explain(q, engine=engine, index_policy="off")
+    assert off["used_index"] is False and off["decision_code"] == "policy_off"
+    nodes, _ = _frames()
+    rebound = gi.nodes(gi._nodes.head(len(nodes) - 1))
+    stale = _lookup_step(rebound.gfql_explain(q, engine=engine, index_policy="use"))
+    assert (stale["served"], stale["reason"]) == (False, "index_stale")
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("indexed", [False, True], ids=["scan", "indexed"])
+def test_two_alias_projection_keeps_parity_on_datetime_columns(engine, indexed):
+    g = _graph(engine, indexed)
+    nodes = g._nodes
+    if engine == "polars":
+        import polars as pl
+        nodes = nodes.with_columns(pl.lit("2026-01-01").str.to_datetime().alias("ts"))
+    else:
+        nodes = nodes.assign(ts=pd.Timestamp("2026-01-01"))
+    g = g.nodes(nodes)
+    q = "MATCH (m:Message {id: 305})-[:HAS_CREATOR]->(p:Person) RETURN m.ts AS t, p.age AS age"
+    fast, full = _run(g, engine, q, True), _run(g, engine, q, False)
+    pd.testing.assert_frame_equal(_canon(fast), _canon(full))
+
+
+@pytest.mark.parametrize("indexed", [False, True], ids=["scan", "indexed"])
+@pytest.mark.parametrize("q,served", [
+    ("MATCH (m:Message {id: 305})-[:HAS_CREATOR]->(p:Person) RETURN m.nullable AS n, p.age AS age", None),
+    ("MATCH (m:Message {id: 305})-[:HAS_CREATOR]->(p:Person) RETURN m.id AS mid, p.nullable AS pn", False),
+], ids=["seed-side extension dtype", "dst-side extension dtype declines"])
+def test_two_alias_projection_extension_dtypes_keep_parity(indexed, q, served):
+    g = _graph("pandas", indexed)
+    g = g.nodes(g._nodes.assign(nullable=pd.array([1] * len(g._nodes), dtype="Int64")))
+    fast, full = _run(g, "pandas", q, True), _run(g, "pandas", q, False)
+    pd.testing.assert_frame_equal(_canon(fast), _canon(full))
+    if served is False:
+        assert fast_path_decisions(g, q, engine="pandas").get("seeded_typed_hop") is not True
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_node_lookup_served_under_policy_off_is_not_reported_as_an_index(engine):
+    q = "MATCH (p:Person {id: 7}) RETURN p.age AS age"
+    gi = _graph(engine, indexed=True)
+    from graphistry.compute.gfql.index import index_trace
+    with index_trace() as steps:
+        gi.gfql(q, engine=engine, index_policy="off")
+    assert any(s.get("op") == "fast_path" and s.get("seam") == "seeded_node_lookup" and s.get("served")
+               for s in steps), steps
+    off = gi.gfql_explain(q, engine=engine, index_policy="off")
+    assert off["used_index"] is False and off["decision_code"] == "policy_off", off
