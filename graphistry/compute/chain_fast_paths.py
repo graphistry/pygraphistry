@@ -301,9 +301,26 @@ def _single_node_rows_via_index_or_filter(
     n0f = _seeded_scalar_filters(n0.filter_dict, nodes_df) if node is not None else None
     if node is not None and n0f:
         nid_ctx = _resident_node_id_index(g, nodes_df, node)
-        rows, _ = _seed_node_rows(g, nodes_df, n0f, node, nid_ctx, n0.filter_dict)
+        rows, how = _seed_node_rows(g, nodes_df, n0f, node, nid_ctx, n0.filter_dict)
+        if how != "scan":
+            _record_native_seed_lane(nodes_df, seam="native_seed_lookup", reason=how, hop_count=0,
+                                     public_seed_scan=node not in n0.filter_dict)
         return rows
     return filter_by_dict(nodes_df, n0.filter_dict, engine_abs)
+
+
+def _record_native_seed_lane(
+    nodes_df: DataFrameT, *, seam: str, reason: str, hop_count: int, public_seed_scan: bool,
+) -> None:
+    """gfql_explain step for a native op-list lane that a resident index served."""
+    from graphistry.compute.gfql.index.api import _record_indexed_traversal
+    engine = _frame_engine(nodes_df)
+    if engine is None:
+        return
+    _record_indexed_traversal(
+        seam=seam, engine=engine, served=True, reason=reason, hop_count=hop_count,
+        public_seed_scan=public_seed_scan,
+        hop_details=[{"hop": 1}] if hop_count else None)
 
 
 def _index_edge_rows(
@@ -404,6 +421,7 @@ def _seeded_typed_hop_pandas_cudf(
                 import pandas as _pd
                 endpoint_ids = _pd.concat([edges[src], edges[dst]])
             cand = _index_node_rows(nid, endpoint_ids, xp, idx_engine, nodes_df)
+    served_via_index = cand is not None
     if cand is None:
         if n0f:
             seed_nodes = nodes_df
@@ -426,6 +444,9 @@ def _seeded_typed_hop_pandas_cudf(
             nodes_df[node].isin(edges[src].dropna()) | nodes_df[node].isin(edges[dst].dropna())
         ].drop_duplicates(subset=[node])
     assert edges is not None and cand is not None  # both branches above assign
+    if served_via_index:
+        _record_native_seed_lane(nodes_df, seam="native_seeded_hop", reason="served", hop_count=1,
+                                 public_seed_scan=node not in n0f)
     if n2f:  # destination-node filter (to-side)
         n2_cand = cand
         for k, v in n2f.items():
