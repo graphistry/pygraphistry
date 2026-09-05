@@ -14,7 +14,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **CI: `test-docs` runs on docs-only pull requests (#2018)**: the job needed `python-lint-types`, which a docs-only change skips, and GitHub skips a job whose prerequisite was skipped. The gate now accepts skipped prerequisites and refuses only failed or cancelled ones, so documentation changes are built and tested before merge.
 ### Fixed
 
-- **cuDF 26.2 compatibility: `cudf.from_pandas` replaces the removed `cudf.DataFrame.from_pandas` at the four AI/UMAP product sites and in the test fixtures (#2043)**; the three cuDF chain differential cases that disagree with the full path on cuDF 26.2 are marked expected-failure on that line with the tracking issue, so the GPU lane reports them instead of crashing before them.
+- **cuDF 26.2 compatibility: `cudf.from_pandas` replaces the removed `cudf.DataFrame.from_pandas` at the five cuDF-only product sites (`ai_utils`, `umap_utils`, `feature_utils`) and in the test fixtures (#2043)**; the three cuDF chain differential cases that disagree with the full path on cuDF 26.2 are marked expected-failure on that line with the tracking issue, so the GPU lane reports them instead of crashing before them.
 ### Tests
 
 * GFQL: `test_gfql_latency_contract.py` pins the low-latency contract for basic Cypher shapes on a wide 300k-node, 30-object-column table across pandas, polars and cuDF: a seeded typed hop with projections or a whole-entity return must be served by a fast path and cost at most 12x the plain frame ops for the same lookup (an id mask plus one join), measured interleaved; the node-only seeded lookup with projections is a recorded gap (strict xfail) so closing it flips the pin.
