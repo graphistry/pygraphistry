@@ -3447,14 +3447,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "SF0.1 GFQL arms measured at the head of pull request #2038 (commit cdbcc640a: native chain seeds resolve through the resident indexes on pandas, cuDF and polars, on #2037, #2035, #2031 and #2030), not yet on master when measured; the release-candidate run on master replaces these cells. SF1 cells are the 0.59.0 run."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-indexed-20260904",
+      "run": "snb-aligned-indexed-2038-20260905",
       "status": "ok",
       "unit": "ms",
-      "value": 10.059,
+      "value": 1.686,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-content"
     },
     "snb.sf01.message_content.gfql_polars": {
@@ -3477,14 +3478,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "SF0.1 GFQL arms measured at the head of pull request #2038 (commit cdbcc640a: native chain seeds resolve through the resident indexes on pandas, cuDF and polars, on #2037, #2035, #2031 and #2030), not yet on master when measured; the release-candidate run on master replaces these cells. SF1 cells are the 0.59.0 run."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-indexed-20260904",
+      "run": "snb-aligned-indexed-2038-20260905",
       "status": "ok",
       "unit": "ms",
-      "value": 3.591,
+      "value": 3.059,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-content"
     },
     "snb.sf01.message_content.kuzu": {
@@ -3540,14 +3542,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "SF0.1 GFQL arms measured at the head of pull request #2038 (commit cdbcc640a: native chain seeds resolve through the resident indexes on pandas, cuDF and polars, on #2037, #2035, #2031 and #2030), not yet on master when measured; the release-candidate run on master replaces these cells. SF1 cells are the 0.59.0 run."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-indexed-20260904",
+      "run": "snb-aligned-indexed-2038-20260905",
       "status": "ok",
       "unit": "ms",
-      "value": 26.569,
+      "value": 2.345,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-creator"
     },
     "snb.sf01.message_creator.gfql_polars": {
@@ -3570,14 +3573,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "SF0.1 GFQL arms measured at the head of pull request #2038 (commit cdbcc640a: native chain seeds resolve through the resident indexes on pandas, cuDF and polars, on #2037, #2035, #2031 and #2030), not yet on master when measured; the release-candidate run on master replaces these cells. SF1 cells are the 0.59.0 run."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-indexed-20260904",
+      "run": "snb-aligned-indexed-2038-20260905",
       "status": "ok",
       "unit": "ms",
-      "value": 16.078,
+      "value": 6.812,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-creator"
     },
     "snb.sf01.message_creator.kuzu": {
@@ -3633,14 +3637,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "SF0.1 GFQL arms measured at the head of pull request #2038 (commit cdbcc640a: native chain seeds resolve through the resident indexes on pandas, cuDF and polars, on #2037, #2035, #2031 and #2030), not yet on master when measured; the release-candidate run on master replaces these cells. SF1 cells are the 0.59.0 run."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-indexed-20260904",
+      "run": "snb-aligned-indexed-2038-20260905",
       "status": "ok",
       "unit": "ms",
-      "value": 13.847,
+      "value": 14.538,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-replies"
     },
     "snb.sf01.message_replies.gfql_polars": {
@@ -3663,14 +3668,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "SF0.1 GFQL arms measured at the head of pull request #2038 (commit cdbcc640a: native chain seeds resolve through the resident indexes on pandas, cuDF and polars, on #2037, #2035, #2031 and #2030), not yet on master when measured; the release-candidate run on master replaces these cells. SF1 cells are the 0.59.0 run."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-indexed-20260904",
+      "run": "snb-aligned-indexed-2038-20260905",
       "status": "ok",
       "unit": "ms",
-      "value": 14.668,
+      "value": 12.977,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 message-replies"
     },
     "snb.sf01.message_replies.kuzu": {
@@ -3694,14 +3700,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "SF0.1 GFQL arms measured at the head of pull request #2038 (commit cdbcc640a: native chain seeds resolve through the resident indexes on pandas, cuDF and polars, on #2037, #2035, #2031 and #2030), not yet on master when measured; the release-candidate run on master replaces these cells. SF1 cells are the 0.59.0 run."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-indexed-20260904",
+      "run": "snb-aligned-indexed-2038-20260905",
       "status": "ok",
       "unit": "ms",
-      "value": 70.391,
+      "value": 73.506,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 new-topics"
     },
     "snb.sf01.new_topics.gfql_polars": {
@@ -3724,14 +3731,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "SF0.1 GFQL arms measured at the head of pull request #2038 (commit cdbcc640a: native chain seeds resolve through the resident indexes on pandas, cuDF and polars, on #2037, #2035, #2031 and #2030), not yet on master when measured; the release-candidate run on master replaces these cells. SF1 cells are the 0.59.0 run."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-indexed-20260904",
+      "run": "snb-aligned-indexed-2038-20260905",
       "status": "ok",
       "unit": "ms",
-      "value": 43.151,
+      "value": 42.903,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 new-topics"
     },
     "snb.sf01.new_topics.kuzu": {
@@ -3755,14 +3763,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "SF0.1 GFQL arms measured at the head of pull request #2038 (commit cdbcc640a: native chain seeds resolve through the resident indexes on pandas, cuDF and polars, on #2037, #2035, #2031 and #2030), not yet on master when measured; the release-candidate run on master replaces these cells. SF1 cells are the 0.59.0 run."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-indexed-20260904",
+      "run": "snb-aligned-indexed-2038-20260905",
       "status": "ok",
       "unit": "ms",
-      "value": 47.5,
+      "value": 50.924,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 recent-replies"
     },
     "snb.sf01.recent_replies.gfql_polars": {
@@ -3785,14 +3794,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "SF0.1 GFQL arms measured at the head of pull request #2038 (commit cdbcc640a: native chain seeds resolve through the resident indexes on pandas, cuDF and polars, on #2037, #2035, #2031 and #2030), not yet on master when measured; the release-candidate run on master replaces these cells. SF1 cells are the 0.59.0 run."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-indexed-20260904",
+      "run": "snb-aligned-indexed-2038-20260905",
       "status": "ok",
       "unit": "ms",
-      "value": 32.129,
+      "value": 35.658,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 recent-replies"
     },
     "snb.sf01.recent_replies.kuzu": {
@@ -3848,14 +3858,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "SF0.1 GFQL arms measured at the head of pull request #2038 (commit cdbcc640a: native chain seeds resolve through the resident indexes on pandas, cuDF and polars, on #2037, #2035, #2031 and #2030), not yet on master when measured; the release-candidate run on master replaces these cells. SF1 cells are the 0.59.0 run."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-indexed-20260904",
+      "run": "snb-aligned-indexed-2038-20260905",
       "status": "ok",
       "unit": "ms",
-      "value": 30.118,
+      "value": 3.908,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 seed-lookup"
     },
     "snb.sf01.seed_lookup.gfql_polars": {
@@ -3878,14 +3889,15 @@
       "comparison_allowed": true,
       "decimals": 3,
       "disclosures": [
-        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027)."
+        "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "SF0.1 GFQL arms measured at the head of pull request #2038 (commit cdbcc640a: native chain seeds resolve through the resident indexes on pandas, cuDF and polars, on #2037, #2035, #2031 and #2030), not yet on master when measured; the release-candidate run on master replaces these cells. SF1 cells are the 0.59.0 run."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-indexed-20260904",
+      "run": "snb-aligned-indexed-2038-20260905",
       "status": "ok",
       "unit": "ms",
-      "value": 21.817,
+      "value": 10.836,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 seed-lookup"
     },
     "snb.sf01.seed_lookup.kuzu": {
@@ -3942,14 +3954,15 @@
       "decimals": 3,
       "disclosures": [
         "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "SF0.1 GFQL arms measured at the head of pull request #2038 (commit cdbcc640a: native chain seeds resolve through the resident indexes on pandas, cuDF and polars, on #2037, #2035, #2031 and #2030), not yet on master when measured; the release-candidate run on master replaces these cells. SF1 cells are the 0.59.0 run.",
         "tag-cooccurrence: not comparable with the four-engine board (parity, eligibility, or cardinality differs from the release GFQL arm)."
       ],
       "engine": "gfql_pandas_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-indexed-20260904",
+      "run": "snb-aligned-indexed-2038-20260905",
       "status": "result_mismatch",
       "unit": "ms",
-      "value": 59.065,
+      "value": 61.173,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 tag-cooccurrence"
     },
     "snb.sf01.tag_cooccurrence.gfql_polars_idx": {
@@ -3958,14 +3971,15 @@
       "decimals": 3,
       "disclosures": [
         "GFQL arms with resident indexes (gfql_index_all + node property indexes, verified per query) under the same timing contract as the four-engine release board (2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs, median of run medians); the index engages only on the hop seams (message replies, recent replies); the point lookups still pay the chain pipeline's per-call floor (pygraphistry #2027).",
+        "SF0.1 GFQL arms measured at the head of pull request #2038 (commit cdbcc640a: native chain seeds resolve through the resident indexes on pandas, cuDF and polars, on #2037, #2035, #2031 and #2030), not yet on master when measured; the release-candidate run on master replaces these cells. SF1 cells are the 0.59.0 run.",
         "tag-cooccurrence: not comparable with the four-engine board (parity, eligibility, or cardinality differs from the release GFQL arm)."
       ],
       "engine": "gfql_polars_idx",
       "measurement_profile": "snb-interactive-warm-repeated-query",
-      "run": "snb-aligned-indexed-20260904",
+      "run": "snb-aligned-indexed-2038-20260905",
       "status": "result_mismatch",
       "unit": "ms",
-      "value": 30.222,
+      "value": 26.952,
       "workload": "SNB-derived matched queries (GFQL, resident indexes) sf0.1 tag-cooccurrence"
     },
     "snb.sf1.is3.single_query.polars": {
@@ -4340,8 +4354,8 @@
     }
   },
   "contract_version": 3,
-  "generated_at": "2026-09-04T22:49:12Z",
-  "generated_by": "graphistry/pyg-bench d70caf55 scripts/export_docs_numbers.py",
+  "generated_at": "2026-09-05T03:02:45Z",
+  "generated_by": "graphistry/pyg-bench 2ffd92d9 scripts/export_docs_numbers.py",
   "policy": {
     "accepted_regressions": [],
     "drift_waivers": {
@@ -4460,7 +4474,7 @@
       "runtime": "GFQL in graphistry/test-rapids-official:26.02-gfql-polars (RAPIDS 26.02, Python 3.13, polars 1.35.2, cuDF/cuGraph 26.2) under dgx-guard safe_run (RMM 80 GB, 100 GB for the Friendster rungs; host floor 20 GB); the two CPU PageRank rungs (fix2024/lj-polars-pagerank, orkut-polars-pagerank) in graphistry/test-rapids-official:26.02-gfql-polars-igraph, the same image plus python-igraph 1.0.0 (image id and versions in each rung's IMAGE_RECEIPT.txt, recorded after the run); GraphFrames on host PySpark 3.5.3 + graphframes assembly jar, OpenJDK 1.8.0_492"
     },
     "snb-aligned-indexed-20260904": {
-      "artifact": "results/snb-aligned-indexed-20260904 (per-engine r1..r3 receipts + aggregate.json, built with the release lane's own tools); the polars arm's receipts/aggregate come from the release lane tools, the pandas arm's from scripts/aggregate_snb_arm_runs.py (the release receipt contract accepts only the Polars arm)",
+      "artifact": "results/snb-aligned-indexed-20260904 (SF1 cells; its SF0.1 cells are superseded by run snb-aligned-indexed-2038-20260905)",
       "competitor": "none in this run (the competitor columns are the 2026-09-02 release board's)",
       "competitor_version": "n/a",
       "dataset": "LDBC SNB Interactive SF0.1 and SF1, derived matched query shapes (the release board's parameters)",
@@ -4469,6 +4483,21 @@
       "perf_lock_held": true,
       "pyg_bench_commit": "1ee6135",
       "pygraphistry_commit": "3fb216dd",
+      "quiet_host": true,
+      "reps": "2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs; median of the three run medians",
+      "row_validation": "exact result parity per query against the suite's expected rows in every run; a cell is comparable only when its cardinalities equal the release GFQL arm's for the same query",
+      "runtime": "GFQL polars / pandas on CPU in a uv Python 3.12 container, gfql_index: use with node property indexes (auto) and per-query engagement verification; same host, lock and contract as the 2026-09-02 four-engine board"
+    },
+    "snb-aligned-indexed-2038-20260905": {
+      "artifact": "results/snb-aligned-indexed-2038-20260905 (per-engine r1..r3 receipts + aggregate.json built with scripts/aggregate_snb_arm_runs.py from the release runner's run directories)",
+      "competitor": "none in this run (the competitor columns are the 2026-09-02 release board's)",
+      "competitor_version": "n/a",
+      "dataset": "LDBC SNB Interactive SF0.1, derived matched query shapes (the release board's parameters)",
+      "host": "dgx-spark (NVIDIA GB10), 20 CPU",
+      "measured_at": "2026-09-05",
+      "perf_lock_held": true,
+      "pyg_bench_commit": "dad44f5",
+      "pygraphistry_commit": "cdbcc640a",
       "quiet_host": true,
       "reps": "2 discarded warmups, 5 measured executions with full result materialization, 3 independent process runs; median of the three run medians",
       "row_validation": "exact result parity per query against the suite's expected rows in every run; a cell is comparable only when its cardinalities equal the release GFQL arm's for the same query",
