@@ -50,9 +50,50 @@ def test_native_named_typed_hop_preserves_full_path_tables(reverse, indexed, see
 
     monkeypatch.setattr(chain_polars, "_try_seeded_chain_polars", spy)
     fast = g.gfql(ops, engine="polars", index_policy="use")
-    assert served == [True]
+    assert served == [indexed]
     monkeypatch.setattr(chain_polars, "_try_seeded_chain_polars", lambda *args: None)
     full = g.gfql(ops, engine="polars", index_policy="use")
+    assert_frame_equal(fast._nodes, full._nodes)
+    assert_frame_equal(fast._edges, full._edges)
+
+
+def _spy_served(monkeypatch):
+    real = chain_polars._try_seeded_chain_polars
+    served = []
+
+    def spy(*args):
+        out = real(*args)
+        served.append(out is not None)
+        return out
+
+    monkeypatch.setattr(chain_polars, "_try_seeded_chain_polars", spy)
+    return served
+
+
+_NAMED_TYPED_HOP = [n({"id": 104}, name="m"), e_forward({"type": "T"}, name="e"), n({"kind": "Person"}, name="p")]
+
+
+def test_native_seeded_hop_is_served_from_the_index_and_traced():
+    from graphistry.compute.gfql.index import index_trace
+    g = _graph()
+    report = g.gfql_explain(_NAMED_TYPED_HOP, index_policy="use", engine="polars")
+    assert report["used_index"] is True, report
+    assert [(s["seam"], s["path"]) for s in report["steps"]] == [("native_seeded_hop", "index")]
+    with index_trace() as steps:
+        g.gfql(_NAMED_TYPED_HOP, engine="polars", index_policy="use")
+    assert [s["path"] for s in steps] == ["index"]
+
+
+@pytest.mark.parametrize("policy", ["off", "use"])
+def test_native_seeded_hop_declines_without_a_usable_index(policy, monkeypatch):
+    g = _graph(indexed=policy == "off")
+    served = _spy_served(monkeypatch)
+    fast = g.gfql(_NAMED_TYPED_HOP, engine="polars", index_policy=policy)
+    assert served == [False]
+    report = g.gfql_explain(_NAMED_TYPED_HOP, index_policy=policy, engine="polars")
+    assert report["used_index"] is False, report
+    monkeypatch.setattr(chain_polars, "_try_seeded_chain_polars", lambda *args: None)
+    full = g.gfql(_NAMED_TYPED_HOP, engine="polars", index_policy=policy)
     assert_frame_equal(fast._nodes, full._nodes)
     assert_frame_equal(fast._edges, full._edges)
 
@@ -109,3 +150,38 @@ def test_native_seeded_hop_declines_unsupported_shapes(case):
     elif case == "undirected":
         ops[1] = e_undirected({"type": "T"})
     assert _try_seeded_chain_polars(g, ops) is None
+
+
+@pytest.mark.parametrize("duplicate_side", ["seed", "destination"])
+def test_duplicate_node_ids_never_take_the_native_seeded_lane(duplicate_side, monkeypatch):
+    g = _graph(indexed=False)
+    key = 4 if duplicate_side == "seed" else 2
+    duplicate = g._nodes.filter(pl.col("key") == key).with_columns(pl.lit(999, dtype=pl.Int64).alias("id"))
+    g = g.nodes(pl.concat([g._nodes, duplicate])).gfql_index_all(engine="polars")
+    seed = {"id": 999 if duplicate_side == "seed" else 104}
+    destination = {"id": 999} if duplicate_side == "destination" else {"kind": "Person"}
+    ops = [n(seed, name="m"), e_forward({"type": "T"}, name="e"), n(destination, name="p")]
+    served = _spy_served(monkeypatch)
+    fast = g.gfql(ops, engine="polars", index_policy="use")
+    assert served == [False]
+    monkeypatch.setattr(chain_polars, "_try_seeded_chain_polars", lambda *args: None)
+    full = g.gfql(ops, engine="polars", index_policy="use")
+    assert_frame_equal(fast._nodes, full._nodes)
+    assert_frame_equal(fast._edges, full._edges)
+
+
+@pytest.mark.parametrize("location", ["seed", "edge", "destination"])
+def test_incompatible_scalar_filter_preserves_structured_schema_error(location, monkeypatch):
+    from graphistry.compute.exceptions import GFQLSchemaError
+    g = _graph()
+    ops = [
+        n({"kind": 12} if location == "seed" else {"id": 104}, name="m"),
+        e_forward({"type": 12 if location == "edge" else "T"}, name="e"),
+        n({"kind": 12 if location == "destination" else "Person"}, name="p"),
+    ]
+    with pytest.raises(GFQLSchemaError) as fast:
+        g.gfql(ops, engine="polars", index_policy="use")
+    monkeypatch.setattr(chain_polars, "_try_seeded_chain_polars", lambda *args: None)
+    with pytest.raises(GFQLSchemaError) as full:
+        g.gfql(ops, engine="polars", index_policy="use")
+    assert fast.value.code == full.value.code == "incompatible-column-type"

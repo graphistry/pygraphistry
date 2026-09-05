@@ -965,11 +965,6 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                 "include_zero_hop_seed or *_query — require engine='pandas'."
             )
 
-    if start_nodes is None:
-        seeded = _try_seeded_chain_polars(self, ops)
-        if seeded is not None:
-            return seeded
-
     # Single-hop shape: [n(), e, n()] with no names/queries/matches (`MATCH (a {f})-[e]->(b)`).
     # Result = edges whose endpoints pass the node filters + those endpoint nodes
     # (isolated/dead-ends excluded); one hop means the backward pass prunes nothing more, so skip
@@ -1007,6 +1002,11 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
             )
             if _idxed0 is not None:
                 return _idxed0
+
+    if start_nodes is None:
+        seeded = _try_seeded_chain_polars(self, ops)
+        if seeded is not None:
+            return seeded
 
     if start_nodes is None and len(ops) == 3 and _fp_node(ops[0]) and _plain_edge(ops[1]) and _fp_node(ops[2]):
         n0, e1, n2 = ops

@@ -504,6 +504,7 @@ def _seeded_typed_return_dst_polars(
     g: Plottable, n0: ASTNode, n2: ASTNode, e1: ASTEdge,
     src: str, dst: str, node: str, direction: Direction,
     preserve_input_order: bool = False,
+    index_ctx: Optional[Tuple["NodeIdIndex", "AdjacencyIndex", ArrayNamespace, "Engine"]] = None,
 ) -> Optional[SeededReturn]:
     """#1755 polars analog of _seeded_typed_return_dst_pandas_cudf: same seed-first
     reduction (seed out-edges -> typed-edge filter -> destination nodes) expressed
@@ -512,6 +513,7 @@ def _seeded_typed_return_dst_polars(
     to the full lazy pipeline. Value-identical node set to the full path for the
     covered shape (scalar filters, directed, single hop); row order may differ."""
     import polars as pl
+    from graphistry.compute.gfql.lazy.engine.polars.predicates import filter_by_dict_polars
     if direction == "undirected":
         return None
     nodes_df, edges_df = g._nodes, g._edges
@@ -531,7 +533,8 @@ def _seeded_typed_return_dst_polars(
     # Membership sets are drop_nulls()'d (null ids/endpoints never link, matching
     # the full pipeline's joins) and passed via .implode() (Series-arg is_in is
     # deprecated in polars 1.42, see polars#22149).
-    ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction)
+    ctx = index_ctx if index_ctx is not None else _resident_seed_indexes(
+        g, nodes_df, edges_df, node, src, dst, direction)
     nid_ctx = (ctx[0], ctx[2], ctx[3]) if ctx is not None else _resident_node_id_index(g, nodes_df, node)
     seed_nodes, how = _seed_node_rows(g, nodes_df, n0f, node, nid_ctx, n0.filter_dict)
     edges = dstn = None
@@ -544,21 +547,18 @@ def _seeded_typed_return_dst_polars(
         kernel_admits = _indexed_kernel_admits(
             seed_nodes, edges, n0f, node, how, ctx, len(nodes_df), len(edges_df))
         if edges is not None:
-            for k, v in ef.items():
-                edges = edges.filter(pl.col(k) == v)
+            edges = filter_by_dict_polars(edges, e1.edge_match)
             dstn = _index_node_rows(nid, edges.get_column(to_col), xp, idx_engine, nodes_df)
     if dstn is None:
         from_ids = seed_nodes.get_column(node).drop_nulls()
         if from_ids.len() == 0:
             return nodes_df.clear(), edges_df.clear(), seed_nodes, kernel_admits
         edges = edges_df.filter(pl.col(from_col).is_in(from_ids.implode()))
-        for k, v in ef.items():  # typed edge on the reduced frontier
-            edges = edges.filter(pl.col(k) == v)
+        edges = filter_by_dict_polars(edges, e1.edge_match)
         dst_ids = edges.get_column(to_col).drop_nulls().unique()
         dstn = nodes_df.filter(pl.col(node).is_in(dst_ids.implode()))
     assert edges is not None and dstn is not None  # both branches above assign
-    for k, v in n2f.items():  # destination-node filter
-        dstn = dstn.filter(pl.col(k) == v)
+    dstn = filter_by_dict_polars(dstn, n2.filter_dict)
     # drop dangling edges + dedup destination nodes (mirror the pandas tail)
     keep_ids = dstn.get_column(node).drop_nulls()
     edges = edges.filter(pl.col(to_col).is_in(keep_ids.implode()))
@@ -567,8 +567,10 @@ def _seeded_typed_return_dst_polars(
 
 
 def _try_seeded_chain_polars(g: Plottable, ops: Sequence[ASTObject]) -> Optional[Plottable]:
-    """Resolve a native directed scalar hop and preserve Polars table order and aliases."""
+    """Serve a native directed scalar hop through the resident seed indexes, preserving
+    Polars table order and aliases; declines (None) without valid resident indexes."""
     import polars as pl
+    from graphistry.compute.gfql.index.api import _record_indexed_traversal
     if len(ops) != 3:
         return None
     n0, e1, n2 = ops
@@ -594,8 +596,11 @@ def _try_seeded_chain_polars(g: Plottable, ops: Sequence[ASTObject]) -> Optional
         return None
     if e1._name is not None and e1._name in edges.columns:
         return None
+    ctx = _resident_seed_indexes(g, nodes, edges, node, src, dst, e1.direction)
+    if ctx is None:
+        return None
     reduced = _seeded_typed_return_dst_polars(
-        g, n0, n2, e1, src, dst, node, e1.direction, preserve_input_order=True)
+        g, n0, n2, e1, src, dst, node, e1.direction, preserve_input_order=True, index_ctx=ctx)
     if reduced is None:
         return None
     _, kept_edges, _, _ = reduced
@@ -608,7 +613,9 @@ def _try_seeded_chain_polars(g: Plottable, ops: Sequence[ASTObject]) -> Optional
         nid, xp, engine = nid_ctx
         result_nodes = _index_node_rows(nid, endpoint_ids, xp, engine, nodes, preserve_input_order=True)
     if result_nodes is None:
-        result_nodes = nodes.filter(pl.col(node).is_in(endpoint_ids.implode())).unique(subset=[node], maintain_order=True)
+        result_nodes = nodes.filter(pl.col(node).is_in(endpoint_ids.implode()))
+        if result_nodes.get_column(node).n_unique() != result_nodes.height:
+            return None
     if not isinstance(result_nodes, pl.DataFrame):
         return None
     from_col, to_col = (src, dst) if e1.direction == "forward" else (dst, src)
@@ -620,4 +627,7 @@ def _try_seeded_chain_polars(g: Plottable, ops: Sequence[ASTObject]) -> Optional
         result_nodes = result_nodes.with_columns(flags)
     if e1._name is not None:
         kept_edges = kept_edges.with_columns(pl.lit(True).alias(e1._name))
+    _record_indexed_traversal(
+        seam="native_seeded_hop", engine=ctx[3], served=True, reason="served", hop_count=1,
+        public_seed_scan=node not in n0.filter_dict, hop_details=[{"hop": 1}])
     return g.nodes(result_nodes).edges(kept_edges)
