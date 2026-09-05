@@ -10,7 +10,9 @@ import pandas as pd
 import pytest
 
 import graphistry
+import graphistry.compute.chain_fast_paths as cfp
 from graphistry.compute.ast import e_forward, n
+from graphistry.compute.chain_fast_paths import polars_seeded_lane_admits
 from graphistry.compute.gfql.lazy.engine.polars.chain import polars_plain_single_hop_admits
 from graphistry.tests.compute.gfql.routes.corpus import CORPUS, EDGES, NODES, by_name
 
@@ -55,3 +57,56 @@ def test_admitted_shapes_match_the_pandas_full_path(name, request):
     g_pd = graphistry.nodes(NODES, "key").edges(EDGES, "s", "d", "eid")
     g_pl = graphistry.nodes(pl.from_pandas(NODES), "key").edges(pl.from_pandas(EDGES), "s", "d", "eid")
     assert _sig(g_pl.gfql(ops, engine="polars")) == _sig(g_pd.gfql(ops, engine="pandas", policy={"preload": lambda ctx: None}))
+
+
+SEEDED_LANE_ADMITS = {
+    "plain single hop, seeded", "plain single hop, seeded, reverse", "plain single hop, seeded, destination filter",
+    "typed single hop, seeded", "typed single hop, seeded, named",
+    "single hop, edge alias = filtered column", "single hop, destination alias = its filtered column",
+    "single hop, node and edge alias share a name",
+}
+
+
+def test_seeded_lane_decision_table_over_the_corpus():
+    got = {e.name for e in CORPUS if polars_seeded_lane_admits(e.ops())}
+    assert got == SEEDED_LANE_ADMITS
+
+
+def _indexed_polars_graph():
+    g = graphistry.nodes(pl.from_pandas(NODES), "key").edges(pl.from_pandas(EDGES), "s", "d", "eid")
+    return g.gfql_index_all(engine="polars").gfql_index_node_props(["id"], engine="polars")
+
+
+@pytest.mark.parametrize("name", [e.name for e in CORPUS])
+def test_seeded_lane_never_serves_a_shape_it_does_not_admit(name):
+    ops = by_name()[name].ops()
+    g = _indexed_polars_graph()
+    real = cfp._try_seeded_chain_polars
+    hit = {"n": 0}
+
+    def spy(*a, **k):
+        r = real(*a, **k)
+        hit["n"] += r is not None
+        return r
+    cfp._try_seeded_chain_polars = spy
+    try:
+        g.gfql(ops, engine="polars", index_policy="use")
+    except Exception:
+        pass
+    finally:
+        cfp._try_seeded_chain_polars = real
+    assert hit["n"] == 0 or polars_seeded_lane_admits(ops), f"{name}: served without admission"
+
+
+SEEDED_LANE_SERVES_DIRECTLY = SEEDED_LANE_ADMITS - {
+    # admitted by shape, declined by the body's alias-collision rule
+    "single hop, edge alias = filtered column", "single hop, destination alias = its filtered column",
+    "single hop, node and edge alias share a name",
+}
+
+
+@pytest.mark.parametrize("name", sorted(SEEDED_LANE_ADMITS))
+def test_seeded_lane_called_directly_serves_every_admitted_non_colliding_shape(name):
+    ops = by_name()[name].ops()
+    res = cfp._try_seeded_chain_polars(_indexed_polars_graph(), ops)
+    assert (res is not None) == (name in SEEDED_LANE_SERVES_DIRECTLY)
