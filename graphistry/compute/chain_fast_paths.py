@@ -279,7 +279,21 @@ def _seed_node_rows(
             how = "property_index"
     if seed is None:
         seed = nodes_df
-    return _filter_frame(seed, filter_dict if filter_dict is not None else n0f, engine), how
+    effective = filter_dict if filter_dict is not None else n0f
+    if how != "scan" and _index_answered_whole_filter(effective, n0f):
+        return seed, how
+    return _filter_frame(seed, effective, engine), how
+
+
+def _index_answered_whole_filter(effective: Dict[str, object], n0f: Dict[str, object]) -> bool:
+    """True when the index hit already applied the entire filter: one scalar equality on
+    the served column, written on that column (no ``label__`` rewrite). The indexes hold
+    integer keys and decline mismatched value families, so the gathered rows equal the
+    canonical filter's rows and its typed errors cannot arise on this shape."""
+    if len(effective) != 1 or len(n0f) != 1:
+        return False
+    (col, val), = effective.items()
+    return col in n0f and n0f[col] is val
 
 
 def _record_native_seed_lane(
