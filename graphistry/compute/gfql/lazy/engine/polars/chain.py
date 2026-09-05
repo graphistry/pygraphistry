@@ -165,6 +165,10 @@ def _exec(op: ASTObject, g: Plottable, prev_wf: Optional[Any], target_wf: Option
         if op.query is not None:
             raise NotImplementedError("polars chain engine does not yet support node query=")
         base = prev_wf if prev_wf is not None else g._nodes
+        if op._name is not None and op.filter_dict and op._name in op.filter_dict and op._name in base.columns:
+            # the alias marker of an earlier pass shares the filtered column's name: filter the
+            # graph's own values for that column, not the marker
+            base = base.drop(op._name).join(g._nodes.select(pl.col(node_col), pl.col(op._name)), on=node_col, how="left")
         nodes = filter_by_dict_polars(base, op.filter_dict)
         if target_wf is not None:
             nodes = _semi(nodes, target_wf, node_col, node_col)
@@ -476,6 +480,8 @@ def _apply_node_names(out: "pl.LazyFrame", g: "_LazyShim",
                 # its .unique() because it feeds a how="left" join, where they WOULD multiply.
                 named = named.join(part, on=node_col, how="semi")
         flag = named.with_columns(pl.lit(True).alias(op._name))
+        if op._name in colnames(out):
+            out = out.drop(op._name)  # the marker replaces a colliding column, as pandas' combine does
         out = out.join(flag, on=node_col, how="left").with_columns(pl.col(op._name).fill_null(False))
     return out
 
