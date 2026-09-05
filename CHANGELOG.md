@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+
+### Fixed
+
+- **GFQL pandas/cuDF: several single-alias `IN` (and other pushed-down) predicates across a hop no longer raise `Unalignable boolean Series` (#2020)**: the predicate pushdown filtered an alias frame by label after an earlier pushdown had already narrowed it, while the mask it evaluated carried a fresh positional index. Rows are now kept by position, which is the contract of a mask computed on the same rows; results equal the polars engine and the scalar `=` form.
 ### Tests
 
 * GFQL: `test_gfql_latency_contract.py` pins the low-latency contract for basic Cypher shapes on a wide 300k-node, 30-object-column table across pandas, polars and cuDF: a seeded typed hop with projections or a whole-entity return must be served by a fast path and cost at most 12x the plain frame ops for the same lookup (an id mask plus one join), measured interleaved; the node-only seeded lookup with projections is a recorded gap (strict xfail) so closing it flips the pin.
