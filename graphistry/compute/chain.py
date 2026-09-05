@@ -828,6 +828,18 @@ def _chain_otel_attrs(
     return attrs
 
 
+def _step_with_source_edge_columns(g: Plottable, g_step: Plottable, op: ASTObject) -> Plottable:
+    """``g_step`` with its edge rows re-read from ``g``'s edge table when the step's alias
+    marker shares a name with an edge column: the backward re-execution filters on the
+    graph's values for that column, never on the marker stamped by the forward pass."""
+    name = op._name
+    edges, step_edges, edge_id = g._edges, g_step._edges, g._edge
+    if (name is None or edges is None or step_edges is None or edge_id is None
+            or name not in edges.columns or edge_id not in step_edges.columns):
+        return g_step
+    return g_step.edges(edges[edges[edge_id].isin(step_edges[edge_id])])
+
+
 def _try_chain_fast_path(
     g_in: Plottable,
     ops: List[ASTObject],
@@ -1425,7 +1437,7 @@ def _chain_impl(
                     g_step_reverse = g_step.nodes(nodes_df).edges(edges_df)
                 else:
                     g_step_reverse = op.reverse().execute(
-                        g=g_step,
+                        g=_step_with_source_edge_columns(g, g_step, op),
                         prev_node_wavefront=prev_wavefront_nodes,
                         target_wave_front=target_wave_front_nodes,
                         engine=engine_concrete
