@@ -14,6 +14,8 @@ import pytest
 import graphistry
 import graphistry.compute.chain as chain_mod
 from graphistry.compute.ast import e_forward, n, rows, select
+from graphistry.compute.predicates.is_in import IsIn
+from graphistry.compute.predicates.numeric import GT
 
 ENGINES = ["pandas", "cudf"]
 
@@ -162,3 +164,58 @@ def test_named_hop_aliases_overwrite_nonfinal_properties_like_full_path(engine):
     assert list(fast._edges.columns) == list(full._edges.columns)
     pd.testing.assert_frame_equal(_canon(fast._nodes), _canon(full._nodes), check_dtype=False)
     pd.testing.assert_frame_equal(_canon(fast._edges), _canon(full._edges), check_dtype=False)
+
+
+# ---- the other side of each boundary: policy off, stale indexes, non-scalar seeds ----
+
+def _run_policy(g, ops, engine, fast, index_policy):
+    real = chain_mod._try_chain_fast_path
+    chain_mod._try_chain_fast_path = real if fast else (lambda *a, **k: None)
+    try:
+        return g.gfql(ops, engine=engine, index_policy=index_policy)
+    finally:
+        chain_mod._try_chain_fast_path = real
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("shape", list(SHAPES))
+def test_policy_off_keeps_parity_and_uses_no_index(engine, shape):
+    g = _lane_graph(engine)
+    ops = SHAPES[shape]()
+    fast = _run_policy(g, ops, engine, True, "off")
+    full = _run_policy(g, ops, engine, False, "off")
+    pd.testing.assert_frame_equal(_canon(fast._nodes), _canon(full._nodes), check_dtype=False)
+    pd.testing.assert_frame_equal(_canon(fast._edges), _canon(full._edges), check_dtype=False)
+    report = g.gfql_explain(ops, engine=engine, index_policy="off")
+    assert report["used_index"] is False and report["decision_code"] == "policy_off", report
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("shape", list(SHAPES))
+def test_stale_indexes_keep_parity_and_are_not_used(engine, shape):
+    g = _lane_graph(engine)
+    stale = g.nodes(g._nodes.head(len(g._nodes) - 1))  # rebound frame: every resident index is stale
+    ops = SHAPES[shape]()
+    fast, _ = _run(stale, ops, engine, True)
+    full, _ = _run(stale, ops, engine, False)
+    pd.testing.assert_frame_equal(_canon(fast._nodes), _canon(full._nodes), check_dtype=False)
+    pd.testing.assert_frame_equal(_canon(fast._edges), _canon(full._edges), check_dtype=False)
+    assert stale.gfql_explain(ops, engine=engine, index_policy="use")["used_index"] is False
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("seed", [
+    lambda: {"id": IsIn([10_007, 10_008]), "label__Person": True},
+    lambda: {"id": GT(10_007), "label__Person": True},
+], ids=["is_in", "gt"])
+def test_non_scalar_seed_predicates_keep_parity_without_the_index(engine, seed):
+    from graphistry.compute.gfql.index import index_trace
+    g = _lane_graph(engine)
+    ops = [n(seed(), name="p"), e_forward({"type": "HAS_CREATOR"}, name="e"), n({"label__Person": True}, name="q")]
+    fast, _ = _run(g, ops, engine, True)
+    full, _ = _run(g, ops, engine, False)
+    pd.testing.assert_frame_equal(_canon(fast._nodes), _canon(full._nodes), check_dtype=False)
+    pd.testing.assert_frame_equal(_canon(fast._edges), _canon(full._edges), check_dtype=False)
+    with index_trace() as steps:
+        g.gfql(ops, engine=engine, index_policy="use")
+    assert not any(s.get("seam") in ("native_seed_lookup", "native_seeded_hop") and s.get("served") for s in steps), steps
