@@ -5,6 +5,7 @@ from graphistry.Engine import EngineAbstract, POLARS_ENGINES, df_to_engine, reso
 from graphistry.util import setup_logger
 
 from graphistry.Plottable import Plottable
+from graphistry.compute.gfql.node_dtypes_memo import memo_get, memo_put
 from .predicates.ASTPredicate import ASTPredicate
 from .typing import DataFrameT, DType, NodeDtypes, SeriesT
 
@@ -345,11 +346,25 @@ def _read_node_dtypes(
     A pushed filter is schema-validated against the real column while the row residual
     evaluates leniently, so the planner needs dtypes to avoid turning a correct empty result
     into a type error. An unreadable schema yields an empty mapping, which fails every column
-    lookup and so falls back to the residual.
+    lookup and so falls back to the residual. Memoized per node frame: the read scans every
+    object column's values, and the compile cache key asks for it on every string query.
     """
     nodes = g._nodes
     if nodes is None:
         return {}
+    engine_name = str(getattr(engine, "value", engine))
+    cached = memo_get(nodes, engine_name)
+    if cached is not None:
+        return cached
+    dtypes = _read_node_dtypes_uncached(nodes, engine)
+    memo_put(nodes, engine_name, dtypes)
+    return dtypes
+
+
+def _read_node_dtypes_uncached(
+    nodes: DataFrameT,
+    engine: Union[EngineAbstract, str],
+) -> NodeDtypes:
     try:
         # Classify the frame the EXECUTOR will filter, not the one the caller handed in.
         # `filter_by_dict` validates post-materialization dtypes, so judging the pre-conversion
