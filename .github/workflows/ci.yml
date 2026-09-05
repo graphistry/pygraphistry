@@ -2046,8 +2046,10 @@ jobs:
 
   test-docs:
     needs: [changes, python-lint-types, docs-latex-unicode-guard]
-    # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run
-    if: ${{ (needs.changes.outputs.docs == 'true' && needs.changes.outputs.narrow_python_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    # Run if docs changed OR Python changed OR infrastructure changed OR manual/scheduled run.
+    # A docs-only PR skips python-lint-types; that skip must not skip this job (#2018), so the
+    # gate accepts skipped prerequisites and refuses only failed or cancelled ones.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.python-lint-types.result != 'failure' && needs.docs-latex-unicode-guard.result != 'failure' && ((needs.changes.outputs.docs == 'true' && needs.changes.outputs.narrow_python_only != 'true') || (needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.docs_test == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
