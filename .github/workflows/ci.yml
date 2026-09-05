@@ -242,11 +242,19 @@ jobs:
           '^graphistry/compute/gfql/' \
           '^graphistry/compute/gfql_validate\.py$' \
           '^graphistry/compute/gfql_unified\.py$' \
+          '^graphistry/compute/gfql_fast_paths\.py$' \
+          '^graphistry/compute/chain.*\.py$' \
+          '^graphistry/compute/hop\.py$' \
+          '^graphistry/compute/filter_by_dict\.py$' \
+          '^graphistry/compute/ast\.py$' \
+          '^graphistry/compute/predicates/' \
           '^graphistry/models/gfql/' \
           '^graphistry/Plottable\.py$' \
           '^graphistry/tests/benchmarks/gfql/' \
           '^graphistry/tests/compute/gfql/' \
           '^graphistry/tests/compute/test_gfql.*\.py$' \
+          '^graphistry/tests/compute/test_chain.*\.py$' \
+          '^graphistry/tests/compute/test_hop.*\.py$' \
           '^graphistry/tests/test_gfql_.*\.py$' \
           '^tests/gfql/'
 
