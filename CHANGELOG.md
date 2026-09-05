@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Development]
 <!-- Do Not Erase This Section - Used for tracking unreleased changes -->
 
+### Tests
+
+* GFQL: `test_gfql_latency_contract.py` pins the low-latency contract for basic Cypher shapes on a wide 300k-node, 30-object-column table across pandas, polars and cuDF: a seeded typed hop with projections or a whole-entity return must be served by a fast path and cost at most 12x the plain frame ops for the same lookup (an id mask plus one join), measured interleaved; the node-only seeded lookup with projections is a recorded gap (strict xfail) so closing it flips the pin.
+
 ### Fixed
 
 * GFQL: every Cypher string query re-read the node table's dtypes to build its compile-cache key, and that read scans the values of every `object` column (the string-content gate for predicate pushdown). On a wide pandas node table this cost more than the query it keyed: an SNB SF0.1 seeded lookup on 327k nodes × 27 object columns spent 105 ms of 106 ms there. The read is now memoized per node frame (identity plus a length/columns fingerprint, the resident indexes' contract) and cleared by `gfql_clear_caches()`; the same lookup now takes 2 ms (#2029).
