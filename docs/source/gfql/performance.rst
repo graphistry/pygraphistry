@@ -82,14 +82,25 @@ contract with exact result parity. Times are milliseconds.
 Kuzu, Neo4j, and Memgraph are faster than GFQL on every point-lookup row, and Memgraph
 is fastest on most. The GFQL columns run with resident indexes built once before the
 timed runs (``gfql_index_all`` plus node property indexes), the same footing as the
-databases' primary-key and label indexes. The index engages on the hop-shaped rows
-(message replies, recent replies) and the cost there drops by 2.5x to 3x; on the pure
-point lookups it does not engage, and what remains is a fixed per-call cost in the
-chain pipeline of about 20 ms on the pandas and polars engines
-(`#2027 <https://github.com/graphistry/pygraphistry/issues/2027>`_) against a database's
-sub-millisecond index probe. GFQL's strengths are the bulk shapes above and on the
-:doc:`speedup case study <benchmark_filter_pagerank>`; choose a database when the
+databases' primary-key and label indexes, and the GFQL arm runs native op lists, not
+Cypher text. A seeded lookup, a seeded typed hop, and a node-only lookup now resolve
+through the resident node-id, adjacency, and node-property indexes on every CPU engine,
+so the SF0.1 point rows sit in the low single-digit milliseconds on pandas and under
+about ten milliseconds on polars, against a database's sub-millisecond index probe. The
+hop-shaped rows (message replies, recent replies, new topics) are unchanged by that work
+and remain GFQL's slowest cells here. GFQL's strengths are the bulk shapes above and on
+the :doc:`speedup case study <benchmark_filter_pagerank>`; choose a database when the
 workload is dominated by point lookups.
+
+Open items behind the remaining gaps: CPU PageRank spends most of its time converting to
+igraph (`#2032 <https://github.com/graphistry/pygraphistry/issues/2032>`_); a polars
+native chain whose edge alias collides with the edge column its own filter uses raises
+where pandas serves it (`#2039 <https://github.com/graphistry/pygraphistry/issues/2039>`_);
+``rows(table=nodes, source=alias)`` multiplies rows for duplicate node ids
+(`#2034 <https://github.com/graphistry/pygraphistry/issues/2034>`_). The SF0.1 GFQL
+cells were measured at the head of the pull request that landed the index-resolved seeds,
+before it reached master; the SF1 cells are the release measurement, and the Measurement
+block below carries both.
 
 SF0.1
 ~~~~~
@@ -128,8 +139,9 @@ time, over columnar frames based on `Apache Arrow <https://arrow.apache.org/>`_.
 fuses the operations into one lazy plan and collects once; cuDF and Polars GPU run the
 same columnar operations on NVIDIA GPUs. That favors bulk work: multi-join analytics,
 frontier expansion from many seeds, and full-graph aggregation. It does not favor
-single-row point lookups, where the per-call compile and row-pipeline floor dominates
-and an indexed database answers in well under a millisecond, as the SNB tables show.
+single-row point lookups: the resident indexes bring a seeded lookup to a few
+milliseconds, and an indexed database still answers in well under a millisecond, as the
+SNB tables show.
 
 Start on CPU with no special hardware, and move to a GPU engine by changing one
 keyword when the graph or result becomes large. The :doc:`speedup case study
@@ -148,7 +160,7 @@ Every figure on this page is printed from ``docs/source/_data/gfql_benchmarks.js
 which pyg-bench publishes. The documentation build and ``docs/test_bench_numbers.py``
 reject missing, stale, or unpublished values.
 
-.. bench-provenance:: graphbench-q1q9-20k-20260904 graphbench-q1q9-100k-20260904 snb-aligned-release-20260902 snb-aligned-indexed-20260904
+.. bench-provenance:: graphbench-q1q9-20k-20260904 graphbench-q1q9-100k-20260904 snb-aligned-release-20260902 snb-aligned-indexed-20260904 snb-aligned-indexed-2038-20260905
    :disclosures:
 
 Next steps
