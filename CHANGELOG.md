@@ -18,13 +18,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * GFQL: native Polars single-node lookups resolve seeds through resident node-property indexes, and a directed scalar one-hop chain whose resident node-id and adjacency indexes cover it (typed edges, destination filters, named patterns) is served by the seeded reduction used by Cypher, with full-path table order and alias flags preserved and the engagement visible in `gfql_explain` (#2033).
 * GFQL: native op-list chains (`g.gfql([n(...), e_forward(...), n(...)])`) resolve a seed predicate through the resident node-id or node-property index and serve named patterns on the chain fast path; before, a named single-node op always ran the full two-pass chain, a named seeded hop declined the fast path whenever the traversal indexes were resident (deferring to an indexed kernel that had already declined), and a seed on a property other than the node binding was a full node-table scan (#2027). The alias flag columns now sit where the full path places them.
 * GFQL: every Cypher string query re-read the node table's dtypes to build its compile-cache key, and that read scans the values of every `object` column (the string-content gate for predicate pushdown). On a wide pandas node table this cost more than the query it keyed: an SNB SF0.1 seeded lookup on 327k nodes × 27 object columns spent 105 ms of 106 ms there. The read is now memoized per node frame (identity plus a length/columns fingerprint, the resident indexes' contract) and cleared by `gfql_clear_caches()`; the same lookup now takes 2 ms (#2029).
+* GFQL: undirected multi-hop traversals with a seeded wavefront were ~30x slower than before 0.58 because the wavefront seed-rediscovery rule (a seed is returned only when an edge-disjoint walk re-encounters it) ran as a per-edge Python loop on every undirected hop step. The rule now runs as joins and group-bys inside the caller's own frame engine (pandas, cuDF, polars), with the same results (#2023).
+
 ### Performance
 
 * GFQL: an undirected `hop()` on pandas and cuDF hash-deduplicated the doubled edge frame (both orientations, 2E rows) on (from, to, edge id) before traversing, once per hop call and three times per chain; every consumer already dedups on the edge id, so the frame is now the plain concat the polars hop uses. Measured locally and not published: the block itself went from 7.1 s to 1.4 s on an 8M-edge frame on pandas and 50 ms to 17 ms on cuDF; the benchmark numbers are re-measured in pyg-bench.
-
-### Fixed
-
-* GFQL: undirected multi-hop traversals with a seeded wavefront were ~30x slower than before 0.58 because the wavefront seed-rediscovery rule (a seed is returned only when an edge-disjoint walk re-encounters it) ran as a per-edge Python loop on every undirected hop step. The rule now runs as joins and group-bys inside the caller's own frame engine (pandas, cuDF, polars), with the same results (#2023).
 
 ### Changed
 
