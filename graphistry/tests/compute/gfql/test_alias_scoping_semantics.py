@@ -570,16 +570,17 @@ def test_rows_route_edge_alias_named_as_its_property_reads_user_values(engine: s
 
 def test_rows_route_edge_alias_colliding_with_its_own_type_filter() -> None:
     """``MATCH (a)-[type:K]->(b) RETURN type.type``: the alias shadows the very column
-    its ``:K`` filter reads. pandas/cuDF now answer the user values; polars' chain
-    machinery re-applies the type filter against the stamped marker and raises a typed
-    GFQLSchemaError -- an honest decline, pinned so it cannot rot into a silent wrong
-    answer (residual polish for #1911)."""
-    from graphistry.compute.exceptions import GFQLSchemaError
+    its ``:K`` filter reads. pandas/cuDF answer the user values. polars' chain now
+    serves the traversal (#2039: each step re-executes on the graph's original edge
+    columns), but its rows route still finds the user column where it expects the
+    marker and raises a typed GFQL error -- an honest decline, pinned so it cannot
+    rot into a silent wrong answer (residual for #1911 / #2039)."""
+    from graphistry.compute.exceptions import GFQLValidationError
 
     query = "MATCH (a:P)-[type:K]->(b:P) RETURN type.type AS t"
     assert _run(SELF_NAMED_NODES, SELF_NAMED_EDGES, query, "pandas") == [
         {"t": "K"}, {"t": "K"}]
-    with pytest.raises(GFQLSchemaError):
+    with pytest.raises(GFQLValidationError):
         _run(SELF_NAMED_NODES, SELF_NAMED_EDGES, query, "polars")
 
 

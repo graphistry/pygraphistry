@@ -143,6 +143,22 @@ def _alias_hop_bounds(op: ASTEdge) -> Tuple[int, Optional[int]]:
     return min_hop, max_hop
 
 
+def _step_edges_with_source_columns(g: Plottable, g_step: Plottable, edge_id: str) -> "pl.DataFrame":
+    """The step's edge rows with the graph's ORIGINAL columns: an alias marker that shares a
+    name with a column the step filters on must not be re-filtered as that column."""
+    import polars as pl
+    edges = g._edges
+    assert edges is not None and g_step._edges is not None
+    return edges.join(g_step._edges.select(pl.col(edge_id)), on=edge_id, how="semi")
+
+
+def _with_source_column_instead_of_marker(frame: "PolarsT", g: Plottable, node_col: str, column: str) -> "PolarsT":
+    """``frame`` with ``column`` re-read from the graph's node table: an alias marker stamped by
+    an earlier pass must not be what the step's own filter on that column sees."""
+    import polars as pl
+    return frame.drop(column).join(g._nodes.select(pl.col(node_col), pl.col(column)), on=node_col, how="left")
+
+
 def _exec(op: ASTObject, g: Plottable, prev_wf: Optional[Any], target_wf: Optional[Any],
           intermediate_universe: Optional[Any] = None,
           auto_hop_col: str = _AUTO_NODE_HOP) -> Plottable:
@@ -156,6 +172,8 @@ def _exec(op: ASTObject, g: Plottable, prev_wf: Optional[Any], target_wf: Option
         if op.query is not None:
             raise NotImplementedError("polars chain engine does not yet support node query=")
         base = prev_wf if prev_wf is not None else g._nodes
+        if op._name is not None and op.filter_dict and op._name in op.filter_dict and op._name in base.columns:
+            base = _with_source_column_instead_of_marker(base, g, node_col, op._name)
         nodes = filter_by_dict_polars(base, op.filter_dict)
         if target_wf is not None:
             nodes = _semi(nodes, target_wf, node_col, node_col)
@@ -467,6 +485,8 @@ def _apply_node_names(out: "pl.LazyFrame", g: "_LazyShim",
                 # its .unique() because it feeds a how="left" join, where they WOULD multiply.
                 named = named.join(part, on=node_col, how="semi")
         flag = named.with_columns(pl.lit(True).alias(op._name))
+        if op._name in colnames(out):
+            out = out.drop(op._name)  # the marker replaces a colliding column, as pandas' combine does
         out = out.join(flag, on=node_col, how="left").with_columns(pl.col(op._name).fill_null(False))
     return out
 
@@ -1103,7 +1123,8 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         # table). Single-hop reverse: None -> gate = all_nodes (vacuous), matching pandas
         # use_fast_backward (full g._nodes).
         _iu = g_step._nodes if (isinstance(op, ASTEdge) and not op.is_simple_single_hop()) else None
-        g_step_full = g_step.nodes(g._nodes, g._node)
+        g_step_full = g_step.nodes(g._nodes, g._node).edges(
+            _step_edges_with_source_columns(g, g_step, EID), src, dst, edge=EID)
         rev = _exec(op.reverse(), g_step_full, prev_wf, target_wf, intermediate_universe=_iu,
                     auto_hop_col=auto_hop_col)
         # Undirected single-hop backward threading: the generic hop returns a ONE-SIDED
@@ -1147,7 +1168,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                     _semi(g._nodes, prev_src, node_col, node_col)
                     if prev_src is not None else None
                 )
-                g_sub = g.edges(g_step._edges, src, dst, edge=g._edge)
+                g_sub = g.edges(_step_edges_with_source_columns(g, g_step, EID), src, dst, edge=g._edge)
                 edge_steps.append((op, _exec(op, g_sub, prev_wf, None, auto_hop_col=auto_hop_col)))
             else:
                 edge_steps.append((op, g_step))
