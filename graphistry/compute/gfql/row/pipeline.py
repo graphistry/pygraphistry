@@ -236,6 +236,13 @@ def is_row_pipeline_call(function: str) -> bool:
     return function in ROW_PIPELINE_CALLS
 
 
+
+def _rows_where(frame: DataFrameT, mask: SeriesT) -> DataFrameT:
+    """Keep the rows where ``mask`` is True, by position: a mask evaluated on a renamed
+    view of ``frame`` may carry a fresh RangeIndex while ``frame`` keeps the labels of an
+    earlier filter, so label alignment (``.loc``) is not the contract here."""
+    return frame[mask.values]
+
 class RowPipelineMixin:
     # Mirrors the GFQL execution-context fields declared on Plottable: this mixin
     # is also used by `_RowPipelineAdapter`, which is not a PlotterBase, so the
@@ -3929,7 +3936,7 @@ class RowPipelineMixin:
                 view = frame.rename(columns={c: f"{alias}.{c}" for c in frame.columns})
                 value = self._gfql_eval_string_expr(view, spec["text"])
                 mask = self._gfql_bool_mask(view, value)
-                frame = frame.loc[mask]
+                frame = _rows_where(frame, mask)
             elif kind == "search_any":
                 from graphistry.compute.gfql.search_any import search_any_mask
                 term = spec.get("term")
@@ -3974,7 +3981,7 @@ class RowPipelineMixin:
                         value=spec.get("columns"),
                         language="cypher",
                     )
-                frame = frame.loc[mask]
+                frame = _rows_where(frame, mask)
         return frame
 
     def _gfql_connected_bindings_state(
