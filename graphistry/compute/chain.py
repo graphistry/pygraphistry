@@ -14,6 +14,7 @@ from .util import generate_safe_column_name
 from .chain_fast_paths import (
     _seeded_typed_hop_pandas_cudf,
     _single_node_rows_via_index_or_filter,
+    native_fast_path_admits,
     _tag_fast_path_aliases,
 )
 from graphistry.compute.validate.validate_schema import validate_chain_schema, validate_graph_shape
@@ -859,10 +860,9 @@ def _try_chain_fast_path(
     polars/dask/spark also fall through (own fast path / lazy semantics)."""
     from graphistry.compute.filter_by_dict import filter_by_dict
 
-    if engine_concrete not in (Engine.PANDAS, Engine.CUDF):
+    shape = native_fast_path_admits(ops, engine_concrete, start_nodes)
+    if shape is None:
         return None
-    if start_nodes is not None:
-        return None  # seeded chains use the full path (fast path has no seed)
     engine_abs = EngineAbstract(engine_concrete.value)
 
     def _materialize_fast_path_graph() -> Plottable:
@@ -870,10 +870,9 @@ def _try_chain_fast_path(
         g = g_in.materialize_nodes(engine=EngineAbstract(engine_concrete.value))
         return _coerce_input_formats(g, engine_concrete)
 
-    if len(ops) == 1:
+    if shape == "single-node":
         n0 = ops[0]
-        if not (isinstance(n0, ASTNode) and n0.query is None):
-            return None
+        assert isinstance(n0, ASTNode)  # the predicate admitted this shape
         g = _materialize_fast_path_graph()
         if g._nodes is None:
             return None
@@ -894,48 +893,11 @@ def _try_chain_fast_path(
         edges = g._edges.iloc[0:0] if g._edges is not None else None
         return g.nodes(nodes).edges(edges) if edges is not None else g.nodes(nodes)
 
-    if len(ops) != 3:
-        return None
     n0, e1, n2 = ops
-    # Aliases are a PROJECTION concern, not a traversal one: capture them, serve the
-    # traversal on the fast path, and tag the result (_tag_fast_path_aliases). Rejecting
-    # them here sent a NAMED `g.gfql([n(name=..), e(..), n(name=..)])` to the full
-    # two-pass BFS purely because the ops carried names — measured ~25.2 ms before vs
-    # ~2.3 ms after (medians of 5 paired runs), on a 200-node graph where data work is ~0.
-    # SCOPE, measured: this does NOT reach the Cypher `MATCH ... RETURN` surface for the
-    # benchmark shapes. Those are served earlier by `gfql_fast_paths.py` and never consult
-    # this function at all, so do not attribute a Cypher-surface win to this gate.
+    assert isinstance(n0, ASTNode) and isinstance(e1, ASTEdge) and isinstance(n2, ASTNode)  # the predicate admitted this shape
     alias_n0, alias_e1, alias_n2 = n0._name, e1._name, n2._name
-    _named = [a for a in (alias_n0, alias_e1, alias_n2) if a is not None]
-    if len(_named) != len(set(_named)):
-        # Duplicate alias reuse is an E201 error, and `combine_steps` is what raises it.
-        # Serving these here would BYPASS that check and silently succeed — decline so the
-        # full path still errors. (Caught by test_polars_duplicate_alias_declines_like_pandas.)
-        return None
-    if not (isinstance(n0, ASTNode) and n0.query is None):
-        return None
-    if not (isinstance(n2, ASTNode) and n2.query is None):
-        return None
-    if not (isinstance(e1, ASTEdge) and e1.is_simple_single_hop()
-            and e1.source_node_match is None
-            and e1.destination_node_match is None
-            and e1.source_node_query is None and e1.destination_node_query is None
-            and e1.edge_query is None and not e1.include_zero_hop_seed
-            and not e1.prune_to_endpoints):  # prune keeps only the arrival side -> full path
-        return None
-    # #1755 lever-3: a typed edge (edge_match, e.g. -[:HAS_CREATOR]->) is a plain
-    # equality/predicate filter on the edge frame — apply it in the fast-path body
-    # below rather than falling through to the full two-pass machinery. source/dest
-    # node match + edge_query (richer predicates) still bail above.
     direction = e1.direction
-    if direction == "undirected" and (alias_n0 is not None or alias_n2 is not None):
-        # An undirected edge makes a node reachable as EITHER endpoint, so "which alias
-        # does this node carry" is not derivable from the endpoint columns the way it is
-        # for a directed hop. Decline to the full path rather than guess.
-        return None
     unconstrained = not n0.filter_dict and not n2.filter_dict
-    if not unconstrained and direction == "undirected":
-        return None  # filtered-undirected (OR of both directions) -> full path
     g = _materialize_fast_path_graph()
     if g._nodes is None or g._edges is None:
         return None

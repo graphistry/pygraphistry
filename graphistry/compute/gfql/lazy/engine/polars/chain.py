@@ -7,7 +7,7 @@ parity vs the pandas chain gates correctness; unsupported shapes raise NotImplem
 (no silent pandas fallback). Deferred: variable-length/multi-hop edge sub-cases, some
 undirected multi-edge combos, node query=.
 """
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type, cast
+from typing import TYPE_CHECKING, Any, List, Literal, Optional, Sequence, Tuple, Type, cast
 
 from typing_extensions import TypedDict
 
@@ -220,6 +220,41 @@ def _exec(op: ASTObject, g: Plottable, prev_wf: Optional[Any], target_wf: Option
         return g_step
 
     raise NotImplementedError(f"polars chain engine does not support op {type(op).__name__}")
+
+
+PolarsPlainSingleHopShape = Literal["seeded-index", "skip-combine"]
+
+
+def _plain_node(op: ASTObject) -> bool:
+    return isinstance(op, ASTNode) and op._name is None and op.query is None
+
+
+def _plain_edge(op: ASTObject) -> bool:
+    return (isinstance(op, ASTEdge) and op.is_simple_single_hop()
+            and op.edge_match is None and op.source_node_match is None
+            and op.destination_node_match is None and op._name is None
+            and op.source_node_query is None and op.destination_node_query is None
+            and op.edge_query is None and not op.include_zero_hop_seed)
+
+
+def polars_plain_single_hop_admits(ops: Sequence[ASTObject], start_nodes: Optional[object]) -> Optional[PolarsPlainSingleHopShape]:
+    """The polars chain's plain single-hop branch for ``ops``: ``"seeded-index"`` when the
+    resident-index hop is consulted first (seed filter, no destination filter, directed),
+    ``"skip-combine"`` when the one-hop endpoint filter serves it without the
+    forward/backward/combine passes, None when the full chain runs. The dispatcher calls
+    this; unnamed, unqueried nodes and an unnamed, unmatched simple edge are the shape.
+    A filtered undirected hop is the one plain shape that still takes the full chain."""
+    if start_nodes is not None or len(ops) != 3:
+        return None
+    n0, e1, n2 = ops
+    if not (_plain_node(n0) and _plain_edge(e1) and _plain_node(n2)):
+        return None
+    assert isinstance(n0, ASTNode) and isinstance(e1, ASTEdge) and isinstance(n2, ASTNode)
+    directed = e1.direction in ("forward", "reverse")
+    if n0.filter_dict and not n2.filter_dict and directed:
+        return "seeded-index"
+    unconstrained = not n0.filter_dict and not n2.filter_dict
+    return "skip-combine" if (unconstrained or directed) else None
 
 
 def _is_native_multihop(op: ASTObject) -> bool:
@@ -998,24 +1033,14 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     # forward/backward/combine. Byte-identical vs pandas (verified: src/dst/both filters, reverse,
     # dup/self-loop/cycle/isolated). Undirected takes this branch only when UNCONSTRAINED;
     # filtered-undirected (OR of both directions) falls through to the full path.
-    def _fp_node(op):
-        return isinstance(op, ASTNode) and op._name is None and op.query is None
-
-    def _plain_edge(op):
-        return (isinstance(op, ASTEdge) and op.is_simple_single_hop()
-                and op.edge_match is None and op.source_node_match is None
-                and op.destination_node_match is None and op._name is None
-                and op.source_node_query is None and op.destination_node_query is None
-                and op.edge_query is None and not op.include_zero_hop_seed)
+    plain_shape = polars_plain_single_hop_admits(ops, start_nodes)
 
     # GFQL physical index path for the seeded single-hop shape
     # `MATCH (a {id-filter})-[e]->(b)` (forward/reverse, no destination filter). This native
     # chain branch never reaches compute/hop.py, so it must consult the index here too.
     from graphistry.compute.gfql.index import get_index_policy
     _idx_pol = get_index_policy(self)
-    if (start_nodes is None and len(ops) == 3 and _fp_node(ops[0]) and _plain_edge(ops[1])
-            and _fp_node(ops[2]) and ops[0].filter_dict and not ops[2].filter_dict
-            and ops[1].direction in ("forward", "reverse")):
+    if plain_shape == "seeded-index":
         from graphistry.compute.gfql.index import get_registry, maybe_index_hop
         if (not get_registry(self).is_empty()) or _idx_pol in ("auto", "force"):
             gf0 = ensure_nodes_polars(self)
@@ -1035,23 +1060,21 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         if seeded is not None:
             return seeded
 
-    if start_nodes is None and len(ops) == 3 and _fp_node(ops[0]) and _plain_edge(ops[1]) and _fp_node(ops[2]):
+    if plain_shape is not None:
         n0, e1, n2 = ops
-        unconstrained = not n0.filter_dict and not n2.filter_dict
-        if unconstrained or e1.direction in ("forward", "reverse"):
-            node_table_bound = self._nodes is not None
-            gf = ensure_nodes_polars(self)
-            ncol, scol, dcol = gf._node, gf._source, gf._destination
-            assert ncol is not None and scol is not None and dcol is not None
-            gf, restore = _align_edge_endpoints(gf, ncol, scol, dcol)
-            edges = drop_null_endpoint_edges(gf._edges, scol, dcol)
-            n_from, n_to = (n0, n2) if e1.direction != "reverse" else (n2, n0)
-            all_ids = gf._nodes.select(pl.col(ncol))
+        node_table_bound = self._nodes is not None
+        gf = ensure_nodes_polars(self)
+        ncol, scol, dcol = gf._node, gf._source, gf._destination
+        assert ncol is not None and scol is not None and dcol is not None
+        gf, restore = _align_edge_endpoints(gf, ncol, scol, dcol)
+        edges = drop_null_endpoint_edges(gf._edges, scol, dcol)
+        n_from, n_to = (n0, n2) if e1.direction != "reverse" else (n2, n0)
+        all_ids = gf._nodes.select(pl.col(ncol))
 
-            def _filter_ids(node_op: ASTNode) -> "Optional[PolarsFrame]":
-                if not node_op.filter_dict:
-                    return None
-                return filter_by_dict_polars(gf._nodes, node_op.filter_dict).select(pl.col(ncol))
+        def _filter_ids(node_op: ASTNode) -> "Optional[PolarsFrame]":
+            if not node_op.filter_dict:
+                return None
+            return filter_by_dict_polars(gf._nodes, node_op.filter_dict).select(pl.col(ncol))
 
             filter_sides = ((scol, _filter_ids(n_from)), (dcol, _filter_ids(n_to)))
             for endpoint_col, filter_ids in filter_sides:
@@ -1077,6 +1100,29 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                 nodes = gf._nodes.join(endpoints, on=ncol, how="semi")
             nodes = nodes.unique(subset=[ncol], maintain_order=True)  # one row per node id, as the full chain and pandas collapse
             return gf.nodes(nodes, ncol).edges(_restore_edge_dtypes(edges, scol, dcol, restore), scol, dcol)
+        filter_sides = ((scol, _filter_ids(n_from)), (dcol, _filter_ids(n_to)))
+        for endpoint_col, filter_ids in filter_sides:
+            if filter_ids is not None:
+                edges = edges.join(filter_ids, left_on=endpoint_col, right_on=ncol, how="semi")
+        # A filtered side drew its ids FROM the node table; a synthesized one is vacuously closed.
+        sides_not_closed_by_a_filter = (
+            [col for col, filter_ids in filter_sides if filter_ids is None]
+            if node_table_bound else [])
+        endpoints = endpoint_ids(edges, scol, dcol, ncol)
+        if sides_not_closed_by_a_filter:
+            from graphistry.compute.gfql.lazy import collect_all
+            unresolvable, nodes = collect_all([
+                endpoints.lazy().join(all_ids.lazy(), on=ncol, how="anti").select(pl.len()),
+                gf._nodes.lazy().join(endpoints.lazy(), on=ncol, how="semi"),
+            ])
+            if unresolvable.item() > 0:
+                for endpoint_col in sides_not_closed_by_a_filter:
+                    edges = edges.join(all_ids, left_on=endpoint_col, right_on=ncol, how="semi")
+                nodes = gf._nodes.join(
+                    endpoint_ids(edges, scol, dcol, ncol), on=ncol, how="semi")
+        else:
+            nodes = gf._nodes.join(endpoints, on=ncol, how="semi")
+        return gf.nodes(nodes, ncol).edges(_restore_edge_dtypes(edges, scol, dcol, restore), scol, dcol)
 
     if start_nodes is not None:
         from graphistry.Engine import Engine, df_to_engine
