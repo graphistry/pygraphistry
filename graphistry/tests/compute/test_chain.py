@@ -940,31 +940,27 @@ def test_fast_path_cross_type_alias_share_declines_and_matches():
     _assert_full_frame_value_parity(default_route._edges, policy_route._edges, ['s', 'd'])
 
 
-def test_fast_path_named_defers_to_valid_resident_index():
-    """NEGATIVE (deliberate decline): when BOTH resident indexes validly cover the
-    directed hop, a NAMED pattern must DECLINE the chain fast path so the index path
-    (which the gate would shadow) serves it — and the answer must not change. The gate
-    keys on index VALIDITY, so an index that does NOT cover the shape (reverse hop with
-    only the out-adjacency built) must NOT cause a decline, and unnamed patterns are
-    not deferred at all."""
+def test_fast_path_named_is_served_with_a_valid_resident_index():
+    """A NAMED pattern with BOTH resident indexes validly covering the directed hop is
+    served by the chain fast path: by the time it runs, the indexed kernel has already
+    declined the middle (``_handle_boundary_calls``), so deferring served nothing. The
+    answer must equal the full path's; unnamed and reverse (out-adjacency only) patterns
+    keep serving as before."""
     from graphistry.compute.chain import _try_chain_fast_path
     from graphistry.Engine import Engine
     from graphistry.compute.gfql.index.api import create_index
     g = _fast_graph("pandas")
     gi = create_index(create_index(g, 'edge_out_adj'), 'node_id')
     named = [n(name='x'), e_forward(hops=1), n(name='y')]
-    assert _try_chain_fast_path(gi, named, Engine.PANDAS, None) is None, \
-        "named + valid covering index must defer (decline) to the index path"
-    assert _try_chain_fast_path(gi, [n(), e_forward(hops=1), n()], Engine.PANDAS, None) is not None, \
-        "unnamed is not deferred: the index deferral is scoped to named patterns"
-    assert _try_chain_fast_path(gi, [n(name='x'), e_reverse(hops=1), n(name='y')], Engine.PANDAS, None) is not None, \
-        "reverse hop is NOT covered by edge_out_adj alone, so no deferral"
-    # deferral must be a routing decision only — values identical to the full path
-    deferred = gi.gfql(named)
+    assert _try_chain_fast_path(gi, named, Engine.PANDAS, None) is not None, \
+        "named + valid covering index is served (the kernel already declined)"
+    assert _try_chain_fast_path(gi, [n(), e_forward(hops=1), n()], Engine.PANDAS, None) is not None
+    assert _try_chain_fast_path(gi, [n(name='x'), e_reverse(hops=1), n(name='y')], Engine.PANDAS, None) is not None
+    served = gi.gfql(named)
     full = g.gfql(named, policy=_FAST_NOOP_POLICY)
-    assert _setsig(deferred) == _setsig(full)
-    _assert_full_frame_value_parity(deferred._nodes, full._nodes, ['v'])
-    _assert_full_frame_value_parity(deferred._edges, full._edges, ['s', 'd'])
+    assert _setsig(served) == _setsig(full)
+    _assert_full_frame_value_parity(served._nodes, full._nodes, ['v'])
+    _assert_full_frame_value_parity(served._edges, full._edges, ['s', 'd'])
 
 
 def test_fast_path_named_datetime_categorical_columns_ride_along():
