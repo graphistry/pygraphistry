@@ -48,6 +48,9 @@ def _tag_fast_path_aliases(
     if nodes is None or edges is None:
         return res
     from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
+    tagged = _tag_fast_path_aliases_pandas(nodes, edges, alias_n0, alias_e1, alias_n2, from_col, to_col, node)
+    if tagged is not None:
+        return res.nodes(tagged[0]).edges(tagged[1])
     node_flags: Dict[str, SeriesT] = {}
     if alias_n0 is not None:
         node_flags[alias_n0] = nodes[node].isin(edges[from_col])
@@ -71,6 +74,44 @@ def _tag_fast_path_aliases(
         edges = edges.reset_index(drop=True)
 
     return res.nodes(nodes).edges(edges)
+
+
+def _tag_fast_path_aliases_pandas(
+    nodes: DataFrameT, edges: DataFrameT,
+    alias_n0: Optional[str], alias_e1: Optional[str], alias_n2: Optional[str],
+    from_col: str, to_col: str, node: str,
+) -> Optional[Tuple[DataFrameT, DataFrameT]]:
+    """The pandas-only equivalent of the generic tagging below: same columns, order, dtypes
+    and RangeIndex, built with one frame copy and in-place column inserts instead of the
+    assign / reorder / reset_index copies. None when a shape the in-place inserts cannot
+    reproduce (binding column not first, or a colliding alias) needs the generic path."""
+    import numpy as np
+    import pandas as pd
+    if not (isinstance(nodes, pd.DataFrame) and isinstance(edges, pd.DataFrame)):
+        return None
+    if alias_e1 is not None and alias_e1 in edges.columns:
+        return None
+    wanted = [a for a in (alias_n0, alias_n2) if a is not None]
+    if wanted:
+        if nodes.columns[0] != node or any(a in nodes.columns for a in wanted):
+            return None
+        ids = nodes[node].to_numpy()
+        ends = (edges[from_col].to_numpy(), edges[to_col].to_numpy())
+        if any(a.dtype.kind not in "iub" for a in (ids, *ends)):
+            return None  # float/object ids: pandas isin's NaN and mixed-type rules, not numpy's
+        out_nodes = nodes.reset_index(drop=True)
+        pos = 1
+        if alias_n0 is not None:
+            out_nodes.insert(pos, alias_n0, np.isin(ids, ends[0]))
+            pos += 1
+        if alias_n2 is not None:
+            out_nodes.insert(pos, alias_n2, np.isin(ids, ends[1]))
+        nodes = out_nodes
+    if alias_e1 is not None:
+        out_edges = edges.reset_index(drop=True)
+        out_edges.insert(0, alias_e1, True)
+        edges = out_edges
+    return nodes, edges
 
 
 def _seeded_scalar_filters(fd: Optional[Dict[str, Any]], df: DataFrameT) -> Optional[Dict[str, Any]]:
