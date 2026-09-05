@@ -11,6 +11,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Infrastructure
 
+- **CI: the gfql change filter now includes the chain engine** (`compute/chain*.py`, `hop.py`, `gfql_fast_paths.py`, `filter_by_dict.py`, `ast.py`, `predicates/`, and the chain/hop test files), so tck-gfql, the Cypher-frontend gates and the gfql benchmark lane run on a change to the chain engine; they were skipped on #2055.
 - **CI: `test-docs` runs on docs-only pull requests (#2018)**: the job needed `python-lint-types`, which a docs-only change skips, and GitHub skips a job whose prerequisite was skipped. The gate now accepts skipped prerequisites and refuses only failed or cancelled ones, so documentation changes are built and tested before merge.
 ### Tests
 
