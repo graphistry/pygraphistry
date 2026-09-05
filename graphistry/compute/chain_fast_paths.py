@@ -11,7 +11,7 @@ reductions rather than next to `_try_chain_fast_path`.
 """
 # ruff: noqa: E501
 
-from typing import Any, Dict, Optional, Sequence, Tuple, TYPE_CHECKING, Union, cast
+from typing import Any, Dict, Literal, Optional, Sequence, Tuple, TYPE_CHECKING, Union, cast
 
 from graphistry.Plottable import Plottable
 from .ast import ASTNode, ASTEdge, Direction
@@ -104,7 +104,7 @@ def _resident_seed_indexes(
     validly cover this directed seeded hop on these EXACT frames (fingerprint +
     identity via get_valid), else None — callers keep the scan path, so a stale
     or absent index can never change results, only speed."""
-    from graphistry.Engine import Engine, is_polars_df
+    from graphistry.Engine import Engine
     from graphistry.compute.gfql.index import get_index_policy, get_registry
     from graphistry.compute.gfql.index.registry import EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID
     from graphistry.compute.gfql.index.engine_arrays import array_namespace
@@ -113,14 +113,8 @@ def _resident_seed_indexes(
     registry = get_registry(g)
     if registry.is_empty():
         return None
-    mod = str(type(nodes_df).__module__)
-    if is_polars_df(nodes_df):
-        engine = Engine.POLARS
-    elif 'cudf' in mod:
-        engine = Engine.CUDF
-    elif mod.startswith('pandas'):
-        engine = Engine.PANDAS
-    else:
+    engine = _frame_engine(nodes_df)
+    if engine is None:
         return None
     kind = EDGE_OUT_ADJ if direction == "forward" else EDGE_IN_ADJ
     engines = [engine]
@@ -187,6 +181,100 @@ def _index_node_rows(
     return take_rows(nodes_df, lookup_node_rows(nid, arr, xp), engine)
 
 
+def _frame_engine(df: DataFrameT) -> Optional["Engine"]:
+    """The engine whose frame type ``df`` is, or None for anything the indexes do not cover."""
+    from graphistry.Engine import Engine, is_polars_df
+    mod = str(type(df).__module__)
+    if is_polars_df(df):
+        return Engine.POLARS
+    if 'cudf' in mod:
+        return Engine.CUDF
+    if mod.startswith('pandas'):
+        return Engine.PANDAS
+    return None
+
+
+def _resident_node_id_index(
+    g: Plottable, nodes_df: DataFrameT, node: str,
+) -> Optional[Tuple["NodeIdIndex", ArrayNamespace, "Engine"]]:
+    """(node_id_index, xp, engine) when a valid resident node-id index covers this exact
+    node frame, else None (no adjacency index required: a node-only lookup needs none)."""
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index import get_index_policy, get_registry
+    from graphistry.compute.gfql.index.registry import NODE_ID, NodeIdIndex
+    from graphistry.compute.gfql.index.engine_arrays import array_namespace
+    if get_index_policy(g) == "off":
+        return None
+    registry = get_registry(g)
+    if registry.is_empty():
+        return None
+    engine = _frame_engine(nodes_df)
+    if engine is None:
+        return None
+    engines = [engine, Engine.POLARS_GPU] if engine == Engine.POLARS else [engine]
+    for eng_try in engines:
+        nid = registry.get_valid(NODE_ID, nodes_df, (node,), eng_try)
+        if isinstance(nid, NodeIdIndex):
+            xp, _ = array_namespace(engine)
+            return nid, xp, engine
+    return None
+
+
+def _seed_rows_via_prop_index_frame(
+    g: Plottable, nodes_df: DataFrameT, n0f: Dict[str, object], engine: "Engine",
+) -> Optional[DataFrameT]:
+    """Candidate seed rows through a resident node PROPERTY index covering one of the
+    scalar predicates, else None (the caller re-applies the whole filter either way)."""
+    from graphistry.compute.gfql.index import get_index_policy, get_registry
+    from graphistry.compute.gfql.index.bindings import (
+        _seed_rows_via_property_index as _prop_rows,
+    )
+    from graphistry.compute.gfql.index.engine_arrays import array_namespace, take_rows
+    policy = get_index_policy(g)
+    if policy == "off":
+        return None
+    registry = get_registry(g)
+    if registry.is_empty() or not registry.node_prop_cols():
+        return None
+    xp, _ = array_namespace(engine)
+    rows = _prop_rows(registry, nodes_df, n0f, engine, xp, policy=policy)
+    if rows is None:
+        return None
+    return take_rows(nodes_df, rows, engine)
+
+
+SeedRowsHow = Literal["node_id_index", "property_index", "scan"]
+
+
+def _seed_node_rows(
+    g: Plottable, nodes_df: DataFrameT, n0f: Dict[str, object], node: str,
+    nid_ctx: Optional[Tuple["NodeIdIndex", ArrayNamespace, "Engine"]],
+    filter_dict: Optional[Dict[str, object]] = None,
+) -> Tuple[DataFrameT, SeedRowsHow]:
+    """Rows matching the scalar seed filter: node-id index when the predicate is on the
+    binding column, else a resident property index, else a scan. The canonical filter
+    (``filter_dict`` as written, or the resolved scalars) is re-applied to the candidates,
+    so every branch keeps the full path's typed-error and comparison semantics."""
+    from graphistry.compute.gfql.index.bindings import _filter_frame
+    engine = _frame_engine(nodes_df)
+    if engine is None:
+        raise TypeError(f"unsupported node frame type {type(nodes_df).__name__}")
+    seed: Optional[DataFrameT] = None
+    how: SeedRowsHow = "scan"
+    if nid_ctx is not None and node in n0f:
+        nid, xp, idx_engine = nid_ctx
+        seed = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
+        if seed is not None:
+            how = "node_id_index"
+    if seed is None:
+        seed = _seed_rows_via_prop_index_frame(g, nodes_df, n0f, engine)
+        if seed is not None:
+            how = "property_index"
+    if seed is None:
+        seed = nodes_df
+    return _filter_frame(seed, filter_dict if filter_dict is not None else n0f, engine), how
+
+
 def _index_edge_rows(
     adj: "AdjacencyIndex", ids: Union["SeriesT", Sequence[Any]],
     xp: ArrayNamespace, engine: "Engine", edges_df: DataFrameT,
@@ -200,6 +288,29 @@ def _index_edge_rows(
         return None
     rows, _ = lookup_edge_rows(adj, arr, xp)
     return take_rows(edges_df, rows, engine)
+
+
+def _indexed_kernel_admits(
+    seed_nodes: DataFrameT, gathered_edges: Optional[DataFrameT], n0f: Dict[str, object],
+    node: str, how: SeedRowsHow, ctx: Tuple["NodeIdIndex", "AdjacencyIndex", ArrayNamespace, "Engine"],
+    n_nodes: int, n_edges: int,
+) -> bool:
+    """Whether the indexed connected-bindings kernel would have served this seeded 1-hop:
+    its seed admission (binding-column integer seed, property-index hit, or a scan on a
+    graph with fewer nodes than edges) and its frontier and gather cost gates."""
+    from numbers import Integral
+    from graphistry.compute.gfql.index.cost import cost_gate_frac
+    _, adj, _, engine = ctx
+    seed_val = n0f.get(node)
+    seeded_on_binding = isinstance(seed_val, Integral) and not isinstance(seed_val, bool)
+    if not (seeded_on_binding or how == "property_index" or n_nodes < n_edges):
+        return False
+    frac = cost_gate_frac(engine)
+    n_frontier = int(seed_nodes[node].nunique()) if not hasattr(seed_nodes, "get_column") \
+        else int(seed_nodes.get_column(node).n_unique())
+    if n_frontier >= frac * adj.n_keys:
+        return False
+    return gathered_edges is not None and len(gathered_edges) < frac * n_edges
 
 
 def _seeded_typed_hop_pandas_cudf(
@@ -306,10 +417,13 @@ def _seeded_typed_hop_pandas_cudf(
     return g.nodes(cand).edges(edges)
 
 
+SeededReturn = Tuple[DataFrameT, DataFrameT, DataFrameT, bool]
+
+
 def _seeded_typed_return_dst_pandas_cudf(
     g: Plottable, n0: ASTNode, n2: ASTNode, e1: ASTEdge,
     src: str, dst: str, node: str, direction: Direction,
-) -> Optional[Tuple[DataFrameT, DataFrameT]]:
+) -> Optional[SeededReturn]:
     """#1755 cypher RETURN-alias fast path: like _seeded_typed_hop_pandas_cudf but
     returns ONLY the destination (RETURN-alias) node rows + surviving edges — no
     seed-node gather, no Plottable round-trip — so the seeded cypher projection
@@ -332,32 +446,21 @@ def _seeded_typed_return_dst_pandas_cudf(
     # Membership sets are dropna()'d: pandas .isin matches NaN<->NaN, but the full
     # pipeline's joins never join on null keys, so a null id/endpoint must not link.
     ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction)
-    seed_nodes = edges = dstn = None
+    nid_ctx = (ctx[0], ctx[2], ctx[3]) if ctx is not None else _resident_node_id_index(g, nodes_df, node)
+    seed_nodes, how = _seed_node_rows(g, nodes_df, n0f, node, nid_ctx, n0.filter_dict)
+    edges = dstn = None
+    kernel_admits = False
     if ctx is not None:
         nid, adj, xp, idx_engine = ctx
-        if node in n0f:
-            seed_nodes = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
-        if seed_nodes is not None:
-            for k, v in n0f.items():
-                if k != node:
-                    seed_nodes = seed_nodes[seed_nodes[k] == v]
-        else:
-            # property-seeded (binding col not in the filter): scan the seed row,
-            # then the CSR/node-index gathers below still engage — binding-column
-            # values are the index key domain no matter how the seed was found.
-            seed_nodes = nodes_df
-            for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
-                seed_nodes = seed_nodes[seed_nodes[k] == v]
         edges = _index_edge_rows(adj, seed_nodes[node], xp, idx_engine, edges_df)
+        kernel_admits = _indexed_kernel_admits(
+            seed_nodes, edges, n0f, node, how, ctx, len(nodes_df), len(edges_df))
         if edges is not None:
             if ef:
                 for k, v in ef.items():
                     edges = edges[edges[k] == v]
             dstn = _index_node_rows(nid, edges[to_col], xp, idx_engine, nodes_df)
     if dstn is None:
-        seed_nodes = nodes_df
-        for k, v in sorted(n0f.items(), key=lambda kv: 0 if kv[0] == node else 1):
-            seed_nodes = seed_nodes[seed_nodes[k] == v]
         edges = edges_df[edges_df[from_col].isin(seed_nodes[node].dropna())]
         if ef:
             for k, v in ef.items():
@@ -371,13 +474,13 @@ def _seeded_typed_return_dst_pandas_cudf(
             dstn = dstn[dstn[k] == v]
     edges = edges[edges[to_col].isin(dstn[node].dropna())]
     dstn = dstn[dstn[node].isin(edges[to_col].dropna())].drop_duplicates(subset=[node])
-    return dstn, edges
+    return dstn, edges, seed_nodes, kernel_admits
 
 
 def _seeded_typed_return_dst_polars(
     g: Plottable, n0: ASTNode, n2: ASTNode, e1: ASTEdge,
     src: str, dst: str, node: str, direction: Direction,
-) -> Optional[Tuple[DataFrameT, DataFrameT]]:
+) -> Optional[SeededReturn]:
     """#1755 polars analog of _seeded_typed_return_dst_pandas_cudf: same seed-first
     reduction (seed out-edges -> typed-edge filter -> destination nodes) expressed
     with polars filters, so a seeded cypher RETURN on polars/polars-gpu also lands
@@ -405,33 +508,23 @@ def _seeded_typed_return_dst_polars(
     # the full pipeline's joins) and passed via .implode() (Series-arg is_in is
     # deprecated in polars 1.42, see polars#22149).
     ctx = _resident_seed_indexes(g, nodes_df, edges_df, node, src, dst, direction)
-    seed_nodes = edges = dstn = None
+    nid_ctx = (ctx[0], ctx[2], ctx[3]) if ctx is not None else _resident_node_id_index(g, nodes_df, node)
+    seed_nodes, how = _seed_node_rows(g, nodes_df, n0f, node, nid_ctx, n0.filter_dict)
+    edges = dstn = None
+    kernel_admits = False
     if ctx is not None:
         nid, adj, xp, idx_engine = ctx
-        if node in n0f:
-            seed_nodes = _index_node_rows(nid, [n0f[node]], xp, idx_engine, nodes_df)
-        if seed_nodes is not None:
-            for k, v in n0f.items():
-                if k != node:
-                    seed_nodes = seed_nodes.filter(pl.col(k) == v)
-        else:
-            # property-seeded: scan the seed row; CSR/node-index gathers below
-            # still engage (binding-column values = index key domain).
-            seed_nodes = nodes_df
-            for k, v in n0f.items():
-                seed_nodes = seed_nodes.filter(pl.col(k) == v)
         edges = _index_edge_rows(adj, seed_nodes.get_column(node), xp, idx_engine, edges_df)
+        kernel_admits = _indexed_kernel_admits(
+            seed_nodes, edges, n0f, node, how, ctx, len(nodes_df), len(edges_df))
         if edges is not None:
             for k, v in ef.items():
                 edges = edges.filter(pl.col(k) == v)
             dstn = _index_node_rows(nid, edges.get_column(to_col), xp, idx_engine, nodes_df)
     if dstn is None:
-        seed_nodes = nodes_df
-        for k, v in n0f.items():
-            seed_nodes = seed_nodes.filter(pl.col(k) == v)
         from_ids = seed_nodes.get_column(node).drop_nulls()
         if from_ids.len() == 0:
-            return nodes_df.clear(), edges_df.clear()
+            return nodes_df.clear(), edges_df.clear(), seed_nodes, kernel_admits
         edges = edges_df.filter(pl.col(from_col).is_in(from_ids.implode()))
         for k, v in ef.items():  # typed edge on the reduced frontier
             edges = edges.filter(pl.col(k) == v)
@@ -444,4 +537,4 @@ def _seeded_typed_return_dst_polars(
     keep_ids = dstn.get_column(node).drop_nulls()
     edges = edges.filter(pl.col(to_col).is_in(keep_ids.implode()))
     dstn = dstn.filter(pl.col(node).is_in(edges.get_column(to_col).implode())).unique(subset=[node], maintain_order=True)
-    return dstn, edges
+    return dstn, edges, seed_nodes, kernel_admits

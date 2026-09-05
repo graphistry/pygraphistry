@@ -410,6 +410,12 @@ def test_standard_derived_connected_parity(
     query: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The connected-bindings kernel is the route under test: the seeded fast paths, which
+    would serve the one-hop shapes first, are disabled for both runs (their own parity on
+    these shapes is pinned in test_seeded_node_lookup_fastpath.py)."""
+    import graphistry.compute.gfql_unified as gfql_unified
+    monkeypatch.setattr(gfql_unified, "_execute_seeded_typed_hop_fast_path", lambda *a, **k: None)
+    monkeypatch.setattr(gfql_unified, "_execute_seeded_node_lookup_fast_path", lambda *a, **k: None)
     _assert_parity(
         _graph(engine),
         query,
@@ -1116,9 +1122,11 @@ def test_use_policy_sparse_serves_dense_declines(
             "type": ["X"] * len(src),
         }
     )
+    # two hops: the seeded typed-hop fast path serves a one-hop two-alias RETURN first
+    # (no cardinality gate of its own), so the connected-bindings gate needs a longer path
     query = (
-        "MATCH (a {kind:'seed'})-[:X]->(b) "
-        "RETURN a.id AS a, b.id AS b ORDER BY a, b"
+        "MATCH (a {kind:'seed'})-[:X]->(b)-[:X]->(c) "
+        "RETURN a.id AS a, c.id AS c ORDER BY a, c"
     )
     for dense, expected_reason in [(False, "served"), (True, "cost_frontier")]:
         kinds = ["seed"] * n_nodes if dense else ["seed"] + ["noise"] * (n_nodes - 1)

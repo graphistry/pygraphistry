@@ -32,12 +32,13 @@ CYPHER: Dict[str, str] = {
     "node_only_props": (
         f"MATCH (p:Person {{id: {PERSON}}}) RETURN p.firstName AS firstName, p.lastName AS lastName"
     ),
+    "seeded_hop_all_aliases": (
+        f"MATCH (m:Message {{id: {MESSAGE}}})-[r:HAS_CREATOR]->(p:Person) "
+        "RETURN m.lastName AS mln, r.type AS rt, p.firstName AS firstName"
+    ),
 }
 # Shapes no fast path serves yet; strict so the fix that closes one flips the pin.
-SERVED_GAPS: Dict[Tuple[str, str], str] = {
-    (engine, "node_only_props"): "no fast path serves a node-only seeded lookup with projections"
-    for engine in ENGINES
-}
+SERVED_GAPS: Dict[Tuple[str, str], str] = {}
 
 
 def _wide_object_column_graph() -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -85,20 +86,35 @@ def _floor_ops(engine: str, nodes: Any, edges: Any) -> Dict[str, Callable[[], An
             e = edges.filter(pl.col("src") == MESSAGE)
             return nodes.join(e.select("dst"), left_on="id", right_on="dst")
 
+        def hop_all() -> Any:  # properties of both endpoints and the edge: two lookups + the edge columns
+            e = edges.filter(pl.col("src") == MESSAGE)
+            seed = nodes.filter(pl.col("id") == MESSAGE).select(pl.col("id").alias("sid"), "lastName")
+            return (e.join(seed, left_on="src", right_on="sid")
+                    .join(nodes.select("id", "firstName"), left_on="dst", right_on="id")
+                    .select("lastName", "type", "firstName"))
+
         return {
             "seeded_hop_props": lambda: hop().select("id", "firstName"),
             "seeded_hop_entity": hop,
             "node_only_props": lambda: nodes.filter(pl.col("id") == PERSON).select("firstName", "lastName"),
+            "seeded_hop_all_aliases": hop_all,
         }
 
     def hop_df() -> Any:
         e = edges[edges["src"] == MESSAGE]
         return nodes.merge(e[["dst"]], left_on="id", right_on="dst")
 
+    def hop_all_df() -> Any:  # properties of both endpoints and the edge: two lookups + the edge columns
+        e = edges[edges["src"] == MESSAGE]
+        seed = nodes[nodes["id"] == MESSAGE][["id", "lastName"]]
+        both = e.merge(seed, left_on="src", right_on="id").merge(nodes[["id", "firstName"]], left_on="dst", right_on="id")
+        return both[["lastName", "type", "firstName"]]
+
     return {
         "seeded_hop_props": lambda: hop_df()[["id", "firstName"]],
         "seeded_hop_entity": hop_df,
         "node_only_props": lambda: nodes[nodes["id"] == PERSON][["firstName", "lastName"]],
+        "seeded_hop_all_aliases": hop_all_df,
     }
 
 

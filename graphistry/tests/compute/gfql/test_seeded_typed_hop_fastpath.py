@@ -305,9 +305,33 @@ class TestCypherSeededTypedHop:
         got = _canon_nodes(g.gfql(q, engine=engine))
         assert got["pid"].tolist() == [1, 1]
 
+    def test_cross_alias_field_projection_engages_with_parity(self):
+        """RETURN m.id, p.age projects from BOTH aliases: one row per matched edge, the
+        seed side looked up from the seed rows the reduction already holds."""
+        g, P = _graph()
+        seed = P + 42
+        cy = f"MATCH (m:Message {{id: {seed}}})-[:HAS_CREATOR]->(p:Person) RETURN m.id AS mid, p.age AS age"
+        real = gfql_unified._execute_seeded_typed_hop_fast_path
+        hits = {"n": 0}
+
+        def spy(*a, **k):
+            r = real(*a, **k)
+            if r is not None:
+                hits["n"] += 1
+            return r
+
+        gfql_unified._execute_seeded_typed_hop_fast_path = spy
+        try:
+            fast = g.gfql(cy, engine="pandas")
+        finally:
+            gfql_unified._execute_seeded_typed_hop_fast_path = real
+        full = self._run(g, cy, force_full=True)
+        assert hits["n"] == 1, "fast path must engage for a two-alias property projection"
+        pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
+        assert _canon_nodes(fast)["mid"].tolist() == [seed] * len(_oracle_creators(g, seed))
+
     @pytest.mark.parametrize("cy_tmpl,reason", [
         ("MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR]->(p:Person) RETURN m, p", "multi-alias"),
-        ("MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR]->(p:Person) RETURN m.id, p.age", "cross-alias field projection"),
         ("MATCH (m:Message {{id: {s}}})-[:HAS_CREATOR]->(p:Person) RETURN m", "return source"),
         ("MATCH (p:Person)<-[:HAS_CREATOR]-(m:Message {{id: {s}}}) RETURN p", "reverse (seed on return node)"),
         # variable-length edges are one ASTEdge but multiple hops — must decline or
@@ -711,7 +735,6 @@ class TestSeededPropertyProjection:
         assert sorted(out["personId"].tolist()) == [0, 1]
 
     @pytest.mark.parametrize("q,label", [
-        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN m.id AS mid, p.id AS pid", "cross-alias"),
         ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p, p.age", "mixed whole+prop"),
         ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p.nosuch", "absent property"),
     ])
@@ -733,6 +756,10 @@ class TestSeededPropertyProjection:
     @pytest.mark.parametrize("q,label", [
         ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN DISTINCT p.age", "distinct"),
         ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p.age ORDER BY p.age LIMIT 1", "order/limit"),
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN m.id AS mid, p.id AS pid", "cross-alias ids"),
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN m.type AS mt, p.firstName AS f, p.age AS age", "cross-alias mixed dtypes"),
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p.age AS age, m.id AS mid ORDER BY age LIMIT 1", "cross-alias order/limit"),
+        ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p.id AS a, p.id AS b", "same column twice"),
     ])
     def test_canonical_projection_suffix_engages_with_parity(self, q, label):
         """DISTINCT / ORDER BY / SKIP / LIMIT after the lean projection are plain
