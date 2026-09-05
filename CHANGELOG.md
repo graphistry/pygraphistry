@@ -37,6 +37,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+* GFQL: the chain hot paths expose their input-shape admission predicates as functions the dispatchers call — `native_fast_path_admits` (pandas/cuDF single-node and plain single-hop lanes) and `polars_plain_single_hop_admits` (polars seeded-index and skip-combine branches) — so tests filter one shared shape corpus per route with the route's own gate instead of re-deriving it. No route admits or declines anything it did not before; the corpus pins each predicate's decision table and served-by parity.
 * GFQL: the wavefront seed-rediscovery rule moved out of `hop.py` into `graphistry/compute/gfql/seed_rediscovery.py` (pandas/cuDF) and `graphistry/compute/gfql/lazy/engine/polars/seed_rediscovery.py` (polars); `undirected_rediscovered_seed_ids` (an internal helper) is gone.
 
 ## [0.59.0 - 2026-08-31]
