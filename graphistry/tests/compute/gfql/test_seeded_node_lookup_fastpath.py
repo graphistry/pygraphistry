@@ -211,6 +211,8 @@ TWO_ALIAS_SHAPES = [
     ("MATCH (m:Message {id: 305})-[r:HAS_CREATOR]->(p:Person) RETURN m.id, m.score, m.flag, m.firstName, r.w, r.eflag, r.type, p.id, p.firstName, p.age, p.score, p.flag", "twelve properties across three aliases"),
     ("MATCH (m:Message {id: 301})-[r:HAS_CREATOR]->(p:Person) RETURN m.id AS mid, r.w AS w, p.id AS pid", "parallel edges, edge prop distinguishes rows"),
     ("MATCH (m:Message {id: 999999})-[r:HAS_CREATOR]->(p:Person) RETURN r.w AS w, p.age AS age", "no match with an edge prop"),
+    ("MATCH (m:Message {id: 999999})-[:HAS_CREATOR]->(p:Person) RETURN p.id AS x", "no match, id column only"),
+    ("MATCH (m:Message {id: 305})-[:HAS_CREATOR]->(p:Message) RETURN p.id AS x, p.score AS s", "destination label mismatch, id + int"),
     ("MATCH (m:Message {id: 999999})-[:HAS_CREATOR]->(p:Person) RETURN m.id AS mid, p.age AS age", "no match"),
     ("MATCH (p:Person)<-[:HAS_CREATOR]-(m:Message {id: 305}) RETURN m.id AS mid, p.age AS age", "reverse pattern, seed on return side"),
 ]
@@ -463,3 +465,34 @@ def test_random_projection_shapes_match_the_full_path(engine, seed):
         assert engine == "polars", q
         full = _run(_graph("pandas", indexed=bool(seed % 2)), "pandas", q, False)  # cross-engine oracle
     pd.testing.assert_frame_equal(_canon(fast), _canon(full), check_dtype=engine != "polars"), q
+
+
+def _categorical_graph(engine, indexed=False):
+    g = _graph(engine, indexed)
+    nodes = g._nodes
+    if engine == "pandas":
+        nodes = nodes.assign(firstName=nodes["firstName"].astype("category"), type=nodes["type"].astype("category"))
+    elif engine == "cudf":
+        nodes = nodes.copy()
+        nodes["firstName"] = nodes["firstName"].astype("category")
+        nodes["type"] = nodes["type"].astype("category")
+    else:
+        import polars as pl
+        nodes = nodes.with_columns(pl.col("firstName").cast(pl.Categorical), pl.col("type").cast(pl.Categorical))
+    return g.nodes(nodes)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("indexed", [False, True], ids=["scan", "indexed"])
+@pytest.mark.parametrize("q,label", [
+    ("MATCH (m:Message {id: 305})-[:HAS_CREATOR]->(p:Person) RETURN p", "whole row"),
+    ("MATCH (m:Message {id: 305})-[r:HAS_CREATOR]->(p:Person) RETURN m.type AS mt, p.firstName AS f, r.w AS w", "props from three aliases"),
+    ("MATCH (p:Person {id: 7}) RETURN p.firstName AS f, p.type AS t", "node lookup props"),
+    ("MATCH (p:Person {id: 7}) RETURN p", "node lookup whole row"),
+])
+def test_categorical_node_columns_keep_parity_on_every_engine(engine, indexed, q, label):
+    g = _categorical_graph(engine, indexed)
+    fast, full = _run(g, engine, q, True), _run(g, engine, q, False)
+    pd.testing.assert_frame_equal(_canon(fast), _canon(full))
+    if engine == "pandas" and label in ("whole row", "props from three aliases"):
+        assert fast_path_decisions(g, q, engine=engine).get("seeded_typed_hop") is not True, label

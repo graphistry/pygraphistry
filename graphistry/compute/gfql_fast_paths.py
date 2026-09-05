@@ -3324,6 +3324,15 @@ def _seeded_typed_hop_bag_rows(
     return joined.drop(columns=[_SEEDED_BAG_KEY]).reset_index(drop=True)  # type: ignore[no-any-return]
 
 
+def _pandas_frame_has_extension_dtype(frame: DataFrameT) -> bool:
+    """A pandas frame carrying a non-numpy dtype other than the string dtype (categorical,
+    nullable): the full path's frame ops widen its neighbours, which the lean paths do not."""
+    import numpy as np
+    if not isinstance(frame, pd.DataFrame):
+        return False
+    return any(not isinstance(d, np.dtype) and not isinstance(d, pd.StringDtype) for d in frame.dtypes)
+
+
 def _pivot_parity_casts(
     rows: DataFrameT, items: Sequence[Tuple[str, str]], node: str, *, keep_source_dtypes: bool,
 ) -> Optional[Dict[str, str]]:
@@ -3333,8 +3342,8 @@ def _pivot_parity_casts(
     import numpy as np
     casts: Dict[str, str] = {}
     for out_name, prop in items:
-        if prop == node:
-            continue
+        if prop == node and len(rows) > 0:
+            continue  # the pivot keeps the id column's dtype except on an empty frame
         d = rows[prop].dtype
         if isinstance(d, pd.StringDtype):
             continue
@@ -3854,6 +3863,8 @@ def _execute_seeded_typed_hop_fast_path(
             )
         return out
     assert projection is not None  # narrowed by the gate above
+    if _pandas_frame_has_extension_dtype(p_rows):
+        return None  # the pandas whole-row path widens the other columns next to an extension dtype
     # Lean projection: p_rows already IS the RETURN-alias (destination) node set.
     # Tag with the alias and reuse apply_result_projection for the exact
     # column-order/flatten semantics.
