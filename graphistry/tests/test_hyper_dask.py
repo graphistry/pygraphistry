@@ -212,7 +212,7 @@ def hyper_gdf():
         import cudf
 
         hyper2_df = hyper_df.assign(cc=hyper_df["cc"].astype(str))
-        hyper2_gdf = cudf.DataFrame.from_pandas(hyper2_df)
+        hyper2_gdf = cudf.from_pandas(hyper2_df)
         logger.debug("hyper2_gdf :: %s", hyper2_gdf.dtypes)
         return hyper2_gdf
     except Exception as e:
@@ -600,7 +600,7 @@ class TestHypergraphCudf(NoAuthTestCase):
 
         h = hypergraph(
             PyGraphistry.bind(),
-            cudf.DataFrame.from_pandas(triangleNodes),
+            cudf.from_pandas(triangleNodes),
             verbose=False,
             engine=Engine.CUDF,
         )
@@ -758,7 +758,7 @@ class TestHypergraphCudf(NoAuthTestCase):
 
         h = hypergraph(
             PyGraphistry.bind(),
-            cudf.DataFrame.from_pandas(triangleNodes),
+            cudf.from_pandas(triangleNodes),
             entity_types=["id", "a1", "🙈"],
             verbose=False,
             drop_edge_attrs=True,
@@ -803,7 +803,7 @@ class TestHypergraphCudf(NoAuthTestCase):
 
         h = hypergraph(
             PyGraphistry.bind(),
-            cudf.DataFrame.from_pandas(triangleNodes),
+            cudf.from_pandas(triangleNodes),
             entity_types=["id", "a1", "🙈"],
             verbose=False,
             direct=True,
@@ -892,7 +892,7 @@ class TestHypergraphCudf(NoAuthTestCase):
 
         hypergraph(
             PyGraphistry.bind(),
-            cudf.DataFrame.from_pandas(squareEvil_gdf_friendly),
+            cudf.from_pandas(squareEvil_gdf_friendly),
             engine=Engine.CUDF,
         )
 
@@ -971,7 +971,7 @@ class TestHypergraphCudf(NoAuthTestCase):
 
         hg = hypergraph(
             PyGraphistry.bind(),
-            cudf.DataFrame.from_pandas(triangleNodes),
+            cudf.from_pandas(triangleNodes),
             entity_types=["id", "a1", "🙈"],
             engine=Engine.CUDF,
         )
@@ -987,7 +987,7 @@ class TestHypergraphCudf(NoAuthTestCase):
 
         hg = hypergraph(
             PyGraphistry.bind(),
-            cudf.DataFrame.from_pandas(triangleNodes),
+            cudf.from_pandas(triangleNodes),
             entity_types=["id", "a1", "🙈"],
             direct=True,
             engine=Engine.CUDF,
@@ -2288,7 +2288,7 @@ class TestHypergraphAPICompatibilityCudf(NoAuthTestCase):
 
         h = hypergraph(
             PyGraphistry.bind(),
-            cudf.DataFrame.from_pandas(triangleNodes),
+            cudf.from_pandas(triangleNodes),
             ["id", "a1", "🙈"],
             verbose=False,
             drop_edge_attrs=True,
@@ -2305,7 +2305,7 @@ class TestHypergraphAPICompatibilityCudf(NoAuthTestCase):
         """Test new convenience API with cuDF: hypergraph(g, ['cols'])"""
         import cudf
 
-        g = PyGraphistry.bind().nodes(cudf.DataFrame.from_pandas(triangleNodes))
+        g = PyGraphistry.bind().nodes(cudf.from_pandas(triangleNodes))
 
         h = hypergraph(
             g,
@@ -2327,7 +2327,7 @@ class TestHypergraphAPICompatibilityCudf(NoAuthTestCase):
 
         h = hypergraph(
             PyGraphistry.bind(),
-            cudf.DataFrame.from_pandas(triangleNodes),
+            cudf.from_pandas(triangleNodes),
             entity_types=["id", "a1", "🙈"],
             verbose=False,
             drop_edge_attrs=True,
@@ -2344,7 +2344,7 @@ class TestHypergraphAPICompatibilityCudf(NoAuthTestCase):
         """Verify all three API forms produce identical results with cuDF"""
         import cudf
 
-        gdf = cudf.DataFrame.from_pandas(triangleNodes)
+        gdf = cudf.from_pandas(triangleNodes)
 
         # Old positional API
         h1 = hypergraph(
