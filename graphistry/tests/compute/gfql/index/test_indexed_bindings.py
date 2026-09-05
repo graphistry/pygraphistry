@@ -410,6 +410,12 @@ def test_standard_derived_connected_parity(
     query: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The connected-bindings kernel is the route under test: the seeded fast paths, which
+    would serve the one-hop shapes first, are disabled for both runs (their own parity on
+    these shapes is pinned in test_seeded_node_lookup_fastpath.py)."""
+    import graphistry.compute.gfql_unified as gfql_unified
+    monkeypatch.setattr(gfql_unified, "_execute_seeded_typed_hop_fast_path", lambda *a, **k: None)
+    monkeypatch.setattr(gfql_unified, "_execute_seeded_node_lookup_fast_path", lambda *a, **k: None)
     _assert_parity(
         _graph(engine),
         query,

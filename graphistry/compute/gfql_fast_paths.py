@@ -3351,6 +3351,21 @@ def _pivot_parity_casts(
     return casts
 
 
+def _empty_edges_with_alias_marker(edges: DataFrameT, edge_alias: Optional[str], is_polars: bool) -> DataFrameT:
+    """The projection result's edge frame: no rows, the edge columns, and the named edge
+    alias' boolean marker first, as the full path's chain output carries it."""
+    if is_polars:
+        import polars as pl
+        empty = edges.head(0)
+        if edge_alias is None:
+            return empty
+        return empty.select([pl.lit(True).cast(pl.Boolean).alias(edge_alias)] + [pl.col(c) for c in empty.columns])
+    empty = edges.head(0).reset_index(drop=True)
+    if edge_alias is not None:
+        empty.insert(0, edge_alias, empty[edges.columns[0]].astype(bool))
+    return empty
+
+
 def _seeded_typed_hop_two_alias_frame(
     seed_rows: DataFrameT, dst_rows: DataFrameT, edges: DataFrameT,
     select_items: Sequence[Tuple[str, str, str]], *, from_col: str, to_col: str, node: str,
@@ -3784,7 +3799,7 @@ def _execute_seeded_typed_hop_fast_path(
             return None
         out = base_graph.bind()
         out._nodes = out_frame
-        out._edges = _edges.head(0) if is_polars else _edges.head(0).reset_index(drop=True)
+        out._edges = _empty_edges_with_alias_marker(_edges, e1._name, is_polars)
         if suffix_ops:
             return chain_impl(out, suffix_ops, engine=engine, policy=policy, context=context)
         return out
@@ -3819,7 +3834,7 @@ def _execute_seeded_typed_hop_fast_path(
         # full-path parity: a property RETURN yields an EMPTY edges frame with the
         # edge schema (never None — res._edges must stay usable). The helper's
         # edges are the matched hop edges, so take their zero-row head.
-        out._edges = _edges.head(0) if is_polars else _edges.head(0).reset_index(drop=True)
+        out._edges = _empty_edges_with_alias_marker(_edges, e1._name, is_polars)
         if suffix_ops:
             return chain_impl(
                 out,
