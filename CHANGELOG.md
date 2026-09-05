@@ -15,6 +15,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 * GFQL: every Cypher string query re-read the node table's dtypes to build its compile-cache key, and that read scans the values of every `object` column (the string-content gate for predicate pushdown). On a wide pandas node table this cost more than the query it keyed: an SNB SF0.1 seeded lookup on 327k nodes × 27 object columns spent 105 ms of 106 ms there. The read is now memoized per node frame (identity plus a length/columns fingerprint, the resident indexes' contract) and cleared by `gfql_clear_caches()`; the same lookup now takes 2 ms (#2029).
+### Fixed
+
+* GFQL: undirected multi-hop traversals with a seeded wavefront were ~30x slower than before 0.58 because the wavefront seed-rediscovery rule (a seed is returned only when an edge-disjoint walk re-encounters it) ran as a per-edge Python loop on every undirected hop step. The rule now runs as joins and group-bys inside the caller's own frame engine (pandas, cuDF, polars), with the same results (#2023).
+
+### Changed
+
+* GFQL: the wavefront seed-rediscovery rule moved out of `hop.py` into `graphistry/compute/gfql/seed_rediscovery.py` (pandas/cuDF) and `graphistry/compute/gfql/lazy/engine/polars/seed_rediscovery.py` (polars); `undirected_rediscovered_seed_ids` (an internal helper) is gone.
 
 ## [0.59.0 - 2026-08-31]
 

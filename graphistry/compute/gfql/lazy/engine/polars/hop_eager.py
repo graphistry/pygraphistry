@@ -540,21 +540,15 @@ def hop_polars(
     if synth_eid:
         out_edges = out_edges.drop(EID)
 
-    # Same rule as pandas' undirected_rediscovered_seed_ids: keep a seed only on edge-disjoint reach.
+    # Same rule as the pandas/cuDF hop (seed_rediscovery): keep a seed only on edge-disjoint reach.
     if (direction == "undirected" and return_as_wave_front and nodes is not None
             and not (not to_fixed_point and resolved_max_hops is not None
                      and resolved_max_hops <= 1)):
-        from graphistry.compute.hop import undirected_rediscovered_seed_ids
-        seed_id_list = seed.get_column(NID).to_list()
-        keep_seed_ids = undirected_rediscovered_seed_ids(
-            out_edges.get_column(src).to_list(), out_edges.get_column(dst).to_list(),
-            seed_id_list,
-        )
-        drop_seed_ids = [s for s in set(seed_id_list) if s not in keep_seed_ids]
-        if drop_seed_ids:
-            # dtype pinned: polars will not coerce is_in operands, so inference matches nothing.
-            visited_nodes = visited_nodes.filter(
-                ~pl.col(NID).is_in(pl.Series(drop_seed_ids, dtype=node_dtype)))
+        from .seed_rediscovery import rediscovered_seed_ids
+        kept_seeds = rediscovered_seed_ids(out_edges, src, dst, seed.select(NID), NID)
+        dropped_seeds = seed.select(NID).join(kept_seeds, on=NID, how="anti")
+        if dropped_seeds.height > 0:
+            visited_nodes = visited_nodes.join(dropped_seeds, on=NID, how="anti")
 
     # Final node set: reached ∪ (edge endpoints, unless wavefront-with-seeds).
     needed = visited_nodes

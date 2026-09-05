@@ -17,6 +17,7 @@
     "graphistry/compute/gfql/lazy/engine/polars/reserved_columns.py": 90.0,
     "graphistry/compute/gfql/lazy/engine/polars/row_pipeline.py": 79.0,
     "graphistry/compute/gfql/lazy/engine/polars/search.py": 79.0,
+    "graphistry/compute/gfql/lazy/engine/polars/seed_rediscovery.py": 95.0,
     "graphistry/compute/gfql/lazy/engine/polars/varlen_rows.py": 90.0
   }
 }

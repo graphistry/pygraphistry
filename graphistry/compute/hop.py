@@ -17,6 +17,7 @@ from graphistry.Engine import safe_merge
 from .typing import DataFrameT, DomainT, SeriesT
 from .endpoint_utils import drop_null_endpoint_edges
 from .dataframe_utils import column_frame, column_values
+from .gfql.seed_rediscovery import rediscovered_seed_ids
 from .util import generate_safe_column_name
 
 
@@ -118,100 +119,6 @@ def _host_list(series: SeriesT) -> List[Hashable]:
     if hasattr(series, "tolist"):
         return cast(List[Hashable], series.tolist())
     return cast(List[Hashable], series.to_list())
-
-
-def undirected_rediscovered_seed_ids(
-    edge_sources: List[Hashable],
-    edge_destinations: List[Hashable],
-    seed_ids: List[Hashable],
-) -> Set[Hashable]:
-    """Seeds an undirected wavefront legitimately RE-ENCOUNTERS.
-
-    ``return_as_wave_front=True`` documents "exclude starting node(s) in return, returning
-    only encountered nodes". A seed counts as encountered only when a walk that never REUSES
-    AN EDGE arrives back at it -- coming back along the edge you left by is the trip home, not
-    a discovery. That is the contract pinned by ``tests/compute/test_hop.py``: on the acyclic
-    path ``a-b-c-d-e`` seeded at ``{a}`` the answer excludes ``a`` (returning needs edge ``ab``
-    twice), while seeded at ``{a, b}`` it INCLUDES ``a``, which seed ``b`` reaches over ``ab``
-    on a one-edge walk that reuses nothing. Same rule, two different answers.
-
-    A seed ``s`` is re-encountered by an edge-disjoint walk of SOME length iff either
-
-      (A) its component holds another seed ``s'`` -- the shortest ``s'``->``s`` path is simple,
-          hence reuses no edge; or
-      (B) ``s`` lies on a cycle -- go around it.
-
-    (A) is a component scan; (B) is the 2-core, peeling nodes of degree <= 1. Degree counts
-    EDGE ROWS, not distinct neighbours, so two PARALLEL edges between ``u`` and ``v`` correctly
-    leave both on a length-2 cycle; the set-based adjacency this replaces collapsed them and
-    dropped such seeds. Self-loops are length-1 cycles.
-
-    Takes plain id SEQUENCES, not a frame, so pandas/cuDF and polars can both call it without
-    a ``to_pandas()`` bridge (the polars test lane ships no pyarrow).
-
-    Verified equal to brute-force edge-disjoint-walk enumeration on 6000 random multigraphs
-    (see the hop-semantics pins). NOTE it is LENGTH-BLIND: it answers "some length", so a bounded hop
-    whose window is shorter than the cycle back to the seed still keeps that seed. Both arms
-    share that limit; narrowing it needs shortest-cycle-through-a-vertex.
-    """
-    seeds = set(seed_ids)
-    src, dst = edge_sources, edge_destinations
-    if not seeds or not src:
-        return set()
-
-    # (A) components holding more than one seed
-    adjacency: Dict[Hashable, Set[Hashable]] = {}
-    for u, v in zip(src, dst):
-        adjacency.setdefault(u, set()).add(v)
-        adjacency.setdefault(v, set()).add(u)
-    keep: Set[Hashable] = set()
-    seen: Set[Hashable] = set()
-    for seed in seeds:
-        if seed in seen:
-            continue
-        stack, component = [seed], set()  # type: List[Hashable], Set[Hashable]
-        while stack:
-            current = stack.pop()
-            if current in component:
-                continue
-            component.add(current)
-            seen.add(current)
-            for neighbor in adjacency.get(current, set()):
-                if neighbor not in component:
-                    stack.append(neighbor)
-        component_seeds = component & seeds
-        if len(component_seeds) > 1:
-            keep.update(component_seeds)
-
-    # (B) cycle nodes: self-loops, plus the multigraph 2-core
-    loop_nodes = {u for u, v in zip(src, dst) if u == v}
-    simple = [(u, v) for u, v in zip(src, dst) if u != v]
-    incident: Dict[Hashable, Set[int]] = {}
-    endpoints: Dict[int, Tuple[Hashable, Hashable]] = {}
-    for eid, (u, v) in enumerate(simple):
-        endpoints[eid] = (u, v)
-        incident.setdefault(u, set()).add(eid)
-        incident.setdefault(v, set()).add(eid)
-    removed: Set[Hashable] = set()
-    queue = [node for node, eids in incident.items() if len(eids) <= 1]
-    while queue:
-        current = queue.pop()
-        if current in removed or len(incident.get(current, set())) > 1:
-            continue
-        removed.add(current)
-        for eid in list(incident.get(current, set())):
-            u, v = endpoints[eid]
-            other = v if u == current else u
-            if other in removed:
-                continue
-            incident[other].discard(eid)
-            if len(incident[other]) <= 1:
-                queue.append(other)
-        incident[current] = set()
-    cycle_nodes = loop_nodes | {
-        node for node, eids in incident.items() if eids and node not in removed
-    }
-    return (keep | cycle_nodes) & seeds
 
 
 def _reached_node_ids(matches_nodes: Optional[DataFrameT], node_col: str) -> Set[Hashable]:
@@ -1283,22 +1190,15 @@ def hop(self: Plottable,
         )
         # A one-edge window is edge-disjoint by construction, so reached alone is already exact.
         if direction == 'undirected' and not single_edge_window:
-            keep_seed_ids = undirected_rediscovered_seed_ids(
-                _host_list(final_edges[source_col]),
-                _host_list(final_edges[destination_col]),
-                _host_list(column_values(wavefront_seed_ids_df, node_col)),
-            )
-            if keep_seed_ids:
-                if matches_nodes is None or len(matches_nodes) == 0:
-                    keep_seed_ids = set()
-                else:
-                    keep_seed_ids &= set(_host_list(column_values(matches_nodes, node_col)))
-            seed_mask = g_out._nodes[node_col].isin(column_values(wavefront_seed_ids_df, node_col))
-            if keep_seed_ids:
-                keep_mask = g_out._nodes[node_col].isin(list(keep_seed_ids))
-                filtered_nodes = g_out._nodes[~seed_mask | keep_mask]
+            keep_seeds = rediscovered_seed_ids(
+                final_edges, source_col, destination_col, wavefront_seed_ids_df, node_col)
+            if matches_nodes is None or len(matches_nodes) == 0:
+                keep_seeds = keep_seeds.iloc[:0]
             else:
-                filtered_nodes = g_out._nodes[~seed_mask]
+                keep_seeds = keep_seeds[keep_seeds[node_col].isin(column_values(matches_nodes, node_col))]
+            seed_mask = g_out._nodes[node_col].isin(column_values(wavefront_seed_ids_df, node_col))
+            keep_mask = g_out._nodes[node_col].isin(column_values(keep_seeds, node_col))
+            filtered_nodes = g_out._nodes[~seed_mask | keep_mask]
         else:
             seeds_not_reached_df = wavefront_seed_ids_df
             if matches_nodes is not None and node_col in matches_nodes.columns:
