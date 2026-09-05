@@ -12,6 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Infrastructure
 
 - **CI: `test-docs` runs on docs-only pull requests (#2018)**: the job needed `python-lint-types`, which a docs-only change skips, and GitHub skips a job whose prerequisite was skipped. The gate now accepts skipped prerequisites and refuses only failed or cancelled ones, so documentation changes are built and tested before merge.
+### Fixed
+
+- **GFQL polars: a native chain whose edge alias shares its name with the column that step filters on is served instead of raising `incompatible-column-type` (#2039)**: the backward pass and the pruned re-execution now run each step on the graph's original edge columns, so the stamped alias marker is never re-filtered as that column; pandas and polars return the same rows. The Cypher rows-route projection of such an alias on polars still declines with a typed error (pinned) and stays tracked.
 ### Tests
 
 * GFQL: `test_gfql_latency_contract.py` pins the low-latency contract for basic Cypher shapes on a wide 300k-node, 30-object-column table across pandas, polars and cuDF: a seeded typed hop with projections or a whole-entity return must be served by a fast path and cost at most 12x the plain frame ops for the same lookup (an id mask plus one join), measured interleaved; the node-only seeded lookup with projections is a recorded gap (strict xfail) so closing it flips the pin.

@@ -116,6 +116,8 @@ POLARS_TEST_FILES=(
     # module-level `importorskip("polars")` files that previously ran in no lane at all
     graphistry/tests/compute/gfql/test_engine_polars_narrow_combine.py
     graphistry/tests/compute/gfql/row/test_alias_prefilter_alignment_2020.py
+    graphistry/tests/compute/gfql/test_alias_prefilter_alignment_2020.py
+    graphistry/tests/compute/gfql/test_polars_alias_column_collision_2039.py
     graphistry/tests/compute/gfql/test_engine_polars_semi_key_dedup.py
     graphistry/tests/compute/gfql/test_engine_polars_call_modality.py
     graphistry/tests/compute/gfql/test_engine_polars_gpu.py

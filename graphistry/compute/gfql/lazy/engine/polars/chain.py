@@ -143,6 +143,15 @@ def _alias_hop_bounds(op: ASTEdge) -> Tuple[int, Optional[int]]:
     return min_hop, max_hop
 
 
+def _step_edges_with_source_columns(g: Plottable, g_step: Plottable, edge_id: str) -> "pl.DataFrame":
+    """The step's edge rows with the graph's ORIGINAL columns: an alias marker that shares a
+    name with a column the step filters on must not be re-filtered as that column."""
+    import polars as pl
+    edges = g._edges
+    assert edges is not None and g_step._edges is not None
+    return edges.join(g_step._edges.select(pl.col(edge_id)), on=edge_id, how="semi")
+
+
 def _exec(op: ASTObject, g: Plottable, prev_wf: Optional[Any], target_wf: Optional[Any],
           intermediate_universe: Optional[Any] = None,
           auto_hop_col: str = _AUTO_NODE_HOP) -> Plottable:
@@ -1103,7 +1112,8 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         # table). Single-hop reverse: None -> gate = all_nodes (vacuous), matching pandas
         # use_fast_backward (full g._nodes).
         _iu = g_step._nodes if (isinstance(op, ASTEdge) and not op.is_simple_single_hop()) else None
-        g_step_full = g_step.nodes(g._nodes, g._node)
+        g_step_full = g_step.nodes(g._nodes, g._node).edges(
+            _step_edges_with_source_columns(g, g_step, EID), src, dst, edge=EID)
         rev = _exec(op.reverse(), g_step_full, prev_wf, target_wf, intermediate_universe=_iu,
                     auto_hop_col=auto_hop_col)
         # Undirected single-hop backward threading: the generic hop returns a ONE-SIDED
@@ -1147,7 +1157,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                     _semi(g._nodes, prev_src, node_col, node_col)
                     if prev_src is not None else None
                 )
-                g_sub = g.edges(g_step._edges, src, dst, edge=g._edge)
+                g_sub = g.edges(_step_edges_with_source_columns(g, g_step, EID), src, dst, edge=g._edge)
                 edge_steps.append((op, _exec(op, g_sub, prev_wf, None, auto_hop_col=auto_hop_col)))
             else:
                 edge_steps.append((op, g_step))
