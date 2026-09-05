@@ -87,6 +87,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_seeded_node_lookup_fastpath.py
     graphistry/tests/compute/gfql/test_native_seed_resolution_2027.py
     graphistry/tests/compute/gfql/test_polars_native_seed_resolution.py
+    graphistry/tests/compute/gfql/test_native_seed_lane_explain.py
     # #1882/#1913-f4/#1879 crash-family pins: the polars params (filter helpers on polars
     # frames, polars prune_self_edges, nodes-only typed-decline advice) only run here
     graphistry/tests/compute/gfql/test_crash_family_1882_1879.py
