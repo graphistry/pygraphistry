@@ -227,3 +227,27 @@ def test_non_scalar_seed_predicates_keep_parity_without_the_index(engine, seed):
     with index_trace() as steps:
         g.gfql(ops, engine=engine, index_policy="use")
     assert not any(s.get("seam") in ("native_seed_lookup", "native_seeded_hop") and s.get("served") for s in steps), steps
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_duplicate_node_rows_are_answered_once_each_on_the_native_lookup(engine):
+    """A node table that repeats a key row (a contract violation the engine tolerates): the
+    native lookup answers one row per matching node-table row, which is what the polars
+    lanes answer; the pandas/cuDF full path self-joins the duplicates into 2**3 rows (a
+    pre-existing blow-up, recorded here so a change to either side flips this pin)."""
+    g = _lane_graph(engine)
+    nodes = g._nodes
+    dup = nodes.iloc[[7]]
+    if engine == "cudf":
+        import cudf
+        nodes = cudf.concat([nodes, dup], ignore_index=True)
+    else:
+        nodes = pd.concat([nodes, dup], ignore_index=True)
+    g = g.nodes(nodes).gfql_index_all(engine=engine).gfql_index_node_props(["id"], engine=engine)
+    ops = [n({"id": 10_007}, name="p")]
+    fast, hits = _run(g, ops, engine, fast=True)
+    full, _ = _run(g, ops, engine, fast=False)
+    assert hits == 1
+    fast_keys = _canon(fast._nodes)["key"].tolist()
+    assert fast_keys == [7.0, 7.0], fast_keys
+    assert len(full._nodes) == 8  # the full path's duplicate self-join; not the native lane's answer
