@@ -32,6 +32,14 @@ def _graph(engine, indexed):
     return g.gfql_index_all(engine=engine).gfql_index_node_props(["id"], engine=engine) if indexed else g
 
 
+def _alias_marker(res, alias):
+    """The op-list contract on every engine: the alias is a boolean marker column, shadowing any user column of that name."""
+    ee = res._edges.to_pandas() if hasattr(res._edges, "to_pandas") else res._edges
+    assert str(ee[alias].dtype) == "bool", ee.dtypes.to_dict()
+    assert not any(str(c).endswith("_right") for c in ee.columns), list(ee.columns)
+    return sorted(zip(ee["eid"].tolist(), ee[alias].tolist()))
+
+
 def _sig(res):
     def topd(x):
         return x.to_pandas() if hasattr(x, "to_pandas") else x
@@ -61,8 +69,11 @@ SERVED = {
 def test_single_hop_collisions_match_the_pandas_full_path(engine, indexed, shape):
     ops = SERVED[shape]
     oracle = _sig(_graph("pandas", False).gfql(ops, engine="pandas", index_policy="off"))
-    got = _sig(_graph(engine, indexed).gfql(ops, engine=engine, index_policy="use" if indexed else "off"))
-    assert got == oracle
+    res = _graph(engine, indexed).gfql(ops, engine=engine, index_policy="use" if indexed else "off")
+    assert _sig(res) == oracle
+    edge_alias = ops[1]._name if len(ops) == 3 else None
+    if edge_alias is not None:
+        assert _alias_marker(res, edge_alias) == _alias_marker(_graph("pandas", False).gfql(ops, engine="pandas", index_policy="off"), edge_alias)
 
 
 MULTI_HOP = {
@@ -79,8 +90,7 @@ def test_multi_hop_collisions_match_the_control_alias(engine, shape):
     expect = _sig(g.gfql([n({"id": 30}, name="m"), e_forward({"type": "HAS_CREATOR"}, hops=ops[1].hops, to_fixed_point=ops[1].to_fixed_point, name="e"), n(name="p")], engine=engine))
     res = g.gfql(ops, engine=engine)
     assert _sig(res) == expect
-    # column contents after a collision are per-engine contracts (pandas: the marker replaces the
-    # column; polars: the shadowed column keeps the user values, test_alias_scoping_semantics.py)
+    assert _alias_marker(res, ops[1]._name) == _alias_marker(g.gfql([n({"id": 30}, name="m"), e_forward({"type": "HAS_CREATOR"}, hops=ops[1].hops, to_fixed_point=ops[1].to_fixed_point, name="e"), n(name="p")], engine=engine), "e")
 
 
 @pytest.mark.parametrize("engine", ENGINES)

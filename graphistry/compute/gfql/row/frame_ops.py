@@ -72,6 +72,8 @@ def _restore_alias_shadowed_user_column(
     marker (an intermediate dispatch graph), or rows cannot be re-keyed."""
     from graphistry.compute.gfql.identifiers import shadow_restore_column
 
+    if shadow_restore_column(source) in table_df.columns:
+        return table_df  # the chain already carried the shadowed values under the restore name
     base_graph = ctx._gfql_rows_base_graph if ctx._gfql_rows_base_graph is not None else ctx._g
     base_frame = None if base_graph is None else (
         base_graph._nodes if table == "nodes" else base_graph._edges

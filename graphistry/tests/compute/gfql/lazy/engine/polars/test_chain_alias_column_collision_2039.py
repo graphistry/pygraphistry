@@ -56,3 +56,17 @@ def test_destination_alias_marker_replaces_the_colliding_column_like_pandas():
     assert "type_right" not in b.columns
     assert a["type"].dtype == bool and b["type"].dtype == bool
     assert sorted(a.loc[a["type"], "key"].tolist()) == sorted(b.loc[b["type"], "key"].tolist()) == [1]
+
+
+@pytest.mark.parametrize("hops", [1, 2])
+def test_edge_alias_marker_shadows_the_colliding_edge_column_like_pandas(hops):
+    """Op-list shadowing on every engine: an edge alias named like an edge column becomes the
+    boolean marker under that name (pandas and polars agree on the values) and no join suffix
+    column leaks."""
+    g_pd, g_pl = _pair()
+    ops = [n({"id": 30}, name="m"), e_forward({"type": "HAS_CREATOR"}, hops=hops, name="type"), n(name="p")]
+    a = g_pd.gfql(ops, engine="pandas")._edges
+    b = g_pl.gfql(ops, engine="polars")._edges.to_pandas()
+    assert "type_right" not in b.columns
+    assert a["type"].dtype == bool and b["type"].dtype == bool
+    assert sorted(zip(a["s"], a["d"], a["type"])) == sorted(zip(b["s"], b["d"], b["type"]))
