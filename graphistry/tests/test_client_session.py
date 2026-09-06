@@ -1,3 +1,7 @@
+import base64
+import json
+import time
+
 import pytest
 import graphistry
 from graphistry.client_session import ClientSession
@@ -5,6 +9,52 @@ from graphistry.pygraphistry import GraphistryClient, PyGraphistry
 
 import pandas as pd
 from unittest import mock
+
+
+def _fake_jwt(exp=None) -> str:
+    header = base64.urlsafe_b64encode(b'{"alg":"none"}').rstrip(b"=").decode()
+    payload = {} if exp is None else {"exp": exp}
+    body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+    return f"{header}.{body}.sig"
+
+
+class TestVerifiedOrgTokenCache:
+    """Per-org, exp-aware token cache backing switch_org()'s client-only fast path."""
+
+    def test_multiple_orgs_survive_under_distinct_tokens(self):
+        session = ClientSession()
+        token_a = _fake_jwt(exp=time.time() + 3600)
+        token_b = _fake_jwt(exp=time.time() + 3600)
+
+        session.mark_org_verified(token_a, "org-a")
+        session.mark_org_verified(token_b, "org-b")
+
+        # Both remain retrievable even though token_b is "more current" --
+        # a fresh SSO login for org-b doesn't evict org-a's own grant.
+        assert session.get_verified_token("org-a") == token_a
+        assert session.get_verified_token("org-b") == token_b
+
+    def test_expired_entry_is_not_reused_and_is_evicted(self):
+        session = ClientSession()
+        expired = _fake_jwt(exp=time.time() - 1)
+        session.mark_org_verified(expired, "org-a")
+
+        assert session.get_verified_token("org-a") is None
+        # Second call confirms it was actually evicted, not just filtered.
+        assert "org-a" not in session._verified_org_tokens
+
+    def test_is_org_verified_requires_exact_current_token(self):
+        session = ClientSession()
+        token = _fake_jwt(exp=time.time() + 3600)
+        session.mark_org_verified(token, "org-a")
+
+        assert session.is_org_verified(token, "org-a") is True
+        assert session.is_org_verified("some-other-token", "org-a") is False
+
+    def test_unknown_org_returns_none(self):
+        session = ClientSession()
+        assert session.get_verified_token("never-switched") is None
+        assert session.is_org_verified("tok", "never-switched") is False
 
 
 class TestClientSession:
@@ -153,7 +203,7 @@ class TestClientSession:
         client = graphistry.client()
 
         def fake_switch(org_name, token):
-            client.session._last_switched_org_token = (org_name, token)
+            client.session.mark_org_verified(token, org_name)
 
         mock_switch_org.side_effect = fake_switch
         mock_resp = mock.Mock()
@@ -172,11 +222,11 @@ class TestClientSession:
         mock_resp.raise_for_status = mock.Mock()
         mock_post.return_value = mock_resp
 
-        assert client.session._last_switched_org_token is None
+        assert client.session._verified_org_tokens == {}
 
         client.register(api=3, username='u', password='p', org_name='mock-org')
 
-        assert client.session._last_switched_org_token == ('mock-org', 'tok123')
+        assert client.session.is_org_verified('tok123', 'mock-org')
 
     # --------------------------------------------------------------------- #
     # Persistence of arbitrary config                                       #
