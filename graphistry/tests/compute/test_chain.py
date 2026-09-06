@@ -722,7 +722,7 @@ _BYPASS_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = register("test
     # arrival side. Must bypass the fast path (regression guard for the prune gate).
     ("prune_endpoints_fwd", lambda: [n(), e_forward(hops=1, prune_to_endpoints=True), n()]),
     ("prune_endpoints_rev", lambda: [n(), e_reverse(hops=1, prune_to_endpoints=True), n()]),
-], _FAST_FRAMES, tags=("native-fast-bypass",), row_tags={"prune_endpoints_fwd": ("#2053",), "prune_endpoints_rev": ("#2053",)})
+], _FAST_FRAMES, tags=("native-fast-bypass",))
 
 
 

@@ -50,7 +50,7 @@ CORPUS: List[Entry] = [
     _entry("single hop, edge alias = filtered column", lambda k: [n({"id": 30}, name="m"), e_forward({"type": "KNOWS"}, name="type"), n(name="p")], ("single-hop", "alias-collision", "#2039")),
     _entry("single hop, destination alias = its filtered column", lambda k: [n({"id": 30}, name="m"), e_forward({"type": "KNOWS"}, name="e"), n({"type": "p"}, name="type")], ("single-hop", "alias-collision", "#2039")),
     _entry("single hop, source node match", lambda k: [n(), e_forward(source_node_match={"type": "p"}), n()], ("single-hop", "endpoint-match")),
-    _entry("single hop, prune to endpoints", lambda k: [n({"key": k(1)}), e_forward(prune_to_endpoints=True), n()], ("single-hop", "prune", "#2053")),
+    _entry("single hop, prune to endpoints", lambda k: [n({"key": k(1)}), e_forward(prune_to_endpoints=True), n()], ("single-hop", "prune")),
     _entry("hops=2, seeded", lambda k: [n({"key": k(1)}), e_forward(hops=2), n()], ("multi-hop", "seeded")),
     _entry("hops=2, seeded, typed, named", lambda k: [n({"key": k(1)}, name="a"), e_forward({"type": "KNOWS"}, hops=2, name="e"), n(name="b")], ("multi-hop", "typed", "alias", "#2049")),
     _entry("to_fixed_point, seeded", lambda k: [n({"key": k(1)}), e_forward(to_fixed_point=True), n()], ("multi-hop", "fixed-point")),
