@@ -309,7 +309,7 @@ def test_every_chart_matches_the_published_numbers():
     """
     stale = []
     for name, svg in charts.rendered().items():
-        path = os.path.join(charts.CHART_DIR, name)
+        path = charts.chart_path(name)
         if not os.path.exists(path):
             stale.append('{} is missing'.format(name))
             continue
@@ -345,6 +345,83 @@ def test_a_chart_over_an_unpublished_cell_fails(payload):
     assert 'does not publish' in str(excinfo.value)
 
 
+def _gf_payload(payload, kernel=True, gpu=True):
+    """A copy of the vendored artifact carrying a synthetic GraphFrames ladder for lj."""
+    synthetic = json.loads(json.dumps(payload))
+    for key in [k for k in synthetic['cells'] if k.startswith('graphframes')]:
+        del synthetic['cells'][key]  # the synthetic ladder replaces any vendored one
+    run = 'graphframes-ladder-test'
+    synthetic['runs'][run] = dict(next(iter(payload['runs'].values())))
+
+    def cell(key, value, unit='ms', **extra):
+        base = {'run': run, 'workload': key, 'engine': 'x',
+                'measurement_profile': 'graphframes-tasks-warm-resident', 'value': value,
+                'unit': unit, 'decimals': 1, 'status': 'ok', 'comparison_allowed': True,
+                'board_quotable': True, 'disclosures': []}
+        base.update(extra)
+        synthetic['cells'][key] = base
+
+    for task, cpu, gf in (('filter', 2.0, 90.0), ('hop1', 200.0, 1400.0),
+                          ('pagerank', 3000.0, 16000.0)):
+        cell('graphframes.lj.{}.gfql_polars'.format(task), cpu)
+        cell('graphframes.lj.{}.graphframes'.format(task), gf)
+        cell('graphframes.lj.{}.gfql_polars_vs_graphframes'.format(task), gf / cpu, 'x')
+        if gpu:
+            cell('graphframes.lj.{}.gfql_polars_gpu'.format(task), cpu / 2)
+    if kernel:
+        cell('graphframes.lj.pagerank.gfql_polars_kernel', 2100.0, status='ok',
+             comparison_allowed=False, board_quotable=False)
+    return synthetic
+
+
+def test_graphframes_charts_are_skipped_until_the_ladder_is_published(payload):
+    if charts.gf_published(payload):
+        pytest.skip('the vendored artifact publishes the ladder')
+    assert not any(name in charts.rendered(payload) for name in charts.GF_CHARTS)
+
+
+def test_graphframes_chart_shades_the_kernel_inside_the_query_bar(payload):
+    svg = charts.render_graphframes('livejournal_tasks.svg', _gf_payload(payload))
+    assert '3000.0 ms' in svg and '(solver 2100.0 ms)' in svg
+    assert 'opacity="0.4"' in svg, 'the query bar is drawn light behind the solid kernel bar'
+    assert '5.3x faster than GraphFrames' in svg
+    assert 'solid part is the solver alone' in svg
+    # Orkut has no synthetic cells: its chart refuses rather than drawing an empty frame.
+    with pytest.raises(charts.ChartError, match='draws no published cell'):
+        charts.render_graphframes('orkut_tasks.svg', _gf_payload(payload))
+
+
+def test_graphframes_chart_draws_diagnostic_prefix_cells_lighter_and_labelled(payload):
+    synthetic = _gf_payload(payload, gpu=False)
+    cell = dict(synthetic['cells']['graphframes.lj.filter.gfql_polars'])
+    cell.update({'value': 27.0, 'board_quotable': False, 'comparison_allowed': False})
+    synthetic['cells']['graphframes_059.lj.hop2.gfql_polars'] = cell
+    svg = charts.render_graphframes('livejournal_tasks.svg', synthetic)
+    assert '27.0 ms' in svg and charts.GF_DIAG_NOTE in svg
+    assert 'released code with #2023' in svg
+    assert svg.count('not measured') == 3 + 2  # GPU on three tasks + hop2 GPU/GraphFrames
+
+
+def test_graphframes_chart_marks_an_unmeasured_system_without_a_bar(payload):
+    svg = charts.render_graphframes('livejournal_tasks.svg', _gf_payload(payload, gpu=False))
+    assert svg.count('not measured') == 3 + 3  # GPU on three tasks + hop2 for all three
+    assert 'opacity="0.4"' in svg
+
+
+def test_graphframes_chart_refuses_a_kernel_above_its_query(payload):
+    synthetic = _gf_payload(payload)
+    synthetic['cells']['graphframes.lj.pagerank.gfql_polars_kernel']['value'] = 3000.1
+    with pytest.raises(charts.ChartError, match='exceeds its query time'):
+        charts.render_graphframes('livejournal_tasks.svg', synthetic)
+
+
+def test_graphframes_charts_draw_only_published_cells(payload):
+    if not charts.gf_published(payload):
+        pytest.skip('the vendored artifact publishes no ladder yet')
+    keys = charts.gf_cell_keys(payload)
+    assert keys and all(key in payload['cells'] for key in keys)
+
+
 def test_the_chart_renderer_stays_importable_without_sphinx():
     with open(os.path.join(SOURCE_DIR, '_ext', 'gfql_bench_charts.py'), encoding='utf-8') as f:
         source = f.read()
@@ -360,3 +437,79 @@ def test_the_rules_module_stays_importable_without_sphinx():
     for forbidden in ('docutils', 'sphinx'):
         assert 'import {}'.format(forbidden) not in source
         assert 'from {}'.format(forbidden) not in source
+
+
+def _tally_payload(**cells: float) -> bench.JSONObject:
+    """A minimal artifact: one run, ms cells under ``gb.<q>.<engine>``, all quotable."""
+    out_cells: bench.JSONObject = {}
+    for name, value in cells.items():
+        query, engine = name.split("__")
+        out_cells[f"gb.{query}.{engine}"] = {
+            "run": "r", "workload": "w", "engine": engine, "measurement_profile": "p",
+            "value": value, "unit": "ms", "decimals": 2, "status": "ok",
+            "comparison_allowed": True, "board_quotable": True, "disclosures": [],
+        }
+    return {
+        "policy": {"max_age_days": 60},
+        "runs": {"r": {"measured_at": datetime.date.today().isoformat(),
+                       "pygraphistry_commit": "0123456789ab"}},
+        "cells": out_cells,
+    }
+
+
+def test_tally_counts_strict_wins_and_registers_every_cell_it_read():
+    state = bench.State(_tally_payload(
+        q1__polars=1.0, q1__kuzu=2.0,
+        q2__polars=2.0, q2__kuzu=2.0,
+        q3__polars=3.0, q3__kuzu=1.0), datetime.date.today())
+    assert bench.tally(state, "gb", "polars", "kuzu", "doc", 1) == (1, 3)
+    assert state.problems == []
+    assert sorted(state.refs["doc"]) == sorted([
+        "gb.q1.polars", "gb.q1.kuzu", "gb.q2.polars", "gb.q2.kuzu", "gb.q3.polars", "gb.q3.kuzu"])
+    assert bench.format_tally(1, 3) == "1 of 3"
+
+
+def test_tally_with_no_quotable_pair_is_a_recorded_problem():
+    state = bench.State(_tally_payload(q1__polars=1.0), datetime.date.today())
+    assert bench.tally(state, "gb", "polars", "kuzu", "doc", 7) is None
+    assert any("bench-tally" in problem for problem in state.problems)
+
+
+def test_a_run_that_drifted_past_the_policy_fails_unless_waived(monkeypatch):
+    payload = _tally_payload(q1__polars=1.0, q1__kuzu=2.0)
+    payload["policy"]["max_compute_commit_drift"] = 12
+    monkeypatch.setattr(bench, "compute_commit_drift", lambda commit, repo_root=None: 274)
+    state = bench.State(payload, datetime.date.today())
+    bench.check_reference(state, "gb.q1.polars", "doc", 1, diagnostic=False)
+    assert any("max_compute_commit_drift" in problem for problem in state.problems)
+
+    payload["policy"]["drift_waivers"] = {"r": "release re-measurement tracked"}
+    waived = bench.State(payload, datetime.date.today())
+    bench.check_reference(waived, "gb.q1.polars", "doc", 1, diagnostic=False)
+    assert waived.problems == []
+
+
+def test_unknown_drift_never_fails_the_build(monkeypatch):
+    payload = _tally_payload(q1__polars=1.0, q1__kuzu=2.0)
+    payload["policy"]["max_compute_commit_drift"] = 12
+    monkeypatch.setattr(bench, "compute_commit_drift", lambda commit, repo_root=None: None)
+    state = bench.State(payload, datetime.date.today())
+    bench.check_reference(state, "gb.q1.polars", "doc", 1, diagnostic=False)
+    assert state.problems == []
+
+
+def test_compute_commit_drift_rejects_a_malformed_commit():
+    assert bench.compute_commit_drift("not a sha") is None
+
+
+def test_every_vendored_run_is_within_drift_policy_or_waived():
+    """The shipping artifact's own runs, against this checkout (skips on shallow clones)."""
+    state = bench.load_state()
+    limit = state.max_compute_commit_drift
+    assert isinstance(limit, int)
+    over = []
+    for run_id in sorted(state.runs):
+        drift = state.drift(run_id)
+        if drift is not None and drift > limit and run_id not in state.drift_waivers:
+            over.append((run_id, drift))
+    assert not over, f"runs past max_compute_commit_drift={limit} without a waiver: {over}"

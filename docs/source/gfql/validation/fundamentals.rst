@@ -1,7 +1,7 @@
 GFQL Validation Fundamentals
 ============================
 
-Learn how to use GFQL's built-in validation system to catch errors early and build robust graph applications.
+Learn how to use GFQL's built-in validation system to catch errors early and build reliable graph applications.
 
 .. note::
    This guide is accompanied by an interactive Jupyter notebook. To run the examples yourself, see 

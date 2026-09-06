@@ -575,7 +575,7 @@ filter3 = n(filter_dict={"date": gt({"type": "datetime", "value": "2023-01-01T00
 
 ## Performance Considerations
 
-- Temporal predicates leverage pandas' optimized datetime operations
+- Temporal predicates use pandas' optimized datetime operations
 - Timezone conversions are handled efficiently
 - For large datasets, ensure datetime columns are properly typed (not object dtype)
 - Use `pd.Timestamp` for best performance when creating many predicates programmatically

@@ -8,22 +8,20 @@
    :width: 200px
    :align: center
 
-Welcome to **GFQL (GraphFrame Query Language)**, the first **dataframe-native graph query language**. GFQL is designed to bring the power of graph queries to your data science workflows without the need for external graph databases or complex infrastructure. It integrates seamlessly with the **PyData**, **Apache Arrow**, and **GPU acceleration** ecosystems, allowing you to process massive graphs efficiently.
+Welcome to **GFQL (GraphFrame Query Language)**, the first **dataframe-native graph query language**. GFQL brings graph queries to data science workflows without an external graph database. It works with the **PyData**, **Apache Arrow**, and **GPU** ecosystems, so large graphs run in-process on CPU or GPU.
 
 In this guide, we'll explore the basics of GFQL in just 10 minutes. You'll learn how to:
 
 - Query and filter nodes and edges.
 - Chain multiple hops and apply predicates.
-- Leverage automatic GPU acceleration.
+- Use automatic GPU acceleration.
 - Integrate GFQL into your existing Python workflows.
 - Run GFQL and Python on remote GPUs and remote data.
-
-Let's dive in!
 
 Introduction to GFQL
 --------------------
 
-GFQL fills a critical gap in the data community by providing an in-process, high-performance graph query language that operates at the compute tier. Unlike traditional graph databases that couple storage and compute, GFQL allows you to perform graph queries directly on your dataframes, whether they're in-memory or on disk, CPU or GPU.
+GFQL is an in-process graph query language for the compute tier. Graph databases couple storage and compute; GFQL queries the dataframes you already have, in memory, on CPU or GPU.
 
 **Key Benefits:**
 
@@ -44,7 +42,7 @@ Throughout this guide, we'll work with a graph representing people, companies, a
      <figcaption>Sample graph rendered with <code>plot_static()</code>.</figcaption>
    </figure>
 
-::
+.. code-block:: python
 
     import pandas as pd
     import graphistry
@@ -195,7 +193,7 @@ Label hops in your traversal to analyze specific relationships.
 
 **Example: Find nodes up to 2 hops away from node "a" and label each hop**
 
-::
+.. code-block:: python
 
     from graphistry import n, e_undirected
 
@@ -206,6 +204,14 @@ Label hops in your traversal to analyze specific relationships.
     ])
     first_hop_edges = g_2_hops._edges[ g_2_hops._edges.hop1 == True ]
     # first_hop_edges: edges directly connected to 'a' (hop1=True)
+
+The Cypher form returns the same subgraph. Cypher has no per-hop label, so use
+the chain form when you need the ``hop1`` / ``hop2`` columns:
+
+.. code-block:: python
+
+    g_2_hops_cypher = g.gfql("GRAPH { MATCH (a {id: 'a'})-[hop1]-(b)-[hop2]-(c) }")
+    assert set(g_2_hops_cypher._nodes['id']) == set(g_2_hops._nodes['id'])
 
 **Explanation:**
 
@@ -238,28 +244,36 @@ Label hops in your traversal to analyze specific relationships.
 
 Chain multiple traversals to find patterns between nodes.
 
-**Example: Find transaction nodes between two types of risky nodes**
+**Example: Find risk2 transactions reachable from risk1 nodes**
 
-::
+.. code-block:: python
 
-    from graphistry import n, e_forward, e_reverse
+    from graphistry import n, e_forward
 
     g_risky = g.gfql([
         n({"risk1": True}),
         e_forward(to_fixed_point=True),
-        n({"type": "transaction"}, name="hit"),
-        e_reverse(to_fixed_point=True),
-        n({"risk2": True})
+        n({"type": "transaction", "risk2": True}, name="hit")
     ])
     hits = g_risky._nodes[ g_risky._nodes["hit"] == True ]
-    # hits: transaction nodes reachable from risk1 nodes and reaching risk2 nodes
+    assert sorted(hits['id']) == ['tx2']
+    # hits: transaction nodes flagged risk2 that a risk1 node reaches (tx1 -> tx2)
+
+The Cypher form uses a variable-length path for ``to_fixed_point``:
+
+.. code-block:: python
+
+    hits_df = g.gfql(
+        "MATCH (r {risk1: true})-[*1..]->(t {type: 'transaction', risk2: true}) "
+        "RETURN t.id AS id"
+    )._nodes
+    assert sorted(hits_df['id']) == ['tx2']
 
 **Explanation:**
 
-- Starts from nodes with ``risk1 == True``.
-- Traverses forward to transaction nodes, labeling them as ``hit``.
-- Traverses backward to nodes with ``risk2 == True``.
-- Identifies transaction nodes connected between two risky nodes.
+- Starts from nodes with ``risk1 == True`` (``tx1``).
+- Follows forward edges to a fixed point (every node reachable from the start set).
+- Keeps transaction nodes with ``risk2 == True`` and labels them ``hit`` (``tx2``).
 
 .. graphviz::
 
@@ -287,26 +301,37 @@ Use the ``is_in`` predicate to filter nodes or edges by multiple values.
 
 **Example: Filter nodes and edges by multiple types**
 
-::
+.. code-block:: python
 
-    from graphistry import n, e_forward, e_reverse, is_in
+    from graphistry import n, e_forward, is_in
 
     g_filtered = g.gfql([
         n({"type": is_in(["person", "company"])}),
-        e_forward({"e_type": is_in(["owns", "reviews"])}, to_fixed_point=True),
-        n({"type": is_in(["transaction", "account"])}, name="hit"),
-        e_reverse(to_fixed_point=True),
-        n({"risk2": True})
+        e_forward({"e_type": is_in(["sent", "transfer"])}, to_fixed_point=True),
+        n({"type": is_in(["transaction", "account"])}, name="hit")
     ])
     hits = g_filtered._nodes[ g_filtered._nodes["hit"] == True ]
-    # hits: transaction/account nodes matching the traversal pattern
+    assert sorted(hits['id']) == ['tx1', 'tx2']
+    # hits: transaction/account nodes reached over sent/transfer edges (a -> tx1 -> tx2)
+
+In Cypher, ``is_in`` is ``IN``. This single-hop form returns the first transaction;
+variable-length paths with ``IN`` filters on several aliases are not yet supported
+(`#2019 <https://github.com/graphistry/pygraphistry/issues/2019>`_):
+
+.. code-block:: python
+
+    hits_df = g.gfql(
+        "MATCH (a)-[e]->(t {type: 'transaction'}) "
+        "WHERE a.type IN ['person', 'company'] AND e.e_type IN ['sent', 'transfer'] "
+        "RETURN t.id AS id"
+    )._nodes
+    assert sorted(hits_df['id']) == ['tx1']
 
 **Explanation:**
 
-- Filters nodes of type ``"person"`` or ``"company"``.
-- Traverses forward edges of type ``"owns"`` or ``"reviews"``.
-- Filters nodes of type ``"transaction"`` or ``"account"``, labeling them as ``hit``.
-- Traverses backward to nodes with ``risk2 == True``.
+- Filters start nodes of type ``"person"`` or ``"company"``.
+- Follows forward edges of type ``"sent"`` or ``"transfer"`` to a fixed point.
+- Keeps nodes of type ``"transaction"`` or ``"account"`` and labels them ``hit``.
 
 .. graphviz::
 
@@ -341,7 +366,7 @@ Use the ``is_in`` predicate to filter nodes or edges by multiple values.
        tx -> risk2 [label="e_reverse\n*", color="#DC143C", penwidth=2, style=bold, dir=back];
    }
 
-Leveraging GPU Acceleration
+Using GPU Acceleration
 ---------------------------
 
 GFQL is optimized for GPU acceleration using ``cudf`` and ``rapids``. When using GPU dataframes, GFQL automatically executes queries on the GPU for massive speedups.
@@ -363,8 +388,9 @@ GFQL is optimized for GPU acceleration using ``cudf`` and ``rapids``. When using
     # Create a graph with GPU dataframes
     g_gpu = graphistry.edges(e_gdf, 'src', 'dst').nodes(n_gdf, 'id')
 
-    # Run GFQL query (executes on GPU)
+    # Run GFQL query (executes on GPU); Cypher strings work the same way
     g_result = g_gpu.gfql([ ... ])
+    g_result = g_gpu.gfql("MATCH (n {type: 'person'}) RETURN n")
 
 **Explanation:**
 
@@ -380,9 +406,10 @@ results on every engine — see :doc:`Choosing an Engine <engines>`.
 
 **Example: CPU columnar speedup (no GPU)**
 
-::
+.. code-block:: python
 
-    g_result = g.gfql([ ... ], engine='polars')   # often much faster on query-heavy workloads
+    people = g.gfql("MATCH (n {type: 'person'}) RETURN n", engine='polars')._nodes
+    assert len(people) == 2   # same answer as the pandas engine
 
 **Example: Force GFQL to use a GPU engine**
 
@@ -400,7 +427,7 @@ results on every engine — see :doc:`Choosing an Engine <engines>`.
 Integration with PyData Ecosystem
 ---------------------------------
 
-GFQL integrates seamlessly with the PyData ecosystem, allowing you to combine it with libraries like ``pandas``, ``networkx``, ``igraph``, and ``PyTorch``.
+GFQL works with the PyData ecosystem, so you can combine it with libraries like ``pandas``, ``networkx``, ``igraph``, and ``PyTorch``.
 
 8. Combining GFQL with Graph Algorithms
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -604,7 +631,7 @@ Congratulations! You've covered the basics of GFQL in just 10 minutes. You've le
 
 - Query and filter nodes and edges using GFQL.
 - Chain multiple hops and apply advanced predicates.
-- Leverage GPU acceleration for high-performance graph querying.
+- Use GPU acceleration for large graphs.
 - Integrate GFQL with graph algorithms and visualization tools.
 
 **Next Steps:**
@@ -616,6 +643,6 @@ Congratulations! You've covered the basics of GFQL in just 10 minutes. You've le
 - :ref:`10min-pygraphistry`: Utilize PyGraphistry for advanced visualization and analysis.
 - :ref:`Join the Community <community>`: Connect with other users and developers in the GFQL community Slack channel.
 
-GFQL opens up new possibilities for graph analysis at scale, without the overhead of managing external databases or infrastructure. With its seamless integration into the Python ecosystem and support for GPU acceleration, GFQL is a powerful tool for modern data science workflows.
+GFQL runs graph analysis at scale without a database to manage. It fits the Python ecosystem and moves to a GPU with one keyword.
 
 Happy graph querying!
