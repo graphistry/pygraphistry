@@ -70,6 +70,7 @@ from .lowering_context import (
 )
 from graphistry.compute.gfql.same_path_types import NODE_IDENTITY_COLUMN as _NODE_ID_TOKEN
 from graphistry.compute.gfql.identifiers import (
+    shadow_restore_column,
     WALK_CURRENT_COL,
     WALK_FROM_COL,
     WALK_TO_COL,
@@ -128,6 +129,8 @@ def _resolve_property(alias: str, prop: str, columns: Sequence[str]) -> Optional
     prefixed = f"{alias}.{prop}"
     if prefixed in columns:
         return prefixed
+    if prop == alias and shadow_restore_column(alias) in columns:
+        return shadow_restore_column(alias)  # the alias marker shadowed this column; rows() keeps its values here
     if prop == _NODE_ID_TOKEN and alias in columns:
         # Whole-entity identity key (#1650 lowering groups by `alias.__gfql_node_id__`).
         # pandas' bindings table carries it as a join-residue column; the polars table
@@ -1978,10 +1981,12 @@ def binding_rows_polars(
                     edges_f, edge_alias, alias_prefilters, reserved=(src, dst),
                 )
             if isinstance(edge_alias, str):
+                restore = shadow_restore_column(edge_alias)
+                shadowed = restore in _names(edges_f)
                 payload_renames = {
-                    col: f"{edge_alias}.{col}"
+                    col: (f"{edge_alias}.{edge_alias}" if col == restore else f"{edge_alias}.{col}")
                     for col in _names(edges_f)
-                    if col not in (src, dst, _ident_col)
+                    if col not in (src, dst, _ident_col) and not (shadowed and col == edge_alias)
                 }
             else:
                 # Unaliased edge payload is unaddressable downstream; carrying it
