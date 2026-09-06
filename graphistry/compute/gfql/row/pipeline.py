@@ -3676,6 +3676,25 @@ class RowPipelineMixin:
         )
 
     @staticmethod
+    def _gfql_restore_alias_property_dtypes(bindings: "DataFrameT", base_nodes: Optional["DataFrameT"], alias: str) -> "DataFrameT":
+        """A traversal frame carries id-only stub rows, so its property columns arrive widened; once the bound rows hold no null, the node table's dtype is the answer's dtype."""
+        if base_nodes is None:
+            return bindings
+        for prop in base_nodes.columns:
+            col = f"{alias}.{prop}"
+            if col not in bindings.columns:
+                continue
+            want, have = str(base_nodes[prop].dtype), str(bindings[col].dtype)
+            if want == have or have not in ("float64", "float32", "object"):
+                continue
+            if want not in ("int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64", "bool"):
+                continue
+            if bool(bindings[col].isna().any()):
+                continue
+            bindings[col] = bindings[col].astype(want)
+        return bindings
+
+    @staticmethod
     def _gfql_node_alias_lookup_frame(lookup_source: Any, node_id: str, alias: str) -> Any:
         lookup = lookup_source[[node_id]].copy()
         lookup[alias] = lookup_source[node_id]
@@ -4371,33 +4390,6 @@ class RowPipelineMixin:
                     bindings[col] = source.iloc[0:0].reindex(bindings.index)
                 else:
                     bindings[col] = self._gfql_broadcast_scalar(bindings, None)
-        # Downstream node aliases (every node op after the first) reach the row via a hop
-        # whose unmatched rows introduce NaN, so the non-empty path widens the columns that
-        # cannot hold NaN: numpy int -> float64, numpy bool -> object. The 0-row path sourced
-        # them from the base node frame (int/bool), so match that widening or an emptied
-        # `sum(b.i)`/`max(b.bv)` returns int64/bool where the non-empty run and master give
-        # float64/object -- observable through UNION ALL (#31, Wave 37 Finding 2). Extension
-        # dtypes (`Int64`, `boolean`) hold NA natively and stay put in the non-empty path, so
-        # they must NOT be touched here (widening them re-introduced the divergence -- Wave 37
-        # Finding 1).
-        import pandas as _pd
-
-        node_ops = [op for op in ops if isinstance(op, ASTNode)]
-        for op in node_ops[1:]:
-            alias = getattr(op, "_name", None)
-            if not isinstance(alias, str):
-                continue
-            for col in [c for c in bindings.columns if c == alias or str(c).startswith(f"{alias}.")]:
-                try:
-                    dtype = bindings[col].dtype
-                    if _pd.api.types.is_extension_array_dtype(dtype):
-                        continue
-                    if dtype.kind in ("i", "u"):
-                        bindings[col] = bindings[col].astype("float64")
-                    elif dtype.kind == "b":
-                        bindings[col] = bindings[col].astype("object")
-                except Exception:
-                    continue
         return bindings
 
     def _gfql_connected_bindings_row_frame_from_state(
@@ -4453,6 +4445,7 @@ class RowPipelineMixin:
             dup_col = f"{node_id}__{alias}_join__"
             if dup_col in bindings.columns:
                 bindings = bindings.drop(columns=[dup_col])
+            bindings = self._gfql_restore_alias_property_dtypes(bindings, base_nodes, alias)
             for hop_col in [col for col in bindings.columns if is_shortest_path_hops_column(str(col))]:
                 alias_hop_col = f"{alias}.{hop_col}"
                 if alias_hop_col in bindings.columns:
