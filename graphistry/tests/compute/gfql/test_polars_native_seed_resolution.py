@@ -33,6 +33,7 @@ def _graph(reverse=False, indexed=True, padding=0):
     return g.gfql_index_all(engine="polars").gfql_index_node_props(["id"], engine="polars") if indexed else g
 
 
+@pytest.mark.route_engaged("polars-seeded")
 @pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize("indexed", [False, True])
 @pytest.mark.parametrize("seed", [{"id": 104}, {"kind": "Message"}, {"id": 105}, {"id": 999}])
@@ -73,6 +74,7 @@ def _spy_served(monkeypatch):
 _NAMED_TYPED_HOP = [n({"id": 104}, name="m"), e_forward({"type": "T"}, name="e"), n({"kind": "Person"}, name="p")]
 
 
+@pytest.mark.route_engaged("polars-seeded")
 def test_native_seeded_hop_is_served_from_the_index_and_traced():
     from graphistry.compute.gfql.index import index_trace
     g = _graph()
@@ -98,6 +100,7 @@ def test_native_seeded_hop_declines_without_a_usable_index(policy, monkeypatch):
     assert_frame_equal(fast._edges, full._edges)
 
 
+@pytest.mark.route_engaged("polars-seeded")
 @pytest.mark.parametrize("single_node", [False, True])
 def test_native_property_seed_uses_resident_index(single_node, monkeypatch):
     import graphistry.compute.gfql.index.bindings as bindings

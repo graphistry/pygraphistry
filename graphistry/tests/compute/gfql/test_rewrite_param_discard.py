@@ -210,6 +210,7 @@ def test_indexed_bypass_table_edges_survives_a_projection(engine: str) -> None:
                "(index/bindings.py gate), so polars-gpu always takes the scan path",
     )),
 ])
+@pytest.mark.route_engaged("indexed-kernel")
 def test_indexed_bypass_still_serves_a_bare_rows(engine: str) -> None:
     """THE NEGATIVE SIDE: declining on a non-default `table` must not decline everything.
 

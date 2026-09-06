@@ -405,6 +405,7 @@ STANDARD_DERIVED_POSITIVES = [
 ]
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("query", STANDARD_DERIVED_POSITIVES)
 def test_standard_derived_connected_parity(
@@ -454,6 +455,7 @@ def test_pandas_connected_boundary_bypasses_canonical_traversal(
     _assert_decision(decisions[0], seam="connected_bindings", served=True)
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_destination_property_projection_dtype_parity(
     engine: str,
@@ -726,6 +728,7 @@ def test_node_property_index_prefers_the_most_selective_column(
         pytest.param({"grp": 0}, "grp", False, id="unselective-keeps-scan"),
     ],
 )
+@pytest.mark.route_engaged("index-hop", "indexed-kernel")
 def test_node_property_index_cost_gate_under_policy_use(
     seed: Dict[str, Any],
     indexed_column: str,
