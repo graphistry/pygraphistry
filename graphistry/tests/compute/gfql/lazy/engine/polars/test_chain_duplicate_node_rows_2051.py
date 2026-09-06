@@ -3,6 +3,7 @@
 Sibling of #1993 (polars ``hop()`` de-dups its node table): the unnamed, untyped single-hop
 chain shape still keeps the duplicate (#2051, strict expected failure); the named, typed,
 multi-hop and undirected shapes and ``hop()`` already collapse it and are pinned green.
+chain shape kept the duplicate (#2051); every shape now collapses it, pinned against pandas.
 """
 import pandas as pd
 import pytest
