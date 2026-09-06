@@ -114,6 +114,7 @@ def test_node_lookup_engages_with_parity(engine, indexed, q, label):
     _assert_parity(_graph(engine, indexed), engine, q, "seeded_node_lookup")
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_node_lookup_matches_independent_oracle(engine):
     g = _graph(engine)
@@ -263,6 +264,7 @@ def test_hub_seed_over_the_frontier_gate_keeps_parity(engine, indexed):
     pd.testing.assert_frame_equal(_canon(fast), _canon(full))
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_seed_matching_several_nodes_projects_each_seed(engine):
     """A non-unique seed predicate: every seed row pairs with its own destinations."""

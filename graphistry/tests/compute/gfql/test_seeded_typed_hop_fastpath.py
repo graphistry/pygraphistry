@@ -851,12 +851,14 @@ class TestSeededProjectionDtypeAndEdgesParity:
         assert bool(hits["n"]) == expect_engage, f"engaged={hits['n']} expected={expect_engage}"
         return fast, full
 
+    @pytest.mark.route_engaged("cypher-fast")
     def test_pandas_int_bool_dtype_parity(self):
         fast, full = self._fast_and_full(self._typed_graph(), "pandas", self.Q)
         pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
         dt = dict(zip(fast._nodes.columns, map(str, fast._nodes.dtypes)))
         assert dt == {"pid": "int64", "a": "float64", "f": "object"}
 
+    @pytest.mark.route_engaged("cypher-fast")
     def test_polars_int_bool_dtype_parity(self):
         pytest.importorskip("polars")
         fast, full = self._fast_and_full(self._pl_graph(), "polars", self.Q)
@@ -876,6 +878,7 @@ class TestSeededProjectionDtypeAndEdgesParity:
         fast, full = self._fast_and_full(self._typed_graph(), "pandas", q, expect_engage=False)
         pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
 
+    @pytest.mark.route_engaged("cypher-fast")
     @pytest.mark.parametrize("engine", ["pandas", "polars"])
     def test_edges_empty_frame_not_none(self, engine):
         g = self._typed_graph() if engine == "pandas" else self._pl_graph()
@@ -1042,6 +1045,7 @@ class TestResidentIndexSeededFastPath:
             plain = mk().gfql(ops, engine="pandas")
             pd.testing.assert_frame_equal(self._canon(got), self._canon(plain))
 
+    @pytest.mark.route_engaged("cypher-fast")
     def test_uint64_int64_id_mix_declines_not_collapses(self, monkeypatch):
         """B1 pin: int64<->uint64 promotes to float64, which collapses ids >= 2**53
         into false matches; the gate must DECLINE (scan path compares exactly)."""

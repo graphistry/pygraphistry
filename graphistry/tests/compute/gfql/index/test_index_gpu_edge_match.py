@@ -85,6 +85,7 @@ def _match_value(null_col_dtype: str):
     return {"string": "1", "boolean": True}.get(null_col_dtype, 1)
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ["cudf", "polars-gpu"])
 @pytest.mark.parametrize("null_col_dtype", NULL_DTYPES)
 def test_null_bearing_edge_predicate_matches_the_pandas_oracle_on_device(engine, null_col_dtype):
@@ -110,6 +111,7 @@ def test_null_bearing_edge_predicate_matches_the_pandas_oracle_on_device(engine,
     assert pairs(got) == pairs(oracle), f"[{engine}/{null_col_dtype}] diverged from pandas"
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ["cudf", "polars-gpu"])
 def test_empty_candidate_batch_on_device(engine):
     """A seed with no matching typed edges yields a zero-length gather map on device."""

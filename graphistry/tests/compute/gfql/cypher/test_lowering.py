@@ -18626,6 +18626,7 @@ def test_t6_col_stats_decisions_are_visible_in_the_trace() -> None:
         outcomes={"nodes.id": "served", "edges.s": "served"})
 
 
+@pytest.mark.route_engaged("cypher-fast")
 def test_t6_assert_col_stats_helper_fails_loudly() -> None:
     """The helper must FAIL when the optimization did not fire -- an engagement
     pin that cannot fail is worse than none, which is the whole failure mode
@@ -19225,6 +19226,7 @@ def _mk_h3_case_data(fixture: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     raise AssertionError(f"unknown fixture {fixture}")
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 @pytest.mark.parametrize("label,fixture,query", _H3_DIFFERENTIAL_CASES, ids=[c[0] for c in _H3_DIFFERENTIAL_CASES])
 def test_h3_fused_two_hop_count_matches_eager_twin_and_pandas(
@@ -19249,6 +19251,7 @@ def test_h3_fused_two_hop_count_matches_eager_twin_and_pandas(
     assert fused == oracle, f"{label}: fused lane diverged from the pandas oracle"
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_h3_fused_two_hop_count_empty_match_counts_zero(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """openCypher counts over no rows as 0 -- not an empty frame."""
@@ -19359,6 +19362,7 @@ def test_h3_two_hop_count_fast_path_has_no_order_by_or_limit_surface(suffix: str
     assert _two_hop_count_alias(compiled.chain) == expect_alias
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_h3_fused_two_hop_count_handles_degenerate_bindings(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """The node key may share a name with an endpoint column, and source/destination may be bound

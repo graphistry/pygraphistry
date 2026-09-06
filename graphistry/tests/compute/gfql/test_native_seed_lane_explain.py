@@ -44,7 +44,7 @@ def test_node_only_lookup_served_by_the_property_index_is_explained(engine):
     assert len(g.gfql(NODE_ONLY, engine=engine, index_policy="use")._nodes) == 1
 
 
-@pytest.mark.route_engaged("native-fast")
+@pytest.mark.route_engaged("native-fast", "polars-seeded")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_seeded_typed_hop_served_by_the_resident_indexes_is_explained(engine):
     g = _graph(engine)

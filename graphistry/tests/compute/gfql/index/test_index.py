@@ -1465,6 +1465,7 @@ def _polars_indexed_graph():
     return g.gfql_index_all(engine="polars")
 
 
+@pytest.mark.route_engaged("index-hop")
 def test_auto_engine_gfql_serves_polars_index_1767_cliff():
     """#1767 cliff pin: polars frames + explicit polars index + gfql with NO engine
     argument must serve path=index on engine=polars (AUTO routes native, so the
@@ -1701,6 +1702,7 @@ class TestIndexAutoPreservesPolarsFrames:
         gi = gl.gfql_index_col_stats()  # AUTO on lazy frames must not crash
         assert gi is not None
 
+    @pytest.mark.route_engaged("index-hop")
     def test_inversion_auto_index_auto_gfql_serves_polars_index(self):
         """THE INVERSION PIN. The exact scenario the retracted #1767 regressed
         to the scan floor: ``gfql_index_all()`` with NO engine + ``g.gfql(<index-
