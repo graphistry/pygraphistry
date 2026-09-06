@@ -1993,6 +1993,9 @@ def _low_cardinality_pure_count_plan(
         return None
     if edge_rows > _LOWCARD_COUNT_MAX_INPUT_ROWS:
         return None
+    from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
+    if active_target() == ExecutionTarget.GPU:
+        return None  # cudf-polars has no unnest map function; the group_by formulation is GPU-executable
 
     # ``name=`` (polars >= 1.0, and the declared floor is 1.29) keeps the count column out
     # of a rename, so a group key literally named ``count`` is served rather than crashing.
