@@ -1,8 +1,7 @@
 """The polars chain collapses duplicate node rows on every shape, as pandas' combine does.
 
 Sibling of #1993 (polars ``hop()`` de-dups its node table): the unnamed, untyped single-hop
-chain shape still keeps the duplicate (#2051, strict expected failure); the named, typed,
-multi-hop and undirected shapes and ``hop()`` already collapse it and are pinned green.
+chain shape kept the duplicate (#2051); every shape now collapses it, pinned against pandas.
 """
 import pandas as pd
 import pytest
@@ -47,7 +46,6 @@ def test_hop_collapses_the_duplicate():
 
 
 @pytest.mark.parametrize("shape", ["unnamed untyped single hop", "unnamed single hop with destination filter"])
-@pytest.mark.xfail(strict=True, reason="graphistry/pygraphistry#2051")
 def test_unnamed_untyped_single_hop_collapses_the_duplicate(shape):
     g_pd, g_pl = _graph()
     ops = [n({"key": 1}), e_forward(), n()] if shape == "unnamed untyped single hop" else [n({"key": 1}), e_forward(), n({"id": 20})]
