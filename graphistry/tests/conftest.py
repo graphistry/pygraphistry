@@ -41,39 +41,6 @@ def _gfql_routes_off():
     if not routes:
         yield
         return
-    import graphistry.compute.chain as chain_mod
-    import graphistry.compute.gfql_unified as unified
-    import graphistry.compute.gfql.index as index_pkg
-    import graphistry.compute.gfql.index.api as index_api
-    import graphistry.compute.gfql.index.bindings as bindings
-    import graphistry.compute.gfql.lazy.engine.polars.chain as pchain
-
-    def none(*a, **k):
-        return None
-
-    patches = []
-
-    def patch(mod, name, value):
-        patches.append((mod, name, getattr(mod, name)))
-        setattr(mod, name, value)
-
-    if "native-fast" in routes:
-        patch(chain_mod, "_try_chain_fast_path", none)
-    if "polars-seeded" in routes:
-        patch(pchain, "_try_seeded_chain_polars", none)
-    if "polars-plain" in routes:
-        patch(pchain, "polars_plain_single_hop_admits", none)
-    if "index-hop" in routes:
-        patch(index_pkg, "maybe_index_hop", none)
-        patch(index_api, "maybe_index_hop", none)
-    if "indexed-kernel" in routes:
-        patch(bindings, "_try_indexed_connected_bindings_state", none)
-    if "cypher-fast" in routes:
-        for name in ("_execute_seeded_node_lookup_fast_path", "_execute_seeded_typed_hop_fast_path",
-                     "_execute_single_hop_grouped_aggregate_fast_path", "_execute_two_hop_count_fast_path"):
-            patch(unified, name, none)
-    try:
+    from graphistry.tests.compute.gfql.routes.switch import routes_off
+    with routes_off(routes):
         yield
-    finally:
-        for mod, name, value in reversed(patches):
-            setattr(mod, name, value)
