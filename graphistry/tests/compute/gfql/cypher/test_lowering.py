@@ -15829,12 +15829,10 @@ def test_connected_join_empty_edge_aggregate_keeps_numeric_dtype(ret: str, dtype
 @pytest.mark.parametrize(
     "ret,dtype",
     [
-        # A downstream (non-anchor) node reaches the row via a hop whose NaN widens its
-        # integer columns to float in the non-empty run; the 0-row path must match, or an
-        # emptied sum(b.iv) returns int64 and escapes via UNION ALL (#31). The anchor never
-        # NaN-widens, so it stays int; float columns are unchanged.
-        ("sum(b.iv) AS c", "float64"),
-        ("max(b.iv) AS c", "float64"),
+        # the 0-row path must carry the non-empty run's dtypes (UNION ALL, #31): source
+        # dtypes on every alias since the traversal stubs stopped widening them (#2058)
+        ("sum(b.iv) AS c", "int64"),
+        ("max(b.iv) AS c", "int64"),
         ("sum(a.iv) AS c", "int64"),
         ("sum(b.fv) AS c", "float64"),
     ],
@@ -15890,7 +15888,7 @@ def test_connected_join_empty_node_aggregate_keeps_nullable_int(ret: str, dtype:
         # numpy bool cannot hold the hop's left-join NaN, so the non-empty path widens a
         # downstream node's bool column to object; the 0-row path must match, or an emptied
         # max(b.bv) returns raw bool where non-empty and master give object (Wave 37 Finding 2).
-        ("bool", "object"),
+        ("bool", "bool"),
         # Nullable `boolean` holds NA natively and stays `boolean` in the non-empty path, so it
         # must be left untouched -- widening it would be the Finding-1 over-reach in bool form.
         ("boolean", "boolean"),
