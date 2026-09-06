@@ -36,8 +36,8 @@ wins on both (:bench:`graphframes.lj.hop2.gfql_polars_vs_graphframes` and
 :bench:`graphframes.orkut.hop2.gfql_polars_vs_graphframes` of its speed). The GFQL
 filter and hop rows were measured at the head of the fix for
 `#2023 <https://github.com/graphistry/pygraphistry/issues/2023>`_
-(`#2024 <https://github.com/graphistry/pygraphistry/pull/2024>`_, not yet on master when
-measured); the released code's LiveJournal 2-hop was
+(`#2024 <https://github.com/graphistry/pygraphistry/pull/2024>`_, measured at that pull
+request's head; it has since landed on master and the ladder was not re-run); the released code's LiveJournal 2-hop was
 :bench-diag:`graphframes_059.lj.hop2.gfql_polars`, the before-state the disclosures keep.
 
 .. image:: _static/graphframes/livejournal_tasks.svg
