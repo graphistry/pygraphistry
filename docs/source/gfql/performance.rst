@@ -97,10 +97,9 @@ igraph (`#2032 <https://github.com/graphistry/pygraphistry/issues/2032>`_); a po
 native chain whose edge alias collides with the edge column its own filter uses raises
 where pandas serves it (`#2039 <https://github.com/graphistry/pygraphistry/issues/2039>`_);
 ``rows(table=nodes, source=alias)`` multiplies rows for duplicate node ids
-(`#2034 <https://github.com/graphistry/pygraphistry/issues/2034>`_). The SF0.1 GFQL
-cells were measured at the head of the pull request that landed the index-resolved seeds,
-before it reached master; the SF1 cells are the release measurement, and the Measurement
-block below carries both.
+(`#2034 <https://github.com/graphistry/pygraphistry/issues/2034>`_). The SF0.1 and SF1 GFQL
+cells are the release measurement on landed master; the Measurement block below carries the
+provenance.
 
 SF0.1
 ~~~~~
@@ -160,7 +159,7 @@ Every figure on this page is printed from ``docs/source/_data/gfql_benchmarks.js
 which pyg-bench publishes. The documentation build and ``docs/test_bench_numbers.py``
 reject missing, stale, or unpublished values.
 
-.. bench-provenance:: graphbench-q1q9-20k-20260904 graphbench-q1q9-100k-20260904 snb-aligned-release-20260902 snb-aligned-indexed-20260904 snb-aligned-indexed-2038-20260905
+.. bench-provenance:: graphbench-q1q9-20k-master-20260905 graphbench-q1q9-100k-master-20260905 snb-aligned-release-20260902 snb-master-5a6586f22-20260905
    :disclosures:
 
 Next steps
