@@ -79,6 +79,7 @@ SHAPES = {
 }
 
 
+@pytest.mark.route_engaged("native-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("shape", list(SHAPES))
 def test_lane_shapes_are_served_with_exact_parity(engine, shape):
@@ -93,6 +94,7 @@ def test_lane_shapes_are_served_with_exact_parity(engine, shape):
     pd.testing.assert_frame_equal(_canon(fast._edges), _canon(full._edges), check_dtype=False)
 
 
+@pytest.mark.route_engaged("native-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_property_index_resolves_the_seed(engine, monkeypatch):
     import graphistry.compute.gfql.index.bindings as bindings

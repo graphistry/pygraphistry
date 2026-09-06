@@ -120,6 +120,7 @@ def _disambiguation_frames():
     return nodes, edges
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["pandas"] + (["polars"] if HAS_POLARS else []))
 def test_has_label_narrowing_skipped_when_reached_ids_unique(engine: str) -> None:
     """Global id collisions must NOT trigger narrowing when the REACHED ids are unique

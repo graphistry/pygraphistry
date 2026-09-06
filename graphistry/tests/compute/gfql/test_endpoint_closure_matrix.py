@@ -242,6 +242,7 @@ def test_index_backed_seeded_hop_serves_the_closed_answer(engine):
     assert edge_pair_set(out_dangling) == set(), "index route emitted an unclosed edge"
 
 
+@pytest.mark.route_engaged("native-fast")
 @pytest.mark.parametrize("engine", ALL_ENGINES)
 def test_clean_graph_is_untouched_by_the_gate(engine):
     """POSITIVE CONTROL: with zero dangling endpoints the gate removes nothing and the node

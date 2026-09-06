@@ -226,6 +226,7 @@ def test_invalid_index_policy_raises(graph):
     graph.gfql_explain(chain, index_policy="use")
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_index_policy_force_and_explain(graph, engine):
     chain = [n({"id": 0}), e_forward(hops=1)]
@@ -311,6 +312,7 @@ def test_maybe_index_hop_reports_auto_build_decline_with_scan_parity(graph):
     assert _sig(auto_result) == _sig(scan_result)
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_explain_exposes_planner_diagnostics(graph, engine):
     """LP1: gfql_explain surfaces the planner's cost signal — seed cardinality, the
@@ -359,6 +361,7 @@ def test_seed_diagnostic_helpers_are_robust():
     assert _seed_deg_sum(_BadIdx(), np.array([0, 1])) is None
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_explain_decision_reasons_for_scan_fallbacks(engine):
     """LP1: when the planner declines the index it records *why*, so a silent scan is
@@ -390,6 +393,7 @@ def test_explain_decision_reasons_for_scan_fallbacks(engine):
         assert any(s.get("decision_reason") == "query not index-coverable" for s in steps2), (engine, steps2)
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_cost_gate_engine_aware_never_loses_to_scan(engine):
     """F1: the index-vs-scan crossover depends on scan speed, so the cost gate
@@ -518,6 +522,7 @@ def test_index_max_hops_honored(engine, hop_kw):
     assert _sig(base) == _sig(idx), f"max_hops divergence {hop_kw}"
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("max_hops", [1, 2, 3])
 def test_index_bounded_range_min_one_hops_none(engine, max_hops):
@@ -569,6 +574,7 @@ def test_index_coverability_bounded_range_boundaries():
     assert not _hop_is_index_coverable(**dict(common, min_hops=3, max_hops=2))
     assert not _hop_is_index_coverable(**dict(common, nodes=None))
 
+@pytest.mark.route_engaged("index-hop")
 def test_index_min_two_bounded_range_scans_pandas(graph):
     """Unsupported [2,2] ranges scan without entering the indexed traversal."""
     from graphistry.compute.gfql.index import index_trace
@@ -881,6 +887,7 @@ def test_chain_index_parity_vs_scan(typed_graph, engine, chain):
     assert _sig_typed(base) == _sig_typed(idx)
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_chain_typed_edge_engages_index(typed_graph, engine):
     """All four engines: a typed-edge (simple-equality edge_match) seeded chain hop
@@ -891,6 +898,7 @@ def test_chain_typed_edge_engages_index(typed_graph, engine):
     assert rep["used_index"] is True, (engine, rep)
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_chain_untyped_engages_index(typed_graph, engine):
     """An untyped seeded chain hop engages the index on every engine (pandas/cuDF via
@@ -909,6 +917,7 @@ def test_chain_membership_edge_match_stays_on_scan(typed_graph, engine):
     assert rep["used_index"] is False, (engine, rep)
 
 
+@pytest.mark.route_engaged("index-hop")
 def test_chain_range_with_auto_labels_stays_on_scan(typed_graph):
     """A Cypher range needs per-depth records, so it must decline until indexed."""
     engine = "pandas"
@@ -1060,6 +1069,7 @@ def test_hop_dtype_mismatch_edge_match_matches_scan_error(typed_graph, engine):
 # These tests pin the SHAPE (predicate sees only candidate rows), not a wall-clock
 # number, so they can't go flaky on a loaded host.
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", _cpu_engines())
 def test_typed_edge_predicate_only_reads_candidate_rows(typed_graph, engine, monkeypatch):
     """The edge_match predicate must be evaluated on the CSR-matched rows only.
@@ -1098,6 +1108,7 @@ def test_typed_edge_predicate_only_reads_candidate_rows(typed_graph, engine, mon
         "not the traversal candidates")
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", _cpu_engines())
 def test_typed_edge_predicate_cost_flat_in_graph_size(engine):
     """Growing the graph 8x while holding degree fixed must NOT grow the number of
@@ -1146,6 +1157,7 @@ def test_typed_edge_predicate_cost_flat_in_graph_size(engine):
         "the edge_match filter is scaling with the graph")
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", _cpu_engines())
 def test_typed_edge_predicate_abandons_indexed_path_on_evaluation_failure(
     typed_graph, engine, monkeypatch
@@ -1307,6 +1319,7 @@ def test_both_sides_of_the_edge_mask_cost_boundary_agree(typed_graph, engine, sh
         "(edges are identical; 1957 indexed node rows vs 1956 scanned). Strict, so it flips "
         "the moment the wave-front seed handling is unified."))),
 ])
+@pytest.mark.route_engaged("index-hop")
 def test_indexed_wavefront_node_set_matches_the_scan(typed_graph, engine, shape):
     """The index must not change WHICH NODES a wave-front hop reports, only how fast it
     gets there — the scan is the oracle."""
@@ -1331,6 +1344,7 @@ def test_indexed_wavefront_node_set_matches_the_scan(typed_graph, engine, shape)
     assert node_ids(gi.hop(nodes=seeds, **kwargs)) == node_ids(g.hop(nodes=seeds, **kwargs))
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", _cpu_engines())
 def test_forcing_the_whole_column_mask_actually_changes_the_path(typed_graph, engine, monkeypatch):
     """The negative side of the boundary must be reachable — otherwise the test above is
@@ -1376,6 +1390,7 @@ def test_forcing_the_whole_column_mask_actually_changes_the_path(typed_graph, en
     "resident_engine, requested_engine",
     [("pandas", "polars"), ("polars", "pandas")],
 )
+@pytest.mark.route_engaged("index-hop", "polars-plain")
 def test_explain_reports_bidirectional_engine_mismatch(
     graph, index_kinds, edge, expected_kinds, resident_engine, requested_engine
 ):
@@ -1470,6 +1485,7 @@ def test_auto_engine_gfql_serves_polars_index_1767_cliff():
     assert out._nodes["destination"].to_list() == [101, 102]
 
 
+@pytest.mark.route_engaged("index-hop")
 def test_auto_engine_hop_agreed_gates_never_mismatch_1767():
     """Direct g.hop() with no engine on a polars-frame indexed graph: modern AUTO
     serves natively in polars (bridge-to-pandas was the 1767-era accident), and
@@ -1744,6 +1760,7 @@ class TestIndexAutoPreservesPolarsFrames:
         assert si["usable"].all()
         assert si["reason"].isna().all()
 
+    @pytest.mark.route_engaged("index-hop")
     def test_auto_polars_hop_engages_index(self, monkeypatch):
         # big enough that one seed passes the frontier-fraction cost gate
         pl = pytest.importorskip("polars")
@@ -1994,6 +2011,7 @@ def test_shallow_augmentation_rebind_stays_correct(engine):
         assert _i1913_ids(gi.edges(aug_e, "s", "d"), _I1913_2HOP, engine) == oracle, label
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", _cpu_engines())
 def test_i1913_guard_keeps_the_executor_rebind_engaging(typed_graph, engine):
     """WHAT THE GUARD MUST NOT COST: the chain's own synthetic-edge-id augmentation is
@@ -2063,6 +2081,7 @@ def test_rebind_edges_leaves_index_resident_after_in_place_shape_mutation():
         assert reg2.get_valid(kind, aug, ("src", "dst"), _E.PANDAS) is None, kind
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", _cpu_engines())
 def test_documented_recovery_from_in_place_mutation(engine):
     """The recovery matrix named in ``ComputeMixin.gfql``'s docstring, after in-place edits
