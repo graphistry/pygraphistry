@@ -1015,6 +1015,7 @@ class TestResidentIndexSeededFastPath:
         pd.testing.assert_frame_equal(self._canon(got), self._canon(plain))
 
 
+    @pytest.mark.route_engaged("native-fast")
     def test_native_chain_hop_indexed_parity_forward_and_reverse(self, monkeypatch):
         """M1 pin: the native-chain hop helper's indexed branch (only reachable via
         chain ops, never Cypher) — forward (EDGE_OUT_ADJ) and reverse (EDGE_IN_ADJ),

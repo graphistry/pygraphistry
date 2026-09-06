@@ -122,6 +122,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/row/test_alias_prefilter_alignment_2020.py
     graphistry/tests/compute/gfql/lazy/engine/polars/test_chain_alias_column_collision_2039.py
     graphistry/tests/compute/test_chain_alias_column_collision.py
+    graphistry/tests/compute/gfql/routes/test_route_harness.py
     graphistry/tests/compute/gfql/test_engine_polars_semi_key_dedup.py
     graphistry/tests/compute/gfql/test_engine_polars_call_modality.py
     graphistry/tests/compute/gfql/test_engine_polars_gpu.py

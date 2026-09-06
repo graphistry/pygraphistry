@@ -842,6 +842,7 @@ _NAMED_VALUE_PARITY_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = re
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
 @pytest.mark.parametrize("label,build", _NAMED_VALUE_PARITY_SHAPES,
                          ids=[s[0] for s in _NAMED_VALUE_PARITY_SHAPES])
+@pytest.mark.route_engaged("native-fast")
 def test_fast_path_named_full_frame_value_parity(engine, label, build):
     """POSITIVE, whole-frame: a named served result must carry the same VALUES as the
     full path on EVERY column — ids, data columns, and alias flags — not just the id
