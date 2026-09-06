@@ -1351,7 +1351,11 @@ def _chain_impl(
                     sort=False,
                 ).drop_duplicates(subset=[g_out._node])
                 endpoints = align_shared_column_dtypes(g_out._nodes, endpoints)
-                g_out = g_out.nodes(safe_row_concat([g_out._nodes, endpoints], ignore_index=True, sort=False).drop_duplicates(subset=[g_out._node]))
+                missing = endpoints[~endpoints[g_out._node].isin(g_out._nodes[g_out._node])]
+                nodes_out = g_out._nodes
+                if len(missing) > 0:  # only a dangling endpoint is backfilled; a present id would widen the attribute dtypes
+                    nodes_out = safe_row_concat([nodes_out, missing], ignore_index=True, sort=False)
+                g_out = g_out.nodes(nodes_out.drop_duplicates(subset=[g_out._node]))
 
             success = True
 
