@@ -29,7 +29,7 @@ from .dtypes import is_lazy, colnames, endpoint_ids
 from .degrees import get_degrees_polars, get_indegrees_polars, get_outdegrees_polars
 from .predicates import filter_by_dict_polars
 from .reserved_columns import CHAIN_NODE_HOP
-from graphistry.compute.gfql.identifiers import shadow_restore_column
+from graphistry.compute.gfql.identifiers import shadow_restore_column, shadow_restore_wanted
 
 
 def _polars_error_types() -> Tuple[Type[BaseException], ...]:
@@ -370,9 +370,12 @@ def _combine_edges(g: "_LazyShim",
     for op, g_step in label_steps:
         if op._name is not None and isinstance(op, ASTEdge) and g_step._edges is not None and op._name in colnames(g_step._edges):
             named = g_step._edges.filter(pl.col(op._name)).select(pl.col(edge_id)).with_columns(pl.lit(True).alias(op._name))
-            if op._name in colnames(out):  # the alias marker shadows the user column; its values stay under the restore name for Cypher scoping
-                restore = shadow_restore_column(op._name)
-                out = out.drop([c for c in (restore,) if c in colnames(out)]).rename({op._name: restore})
+            if op._name in colnames(out):  # the alias marker shadows the user column; only a Cypher pipeline keeps its values, under the restore name
+                if shadow_restore_wanted():
+                    restore = shadow_restore_column(op._name)
+                    out = out.drop([c for c in (restore,) if c in colnames(out)]).rename({op._name: restore})
+                else:
+                    out = out.drop(op._name)
             out = out.join(named, on=edge_id, how="left").with_columns(pl.col(op._name).fill_null(False))
     return out
 

@@ -122,6 +122,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/lazy/engine/polars/test_chain_duplicate_node_rows_2051.py
     graphistry/tests/compute/gfql/cypher/test_variable_column_collision.py
     graphistry/tests/compute/test_chain_alias_column_collision.py
+    graphistry/tests/compute/test_gfql_op_list_hides_internal_columns.py
     graphistry/tests/compute/gfql/test_engine_polars_semi_key_dedup.py
     graphistry/tests/compute/gfql/test_engine_polars_call_modality.py
     graphistry/tests/compute/gfql/test_engine_polars_gpu.py
