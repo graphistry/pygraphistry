@@ -1003,68 +1003,6 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         if seeded is not None:
             return seeded
     if plain_shape is not None:
-        n0, e1, n2 = ops
-        node_table_bound = self._nodes is not None
-        gf = ensure_nodes_polars(self)
-        ncol, scol, dcol = gf._node, gf._source, gf._destination
-        assert ncol is not None and scol is not None and dcol is not None
-        gf, restore = _align_edge_endpoints(gf, ncol, scol, dcol)
-        edges = drop_null_endpoint_edges(gf._edges, scol, dcol)
-        n_from, n_to = (n0, n2) if e1.direction != "reverse" else (n2, n0)
-        all_ids = gf._nodes.select(pl.col(ncol))
-
-        def _filter_ids(node_op: ASTNode) -> "Optional[PolarsFrame]":
-            if not node_op.filter_dict:
-                return None
-            return filter_by_dict_polars(gf._nodes, node_op.filter_dict).select(pl.col(ncol))
-
-            filter_sides = ((scol, _filter_ids(n_from)), (dcol, _filter_ids(n_to)))
-            for endpoint_col, filter_ids in filter_sides:
-                if filter_ids is not None:
-                    edges = edges.join(filter_ids, left_on=endpoint_col, right_on=ncol, how="semi")
-            # A filtered side drew its ids FROM the node table; a synthesized one is vacuously closed.
-            sides_not_closed_by_a_filter = (
-                [col for col, filter_ids in filter_sides if filter_ids is None]
-                if node_table_bound else [])
-            endpoints = endpoint_ids(edges, scol, dcol, ncol)
-            if sides_not_closed_by_a_filter:
-                from graphistry.compute.gfql.lazy import collect_all
-                unresolvable, nodes = collect_all([
-                    endpoints.lazy().join(all_ids.lazy(), on=ncol, how="anti").select(pl.len()),
-                    gf._nodes.lazy().join(endpoints.lazy(), on=ncol, how="semi"),
-                ])
-                if unresolvable.item() > 0:
-                    for endpoint_col in sides_not_closed_by_a_filter:
-                        edges = edges.join(all_ids, left_on=endpoint_col, right_on=ncol, how="semi")
-                    nodes = gf._nodes.join(
-                        endpoint_ids(edges, scol, dcol, ncol), on=ncol, how="semi")
-            else:
-                nodes = gf._nodes.join(endpoints, on=ncol, how="semi")
-            nodes = nodes.unique(subset=[ncol], maintain_order=True)  # one row per node id, as the full chain and pandas collapse
-            return gf.nodes(nodes, ncol).edges(_restore_edge_dtypes(edges, scol, dcol, restore), scol, dcol)
-        filter_sides = ((scol, _filter_ids(n_from)), (dcol, _filter_ids(n_to)))
-        for endpoint_col, filter_ids in filter_sides:
-            if filter_ids is not None:
-                edges = edges.join(filter_ids, left_on=endpoint_col, right_on=ncol, how="semi")
-        # A filtered side drew its ids FROM the node table; a synthesized one is vacuously closed.
-        sides_not_closed_by_a_filter = (
-            [col for col, filter_ids in filter_sides if filter_ids is None]
-            if node_table_bound else [])
-        endpoints = endpoint_ids(edges, scol, dcol, ncol)
-        if sides_not_closed_by_a_filter:
-            from graphistry.compute.gfql.lazy import collect_all
-            unresolvable, nodes = collect_all([
-                endpoints.lazy().join(all_ids.lazy(), on=ncol, how="anti").select(pl.len()),
-                gf._nodes.lazy().join(endpoints.lazy(), on=ncol, how="semi"),
-            ])
-            if unresolvable.item() > 0:
-                for endpoint_col in sides_not_closed_by_a_filter:
-                    edges = edges.join(all_ids, left_on=endpoint_col, right_on=ncol, how="semi")
-                nodes = gf._nodes.join(
-                    endpoint_ids(edges, scol, dcol, ncol), on=ncol, how="semi")
-        else:
-            nodes = gf._nodes.join(endpoints, on=ncol, how="semi")
-        return gf.nodes(nodes, ncol).edges(_restore_edge_dtypes(edges, scol, dcol, restore), scol, dcol)
         return _plain_single_hop_polars(self, ops)
 
     if start_nodes is not None:
