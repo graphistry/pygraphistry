@@ -25,7 +25,7 @@ EXPECTED = {
     "plain single hop, seeded, destination filter": "skip-combine",
     "plain single hop, undirected, unconstrained": "skip-combine",
     "plain single hop, undirected, seeded": None,
-    "single hop, prune to endpoints": "seeded-index",
+    "single hop, prune to endpoints": None,
 }
 
 
@@ -51,8 +51,6 @@ def _sig(res):
 
 @pytest.mark.parametrize("name", [k for k, v in EXPECTED.items() if v is not None])
 def test_admitted_shapes_match_the_pandas_full_path(name, request):
-    if name == "single hop, prune to endpoints":
-        request.applymarker(pytest.mark.xfail(strict=True, reason="graphistry/pygraphistry#2053"))
     ops = by_name()[name].ops()
     g_pd = graphistry.nodes(NODES, "key").edges(EDGES, "s", "d", "eid")
     g_pl = graphistry.nodes(pl.from_pandas(NODES), "key").edges(pl.from_pandas(EDGES), "s", "d", "eid")
@@ -111,3 +109,21 @@ def test_seeded_lane_called_directly_serves_every_admitted_non_colliding_shape(n
     ops = by_name()[name].ops()
     res = hot._try_seeded_chain_polars(_indexed_polars_graph(), ops)
     assert (res is not None) == (name in SEEDED_LANE_SERVES_DIRECTLY)
+
+
+@pytest.mark.parametrize("ops_name", ["single hop, prune to endpoints"])
+def test_prune_to_endpoints_is_a_typed_decline_on_polars_and_served_on_pandas(ops_name):
+    """A single-hop edge has no hop labels to prune by on polars, so prune_to_endpoints there
+    raises the engine's NotImplementedError (variable-length hops keep their native pruning);
+    pandas answers the shape."""
+    ops = by_name()[ops_name].ops()
+    g_pl = graphistry.nodes(pl.from_pandas(NODES), "key").edges(pl.from_pandas(EDGES), "s", "d", "eid")
+    with pytest.raises(NotImplementedError, match="prune_to_endpoints"):
+        g_pl.gfql(ops, engine="polars")
+    unseeded = [n(), e_forward(prune_to_endpoints=True), n()]
+    with pytest.raises(NotImplementedError, match="prune_to_endpoints"):
+        g_pl.gfql(unseeded, engine="polars")
+    g_pd = graphistry.nodes(NODES, "key").edges(EDGES, "s", "d", "eid")
+    assert _sig(g_pd.gfql(ops, engine="pandas"))[0] == [2, 3]
+    assert polars_plain_single_hop_admits(ops, None) is None
+    assert polars_plain_single_hop_admits([n({"key": 1}), e_forward(), n()], None) == "seeded-index"

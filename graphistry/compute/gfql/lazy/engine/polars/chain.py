@@ -939,6 +939,11 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     if isinstance(ops[-1], ASTEdge):
         ops = ops + [ASTNode()]
 
+    if any(isinstance(op, ASTEdge) and op.prune_to_endpoints and op.is_simple_single_hop() for op in ops):
+        raise NotImplementedError(
+            "polars chain engine: prune_to_endpoints on a single-hop edge (arrival-side pruning "
+            "by hop label) is not implemented; use engine='pandas' or engine='cudf'"
+        )
     if any(
         isinstance(op, ASTEdge) and not op.is_simple_single_hop() and not _is_native_multihop(op)
         for op in ops

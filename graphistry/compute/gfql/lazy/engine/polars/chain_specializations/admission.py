@@ -18,7 +18,7 @@ def _plain_edge(op: ASTObject) -> bool:
             and op.edge_match is None and op.source_node_match is None
             and op.destination_node_match is None and op._name is None
             and op.source_node_query is None and op.destination_node_query is None
-            and op.edge_query is None and not op.include_zero_hop_seed)
+            and op.edge_query is None and not op.include_zero_hop_seed and not op.prune_to_endpoints)
 
 
 def polars_plain_single_hop_admits(ops: Sequence[ASTObject], start_nodes: Optional[object]) -> Optional[PolarsPlainSingleHopShape]:
