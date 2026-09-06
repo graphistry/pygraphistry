@@ -25,7 +25,7 @@ from .gfql.policy import (
     QueryType,
     expand_policy
 )
-from graphistry.compute.gfql.identifiers import TRAIL_ARM_EDGE_ALIAS_PREFIX
+from graphistry.compute.gfql.identifiers import cypher_pipeline, TRAIL_ARM_EDGE_ALIAS_PREFIX
 from graphistry.compute.gfql.same_path_types import (
     EDGE_IDENTITY_COLUMN,
     NODE_IDENTITY_COLUMN,
@@ -1682,6 +1682,19 @@ def _execute_compiled_query_chain_non_union(
 
 
 def _execute_compiled_query_with_reentry(
+    base_graph: Plottable,
+    *,
+    compiled_query: Union[CompiledCypherQuery, CompiledCypherUnionQuery],
+    engine: Union[EngineAbstract, str],
+    policy: Optional[PolicyDict],
+    context: ExecutionContext,
+) -> Plottable:
+    with cypher_pipeline():
+        return _execute_compiled_query_with_reentry_impl(
+            base_graph, compiled_query=compiled_query, engine=engine, policy=policy, context=context)
+
+
+def _execute_compiled_query_with_reentry_impl(
     base_graph: Plottable,
     *,
     compiled_query: Union[CompiledCypherQuery, CompiledCypherUnionQuery],
