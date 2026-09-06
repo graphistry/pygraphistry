@@ -3748,10 +3748,9 @@ def _execute_seeded_typed_hop_fast_path(
     # intermediate graph, so trusting requested_engine would run polars ops on a
     # pandas frame (and vice versa). The pandas branch also covers cuDF (shared API).
     from graphistry.Engine import is_polars_df
-    from graphistry.compute.chain_fast_paths import (
-        _seeded_typed_return_dst_pandas_cudf, _seeded_typed_return_dst_polars,
-        _resident_seed_indexes,
-    )
+    from graphistry.compute.chain_fast_paths import _resident_seed_indexes
+    from graphistry.compute.chain_specializations.hotpaths import _seeded_typed_return_dst_pandas_cudf
+    from graphistry.compute.gfql.lazy.engine.polars.chain_specializations.hotpaths import _seeded_typed_return_dst_polars
     nodes_frame = base_graph._nodes
     is_polars = is_polars_df(nodes_frame)
     if is_polars != is_polars_df(base_graph._edges):

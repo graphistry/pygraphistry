@@ -10,10 +10,10 @@ import pandas as pd
 import pytest
 
 import graphistry
-import graphistry.compute.chain_fast_paths as cfp
+import graphistry.compute.gfql.lazy.engine.polars.chain as pchain
+import graphistry.compute.gfql.lazy.engine.polars.chain_specializations.hotpaths as hot
 from graphistry.compute.ast import e_forward, n
-from graphistry.compute.chain_fast_paths import polars_seeded_lane_admits
-from graphistry.compute.gfql.lazy.engine.polars.chain import polars_plain_single_hop_admits
+from graphistry.compute.gfql.lazy.engine.polars.chain_specializations.admission import polars_plain_single_hop_admits, polars_seeded_lane_admits
 from graphistry.tests.compute.gfql.routes.corpus import CORPUS, EDGES, NODES, by_name
 
 pl = pytest.importorskip("polars")
@@ -81,20 +81,20 @@ def _indexed_polars_graph():
 def test_seeded_lane_never_serves_a_shape_it_does_not_admit(name):
     ops = by_name()[name].ops()
     g = _indexed_polars_graph()
-    real = cfp._try_seeded_chain_polars
+    real = pchain._try_seeded_chain_polars
     hit = {"n": 0}
 
     def spy(*a, **k):
         r = real(*a, **k)
         hit["n"] += r is not None
         return r
-    cfp._try_seeded_chain_polars = spy
+    pchain._try_seeded_chain_polars = spy
     try:
         g.gfql(ops, engine="polars", index_policy="use")
     except Exception:
         pass
     finally:
-        cfp._try_seeded_chain_polars = real
+        pchain._try_seeded_chain_polars = real
     assert hit["n"] == 0 or polars_seeded_lane_admits(ops), f"{name}: served without admission"
 
 
@@ -105,8 +105,9 @@ SEEDED_LANE_SERVES_DIRECTLY = SEEDED_LANE_ADMITS - {
 }
 
 
+@pytest.mark.route_engaged("polars-seeded")
 @pytest.mark.parametrize("name", sorted(SEEDED_LANE_ADMITS))
 def test_seeded_lane_called_directly_serves_every_admitted_non_colliding_shape(name):
     ops = by_name()[name].ops()
-    res = cfp._try_seeded_chain_polars(_indexed_polars_graph(), ops)
+    res = hot._try_seeded_chain_polars(_indexed_polars_graph(), ops)
     assert (res is not None) == (name in SEEDED_LANE_SERVES_DIRECTLY)
