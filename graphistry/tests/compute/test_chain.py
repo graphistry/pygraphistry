@@ -1278,8 +1278,6 @@ def test_fast_path_drops_nan_endpoint_edges(engine):
 
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
 def test_fast_path_dedups_duplicate_node_ids_on_hop(engine, request):
-    if engine == "cudf" and _cudf_at_least_26():
-        request.applymarker(pytest.mark.xfail(strict=True, reason="graphistry/pygraphistry#2043"))
     """A malformed node table with duplicate ids must not make the 1-hop fast path
     diverge from the full path (which collapses dup rows via its merge)."""
     nodes = pd.DataFrame({'v': [0, 0, 1, 2], 'attr': [1, 1, 2, 3]})
