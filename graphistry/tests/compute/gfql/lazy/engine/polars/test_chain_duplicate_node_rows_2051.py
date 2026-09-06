@@ -48,7 +48,6 @@ def test_hop_collapses_the_duplicate():
 
 
 @pytest.mark.parametrize("shape", ["unnamed untyped single hop", "unnamed single hop with destination filter"])
-@pytest.mark.xfail(strict=True, reason="graphistry/pygraphistry#2051")
 def test_unnamed_untyped_single_hop_collapses_the_duplicate(shape):
     g_pd, g_pl = _graph()
     ops = [n({"key": 1}), e_forward(), n()] if shape == "unnamed untyped single hop" else [n({"key": 1}), e_forward(), n({"id": 20})]
