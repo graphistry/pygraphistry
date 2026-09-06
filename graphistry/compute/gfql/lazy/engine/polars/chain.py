@@ -18,7 +18,9 @@ from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
-from graphistry.compute.chain_fast_paths import _single_node_rows_via_index_or_filter, _try_seeded_chain_polars
+from graphistry.compute.chain_specializations.hotpaths import _single_node_rows_via_index_or_filter
+from .chain_specializations.admission import polars_plain_single_hop_admits
+from .chain_specializations.hotpaths import _plain_seeded_index_hop_polars, _plain_single_hop_polars, _try_seeded_chain_polars
 
 if TYPE_CHECKING:
     import polars as pl
@@ -220,41 +222,6 @@ def _exec(op: ASTObject, g: Plottable, prev_wf: Optional[Any], target_wf: Option
         return g_step
 
     raise NotImplementedError(f"polars chain engine does not support op {type(op).__name__}")
-
-
-PolarsPlainSingleHopShape = Literal["seeded-index", "skip-combine"]
-
-
-def _plain_node(op: ASTObject) -> bool:
-    return isinstance(op, ASTNode) and op._name is None and op.query is None
-
-
-def _plain_edge(op: ASTObject) -> bool:
-    return (isinstance(op, ASTEdge) and op.is_simple_single_hop()
-            and op.edge_match is None and op.source_node_match is None
-            and op.destination_node_match is None and op._name is None
-            and op.source_node_query is None and op.destination_node_query is None
-            and op.edge_query is None and not op.include_zero_hop_seed)
-
-
-def polars_plain_single_hop_admits(ops: Sequence[ASTObject], start_nodes: Optional[object]) -> Optional[PolarsPlainSingleHopShape]:
-    """The polars chain's plain single-hop branch for ``ops``: ``"seeded-index"`` when the
-    resident-index hop is consulted first (seed filter, no destination filter, directed),
-    ``"skip-combine"`` when the one-hop endpoint filter serves it without the
-    forward/backward/combine passes, None when the full chain runs. The dispatcher calls
-    this; unnamed, unqueried nodes and an unnamed, unmatched simple edge are the shape.
-    A filtered undirected hop is the one plain shape that still takes the full chain."""
-    if start_nodes is not None or len(ops) != 3:
-        return None
-    n0, e1, n2 = ops
-    if not (_plain_node(n0) and _plain_edge(e1) and _plain_node(n2)):
-        return None
-    assert isinstance(n0, ASTNode) and isinstance(e1, ASTEdge) and isinstance(n2, ASTNode)
-    directed = e1.direction in ("forward", "reverse")
-    if n0.filter_dict and not n2.filter_dict and directed:
-        return "seeded-index"
-    unconstrained = not n0.filter_dict and not n2.filter_dict
-    return "skip-combine" if (unconstrained or directed) else None
 
 
 def _is_native_multihop(op: ASTObject) -> bool:
@@ -1026,40 +993,15 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
                 "undirected edges in multi-edge chains; deferred undirected sub-cases — "
                 "include_zero_hop_seed or *_query — require engine='pandas'."
             )
-
-    # Single-hop shape: [n(), e, n()] with no names/queries/matches (`MATCH (a {f})-[e]->(b)`).
-    # Result = edges whose endpoints pass the node filters + those endpoint nodes
-    # (isolated/dead-ends excluded); one hop means the backward pass prunes nothing more, so skip
-    # forward/backward/combine. Byte-identical vs pandas (verified: src/dst/both filters, reverse,
-    # dup/self-loop/cycle/isolated). Undirected takes this branch only when UNCONSTRAINED;
-    # filtered-undirected (OR of both directions) falls through to the full path.
     plain_shape = polars_plain_single_hop_admits(ops, start_nodes)
-
-    # GFQL physical index path for the seeded single-hop shape
-    # `MATCH (a {id-filter})-[e]->(b)` (forward/reverse, no destination filter). This native
-    # chain branch never reaches compute/hop.py, so it must consult the index here too.
-    from graphistry.compute.gfql.index import get_index_policy
-    _idx_pol = get_index_policy(self)
     if plain_shape == "seeded-index":
-        from graphistry.compute.gfql.index import get_registry, maybe_index_hop
-        if (not get_registry(self).is_empty()) or _idx_pol in ("auto", "force"):
-            gf0 = ensure_nodes_polars(self)
-            seed0 = filter_by_dict_polars(gf0._nodes, ops[0].filter_dict)
-            from graphistry.Engine import Engine
-            from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
-            _eng0 = Engine.POLARS_GPU if active_target() == ExecutionTarget.GPU else Engine.POLARS
-            _idxed0 = maybe_index_hop(
-                gf0, _eng0, nodes=seed0, hops=1, direction=ops[1].direction,
-                return_as_wave_front=False, to_fixed_point=False, policy=_idx_pol,
-            )
-            if _idxed0 is not None:
-                return _idxed0
-
+        indexed = _plain_seeded_index_hop_polars(self, ops)
+        if indexed is not None:
+            return indexed
     if start_nodes is None:
         seeded = _try_seeded_chain_polars(self, ops)
         if seeded is not None:
             return seeded
-
     if plain_shape is not None:
         n0, e1, n2 = ops
         node_table_bound = self._nodes is not None
@@ -1123,6 +1065,7 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
         else:
             nodes = gf._nodes.join(endpoints, on=ncol, how="semi")
         return gf.nodes(nodes, ncol).edges(_restore_edge_dtypes(edges, scol, dcol, restore), scol, dcol)
+        return _plain_single_hop_polars(self, ops)
 
     if start_nodes is not None:
         from graphistry.Engine import Engine, df_to_engine

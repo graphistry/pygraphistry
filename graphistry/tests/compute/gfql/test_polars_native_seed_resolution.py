@@ -134,7 +134,7 @@ def test_stale_property_index_does_not_select_old_seed(monkeypatch):
 @pytest.mark.parametrize("case", ["lazy", "mixed", "varlen", "collision", "duplicate", "undirected"])
 def test_native_seeded_hop_declines_unsupported_shapes(case):
     from graphistry.compute.ast import e_undirected
-    from graphistry.compute.chain_fast_paths import _try_seeded_chain_polars
+    from graphistry.compute.gfql.lazy.engine.polars.chain_specializations.hotpaths import _try_seeded_chain_polars
     g = _graph()
     ops = [n({"id": 104}, name="m"), e_forward({"type": "T"}), n(name="p")]
     if case == "lazy":

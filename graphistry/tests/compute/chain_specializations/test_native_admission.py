@@ -12,7 +12,7 @@ import graphistry
 import graphistry.compute.chain as chain_mod
 from graphistry.Engine import Engine
 from graphistry.compute.ast import e_forward, n
-from graphistry.compute.chain_fast_paths import native_fast_path_admits
+from graphistry.compute.chain_specializations.admission import native_fast_path_admits
 from graphistry.tests.compute.gfql.routes.corpus import CORPUS, EDGES, NODES, by_name
 
 ENGINES = ["pandas", "cudf"]
