@@ -768,6 +768,7 @@ _NAMED_ALIAS_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
 @pytest.mark.parametrize("label,build", _NAMED_ALIAS_SHAPES,
                          ids=[s[0] for s in _NAMED_ALIAS_SHAPES])
+@pytest.mark.route_engaged("native-fast")
 def test_fast_path_named_alias_columns_match_full_path(engine, label, build):
     """The capability this fast-path extension actually adds: when the traversal is
     served without the BFS, the alias flag columns `combine_steps` would have merged in
@@ -877,6 +878,7 @@ _NAMED_EMPTY_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
 @pytest.mark.parametrize("label,build", _NAMED_EMPTY_SHAPES,
                          ids=[s[0] for s in _NAMED_EMPTY_SHAPES])
+@pytest.mark.route_engaged("native-fast")
 def test_fast_path_named_empty_result_matches_full_path(engine, label, build):
     """POSITIVE boundary: named patterns matching ZERO rows are still served, and the
     empty result must be shape-identical to the full path — same columns INCLUDING the
@@ -898,6 +900,7 @@ def test_fast_path_named_empty_result_matches_full_path(engine, label, build):
     assert len(un) == 0 and len(ue) == 0
 
 
+@pytest.mark.route_engaged("native-fast")
 def test_fast_path_named_zero_edge_graph_matches_full_path():
     """POSITIVE boundary: a graph with an EMPTY edge table. The named pattern is served,
     and both lanes must agree on the all-empty answer with alias columns present."""
@@ -953,6 +956,7 @@ def test_fast_path_cross_type_alias_share_declines_and_matches():
     _assert_full_frame_value_parity(default_route._edges, policy_route._edges, ['s', 'd'])
 
 
+@pytest.mark.route_engaged("native-fast")
 def test_fast_path_named_is_served_with_a_valid_resident_index():
     """A NAMED pattern with BOTH resident indexes validly covering the directed hop is
     served by the chain fast path: by the time it runs, the indexed kernel has already
@@ -976,6 +980,7 @@ def test_fast_path_named_is_served_with_a_valid_resident_index():
     _assert_full_frame_value_parity(served._edges, full._edges, ['s', 'd'])
 
 
+@pytest.mark.route_engaged("native-fast")
 def test_fast_path_named_datetime_categorical_columns_ride_along():
     """POSITIVE dtype edge: datetime64 and categorical NODE columns must ride through
     the served named lane unchanged — same values as the full path, dtypes preserved
@@ -1119,6 +1124,7 @@ def test_fast_path_alias_colliding_with_node_id_binding_matches_full_path(build)
         _assert_full_frame_value_parity(fast._edges, full._edges, ['s', 'd'])
 
 
+@pytest.mark.route_engaged("native-fast")
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
 def test_fast_path_preserves_int_node_dtypes(engine):
     """Documented behavior change: the 1-hop fast path PRESERVES node-attribute

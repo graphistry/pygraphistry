@@ -162,12 +162,14 @@ def _graph_for(graphs: Dict[str, Any], engine: str) -> Any:
     return graphs[engine]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine,shape", _cases(only_served=False))
 def test_basic_shape_is_served_by_a_fast_path(graphs: Dict[str, Any], engine: str, shape: str) -> None:
     g = _graph_for(graphs, engine)
     assert _served(g, CYPHER[shape], engine), f"{engine}: {shape} fell off the fast path"
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine,shape", _cases(only_served=True))
 def test_served_shape_costs_a_bounded_multiple_of_plain_frame_ops(
     graphs: Dict[str, Any], engine: str, shape: str

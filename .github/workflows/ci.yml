@@ -1589,6 +1589,63 @@ jobs:
         source pygraphistry/bin/activate
         ./bin/test-graphviz.sh
 
+  gfql-routes-off:
+    # Non-blocking ledger: replays the GFQL suites with one hot path declined per cell
+    # (GFQL_ROUTES_OFF); engagement pins are skipped via the route_engaged marker, so the
+    # uploaded lists hold route-vs-general result divergences only.
+    needs: [changes, test-gfql-core, generate-lockfiles]
+    if: ${{ needs.changes.outputs.gfql == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [native-fast, polars-seeded, polars-plain, index-hop, indexed-kernel, cypher-fast, all-off]
+
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+        persist-credentials: false
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.12
+
+    - name: Download lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+        path: requirements
+
+    - name: Install Python dependencies
+      run: |
+        python -m venv pygraphistry
+        source pygraphistry/bin/activate
+        python -m pip install --upgrade pip uv
+        uv pip install --require-hashes -r requirements/test-polars-py3.12.lock
+        uv pip install -e . --no-deps
+
+    - name: Routes-off replay (${{ matrix.mode }})
+      run: |
+        source pygraphistry/bin/activate
+        MODES=${{ matrix.mode }} ./bin/test-routes-off.sh
+        echo "## routes-off: ${{ matrix.mode }}" >> "$GITHUB_STEP_SUMMARY"
+        sed 's/^/- /' build/routes-off/${{ matrix.mode }}.divergences >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload ledger
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: routes-off-${{ matrix.mode }}
+        path: build/routes-off/
+        if-no-files-found: ignore
+
   test-polars:
     needs: [changes, test-minimal-python, test-gfql-core, generate-lockfiles]
     if: ${{ ((needs.changes.outputs.python == 'true' && needs.changes.outputs.narrow_python_only != 'true') || needs.changes.outputs.gfql == 'true' || needs.changes.outputs.pandas_compat == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(needs.changes.outputs.docs_only_latest == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')) }}

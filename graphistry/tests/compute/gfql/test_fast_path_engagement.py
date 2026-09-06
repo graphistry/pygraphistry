@@ -36,6 +36,7 @@ def _graph(engine: str = "pandas"):
 ENGINES = ["pandas", "polars", "cudf"]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_two_hop_count_fast_path_engages(engine: str) -> None:
     """Engagement is per-ENGINE: a path that serves on pandas can silently decline
@@ -111,6 +112,7 @@ def test_unknown_fast_path_name_is_reported_not_silently_missing() -> None:
         assert_fast_path(_graph(), Q_TWO_HOP, "two_hop_cont", served=True)  # type: ignore[arg-type]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_seeded_typed_hop_fast_path_engages(engine: str) -> None:
     """The third path. It is consulted LAST, so its pin doubles as evidence the
@@ -132,6 +134,7 @@ def test_seeded_typed_hop_fast_path_engages(engine: str) -> None:
     assert seen.get("two_hop_count") is False
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_seeded_node_lookup_fast_path_engages(engine: str) -> None:
     """The fourth path, consulted last: a seeded single-node pattern with a property
@@ -162,6 +165,7 @@ def test_fast_paths_have_no_bare_collect():
     assert not offenders, f"bare collects bypass the execution target: {offenders}"
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["pandas", "polars"])
 def test_fast_paths_serve_identically_under_cpu_target_context(engine: str) -> None:
     """The #1824 target threading must be a no-op on CPU engines: same answers,

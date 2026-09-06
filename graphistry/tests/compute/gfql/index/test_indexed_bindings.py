@@ -279,6 +279,7 @@ CONNECTED_QUERY = (
         pytest.param("off", "index_policy_off", False),
     ],
 )
+@pytest.mark.route_engaged("cypher-fast")
 def test_destination_unique_trace_and_lifecycle(
     engine: str,
     case: str,
@@ -326,6 +327,7 @@ def test_destination_unique_trace_and_lifecycle(
         pytest.param("off", "index_policy_off", False),
     ],
 )
+@pytest.mark.route_engaged("index-hop", "indexed-kernel")
 def test_connected_path_bag_trace_and_lifecycle(
     engine: str,
     case: str,
@@ -425,6 +427,7 @@ def test_standard_derived_connected_parity(
     )
 
 
+@pytest.mark.route_engaged("index-hop", "indexed-kernel")
 def test_pandas_connected_boundary_bypasses_canonical_traversal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -473,6 +476,7 @@ def test_destination_property_projection_dtype_parity(
     _assert_parity(g, query, engine, monkeypatch, seam="destination_return")
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 def test_polars_connected_boundary_bypasses_canonical_traversal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -523,6 +527,7 @@ def test_unnamed_middle_rows_call_matches_canonical(
     _assert_result_exact(actual, expected, engine)
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 @pytest.mark.parametrize("seed_kind", ["seed", "noise"])
 def test_pandas_internal_id_plus_constraints_gathers_seed_before_filter(
     seed_kind: str,
@@ -596,6 +601,7 @@ def _seed_filter_widths(
     return actual, steps, widths
 
 
+@pytest.mark.route_engaged("index-hop", "indexed-kernel")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_node_property_index_seeds_without_scanning(
     engine: str,
@@ -614,6 +620,7 @@ def test_node_property_index_seeds_without_scanning(
     assert widths and widths[0] == 1  # one indexed candidate, not the node table
 
 
+@pytest.mark.route_engaged("index-hop")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_node_property_index_absent_matches_indexed(
     engine: str,
@@ -692,6 +699,7 @@ def test_node_property_index_declines_unindexable_columns() -> None:
         g.gfql_index_node_props(["nosuch"])
 
 
+@pytest.mark.route_engaged("index-hop")
 def test_node_property_index_prefers_the_most_selective_column(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -815,6 +823,7 @@ def test_polars_early_gate_refuses_unsupported_boundaries(
     assert attempted is False, f"polars gate recorded an attempt on {reason}"
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 def test_polars_early_gate_requires_the_whole_middle() -> None:
     """binding_ops that do not cover the middle must not take the bypass."""
     pytest.importorskip("polars")
@@ -845,6 +854,7 @@ def test_polars_early_gate_requires_the_whole_middle() -> None:
     assert attempted is True and state is not None
 
 
+@pytest.mark.route_engaged("index-hop", "indexed-kernel")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_indexed_execution_is_pure(
     engine: str,
@@ -1042,6 +1052,7 @@ def test_policy_declines_without_skipping_hooks(
     assert decisions[0]["reason"] == "policy_active"
 
 
+@pytest.mark.route_engaged("index-hop", "indexed-kernel")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_renamed_and_permuted_shape_remains_generic(
     engine: str,
@@ -1084,6 +1095,7 @@ def test_renamed_and_permuted_shape_remains_generic(
     )
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("error_type", [RuntimeError, MemoryError])
 def test_unexpected_and_memory_errors_propagate(
@@ -1110,6 +1122,7 @@ def test_unexpected_and_memory_errors_propagate(
         )
 
 
+@pytest.mark.route_engaged("indexed-kernel")
 def test_use_policy_sparse_serves_dense_declines(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

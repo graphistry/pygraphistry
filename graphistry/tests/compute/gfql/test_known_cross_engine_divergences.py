@@ -71,6 +71,7 @@ def test_1739_has_label_aggregate_on_duplicate_ids_converges():
     assert out_pl == narrowed
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @polars_only
 @pytest.mark.xfail(strict=True, reason="#1824: fast paths serve CPU work under engine='polars-gpu'")
 def test_1824_polars_gpu_fast_path_serve_is_gpu_or_decline():

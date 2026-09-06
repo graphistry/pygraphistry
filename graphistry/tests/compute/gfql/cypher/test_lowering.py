@@ -18605,6 +18605,7 @@ def _col_stats_trace(g: Any, query: str) -> List[Tuple[str, str, str]]:
             for s in steps if s.get("op") == "col_stats"]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 def test_t6_col_stats_decisions_are_visible_in_the_trace() -> None:
     """A dead fact is otherwise INVISIBLE: values stay correct, so no value test
     can fail. The trace distinguishes outcomes because their fixes differ."""
@@ -19104,6 +19105,7 @@ def _h3_records(result: Plottable) -> List[Dict[str, Any]]:
     return cast(List[Dict[str, Any]], _to_pandas_df(result._nodes).to_dict(orient="records"))
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_h3_fused_two_hop_count_serves_distinct_domain_shape(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
     nodes, edges = _mk_h3_base_data()
@@ -19117,6 +19119,7 @@ def test_h3_fused_two_hop_count_serves_distinct_domain_shape(engine: str, monkey
     assert _h3_records(result) == oracle == [{"numPaths": 5}]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_h3_fused_two_hop_count_serves_distinct_edge_domains(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Distinct EDGE matches with identical node filters also leave the equal-domain branch."""
@@ -19259,6 +19262,7 @@ def test_h3_fused_two_hop_count_empty_match_counts_zero(engine: str, monkeypatch
     assert _h3_records(result) == [{"numPaths": 0}]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_h3_fused_two_hop_count_serves_projected_away_reserved_column(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """A PAYLOAD edge column named like a degree counter no longer forces a decline:
@@ -19277,6 +19281,7 @@ def test_h3_fused_two_hop_count_serves_projected_away_reserved_column(engine: st
     assert _h3_records(result) == [{"numPaths": 5}]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
 def test_h3_fused_two_hop_count_still_declines_reserved_endpoint_binding(engine: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """NEGATIVE (the guard's remaining reachable side): when the SRC binding itself

@@ -74,6 +74,7 @@ def _run(g, query=Q, engine="pandas"):
         fp._two_hop_equal_domain_dense_total = real
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_degree_fact_is_built_and_actually_used(engine: str) -> None:
     """Engagement, not just correctness: a built-but-unused fact returns the same
@@ -199,6 +200,7 @@ Q_FILTERED = ("MATCH (a {kind:'P'})-[{rel:'F'}]->(b {kind:'P'})"
               "WHERE b.age < 30 AND c.age > 20 RETURN count(*) AS n")
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_endpoint_filters_decline_dense_but_the_fused_count_serves(engine: str) -> None:
     """The q9 shape: same typed two-hop count as q8 plus WHERE filters on the
