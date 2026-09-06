@@ -11,6 +11,7 @@ import pandas as pd
 
 from graphistry.compute.ast import ASTObject, e_forward, e_reverse, e_undirected, n
 from graphistry.compute.predicates.numeric import GT
+from graphistry.tests.compute.gfql.routes.registry import Frames, register
 
 
 class Entry(NamedTuple):
@@ -54,3 +55,6 @@ def tagged(tag: str) -> List[Entry]:
 
 def by_name() -> Dict[str, Entry]:
     return {e.name: e for e in CORPUS}
+
+
+register("routes.corpus", [(e.name, e.ops, e.tags) for e in CORPUS], Frames(NODES, EDGES, "key", "s", "d", "eid"))
