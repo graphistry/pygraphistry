@@ -88,6 +88,7 @@ def _plain_single_hop_polars(g: Plottable, ops: Sequence[ASTObject]) -> Plottabl
                 endpoint_ids(edges, scol, dcol, ncol), on=ncol, how="semi")
     else:
         nodes = gf._nodes.join(endpoints, on=ncol, how="semi")
+    nodes = nodes.unique(subset=[ncol], maintain_order=True)  # one row per node id, as the full chain and pandas collapse duplicate node rows
     return gf.nodes(nodes, ncol).edges(_restore_edge_dtypes(edges, scol, dcol, restore), scol, dcol)
 
 
