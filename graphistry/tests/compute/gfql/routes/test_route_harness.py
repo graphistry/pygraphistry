@@ -154,6 +154,7 @@ def test_admitted_shape_is_served_and_matches_the_general_path(case: Case, reque
         pytest.xfail(f"{case.id}: admitted by the predicate, declined by the lane body (attenuation ledger)")
 
 
+@pytest.mark.route_engaged("native-fast", "polars-plain", "polars-seeded")
 def test_every_route_serves_most_of_what_it_admits(monkeypatch):
     """A lane that declines most admitted shapes has a predicate that no longer describes it."""
     per_route: Dict[str, List[int]] = {}
