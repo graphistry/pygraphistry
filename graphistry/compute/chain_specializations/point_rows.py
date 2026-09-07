@@ -1,5 +1,8 @@
 """Resident-index point queries that produce a row table."""
-from typing import List, Literal, Optional, Tuple
+import re
+from typing import Dict, List, Literal, Optional, Sequence, Tuple
+
+import pandas as pd
 
 from graphistry.Engine import Engine
 from graphistry.Plottable import Plottable
@@ -9,8 +12,10 @@ from graphistry.compute.chain_fast_paths import (
     _resident_node_id_index, _resident_seed_indexes, _seed_node_rows_from_index,
     _seeded_scalar_filters, _tag_fast_path_alias_frames, _verify_scalar_filters_on_hit,
 )
-from graphistry.compute.typing import DataFrameT
+from graphistry.compute.typing import DataFrameT, SeriesT
 from .admission import point_rows_admits
+
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z_0-9]*\Z")
 
 
 def _point_hop_rows(
@@ -54,13 +59,41 @@ def _point_hop_rows(
         selected = seed[seed[node].isin(matched_edges[from_col].dropna())]
     else:
         selected = tail
-    original = matched_edges if table == "edges" else selected
-    tagged_nodes, tagged_edges = _tag_fast_path_alias_frames(
-        selected, matched_edges, n0._name, edge._name, n2._name, src, dst, node, edge.direction)
-    if g._edge is not None and tagged_edges.columns[0] != g._edge:
-        tagged_edges = tagged_edges[[g._edge, *[c for c in tagged_edges.columns if c != g._edge]]]
-    result = tagged_edges if table == "edges" else tagged_nodes
-    return _restore_point_source(result, original, source), tagged_edges
+    return selected, matched_edges
+
+
+def _project_point_columns(
+    frame: DataFrameT, projection: ASTCall, source: str, aliases: Sequence[str],
+) -> Optional[DataFrameT]:
+    items = projection.params.get("items")
+    if not isinstance(items, list):
+        return None
+    projected: Dict[str, SeriesT] = {}
+    for item in items:
+        if isinstance(item, str):
+            alias, expr = item, item
+        elif isinstance(item, (tuple, list)) and len(item) == 2:
+            alias, expr = item
+        else:
+            return None
+        if not isinstance(alias, str) or not alias or not isinstance(expr, str):
+            return None
+        if expr in frame.columns:
+            if expr in aliases:
+                return None
+            column = expr
+        elif (expr.startswith(source + ".") and _IDENTIFIER.fullmatch(source)
+              and _IDENTIFIER.fullmatch(expr[len(source) + 1:])
+              and expr[len(source) + 1:] in frame.columns):
+            column = expr[len(source) + 1:]
+            if column in aliases and (column != source or str(frame[column].dtype).startswith("bool")):
+                return None
+        else:
+            return None
+        projected[alias] = frame[column]
+    if isinstance(frame, pd.DataFrame):
+        return pd.DataFrame(projected, index=frame.index)
+    return frame.assign(**projected)[list(projected)]
 
 
 def _restore_point_source(result: DataFrameT, original: DataFrameT, source: str) -> DataFrameT:
@@ -95,6 +128,10 @@ def _try_point_rows(
     adapter._gfql_rows_base_graph = g
     if adapter._edges is not None and g._edge is not None and adapter._edges.columns[0] != g._edge:
         adapter._edges = adapter._edges.iloc[:0][[g._edge, *[c for c in adapter._edges.columns if c != g._edge]]]
+    projection = ops[-1] if len(ops) > boundary + 1 else None
+    assert projection is None or isinstance(projection, ASTCall)
+    aliases = [op._name for op in ops[:boundary] if op._name is not None]
+    edge_alias = None
     if boundary == 1:
         filters = _seeded_scalar_filters(n0.filter_dict, g._nodes)
         if not filters:
@@ -105,6 +142,26 @@ def _try_point_rows(
             return None
         selected, _ = indexed_seed
         original = selected
+    else:
+        edge, n2 = ops[1:3]
+        assert isinstance(edge, ASTEdge) and isinstance(n2, ASTNode)
+        gathered = _point_hop_rows(g, n0, edge, n2, table, source)
+        if gathered is None:
+            return None
+        selected, adapter._edges = gathered
+        edge_alias = edge._name
+        original = adapter._edges if table == "edges" else selected
+    projected = _project_point_columns(original, projection, source, aliases) if projection is not None else None
+    if projected is not None:
+        adapter._node = g._node if g._node in original.columns else None
+        adapter._edge = g._edge if g._edge in original.columns else None
+        if edge_alias is not None:
+            assert adapter._edges is not None and g._source is not None and g._destination is not None
+            _, adapter._edges = _tag_fast_path_alias_frames(
+                g._nodes.iloc[:0], adapter._edges.iloc[:0], None, edge_alias, None,
+                g._source, g._destination, g._node, "forward")
+        selected = projected
+    elif boundary == 1:
         collides = source in selected.columns
         if not collides and selected.columns[0] == g._node:
             selected = selected.reset_index(drop=True)
@@ -118,14 +175,18 @@ def _try_point_rows(
     else:
         edge, n2 = ops[1:3]
         assert isinstance(edge, ASTEdge) and isinstance(n2, ASTNode)
-        gathered = _point_hop_rows(g, n0, edge, n2, table, source)
-        if gathered is None:
-            return None
-        selected, adapter._edges = gathered
+        assert adapter._edges is not None and g._source is not None and g._destination is not None
+        tagged_nodes, adapter._edges = _tag_fast_path_alias_frames(
+            selected, adapter._edges, n0._name, edge_alias, n2._name,
+            g._source, g._destination, g._node, edge.direction)
+        selected = adapter._edges if table == "edges" else tagged_nodes
+        selected = _restore_point_source(selected, original, source)
+    if adapter._edges is not None and g._edge is not None and adapter._edges.columns[0] != g._edge:
+        adapter._edges = adapter._edges[[g._edge, *[c for c in adapter._edges.columns if c != g._edge]]]
+        if projected is None and table == "edges":
+            selected = selected[[g._edge, *[c for c in selected.columns if c != g._edge]]]
     out = row_table(adapter, selected)
-    if len(ops) > boundary + 1:
-        projection = ops[-1]
-        assert isinstance(projection, ASTCall)
+    if projection is not None and projected is None:
         out = _RowPipelineAdapter(out).select(projection.params["items"])
     _record_native_seed_lane(g._nodes, seam="point_rows", reason="served", hop_count=boundary // 2,
                              public_seed_scan=g._node not in (n0.filter_dict or {}))

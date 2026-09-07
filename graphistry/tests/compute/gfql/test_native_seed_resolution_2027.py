@@ -7,6 +7,9 @@ seeded hops whenever the traversal indexes were resident. Pins: a lane-shaped gr
 the fast path with parity to the full path, the alias columns sit where the full path
 puts them, and the property index is the seam that resolves the seed.
 """
+from contextlib import ExitStack
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -52,18 +55,19 @@ def _canon(frame):
 
 
 def _run(g, ops, engine, fast):
-    real = chain_mod._try_chain_fast_path
     hits = {"n": 0}
 
-    def spy(*a, **k):
-        r = real(*a, **k)
-        hits["n"] += r is not None
-        return r
-    chain_mod._try_chain_fast_path = (lambda *a, **k: None) if not fast else spy
-    try:
+    def spy(real):
+        def run(*a, **k):
+            result = real(*a, **k) if fast else None
+            hits["n"] += result is not None
+            return result
+        return run
+
+    with ExitStack() as stack:
+        for name in ("_try_chain_fast_path", "_try_point_rows"):
+            stack.enter_context(patch.object(chain_mod, name, spy(getattr(chain_mod, name))))
         return g.gfql(ops, engine=engine, index_policy="use"), hits["n"]
-    finally:
-        chain_mod._try_chain_fast_path = real
 
 
 SHAPES = {
@@ -79,7 +83,7 @@ SHAPES = {
 }
 
 
-@pytest.mark.route_engaged("native-fast")
+@pytest.mark.route_engaged("native-fast", "point-rows")
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("shape", list(SHAPES))
 def test_lane_shapes_are_served_with_exact_parity(engine, shape):
@@ -182,12 +186,9 @@ def _same_values(fast, full):
 
 
 def _run_policy(g, ops, engine, fast, index_policy):
-    real = chain_mod._try_chain_fast_path
-    chain_mod._try_chain_fast_path = real if fast else (lambda *a, **k: None)
-    try:
+    from graphistry.tests.compute.gfql.routes.switch import routes_off
+    with routes_off(()) if fast else routes_off(("native-fast", "point-rows")):
         return g.gfql(ops, engine=engine, index_policy=index_policy)
-    finally:
-        chain_mod._try_chain_fast_path = real
 
 
 @pytest.mark.parametrize("engine", ENGINES)

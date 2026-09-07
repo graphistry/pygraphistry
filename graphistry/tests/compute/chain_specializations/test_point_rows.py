@@ -211,3 +211,25 @@ def test_colliding_source_property_stays_with_its_node(engine, source, key):
     result = g.gfql(ops, engine=engine)
     expected = key if source == "value" else "Person"
     assert topd(result._nodes)["out"].tolist() == [expected]
+
+
+@pytest.mark.parametrize("items", [
+    [("out", "a.value + 1")], [("out", 7)], [("out", "a")],
+    [("eid", "a.value")], [("key", "a.value")], [],
+    [("out", "a.value"), ("out", "a.id")],
+])
+def test_projection_shortcut_and_fallback_preserve_binding_metadata(engine, items):
+    g = graph(engine)
+    ops = [n({"key": 2}, name="a"), rows(source="a"), select(items)]
+    with routes_off(ROUTES):
+        expected = g.gfql(ops, engine=engine)
+    actual = _try_point_rows(g, ops, Engine(engine))
+    assert actual is not None
+    assert_result(actual, expected)
+
+
+@pytest.mark.parametrize("source,expression", [("a.b", "a.b.value"), ("a", "a.two words")])
+def test_projection_requires_parsing_for_non_identifier_properties(source, expression):
+    from graphistry.compute.chain_specializations.point_rows import _project_point_columns
+    frame = pd.DataFrame({"value": [1], "two words": [2]})
+    assert _project_point_columns(frame, select([("out", expression)]), source, [source]) is None

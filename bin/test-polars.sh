@@ -90,6 +90,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_polars_native_seed_resolution.py
     graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_polars_admission.py
     graphistry/tests/compute/chain_specializations/test_native_admission.py
+    graphistry/tests/compute/chain_specializations/test_point_rows.py
     graphistry/tests/compute/gfql/test_undirected_pairs_2026.py
     graphistry/tests/compute/gfql/test_native_seed_lane_explain.py
     # #1882/#1913-f4/#1879 crash-family pins: the polars params (filter helpers on polars
