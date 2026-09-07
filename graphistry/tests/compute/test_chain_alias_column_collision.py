@@ -13,11 +13,13 @@ import pytest
 
 import graphistry
 from graphistry.compute.ast import e_forward, e_reverse, e_undirected, n
+from graphistry.tests.compute.gfql.routes.registry import Frames, register
 
 NODES = pd.DataFrame({"key": [1, 2, 3, 4], "id": [10, 20, 30, 40], "type": ["p", "p", "m", "m"], "w": [1, 2, 3, 4]})
 EDGES = pd.DataFrame({"s": [3, 3, 4, 1], "d": [1, 2, 1, 4], "type": ["HAS_CREATOR", "OTHER", "HAS_CREATOR", "OTHER"],
                       "eid": [100, 101, 102, 103], "w": [5, 6, 7, 8]})
 ENGINES = ["pandas", "cudf", "polars"]
+FRAMES = Frames(NODES, EDGES, "key", "s", "d", "eid")
 
 
 def _graph(engine, indexed):
@@ -62,6 +64,8 @@ SERVED = {
     "seed, edge and destination aliases all collide": [n({"id": 30}, name="id"), e_forward({"type": "HAS_CREATOR"}, name="type"), n({"type": "p"}, name="type")],
 }
 
+register("collision.served", [(k, (lambda v=v: list(v))) for k, v in SERVED.items()], FRAMES, tags=("alias-collision", "#2039"))
+
 
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("indexed", [False, True], ids=["scan", "indexed"])
@@ -80,6 +84,8 @@ MULTI_HOP = {
     "edge alias = filtered column, hops=2": [n({"id": 30}, name="m"), e_forward({"type": "HAS_CREATOR"}, hops=2, name="type"), n(name="p")],
     "edge alias = filtered column, to_fixed_point": [n({"id": 30}, name="m"), e_forward({"type": "HAS_CREATOR"}, to_fixed_point=True, name="type"), n(name="p")],
 }
+
+register("collision.multi_hop", [(k, (lambda v=v: list(v))) for k, v in MULTI_HOP.items()], FRAMES, tags=("alias-collision", "#2049"))
 
 
 @pytest.mark.parametrize("engine", ENGINES)

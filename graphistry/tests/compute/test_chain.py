@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from graphistry.compute.ast import ASTEdgeUndirected, ASTNode, ASTEdge, ASTObject, n, e, e_undirected, e_forward, e_reverse
+from graphistry.tests.compute.gfql.routes.registry import Frames, register
 from graphistry.compute.chain import Chain, _try_chain_fast_path
 from graphistry.compute.typing import DataFrameT
 from graphistry.compute.predicates.is_in import IsIn, is_in
@@ -652,9 +653,14 @@ def _cudf_or_skip():
     return pytest.importorskip("cudf")
 
 
+_FAST_FRAMES = Frames(
+    pd.DataFrame({'v': [0, 1, 2, 3, 4], 'attr': [10, 20, 30, 40, 50]}),
+    pd.DataFrame({'s': [0, 1, 2, 3, 0], 'd': [1, 2, 3, 4, 2], 'w': [5, 6, 7, 8, 9]}),
+    'v', 's', 'd')
+
+
 def _fast_graph(engine):
-    nodes = pd.DataFrame({'v': [0, 1, 2, 3, 4], 'attr': [10, 20, 30, 40, 50]})
-    edges = pd.DataFrame({'s': [0, 1, 2, 3, 0], 'd': [1, 2, 3, 4, 2], 'w': [5, 6, 7, 8, 9]})
+    nodes, edges = _FAST_FRAMES.nodes, _FAST_FRAMES.edges
     if engine == "cudf":
         cudf = _cudf_or_skip()
         nodes = cudf.from_pandas(nodes)
@@ -675,7 +681,7 @@ def _setsig(r):
 
 
 # shapes that ARE accelerated by the fast path
-_FAST_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
+_FAST_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = register("test_chain.fast", [
     ("node_only", lambda: [n()]),
     ("node_filter", lambda: [n({'attr': 20})]),
     ("node_pred", lambda: [n({'attr': is_in([10, 30])})]),
@@ -702,10 +708,10 @@ _FAST_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
     ("named_all_fwd", lambda: [n(name='x'), e_forward(hops=1, name='r'), n(name='y')]),
     ("named_all_rev", lambda: [n(name='x'), e_reverse(hops=1, name='r'), n(name='y')]),
     ("named_filtered", lambda: [n({'attr': 10}, name='x'), e_forward(hops=1), n(name='y')]),
-]
+], _FAST_FRAMES, tags=("native-fast",))
 
 # shapes that BYPASS the fast path (still must be correct via the full path)
-_BYPASS_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
+_BYPASS_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = register("test_chain.bypass", [
     ("hops_2", lambda: [n(), e_forward(hops=2), n()]),
     ("filtered_undirected", lambda: [n({'attr': 10}), e_undirected(hops=1), n({'attr': 30})]),
     # Named + undirected STAYS a bypass: an undirected edge makes a node reachable as
@@ -716,7 +722,7 @@ _BYPASS_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
     # arrival side. Must bypass the fast path (regression guard for the prune gate).
     ("prune_endpoints_fwd", lambda: [n(), e_forward(hops=1, prune_to_endpoints=True), n()]),
     ("prune_endpoints_rev", lambda: [n(), e_reverse(hops=1, prune_to_endpoints=True), n()]),
-]
+], _FAST_FRAMES, tags=("native-fast-bypass",), row_tags={"prune_endpoints_fwd": ("#2053",), "prune_endpoints_rev": ("#2053",)})
 
 
 _CUDF_26_DIVERGENT = {"prune_endpoints_fwd", "prune_endpoints_rev"}  # graphistry/pygraphistry#2043
@@ -750,7 +756,7 @@ def test_fast_path_differential_parity_vs_full_path(engine, label, build, reques
 
 # Named shapes whose ALIAS FLAG COLUMNS (not merely node/edge sets) must match the full
 # path. `_setsig` above compares ids only, so it cannot see a wrong alias tag.
-_NAMED_ALIAS_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
+_NAMED_ALIAS_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = register("test_chain.named_alias", [
     ("src_only", lambda: [n(name='x'), e_forward(hops=1), n()]),
     ("dst_only", lambda: [n(), e_forward(hops=1), n(name='y')]),
     ("edge_only", lambda: [n(), e_forward(hops=1, name='r'), n()]),
@@ -762,12 +768,13 @@ _NAMED_ALIAS_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
     # DEAD END: attr==50 is node 4, which has no outgoing edge. The tag keys on the
     # SURVIVING EDGES, so the alias must come back False/empty rather than True.
     ("dead_end_seed", lambda: [n({'attr': 50}, name='x'), e_forward(hops=1, name='r'), n(name='y')]),
-]
+], _FAST_FRAMES, tags=("alias",))
 
 
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
 @pytest.mark.parametrize("label,build", _NAMED_ALIAS_SHAPES,
                          ids=[s[0] for s in _NAMED_ALIAS_SHAPES])
+@pytest.mark.route_engaged("native-fast")
 def test_fast_path_named_alias_columns_match_full_path(engine, label, build):
     """The capability this fast-path extension actually adds: when the traversal is
     served without the BFS, the alias flag columns `combine_steps` would have merged in
@@ -824,17 +831,18 @@ def _assert_full_frame_value_parity(fast: DataFrameT, full: DataFrameT,
 # Named served shapes for FULL-FRAME parity. `_setsig` compares id sets and the flags
 # test compares alias columns, so before this NO test compared the carried DATA columns
 # ('attr', 'w') of a named served result against the full path.
-_NAMED_VALUE_PARITY_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
+_NAMED_VALUE_PARITY_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = register("test_chain.named_value_parity", [
     ("all_forward", lambda: [n(name='x'), e_forward(hops=1, name='r'), n(name='y')]),
     ("all_reverse", lambda: [n(name='x'), e_reverse(hops=1, name='r'), n(name='y')]),
     ("seed_filtered", lambda: [n({'attr': 10}, name='x'), e_forward(hops=1, name='r'), n(name='y')]),
     ("edge_match", lambda: [n(name='x'), e_forward(hops=1, edge_match={'w': 5}, name='r'), n(name='y')]),
-]
+], _FAST_FRAMES, tags=("alias", "values"))
 
 
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
 @pytest.mark.parametrize("label,build", _NAMED_VALUE_PARITY_SHAPES,
                          ids=[s[0] for s in _NAMED_VALUE_PARITY_SHAPES])
+@pytest.mark.route_engaged("native-fast")
 def test_fast_path_named_full_frame_value_parity(engine, label, build):
     """POSITIVE, whole-frame: a named served result must carry the same VALUES as the
     full path on EVERY column — ids, data columns, and alias flags — not just the id
@@ -865,18 +873,19 @@ def test_fast_path_named_full_frame_value_parity(engine, label, build):
 # cardinality, so these all engage the fast path — and an empty answer must come back
 # as the right empty SHAPE (alias columns present, zero rows), not a throw and not a
 # missing-column frame.
-_NAMED_EMPTY_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
+_NAMED_EMPTY_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = register("test_chain.named_empty", [
     # seed filter matches no node at all (distinct from dead_end_seed, which matches
     # a node that has no surviving edge)
     ("zero_seed", lambda: [n({'attr': 999}, name='x'), e_forward(hops=1, name='r'), n(name='y')]),
     ("zero_dst", lambda: [n(name='x'), e_forward(hops=1, name='r'), n({'attr': 999}, name='y')]),
     ("zero_edge_match", lambda: [n(name='x'), e_forward(hops=1, edge_match={'w': 999}, name='r'), n(name='y')]),
-]
+], _FAST_FRAMES, tags=("alias", "empty"))
 
 
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
 @pytest.mark.parametrize("label,build", _NAMED_EMPTY_SHAPES,
                          ids=[s[0] for s in _NAMED_EMPTY_SHAPES])
+@pytest.mark.route_engaged("native-fast")
 def test_fast_path_named_empty_result_matches_full_path(engine, label, build):
     """POSITIVE boundary: named patterns matching ZERO rows are still served, and the
     empty result must be shape-identical to the full path — same columns INCLUDING the
@@ -898,6 +907,7 @@ def test_fast_path_named_empty_result_matches_full_path(engine, label, build):
     assert len(un) == 0 and len(ue) == 0
 
 
+@pytest.mark.route_engaged("native-fast")
 def test_fast_path_named_zero_edge_graph_matches_full_path():
     """POSITIVE boundary: a graph with an EMPTY edge table. The named pattern is served,
     and both lanes must agree on the all-empty answer with alias columns present."""
@@ -953,6 +963,7 @@ def test_fast_path_cross_type_alias_share_declines_and_matches():
     _assert_full_frame_value_parity(default_route._edges, policy_route._edges, ['s', 'd'])
 
 
+@pytest.mark.route_engaged("native-fast")
 def test_fast_path_named_is_served_with_a_valid_resident_index():
     """A NAMED pattern with BOTH resident indexes validly covering the directed hop is
     served by the chain fast path: by the time it runs, the indexed kernel has already
@@ -976,6 +987,7 @@ def test_fast_path_named_is_served_with_a_valid_resident_index():
     _assert_full_frame_value_parity(served._edges, full._edges, ['s', 'd'])
 
 
+@pytest.mark.route_engaged("native-fast")
 def test_fast_path_named_datetime_categorical_columns_ride_along():
     """POSITIVE dtype edge: datetime64 and categorical NODE columns must ride through
     the served named lane unchanged — same values as the full path, dtypes preserved
@@ -1018,7 +1030,7 @@ def test_fast_path_named_datetime_categorical_columns_ride_along():
 # overwrite/raise behavior alone. The FROM-side binding columns and the node-id
 # binding are excluded here: those wrong-served (diverged) before, are now GATED to
 # decline, and are pinned by the two regression tests below.
-_ALIAS_SHADOW_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
+_ALIAS_SHADOW_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = register("test_chain.alias_shadow", [
     ("node_alias_shadows_node_data_col", lambda: [n(name='attr'), e_forward(hops=1), n()]),
     ("edge_alias_shadows_edge_data_col", lambda: [n(), e_forward(hops=1, name='w'), n()]),
     # edge aliases named like the source/destination/edge-id bindings are rejected before
@@ -1026,7 +1038,7 @@ _ALIAS_SHADOW_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = [
     # cross-frame names are NOT collisions: nodes have no 'w', edges have no 'v'
     ("node_alias_named_like_edge_col", lambda: [n(name='w'), e_forward(hops=1), n()]),
     ("edge_alias_named_like_node_id", lambda: [n(), e_forward(hops=1, name='v'), n()]),
-]
+], _FAST_FRAMES, tags=("alias-collision",))
 
 
 @pytest.mark.parametrize("label,build", _ALIAS_SHADOW_SHAPES,
@@ -1119,6 +1131,7 @@ def test_fast_path_alias_colliding_with_node_id_binding_matches_full_path(build)
         _assert_full_frame_value_parity(fast._edges, full._edges, ['s', 'd'])
 
 
+@pytest.mark.route_engaged("native-fast")
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
 def test_fast_path_preserves_int_node_dtypes(engine):
     """Documented behavior change: the 1-hop fast path PRESERVES node-attribute

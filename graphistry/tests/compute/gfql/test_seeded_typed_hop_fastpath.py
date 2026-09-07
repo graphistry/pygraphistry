@@ -20,8 +20,18 @@ import pytest
 import graphistry
 from graphistry.compute.ast import n, e_forward, e_reverse
 import graphistry.compute.chain as chain_mod
+import graphistry.compute.chain_specializations.hotpaths as hot
 import graphistry.compute.gfql_unified as gfql_unified
 
+
+
+def _patch_index_rows(monkeypatch, name, fn):
+    """Patch a chain_fast_paths index helper everywhere the lanes bind it."""
+    import graphistry.compute.chain_fast_paths as cfp
+    import graphistry.compute.chain_specializations.hotpaths as eager_hot
+    import graphistry.compute.gfql.lazy.engine.polars.chain_specializations.hotpaths as polars_hot
+    for mod in (cfp, eager_hot, polars_hot):
+        monkeypatch.setattr(mod, name, fn)
 
 def _graph(n_persons=1500, n_messages=6000, seed=0):
     """Message -> Person HAS_CREATOR graph (the #1755 probe shape). `age` is only
@@ -120,11 +130,12 @@ class TestNativeSeededTypedHop:
         full = self._run(g, ops, force_full=True)
         pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
 
+    @pytest.mark.route_engaged("native-fast")
     def test_fast_path_engages_on_typed_hop(self, monkeypatch):
         g, P = _graph()
         seed = P + 42
         hits = {"n": 0}
-        real = chain_mod._seeded_typed_hop_pandas_cudf
+        real = hot._seeded_typed_hop_pandas_cudf
 
         def spy(*a, **k):
             r = real(*a, **k)
@@ -132,7 +143,7 @@ class TestNativeSeededTypedHop:
                 hits["n"] += 1
             return r
 
-        monkeypatch.setattr(chain_mod, "_seeded_typed_hop_pandas_cudf", spy)
+        monkeypatch.setattr(hot, "_seeded_typed_hop_pandas_cudf", spy)
         g.gfql([n({"id": seed}), e_forward(edge_match={"type": "HAS_CREATOR"}), n({"type": "Person"})], engine="pandas")
         assert hits["n"] >= 1
 
@@ -159,11 +170,11 @@ class TestNativeSeededTypedHop:
         g, P = _graph()
         node, src, dst = "id", "src", "dst"
         # predicate (non-scalar) edge filter -> decline
-        assert chain_mod._seeded_typed_hop_pandas_cudf(
+        assert hot._seeded_typed_hop_pandas_cudf(
             g.materialize_nodes(), n({"id": P + 1}), n(), e_forward(edge_match={"type": gt(0)}),
             src, dst, node, "forward") is None
         # undirected -> decline
-        assert chain_mod._seeded_typed_hop_pandas_cudf(
+        assert hot._seeded_typed_hop_pandas_cudf(
             g.materialize_nodes(), n({"id": P + 1}), n(), e_forward(),
             src, dst, node, "undirected") is None
 
@@ -180,7 +191,7 @@ class TestNativeSeededTypedHop:
             "node_predicate": [n({"id": seed}), e_forward(edge_match={"type": "HAS_CREATOR"}), n({"age": gt(0)})],
         }[ops_name]
         hits = {"n": 0}
-        real = chain_mod._seeded_typed_hop_pandas_cudf
+        real = hot._seeded_typed_hop_pandas_cudf
 
         def spy(*a, **k):
             r = real(*a, **k)
@@ -188,7 +199,7 @@ class TestNativeSeededTypedHop:
                 hits["n"] += 1
             return r
 
-        monkeypatch.setattr(chain_mod, "_seeded_typed_hop_pandas_cudf", spy)
+        monkeypatch.setattr(hot, "_seeded_typed_hop_pandas_cudf", spy)
         fast = g.gfql(ops, engine="pandas")
         monkeypatch.undo()
         chain_mod._try_chain_fast_path, saved = (lambda *a, **k: None), chain_mod._try_chain_fast_path
@@ -247,6 +258,7 @@ class TestCypherSeededTypedHop:
         got = sorted(df[id_col].tolist())
         assert got == oracle, f"cypher fast path returned {got}, oracle says {oracle}"
 
+    @pytest.mark.route_engaged("cypher-fast")
     def test_fast_path_engages_on_seeded_return(self, monkeypatch):
         g, P = _graph()
         seed = P + 42
@@ -263,6 +275,7 @@ class TestCypherSeededTypedHop:
         g.gfql(f"MATCH (m:Message {{id: {seed}}})-[:HAS_CREATOR]->(p:Person) RETURN p", engine="pandas")
         assert hits["n"] >= 1
 
+    @pytest.mark.route_engaged("cypher-fast")
     def test_fast_path_engages_on_the_bag_lowering_of_a_property_return(self, monkeypatch):
         """A property RETURN lowers to the multiplicity-preserving ``rows(binding_ops=...)``
         form. The fast path must still engage there: declining would be value-correct but
@@ -305,6 +318,7 @@ class TestCypherSeededTypedHop:
         got = _canon_nodes(g.gfql(q, engine=engine))
         assert got["pid"].tolist() == [1, 1]
 
+    @pytest.mark.route_engaged("cypher-fast")
     def test_cross_alias_field_projection_engages_with_parity(self):
         """RETURN m.id, p.age projects from BOTH aliases: one row per matched edge, the
         seed side looked up from the seed rows the reduction already holds."""
@@ -560,6 +574,7 @@ class TestCypherSeededTypedHopPolars:
         id_col = "p.id" if "p.id" in df.columns else "id"
         assert sorted(df[id_col].tolist()) == oracle
 
+    @pytest.mark.route_engaged("cypher-fast")
     def test_fast_path_engages(self, monkeypatch):
         gp, P, _ = self._pl_graph()
         seed = P + 42
@@ -618,7 +633,7 @@ class TestPolarsFastPathGates:
     def test_lazyframe_declines_not_crashes(self):
         """A LazyFrame-backed graph must decline (full path), not AttributeError."""
         pl = pytest.importorskip("polars")
-        from graphistry.compute.chain_fast_paths import _seeded_typed_return_dst_polars
+        from graphistry.compute.gfql.lazy.engine.polars.chain_specializations.hotpaths import _seeded_typed_return_dst_polars
         from graphistry.compute.ast import ASTNode, ASTEdge
         g, P = _graph()
         lazy_g = graphistry.nodes(
@@ -719,6 +734,7 @@ class TestSeededPropertyProjection:
         assert bool(hits["n"]) == expect_engage, f"engaged={hits['n']} expected={expect_engage}"
         return fast
 
+    @pytest.mark.route_engaged("cypher-fast")
     @pytest.mark.parametrize("engine", ["pandas", "polars"])
     def test_is5_shape_engages_and_matches(self, engine):
         if engine == "polars":
@@ -761,6 +777,7 @@ class TestSeededPropertyProjection:
         ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p.age AS age, m.id AS mid ORDER BY age LIMIT 1", "cross-alias order/limit"),
         ("MATCH (m:Message {id:10})-[{type:'HAS_CREATOR'}]->(p:Person) RETURN p.id AS a, p.id AS b", "same column twice"),
     ])
+    @pytest.mark.route_engaged("cypher-fast")
     def test_canonical_projection_suffix_engages_with_parity(self, q, label):
         """DISTINCT / ORDER BY / SKIP / LIMIT after the lean projection are plain
         row-frame ops: the fast path now keeps the seeded gather and delegates the
@@ -834,12 +851,14 @@ class TestSeededProjectionDtypeAndEdgesParity:
         assert bool(hits["n"]) == expect_engage, f"engaged={hits['n']} expected={expect_engage}"
         return fast, full
 
+    @pytest.mark.route_engaged("cypher-fast")
     def test_pandas_int_bool_dtype_parity(self):
         fast, full = self._fast_and_full(self._typed_graph(), "pandas", self.Q)
         pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
         dt = dict(zip(fast._nodes.columns, map(str, fast._nodes.dtypes)))
         assert dt == {"pid": "int64", "a": "float64", "f": "object"}
 
+    @pytest.mark.route_engaged("cypher-fast")
     def test_polars_int_bool_dtype_parity(self):
         pytest.importorskip("polars")
         fast, full = self._fast_and_full(self._pl_graph(), "polars", self.Q)
@@ -859,6 +878,7 @@ class TestSeededProjectionDtypeAndEdgesParity:
         fast, full = self._fast_and_full(self._typed_graph(), "pandas", q, expect_engage=False)
         pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
 
+    @pytest.mark.route_engaged("cypher-fast")
     @pytest.mark.parametrize("engine", ["pandas", "polars"])
     def test_edges_empty_frame_not_none(self, engine):
         g = self._typed_graph() if engine == "pandas" else self._pl_graph()
@@ -885,6 +905,7 @@ class TestSeededProjectionDtypeAndEdgesParity:
         assert type(fast2._nodes).__module__ == type(full2._nodes).__module__
         pd.testing.assert_frame_equal(_canon_nodes(fast2), _canon_nodes(full2))
 
+    @pytest.mark.route_engaged("cypher-fast")
     def test_string_dtype_property_engages_and_matches(self):
         """pandas StringDtype (explicit 'string' on pandas 2; the DEFAULT str dtype
         on pandas>=3) passes through the pivot unchanged on both versions —
@@ -940,13 +961,14 @@ class TestResidentIndexSeededFastPath:
             out = on(*a, **k)
             counts["n"] += out is not None
             return out
-        monkeypatch.setattr(cfp, "_index_node_rows", spy)
+        _patch_index_rows(monkeypatch, "_index_node_rows", spy)
         res = g.gfql(q, engine=engine)
-        monkeypatch.setattr(cfp, "_index_node_rows", on)
+        _patch_index_rows(monkeypatch, "_index_node_rows", on)
         return res, counts["n"]
 
     Q = "MATCH (m {id: 33})-[:KNOWS]->(p) RETURN p"
 
+    @pytest.mark.route_engaged("cypher-fast")
     @pytest.mark.parametrize("engine", ["pandas", "polars"])
     def test_indexed_parity_and_engagement(self, engine, monkeypatch):
         if engine == "polars":
@@ -988,7 +1010,7 @@ class TestResidentIndexSeededFastPath:
         g2 = g.edges(edf2, "src", "dst")  # stale registry rides along
         counts = {"n": 0}
         oe = cfp._index_edge_rows
-        monkeypatch.setattr(cfp, "_index_edge_rows",
+        _patch_index_rows(monkeypatch, "_index_edge_rows",
                             lambda *a, **k: (counts.__setitem__("n", counts["n"] + 1), oe(*a, **k))[1])
         got = g2.gfql(self.Q, engine="pandas")
         plain = graphistry.nodes(ndf, "id").edges(edf2, "src", "dst").gfql(self.Q, engine="pandas")
@@ -996,6 +1018,7 @@ class TestResidentIndexSeededFastPath:
         pd.testing.assert_frame_equal(self._canon(got), self._canon(plain))
 
 
+    @pytest.mark.route_engaged("native-fast")
     def test_native_chain_hop_indexed_parity_forward_and_reverse(self, monkeypatch):
         """M1 pin: the native-chain hop helper's indexed branch (only reachable via
         chain ops, never Cypher) — forward (EDGE_OUT_ADJ) and reverse (EDGE_IN_ADJ),
@@ -1015,13 +1038,14 @@ class TestResidentIndexSeededFastPath:
                 out = oe(*a, **k)
                 serves["n"] += out is not None
                 return out
-            monkeypatch.setattr(cfp, "_index_edge_rows", spy)
+            _patch_index_rows(monkeypatch, "_index_edge_rows", spy)
             got = mk().gfql_index_all().gfql(ops, engine="pandas")
-            monkeypatch.setattr(cfp, "_index_edge_rows", oe)
+            _patch_index_rows(monkeypatch, "_index_edge_rows", oe)
             assert serves["n"] > 0, f"indexed hop branch did not serve for {ops[1].direction}"
             plain = mk().gfql(ops, engine="pandas")
             pd.testing.assert_frame_equal(self._canon(got), self._canon(plain))
 
+    @pytest.mark.route_engaged("cypher-fast")
     def test_uint64_int64_id_mix_declines_not_collapses(self, monkeypatch):
         """B1 pin: int64<->uint64 promotes to float64, which collapses ids >= 2**53
         into false matches; the gate must DECLINE (scan path compares exactly)."""
@@ -1040,9 +1064,9 @@ class TestResidentIndexSeededFastPath:
             out = on(*a, **k)
             serves["n"] += out is not None
             return out
-        monkeypatch.setattr(cfp, "_index_node_rows", spy)
+        _patch_index_rows(monkeypatch, "_index_node_rows", spy)
         got = g.gfql(q, engine="pandas")
-        monkeypatch.setattr(cfp, "_index_node_rows", on)
+        _patch_index_rows(monkeypatch, "_index_node_rows", on)
         plain = graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql(q, engine="pandas")
         pd.testing.assert_frame_equal(self._canon(got), self._canon(plain))
 
@@ -1075,6 +1099,7 @@ class TestResidentIndexSeededFastPath:
         indexed = med(graphistry.nodes(ndf, "id").edges(edf, "src", "dst").gfql_index_all())
         assert indexed * 1.5 < scan, f"indexed {indexed*1e3:.2f}ms not >=1.5x faster than scan {scan*1e3:.2f}ms"
 
+    @pytest.mark.route_engaged("cypher-fast")
     @pytest.mark.parametrize("engine", ["pandas", "polars"])
     def test_property_seeded_engages_adjacency_index(self, engine, monkeypatch):
         """Decoupled-index pin (the SF1-harness/LDBC pattern): the graph binds a
@@ -1107,8 +1132,8 @@ class TestResidentIndexSeededFastPath:
             out = oe(*a, **k)
             serves["e"] += out is not None
             return out
-        monkeypatch.setattr(cfp, "_index_edge_rows", spy)
+        _patch_index_rows(monkeypatch, "_index_edge_rows", spy)
         indexed = mk().gfql_index_all(engine=engine).gfql(q, engine=engine)
-        monkeypatch.setattr(cfp, "_index_edge_rows", oe)
+        _patch_index_rows(monkeypatch, "_index_edge_rows", oe)
         assert serves["e"] > 0, "adjacency index did not serve the property-seeded lookup"
         pd.testing.assert_frame_equal(self._canon(indexed), self._canon(plain))

@@ -106,6 +106,7 @@ LOOKUP_SHAPES = [
 ]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("indexed", [False, True], ids=["scan", "indexed"])
 @pytest.mark.parametrize("q,label", LOOKUP_SHAPES)
@@ -113,6 +114,7 @@ def test_node_lookup_engages_with_parity(engine, indexed, q, label):
     _assert_parity(_graph(engine, indexed), engine, q, "seeded_node_lookup")
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_node_lookup_matches_independent_oracle(engine):
     g = _graph(engine)
@@ -124,6 +126,7 @@ def test_node_lookup_matches_independent_oracle(engine):
     assert float(got["a"].iloc[0]) == float(row["age"])
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_node_lookup_uses_the_property_index_when_the_seed_is_not_the_binding(engine):
     """The seed predicate is on a business key that is not the node binding: the
@@ -227,6 +230,7 @@ def test_two_alias_projection_parity(engine, indexed, q, label):
     pd.testing.assert_frame_equal(_canon(fast), _canon(full))
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_two_alias_projection_engages_and_keeps_bag_multiplicity(engine):
     g = _graph(engine)
@@ -260,6 +264,7 @@ def test_hub_seed_over_the_frontier_gate_keeps_parity(engine, indexed):
     pd.testing.assert_frame_equal(_canon(fast), _canon(full))
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_seed_matching_several_nodes_projects_each_seed(engine):
     """A non-unique seed predicate: every seed row pairs with its own destinations."""
@@ -321,6 +326,7 @@ def _lookup_step(report):
     return steps[0]
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_node_lookup_explains_why_it_scanned(engine):
     q = "MATCH (p:Person {id: 7}) RETURN p.age AS age"
@@ -368,6 +374,7 @@ def test_two_alias_projection_extension_dtypes_keep_parity(indexed, q, served):
         assert fast_path_decisions(g, q, engine="pandas").get("seeded_typed_hop") is not True
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_node_lookup_served_under_policy_off_is_not_reported_as_an_index(engine):
     q = "MATCH (p:Person {id: 7}) RETURN p.age AS age"
@@ -381,6 +388,7 @@ def test_node_lookup_served_under_policy_off_is_not_reported_as_an_index(engine)
     assert off["used_index"] is False and off["decision_code"] == "policy_off", off
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_edge_alias_properties_engage_with_one_row_per_matched_edge(engine):
     g = _graph(engine)
