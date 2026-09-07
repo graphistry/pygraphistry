@@ -87,6 +87,8 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_seeded_node_lookup_fastpath.py
     graphistry/tests/compute/gfql/test_native_seed_resolution_2027.py
     graphistry/tests/compute/gfql/test_polars_native_seed_resolution.py
+    graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_polars_admission.py
+    graphistry/tests/compute/chain_specializations/test_native_admission.py
     graphistry/tests/compute/gfql/test_undirected_pairs_2026.py
     graphistry/tests/compute/gfql/test_native_seed_lane_explain.py
     # #1882/#1913-f4/#1879 crash-family pins: the polars params (filter helpers on polars
@@ -123,6 +125,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/cypher/test_variable_column_collision.py
     graphistry/tests/compute/test_chain_alias_column_collision.py
     graphistry/tests/compute/test_gfql_op_list_hides_internal_columns.py
+    graphistry/tests/compute/gfql/routes/test_route_harness.py
     graphistry/tests/compute/gfql/test_engine_polars_semi_key_dedup.py
     graphistry/tests/compute/gfql/test_engine_polars_call_modality.py
     graphistry/tests/compute/gfql/test_engine_polars_gpu.py

@@ -11,6 +11,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Infrastructure
 
+- **CI: the gfql change filter now includes the chain engine** (`compute/chain*.py`, `hop.py`, `gfql_fast_paths.py`, `filter_by_dict.py`, `ast.py`, `predicates/`, and the chain/hop test files), so tck-gfql, the Cypher-frontend gates and the gfql benchmark lane run on a change to the chain engine; they were skipped on #2055.
 - **CI: `test-docs` runs on docs-only pull requests (#2018)**: the job needed `python-lint-types`, which a docs-only change skips, and GitHub skips a job whose prerequisite was skipped. The gate now accepts skipped prerequisites and refuses only failed or cancelled ones, so documentation changes are built and tested before merge.
 ### Tests
 
@@ -40,6 +41,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+* GFQL: the chain specializations move into `graphistry/compute/chain_specializations/{admission,hotpaths}.py` (pandas/cuDF single-node lane, seeded typed single hop, seeded typed RETURN-destination) and `graphistry/compute/gfql/lazy/engine/polars/chain_specializations/{admission,hotpaths}.py` (polars plain single-hop branches, seeded lane, RETURN-destination), each lane next to the admission predicate the dispatcher calls (`native_fast_path_admits`, `polars_plain_single_hop_admits`, `polars_seeded_lane_admits`); `chain.py` and the polars chain only dispatch, `chain_fast_paths.py` keeps the shared seed/index helpers. No route admits or declines anything it did not before. Tests mirror the new paths and filter one shared shape corpus per route with the route's own gate; `GFQL_ROUTES_OFF=<route,...>` (test conftest) makes named hot paths decline so every existing test replays through the other routes, and `bin/test-routes-off.sh` reports the per-route divergences.
 * GFQL: the wavefront seed-rediscovery rule moved out of `hop.py` into `graphistry/compute/gfql/seed_rediscovery.py` (pandas/cuDF) and `graphistry/compute/gfql/lazy/engine/polars/seed_rediscovery.py` (polars); `undirected_rediscovered_seed_ids` (an internal helper) is gone.
 
 ## [0.59.0 - 2026-08-31]

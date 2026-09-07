@@ -79,6 +79,7 @@ SHAPES = {
 }
 
 
+@pytest.mark.route_engaged("native-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("shape", list(SHAPES))
 def test_lane_shapes_are_served_with_exact_parity(engine, shape):
@@ -93,6 +94,7 @@ def test_lane_shapes_are_served_with_exact_parity(engine, shape):
     pd.testing.assert_frame_equal(_canon(fast._edges), _canon(full._edges), check_dtype=False)
 
 
+@pytest.mark.route_engaged("native-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_property_index_resolves_the_seed(engine, monkeypatch):
     import graphistry.compute.gfql.index.bindings as bindings
@@ -112,6 +114,7 @@ def test_property_index_resolves_the_seed(engine, monkeypatch):
     assert calls["n"] >= 1 and len(out._edges) == 1
 
 
+@pytest.mark.route_engaged("native-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("binding_first", [True, False])
 def test_named_single_node_alias_layout_matches_the_full_path(engine, binding_first):
@@ -127,6 +130,7 @@ def test_named_single_node_alias_layout_matches_the_full_path(engine, binding_fi
     assert list(fast._nodes.columns)[:2] == ["key", "p"]
 
 
+@pytest.mark.route_engaged("native-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("binding_first", [True, False])
 def test_named_single_node_alias_overwrites_colliding_property_like_full_path(engine, binding_first):
@@ -144,6 +148,7 @@ def test_named_single_node_alias_overwrites_colliding_property_like_full_path(en
     pd.testing.assert_frame_equal(_canon(fast._nodes), _canon(full._nodes), check_dtype=False)
 
 
+@pytest.mark.route_engaged("native-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_named_hop_aliases_overwrite_nonfinal_properties_like_full_path(engine):
     g = _lane_graph(engine)
@@ -198,6 +203,7 @@ def test_policy_off_keeps_parity_and_uses_no_index(engine, shape):
     assert report["used_index"] is False and report["decision_code"] == "policy_off", report
 
 
+@pytest.mark.route_engaged("native-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("shape", list(SHAPES))
 def test_stale_indexes_keep_parity_and_are_not_used(engine, shape):
@@ -229,6 +235,7 @@ def test_non_scalar_seed_predicates_keep_parity_without_the_index(engine, seed):
     assert not any(s.get("seam") in ("native_seed_lookup", "native_seeded_hop") and s.get("served") for s in steps), steps
 
 
+@pytest.mark.route_engaged("native-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_duplicate_node_rows_are_answered_once_each_on_the_native_lookup(engine):
     """A node table that repeats a key row (a contract violation the engine tolerates): the

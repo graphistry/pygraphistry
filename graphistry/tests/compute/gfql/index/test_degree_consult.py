@@ -74,6 +74,7 @@ def _run(g, query=Q, engine="pandas"):
         fp._two_hop_equal_domain_dense_total = real
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_degree_fact_is_built_and_actually_used(engine: str) -> None:
     """Engagement, not just correctness: a built-but-unused fact returns the same
@@ -101,6 +102,7 @@ def test_identity_anchors_to_the_bound_frame_not_the_partition() -> None:
     assert fact.source_ref is g._edges
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("n_p,n_c", [(3, 3), (5, 1), (2, 8), (7, 2)])
 def test_slice_is_exact_across_domain_shapes(n_p: int, n_c: int, engine: str) -> None:
@@ -116,6 +118,7 @@ def test_slice_is_exact_across_domain_shapes(n_p: int, n_c: int, engine: str) ->
     assert value == oracle
 
 
+@pytest.mark.route_engaged("cypher-fast")
 def test_gapped_node_space_builds_facts_and_stays_exact() -> None:
     """Density is NOT required for the degree arrays: ids absent from the span
     contribute ZERO to the dot, so a gapped node space builds valid facts. (The
@@ -136,6 +139,7 @@ def test_gapped_node_space_builds_facts_and_stays_exact() -> None:
     assert used, "P-domain [0,2] is dense, so the kernel must consult the fact"
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("seed", range(6))
 def test_differential_vs_the_scan_on_random_typed_graphs(seed: int) -> None:
     """Values must be identical with and without the fact, on arbitrary degree
@@ -199,6 +203,7 @@ Q_FILTERED = ("MATCH (a {kind:'P'})-[{rel:'F'}]->(b {kind:'P'})"
               "WHERE b.age < 30 AND c.age > 20 RETURN count(*) AS n")
 
 
+@pytest.mark.route_engaged("cypher-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_endpoint_filters_decline_dense_but_the_fused_count_serves(engine: str) -> None:
     """The q9 shape: same typed two-hop count as q8 plus WHERE filters on the
