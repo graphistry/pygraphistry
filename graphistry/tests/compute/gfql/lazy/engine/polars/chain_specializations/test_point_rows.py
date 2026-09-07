@@ -70,3 +70,45 @@ def test_single_node_property_multihit_order(project):
         expected = g.gfql(ops, engine="polars", index_policy="force")
     actual = g.gfql(ops, engine="polars", index_policy="force")
     assert_frame_equal(actual._nodes, expected._nodes)
+
+
+@pytest.mark.parametrize("variant", ["base", "loop", "dangling", "nonleading", "empty", "nullable", "timestamp", "float-null", "categorical"])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("multi_seed", [False, True])
+def test_joined_projection_exact_path_bag(variant, reverse, multi_seed):
+    from polars.testing import assert_frame_equal
+    g = make_graph(variant)
+    if multi_seed:
+        g = graphistry.nodes(g._nodes.with_columns((pl.col("id") % 2).alias("bucket")), "key").edges(g._edges, "s", "d", "eid")
+        g = g.gfql_index_all(engine="polars").gfql_index_node_props(["bucket"], engine="polars")
+    edge = e_reverse if reverse else e_forward
+    ops = [n({"bucket": 0} if multi_seed else {"id": 1000}, name="a"), edge({"type": "X"}, name="e"),
+           n({"kind": "Person"}, name="b"), rows(),
+           select([("source", "a.id"), ("target", "b.id"), ("value", "b.value"), ("weight", "e.weight")])]
+    from graphistry.compute.gfql.index.api import with_index_policy
+    direct = _try_point_rows_polars(with_index_policy(g, "force"), ops)
+    assert direct is not None
+    with routes_off(["polars-point-rows"]):
+        expected = g.gfql(ops, engine="polars", index_policy="force")
+    assert_frame_equal(direct._nodes, expected._nodes)
+    assert_frame_equal(direct._edges, expected._edges)
+    for attr in ("_node", "_edge", "_source", "_destination", "_gfql_rows_base_graph", "_gfql_start_nodes"):
+        assert getattr(direct, attr) == getattr(expected, attr)
+
+
+@pytest.mark.parametrize("items", [
+    [("out", "a.id + 1")], [("out", "coalesce(a.content, b.content)")],
+    [("out", "missing.id")], [("out", "a.missing")],
+    [("out", "a.id"), ("out", "b.id")],
+])
+def test_joined_projection_declines_unsupported_items(items):
+    g = make_graph()
+    ops = [n({"id": 1000}, name="a"), e_forward({"type": "X"}), n(name="b"), rows(), select(items)]
+    assert _try_point_rows_polars(g, ops) is None
+
+
+def test_joined_projection_temporal_constructor_text_declines():
+    g = make_graph()
+    g = graphistry.nodes(g._nodes.with_columns(pl.lit("date({year: 2020})").alias("text")), "key").edges(g._edges, "s", "d", "eid").gfql_index_all(engine="polars")
+    ops = [n({"key": 0}, name="a"), e_forward({"type": "X"}), n(name="b"), rows(), select([("text", "b.text")])]
+    assert _try_point_rows_polars(g, ops) is None

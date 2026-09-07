@@ -1,5 +1,9 @@
 """Resident-index source rows for native Polars point queries."""
-from typing import List, Optional, Sequence
+import re
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
+
+if TYPE_CHECKING:
+    import polars as pl
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTCall, ASTEdge, ASTNode, ASTObject
@@ -28,13 +32,63 @@ def polars_point_rows_admits(ops: Sequence[ASTObject]) -> Optional[int]:
             or set(row.params) - {"table", "source"} or row.params.get("table") != "nodes"):
         return None
     source = row.params.get("source")
-    if not isinstance(source, str) or not any(isinstance(op, ASTNode) and op._name == source for op in ops[:boundary]):
+    joined = boundary == 3 and source is None and len(ops) == 5
+    if joined:
+        if not all(isinstance(op, ASTNode) and isinstance(op._name, str) for op in ops[:boundary:2]):
+            return None
+    elif not isinstance(source, str) or not any(isinstance(op, ASTNode) and op._name == source for op in ops[:boundary]):
         return None
     if len(ops) > boundary + 1:
         projection = ops[-1]
         if not isinstance(projection, ASTCall) or projection.function != "select" or set(projection.params) != {"items"}:
             return None
     return boundary
+
+
+def _joined_projection(
+    seed: "pl.DataFrame", edges: "pl.DataFrame", tail: "pl.DataFrame",
+    node: str, from_col: str, to_col: str, seed_alias: str, tail_alias: str,
+    edge_alias: Optional[str], projection: ASTCall,
+) -> "Optional[pl.DataFrame]":
+    import polars as pl
+    from graphistry.compute.gfql.lazy import collect
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import _select_emits_temporal_constructor_text
+    if seed.get_column(node).n_unique() != seed.height or tail.get_column(node).n_unique() != tail.height:
+        return None
+    items = projection.params.get("items")
+    if not isinstance(items, list) or not items:
+        return None
+    frames = {seed_alias: seed, tail_alias: tail}
+    if edge_alias is not None:
+        frames[edge_alias] = edges
+    properties: Dict[str, List[pl.Expr]] = {alias: [] for alias in frames}
+    outputs = []
+    for index, item in enumerate(items):
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            return None
+        output, expr = item
+        if not isinstance(output, str) or not isinstance(expr, str):
+            return None
+        match = re.fullmatch(r"([A-Za-z_][A-Za-z_0-9]*)\.([A-Za-z_][A-Za-z_0-9]*)", expr)
+        if match is None:
+            return None
+        alias, column = match.groups()
+        if alias not in frames or column not in frames[alias].columns:
+            return None
+        temporary = f"_value_{index}"
+        properties[alias].append(pl.col(column).alias(temporary))
+        outputs.append(pl.col(temporary).alias(output))
+    if len({item[0] for item in items}) != len(items):
+        return None
+    left = seed.lazy().select(pl.col(node).alias("_seed"), *properties[seed_alias]).with_row_index("_seed_order")
+    step = edges.lazy().select(
+        pl.col(from_col).alias("_seed"), pl.col(to_col).alias("_tail"),
+        *([] if edge_alias is None else properties[edge_alias]),
+    ).with_row_index("_edge_order")
+    right = tail.lazy().select(pl.col(node).alias("_tail"), *properties[tail_alias])
+    result = collect(left.join(step, on="_seed", how="inner").join(right, on="_tail", how="inner")
+                     .sort(["_seed_order", "_edge_order"]).select(outputs))
+    return None if _select_emits_temporal_constructor_text(result) else result
 
 
 def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Optional[object] = None) -> Optional[Plottable]:
@@ -59,7 +113,7 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
         return None
     n0, row = ops[0], ops[boundary]
     assert isinstance(n0, ASTNode) and isinstance(row, ASTCall) and n0.filter_dict
-    source = row.params["source"]
+    source = row.params.get("source")
     nid_ctx = _resident_node_id_index(g, nodes, node)
     if nid_ctx is None:
         return None
@@ -69,6 +123,7 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
         return None
     seed, _ = seed_result
     if boundary == 1:
+        assert isinstance(source, str)
         selected = seed.with_columns(pl.lit(True).alias(source))
         kept_edges = edges.clear()
     else:
@@ -89,6 +144,20 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
             return None
         tail = filter_by_dict_polars(tail, tail_op.filter_dict)
         kept_edges = kept_edges.filter(pl.col(to_col).is_in(tail.get_column(node).implode()))
+        if source is None:
+            projection = ops[-1]
+            assert isinstance(projection, ASTCall) and isinstance(n0._name, str) and isinstance(tail_op._name, str)
+            selected_joined = _joined_projection(seed, kept_edges, tail, node, from_col, to_col,
+                                                 n0._name, tail_op._name, edge._name, projection)
+            if selected_joined is None:
+                return None
+            if edge._name is not None:
+                kept_edges = kept_edges.with_columns(pl.lit(True).alias(edge._name))
+            adapter = _RowPipelineAdapter(g.edges(kept_edges))
+            adapter._node = adapter._edge = adapter._source = adapter._destination = None
+            _record_native_seed_lane(nodes, seam="point_rows", reason="served", hop_count=1,
+                                     public_seed_scan=node not in n0.filter_dict)
+            return clear_row_exec_context(row_table(adapter, selected_joined))
         selected = tail if source == tail_op._name else seed.filter(pl.col(node).is_in(kept_edges.get_column(from_col).implode()))
         selected = selected.with_columns([
             pl.col(node).is_in(kept_edges.get_column(endpoint).implode()).fill_null(False).alias(alias)
