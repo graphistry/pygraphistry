@@ -233,3 +233,57 @@ def test_projection_requires_parsing_for_non_identifier_properties(source, expre
     from graphistry.compute.chain_specializations.point_rows import _project_point_columns
     frame = pd.DataFrame({"value": [1], "two words": [2]})
     assert _project_point_columns(frame, select([("out", expression)]), source, [source]) is None
+
+
+@pytest.mark.parametrize("variant", ["base", "loop", "dangling", "empty", "nullable", "duplicate-index", "nonleading"])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("named_edge", [False, True])
+def test_joined_point_projection(engine, variant, reverse, named_edge, monkeypatch):
+    g = graph(engine, variant)
+    hop = e_reverse if reverse else e_forward
+    items = [("seed", "a.value"), ("tail", "b.value"), ("id", "b.key")]
+    if named_edge:
+        items.append(("weight", "e.weight"))
+    ops = [n({"key": 0}, name="a"), hop({"type": "X"}, name="e" if named_edge else None),
+           n(name="b"), rows(), select(items)]
+    with routes_off(ROUTES):
+        expected = g.gfql(ops, engine=engine)
+    def fail(*args, **kwargs):
+        raise AssertionError("joined point fell back to chain execution")
+    monkeypatch.setattr(chain_mod, "_chain_impl", fail)
+    actual = g.gfql(ops, engine=engine)
+    assert_result(actual, expected)
+
+
+@pytest.mark.parametrize("items", [[("v", "a.value + b.value")], [("v", "a")], [],
+                                   [("v", "a.missing")], [("v", "a.`value`")]])
+def test_joined_point_projection_declines(engine, items):
+    g = graph(engine)
+    ops = [n({"key": 0}, name="a"), e_forward({"type": "X"}), n(name="b"), rows(), select(items)]
+    assert _try_point_rows(g, ops, Engine(engine), validate_schema=False) is None
+
+
+@pytest.mark.parametrize("seed,tail", [({"key": 999}, {}), ({"key": 0}, {"value": 1}),
+                                      ({"key": 0}, {"value": 999}), ({"bucket": 0}, {"value": 1})])
+def test_joined_point_filters_and_repeated_outputs(engine, seed, tail, monkeypatch):
+    g = graph(engine)
+    g = g.nodes(g._nodes.assign(bucket=g._nodes["key"] // 3)).gfql_index_all(engine=engine)
+    g = g.gfql_index_node_props(["bucket"], engine=engine)
+    from graphistry.compute.gfql.index import with_index_policy
+    g = with_index_policy(g, "force")
+    ops = [n(seed, name="a"), e_forward({"type": "X"}), n(tail, name="b"), rows(),
+           select([("v", "a.value"), ("v", "b.value"), ("key", "a.key")])]
+    with routes_off(ROUTES):
+        expected = g.gfql(ops, engine=engine)
+    def fail(*args, **kwargs):
+        raise AssertionError("joined point fell back")
+    monkeypatch.setattr(chain_mod, "_chain_impl", fail)
+    assert_result(g.gfql(ops, engine=engine), expected)
+
+
+@pytest.mark.parametrize("alias", ["value", "key", "content"])
+def test_joined_point_alias_collision_declines(engine, alias):
+    g = graph(engine)
+    ops = [n({"key": 0}, name=alias), e_forward({"type": "X"}), n(name="b"), rows(),
+           select([("v", f"{alias}.value"), ("tail", "b.value")])]
+    assert _try_point_rows(g, ops, Engine(engine), validate_schema=False) is None

@@ -99,9 +99,10 @@ def point_rows_admits(
         return None
     table, source = row.params.get("table"), row.params.get("source")
     kind = ASTNode if table == "nodes" else ASTEdge if table == "edges" else None
-    if kind is None or not isinstance(source, str) or not any(
+    joined = boundary == 3 and table == "nodes" and source is None and len(ops) == 5
+    if not joined and (kind is None or not isinstance(source, str) or not any(
         isinstance(op, kind) and op._name == source for op in ops[:boundary]
-    ):
+    )):
         return None
     if len(ops) > boundary + 1:
         projection = ops[-1]

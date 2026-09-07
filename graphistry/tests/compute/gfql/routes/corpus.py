@@ -35,6 +35,7 @@ EDGES = pd.DataFrame({"s": [1, 1, 2, 3, 3, 4], "d": [2, 3, 3, 1, 1, 5], "type": 
 CORPUS: List[Entry] = [
     _entry("point node rows", lambda k: [n({"key": k(1)}, name="a"), rows(source="a")], ("point-rows", "single-node")),
     _entry("point node projection", lambda k: [n({"key": k(1)}, name="a"), rows(source="a"), select(["key", ("value", "a.w")])], ("point-rows", "single-node", "projection")),
+    _entry("point joined hop projection", lambda k: [n({"key": k(1)}, name="a"), e_forward({"type": "KNOWS"}), n(name="b"), rows(), select([("key", "b.key"), ("seed", "a.w"), ("tail", "b.w")])], ("point-rows", "single-hop", "projection")),
     _entry("point typed hop rows", lambda k: [n({"key": k(1)}, name="a"), e_forward({"type": "KNOWS"}), n(name="b"), rows(source="b")], ("point-rows", "single-hop")),
     _entry("point typed hop seed rows", lambda k: [n({"key": k(1)}, name="a"), e_forward({"type": "KNOWS"}), n(name="b"), rows(source="a")], ("point-rows", "single-hop")),
     _entry("point reverse hop projection", lambda k: [n({"key": k(1)}, name="a"), e_reverse({"type": "KNOWS"}), n(name="b"), rows(source="b"), select(["key", ("value", "b.w")])], ("point-rows", "single-hop", "reverse", "projection")),

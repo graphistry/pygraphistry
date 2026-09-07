@@ -49,6 +49,7 @@ def _sig(res):
 
 
 EXPECTED = {
+    "point joined hop projection": None,
     "point node rows": None, "point node projection": None,
     "point typed hop rows": None, "point typed hop seed rows": None,
     "point reverse hop projection": None,
