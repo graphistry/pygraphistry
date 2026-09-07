@@ -34,7 +34,7 @@ GFQL is an in-process graph query language for the compute tier. With it you can
 
 On CPU alone, GFQL's Polars engine is faster than Kuzu, Memgraph, and Neo4j on most of
 the nine graph-benchmark analytics queries at both graph sizes, and the GPU engines are
-faster still on heavy work; the graph databases win the SNB-derived point lookups. The
+faster still on heavy work; the graph databases win the SNB-derived single-node lookups by id. The
 per-query boards, with every loss shown, are on :doc:`performance`, and a full filter,
 PageRank, filter pipeline against Neo4j + GDS is the :doc:`speedup case study
 <benchmark_filter_pagerank>`.

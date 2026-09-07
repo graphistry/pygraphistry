@@ -16,7 +16,7 @@ For the planner policy knobs and competitive benchmarks, see
 .. code-block:: python
 
    g = g.gfql_index_all()   # pay once ...
-   g.gfql(...)              # ... every later seeded lookup on g rides the index
+   g.gfql(...)              # ... every later query from known nodes uses the index
 
 What a resident index is
 ------------------------
@@ -49,7 +49,7 @@ carrying them:
 They are **sidecars over row positions**: your ``.edges`` / ``.nodes`` frames are never
 reordered or copied, and the resident footprint is visible per index via
 ``g.show_indexes()`` (the ``nbytes`` column). The model is **pay-as-you-go**: one
-``O(E log E)`` build, amortized over every seeded query afterward. Nothing is built
+``O(E log E)`` build, spread over every later query from known nodes. Nothing is built
 unless you ask.
 
 Quick start
@@ -79,7 +79,7 @@ A complete, runnable example:
    g_indexed = g.gfql_index_all()
    print(g_indexed.show_indexes()[["name", "kind", "key_col", "n_keys", "valid"]])
 
-   # Seeded 1-hop: who did accounts 0 and 3 transfer to?
+   # 1-hop from known nodes: who did accounts 0 and 3 transfer to?
    out = g_indexed.gfql([n({"id": is_in([0, 3])}), e_forward(), n()])
    print(sorted(out._nodes["id"].tolist()))          # [0, 1, 2, 3, 4]
 
@@ -134,13 +134,13 @@ What uses the index today
 
 On 0.58.0, a resident index is consumed automatically by:
 
-- **Seeded typed-hop fast paths** (native chain or Cypher): a seeded typed 1-hop —
+- **Typed hops from known nodes** (native chain or Cypher): a typed 1-hop from known nodes —
   ``[n({"id": is_in([...])}), e_forward(), n(...)]`` or
   ``MATCH (m {id: $x})-[:T]->(p) RETURN p`` — including the single-alias **property
   RETURN** form (``RETURN p.a AS x, p.b``). The seed lookup, frontier expansion, and
   endpoint materialization all become positional index gathers, so the lookup stops
   paying graph-size costs.
-- **Property-seeded lookups**: the seed filter may hit a *property* column (e.g.
+- **Lookups by a property value**: the start filter may hit a *property* column (e.g.
   ``MATCH (m {id: $x})`` when the graph is bound on a different key column). The seed
   row falls back to a property scan, but the adjacency and endpoint gathers still
   engage — the common pattern of a synthetic key binding plus an ``id`` property
@@ -184,7 +184,7 @@ time). Consequences:
 
 **Declines are always safe.** Whether an index is missing, stale, or the query shape is
 uncovered, results are identical either way — indexes only ever change speed, never
-answers (index-vs-scan parity is differentially tested across engines).
+answers.
 
 .. note::
    **Stability.** The index kinds, sidecar layout, and ``show_indexes()`` columns describe
@@ -208,18 +208,17 @@ What it costs, what it buys
 ---------------------------
 
 **Build (the "pay" side)**: one-time and ``O(E log E)`` — a sort over the edge frame,
-amortized across every subsequent seeded query. ``index_policy='auto'`` only pays it when
+spread across every later query from known nodes. ``index_policy='auto'`` only pays it when
 the planner predicts a selective query will earn it back.
 
-**Seeded lookup (the "go" side)**: on a covered shape, the seeded lookup drops from the
-general path to the fast path, and again with the index resident, on both CPU engines.
+**Lookup (the "go" side)**: on a covered query, the lookup gets faster twice: once on
+the specialized path and again once the index is built, on both CPU engines.
 
-**Flat in graph size**: a direct seeded ``g.hop()`` with the index resident turns the
+**Flat in graph size**: a direct ``g.hop()`` from known nodes with the index built turns the
 ``O(E)`` scan into an ``O(degree)`` gather, so its cost tracks the seeds' neighborhood
 rather than the graph.
 
-Measured figures are published on :doc:`performance` and :doc:`index_adjacency` only, and
-only when they trace to a committed benchmark artifact.
+Measured figures are published on :doc:`performance` and :doc:`index_adjacency`.
 
 See also
 --------

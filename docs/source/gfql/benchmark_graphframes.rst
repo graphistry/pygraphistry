@@ -11,8 +11,8 @@ Graphistry's open-source graph query language: Cypher and Python chains that run
 in-process on dataframes, with no database or cluster. GraphFrames is Spark's graph
 library, run here on ``local[*]``, a single-node JVM using all cores. The workload is
 four tasks on two SNAP graphs, LiveJournal and Orkut, with Friendster as the
-larger-than-memory size measured last. Every number below renders from a
-committed pyg-bench receipt; the Measurement block at the end names the runs, hosts, and
+larger-than-memory size measured last. Every number below comes from a
+recorded benchmark run; the Measurement block at the end names the runs, hosts, and
 commits.
 
 **Where it stands.** The single-server ceiling measured here is Friendster:
@@ -54,7 +54,7 @@ and hop tasks with ``engine="polars"`` under the Polars CPU streaming collect, o
 ``engine="polars-gpu"`` under the cudf-polars streaming executor. PageRank re-binds an
 eager copy outside the timer and calls cuGraph on the GPU or igraph on the CPU. The
 streaming collect is not a tax: with the same commit and protocol the eager collect
-matched it on filter and 2-hop and was slower on 1-hop (the receipts are named in the
+matched it on filter and 2-hop and was slower on 1-hop (the runs are named in the
 Measurement block). Every cell is the median of 5 timed runs after 2 warmups, and every
 task returns the same result size on every system that ran it. Times are milliseconds
 unless marked; lower is better.
@@ -156,7 +156,7 @@ ran (see :ref:`graphframes-friendster`).
      - not attempted
      - see :ref:`graphframes-friendster`
 
-Result sizes agree across the systems that ran each task, as recorded in the receipts:
+Result sizes agree across the systems that ran each task, as recorded in the run records:
 
 .. list-table::
    :header-rows: 1
@@ -260,7 +260,7 @@ RAM, a direct cuDF read exceeds the unified pool, and a 90 GB Spark driver heap 
 The harness binds from ``pl.scan_parquet`` and collects through GFQL's streaming paths
 (``GFQL_POLARS_CPU_STREAMING=1`` for the Polars streaming engine,
 ``GFQL_POLARS_GPU_EXECUTOR=streaming`` for the cudf-polars streaming executor), with a
-peak-memory receipt at every size. On Friendster the CPU streaming run loaded the graph
+peak-memory record at every size. On Friendster the CPU streaming run loaded the graph
 (scan plus degree pass in about 20 seconds, 55.0 GiB resident), answered the degree filter
 and the 1-hop from 50 hub seeds (table above), and peaked at 103.6 GiB resident after the
 1-hop; a second run answered the 2-hop, a 15,878,312-node ball, in
@@ -294,13 +294,13 @@ Method and limits
   Cells marked diagnostic are never quoted as GFQL's number.
 - **PageRank convergence**: GraphFrames runs a fixed ``maxIter=20``; cuGraph runs to
   its default tolerance. Times compare wall-clock to a usable ranking.
-- **Receipts**: one run at a time under a host lock, after two clean checks five
+- **Run records**: one run at a time under a host lock, after two clean checks five
   minutes apart; a load monitor samples the host every second and a classifier
   invalidates the run if a process outside the benchmark ran during it. Invalidated
   attempts stay in the package under ``stale-attempts/``; one Orkut GraphFrames run is
   valid by reclassification after the classifier learned that Spark's own shutdown
   cleanup is the benchmark's process (``RECLASSIFIED.txt`` in that run's directory).
-- **Harness**: the GFQL streaming harness and every receipt live in pyg-bench; the
+- **Harness**: the GFQL streaming harness and every run record live in pyg-bench; the
   GraphFrames baseline is ``benchmarks/gfql/bench_graphframes.py --systems graphframes``
   in this repository, run from a host Spark with the GraphFrames assembly jar.
 

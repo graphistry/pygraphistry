@@ -91,7 +91,7 @@ The query does not change between engines:
 Intermediate graphs stay in Arrow, pandas, or cuDF memory in the same Python
 process. GFQL
 returns the same result on every engine or rejects the query before execution;
-see :doc:`engines` for the parity rules.
+see :doc:`engines`.
 
 .. _neo4j-analog:
 
@@ -139,9 +139,9 @@ Method and limits
 -----------------
 
 - **Workload**: one pipeline (filter, PageRank, filter) on two SNAP graphs.
-  Selected-node parity is measured (Jaccard, gate 0.95): on Twitter the GFQL
+  Selected-node agreement is measured (Jaccard, threshold 0.95): on Twitter the GFQL
   CPU arm matches Neo4j at 0.9999; on GPlus the GFQL CPU arm selects exactly
-  the locked lane's set; the GPlus GPU arm is at 0.91 against CPU and is
+  the reference run's set; the GPlus GPU arm is at 0.91 against CPU and is
   therefore diagnostic-only (see the caveats below).
 - **Timing**: warm runs after warm-up (2 warm-ups, 5 timed runs, median). The
   GFQL arms were measured at the release commit named in the Measurement block; the Twitter Neo4j arm
@@ -157,7 +157,7 @@ Method and limits
 - **Comparable ratio**: the GPU-vs-CPU column compares the same GFQL query and
   the same profile, so that ratio is published.
 - **Scope**: for the four-engine CPU/GPU comparison and engine choice, see
-  :doc:`engines`. For seeded lookups, see :doc:`index_adjacency`. For the
+  :doc:`engines`. For queries from known nodes, see :doc:`index_adjacency`. For the
   Spark GraphFrames comparison, see :doc:`benchmark_graphframes`.
 
 .. _pagerank-provenance:
