@@ -3,8 +3,8 @@
 ``_tag_fast_path_aliases`` attaches the alias flag columns a named seeded hop carries; on
 pandas it now builds them with one copy and in-place inserts. Pins: for every alias shape
 the pandas branch returns exactly (columns, order, dtypes, index of every touched frame) what the generic
-path returns, and the shapes it cannot reproduce in place (binding column not first, colliding
-alias names, float or object ids) decline to the generic path.
+path returns, and the shapes it cannot reproduce in place (colliding alias names, float or
+object ids) decline to the generic path.
 """
 import numpy as np
 import pandas as pd
@@ -55,8 +55,10 @@ SHAPES = {
 
 @pytest.mark.parametrize("shape", list(SHAPES))
 @pytest.mark.parametrize("direction", ["forward", "reverse"])
-def test_pandas_branch_is_frame_identical_to_generic_tagging(shape, direction):
-    fast, generic, branch = _both(_res(NODES, EDGES), SHAPES[shape], direction)
+@pytest.mark.parametrize("binding_first", [True, False])
+def test_pandas_branch_is_frame_identical_to_generic_tagging(shape, direction, binding_first):
+    nodes = NODES if binding_first else NODES[["x", "k", "w"]]
+    fast, generic, branch = _both(_res(nodes, EDGES), SHAPES[shape], direction)
     assert branch == 1
     pd.testing.assert_frame_equal(fast._nodes, generic._nodes)
     pd.testing.assert_frame_equal(fast._edges, generic._edges)
@@ -75,7 +77,6 @@ def test_dead_end_seed_is_tagged_false_on_both_paths():
 
 
 DECLINE_SHAPES = {
-    "binding column not first": (NODES[["x", "k", "w"]], EDGES, ("m", "e", "p")),
     "colliding node alias": (NODES.assign(m=0), EDGES, ("m", "e", "p")),
     "colliding edge alias": (NODES, EDGES.assign(e=0), ("m", "e", "p")),
     "float ids": (NODES.assign(k=NODES["k"].astype(float)), EDGES, ("m", None, "p")),
