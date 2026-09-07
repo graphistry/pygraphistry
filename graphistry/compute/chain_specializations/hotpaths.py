@@ -3,7 +3,7 @@ and the seeded typed RETURN-destination reduction. Each lane sits next to its ad
 predicate (``admission.py``); ``chain.py`` only dispatches."""
 # ruff: noqa: E501
 
-from typing import List, Optional, Sequence, Tuple, TYPE_CHECKING, cast
+from typing import Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING, cast
 
 from graphistry.Engine import Engine, EngineAbstract, df_concat
 from graphistry.Plottable import Plottable
@@ -106,6 +106,10 @@ def _seeded_typed_hop_pandas_cudf(
     if served_via_index:
         _record_native_seed_lane(nodes_df, seam="native_seeded_hop", reason="served", hop_count=1,
                                  public_seed_scan=node not in n0f)
+    tail = _seeded_hop_tail_numeric(cand, edges, n2f, src, dst, to_col, node)
+    if tail is not None:
+        cand, edges = tail
+        return g.nodes(cand).edges(edges)
     if n2f:  # destination-node filter (to-side)
         n2_cand = cand
         for k, v in n2f.items():
@@ -118,6 +122,36 @@ def _seeded_typed_hop_pandas_cudf(
     edges = edges[keep]
     cand = cand[cand[node].isin(edges[src]) | cand[node].isin(edges[dst])]
     return g.nodes(cand).edges(edges)
+
+
+def _seeded_hop_tail_numeric(
+    cand: DataFrameT, edges: DataFrameT, n2f: Dict[str, object], src: str, dst: str, to_col: str, node: str,
+) -> Optional[Tuple[DataFrameT, DataFrameT]]:
+    """The endpoint validation and destination filter on the few gathered rows, as numpy array ops on
+    pandas frames with numeric id columns; None keeps the engine-generic Series path."""
+    import numpy as np
+    import pandas as pd
+    if not isinstance(cand, pd.DataFrame) or not isinstance(edges, pd.DataFrame):
+        return None
+    ids = cand[node].to_numpy()
+    es, ed = edges[src].to_numpy(), edges[dst].to_numpy()
+    if not all(a.dtype.kind in "iuf" for a in (ids, es, ed)):
+        return None
+    n2_mask = np.ones(len(cand), dtype=bool)
+    for k, v in n2f.items():
+        col = cand[k]
+        if col.dtype.kind not in "iufb" and not isinstance(v, str):
+            return None
+        n2_mask &= (col.to_numpy() == v)
+    valid = ids[~np.isnan(ids)] if ids.dtype.kind == "f" else ids
+    n2_ok = ids[n2_mask]
+    n2_ok = n2_ok[~np.isnan(n2_ok)] if n2_ok.dtype.kind == "f" else n2_ok
+    to_vals = es if to_col == src else ed
+    keep = np.isin(es, valid) & np.isin(ed, valid) & np.isin(to_vals, n2_ok)
+    edges = edges[keep]
+    kept = np.concatenate([es[keep], ed[keep]])
+    cand = cand[np.isin(ids, kept)]
+    return cand, edges
 
 
 def _seeded_typed_return_dst_pandas_cudf(
