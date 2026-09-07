@@ -14,6 +14,7 @@ from graphistry.util import setup_logger
 from .ast import ASTObject, ASTLet, ASTNode, ASTEdge, ASTCall
 from .chain import Chain, chain as chain_impl
 from .gfql.query_types import GFQLQuery
+from .chain import reject_alias_named_like_binding
 from .chain_let import chain_let as chain_let_impl
 from .execution_context import ExecutionContext
 from .gfql.policy import (
@@ -763,7 +764,7 @@ def _apply_connected_match_join(
     cache_store: Dict[str, Any] = {}
 
     for pattern_chain in plan.pattern_chains:
-        _reject_node_alias_shadowing_id_binding(
+        reject_alias_named_like_binding(
             base_graph, pattern_chain, include_edge_endpoint_aliases=True
         )
 
@@ -1591,7 +1592,7 @@ def _execute_compiled_query_chain_non_union(
             compiled_query=compiled_query,
             engine=engine,
         )
-    _reject_node_alias_shadowing_id_binding(
+    reject_alias_named_like_binding(
         base_graph, compiled_query.chain, include_edge_endpoint_aliases=True
     )
 
@@ -2778,52 +2779,6 @@ def _gfql_with_strictness(
             context.policy_depth = policy_depth
 
 
-def _reject_node_alias_shadowing_id_binding(
-    g: Plottable, chain_obj: Chain, *, include_edge_endpoint_aliases: bool = False
-) -> None:
-    """Typed decline for an alias named after a binding column: a node alias equal to the
-    node-ID binding, and (native chains and Cypher alike) an edge alias equal to the source,
-    destination or edge-ID binding.
-
-    The alias marker is stamped as ``<alias> = True``, so an alias equal to the node-id
-    column overwrites the ids themselves: pandas then died with a raw
-    ``ValueError: The column label 'id' is not unique`` from the chain's own merge while
-    polars answered ``True``. Neither is a usable result; decline the same way on both.
-    """
-    node_id = getattr(g, "_node", None)
-    endpoint_cols = {
-        col for col in (getattr(g, "_source", None), getattr(g, "_destination", None), getattr(g, "_edge", None))
-        if isinstance(col, str)
-    }
-    for op in chain_obj.chain:
-        if isinstance(node_id, str) and isinstance(op, ASTNode) and getattr(op, "_name", None) == node_id:
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "A node alias cannot be named after the node-ID binding column",
-                field="chain.name",
-                value=node_id,
-                suggestion=(
-                    f"The alias flag is materialized as a column named '{node_id}', which would "
-                    f"overwrite the node-ID binding. Rename the alias."
-                ),
-            )
-        if (
-            include_edge_endpoint_aliases
-            and isinstance(op, ASTEdge)
-            and getattr(op, "_name", None) in endpoint_cols
-        ):
-            raise GFQLValidationError(
-                ErrorCode.E108,
-                "An edge alias cannot be named after an edge endpoint binding column",
-                field="chain.name",
-                value=getattr(op, "_name", None),
-                suggestion=(
-                    "The alias flag is materialized as a column named like the edge "
-                    "source, destination or edge-ID binding, which would overwrite it. "
-                    "Rename the alias."
-                ),
-            )
-
 
 def _chain_dispatch(
     g: Plottable,
@@ -2833,7 +2788,7 @@ def _chain_dispatch(
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
 ) -> Plottable:
-    _reject_node_alias_shadowing_id_binding(g, chain_obj, include_edge_endpoint_aliases=True)
+    reject_alias_named_like_binding(g, chain_obj, include_edge_endpoint_aliases=True)
     engine_name = engine.value if hasattr(engine, "value") else str(engine)
     if chain_obj.where and engine_name in (Engine.POLARS.value, Engine.POLARS_GPU.value):
         # Cross-entity / same-path WHERE routes through DFSamePathExecutor

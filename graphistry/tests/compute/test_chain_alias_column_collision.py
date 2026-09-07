@@ -93,16 +93,35 @@ def test_multi_hop_collisions_match_the_control_alias(engine, shape):
     assert _alias_marker(res, ops[1]._name) == _alias_marker(g.gfql([n({"id": 30}, name="m"), e_forward({"type": "HAS_CREATOR"}, hops=ops[1].hops, to_fixed_point=ops[1].to_fixed_point, name="e"), n(name="p")], engine=engine), "e")
 
 
+SURFACES = ["gfql", "chain"]
+
+
+@pytest.mark.parametrize("surface", SURFACES)
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("alias", ["s", "d", "eid"])
-def test_alias_named_like_a_binding_column_is_rejected_before_execution(engine, alias):
-    from graphistry.compute.exceptions import GFQLValidationError
-    with pytest.raises(GFQLValidationError):
-        _graph(engine, False).gfql([n({"id": 30}, name="m"), e_forward({"type": "HAS_CREATOR"}, name=alias), n(name="p")], engine=engine)
+def test_alias_named_like_a_binding_column_is_rejected_before_execution(surface, engine, alias):
+    from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+    run = getattr(_graph(engine, False), surface)
+    with pytest.raises(GFQLValidationError) as exc_info:
+        run([n({"id": 30}, name="m"), e_forward({"type": "HAS_CREATOR"}, name=alias), n(name="p")], engine=engine)
+    assert exc_info.value.code == ErrorCode.E108
 
 
+@pytest.mark.parametrize("surface", SURFACES)
 @pytest.mark.parametrize("engine", ENGINES)
-def test_alias_named_like_the_node_binding_is_rejected_before_execution(engine):
-    from graphistry.compute.exceptions import GFQLValidationError
-    with pytest.raises(GFQLValidationError):
-        _graph(engine, False).gfql([n({"id": 30}, name="key"), e_forward({"type": "HAS_CREATOR"}, name="e"), n(name="p")], engine=engine)
+def test_alias_named_like_the_node_binding_is_rejected_before_execution(surface, engine):
+    from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+    run = getattr(_graph(engine, False), surface)
+    with pytest.raises(GFQLValidationError) as exc_info:
+        run([n({"id": 30}, name="key"), e_forward({"type": "HAS_CREATOR"}, name="e"), n(name="p")], engine=engine)
+    assert exc_info.value.code == ErrorCode.E108
+
+
+@pytest.mark.parametrize("surface", SURFACES)
+@pytest.mark.parametrize("engine", ENGINES)
+def test_cross_frame_binding_name_is_a_plain_alias_on_both_surfaces(surface, engine):
+    """A node alias named like an EDGE binding column collides with nothing on the node frame: served, marker present."""
+    run = getattr(_graph(engine, False), surface)
+    res = run([n({"id": 30}, name="s"), e_forward({"type": "HAS_CREATOR"}, name="e"), n(name="p")], engine=engine)
+    nn = res._nodes.to_pandas() if hasattr(res._nodes, "to_pandas") else res._nodes
+    assert str(nn["s"].dtype) == "bool" and sorted(nn["key"].tolist()) == [1, 3]

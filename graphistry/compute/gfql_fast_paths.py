@@ -3576,7 +3576,8 @@ def _execute_seeded_node_lookup_fast_path(
         if edges is not None:
             out._edges = edges.head(0) if is_polars else edges.head(0).reset_index(drop=True)
         if suffix_ops:
-            return chain_impl(out, suffix_ops, engine=engine, policy=policy, context=context)
+            tail_ops: List[ASTObject] = list(suffix_ops)
+            return chain_impl(out, tail_ops, engine=engine, policy=policy, context=context)
         return out
     assert projection is not None
     if is_polars:
@@ -3819,7 +3820,8 @@ def _execute_seeded_typed_hop_fast_path(
         out._nodes = out_frame
         out._edges = _empty_edges_with_alias_marker(_edges, e1._name, is_polars)
         if suffix_ops:
-            return chain_impl(out, suffix_ops, engine=engine, policy=policy, context=context)
+            tail_ops: List[ASTObject] = list(suffix_ops)
+            return chain_impl(out, tail_ops, engine=engine, policy=policy, context=context)
         return out
     if bag_rows:
         p_rows = _seeded_typed_hop_bag_rows(
@@ -3854,9 +3856,10 @@ def _execute_seeded_typed_hop_fast_path(
         # edges are the matched hop edges, so take their zero-row head.
         out._edges = _empty_edges_with_alias_marker(_edges, e1._name, is_polars)
         if suffix_ops:
+            tail_ops_indexed: List[ASTObject] = list(suffix_ops)
             return chain_impl(
                 out,
-                suffix_ops,
+                tail_ops_indexed,
                 engine=engine,
                 policy=policy,
                 context=context,
