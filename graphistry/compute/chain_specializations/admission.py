@@ -5,7 +5,7 @@ what the dispatcher admits."""
 
 from typing import Dict, Literal, Optional, Sequence, Tuple, TYPE_CHECKING
 
-from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
+from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTCall
 from graphistry.compute.chain_fast_paths import SeedRowsHow
 from graphistry.compute.typing import ArrayNamespace, DataFrameT
 
@@ -75,3 +75,36 @@ def _indexed_kernel_admits(
     if n_frontier >= frac * adj.n_keys:
         return False
     return gathered_edges is not None and len(gathered_edges) < frac * n_edges
+
+
+def point_rows_admits(
+    ops: Sequence[ASTObject], engine: "Engine", start_nodes: Optional[DataFrameT],
+) -> Optional[int]:
+    boundary = 1 if len(ops) in (2, 3) else 3 if len(ops) in (4, 5) else None
+    if boundary is None or native_fast_path_admits(ops[:boundary], engine, start_nodes) is None:
+        return None
+    first = ops[0]
+    if not isinstance(first, ASTNode) or not first.filter_dict:
+        return None
+    for op in ops[:boundary]:
+        filters = op.filter_dict if isinstance(op, ASTNode) else op.edge_match if isinstance(op, ASTEdge) else None
+        if filters and any(not isinstance(v, (str, int, float, bool)) for v in filters.values()):
+            return None
+    if boundary == 3:
+        edge = ops[1]
+        if not isinstance(edge, ASTEdge) or edge.direction == "undirected":
+            return None
+    row = ops[boundary]
+    if not isinstance(row, ASTCall) or row.function != "rows" or set(row.params) - {"table", "source"}:
+        return None
+    table, source = row.params.get("table"), row.params.get("source")
+    kind = ASTNode if table == "nodes" else ASTEdge if table == "edges" else None
+    if kind is None or not isinstance(source, str) or not any(
+        isinstance(op, kind) and op._name == source for op in ops[:boundary]
+    ):
+        return None
+    if len(ops) > boundary + 1:
+        projection = ops[-1]
+        if not isinstance(projection, ASTCall) or projection.function != "select" or set(projection.params) != {"items"}:
+            return None
+    return boundary

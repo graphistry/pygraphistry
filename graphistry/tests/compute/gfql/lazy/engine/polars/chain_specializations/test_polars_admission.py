@@ -80,10 +80,11 @@ def test_seeded_lane_never_serves_a_shape_it_does_not_admit(name):
     ops = by_name()[name].ops()
     g = _indexed_polars_graph()
     real = pchain._try_seeded_chain_polars
-    hit = {"n": 0}
+    hit = {"n": 0, "invalid": 0}
 
-    def spy(*a, **k):
-        r = real(*a, **k)
+    def spy(graph, lane_ops, *a, **k):
+        r = real(graph, lane_ops, *a, **k)
+        hit["invalid"] += r is not None and not polars_seeded_lane_admits(lane_ops)
         hit["n"] += r is not None
         return r
     pchain._try_seeded_chain_polars = spy
@@ -93,7 +94,8 @@ def test_seeded_lane_never_serves_a_shape_it_does_not_admit(name):
         pass
     finally:
         pchain._try_seeded_chain_polars = real
-    assert hit["n"] == 0 or polars_seeded_lane_admits(ops), f"{name}: served without admission"
+
+    assert hit["invalid"] == 0, f"{name}: served without admission"
 
 
 SEEDED_LANE_SERVES_DIRECTLY = SEEDED_LANE_ADMITS - {

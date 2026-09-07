@@ -27,10 +27,20 @@ def _tag_fast_path_aliases(
     edges: Optional[DataFrameT] = res._edges
     if nodes is None or edges is None:
         return res
+    nodes, edges = _tag_fast_path_alias_frames(
+        nodes, edges, alias_n0, alias_e1, alias_n2, src, dst, node, direction)
+    return res.nodes(nodes).edges(edges)
+
+
+def _tag_fast_path_alias_frames(
+    nodes: DataFrameT, edges: DataFrameT,
+    alias_n0: Optional[str], alias_e1: Optional[str], alias_n2: Optional[str],
+    src: str, dst: str, node: str, direction: Direction,
+) -> Tuple[DataFrameT, DataFrameT]:
     from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
     tagged = _tag_fast_path_aliases_eager(nodes, edges, alias_n0, alias_e1, alias_n2, from_col, to_col, node)
     if tagged is not None:
-        return res.nodes(tagged[0]).edges(tagged[1])
+        return tagged
     node_flags: Dict[str, SeriesT] = {}
     if alias_n0 is not None:
         node_flags[alias_n0] = nodes[node].isin(edges[from_col])
@@ -53,7 +63,7 @@ def _tag_fast_path_aliases(
             edges = edges[[alias_e1, *[c for c in edges.columns if c != alias_e1]]]
         edges = edges.reset_index(drop=True)
 
-    return res.nodes(nodes).edges(edges)
+    return nodes, edges
 
 
 def _tag_fast_path_aliases_eager(
@@ -289,6 +299,21 @@ def _seed_node_rows(
     (``filter_dict`` as written, or the resolved scalars) is re-applied to the candidates,
     so every branch keeps the full path's typed-error and comparison semantics."""
     from graphistry.compute.gfql.index.bindings import _filter_frame
+    indexed = _seed_node_rows_from_index(g, nodes_df, n0f, node, nid_ctx, filter_dict)
+    if indexed is not None:
+        return indexed
+    engine = _frame_engine(nodes_df)
+    if engine is None:
+        raise TypeError(f"unsupported node frame type {type(nodes_df).__name__}")
+    return _filter_frame(nodes_df, filter_dict if filter_dict is not None else n0f, engine), "scan"
+
+
+def _seed_node_rows_from_index(
+    g: Plottable, nodes_df: DataFrameT, n0f: Dict[str, object], node: str,
+    nid_ctx: Optional[Tuple["NodeIdIndex", ArrayNamespace, "Engine"]],
+    filter_dict: Optional[Dict[str, object]] = None,
+) -> Optional[Tuple[DataFrameT, SeedRowsHow]]:
+    from graphistry.compute.gfql.index.bindings import _filter_frame
     engine = _frame_engine(nodes_df)
     if engine is None:
         raise TypeError(f"unsupported node frame type {type(nodes_df).__name__}")
@@ -304,14 +329,13 @@ def _seed_node_rows(
         if seed is not None:
             how = "property_index"
     if seed is None:
-        seed = nodes_df
+        return None
     effective = filter_dict if filter_dict is not None else n0f
-    if how != "scan" and _index_answered_whole_filter(effective, n0f):
+    if _index_answered_whole_filter(effective, n0f):
         return seed, how
-    if how != "scan":
-        verified = _verify_scalar_filters_on_hit(seed, n0f, engine)
-        if verified is not None:
-            return verified, how
+    verified = _verify_scalar_filters_on_hit(seed, n0f, engine)
+    if verified is not None:
+        return verified, how
     return _filter_frame(seed, effective, engine), how
 
 

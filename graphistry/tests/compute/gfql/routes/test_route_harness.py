@@ -16,7 +16,7 @@ import graphistry.compute.chain as chain_mod
 import graphistry.compute.gfql.lazy.engine.polars.chain as pchain
 from graphistry.Engine import Engine
 from graphistry.compute.ast import ASTObject
-from graphistry.compute.chain_specializations.admission import native_fast_path_admits
+from graphistry.compute.chain_specializations.admission import native_fast_path_admits, point_rows_admits
 from graphistry.compute.gfql.lazy.engine.polars.chain_specializations.admission import (
     polars_single_node_admits,
     polars_plain_single_hop_admits, polars_seeded_lane_admits,
@@ -38,6 +38,9 @@ class Route(NamedTuple):
 
 
 ROUTES = [
+    Route("point-rows", ("pandas", "cudf"),
+          lambda ops, engine: point_rows_admits(ops, Engine(engine), None) is not None,
+          (chain_mod, "_try_point_rows"), True),
     Route("native-fast", ("pandas", "cudf"),
           lambda ops, engine: native_fast_path_admits(ops, Engine(engine), None) is not None,
           (chain_mod, "_try_chain_fast_path"), False),
@@ -53,6 +56,7 @@ ROUTES = [
 ]
 
 KNOWN: Dict[Tuple[str, str], str] = {  # (route, tag) -> issue: strict xfail until it lands (non-strict on frame variants, where a shape may coincide)
+    ("point-rows", "dup-ids"): "graphistry/pygraphistry#2034",
     ("native-fast", "#2034"): "graphistry/pygraphistry#2034",
     ("polars-single-node", "#2034"): "graphistry/pygraphistry#2034",
     ("polars-single-node", "dup-ids"): "graphistry/pygraphistry#2034",
@@ -165,7 +169,7 @@ def test_admitted_shape_is_served_and_matches_the_general_path(case: Case, reque
         pytest.xfail(f"{case.id}: admitted by the predicate, declined by the lane body (attenuation ledger)")
 
 
-@pytest.mark.route_engaged("native-fast", "polars-single-node", "polars-plain", "polars-seeded")
+@pytest.mark.route_engaged("point-rows", "native-fast", "polars-single-node", "polars-plain", "polars-seeded")
 def test_every_route_serves_most_of_what_it_admits(monkeypatch):
     """A lane that declines most admitted shapes has a predicate that no longer describes it."""
     per_route: Dict[str, List[int]] = {}

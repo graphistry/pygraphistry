@@ -12,6 +12,7 @@ from .ast import ASTObject, ASTNode, ASTEdge, ASTCall, Direction, from_json as A
 from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
 from .chain_specializations.hotpaths import _try_chain_fast_path
+from .chain_specializations.point_rows import _try_point_rows
 from graphistry.compute.validate.validate_schema import validate_chain_schema, validate_graph_shape
 from graphistry.compute.gfql.strictness import StrictInput
 from graphistry.compute.gfql.same_path_types import (
@@ -1005,6 +1006,10 @@ def _chain_with_strictness(
         finally:
             call_thread_local.policy = old_policy
     else:
+        point_ops = ops.chain if isinstance(ops, Chain) else ops
+        point_result = _try_point_rows(self, point_ops, engine_concrete_early, start_nodes, validate_schema)
+        if point_result is not None:
+            return point_result
         return _chain_impl(self, ops, engine, validate_schema, policy, context, start_nodes)
 
 
