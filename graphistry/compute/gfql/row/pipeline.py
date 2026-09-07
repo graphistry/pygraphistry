@@ -4826,6 +4826,8 @@ class RowPipelineMixin:
 
         if cudf_row_table and any(isinstance(value, pd.Series) for value in projected.values()):
             out_df = _gfql_projected_values_to_pandas_frame(projected, len(table_df))
+        elif isinstance(table_df, pd.DataFrame) and all(isinstance(v, pd.Series) for v in projected.values()):
+            out_df = pd.DataFrame(projected, index=table_df.index)  # same rows and order as assign-then-subset, without copying the table
         else:
             out_df = table_df.assign(**projected)[list(projected.keys())]
         return self._gfql_row_table(out_df)

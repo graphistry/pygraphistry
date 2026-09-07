@@ -46,7 +46,7 @@ def _empty_like(df: Any) -> Any:
     """Zero-row copy preserving schema, for pandas/cuDF and polars frames."""
     if _is_polars(df):
         return df.clear()
-    return df.iloc[0:0].copy()
+    return df.iloc[0:0]  # a zero-row slice is already a new frame
 
 
 def _alias_true_mask(table_df: Any, source: str) -> Any:
@@ -54,6 +54,8 @@ def _alias_true_mask(table_df: Any, source: str) -> Any:
     polars equivalent expr is ``pl.col(source).fill_null(False).cast(pl.Boolean)``).
     Shared by ``rows``/``count_table`` so the null handling can't diverge."""
     mask = table_df[source]
+    if str(getattr(mask, "dtype", "")) == "bool":
+        return mask  # a bool column holds no null
     if hasattr(mask, "isna") and hasattr(mask, "where"):
         mask = mask.where(~mask.isna(), False)
     elif hasattr(mask, "fillna"):
@@ -276,8 +278,8 @@ def rows(
             table_df = _empty_like(ctx._edges)
         else:
             table_df = empty_frame(ctx)
-    elif not _is_polars(table_df):
-        table_df = table_df.copy()
+    elif not _is_polars(table_df) and source is None:
+        table_df = table_df.copy()  # a mask filter below yields a fresh frame on its own
 
     if source is not None:
         if source not in table_df.columns:
