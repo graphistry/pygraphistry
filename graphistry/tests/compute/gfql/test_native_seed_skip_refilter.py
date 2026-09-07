@@ -96,12 +96,25 @@ def test_exact_index_hit_skips_the_refilter_with_parity(engine, shape):
     assert refilters == 0, "an exact single-predicate index hit must not re-filter its rows"
 
 
-REFILTER_SHAPES = {
+VERIFIED_SHAPES = {  # an index hit plus residual scalar equalities: verified on the hit rows, never re-filtered
     "two predicates": lambda: [n({"id": 10_007, "label__Person": True})],
     "two predicates hop": lambda: [n({"id": 50_007, "label__Message": True}), e_forward({"type": "HAS_CREATOR"}), n()],
+}
+
+REFILTER_SHAPES = {  # no index hit (the index declines a float on an integer property): the canonical filter runs
     "label only": lambda: [n({"label__Person": True})],
     "float on property": lambda: [n({"id": 10_007.0})],
 }
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("shape", list(VERIFIED_SHAPES))
+def test_an_index_hit_with_residual_scalar_predicates_is_verified_not_refiltered(engine, shape):
+    g = _graph(engine)
+    ops = VERIFIED_SHAPES[shape]()
+    _assert_parity(g, ops, engine)
+    _, refilters = _run(g, ops, engine, "use")
+    assert refilters == 0, "residual scalar equalities are verified on the hit rows, not re-filtered"
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -111,7 +124,7 @@ def test_every_other_shape_still_runs_the_canonical_filter(engine, shape):
     ops = REFILTER_SHAPES[shape]()
     _assert_parity(g, ops, engine)
     _, refilters = _run(g, ops, engine, "use")
-    assert refilters >= 1, "only an exact single-predicate index hit may skip the canonical filter"
+    assert refilters >= 1, "without an index hit the canonical filter runs"
 
 
 def test_bool_on_integer_column_is_never_index_served():
@@ -149,3 +162,69 @@ def test_no_resident_index_still_filters(engine):
     full, _ = _run(plain, ops, engine, "off")
     pd.testing.assert_frame_equal(_canon(served._nodes), _canon(full._nodes))
     assert refilters >= 1
+
+
+# ---- residual verify on an index hit (the multi-predicate seed) ----
+
+def _full_path(g, ops, engine):
+    from graphistry.tests.compute.gfql.routes.switch import routes_off, ROUTES
+    with routes_off(ROUTES):
+        return g.gfql(ops, engine=engine)
+
+
+def _keys(res):
+    nn = res._nodes.to_pandas() if hasattr(res._nodes, "to_pandas") else res._nodes
+    return sorted(nn["key"].tolist())
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("ops", [
+    [n({"id": 10_007, "label__Person": True})],
+    [n({"id": 10_007, "label__Person": True}, name="a"), e_forward(), n(name="b")],
+    [n({"id": 50_003, "label__Message": True}, name="m"), e_forward({"type": "HAS_CREATOR"}), n({"label__Person": True}, name="p")],
+])
+def test_two_predicate_seed_on_an_index_hit_matches_the_full_path(engine, ops):
+    if engine == "cudf":
+        pytest.importorskip("cudf")
+    g = _graph(engine)
+    assert _keys(g.gfql(ops, engine=engine)) == _keys(_full_path(g, ops, engine))
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_index_hit_whose_residual_predicate_fails_answers_empty_like_the_full_path(engine):
+    if engine == "cudf":
+        pytest.importorskip("cudf")
+    g = _graph(engine)
+    ops = [n({"id": 10_007, "label__Message": True})]  # the id is a Person
+    assert _keys(g.gfql(ops, engine=engine)) == [] == _keys(_full_path(g, ops, engine))
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_index_hit_keeps_the_typed_error_of_the_canonical_filter(engine):
+    if engine == "cudf":
+        pytest.importorskip("cudf")
+    g = _graph(engine)
+    with pytest.raises(GFQLSchemaError):
+        g.gfql([n({"id": 10_007, "name": 5})], engine=engine)  # string column, numeric value
+    with pytest.raises(GFQLSchemaError):
+        _full_path(g, [n({"id": 10_007, "name": 5})], engine)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_index_hit_with_a_null_residual_column_matches_the_full_path(engine):
+    if engine == "cudf":
+        pytest.importorskip("cudf")
+    g = _graph(engine)
+    ops = [n({"id": 50_003, "name": "p1"})]  # messages carry a null name
+    assert _keys(g.gfql(ops, engine=engine)) == [] == _keys(_full_path(g, ops, engine))
+    ops = [n({"id": 10_001, "name": "p1"})]
+    assert _keys(g.gfql(ops, engine=engine)) == [1] == _keys(_full_path(g, ops, engine))
+
+
+def test_polars_seed_path_is_unchanged_by_the_residual_verify():
+    pl = pytest.importorskip("polars")
+    g = _graph("pandas")
+    g = graphistry.nodes(pl.from_pandas(g._nodes), "key").edges(pl.from_pandas(g._edges), "s", "d")
+    g = g.gfql_index_all(engine="polars").gfql_index_node_props(["id"], engine="polars")
+    ops = [n({"id": 10_007, "label__Person": True}, name="a"), e_forward(), n(name="b")]
+    assert _keys(g.gfql(ops, engine="polars")) == _keys(_full_path(g, ops, "polars"))

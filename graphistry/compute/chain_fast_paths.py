@@ -323,7 +323,43 @@ def _seed_node_rows(
     effective = filter_dict if filter_dict is not None else n0f
     if how != "scan" and _index_answered_whole_filter(effective, n0f):
         return seed, how
+    if how != "scan":
+        verified = _verify_scalar_filters_on_hit(seed, n0f, engine)
+        if verified is not None:
+            return verified, how
     return _filter_frame(seed, effective, engine), how
+
+
+def _verify_scalar_filters_on_hit(
+    seed: DataFrameT, n0f: Dict[str, object], engine: "Engine",
+) -> Optional[DataFrameT]:
+    """Re-check the resolved scalar equalities on the few rows an index hit returned, with the
+    canonical filter's typed errors but none of its per-call overhead; None defers to it."""
+    from graphistry.Engine import Engine
+    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+    from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe
+    if engine not in (Engine.PANDAS, Engine.CUDF) or len(seed) == 0 or not n0f:
+        return seed if len(seed) == 0 else None
+    mask = None
+    for col, val in n0f.items():
+        if col not in seed.columns or isinstance(val, (list, tuple, set)):
+            return None
+        col_dtype = seed[col].dtype
+        if _is_numeric_dtype_safe(col_dtype) and isinstance(val, str):
+            raise GFQLSchemaError(
+                ErrorCode.E302, f'Type mismatch: column "{col}" is numeric but filter value is string',
+                field=col, value=val, column_type=str(col_dtype), suggestion=f'Use a numeric value like {col}=123')
+        if _is_string_dtype_safe(col_dtype) and isinstance(val, (int, float)) and not isinstance(val, bool):
+            raise GFQLSchemaError(
+                ErrorCode.E302, f'Type mismatch: column "{col}" is string but filter value is numeric',
+                field=col, value=val, column_type=str(col_dtype), suggestion=f'Use a string value like {col}="value"')
+        hit = seed[col] == val
+        mask = hit if mask is None else (mask & hit)
+    if mask is None:
+        return seed
+    if bool(mask.all()):
+        return seed
+    return seed[mask]
 
 
 def _index_answered_whole_filter(effective: Dict[str, object], n0f: Dict[str, object]) -> bool:
