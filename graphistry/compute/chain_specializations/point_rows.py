@@ -16,6 +16,10 @@ from graphistry.compute.typing import DataFrameT, SeriesT
 from .admission import point_rows_admits
 
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z_0-9]*\Z")
+_COALESCE_PROPERTIES = re.compile(
+    r"(?i:coalesce)\s*\(\s*([A-Za-z_][A-Za-z_0-9]*\.[A-Za-z_][A-Za-z_0-9]*)"
+    r"\s*,\s*([A-Za-z_][A-Za-z_0-9]*\.[A-Za-z_][A-Za-z_0-9]*)\s*\)"
+)
 
 
 def _point_hop_rows(
@@ -57,6 +61,21 @@ def _point_hop_rows(
     return seed, tail, matched_edges
 
 
+def _point_column(
+    frame: DataFrameT, expr: str, source: str, aliases: Sequence[str],
+) -> Optional[str]:
+    if expr in frame.columns:
+        return None if expr in aliases else expr
+    if (expr.startswith(source + ".") and _IDENTIFIER.fullmatch(source)
+            and _IDENTIFIER.fullmatch(expr[len(source) + 1:])
+            and expr[len(source) + 1:] in frame.columns):
+        column = expr[len(source) + 1:]
+        if column in aliases and (column != source or str(frame[column].dtype).startswith("bool")):
+            return None
+        return column
+    return None
+
+
 def _project_point_columns(
     frame: DataFrameT, projection: ASTCall, source: str, aliases: Sequence[str],
 ) -> Optional[DataFrameT]:
@@ -73,19 +92,18 @@ def _project_point_columns(
             return None
         if not isinstance(alias, str) or not alias or not isinstance(expr, str):
             return None
-        if expr in frame.columns:
-            if expr in aliases:
-                return None
-            column = expr
-        elif (expr.startswith(source + ".") and _IDENTIFIER.fullmatch(source)
-              and _IDENTIFIER.fullmatch(expr[len(source) + 1:])
-              and expr[len(source) + 1:] in frame.columns):
-            column = expr[len(source) + 1:]
-            if column in aliases and (column != source or str(frame[column].dtype).startswith("bool")):
-                return None
-        else:
+        column = _point_column(frame, expr, source, aliases)
+        if column is not None:
+            projected[alias] = frame[column]
+            continue
+        coalesce = _COALESCE_PROPERTIES.fullmatch(expr)
+        if coalesce is None:
             return None
-        projected[alias] = frame[column]
+        left_col, right_col = (_point_column(frame, term, source, aliases) for term in coalesce.groups())
+        if left_col is None or right_col is None:
+            return None
+        left, right = frame[left_col], frame[right_col]
+        projected[alias] = left.where(~left.isna(), right)
     if isinstance(frame, pd.DataFrame):
         return pd.DataFrame(projected, index=frame.index)
     return frame.assign(**projected)[list(projected)]
@@ -109,6 +127,8 @@ def _project_joined_point_columns(
                         else (g._destination, g._source))
     frames = {n0._name: (seed, from_col), n2._name: (tail, to_col)}
     aligned: Dict[str, DataFrameT] = {}
+    pandas_positions: Dict[str, List[int]] = {}
+    pandas_columns: Dict[str, object] = {}
     projected: Dict[str, SeriesT] = {}
     for item in items:
         if not isinstance(item, (tuple, list)) or len(item) != 2:
@@ -121,22 +141,29 @@ def _project_joined_point_columns(
             return None
         alias, column = parts
         if alias == edge._name and column in edges.columns:
+            if isinstance(edges, pd.DataFrame):
+                pandas_columns[output] = edges[column].array
+                continue
             values = edges[column].reset_index(drop=True)
         elif alias in frames and column in frames[alias][0].columns:
             frame, endpoint = frames[alias]
             # Align properties to edge rows to retain repeated bindings.
-            if alias not in aligned:
-                if isinstance(frame, pd.DataFrame):
+            if isinstance(frame, pd.DataFrame):
+                if alias not in pandas_positions:
                     positions = pd.Index(frame[g._node]).get_indexer(edges[endpoint])
-                    aligned[alias] = frame.iloc[positions].reset_index(drop=True)
-                else:
-                    aligned[alias] = frame.set_index(g._node, drop=False).reindex(edges[endpoint]).reset_index(drop=True)
+                    if (positions < 0).any():
+                        return None
+                    pandas_positions[alias] = positions.tolist()
+                pandas_columns[output] = frame[column].array.take(pandas_positions[alias])
+                continue
+            if alias not in aligned:
+                aligned[alias] = frame.set_index(g._node, drop=False).reindex(edges[endpoint]).reset_index(drop=True)
             values = aligned[alias][column]
         else:
             return None
         projected[output] = values
     if isinstance(seed, pd.DataFrame):
-        return pd.DataFrame(projected)
+        return pd.DataFrame(pandas_columns)
     return edges.iloc[:, :0].reset_index(drop=True).assign(**projected)
 
 

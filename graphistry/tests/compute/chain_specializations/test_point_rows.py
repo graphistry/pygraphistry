@@ -37,6 +37,13 @@ def graph(engine, variant="base"):
     elif variant == "nullable":
         nodes = nodes.astype({"value": "Int64"})
         nodes.loc[1, "value"] = pd.NA
+    elif variant == "categorical":
+        nodes["value"] = nodes["value"].astype("category")
+    elif variant == "timestamp":
+        nodes["value"] = pd.date_range("2020-01-01", periods=len(nodes), tz="UTC")
+    elif variant == "float-null":
+        nodes["value"] = nodes["value"].astype(float)
+        nodes.loc[1, "value"] = float("nan")
     elif variant == "duplicate-index":
         nodes.index = [0] * len(nodes)
         edges.index = [0] * len(edges)
@@ -235,7 +242,8 @@ def test_projection_requires_parsing_for_non_identifier_properties(source, expre
     assert _project_point_columns(frame, select([("out", expression)]), source, [source]) is None
 
 
-@pytest.mark.parametrize("variant", ["base", "loop", "dangling", "empty", "nullable", "duplicate-index", "nonleading"])
+@pytest.mark.parametrize("variant", ["base", "loop", "dangling", "empty", "nullable", "duplicate-index",
+                                     "nonleading", "categorical", "timestamp", "float-null"])
 @pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize("named_edge", [False, True])
 def test_joined_point_projection(engine, variant, reverse, named_edge, monkeypatch):
@@ -287,3 +295,48 @@ def test_joined_point_alias_collision_declines(engine, alias):
     ops = [n({"key": 0}, name=alias), e_forward({"type": "X"}), n(name="b"), rows(),
            select([("v", f"{alias}.value"), ("tail", "b.value")])]
     assert _try_point_rows(g, ops, Engine(engine), validate_schema=False) is None
+
+
+def test_joined_point_result_owns_projected_arrays():
+    g = graph("pandas")
+    ops = [n({"key": 0}, name="a"), e_forward({"type": "X"}, name="e"), n(name="b"), rows(),
+           select([("seed", "a.value"), ("tail", "b.value"), ("weight", "e.weight")])]
+    original_nodes, original_edges = g._nodes.copy(), g._edges.copy()
+    result = g.gfql(ops, engine="pandas")
+    result._nodes.loc[:, ["seed", "tail", "weight"]] = -1
+    pd.testing.assert_frame_equal(g._nodes, original_nodes)
+    pd.testing.assert_frame_equal(g._edges, original_edges)
+
+
+@pytest.mark.parametrize("left,right,dtype", [
+    ("value", "fallback", "object"), (None, "fallback", "object"),
+    ("", "fallback", "object"), (None, None, "object"),
+    (pd.NA, "fallback", "string"), (float("nan"), 2.0, "float64"),
+    (pd.NA, 2, "Int64"), (pd.NA, False, "boolean"),
+])
+@pytest.mark.parametrize("empty", [False, True])
+def test_point_coalesce_projection(engine, left, right, dtype, empty, monkeypatch):
+    g = graph(engine)
+    nodes = topd(g._nodes)
+    nodes["lhs"] = pd.Series([left] * len(nodes), dtype=dtype)
+    nodes["rhs"] = pd.Series([right] * len(nodes), dtype=dtype)
+    if engine == "cudf":
+        nodes = pytest.importorskip("cudf").from_pandas(nodes)
+    g = g.nodes(nodes).gfql_index_all(engine=engine)
+    ops = [n({"key": 999 if empty else 0}, name="a"), rows(source="a"),
+           select([("key", "a.key"), ("v", "coalesce(a.lhs, a.rhs)")])]
+    with routes_off(ROUTES):
+        expected = g.gfql(ops, engine=engine)
+    import graphistry.compute.chain_specializations.point_rows as point_mod
+    def fail(*args, **kwargs):
+        raise AssertionError("point projection used the general expression evaluator")
+    monkeypatch.setattr(point_mod, "_restore_point_source", fail)
+    assert_result(g.gfql(ops, engine=engine), expected)
+
+
+@pytest.mark.parametrize("expr", ["coalesce(a.value)", "coalesce(a.value, a.key, 0)",
+                                  "coalesce(a.value, 0)", "coalesce(a.value, b.value)",
+                                  "coalesce(a.value, a.key) + 1", "coalesce(a.value, a.`key`)"])
+def test_point_coalesce_unsupported_expression_falls_back(expr):
+    from graphistry.compute.chain_specializations.point_rows import _project_point_columns
+    assert _project_point_columns(graph("pandas")._nodes, select([("v", expr)]), "a", ["a", "b"]) is None
