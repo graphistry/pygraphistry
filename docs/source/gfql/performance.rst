@@ -49,11 +49,10 @@ At 20,000 people, GFQL Polars is faster than Kuzu on
 :bench-tally:`graphbench.20k|polars|neo4j`. At 100,000 people the counts are
 :bench-tally:`graphbench.100k|polars|kuzu` (Kuzu),
 :bench-tally:`graphbench.100k|polars|memgraph` (Memgraph), and
-:bench-tally:`graphbench.100k|polars|neo4j` (Neo4j). Kuzu wins q4 at 20,000 people and
-q8 at 100,000 people; the run's comparison tables classify both as ties because the
-per-slot medians overlap. Memgraph wins q3 and q6 at 20,000 people and q5, q6, and q7 at
-100,000 people, where Neo4j also wins q5: their planners start from the ten-node
-interest side, which GFQL's Cypher path does not yet do.
+:bench-tally:`graphbench.100k|polars|neo4j` (Neo4j). Kuzu ties GFQL on q4 and q8 at 20,000 people and on q5 at 100,000
+people, and wins q8 at 100,000 people, where the per-slot medians overlap. Memgraph ties
+q3 and q6 at 20,000 people and wins q5, q6, and q7 at 100,000 people. Neo4j also wins q5 there. Their planners
+start from the ten-node interest side, which GFQL's Cypher path does not yet do.
 
 The 20,000-person board
 ~~~~~~~~~~~~~~~~~~~~~~~
