@@ -48,8 +48,11 @@ ROUTES = [
           (pchain, "_try_seeded_chain_polars"), True),
 ]
 
-KNOWN: Dict[Tuple[str, str], str] = {  # (route, tag) -> issue: strict xfail until it lands
+KNOWN: Dict[Tuple[str, str], str] = {  # (route, tag) -> issue: strict xfail until it lands (non-strict on frame variants, where a shape may coincide)
     ("polars-plain", "#2053"): "graphistry/pygraphistry#2053",
+    ("native-fast", "#2034"): "graphistry/pygraphistry#2034",
+    ("polars-plain", "#2034"): "graphistry/pygraphistry#2034",
+    ("polars-seeded", "#2034"): "graphistry/pygraphistry#2034",
 }
 
 
@@ -102,8 +105,10 @@ def _canon(df) -> Tuple[Tuple[str, ...], List[Tuple]]:
 
 def _sig(res, frames) -> Tuple[List, List]:
     nn, ee = _topd(res._nodes), _topd(res._edges)
-    nodes = sorted(nn[frames.node].tolist()) if nn is not None else []
-    edges = sorted(map(tuple, ee[[frames.src, frames.dst]].values.tolist())) if ee is not None and len(ee) else []
+    def _na(v):
+        return None if v is None or v is pd.NA or v is pd.NaT or (isinstance(v, float) and math.isnan(v)) else v
+    nodes = sorted((_na(v) for v in nn[frames.node].tolist()), key=repr) if nn is not None else []
+    edges = sorted((tuple(_na(v) for v in r) for r in ee[[frames.src, frames.dst]].values.tolist()), key=repr) if ee is not None and len(ee) else []
     return nodes, edges
 
 
@@ -134,7 +139,7 @@ def test_admitted_shape_is_served_and_matches_the_general_path(case: Case, reque
     _skip_unavailable(case.engine)
     for tag in case.shape.tags:
         if (case.route.name, tag) in KNOWN:
-            request.applymarker(pytest.mark.xfail(strict=True, reason=KNOWN[(case.route.name, tag)]))
+            request.applymarker(pytest.mark.xfail(strict="variant" not in case.shape.tags, reason=KNOWN[(case.route.name, tag)]))
     g = graph_for(case.shape, case.engine, indexed=case.route.indexed)
     calls = _served(case, monkeypatch)
     try:
@@ -159,8 +164,8 @@ def test_every_route_serves_most_of_what_it_admits(monkeypatch):
     """A lane that declines most admitted shapes has a predicate that no longer describes it."""
     per_route: Dict[str, List[int]] = {}
     for case in CASES:
-        if case.engine != ("polars" if case.route.name.startswith("polars") else "pandas"):
-            continue
+        if case.engine != ("polars" if case.route.name.startswith("polars") else "pandas") or "variant" in case.shape.tags:
+            continue  # the serve ratio describes the base corpus; frame variants are expected to attenuate
         if case.engine == "polars":
             pytest.importorskip("polars")
         g = graph_for(case.shape, case.engine, indexed=case.route.indexed)
