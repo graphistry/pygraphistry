@@ -3,8 +3,8 @@
 GFQL Performance: Measured Against Graph Databases
 ==================================================
 
-This page holds GFQL's measured performance results. Every number renders from a
-committed pyg-bench artifact; the Measurement block at the end names the runs, hosts,
+This page holds GFQL's measured performance results. Every number comes from a
+recorded benchmark run; the Provenance section at the end names the runs, hosts,
 and commits. Losses appear next to wins.
 
 Choose an engine
@@ -50,7 +50,7 @@ At 20,000 people, GFQL Polars is faster than Kuzu on
 :bench-tally:`graphbench.100k|polars|kuzu` (Kuzu),
 :bench-tally:`graphbench.100k|polars|memgraph` (Memgraph), and
 :bench-tally:`graphbench.100k|polars|neo4j` (Neo4j). Kuzu wins q4 at 20,000 people and
-q8 at 100,000 people; the artifact's compare tables classify both as ties because the
+q8 at 100,000 people; the run's comparison tables classify both as ties because the
 per-slot medians overlap. Memgraph wins q3 and q6 at 20,000 people and q5, q6, and q7 at
 100,000 people, where Neo4j also wins q5: their planners start from the ten-node
 interest side, which GFQL's Cypher path does not yet do.
@@ -77,20 +77,20 @@ SNB-derived point and small-result queries: the databases win
 Matched query shapes derived from the LDBC Social Network Benchmark (SNB) Interactive
 workload, run on the SF0.1 and SF1 datasets without the official LDBC driver. This is
 internal evidence, not an official LDBC result. All four engines ran under one timing
-contract with exact result parity. Times are milliseconds.
+contract and returned identical results. Times are milliseconds.
 
 Kuzu, Neo4j, and Memgraph are faster than GFQL on every point-lookup row, and Memgraph
 is fastest on most. The GFQL columns run with resident indexes built once before the
 timed runs (``gfql_index_all`` plus node property indexes), the same footing as the
 databases' primary-key and label indexes, and the GFQL arm runs native op lists, not
-Cypher text. A seeded lookup, a seeded typed hop, and a node-only lookup now resolve
-through the resident node-id, adjacency, and node-property indexes on every CPU engine,
+Cypher text. A lookup from a known node, a typed hop from it, and a node-only lookup now use
+the node-id, adjacency, and node-property indexes on every CPU engine,
 so the SF0.1 point rows sit in the low single-digit milliseconds on pandas and under
 about ten milliseconds on polars, against a database's sub-millisecond index probe. The
 hop-shaped rows (message replies, recent replies, new topics) are unchanged by that work
 and remain GFQL's slowest cells here. GFQL's strengths are the bulk shapes above and on
 the :doc:`speedup case study <benchmark_filter_pagerank>`; choose a database when the
-workload is dominated by point lookups.
+workload is mostly single-node lookups by id.
 
 Open items behind the remaining gaps: CPU PageRank spends most of its time converting to
 igraph (`#2032 <https://github.com/graphistry/pygraphistry/issues/2032>`_); a polars
@@ -126,7 +126,7 @@ Lookups from known nodes
 A query that starts from known node ids (a watchlist, a session) scans every edge by
 default. The opt-in adjacency index turns that scan into a gather over the seeds'
 neighbors, so its cost tracks the seeds rather than the graph, on every engine. This
-lane has not yet been measured under the provenance-carrying harness used above, so
+path has not yet been measured under the protocol used above, so
 this page prints no figure for it; see :doc:`index_adjacency` for the design and
 :doc:`indexing` for the lifecycle.
 
@@ -137,8 +137,8 @@ GFQL joins tables of nodes and edges in batches instead of following one path at
 time, over columnar frames based on `Apache Arrow <https://arrow.apache.org/>`_. Polars
 fuses the operations into one lazy plan and collects once; cuDF and Polars GPU run the
 same columnar operations on NVIDIA GPUs. That favors bulk work: multi-join analytics,
-frontier expansion from many seeds, and full-graph aggregation. It does not favor
-single-row point lookups: the resident indexes bring a seeded lookup to a few
+expansion from many starting nodes, and full-graph aggregation. It does not favor
+single-node lookups by id: the indexes bring such a lookup to a few
 milliseconds, and an indexed database still answers in well under a millisecond, as the
 SNB tables show.
 

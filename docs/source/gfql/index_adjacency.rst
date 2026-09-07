@@ -17,8 +17,8 @@ When to use it
 
 - **Seeded traversals**: you start from specific node ids (a watchlist, a session, a fraud
   ring's known members) and hop out 1–3 steps.
-- **Repeated queries** against the same graph: build the index once, amortize it over many
-  seeded lookups.
+- **Repeated queries** against the same graph: build the index once and reuse it over many
+  such queries.
 - **Interactive / point-lookup latency**: neighbor expansion whose cost tracks the
   seeds rather than the graph.
 
@@ -117,9 +117,8 @@ kernel-launch floor dominates it and a CPU engine — pandas or Polars, both bac
 GPU pulls ahead (see :doc:`engines`). Pick the index for selective traversal and a **CPU
 engine** to drive it.
 
-Latency figures for this lane are not published yet: it has not been run under the
-provenance-carrying harness described on :doc:`performance`, and this page publishes
-nothing it cannot trace to a committed artifact. Reproducers:
+Latency figures for this path are not published yet: it has not been run under the
+protocol described on :doc:`performance`. Reproducers:
 ``benchmarks/gfql/index_takeover_bench.py``, ``benchmarks/gfql/index_vs_dbs.py``,
 ``benchmarks/gfql/index_vs_kuzu_prepared.py``.
 
@@ -131,7 +130,7 @@ Cost and fallback
   pay it back.
 - **No change to default behavior.** With no index resident and ``index_policy='use'``
   (the default), queries run exactly as before.
-- **Parity-or-fallback.** The index accelerates the seeded scan sites it covers (forward /
+- **Same results, with or without the index.** The index accelerates the seeded scan sites it covers (forward /
   reverse hop, the Polars hop, the single-hop chain fast path). Any uncovered feature —
   edge / source / destination match, ``target_wave_front``, ``min_hops>1``, labeling —
   falls back to the scan/join path. The indexed subgraph is verified equal to the scan
@@ -141,6 +140,6 @@ Cost and fallback
 See also
 --------
 
-- :doc:`engines` — choosing pandas / Polars / cuDF / Polars-GPU for non-seeded work.
+- :doc:`engines` — choosing pandas / Polars / cuDF / Polars-GPU for queries that scan the graph.
 - :doc:`performance` — the vectorization + GPU design behind GFQL.
 - :doc:`benchmark_filter_pagerank` — an end-to-end filter → PageRank → filter comparison vs Neo4j.
