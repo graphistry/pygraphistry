@@ -743,3 +743,22 @@ def test_projection_temporal_text_guard_across_columns(values, expected, column)
 def test_projection_temporal_text_guard_without_string_columns():
     from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import _select_emits_temporal_constructor_text
     assert not _select_emits_temporal_constructor_text(pl.DataFrame({"number": [1], "flag": [True]}))
+
+
+@pytest.mark.parametrize("lazy_input", [False, True])
+@pytest.mark.parametrize("decline", [False, True])
+def test_property_attachment_preserves_schema_error_policy(lazy_input, decline):
+    from graphistry.compute import ast
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
+        _finish_binding_rows_polars, WALK_CURRENT_COL,
+    )
+    state = pl.DataFrame({WALK_CURRENT_COL: [1], "a": ["one"]})
+    lookup = pl.DataFrame({"id": [1], "value": ["x"]})
+    if lazy_input:
+        state, lookup = state.lazy(), lookup.lazy()
+    args = (graphistry.nodes(pl.DataFrame({"id": [1]}), "id"), [ast.n(name="a")], state, {"a": lookup}, "id", None)
+    if decline:
+        assert _finish_binding_rows_polars(*args, decline_on_schema_error=True) is None
+    else:
+        with pytest.raises(pl.exceptions.SchemaError):
+            _finish_binding_rows_polars(*args, decline_on_schema_error=False)

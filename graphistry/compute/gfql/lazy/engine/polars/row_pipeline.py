@@ -1034,7 +1034,7 @@ def _finish_binding_rows_polars(
     from graphistry.compute.ast import ASTEdge, ASTNode
     from graphistry.compute.gfql.lazy import collect as _lazy_collect
 
-    def names(frame: "PolarsFrameT") -> List[str]:
+    def names(frame: "Union[pl.DataFrame, pl.LazyFrame]") -> List[str]:
         return (
             frame.collect_schema().names()
             if isinstance(frame, pl.LazyFrame)
@@ -1042,6 +1042,7 @@ def _finish_binding_rows_polars(
         )
 
     try:
+        joined_state = state.lazy()
         attach_set = (
             None if attach_prop_aliases is None else set(attach_prop_aliases)
         )
@@ -1054,7 +1055,7 @@ def _finish_binding_rows_polars(
             if attach_set is not None and alias not in attach_set:
                 continue
             lookup_src = alias_frames[alias]
-            lookup = lookup_src.select(
+            lookup = lookup_src.lazy().select(
                 [
                     pl.col(node_id),
                     pl.col(node_id).alias(f"{alias}.{node_id}"),
@@ -1065,17 +1066,12 @@ def _finish_binding_rows_polars(
                     if col != node_id
                 ]
             )
-            if (set(names(lookup)) - {node_id}) & set(names(state)):
+            if (set(names(lookup)) - {node_id}) & set(names(joined_state)):
                 return None
-            state = state.join(
+            joined_state = joined_state.join(
                 lookup, left_on=alias, right_on=node_id, how="left",
             )
-        state = state.drop(WALK_CURRENT_COL)
-        out_df = (
-            _lazy_collect(state)
-            if isinstance(state, pl.LazyFrame)
-            else state
-        )
+        out_df = _lazy_collect(joined_state.drop(WALK_CURRENT_COL))
     except pl.exceptions.SchemaError:
         if not decline_on_schema_error:
             raise
