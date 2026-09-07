@@ -83,7 +83,7 @@ def _tag_fast_path_aliases_eager(
         return None
     wanted = [a for a in (alias_n0, alias_n2) if a is not None]
     if wanted:
-        if nodes.columns[0] != node or any(a in nodes.columns for a in wanted):
+        if any(a in nodes.columns for a in wanted):
             return None
         if len(set(wanted)) != len(wanted):
             return None
@@ -93,6 +93,8 @@ def _tag_fast_path_aliases_eager(
             if any(a.dtype.kind not in "iub" or a.dtype != ids.dtype for a in (ids, *ends)):
                 return None
         out_nodes = nodes.reset_index(drop=True)
+        if out_nodes.columns[0] != node:
+            out_nodes.insert(0, node, out_nodes.pop(node))
         pos = 1
         if alias_n0 is not None:
             seed_flags = np.isin(ids, ends[0]) if pandas_frames else nodes[node].isin(edges[from_col]).reset_index(drop=True)
@@ -348,6 +350,9 @@ def _verify_scalar_filters_on_hit(
     from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe
     if engine not in (Engine.PANDAS, Engine.CUDF) or len(seed) == 0 or not n0f:
         return seed if len(seed) == 0 else None
+    import pandas as pd
+    single_pandas = engine == Engine.PANDAS and len(seed) == 1
+    scalar_match = True
     mask = None
     for col, val in n0f.items():
         if col not in seed.columns or isinstance(val, (list, tuple, set)):
@@ -361,11 +366,20 @@ def _verify_scalar_filters_on_hit(
             raise GFQLSchemaError(
                 ErrorCode.E302, f'Type mismatch: column "{col}" is string but filter value is numeric',
                 field=col, value=val, column_type=str(col_dtype), suggestion=f'Use a string value like {col}="value"')
+        if single_pandas and isinstance(val, (str, int, float, bool)):
+            value = seed[col].array[0]
+            if value is None or value is pd.NA:
+                scalar_match = False
+                continue
+            if col_dtype.kind in "biuf" or isinstance(value, str):
+                scalar_match = scalar_match and bool(value == val)
+                continue
         hit = seed[col] == val
         mask = hit if mask is None else (mask & hit)
+    if not scalar_match:
+        return seed.iloc[:0]
     if mask is None:
         return seed
-    import pandas as pd
     if engine == Engine.CUDF and mask.null_count:
         mask = mask.fillna(False)
     all_match = mask.all(skipna=False)

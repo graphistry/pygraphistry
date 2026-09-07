@@ -367,3 +367,37 @@ def test_nullable_equality_does_not_match_null(engine, where):
         expected = g.gfql(ops, engine=engine, index_policy="off")
     assert len(expected._nodes) == 0
     assert_result(g.gfql(ops, engine=engine), expected)
+
+
+@pytest.mark.parametrize("value,dtype,filter_value", [
+    (1, "int64", 1), (1, "int64", 2), (1, "int64", "1"),
+    (2**63 + 1, "uint64", 2**63), (2**63 + 1, "uint64", 2**63 + 1),
+    (1.0, "float64", 1), (float("nan"), "float64", 1),
+    (pd.NA, "Int64", 1), (True, "boolean", True), (pd.NA, "boolean", False),
+    ("one", "string", "one"), (pd.NA, "string", "one"),
+    ("one", "object", 1), (None, "object", "one"),
+    (pd.Timestamp("2020-01-01"), "datetime64[ns]", "2020-01-01"),
+    ("one", "category", "one"),
+])
+def test_single_row_scalar_filter_matches_vector_oracle(value, dtype, filter_value):
+    from graphistry.compute.chain_fast_paths import _verify_scalar_filters_on_hit
+    frame = pd.DataFrame({"value": pd.Series([value], dtype=dtype)})
+    filters = {"value": filter_value}
+    doubled = pd.concat([frame, frame], ignore_index=True)
+    try:
+        expected = _verify_scalar_filters_on_hit(doubled, filters, Engine.PANDAS)
+    except Exception as error:
+        with pytest.raises(type(error)):
+            _verify_scalar_filters_on_hit(frame, filters, Engine.PANDAS)
+    else:
+        actual = _verify_scalar_filters_on_hit(frame, filters, Engine.PANDAS)
+        assert actual is not None and expected is not None
+        pd.testing.assert_frame_equal(actual.reset_index(drop=True), expected.head(1).reset_index(drop=True))
+
+
+def test_single_row_false_filter_still_validates_later_predicates():
+    from graphistry.compute.chain_fast_paths import _verify_scalar_filters_on_hit
+    from graphistry.compute.exceptions import GFQLSchemaError
+    frame = pd.DataFrame({"first": [0], "second": [1]})
+    with pytest.raises(GFQLSchemaError):
+        _verify_scalar_filters_on_hit(frame, {"first": 1, "second": "wrong type"}, Engine.PANDAS)

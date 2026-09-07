@@ -57,7 +57,10 @@ def _point_hop_rows(
         tail = _verify_scalar_filters_on_hit(tail, tail_filter, engine)
         if tail is None:
             return None
-    matched_edges = matched_edges[matched_edges[to_col].isin(tail[node].dropna())]
+    if len(tail) == 0:
+        matched_edges = matched_edges.iloc[:0]
+    elif len(matched_edges) != 1:
+        matched_edges = matched_edges[matched_edges[to_col].isin(tail[node].dropna())]
     return seed, tail, matched_edges
 
 
@@ -150,10 +153,13 @@ def _project_joined_point_columns(
             # Align properties to edge rows to retain repeated bindings.
             if isinstance(frame, pd.DataFrame):
                 if alias not in pandas_positions:
-                    positions = pd.Index(frame[g._node]).get_indexer(edges[endpoint])
-                    if (positions < 0).any():
-                        return None
-                    pandas_positions[alias] = positions.tolist()
+                    if len(frame) == 1:
+                        pandas_positions[alias] = [0] * len(edges)
+                    else:
+                        positions = pd.Index(frame[g._node]).get_indexer(edges[endpoint])
+                        if (positions < 0).any():
+                            return None
+                        pandas_positions[alias] = positions.tolist()
                 pandas_columns[output] = frame[column].array.take(pandas_positions[alias])
                 continue
             if alias not in aligned:
@@ -252,8 +258,10 @@ def _try_point_rows(
         selected = projected
     elif boundary == 1:
         collides = source in selected.columns
-        if not collides and selected.columns[0] == g._node:
+        if not collides:
             selected = selected.reset_index(drop=True)
+            if selected.columns[0] != g._node:
+                selected.insert(0, g._node, selected.pop(g._node))
             selected.insert(1, source, True)
         else:
             selected = selected.drop(columns=[source]) if collides else selected
