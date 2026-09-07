@@ -1009,6 +1009,24 @@ def _chain_with_strictness(
         return _chain_impl(self, ops, engine, validate_schema, policy, context, start_nodes)
 
 
+
+_NODE_ROW_CALLS = ("rows", "select", "with_")
+
+
+def _calls_only_on_node_rows(ops: List[ASTObject]) -> bool:
+    """True when every op is a plain row-table call (a node or edge table, no binding rows), which never reads edge identity."""
+    if not ops:
+        return False
+    for op in ops:
+        if not isinstance(op, ASTCall) or op.function not in _NODE_ROW_CALLS:
+            return False
+        if op.function == "rows" and (
+            op.params.get("binding_ops") is not None or op.params.get("alias_endpoints") is not None
+        ):
+            return False
+    return True
+
+
 def _chain_impl(
     self: Plottable,
     ops: Union[List[ASTObject], Chain],
@@ -1122,8 +1140,8 @@ def _chain_impl(
                 suggestion='Bind edges via g.edges(df, source, destination), or use a node-only pattern'
             )
 
-        if g._edges is None:
-            added_edge_index = False
+        if g._edges is None or _calls_only_on_node_rows(ops):
+            added_edge_index = False  # row-table calls on the node table never read edge identity
         elif g._edge is None:
             GFQL_EDGE_INDEX = generate_safe_column_name('edge_index', g._edges, prefix='__gfql_', suffix='__')
 
