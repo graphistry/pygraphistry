@@ -171,7 +171,8 @@ def _seeded_typed_return_dst_polars(
     # drop dangling edges + dedup destination nodes (mirror the pandas tail)
     keep_ids = dstn.get_column(node).drop_nulls()
     edges = edges.filter(pl.col(to_col).is_in(keep_ids.implode()))
-    dstn = dstn.filter(pl.col(node).is_in(edges.get_column(to_col).implode())).unique(subset=[node], maintain_order=True)
+    # Every retained destination was gathered from these edges before its node filter.
+    dstn = dstn.unique(subset=[node], maintain_order=True)
     return dstn, edges, seed_nodes, kernel_admits
 
 
