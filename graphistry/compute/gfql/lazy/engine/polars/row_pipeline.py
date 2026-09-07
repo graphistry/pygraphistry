@@ -1250,11 +1250,9 @@ def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> 
 
 def _select_emits_temporal_constructor_text(out: Any) -> bool:
     import polars as pl
-    from graphistry.compute.gfql.lazy.engine.polars.projection import _has_temporal_constructor_text
-    for name, dtype in out.schema.items():
-        if dtype == pl.String and _has_temporal_constructor_text(out, name):
-            return True
-    return False
+    from graphistry.compute.gfql.lazy.engine.polars.projection import _columns_have_temporal_constructor_text
+    columns = [name for name, dtype in out.schema.items() if dtype == pl.String]
+    return _columns_have_temporal_constructor_text(out, columns)
 
 
 def select_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[Plottable]:

@@ -717,3 +717,29 @@ def test_frame_ops_polars_rows_empty_table():
     empty = g.nodes(g._nodes.clear(), g._node)
     out = fo.rows(_adapter(empty), table="nodes")._nodes
     assert "polars" in type(out).__module__ and out.height == 0
+
+
+@pytest.mark.parametrize("values,expected", [
+    ([], False), ([None], False), (["ordinary", None], False),
+    (["update({year: 2020})", "my date({year: 2020})"], False),
+    ([None, "date({year: 2020})"], True),
+    (["  datetime({year: 2020})", None], True),
+])
+@pytest.mark.parametrize("column", ["first", "last"])
+def test_projection_temporal_text_guard_across_columns(values, expected, column):
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import (
+        _select_emits_temporal_constructor_text, select_polars,
+    )
+    data = {"first": ["plain"] * len(values), "last": [None] * len(values)}
+    data[column] = values
+    table = pl.DataFrame(data, schema={"first": pl.String, "last": pl.String})
+    assert _select_emits_temporal_constructor_text(table) is expected
+    result = select_polars(graphistry.nodes(table), [("a", "first"), ("b", "last")])
+    assert (result is None) is expected
+    if result is not None:
+        assert result._nodes.to_dicts() == table.rename({"first": "a", "last": "b"}).to_dicts()
+
+
+def test_projection_temporal_text_guard_without_string_columns():
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import _select_emits_temporal_constructor_text
+    assert not _select_emits_temporal_constructor_text(pl.DataFrame({"number": [1], "flag": [True]}))

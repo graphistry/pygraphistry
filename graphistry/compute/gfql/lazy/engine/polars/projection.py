@@ -53,14 +53,25 @@ def _has_temporal_constructor_text(rows_df: pl.DataFrame, col: str) -> bool:
     projection declines (NIE) rather than leak raw constructor text. Cheap native scan. Only
     standalone property projection needs this guard: whole-entity returns flatten the same raw
     column but are re-rendered downstream via render_entity_text."""
+    return _columns_have_temporal_constructor_text(rows_df, [col])
+
+
+def _columns_have_temporal_constructor_text(
+    rows_df: pl.DataFrame, columns: typing.Sequence[str],
+) -> bool:
+    """Check whether any selected string column contains temporal-constructor text."""
     import polars as pl
     from graphistry.compute.gfql.temporal.constructors import TEMPORAL_CALL_EXPR_RE
     # ^-anchored so values merely CONTAINING "date" (update({...}), candidate(...),
     # my date({x})) don't false-positive — these columns hold a WHOLE constructor string.
     pattern = r"^\s*" + TEMPORAL_CALL_EXPR_RE.pattern
+    if not columns:
+        return False
     try:
         return bool(
-            rows_df.select(pl.col(col).str.contains(pattern).any()).item()
+            rows_df.select(pl.any_horizontal([
+                pl.col(col).str.contains(pattern).any() for col in columns
+            ])).item()
         )
     except Exception:
         return False
