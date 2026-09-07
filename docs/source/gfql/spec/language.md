@@ -615,7 +615,7 @@ For Python accessor details (including row-pipeline result materialization), see
 
 ### Named Results
 
-Operations with `name` parameter add boolean columns to mark matched entities:
+Operations with `name` parameter add boolean columns to mark matched entities. The marker takes the name: an existing column of that name on the same frame is replaced (later definitions win, as with dataframe assignment). A `name` equal to that frame's binding column (the node id, or the edge source, destination or id) is rejected with a validation error, since the binding is structural and cannot be shadowed.
 
 ```python
 result = g.gfql([
