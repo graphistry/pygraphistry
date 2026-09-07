@@ -37,7 +37,12 @@ class Route(NamedTuple):
     indexed: bool
 
 
+from graphistry.compute.gfql.lazy.engine.polars.chain_specializations.point_rows import polars_point_rows_admits
+
 ROUTES = [
+    Route("polars-point-rows", ("polars",),
+          lambda ops, engine: polars_point_rows_admits(ops) is not None,
+          (pchain, "_try_point_rows_polars"), True),
     Route("point-rows", ("pandas", "cudf"),
           lambda ops, engine: point_rows_admits(ops, Engine(engine), None) is not None,
           (chain_mod, "_try_point_rows"), True),
@@ -56,6 +61,7 @@ ROUTES = [
 ]
 
 KNOWN: Dict[Tuple[str, str], str] = {  # (route, tag) -> issue: strict xfail until it lands (non-strict on frame variants, where a shape may coincide)
+    ("polars-point-rows", "dup-ids"): "graphistry/pygraphistry#2034",
     ("point-rows", "dup-ids"): "graphistry/pygraphistry#2034",
     ("native-fast", "#2034"): "graphistry/pygraphistry#2034",
     ("polars-single-node", "#2034"): "graphistry/pygraphistry#2034",
@@ -169,7 +175,7 @@ def test_admitted_shape_is_served_and_matches_the_general_path(case: Case, reque
         pytest.xfail(f"{case.id}: admitted by the predicate, declined by the lane body (attenuation ledger)")
 
 
-@pytest.mark.route_engaged("point-rows", "native-fast", "polars-single-node", "polars-plain", "polars-seeded")
+@pytest.mark.route_engaged("polars-point-rows", "point-rows", "native-fast", "polars-single-node", "polars-plain", "polars-seeded")
 def test_every_route_serves_most_of_what_it_admits(monkeypatch):
     """A lane that declines most admitted shapes has a predicate that no longer describes it."""
     per_route: Dict[str, List[int]] = {}
