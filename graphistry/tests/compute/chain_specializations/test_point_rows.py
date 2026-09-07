@@ -340,3 +340,30 @@ def test_point_coalesce_projection(engine, left, right, dtype, empty, monkeypatc
 def test_point_coalesce_unsupported_expression_falls_back(expr):
     from graphistry.compute.chain_specializations.point_rows import _project_point_columns
     assert _project_point_columns(graph("pandas")._nodes, select([("v", expr)]), "a", ["a", "b"]) is None
+
+
+@pytest.mark.parametrize("where", ["seed", "tail", "edge"])
+def test_nullable_equality_does_not_match_null(engine, where):
+    g = graph(engine)
+    nodes, edges = topd(g._nodes), topd(g._edges)
+    nodes["value"] = nodes["value"].astype("Int64")
+    edges["weight"] = edges["weight"].astype("Int64")
+    if where == "seed":
+        nodes.loc[0, "value"] = pd.NA
+        ops = [n({"key": 0, "value": 1}, name="a"), rows(source="a")]
+    else:
+        if where == "tail":
+            nodes.loc[[1, 2], "value"] = pd.NA
+        else:
+            edges.loc[[0, 1, 5], "weight"] = pd.NA
+        ops = [n({"key": 0}, name="a"),
+               e_forward({"type": "X", **({"weight": 1} if where == "edge" else {})}),
+               n({"value": 1} if where == "tail" else {}, name="b"), rows(source="b")]
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    g = g.nodes(nodes).edges(edges).gfql_index_all(engine=engine)
+    with routes_off(ROUTES):
+        expected = g.gfql(ops, engine=engine, index_policy="off")
+    assert len(expected._nodes) == 0
+    assert_result(g.gfql(ops, engine=engine), expected)
