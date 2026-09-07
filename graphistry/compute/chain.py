@@ -1228,6 +1228,9 @@ def _chain_impl(
             if added_edge_index:
                 final_edges_df = g_out._edges.drop(columns=[g._edge])
                 g_out = self.nodes(g_out._nodes).edges(final_edges_df, edge=original_edge)
+            else:
+                from .gfql.exec_context import clear_row_exec_context
+                g_out = clear_row_exec_context(g_out)  # the row context must not escape on a result
             success = True
         else:
             # Phase 2: Backward pass to propagate downstream constraints.
