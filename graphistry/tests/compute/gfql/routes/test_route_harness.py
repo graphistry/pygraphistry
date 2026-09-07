@@ -48,9 +48,7 @@ ROUTES = [
           (pchain, "_try_seeded_chain_polars"), True),
 ]
 
-KNOWN: Dict[Tuple[str, str], str] = {  # (route, tag) -> issue: strict xfail until it lands
-    ("polars-plain", "#2053"): "graphistry/pygraphistry#2053",
-}
+KNOWN: Dict[Tuple[str, str], str] = {}  # (route, tag) -> issue: strict xfail until it lands
 
 
 class Case(NamedTuple):

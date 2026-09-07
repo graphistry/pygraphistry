@@ -1027,3 +1027,24 @@ def test_grouped_aggregate_projection_differential_all_shapes_all_engines(
 
     result = _records(_graph(engine, nodes, edges).gfql(query, engine=engine))
     assert result == oracle, f"{label}: projection changed the answer on {engine}"
+
+
+def test_low_cardinality_count_plan_declines_on_the_gpu_target() -> None:
+    """The value_counts formulation lowers to an ``unnest`` node cudf-polars cannot execute,
+    so on the GPU target the fused lane keeps the group_by formulation; on CPU the
+    value_counts plan is still taken for the same input."""
+    pl = _require_polars()
+    from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
+    work = pl.LazyFrame({"id": [1, 2, 3], "city": ["LA", "NY", "LA"]})
+    kwargs = dict(
+        node_col="id", group_keys=["city"], agg_specs=[("n", "count", None)],
+        needed_by_alias={"c": [("city", "city")]},
+        frames_by_alias={"c": pl.DataFrame({"id": [1, 2, 3], "city": ["LA", "NY", "LA"]})},
+        edge_rows=3,
+    )
+    with target_mode(ExecutionTarget.CPU):
+        cpu_plan = gfql_fast_paths_module._low_cardinality_pure_count_plan(work, **kwargs)
+    with target_mode(ExecutionTarget.GPU):
+        gpu_plan = gfql_fast_paths_module._low_cardinality_pure_count_plan(work, **kwargs)
+    assert cpu_plan is not None and "UNNEST" in cpu_plan.explain()
+    assert gpu_plan is None

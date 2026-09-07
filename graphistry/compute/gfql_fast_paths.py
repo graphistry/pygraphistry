@@ -1993,6 +1993,9 @@ def _low_cardinality_pure_count_plan(
         return None
     if edge_rows > _LOWCARD_COUNT_MAX_INPUT_ROWS:
         return None
+    from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
+    if active_target() == ExecutionTarget.GPU:
+        return None  # cudf-polars has no unnest map function; the group_by formulation is GPU-executable
 
     # ``name=`` (polars >= 1.0, and the declared floor is 1.29) keeps the count column out
     # of a rename, so a group key literally named ``count`` is served rather than crashing.
@@ -3336,26 +3339,22 @@ def _pandas_frame_has_extension_dtype(frame: DataFrameT) -> bool:
 def _pivot_parity_casts(
     rows: DataFrameT, items: Sequence[Tuple[str, str]], node: str, *, keep_source_dtypes: bool,
 ) -> Optional[Dict[str, str]]:
-    """Per-output casts that reproduce the pandas rows-pivot dtypes (int/float -> float64,
-    bool -> object) for a lean projection; None for a dtype class the pivot parity does
-    not cover (datetimes, extension dtypes), which must take the full path."""
+    """The lean projection's dtype gate: source dtypes are kept on every route, so no
+    cast is produced; None for a dtype class the projection does not cover (datetimes,
+    extension dtypes), which must take the full path."""
     import numpy as np
     casts: Dict[str, str] = {}
     for out_name, prop in items:
-        if prop == node and len(rows) > 0:
-            continue  # the pivot keeps the id column's dtype except on an empty frame
+        if prop == node:
+            continue
         d = rows[prop].dtype
         if isinstance(d, pd.StringDtype):
             continue
         if not isinstance(d, np.dtype):
             return None
-        if d == np.dtype(bool):
-            if not keep_source_dtypes:
-                casts[out_name] = "object"
-        elif d.kind in "iuf":
-            if not keep_source_dtypes:
-                casts[out_name] = "float64"
-        elif d.kind != "O":
+        if d == np.dtype(bool) or d.kind in "iuf":
+            continue
+        if d.kind != "O":
             return None
     return casts
 
@@ -3802,8 +3801,7 @@ def _execute_seeded_typed_hop_fast_path(
         hop_details=[{"hop": 1}] if index_ctx is not None else None,
     )
     p_rows, _edges, seed_rows, kernel_admits = dst_res
-    # the canonical bag path keeps source dtypes only where the indexed kernel serves it
-    canonical_keeps_source_dtypes = "cudf" in type(p_rows).__module__ or (bag_rows and kernel_admits)
+    canonical_keeps_source_dtypes = True  # the general chain path keeps source dtypes on every route
     if wants_multi_alias:
         assert select_items is not None
         out_frame = _seeded_typed_hop_two_alias_frame(
