@@ -18,9 +18,8 @@ from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
-from graphistry.compute.chain_specializations.hotpaths import _single_node_rows_via_index_or_filter
-from .chain_specializations.admission import polars_plain_single_hop_admits
-from .chain_specializations.hotpaths import _plain_seeded_index_hop_polars, _plain_single_hop_polars, _try_seeded_chain_polars
+from .chain_specializations.admission import polars_plain_single_hop_admits, polars_single_node_admits
+from .chain_specializations.hotpaths import _plain_seeded_index_hop_polars, _plain_single_hop_polars, _single_node_polars, _try_seeded_chain_polars
 
 if TYPE_CHECKING:
     import polars as pl
@@ -922,20 +921,10 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     # Node-only shape: single MATCH (n). Result is just the filtered node table + empty edges,
     # so skip forward/backward/combine. Byte-identical: the one-node-step combine yields filtered
     # g._nodes in order + empty edges + the alias flag on every matched node.
-    if len(ops) == 1 and isinstance(ops[0], ASTNode) and ops[0].query is None:
-        op0 = ops[0]
-        g0 = ensure_nodes_polars(self)
-        nc = g0._node
-        assert nc is not None
-        from graphistry.Engine import EngineAbstract
-        nodes = _single_node_rows_via_index_or_filter(g0, op0, EngineAbstract.POLARS)
-        if start_nodes is not None:
-            from graphistry.Engine import Engine as _E, df_to_engine as _d2e
-            seed = _align_seed_dtype(_d2e(start_nodes, _E.POLARS), nc, g0._nodes)
-            nodes = _semi(nodes, seed, nc, nc)
-        if op0._name is not None:
-            nodes = nodes.with_columns(pl.lit(True).alias(op0._name))
-        return g0.nodes(nodes, nc).edges(g0._edges.clear(), edge_src, edge_dst)
+    if polars_single_node_admits(ops, start_nodes):
+        single = _single_node_polars(self, ops, start_nodes)
+        if single is not None:
+            return single
 
     if isinstance(ops[0], ASTEdge):
         ops = [ASTNode()] + ops

@@ -41,6 +41,15 @@ def polars_plain_single_hop_admits(ops: Sequence[ASTObject], start_nodes: Option
     return "skip-combine" if (unconstrained or directed) else None
 
 
+def polars_single_node_admits(ops: Sequence[ASTObject], start_nodes: Optional[object]) -> bool:
+    """A lone node op without ``query``: the node table answers it directly (index gather or filter,
+    then a semi join on ``start_nodes`` when seeded), with no lazy plan to build or collect."""
+    if len(ops) != 1:
+        return False
+    n0 = ops[0]
+    return isinstance(n0, ASTNode) and n0.query is None
+
+
 def polars_seeded_lane_admits(ops: Sequence[ASTObject]) -> bool:
     """Whether the polars seeded lane's shape gate admits ``ops``: a 3-op directed simple
     single hop whose seed node carries a filter, with no node queries, endpoint matches,
