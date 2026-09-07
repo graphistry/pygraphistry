@@ -1,3 +1,6 @@
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Iterator
 """GFQL reserved identifiers and validation."""
 
 import re
@@ -152,3 +155,21 @@ RECOMMENDED_AVOID: Set[str] = {
     'dst', 'dest', 'destination', 'to', 'target',
     'type', 'label', 'name'
 }
+
+
+_SHADOW_RESTORE_WANTED: "ContextVar[bool]" = ContextVar("gfql_shadow_restore_wanted", default=False)
+
+
+def shadow_restore_wanted() -> bool:
+    """Whether the executing pipeline will read shadowed alias values back (the Cypher row pipeline does; the op-list surface does not)."""
+    return _SHADOW_RESTORE_WANTED.get()
+
+
+@contextmanager
+def cypher_pipeline() -> Iterator[None]:
+    """Mark a compiled Cypher execution: chains keep shadowed alias values under the restore column for the row pipeline."""
+    token = _SHADOW_RESTORE_WANTED.set(True)
+    try:
+        yield
+    finally:
+        _SHADOW_RESTORE_WANTED.reset(token)
