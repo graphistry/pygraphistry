@@ -722,18 +722,15 @@ _BYPASS_SHAPES: List[Tuple[str, Callable[[], List[ASTObject]]]] = register("test
     # arrival side. Must bypass the fast path (regression guard for the prune gate).
     ("prune_endpoints_fwd", lambda: [n(), e_forward(hops=1, prune_to_endpoints=True), n()]),
     ("prune_endpoints_rev", lambda: [n(), e_reverse(hops=1, prune_to_endpoints=True), n()]),
-], _FAST_FRAMES, tags=("native-fast-bypass",), row_tags={"prune_endpoints_fwd": ("#2053",), "prune_endpoints_rev": ("#2053",)})
+], _FAST_FRAMES, tags=("native-fast-bypass",))
 
 
-_CUDF_26_DIVERGENT = {"prune_endpoints_fwd", "prune_endpoints_rev"}  # graphistry/pygraphistry#2043
 
 
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
 @pytest.mark.parametrize("label,build", _FAST_SHAPES + _BYPASS_SHAPES,
                          ids=[s[0] for s in _FAST_SHAPES + _BYPASS_SHAPES])
 def test_fast_path_differential_parity_vs_full_path(engine, label, build, request):
-    if engine == "cudf" and label in _CUDF_26_DIVERGENT and _cudf_at_least_26():
-        request.applymarker(pytest.mark.xfail(strict=True, reason="graphistry/pygraphistry#2043"))
     """Fast path output == full (policy-forced BFS) path output, by node/edge SET,
     for every accelerated shape AND every bypass shape, on pandas and cuDF.
 

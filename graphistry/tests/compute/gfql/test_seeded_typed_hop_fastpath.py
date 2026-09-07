@@ -856,7 +856,7 @@ class TestSeededProjectionDtypeAndEdgesParity:
         fast, full = self._fast_and_full(self._typed_graph(), "pandas", self.Q)
         pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))
         dt = dict(zip(fast._nodes.columns, map(str, fast._nodes.dtypes)))
-        assert dt == {"pid": "int64", "a": "float64", "f": "object"}
+        assert dt == {"pid": "int64", "a": "int64", "f": "bool"}  # source dtypes on every route (#2058)
 
     @pytest.mark.route_engaged("cypher-fast")
     def test_polars_int_bool_dtype_parity(self):
@@ -870,10 +870,8 @@ class TestSeededProjectionDtypeAndEdgesParity:
         and the answer is still right. The declined shape no longer reaches the NATIVE
         chain fast path either — a seeded property RETURN now lowers to the
         multiplicity-preserving binding-rows form, whose kernel the native seeded reduction
-        does not serve — so both sides land on the same lane and carry the same (pandas
-        pivot-upcast) dtypes. That artifact is unchanged and still tracked; what moved is
-        which shapes see it, and the declined shape now agrees with the ENGAGED one, which
-        casts to the artifact deliberately (test_pandas_int_bool_dtype_parity)."""
+        does not serve — so both sides land on the same lane and carry the same source dtypes
+        (test_pandas_int_bool_dtype_parity)."""
         q = self.Q.replace("p.flag AS f", "p.ts AS t")
         fast, full = self._fast_and_full(self._typed_graph(), "pandas", q, expect_engage=False)
         pd.testing.assert_frame_equal(_canon_nodes(fast), _canon_nodes(full))

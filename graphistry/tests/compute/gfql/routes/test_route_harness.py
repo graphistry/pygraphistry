@@ -49,7 +49,6 @@ ROUTES = [
 ]
 
 KNOWN: Dict[Tuple[str, str], str] = {  # (route, tag) -> issue: strict xfail until it lands (non-strict on frame variants, where a shape may coincide)
-    ("polars-plain", "#2053"): "graphistry/pygraphistry#2053",
     ("native-fast", "#2034"): "graphistry/pygraphistry#2034",
     ("polars-plain", "#2034"): "graphistry/pygraphistry#2034",
     ("polars-seeded", "#2034"): "graphistry/pygraphistry#2034",
