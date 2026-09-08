@@ -13,6 +13,7 @@ from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
 from .chain_specializations.hotpaths import _try_chain_fast_path
 from .chain_specializations.point_rows import _try_point_rows
+from .engine_coercion import ensure_local_engine_match
 from graphistry.compute.validate.validate_schema import validate_chain_schema, validate_graph_shape
 from graphistry.compute.gfql.strictness import StrictInput
 from graphistry.compute.gfql.same_path_types import (
@@ -970,6 +971,8 @@ def _chain_with_strictness(
                     "Install RAPIDS/cudf_polars, or use engine='polars' for native CPU execution."
                 )
     self = _coerce_input_formats(self, engine_concrete_early)
+    if engine_concrete_early == Engine.PANDAS:
+        self = ensure_local_engine_match(self, engine_concrete_early)
 
     if engine_concrete_early in POLARS_ENGINES:
         # Native polars chain lives in a dedicated dispatched module so the

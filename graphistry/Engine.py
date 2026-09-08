@@ -138,6 +138,12 @@ def resolve_engine(
             except ImportError:
                 pass
 
+        type_module = type(g_or_df).__module__
+        if 'dask' in type_module and 'cudf' not in type_module:
+            import dask.dataframe as dd
+            if isinstance(g_or_df, dd.DataFrame):
+                return Engine.PANDAS
+
         if 'cudf.core.dataframe' in str(getmodule(g_or_df)):
             has_cudf_dependancy_, _, _ = lazy_cudf_import()
             if has_cudf_dependancy_:
