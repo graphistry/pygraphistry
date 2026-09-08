@@ -21,23 +21,23 @@ def _res(nodes, edges):
 
 def _both(res, aliases, direction="forward"):
     a0, a1, a2 = aliases
-    real = cfp._tag_fast_path_aliases_pandas
+    real = cfp._tag_fast_path_aliases_eager
     branch = {"n": 0}
 
     def spy(*a, **k):
         r = real(*a, **k)
         branch["n"] += r is not None
         return r
-    cfp._tag_fast_path_aliases_pandas = spy
+    cfp._tag_fast_path_aliases_eager = spy
     try:
         fast = cfp._tag_fast_path_aliases(res, a0, a1, a2, "s", "d", "k", direction)
     finally:
-        cfp._tag_fast_path_aliases_pandas = real
-    cfp._tag_fast_path_aliases_pandas = lambda *a, **k: None
+        cfp._tag_fast_path_aliases_eager = real
+    cfp._tag_fast_path_aliases_eager = lambda *a, **k: None
     try:
         generic = cfp._tag_fast_path_aliases(res, a0, a1, a2, "s", "d", "k", direction)
     finally:
-        cfp._tag_fast_path_aliases_pandas = real
+        cfp._tag_fast_path_aliases_eager = real
     return fast, generic, branch["n"]
 
 
@@ -106,3 +106,47 @@ def test_end_to_end_named_seeded_hop_matches_the_full_path():
     pd.testing.assert_frame_equal(key(served._nodes), key(full._nodes), check_dtype=False)
     pd.testing.assert_frame_equal(key(served._edges), key(full._edges), check_dtype=False)
     assert list(served._nodes.columns) == list(full._nodes.columns)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("direction", ["forward", "reverse"])
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("shape", list(SHAPES))
+def test_eager_alias_tags_keep_backend_and_inputs(engine, direction, empty, shape):
+    nodes, edges = NODES.copy(), EDGES.iloc[:0].copy() if empty else EDGES.copy()
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    fast, generic, served = _both(_res(nodes, edges), SHAPES[shape], direction)
+    assert served == 1
+    for actual, expected in [(fast._nodes, generic._nodes), (fast._edges, generic._edges)]:
+        assert type(actual) is type(expected) is type(nodes)
+        if engine == "cudf":
+            actual, expected = actual.to_pandas(), expected.to_pandas()
+        pd.testing.assert_frame_equal(actual, expected)
+    pd.testing.assert_frame_equal(nodes.to_pandas() if engine == "cudf" else nodes, NODES)
+    pd.testing.assert_frame_equal(edges.to_pandas() if engine == "cudf" else edges,
+                                  EDGES.iloc[:0] if empty else EDGES)
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+def test_repeated_node_alias_uses_generic_overwrite_semantics(engine):
+    nodes, edges = NODES.copy(), EDGES.copy()
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    fast, generic, served = _both(_res(nodes, edges), ("m", "e", "m"))
+    assert served == 0
+    actual, expected = fast._nodes, generic._nodes
+    if engine == "cudf":
+        actual, expected = actual.to_pandas(), expected.to_pandas()
+    pd.testing.assert_frame_equal(actual, expected)
+    assert actual["m"].tolist() == [False, True, True, False]
+
+
+def test_mixed_integer_width_aliases_decline_before_lossy_array_membership():
+    nodes = pd.DataFrame({"k": pd.Series([2**63, 2**63 + 1], dtype="uint64")})
+    edges = pd.DataFrame({"s": pd.Series([2**63 - 1], dtype="int64"),
+                          "d": pd.Series([2**63 - 1], dtype="int64")})
+    result = cfp._tag_fast_path_aliases_eager(nodes, edges, "m", None, "p", "s", "d", "k")
+    assert result is None

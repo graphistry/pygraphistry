@@ -228,3 +228,70 @@ def test_polars_seed_path_is_unchanged_by_the_residual_verify():
     g = g.gfql_index_all(engine="polars").gfql_index_node_props(["id"], engine="polars")
     ops = [n({"id": 10_007, "label__Person": True}, name="a"), e_forward(), n(name="b")]
     assert _keys(g.gfql(ops, engine="polars")) == _keys(_full_path(g, ops, "polars"))
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("values,expected", [([None], []), ([None, 4], [1]), ([3, 4], [1])])
+def test_index_hit_residual_nulls_never_count_as_matches(engine, values, expected):
+    from graphistry.Engine import Engine
+    from graphistry.compute.chain_fast_paths import _verify_scalar_filters_on_hit
+    frame = pd.DataFrame({"id": range(len(values)), "value": pd.Series(values, dtype="Int64")})
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        frame = cudf.from_pandas(frame)
+    result = _verify_scalar_filters_on_hit(frame, {"value": 4}, Engine(engine))
+    actual = result.to_pandas() if engine == "cudf" else result
+    assert actual["id"].tolist() == expected
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("direction", ["forward", "reverse"])
+@pytest.mark.parametrize("dtype,values,target", [("Int64", [0, None, 4], 4), ("string", ["x", None, "y"], "y")])
+def test_numeric_tail_nullable_residual_rejects_null_without_error(engine, direction, dtype, values, target):
+    from graphistry.compute.chain_specializations.hotpaths import _seeded_hop_tail_numeric
+    nodes = pd.DataFrame({"id": [0, 1, 2], "value": pd.Series(values, dtype=dtype)})
+    edges = pd.DataFrame({"s": [0, 0, 0], "d": [1, 2, 2]})
+    if direction == "reverse":
+        edges = edges.rename(columns={"s": "d", "d": "s"})
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    result = _seeded_hop_tail_numeric(nodes, edges, {"value": target}, "s", "d",
+                                      "d" if direction == "forward" else "s", "id")
+    assert result is not None
+    output = result[0].to_pandas() if engine == "cudf" else result[0]
+    assert output["id"].tolist() == [0, 2]
+    assert len(result[1]) == 2
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("count", [0, 1, 2, 129])
+@pytest.mark.parametrize("direction", ["forward", "reverse"])
+def test_numeric_tail_keeps_edge_bag_and_rejects_dangling_endpoints(engine, count, direction):
+    from graphistry.compute.chain_specializations.hotpaths import _seeded_hop_tail_numeric
+    nodes = pd.DataFrame({"id": [0, 1, 2]})
+    edges = pd.DataFrame({"s": [0] * count + [0, 99], "d": [2] * count + [99, 2]})
+    if direction == "reverse":
+        edges = edges.rename(columns={"s": "d", "d": "s"})
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    result = _seeded_hop_tail_numeric(nodes, edges, {}, "s", "d",
+                                      "d" if direction == "forward" else "s", "id")
+    assert result is not None
+    assert type(result[0]) is type(nodes) and type(result[1]) is type(edges)
+    actual = result[0].to_pandas() if engine == "cudf" else result[0]
+    assert actual["id"].tolist() == ([0, 2] if count else [])
+    assert len(result[1]) == count
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_numeric_tail_mixed_id_dtypes_decline(engine):
+    from graphistry.compute.chain_specializations.hotpaths import _seeded_hop_tail_numeric
+    nodes = pd.DataFrame({"id": pd.Series([2**63], dtype="uint64")})
+    edges = pd.DataFrame({"s": pd.Series([2**63 - 1], dtype="int64"),
+                          "d": pd.Series([2**63 - 1], dtype="int64")})
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
+    assert _seeded_hop_tail_numeric(nodes, edges, {}, "s", "d", "d", "id") is None

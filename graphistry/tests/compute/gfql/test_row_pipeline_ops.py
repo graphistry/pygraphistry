@@ -2787,3 +2787,22 @@ class TestRelationshipAliasInRowExpression:
         return_vals = _safe_series_to_list(return_result._nodes["rel"])
         assert select_vals == ["[:WORKS_AT {workFrom: 2010}]"]
         assert select_vals == return_vals
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf"])
+@pytest.mark.parametrize("values", [[True, False], [True, None, False], [None, None]])
+def test_alias_marker_mask_replaces_null_with_false(engine, values):
+    from graphistry.compute.gfql.row.frame_ops import _alias_true_mask
+
+    if engine == "cudf":
+        cudf = pytest.importorskip("cudf")
+        frame = cudf.DataFrame({"alias": cudf.Series(values, dtype="bool")})
+    else:
+        dtype = "boolean" if None in values else "bool"
+        frame = pd.DataFrame({"alias": pd.Series(values, dtype=dtype)})
+
+    mask = _alias_true_mask(frame, "alias")
+    actual = mask.to_pandas() if engine == "cudf" else mask
+    assert actual.tolist() == [value is True for value in values]
+    assert not actual.isna().any()
+    assert actual.dtype == bool

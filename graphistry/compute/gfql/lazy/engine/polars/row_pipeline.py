@@ -659,6 +659,11 @@ def lower_expr(node: ExprNode, columns: Sequence[str]) -> Optional[pl.Expr]:
             src = _resolve_property(node.value.name, node.property, columns)
             if src is not None:
                 return pl.col(src)
+            if (_NODE_ID.get() in columns
+                    and _SCHEMA.get().get(node.value.name) == pl.Boolean):
+                from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+                RowPipelineMixin._gfql_report_absent_property(f"{node.value.name}.{node.property}")
+                return pl.lit(None)
         return None
     if isinstance(node, BinaryOp):
         if node.op == "in" and isinstance(node.right, ListLiteral):
