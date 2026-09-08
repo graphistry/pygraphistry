@@ -107,8 +107,30 @@ def test_joined_projection_declines_unsupported_items(items):
     assert _try_point_rows_polars(g, ops) is None
 
 
-def test_joined_projection_temporal_constructor_text_declines():
+@pytest.mark.parametrize("tail_filter", [{}, {"id": 1001}])
+def test_joined_projection_temporal_constructor_text_declines(tail_filter):
     g = make_graph()
     g = graphistry.nodes(g._nodes.with_columns(pl.lit("date({year: 2020})").alias("text")), "key").edges(g._edges, "s", "d", "eid").gfql_index_all(engine="polars")
-    ops = [n({"key": 0}, name="a"), e_forward({"type": "X"}), n(name="b"), rows(), select([("text", "b.text")])]
+    ops = [n({"key": 0}, name="a"), e_forward({"type": "X"}), n(tail_filter, name="b"), rows(), select([("text", "b.text")])]
     assert _try_point_rows_polars(g, ops) is None
+
+
+@pytest.mark.parametrize("variant", ["base", "nullable", "categorical", "timestamp", "float-null", "empty"])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("include_edge", [False, True])
+def test_singleton_joined_projection_preserves_edge_bag(variant, reverse, include_edge):
+    from polars.testing import assert_frame_equal
+    g = make_graph(variant)
+    edge = e_reverse if reverse else e_forward
+    items = [("source", "a.id"), ("target", "b.id"), ("value", "b.value")]
+    if include_edge:
+        items.append(("weight", "e.weight"))
+    ops = [n({"id": 1000}, name="a"), edge({"type": "X"}, name="e"),
+           n({"id": 1001}, name="b"), rows(), select(items)]
+    direct = _try_point_rows_polars(g, ops)
+    assert direct is not None
+    with routes_off(["polars-point-rows"]):
+        expected = g.gfql(ops, engine="polars")
+    assert_frame_equal(direct._nodes, expected._nodes)
+    assert_frame_equal(direct._edges, expected._edges)
+    assert direct._nodes.height == (0 if variant == "empty" else 1 if reverse else 2)

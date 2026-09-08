@@ -63,6 +63,8 @@ def _joined_projection(
         frames[edge_alias] = edges
     properties: Dict[str, List[pl.Expr]] = {alias: [] for alias in frames}
     outputs = []
+    singleton = seed.height == 1 and tail.height == 1
+    singleton_columns = []
     for index, item in enumerate(items):
         if not isinstance(item, (list, tuple)) or len(item) != 2:
             return None
@@ -75,11 +77,20 @@ def _joined_projection(
         alias, column = match.groups()
         if alias not in frames or column not in frames[alias].columns:
             return None
+        if singleton:
+            series = frames[alias].get_column(column)
+            if alias != edge_alias:
+                series = series.new_from_index(0, edges.height)
+            singleton_columns.append(series.alias(output))
+            continue
         temporary = f"_value_{index}"
         properties[alias].append(pl.col(column).alias(temporary))
         outputs.append(pl.col(temporary).alias(output))
     if len({item[0] for item in items}) != len(items):
         return None
+    if singleton:
+        result = pl.DataFrame(singleton_columns)
+        return None if _select_emits_temporal_constructor_text(result) else result
     left = seed.lazy().select(pl.col(node).alias("_seed"), *properties[seed_alias]).with_row_index("_seed_order")
     step = edges.lazy().select(
         pl.col(from_col).alias("_seed"), pl.col(to_col).alias("_tail"),
