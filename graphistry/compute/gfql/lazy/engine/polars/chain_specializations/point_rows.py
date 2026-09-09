@@ -162,7 +162,8 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
     else:
         edge, tail_op = ops[1:3]
         assert isinstance(edge, ASTEdge) and isinstance(tail_op, ASTNode)
-        if nodes.schema[node] != edges.schema[src] or nodes.schema[node] != edges.schema[dst]:
+        node_dtype = nodes.get_column(node).dtype
+        if node_dtype != edges.get_column(src).dtype or node_dtype != edges.get_column(dst).dtype:
             return None
         ctx = _resident_seed_indexes(g, nodes, edges, node, src, dst, edge.direction)
         if ctx is None:
