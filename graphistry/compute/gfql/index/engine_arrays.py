@@ -64,7 +64,12 @@ def take_rows(df: DataFrameT, positions: ArrayLike, engine: Engine) -> DataFrame
         import numpy as np
 
         idx = np.asarray(positions)
-        return cast(DataFrameT, df[idx])
+        position = int(idx[0]) if idx.ndim == 1 and idx.size == 1 and idx.dtype.kind in "iu" else None
+        if position is not None and 0 <= position < len(df):
+            result = df.slice(position, 1)
+        else:
+            result = df[idx]
+        return cast(DataFrameT, result)
     # pandas / cudf: iloc accepts numpy (pandas) or cupy (cudf) int arrays
     return cast(DataFrameT, df.iloc[positions])
 
