@@ -7,6 +7,7 @@ lanes in ``gfql_fast_paths.py``. This module imports only leaf modules (no back-
 from typing import Any, Dict, Literal, Optional, Sequence, Tuple, TYPE_CHECKING, Union, cast
 
 from graphistry.Plottable import Plottable
+from graphistry.Engine import is_polars_series
 from .ast import Direction
 from .typing import ArrayLike, ArrayNamespace, DataFrameT, SeriesT
 
@@ -191,6 +192,9 @@ def _ids_to_key_array(
         if 'cudf' in str(type(vals).__module__):
             vals = vals.dropna()  # type: ignore[union-attr]  # cudf Series by module check
             raw = vals.values  # type: ignore[union-attr]  # device array; to_numpy() raises on nulls + round-trips host
+        elif is_polars_series(vals):
+            # Nullable integers become floats in NumPy unless nulls are removed first.
+            raw = (vals.drop_nulls() if vals.null_count() else vals).to_numpy()
         elif hasattr(vals, "to_numpy"):
             raw = vals.to_numpy()
         else:

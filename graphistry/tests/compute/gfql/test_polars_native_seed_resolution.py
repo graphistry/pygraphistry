@@ -248,3 +248,22 @@ def test_property_seed_never_reuses_other_frame_family():
     from graphistry.compute.gfql.index.bindings import _seed_rows_via_property_index
     g = _graph(indexed=False, padding=1000).gfql_index_node_props(["id"], engine="polars-gpu")
     assert _seed_rows_via_property_index(get_registry(g), g._nodes, {"id": 104}, Engine.PANDAS, np, policy="force") is None
+
+
+@pytest.mark.parametrize("dtype, values", [
+    (pl.Int64, [2**53 + 1, 2**53 + 2]),
+    (pl.Int64, [-2**53 - 1, -2**53 - 2]),
+    (pl.UInt64, [2**63 + 1, 2**63 + 2]),
+    (pl.UInt64, [2**64 - 2, 2**64 - 1]),
+])
+@pytest.mark.parametrize("nullable", [False, True])
+def test_polars_index_keys_keep_integer_precision(dtype, values, nullable):
+    import numpy as np
+    from graphistry.compute.chain_fast_paths import _ids_to_key_array
+
+    keys = pl.Series(values, dtype=dtype).to_numpy()
+    series = pl.Series([values[0], None, values[1], values[0]] if nullable else values, dtype=dtype)
+    result = _ids_to_key_array(series, keys, np)
+    assert result is not None
+    assert result.dtype == keys.dtype
+    np.testing.assert_array_equal(result, np.unique(keys))
