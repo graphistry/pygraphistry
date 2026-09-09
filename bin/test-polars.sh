@@ -91,6 +91,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_polars_admission.py
     graphistry/tests/compute/gfql/lazy/engine/polars/test_predicates.py
     graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_point_rows.py
+    graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_hotpaths.py
     graphistry/tests/compute/gfql/test_polars_indexed_join_helpers.py
     graphistry/tests/compute/chain_specializations/test_native_admission.py
     graphistry/tests/compute/chain_specializations/test_point_rows.py
