@@ -86,6 +86,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_hop_scaling_pin.py
     graphistry/tests/compute/gfql/test_seeded_node_lookup_fastpath.py
     graphistry/tests/compute/gfql/test_native_seed_resolution_2027.py
+    graphistry/tests/compute/gfql/test_native_seed_skip_refilter.py
     graphistry/tests/compute/gfql/test_polars_native_seed_resolution.py
     graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_polars_admission.py
     graphistry/tests/compute/chain_specializations/test_native_admission.py

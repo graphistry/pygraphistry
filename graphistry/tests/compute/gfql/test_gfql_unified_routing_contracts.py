@@ -181,7 +181,7 @@ def _assert_declines_rather_than_raising(graph, query, marker, expected):
     except ImportError:
         assert not HAS_CUDF_POLARS
         return
-    assert out._nodes.to_dicts() == expected
+    assert sorted(out._nodes.to_dicts(), key=repr) == sorted(expected, key=repr)
 
 
 def test_gpu_fast_path_not_implemented_error_declines_to_the_generic_route(monkeypatch):

@@ -358,11 +358,8 @@ def test_post_aggregate_where_over_a_nonempty_stream_uses_the_real_value(query, 
 # ===========================================================================
 # 6. polars declines pandas serves (#1909 item 5) -- pinned, not invisible
 # ===========================================================================
-# All three are the same root cause: the polars row pipeline has no native
-# cypher expression engine, so `with_` / `order_by` over a projected expression
-# raise NotImplementedError (parity-or-error by design). Serving them is the
-# general native-polars row-expression work, not a local fix -- pinned strict so
-# they flip loudly when that lands.
+# Whole-entity grouping and ordering nested collections remain pinned below.
+# Missing-property counts now use native null projection and return zero.
 
 
 @pytest.mark.parametrize("query,expected", [
@@ -381,10 +378,9 @@ def test_pandas_serves_the_polars_decline_families(query, expected):
 @polars_only
 @pytest.mark.parametrize("query", [
     "MATCH (m) RETURN m, count(*) AS c",
-    "MATCH (m) RETURN count(m.nosuch) AS c",
     "MATCH (m) WITH m.city AS city, collect(m.name) AS names "
     "RETURN collect(names) AS nested ORDER BY nested",
-], ids=["whole_entity_grouping", "missing_property_aggregate", "order_by_collect_of_collect"])
+], ids=["whole_entity_grouping", "order_by_collect_of_collect"])
 @pytest.mark.xfail(strict=True, raises=NotImplementedError,
                    reason="#1909 item 5: polars row pipeline has no native cypher expression "
                           "engine for with_/order_by; pandas serves these correctly")
@@ -393,14 +389,11 @@ def test_polars_declines_these_aggregate_shapes(query):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_missing_property_aggregate_value_is_zero_on_pandas(engine):
-    """Hand oracle for the decline family above: count() over a property no node
-    has counts zero non-null values -- it is not an error."""
-    if engine == "polars":
-        with pytest.raises(NotImplementedError):
-            _run("MATCH (m) RETURN count(m.nosuch) AS c", "polars")
-        return
-    assert _records(_run("MATCH (m) RETURN count(m.nosuch) AS c", engine)) == [{"c": 0}]
+@pytest.mark.parametrize("predicate", ["", " WHERE m.name = 'Zed'"])
+def test_missing_property_aggregate_value_is_zero(engine, predicate):
+    """count() ignores nulls and retains one identity row on an empty stream."""
+    query = f"MATCH (m){predicate} RETURN count(m.nosuch) AS c"
+    assert _records(_run(query, engine)) == [{"c": 0}]
 
 
 # ===========================================================================

@@ -18,9 +18,8 @@ from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
-from graphistry.compute.chain_specializations.hotpaths import _single_node_rows_via_index_or_filter
-from .chain_specializations.admission import polars_plain_single_hop_admits
-from .chain_specializations.hotpaths import _plain_seeded_index_hop_polars, _plain_single_hop_polars, _try_seeded_chain_polars
+from .chain_specializations.admission import polars_plain_single_hop_admits, polars_single_node_admits
+from .chain_specializations.hotpaths import _plain_seeded_index_hop_polars, _plain_single_hop_polars, _single_node_polars, _try_seeded_chain_polars
 
 if TYPE_CHECKING:
     import polars as pl
@@ -469,17 +468,7 @@ def _apply_node_names(out: "pl.LazyFrame", g: "_LazyShim",
                     on=node_col, how="semi")
         if idx + 1 < len(step_list):
             next_op, next_step = step_list[idx + 1]
-            # Cardinality guard, restated against a fact that SURVIVES lazification. The old
-            # spelling was `is_lazy(df) or df.height > 0`, and `_apply_node_names` is always
-            # called with lazified steps — so `is_lazy` short-circuited True and the height
-            # test was unreachable. That is the identical silent death this commit fixes one
-            # function above; leaving a second copy of it here is how the bug recurs.
-            # Unlike the edges combine this one is SEMANTIC, not a cost guard: an empty next
-            # edge step must not empty `named` via the gate below.
-            # Plain attribute read, not getattr: `next_step` is a `_LazyShim`, which declares
-            # `edges_empty` in __slots__ with a real `Optional[bool]` annotation, so the
-            # tri-state is part of the type and a typo here is a checker error rather than a
-            # silent None (which would have re-armed the very gate this guard disarms).
+            # Empty next-edge steps must not filter node aliases.
             next_edges_empty = next_step.edges_empty
             if (isinstance(next_op, ASTEdge) and next_step._edges is not None
                     and next_edges_empty is not True):
@@ -574,7 +563,7 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     #    the generic chain routes schema-changers straight to execute_call.)
     from graphistry.compute.ast import ASTCall
     from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
-    from graphistry.compute.exceptions import ErrorCode, GFQLTypeError, GFQLValidationError
+    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError, GFQLTypeError, GFQLValidationError
     for op in calls:
         if not isinstance(op, ASTCall):
             raise NotImplementedError(
@@ -587,6 +576,8 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
         except GFQLTypeError:
             raise
         except GFQLValidationError as validation_error:
+            if isinstance(validation_error, GFQLSchemaError) and validation_error.code == ErrorCode.E301:
+                raise
             # Same wrapping `execute_call` applies (gfql/call/executor.py): a kernel that
             # raises a validation error surfaces as GFQLTypeError(E303) with this message
             # shape. The native attempt runs BEFORE execute_call, so without this the SAME
@@ -767,7 +758,7 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
     for _alias_type in (ASTNode, ASTEdge):
         _seen: dict = {}
         for _idx, _op in enumerate(ops):
-            _name = getattr(_op, "_name", None)
+            _name = _op._name
             if _name is not None and isinstance(_op, _alias_type):
                 if _name in _seen:
                     from graphistry.compute.exceptions import GFQLValidationError, ErrorCode
@@ -919,23 +910,10 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
 
     edge_src, edge_dst = _bound_edge_endpoints(self)
 
-    # Node-only shape: single MATCH (n). Result is just the filtered node table + empty edges,
-    # so skip forward/backward/combine. Byte-identical: the one-node-step combine yields filtered
-    # g._nodes in order + empty edges + the alias flag on every matched node.
-    if len(ops) == 1 and isinstance(ops[0], ASTNode) and ops[0].query is None:
-        op0 = ops[0]
-        g0 = ensure_nodes_polars(self)
-        nc = g0._node
-        assert nc is not None
-        from graphistry.Engine import EngineAbstract
-        nodes = _single_node_rows_via_index_or_filter(g0, op0, EngineAbstract.POLARS)
-        if start_nodes is not None:
-            from graphistry.Engine import Engine as _E, df_to_engine as _d2e
-            seed = _align_seed_dtype(_d2e(start_nodes, _E.POLARS), nc, g0._nodes)
-            nodes = _semi(nodes, seed, nc, nc)
-        if op0._name is not None:
-            nodes = nodes.with_columns(pl.lit(True).alias(op0._name))
-        return g0.nodes(nodes, nc).edges(g0._edges.clear(), edge_src, edge_dst)
+    if polars_single_node_admits(ops, start_nodes):
+        single = _single_node_polars(self, ops, start_nodes)
+        if single is not None:
+            return single
 
     if isinstance(ops[0], ASTEdge):
         ops = [ASTNode()] + ops

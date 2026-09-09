@@ -608,3 +608,20 @@ def test_leniency_does_not_swallow_errors_unrelated_to_absence() -> None:
         assert absent_warnings == [], (
             f"level={level} reported an unrelated TypeError as an absent column"
         )
+
+
+@pytest.mark.parametrize("level", ["strict", "warn", "quiet"])
+def test_native_polars_row_projection_absent_property(level: StrictLevel) -> None:
+    from graphistry.compute.ast import n, rows, select
+    graph = _graph("polars")
+    ops = [n(name="n"), rows(source="n"), select([("c", "n.nope_col")])]
+    if level == "strict":
+        with pytest.raises(GFQLSchemaError):
+            graph.gfql(ops, engine="polars", strict=level)
+    else:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            out = graph.gfql(ops, engine="polars", strict=level)
+        assert _rows(out) == [{"c": None}] * 3
+        messages = [item for item in caught if "GFQL:" in str(item.message)]
+        assert len(messages) == (1 if level == "warn" else 0)

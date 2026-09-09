@@ -33,7 +33,7 @@ logger = setup_logger(__name__)
 
 
 def _filter_edges_by_endpoint(
-    edges_df: DataFrameT, nodes_df: Optional[DataFrameT], node_id: str, edge_col: str
+    edges_df: DataFrameT, nodes_df: Optional[DataFrameT], node_id: Optional[str], edge_col: Optional[str]
 ) -> DataFrameT:
     if nodes_df is None or not node_id or not edge_col or edge_col not in edges_df.columns:
         return edges_df
@@ -189,8 +189,7 @@ def combine_steps(
     Collect nodes and edges, taking care to deduplicate and tag any names
     """
 
-    id = getattr(g, '_node' if kind == 'nodes' else '_edge')
-    df_fld = '_nodes' if kind == 'nodes' else '_edges'
+    id = (g._node if kind == 'nodes' else g._edge)
     op_type = ASTNode if kind == 'nodes' else ASTEdge
 
     if id is None:
@@ -198,10 +197,10 @@ def combine_steps(
 
     logger.debug('combine_steps ops pre: %s', [op for (op, _) in steps])
     if kind == 'edges':
-        node_id = getattr(g, '_node')
-        src_col = getattr(g, '_source')
-        dst_col = getattr(g, '_destination')
-        full_nodes = getattr(g, '_nodes', None)
+        node_id = g._node
+        src_col = g._source
+        dst_col = g._destination
+        full_nodes = g._nodes
 
         has_multihop = any(
             isinstance(op, ASTEdge) and not op.is_simple_single_hop()
@@ -228,7 +227,7 @@ def combine_steps(
 
                 prev_nodes = label_steps[idx - 1][1]._nodes if label_steps and idx > 0 else g._nodes
                 next_nodes = label_steps[idx + 1][1]._nodes if label_steps and idx + 1 < len(label_steps) else None
-                direction = getattr(op, 'direction', 'forward') if isinstance(op, ASTEdge) else 'forward'
+                direction = op.direction if isinstance(op, ASTEdge) else 'forward'
 
                 if direction == 'undirected' and prev_nodes is not None and next_nodes is not None and node_id:
                     # isin() dedups internally -> the .unique() pass is redundant
@@ -253,8 +252,8 @@ def combine_steps(
     def apply_output_slice(op: ASTObject, op_label: ASTObject, df):
         if not isinstance(op_label, ASTEdge):
             return df
-        out_min = getattr(op, 'output_min_hops', None) or getattr(op_label, 'output_min_hops', None)
-        out_max = getattr(op, 'output_max_hops', None) or getattr(op_label, 'output_max_hops', None)
+        out_min = (op.output_min_hops if isinstance(op, ASTEdge) else None) or op_label.output_min_hops
+        out_max = (op.output_max_hops if isinstance(op, ASTEdge) else None) or op_label.output_max_hops
         if out_min is None and out_max is None:
             return df
         label_col = op_label.label_node_hops if kind == 'nodes' else op_label.label_edge_hops
@@ -273,19 +272,19 @@ def combine_steps(
 
     dfs_to_concat = []
     extra_step_dfs = []
-    base_cols = set(getattr(g, df_fld).columns)
+    base_cols = set((g._nodes if kind == "nodes" else g._edges).columns)
     for idx, (op, g_step) in enumerate(steps):
         op_label = label_steps[idx][0] if idx < len(label_steps) else op
-        step_df = apply_output_slice(op, op_label, getattr(g_step, df_fld))
+        step_df = apply_output_slice(op, op_label, (g_step._nodes if kind == "nodes" else g_step._edges))
         if id not in step_df.columns:
-            step_id = getattr(g_step, '_node' if kind == 'nodes' else '_edge')
+            step_id = (g_step._node if kind == "nodes" else g_step._edge)
             raise ValueError(f"Column '{id}' not found in {kind} step DataFrame. "
                            f"Step has id='{step_id}', available columns: {list(step_df.columns)}. "
                            f"Operation: {op}")
         dfs_to_concat.append(step_df[[id]])
 
     for _, (_, g_step) in enumerate(label_steps):
-        step_df = getattr(g_step, df_fld)
+        step_df = (g_step._nodes if kind == "nodes" else g_step._edges)
         if id not in step_df.columns:
             continue
         extra_cols = [c for c in step_df.columns if c != id and c not in base_cols and 'hop' in c]
@@ -321,9 +320,9 @@ def combine_steps(
             out_df = apply_output_slice(op, op_label, out_df)
 
     if kind == 'nodes' and label_cols:
-        label_seeds_requested = any(isinstance(op, ASTEdge) and getattr(op, 'label_seeds', False) for op, _ in label_steps)
+        label_seeds_requested = any(isinstance(op, ASTEdge) and op.label_seeds for op, _ in label_steps)
         if label_seeds_requested and label_steps:
-            seed_df = getattr(label_steps[0][1], df_fld)
+            seed_df = (label_steps[0][1]._nodes if kind == "nodes" else label_steps[0][1]._edges)
             if seed_df is not None and id in seed_df.columns:
                 seed_ids = seed_df[[id]].drop_duplicates()
                 if resolve_engine(EngineAbstract.AUTO, seed_ids) != resolve_engine(EngineAbstract.AUTO, out_df):
@@ -364,7 +363,7 @@ def combine_steps(
     for idx, (op, g_step) in enumerate(steps):
         if op._name is not None and isinstance(op, op_type):
             logger.debug('tagging kind [%s] name %s', op_type, op._name)
-            step_df = getattr(g_step, df_fld)[[id, op._name]]
+            step_df = (g_step._nodes if kind == "nodes" else g_step._edges)[[id, op._name]]
             out_df = safe_merge(out_df, step_df, on=id, how='left', engine=engine)
             x_name, y_name = f'{op._name}_x', f'{op._name}_y'
             if x_name in out_df.columns and y_name in out_df.columns:
@@ -403,8 +402,8 @@ def combine_steps(
     if kind == 'nodes':
         hop_cols = [c for c in out_df.columns if 'hop' in c.lower()]
         edge_ops = [op for op, _ in steps if isinstance(op, ASTEdge)]
-        has_output_min = any(getattr(op, 'output_min_hops', None) is not None for op in edge_ops)
-        has_output_max = any(getattr(op, 'output_max_hops', None) is not None for op in edge_ops)
+        has_output_min = any(op.output_min_hops is not None for op in edge_ops)
+        has_output_max = any(op.output_max_hops is not None for op in edge_ops)
         if (has_output_min or has_output_max) and hop_cols:
             hop_col = hop_cols[0]
             has_na = out_df[hop_col].isna()
@@ -422,7 +421,7 @@ def combine_steps(
                         pass
                 out_df = out_df[~has_na | has_tag]
 
-    g_df = getattr(g, df_fld)
+    g_df = (g._nodes if kind == "nodes" else g._edges)
     # slice 5 (#1755): a seeded result attaches the full node/edge frame via a
     # how='left' merge whose big side (g_df) is scanned in full even for a 1-row
     # out_df. Pre-shrink g_df to the ids actually present (unmatched rows are
@@ -436,7 +435,7 @@ def combine_steps(
     if kind == 'nodes' and label_cols:
         seeds_df = label_steps[0][1]._nodes if label_steps and label_steps[0][1]._nodes is not None else None
         seed_ids = seeds_df[[id]].drop_duplicates() if seeds_df is not None and id in seeds_df.columns else None
-        label_seeds_true = any(isinstance(op, ASTEdge) and getattr(op, 'label_seeds', False) for op, _ in label_steps)
+        label_seeds_true = any(isinstance(op, ASTEdge) and op.label_seeds for op, _ in label_steps)
         if seed_ids is not None:
             if label_seeds_true:
                 seeds_with_labels = seed_ids.copy()
@@ -454,7 +453,7 @@ def combine_steps(
         if hop_cols:
             hop_maps = []
             for _, g_step in label_steps:
-                step_df = getattr(g_step, df_fld)
+                step_df = (g_step._nodes if kind == "nodes" else g_step._edges)
                 if id in step_df.columns:
                     for hc in hop_cols:
                         if hc in step_df.columns:
@@ -524,7 +523,7 @@ def combine_steps(
     # never coalesced into the marker (mixed bool/user dtypes also crash cuDF).
     alias_marker_names = {
         op._name for op, _ in steps
-        if isinstance(op, op_type) and isinstance(getattr(op, '_name', None), str)
+        if isinstance(op, op_type) and isinstance(op._name, str)
     }
     for c in cols:
         if c.endswith('_x'):
@@ -756,7 +755,7 @@ def _handle_boundary_calls(
         )
         if (
             middle
-            and any(getattr(op, "_name", None) is not None for op in middle)
+            and any(op._name is not None for op in middle)
             and isinstance(suffix[0], ASTCall)
             and suffix[0].function == "rows"
             and suffix[0].params.get("binding_ops") is None
@@ -849,13 +848,13 @@ def reject_alias_named_like_binding(
     polars answered ``True``. Neither is a usable result; decline the same way on both.
     """
     from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
-    node_id = getattr(g, "_node", None)
+    node_id = g._node
     endpoint_cols = {
-        col for col in (getattr(g, "_source", None), getattr(g, "_destination", None), getattr(g, "_edge", None))
+        col for col in (g._source, g._destination, g._edge)
         if isinstance(col, str)
     }
     for op in chain_obj.chain:
-        if isinstance(node_id, str) and isinstance(op, ASTNode) and getattr(op, "_name", None) == node_id:
+        if isinstance(node_id, str) and isinstance(op, ASTNode) and op._name == node_id:
             raise GFQLValidationError(
                 ErrorCode.E108,
                 "A node alias cannot be named after the node-ID binding column",
@@ -869,13 +868,13 @@ def reject_alias_named_like_binding(
         if (
             include_edge_endpoint_aliases
             and isinstance(op, ASTEdge)
-            and getattr(op, "_name", None) in endpoint_cols
+            and op._name in endpoint_cols
         ):
             raise GFQLValidationError(
                 ErrorCode.E108,
                 "An edge alias cannot be named after an edge endpoint binding column",
                 field="chain.name",
-                value=getattr(op, "_name", None),
+                value=op._name,
                 suggestion=(
                     "The alias flag is materialized as a column named like the edge "
                     "source, destination or edge-ID binding, which would overwrite it. "
@@ -1009,6 +1008,24 @@ def _chain_with_strictness(
         return _chain_impl(self, ops, engine, validate_schema, policy, context, start_nodes)
 
 
+
+_NODE_ROW_CALLS = ("rows", "select", "with_")
+
+
+def _calls_only_on_node_rows(ops: List[ASTObject]) -> bool:
+    """Whether all operations use row tables without binding rows or edge identity."""
+    if not ops:
+        return False
+    for op in ops:
+        if not isinstance(op, ASTCall) or op.function not in _NODE_ROW_CALLS:
+            return False
+        if op.function == "rows" and (
+            op.params.get("binding_ops") is not None or op.params.get("alias_endpoints") is not None
+        ):
+            return False
+    return True
+
+
 def _chain_impl(
     self: Plottable,
     ops: Union[List[ASTObject], Chain],
@@ -1122,7 +1139,7 @@ def _chain_impl(
                 suggestion='Bind edges via g.edges(df, source, destination), or use a node-only pattern'
             )
 
-        if g._edges is None:
+        if g._edges is None or _calls_only_on_node_rows(ops):
             added_edge_index = False
         elif g._edge is None:
             GFQL_EDGE_INDEX = generate_safe_column_name('edge_index', g._edges, prefix='__gfql_', suffix='__')
@@ -1210,6 +1227,9 @@ def _chain_impl(
             if added_edge_index:
                 final_edges_df = g_out._edges.drop(columns=[g._edge])
                 g_out = self.nodes(g_out._nodes).edges(final_edges_df, edge=original_edge)
+            else:
+                from .gfql.exec_context import clear_row_exec_context
+                g_out = clear_row_exec_context(g_out)
             success = True
         else:
             # Phase 2: Backward pass to propagate downstream constraints.

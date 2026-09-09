@@ -2,7 +2,7 @@
 from contextlib import contextmanager
 from typing import Iterable, Iterator, List, Tuple
 
-ROUTES = ("native-fast", "polars-seeded", "polars-plain", "index-hop", "indexed-kernel", "cypher-fast")
+ROUTES = ("native-fast", "polars-single-node", "polars-seeded", "polars-plain", "index-hop", "indexed-kernel", "cypher-fast")
 
 
 def _none(*a, **k):
@@ -22,6 +22,8 @@ def _targets(routes: Iterable[str]) -> List[Tuple[object, str]]:
     out: List[Tuple[object, str]] = []
     if "native-fast" in routes:
         out.append((chain_mod, "_try_chain_fast_path"))
+    if "polars-single-node" in routes:
+        out.append((pchain, "_single_node_polars"))
     if "polars-seeded" in routes:
         out.append((pchain, "_try_seeded_chain_polars"))
     if "polars-plain" in routes:

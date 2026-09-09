@@ -3696,14 +3696,12 @@ class RowPipelineMixin:
 
     @staticmethod
     def _gfql_node_alias_lookup_frame(lookup_source: Any, node_id: str, alias: str) -> Any:
-        lookup = lookup_source[[node_id]].copy()
-        lookup[alias] = lookup_source[node_id]
-        lookup[f"{alias}.{node_id}"] = lookup_source[node_id]
-        for col in lookup_source.columns:
-            if col == node_id:
-                continue
-            lookup[f"{alias}.{col}"] = lookup_source[col]
-        return lookup
+        """Build node IDs and alias-qualified properties for a left merge."""
+        other = [col for col in lookup_source.columns if col != node_id]
+        renamed = lookup_source.rename(columns={col: f"{alias}.{col}" for col in other})
+        ids = lookup_source[node_id]
+        lookup = renamed.assign(**{alias: ids, f"{alias}.{node_id}": ids})
+        return lookup[[node_id, alias, f"{alias}.{node_id}", *[f"{alias}.{col}" for col in other]]]
 
     @staticmethod
     def _gfql_node_filter_has_label(filter_dict: Any) -> bool:
@@ -4826,6 +4824,8 @@ class RowPipelineMixin:
 
         if cudf_row_table and any(isinstance(value, pd.Series) for value in projected.values()):
             out_df = _gfql_projected_values_to_pandas_frame(projected, len(table_df))
+        elif isinstance(table_df, pd.DataFrame) and all(isinstance(v, pd.Series) for v in projected.values()):
+            out_df = pd.DataFrame(projected, index=table_df.index)
         else:
             out_df = table_df.assign(**projected)[list(projected.keys())]
         return self._gfql_row_table(out_df)

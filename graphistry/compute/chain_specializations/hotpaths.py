@@ -3,7 +3,7 @@ and the seeded typed RETURN-destination reduction. Each lane sits next to its ad
 predicate (``admission.py``); ``chain.py`` only dispatches."""
 # ruff: noqa: E501
 
-from typing import List, Optional, Sequence, Tuple, TYPE_CHECKING, cast
+from typing import Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING, cast
 
 from graphistry.Engine import Engine, EngineAbstract, df_concat
 from graphistry.Plottable import Plottable
@@ -106,6 +106,10 @@ def _seeded_typed_hop_pandas_cudf(
     if served_via_index:
         _record_native_seed_lane(nodes_df, seam="native_seeded_hop", reason="served", hop_count=1,
                                  public_seed_scan=node not in n0f)
+    tail = _seeded_hop_tail_numeric(cand, edges, n2f, src, dst, to_col, node)
+    if tail is not None:
+        cand, edges = tail
+        return g.nodes(cand).edges(edges)
     if n2f:  # destination-node filter (to-side)
         n2_cand = cand
         for k, v in n2f.items():
@@ -118,6 +122,49 @@ def _seeded_typed_hop_pandas_cudf(
     edges = edges[keep]
     cand = cand[cand[node].isin(edges[src]) | cand[node].isin(edges[dst])]
     return g.nodes(cand).edges(edges)
+
+
+def _seeded_hop_tail_numeric(
+    cand: DataFrameT, edges: DataFrameT, n2f: Dict[str, object], src: str, dst: str, to_col: str, node: str,
+) -> Optional[Tuple[DataFrameT, DataFrameT]]:
+    """Validate numeric endpoints using arrays native to the frame backend."""
+    import pandas as pd
+    from graphistry.Engine import resolve_engine
+    from graphistry.compute.gfql.index.engine_arrays import array_namespace
+
+    pandas_frames = isinstance(cand, pd.DataFrame) and isinstance(edges, pd.DataFrame)
+    if pandas_frames:
+        xp, _ = array_namespace(Engine.PANDAS)
+        ids = cand[node].to_numpy()
+        es, ed = edges[src].to_numpy(), edges[dst].to_numpy()
+    else:
+        if resolve_engine("auto", cand) != Engine.CUDF or resolve_engine("auto", edges) != Engine.CUDF:
+            return None
+        if any(column.null_count for column in (cand[node], edges[src], edges[dst])):
+            return None
+        if any(column.dtype.kind not in "iuf" for column in (cand[node], edges[src], edges[dst])):
+            return None
+        xp, _ = array_namespace(Engine.CUDF)
+        ids = cand[node].values
+        es, ed = edges[src].values, edges[dst].values
+    if not all(a.dtype.kind in "iuf" and a.dtype == ids.dtype for a in (ids, es, ed)):
+        return None
+    n2_mask = xp.ones(len(cand), dtype=bool)
+    for k, v in n2f.items():
+        col = cand[k]
+        if col.dtype.kind not in "iufb" and not isinstance(v, str):
+            return None
+        matches = (col == v).fillna(False)
+        n2_mask &= matches.to_numpy(dtype=bool) if pandas_frames else matches.values
+    valid = ids[~xp.isnan(ids)] if ids.dtype.kind == "f" else ids
+    n2_ok = ids[n2_mask]
+    n2_ok = n2_ok[~xp.isnan(n2_ok)] if n2_ok.dtype.kind == "f" else n2_ok
+    to_vals = es if to_col == src else ed
+    keep = xp.isin(es, valid) & xp.isin(ed, valid) & xp.isin(to_vals, n2_ok)
+    edges = edges[keep]
+    kept = xp.concatenate([es[keep], ed[keep]])
+    cand = cand[xp.isin(ids, kept)]
+    return cand, edges
 
 
 def _seeded_typed_return_dst_pandas_cudf(

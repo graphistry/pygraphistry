@@ -204,11 +204,7 @@ def test_indexed_bypass_table_edges_survives_a_projection(engine: str) -> None:
     "pandas",
     "cudf",
     "polars",
-    pytest.param("polars-gpu", marks=pytest.mark.xfail(
-        strict=True,
-        reason="#1803: the indexed bindings bypass excludes Engine.POLARS_GPU "
-               "(index/bindings.py gate), so polars-gpu always takes the scan path",
-    )),
+    "polars-gpu",
 ])
 @pytest.mark.route_engaged("indexed-kernel")
 def test_indexed_bypass_still_serves_a_bare_rows(engine: str) -> None:
@@ -218,14 +214,7 @@ def test_indexed_bypass_still_serves_a_bare_rows(engine: str) -> None:
     retiring the indexed bindings path. Asserted on the trace, not on the answer — the
     answer is identical either way, which is precisely why the regression would be quiet.
 
-    ``polars-gpu`` STRICT-xfails, and that is the point of adding the parameter (#1802). The
-    native polars chain hands `Engine.POLARS_GPU` to `try_indexed_connected_bindings_state`
-    whenever the GPU target is active, but that function's first gate admits only
-    `(PANDAS, CUDF, POLARS)` — so the bypass reports `served: False,
-    reason: 'unsupported_engine'` and polars-gpu silently runs the canonical scan. Values are
-    unaffected (every other case in this file passes on polars-gpu); what is lost is the
-    optimization, with no signal. A strict xfail rather than a skip so that whoever widens the
-    gate is told to delete the marker instead of leaving a stale "known gap" behind.
+    GPU execution must also report an actual served indexed traversal.
     """
     _require(engine)
     from graphistry.compute.gfql.index import index_trace

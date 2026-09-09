@@ -173,6 +173,9 @@ class ArrayNamespace(Protocol):
     def unique(self, a: ArrayLike) -> ArrayLike:
         ...
 
+    def isin(self, element: ArrayLike, test_elements: ArrayLike) -> ArrayLike:
+        ...
+
     def isnan(self, a: ArrayLike) -> ArrayLike:
         ...
 

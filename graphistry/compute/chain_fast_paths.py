@@ -20,27 +20,7 @@ def _tag_fast_path_aliases(
     alias_n0: Optional[str], alias_e1: Optional[str], alias_n2: Optional[str],
     src: str, dst: str, node: str, direction: Direction,
 ) -> Plottable:
-    """Attach the alias flag columns the full path's ``combine_steps`` would have merged in.
-
-    The chain fast path's gate used to reject ANY named op, so a named
-    `g.gfql([n(name=..), e(..), n(name=..)])` fell to the full two-pass machinery purely
-    because the ops carried names — measured ~25.2 -> ~2.3 ms (medians of 5 paired runs) on
-    a 200-node graph where data-proportional work is ~0. Naming is a PROJECTION concern,
-    not a traversal one, so it should not change which engine path runs. NOTE the scope: this is the NATIVE chain
-    surface. The Cypher `MATCH ... RETURN` shapes on the graph benchmark are served
-    earlier by `gfql_fast_paths.py` and never reach here (measured, both engines).
-
-    Why deriving the tags from the RETURNED EDGES matches the full path: `combine_steps`
-    tags a node with an alias iff it matched that step in the BACKWARD-PRUNED frame, i.e.
-    iff it still participates in a surviving edge. The edges this function receives are
-    exactly the surviving ones — the fast path has already applied the node filters, the
-    edge_match and the endpoint validation — so ``isin`` over their endpoint columns is the
-    same predicate, computed without the join.
-
-    A seed whose edges all fail the type filter yields an empty edge frame, so it is tagged
-    False rather than True: that is the dead-end case, and it is why the tag keys on the
-    edges rather than on the node filter.
-    """
+    """Tag nodes by surviving edge endpoints and mark matching edges."""
     if alias_n0 is None and alias_e1 is None and alias_n2 is None:
         return res
     nodes: Optional[DataFrameT] = res._nodes
@@ -48,6 +28,9 @@ def _tag_fast_path_aliases(
     if nodes is None or edges is None:
         return res
     from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
+    tagged = _tag_fast_path_aliases_eager(nodes, edges, alias_n0, alias_e1, alias_n2, from_col, to_col, node)
+    if tagged is not None:
+        return res.nodes(tagged[0]).edges(tagged[1])
     node_flags: Dict[str, SeriesT] = {}
     if alias_n0 is not None:
         node_flags[alias_n0] = nodes[node].isin(edges[from_col])
@@ -71,6 +54,49 @@ def _tag_fast_path_aliases(
         edges = edges.reset_index(drop=True)
 
     return res.nodes(nodes).edges(edges)
+
+
+def _tag_fast_path_aliases_eager(
+    nodes: DataFrameT, edges: DataFrameT,
+    alias_n0: Optional[str], alias_e1: Optional[str], alias_n2: Optional[str],
+    from_col: str, to_col: str, node: str,
+) -> Optional[Tuple[DataFrameT, DataFrameT]]:
+    """Insert noncolliding alias columns without reordering the whole frame."""
+    import numpy as np
+    import pandas as pd
+    pandas_frames = isinstance(nodes, pd.DataFrame) and isinstance(edges, pd.DataFrame)
+    if not pandas_frames:
+        from graphistry.Engine import Engine, resolve_engine
+        if resolve_engine("auto", nodes) != Engine.CUDF or resolve_engine("auto", edges) != Engine.CUDF:
+            return None
+    if alias_e1 is not None and alias_e1 in edges.columns:
+        return None
+    wanted = [a for a in (alias_n0, alias_n2) if a is not None]
+    if wanted:
+        if nodes.columns[0] != node or any(a in nodes.columns for a in wanted):
+            return None
+        if len(set(wanted)) != len(wanted):
+            return None
+        if pandas_frames:
+            ids = nodes[node].to_numpy()
+            ends = (edges[from_col].to_numpy(), edges[to_col].to_numpy())
+            if any(a.dtype.kind not in "iub" or a.dtype != ids.dtype for a in (ids, *ends)):
+                return None
+        out_nodes = nodes.reset_index(drop=True)
+        pos = 1
+        if alias_n0 is not None:
+            seed_flags = np.isin(ids, ends[0]) if pandas_frames else nodes[node].isin(edges[from_col]).reset_index(drop=True)
+            out_nodes.insert(pos, alias_n0, seed_flags)
+            pos += 1
+        if alias_n2 is not None:
+            tail_flags = np.isin(ids, ends[1]) if pandas_frames else nodes[node].isin(edges[to_col]).reset_index(drop=True)
+            out_nodes.insert(pos, alias_n2, tail_flags)
+        nodes = out_nodes
+    if alias_e1 is not None:
+        out_edges = edges.reset_index(drop=True)
+        out_edges.insert(0, alias_e1, True)
+        edges = out_edges
+    return nodes, edges
 
 
 def _seeded_scalar_filters(fd: Optional[Dict[str, Any]], df: DataFrameT) -> Optional[Dict[str, Any]]:
@@ -279,7 +305,57 @@ def _seed_node_rows(
             how = "property_index"
     if seed is None:
         seed = nodes_df
-    return _filter_frame(seed, filter_dict if filter_dict is not None else n0f, engine), how
+    effective = filter_dict if filter_dict is not None else n0f
+    if how != "scan" and _index_answered_whole_filter(effective, n0f):
+        return seed, how
+    if how != "scan":
+        verified = _verify_scalar_filters_on_hit(seed, n0f, engine)
+        if verified is not None:
+            return verified, how
+    return _filter_frame(seed, effective, engine), how
+
+
+def _verify_scalar_filters_on_hit(
+    seed: DataFrameT, n0f: Dict[str, object], engine: "Engine",
+) -> Optional[DataFrameT]:
+    """Check residual equalities on index hits, preserving typed filter errors."""
+    from graphistry.Engine import Engine
+    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+    from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe
+    if engine not in (Engine.PANDAS, Engine.CUDF) or len(seed) == 0 or not n0f:
+        return seed if len(seed) == 0 else None
+    mask = None
+    for col, val in n0f.items():
+        if col not in seed.columns or isinstance(val, (list, tuple, set)):
+            return None
+        col_dtype = seed[col].dtype
+        if _is_numeric_dtype_safe(col_dtype) and isinstance(val, str):
+            raise GFQLSchemaError(
+                ErrorCode.E302, f'Type mismatch: column "{col}" is numeric but filter value is string',
+                field=col, value=val, column_type=str(col_dtype), suggestion=f'Use a numeric value like {col}=123')
+        if _is_string_dtype_safe(col_dtype) and isinstance(val, (int, float)) and not isinstance(val, bool):
+            raise GFQLSchemaError(
+                ErrorCode.E302, f'Type mismatch: column "{col}" is string but filter value is numeric',
+                field=col, value=val, column_type=str(col_dtype), suggestion=f'Use a string value like {col}="value"')
+        hit = seed[col] == val
+        mask = hit if mask is None else (mask & hit)
+    if mask is None:
+        return seed
+    import pandas as pd
+    if engine == Engine.CUDF and mask.null_count:
+        mask = mask.fillna(False)
+    all_match = mask.all(skipna=False)
+    if all_match is not pd.NA and bool(all_match):
+        return seed
+    return seed[mask]
+
+
+def _index_answered_whole_filter(effective: Dict[str, object], n0f: Dict[str, object]) -> bool:
+    """Whether one unrewritten equality was fully answered by the index."""
+    if len(effective) != 1 or len(n0f) != 1:
+        return False
+    (col, val), = effective.items()
+    return col in n0f and n0f[col] is val
 
 
 def _record_native_seed_lane(
