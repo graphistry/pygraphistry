@@ -112,9 +112,11 @@ def test_end_to_end_named_seeded_hop_matches_the_full_path():
 @pytest.mark.parametrize("engine", ["pandas", "cudf"])
 @pytest.mark.parametrize("direction", ["forward", "reverse"])
 @pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("binding_first", [False, True])
 @pytest.mark.parametrize("shape", list(SHAPES))
-def test_eager_alias_tags_keep_backend_and_inputs(engine, direction, empty, shape):
-    nodes, edges = NODES.copy(), EDGES.iloc[:0].copy() if empty else EDGES.copy()
+def test_eager_alias_tags_keep_backend_and_inputs(engine, direction, empty, binding_first, shape):
+    original_nodes = NODES if binding_first else NODES[["x", "k", "w"]]
+    nodes, edges = original_nodes.copy(), EDGES.iloc[:0].copy() if empty else EDGES.copy()
     if engine == "cudf":
         cudf = pytest.importorskip("cudf")
         nodes, edges = cudf.from_pandas(nodes), cudf.from_pandas(edges)
@@ -125,7 +127,7 @@ def test_eager_alias_tags_keep_backend_and_inputs(engine, direction, empty, shap
         if engine == "cudf":
             actual, expected = actual.to_pandas(), expected.to_pandas()
         pd.testing.assert_frame_equal(actual, expected)
-    pd.testing.assert_frame_equal(nodes.to_pandas() if engine == "cudf" else nodes, NODES)
+    pd.testing.assert_frame_equal(nodes.to_pandas() if engine == "cudf" else nodes, original_nodes)
     pd.testing.assert_frame_equal(edges.to_pandas() if engine == "cudf" else edges,
                                   EDGES.iloc[:0] if empty else EDGES)
 

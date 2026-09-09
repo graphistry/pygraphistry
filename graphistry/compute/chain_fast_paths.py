@@ -94,7 +94,10 @@ def _tag_fast_path_aliases_eager(
                 return None
         out_nodes = nodes.reset_index(drop=True)
         if out_nodes.columns[0] != node:
-            out_nodes.insert(0, node, out_nodes.pop(node))
+            if pandas_frames:
+                out_nodes.insert(0, node, out_nodes.pop(node))
+            else:
+                out_nodes = out_nodes[[node, *[c for c in out_nodes.columns if c != node]]]
         pos = 1
         if alias_n0 is not None:
             seed_flags = np.isin(ids, ends[0]) if pandas_frames else nodes[node].isin(edges[from_col]).reset_index(drop=True)
