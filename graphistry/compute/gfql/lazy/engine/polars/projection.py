@@ -62,12 +62,17 @@ def _columns_have_temporal_constructor_text(
     """Check whether any selected string column contains temporal-constructor text."""
     import polars as pl
     from graphistry.compute.gfql.temporal.constructors import TEMPORAL_CALL_EXPR_RE
+    from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
     # ^-anchored so values merely CONTAINING "date" (update({...}), candidate(...),
     # my date({x})) don't false-positive — these columns hold a WHOLE constructor string.
     pattern = r"^\s*" + TEMPORAL_CALL_EXPR_RE.pattern
     if not columns:
         return False
     try:
+        if rows_df.height == 1 and active_target() != ExecutionTarget.GPU:
+            values = [rows_df.get_column(col).item() for col in columns]
+            if all(value is None or isinstance(value, str) and "(" not in value for value in values):
+                return False
         return bool(
             rows_df.select(pl.any_horizontal([
                 pl.col(col).str.contains(pattern).any() for col in columns

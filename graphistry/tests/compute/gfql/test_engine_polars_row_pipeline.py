@@ -762,3 +762,44 @@ def test_property_attachment_preserves_schema_error_policy(lazy_input, decline):
     else:
         with pytest.raises(pl.exceptions.SchemaError):
             _finish_binding_rows_polars(*args, decline_on_schema_error=False)
+
+
+@pytest.mark.parametrize("value", [
+    None, "", "ordinary", "雪", "a\nlong string", "\u001cdate", "\u0085date", "(", ")", "a(b)",
+    "date('2020-01-01')", "time('12:00:00')", "localtime('12:00:00')",
+    "datetime({year: 2020})", "localdatetime({year: 2020})", "duration({days: 1})",
+    "  date('2020-01-01')", "\u001cdate('2020-01-01')", "\u0085date('2020-01-01')",
+    "my date({year: 2020})", "update({year: 2020})", "date(", "date({nested: (1)})",
+])
+@pytest.mark.parametrize("height", [1, 2])
+def test_temporal_text_guard_matches_native_expression(value, height):
+    from graphistry.compute.gfql.lazy.engine.polars.projection import _columns_have_temporal_constructor_text
+    from graphistry.compute.gfql.temporal.constructors import TEMPORAL_CALL_EXPR_RE
+    table = pl.DataFrame({"first": ["plain"] * height, "last": [value] * height}, schema={"first": pl.String, "last": pl.String})
+    original = table.clone()
+    pattern = r"^\s*" + TEMPORAL_CALL_EXPR_RE.pattern
+    expected = bool(table.select(pl.any_horizontal([pl.col(c).str.contains(pattern).any() for c in table.columns])).item())
+    assert _columns_have_temporal_constructor_text(table, table.columns) is expected
+    from polars.testing import assert_frame_equal
+    assert_frame_equal(table, original)
+
+
+def test_temporal_text_guard_keeps_invalid_column_behavior():
+    from graphistry.compute.gfql.lazy.engine.polars.projection import _columns_have_temporal_constructor_text
+    table = pl.DataFrame({"text": ["date('2020-01-01')"], "number": [1]})
+    assert _columns_have_temporal_constructor_text(table, ["text", "missing"]) is False
+    assert _columns_have_temporal_constructor_text(table, ["text", "number"]) is False
+    assert _columns_have_temporal_constructor_text(table, []) is False
+
+
+def test_gpu_temporal_guard_does_not_extract_string_scalars(monkeypatch):
+    from graphistry.compute.gfql.lazy import ExecutionTarget, target_mode
+    from graphistry.compute.gfql.lazy.engine.polars.projection import _columns_have_temporal_constructor_text
+    original_item = pl.Series.item
+    def checked_item(series, *args, **kwargs):
+        assert series.dtype != pl.String, "GPU guard must retain native string evaluation"
+        return original_item(series, *args, **kwargs)
+    monkeypatch.setattr(pl.Series, "item", checked_item)
+    with target_mode(ExecutionTarget.GPU):
+        assert _columns_have_temporal_constructor_text(pl.DataFrame({"s": ["plain"]}), ["s"]) is False
+        assert _columns_have_temporal_constructor_text(pl.DataFrame({"s": ["date('2020-01-01')"]}), ["s"]) is True
