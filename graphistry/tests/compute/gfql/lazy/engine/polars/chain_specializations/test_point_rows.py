@@ -134,3 +134,41 @@ def test_singleton_joined_projection_preserves_edge_bag(variant, reverse, includ
     assert_frame_equal(direct._nodes, expected._nodes)
     assert_frame_equal(direct._edges, expected._edges)
     assert direct._nodes.height == (0 if variant == "empty" else 1 if reverse else 2)
+
+
+@pytest.mark.parametrize("variant", ["single", "parallel", "loop", "dangling", "null", "filtered", "mixed", "empty", "large-ids", "two-seeds"])
+@pytest.mark.parametrize("source", ["a", "b"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_singleton_bookkeeping_preserves_indexed_endpoint_semantics(variant, source, reverse):
+    from polars.testing import assert_frame_equal
+    offset = 2**63 + 2 if variant == "large-ids" else 0
+    dtype = pl.UInt64 if variant == "large-ids" else pl.Int64
+    nodes = pl.DataFrame({
+        "key": pl.Series([offset + i for i in range(100)], dtype=dtype),
+        "id": [1000 + i for i in range(100)],
+        "kind": ["Other" if i == 2 else "Person" for i in range(100)],
+    })
+    targets = {"parallel": [1, 1, 1], "loop": [0], "dangling": [9999], "null": [None],
+               "filtered": [2], "mixed": [1, 2, 9999, None, 1], "empty": []}.get(variant, [1])
+    starts = [0] * len(targets)
+    if variant == "two-seeds":
+        nodes = nodes.with_columns(pl.when(pl.col("key") == 2).then(1000).otherwise(pl.col("id")).alias("id"))
+        starts, targets = [0, 2], [1, 1]
+    columns = {"s": starts, "d": targets} if not reverse else {"s": targets, "d": starts}
+    edges = pl.DataFrame({
+        **{column: pl.Series([None if value is None else value + offset for value in values], dtype=dtype)
+           for column, values in columns.items()},
+        "eid": pl.Series(range(len(targets)), dtype=pl.Int64),
+        "type": pl.Series(["X"] * len(targets), dtype=pl.String),
+    })
+    g = graphistry.nodes(nodes, "key").edges(edges, "s", "d", "eid").gfql_index_all(engine="polars").gfql_index_node_props(["id"], engine="polars")
+    before_nodes, before_edges = g._nodes.clone(), g._edges.clone()
+    edge = e_reverse if reverse else e_forward
+    ops = [n({"id": 1000}, name="a"), edge({"type": "X"}, name="e"), n({"kind": "Person"}, name="b"), rows(source=source)]
+    actual = g.gfql(ops, engine="polars", index_policy="use")
+    with routes_off(["polars-point-rows"]):
+        expected = g.gfql(ops, engine="polars", index_policy="use")
+    assert_frame_equal(actual._nodes, expected._nodes)
+    assert_frame_equal(actual._edges, expected._edges)
+    assert_frame_equal(g._nodes, before_nodes)
+    assert_frame_equal(g._edges, before_edges)

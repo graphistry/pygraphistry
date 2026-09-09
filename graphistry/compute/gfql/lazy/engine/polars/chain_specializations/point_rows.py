@@ -102,6 +102,28 @@ def _joined_projection(
     return None if _select_emits_temporal_constructor_text(result) else result
 
 
+def _with_true_alias(frame: "pl.DataFrame", alias: str) -> "pl.DataFrame":
+    """Append a Boolean alias without changing the input frame."""
+    import polars as pl
+    out = frame.clone()
+    out.insert_column(out.width, pl.Series(alias, [True]).new_from_index(0, frame.height))
+    return out
+
+
+def _with_singleton_aliases(
+    frame: "pl.DataFrame", seed: "pl.DataFrame", tail: "pl.DataFrame", node: str,
+    first: Optional[str], last: Optional[str],
+) -> "pl.DataFrame":
+    """Attach alias flags to one selected node from single-row endpoints."""
+    import polars as pl
+    out = frame.clone()
+    for alias, endpoint in ((first, seed), (last, tail)):
+        if alias is not None:
+            matches = frame.get_column(node).equals(endpoint.get_column(node), null_equal=False)
+            out.insert_column(out.width, pl.Series(alias, [matches]))
+    return out
+
+
 def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Optional[object] = None) -> Optional[Plottable]:
     import polars as pl
     from graphistry.compute.gfql.index.bindings import _policy_is_active
@@ -135,7 +157,7 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
     seed, _ = seed_result
     if boundary == 1:
         assert isinstance(source, str)
-        selected = seed.with_columns(pl.lit(True).alias(source))
+        selected = _with_true_alias(seed, source)
         kept_edges = edges.clear()
     else:
         edge, tail_op = ops[1:3]
@@ -154,7 +176,9 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
         if tail is None:
             return None
         tail = filter_by_dict_polars(tail, tail_op.filter_dict)
-        kept_edges = kept_edges.filter(pl.col(to_col).is_in(tail.get_column(node).implode()))
+        # A single gathered tail is the endpoint of the single surviving edge.
+        if not (kept_edges.height == 1 and tail.height == 1):
+            kept_edges = kept_edges.filter(pl.col(to_col).is_in(tail.get_column(node).implode()))
         if source is None:
             projection = ops[-1]
             assert isinstance(projection, ASTCall) and isinstance(n0._name, str) and isinstance(tail_op._name, str)
@@ -163,19 +187,27 @@ def _try_point_rows_polars(g: Plottable, ops: List[ASTObject], start_nodes: Opti
             if selected_joined is None:
                 return None
             if edge._name is not None:
-                kept_edges = kept_edges.with_columns(pl.lit(True).alias(edge._name))
+                kept_edges = _with_true_alias(kept_edges, edge._name)
             adapter = _RowPipelineAdapter(g.edges(kept_edges))
             adapter._node = adapter._edge = adapter._source = adapter._destination = None
             _record_native_seed_lane(nodes, seam="point_rows", reason="served", hop_count=1,
                                      public_seed_scan=node not in n0.filter_dict)
             return clear_row_exec_context(row_table(adapter, selected_joined))
-        selected = tail if source == tail_op._name else seed.filter(pl.col(node).is_in(kept_edges.get_column(from_col).implode()))
-        selected = selected.with_columns([
-            pl.col(node).is_in(kept_edges.get_column(endpoint).implode()).fill_null(False).alias(alias)
-            for alias, endpoint in ((n0._name, from_col), (tail_op._name, to_col)) if alias is not None
-        ])
+        if source == tail_op._name:
+            selected = tail
+        elif seed.height == 1 and kept_edges.height:
+            selected = seed
+        else:
+            selected = seed.filter(pl.col(node).is_in(kept_edges.get_column(from_col).implode()))
+        if seed.height == tail.height == selected.height == 1 and kept_edges.height:
+            selected = _with_singleton_aliases(selected, seed, tail, node, n0._name, tail_op._name)
+        else:
+            selected = selected.with_columns([
+                pl.col(node).is_in(kept_edges.get_column(endpoint).implode()).fill_null(False).alias(alias)
+                for alias, endpoint in ((n0._name, from_col), (tail_op._name, to_col)) if alias is not None
+            ])
         if edge._name is not None:
-            kept_edges = kept_edges.with_columns(pl.lit(True).alias(edge._name))
+            kept_edges = _with_true_alias(kept_edges, edge._name)
     out = row_table(_RowPipelineAdapter(g.edges(kept_edges)), selected)
     if len(ops) > boundary + 1:
         projection = ops[-1]
