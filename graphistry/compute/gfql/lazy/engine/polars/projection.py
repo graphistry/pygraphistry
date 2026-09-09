@@ -218,6 +218,7 @@ def _try_native_projection(
     rows_df: pl.DataFrame,
     projection: ResultProjectionPlan,
     structured: bool,
+    source_node_id: typing.Optional[str] = None,
 ) -> typing.Optional[Plottable]:
     """Native projection for property/expr columns already in the polars row table + structured-
     flat or entity-text whole-entity returns; None → caller raises NIE."""
@@ -225,7 +226,7 @@ def _try_native_projection(
 
     exprs: typing.List[pl.Expr] = []
     entity_meta: typing.MutableMapping[str, _PolarsWholeRowProjectionMeta] = {}
-    id_column = result._node
+    id_column = result._node if result._node is not None else source_node_id
     primary = _alias_view_polars(rows_df, projection.alias)
     primary_columns = primary.columns if primary is not None else {}
     for column in projection.columns:
@@ -279,6 +280,7 @@ def apply_result_projection_polars(
     projection: ResultProjectionPlan,
     *,
     structured: bool = True,
+    source_node_id: typing.Optional[str] = None,
 ) -> Plottable:
     """Native polars result projection, or honest NotImplementedError (no pandas fallback).
 
@@ -289,7 +291,7 @@ def apply_result_projection_polars(
     native → raise rather than secretly run the pandas renderer.
     """
     rows_df = result._nodes
-    native = _try_native_projection(result, rows_df, projection, structured)
+    native = _try_native_projection(result, rows_df, projection, structured, source_node_id)
     if native is not None:
         return native
     raise NotImplementedError(

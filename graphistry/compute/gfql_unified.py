@@ -1633,6 +1633,7 @@ def _execute_compiled_query_chain_non_union(
             result,
             compiled_query.result_projection,
             structured=not row_guard_needs_single_column_entity_text,
+            source_node_id=base_graph._node,
         )
     if compiled_query.optional_projection_row_guard is not None:
         expected_rows = 1
