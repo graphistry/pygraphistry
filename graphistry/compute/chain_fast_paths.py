@@ -350,6 +350,9 @@ def _verify_scalar_filters_on_hit(
     """Check residual equalities on index hits, preserving typed filter errors."""
     from graphistry.Engine import Engine
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+    if engine == Engine.POLARS:
+        from graphistry.compute.gfql.lazy.engine.polars.predicates import _filter_singleton_equalities
+        return _filter_singleton_equalities(seed, n0f)
     from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe
     if engine not in (Engine.PANDAS, Engine.CUDF) or len(seed) == 0 or not n0f:
         return seed if len(seed) == 0 else None
