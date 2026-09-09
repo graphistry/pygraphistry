@@ -70,8 +70,11 @@ def _indexed_kernel_admits(
     if not (seeded_on_binding or how == "property_index" or n_nodes < n_edges):
         return False
     frac = cost_gate_frac(engine)
-    n_frontier = int(seed_nodes[node].nunique()) if not hasattr(seed_nodes, "get_column") \
-        else int(seed_nodes.get_column(node).n_unique())
+    if not hasattr(seed_nodes, "get_column"):
+        n_frontier = int(seed_nodes[node].nunique())
+    else:
+        seed_ids = seed_nodes.get_column(node)
+        n_frontier = len(seed_ids) if len(seed_ids) <= 1 else int(seed_ids.n_unique())
     if n_frontier >= frac * adj.n_keys:
         return False
     return gathered_edges is not None and len(gathered_edges) < frac * n_edges
