@@ -199,7 +199,7 @@ def _try_point_rows(
     table, source = row.params["table"], row.params.get("source")
     if validate_schema:
         from graphistry.compute.chain import Chain
-        Chain(ops).validate(collect_all=False)
+        Chain(ops, validate=False).validate(collect_all=False)
         validate_chain_schema(g, ops, collect_all=False)
     adapter = _RowPipelineAdapter(g)
     adapter._gfql_rows_base_graph = g
