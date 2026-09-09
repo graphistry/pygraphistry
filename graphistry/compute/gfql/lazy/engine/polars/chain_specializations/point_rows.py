@@ -53,7 +53,8 @@ def _joined_projection(
     import polars as pl
     from graphistry.compute.gfql.lazy import collect
     from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import _select_emits_temporal_constructor_text
-    if seed.get_column(node).n_unique() != seed.height or tail.get_column(node).n_unique() != tail.height:
+    if ((seed.height > 1 and seed.get_column(node).n_unique() != seed.height)
+            or (tail.height > 1 and tail.get_column(node).n_unique() != tail.height)):
         return None
     items = projection.params.get("items")
     if not isinstance(items, list) or not items:
