@@ -8,7 +8,7 @@ CSR + searchsorted gather runs on:
 - cudf    -> cupy device arrays, ``df.iloc`` to gather rows
 - polars / polars-gpu -> numpy host arrays, polars row-gather
 
-Vectorization-first: no per-element Python work, no ``.to_list()`` ping-pong.
+Bulk operations stay vectorized; bounded CPU gathers can reuse row slices.
 """
 from __future__ import annotations
 
@@ -67,6 +67,20 @@ def take_rows(df: DataFrameT, positions: ArrayLike, engine: Engine) -> DataFrame
         position = int(idx[0]) if idx.ndim == 1 and idx.size == 1 and idx.dtype.kind in "iu" else None
         if position is not None and 0 <= position < len(df):
             result = df.slice(position, 1)
+        elif engine == Engine.POLARS and idx.ndim == 1 and 2 <= idx.size <= 8 and idx.dtype.kind in "iu":
+            # Scheduling a tiny gather can cost more than assembling its slices.
+            values = idx.tolist()
+            if all(0 <= value < len(df) for value in values):
+                if all(value == values[0] + offset for offset, value in enumerate(values)):
+                    result = df.slice(values[0], len(values))
+                elif df.width <= 32:
+                    result = df.slice(values[0], 1)
+                    for value in values[1:]:
+                        result.vstack(df.slice(value, 1), in_place=True)
+                else:
+                    result = df[idx]
+            else:
+                result = df[idx]
         else:
             result = df[idx]
         return cast(DataFrameT, result)

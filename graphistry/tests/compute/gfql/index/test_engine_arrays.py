@@ -78,3 +78,35 @@ def test_singleton_result_can_replace_column_without_mutating_source(engine):
     result.replace_column(0, pl.Series("integer", [999], dtype=pl.Int64))
     assert result["integer"].item() == 999
     assert_frame_equal(data, original, check_exact=True)
+
+
+@pytest.mark.parametrize("engine", [Engine.POLARS, Engine.POLARS_GPU])
+@pytest.mark.parametrize("width", [15, 32, 33, 64])
+@pytest.mark.parametrize("chunked", [False, True])
+@pytest.mark.parametrize("positions", [
+    np.array([0, 1]), np.array([1, 2]), np.array([2, 0]), np.array([1, 1]),
+    np.array([2, 0, 1, 2, 0, 1, 2, 0]), np.array([0] * 9),
+    np.array([0, 3]), np.array([0, -1]), np.array([0, -4]),
+    np.array([0, 2**64 - 1], dtype=np.uint64),
+    np.array([0, 1], dtype=np.uint8), np.array([0, 1], dtype=np.uint64),
+    np.array([0.0, 1.0]), np.array([True, False]), np.array([[0, 1]]),
+])
+def test_small_gather_matches_native_values_errors_and_isolation(engine, width, chunked, positions):
+    data = frame()
+    for column in range(data.width, width):
+        data.insert_column(data.width, data["integer"].alias(f"extra_{column}"))
+    if chunked:
+        data = pl.concat([data.head(1), data.tail(2)], rechunk=False)
+    original = data.clone()
+    try:
+        expected = data[positions]
+    except Exception as error:
+        with pytest.raises(type(error)) as actual_error:
+            take_rows(data, positions, engine)
+        assert str(actual_error.value) == str(error)
+    else:
+        result = take_rows(data, positions, engine)
+        assert_frame_equal(result, expected, check_exact=True)
+        result.replace_column(0, pl.Series("integer", [999] * result.height, dtype=pl.Int64))
+        assert_frame_equal(data, original, check_exact=True)
+    assert_frame_equal(data, original, check_exact=True)
