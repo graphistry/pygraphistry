@@ -16,7 +16,11 @@ JSONVal = Union[
 ]
 
 
-def is_json_serializable(data):
+def is_json_serializable(data: object) -> bool:
+    if data is None or type(data) is bool or type(data) is str or type(data) is float:
+        return True
+    if type(data) is int and data.bit_length() <= 64:
+        return True
     try:
         json.dumps(data)
         return True

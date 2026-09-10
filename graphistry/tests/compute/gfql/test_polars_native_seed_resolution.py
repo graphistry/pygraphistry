@@ -102,9 +102,10 @@ def test_native_seeded_hop_declines_without_a_usable_index(policy, monkeypatch):
 
 @pytest.mark.route_engaged("polars-seeded")
 @pytest.mark.parametrize("single_node", [False, True])
-def test_native_property_seed_uses_resident_index(single_node, monkeypatch):
+@pytest.mark.parametrize("build_engine", ["polars", "polars-gpu"])
+def test_native_property_seed_uses_resident_index(single_node, build_engine, monkeypatch):
     import graphistry.compute.gfql.index.bindings as bindings
-    g = _graph(padding=100)
+    g = _graph(indexed=False, padding=100).gfql_index_all(engine=build_engine).gfql_index_node_props(["id"], engine=build_engine)
     real = bindings._seed_rows_via_property_index
     hits = []
 
@@ -200,3 +201,69 @@ def test_seeded_chain_with_start_nodes_never_takes_the_native_lane(monkeypatch):
     full = chain_polars.chain_polars(g, _NAMED_TYPED_HOP, start_nodes=seeds)
     assert_frame_equal(out._nodes, full._nodes)
     assert_frame_equal(out._edges, full._edges)
+
+
+@pytest.mark.parametrize("build_engine", ["polars", "polars-gpu"])
+@pytest.mark.parametrize("lookup_engine", ["polars", "polars-gpu"])
+@pytest.mark.parametrize("value", [104, 99999])
+def test_property_seed_engine_keys_preserve_rows(build_engine, lookup_engine, value):
+    from graphistry.Engine import Engine
+    from graphistry.compute.chain_fast_paths import _seed_rows_via_prop_index_frame
+    g = _graph(indexed=False, padding=1000)
+    g = g.nodes(pl.concat([g._nodes, g._nodes.filter(pl.col("id") == 104)]))
+    g = g.gfql_index_node_props(["id"], engine=build_engine)
+    actual = _seed_rows_via_prop_index_frame(g, g._nodes, {"id": value}, Engine(lookup_engine))
+    assert actual is not None
+    assert_frame_equal(actual, g._nodes.filter(pl.col("id") == value))
+
+
+@pytest.mark.parametrize("build_engine,lookup_engine", [("polars", "polars-gpu"), ("polars-gpu", "polars")])
+@pytest.mark.parametrize("change", ["clone", "reverse", "values"])
+def test_property_seed_other_engine_key_rejects_rebound_frame(build_engine, lookup_engine, change):
+    from graphistry.Engine import Engine
+    from graphistry.compute.chain_fast_paths import _seed_rows_via_prop_index_frame
+    g = _graph(indexed=False, padding=1000).gfql_index_node_props(["id"], engine=build_engine)
+    frame = (g._nodes.clone() if change == "clone" else g._nodes.reverse() if change == "reverse"
+             else g._nodes.with_columns((pl.col("id") + 1).alias("id")))
+    assert _seed_rows_via_prop_index_frame(g, frame, {"id": 104}, Engine(lookup_engine)) is None
+
+
+@pytest.mark.parametrize("policy,served", [("off", False), ("use", False), ("force", True)])
+def test_property_seed_other_engine_key_keeps_policy_and_cost(policy, served):
+    from graphistry.Engine import Engine
+    from graphistry.compute.chain_fast_paths import _seed_rows_via_prop_index_frame
+    from graphistry.compute.gfql.index.api import with_index_policy
+    g = _graph(indexed=False).gfql_index_node_props(["id"], engine="polars-gpu")
+    g = with_index_policy(g, policy)
+    actual = _seed_rows_via_prop_index_frame(g, g._nodes, {"id": 104}, Engine.POLARS)
+    assert (actual is not None) is served
+    if served:
+        assert_frame_equal(actual, g._nodes.filter(pl.col("id") == 104))
+
+
+def test_property_seed_never_reuses_other_frame_family():
+    import numpy as np
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index import get_registry
+    from graphistry.compute.gfql.index.bindings import _seed_rows_via_property_index
+    g = _graph(indexed=False, padding=1000).gfql_index_node_props(["id"], engine="polars-gpu")
+    assert _seed_rows_via_property_index(get_registry(g), g._nodes, {"id": 104}, Engine.PANDAS, np, policy="force") is None
+
+
+@pytest.mark.parametrize("dtype, values", [
+    (pl.Int64, [2**53 + 1, 2**53 + 2]),
+    (pl.Int64, [-2**53 - 1, -2**53 - 2]),
+    (pl.UInt64, [2**63 + 1, 2**63 + 2]),
+    (pl.UInt64, [2**64 - 2, 2**64 - 1]),
+])
+@pytest.mark.parametrize("nullable", [False, True])
+def test_polars_index_keys_keep_integer_precision(dtype, values, nullable):
+    import numpy as np
+    from graphistry.compute.chain_fast_paths import _ids_to_key_array
+
+    keys = pl.Series(values, dtype=dtype).to_numpy()
+    series = pl.Series([values[0], None, values[1], values[0]] if nullable else values, dtype=dtype)
+    result = _ids_to_key_array(series, keys, np)
+    assert result is not None
+    assert result.dtype == keys.dtype
+    np.testing.assert_array_equal(result, np.unique(keys))

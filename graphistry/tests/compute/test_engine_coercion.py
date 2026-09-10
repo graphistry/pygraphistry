@@ -675,6 +675,21 @@ class TestChainCoercion(NoAuthTestCase):
         self.assertIsInstance(result._edges, pd.DataFrame)
 
     @unittest.skipUnless(HAS_DASK, "dask not installed")
+    def test_dask_auto_engine_is_independent_of_cudf_availability(self):
+        from unittest.mock import patch
+        from graphistry.Engine import resolve_engine
+        ddf = dd.from_pandas(EDGES_PD, npartitions=1)
+        for has_cudf in (False, True):
+            with self.subTest(has_cudf=has_cudf), patch(
+                "graphistry.utils.lazy_import.lazy_cudf_import",
+                return_value=(has_cudf, None, None),
+            ):
+                self.assertEqual(resolve_engine("auto", ddf), Engine.PANDAS)
+                self.assertEqual(resolve_engine("cudf", ddf), Engine.CUDF)
+                self.assertEqual(resolve_engine("polars", ddf), Engine.POLARS)
+                self.assertEqual(resolve_engine("polars-gpu", ddf), Engine.POLARS_GPU)
+
+    @unittest.skipUnless(HAS_DASK, "dask not installed")
     def test_chain_dask_edges(self):
         from graphistry.compute.ast import n, e_forward
         import dask.dataframe as dd

@@ -315,3 +315,36 @@ def test_auto_polars_decline_reruns_on_pandas_with_coerced_frames(monkeypatch):
     assert pandas_call_frames and all(m == "pandas" for m in pandas_call_frames), (
         f"pandas executors were handed non-pandas frames: {calls}")
     assert out is not None
+
+
+@pytest.mark.parametrize("engine", ["pandas", "cudf", "polars", "polars-gpu"])
+@pytest.mark.parametrize("wrapped", [False, True], ids=["list", "chain"])
+@pytest.mark.parametrize("invalid", ["negative_hops", "non_operation"])
+def test_invalid_ast_precedes_engine_dependencies(engine, wrapped, invalid):
+    from graphistry.compute.ast import n, e_forward
+    from graphistry.compute.chain import Chain
+    from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+
+    ops = [n(), e_forward(hops=-1), n()] if invalid == "negative_hops" else [n(), "invalid"]
+    query = Chain(ops, validate=False) if wrapped else ops
+    expected = ErrorCode.E103 if invalid == "negative_hops" else ErrorCode.E101
+    with pytest.raises(GFQLValidationError) as exc:
+        _polars_graph().gfql(query, engine=engine)
+    assert exc.value.code == expected
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("wrapped", [False, True], ids=["list", "chain"])
+def test_reused_query_is_validated_after_mutation(engine, wrapped):
+    from graphistry.compute.ast import n, e_forward
+    from graphistry.compute.chain import Chain
+    from graphistry.compute.exceptions import ErrorCode, GFQLValidationError
+
+    ops = [n(), e_forward(), n()]
+    query = Chain(ops) if wrapped else ops
+    graph = _polars_graph()
+    graph.gfql(query, engine=engine)
+    ops[1].hops = -1
+    with pytest.raises(GFQLValidationError) as exc:
+        graph.gfql(query, engine=engine)
+    assert exc.value.code == ErrorCode.E103

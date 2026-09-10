@@ -1135,3 +1135,26 @@ class TestResidentIndexSeededFastPath:
         _patch_index_rows(monkeypatch, "_index_edge_rows", oe)
         assert serves["e"] > 0, "adjacency index did not serve the property-seeded lookup"
         pd.testing.assert_frame_equal(self._canon(indexed), self._canon(plain))
+
+
+@pytest.mark.parametrize("indexed", [False, True])
+@pytest.mark.parametrize("direction", ["forward", "reverse"])
+@pytest.mark.parametrize("duplicate_tail", [False, True])
+def test_polars_tail_reduction_retains_only_linked_filtered_nodes(indexed, direction, duplicate_tail):
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.gfql.lazy.engine.polars.chain_specializations.hotpaths import _seeded_typed_return_dst_polars
+    nodes = pl.DataFrame({"id": [0, 1, 2, 3], "keep": [False, True, False, True]})
+    if duplicate_tail:
+        nodes = pl.concat([nodes, nodes.filter(pl.col("id") == 1)])
+    edges = pl.DataFrame({"src": [0, 0, 0, 0, 0, 3], "dst": [1, 1, 2, 99, None, 1], "order": list(range(6))})
+    if direction == "reverse":
+        edges = edges.rename({"src": "dst", "dst": "src"})
+    g = graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+    if indexed:
+        g = g.gfql_index_all(engine="polars")
+    edge = e_forward() if direction == "forward" else e_reverse()
+    result = _seeded_typed_return_dst_polars(g, n({"id": 0}), n({"keep": True}), edge, "src", "dst", "id", direction)
+    assert result is not None
+    tails, kept_edges, _, _ = result
+    assert tails.rows() == [(1, True)]
+    assert sorted(kept_edges.get_column("order").to_list()) == [0, 1]

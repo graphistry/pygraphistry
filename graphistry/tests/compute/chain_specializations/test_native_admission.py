@@ -11,7 +11,7 @@ import pytest
 import graphistry
 import graphistry.compute.chain as chain_mod
 from graphistry.Engine import Engine
-from graphistry.compute.ast import e_forward, n
+from graphistry.compute.ast import ASTCall, e_forward, n
 from graphistry.compute.chain_specializations.admission import native_fast_path_admits
 from graphistry.tests.compute.gfql.routes.corpus import CORPUS, EDGES, NODES, by_name
 
@@ -49,6 +49,11 @@ def _sig(res):
 
 
 EXPECTED = {
+    "point node coalesce": None,
+    "point joined hop projection": None,
+    "point node rows": None, "point node projection": None,
+    "point typed hop rows": None, "point typed hop seed rows": None,
+    "point reverse hop projection": None,
     "single node, scalar filter": "single-node", "single node, named": "single-node",
     "single node, predicate filter": "single-node", "single node, no filter": "single-node",
     "plain single hop, unseeded": "seeded-hop", "plain single hop, seeded": "seeded-hop",
@@ -77,6 +82,9 @@ def test_admits_iff_served(engine, name):
     g = _graph(engine)
     ops = by_name()[name].ops()
     admitted = native_fast_path_admits(ops, Engine(engine), None) is not None
+    if any(isinstance(op, ASTCall) for op in ops):
+        assert chain_mod._try_chain_fast_path(g, ops, Engine(engine)) is None
+        return
     res, served = _served(g, ops, engine)
     assert served == admitted, f"{name}: predicate={admitted} served={served}"
     if served:

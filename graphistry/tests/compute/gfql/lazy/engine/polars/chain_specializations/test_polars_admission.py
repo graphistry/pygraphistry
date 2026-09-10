@@ -80,10 +80,11 @@ def test_seeded_lane_never_serves_a_shape_it_does_not_admit(name):
     ops = by_name()[name].ops()
     g = _indexed_polars_graph()
     real = pchain._try_seeded_chain_polars
-    hit = {"n": 0}
+    hit = {"n": 0, "invalid": 0}
 
-    def spy(*a, **k):
-        r = real(*a, **k)
+    def spy(graph, lane_ops, *a, **k):
+        r = real(graph, lane_ops, *a, **k)
+        hit["invalid"] += r is not None and not polars_seeded_lane_admits(lane_ops)
         hit["n"] += r is not None
         return r
     pchain._try_seeded_chain_polars = spy
@@ -93,7 +94,8 @@ def test_seeded_lane_never_serves_a_shape_it_does_not_admit(name):
         pass
     finally:
         pchain._try_seeded_chain_polars = real
-    assert hit["n"] == 0 or polars_seeded_lane_admits(ops), f"{name}: served without admission"
+
+    assert hit["invalid"] == 0, f"{name}: served without admission"
 
 
 SEEDED_LANE_SERVES_DIRECTLY = SEEDED_LANE_ADMITS - {
@@ -127,3 +129,41 @@ def test_prune_to_endpoints_is_a_typed_decline_on_polars_and_served_on_pandas(op
     assert _sig(g_pd.gfql(ops, engine="pandas"))[0] == [2, 3]
     assert polars_plain_single_hop_admits(ops, None) is None
     assert polars_plain_single_hop_admits([n({"key": 1}), e_forward(), n()], None) == "seeded-index"
+
+
+@pytest.mark.parametrize("engine_name", ["pandas", "polars", "polars-gpu"])
+@pytest.mark.parametrize("values", [[], [None], [1], ["a"], [None, None], [1, 1], [1, 2], [1, None]])
+@pytest.mark.parametrize("n_keys", [1, 50, 51, 100])
+@pytest.mark.parametrize("edge_count", [0, 500])
+def test_indexed_frontier_cost_matches_native_unique_count(engine_name, values, n_keys, edge_count):
+    from types import SimpleNamespace
+    import numpy as np
+    from graphistry.Engine import Engine
+    from graphistry.compute.chain_specializations.admission import _indexed_kernel_admits
+    from graphistry.compute.gfql.index.cost import cost_gate_frac
+
+    engine = Engine(engine_name)
+    if engine == Engine.PANDAS:
+        seeds = pd.DataFrame({"key": values})
+        count = int(seeds["key"].nunique())
+        edges = pd.DataFrame({"s": [1] * edge_count})
+    else:
+        seeds = pl.DataFrame({"key": values})
+        count = seeds["key"].n_unique()
+        edges = pl.DataFrame({"s": [1] * edge_count})
+    frac = cost_gate_frac(engine)
+    expected = count < frac * n_keys and edge_count < frac * 1000
+    ctx = (None, SimpleNamespace(n_keys=n_keys), np, engine)
+    assert _indexed_kernel_admits(seeds, edges, {"key": 1}, "key", "property_index", ctx, 100, 1000) == expected
+
+
+def test_singleton_frontier_preserves_missing_binding_error():
+    from types import SimpleNamespace
+    import numpy as np
+    from graphistry.Engine import Engine
+    from graphistry.compute.chain_specializations.admission import _indexed_kernel_admits
+
+    seeds = pl.DataFrame({"other": [1]})
+    ctx = (None, SimpleNamespace(n_keys=100), np, Engine.POLARS)
+    with pytest.raises(pl.exceptions.ColumnNotFoundError):
+        _indexed_kernel_admits(seeds, seeds.clear(), {"key": 1}, "key", "property_index", ctx, 100, 1000)

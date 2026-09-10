@@ -168,10 +168,12 @@ def _seeded_typed_return_dst_polars(
         dstn = nodes_df.filter(pl.col(node).is_in(dst_ids.implode()))
     assert edges is not None and dstn is not None  # both branches above assign
     dstn = filter_by_dict_polars(dstn, n2.filter_dict)
-    # drop dangling edges + dedup destination nodes (mirror the pandas tail)
-    keep_ids = dstn.get_column(node).drop_nulls()
-    edges = edges.filter(pl.col(to_col).is_in(keep_ids.implode()))
-    dstn = dstn.filter(pl.col(node).is_in(edges.get_column(to_col).implode())).unique(subset=[node], maintain_order=True)
+    # A sole destination was selected from the sole surviving edge.
+    if not (edges.height == 1 and dstn.height == 1):
+        keep_ids = dstn.get_column(node).drop_nulls()
+        edges = edges.filter(pl.col(to_col).is_in(keep_ids.implode()))
+    if dstn.height > 1:
+        dstn = dstn.unique(subset=[node], maintain_order=True)
     return dstn, edges, seed_nodes, kernel_admits
 
 
@@ -209,7 +211,10 @@ def _try_seeded_chain_polars(g: Plottable, ops: Sequence[ASTObject]) -> Optional
     _, kept_edges, _, _ = reduced
     if not isinstance(kept_edges, pl.DataFrame):
         return None
-    endpoint_ids = pl.concat([kept_edges.get_column(src), kept_edges.get_column(dst)]).drop_nulls().unique()
+    endpoint_ids = pl.concat([kept_edges.get_column(src), kept_edges.get_column(dst)])
+    # The index lookup deduplicates IDs; drop nulls before any scan fallback.
+    if endpoint_ids.null_count():
+        endpoint_ids = endpoint_ids.drop_nulls().unique()
     nid_ctx = _resident_node_id_index(g, nodes, node)
     result_nodes = None
     if nid_ctx is not None:
@@ -223,13 +228,21 @@ def _try_seeded_chain_polars(g: Plottable, ops: Sequence[ASTObject]) -> Optional
         return None
     from_col, to_col = (src, dst) if e1.direction == "forward" else (dst, src)
     flags = [
-        pl.col(node).is_in(kept_edges.get_column(endpoint).implode()).fill_null(False).alias(name)
+        pl.col(node).is_in(pl.lit(kept_edges.get_column(endpoint)).implode()).fill_null(False).alias(name)
         for name, endpoint in ((n0._name, from_col), (n2._name, to_col)) if name is not None
     ]
     if flags:
-        result_nodes = result_nodes.with_columns(flags)
+        if kept_edges.height == 1 and result_nodes.get_column(node).null_count() == 0:
+            result_nodes = result_nodes.clone()
+            for name, endpoint in ((n0._name, from_col), (n2._name, to_col)):
+                if name is not None:
+                    matches = result_nodes.get_column(node) == kept_edges.get_column(endpoint).item(0)
+                    result_nodes.insert_column(result_nodes.width, matches.alias(name))
+        else:
+            result_nodes = result_nodes.with_columns(flags)
     if e1._name is not None:
-        kept_edges = kept_edges.with_columns(pl.lit(True).alias(e1._name))
+        kept_edges = kept_edges.clone()
+        kept_edges.insert_column(kept_edges.width, pl.Series(e1._name, [True]).new_from_index(0, kept_edges.height))
     _record_indexed_traversal(
         seam="native_seeded_hop", engine=ctx[3], served=True, reason="served", hop_count=1,
         public_seed_scan=node not in n0.filter_dict, hop_details=[{"hop": 1}])

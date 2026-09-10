@@ -3,14 +3,15 @@
 Common comparison/membership/string/null predicates lower to native polars expressions.
 NO-CHEATING contract: no pandas bridge — a predicate with no native lowering raises
 NotImplementedError (bridging one column would misrepresent pandas semantics as polars and
-break columnar/GPU assumptions; use engine='pandas'). All filtering is one vectorized
-``df.filter(expr)`` — no per-row work, no Python materialization.
+break columnar/GPU assumptions; use engine='pandas'). Filtering uses one vectorized
+``df.filter(expr)``. Small eager CPU frames
+can use scalar equalities when their storage and filter types agree.
 """
 from __future__ import annotations
 
 import operator
 import re
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, TypeVar, Union
 
 from graphistry.compute.predicates.ASTPredicate import ASTPredicate
 from graphistry.compute.predicates.str import Contains, Endswith, Fullmatch, Match, Startswith
@@ -406,8 +407,72 @@ def _is_cross_type_predicate(df: "Union[pl.DataFrame, pl.LazyFrame]", col: str, 
     return _mismatch(val)
 
 
+def _supports_scalar_equality(dtype: object, expected: object) -> bool:
+    import polars as pl
+    return (
+        dtype == pl.Boolean and type(expected) is bool
+        or dtype == pl.String and type(expected) is str
+        or dtype in (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64)
+        and type(expected) is int and -(2**63) <= expected < 2**63
+    )
+
+
+def _filter_singleton_equalities(
+    df: "Union[pl.DataFrame, pl.LazyFrame]", filter_dict: Optional[Mapping[str, object]],
+) -> "Optional[pl.DataFrame]":
+    """Check supported equalities on one CPU row; otherwise use expression filtering."""
+    import polars as pl
+    from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
+
+    if not isinstance(df, pl.DataFrame) or df.height != 1 or not filter_dict:
+        return None
+    if active_target() == ExecutionTarget.GPU:
+        return None
+    matches = True
+    schema = df.schema
+    for column, expected in filter_dict.items():
+        dtype = schema.get(column)
+        if not _supports_scalar_equality(dtype, expected):
+            return None
+        actual = df.get_column(column).item()
+        matches = matches and actual is not None and actual == expected
+    return df if matches else df.clear()
+
+
+def _filter_small_equalities(
+    df: "Union[pl.DataFrame, pl.LazyFrame]", filter_dict: Optional[Mapping[str, object]],
+) -> "Optional[pl.DataFrame]":
+    """Filter up to 32 eager CPU rows without starting an expression plan."""
+    import polars as pl
+    from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
+
+    if not isinstance(df, pl.DataFrame) or df.height <= 1:
+        return _filter_singleton_equalities(df, filter_dict)
+    if df.height > 32 or not filter_dict or active_target() == ExecutionTarget.GPU:
+        return None
+    schema = df.schema
+    mask = [True] * df.height
+    for column, expected in filter_dict.items():
+        if not _supports_scalar_equality(schema.get(column), expected):
+            return None
+        values = df.get_column(column).to_list()
+        mask = [matched and actual is not None and actual == expected
+                for matched, actual in zip(mask, values)]
+    positions = [index for index, matched in enumerate(mask) if matched]
+    if not positions:
+        return df.clear()
+    if len(positions) == df.height:
+        return df
+    if positions[-1] - positions[0] + 1 == len(positions):
+        return df.slice(positions[0], len(positions))
+    return df[positions]
+
+
 def filter_by_dict_polars(df: "PolarsFrameT", filter_dict: "Optional[Dict[str, Any]]") -> "PolarsFrameT":
     """Return rows of polars ``df`` matching all entries in ``filter_dict`` via one filter."""
+    small = _filter_small_equalities(df, filter_dict)
+    if small is not None:
+        return small  # type: ignore[return-value]  # The helper admits only eager frames.
     combined = filter_expr_by_dict_polars(df, filter_dict)
     if combined is None:
         return df

@@ -12,6 +12,8 @@ from .ast import ASTObject, ASTNode, ASTEdge, ASTCall, Direction, from_json as A
 from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
 from .chain_specializations.hotpaths import _try_chain_fast_path
+from .chain_specializations.point_rows import _try_point_rows
+from .engine_coercion import ensure_local_engine_match
 from graphistry.compute.validate.validate_schema import validate_chain_schema, validate_graph_shape
 from graphistry.compute.gfql.strictness import StrictInput
 from graphistry.compute.gfql.same_path_types import (
@@ -969,6 +971,8 @@ def _chain_with_strictness(
                     "Install RAPIDS/cudf_polars, or use engine='polars' for native CPU execution."
                 )
     self = _coerce_input_formats(self, engine_concrete_early)
+    if engine_concrete_early == Engine.PANDAS:
+        self = ensure_local_engine_match(self, engine_concrete_early)
 
     if engine_concrete_early in POLARS_ENGINES:
         # Native polars chain lives in a dedicated dispatched module so the
@@ -977,7 +981,7 @@ def _chain_with_strictness(
         # POLARS_GPU = the same lazy engine with the GPU execution target.
         # (Dependency guards for polars / cudf_polars are above, pre-coercion.)
         if validate_schema:
-            Chain(ops if not isinstance(ops, Chain) else ops.chain).validate(collect_all=False)
+            Chain(ops if not isinstance(ops, Chain) else ops.chain, validate=False).validate(collect_all=False)
             validate_graph_shape(self, ops, collect_all=False)  # pandas gets this via validate_chain_schema (#1889)
         from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
         from graphistry.compute.gfql.lazy import target_mode, ExecutionTarget
@@ -1005,6 +1009,10 @@ def _chain_with_strictness(
         finally:
             call_thread_local.policy = old_policy
     else:
+        point_ops = ops.chain if isinstance(ops, Chain) else ops
+        point_result = _try_point_rows(self, point_ops, engine_concrete_early, start_nodes, validate_schema)
+        if point_result is not None:
+            return point_result
         return _chain_impl(self, ops, engine, validate_schema, policy, context, start_nodes)
 
 
@@ -1042,7 +1050,7 @@ def _chain_impl(
         ops = ops.chain
 
     if validate_schema:
-        Chain(ops).validate(collect_all=False)
+        Chain(ops, validate=False).validate(collect_all=False)
 
     from graphistry.compute.ast import ASTCall
 

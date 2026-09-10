@@ -295,6 +295,10 @@ def _seed_rows_via_property_index(
         if value is None or isinstance(value, bool) or not isinstance(value, Integral):
             continue
         index = registry.get_node_prop_valid(column, nodes, engine)
+        if index is None and engine in (Engine.POLARS, Engine.POLARS_GPU):
+            # Both Polars targets index the same host frame with NumPy arrays.
+            other = Engine.POLARS_GPU if engine == Engine.POLARS else Engine.POLARS
+            index = registry.get_node_prop_valid(column, nodes, other)
         if index is None:
             continue
         values = xp.asarray([value])

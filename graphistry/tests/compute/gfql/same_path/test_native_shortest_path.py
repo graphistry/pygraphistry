@@ -147,12 +147,20 @@ class TestTryNativeShortestPath:
         assert len(cache) == 1
 
     def test_returns_none_on_cudf_without_cugraph(self):
-        # cugraph is not installed in test env; must return None gracefully
         sp = _step_pairs([1], [2])
-        result = try_native_shortest_path(
-            sp, [1], [2], max_hops=None, directed=False, engine=Engine.CUDF
-        )
+        with patch.dict(sys.modules, {"cugraph": None}):
+            result = try_native_shortest_path(
+                sp, [1], [2], max_hops=None, directed=False, engine=Engine.CUDF
+            )
         assert result is None
+
+    def test_explicit_cugraph_backend_raises_without_cugraph(self):
+        sp = _step_pairs([1], [2])
+        with patch.dict(sys.modules, {"cugraph": None}), pytest.raises(ImportError):
+            try_native_shortest_path(
+                sp, [1], [2], max_hops=None, directed=False,
+                engine=Engine.CUDF, backend="cugraph",
+            )
 
 
 # ---------------------------------------------------------------------------

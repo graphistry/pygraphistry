@@ -318,13 +318,14 @@ def estimate_inner_join_rows(
     if engine in POLARS_ENGINES:
         import polars as pl
 
-        left_counts = left.group_by(left_on).len().rename({"len": left_n})  # type: ignore[operator]
-        right_counts = right.group_by(right_on).len().rename({"len": right_n})  # type: ignore[operator]
-        value = (
+        from graphistry.compute.gfql.lazy import collect
+
+        left_counts = left.lazy().group_by(left_on).len().rename({"len": left_n})  # type: ignore[operator]
+        right_counts = right.lazy().group_by(right_on).len().rename({"len": right_n})  # type: ignore[operator]
+        value = collect(
             left_counts.join(right_counts, left_on=left_on, right_on=right_on, how="inner")
             .select((pl.col(left_n) * pl.col(right_n)).sum())
-            .item()
-        )
+        ).item()
         return 0 if value is None else int(value)
 
     left_counts = left.groupby(left_on, sort=False).size().reset_index()
@@ -363,9 +364,11 @@ def path_ordered_expand_join(
     if engine in POLARS_ENGINES:
         import polars as pl
 
+        from graphistry.compute.gfql.lazy import collect
+
         joined = (
-            state.with_row_index(path_order_col)  # type: ignore[operator]
-            .join(step, left_on=current_col, right_on=from_col, how="inner")
+            state.lazy().with_row_index(path_order_col)  # type: ignore[operator]
+            .join(step.lazy(), left_on=current_col, right_on=from_col, how="inner")
             .sort([path_order_col, *tiebreak_cols])
             .drop(current_col)
             .rename({to_col: current_col})
@@ -374,7 +377,7 @@ def path_ordered_expand_join(
             joined = joined.with_columns(pl.col(current_col).alias(alias))
         return cast(
             DataFrameT,
-            joined.drop([col for col in drop_after if col in joined.columns]),
+            collect(joined.drop([col for col in drop_after if col in joined.collect_schema().names()])),
         )
 
     import numpy as np
