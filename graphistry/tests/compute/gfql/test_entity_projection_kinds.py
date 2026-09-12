@@ -13,12 +13,17 @@ ENGINES = [
 ]
 
 
-@pytest.mark.parametrize("engine", ENGINES)
+@pytest.fixture(params=ENGINES)
+def engine(request):
+    name = request.param
+    if name.startswith("polars"):
+        pytest.importorskip("polars")
+    return name
+
+
 @pytest.mark.parametrize("labelled", [False, True])
 @pytest.mark.parametrize("projection", ["x", "x AS renamed", "DISTINCT x", "x.name", "count(DISTINCT x) AS c"])
 def test_entity_projection_kind_and_identity_are_independent(engine, labelled, projection):
-    if engine.startswith("polars"):
-        pytest.importorskip("polars")
     nodes = pd.DataFrame({"id": [0, 1, 2, 3], "name": ["A", "B", "same", "same"]})
     if labelled:
         nodes = nodes.assign(label__Person=True)
@@ -44,7 +49,6 @@ def test_entity_projection_kind_and_identity_are_independent(engine, labelled, p
     assert not hasattr(g, "_cypher_entity_projection_kinds")
 
 
-@pytest.mark.parametrize("engine", ENGINES)
 def test_null_entity_presence_survives_missing_identity_and_renaming(engine):
     from graphistry.compute.gfql.cypher.lowering import ResultProjectionColumn, ResultProjectionPlan
     from graphistry.compute.gfql.cypher.result_postprocess import apply_result_projection, render_entity_text
@@ -70,7 +74,6 @@ def test_null_entity_presence_survives_missing_identity_and_renaming(engine):
     assert out._cypher_entity_projection_kinds == {"renamed": "nodes"}
 
 
-@pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("empty", [False, True])
 def test_presence_alignment_preserves_reordered_entities_and_inserted_nulls(engine, empty):
     from graphistry.compute.gfql.cypher.result_postprocess import entity_projection_presence_for_rows
@@ -87,7 +90,6 @@ def test_presence_alignment_preserves_reordered_entities_and_inserted_nulls(engi
     assert len(g._cypher_entity_projection_presence["renamed"]) == (0 if empty else 3)
 
 
-@pytest.mark.parametrize("engine", ENGINES)
 def test_nullable_same_named_property_does_not_override_entity_marker(engine):
     from graphistry.compute.gfql.cypher.lowering import ResultProjectionColumn, ResultProjectionPlan
     from graphistry.compute.gfql.cypher.result_postprocess import apply_result_projection, render_entity_text
