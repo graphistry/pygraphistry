@@ -7,7 +7,7 @@ import pandas as pd
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
-from graphistry.Engine import df_concat, df_cons, df_to_engine, is_polars_df, resolve_engine
+from graphistry.Engine import Engine, df_concat, df_cons, df_to_engine, is_polars_df, resolve_engine, s_cons
 from graphistry.compute.gfql.cypher.projection_columns import alias_field_sources
 from graphistry.compute.gfql.identifiers import shadow_restore_column
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
@@ -237,7 +237,9 @@ def entity_projection_presence_for_segments(
         pieces = []
         for segment in segments:
             if isinstance(segment, int):
-                pieces.append(constructor({marker.columns[0]: [None] * segment}))
+                column = marker.columns[0]
+                values = s_cons(engine)([None] * segment, dtype=marker[column].dtype) if engine == Engine.CUDF else [None] * segment
+                pieces.append(constructor({column: values}))
             else:
                 start, stop = segment
                 pieces.append(marker.slice(start, stop - start) if is_polars_df(marker) else marker.iloc[start:stop])
