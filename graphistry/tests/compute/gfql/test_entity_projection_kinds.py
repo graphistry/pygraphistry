@@ -64,7 +64,9 @@ def test_null_entity_presence_survives_missing_identity_and_renaming(engine):
     text = render_entity_text(rendered_graph, "renamed")
     if hasattr(text, "to_pandas"):
         text = text.to_pandas()
-    assert text.tolist() == ["()", None]
+    assert len(text) == 2
+    assert text.iloc[0] == "()"
+    assert pd.isna(text.iloc[1])
     assert out._cypher_entity_projection_kinds == {"renamed": "nodes"}
 
 
@@ -83,3 +85,27 @@ def test_presence_alignment_preserves_reordered_entities_and_inserted_nulls(engi
     aligned = aligned.to_pandas() if hasattr(aligned, "to_pandas") else aligned
     assert aligned["x"].notna().tolist() == ([False, False] if empty else [True, False, False, True, False])
     assert len(g._cypher_entity_projection_presence["renamed"]) == (0 if empty else 3)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_nullable_same_named_property_does_not_override_entity_marker(engine):
+    from graphistry.compute.gfql.cypher.lowering import ResultProjectionColumn, ResultProjectionPlan
+    from graphistry.compute.gfql.cypher.result_postprocess import apply_result_projection, render_entity_text
+
+    frame = pd.DataFrame({"x": [True], "x.x": [None], "x.id": [1], "x.name": ["A"]})
+    g = graphistry.nodes(df_to_engine(frame, Engine(engine)), "id")
+    plan = ResultProjectionPlan(
+        alias="x", table="nodes",
+        columns=(ResultProjectionColumn("renamed", "whole_row"),),
+    )
+    out = apply_result_projection(g, plan)
+    assert list(out._cypher_entity_projection_presence["renamed"].columns) == ["x"]
+    rendered_graph = out.bind()
+    if engine.startswith("polars"):
+        rendered_graph._nodes = out._nodes.to_pandas()
+    text = render_entity_text(rendered_graph, "renamed")
+    if hasattr(text, "to_pandas"):
+        text = text.to_pandas()
+    assert text.notna().tolist() == [True]
+    ids = out._nodes.to_pandas() if hasattr(out._nodes, "to_pandas") else out._nodes
+    assert ids["renamed.id"].tolist() == [1]

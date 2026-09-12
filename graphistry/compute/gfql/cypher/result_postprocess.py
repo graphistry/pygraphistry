@@ -342,7 +342,8 @@ def apply_result_projection(
             source_alias = column.source_name or projection.alias
             sources = alias_field_sources(rows_df.columns, source_alias)
             if sources is not None and source_alias in sources:
-                marker_frame = rows_df[[sources[source_alias]]]
+                marker_column = source_alias if source_alias in rows_df.columns else sources[source_alias]
+                marker_frame = rows_df[[marker_column]]
                 presence[column.output_name] = marker_frame.clone() if is_polars_df(marker_frame) else marker_frame.copy()
     setattr(out, "_cypher_entity_projection_presence", presence)
     return out
