@@ -224,3 +224,57 @@ def test_dotted_aggregate_after_graph_path_uses_strict_gpu_collect(monkeypatch):
     assert _validates_clean(g, query)
     assert _max_per_kind(g, query, "polars-gpu") == [("a", 103.0), ("b", 107.0)]
     assert gpu_collects
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("table", ["nodes", "edges"])
+@pytest.mark.parametrize("source", ["with missing", "a +", "sum(", ")"])
+def test_malformed_missing_aggregate_source_fails_validation(engine, table, source):
+    from graphistry.compute.exceptions import GFQLSyntaxError
+    from graphistry.compute.validate.validate_schema import validate_chain_schema
+
+    g = _scope_graph("x.y.Dotted", table, engine)
+    query = [rows(table=table), group_by(keys=["kind"], aggregations=[("m", "max", source)])]
+    with pytest.raises(GFQLSyntaxError) as exc:
+        g.gfql_validate(query)
+    assert exc.value.code == ErrorCode.E107
+    assert exc.value.context["value"] == source
+    assert exc.value.context["operation_index"] == 1
+    errors = validate_chain_schema(g, query, collect_all=True)
+    assert errors is not None and len(errors) == 1
+    assert errors[0].code == ErrorCode.E107
+    assert errors[0].context["operation_index"] == 1
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("source", ["with missing", "a +", "sum(", ")"])
+def test_malformed_expression_spelling_is_valid_existing_literal(engine, source):
+    g = _scope_graph(source, "nodes", engine)
+    assert g.gfql_validate(_max_by_kind(source))["ok"]
+    assert _max_per_kind(g, _max_by_kind(source), engine) == [("a", 103.0), ("b", 107.0)]
+
+
+@pytest.mark.parametrize("source,expected", [("1", 1), ("1 + 2", 3)])
+def test_valid_constant_aggregate_source_requires_no_columns(source, expected):
+    g = _scope_graph("x.y.Dotted", "nodes", "pandas")
+    assert g.gfql_validate(_max_by_kind(source))["ok"]
+    assert _max_per_kind(g, _max_by_kind(source), "pandas") == [("a", expected), ("b", expected)]
+
+
+def test_aggregate_source_unknown_schema_remains_deferred():
+    from graphistry.compute.gfql.call.validation import _agg_source_required_cols
+
+    assert _agg_source_required_cols("with missing") == []
+    assert _agg_source_required_cols("a + missing") == ["a", "missing"]
+
+
+def test_aggregate_source_without_parser_distinguishes_literal_and_expression(monkeypatch):
+    from graphistry.compute.gfql.call import validation
+    from graphistry.compute.exceptions import GFQLTypeError
+
+    monkeypatch.setattr(validation, "_where_rows_expr_parser_fn", lambda: None)
+    assert validation._agg_source_required_cols("with space", {"with space"}) == ["with space"]
+    with pytest.raises(GFQLTypeError) as exc:
+        validation._agg_source_required_cols("1 + 2", {"id"})
+    assert exc.value.code == ErrorCode.E201
+    assert exc.value.context["value"] == "1 + 2"

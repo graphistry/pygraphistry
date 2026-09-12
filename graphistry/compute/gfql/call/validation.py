@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
-from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+from graphistry.compute.exceptions import ErrorCode, GFQLSyntaxError, GFQLTypeError
 from graphistry.compute.gfql.call.support import (
     EDGE_COLUMN_SCHEMA_EFFECTS,
     NODE_COLUMN_SCHEMA_EFFECTS,
@@ -341,8 +341,21 @@ def _unwind_requires_node_cols(params: Dict[str, object]) -> List[str]:
 
 def _agg_source_required_cols(expr: str, available_cols: Optional[Set[str]] = None) -> List[str]:
     """An existing column is read as that column, as both executors do."""
-    if available_cols is not None and expr in available_cols:
-        return [expr]
+    if available_cols is not None:
+        if expr in available_cols:
+            return [expr]
+        if _where_rows_expr_parse(expr) is None:
+            if _where_rows_expr_parser_fn() is None:
+                raise GFQLTypeError(
+                    ErrorCode.E201, "Aggregation expression validation requires the parser backend",
+                    field="group_by.aggregations", value=expr,
+                    suggestion="Install the expression parser dependencies or use an existing column",
+                )
+            raise GFQLSyntaxError(
+                ErrorCode.E107, "Aggregation source is neither a visible column nor a valid expression",
+                field="group_by.aggregations", value=expr,
+                suggestion="Use an existing column name or a valid row expression",
+            )
     return _where_rows_expr_required_cols(expr)
 
 
