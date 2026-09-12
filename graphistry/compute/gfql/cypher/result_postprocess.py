@@ -294,8 +294,19 @@ def apply_result_projection(
     rows_df = result._nodes
     if is_polars_df(rows_df):
         from graphistry.compute.gfql.lazy.engine.polars.projection import apply_result_projection_polars
-        return apply_result_projection_polars(result, projection, structured=structured)
-    return _apply_result_projection_pandas(result, projection, structured=structured)
+        out = apply_result_projection_polars(result, projection, structured=structured)
+    else:
+        out = _apply_result_projection_pandas(result, projection, structured=structured)
+    if out is result:
+        out = out.bind()
+    # Whole-entity provenance remains valid when an identity column is unavailable.
+    kinds = {
+        column.output_name: projection.table
+        for column in projection.columns
+        if structured and column.kind == "whole_row"
+    }
+    setattr(out, "_cypher_entity_projection_kinds", kinds)
+    return out
 
 
 def _apply_result_projection_pandas(
