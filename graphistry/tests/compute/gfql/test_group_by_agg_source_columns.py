@@ -235,6 +235,7 @@ def test_aggregate_itself_collects_on_gpu(monkeypatch, connected, source):
 
     aggregate_calls = []
     collecting_aggregate = False
+    collect_depth = 0
     original_group_by = row_pipeline.group_by_polars
     original_collect = pl.LazyFrame.collect
 
@@ -247,8 +248,14 @@ def test_aggregate_itself_collects_on_gpu(monkeypatch, connected, source):
             collecting_aggregate = False
 
     def collect(frame, *args, **kwargs):
-        result = original_collect(frame, *args, **kwargs)
-        if collecting_aggregate:
+        nonlocal collect_depth
+        outer_aggregate = collecting_aggregate and collect_depth == 0
+        collect_depth += 1
+        try:
+            result = original_collect(frame, *args, **kwargs)
+        finally:
+            collect_depth -= 1
+        if outer_aggregate:
             backend = kwargs.get("engine")
             assert isinstance(backend, pl.GPUEngine)
             assert backend.config["raise_on_fail"] is True
@@ -330,3 +337,22 @@ def test_gpu_aggregate_unlowerable_expression_is_structured():
             group_by_polars(*args)
     assert exc.value.code == ErrorCode.E110
     assert exc.value.context["engine"] == "polars-gpu"
+
+
+def test_gpu_aggregate_refusal_survives_native_call_boundary(monkeypatch):
+    pytest.importorskip("polars")
+    from graphistry.compute.exceptions import GFQLUnsupportedError
+    from graphistry.compute.gfql import lazy
+    from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
+
+    def decline(plan):
+        raise NotImplementedError("backend capability refusal")
+
+    monkeypatch.setattr(lazy, "collect", decline)
+    g = _scope_graph("x.y.Dotted", "nodes", "polars")
+    with lazy.target_mode(lazy.ExecutionTarget.GPU):
+        with pytest.raises(GFQLUnsupportedError) as exc:
+            chain_polars(g, _max_by_kind("x.y.Dotted"))
+    assert exc.value.code == ErrorCode.E110
+    assert exc.value.context["value"] == "group_by"
+    assert isinstance(exc.value, NotImplementedError)
