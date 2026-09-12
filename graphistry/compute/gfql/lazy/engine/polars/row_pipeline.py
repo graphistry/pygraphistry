@@ -1510,11 +1510,13 @@ def group_by_polars(
                     key_cols.append(col)
                     seen.add(col)
     if not key_cols or not all(isinstance(k, str) and k in cols for k in key_cols):
-        return _group_by_decline()
+        _group_by_decline()
+        return None
     aggs: List["pl.Expr"] = []
     for agg in aggregations:
         if not isinstance(agg, (list, tuple)) or len(agg) not in (2, 3):
-            return _group_by_decline()
+            _group_by_decline()
+            return None
         # cast: the AggSpec tuple variants make agg[2] an out-of-range index to mypy;
         # the len guard above already proved the shape.
         spec = cast("Sequence[Optional[str]]", agg)
@@ -1529,7 +1531,8 @@ def group_by_polars(
 
         lowered = _agg_expr(func, expr, cols, alias, table.schema, _is_all_null)
         if lowered is None:
-            return _group_by_decline()
+            _group_by_decline()
+            return None
         aggs.append(lowered)
     from graphistry.compute.gfql.lazy import ExecutionTarget, active_target, collect
 
@@ -1538,7 +1541,8 @@ def group_by_polars(
         try:
             out = collect(plan)
         except NotImplementedError as exc:
-            return _group_by_decline(exc)
+            _group_by_decline(exc)
+            return None
     else:
         out = table.group_by(key_cols, maintain_order=True).agg(aggs)
     return _rewrap(g, out)
