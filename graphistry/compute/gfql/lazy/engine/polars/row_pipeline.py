@@ -1473,6 +1473,20 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     return None
 
 
+def _group_by_decline(cause: Optional[NotImplementedError] = None) -> None:
+    from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
+    from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError
+
+    if active_target() == ExecutionTarget.GPU:
+        raise GFQLUnsupportedError(
+            ErrorCode.E110,
+            "The requested GPU backend cannot execute this aggregation",
+            field="function", value="group_by", engine="polars-gpu",
+            suggestion="Use engine='polars' for CPU execution",
+        ) from cause
+    return None
+
+
 def group_by_polars(
     g: Plottable,
     keys: Sequence[str],
@@ -1496,11 +1510,11 @@ def group_by_polars(
                     key_cols.append(col)
                     seen.add(col)
     if not key_cols or not all(isinstance(k, str) and k in cols for k in key_cols):
-        return None
+        return _group_by_decline()
     aggs: List["pl.Expr"] = []
     for agg in aggregations:
         if not isinstance(agg, (list, tuple)) or len(agg) not in (2, 3):
-            return None
+            return _group_by_decline()
         # cast: the AggSpec tuple variants make agg[2] an out-of-range index to mypy;
         # the len guard above already proved the shape.
         spec = cast("Sequence[Optional[str]]", agg)
@@ -1515,9 +1529,18 @@ def group_by_polars(
 
         lowered = _agg_expr(func, expr, cols, alias, table.schema, _is_all_null)
         if lowered is None:
-            return None
+            return _group_by_decline()
         aggs.append(lowered)
-    out = table.group_by(key_cols, maintain_order=True).agg(aggs)
+    from graphistry.compute.gfql.lazy import ExecutionTarget, active_target, collect
+
+    if active_target() == ExecutionTarget.GPU:
+        plan = table.lazy().group_by(key_cols, maintain_order=True).agg(aggs)
+        try:
+            out = collect(plan)
+        except NotImplementedError as exc:
+            return _group_by_decline(exc)
+    else:
+        out = table.group_by(key_cols, maintain_order=True).agg(aggs)
     return _rewrap(g, out)
 
 
