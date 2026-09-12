@@ -339,7 +339,16 @@ def _unwind_requires_node_cols(params: Dict[str, object]) -> List[str]:
     return _expr_required_cols(params)
 
 
-def _group_by_requires_node_cols(params: Dict[str, object]) -> List[str]:
+def _agg_source_required_cols(expr: str, available_cols: Optional[Set[str]] = None) -> List[str]:
+    """An existing column is read as that column, as both executors do."""
+    if available_cols is not None and expr in available_cols:
+        return [expr]
+    return _where_rows_expr_required_cols(expr)
+
+
+def _group_by_requires_node_cols(
+    params: Dict[str, object], available_cols: Optional[Set[str]] = None
+) -> List[str]:
     out: List[str] = []
     keys = params.get("keys")
     if isinstance(keys, list):
@@ -351,7 +360,7 @@ def _group_by_requires_node_cols(params: Dict[str, object]) -> List[str]:
                 continue
             expr = item[2]
             if isinstance(expr, str) and expr != "*":
-                out.extend(_where_rows_expr_required_cols(expr))
+                out.extend(_agg_source_required_cols(expr, available_cols))
     return out
 
 

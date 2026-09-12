@@ -373,7 +373,10 @@ def _validate_call_op(
 
     required_node_cols = schema_effects.get('requires_node_cols')
     if required_node_cols is not None:
-        cols = required_node_cols(op.params) if callable(required_node_cols) else required_node_cols
+        if op.function == 'group_by':
+            cols = required_node_cols(op.params, available_row_columns)
+        else:
+            cols = required_node_cols(op.params) if callable(required_node_cols) else required_node_cols
         for col in cols:
             if col not in available_row_columns:
                 error = GFQLSchemaError(
