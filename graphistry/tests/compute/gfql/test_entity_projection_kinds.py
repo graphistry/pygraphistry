@@ -69,13 +69,17 @@ def test_null_entity_presence_survives_missing_identity_and_renaming(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_presence_alignment_preserves_reordered_entities_and_inserted_nulls(engine):
-    from graphistry.compute.gfql.cypher.result_postprocess import entity_projection_presence_for_segments
+@pytest.mark.parametrize("empty", [False, True])
+def test_presence_alignment_preserves_reordered_entities_and_inserted_nulls(engine, empty):
+    from graphistry.compute.gfql.cypher.result_postprocess import entity_projection_presence_for_rows
 
     marker = df_to_engine(pd.DataFrame({"x": pd.Series([True, None, True], dtype="boolean")}), Engine(engine))
+    if empty:
+        marker = marker.head(0)
     g = graphistry.nodes(marker, "id")
     g._cypher_entity_projection_presence = {"renamed": marker}
-    aligned = entity_projection_presence_for_segments(g, [(2, 3), 2, (0, 2)])["renamed"]
+    indices = [None, None] if empty else [2, None, None, 0, 1]
+    aligned = entity_projection_presence_for_rows(g, indices)["renamed"]
     aligned = aligned.to_pandas() if hasattr(aligned, "to_pandas") else aligned
-    assert aligned["x"].notna().tolist() == [True, False, False, True, False]
-    assert len(g._cypher_entity_projection_presence["renamed"]) == 3
+    assert aligned["x"].notna().tolist() == ([False, False] if empty else [True, False, False, True, False])
+    assert len(g._cypher_entity_projection_presence["renamed"]) == (0 if empty else 3)

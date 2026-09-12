@@ -36,7 +36,7 @@ from graphistry.compute.gfql.cypher.reentry.naming import (
 from graphistry.compute.gfql.cypher.reentry_plan import ReentryPlan
 from graphistry.compute.gfql.cypher.result_postprocess import (
     entity_projection_meta_entry,
-    entity_projection_presence_for_segments,
+    entity_projection_presence_for_rows,
 )
 from graphistry.compute.typing import DataFrameT, SeriesT
 
@@ -186,7 +186,7 @@ def apply_optional_reentry_null_fill(
 
     if result_df is None or len(result_df) == 0:
         out = _bind_reentry_graph(result, df_ctor(fill_rows))
-        setattr(out, "_cypher_entity_projection_presence", entity_projection_presence_for_segments(result, [len(fill_rows)]))  # noqa: B010
+        setattr(out, "_cypher_entity_projection_presence", entity_projection_presence_for_rows(result, [None] * len(fill_rows)))  # noqa: B010
         return out
 
     fill_df = df_ctor(fill_rows)
@@ -199,7 +199,7 @@ def apply_optional_reentry_null_fill(
         concat([result_df, fill_df], ignore_index=True, sort=False),
         empty_edges=True,
     )
-    setattr(out, "_cypher_entity_projection_presence", entity_projection_presence_for_segments(result, [(0, len(result_df)), len(fill_rows)]))  # noqa: B010
+    setattr(out, "_cypher_entity_projection_presence", entity_projection_presence_for_rows(result, [*range(len(result_df)), *([None] * len(fill_rows))]))  # noqa: B010
     return out
 
 

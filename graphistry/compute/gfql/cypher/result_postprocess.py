@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, Dict, List, Literal, Optional, Sequence, Set, Tuple, TypedDict, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Sequence, Set, TypedDict, cast
 
 import pandas as pd
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
-from graphistry.Engine import Engine, df_concat, df_cons, df_to_engine, is_polars_df, resolve_engine, s_cons
+from graphistry.Engine import df_to_engine, is_polars_df, resolve_engine
 from graphistry.compute.gfql.cypher.projection_columns import alias_field_sources
 from graphistry.compute.gfql.identifiers import shadow_restore_column
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
@@ -222,29 +222,24 @@ def render_entity_text(
     return rendered
 
 
-def entity_projection_presence_for_segments(
+def entity_projection_presence_for_rows(
     result: Plottable,
-    segments: Sequence[Union[Tuple[int, int], int]],
+    row_indices: Sequence[Optional[int]],
 ) -> Dict[str, DataFrameT]:
-    """Align presence snapshots with row slices and counts of inserted absent rows."""
+    """Gather presence by row position; a null index inserts an absent entity."""
     presence = getattr(result, "_cypher_entity_projection_presence", {})
     if not isinstance(presence, dict) or not presence:
         return {}
     aligned: Dict[str, DataFrameT] = {}
     for alias, marker in presence.items():
-        engine = resolve_engine("auto", marker)
-        constructor, concat = df_cons(engine), df_concat(engine)
-        pieces = []
-        for segment in segments:
-            if isinstance(segment, int):
-                column = marker.columns[0]
-                values = s_cons(engine)([None] * segment, dtype=marker[column].dtype) if engine == Engine.CUDF else [None] * segment
-                pieces.append(constructor({column: values}))
-            else:
-                start, stop = segment
-                pieces.append(marker.slice(start, stop - start) if is_polars_df(marker) else marker.iloc[start:stop])
-        aligned[alias] = concat(pieces, ignore_index=True, sort=False) if pieces else marker.head(0)
+        if is_polars_df(marker):
+            import polars as pl
+            indices = pl.Series(row_indices, dtype=pl.UInt32)
+            aligned[alias] = marker.select(pl.all().gather(indices))
+        else:
+            aligned[alias] = marker.reset_index(drop=True).reindex(row_indices).reset_index(drop=True)
     return aligned
+
 
 
 def _project_property_column(

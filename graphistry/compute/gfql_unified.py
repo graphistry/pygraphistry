@@ -68,7 +68,7 @@ from graphistry.compute.gfql.cypher.reentry.execution import (
 from graphistry.compute.gfql.cypher.call_procedures import CompiledCypherProcedureCall, execute_cypher_call
 from graphistry.compute.gfql.cypher.result_postprocess import (
     apply_result_projection,
-    entity_projection_presence_for_segments,
+    entity_projection_presence_for_rows,
     entity_projection_meta_entry as _entity_projection_meta_entry,
 )
 from graphistry.compute.gfql.df_executor import (
@@ -121,7 +121,7 @@ def _slice_reentry_prefix_result_row(
         return prefix_result
     out = prefix_result.bind()
     out._nodes = cast(DataFrameT, rows_df.iloc[row_index:row_index + 1].reset_index(drop=True))
-    setattr(out, "_cypher_entity_projection_presence", entity_projection_presence_for_segments(prefix_result, [(row_index, row_index + 1)]))
+    setattr(out, "_cypher_entity_projection_presence", entity_projection_presence_for_rows(prefix_result, [row_index]))
     entity_meta = getattr(prefix_result, "_cypher_entity_projection_meta", None)
     if isinstance(entity_meta, dict):
         entry = entity_meta.get(output_name)
@@ -247,7 +247,7 @@ def _apply_optional_null_fill(
     )
     fill_df = df_ctor({col: [null_row.get(col)] for col in fill_columns_spanning_projected_frame})
     segments = []
-    presence_segments: List[Union[Tuple[int, int], int]] = []
+    presence_indices: List[Optional[int]] = []
     matched_idx = 0
     for base_id in base_ids:
         group_start = matched_idx
@@ -264,10 +264,10 @@ def _apply_optional_null_fill(
                     language="cypher",
                 )
             segments.append(_slice_rows(rows_df, group_start, matched_idx))
-            presence_segments.append((group_start, matched_idx))
+            presence_indices.extend(range(group_start, matched_idx))
         else:
             segments.append(fill_df)
-            presence_segments.append(1)
+            presence_indices.append(None)
     if matched_idx != len(matched_id_list):
         raise GFQLValidationError(
             ErrorCode.E108,
@@ -280,7 +280,7 @@ def _apply_optional_null_fill(
 
     out = result.bind()
     out._nodes = concat(segments, ignore_index=True, sort=False) if segments else df_ctor()
-    setattr(out, "_cypher_entity_projection_presence", entity_projection_presence_for_segments(result, presence_segments))
+    setattr(out, "_cypher_entity_projection_presence", entity_projection_presence_for_rows(result, presence_indices))
     edges_df = result._edges
     if edges_df is not None:
         out._edges = edges_df[:0]
