@@ -110,12 +110,15 @@ def test_whole_entity_projection_records_kind_without_identity_column() -> None:
 def test_property_projection_clears_whole_entity_provenance() -> None:
     g = graphistry.nodes(pd.DataFrame({"x": [True], "name": ["Alice"]}), "id")
     g._cypher_entity_projection_kinds = {"x": "nodes"}
+    g._cypher_entity_projection_presence = {"x": pd.DataFrame({"x": [True]})}
     plan = ResultProjectionPlan(
         alias="x", table="nodes",
         columns=(ResultProjectionColumn("x.name", "property", "name"),),
     )
     out = apply_result_projection(g, plan)
     assert out._cypher_entity_projection_kinds == {}
+    assert out._cypher_entity_projection_presence == {}
+    assert g._cypher_entity_projection_presence["x"].to_dict("records") == [{"x": True}]
     assert g._cypher_entity_projection_kinds == {"x": "nodes"}
     assert out._nodes.to_dict("records") == [{"x.name": "Alice"}]
 

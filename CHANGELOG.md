@@ -19,7 +19,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
-- GFQL: record whole-entity projection provenance independently of identity columns, so adapters can distinguish unlabeled entities from property returns (tck-gfql#200).
+- GFQL: record whole-entity projection kind and presence independently of identity columns, so adapters distinguish unlabeled entities, property returns, and absent entities; preserve presence through OPTIONAL null-fill and reentry (tck-gfql#200).
 
 * GFQL: a native chain whose edge alias is named like the source, destination or edge-ID binding column silently overwrote that binding on pandas and cuDF (the seed's edges vanished, or the edge ids became `True`) and raised a raw polars `SchemaError`; it is now the same typed decline (E108) the node-ID collision already gets, on every engine, before execution — the rule the Cypher route already applied (#2050).
 * GFQL polars: a colliding alias no longer leaves the internal `__gfql_shadow_restore__<alias>__` column on op-list results; the chain keeps the shadowed values under that name only while a compiled Cypher pipeline runs (its row pipeline reads them back), and on `gfql([...])` / `chain([...])` the marker simply shadows the column as on pandas and cuDF. Nothing is stripped from results: user-defined columns and pipelines composed from successive `gfql` calls are untouched.

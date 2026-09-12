@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, Dict, List, Literal, Optional, Set, TypedDict, cast
+from typing import Any, Dict, List, Literal, Optional, Sequence, Set, Tuple, TypedDict, Union, cast
 
 import pandas as pd
 
 from graphistry.Plottable import Plottable
 from graphistry.compute.typing import DataFrameT, SeriesT
-from graphistry.Engine import is_polars_df
+from graphistry.Engine import df_concat, df_cons, df_to_engine, is_polars_df, resolve_engine
 from graphistry.compute.gfql.cypher.projection_columns import alias_field_sources
 from graphistry.compute.gfql.identifiers import shadow_restore_column
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype
@@ -196,12 +196,20 @@ def render_entity_text(
         DataFrameT,
         rows_df[field_cols].rename(columns={col: str(col)[len(prefix):] for col in field_cols}),
     )
-    # An OPTIONAL-MATCH miss flattens to a row whose fields are all null; such
-    # rows must render as null, not "()". Track presence (any field non-null).
+    # Prefer source presence; legacy flattened results infer it from non-null fields.
     present: Optional[SeriesT] = None
-    for field in frame.columns:
-        not_na = cast(SeriesT, frame[field].notna())
-        present = not_na if present is None else cast(SeriesT, present | not_na)
+    presence = getattr(result, "_cypher_entity_projection_presence", {})
+    marker_frame = presence.get(alias) if isinstance(presence, dict) else None
+    if marker_frame is not None:
+        marker_frame = df_to_engine(marker_frame, resolve_engine("auto", rows_df))
+        if len(marker_frame) != len(rows_df):
+            raise ValueError("entity presence metadata is not aligned with result rows")
+        present = cast(SeriesT, marker_frame[marker_frame.columns[0]].notna())
+        present.index = rows_df.index
+    else:
+        for field in frame.columns:
+            not_na = cast(SeriesT, frame[field].notna())
+            present = not_na if present is None else cast(SeriesT, present | not_na)
     # _format_*_entities anchors length/null on a bare alias column; render every
     # row, then null absent rows below.
     frame = cast(DataFrameT, frame.assign(**{alias: True}))
@@ -212,6 +220,29 @@ def render_entity_text(
         # the pandas-stubs ``where`` overload is stricter than runtime here.
         rendered = cast(SeriesT, rendered.where(present, None))  # type: ignore[call-overload]
     return rendered
+
+
+def entity_projection_presence_for_segments(
+    result: Plottable,
+    segments: Sequence[Union[Tuple[int, int], int]],
+) -> Dict[str, DataFrameT]:
+    """Align presence snapshots with row slices and counts of inserted absent rows."""
+    presence = getattr(result, "_cypher_entity_projection_presence", {})
+    if not isinstance(presence, dict) or not presence:
+        return {}
+    aligned: Dict[str, DataFrameT] = {}
+    for alias, marker in presence.items():
+        engine = resolve_engine("auto", marker)
+        constructor, concat = df_cons(engine), df_concat(engine)
+        pieces = []
+        for segment in segments:
+            if isinstance(segment, int):
+                pieces.append(constructor({marker.columns[0]: [None] * segment}))
+            else:
+                start, stop = segment
+                pieces.append(marker.slice(start, stop - start) if is_polars_df(marker) else marker.iloc[start:stop])
+        aligned[alias] = concat(pieces, ignore_index=True, sort=False) if pieces else marker.head(0)
+    return aligned
 
 
 def _project_property_column(
@@ -306,6 +337,17 @@ def apply_result_projection(
         if structured and column.kind == "whole_row"
     }
     setattr(out, "_cypher_entity_projection_kinds", kinds)
+    presence: Dict[str, DataFrameT] = {}
+    if kinds and rows_df is not None:
+        for column in projection.columns:
+            if column.kind != "whole_row":
+                continue
+            source_alias = column.source_name or projection.alias
+            sources = alias_field_sources(rows_df.columns, source_alias)
+            if sources is not None and source_alias in sources:
+                marker_frame = rows_df[[sources[source_alias]]]
+                presence[column.output_name] = marker_frame.clone() if is_polars_df(marker_frame) else marker_frame.copy()
+    setattr(out, "_cypher_entity_projection_presence", presence)
     return out
 
 

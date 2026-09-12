@@ -42,3 +42,40 @@ def test_entity_projection_kind_and_identity_are_independent(engine, labelled, p
         if projection == "DISTINCT x":
             assert sorted(frame[f"{alias}.id"].tolist()) == [2, 3]
     assert not hasattr(g, "_cypher_entity_projection_kinds")
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_null_entity_presence_survives_missing_identity_and_renaming(engine):
+    from graphistry.compute.gfql.cypher.lowering import ResultProjectionColumn, ResultProjectionPlan
+    from graphistry.compute.gfql.cypher.result_postprocess import apply_result_projection, render_entity_text
+
+    nodes = pd.DataFrame({"x": pd.Series([True, None], dtype="boolean"), "x.name": pd.Series([None, None], dtype="string")})
+    g = graphistry.nodes(df_to_engine(nodes, Engine(engine)), "id")
+    plan = ResultProjectionPlan(
+        alias="x", table="nodes",
+        columns=(ResultProjectionColumn("renamed", "whole_row"),),
+    )
+    out = apply_result_projection(g, plan)
+    assert not hasattr(out, "_cypher_entity_projection_meta")
+    assert not hasattr(g, "_cypher_entity_projection_presence")
+    rendered_graph = out.bind()
+    if engine.startswith("polars"):
+        rendered_graph._nodes = out._nodes.to_pandas()
+    text = render_entity_text(rendered_graph, "renamed")
+    if hasattr(text, "to_pandas"):
+        text = text.to_pandas()
+    assert text.tolist() == ["()", None]
+    assert out._cypher_entity_projection_kinds == {"renamed": "nodes"}
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_presence_alignment_preserves_reordered_entities_and_inserted_nulls(engine):
+    from graphistry.compute.gfql.cypher.result_postprocess import entity_projection_presence_for_segments
+
+    marker = df_to_engine(pd.DataFrame({"x": pd.Series([True, None, True], dtype="boolean")}), Engine(engine))
+    g = graphistry.nodes(marker, "id")
+    g._cypher_entity_projection_presence = {"renamed": marker}
+    aligned = entity_projection_presence_for_segments(g, [(2, 3), 2, (0, 2)])["renamed"]
+    aligned = aligned.to_pandas() if hasattr(aligned, "to_pandas") else aligned
+    assert aligned["x"].notna().tolist() == [True, False, False, True, False]
+    assert len(g._cypher_entity_projection_presence["renamed"]) == 3
