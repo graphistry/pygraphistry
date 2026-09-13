@@ -13,12 +13,13 @@ temporal arithmetic) → NIE.
 """
 from __future__ import annotations
 
+import inspect
 import operator
 import re
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, TypeVar, Union, cast
 
-from typing_extensions import assert_never
+from typing_extensions import Literal, Protocol, assert_never
 
 if TYPE_CHECKING:
     import polars as pl
@@ -1447,7 +1448,7 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     import polars as pl
     func = func.lower()
     if func == "count" and (expr is None or expr == "*"):
-        return polars_conform_agg_dtype(pl.len(), func, None, alias)
+        return polars_conform_agg_dtype(pl.len().fill_null(0), func, None, alias)
     if not isinstance(expr, str) or expr not in columns:
         return None
     col = pl.col(expr)
@@ -1488,7 +1489,7 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
             # kernel, which would then ANSWER the same wrong-typed query.
             raise_non_numeric_aggregation(func, expr, dtype_label, alias)
     if func == "count":
-        return polars_conform_agg_dtype(col.count(), func, dtype, alias)
+        return polars_conform_agg_dtype(col.count().fill_null(0), func, dtype, alias)
     if func == "sum":
         return polars_conform_agg_dtype(col.sum(), func, dtype, alias)
     if func in ("avg", "mean"):
@@ -1500,7 +1501,11 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     if func == "count_distinct":
         # count(DISTINCT x) drops nulls (pandas nunique(dropna=True)); polars n_unique() counts
         # null, so drop_nulls first.
-        return polars_conform_agg_dtype(col.drop_nulls().n_unique(), func, dtype, alias)
+        from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
+
+        distinct_count = (col.n_unique() - (col.null_count() > 0).cast(pl.UInt32)
+                          if active_target() == ExecutionTarget.GPU else col.drop_nulls().n_unique())
+        return polars_conform_agg_dtype(distinct_count.fill_null(0), func, dtype, alias)
     if func == "collect":
         # collect(x) drops nulls, keeps within-group row order (pandas row/pipeline.py:4552-4582:
         # ~isna() then agg(list)). Inside group_by(maintain_order=True).agg a multi-valued expr
@@ -1514,6 +1519,92 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
         # empty/all-null group -> [].
         return col.drop_nulls().unique(maintain_order=True).alias(alias)
     return None
+
+
+def _group_by_decline(cause: Optional[NotImplementedError] = None) -> None:
+    from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
+    from graphistry.compute.exceptions import ErrorCode, GFQLUnsupportedError
+
+    if active_target() == ExecutionTarget.GPU:
+        raise GFQLUnsupportedError(
+            ErrorCode.E110,
+            "The requested GPU backend cannot execute this aggregation",
+            field="function", value="group_by", engine="polars-gpu",
+            suggestion="Use engine='polars' for CPU execution",
+        ) from cause
+    return None
+
+
+class _LegacyPolarsNullJoin(Protocol):
+    def __call__(self, other: "pl.LazyFrame", *, on: Sequence[str],
+                 how: Literal["left", "anti"], join_nulls: bool,
+                 maintain_order: Literal["left"]) -> "pl.LazyFrame": ...
+
+
+def _polars_join_uses_nulls_equal() -> bool:
+    import polars as pl
+    return "nulls_equal" in inspect.signature(pl.LazyFrame.join).parameters
+
+
+def _collection_join(left: "pl.LazyFrame", right: "pl.LazyFrame", keys: List[str],
+                     how: Literal["left", "anti"]) -> "pl.LazyFrame":
+    if _polars_join_uses_nulls_equal():
+        return left.join(right, on=keys, how=how, nulls_equal=True, maintain_order="left")
+    legacy_join = cast(_LegacyPolarsNullJoin, left.join)  # hygiene-ok: explicit-cast -- Polars 1.21 uses the verified legacy join_nulls signature
+    return legacy_join(right, on=keys, how=how, join_nulls=True, maintain_order="left")
+
+
+def _gpu_collection_aggregates(
+    operands: "pl.LazyFrame", keys: List[str], scalars: List["pl.Expr"],
+    collections: List[Tuple[str, str, bool]], schema: Mapping[str, "pl.DataType"],
+    output_aliases: List[str],
+) -> "pl.DataFrame":
+    """GPU collection plans with null exclusion before grouping and explicit empty identities."""
+    import polars as pl
+    from graphistry.compute.gfql.lazy import collect
+
+    group_keys = list(keys)
+    if not group_keys:
+        global_key = "__gfql_collection_group__"
+        while global_key in schema or global_key in output_aliases:
+            global_key += "_"
+        group_keys = [global_key]
+        operands = operands.with_columns(pl.lit(0).alias(global_key))
+        base = (collect(operands.select(scalars).with_columns(pl.lit(0).alias(global_key)))
+                if scalars else collect(pl.DataFrame({global_key: [0]}, schema={global_key: pl.Int32}).lazy()))
+    else:
+        base = collect(operands.group_by(group_keys, maintain_order=True).agg(scalars)
+                       if scalars else operands.select(group_keys).unique(maintain_order=True))
+    for alias, source, distinct in collections:
+        value_name = "__gfql_collection_value__"
+        while value_name in schema or value_name in group_keys or value_name in output_aliases:
+            value_name += "_"
+        value = pl.col(source)
+        dtype = schema[source]
+        if _dtype_is_float(dtype):
+            value = value.fill_nan(None)
+        elif _dtype_is_stringlike(dtype) and dtype != pl.String:
+            value = value.cast(pl.String)
+        part = operands.with_columns(value.alias(value_name)).filter(pl.col(value_name).is_not_null())
+        if distinct:
+            part = part.unique(subset=[*group_keys, value_name], keep="first", maintain_order=True)
+        grouped = collect(part.group_by(group_keys, maintain_order=True).agg(pl.col(value_name).alias(alias)))
+        if base.height == 0:
+            # Both results are empty: adding the output dtype cannot move or compute row values.
+            base = pl.DataFrame(schema={**base.schema, alias: grouped.schema[alias]})
+            continue
+        if grouped.height < base.height:
+            identity = pl.DataFrame({alias: [[]]}, schema={alias: grouped.schema[alias]}).lazy()
+            if grouped.height == 0:
+                completed = base.lazy().select(group_keys).join(identity, how="cross")
+            else:
+                missing = _collection_join(base.lazy().select(group_keys),
+                                           grouped.lazy().select(group_keys), group_keys, "anti").join(identity, how="cross")
+                completed = pl.concat([grouped.lazy(), missing])
+        else:
+            completed = grouped.lazy()
+        base = collect(_collection_join(base.lazy(), completed, group_keys, "left"))
+    return base[[*keys, *output_aliases]]
 
 
 def group_by_polars(
@@ -1538,29 +1629,97 @@ def group_by_polars(
                 if isinstance(col, str) and col.startswith(prefix) and col not in seen:
                     key_cols.append(col)
                     seen.add(col)
-    if not key_cols or not all(isinstance(k, str) and k in cols for k in key_cols):
+    from graphistry.compute.gfql.agg_types import validate_aggregation_output
+
+    validate_aggregation_output(bool(key_cols), bool(aggregations))
+    if not all(isinstance(k, str) and k in cols for k in key_cols):
+        _group_by_decline()
         return None
+    import polars as pl
+    from graphistry.compute.gfql.lazy import ExecutionTarget, active_target, collect
+
+    if any(dtype == pl.Null for dtype in table.schema.values()):
+        # GPU scans cannot ingest Null storage. Its schema proves every value is null;
+        # allocate typed input buffers without evaluating an aggregate or mutating g.
+        table = pl.DataFrame([
+            pl.Series(name, [None] * table.height, dtype=pl.Int64)
+            if dtype == pl.Null else table.get_column(name)
+            for name, dtype in table.schema.items()
+        ])
+    operand_plan = table.lazy()
+    operand_schema = dict(table.schema)
+    has_projected_operands = False
     aggs: List["pl.Expr"] = []
+    collections: List[Tuple[str, str, bool]] = []
+    output_aliases: List[str] = []
     for agg in aggregations:
         if not isinstance(agg, (list, tuple)) or len(agg) not in (2, 3):
+            _group_by_decline()
             return None
         # cast: the AggSpec tuple variants make agg[2] an out-of-range index to mypy;
         # the len guard above already proved the shape.
         spec = cast("Sequence[Optional[str]]", agg)
         alias = str(spec[0])
+        output_aliases.append(alias)
         func = str(spec[1])
         expr = spec[2] if len(spec) == 3 else None
-        # Passed as a CALLABLE, not a precomputed flag: the null scan is O(n) and is only ever
-        # consulted for a column the dtype check has already rejected, so a normal numeric
-        # aggregate never runs it.
-        def _is_all_null(col_name: str) -> bool:
-            return table.height > 0 and table[col_name].null_count() == table.height
+        if isinstance(expr, str) and expr not in cols and not (func.lower() == "count" and expr == "*"):
+            source_expr = expr
+            operand = _lower_with_schema(table, lambda: lower_expr_str(source_expr, cols), node_id=g._node)
+            if operand is None:
+                _group_by_decline()
+                return None
+            temporary = "__gfql_aggregate_operand__"
+            while temporary in operand_schema:
+                temporary += "_"
+            # with_columns broadcasts constants to the input height, including zero rows.
+            if operand_plan.select(operand.alias(temporary)).collect_schema()[temporary] == pl.Null:
+                operand = pl.lit(None, dtype=pl.Int64)
+            operand_plan = operand_plan.with_columns(operand.alias(temporary))
+            operand_schema = dict(operand_plan.collect_schema())
+            expr = temporary
+            has_projected_operands = True
 
-        lowered = _agg_expr(func, expr, cols, alias, table.schema, _is_all_null)
-        if lowered is None:
+        def _is_all_null(col_name: str) -> bool:
+            if col_name in cols:
+                return table.height > 0 and table[col_name].null_count() == table.height
+            null_count = collect(operand_plan.select(pl.col(col_name).null_count())).item()
+            return table.height > 0 and null_count == table.height
+
+        try:
+            lowered = _agg_expr(func, expr, list(operand_schema), alias, operand_schema, _is_all_null)
+        except NotImplementedError as exc:
+            _group_by_decline(exc)
             return None
+        if lowered is None:
+            _group_by_decline()
+            return None
+        if active_target() == ExecutionTarget.GPU and func.lower() in ("collect", "collect_distinct"):
+            assert isinstance(expr, str)
+            collections.append((alias, expr, func.lower() == "collect_distinct"))
+            continue
+        if not key_cols and func.lower() in ("collect", "collect_distinct"):
+            lowered = lowered.implode().alias(alias)
         aggs.append(lowered)
-    out = table.group_by(key_cols, maintain_order=True).agg(aggs)
+
+    if collections:
+        try:
+            return _rewrap(g, _gpu_collection_aggregates(
+                operand_plan, key_cols, aggs, collections, operand_schema, output_aliases,
+            ))
+        except NotImplementedError as exc:
+            _group_by_decline(exc)
+            return None
+    if active_target() == ExecutionTarget.GPU or has_projected_operands or not key_cols:
+        plan = (operand_plan.group_by(key_cols, maintain_order=True).agg(aggs)
+                if key_cols else operand_plan.select(aggs))
+        try:
+            out = collect(plan)
+        except NotImplementedError as exc:
+            _group_by_decline(exc)
+            return None
+    else:
+        out = table.group_by(key_cols, maintain_order=True).agg(aggs)
     return _rewrap(g, out)
 
 

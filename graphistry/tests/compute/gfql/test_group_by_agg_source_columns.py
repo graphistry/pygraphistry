@@ -185,11 +185,7 @@ def test_removed_literal_source_falls_back_to_visible_expression_operands(engine
     query = [rows(table=table), select(["kind", "a", "b"]),
              group_by(keys=["kind"], aggregations=[("m", "max", "a + b")])]
     assert _validates_clean(g, query)
-    if engine.startswith("polars"):
-        with pytest.raises(NotImplementedError):
-            g.gfql(query, engine=engine)
-    else:
-        assert _max_per_kind(g, query, engine) == [("a", 24), ("b", 48)]
+    assert _max_per_kind(g, query, engine) == [("a", 24), ("b", 48)]
 
 
 @pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires TEST_POLARS_GPU=1 and cudf-polars")
@@ -224,3 +220,206 @@ def test_dotted_aggregate_after_graph_path_uses_strict_gpu_collect(monkeypatch):
     assert _validates_clean(g, query)
     assert _max_per_kind(g, query, "polars-gpu") == [("a", 103.0), ("b", 107.0)]
     assert gpu_collects
+
+
+@pytest.mark.parametrize("connected", [False, True])
+@pytest.mark.parametrize("source", ["plain", "x.y.Dotted", "a + b"])
+@pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires TEST_POLARS_GPU=1 and cudf-polars")
+def test_aggregate_itself_collects_on_gpu(monkeypatch, connected, source):
+    import polars as pl
+    from graphistry.compute.gfql.lazy.engine.polars import row_pipeline
+
+    aggregate_calls = []
+    collecting_aggregate = False
+    collect_depth = 0
+    original_group_by = row_pipeline.group_by_polars
+    original_collect = pl.LazyFrame.collect
+
+    def group_by_on_device(*args, **kwargs):
+        nonlocal collecting_aggregate
+        collecting_aggregate = True
+        try:
+            return original_group_by(*args, **kwargs)
+        finally:
+            collecting_aggregate = False
+
+    def collect(frame, *args, **kwargs):
+        nonlocal collect_depth
+        outer_aggregate = collecting_aggregate and collect_depth == 0
+        collect_depth += 1
+        try:
+            result = original_collect(frame, *args, **kwargs)
+        finally:
+            collect_depth -= 1
+        if outer_aggregate:
+            backend = kwargs.get("engine")
+            assert isinstance(backend, pl.GPUEngine)
+            assert backend.config["raise_on_fail"] is True
+            aggregate_calls.append(result)
+        return result
+
+    monkeypatch.setattr(row_pipeline, "group_by_polars", group_by_on_device)
+    monkeypatch.setattr(pl.LazyFrame, "collect", collect)
+    g = _scope_graph(source, "nodes", "polars-gpu")
+    prefix = [n(), e_forward(), n()] if connected else []
+    query = [*prefix, rows(), group_by(keys=["kind"], aggregations=[("m", "max", source)])]
+    assert _max_per_kind(g, query, "polars-gpu") == [("a", 103.0), ("b", 107.0)]
+    assert len(aggregate_calls) == 1
+
+
+def test_gpu_aggregate_backend_refusal_is_structured(monkeypatch):
+    pytest.importorskip("polars")
+    from graphistry.compute.exceptions import GFQLUnsupportedError
+    from graphistry.compute.gfql import lazy
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import group_by_polars
+
+    calls = []
+
+    def decline(plan):
+        calls.append(plan)
+        raise NotImplementedError("backend capability refusal")
+
+    monkeypatch.setattr(lazy, "collect", decline)
+    g = _scope_graph("x.y.Dotted", "nodes", "polars")
+    with lazy.target_mode(lazy.ExecutionTarget.GPU):
+        with pytest.raises(GFQLUnsupportedError) as exc:
+            group_by_polars(g, ["kind"], [("m", "max", "x.y.Dotted")])
+    assert len(calls) == 1
+    assert isinstance(exc.value, NotImplementedError)
+    assert exc.value.code == ErrorCode.E110
+    assert exc.value.context["value"] == "group_by"
+    assert exc.value.context["engine"] == "polars-gpu"
+    assert isinstance(exc.value.__cause__, NotImplementedError)
+
+
+def test_cpu_aggregate_does_not_require_gpu_collector(monkeypatch):
+    pytest.importorskip("polars")
+    from graphistry.compute.gfql import lazy
+
+    def forbidden(plan):
+        pytest.fail("CPU aggregate called the explicit device collector")
+
+    monkeypatch.setattr(lazy, "collect", forbidden)
+    g = _scope_graph("x.y.Dotted", "nodes", "polars")
+    assert _max_per_kind(g, _max_by_kind("x.y.Dotted"), "polars") == [("a", 103.0), ("b", 107.0)]
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("empty", [False, True])
+def test_numeric_empty_and_null_aggregate_schema(engine, empty):
+    pdf = pd.DataFrame({
+        "id": [0, 1, 2, 3], "kind": ["a", "a", "b", "b"],
+        "x.y.Dotted": pd.Series([None, None, 3.0, None], dtype="float64"),
+    })
+    if empty:
+        pdf = pdf.iloc[:0]
+    g = graphistry.nodes(pdf, "id")
+    query = [rows(), group_by(keys=["kind"], aggregations=[("m", "sum", "x.y.Dotted")])]
+    assert _max_per_kind(g, query, engine) == ([] if empty else [("a", 0.0), ("b", 3.0)])
+
+
+def test_gpu_aggregate_unlowerable_expression_is_structured(monkeypatch):
+    pytest.importorskip("polars")
+    from graphistry.compute.exceptions import GFQLUnsupportedError
+    from graphistry.compute.gfql import lazy
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import group_by_polars
+
+    g = _scope_graph("x.y.Dotted", "nodes", "polars")
+    from graphistry.compute.gfql.lazy.engine.polars import row_pipeline
+
+    monkeypatch.setattr(row_pipeline, "_lower_with_schema", lambda *args, **kwargs: None)
+    args = (g, ["kind"], [("m", "max", "a + b")])
+    with lazy.target_mode(lazy.ExecutionTarget.CPU):
+        assert group_by_polars(*args) is None
+    with lazy.target_mode(lazy.ExecutionTarget.GPU):
+        with pytest.raises(GFQLUnsupportedError) as exc:
+            group_by_polars(*args)
+    assert exc.value.code == ErrorCode.E110
+    assert exc.value.context["engine"] == "polars-gpu"
+
+
+def test_gpu_aggregate_refusal_survives_native_call_boundary(monkeypatch):
+    pytest.importorskip("polars")
+    from graphistry.compute.exceptions import GFQLUnsupportedError
+    from graphistry.compute.gfql import lazy
+    from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
+
+    def decline(plan):
+        raise NotImplementedError("backend capability refusal")
+
+    monkeypatch.setattr(lazy, "collect", decline)
+    g = _scope_graph("x.y.Dotted", "nodes", "polars")
+    with lazy.target_mode(lazy.ExecutionTarget.GPU):
+        with pytest.raises(GFQLUnsupportedError) as exc:
+            chain_polars(g, _max_by_kind("x.y.Dotted"))
+    assert exc.value.code == ErrorCode.E110
+    assert exc.value.context["value"] == "group_by"
+    assert isinstance(exc.value, NotImplementedError)
+
+
+@pytest.mark.parametrize("target", ["cpu", "gpu"])
+def test_aggregate_preparation_refusal_uses_decline_contract(monkeypatch, target):
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.exceptions import GFQLUnsupportedError
+    from graphistry.compute.gfql import lazy
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import group_by_polars
+
+    refusal = NotImplementedError("controlled preparation refusal")
+    calls = []
+
+    def decline(plan):
+        calls.append(plan)
+        raise refusal
+
+    monkeypatch.setattr(lazy, "collect", decline)
+    g = graphistry.nodes(pl.DataFrame({"value": [1]}))
+    with lazy.target_mode(lazy.ExecutionTarget(target)):
+        if target == "cpu":
+            assert group_by_polars(g, [], [("answer", "sum", "'text'")]) is None
+        else:
+            with pytest.raises(GFQLUnsupportedError) as exc:
+                group_by_polars(g, [], [("answer", "sum", "'text'")])
+            assert exc.value.code == ErrorCode.E110
+            assert exc.value.context["engine"] == "polars-gpu"
+            assert exc.value.__cause__ is refusal
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("prefixes", [None, ["missing."]])
+def test_zero_output_global_grouping_is_rejected(engine, empty, prefixes):
+    from graphistry.compute.exceptions import GFQLTypeError
+
+    g = _graph()
+    if empty:
+        g = g.nodes(g._nodes.head(0))
+    query = [group_by([], [], key_prefixes=prefixes)]
+    with pytest.raises(GFQLTypeError) as exc:
+        g.gfql_validate(query)
+    assert exc.value.code == ErrorCode.E201
+    assert exc.value.context["field"] == "group_by.aggregations"
+    assert exc.value.context["value"] == []
+
+    from graphistry.compute.validate.validate_schema import validate_chain_schema
+
+    errors = validate_chain_schema(g, query, collect_all=True)
+    assert errors is not None and len(errors) == 1
+    assert errors[0].code == ErrorCode.E201
+    assert errors[0].context["operation_index"] == 0
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("prefix", [False, True])
+def test_key_only_grouping_remains_valid(engine, empty, prefix):
+    g = _graph()
+    if empty:
+        g = g.nodes(g._nodes.head(0))
+    query = [group_by([] if prefix else ["kind"], [], key_prefixes=["ki"] if prefix else None)]
+    assert g.gfql_validate(query)["ok"]
+    out = g.gfql(query, engine=engine)._nodes
+    assert type(out).__module__.split(".")[0] == ("polars" if engine.startswith("polars") else engine)
+    records = out.to_dicts() if engine.startswith("polars") else (
+        out.to_pandas().to_dict("records") if engine == "cudf" else out.to_dict("records"))
+    assert records == ([] if empty else [{"kind": "a"}, {"kind": "b"}])

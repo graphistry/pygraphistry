@@ -110,6 +110,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_entity_projection_kinds.py
     graphistry/tests/compute/gfql/cypher/test_result_postprocess.py
     graphistry/tests/compute/gfql/test_group_by_agg_source_columns.py
+    graphistry/tests/compute/gfql/test_aggregate_expression_shapes.py
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
     graphistry/tests/compute/gfql/test_seeded_typed_hop_fastpath.py
     graphistry/tests/compute/gfql/test_residual_polars_native.py

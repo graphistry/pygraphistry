@@ -354,6 +354,16 @@ def _group_by_requires_node_cols(
     if isinstance(keys, list):
         out.extend([k for k in keys if isinstance(k, str)])
     aggregations = params.get("aggregations")
+    if isinstance(aggregations, list) and not aggregations:
+        from graphistry.compute.gfql.agg_types import validate_aggregation_output
+
+        prefixes = params.get("key_prefixes")
+        has_prefix_keys = isinstance(prefixes, list) and any(
+            isinstance(prefix, str) and (
+                available_cols is None or any(col.startswith(prefix) for col in available_cols)
+            ) for prefix in prefixes
+        )
+        validate_aggregation_output(bool(out) or has_prefix_keys, False)
     if isinstance(aggregations, list):
         for item in aggregations:
             if not isinstance(item, (list, tuple)) or len(item) != 3:
@@ -500,7 +510,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         {'keys', 'aggregations', 'key_prefixes'},
         required_params={'keys', 'aggregations'},
         param_validators={
-            'keys': is_non_empty_list_of_strings,
+            'keys': is_list_of_strings,
             'aggregations': is_list_of_agg_specs,
             'key_prefixes': lambda v: v is None or is_list_of_strings(v),
         },
