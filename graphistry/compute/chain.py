@@ -161,7 +161,7 @@ class Chain(ASTSerializable):
             data['where'] = where_to_json(self.where)
         return data
 
-    def validate_schema(self, g: Plottable, collect_all: bool = False) -> Optional[List['GFQLSchemaError']]:
+    def validate_schema(self, g: Plottable, collect_all: bool = False) -> Optional[List['GFQLValidationError']]:
         """Validate this chain against a graph's schema without executing.
 
         Args:
@@ -173,7 +173,7 @@ class Chain(ASTSerializable):
             If collect_all=False: None if valid
 
         Raises:
-            GFQLSchemaError: If collect_all=False and validation fails
+            GFQLValidationError: If collect_all=False and validation fails
         """
         return validate_chain_schema(g, self, collect_all)
 
