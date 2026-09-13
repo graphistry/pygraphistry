@@ -35,10 +35,10 @@ def test_entity_projection_kind_and_identity_are_independent(engine, labelled, p
     kinds = out._cypher_entity_projection_kinds
     if projection == "count(DISTINCT x) AS c":
         assert frame.to_dict("records") == [{"c": 2}]
-        assert kinds == {}
+        assert kinds is None
     elif projection == "x.name":
         assert frame.to_dict("records") == [{"x.name": "same"}, {"x.name": "same"}]
-        assert kinds == {}
+        assert kinds is None
     else:
         alias = "renamed" if projection == "x AS renamed" else "x"
         assert kinds == {alias: "nodes"}
@@ -46,7 +46,7 @@ def test_entity_projection_kind_and_identity_are_independent(engine, labelled, p
         assert frame[f"{alias}.name"].tolist() == ["same", "same"]
         if projection == "DISTINCT x":
             assert sorted(frame[f"{alias}.id"].tolist()) == [2, 3]
-    assert g._cypher_entity_projection_kinds == {}
+    assert g._cypher_entity_projection_kinds is None
 
 
 def test_null_entity_presence_survives_missing_identity_and_renaming(engine):

@@ -71,7 +71,7 @@ class Plottable(Protocol):
     _gfql_start_nodes: Optional["DataFrameT"]
     _gfql_rows_edge_aliases: Optional[Iterable[str]]
     _gfql_shortest_path_backend: str
-    _cypher_entity_projection_kinds: Dict[str, GraphEntityKind]
+    _cypher_entity_projection_kinds: Optional[Dict[str, GraphEntityKind]]
     _cypher_entity_projection_presence: Dict[str, "DataFrameT"]
     _cypher_entity_projection_meta: Dict[str, "WholeRowProjectionMeta"]
 

@@ -103,7 +103,7 @@ def test_whole_entity_projection_records_kind_without_identity_column() -> None:
     out = apply_result_projection(g, plan)
     assert out._cypher_entity_projection_kinds == {"renamed": "nodes"}
     assert out._nodes.to_dicts() == [{"renamed.name": "same"}, {"renamed.name": None}]
-    assert g._cypher_entity_projection_kinds == {}
+    assert g._cypher_entity_projection_kinds is None
     assert out._cypher_entity_projection_meta == {}
 
 

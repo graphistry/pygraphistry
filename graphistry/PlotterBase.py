@@ -258,7 +258,7 @@ class PlotterBase(Plottable):
         # NOTE: See plotter initialization for session bindings & concurrency notes.
         super().__init__(*args, **kwargs)
 
-        self._cypher_entity_projection_kinds = {}
+        self._cypher_entity_projection_kinds = None
         self._cypher_entity_projection_presence = {}
         self._cypher_entity_projection_meta = {}
 
