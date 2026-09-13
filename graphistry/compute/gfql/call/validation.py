@@ -500,7 +500,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         {'keys', 'aggregations', 'key_prefixes'},
         required_params={'keys', 'aggregations'},
         param_validators={
-            'keys': is_non_empty_list_of_strings,
+            'keys': is_list_of_strings,
             'aggregations': is_list_of_agg_specs,
             'key_prefixes': lambda v: v is None or is_list_of_strings(v),
         },

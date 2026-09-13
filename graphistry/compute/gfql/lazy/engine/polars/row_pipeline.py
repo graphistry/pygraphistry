@@ -1509,9 +1509,15 @@ def group_by_polars(
                 if isinstance(col, str) and col.startswith(prefix) and col not in seen:
                     key_cols.append(col)
                     seen.add(col)
-    if not key_cols or not all(isinstance(k, str) and k in cols for k in key_cols):
+    if not all(isinstance(k, str) and k in cols for k in key_cols):
         _group_by_decline()
         return None
+    import polars as pl
+    from graphistry.compute.gfql.lazy import ExecutionTarget, active_target, collect
+
+    operand_plan = table.lazy()
+    operand_schema = dict(table.schema)
+    has_projected_operands = False
     aggs: List["pl.Expr"] = []
     for agg in aggregations:
         if not isinstance(agg, (list, tuple)) or len(agg) not in (2, 3):
@@ -1523,21 +1529,37 @@ def group_by_polars(
         alias = str(spec[0])
         func = str(spec[1])
         expr = spec[2] if len(spec) == 3 else None
-        # Passed as a CALLABLE, not a precomputed flag: the null scan is O(n) and is only ever
-        # consulted for a column the dtype check has already rejected, so a normal numeric
-        # aggregate never runs it.
-        def _is_all_null(col_name: str) -> bool:
-            return table.height > 0 and table[col_name].null_count() == table.height
+        if isinstance(expr, str) and expr not in cols and not (func.lower() == "count" and expr == "*"):
+            operand = _lower_with_schema(table, lambda: lower_expr_str(expr, cols), node_id=g._node)
+            if operand is None:
+                _group_by_decline()
+                return None
+            temporary = "__gfql_aggregate_operand__"
+            while temporary in operand_schema:
+                temporary += "_"
+            # with_columns broadcasts constants to the input height, including zero rows.
+            operand_plan = operand_plan.with_columns(operand.alias(temporary))
+            operand_schema = dict(operand_plan.collect_schema())
+            expr = temporary
+            has_projected_operands = True
 
-        lowered = _agg_expr(func, expr, cols, alias, table.schema, _is_all_null)
+        def _is_all_null(col_name: str) -> bool:
+            if col_name in cols:
+                return table.height > 0 and table[col_name].null_count() == table.height
+            null_count = collect(operand_plan.select(pl.col(col_name).null_count())).item()
+            return table.height > 0 and null_count == table.height
+
+        lowered = _agg_expr(func, expr, list(operand_schema), alias, operand_schema, _is_all_null)
         if lowered is None:
             _group_by_decline()
             return None
+        if not key_cols and func.lower() in ("collect", "collect_distinct"):
+            lowered = lowered.implode().alias(alias)
         aggs.append(lowered)
-    from graphistry.compute.gfql.lazy import ExecutionTarget, active_target, collect
 
-    if active_target() == ExecutionTarget.GPU:
-        plan = table.lazy().group_by(key_cols, maintain_order=True).agg(aggs)
+    if active_target() == ExecutionTarget.GPU or has_projected_operands or not key_cols:
+        plan = (operand_plan.group_by(key_cols, maintain_order=True).agg(aggs)
+                if key_cols else operand_plan.select(aggs))
         try:
             out = collect(plan)
         except NotImplementedError as exc:
