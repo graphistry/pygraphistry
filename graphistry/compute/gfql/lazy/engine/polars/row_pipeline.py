@@ -13,12 +13,13 @@ temporal arithmetic) → NIE.
 """
 from __future__ import annotations
 
+import inspect
 import operator
 import re
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, TypeVar, Union, cast
 
-from typing_extensions import assert_never
+from typing_extensions import Literal, Protocol, assert_never
 
 if TYPE_CHECKING:
     import polars as pl
@@ -1491,6 +1492,25 @@ def _group_by_decline(cause: Optional[NotImplementedError] = None) -> None:
     return None
 
 
+class _LegacyPolarsNullJoin(Protocol):
+    def __call__(self, other: "pl.LazyFrame", *, on: Sequence[str],
+                 how: Literal["left", "anti"], join_nulls: bool,
+                 maintain_order: Literal["left"]) -> "pl.LazyFrame": ...
+
+
+def _polars_join_uses_nulls_equal() -> bool:
+    import polars as pl
+    return "nulls_equal" in inspect.signature(pl.LazyFrame.join).parameters
+
+
+def _collection_join(left: "pl.LazyFrame", right: "pl.LazyFrame", keys: List[str],
+                     how: Literal["left", "anti"]) -> "pl.LazyFrame":
+    if _polars_join_uses_nulls_equal():
+        return left.join(right, on=keys, how=how, nulls_equal=True, maintain_order="left")
+    legacy_join = cast(_LegacyPolarsNullJoin, left.join)  # hygiene-ok: explicit-cast -- Polars 1.21 uses the verified legacy join_nulls signature
+    return legacy_join(right, on=keys, how=how, join_nulls=True, maintain_order="left")
+
+
 def _gpu_collection_aggregates(
     operands: "pl.LazyFrame", keys: List[str], scalars: List["pl.Expr"],
     collections: List[Tuple[str, str, bool]], schema: Mapping[str, "pl.DataType"],
@@ -1528,22 +1548,20 @@ def _gpu_collection_aggregates(
         grouped = collect(part.group_by(group_keys, maintain_order=True).agg(pl.col(value_name).alias(alias)))
         if base.height == 0:
             # Both results are empty: adding the output dtype cannot move or compute row values.
-            base = base.with_columns(pl.Series(alias, [], dtype=grouped.schema[alias]))
+            base = pl.DataFrame(schema={**base.schema, alias: grouped.schema[alias]})
             continue
         if grouped.height < base.height:
             identity = pl.DataFrame({alias: [[]]}, schema={alias: grouped.schema[alias]}).lazy()
             if grouped.height == 0:
                 completed = base.lazy().select(group_keys).join(identity, how="cross")
             else:
-                missing = base.lazy().select(group_keys).join(
-                    grouped.lazy().select(group_keys), on=group_keys, how="anti", nulls_equal=True,
-                ).join(identity, how="cross")
+                missing = _collection_join(base.lazy().select(group_keys),
+                                           grouped.lazy().select(group_keys), group_keys, "anti").join(identity, how="cross")
                 completed = pl.concat([grouped.lazy(), missing])
         else:
             completed = grouped.lazy()
-        base = collect(base.lazy().join(completed, on=group_keys, how="left",
-                                        nulls_equal=True, maintain_order="left"))
-    return base.select([*keys, *output_aliases])
+        base = collect(_collection_join(base.lazy(), completed, group_keys, "left"))
+    return base[[*keys, *output_aliases]]
 
 
 def group_by_polars(
