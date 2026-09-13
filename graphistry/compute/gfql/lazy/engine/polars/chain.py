@@ -564,7 +564,7 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
     #    the generic chain routes schema-changers straight to execute_call.)
     from graphistry.compute.ast import ASTCall
     from graphistry.compute.gfql.row.pipeline import is_row_pipeline_call
-    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError, GFQLTypeError, GFQLValidationError
+    from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError, GFQLTypeError, GFQLUnsupportedError, GFQLValidationError
     for op in calls:
         if not isinstance(op, ASTCall):
             raise NotImplementedError(
@@ -574,7 +574,7 @@ def _run_calls_polars(g_cur, calls, start_nodes, base_graph, middle):
             )
         try:
             native = _try_native_row_op(g_cur, op)
-        except GFQLTypeError:
+        except (GFQLTypeError, GFQLUnsupportedError):
             raise
         except GFQLValidationError as validation_error:
             if isinstance(validation_error, GFQLSchemaError) and validation_error.code == ErrorCode.E301:

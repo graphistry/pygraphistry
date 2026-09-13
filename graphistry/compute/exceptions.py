@@ -23,6 +23,7 @@ class ErrorCode:
     E107 = "invalid-cypher-syntax"
     E108 = "unsupported-cypher-query"
     E109 = "output-requires-let-query"
+    E110 = "unsupported-operation"
 
     # Type errors (E2xx)
     E201 = "type-mismatch"
@@ -142,4 +143,9 @@ class GFQLRemoteError(GFQLValidationError, ValueError):
     Also a ``ValueError`` so callers written against the previous untyped
     remote errors keep working.
     """
+    pass
+
+
+class GFQLUnsupportedError(GFQLValidationError, NotImplementedError):
+    """Structured operation decline, compatible with existing engine fallback guards."""
     pass

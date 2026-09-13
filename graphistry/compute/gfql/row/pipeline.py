@@ -5509,8 +5509,17 @@ class RowPipelineMixin:
                     if isinstance(col, str) and col.startswith(prefix) and col not in seen:
                         key_cols.append(col)
                         seen.add(col)
+        from graphistry.compute.gfql.agg_types import validate_aggregation_output
+
+        validate_aggregation_output(bool(key_cols), bool(aggregations))
+        global_key = None
         if not key_cols:
-            raise ValueError("group_by(keys=...) requires at least one key column")
+            global_key = RowPipelineMixin._gfql_fresh_col_name(
+                [*table_df.columns, *(str(agg[0]) for agg in aggregations if agg)],
+                "__gfql_global_group__",
+            )
+            table_df = table_df.assign(**{global_key: 0})
+            key_cols = [global_key]
         for key in key_cols:
             if key not in table_df.columns:
                 raise ValueError(f"group_by key column not found: {key!r}")
@@ -5574,7 +5583,11 @@ class RowPipelineMixin:
                 if expr_col not in table_df.columns:
                     expr_values = self._gfql_eval_string_expr(table_df, expr_col)
                     if not hasattr(expr_values, "astype"):
+                        null_scalar = expr_values is None
                         expr_values = self._gfql_broadcast_scalar(table_df, expr_values)
+                        if null_scalar and len(table_df) == 0:
+                            # Empty None broadcasts otherwise become object/string on cuDF.
+                            expr_values = expr_values.astype("float64")
                     tmp_col = "__gfql_group_expr__"
                     while tmp_col in table_df.columns:
                         tmp_col = f"{tmp_col}_x"
@@ -5696,6 +5709,15 @@ class RowPipelineMixin:
 
         out_df = out_df.sort_values(by=[group_order_col]).reset_index(drop=True)
         out_df = out_df.drop(columns=[group_order_col])
+        if global_key is not None:
+            out_df = out_df.drop(columns=[global_key])
+            if len(out_df) == 0:
+                from graphistry.compute.gfql.cypher.aggregate_identity import aggregate_identity_value
+
+                out_df = type(table_df)({
+                    str(agg[0]): [aggregate_identity_value(str(agg[1]).lower())]
+                    for agg in aggregations
+                })
         return self._gfql_row_table(out_df)
 
     def fill_empty_row(self, row: Dict[str, Any]) -> "Plottable":  # hygiene-ok: explicit-any -- heterogeneous Cypher identity values (0 / [] / None)

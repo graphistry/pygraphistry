@@ -19,6 +19,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- GFQL: explicit `polars-gpu` row aggregation collects the aggregate plan on GPU; unsupported aggregation plans raise a structured operation decline (#2075).
 * GFQL Polars: property returns from multiple aliases gather existing columns directly around the endpoint joins, avoiding expression-plan overhead.
 
 * GFQL Polars: single-node property returns gather columns directly, removing expression-plan collection from this fast path.
