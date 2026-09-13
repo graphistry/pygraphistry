@@ -358,28 +358,35 @@ def _agg_source_required_cols(expr: str, available_cols: Optional[Set[str]] = No
                 suggestion="Use an existing column name or a valid row expression",
             )
         from graphistry.compute.gfql.expr_parser import (
-            Identifier, PropertyAccessExpr, iter_expr_children,
+            Identifier, ListComprehension, PropertyAccessExpr, QuantifierExpr,
+            iter_expr_children,
         )
 
-        node, _capability_checker, collect_identifiers = parsed
+        node, _capability_checker, _collect_identifiers = parsed
         required: Set[str] = set()
 
-        def resolve_columns(current: "ExprNode") -> None:
+        def resolve_columns(current: "ExprNode", bound: Set[str]) -> None:
+            if isinstance(current, (ListComprehension, QuantifierExpr)):
+                resolve_columns(current.source, bound)
+                for child in iter_expr_children(current)[1:]:
+                    resolve_columns(child, bound | {current.var})
+                return
             if isinstance(current, PropertyAccessExpr) and isinstance(current.value, Identifier):
+                if current.value.name in bound:
+                    return
                 full_name = f"{current.value.name}.{current.property}"
                 if full_name in available_cols:
                     required.add(full_name)
                     return
             if isinstance(current, Identifier):
-                required.add(current.name)
+                if current.name not in bound:
+                    required.add(current.name)
                 return
             for child in iter_expr_children(current):
-                resolve_columns(child)
+                resolve_columns(child, bound)
 
-        resolve_columns(node)
-        # The parser collector excludes names bound by comprehensions/quantifiers.
-        free_roots = collect_identifiers(node)
-        return sorted(name for name in required if name.split(".")[0] in free_roots)
+        resolve_columns(node, set())
+        return sorted(required)
     return _where_rows_expr_required_cols(expr)
 
 

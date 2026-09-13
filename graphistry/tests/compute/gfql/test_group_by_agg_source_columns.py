@@ -587,3 +587,34 @@ def test_qualified_aggregate_expression_object_property_remains_valid():
     query = _max_by_kind("x.y + 1")
     assert _validates_clean(g, query)
     assert _max_per_kind(g, query, "pandas") == [("a", 4)]
+
+
+@pytest.mark.parametrize("source", [
+    "x.y + size([x IN [1, 2] | x])",
+    "size([x IN [1, 2] | x]) + x.y",
+])
+@pytest.mark.parametrize("empty", [False, True])
+def test_aggregate_comprehension_binding_does_not_hide_external_operand(source, empty):
+    frame = pd.DataFrame({"id": [0, 1], "kind": ["a", "a"], "x.y": [2, 3]})
+    if empty:
+        frame = frame.head(0)
+    g = graphistry.nodes(frame, "id")
+    query = _max_by_kind(source)
+    assert _validates_clean(g, query)
+    assert _max_per_kind(g, query, "pandas") == ([] if empty else [("a", 5)])
+    missing = g.nodes(frame.drop(columns=["x.y"]))
+    with pytest.raises(GFQLValidationError) as exc:
+        missing.gfql_validate(query)
+    assert exc.value.code == ErrorCode.E301
+    assert exc.value.context["value"] == "x"
+
+
+@pytest.mark.parametrize("source", [
+    "x.y + CASE WHEN any(x IN [1, 2] WHERE x > 0) THEN 2 ELSE 0 END",
+    "CASE WHEN any(x IN [1, 2] WHERE x > 0) THEN 2 ELSE 0 END + x.y",
+])
+def test_aggregate_quantifier_binding_does_not_hide_external_operand(source):
+    from graphistry.compute.gfql.call.validation import _agg_source_required_cols
+
+    assert _agg_source_required_cols(source, {"x.y"}) == ["x.y"]
+    assert _agg_source_required_cols(source, {"id"}) == ["x"]
