@@ -322,6 +322,13 @@ def test_zero_output_global_grouping_is_rejected(engine, empty, prefixes):
     assert exc.value.context["field"] == "group_by.aggregations"
     assert exc.value.context["value"] == []
 
+    from graphistry.compute.validate.validate_schema import validate_chain_schema
+
+    errors = validate_chain_schema(g, query, collect_all=True)
+    assert errors is not None and len(errors) == 1
+    assert errors[0].code == ErrorCode.E201
+    assert errors[0].context["operation_index"] == 0
+
 
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("empty", [False, True])
