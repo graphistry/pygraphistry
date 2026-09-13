@@ -186,7 +186,7 @@ def apply_optional_reentry_null_fill(
 
     if result_df is None or len(result_df) == 0:
         out = _bind_reentry_graph(result, df_ctor(fill_rows))
-        setattr(out, "_cypher_entity_projection_presence", entity_projection_presence_for_rows(result, [None] * len(fill_rows)))  # noqa: B010
+        out._cypher_entity_projection_presence = entity_projection_presence_for_rows(result, [None] * len(fill_rows))
         return out
 
     fill_df = df_ctor(fill_rows)
@@ -199,7 +199,7 @@ def apply_optional_reentry_null_fill(
         concat([result_df, fill_df], ignore_index=True, sort=False),
         empty_edges=True,
     )
-    setattr(out, "_cypher_entity_projection_presence", entity_projection_presence_for_rows(result, [*range(len(result_df)), *([None] * len(fill_rows))]))  # noqa: B010
+    out._cypher_entity_projection_presence = entity_projection_presence_for_rows(result, [*range(len(result_df)), *([None] * len(fill_rows))])
     return out
 
 
@@ -403,8 +403,8 @@ def compiled_query_reentry_state(
     prefix_alias_values: Optional[SeriesT] = None
     if prefix_rows is not None and output_name in prefix_rows.columns:
         prefix_alias_values = cast(SeriesT, prefix_rows[output_name])
-    entity_meta = cast(Optional[Dict[str, Any]], getattr(prefix_result, "_cypher_entity_projection_meta", None))
-    has_projection_meta = isinstance(entity_meta, dict) and output_name in entity_meta
+    entity_meta = prefix_result._cypher_entity_projection_meta
+    has_projection_meta = output_name in entity_meta
     has_secondary_carried_alias = any(not alias.is_reentry_alias for alias in plan.aliases)
     if (
         not has_projection_meta

@@ -69,6 +69,7 @@ from graphistry.compute.gfql.cypher.call_procedures import CompiledCypherProcedu
 from graphistry.compute.gfql.cypher.result_postprocess import (
     apply_result_projection,
     entity_projection_presence_for_rows,
+    is_polars_projection_ids,
     entity_projection_meta_entry as _entity_projection_meta_entry,
 )
 from graphistry.compute.gfql.df_executor import (
@@ -121,17 +122,16 @@ def _slice_reentry_prefix_result_row(
         return prefix_result
     out = prefix_result.bind()
     out._nodes = cast(DataFrameT, rows_df.iloc[row_index:row_index + 1].reset_index(drop=True))
-    setattr(out, "_cypher_entity_projection_presence", entity_projection_presence_for_rows(prefix_result, [row_index]))
-    entity_meta = getattr(prefix_result, "_cypher_entity_projection_meta", None)
-    if isinstance(entity_meta, dict):
-        entry = entity_meta.get(output_name)
-        if isinstance(entry, dict):
-            sliced_entry = dict(entry)
-            ids = sliced_entry.get("ids")
-            if ids is not None and hasattr(ids, "iloc"):
-                ids_obj = cast(Any, ids)
-                sliced_entry["ids"] = cast(Any, ids_obj.iloc[row_index:row_index + 1]).reset_index(drop=True)
-            setattr(out, "_cypher_entity_projection_meta", {output_name: sliced_entry})
+    out._cypher_entity_projection_presence = entity_projection_presence_for_rows(prefix_result, [row_index])
+    entry = prefix_result._cypher_entity_projection_meta.get(output_name)
+    if entry is not None:
+        sliced_entry = entry.copy()
+        ids = entry["ids"]
+        sliced_entry["ids"] = (
+            ids.slice(row_index, 1) if is_polars_projection_ids(ids)
+            else ids.iloc[row_index:row_index + 1].reset_index(drop=True)
+        )
+        out._cypher_entity_projection_meta = {output_name: sliced_entry}
     return out
 
 
@@ -165,12 +165,8 @@ def _projector_recorded_matched_seed_ids(
     alignment_result: Plottable,
     alignment_output_name: str,
 ) -> bool:
-    meta = getattr(alignment_result, "_cypher_entity_projection_meta", None)
-    return (
-        isinstance(meta, dict)
-        and alignment_output_name in meta
-        and "ids" in meta[alignment_output_name]
-    )
+    meta = alignment_result._cypher_entity_projection_meta
+    return alignment_output_name in meta
 
 
 def _apply_optional_null_fill(
@@ -280,7 +276,7 @@ def _apply_optional_null_fill(
 
     out = result.bind()
     out._nodes = concat(segments, ignore_index=True, sort=False) if segments else df_ctor()
-    setattr(out, "_cypher_entity_projection_presence", entity_projection_presence_for_rows(result, presence_indices))
+    out._cypher_entity_projection_presence = entity_projection_presence_for_rows(result, presence_indices)
     edges_df = result._edges
     if edges_df is not None:
         out._edges = edges_df[:0]

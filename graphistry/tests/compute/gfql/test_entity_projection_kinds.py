@@ -31,8 +31,8 @@ def test_entity_projection_kind_and_identity_are_independent(engine, labelled, p
     g = graphistry.nodes(df_to_engine(nodes, Engine(engine)), "id").edges(df_to_engine(edges, Engine(engine)), "s", "d")
     query = "MATCH (a {name: 'A'}), (b {name: 'B'}) MATCH (a)-->(x)<-->(b) RETURN " + projection
     out = g.gfql(query, engine=engine)
-    frame = out._nodes.to_pandas() if hasattr(out._nodes, "to_pandas") else out._nodes
-    kinds = getattr(out, "_cypher_entity_projection_kinds", {})
+    frame = df_to_engine(out._nodes, Engine.PANDAS)
+    kinds = out._cypher_entity_projection_kinds
     if projection == "count(DISTINCT x) AS c":
         assert frame.to_dict("records") == [{"c": 2}]
         assert kinds == {}
@@ -46,7 +46,7 @@ def test_entity_projection_kind_and_identity_are_independent(engine, labelled, p
         assert frame[f"{alias}.name"].tolist() == ["same", "same"]
         if projection == "DISTINCT x":
             assert sorted(frame[f"{alias}.id"].tolist()) == [2, 3]
-    assert not hasattr(g, "_cypher_entity_projection_kinds")
+    assert g._cypher_entity_projection_kinds == {}
 
 
 def test_null_entity_presence_survives_missing_identity_and_renaming(engine):
@@ -60,13 +60,13 @@ def test_null_entity_presence_survives_missing_identity_and_renaming(engine):
         columns=(ResultProjectionColumn("renamed", "whole_row"),),
     )
     out = apply_result_projection(g, plan)
-    assert not hasattr(out, "_cypher_entity_projection_meta")
-    assert not hasattr(g, "_cypher_entity_projection_presence")
+    assert out._cypher_entity_projection_meta == {}
+    assert g._cypher_entity_projection_presence == {}
     rendered_graph = out.bind()
     if engine.startswith("polars"):
         rendered_graph._nodes = out._nodes.to_pandas()
     text = render_entity_text(rendered_graph, "renamed")
-    if hasattr(text, "to_pandas"):
+    if engine == "cudf":
         text = text.to_pandas()
     assert len(text) == 2
     assert text.iloc[0] == "()"
@@ -85,7 +85,7 @@ def test_presence_alignment_preserves_reordered_entities_and_inserted_nulls(engi
     g._cypher_entity_projection_presence = {"renamed": marker}
     indices = [None, None] if empty else [2, None, None, 0, 1]
     aligned = entity_projection_presence_for_rows(g, indices)["renamed"]
-    aligned = aligned.to_pandas() if hasattr(aligned, "to_pandas") else aligned
+    aligned = df_to_engine(aligned, Engine.PANDAS)
     assert aligned["x"].notna().tolist() == ([False, False] if empty else [True, False, False, True, False])
     assert len(g._cypher_entity_projection_presence["renamed"]) == (0 if empty else 3)
 
@@ -106,8 +106,8 @@ def test_nullable_same_named_property_does_not_override_entity_marker(engine):
     if engine.startswith("polars"):
         rendered_graph._nodes = out._nodes.to_pandas()
     text = render_entity_text(rendered_graph, "renamed")
-    if hasattr(text, "to_pandas"):
+    if engine == "cudf":
         text = text.to_pandas()
     assert text.notna().tolist() == [True]
-    ids = out._nodes.to_pandas() if hasattr(out._nodes, "to_pandas") else out._nodes
+    ids = df_to_engine(out._nodes, Engine.PANDAS)
     assert ids["renamed.id"].tolist() == [1]
