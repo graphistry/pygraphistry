@@ -3566,7 +3566,7 @@ def _execute_seeded_node_lookup_fast_path(
     if select_items is not None:
         if is_polars:
             import polars as pl
-            out_frame = rows.select([pl.col(prop).alias(out) for out, prop in select_items])
+            out_frame = pl.DataFrame([rows.get_column(prop).alias(out) for out, prop in select_items])
         else:
             # column-wise assembly: cuDF cannot select one source column twice
             out_frame = type(rows)({out: rows[prop] for out, prop in select_items}).reset_index(drop=True)

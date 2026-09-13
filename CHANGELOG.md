@@ -20,6 +20,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 - GFQL: record whole-entity projection kind and presence independently of identity columns, so adapters distinguish unlabeled entities, property returns, and absent entities; preserve presence through OPTIONAL null-fill and reentry (tck-gfql#200).
+* GFQL Polars: single-node property returns gather columns directly, removing expression-plan collection from this fast path.
+
 * GFQL: indexed scalar node and directed single-hop queries followed by `rows(source=...)` and optional `select(...)` now produce row tables directly on pandas, cuDF, and Polars. Joined property projections preserve repeated edge matches without constructing full traversal results.
 * GFQL: indexed scalar equality filters no longer retain null-valued rows when the comparison produces a nullable boolean mask.
 
