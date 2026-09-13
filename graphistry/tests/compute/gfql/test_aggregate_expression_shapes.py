@@ -248,3 +248,50 @@ def test_gpu_multiple_aggregate_dtype_boundaries(monkeypatch, request, device, k
     assert out._nodes.to_dicts() == expected
     if device:
         assert receipts
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars",
+    pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="requires TEST_CUDF=1")),
+    pytest.param("polars-gpu", marks=pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual GPU")),
+])
+@pytest.mark.parametrize("size", [0, 3])
+@pytest.mark.parametrize("keys", [[], ["key"]])
+@pytest.mark.parametrize("source,value", [("null", None), ("true", True), ("false", False), ("'text'", "text"), ("3", 3)])
+def test_public_constant_aggregate_boundaries(request, engine, size, keys, source, value):
+    import pandas as pd
+    from graphistry.compute.ast import group_by
+
+    receipts = request.getfixturevalue("strict_aggregate_device") if engine == "polars-gpu" else None
+    if engine == "cudf":
+        pytest.importorskip("cudf")
+    if engine == "polars-gpu":
+        pytest.importorskip("cudf_polars")
+    table = pd.DataFrame({"id": pd.Series(range(size), dtype="int64"),
+                          "key": pd.Series([1] * size, dtype="int64")})
+    values = [] if value is None else [value] * size
+    expected = {"count": len(values), "count_distinct": int(bool(values)),
+                "min": value if values else None, "max": value if values else None,
+                "collect": values, "collect_distinct": values[:1]}
+    if not isinstance(value, str):
+        expected.update(sum=sum(values), avg=sum(values) / len(values) if values else None,
+                        mean=sum(values) / len(values) if values else None)
+    out = graphistry.nodes(table, "id").gfql([
+        group_by(keys, [(func, func, source) for func in expected])
+    ], engine=engine)._nodes
+    assert type(out).__module__.split(".")[0] == ("polars" if engine.startswith("polars") else engine)
+    records = out.to_dicts() if engine.startswith("polars") else (
+        out.to_pandas().to_dict("records") if engine == "cudf" else out.to_dict("records"))
+    assert len(records) == (0 if keys and not size else 1)
+    if records:
+        if keys:
+            assert records[0]["key"] == 1
+        for func, answer in expected.items():
+            actual = records[0][func]
+            if answer is None:
+                assert pd.isna(actual)
+            elif isinstance(answer, list):
+                assert list(actual) == answer
+            else:
+                assert actual == answer
+    if engine == "polars-gpu":
+        assert receipts
