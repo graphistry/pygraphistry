@@ -6,7 +6,7 @@ import pandas as pd
 
 from graphistry.tests.test_compute import CGFull
 from graphistry.Engine import Engine
-from graphistry.compute.ast import ASTCall, ASTLet, n
+from graphistry.compute.ast import ASTCall, ASTLet, ASTRef, n
 from graphistry.compute.chain_let import chain_let_impl
 from graphistry.compute.gfql.call.executor import execute_call
 from graphistry.compute.validate.validate_schema import validate_chain_schema
@@ -213,7 +213,8 @@ class TestCallOperationsGPU:
         assert len(result._nodes) == 3
     
     @skip_gpu
-    def test_chain_let_with_gpu_calls(self):
+    @pytest.mark.parametrize("dependent", [False, True])
+    def test_chain_let_with_gpu_calls(self, dependent):
         """Test DAG execution with Call operations on GPU."""
         import cudf
         
@@ -235,19 +236,19 @@ class TestCallOperationsGPU:
             .nodes(nodes_gdf)\
             .bind(source='source', destination='target', node='node')
         
-        # Create DAG with Call operations
+        degree_call = ASTCall('get_degrees', {'col': 'degree'})
         dag = ASTLet({
             'filtered': n({'type': 'user'}),
-            'with_degrees': ASTCall('get_degrees', {'col': 'degree'})
+            'with_degrees': ASTRef('filtered', [degree_call]) if dependent else degree_call
         })
         
         result = chain_let_impl(g, dag, Engine.CUDF)
         
         # Should have degrees column
         assert 'degree' in result._nodes.columns
-        # Check that we have the expected number of nodes
-        # The DAG filters for 'user' type first (3 users) then computes degrees
-        assert len(result._nodes) == 3  # 3 users after filtering
+        expected_ids = [0, 1, 3] if dependent else [0, 1, 2, 3]
+        assert isinstance(result._nodes, cudf.DataFrame)
+        assert sorted(result._nodes['node'].to_pandas().tolist()) == expected_ids
     
     @skip_gpu
     def test_schema_validation_with_cudf(self):

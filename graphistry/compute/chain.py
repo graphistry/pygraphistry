@@ -12,6 +12,8 @@ from .ast import ASTObject, ASTNode, ASTEdge, ASTCall, Direction, from_json as A
 from .typing import DataFrameT, SeriesT
 from .util import generate_safe_column_name
 from .chain_specializations.hotpaths import _try_chain_fast_path
+from .chain_specializations.point_rows import _try_point_rows
+from .engine_coercion import ensure_local_engine_match
 from graphistry.compute.validate.validate_schema import validate_chain_schema, validate_graph_shape
 from graphistry.compute.gfql.strictness import StrictInput
 from graphistry.compute.gfql.same_path_types import (
@@ -545,6 +547,9 @@ def combine_steps(
                     out_df[base] = out_df[c_x].where(out_df[c_x].notna(), out_df[c])
                 out_df = out_df.drop(columns=[c, c_x])
 
+    # Empty pandas merges can move the binding column behind aliases or properties.
+    if out_df.columns[0] != id:
+        out_df = out_df[[id, *[column for column in out_df.columns if column != id]]]
     return out_df
 
 
@@ -969,6 +974,8 @@ def _chain_with_strictness(
                     "Install RAPIDS/cudf_polars, or use engine='polars' for native CPU execution."
                 )
     self = _coerce_input_formats(self, engine_concrete_early)
+    if engine_concrete_early == Engine.PANDAS:
+        self = ensure_local_engine_match(self, engine_concrete_early)
 
     if engine_concrete_early in POLARS_ENGINES:
         # Native polars chain lives in a dedicated dispatched module so the
@@ -977,7 +984,8 @@ def _chain_with_strictness(
         # POLARS_GPU = the same lazy engine with the GPU execution target.
         # (Dependency guards for polars / cudf_polars are above, pre-coercion.)
         if validate_schema:
-            Chain(ops if not isinstance(ops, Chain) else ops.chain).validate(collect_all=False)
+            # Construct a fresh validator: the constructor validates children once.
+            Chain(ops if not isinstance(ops, Chain) else ops.chain)
             validate_graph_shape(self, ops, collect_all=False)  # pandas gets this via validate_chain_schema (#1889)
         from graphistry.compute.gfql.lazy.engine.polars.chain import chain_polars
         from graphistry.compute.gfql.lazy import target_mode, ExecutionTarget
@@ -1005,6 +1013,10 @@ def _chain_with_strictness(
         finally:
             call_thread_local.policy = old_policy
     else:
+        point_ops = ops.chain if isinstance(ops, Chain) else ops
+        point_result = _try_point_rows(self, point_ops, engine_concrete_early, start_nodes, validate_schema)
+        if point_result is not None:
+            return point_result
         return _chain_impl(self, ops, engine, validate_schema, policy, context, start_nodes)
 
 
@@ -1042,7 +1054,8 @@ def _chain_impl(
         ops = ops.chain
 
     if validate_schema:
-        Chain(ops).validate(collect_all=False)
+        # Revalidate mutable operations on every execution, including reused Chains.
+        Chain(ops)
 
     from graphistry.compute.ast import ASTCall
 
@@ -1230,6 +1243,27 @@ def _chain_impl(
             else:
                 from .gfql.exec_context import clear_row_exec_context
                 g_out = clear_row_exec_context(g_out)
+            success = True
+        elif len(ops) == 1 and isinstance(ops[0], ASTNode):
+            # A node selection preserves each source row. Rejoining node IDs in
+            # the traversal combine would multiply duplicate rows and properties.
+            g_out = g_stack[0]
+            alias = ops[0]._name
+            if alias is not None:
+                cols = [c for c in g_out._nodes.columns if c != alias]
+                if g._node in cols:
+                    cols = [g._node, *[c for c in cols if c != g._node]]
+                cols = ([*cols, alias] if alias in g._nodes.columns
+                        else [*cols[:1], alias, *cols[1:]])
+                g_out = g_out.nodes(g_out._nodes[cols].reset_index(drop=True))
+            if synthesized_empty_edges:
+                g_out = self.nodes(g_out._nodes, g._node)
+            elif added_edge_index:
+                g_out = self.nodes(g_out._nodes, g._node).edges(
+                    g_out._edges.drop(columns=[g._edge]), edge=original_edge)
+            elif g._edge is not None:
+                edge_cols = [g._edge, *[c for c in g_out._edges.columns if c != g._edge]]
+                g_out = g_out.edges(g_out._edges[edge_cols])
             success = True
         else:
             # Phase 2: Backward pass to propagate downstream constraints.

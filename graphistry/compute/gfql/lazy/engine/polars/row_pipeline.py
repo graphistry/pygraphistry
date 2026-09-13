@@ -1034,7 +1034,7 @@ def _finish_binding_rows_polars(
     from graphistry.compute.ast import ASTEdge, ASTNode
     from graphistry.compute.gfql.lazy import collect as _lazy_collect
 
-    def names(frame: "PolarsFrameT") -> List[str]:
+    def names(frame: "Union[pl.DataFrame, pl.LazyFrame]") -> List[str]:
         return (
             frame.collect_schema().names()
             if isinstance(frame, pl.LazyFrame)
@@ -1042,6 +1042,10 @@ def _finish_binding_rows_polars(
         )
 
     try:
+        alias_columns = {alias: names(frame) for alias, frame in alias_frames.items()}
+        property_names = [f"{alias}.{col}" for alias, columns in alias_columns.items() for col in columns]
+        binding_order = generate_safe_column_name_from("__gfql_binding_order__", names(state) + property_names)
+        joined_state = state.lazy().with_row_index(binding_order)
         attach_set = (
             None if attach_prop_aliases is None else set(attach_prop_aliases)
         )
@@ -1054,28 +1058,23 @@ def _finish_binding_rows_polars(
             if attach_set is not None and alias not in attach_set:
                 continue
             lookup_src = alias_frames[alias]
-            lookup = lookup_src.select(
+            lookup = lookup_src.lazy().select(
                 [
                     pl.col(node_id),
                     pl.col(node_id).alias(f"{alias}.{node_id}"),
                 ]
                 + [
                     pl.col(col).alias(f"{alias}.{col}")
-                    for col in names(lookup_src)
+                    for col in alias_columns[alias]
                     if col != node_id
                 ]
             )
-            if (set(names(lookup)) - {node_id}) & set(names(state)):
+            if (set(names(lookup)) - {node_id}) & set(names(joined_state)):
                 return None
-            state = state.join(
+            joined_state = joined_state.join(
                 lookup, left_on=alias, right_on=node_id, how="left",
             )
-        state = state.drop(WALK_CURRENT_COL)
-        out_df = (
-            _lazy_collect(state)
-            if isinstance(state, pl.LazyFrame)
-            else state
-        )
+        out_df = _lazy_collect(joined_state.sort(binding_order).drop([WALK_CURRENT_COL, binding_order]))
     except pl.exceptions.SchemaError:
         if not decline_on_schema_error:
             raise
@@ -1232,6 +1231,48 @@ def _project_preserving_height(table: Any, exprs: List[Any]) -> Any:
     return table.select(exprs)
 
 
+def _project_eager_columns(
+    table: "pl.DataFrame", items: Sequence[SelectItem], exprs: Sequence["pl.Expr"],
+) -> Optional["pl.DataFrame"]:
+    """Gather columns and uniform coalesce inputs without an expression execution plan."""
+    import polars as pl
+    from graphistry.compute.gfql.expr_parser import FunctionCall, parse_expr
+
+    if not isinstance(table, pl.DataFrame) or not exprs:
+        return None
+    projected: List[pl.Series] = []
+    for item, expression in zip(items, exprs):
+        bare = expression.meta.undo_aliases()
+        output = expression.meta.output_name()
+        if bare.meta.is_column():
+            projected.append(table.get_column(bare.meta.output_name()).alias(output))
+            continue
+        source = item if isinstance(item, str) else item[1]
+        if not isinstance(source, str) or not source.lstrip().lower().startswith("coalesce"):
+            return None
+        parsed = parse_expr(source)
+        if not isinstance(parsed, FunctionCall) or parsed.name.lower() != "coalesce" or parsed.distinct:
+            return None
+        operands: List[pl.Series] = []
+        for argument in parsed.args:
+            lowered = lower_expr(argument, table.columns)
+            if lowered is None or not lowered.meta.is_column():
+                return None
+            operands.append(table.get_column(lowered.meta.output_name()))
+        if not operands or any(series.dtype != operands[0].dtype for series in operands[1:]):
+            return None
+        chosen = operands[-1]
+        for series in operands:
+            if series.null_count() == table.height:
+                continue
+            if series.null_count() != 0:
+                return None
+            chosen = series
+            break
+        projected.append(chosen.alias(output))
+    return pl.DataFrame(projected)
+
+
 def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> Optional[Plottable]:
     """Shared body of ``select_polars`` / ``with_columns_polars``; None if any item isn't
     lowerable (honest NIE, no pandas bridge)."""
@@ -1239,7 +1280,11 @@ def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> 
     exprs = _lower_with_schema(table, lambda: lower_select_items(items, list(table.columns)), node_id=g._node)
     if exprs is None:
         return None
-    out = table.with_columns(exprs) if extend else _project_preserving_height(table, exprs)
+    out = None if extend else _lower_with_schema(
+        table, lambda: _project_eager_columns(table, items, exprs), node_id=g._node,
+    )
+    if out is None:
+        out = table.with_columns(exprs) if extend else _project_preserving_height(table, exprs)
     if _select_emits_temporal_constructor_text(out):
         # decline (NIE): projected String column holds temporal-constructor text (date({...})
         # etc.) that pandas normalizes to ISO, not yet native — don't leak the raw text.
@@ -1250,11 +1295,9 @@ def _project_polars(g: Plottable, items: Sequence[SelectItem], extend: bool) -> 
 
 def _select_emits_temporal_constructor_text(out: Any) -> bool:
     import polars as pl
-    from graphistry.compute.gfql.lazy.engine.polars.projection import _has_temporal_constructor_text
-    for name, dtype in out.schema.items():
-        if dtype == pl.String and _has_temporal_constructor_text(out, name):
-            return True
-    return False
+    from graphistry.compute.gfql.lazy.engine.polars.projection import _columns_have_temporal_constructor_text
+    columns = [name for name, dtype in out.schema.items() if dtype == pl.String]
+    return _columns_have_temporal_constructor_text(out, columns)
 
 
 def select_polars(g: Plottable, items: Sequence[SelectItem]) -> Optional[Plottable]:
@@ -2018,7 +2061,28 @@ def binding_rows_polars(
             next_op = ops[edge_idx + 1]
             if not isinstance(next_op, ASTNode):
                 return None
-            next_nodes = filter_by_dict_polars(nodes_lf, next_op.filter_dict)
+            candidate_nodes = nodes_lf
+            dis_label_col = RowPipelineMixin._gfql_has_edge_destination_label_col(edge_op, nodes.columns)
+            if (
+                dis_label_col is not None
+                and not sem.is_multihop
+                and edge_op.direction == "forward"
+                and not RowPipelineMixin._gfql_node_filter_has_label(next_op.filter_dict)
+            ):
+                # Only collisions among reached nodes trigger HAS_<Label> narrowing.
+                # Probe before destination predicates, matching the eager binding walk.
+                reached = state.select(WALK_CURRENT_COL).join(
+                    oriented.select([WALK_FROM_COL, WALK_TO_COL]),
+                    left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner",
+                ).select(WALK_TO_COL)
+                candidate_nodes = nodes_lf.join(
+                    reached, left_on=node_id, right_on=WALK_TO_COL, how="semi",
+                )
+                candidate_nodes = candidate_nodes.filter(
+                    ~pl.col(node_id).is_duplicated().any()
+                    | pl.col(dis_label_col).fill_null(False).cast(pl.Boolean)
+                )
+            next_nodes = filter_by_dict_polars(candidate_nodes, next_op.filter_dict)
             # pandas' endpoint prefilter twin: before the id set, so membership + alias frame agree
             next_nodes = _apply_alias_prefilters_polars(next_nodes, next_op._name, alias_prefilters)
             next_node_ids = next_nodes.select(node_id).unique()
@@ -2101,10 +2165,12 @@ def binding_rows_polars(
                     )
                     trail_cols_pl = trail_cols_pl + _seg_trail_cols
             else:
+                path_order = generate_safe_column_name_from("__gfql_path_order__", _names(state) + _names(oriented))
                 state = (
-                    state.join(oriented, left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner")
-.drop(WALK_CURRENT_COL)
-.rename({WALK_TO_COL: WALK_CURRENT_COL})
+                    state.with_row_index(path_order)
+                    .join(oriented, left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner")
+                    .drop(WALK_CURRENT_COL)
+                    .rename({WALK_TO_COL: WALK_CURRENT_COL})
                 )
                 for _used in trail_cols_pl:
                     state = state.filter(
@@ -2120,33 +2186,8 @@ def binding_rows_polars(
                 right_on=node_id,
                 how="semi",
             )
-            # HAS_<Label> destination disambiguation (pandas'
-            # _gfql_disambiguate_has_edge_destination_nodes): on DUPLICATE-id graphs
-            # pandas narrows the unlabeled next op to the edge's HAS_<Label> rows
-            # taken from the ORIGINAL node table, which still carries the colliding
-            # label rows. Reproducing that narrowing natively would be silently
-            # row-order-dependent, so: unique-id graphs need no narrowing (pandas'
-            # duplicated() probe is False) → native is parity-exact; duplicate-id
-            # graphs DECLINE (honest NIE). ``nodes`` above IS the pre-chain node
-            # table; when there is no pre-chain graph to probe we cannot prove
-            # uniqueness of what pandas would have seen, so decline.
-            dis_label_col = RowPipelineMixin._gfql_has_edge_destination_label_col(edge_op, nodes.columns)
-            if (
-                dis_label_col is not None
-                and not sem.is_multihop
-                and edge_op.direction == "forward"
-                and not RowPipelineMixin._gfql_node_filter_has_label(next_op.filter_dict)
-            ):
-                if g._gfql_rows_base_graph is None:
-                    return None
-                _base_dup = bool(
-                    nodes.lazy()
-.select(pl.col(node_id).is_duplicated().any())
-.collect()
-.item()
-                )
-                if _base_dup:
-                    return None
+            if not sem.is_multihop:
+                state = state.sort([path_order, _new_trail]).drop(path_order)
             next_alias = next_op._name
             if isinstance(next_alias, str):
                 state = state.with_columns(pl.col(WALK_CURRENT_COL).alias(next_alias))

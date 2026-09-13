@@ -278,8 +278,7 @@ def hop_polars(
         allowed_source_lf = None
         if source_node_match is not None:
             source_filter_domain = all_nodes
-            only_seeds_can_be_sources = nodes is not None
-            if only_seeds_can_be_sources:
+            if nodes is not None:
                 source_filter_domain = all_nodes.join(
                     _idframe(nodes, node_col).rename({NID: node_col}), on=node_col, how="semi")
             allowed_source_lf = _idframe_lf(
@@ -330,9 +329,7 @@ def hop_polars(
     allowed_source = None
     if source_node_match is not None:
         source_filter_domain = all_nodes
-        only_seeds_can_be_sources = (
-            nodes is not None and not to_fixed_point and resolved_max_hops == 1)
-        if only_seeds_can_be_sources:
+        if nodes is not None and not to_fixed_point and resolved_max_hops == 1:
             source_filter_domain = all_nodes.join(
                 _idframe(nodes, node_col).rename({NID: node_col}), on=node_col, how="semi")
         allowed_source = _idframe(

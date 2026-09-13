@@ -39,6 +39,26 @@ def _csr_from_keys(keys: ArrayLike, xp: ArrayNamespace) -> Tuple[ArrayLike, Arra
     return unique_keys, group_offsets, row_positions
 
 
+
+def _non_null_id_rows(
+    frame: DataFrameT, columns: Sequence[str], engine: Engine, xp: ArrayNamespace,
+) -> Tuple[DataFrameT, Optional[ArrayLike]]:
+    """Remove unlinked null ids before conversion; retain original row positions."""
+    if engine in (Engine.POLARS, Engine.POLARS_GPU):
+        import polars as pl
+
+        valid = frame.select(pl.all_horizontal(pl.col(column).is_not_null() for column in columns)).to_series()
+        if bool(valid.all()):
+            return frame, None
+        positions = xp.nonzero(valid.to_numpy())[0]
+        return frame.filter(valid), positions
+    valid = frame[list(columns)].notna().all(axis=1)
+    if bool(valid.all()):
+        return frame, None
+    mask = valid.values if engine == Engine.CUDF else valid.to_numpy()
+    return frame[valid], xp.nonzero(mask)[0]
+
+
 def build_adjacency_index(
     edges: DataFrameT,
     kind: AdjacencyIndexKind,
@@ -49,9 +69,15 @@ def build_adjacency_index(
     fingerprint_cols: Tuple[str, ...],
 ) -> AdjacencyIndex:
     xp, backend = array_namespace(engine)
-    keys = col_to_array(edges, key_col, engine)
-    other_values = col_to_array(edges, other_col, engine)
+    valid_edges, original_rows = _non_null_id_rows(edges, (key_col, other_col), engine, xp)
+    keys = col_to_array(valid_edges, key_col, engine)
+    other_values = col_to_array(valid_edges, other_col, engine)
     unique_keys, group_offsets, row_positions = _csr_from_keys(keys, xp)
+    if original_rows is not None:
+        row_positions = original_rows[row_positions]
+        neighbors = xp.zeros(len(edges), dtype=other_values.dtype)
+        neighbors[original_rows] = other_values
+        other_values = neighbors
     return AdjacencyIndex(
         kind=kind,
         key_col=key_col,
@@ -65,7 +91,7 @@ def build_adjacency_index(
         engine=engine,
         fingerprint=frame_fingerprint(edges, fingerprint_cols, engine),
         source_ref=cast(DataFrameT, edges),
-        n_edges=int(keys.shape[0]),
+        n_edges=len(edges),
         n_keys=int(unique_keys.shape[0]),
     )
 
@@ -75,7 +101,7 @@ def build_node_id_index(
     node_col: str,
     engine: Engine,
 ) -> Optional[NodeIdIndex]:
-    """Sorted node-id -> first-row index, or None when node ids are NOT unique.
+    """Sorted non-null node-id -> first-row index; None for duplicate non-null ids.
 
     ``_csr_from_keys`` returns ``row_positions`` of length E (all rows, grouped by
     key), but a node-id lookup indexes it with a *unique-key* searchsorted position
@@ -86,12 +112,15 @@ def build_node_id_index(
     caller falls back to the correct ``select_by_ids`` isin path. (Regression guard: a non-unique
     node-id index dropped reached nodes / emitted unrelated rows.)"""
     xp, backend = array_namespace(engine)
-    keys = col_to_array(nodes, node_col, engine)
+    valid_nodes, original_rows = _non_null_id_rows(nodes, (node_col,), engine, xp)
+    keys = col_to_array(valid_nodes, node_col, engine)
     unique_keys, group_offsets, row_positions = _csr_from_keys(keys, xp)
     n_keys = int(unique_keys.shape[0])
     if n_keys != int(keys.shape[0]):
         return None  # duplicate node ids -> not a valid unique index; scan fallback
     first_row_per_key = row_positions[group_offsets[:-1]]  # length U, aligned to keys
+    if original_rows is not None:
+        first_row_per_key = original_rows[first_row_per_key]
     return NodeIdIndex(
         key_col=node_col,
         keys_sorted=unique_keys,
@@ -395,6 +424,9 @@ def build_degree_fact(
         if col not in edges.columns:
             return None
     if hi < lo or (hi - lo + 1) > _MAX_DEGREE_SPAN:
+        return None
+    _, null_free_rows = _non_null_id_rows(edges, (src_col, dst_col), engine, xp)
+    if null_free_rows is not None:
         return None
     src = col_to_array(edges, src_col, engine)
     dst = col_to_array(edges, dst_col, engine)

@@ -8,7 +8,7 @@ CSR + searchsorted gather runs on:
 - cudf    -> cupy device arrays, ``df.iloc`` to gather rows
 - polars / polars-gpu -> numpy host arrays, polars row-gather
 
-Vectorization-first: no per-element Python work, no ``.to_list()`` ping-pong.
+Bulk operations stay vectorized; bounded CPU gathers can reuse row slices.
 """
 from __future__ import annotations
 
@@ -45,11 +45,21 @@ def col_to_array(df: DataFrameT, col: str, engine: Engine) -> ArrayLike:
     if engine == Engine.CUDF:
         # cudf Series -> cupy array (stays on device)
         return cast(ArrayLike, df[col].values)
-    return cast(ArrayLike, df[col].to_numpy())
+    series = df[col]
+    dtype = series.dtype
+    if dtype.kind in ("i", "u"):
+        values = series.to_numpy(dtype=f"{dtype.kind}{dtype.itemsize}")
+    else:
+        values = series.to_numpy()
+    return cast(ArrayLike, values)
 
 
 def ids_to_array(ids: DataFrameT, col: str, engine: Engine) -> ArrayLike:
     """Frontier ids (a frame/Series) -> backend array, matching index backend."""
+    if engine in (Engine.POLARS, Engine.POLARS_GPU):
+        ids = ids.drop_nulls(subset=[col])
+    else:
+        ids = ids.dropna(subset=[col])
     return col_to_array(ids, col, engine)
 
 
@@ -64,7 +74,26 @@ def take_rows(df: DataFrameT, positions: ArrayLike, engine: Engine) -> DataFrame
         import numpy as np
 
         idx = np.asarray(positions)
-        return cast(DataFrameT, df[idx])
+        position = int(idx[0]) if idx.ndim == 1 and idx.size == 1 and idx.dtype.kind in "iu" else None
+        if position is not None and 0 <= position < len(df):
+            result = df.slice(position, 1)
+        elif engine == Engine.POLARS and idx.ndim == 1 and 2 <= idx.size <= 8 and idx.dtype.kind in "iu":
+            # Scheduling a tiny gather can cost more than assembling its slices.
+            values = idx.tolist()
+            if all(0 <= value < len(df) for value in values):
+                if all(value == values[0] + offset for offset, value in enumerate(values)):
+                    result = df.slice(values[0], len(values))
+                elif df.width <= 32:
+                    result = df.slice(values[0], 1)
+                    for value in values[1:]:
+                        result.vstack(df.slice(value, 1), in_place=True)
+                else:
+                    result = df[idx]
+            else:
+                result = df[idx]
+        else:
+            result = df[idx]
+        return cast(DataFrameT, result)
     # pandas / cudf: iloc accepts numpy (pandas) or cupy (cudf) int arrays
     return cast(DataFrameT, df.iloc[positions])
 

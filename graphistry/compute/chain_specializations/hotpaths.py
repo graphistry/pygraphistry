@@ -13,7 +13,7 @@ from graphistry.compute.chain_fast_paths import (
     _resident_node_id_index, _resident_seed_indexes, _seed_node_rows, _seeded_scalar_filters,
     _tag_fast_path_aliases, SeededReturn,
 )
-from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT, SeriesT
+from graphistry.compute.typing import ArrayLike, ArrayNamespace, DataFrameT, ScalarFilterDict, SeriesT
 from .admission import _indexed_kernel_admits, native_fast_path_admits
 
 if TYPE_CHECKING:
@@ -125,7 +125,7 @@ def _seeded_typed_hop_pandas_cudf(
 
 
 def _seeded_hop_tail_numeric(
-    cand: DataFrameT, edges: DataFrameT, n2f: Dict[str, object], src: str, dst: str, to_col: str, node: str,
+    cand: DataFrameT, edges: DataFrameT, n2f: ScalarFilterDict, src: str, dst: str, to_col: str, node: str,
 ) -> Optional[Tuple[DataFrameT, DataFrameT]]:
     """Validate numeric endpoints using arrays native to the frame backend."""
     import pandas as pd
@@ -211,6 +211,12 @@ def _seeded_typed_return_dst_pandas_cudf(
         # destination nodes: real nodes that are to-endpoints of the surviving edges
         dstn = nodes_df[nodes_df[node].isin(edges[to_col].dropna())]
     assert edges is not None and dstn is not None  # both branches above assign
+    if direction == "forward":
+        from graphistry.compute.gfql.row.pipeline import RowPipelineMixin
+        if RowPipelineMixin._gfql_has_edge_destination_label_col(e1, dstn.columns) is not None:
+            dstn = RowPipelineMixin._gfql_disambiguate_has_edge_destination_nodes(
+                dstn, node_id_col=node, edge_op=e1, next_node_op=n2,
+            )
     if n2f:
         for k, v in n2f.items():
             dstn = dstn[dstn[k] == v]

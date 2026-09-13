@@ -71,7 +71,7 @@ if TYPE_CHECKING:
     import polars as pl
 
     from graphistry.compute.gfql.cypher.ast import CypherScalar
-    from graphistry.compute.typing import SeriesT
+    from graphistry.compute.typing import PolarsDType, SeriesT
 
 
 #: Aggregates Cypher restricts to ``INTEGER | FLOAT | DURATION`` (``mean`` spells ``avg``).
@@ -111,7 +111,7 @@ def agg_result_is_integer(func: str, input_is_boolean: bool) -> bool:
     return func == "sum" and input_is_boolean
 
 
-def polars_agg_result_cast(func: str, input_dtype: "Optional[pl.DataType]") -> "Optional[pl.DataType]":
+def polars_agg_result_cast(func: str, input_dtype: "Optional[pl.DataType]") -> "Optional[PolarsDType]":
     """The dtype polars' own aggregate kernel does NOT produce, or ``None`` when it conforms.
 
     Polars answers EVERY ``count()`` with ``UInt32`` and ``sum()`` over ``Boolean`` with ``UInt32``,

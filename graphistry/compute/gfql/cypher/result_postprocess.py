@@ -305,7 +305,8 @@ def _projection_alias_rows(
 
 
 def apply_result_projection(
-    result: Plottable, projection: ResultProjectionPlan, *, structured: bool = True
+    result: Plottable, projection: ResultProjectionPlan, *, structured: bool = True,
+    source_node_id: Optional[str] = None,
 ) -> Plottable:
     """Project Cypher RETURN columns onto ``result._nodes``.
 
@@ -322,7 +323,9 @@ def apply_result_projection(
     rows_df = result._nodes
     if is_polars_df(rows_df):
         from graphistry.compute.gfql.lazy.engine.polars.projection import apply_result_projection_polars
-        out = apply_result_projection_polars(result, projection, structured=structured)
+        out = apply_result_projection_polars(
+            result, projection, structured=structured, source_node_id=source_node_id,
+        )
     else:
         out = _apply_result_projection_pandas(result, projection, structured=structured)
     if out is result:

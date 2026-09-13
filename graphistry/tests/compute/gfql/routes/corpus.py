@@ -1,4 +1,8 @@
-"""Shared shape corpus for the chain routes.
+"""Supplemental shape corpus for the chain route engagement matrix.
+
+This matrix measures admission and engagement; it does not replace existing correctness
+tests. ``bin/test-routes-off.sh`` broadcasts the existing suites through every route
+switch and all routes disabled, retaining their independently written assertions.
 
 Every entry is a native op-list shape variant; a route test filters the corpus with the
 route's own admission predicate (the function its dispatcher calls), so one corpus is reused
@@ -9,7 +13,7 @@ from typing import Callable, Dict, List, NamedTuple, Tuple
 
 import pandas as pd
 
-from graphistry.compute.ast import ASTObject, e_forward, e_reverse, e_undirected, n
+from graphistry.compute.ast import ASTObject, e_forward, e_reverse, e_undirected, n, rows, select
 from graphistry.compute.predicates.numeric import GT
 from graphistry.tests.compute.gfql.routes.registry import Frames, register
 
@@ -33,6 +37,14 @@ NODES = pd.DataFrame({"key": [1, 2, 3, 4, 5], "id": [10, 20, 30, 40, 50], "type"
 EDGES = pd.DataFrame({"s": [1, 1, 2, 3, 3, 4], "d": [2, 3, 3, 1, 1, 5], "type": ["KNOWS", "KNOWS", "LIKES", "KNOWS", "KNOWS", "LIKES"], "eid": [0, 1, 2, 3, 4, 5], "w": [1, 2, 3, 4, 5, 6]})
 
 CORPUS: List[Entry] = [
+    _entry("point node rows", lambda k: [n({"key": k(1)}, name="a"), rows(source="a")], ("point-rows", "single-node")),
+    _entry("point node projection", lambda k: [n({"key": k(1)}, name="a"), rows(source="a"), select(["key", ("value", "a.w")])], ("point-rows", "single-node", "projection")),
+    _entry("point node coalesce", lambda k: [n({"key": k(1)}, name="a"), rows(source="a"), select([("key", "a.key"), ("value", "coalesce(a.w, a.key)")])], ("point-rows", "single-node", "projection")),
+    _entry("point joined hop projection", lambda k: [n({"key": k(1)}, name="a"), e_forward({"type": "KNOWS"}), n(name="b"), rows(), select([("key", "b.key"), ("seed", "a.w"), ("tail", "b.w")])], ("point-rows", "single-hop", "projection")),
+    _entry("point typed hop rows", lambda k: [n({"key": k(1)}, name="a"), e_forward({"type": "KNOWS"}), n(name="b"), rows(source="b")], ("point-rows", "single-hop")),
+    _entry("point typed hop seed rows", lambda k: [n({"key": k(1)}, name="a"), e_forward({"type": "KNOWS"}), n(name="b"), rows(source="a")], ("point-rows", "single-hop")),
+    _entry("point reverse hop projection", lambda k: [n({"key": k(1)}, name="a"), e_reverse({"type": "KNOWS"}), n(name="b"), rows(source="b"), select(["key", ("value", "b.w")])], ("point-rows", "single-hop", "reverse", "projection")),
+
     _entry("single node, scalar filter", lambda k: [n({"id": 30})], ("single-node",)),
     _entry("single node, named", lambda k: [n({"id": 30}, name="a")], ("single-node", "alias")),
     _entry("single node, predicate filter", lambda k: [n({"w": GT(2)})], ("single-node", "predicate")),

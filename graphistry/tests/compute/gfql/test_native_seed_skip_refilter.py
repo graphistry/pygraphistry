@@ -88,12 +88,16 @@ SKIP_SHAPES = {
 
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("shape", list(SKIP_SHAPES))
-def test_exact_index_hit_skips_the_refilter_with_parity(engine, shape):
+@pytest.mark.parametrize("require_engagement", [
+    False, pytest.param(True, marks=pytest.mark.route_engaged("native-fast")),
+])
+def test_exact_index_hit_skips_the_refilter_with_parity(engine, shape, require_engagement):
     g = _graph(engine)
     ops = SKIP_SHAPES[shape]()
     _assert_parity(g, ops, engine)
     _, refilters = _run(g, ops, engine, "use")
-    assert refilters == 0, "an exact single-predicate index hit must not re-filter its rows"
+    if require_engagement:
+        assert refilters == 0, "an exact single-predicate index hit must not re-filter its rows"
 
 
 VERIFIED_SHAPES = {  # an index hit plus residual scalar equalities: verified on the hit rows, never re-filtered
@@ -109,30 +113,42 @@ REFILTER_SHAPES = {  # no index hit (the index declines a float on an integer pr
 
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("shape", list(VERIFIED_SHAPES))
-def test_an_index_hit_with_residual_scalar_predicates_is_verified_not_refiltered(engine, shape):
+@pytest.mark.parametrize("require_engagement", [
+    False, pytest.param(True, marks=pytest.mark.route_engaged("native-fast")),
+])
+def test_an_index_hit_with_residual_scalar_predicates_is_verified_not_refiltered(engine, shape, require_engagement):
     g = _graph(engine)
     ops = VERIFIED_SHAPES[shape]()
     _assert_parity(g, ops, engine)
     _, refilters = _run(g, ops, engine, "use")
-    assert refilters == 0, "residual scalar equalities are verified on the hit rows, not re-filtered"
+    if require_engagement:
+        assert refilters == 0, "residual scalar equalities are verified on the hit rows, not re-filtered"
 
 
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("shape", list(REFILTER_SHAPES))
-def test_every_other_shape_still_runs_the_canonical_filter(engine, shape):
+@pytest.mark.parametrize("require_engagement", [
+    False, pytest.param(True, marks=pytest.mark.route_engaged("native-fast")),
+])
+def test_every_other_shape_still_runs_the_canonical_filter(engine, shape, require_engagement):
     g = _graph(engine)
     ops = REFILTER_SHAPES[shape]()
     _assert_parity(g, ops, engine)
     _, refilters = _run(g, ops, engine, "use")
-    assert refilters >= 1, "without an index hit the canonical filter runs"
+    if require_engagement:
+        assert refilters >= 1, "without an index hit the canonical filter runs"
 
 
-def test_bool_on_integer_column_is_never_index_served():
+@pytest.mark.parametrize("require_engagement", [
+    False, pytest.param(True, marks=pytest.mark.route_engaged("native-fast")),
+])
+def test_bool_on_integer_column_is_never_index_served(require_engagement):
     g = _graph("pandas")
     ops = [n({"id": True})]
     _assert_parity(g, ops, "pandas")
     _, refilters = _run(g, ops, "pandas", "use")
-    assert refilters >= 1
+    if require_engagement:
+        assert refilters >= 1
 
 
 def test_bool_on_integer_column_raises_the_same_way_on_cudf_either_policy():
@@ -154,14 +170,18 @@ def test_string_on_integer_column_keeps_the_typed_error_on_both_policies(engine,
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-def test_no_resident_index_still_filters(engine):
+@pytest.mark.parametrize("require_engagement", [
+    False, pytest.param(True, marks=pytest.mark.route_engaged("native-fast")),
+])
+def test_no_resident_index_still_filters(engine, require_engagement):
     g = _graph(engine)
     plain = graphistry.nodes(g._nodes, "key").edges(g._edges, "s", "d")
     ops = [n({"key": 7})]
     served, refilters = _run(plain, ops, engine, "use")
     full, _ = _run(plain, ops, engine, "off")
     pd.testing.assert_frame_equal(_canon(served._nodes), _canon(full._nodes))
-    assert refilters >= 1
+    if require_engagement:
+        assert refilters >= 1
 
 
 # ---- residual verify on an index hit (the multi-predicate seed) ----

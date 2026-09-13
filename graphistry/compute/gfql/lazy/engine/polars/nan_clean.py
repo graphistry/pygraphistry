@@ -55,14 +55,14 @@ def _pl_nan_to_null(df: "PolarsFrame") -> "PolarsFrame":
     it). Only columns that genuinely carry NaN are rewritten -- values identical to the
     old unconditional ``fill_nan``."""
     import polars as pl
+    if isinstance(df, pl.DataFrame) and id(df) in _nan_free_frame_id_cache:
+        return df
     # collect_schema(): LazyFrame.schema is deprecated and warns.
     schema = df.collect_schema() if isinstance(df, pl.LazyFrame) else df.schema
     float_cols = [c for c, dt in schema.items() if dt in (pl.Float32, pl.Float64)]
     if not float_cols:
         return df
     if isinstance(df, pl.DataFrame):
-        if id(df) in _nan_free_frame_id_cache:
-            return df
         nan_cols = [c for c in float_cols if df.get_column(c).is_nan().any()]
         if not nan_cols:
             _mark_pl_nan_clean(df)
