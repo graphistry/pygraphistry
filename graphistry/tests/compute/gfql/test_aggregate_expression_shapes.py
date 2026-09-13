@@ -206,3 +206,45 @@ def test_gpu_collection_plan_preserves_groups_and_identity(monkeypatch, request,
     assert out._nodes.columns == [*keys, "values", "n", "unique"]
     if device:
         assert receipts
+
+
+@pytest.mark.parametrize("device", [False, pytest.param(True, marks=pytest.mark.skipif(
+    os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual GPU dtype execution"))])
+@pytest.mark.parametrize("kind", ["integer", "float", "boolean", "string"])
+@pytest.mark.parametrize("state", ["mixed", "null", "empty"])
+def test_gpu_multiple_aggregate_dtype_boundaries(monkeypatch, request, device, kind, state):
+    from graphistry.compute.gfql import lazy
+    from graphistry.compute.gfql.lazy.engine.polars import row_pipeline
+
+    receipts = request.getfixturevalue("strict_aggregate_device") if device else None
+    if not device:
+        monkeypatch.setattr(lazy, "collect", lambda plan: plan.collect())
+    dtype, non_null = {"integer": (pl.Int64, [1, 3]), "float": (pl.Float64, [1.5, 3.5]),
+                       "boolean": (pl.Boolean, [False, True]), "string": (pl.String, ["a", "b"])}[kind]
+    values = [None, None, *non_null] if state == "mixed" else [None] * 4
+    table = pl.DataFrame({"key": [None, None, 1, 1], "value": values},
+                         schema={"key": pl.Int64, "value": dtype})
+    if state == "empty":
+        table = table.head(0)
+    specs = [("n", "count", "value"), ("distinct", "count_distinct", "value"),
+             ("minimum", "min", "value"), ("maximum", "max", "value"),
+             ("values", "collect", "value"), ("unique", "collect_distinct", "value")]
+    if kind != "string":
+        specs.extend([("total", "sum", "value"), ("average", "avg", "value")])
+    with lazy.target_mode(lazy.ExecutionTarget.GPU):
+        out = row_pipeline.group_by_polars(graphistry.nodes(table), ["key"], specs)
+    assert out is not None
+    expected = []
+    if state != "empty":
+        for key in (None, 1):
+            present = non_null if key == 1 and state == "mixed" else []
+            row = {"key": key, "n": len(present), "distinct": len(present),
+                   "minimum": min(present) if present else None,
+                   "maximum": max(present) if present else None,
+                   "values": present, "unique": present}
+            if kind != "string":
+                row.update(total=sum(present), average=sum(present) / len(present) if present else None)
+            expected.append(row)
+    assert out._nodes.to_dicts() == expected
+    if device:
+        assert receipts
