@@ -556,12 +556,15 @@ def test_literal_looking_numeric_columns_execute_without_type_rejection(engine, 
 
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("empty", [False, True])
-@pytest.mark.parametrize("source,expected", [
-    ("x.y + 1", [31, 41]),
-    ("coalesce(x.y, 0) + a", [33, 44]),
-    ("CASE WHEN a > 2 THEN x.y ELSE 0 END", [30, 40]),
+@pytest.mark.parametrize("source,expected,gpu_supported", [
+    ("x.y + 1", [31, 41], True),
+    # cudf-polars 26 declines coalesce; validation must still accept the expression.
+    ("coalesce(x.y, 0) + a", [33, 44], False),
+    ("CASE WHEN a > 2 THEN x.y ELSE 0 END", [30, 40], True),
 ])
-def test_qualified_aggregate_expression_uses_visible_full_column(engine, empty, source, expected):
+def test_qualified_aggregate_expression_uses_visible_full_column(
+    engine, empty, source, expected, gpu_supported,
+):
     frame = pd.DataFrame({
         "id": [0, 1, 2], "kind": ["a", "a", "b"],
         "a": [2, 3, 4], "x.y": [20, 30, 40],
@@ -569,6 +572,15 @@ def test_qualified_aggregate_expression_uses_visible_full_column(engine, empty, 
     g = graphistry.nodes(frame.head(0) if empty else frame, "id")
     query = _max_by_kind(source)
     assert _validates_clean(g, query)
+    if engine == "polars-gpu" and not gpu_supported:
+        from graphistry.compute.exceptions import GFQLUnsupportedError
+
+        with pytest.raises(GFQLUnsupportedError) as exc:
+            g.gfql(query, engine=engine)
+        assert exc.value.code == ErrorCode.E110
+        assert exc.value.context["field"] == "function"
+        assert exc.value.context["value"] == "group_by"
+        return
     assert _max_per_kind(g, query, engine) == ([] if empty else list(zip(["a", "b"], expected)))
 
 
