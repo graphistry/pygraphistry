@@ -156,4 +156,53 @@ def test_gpu_expression_aggregate_matrix(strict_aggregate_device, connected, key
         assert answer == expected
     for key in keys:
         assert out.to_dicts()[0][key] == (None if key == "key" else 7)
-    assert len(strict_aggregate_device) == 1
+    assert strict_aggregate_device
+    assert any("answer" in result.columns for result in strict_aggregate_device)
+
+
+@pytest.mark.parametrize("values, expected", [([], 0), ([None, None], 0), ([2, None, 2, 4], 2), ([2, 2], 1)])
+def test_gpu_distinct_count_plan_null_identity(monkeypatch, values, expected):
+    from graphistry.compute.gfql import lazy
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import group_by_polars
+
+    monkeypatch.setattr(lazy, "collect", lambda plan: plan.collect())
+    graph = graphistry.nodes(pl.DataFrame({"value": values}, schema={"value": pl.Int64}))
+    with lazy.target_mode(lazy.ExecutionTarget.GPU):
+        out = group_by_polars(graph, [], [("n", "count_distinct", "value")])
+    assert out is not None
+    assert out._nodes.to_dicts() == [{"n": expected}]
+
+
+@pytest.mark.parametrize("keys", [[], ["key"]])
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("device", [False, pytest.param(True, marks=pytest.mark.skipif(
+    os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual GPU collection identity execution"))])
+def test_gpu_collection_plan_preserves_groups_and_identity(monkeypatch, request, keys, empty, device):
+    from graphistry.compute.gfql import lazy
+    from graphistry.compute.gfql.lazy.engine.polars import row_pipeline
+
+    receipts = request.getfixturevalue("strict_aggregate_device") if device else None
+    if not device:
+        monkeypatch.setattr(lazy, "collect", lambda plan: plan.collect())
+    table = pl.DataFrame({"key": [2, 1, 1, 1], "value": [None, 3, 3, 5]},
+                         schema={"key": pl.Int64, "value": pl.Int64})
+    if empty:
+        table = table.head(0)
+    with lazy.target_mode(lazy.ExecutionTarget.GPU):
+        out = row_pipeline.group_by_polars(graphistry.nodes(table), keys, [
+            ("values", "collect", "value"), ("n", "count"),
+            ("unique", "collect_distinct", "value"),
+        ])
+    assert out is not None
+    if keys:
+        expected = [] if empty else [
+            {"key": 2, "values": [], "n": 1, "unique": []},
+            {"key": 1, "values": [3, 3, 5], "n": 3, "unique": [3, 5]},
+        ]
+    else:
+        expected = [{"values": [] if empty else [3, 3, 5], "n": 0 if empty else 4,
+                     "unique": [] if empty else [3, 5]}]
+    assert out._nodes.to_dicts() == expected
+    assert out._nodes.columns == [*keys, "values", "n", "unique"]
+    if device:
+        assert receipts

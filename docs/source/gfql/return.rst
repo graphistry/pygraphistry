@@ -158,3 +158,41 @@ Notes
 - Unsupported row expressions are rejected by validator/runtime.
 
 See also: :doc:`quick`, :doc:`where`, :doc:`spec/cypher_mapping`.
+
+Global and grouped aggregation
+------------------------------
+
+``group_by(keys=[], aggregations=...)`` returns one aggregate row for the complete
+active row table, including an empty input. With grouping keys, an empty input
+returns no groups. Null keys remain valid groups.
+
+.. code-block:: python
+
+    from graphistry.compute import rows, group_by
+
+    totals = g.gfql([
+        rows(),
+        group_by([], [
+            ("row_count", "count"),
+            ("adjusted_total", "sum", "score + 1"),
+            ("three_per_row", "sum", "3"),
+        ]),
+    ], engine="polars")
+
+An aggregate source first resolves as an exact visible column name. For example,
+a column named ``score + 1`` takes precedence over parsing that text as arithmetic.
+Otherwise the source is a row expression; constants are repeated once per input
+row, so ``("total", "sum", "3")`` contributes zero on an empty table.
+
+Aggregates exclude null values. Over an empty global input, ``count``,
+``count_distinct``, and ``sum`` return zero; ``collect`` and ``collect_distinct``
+return an empty list; ``avg``/``mean``, ``min``, and ``max`` return null.
+Collections retain input order, and distinct collections retain the first occurrence.
+``sum`` and ``avg``/``mean`` require numeric or duration values; GFQL also accepts
+Boolean indicators. Non-numeric values receive a structured type error.
+
+Validation acceptance and backend execution support are separate checks.
+``engine="polars-gpu"`` requires GPU execution and raises a structured
+unsupported-operation error when native lowering or the installed GPU backend
+cannot execute the aggregate. A successful traversal does not establish support
+for an aggregate that follows it.

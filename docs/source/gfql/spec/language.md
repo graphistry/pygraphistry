@@ -211,7 +211,7 @@ skip_op ::= "skip(" (integer | "value=" integer) ")"
 limit_op ::= "limit(" (integer | "value=" integer) ")"
 distinct_op ::= "distinct()"
 unwind_op ::= "unwind(" "expr=" value_or_expr ("," "as_=" string)? ")"
-group_by_op ::= "group_by(" "keys=" "[" string ("," string)* "]" "," "aggregations=" "[" aggregation_spec ("," aggregation_spec)* "]" ")"
+group_by_op ::= "group_by(" "keys=" "[" (string ("," string)*)? "]" "," "aggregations=" "[" aggregation_spec ("," aggregation_spec)* "]" ")"
 aggregation_spec ::= "(" string "," string ")" | "(" string "," string "," value_or_expr ")"
 
 (* Parameters *)
@@ -346,7 +346,7 @@ Cypher-style `MATCH ... RETURN` processing:
 - `select(...)` / `with_(...)` / `return_(...)`: projection and expression shaping
 - `order_by(...)`, `skip(...)`, `limit(...)`, `distinct()`: row sorting/paging/dedup
 - `unwind(...)`: expand list-valued expressions into rows
-- `group_by(...)`: grouped vectorized aggregations
+- `group_by(...)`: vectorized aggregations; `keys=[]` aggregates the complete row table
 
 Row-pipeline operators are part of the chain list itself (not top-level
 `g.gfql()` keyword arguments):

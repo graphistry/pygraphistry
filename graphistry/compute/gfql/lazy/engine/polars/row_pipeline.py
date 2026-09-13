@@ -1457,7 +1457,11 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     if func == "count_distinct":
         # count(DISTINCT x) drops nulls (pandas nunique(dropna=True)); polars n_unique() counts
         # null, so drop_nulls first.
-        return polars_conform_agg_dtype(col.drop_nulls().n_unique(), func, dtype, alias)
+        from graphistry.compute.gfql.lazy import ExecutionTarget, active_target
+
+        distinct_count = (col.n_unique() - (col.null_count() > 0).cast(pl.UInt32)
+                          if active_target() == ExecutionTarget.GPU else col.drop_nulls().n_unique())
+        return polars_conform_agg_dtype(distinct_count, func, dtype, alias)
     if func == "collect":
         # collect(x) drops nulls, keeps within-group row order (pandas row/pipeline.py:4552-4582:
         # ~isna() then agg(list)). Inside group_by(maintain_order=True).agg a multi-valued expr
@@ -1485,6 +1489,61 @@ def _group_by_decline(cause: Optional[NotImplementedError] = None) -> None:
             suggestion="Use engine='polars' for CPU execution",
         ) from cause
     return None
+
+
+def _gpu_collection_aggregates(
+    operands: "pl.LazyFrame", keys: List[str], scalars: List["pl.Expr"],
+    collections: List[Tuple[str, str, bool]], schema: Mapping[str, "pl.DataType"],
+    output_aliases: List[str],
+) -> "pl.DataFrame":
+    """GPU collection plans with null exclusion before grouping and explicit empty identities."""
+    import polars as pl
+    from graphistry.compute.gfql.lazy import collect
+
+    group_keys = list(keys)
+    if not group_keys:
+        global_key = "__gfql_collection_group__"
+        while global_key in schema or global_key in output_aliases:
+            global_key += "_"
+        group_keys = [global_key]
+        operands = operands.with_columns(pl.lit(0).alias(global_key))
+        base = (collect(operands.select(scalars).with_columns(pl.lit(0).alias(global_key)))
+                if scalars else collect(pl.DataFrame({global_key: [0]}, schema={global_key: pl.Int32}).lazy()))
+    else:
+        base = collect(operands.group_by(group_keys, maintain_order=True).agg(scalars)
+                       if scalars else operands.select(group_keys).unique(maintain_order=True))
+    for alias, source, distinct in collections:
+        value_name = "__gfql_collection_value__"
+        while value_name in schema or value_name in group_keys or value_name in output_aliases:
+            value_name += "_"
+        value = pl.col(source)
+        dtype = schema[source]
+        if _dtype_is_float(dtype):
+            value = value.fill_nan(None)
+        elif _dtype_is_stringlike(dtype) and dtype != pl.String:
+            value = value.cast(pl.String)
+        part = operands.with_columns(value.alias(value_name)).filter(pl.col(value_name).is_not_null())
+        if distinct:
+            part = part.unique(subset=[*group_keys, value_name], maintain_order=True)
+        grouped = collect(part.group_by(group_keys, maintain_order=True).agg(pl.col(value_name).alias(alias)))
+        if base.height == 0:
+            # Both results are empty: adding the output dtype cannot move or compute row values.
+            base = base.with_columns(pl.Series(alias, [], dtype=grouped.schema[alias]))
+            continue
+        if grouped.height < base.height:
+            identity = pl.DataFrame({alias: [[]]}, schema={alias: grouped.schema[alias]}).lazy()
+            if grouped.height == 0:
+                completed = base.lazy().select(group_keys).join(identity, how="cross")
+            else:
+                missing = base.lazy().select(group_keys).join(
+                    grouped.lazy().select(group_keys), on=group_keys, how="anti", nulls_equal=True,
+                ).join(identity, how="cross")
+                completed = pl.concat([grouped.lazy(), missing])
+        else:
+            completed = grouped.lazy()
+        base = collect(base.lazy().join(completed, on=group_keys, how="left",
+                                        nulls_equal=True, maintain_order="left"))
+    return base.select([*keys, *output_aliases])
 
 
 def group_by_polars(
@@ -1519,6 +1578,8 @@ def group_by_polars(
     operand_schema = dict(table.schema)
     has_projected_operands = False
     aggs: List["pl.Expr"] = []
+    collections: List[Tuple[str, str, bool]] = []
+    output_aliases: List[str] = []
     for agg in aggregations:
         if not isinstance(agg, (list, tuple)) or len(agg) not in (2, 3):
             _group_by_decline()
@@ -1527,10 +1588,12 @@ def group_by_polars(
         # the len guard above already proved the shape.
         spec = cast("Sequence[Optional[str]]", agg)
         alias = str(spec[0])
+        output_aliases.append(alias)
         func = str(spec[1])
         expr = spec[2] if len(spec) == 3 else None
         if isinstance(expr, str) and expr not in cols and not (func.lower() == "count" and expr == "*"):
-            operand = _lower_with_schema(table, lambda: lower_expr_str(expr, cols), node_id=g._node)
+            source_expr = expr
+            operand = _lower_with_schema(table, lambda: lower_expr_str(source_expr, cols), node_id=g._node)
             if operand is None:
                 _group_by_decline()
                 return None
@@ -1553,10 +1616,22 @@ def group_by_polars(
         if lowered is None:
             _group_by_decline()
             return None
+        if active_target() == ExecutionTarget.GPU and func.lower() in ("collect", "collect_distinct"):
+            assert isinstance(expr, str)
+            collections.append((alias, expr, func.lower() == "collect_distinct"))
+            continue
         if not key_cols and func.lower() in ("collect", "collect_distinct"):
             lowered = lowered.implode().alias(alias)
         aggs.append(lowered)
 
+    if collections:
+        try:
+            return _rewrap(g, _gpu_collection_aggregates(
+                operand_plan, key_cols, aggs, collections, operand_schema, output_aliases,
+            ))
+        except NotImplementedError as exc:
+            _group_by_decline(exc)
+            return None
     if active_target() == ExecutionTarget.GPU or has_projected_operands or not key_cols:
         plan = (operand_plan.group_by(key_cols, maintain_order=True).agg(aggs)
                 if key_cols else operand_plan.select(aggs))
