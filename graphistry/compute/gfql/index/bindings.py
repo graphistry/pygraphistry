@@ -105,6 +105,8 @@ def _integer_index(index: Union[AdjacencyIndex, NodeIdIndex, NodePropIndex]) -> 
     keys are declined rather than risking a lossy compare.
     """
     key_ok = index.keys_sorted.dtype.kind in ("i", "u")
+    if isinstance(index, NodeIdIndex) and index.source_ref is not None:
+        key_ok = key_ok and index.n_nodes == len(index.source_ref)
     if not isinstance(index, AdjacencyIndex):
         return key_ok
     return key_ok and index.other_values.dtype.kind in ("i", "u")
@@ -295,6 +297,10 @@ def _seed_rows_via_property_index(
         if value is None or isinstance(value, bool) or not isinstance(value, Integral):
             continue
         index = registry.get_node_prop_valid(column, nodes, engine)
+        if index is None and engine in (Engine.POLARS, Engine.POLARS_GPU):
+            # Both Polars targets index the same host frame with NumPy arrays.
+            other = Engine.POLARS_GPU if engine == Engine.POLARS else Engine.POLARS
+            index = registry.get_node_prop_valid(column, nodes, other)
         if index is None:
             continue
         values = xp.asarray([value])

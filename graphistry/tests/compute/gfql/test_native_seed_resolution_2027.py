@@ -7,6 +7,9 @@ seeded hops whenever the traversal indexes were resident. Pins: a lane-shaped gr
 the fast path with parity to the full path, the alias columns sit where the full path
 puts them, and the property index is the seam that resolves the seed.
 """
+from contextlib import ExitStack
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -52,18 +55,19 @@ def _canon(frame):
 
 
 def _run(g, ops, engine, fast):
-    real = chain_mod._try_chain_fast_path
     hits = {"n": 0}
 
-    def spy(*a, **k):
-        r = real(*a, **k)
-        hits["n"] += r is not None
-        return r
-    chain_mod._try_chain_fast_path = (lambda *a, **k: None) if not fast else spy
-    try:
+    def spy(real):
+        def run(*a, **k):
+            result = real(*a, **k) if fast else None
+            hits["n"] += result is not None
+            return result
+        return run
+
+    with ExitStack() as stack:
+        for name in ("_try_chain_fast_path", "_try_point_rows"):
+            stack.enter_context(patch.object(chain_mod, name, spy(getattr(chain_mod, name))))
         return g.gfql(ops, engine=engine, index_policy="use"), hits["n"]
-    finally:
-        chain_mod._try_chain_fast_path = real
 
 
 SHAPES = {
@@ -79,7 +83,7 @@ SHAPES = {
 }
 
 
-@pytest.mark.route_engaged("native-fast")
+@pytest.mark.route_engaged("native-fast", "point-rows")
 @pytest.mark.parametrize("engine", ENGINES)
 @pytest.mark.parametrize("shape", list(SHAPES))
 def test_lane_shapes_are_served_with_exact_parity(engine, shape):
@@ -182,12 +186,9 @@ def _same_values(fast, full):
 
 
 def _run_policy(g, ops, engine, fast, index_policy):
-    real = chain_mod._try_chain_fast_path
-    chain_mod._try_chain_fast_path = real if fast else (lambda *a, **k: None)
-    try:
+    from graphistry.tests.compute.gfql.routes.switch import routes_off
+    with routes_off(()) if fast else routes_off(("native-fast", "point-rows")):
         return g.gfql(ops, engine=engine, index_policy=index_policy)
-    finally:
-        chain_mod._try_chain_fast_path = real
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -238,10 +239,7 @@ def test_non_scalar_seed_predicates_keep_parity_without_the_index(engine, seed):
 @pytest.mark.route_engaged("native-fast")
 @pytest.mark.parametrize("engine", ENGINES)
 def test_duplicate_node_rows_are_answered_once_each_on_the_native_lookup(engine):
-    """A node table that repeats a key row (a contract violation the engine tolerates): the
-    native lookup answers one row per matching node-table row, which is what the polars
-    lanes answer; the pandas/cuDF full path self-joins the duplicates into 2**3 rows (a
-    pre-existing blow-up, recorded here so a change to either side flips this pin)."""
+    """Native and generic lookup preserve each matching source row exactly once."""
     g = _lane_graph(engine)
     nodes = g._nodes
     dup = nodes.iloc[[7]]
@@ -257,4 +255,5 @@ def test_duplicate_node_rows_are_answered_once_each_on_the_native_lookup(engine)
     assert hits == 1
     fast_keys = _canon(fast._nodes)["key"].tolist()
     assert fast_keys == [7.0, 7.0], fast_keys
-    assert len(full._nodes) == 8  # the full path's duplicate self-join; not the native lane's answer
+    assert _canon(full._nodes)["key"].tolist() == [7.0, 7.0]
+    pd.testing.assert_frame_equal(_canon(fast._nodes), _canon(full._nodes))

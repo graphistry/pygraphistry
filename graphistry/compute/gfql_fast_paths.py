@@ -17,7 +17,7 @@ from graphistry.Plottable import Plottable
 if TYPE_CHECKING:
     import polars as pl
     from graphistry.compute.gfql.index.api import ColStatsOutcome
-    from graphistry.compute.gfql.index.registry import ColStatsFact, DegreeFact, PartitionValue
+    from graphistry.compute.gfql.index.registry import ColStatsFact, DegreeFact, NodeIdIndex, PartitionValue
     from graphistry.compute.typing import ArrayLike, ArrayNamespace
 from graphistry.Engine import Engine, EngineAbstract, POLARS_ENGINES, df_concat, df_cons, df_to_engine, df_unique, resolve_engine
 from graphistry.util import setup_logger
@@ -99,7 +99,7 @@ from graphistry.compute.gfql.physical_planner import PhysicalPlanner
 from graphistry.compute.gfql.passes import DEFAULT_LOGICAL_PASSES, DEFAULT_TIER2_PASSES, PassManager
 from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter, is_row_pipeline_call
 from graphistry.compute.gfql.search_any import search_any_mask
-from graphistry.compute.typing import DataFrameT, FilterDict, SeriesT, NodeDtypes
+from graphistry.compute.typing import DataFrameT, FilterDict, ScalarFilterDict, SeriesT, NodeDtypes
 from graphistry.compute.gfql.lazy import collect as _lazy_collect, collect_all as _lazy_collect_all
 from graphistry.compute.util.generate_safe_column_name import generate_safe_column_name
 from graphistry.compute.validate.validate_schema import validate_chain_schema
@@ -3428,8 +3428,9 @@ def _seeded_typed_hop_two_alias_frame(
 
 
 def _node_lookup_scan_reason(
-    base_graph: Plottable, node: str, n0f: Dict[str, object], nid_ctx: object,
-) -> str:
+    base_graph: Plottable, node: str, n0f: ScalarFilterDict,
+    nid_ctx: Optional[Tuple["NodeIdIndex", "ArrayNamespace", Engine]],
+) -> Literal["index_policy_off", "index_missing", "index_stale", "cost_gate"]:
     """Why a seeded node lookup scanned: policy off, no index, a stale one, or the
     property index's cost gate."""
     from graphistry.compute.gfql.index import get_index_policy, get_registry
@@ -3834,7 +3835,7 @@ def _execute_seeded_typed_hop_fast_path(
         # value-identical contract).
         if is_polars:
             import polars as pl
-            out_frame = p_rows.select([pl.col(prop).alias(out) for out, _, prop in select_items])
+            out_frame = pl.DataFrame([p_rows.get_column(prop).alias(out) for out, _, prop in select_items])
         else:
             casts = _pivot_parity_casts(
                 p_rows, [(out, prop) for out, _, prop in select_items], node,

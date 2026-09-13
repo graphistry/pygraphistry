@@ -3,11 +3,11 @@ consult the same predicates, so a test that filters a shape corpus with them exe
 what the dispatcher admits."""
 # ruff: noqa: E501
 
-from typing import Dict, Literal, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Literal, Optional, Sequence, Tuple, TYPE_CHECKING
 
-from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
+from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge, ASTCall
 from graphistry.compute.chain_fast_paths import SeedRowsHow
-from graphistry.compute.typing import ArrayNamespace, DataFrameT
+from graphistry.compute.typing import ArrayNamespace, DataFrameT, ScalarFilterDict
 
 if TYPE_CHECKING:
     from graphistry.Engine import Engine
@@ -55,13 +55,14 @@ def native_fast_path_admits(
 
 
 def _indexed_kernel_admits(
-    seed_nodes: DataFrameT, gathered_edges: Optional[DataFrameT], n0f: Dict[str, object],
+    seed_nodes: DataFrameT, gathered_edges: Optional[DataFrameT], n0f: ScalarFilterDict,
     node: str, how: SeedRowsHow, ctx: Tuple["NodeIdIndex", "AdjacencyIndex", ArrayNamespace, "Engine"],
     n_nodes: int, n_edges: int,
 ) -> bool:
     """Whether the indexed connected-bindings kernel would have served this seeded 1-hop:
     its seed admission (binding-column integer seed, property-index hit, or a scan on a
     graph with fewer nodes than edges) and its frontier and gather cost gates."""
+    from graphistry.Engine import POLARS_ENGINES, is_polars_df
     from numbers import Integral
     from graphistry.compute.gfql.index.cost import cost_gate_frac
     _, adj, _, engine = ctx
@@ -70,8 +71,47 @@ def _indexed_kernel_admits(
     if not (seeded_on_binding or how == "property_index" or n_nodes < n_edges):
         return False
     frac = cost_gate_frac(engine)
-    n_frontier = int(seed_nodes[node].nunique()) if not hasattr(seed_nodes, "get_column") \
-        else int(seed_nodes.get_column(node).n_unique())
+    if engine in POLARS_ENGINES:
+        import polars as pl
+        assert is_polars_df(seed_nodes) and isinstance(seed_nodes, pl.DataFrame)
+        seed_ids = seed_nodes.get_column(node)
+        n_frontier = len(seed_ids) if len(seed_ids) <= 1 else int(seed_ids.n_unique())
+    else:
+        n_frontier = int(seed_nodes[node].nunique())
     if n_frontier >= frac * adj.n_keys:
         return False
     return gathered_edges is not None and len(gathered_edges) < frac * n_edges
+
+
+def point_rows_admits(
+    ops: Sequence[ASTObject], engine: "Engine", start_nodes: Optional[DataFrameT],
+) -> Optional[int]:
+    boundary = 1 if len(ops) in (2, 3) else 3 if len(ops) in (4, 5) else None
+    if boundary is None or native_fast_path_admits(ops[:boundary], engine, start_nodes) is None:
+        return None
+    first = ops[0]
+    if not isinstance(first, ASTNode) or not first.filter_dict:
+        return None
+    for op in ops[:boundary]:
+        filters = op.filter_dict if isinstance(op, ASTNode) else op.edge_match if isinstance(op, ASTEdge) else None
+        if filters and any(not isinstance(v, (str, int, float, bool)) for v in filters.values()):
+            return None
+    if boundary == 3:
+        edge = ops[1]
+        if not isinstance(edge, ASTEdge) or edge.direction == "undirected":
+            return None
+    row = ops[boundary]
+    if not isinstance(row, ASTCall) or row.function != "rows" or set(row.params) - {"table", "source"}:
+        return None
+    table, source = row.params.get("table"), row.params.get("source")
+    kind = ASTNode if table == "nodes" else ASTEdge if table == "edges" else None
+    joined = boundary == 3 and table == "nodes" and source is None and len(ops) == 5
+    if not joined and (kind is None or not isinstance(source, str) or not any(
+        isinstance(op, kind) and op._name == source for op in ops[:boundary]
+    )):
+        return None
+    if len(ops) > boundary + 1:
+        projection = ops[-1]
+        if not isinstance(projection, ASTCall) or projection.function != "select" or set(projection.params) != {"items"}:
+            return None
+    return boundary

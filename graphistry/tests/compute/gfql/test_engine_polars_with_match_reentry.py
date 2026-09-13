@@ -401,3 +401,29 @@ class TestReentryPolarsFramesServingEngineMatrix:
             engine="pandas",
         )._nodes
         assert _to_pandas(out).to_dict("records") == [{"av": 10, "bid": 1}]
+
+
+@pytest.mark.parametrize("node_id", ["id", "__node__", "custom_key"])
+@pytest.mark.parametrize("return_clause, aliases", [
+    ("RETURN x", ["x"]),
+    ("RETURN x AS target", ["target"]),
+    ("RETURN a, x", ["a", "x"]),
+    ("RETURN x.name", []),
+])
+def test_multi_match_whole_entity_identity(node_id, return_clause, aliases):
+    graph = graphistry.nodes(pd.DataFrame({
+        node_id: [10, 20, 30, 40], "name": ["A", "B", "x1", "x2"],
+    }), node_id).edges(pd.DataFrame({
+        "s": [10, 10, 20, 20], "d": [30, 40, 30, 40],
+    }), "s", "d")
+    query = "MATCH (a {name: 'A'}), (b {name: 'B'}) MATCH (a)-->(x)<-->(b) " + return_clause
+    result = graph.gfql(query, engine="polars")
+    reference = graph.gfql(query, engine="pandas")
+    actual = result._nodes.to_pandas().sort_values("x.name" if not aliases else aliases[-1] + ".name").reset_index(drop=True)
+    expected = reference._nodes.sort_values("x.name" if not aliases else aliases[-1] + ".name").reset_index(drop=True)
+    pd.testing.assert_frame_equal(actual, expected, check_like=True)
+    meta = getattr(result, "_cypher_entity_projection_meta", {})
+    assert set(meta) == set(aliases)
+    for alias in aliases:
+        assert meta[alias]["id_column"] == node_id
+        assert meta[alias]["ids"].to_list() == result._nodes[alias + "." + node_id].to_list()

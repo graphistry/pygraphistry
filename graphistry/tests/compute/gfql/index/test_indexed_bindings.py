@@ -639,8 +639,11 @@ def test_node_property_index_absent_matches_indexed(
         _assert_result_exact(actual, expected, engine)
 
 
+@pytest.mark.parametrize("require_engagement", [
+    False, pytest.param(True, marks=pytest.mark.route_engaged("index-hop", "indexed-kernel")),
+])
 def test_node_property_index_duplicate_values_match_scan(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, require_engagement: bool,
 ) -> None:
     """A non-unique property still gathers EVERY matching row (CSR, not first-hit)."""
     from graphistry.compute.ast import rows as rows_call
@@ -651,8 +654,9 @@ def test_node_property_index_duplicate_values_match_scan(
         expected = _run(g, query, "pandas", m, generic=True)
     actual, steps, widths = _seed_filter_widths(g, query, "pandas", monkeypatch)
     _assert_result_exact(actual, expected, "pandas")
-    assert widths and widths[0] == 4  # every row with grp == 0, none of the others
-    assert [s for s in steps if s.get("seam") == "connected_bindings"]
+    if require_engagement:
+        assert widths and widths[0] == 4  # every row with grp == 0, none of the others
+        assert [s for s in steps if s.get("seam") == "connected_bindings"]
 
 
 @pytest.mark.parametrize("case", ["stale", "policy_off"])
@@ -701,9 +705,11 @@ def test_node_property_index_declines_unindexable_columns() -> None:
         g.gfql_index_node_props(["nosuch"])
 
 
-@pytest.mark.route_engaged("index-hop")
+@pytest.mark.parametrize("require_engagement", [
+    False, pytest.param(True, marks=pytest.mark.route_engaged("index-hop", "indexed-kernel")),
+])
 def test_node_property_index_prefers_the_most_selective_column(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, require_engagement: bool,
 ) -> None:
     from graphistry.compute.ast import rows as rows_call
 
@@ -718,7 +724,8 @@ def test_node_property_index_prefers_the_most_selective_column(
         expected = _run(g, query, "pandas", m, generic=True)
     actual, _, widths = _seed_filter_widths(g, query, "pandas", monkeypatch)
     _assert_result_exact(actual, expected, "pandas")
-    assert widths and widths[0] == 1  # 'public' (1 match) beats 'grp' (4 matches)
+    if require_engagement:
+        assert widths and widths[0] == 1  # 'public' (1 match) beats 'grp' (4 matches)
 
 
 @pytest.mark.parametrize(

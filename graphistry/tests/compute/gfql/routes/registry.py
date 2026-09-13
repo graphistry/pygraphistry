@@ -69,4 +69,8 @@ def graph_for(shape: Shape, engine: str, indexed: bool = False) -> Plottable:
     import graphistry
     f = shape.frames
     g = graphistry.nodes(to_engine(f.nodes, engine), f.node).edges(to_engine(f.edges, engine), f.src, f.dst, f.edge)
+    if indexed and engine == "cudf" and any(
+        df[col].dtype.kind == "O" for df, col in ((f.nodes, f.node), (f.edges, f.src), (f.edges, f.dst))
+    ):
+        return g
     return g.gfql_index_all(engine=engine) if indexed else g

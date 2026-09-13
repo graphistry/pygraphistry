@@ -55,6 +55,10 @@ NodeDtypes = Mapping[str, DType]
 FilterValue = Any
 FilterDict = Dict[str, FilterValue]
 
+# Scalar equality filters accepted by the seeded specialization admission gate.
+ScalarFilterValue = Union[int, float, str, bool]
+ScalarFilterDict = Dict[str, ScalarFilterValue]
+
 # Type variable for return type preservation in predicates
 T = TypeVar('T')
 

@@ -19,6 +19,7 @@ from graphistry.compute.endpoint_utils import drop_null_endpoint_edges
 from graphistry.Plottable import Plottable
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
 from .chain_specializations.admission import polars_plain_single_hop_admits, polars_single_node_admits
+from .chain_specializations.point_rows import _try_point_rows_polars
 from .chain_specializations.hotpaths import _plain_seeded_index_hop_polars, _plain_single_hop_polars, _single_node_polars, _try_seeded_chain_polars
 
 if TYPE_CHECKING:
@@ -769,6 +770,10 @@ def chain_polars(self: Plottable, ops, start_nodes: Optional[Any] = None) -> Plo
                     )
                 _seen[_name] = _idx
 
+    point_rows = _try_point_rows_polars(self, ops, start_nodes)
+    if point_rows is not None:
+        return point_rows
+
     has_call = any(isinstance(op, ASTCall) for op in ops)
     has_traversal = any(isinstance(op, (ASTNode, ASTEdge)) for op in ops)
 
@@ -995,6 +1000,10 @@ def _chain_traversal_polars(self: Plottable, ops, start_nodes: Optional[Any] = N
     g = ensure_nodes_polars(self)
     assert g._node is not None and g._source is not None and g._destination is not None
     start_nodes = _align_seed_dtype(start_nodes, g._node, g._nodes)
+    if len(ops) == 1 and isinstance(ops[0], ASTNode):
+        # A node selection retains source rows, including duplicate and null IDs.
+        # Traversal's endpoint combine applies set semantics only when edges exist.
+        return _exec(ops[0], g, start_nodes, None)
     g, _endpoint_restore = _align_edge_endpoints(g, g._node, g._source, g._destination)
     if g._edge is None:
         EID = "__gfql_edge_index__"

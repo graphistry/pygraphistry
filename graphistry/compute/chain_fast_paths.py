@@ -6,9 +6,12 @@ lanes in ``gfql_fast_paths.py``. This module imports only leaf modules (no back-
 
 from typing import Any, Dict, Literal, Optional, Sequence, Tuple, TYPE_CHECKING, Union, cast
 
+import pandas as pd
+
 from graphistry.Plottable import Plottable
+from graphistry.Engine import is_polars_series
 from .ast import Direction
-from .typing import ArrayLike, ArrayNamespace, DataFrameT, SeriesT
+from .typing import ArrayLike, ArrayNamespace, DataFrameT, FilterDict, ScalarFilterDict, SeriesT
 
 if TYPE_CHECKING:
     from graphistry.Engine import Engine
@@ -27,10 +30,20 @@ def _tag_fast_path_aliases(
     edges: Optional[DataFrameT] = res._edges
     if nodes is None or edges is None:
         return res
+    nodes, edges = _tag_fast_path_alias_frames(
+        nodes, edges, alias_n0, alias_e1, alias_n2, src, dst, node, direction)
+    return res.nodes(nodes).edges(edges)
+
+
+def _tag_fast_path_alias_frames(
+    nodes: DataFrameT, edges: DataFrameT,
+    alias_n0: Optional[str], alias_e1: Optional[str], alias_n2: Optional[str],
+    src: str, dst: str, node: str, direction: Direction,
+) -> Tuple[DataFrameT, DataFrameT]:
     from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
     tagged = _tag_fast_path_aliases_eager(nodes, edges, alias_n0, alias_e1, alias_n2, from_col, to_col, node)
     if tagged is not None:
-        return res.nodes(tagged[0]).edges(tagged[1])
+        return tagged
     node_flags: Dict[str, SeriesT] = {}
     if alias_n0 is not None:
         node_flags[alias_n0] = nodes[node].isin(edges[from_col])
@@ -53,7 +66,7 @@ def _tag_fast_path_aliases(
             edges = edges[[alias_e1, *[c for c in edges.columns if c != alias_e1]]]
         edges = edges.reset_index(drop=True)
 
-    return res.nodes(nodes).edges(edges)
+    return nodes, edges
 
 
 def _tag_fast_path_aliases_eager(
@@ -73,7 +86,7 @@ def _tag_fast_path_aliases_eager(
         return None
     wanted = [a for a in (alias_n0, alias_n2) if a is not None]
     if wanted:
-        if nodes.columns[0] != node or any(a in nodes.columns for a in wanted):
+        if any(a in nodes.columns for a in wanted):
             return None
         if len(set(wanted)) != len(wanted):
             return None
@@ -83,6 +96,11 @@ def _tag_fast_path_aliases_eager(
             if any(a.dtype.kind not in "iub" or a.dtype != ids.dtype for a in (ids, *ends)):
                 return None
         out_nodes = nodes.reset_index(drop=True)
+        if out_nodes.columns[0] != node:
+            if pandas_frames:
+                out_nodes.insert(0, node, out_nodes.pop(node))
+            else:
+                out_nodes = out_nodes[[node, *[c for c in out_nodes.columns if c != node]]]
         pos = 1
         if alias_n0 is not None:
             seed_flags = np.isin(ids, ends[0]) if pandas_frames else nodes[node].isin(edges[from_col]).reset_index(drop=True)
@@ -99,7 +117,7 @@ def _tag_fast_path_aliases_eager(
     return nodes, edges
 
 
-def _seeded_scalar_filters(fd: Optional[Dict[str, Any]], df: DataFrameT) -> Optional[Dict[str, Any]]:
+def _seeded_scalar_filters(fd: Optional[FilterDict], df: DataFrameT) -> Optional[ScalarFilterDict]:
     """Resolve a filter dict to plain scalar column==value pairs, or None to bail
     to the general path. Mirrors filter_by_dict.resolve_filter_column exactly for
     the shapes it accepts: the cypher ``label__X: True`` form maps to ``type``
@@ -111,7 +129,7 @@ def _seeded_scalar_filters(fd: Optional[Dict[str, Any]], df: DataFrameT) -> Opti
     if not fd:
         return {}
     cols = set(df.columns)
-    out: Dict[str, Any] = {}
+    out: ScalarFilterDict = {}
     for k, v in fd.items():
         if not isinstance(v, (int, float, str, bool)):
             return None  # predicate / non-scalar -> bail to the general path
@@ -176,6 +194,13 @@ def _ids_to_key_array(
         if 'cudf' in str(type(vals).__module__):
             vals = vals.dropna()  # type: ignore[union-attr]  # cudf Series by module check
             raw = vals.values  # type: ignore[union-attr]  # device array; to_numpy() raises on nulls + round-trips host
+        elif is_polars_series(vals):
+            # Nullable integers become floats in NumPy unless nulls are removed first.
+            raw = (vals.drop_nulls() if vals.null_count() else vals).to_numpy()
+        elif isinstance(vals, pd.Series):
+            vals = vals.dropna()
+            dtype = vals.dtype
+            raw = vals.to_numpy(dtype=f"{dtype.kind}{dtype.itemsize}") if dtype.kind in "iu" else vals.to_numpy()
         elif hasattr(vals, "to_numpy"):
             raw = vals.to_numpy()
         else:
@@ -253,7 +278,7 @@ def _resident_node_id_index(
 
 
 def _seed_rows_via_prop_index_frame(
-    g: Plottable, nodes_df: DataFrameT, n0f: Dict[str, object], engine: "Engine",
+    g: Plottable, nodes_df: DataFrameT, n0f: ScalarFilterDict, engine: "Engine",
 ) -> Optional[DataFrameT]:
     """Candidate seed rows through a resident node PROPERTY index covering one of the
     scalar predicates, else None (the caller re-applies the whole filter either way)."""
@@ -280,14 +305,29 @@ SeededReturn = Tuple[DataFrameT, DataFrameT, DataFrameT, bool]
 
 
 def _seed_node_rows(
-    g: Plottable, nodes_df: DataFrameT, n0f: Dict[str, object], node: str,
+    g: Plottable, nodes_df: DataFrameT, n0f: ScalarFilterDict, node: str,
     nid_ctx: Optional[Tuple["NodeIdIndex", ArrayNamespace, "Engine"]],
-    filter_dict: Optional[Dict[str, object]] = None,
+    filter_dict: Optional[FilterDict] = None,
 ) -> Tuple[DataFrameT, SeedRowsHow]:
     """Rows matching the scalar seed filter: node-id index when the predicate is on the
     binding column, else a resident property index, else a scan. The canonical filter
     (``filter_dict`` as written, or the resolved scalars) is re-applied to the candidates,
     so every branch keeps the full path's typed-error and comparison semantics."""
+    from graphistry.compute.gfql.index.bindings import _filter_frame
+    indexed = _seed_node_rows_from_index(g, nodes_df, n0f, node, nid_ctx, filter_dict)
+    if indexed is not None:
+        return indexed
+    engine = _frame_engine(nodes_df)
+    if engine is None:
+        raise TypeError(f"unsupported node frame type {type(nodes_df).__name__}")
+    return _filter_frame(nodes_df, filter_dict if filter_dict is not None else n0f, engine), "scan"
+
+
+def _seed_node_rows_from_index(
+    g: Plottable, nodes_df: DataFrameT, n0f: ScalarFilterDict, node: str,
+    nid_ctx: Optional[Tuple["NodeIdIndex", ArrayNamespace, "Engine"]],
+    filter_dict: Optional[FilterDict] = None,
+) -> Optional[Tuple[DataFrameT, SeedRowsHow]]:
     from graphistry.compute.gfql.index.bindings import _filter_frame
     engine = _frame_engine(nodes_df)
     if engine is None:
@@ -304,26 +344,31 @@ def _seed_node_rows(
         if seed is not None:
             how = "property_index"
     if seed is None:
-        seed = nodes_df
+        return None
     effective = filter_dict if filter_dict is not None else n0f
-    if how != "scan" and _index_answered_whole_filter(effective, n0f):
+    if _index_answered_whole_filter(effective, n0f):
         return seed, how
-    if how != "scan":
-        verified = _verify_scalar_filters_on_hit(seed, n0f, engine)
-        if verified is not None:
-            return verified, how
+    verified = _verify_scalar_filters_on_hit(seed, n0f, engine)
+    if verified is not None:
+        return verified, how
     return _filter_frame(seed, effective, engine), how
 
 
 def _verify_scalar_filters_on_hit(
-    seed: DataFrameT, n0f: Dict[str, object], engine: "Engine",
+    seed: DataFrameT, n0f: ScalarFilterDict, engine: "Engine",
 ) -> Optional[DataFrameT]:
     """Check residual equalities on index hits, preserving typed filter errors."""
     from graphistry.Engine import Engine
     from graphistry.compute.exceptions import ErrorCode, GFQLSchemaError
+    if engine == Engine.POLARS:
+        from graphistry.compute.gfql.lazy.engine.polars.predicates import _filter_small_equalities
+        return _filter_small_equalities(seed, n0f)
     from graphistry.compute.filter_by_dict import _is_numeric_dtype_safe, _is_string_dtype_safe
     if engine not in (Engine.PANDAS, Engine.CUDF) or len(seed) == 0 or not n0f:
         return seed if len(seed) == 0 else None
+    import pandas as pd
+    single_pandas = engine == Engine.PANDAS and len(seed) == 1
+    scalar_match = True
     mask = None
     for col, val in n0f.items():
         if col not in seed.columns or isinstance(val, (list, tuple, set)):
@@ -337,11 +382,20 @@ def _verify_scalar_filters_on_hit(
             raise GFQLSchemaError(
                 ErrorCode.E302, f'Type mismatch: column "{col}" is string but filter value is numeric',
                 field=col, value=val, column_type=str(col_dtype), suggestion=f'Use a string value like {col}="value"')
+        if single_pandas and isinstance(val, (str, int, float, bool)):
+            value = seed[col].array[0]
+            if value is None or value is pd.NA:
+                scalar_match = False
+                continue
+            if col_dtype.kind in "biuf" or isinstance(value, str):
+                scalar_match = scalar_match and bool(value == val)
+                continue
         hit = seed[col] == val
         mask = hit if mask is None else (mask & hit)
+    if not scalar_match:
+        return seed.iloc[:0]
     if mask is None:
         return seed
-    import pandas as pd
     if engine == Engine.CUDF and mask.null_count:
         mask = mask.fillna(False)
     all_match = mask.all(skipna=False)
@@ -350,7 +404,7 @@ def _verify_scalar_filters_on_hit(
     return seed[mask]
 
 
-def _index_answered_whole_filter(effective: Dict[str, object], n0f: Dict[str, object]) -> bool:
+def _index_answered_whole_filter(effective: FilterDict, n0f: ScalarFilterDict) -> bool:
     """Whether one unrewritten equality was fully answered by the index."""
     if len(effective) != 1 or len(n0f) != 1:
         return False

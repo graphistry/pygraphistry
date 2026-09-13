@@ -615,7 +615,7 @@ def test_mixed_whole_entity_and_self_named_property_projection(engine: str) -> N
 def test_restore_alias_shadowed_user_column_branches() -> None:
     """Helper-level pins for the rows-route restore: no-op without a base, a shadowed
     column, or when the base column is itself a boolean marker (intermediate dispatch
-    graph); index-keyed restore; key-merge fallback when the index cannot re-key."""
+    graph); binding-key restore; index fallback when no unique binding key exists."""
     from types import SimpleNamespace
 
     from graphistry.compute.gfql.identifiers import shadow_restore_column
@@ -634,11 +634,11 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     # base column is itself a boolean marker (an intermediate dispatch graph): unchanged
     base_marker = SimpleNamespace(_nodes=pd.DataFrame({"id": ["a", "b"], "kind": [True, False]}), _edges=None, _node="id", _edge=None)
     assert _restore_alias_shadowed_user_column(ctx_for(base_marker), marked, "nodes", "kind") is marked
-    # index-keyed restore adds the internal restore column and keeps the marker boolean
+    # Keyed restore keeps the marker boolean.
     base = SimpleNamespace(_nodes=pd.DataFrame({"id": ["a", "b"], "kind": ["K1", "K2"]}), _edges=None, _node="id", _edge=None)
     out = _restore_alias_shadowed_user_column(ctx_for(base), marked, "nodes", "kind")
     assert list(out[restore_col]) == ["K1", "K2"] and list(out["kind"]) == [True, True]
-    # base index cannot re-key (duplicate labels): fall back to the id-key merge
+    # Duplicate dataframe indexes do not affect entity-key lookup.
     dup_index_nodes = pd.DataFrame({"id": ["a", "b"], "kind": ["K1", "K2"]}, index=[0, 0])
     base_dup = SimpleNamespace(_nodes=dup_index_nodes, _edges=None, _node="id", _edge=None)
     out = _restore_alias_shadowed_user_column(ctx_for(base_dup), marked, "nodes", "kind")
@@ -646,7 +646,7 @@ def test_restore_alias_shadowed_user_column_branches() -> None:
     # neither index nor key can re-key: unchanged (marker stays, as before)
     base_no_key = SimpleNamespace(_nodes=dup_index_nodes, _edges=None, _node=None, _edge=None)
     assert _restore_alias_shadowed_user_column(ctx_for(base_no_key), marked, "nodes", "kind") is marked
-    # row-table labels absent from a unique base index: guarded .loc declines to the key merge
+    # Reset dataframe indexes do not affect entity-key lookup.
     shifted = pd.DataFrame({"id": ["a", "b"], "kind": [True, True]}, index=[10, 11])
     out = _restore_alias_shadowed_user_column(ctx_for(base), shifted, "nodes", "kind")
     assert list(out[restore_col]) == ["K1", "K2"]
@@ -692,3 +692,35 @@ def test_cudf_unshadow_and_rebind_guard_parity() -> None:
     with pytest.raises(GFQLValidationError) as exc_info:
         g.gfql("MATCH (a:P)-[r:K]->(b:P) WITH a AS b RETURN b.name", engine="cudf")
     assert "rebind an entity alias" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("backend", ["pandas", "cudf"])
+@pytest.mark.parametrize("keys", [[], [2, 1], [2, 1, 2], [2, 99, 1]])
+@pytest.mark.parametrize("duplicate_index", [False, True])
+@pytest.mark.parametrize("values", [[10, 20], ["first", "second"]])
+def test_alias_restore_uses_entity_keys_after_row_reordering(backend, keys, duplicate_index, values):
+    from types import SimpleNamespace
+    from graphistry.compute.gfql.identifiers import shadow_restore_column
+    from graphistry.compute.gfql.row.frame_ops import _restore_alias_shadowed_user_column
+
+    base = pd.DataFrame({"id": [1, 2], "value": values})
+    index = [0] * len(keys) if duplicate_index else list(range(len(keys)))
+    marked = pd.DataFrame({"id": pd.Series(keys, dtype="int64"),
+                           "value": pd.Series([True] * len(keys), dtype="bool")})
+    marked.index = index
+    if backend == "cudf":
+        cudf = pytest.importorskip("cudf")
+        base, marked = cudf.from_pandas(base), cudf.from_pandas(marked)
+    ctx = SimpleNamespace(_gfql_rows_base_graph=SimpleNamespace(
+        _nodes=base, _edges=None, _node="id", _edge=None), _g=None)
+    result = _restore_alias_shadowed_user_column(ctx, marked, "nodes", "value")
+    result_pd = result.to_pandas() if backend == "cudf" else result
+    marked_pd = marked.to_pandas() if backend == "cudf" else marked
+    assert result_pd["id"].tolist() == keys
+    assert result_pd.index.tolist() == index
+    assert result_pd["value"].tolist() == [True] * len(keys)
+    actual = [None if pd.isna(value) else value for value in result_pd[shadow_restore_column("value")]]
+    expected = [{1: values[0], 2: values[1]}.get(key) for key in keys]
+    assert actual == expected
+    assert list(marked_pd.columns) == ["id", "value"]
+    assert marked_pd["value"].tolist() == [True] * len(keys)
