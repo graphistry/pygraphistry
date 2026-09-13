@@ -522,8 +522,21 @@ def test_polars_indexed_node_projection_does_not_collect(
     def unexpected_collect(*args: object, **kwargs: object) -> None:
         raise AssertionError("indexed column projection must not execute a Polars expression plan")
 
-    monkeypatch.setattr(pl.LazyFrame, "collect", unexpected_collect)
+    from graphistry.compute import chain_fast_paths
+
+    real_seed = chain_fast_paths._seed_node_rows
+    selected = []
+
+    def select_seed_then_guard_projection(*args, **kwargs):
+        rows, how = real_seed(*args, **kwargs)
+        selected.append(how)
+        # GPU residual filtering may collect; only projection must avoid a plan.
+        monkeypatch.setattr(pl.LazyFrame, "collect", unexpected_collect)
+        return rows, how
+
+    monkeypatch.setattr(chain_fast_paths, "_seed_node_rows", select_seed_then_guard_projection)
     actual = g.gfql(query, engine=engine)._nodes
+    assert selected == ["node_id_index"]
     assert actual.to_dicts() == expected.to_dicts()
     assert actual.schema == expected.schema
 
