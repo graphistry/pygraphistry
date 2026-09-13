@@ -1448,7 +1448,7 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
     import polars as pl
     func = func.lower()
     if func == "count" and (expr is None or expr == "*"):
-        return polars_conform_agg_dtype(pl.len(), func, None, alias)
+        return polars_conform_agg_dtype(pl.len().fill_null(0), func, None, alias)
     if not isinstance(expr, str) or expr not in columns:
         return None
     col = pl.col(expr)
@@ -1489,7 +1489,7 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
             # kernel, which would then ANSWER the same wrong-typed query.
             raise_non_numeric_aggregation(func, expr, dtype_label, alias)
     if func == "count":
-        return polars_conform_agg_dtype(col.count(), func, dtype, alias)
+        return polars_conform_agg_dtype(col.count().fill_null(0), func, dtype, alias)
     if func == "sum":
         return polars_conform_agg_dtype(col.sum(), func, dtype, alias)
     if func in ("avg", "mean"):
@@ -1505,7 +1505,7 @@ def _agg_expr(func: str, expr: Optional[str], columns: Sequence[str], alias: str
 
         distinct_count = (col.n_unique() - (col.null_count() > 0).cast(pl.UInt32)
                           if active_target() == ExecutionTarget.GPU else col.drop_nulls().n_unique())
-        return polars_conform_agg_dtype(distinct_count, func, dtype, alias)
+        return polars_conform_agg_dtype(distinct_count.fill_null(0), func, dtype, alias)
     if func == "collect":
         # collect(x) drops nulls, keeps within-group row order (pandas row/pipeline.py:4552-4582:
         # ~isna() then agg(list)). Inside group_by(maintain_order=True).agg a multi-valued expr

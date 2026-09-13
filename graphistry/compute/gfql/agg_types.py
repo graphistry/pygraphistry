@@ -144,7 +144,7 @@ def polars_conform_agg_dtype(expr: "pl.Expr", func: str, input_dtype: "Optional[
     target = polars_agg_result_cast(func, input_dtype)
     if target is None:
         return expr.alias(alias)
-    if func in ("count", "count_distinct") or (func == "sum" and input_dtype == pl.Boolean):
+    if func == "sum" and input_dtype == pl.Boolean:
         expr = expr.fill_null(0)
     return expr.cast(target).alias(alias)  # hygiene-ok: explicit-cast -- polars dtype conversion
 
