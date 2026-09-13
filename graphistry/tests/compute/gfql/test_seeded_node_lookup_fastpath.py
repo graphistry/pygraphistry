@@ -504,3 +504,80 @@ def test_categorical_node_columns_keep_parity_on_every_engine(engine, indexed, q
     pd.testing.assert_frame_equal(_canon(fast), _canon(full))
     if engine == "pandas" and label in ("whole row", "props from three aliases"):
         assert fast_path_decisions(g, q, engine=engine).get("seeded_typed_hop") is not True, label
+
+
+@pytest.mark.route_engaged("cypher-fast")
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+def test_polars_indexed_node_projection_does_not_collect(
+    monkeypatch: pytest.MonkeyPatch, engine: str,
+) -> None:
+    pl = pytest.importorskip("polars")
+    if engine == "polars-gpu":
+        pytest.importorskip("cudf_polars")
+    g = _graph("polars", indexed=True)
+    query = "MATCH (p:Person {id: 7}) RETURN p.firstName AS name, p.score AS score"
+    expected = _run(g, engine, query, False)._nodes
+    assert fast_path_decisions(g, query, engine=engine)["seeded_node_lookup"] is True
+
+    def unexpected_collect(*args: object, **kwargs: object) -> None:
+        raise AssertionError("indexed column projection must not execute a Polars expression plan")
+
+    monkeypatch.setattr(pl.LazyFrame, "collect", unexpected_collect)
+    actual = g.gfql(query, engine=engine)._nodes
+    assert actual.to_dicts() == expected.to_dicts()
+    assert actual.schema == expected.schema
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+@pytest.mark.parametrize("dtype_name", [
+    "string", "int8", "bool", "null", "categorical", "enum", "list", "struct",
+    "date", "datetime", "duration", "decimal",
+])
+@pytest.mark.parametrize("seed_id", [7, 8, 99], ids=["two-physical-rows", "null-row", "empty"])
+@pytest.mark.parametrize("indexed", [False, True], ids=["scan", "indexed"])
+def test_polars_node_projection_preserves_schema_and_physical_rows(
+    dtype_name: str, seed_id: int, indexed: bool, engine: str,
+) -> None:
+    from datetime import date, datetime, timedelta, timezone
+    from decimal import Decimal
+
+    pl = pytest.importorskip("polars")
+    if engine == "polars-gpu":
+        pytest.importorskip("cudf_polars")
+    from polars.testing import assert_frame_equal
+
+    types = {
+        "string": (pl.String, ["a", None, "b"]),
+        "int8": (pl.Int8, [1, None, 2]),
+        "bool": (pl.Boolean, [True, None, False]),
+        "null": (pl.Null, [None, None, None]),
+        "categorical": (pl.Categorical, ["a", None, "b"]),
+        "enum": (pl.Enum(["a", "b"]), ["a", None, "b"]),
+        "list": (pl.List(pl.Int64), [[1], None, [2, 3]]),
+        "struct": (pl.Struct({"name": pl.String}), [{"name": "a"}, None, {"name": "b"}]),
+        "date": (pl.Date, [date(2026, 1, 1), None, date(2026, 1, 2)]),
+        "datetime": (pl.Datetime("us", "UTC"), [
+            datetime(2026, 1, 1, tzinfo=timezone.utc), None,
+            datetime(2026, 1, 2, tzinfo=timezone.utc),
+        ]),
+        "duration": (pl.Duration("us"), [timedelta(seconds=1), None, timedelta(seconds=2)]),
+        "decimal": (pl.Decimal(10, 2), [Decimal("1.25"), None, Decimal("2.50")]),
+    }
+    dtype, values = types[dtype_name]
+    nodes = pl.DataFrame({"id": [7, 8, 7], "value": pl.Series("value", values, dtype=dtype)})
+    nodes = pl.concat([nodes.head(1), nodes.tail(2)], rechunk=False)
+    edges = pl.DataFrame(schema={"src": pl.Int64, "dst": pl.Int64})
+    g = graphistry.nodes(nodes, "id").edges(edges, "src", "dst")
+    if indexed:
+        g = g.gfql_index_all(engine=engine)
+    query = (f"MATCH (p {{id: {seed_id}}}) "
+             "RETURN p.value AS first, p.id AS identity, p.value AS second")
+    actual = _run(g, engine, query, True)
+    positions = [i for i, node_id in enumerate([7, 8, 7]) if node_id == seed_id]
+    expected = nodes[positions].select(
+        pl.col("value").alias("first"), pl.col("id").alias("identity"),
+        pl.col("value").alias("second"),
+    )
+    assert_frame_equal(actual._nodes, expected)
+    assert_frame_equal(g._nodes, nodes)
+    assert_frame_equal(actual._edges, edges)
