@@ -1630,7 +1630,11 @@ def group_by_polars(
             null_count = collect(operand_plan.select(pl.col(col_name).null_count())).item()
             return table.height > 0 and null_count == table.height
 
-        lowered = _agg_expr(func, expr, list(operand_schema), alias, operand_schema, _is_all_null)
+        try:
+            lowered = _agg_expr(func, expr, list(operand_schema), alias, operand_schema, _is_all_null)
+        except NotImplementedError as exc:
+            _group_by_decline(exc)
+            return None
         if lowered is None:
             _group_by_decline()
             return None

@@ -185,11 +185,7 @@ def test_removed_literal_source_falls_back_to_visible_expression_operands(engine
     query = [rows(table=table), select(["kind", "a", "b"]),
              group_by(keys=["kind"], aggregations=[("m", "max", "a + b")])]
     assert _validates_clean(g, query)
-    if engine.startswith("polars"):
-        with pytest.raises(NotImplementedError):
-            g.gfql(query, engine=engine)
-    else:
-        assert _max_per_kind(g, query, engine) == [("a", 24), ("b", 48)]
+    assert _max_per_kind(g, query, engine) == [("a", 24), ("b", 48)]
 
 
 @pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires TEST_POLARS_GPU=1 and cudf-polars")
@@ -322,13 +318,16 @@ def test_numeric_empty_and_null_aggregate_schema(engine, empty):
     assert _max_per_kind(g, query, engine) == ([] if empty else [("a", 0.0), ("b", 3.0)])
 
 
-def test_gpu_aggregate_unlowerable_expression_is_structured():
+def test_gpu_aggregate_unlowerable_expression_is_structured(monkeypatch):
     pytest.importorskip("polars")
     from graphistry.compute.exceptions import GFQLUnsupportedError
     from graphistry.compute.gfql import lazy
     from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import group_by_polars
 
     g = _scope_graph("x.y.Dotted", "nodes", "polars")
+    from graphistry.compute.gfql.lazy.engine.polars import row_pipeline
+
+    monkeypatch.setattr(row_pipeline, "_lower_with_schema", lambda *args, **kwargs: None)
     args = (g, ["kind"], [("m", "max", "a + b")])
     with lazy.target_mode(lazy.ExecutionTarget.CPU):
         assert group_by_polars(*args) is None
@@ -356,3 +355,31 @@ def test_gpu_aggregate_refusal_survives_native_call_boundary(monkeypatch):
     assert exc.value.code == ErrorCode.E110
     assert exc.value.context["value"] == "group_by"
     assert isinstance(exc.value, NotImplementedError)
+
+
+@pytest.mark.parametrize("target", ["cpu", "gpu"])
+def test_aggregate_preparation_refusal_uses_decline_contract(monkeypatch, target):
+    pl = pytest.importorskip("polars")
+    from graphistry.compute.exceptions import GFQLUnsupportedError
+    from graphistry.compute.gfql import lazy
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import group_by_polars
+
+    refusal = NotImplementedError("controlled preparation refusal")
+    calls = []
+
+    def decline(plan):
+        calls.append(plan)
+        raise refusal
+
+    monkeypatch.setattr(lazy, "collect", decline)
+    g = graphistry.nodes(pl.DataFrame({"value": [1]}))
+    with lazy.target_mode(lazy.ExecutionTarget(target)):
+        if target == "cpu":
+            assert group_by_polars(g, [], [("answer", "sum", "'text'")]) is None
+        else:
+            with pytest.raises(GFQLUnsupportedError) as exc:
+                group_by_polars(g, [], [("answer", "sum", "'text'")])
+            assert exc.value.code == ErrorCode.E110
+            assert exc.value.context["engine"] == "polars-gpu"
+            assert exc.value.__cause__ is refusal
+    assert len(calls) == 1
