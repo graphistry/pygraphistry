@@ -1670,6 +1670,13 @@ def group_by_polars(
             expr = temporary
             has_projected_operands = True
 
+        if isinstance(expr, str) and operand_schema.get(expr) == pl.Null:
+            # Null has no value-type evidence; use a supported nullable storage type.
+            # Older Polars cannot reduce Null and cuDF cannot execute EMPTY operands.
+            operand_plan = operand_plan.with_columns(pl.col(expr).cast(pl.Int64))
+            operand_schema[expr] = pl.Int64
+            has_projected_operands = True
+
         def _is_all_null(col_name: str) -> bool:
             if col_name in cols:
                 return table.height > 0 and table[col_name].null_count() == table.height

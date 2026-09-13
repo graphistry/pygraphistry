@@ -5583,7 +5583,11 @@ class RowPipelineMixin:
                 if expr_col not in table_df.columns:
                     expr_values = self._gfql_eval_string_expr(table_df, expr_col)
                     if not hasattr(expr_values, "astype"):
+                        null_scalar = expr_values is None
                         expr_values = self._gfql_broadcast_scalar(table_df, expr_values)
+                        if null_scalar and len(table_df) == 0:
+                            # Empty None broadcasts otherwise become object/string on cuDF.
+                            expr_values = expr_values.astype("float64")
                     tmp_col = "__gfql_group_expr__"
                     while tmp_col in table_df.columns:
                         tmp_col = f"{tmp_col}_x"
