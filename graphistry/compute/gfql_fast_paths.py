@@ -3394,15 +3394,15 @@ def _seeded_typed_hop_two_alias_frame(
 
     if is_polars:
         import polars as pl
-        joined = edges.select([pl.col(from_col).alias(key_from), pl.col(to_col).alias(key_to)]
-                              + [pl.col(c).alias(_col("edge", c)) for c in edge_props])
+        joined = pl.DataFrame([edges.get_column(from_col).alias(key_from), edges.get_column(to_col).alias(key_to)]
+                              + [edges.get_column(c).alias(_col("edge", c)) for c in edge_props])
         for side, rows, key, props in (("seed", seed_rows, key_from, seed_props),
                                        ("dst", dst_rows, key_to, dst_props)):
             side_key = f"{_SEEDED_BAG_KEY}{side}.{node}"
-            lookup = rows.select([pl.col(node).alias(side_key)]
-                                 + [pl.col(c).alias(_col(side, c)) for c in dict.fromkeys(props)])
+            lookup = pl.DataFrame([rows.get_column(node).alias(side_key)]
+                                 + [rows.get_column(c).alias(_col(side, c)) for c in dict.fromkeys(props)])
             joined = joined.join(lookup, left_on=key, right_on=side_key, how="inner")
-        return joined.select([pl.col(_col(side, prop)).alias(out) for out, side, prop in select_items])
+        return pl.DataFrame([joined.get_column(_col(side, prop)).alias(out) for out, side, prop in select_items])
     joined = edges[[from_col, to_col] + edge_props].reset_index(drop=True)
     joined.columns = [key_from, key_to] + [_col("edge", c) for c in edge_props]
     for side, rows, key, props in (("seed", seed_rows, key_from, seed_props),
