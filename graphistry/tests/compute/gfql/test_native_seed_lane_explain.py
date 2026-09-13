@@ -34,26 +34,45 @@ NAMED_HOP = [n({"id": 30, "kind": "Message"}, name="m"), e_forward({"type": "HAS
 ENGINES = ["pandas", "polars", "cudf"]
 
 
-@pytest.mark.route_engaged("native-fast")
-@pytest.mark.parametrize("engine", ENGINES)
-def test_node_only_lookup_served_by_the_property_index_is_explained(engine):
-    g = _graph(engine)
-    report = g.gfql_explain(NODE_ONLY, index_policy="use", engine=engine)
-    assert report["used_index"] is True, report
-    assert [(s["seam"], s["reason"], s["hops"]) for s in report["steps"]] == [("native_seed_lookup", "property_index", 0)]
-    assert len(g.gfql(NODE_ONLY, engine=engine, index_policy="use")._nodes) == 1
+def _engine_cases(polars_route):
+    return [
+        pytest.param(engine, engagement,
+                     marks=pytest.mark.route_engaged(
+                         polars_route if engine == "polars" else "native-fast") if engagement else (),
+                     id=f"{engine}-{'engagement' if engagement else 'result'}")
+        for engine in ENGINES for engagement in (False, True)
+    ]
 
 
-@pytest.mark.route_engaged("native-fast", "polars-seeded")
-@pytest.mark.parametrize("engine", ENGINES)
-def test_seeded_typed_hop_served_by_the_resident_indexes_is_explained(engine):
+def _node_keys(graph, engine):
+    keys = graph._nodes["key"]
+    return keys.to_arrow().to_pylist() if engine == "cudf" else keys.to_list()
+
+
+@pytest.mark.parametrize("engine,check_engagement", _engine_cases("polars-single-node"))
+def test_node_only_lookup_served_by_the_property_index_is_explained(engine, check_engagement):
     g = _graph(engine)
-    report = g.gfql_explain(NAMED_HOP, index_policy="use", engine=engine)
-    assert report["used_index"] is True, report
-    assert [s["seam"] for s in report["steps"] if s["path"] == "index"] == ["native_seeded_hop"]
+    if check_engagement:
+        report = g.gfql_explain(NODE_ONLY, index_policy="use", engine=engine)
+        assert report["used_index"] is True, report
+        assert [(s["seam"], s["reason"], s["hops"]) for s in report["steps"]] == [("native_seed_lookup", "property_index", 0)]
+    out = g.gfql(NODE_ONLY, engine=engine, index_policy="use")
+    assert _node_keys(out, engine) == [1]
+    assert len(out._edges) == 0
+
+
+@pytest.mark.parametrize("engine,check_engagement", _engine_cases("polars-seeded"))
+def test_seeded_typed_hop_served_by_the_resident_indexes_is_explained(engine, check_engagement):
+    g = _graph(engine)
+    if check_engagement:
+        report = g.gfql_explain(NAMED_HOP, index_policy="use", engine=engine)
+        assert report["used_index"] is True, report
+        assert [s["seam"] for s in report["steps"] if s["path"] == "index"] == ["native_seeded_hop"]
     with index_trace() as steps:
         out = g.gfql(NAMED_HOP, engine=engine, index_policy="use")
-    assert [s["path"] for s in steps] == ["index"]
+    if check_engagement:
+        assert [s["path"] for s in steps] == ["index"]
+    assert sorted(_node_keys(out, engine)) == [1, 3]
     assert len(out._edges) == 1
 
 

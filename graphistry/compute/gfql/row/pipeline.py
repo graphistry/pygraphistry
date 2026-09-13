@@ -86,7 +86,7 @@ from graphistry.compute.gfql.identifiers import (
     shadow_restore_column,
     trail_column_name,
 )
-from graphistry.compute.util import generate_safe_column_name
+from graphistry.compute.util import generate_safe_column_name, generate_safe_column_name_from
 from graphistry.compute.gfql.cache_registry import register_process_singleton
 from graphistry.compute.gfql.series_str_compat import is_non_textual_scalar_dtype, series_sequence_len, series_str_match
 from graphistry.compute.gfql.row.ordering import (
@@ -4204,7 +4204,14 @@ class RowPipelineMixin:
                 )
                 trail_cols = trail_cols + segment_trail_cols
             else:
+                path_order = None
+                if engine == Engine.CUDF:
+                    path_order = generate_safe_column_name_from("__gfql_path_order__", list(state_df.columns) + list(oriented.columns))
+                    state_df = state_df.assign(**{path_order: range(len(state_df))})
                 state_df = state_df.merge(oriented, left_on=WALK_CURRENT_COL, right_on=WALK_FROM_COL, how="inner")
+                if path_order is not None:
+                    tie_cols = [ident_col] if ident_col in state_df.columns else []
+                    state_df = state_df.sort_values([path_order, *tie_cols]).drop(columns=[path_order])
                 state_df = state_df.drop(columns=[WALK_CURRENT_COL, WALK_FROM_COL]).rename(columns={WALK_TO_COL: WALK_CURRENT_COL})
                 if not shortest_path_mode and ident_col in state_df.columns:
                     state_df = RowPipelineMixin._gfql_drop_reused_relationship_rows(
@@ -4433,6 +4440,13 @@ class RowPipelineMixin:
                 lookup_source, alias, base_nodes, node_id
             )
             lookup = self._gfql_node_alias_lookup_frame(lookup_source, node_id, alias)
+            order_cols = []
+            if resolve_engine(EngineAbstract.AUTO, bindings) == Engine.CUDF:
+                order_col = generate_safe_column_name_from("__gfql_binding_order__", list(bindings.columns) + list(lookup.columns))
+                lookup_order = generate_safe_column_name_from("__gfql_lookup_order__", list(bindings.columns) + list(lookup.columns))
+                bindings = bindings.assign(**{order_col: range(len(bindings))})
+                lookup = lookup.assign(**{lookup_order: range(len(lookup))})
+                order_cols = [order_col, lookup_order]
             bindings = bindings.merge(
                 lookup,
                 left_on=alias,
@@ -4440,6 +4454,8 @@ class RowPipelineMixin:
                 how="left",
                 suffixes=("", f"__{alias}_join__"),
             )
+            if order_cols:
+                bindings = bindings.sort_values(order_cols).drop(columns=order_cols)
             dup_col = f"{node_id}__{alias}_join__"
             if dup_col in bindings.columns:
                 bindings = bindings.drop(columns=[dup_col])

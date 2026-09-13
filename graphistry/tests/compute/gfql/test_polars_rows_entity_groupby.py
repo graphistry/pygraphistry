@@ -198,13 +198,12 @@ def test_binding_rows_dup_id_pandas_narrows_order_independent(tag_first: bool) -
 
 @pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
 @pytest.mark.parametrize("tag_first", [True, False])
-def test_binding_rows_dup_id_polars_declines_nie(tag_first: bool) -> None:
-    """Duplicate node ids + HAS_<Label> gate shape → honest NIE on polars, never a
-    silently row-order-dependent native answer (parity-or-error contract)."""
+def test_binding_rows_dup_id_polars_narrows_order_independent(tag_first: bool) -> None:
+    """Reached label collisions select the correct row in either input order."""
     nodes, edges = _dup_id_frames(tag_first)
     g = graphistry.nodes(pl.from_pandas(nodes), "id").edges(pl.from_pandas(edges), "src", "dst")
-    with pytest.raises(NotImplementedError):
-        g.gfql(COLLIDE_BINDINGS, params={"personId": 1}, engine="polars")
+    res = g.gfql(COLLIDE_BINDINGS, params={"personId": 1}, engine="polars")
+    assert res._nodes.select(["tagName", "cd"]).to_dicts() == [{"tagName": "t1", "cd": 150.0}]
 
 
 @pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")

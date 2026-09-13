@@ -89,7 +89,12 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_native_seed_skip_refilter.py
     graphistry/tests/compute/gfql/test_polars_native_seed_resolution.py
     graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_polars_admission.py
+    graphistry/tests/compute/gfql/lazy/engine/polars/test_predicates.py
+    graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_point_rows.py
+    graphistry/tests/compute/gfql/lazy/engine/polars/chain_specializations/test_hotpaths.py
+    graphistry/tests/compute/gfql/test_polars_indexed_join_helpers.py
     graphistry/tests/compute/chain_specializations/test_native_admission.py
+    graphistry/tests/compute/chain_specializations/test_point_rows.py
     graphistry/tests/compute/gfql/test_undirected_pairs_2026.py
     graphistry/tests/compute/gfql/test_native_seed_lane_explain.py
     # #1882/#1913-f4/#1879 crash-family pins: the polars params (filter helpers on polars
@@ -106,6 +111,7 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/gfql/test_polars_rows_entity_groupby.py
     graphistry/tests/compute/gfql/test_seeded_typed_hop_fastpath.py
     graphistry/tests/compute/gfql/test_residual_polars_native.py
+    graphistry/tests/compute/gfql/index/test_engine_arrays.py
     graphistry/tests/compute/gfql/index/test_auto_engine_agreement.py
     graphistry/tests/compute/gfql/index/test_degree_consult.py
     graphistry/tests/compute/gfql/test_single_alias_cache_key.py
@@ -130,6 +136,11 @@ POLARS_TEST_FILES=(
     graphistry/tests/compute/test_chain_alias_column_collision.py
     graphistry/tests/compute/test_gfql_op_list_hides_internal_columns.py
     graphistry/tests/compute/gfql/routes/test_route_harness.py
+    graphistry/tests/compute/gfql/routes/test_point_boundaries.py
+    graphistry/tests/compute/gfql/routes/test_has_collision_contract.py
+    graphistry/tests/compute/gfql/routes/test_node_selection_rows.py
+    graphistry/tests/compute/gfql/test_join_backend_contracts.py
+    graphistry/tests/compute/test_chain_validation_execution.py
     graphistry/tests/compute/gfql/test_engine_polars_semi_key_dedup.py
     graphistry/tests/compute/gfql/test_engine_polars_call_modality.py
     graphistry/tests/compute/gfql/test_engine_polars_gpu.py

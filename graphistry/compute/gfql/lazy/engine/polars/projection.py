@@ -53,14 +53,30 @@ def _has_temporal_constructor_text(rows_df: pl.DataFrame, col: str) -> bool:
     projection declines (NIE) rather than leak raw constructor text. Cheap native scan. Only
     standalone property projection needs this guard: whole-entity returns flatten the same raw
     column but are re-rendered downstream via render_entity_text."""
+    return _columns_have_temporal_constructor_text(rows_df, [col])
+
+
+def _columns_have_temporal_constructor_text(
+    rows_df: pl.DataFrame, columns: typing.Sequence[str],
+) -> bool:
+    """Check whether any selected string column contains temporal-constructor text."""
     import polars as pl
     from graphistry.compute.gfql.temporal.constructors import TEMPORAL_CALL_EXPR_RE
+    from graphistry.compute.gfql.lazy import active_target, ExecutionTarget
     # ^-anchored so values merely CONTAINING "date" (update({...}), candidate(...),
     # my date({x})) don't false-positive — these columns hold a WHOLE constructor string.
     pattern = r"^\s*" + TEMPORAL_CALL_EXPR_RE.pattern
+    if not columns:
+        return False
     try:
+        if rows_df.height == 1 and active_target() != ExecutionTarget.GPU:
+            values = [rows_df.get_column(col).item() for col in columns]
+            if all(value is None or isinstance(value, str) and "(" not in value for value in values):
+                return False
         return bool(
-            rows_df.select(pl.col(col).str.contains(pattern).any()).item()
+            rows_df.select(pl.any_horizontal([
+                pl.col(col).str.contains(pattern).any() for col in columns
+            ])).item()
         )
     except Exception:
         return False
@@ -202,6 +218,7 @@ def _try_native_projection(
     rows_df: pl.DataFrame,
     projection: ResultProjectionPlan,
     structured: bool,
+    source_node_id: typing.Optional[str] = None,
 ) -> typing.Optional[Plottable]:
     """Native projection for property/expr columns already in the polars row table + structured-
     flat or entity-text whole-entity returns; None → caller raises NIE."""
@@ -209,7 +226,7 @@ def _try_native_projection(
 
     exprs: typing.List[pl.Expr] = []
     entity_meta: typing.MutableMapping[str, _PolarsWholeRowProjectionMeta] = {}
-    id_column = result._node
+    id_column = result._node if result._node is not None else source_node_id
     primary = _alias_view_polars(rows_df, projection.alias)
     primary_columns = primary.columns if primary is not None else {}
     for column in projection.columns:
@@ -263,6 +280,7 @@ def apply_result_projection_polars(
     projection: ResultProjectionPlan,
     *,
     structured: bool = True,
+    source_node_id: typing.Optional[str] = None,
 ) -> Plottable:
     """Native polars result projection, or honest NotImplementedError (no pandas fallback).
 
@@ -273,7 +291,7 @@ def apply_result_projection_polars(
     native → raise rather than secretly run the pandas renderer.
     """
     rows_df = result._nodes
-    native = _try_native_projection(result, rows_df, projection, structured)
+    native = _try_native_projection(result, rows_df, projection, structured, source_node_id)
     if native is not None:
         return native
     raise NotImplementedError(

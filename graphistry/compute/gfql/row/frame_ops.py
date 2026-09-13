@@ -102,6 +102,17 @@ def _restore_alias_shadowed_user_column(
             ).select(orig_cols)
         return table_df
     restore_col = shadow_restore_column(source)
+    # Traversal merges may reset row indexes; unique binding keys retain entity identity.
+    if (
+        key is not None and key != source
+        and key in table_df.columns and key in base_frame.columns
+        and bool(base_frame[key].is_unique)
+    ):
+        restored = base_frame.set_index(key)[source].reindex(table_df[key])
+        restored.index = table_df.index
+        out = table_df.copy()
+        out[restore_col] = restored
+        return out
     base_index = getattr(base_frame, "index", None)
     if base_index is not None and bool(base_index.is_unique):
         # guarded .loc proves index-subset alignment (cuDF Index.isin disagrees with pandas)
@@ -113,13 +124,6 @@ def _restore_alias_shadowed_user_column(
             out = table_df.copy()
             out[restore_col] = restored
             return out
-    if (
-        key is not None and key != source
-        and key in table_df.columns and key in base_frame.columns
-        and bool(base_frame[key].is_unique)
-    ):
-        renamed = base_frame[[key, source]].rename(columns={source: restore_col})
-        return table_df.merge(renamed, on=key, how="left")
     return table_df
 
 

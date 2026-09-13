@@ -8,6 +8,7 @@
     "graphistry/compute/gfql/lazy/engine/polars/chain_specializations/__init__.py": 100.0,
     "graphistry/compute/gfql/lazy/engine/polars/chain_specializations/admission.py": 95.0,
     "graphistry/compute/gfql/lazy/engine/polars/chain_specializations/hotpaths.py": 95.0,
+    "graphistry/compute/gfql/lazy/engine/polars/chain_specializations/point_rows.py": 93.0,
     "graphistry/compute/gfql/lazy/engine/polars/degrees.py": 82.0,
     "graphistry/compute/gfql/lazy/engine/polars/dtypes.py": 92.0,
     "graphistry/compute/gfql/lazy/engine/polars/hop.py": 87.0,

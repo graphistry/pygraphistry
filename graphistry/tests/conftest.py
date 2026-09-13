@@ -5,7 +5,7 @@ session, so every existing test — written against one specialization or agains
 general path — is replayed through the other routes. Failures that appear only under a
 mode are the cases where that route and the rest disagree.
 
-Routes: native-fast (pandas/cuDF chain fast path), polars-seeded (polars seeded lane),
+Routes: polars-point-rows, point-rows, polars-single-node, native-fast (pandas/cuDF chain fast path), polars-seeded (polars seeded lane),
 polars-plain (polars plain single-hop branches), index-hop (hop() index path),
 indexed-kernel (indexed connected-bindings kernel), cypher-fast (the four Cypher lanes).
 

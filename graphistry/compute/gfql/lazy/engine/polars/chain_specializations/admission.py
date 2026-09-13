@@ -3,6 +3,8 @@ the seeded lane. The dispatcher and the tests consult the same predicates."""
 
 from typing import Literal, Optional, Sequence
 
+from graphistry.compute.typing import DataFrameT
+
 from graphistry.compute.ast import ASTObject, ASTNode, ASTEdge
 
 
@@ -21,7 +23,7 @@ def _plain_edge(op: ASTObject) -> bool:
             and op.edge_query is None and not op.include_zero_hop_seed and not op.prune_to_endpoints)
 
 
-def polars_plain_single_hop_admits(ops: Sequence[ASTObject], start_nodes: Optional[object]) -> Optional[PolarsPlainSingleHopShape]:
+def polars_plain_single_hop_admits(ops: Sequence[ASTObject], start_nodes: Optional[DataFrameT]) -> Optional[PolarsPlainSingleHopShape]:
     """The polars chain's plain single-hop branch for ``ops``: ``"seeded-index"`` when the
     resident-index hop is consulted first (seed filter, no destination filter, directed),
     ``"skip-combine"`` when the one-hop endpoint filter serves it without the
@@ -41,7 +43,7 @@ def polars_plain_single_hop_admits(ops: Sequence[ASTObject], start_nodes: Option
     return "skip-combine" if (unconstrained or directed) else None
 
 
-def polars_single_node_admits(ops: Sequence[ASTObject], start_nodes: Optional[object]) -> bool:
+def polars_single_node_admits(ops: Sequence[ASTObject], start_nodes: Optional[DataFrameT]) -> bool:
     """Admit one node operation without a query, with or without start nodes."""
     if len(ops) != 1:
         return False

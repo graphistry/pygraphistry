@@ -1633,6 +1633,7 @@ def _execute_compiled_query_chain_non_union(
             result,
             compiled_query.result_projection,
             structured=not row_guard_needs_single_column_entity_text,
+            source_node_id=base_graph._node,
         )
     if compiled_query.optional_projection_row_guard is not None:
         expected_rows = 1
@@ -2765,6 +2766,7 @@ def _gfql_with_strictness(
                     engine,
                     expanded_policy,
                     context,
+                    _ast_validated=True,
                 )
             else:
                 raise TypeError(
@@ -2787,6 +2789,7 @@ def _chain_dispatch(
     policy: Optional[PolicyDict],
     context: ExecutionContext,
     start_nodes: Optional[DataFrameT] = None,
+    _ast_validated: bool = False,
 ) -> Plottable:
     reject_alias_named_like_binding(g, chain_obj, include_edge_endpoint_aliases=True)
     engine_name = engine.value if hasattr(engine, "value") else str(engine)
@@ -2850,4 +2853,6 @@ def _chain_dispatch(
             inputs.engine,
             inputs.include_paths,
         )
-    return chain_impl(g, chain_obj.chain, engine, policy=policy, context=context, start_nodes=start_nodes)
+    # Validation state applies only to the fresh list-input Chain; execution revalidates mutable operations.
+    chain_input = chain_obj if _ast_validated else chain_obj.chain
+    return chain_impl(g, chain_input, engine, policy=policy, context=context, start_nodes=start_nodes)

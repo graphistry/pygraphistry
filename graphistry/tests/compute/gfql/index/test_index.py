@@ -2129,3 +2129,93 @@ def test_documented_recovery_from_in_place_mutation(engine):
     assert _i1913_ids(dropped, _I1913_2HOP, engine) == oracle
     brand_new = graphistry.nodes(nf, "id").edges(ef, "s", "d")
     assert _i1913_ids(brand_new, _I1913_2HOP, engine) == oracle
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("dtype,big", [("Int64", 2**53), ("UInt64", 2**63)])
+@pytest.mark.parametrize("shape", ["empty", "all-null", "mixed", "no-null"])
+def test_nullable_integer_index_positions_and_precision(engine, dtype, big, shape):
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.engine_arrays import array_namespace
+    from graphistry.compute.gfql.index.lookup import lookup_edge_rows, lookup_node_rows
+    from graphistry.compute.gfql.index.registry import EDGE_OUT_ADJ, EDGE_IN_ADJ, NODE_ID
+
+    ids = [None, big + 1, big, 0]
+    src = [None, big + 1, big, None, big, 0]
+    dst = [big, big, big + 1, None, None, 0]
+    if shape == "empty":
+        ids, src, dst = [], [], []
+    elif shape == "all-null":
+        ids, src, dst = [None, None], [None, None], [None, None]
+    elif shape == "no-null":
+        ids, src, dst = [big + 1, big, 0], [big + 1, big, 0], [big, big + 1, 0]
+    nodes = pd.DataFrame({"id": pd.array(np.asarray(ids, dtype=object), dtype=dtype)})
+    edges = pd.DataFrame({"src": pd.array(np.asarray(src, dtype=object), dtype=dtype), "dst": pd.array(np.asarray(dst, dtype=object), dtype=dtype)})
+    g = graphistry.nodes(nodes, "id").edges(edges, "src", "dst").gfql_index_all(engine=engine)
+    registry = get_registry(g)
+    xp, _ = array_namespace(Engine(engine))
+    query_dtype = "uint64" if dtype == "UInt64" else "int64"
+    queries = [0, big, big + 1, big + 2]
+    node_index = registry.get_valid(NODE_ID, g._nodes, ("id",), Engine(engine))
+    assert node_index is not None
+    from graphistry.compute.gfql.index.bindings import _integer_index
+    assert _integer_index(node_index) == all(value is not None for value in ids)
+    for query in queries:
+        probe = xp.asarray([query], dtype=query_dtype)
+        assert lookup_node_rows(node_index, probe, xp).tolist() == [i for i, value in enumerate(ids) if value == query]
+        for kind, keys in [(EDGE_OUT_ADJ, src), (EDGE_IN_ADJ, dst)]:
+            index = registry.get_valid(kind, g._edges, ("src", "dst"), Engine(engine))
+            assert index is not None
+            assert index.n_edges == len(edges)
+            actual_rows, matched = lookup_edge_rows(index, probe, xp)
+            expected_rows = [i for i, key in enumerate(keys) if key == query and src[i] is not None and dst[i] is not None]
+            assert sorted(actual_rows.tolist()) == expected_rows
+            assert matched.tolist() == ([query] if expected_rows else [])
+            other = dst if kind == EDGE_OUT_ADJ else src
+            assert index.other_values[actual_rows].tolist() == [other[i] for i in actual_rows.tolist()]
+    pd.testing.assert_frame_equal(nodes, pd.DataFrame({"id": pd.array(np.asarray(ids, dtype=object), dtype=dtype)}))
+    pd.testing.assert_frame_equal(edges, pd.DataFrame({"src": pd.array(np.asarray(src, dtype=object), dtype=dtype), "dst": pd.array(np.asarray(dst, dtype=object), dtype=dtype)}))
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("dtype,big", [("Int64", 2**53), ("UInt64", 2**63)])
+@pytest.mark.parametrize("seed_offset", [0, 1, 2])
+def test_nullable_integer_hop_exact_identity(engine, dtype, big, seed_offset):
+    nodes = pd.DataFrame({"id": pd.array(np.asarray([None, big + 1, big], dtype=object), dtype=dtype)})
+    edges = pd.DataFrame({
+        "src": pd.array(np.asarray([None, big, big + 1, big], dtype=object), dtype=dtype),
+        "dst": pd.array(np.asarray([big, big + 1, big, None], dtype=object), dtype=dtype),
+    })
+    g = graphistry.nodes(nodes, "id").edges(edges, "src", "dst").gfql_index_all(engine=engine)
+    seeds = pd.DataFrame({"id": pd.array(np.asarray([big + seed_offset, None], dtype=object), dtype=dtype)})
+    expected = ([big, big + 1], [(big, big + 1)]) if seed_offset == 0 else (
+        ([big, big + 1], [(big + 1, big)]) if seed_offset == 1 else ([], [])
+    )
+    for policy in ("off", "force"):
+        candidate = copy(g)
+        candidate._gfql_index_policy = policy
+        actual = candidate.hop(nodes=seeds, hops=1, direction="forward", engine=engine)
+        assert _sig(actual) == expected
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("null_nodes", [False, True])
+@pytest.mark.parametrize("null_edges", [False, True])
+def test_nullable_index_degree_boundary(engine, null_nodes, null_edges):
+    from graphistry.Engine import Engine
+    from graphistry.compute.gfql.index.build import build_degree_fact
+    from graphistry.compute.gfql.index.degrees import degrees_from_index
+
+    nodes = pd.DataFrame({"id": pd.array([0, 1] + ([None] if null_nodes else []), dtype="Int64")})
+    edges = pd.DataFrame({
+        "src": pd.array([0, 1] + ([0, None] if null_edges else []), dtype="Int64"),
+        "dst": pd.array([1, 0] + ([None, 1] if null_edges else []), dtype="Int64"),
+    })
+    base = _to_engine_frames(graphistry.nodes(nodes, "id").edges(edges, "src", "dst"), engine)
+    indexed = base.gfql_index_all(engine=engine)
+    assert _degcols(_degrees(indexed, engine)) == _degcols(_degrees(base, engine))
+    native_engine = Engine(engine)
+    degree_arrays = degrees_from_index(get_registry(indexed), indexed._nodes, "id", indexed._edges, ("src", "dst"), native_engine)
+    assert (degree_arrays is None) == (null_nodes or null_edges)
+    fact = build_degree_fact(indexed._edges, "src", "dst", 0, 1, native_engine)
+    assert (fact is None) == null_edges
