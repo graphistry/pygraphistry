@@ -99,6 +99,16 @@ CYPHER_INTEGER_RESULT_AGGREGATIONS: Final[FrozenSet[str]] = frozenset(
 )
 
 
+def validate_aggregation_output(has_keys: bool, has_aggregations: bool) -> None:
+    """A global aggregation must request a result; key-only grouping remains valid."""
+    if not has_keys and not has_aggregations:
+        raise GFQLTypeError(
+            ErrorCode.E201, "group_by requires a grouping key or an aggregation",
+            field="group_by.aggregations", value=[],
+            suggestion="Request an aggregate or supply a grouping key",
+        )
+
+
 def agg_result_is_integer(func: str, input_is_boolean: bool) -> bool:
     """True when this aggregate's return type is INTEGER (int64) on this input.
 
