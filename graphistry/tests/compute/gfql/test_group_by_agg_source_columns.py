@@ -344,3 +344,85 @@ def test_key_only_grouping_remains_valid(engine, empty, prefix):
     records = out.to_dicts() if engine.startswith("polars") else (
         out.to_pandas().to_dict("records") if engine == "cudf" else out.to_dict("records"))
     assert records == ([] if empty else [{"kind": "a"}, {"kind": "b"}])
+
+
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("source,expected", [
+    ("a + b", [9, 11]),
+    ("CASE WHEN a > 2 THEN a ELSE b END", [5, 4]),
+    ("coalesce(a, 0)", [3, 4]),
+    ("abs(-a)", [3, 4]),
+    ("toInteger(a)", [3, 4]),
+    ("size([1, 2])", [2, 2]),
+    ("-3", [-3, -3]),
+    ("1.5", [1.5, 1.5]),
+    ("true", [True, True]),
+    ("null", [None, None]),
+])
+def test_valid_aggregate_expression_families_are_not_over_rejected(empty, source, expected):
+    frame = pd.DataFrame({
+        "id": [0, 1, 2], "kind": ["a", "a", "b"],
+        "a": [2, 3, 4], "b": [5, 6, 7],
+    })
+    if empty:
+        frame = frame.head(0)
+    before = frame.copy(deep=True)
+    g = graphistry.nodes(frame, "id")
+    query = _max_by_kind(source)
+    assert _validates_clean(g, query)
+    result = g.gfql(query, engine="pandas")._nodes
+    assert result["kind"].tolist() == ([] if empty else ["a", "b"])
+    if empty:
+        assert result.empty
+    elif source == "null":
+        assert result["m"].isna().all()
+    else:
+        assert result["m"].tolist() == expected
+    pd.testing.assert_frame_equal(frame, before)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("source", ["'text'", "[1, 2]", "{value: 1}", "null", "true", "-3", "1.5"])
+def test_literal_looking_numeric_columns_execute_without_type_rejection(engine, empty, source):
+    g = _scope_graph(source, "nodes", engine)
+    if empty:
+        table = g._nodes.head(0)
+        g = g.nodes(table)
+    query = [rows(), group_by(["kind"], [("m", "sum", source)])]
+    assert _validates_clean(g, query)
+    assert _max_per_kind(g, query, engine) == ([] if empty else [("a", 204.0), ("b", 107.0)])
+
+
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("source,expected", [
+    ("x.y + 1", [31, 41]),
+    ("coalesce(x.y, 0) + a", [33, 44]),
+    ("CASE WHEN a > 2 THEN x.y ELSE 0 END", [30, 40]),
+])
+def test_qualified_aggregate_expression_uses_visible_full_column(empty, source, expected):
+    frame = pd.DataFrame({
+        "id": [0, 1, 2], "kind": ["a", "a", "b"],
+        "a": [2, 3, 4], "x.y": [20, 30, 40],
+    })
+    g = graphistry.nodes(frame.head(0) if empty else frame, "id")
+    query = _max_by_kind(source)
+    assert _validates_clean(g, query)
+    assert _max_per_kind(g, query, "pandas") == ([] if empty else list(zip(["a", "b"], expected)))
+
+
+def test_qualified_aggregate_expression_missing_root_is_still_rejected():
+    g = _graph()
+    with pytest.raises(GFQLValidationError) as exc:
+        g.gfql_validate(_max_by_kind("missing.value + 1"))
+    assert exc.value.code == ErrorCode.E301
+    assert exc.value.context["value"] == "missing"
+
+
+def test_qualified_aggregate_expression_object_property_remains_valid():
+    g = graphistry.nodes(pd.DataFrame({
+        "id": [0, 1], "kind": ["a", "a"], "x": [{"y": 2}, {"y": 3}],
+    }), "id")
+    query = _max_by_kind("x.y + 1")
+    assert _validates_clean(g, query)
+    assert _max_per_kind(g, query, "pandas") == [("a", 4)]

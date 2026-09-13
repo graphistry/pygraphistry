@@ -344,7 +344,8 @@ def _agg_source_required_cols(expr: str, available_cols: Optional[Set[str]] = No
     if available_cols is not None:
         if expr in available_cols:
             return [expr]
-        if _where_rows_expr_parse(expr) is None:
+        parsed = _where_rows_expr_parse(expr)
+        if parsed is None:
             if _where_rows_expr_parser_fn() is None:
                 raise GFQLTypeError(
                     ErrorCode.E201, "Aggregation expression validation requires the parser backend",
@@ -356,6 +357,29 @@ def _agg_source_required_cols(expr: str, available_cols: Optional[Set[str]] = No
                 field="group_by.aggregations", value=expr,
                 suggestion="Use an existing column name or a valid row expression",
             )
+        from graphistry.compute.gfql.expr_parser import (
+            Identifier, PropertyAccessExpr, iter_expr_children,
+        )
+
+        node, _capability_checker, collect_identifiers = parsed
+        required: Set[str] = set()
+
+        def resolve_columns(current: "ExprNode") -> None:
+            if isinstance(current, PropertyAccessExpr) and isinstance(current.value, Identifier):
+                full_name = f"{current.value.name}.{current.property}"
+                if full_name in available_cols:
+                    required.add(full_name)
+                    return
+            if isinstance(current, Identifier):
+                required.add(current.name)
+                return
+            for child in iter_expr_children(current):
+                resolve_columns(child)
+
+        resolve_columns(node)
+        # The parser collector excludes names bound by comprehensions/quantifiers.
+        free_roots = collect_identifiers(node)
+        return sorted(name for name in required if name.split(".")[0] in free_roots)
     return _where_rows_expr_required_cols(expr)
 
 
