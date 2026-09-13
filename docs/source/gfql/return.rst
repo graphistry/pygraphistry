@@ -164,7 +164,8 @@ Global and grouped aggregation
 
 ``group_by(keys=[], aggregations=...)`` returns one aggregate row for the complete
 active row table, including an empty input. With grouping keys, an empty input
-returns no groups. Null keys remain valid groups.
+returns no groups. Null keys remain valid groups. A global aggregation must
+request at least one aggregate; grouping by keys without aggregates remains valid.
 
 .. code-block:: python
 

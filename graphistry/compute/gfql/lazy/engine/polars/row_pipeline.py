@@ -1586,6 +1586,9 @@ def group_by_polars(
                 if isinstance(col, str) and col.startswith(prefix) and col not in seen:
                     key_cols.append(col)
                     seen.add(col)
+    from graphistry.compute.gfql.agg_types import validate_aggregation_output
+
+    validate_aggregation_output(bool(key_cols), bool(aggregations))
     if not all(isinstance(k, str) and k in cols for k in key_cols):
         _group_by_decline()
         return None

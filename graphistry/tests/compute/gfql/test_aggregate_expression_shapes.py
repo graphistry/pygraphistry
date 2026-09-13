@@ -295,3 +295,42 @@ def test_public_constant_aggregate_boundaries(request, engine, size, keys, sourc
                 assert actual == answer
     if engine == "polars-gpu":
         assert receipts
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars"])
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("prefixes", [None, ["missing."]])
+def test_direct_runtime_rejects_zero_output_grouping(engine, empty, prefixes):
+    import pandas as pd
+    from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+    from graphistry.compute.gfql.lazy.engine.polars.row_pipeline import group_by_polars
+
+    table = pd.DataFrame({"id": pd.Series([] if empty else [1], dtype="int64")})
+    g = graphistry.nodes(pl.from_pandas(table) if engine == "polars" else table, "id")
+    with pytest.raises(GFQLTypeError) as exc:
+        if engine == "polars":
+            group_by_polars(g, [], [], key_prefixes=prefixes)
+        else:
+            from graphistry.compute.gfql.row.pipeline import _RowPipelineAdapter
+
+            _RowPipelineAdapter(g).group_by([], [], key_prefixes=prefixes)
+    assert exc.value.code == ErrorCode.E201
+    assert exc.value.context["field"] == "group_by.aggregations"
+
+
+@pytest.mark.parametrize("engine", ["pandas", "polars",
+    pytest.param("cudf", marks=pytest.mark.skipif(os.environ.get("TEST_CUDF") != "1", reason="requires TEST_CUDF=1")),
+    pytest.param("polars-gpu", marks=pytest.mark.skipif(os.environ.get("TEST_POLARS_GPU") != "1", reason="requires actual GPU")),
+])
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("prefixes", [None, ["missing."]])
+def test_public_runtime_rejects_zero_output_grouping(engine, empty, prefixes):
+    import pandas as pd
+    from graphistry.compute.ast import group_by
+    from graphistry.compute.exceptions import ErrorCode, GFQLTypeError
+
+    g = graphistry.nodes(pd.DataFrame({"id": pd.Series([] if empty else [1], dtype="int64")}), "id")
+    with pytest.raises(GFQLTypeError) as exc:
+        g.gfql([group_by([], [], key_prefixes=prefixes)], engine=engine)
+    assert exc.value.code == ErrorCode.E201
+    assert exc.value.context["field"] == "group_by.aggregations"

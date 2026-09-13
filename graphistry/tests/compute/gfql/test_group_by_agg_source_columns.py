@@ -383,3 +383,36 @@ def test_aggregate_preparation_refusal_uses_decline_contract(monkeypatch, target
             assert exc.value.context["engine"] == "polars-gpu"
             assert exc.value.__cause__ is refusal
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("prefixes", [None, ["missing."]])
+def test_zero_output_global_grouping_is_rejected(engine, empty, prefixes):
+    from graphistry.compute.exceptions import GFQLTypeError
+
+    g = _graph()
+    if empty:
+        g = g.nodes(g._nodes.head(0))
+    query = [group_by([], [], key_prefixes=prefixes)]
+    with pytest.raises(GFQLTypeError) as exc:
+        g.gfql_validate(query)
+    assert exc.value.code == ErrorCode.E201
+    assert exc.value.context["field"] == "group_by.aggregations"
+    assert exc.value.context["value"] == []
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("prefix", [False, True])
+def test_key_only_grouping_remains_valid(engine, empty, prefix):
+    g = _graph()
+    if empty:
+        g = g.nodes(g._nodes.head(0))
+    query = [group_by([] if prefix else ["kind"], [], key_prefixes=["ki"] if prefix else None)]
+    assert g.gfql_validate(query)["ok"]
+    out = g.gfql(query, engine=engine)._nodes
+    assert type(out).__module__.split(".")[0] == ("polars" if engine.startswith("polars") else engine)
+    records = out.to_dicts() if engine.startswith("polars") else (
+        out.to_pandas().to_dict("records") if engine == "cudf" else out.to_dict("records"))
+    assert records == ([] if empty else [{"kind": "a"}, {"kind": "b"}])

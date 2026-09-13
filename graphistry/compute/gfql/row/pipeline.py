@@ -5493,6 +5493,9 @@ class RowPipelineMixin:
                     if isinstance(col, str) and col.startswith(prefix) and col not in seen:
                         key_cols.append(col)
                         seen.add(col)
+        from graphistry.compute.gfql.agg_types import validate_aggregation_output
+
+        validate_aggregation_output(bool(key_cols), bool(aggregations))
         global_key = None
         if not key_cols:
             global_key = RowPipelineMixin._gfql_fresh_col_name(
