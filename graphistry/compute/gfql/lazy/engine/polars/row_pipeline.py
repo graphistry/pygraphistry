@@ -1587,7 +1587,7 @@ def _gpu_collection_aggregates(
             value = value.cast(pl.String)
         part = operands.with_columns(value.alias(value_name)).filter(pl.col(value_name).is_not_null())
         if distinct:
-            part = part.unique(subset=[*group_keys, value_name], maintain_order=True)
+            part = part.unique(subset=[*group_keys, value_name], keep="first", maintain_order=True)
         grouped = collect(part.group_by(group_keys, maintain_order=True).agg(pl.col(value_name).alias(alias)))
         if base.height == 0:
             # Both results are empty: adding the output dtype cannot move or compute row values.
@@ -1665,6 +1665,8 @@ def group_by_polars(
             while temporary in operand_schema:
                 temporary += "_"
             # with_columns broadcasts constants to the input height, including zero rows.
+            if operand_plan.select(operand.alias(temporary)).collect_schema()[temporary] == pl.Null:
+                operand = pl.lit(None, dtype=pl.Int64)
             operand_plan = operand_plan.with_columns(operand.alias(temporary))
             operand_schema = dict(operand_plan.collect_schema())
             expr = temporary

@@ -334,3 +334,21 @@ def test_public_runtime_rejects_zero_output_grouping(engine, empty, prefixes):
         g.gfql([group_by([], [], key_prefixes=prefixes)], engine=engine)
     assert exc.value.code == ErrorCode.E201
     assert exc.value.context["field"] == "group_by.aggregations"
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+@pytest.mark.parametrize("size", [20, 100])
+def test_distinct_collection_keeps_first_occurrence_across_groups(engine, size):
+    from graphistry.compute.ast import group_by
+    if engine == "polars-gpu" and os.environ.get("TEST_POLARS_GPU") != "1":
+        pytest.skip("requires actual polars-gpu")
+    records = [{"id": i, "key": i % 4, "value": None if i % 5 == 0 else i % 7} for i in range(size)]
+    table = pl.DataFrame(records)
+    result = graphistry.nodes(table, "id").gfql([
+        group_by(["key"], [("items", "collect", "value"), ("unique", "collect_distinct", "value")])
+    ], engine=engine)._nodes
+    expected = []
+    for key in range(4):
+        values = [r["value"] for r in records if r["key"] == key and r["value"] is not None]
+        expected.append({"key": key, "items": values, "unique": list(dict.fromkeys(values))})
+    assert result.to_dicts() == expected
