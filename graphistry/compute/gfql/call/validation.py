@@ -374,6 +374,25 @@ def _group_by_requires_node_cols(
             expr = item[2]
             if isinstance(expr, str) and expr != "*":
                 out.extend(_agg_source_required_cols(expr, available_cols))
+                if available_cols is not None and expr not in available_cols:
+                    from graphistry.compute.gfql.agg_types import (
+                        GFQL_NUMERIC_ONLY_AGGREGATIONS, raise_non_numeric_aggregation,
+                    )
+                    from graphistry.compute.gfql.expr_parser import Literal, ListLiteral, MapLiteral
+
+                    func = str(item[1]).lower()
+                    if func in GFQL_NUMERIC_ONLY_AGGREGATIONS:
+                        parsed = _where_rows_expr_parse(expr)
+                        node = parsed[0] if parsed is not None else None
+                        literal_type = None
+                        if isinstance(node, Literal) and isinstance(node.value, str):
+                            literal_type = "string"
+                        elif isinstance(node, ListLiteral):
+                            literal_type = "list"
+                        elif isinstance(node, MapLiteral):
+                            literal_type = "map"
+                        if literal_type is not None:
+                            raise_non_numeric_aggregation(func, expr, literal_type, str(item[0]))
     return out
 
 
@@ -513,7 +532,7 @@ SAFELIST_V1: Dict[str, Dict[str, Any]] = {
         {'keys', 'aggregations', 'key_prefixes'},
         required_params={'keys', 'aggregations'},
         param_validators={
-            'keys': is_non_empty_list_of_strings,
+            'keys': is_list_of_strings,
             'aggregations': is_list_of_agg_specs,
             'key_prefixes': lambda v: v is None or is_list_of_strings(v),
         },

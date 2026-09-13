@@ -278,3 +278,29 @@ def test_aggregate_source_without_parser_distinguishes_literal_and_expression(mo
         validation._agg_source_required_cols("1 + 2", {"id"})
     assert exc.value.code == ErrorCode.E201
     assert exc.value.context["value"] == "1 + 2"
+
+
+@pytest.mark.parametrize("func", ["sum", "avg", "mean"])
+@pytest.mark.parametrize("source", ["'text'", "[1, 2]", "{value: 1}"])
+def test_numeric_aggregate_constant_type_is_validated(func, source):
+    from graphistry.compute.exceptions import GFQLTypeError
+
+    g = _scope_graph("x.y.Dotted", "nodes", "pandas")
+    query = [rows(), group_by([], [("answer", func, source)])]
+    with pytest.raises(GFQLTypeError) as exc:
+        g.gfql_validate(query)
+    assert exc.value.code == ErrorCode.E302
+    assert exc.value.context["field"] == source
+    assert exc.value.context["operation_index"] == 1
+
+
+@pytest.mark.parametrize("source", ["3", "1 + 2", "true", "null"])
+def test_numeric_aggregate_valid_constant_global_validation(source):
+    g = _scope_graph("x.y.Dotted", "nodes", "pandas")
+    assert g.gfql_validate([rows(), group_by([], [("answer", "sum", source)])])["ok"]
+
+
+@pytest.mark.parametrize("source", ["'text'", "[1, 2]", "{value: 1}"])
+def test_numeric_aggregate_literal_column_precedes_constant_type(source):
+    g = _scope_graph(source, "nodes", "pandas")
+    assert g.gfql_validate([rows(), group_by([], [("answer", "sum", source)])])["ok"]

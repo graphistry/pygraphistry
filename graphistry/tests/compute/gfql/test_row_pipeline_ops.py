@@ -2161,6 +2161,7 @@ class TestRowPipelineSafelist:
             ("drop_cols", {"cols": []}),
             ("group_by", {"keys": ["grp"], "aggregations": [("cnt", "count")], "key_prefixes": ["tag."]}),
             ("group_by", {"keys": ["grp"], "aggregations": [("cnt", "count")], "key_prefixes": []}),
+            ("group_by", {"keys": [], "aggregations": [("cnt", "count")]}),
         ],
     )
     def test_row_pipeline_safelist_accepts_valid_params(self, function, params):
@@ -2184,7 +2185,7 @@ class TestRowPipelineSafelist:
             ("unwind", {"expr": "vals", "as_": ""}),
             ("group_by", {"keys": ["grp"], "aggregations": ["bad"]}),
             ("group_by", {"keys": ["grp"], "aggregations": [("x", "median", "score")]}),
-            ("group_by", {"keys": [], "aggregations": [("x", "count")]}),
+            ("group_by", {"keys": [1], "aggregations": [("x", "count")]}),
             ("drop_cols", {"cols": [1, 2]}),
             ("group_by", {"keys": ["grp"], "aggregations": [("cnt", "count")], "key_prefixes": [1]}),
         ],
