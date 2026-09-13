@@ -594,3 +594,71 @@ def test_polars_node_projection_preserves_schema_and_physical_rows(
     assert_frame_equal(actual._nodes, expected)
     assert_frame_equal(g._nodes, nodes)
     assert_frame_equal(actual._edges, edges)
+
+
+@pytest.mark.parametrize("shape", ["empty", "one", "parallel", "duplicate_nodes", "null_ids", "missing_endpoint"])
+@pytest.mark.parametrize("kind", ["nullable_int", "bool", "string", "date", "list", "struct"])
+def test_two_alias_projection_gathers_columns_without_select(shape, kind, monkeypatch):
+    """Column gathering preserves bags, dtypes and inputs around both joins."""
+    from datetime import date
+
+    pl = pytest.importorskip("polars")
+    from polars.testing import assert_frame_equal
+    from graphistry.compute.gfql_fast_paths import _seeded_typed_hop_two_alias_frame
+
+    dtype, values = {
+        "nullable_int": (pl.Int64, [None, 11]),
+        "bool": (pl.Boolean, [None, True]),
+        "string": (pl.String, [None, "value"]),
+        "date": (pl.Date, [None, date(2025, 1, 2)]),
+        "list": (pl.List(pl.Int64), [None, [1, 2]]),
+        "struct": (pl.Struct({"x": pl.Int64}), [None, {"x": 3}]),
+    }[kind]
+    duplicate = shape == "duplicate_nodes"
+    seed_ids = [7, 7] if duplicate else [7, None]
+    tail_ids = [8, 8] if duplicate else [8, None]
+    seed = pl.DataFrame({"id": pl.Series(seed_ids, dtype=pl.Int64), "position": [0, 1],
+                         "value": pl.Series(values, dtype=dtype)})
+    tail = pl.DataFrame({"id": pl.Series(tail_ids, dtype=pl.Int64), "position": [0, 1],
+                         "value": pl.Series(values[::-1], dtype=dtype)})
+    endpoints = {
+        "empty": [], "one": [(7, 8)], "parallel": [(7, 8), (7, 8)],
+        "duplicate_nodes": [(7, 8), (7, 8)],
+        "null_ids": [(None, 8), (7, None), (7, 8)],
+        "missing_endpoint": [(99, 8), (7, 99)],
+    }[shape]
+    edges = pl.DataFrame({"src": pl.Series([x for x, _ in endpoints], dtype=pl.Int64),
+                          "dst": pl.Series([y for _, y in endpoints], dtype=pl.Int64),
+                          "position": pl.Series(range(len(endpoints)), dtype=pl.Int64)})
+    saved = [frame.clone() for frame in (seed, tail, edges)]
+    records = []
+    for edge in edges.iter_rows(named=True):
+        for left in seed.iter_rows(named=True):
+            for right in tail.iter_rows(named=True):
+                if (edge["src"] is not None and edge["dst"] is not None
+                        and edge["src"] == left["id"] and edge["dst"] == right["id"]):
+                    records.append({"edge_row": edge["position"], "seed_row": left["position"],
+                                    "dst_row": right["position"], "source_id": edge["src"],
+                                    "target_id": edge["dst"], "a": left["value"],
+                                    "again": left["value"], "b": right["value"]})
+    schema = {"edge_row": pl.Int64, "seed_row": pl.Int64, "dst_row": pl.Int64,
+              "source_id": pl.Int64, "target_id": pl.Int64, "a": dtype, "again": dtype, "b": dtype}
+    expected = pl.DataFrame(records, schema=schema)
+    items = [("edge_row", "edge", "position"), ("seed_row", "seed", "position"),
+             ("dst_row", "dst", "position"), ("source_id", "seed", "id"),
+             ("target_id", "dst", "id"), ("a", "seed", "value"),
+             ("again", "seed", "value"), ("b", "dst", "value")]
+
+    def unexpected_select(*args, **kwargs):
+        raise AssertionError("Pure property projection must gather existing columns")
+
+    with monkeypatch.context() as guarded:
+        guarded.setattr(pl.DataFrame, "select", unexpected_select)
+        actual = _seeded_typed_hop_two_alias_frame(
+            seed, tail, edges, items, from_col="src", to_col="dst", node="id",
+            is_polars=True, keep_source_dtypes=True,
+        )
+    order = ["edge_row", "seed_row", "dst_row"]
+    assert_frame_equal(actual.sort(order), expected.sort(order))
+    for frame, original in zip((seed, tail, edges), saved):
+        assert_frame_equal(frame, original)
