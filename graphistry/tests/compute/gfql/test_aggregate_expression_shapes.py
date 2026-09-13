@@ -352,3 +352,26 @@ def test_distinct_collection_keeps_first_occurrence_across_groups(engine, size):
         values = [r["value"] for r in records if r["key"] == key and r["value"] is not None]
         expected.append({"key": key, "items": values, "unique": list(dict.fromkeys(values))})
     assert result.to_dicts() == expected
+
+
+@pytest.mark.parametrize("engine", ["polars", "polars-gpu"])
+@pytest.mark.parametrize("size", [0, 3])
+@pytest.mark.parametrize("keys", [[], ["key"]])
+def test_visible_null_dtype_column_aggregate_identities(engine, size, keys, request):
+    from graphistry.compute.ast import group_by
+    if engine == "polars-gpu" and os.environ.get("TEST_POLARS_GPU") != "1":
+        pytest.skip("requires actual polars-gpu")
+    table = pl.DataFrame({"id": pl.Series(range(size), dtype=pl.Int64),
+                          "key": pl.Series([1] * size, dtype=pl.Int64),
+                          "value": pl.Series([None] * size, dtype=pl.Null)})
+    receipts = request.getfixturevalue("strict_aggregate_device") if engine == "polars-gpu" else None
+    identities = {"count": 0, "sum": 0, "avg": None, "mean": None, "min": None,
+                  "max": None, "count_distinct": 0, "collect": [], "collect_distinct": []}
+    result = graphistry.nodes(table, "id").gfql([
+        group_by(keys, [("rows", "count"), *[(f, f, "value") for f in identities]])
+    ], engine=engine)._nodes
+    expected = {"rows": size, **identities, **({"key": 1} if keys else {})}
+    assert result.to_dicts() == ([] if keys and not size else [expected])
+    assert table.schema["value"] == pl.Null
+    if receipts is not None:
+        assert receipts

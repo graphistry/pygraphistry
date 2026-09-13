@@ -1638,6 +1638,14 @@ def group_by_polars(
     import polars as pl
     from graphistry.compute.gfql.lazy import ExecutionTarget, active_target, collect
 
+    if any(dtype == pl.Null for dtype in table.schema.values()):
+        # GPU scans cannot ingest Null storage. Its schema proves every value is null;
+        # allocate typed input buffers without evaluating an aggregate or mutating g.
+        table = pl.DataFrame([
+            pl.Series(name, [None] * table.height, dtype=pl.Int64)
+            if dtype == pl.Null else table.get_column(name)
+            for name, dtype in table.schema.items()
+        ])
     operand_plan = table.lazy()
     operand_schema = dict(table.schema)
     has_projected_operands = False
@@ -1670,13 +1678,6 @@ def group_by_polars(
             operand_plan = operand_plan.with_columns(operand.alias(temporary))
             operand_schema = dict(operand_plan.collect_schema())
             expr = temporary
-            has_projected_operands = True
-
-        if isinstance(expr, str) and operand_schema.get(expr) == pl.Null:
-            # Null has no value-type evidence; use a supported nullable storage type.
-            # Older Polars cannot reduce Null and cuDF cannot execute EMPTY operands.
-            operand_plan = operand_plan.with_columns(pl.col(expr).cast(pl.Int64))
-            operand_schema[expr] = pl.Int64
             has_projected_operands = True
 
         def _is_all_null(col_name: str) -> bool:
