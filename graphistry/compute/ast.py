@@ -1580,6 +1580,7 @@ def rows(
     binding_ops: Optional[List[Dict[str, JSONVal]]] = None,
     alias_prefilters: Optional[AliasPrefilters] = None,
     attach_prop_aliases: Optional[List[str]] = None,
+    attach_prop_columns: Optional[Dict[str, List[str]]] = None,
 ) -> ASTCall:
     """Create a row-source operation for GFQL row pipelines.
 
@@ -1607,6 +1608,11 @@ def rows(
         params["alias_prefilters"] = alias_prefilters
     if attach_prop_aliases is not None:
         params["attach_prop_aliases"] = list(attach_prop_aliases)
+    if attach_prop_columns is not None:
+        # per node alias, the property columns to attach (projection pushdown)
+        params["attach_prop_columns"] = {
+            alias: list(columns) for alias, columns in attach_prop_columns.items()
+        }
     return ASTCall("rows", params)
 
 

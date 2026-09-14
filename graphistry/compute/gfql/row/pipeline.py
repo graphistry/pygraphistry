@@ -4300,6 +4300,7 @@ class RowPipelineMixin:
         binding_ops: List[Dict[str, JSONVal]],
         alias_prefilters: Optional[AliasPrefilters] = None,
         attach_prop_aliases: Optional[List[str]] = None,
+        attach_prop_columns: Optional[Dict[str, List[str]]] = None,
     ) -> "Plottable":
         from graphistry.compute.ast import ASTEdge, ASTNode, from_json as ast_from_json
 
@@ -4313,6 +4314,7 @@ class RowPipelineMixin:
             ops,
             alias_prefilters=alias_prefilters,
             attach_prop_aliases=attach_prop_aliases,
+            attach_prop_columns=attach_prop_columns,
         )
 
     @staticmethod
@@ -4338,12 +4340,13 @@ class RowPipelineMixin:
         ops: Sequence["ASTObject"],
         alias_prefilters: Optional[AliasPrefilters] = None,
         attach_prop_aliases: Optional[List[str]] = None,
+        attach_prop_columns: Optional[Dict[str, List[str]]] = None,
     ) -> "Plottable":
         from graphistry.compute.ast import ASTEdge
 
         state_df, alias_frames = self._gfql_connected_bindings_state(ops, alias_prefilters=alias_prefilters)
         bindings = self._gfql_connected_bindings_row_frame_from_state(
-            ops, state_df, alias_frames, attach_prop_aliases
+            ops, state_df, alias_frames, attach_prop_aliases, attach_prop_columns
         )
         out = self._gfql_row_table(bindings)
         edge_aliases = {
@@ -4403,6 +4406,7 @@ class RowPipelineMixin:
         state_df: DataFrameT,
         alias_frames: Dict[str, DataFrameT],
         attach_prop_aliases: Optional[List[str]] = None,
+        attach_prop_columns: Optional[Dict[str, List[str]]] = None,
     ) -> DataFrameT:
         from graphistry.compute.ast import ASTNode
 
@@ -4439,6 +4443,17 @@ class RowPipelineMixin:
             lookup_source = self._gfql_unshadow_alias_marker_column(
                 lookup_source, alias, base_nodes, node_id
             )
+            if attach_prop_columns is not None:
+                # projection pushdown: only the property columns the next select reads
+                wanted = set(attach_prop_columns.get(alias) or ())
+                if not wanted:
+                    continue
+                id_col = str(node_id)
+                source_frame = lookup_source
+                if source_frame is not None:
+                    lookup_source = source_frame[
+                        [id_col] + [col for col in source_frame.columns if col != id_col and col in wanted]
+                    ]
             lookup = self._gfql_node_alias_lookup_frame(lookup_source, node_id, alias)
             order_cols = []
             if resolve_engine(EngineAbstract.AUTO, bindings) == Engine.CUDF:
@@ -4712,6 +4727,7 @@ class RowPipelineMixin:
         binding_ops: List[Dict[str, JSONVal]],
         alias_prefilters: Optional[AliasPrefilters] = None,
         attach_prop_aliases: Optional[List[str]] = None,
+        attach_prop_columns: Optional[Dict[str, List[str]]] = None,
     ) -> "Plottable":
         from graphistry.compute.ast import from_json as ast_from_json
 
@@ -4723,6 +4739,7 @@ class RowPipelineMixin:
             binding_ops,
             alias_prefilters=alias_prefilters,
             attach_prop_aliases=attach_prop_aliases,
+            attach_prop_columns=attach_prop_columns,
         )
 
     def _gfql_bindings_row_table(
