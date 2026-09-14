@@ -6,7 +6,7 @@ polars >= 1.28 deprecates the bare-``Series`` RHS. RAPIDS 25.02 ships polars 1.2
 ships 1.35, so the engine must be correct AND warning-free on both.
 
 Oracles are the python-list form ``expr.is_in(ids.to_list())`` (never warned, never failed on
-any 1.21..1.35 release in the plans/gfql-2082-polars121 sweep) and hand-written literals.
+any 1.21..1.35 release in the #2082 per-release sweep) and hand-written literals.
 Engine agreement is not used as evidence.
 """
 import warnings
@@ -100,7 +100,7 @@ _EDGES = pd.DataFrame({"s": [0, 1, 7, 8, 9], "d": [1, 5, 2, 6, 9]})
 _CLOSED = {(0, 1)}
 
 
-def _ids(values, id_dtype) -> "pl.Series":
+def _ids(values, id_dtype):
     """Int64 literals re-typed as the id dtype under test (Categorical only casts from strings)."""
     e = pl.Series(list(values), dtype=pl.Int64)
     return e.cast(pl.Utf8).cast(id_dtype) if id_dtype in (pl.Utf8, pl.Categorical) else e.cast(id_dtype)
@@ -132,15 +132,16 @@ def test_polars_hop_endpoint_gate_runs_on_the_installed_polars(direction, id_dty
 
 
 @pytest.mark.parametrize("id_dtype", [pl.Int64, pl.Utf8], ids=["int", "str"])
-def test_polars_seeded_hop_with_a_target_wavefront_gate(id_dtype):
-    """Seeded 2-hop (hops=2 leaves the single-bounded-hop lane): the eager gate filters
-    every wave's edges against the node-table universe; the dangling 3->4 edge never enters."""
+def test_polars_seeded_multi_hop_gate_stops_at_a_dangling_endpoint(id_dtype):
+    """Seeded 2-hop (hops=2 leaves the single-bounded-hop lane) from 2: the eager gate drops the
+    dangling 3->4 edge before the BFS, so the second wave finds nothing. Without the gate the
+    result would be {(2,3),(3,4)} -- the pin discriminates."""
     nodes = pd.DataFrame({"id": [0, 1, 2, 3]})
     edges = pd.DataFrame({"s": [0, 1, 2, 3], "d": [1, 2, 3, 4]})  # 3->4 dangles
     g = _bind(nodes, edges, id_dtype)
-    seed = pl.DataFrame({"id": _ids([0], id_dtype)})
+    seed = pl.DataFrame({"id": _ids([2], id_dtype)})
     out = g.hop(nodes=seed, hops=2, direction="forward", engine="polars")
-    assert edge_pair_set(out) == _pairs({(0, 1), (1, 2)}, id_dtype)
+    assert edge_pair_set(out) == _pairs({(2, 3)}, id_dtype)
 
 
 def test_polars_hop_empty_node_table_over_edges_keeps_nothing():

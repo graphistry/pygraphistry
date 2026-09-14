@@ -10,9 +10,9 @@ polars changed the ``is_in`` right-hand-side contract in 1.28.0:
 * ``>= 1.28``: a bare same-dtype ``Series`` RHS emits ``DeprecationWarning`` ("ambiguous ...
   use implode"; #1938 item 5) and the imploded RHS is the supported spelling.
 
-ONE helper so the spelling cannot drift per call site. Boundary pinned by the
-plans/gfql-2082-polars121 sweep over polars 1.21.0..1.35.2: the imploded RHS fails through
-1.27.1 and passes from 1.28.0; the bare RHS passes on every version and warns from 1.28.0.
+ONE helper so the spelling cannot drift per call site. Boundary pinned by a per-release sweep
+over polars 1.21.0..1.35.2 (#2082): the imploded RHS fails through 1.27.1 and passes from
+1.28.0; the bare RHS passes on every release and warns from 1.28.0.
 
 The ``< 1.28`` branch is NOT dead code even though the ``polars`` extra declares
 ``polars>=1.29`` (setup.py): the supported RAPIDS 25.02 environment pins polars 1.21 through

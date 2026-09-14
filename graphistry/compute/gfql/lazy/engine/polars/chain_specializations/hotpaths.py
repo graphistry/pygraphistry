@@ -142,7 +142,7 @@ def _seeded_typed_return_dst_polars(
         return None
     from_col, to_col = (src, dst) if direction == "forward" else (dst, src)
 
-    # membership sets are drop_nulls()'d (null ids never link); is_in spelling per polars version: membership.is_in_ids
+    # membership sets are drop_nulls()'d (null ids never link)
     ctx = index_ctx if index_ctx is not None else _resident_seed_indexes(
         g, nodes_df, edges_df, node, src, dst, direction)
     nid_ctx = (ctx[0], ctx[2], ctx[3]) if ctx is not None else _resident_node_id_index(g, nodes_df, node)

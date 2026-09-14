@@ -519,14 +519,17 @@ def _apply_connected_optional_match(
         else:
             seed_frame = cast(DataFrameT, df_to_engine(
                 seed_src.dropna().drop_duplicates().rename(columns={joined_col: node_col}), concrete_engine))
+        if is_polars_df(base_nodes) and is_polars_df(seed_frame):
+            import polars as pl
+            from graphistry.compute.gfql.lazy.engine.polars.dtypes import is_lazy
+            from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
+            seed_eager = seed_frame.collect() if is_lazy(seed_frame) else seed_frame
+            return cast(DataFrameT, base_nodes.filter(
+                is_in_ids(pl.col(node_col), seed_eager.get_column(node_col))))
         # Declared, not cast: selecting one column off a frame is a Series on every engine, so
         # the annotation states that directly instead of re-asserting it at the call site.
         seed_ids: SeriesT = seed_frame[node_col]
         node_ids: SeriesT = base_nodes[node_col]
-        if is_polars_df(base_nodes):
-            import polars as pl
-            from graphistry.compute.gfql.lazy.engine.polars.membership import is_in_ids
-            return cast(DataFrameT, base_nodes.filter(is_in_ids(pl.col(node_col), seed_ids)))
         return cast(DataFrameT, base_nodes[node_ids.isin(seed_ids)].copy())
 
     # Run base chain to get binding rows.
