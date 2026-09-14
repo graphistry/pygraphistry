@@ -59,9 +59,10 @@ _EDGE_ORD = "__gfql_ib_edge_ord__"
 _ORIENT_ORD = "__gfql_ib_orient_ord__"
 _LEFT_N = "__gfql_ib_left_n__"
 _RIGHT_N = "__gfql_ib_right_n__"
+_ROW_POS = "__gfql_ib_row_pos__"
 _INTERNAL = {
     _CURRENT, _FROM, _TO, _PATH_ORD, _EDGE_ORD, _ORIENT_ORD,
-    _LEFT_N, _RIGHT_N,
+    _LEFT_N, _RIGHT_N, _ROW_POS,
 }
 
 
@@ -170,6 +171,50 @@ def _with_marker(frame: DataFrameT, name: Optional[str], engine: Engine) -> Data
         # Native Polars intentionally omits pandas' alias-marker residue.
         return frame
     return cast(DataFrameT, frame.assign(**{name: True}))
+
+
+def _take_filtered_rows(
+    frame: DataFrameT, positions: Any, filter_dict: Optional[dict], engine: Engine,
+) -> DataFrameT:
+    """``_filter_frame(take_rows(frame, positions))`` with the predicate evaluated first.
+
+    The wide gather-then-filter pays the filter across every column; evaluating the
+    UNCHANGED filter on just the predicate columns (plus a row-position column)
+    and gathering the survivors is the same rows in the same order. Absent
+    predicate columns keep the wide path so its 3VL verdict is unchanged.
+    """
+    columns = set(map(str, frame.columns))
+    if not filter_dict or any(str(col) not in columns for col in filter_dict):
+        return _filter_frame(take_rows(frame, positions, engine), filter_dict, engine)
+    predicate_cols = list(filter_dict)
+    if engine == Engine.POLARS:
+        narrow = frame.select(predicate_cols)  # type: ignore[operator]
+    else:
+        narrow = frame[predicate_cols]
+    narrow = take_rows(narrow, positions, engine)
+    narrow = _with_positions(narrow, _ROW_POS, positions, engine)
+    kept = _filter_frame(narrow, filter_dict, engine)
+    if int(kept.shape[0]) == int(narrow.shape[0]):
+        return take_rows(frame, positions, engine)
+    return take_rows(frame, col_to_array(kept, _ROW_POS, engine), engine)
+
+
+def _covers_ids(frame: DataFrameT, column: str, ids: Any, engine: Engine, xp: Any) -> bool:
+    """Whether ``frame[column]`` (a gather by ``ids``) still holds EVERY id in ``ids``."""
+    found = xp.unique(col_to_array(frame, column, engine))
+    return int(found.shape[0]) == int(ids.shape[0])
+
+
+def _with_positions(frame: DataFrameT, name: str, positions: Any, engine: Engine) -> DataFrameT:
+    if engine == Engine.POLARS:
+        import numpy as np
+        import polars as pl
+
+        return cast(
+            DataFrameT,
+            frame.with_columns(pl.Series(name, np.asarray(positions))),  # type: ignore[operator]
+        )
+    return cast(DataFrameT, frame.assign(**{name: positions}))
 
 
 def _frame_with_positions(
@@ -536,12 +581,14 @@ def _try_indexed_connected_bindings_state(
             return None
         endpoint_ids = xp.unique(col_to_array(oriented, _TO, engine))
         node_rows = xp.sort(lookup_node_rows(node_index, endpoint_ids, xp))
-        next_nodes = take_rows(nodes, node_rows, engine)
-        next_nodes = _filter_frame(next_nodes, next_op.filter_dict, engine)
+        next_nodes = _take_filtered_rows(nodes, node_rows, next_op.filter_dict, engine)
         next_alias_frame = _with_marker(next_nodes, next_op._name, engine)
-        oriented = semijoin_by_column(
-            oriented, next_nodes, left_on=_TO, right_on=node_id, engine=engine,
-        )
+        if not _covers_ids(next_nodes, node_id, endpoint_ids, engine, xp):
+            # The endpoint filter dropped ids, so narrow the edges to the survivors;
+            # when every endpoint id is still present the semi-join is the identity.
+            oriented = semijoin_by_column(
+                oriented, next_nodes, left_on=_TO, right_on=node_id, engine=engine,
+            )
 
         estimated_rows = estimate_inner_join_rows(
             state, oriented, left_on=_CURRENT, right_on=_FROM, engine=engine,

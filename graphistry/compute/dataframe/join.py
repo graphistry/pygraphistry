@@ -298,6 +298,57 @@ def semijoin_eval_pairs(
     return left_eval, right_eval, mid_values
 
 
+def _estimate_inner_join_rows_arrays(
+    left: DataFrameT,
+    right: DataFrameT,
+    *,
+    left_on: str,
+    right_on: str,
+    engine: Engine,
+) -> Optional[int]:
+    """Exact ``estimate_inner_join_rows`` over null-free integer keys as one array pass.
+
+    Frame group-by/join plans cost ~1ms each on small frontiers; the same
+    sum-of-products is a unique/searchsorted over the key arrays. Nulls defer to
+    the frame path: engines disagree on null-key matching (pandas merges NaN with
+    NaN, polars does not), so that contract stays where it is.
+    """
+    from graphistry.compute.gfql.index.engine_arrays import array_namespace, col_to_array
+
+    if engine in POLARS_ENGINES:
+        import polars as pl
+
+        if not (isinstance(left, pl.DataFrame) and isinstance(right, pl.DataFrame)):
+            return None  # lazy inputs keep the single-collect plan
+        left_series = left.get_column(left_on)
+        right_series = right.get_column(right_on)  # type: ignore[operator]
+        if (
+            not left_series.dtype.is_integer()
+            or not right_series.dtype.is_integer()
+            or left_series.null_count()
+            or right_series.null_count()
+        ):
+            return None
+    elif engine in (Engine.PANDAS, Engine.CUDF):
+        left_series, right_series = left[left_on], right[right_on]
+        if (
+            getattr(left_series.dtype, "kind", None) not in ("i", "u")
+            or getattr(right_series.dtype, "kind", None) not in ("i", "u")
+            or bool(left_series.isna().any())
+            or bool(right_series.isna().any())
+        ):
+            return None
+    else:
+        return None
+    xp, _ = array_namespace(engine)
+    left_keys, left_counts = xp.unique(col_to_array(left, left_on, engine), return_counts=True)
+    right_keys, right_counts = xp.unique(col_to_array(right, right_on, engine), return_counts=True)
+    positions = xp.minimum(xp.searchsorted(left_keys, right_keys), left_keys.shape[0] - 1)
+    matched = left_keys[positions] == right_keys
+    products = left_counts[positions[matched]].astype("int64") * right_counts[matched].astype("int64")
+    return int(products.sum())
+
+
 def estimate_inner_join_rows(
     left: DataFrameT,
     right: DataFrameT,
@@ -314,6 +365,11 @@ def estimate_inner_join_rows(
     """
     if len(left) == 0 or len(right) == 0:
         return 0
+    array_estimate = _estimate_inner_join_rows_arrays(
+        left, right, left_on=left_on, right_on=right_on, engine=engine,
+    )
+    if array_estimate is not None:
+        return array_estimate
     left_n, right_n = "__gfql_join_left_n__", "__gfql_join_right_n__"
     if engine in POLARS_ENGINES:
         import polars as pl
