@@ -357,6 +357,87 @@ def test_gpu_aggregate_refusal_survives_native_call_boundary(monkeypatch):
     assert isinstance(exc.value, NotImplementedError)
 
 
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("table", ["nodes", "edges"])
+@pytest.mark.parametrize("source", ["with missing", "a +", "sum(", ")"])
+def test_malformed_missing_aggregate_source_fails_validation(engine, table, source):
+    from graphistry.compute.exceptions import GFQLSyntaxError
+    from graphistry.compute.validate.validate_schema import validate_chain_schema
+
+    g = _scope_graph("x.y.Dotted", table, engine)
+    query = [rows(table=table), group_by(keys=["kind"], aggregations=[("m", "max", source)])]
+    with pytest.raises(GFQLSyntaxError) as exc:
+        g.gfql_validate(query)
+    assert exc.value.code == ErrorCode.E107
+    assert exc.value.context["value"] == source
+    assert exc.value.context["operation_index"] == 1
+    errors = validate_chain_schema(g, query, collect_all=True)
+    assert errors is not None and len(errors) == 1
+    assert errors[0].code == ErrorCode.E107
+    assert errors[0].context["operation_index"] == 1
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("source", ["with missing", "a +", "sum(", ")"])
+def test_malformed_expression_spelling_is_valid_existing_literal(engine, source):
+    g = _scope_graph(source, "nodes", engine)
+    assert g.gfql_validate(_max_by_kind(source))["ok"]
+    assert _max_per_kind(g, _max_by_kind(source), engine) == [("a", 103.0), ("b", 107.0)]
+
+
+@pytest.mark.parametrize("source,expected", [("1", 1), ("1 + 2", 3)])
+def test_valid_constant_aggregate_source_requires_no_columns(source, expected):
+    g = _scope_graph("x.y.Dotted", "nodes", "pandas")
+    assert g.gfql_validate(_max_by_kind(source))["ok"]
+    assert _max_per_kind(g, _max_by_kind(source), "pandas") == [("a", expected), ("b", expected)]
+
+
+def test_aggregate_source_unknown_schema_remains_deferred():
+    from graphistry.compute.gfql.call.validation import _agg_source_required_cols
+
+    assert _agg_source_required_cols("with missing") == []
+    assert _agg_source_required_cols("a + missing") == ["a", "missing"]
+
+
+def test_aggregate_source_without_parser_distinguishes_literal_and_expression(monkeypatch):
+    from graphistry.compute.gfql.call import validation
+    from graphistry.compute.exceptions import GFQLTypeError
+
+    monkeypatch.setattr(validation, "_where_rows_expr_parser_fn", lambda: None)
+    assert validation._agg_source_required_cols("with space", {"with space"}) == ["with space"]
+    with pytest.raises(GFQLTypeError) as exc:
+        validation._agg_source_required_cols("1 + 2", {"id"})
+    assert exc.value.code == ErrorCode.E201
+    assert exc.value.context["value"] == "1 + 2"
+
+
+@pytest.mark.parametrize("func", ["sum", "avg", "mean"])
+@pytest.mark.parametrize("source", ["'text'", "[1, 2]", "{value: 1}"])
+def test_numeric_aggregate_constant_type_is_validated(func, source):
+    from graphistry.compute.exceptions import GFQLTypeError
+
+    g = _scope_graph("x.y.Dotted", "nodes", "pandas")
+    query = [rows(), group_by([], [("answer", func, source)])]
+    with pytest.raises(GFQLTypeError) as exc:
+        g.gfql_validate(query)
+    assert exc.value.code == ErrorCode.E302
+    assert exc.value.context["field"] == source
+    assert exc.value.context["operation_index"] == 1
+
+
+@pytest.mark.parametrize("source", ["3", "1 + 2", "true", "null"])
+def test_numeric_aggregate_valid_constant_global_validation(source):
+    g = _scope_graph("x.y.Dotted", "nodes", "pandas")
+    assert g.gfql_validate([rows(), group_by([], [("answer", "sum", source)])])["ok"]
+
+
+@pytest.mark.parametrize("source", ["'text'", "[1, 2]", "{value: 1}"])
+def test_numeric_aggregate_literal_column_precedes_constant_type(source):
+    g = _scope_graph(source, "nodes", "pandas")
+    assert g.gfql_validate([rows(), group_by([], [("answer", "sum", source)])])["ok"]
+
+
+
 @pytest.mark.parametrize("target", ["cpu", "gpu"])
 def test_aggregate_preparation_refusal_uses_decline_contract(monkeypatch, target):
     pl = pytest.importorskip("polars")
@@ -423,3 +504,129 @@ def test_key_only_grouping_remains_valid(engine, empty, prefix):
     records = out.to_dicts() if engine.startswith("polars") else (
         out.to_pandas().to_dict("records") if engine == "cudf" else out.to_dict("records"))
     assert records == ([] if empty else [{"kind": "a"}, {"kind": "b"}])
+
+
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("source,expected", [
+    ("a + b", [9, 11]),
+    ("CASE WHEN a > 2 THEN a ELSE b END", [5, 4]),
+    ("coalesce(a, 0)", [3, 4]),
+    ("abs(-a)", [3, 4]),
+    ("toInteger(a)", [3, 4]),
+    ("size([1, 2])", [2, 2]),
+    ("-3", [-3, -3]),
+    ("1.5", [1.5, 1.5]),
+    ("true", [True, True]),
+    ("null", [None, None]),
+])
+def test_valid_aggregate_expression_families_are_not_over_rejected(empty, source, expected):
+    frame = pd.DataFrame({
+        "id": [0, 1, 2], "kind": ["a", "a", "b"],
+        "a": [2, 3, 4], "b": [5, 6, 7],
+    })
+    if empty:
+        frame = frame.head(0)
+    before = frame.copy(deep=True)
+    g = graphistry.nodes(frame, "id")
+    query = _max_by_kind(source)
+    assert _validates_clean(g, query)
+    result = g.gfql(query, engine="pandas")._nodes
+    assert result["kind"].tolist() == ([] if empty else ["a", "b"])
+    if empty:
+        assert result.empty
+    elif source == "null":
+        assert result["m"].isna().all()
+    else:
+        assert result["m"].tolist() == expected
+    pd.testing.assert_frame_equal(frame, before)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("source", ["'text'", "[1, 2]", "{value: 1}", "null", "true", "-3", "1.5"])
+def test_literal_looking_numeric_columns_execute_without_type_rejection(engine, empty, source):
+    g = _scope_graph(source, "nodes", engine)
+    if empty:
+        table = g._nodes.head(0)
+        g = g.nodes(table)
+    query = [rows(), group_by(["kind"], [("m", "sum", source)])]
+    assert _validates_clean(g, query)
+    assert _max_per_kind(g, query, engine) == ([] if empty else [("a", 204.0), ("b", 107.0)])
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("source,expected,gpu_supported", [
+    ("x.y + 1", [31, 41], True),
+    # cudf-polars 26 declines coalesce; validation must still accept the expression.
+    ("coalesce(x.y, 0) + a", [33, 44], False),
+    ("CASE WHEN a > 2 THEN x.y ELSE 0 END", [30, 40], True),
+])
+def test_qualified_aggregate_expression_uses_visible_full_column(
+    engine, empty, source, expected, gpu_supported,
+):
+    frame = pd.DataFrame({
+        "id": [0, 1, 2], "kind": ["a", "a", "b"],
+        "a": [2, 3, 4], "x.y": [20, 30, 40],
+    })
+    g = graphistry.nodes(frame.head(0) if empty else frame, "id")
+    query = _max_by_kind(source)
+    assert _validates_clean(g, query)
+    if engine == "polars-gpu" and not gpu_supported:
+        from graphistry.compute.exceptions import GFQLUnsupportedError
+
+        with pytest.raises(GFQLUnsupportedError) as exc:
+            g.gfql(query, engine=engine)
+        assert exc.value.code == ErrorCode.E110
+        assert exc.value.context["field"] == "function"
+        assert exc.value.context["value"] == "group_by"
+        return
+    assert _max_per_kind(g, query, engine) == ([] if empty else list(zip(["a", "b"], expected)))
+
+
+def test_qualified_aggregate_expression_missing_root_is_still_rejected():
+    g = _graph()
+    with pytest.raises(GFQLValidationError) as exc:
+        g.gfql_validate(_max_by_kind("missing.value + 1"))
+    assert exc.value.code == ErrorCode.E301
+    assert exc.value.context["value"] == "missing"
+
+
+def test_qualified_aggregate_expression_object_property_remains_valid():
+    g = graphistry.nodes(pd.DataFrame({
+        "id": [0, 1], "kind": ["a", "a"], "x": [{"y": 2}, {"y": 3}],
+    }), "id")
+    query = _max_by_kind("x.y + 1")
+    assert _validates_clean(g, query)
+    assert _max_per_kind(g, query, "pandas") == [("a", 4)]
+
+
+@pytest.mark.parametrize("source", [
+    "x.y + size([x IN [1, 2] | x])",
+    "size([x IN [1, 2] | x]) + x.y",
+])
+@pytest.mark.parametrize("empty", [False, True])
+def test_aggregate_comprehension_binding_does_not_hide_external_operand(source, empty):
+    frame = pd.DataFrame({"id": [0, 1], "kind": ["a", "a"], "x.y": [2, 3]})
+    if empty:
+        frame = frame.head(0)
+    g = graphistry.nodes(frame, "id")
+    query = _max_by_kind(source)
+    assert _validates_clean(g, query)
+    assert _max_per_kind(g, query, "pandas") == ([] if empty else [("a", 5)])
+    missing = g.nodes(frame.drop(columns=["x.y"]))
+    with pytest.raises(GFQLValidationError) as exc:
+        missing.gfql_validate(query)
+    assert exc.value.code == ErrorCode.E301
+    assert exc.value.context["value"] == "x"
+
+
+@pytest.mark.parametrize("source", [
+    "x.y + CASE WHEN any(x IN [1, 2] WHERE x > 0) THEN 2 ELSE 0 END",
+    "CASE WHEN any(x IN [1, 2] WHERE x > 0) THEN 2 ELSE 0 END + x.y",
+])
+def test_aggregate_quantifier_binding_does_not_hide_external_operand(source):
+    from graphistry.compute.gfql.call.validation import _agg_source_required_cols
+
+    assert _agg_source_required_cols(source, {"x.y"}) == ["x.y"]
+    assert _agg_source_required_cols(source, {"id"}) == ["x"]
