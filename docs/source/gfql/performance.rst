@@ -147,7 +147,7 @@ traversals, and PageRank against Spark GraphFrames.
 Provenance
 ----------
 
-Run dates, source revisions, hardware, and measurement profiles are listed below.
+Run dates, hardware, and measurement profiles are listed below.
 
 .. bench-provenance:: graphbench-q1q9-20k-master-d20c6ae1a-20260914 graphbench-q1q9-100k-master-d20c6ae1a-20260914 snb-aligned-master-f7a7253bc-20260913 snb-master-f7a7253bc-20260913
    :disclosures:
